@@ -20,6 +20,7 @@ enum class AuthState { SignedOut, Waiting, Expired, Failed, Cancelled, Syncing, 
 enum class JobState { Queued, Downloading, Pausing, Paused, Verifying, Downloaded, Failed, Cancelled, Interrupted };
 enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
+enum class RuntimeState { Unavailable, Checking, Ready, Failed };
 enum class Compatibility { Untested, Works, Playable, Broken };
 enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, Profile, Status, Separator };
 
@@ -48,6 +49,7 @@ struct Game {
     std::optional<std::int64_t> added_at;
     std::optional<std::int64_t> last_played;
     std::optional<std::uint64_t> playtime_minutes;
+    bool art_pending = false;
     bool art_failed = false;
 };
 
@@ -94,6 +96,8 @@ struct Job {
     JobStage retry_stage = JobStage::Download;
     std::string volume_id;
     int stage_ticks = 0;
+    std::uint64_t reserved_bytes = 0;
+    bool reservation_held = false;
 };
 
 struct Volume {
@@ -104,6 +108,8 @@ struct Volume {
     std::uint64_t reserved_bytes = 0;
     bool available = true;
     bool writable = true;
+    std::uint64_t base_used_bytes = 0;
+    std::uint64_t base_reserved_bytes = 0;
 };
 
 struct Profile {
@@ -136,6 +142,10 @@ struct Navigation {
     std::map<std::string, int> scroll_offsets;
     GameId selected_game_id = 0;
     int selected_index = 0;
+    int home_shelf = 0;
+    std::map<std::string, int> home_shelf_focus;
+    bool library_rail_focused = false;
+    int library_grid_column = 0;
 };
 
 struct EditorState {
@@ -143,6 +153,7 @@ struct EditorState {
     std::string purpose;
     std::string value;
     std::string original;
+    std::string opener_focus_key;
     std::size_t caret = 0;
     bool shifted = false;
     bool symbols = false;
@@ -158,6 +169,22 @@ struct Notice {
     int remaining_ticks = 0;
 };
 
+struct ControllerState {
+    float left_x = 0.0F;
+    float left_y = 0.0F;
+    float right_x = 0.0F;
+    float right_y = 0.0F;
+    float l2 = 0.0F;
+    float r2 = 0.0F;
+    bool cross = false;
+    bool circle = false;
+    bool square = false;
+    bool triangle = false;
+    bool l1 = false;
+    bool r1 = false;
+    bool options = false;
+};
+
 struct State {
     Account account;
     std::vector<Game> games;
@@ -170,11 +197,14 @@ struct State {
     EditorState editor;
     std::vector<Notice> notices;
     std::map<GameId, std::string> selected_profiles;
+    std::map<GameId, Profile> custom_profiles;
     SessionState session = SessionState::Idle;
+    RuntimeState runtime = RuntimeState::Unavailable;
     GameId session_game_id = 0;
     std::string session_error;
     bool reduced_motion = false;
     bool controller_connected = true;
+    ControllerState controller;
     bool persistence_available = true;
     bool library_syncing = false;
     bool library_offline = false;
@@ -208,12 +238,14 @@ struct ViewData {
         std::string key;
         std::string title;
         std::vector<ViewRow> items;
-        int focused_item = 0;
+        int focused_item = -1;
     };
     std::vector<Shelf> shelves;
     std::vector<std::string> legends;
     int focused_row = 0;
     int focused_action = 0;
+    std::size_t total_count = 0;
+    std::size_t first_index = 0;
     bool show_simulation_label = true;
 };
 
@@ -223,6 +255,7 @@ public:
 
     bool scenario(const std::string& name);
     bool action(const std::string& logical_action);
+    void controller_sample(ControllerState sample);
     void text(const std::string& utf8);
     void tick(int ticks = 1);
 
@@ -243,8 +276,10 @@ private:
     std::string pending_destructive_action_;
     std::string selected_volume_id_;
     std::string selected_profile_id_;
+    std::string editing_target_id_;
     std::uint64_t challenge_generation_ = 0;
     std::uint64_t cancelled_challenge_generation_ = 0;
+    std::uint64_t next_collection_serial_ = 1;
 
     void load_fixtures();
     void load_profile();

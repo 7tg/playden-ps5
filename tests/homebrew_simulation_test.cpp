@@ -4,6 +4,7 @@
 
 #include "homebrew/simulation.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -222,6 +223,16 @@ void t08_nested_settings_restore_openers(const std::filesystem::path& fixtures,
     activate(simulation, "profile-picker");
     activate(simulation, "profile-custom");
     check(simulation.state().selected_profiles.at(900001) == "custom", "T08 profile selection is scoped to the game");
+    simulation.action("circle");
+    simulation.action("details:900002");
+    activate(simulation, "details-settings");
+    activate(simulation, "edit-arguments");
+    check(simulation.state().editor.value.empty(), "T08 custom arguments do not leak to another game");
+    simulation.action("circle");
+    playden::homebrew::Simulation restored(fixtures, profile);
+    check(restored.state().custom_profiles.at(900001).launch_arguments == "--fixture"
+              && restored.state().custom_profiles.at(900002).launch_arguments.empty(),
+          "T08 per-game custom overrides persist independently");
 }
 
 void t09_uninstall_and_reset_preserve_declared_data(const std::filesystem::path& fixtures,
@@ -236,9 +247,15 @@ void t09_uninstall_and_reset_preserve_declared_data(const std::filesystem::path&
     simulation.action("options");
     activate(simulation, "uninstall");
     activate(simulation, "confirm-destructive");
-    check(simulation.state().installations.size() == 4, "T09 uninstall removes only the selected installation");
+    simulation.tick(2);
+    const auto removed = std::find_if(simulation.state().installations.begin(), simulation.state().installations.end(),
+                                      [](const playden::homebrew::Installation& value) { return value.game_id == 900001; });
+    check(removed != simulation.state().installations.end() && !removed->available && removed->saves_present,
+          "T09 uninstall removes only the selected fixture install and preserves saves");
     check(simulation.action("reset"), "T09 reset is available");
-    check(simulation.state().installations.size() == 4 && simulation.state().installations.front().saves_present,
+    const auto after_reset = std::find_if(simulation.state().installations.begin(), simulation.state().installations.end(),
+                                          [](const playden::homebrew::Installation& value) { return value.game_id == 900001; });
+    check(after_reset != simulation.state().installations.end() && after_reset->saves_present,
           "T09 reset preserves fixture installs and saves");
 }
 
@@ -280,13 +297,30 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
 void t12_stress_dataset_keeps_logical_focus(const std::filesystem::path& fixtures,
                                             const std::filesystem::path& profile) {
     playden::homebrew::Simulation simulation(fixtures, profile);
+    simulation.scenario("delayed-art");
+    const auto delayed_id = simulation.state().navigation.selected_game_id;
+    const auto delayed_index = simulation.state().navigation.selected_index;
+    const auto delayed_scroll = simulation.state().navigation.scroll_offsets.at("library-grid");
+    const auto bytes = simulation.state().jobs.front().completed_bytes;
+    const auto delayed = std::find_if(simulation.state().games.begin(), simulation.state().games.end(),
+                                      [](const playden::homebrew::Game& game) { return game.id == 900007; });
+    check(delayed != simulation.state().games.end() && delayed->art_pending, "T12 delayed art exposes a stable placeholder state");
+    simulation.tick(1);
+    check(!delayed->art_pending && simulation.state().navigation.selected_game_id == delayed_id
+              && simulation.state().navigation.selected_index == delayed_index
+              && simulation.state().navigation.scroll_offsets.at("library-grid") == delayed_scroll
+              && simulation.state().jobs.front().completed_bytes > bytes,
+          "T12 asynchronous art and job updates preserve focus and viewport");
     simulation.scenario("stress");
     check(simulation.state().games.size() == 1000, "T12 stress scenario loads all 1,000 logical games");
+    check(simulation.view().rows.size() <= 24, "T12 library materializes a bounded window");
     simulation.action("select:100500");
     const auto focused = simulation.state().navigation.selected_game_id;
     simulation.tick(3);
     check(simulation.state().navigation.selected_game_id == focused,
           "T12 asynchronous art/job updates never steal stable game focus");
+    check(simulation.snapshot().find("\"materialized_row_count\":24") != std::string::npos,
+          "T12 snapshot records bounded library materialization");
 }
 
 } // namespace
