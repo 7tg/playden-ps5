@@ -35,8 +35,9 @@ texture.
 Barlow Regular, Medium and SemiBold plus Barlow Condensed Medium and SemiBold are baked into Hui
 SDF atlases from the frozen shared font files. The current baker's `european` range asks each
 Barlow file for code points it does not contain and reports 151 skipped requests. Basic Latin
-and the fixture's supported accented Latin render from Barlow. The supplied faces do not cover
-the requested Greek and Cyrillic ranges, and the renderer has no Greek/Cyrillic fallback atlas.
+and the fixture's supported accented Latin render from Barlow. The renderer checks the preferred
+face and selects the shared Noto CJK atlas when a missing code point is available there; coverage
+checks confirm that this supplies the fixture's Greek and Cyrillic strings as well as CJK.
 
 Noto CJK and Noto Arabic fixture subsets are baked into two remaining Hui font slots. The view
 selects these fallbacks for dynamic strings containing CJK or Arabic code points. Hui does not

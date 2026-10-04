@@ -181,8 +181,70 @@ std::string byte_count(std::optional<std::uint64_t> bytes)
     return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : "Unknown";
 }
 
+std::string transfer_rate(std::optional<std::uint64_t> bytes_per_second)
+{
+    if (!bytes_per_second)
+        return "—";
+    std::array<char, 32> value{};
+    const double mib = static_cast<double>(*bytes_per_second) / (1024.0 * 1024.0);
+    const int written = std::snprintf(value.data(), value.size(), "%.1f MB/s", mib);
+    return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : "—";
+}
+
+const char* job_stage_label(JobStage stage)
+{
+    switch (stage)
+    {
+    case JobStage::Download:
+        return "Download";
+    case JobStage::Verify:
+        return "Verification";
+    case JobStage::Install:
+        return "Install";
+    case JobStage::Uninstall:
+        return "Removal";
+    }
+    return "Transfer";
+}
+
+const char* job_state_label(JobState state)
+{
+    switch (state)
+    {
+    case JobState::Queued:
+        return "Queued";
+    case JobState::Downloading:
+        return "Downloading";
+    case JobState::Pausing:
+        return "Pausing";
+    case JobState::Paused:
+        return "Paused";
+    case JobState::Verifying:
+        return "Verifying";
+    case JobState::Downloaded:
+        return "Complete";
+    case JobState::Failed:
+        return "Failed";
+    case JobState::Cancelled:
+        return "Cancelled";
+    case JobState::Interrupted:
+        return "Interrupted";
+    }
+    return "Transfer";
+}
+
 ui::Button legend_button(std::string_view legend, std::size_t index)
 {
+    if (legend.rfind("Cross", 0) == 0)
+        return ui::Button::cross;
+    if (legend.rfind("Circle", 0) == 0)
+        return ui::Button::circle;
+    if (legend.rfind("Square", 0) == 0)
+        return ui::Button::square;
+    if (legend.rfind("Triangle", 0) == 0)
+        return ui::Button::triangle;
+    if (legend.rfind("Options", 0) == 0)
+        return ui::Button::options;
     if (legend.find("Favorite") != std::string_view::npos)
         return ui::Button::square;
     if (legend.find("Backspace") != std::string_view::npos)
@@ -391,14 +453,12 @@ class Render::Impl
         while (index < value.size())
         {
             const std::uint32_t codepoint = gfx::next_codepoint(value, &index);
-            const bool cjk = (codepoint >= 0x2E80 && codepoint <= 0x9FFF) ||
-                             (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||
-                             (codepoint >= 0x3040 && codepoint <= 0x30FF);
             const bool arabic = codepoint >= 0x0600 && codepoint <= 0x06FF;
-            if (cjk && cjk_.font != nullptr)
-                return cjk_;
             if (arabic && arabic_.font != nullptr)
                 return arabic_;
+            if (!preferred.font->has_glyph(codepoint) && cjk_.font != nullptr &&
+                cjk_.font->has_glyph(codepoint))
+                return cjk_;
         }
         return preferred;
     }
@@ -652,9 +712,9 @@ class Render::Impl
     void draw_home(ui::Canvas &, Simulation &simulation)
     {
         const ViewData &view = simulation.route_view();
+        const State &state = simulation.state();
         section_label(view.title.empty() ? "Home" : view.title, 96.0F, 168.0F);
-        const auto games = simulation.visible_games();
-        if (games.empty())
+        if (view.shelves.empty())
         {
             ViewData copy = view;
             draw_title(copy, 96.0F, 360.0F, 820.0F);
@@ -662,18 +722,29 @@ class Render::Impl
             return;
         }
 
-        const std::array<const char *, 2> shelf_names = {"Continue playing", "Downloading & recent"};
-        std::size_t game_index = 0;
-        for (int shelf = 0; shelf < 2; ++shelf)
+        const int active_shelf = std::clamp(state.navigation.home_shelf, 0,
+                                            static_cast<int>(view.shelves.size()) - 1);
+        const int first_shelf = std::clamp(active_shelf > 0 ? active_shelf - 1 : 0, 0,
+                                           std::max(0, static_cast<int>(view.shelves.size()) - 2));
+        for (int visible = 0; visible < 2 && first_shelf + visible < static_cast<int>(view.shelves.size());
+             ++visible)
         {
-            const float top = 205.0F + shelf * 380.0F;
-            section_label(shelf_names[static_cast<std::size_t>(shelf)], 96.0F, top);
-            for (int column = 0; column < 7 && game_index < games.size(); ++column, ++game_index)
+            const int shelf_index = first_shelf + visible;
+            const ViewData::Shelf &shelf = view.shelves[static_cast<std::size_t>(shelf_index)];
+            const float top = 205.0F + visible * 380.0F;
+            section_label(shelf.title, 96.0F, top);
+            const auto remembered = state.navigation.home_shelf_focus.find(shelf.key);
+            const int focused_item = remembered == state.navigation.home_shelf_focus.end() ?
+                                         shelf.focused_item : remembered->second;
+            for (int column = 0; column < 7 && column < static_cast<int>(shelf.items.size()); ++column)
             {
-                const Game &game = *games[game_index];
+                const Game *game = game_by_id(state, shelf.items[static_cast<std::size_t>(column)].game_id);
+                if (game == nullptr)
+                    continue;
                 const gfx::Rect art{96.0F + column * 233.0F, top + 28.0F, 213.0F, 320.0F};
-                const bool focused = route_focus_ && static_cast<int>(game_index) == view.focused_row;
-                draw_poster(game, art, focused, {}, -1.0F, false);
+                const bool focused = route_focus_ && shelf_index == active_shelf && column == focused_item;
+                draw_poster(*game, art, focused, shelf.items[static_cast<std::size_t>(column)].badge,
+                            job_progress(game->id), false);
             }
         }
     }
@@ -700,10 +771,11 @@ class Render::Impl
 
         visible_grid_games_ = games;
         grid_.style.reduced_motion = state.reduced_motion;
-        grid_.style.theme.focus = route_focus_ ? kAccent : kAccent.with_alpha(0.0F);
+        const bool grid_active = route_focus_ && !state.navigation.library_rail_focused;
+        grid_.style.theme.focus = grid_active ? kAccent : kAccent.with_alpha(0.0F);
         grid_.set_count(static_cast<int>(games.size()));
         grid_.set_focus(std::clamp(view.focused_row, 0, static_cast<int>(games.size()) - 1), true);
-        grid_.set_active(route_focus_);
+        grid_.set_active(grid_active);
         grid_.content = [this](ui::Canvas &, const gfx::Rect &cell, const ui::CardItem &, int index,
                               float focus) {
             const Game &game = *visible_grid_games_[static_cast<std::size_t>(index)];
@@ -744,8 +816,13 @@ class Render::Impl
         for (std::size_t index = 0; index < entries.size(); ++index)
         {
             const float y = 155.0F + index * 66.0F;
+            const bool focused = route_focus_ && state.navigation.library_rail_focused &&
+                                 static_cast<int>(index) == state.navigation.selected_index;
             if (entries[index].selected || static_cast<int>(index) == selected)
                 scene_.rounded_rect({96.0F, y, 300.0F, 60.0F}, 8.0F, kText.with_alpha(0.10F));
+            if (focused)
+                scene_.bordered_rect({96.0F, y, 300.0F, 60.0F}, 8.0F,
+                                     kBackground.with_alpha(0.0F), 4.0F, kAccent);
             ui::text(scene_, fonts_.display,
                      fit(fonts_.display, entries[index].title, 27.0F, 225.0F), 118.0F, y + 39.0F,
                      27.0F, entries[index].selected || static_cast<int>(index) == selected ? kText
@@ -877,27 +954,129 @@ class Render::Impl
 
     void draw_downloads(ui::Canvas &canvas, const ViewData &view, const State &state)
     {
-        section_label("Downloads", 96.0F, 170.0F);
-        draw_title(view, 96.0F, 246.0F, 980.0F);
-        draw_view_list(canvas, view, {96.0F, 350.0F, 1040.0F, 590.0F}, 104.0F);
+        (void)view;
+        std::vector<const Job*> jobs;
+        for (const Job& job : state.jobs)
+            if (job.state != JobState::Cancelled)
+                jobs.push_back(&job);
+        std::stable_sort(jobs.begin(), jobs.end(), [](const Job* left, const Job* right) {
+            return left->queue_order < right->queue_order;
+        });
+        const auto active = std::find_if(jobs.begin(), jobs.end(), [](const Job* job) {
+            return job->state == JobState::Downloading || job->state == JobState::Verifying ||
+                   job->state == JobState::Pausing || job->state == JobState::Paused ||
+                   job->state == JobState::Failed || job->state == JobState::Interrupted;
+        });
+        const Job* primary = active == jobs.end() ? (jobs.empty() ? nullptr : jobs.front()) : *active;
 
-        scene_.rounded_rect({1190.0F, 196.0F, 634.0F, 744.0F}, 12.0F, kPanel);
-        ui::text(scene_, fonts_.display, "Storage", 1230.0F, 258.0F, 38.0F, kText);
-        float y = 314.0F;
+        section_label("Transfers", 96.0F, 146.0F);
+        const gfx::Rect active_card{96.0F, 180.0F, 1000.0F, 230.0F};
+        scene_.shadow(active_card, 12.0F, 24.0F, gfx::Color::rgb(0x000000, 0.35F));
+        scene_.rounded_rect(active_card, 12.0F, kPanel);
+        if (primary == nullptr)
+        {
+            ui::text(scene_, fonts_.display, "No transfers", 136.0F, 262.0F, 42.0F, kText);
+            ui::text(scene_, fonts_.regular, "Install a game to start a simulated transfer.",
+                     136.0F, 310.0F, 23.0F, kSecondary);
+        }
+        else
+        {
+            const Game* game = game_by_id(state, primary->game_id);
+            if (game != nullptr)
+                draw_poster(*game, {116.0F, 196.0F, 132.0F, 198.0F}, false, {}, -1.0F, false);
+            else
+                scene_.rounded_rect({116.0F, 196.0F, 132.0F, 198.0F}, 8.0F, kMuted.with_alpha(0.25F));
+            const std::string title = game == nullptr ? "Unknown game" : game->title;
+            dynamic_text(title, 282.0F, 235.0F, 34.0F, kText, 750.0F);
+            ui::text(scene_, fonts_.semibold, job_stage_label(primary->stage), 282.0F, 274.0F,
+                     22.0F, primary->state == JobState::Failed ? kRed :
+                            primary->state == JobState::Paused ? kAmber : kAccent);
+            ui::text(scene_, fonts_.regular, job_state_label(primary->state), 1038.0F, 274.0F,
+                     20.0F, kSecondary, gfx::Align::right);
+            const float progress = primary->total_bytes == 0 ? 0.0F :
+                static_cast<float>(primary->completed_bytes) / static_cast<float>(primary->total_bytes);
+            ui::ProgressBar bar;
+            bar.style.theme = theme_;
+            bar.style.height = 12.0F;
+            bar.style.placement = ui::LabelPlacement::none;
+            bar.style.status = primary->state == JobState::Failed ? ui::Status::danger :
+                               primary->state == JobState::Paused ? ui::Status::warning : ui::Status::accent;
+            bar.style.finish_flash = false;
+            bar.set_bounds({282.0F, 302.0F, 756.0F, 12.0F});
+            bar.set_value(std::clamp(progress, 0.0F, 1.0F), true);
+            bar.draw(canvas);
+            const std::string bytes = byte_count(primary->completed_bytes) + " / " +
+                                      byte_count(primary->total_bytes);
+            ui::text(scene_, fonts_.regular, bytes, 282.0F, 348.0F, 21.0F, kText);
+            ui::text(scene_, fonts_.regular, transfer_rate(primary->bytes_per_second), 1038.0F,
+                     348.0F, 21.0F, kSecondary, gfx::Align::right);
+            if (route_focus_ && state.navigation.focus_key == "job-" + primary->id)
+                scene_.bordered_rect(active_card.inset(-5.0F), 14.0F, kBackground.with_alpha(0.0F),
+                                     4.0F, kAccent);
+        }
+
+        float row_y = 438.0F;
+        for (const Job* job : jobs)
+        {
+            if (job == primary || row_y > 914.0F)
+                continue;
+            const Game* game = game_by_id(state, job->game_id);
+            const gfx::Rect row{96.0F, row_y, 1000.0F, 82.0F};
+            scene_.rounded_rect(row, 8.0F, kPanel);
+            dynamic_text(game == nullptr ? std::string_view("Unknown game") : std::string_view(game->title),
+                         122.0F, row_y + 35.0F, 25.0F, kText, 570.0F);
+            ui::text(scene_, fonts_.regular, job_state_label(job->state), 742.0F, row_y + 35.0F,
+                     20.0F, job->state == JobState::Failed ? kRed : kSecondary);
+            const std::string bytes = byte_count(job->completed_bytes) + " / " + byte_count(job->total_bytes);
+            ui::text(scene_, fonts_.regular, bytes, 1068.0F, row_y + 35.0F, 19.0F, kMuted,
+                     gfx::Align::right);
+            const float progress = job->total_bytes == 0 ? 0.0F :
+                static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
+            scene_.rounded_rect({122.0F, row_y + 60.0F, 946.0F, 5.0F}, 2.5F, kText.with_alpha(0.12F));
+            scene_.rounded_rect({122.0F, row_y + 60.0F, 946.0F * std::clamp(progress, 0.0F, 1.0F), 5.0F},
+                                2.5F, job->state == JobState::Failed ? kRed : kAccent);
+            if (route_focus_ && state.navigation.focus_key == "job-" + job->id)
+                scene_.bordered_rect(row.inset(-4.0F), 10.0F, kBackground.with_alpha(0.0F), 3.0F,
+                                     kAccent);
+            row_y += 94.0F;
+        }
+
+        scene_.rounded_rect({1160.0F, 160.0F, 664.0F, 780.0F}, 12.0F, kPanel);
+        ui::text(scene_, fonts_.display, "Storage", 1200.0F, 218.0F, 38.0F, kText);
+        float y = 276.0F;
         for (const Volume &volume : state.volumes)
         {
-            const std::uint64_t used = volume.used_bytes + volume.reserved_bytes;
+            const std::uint64_t occupied = std::min(volume.capacity_bytes,
+                                                     volume.used_bytes + volume.reserved_bytes);
+            const std::uint64_t free = volume.capacity_bytes - occupied;
             const float fraction = volume.capacity_bytes == 0 ? 0.0F :
-                static_cast<float>(used) / static_cast<float>(volume.capacity_bytes);
-            ui::text(scene_, fonts_.display, volume.label, 1230.0F, y, 29.0F, kText);
+                static_cast<float>(volume.used_bytes) / static_cast<float>(volume.capacity_bytes);
+            const float reserved = volume.capacity_bytes == 0 ? 0.0F :
+                static_cast<float>(volume.reserved_bytes) / static_cast<float>(volume.capacity_bytes);
+            ui::text(scene_, fonts_.display, volume.label, 1200.0F, y, 29.0F, kText);
             ui::text(scene_, fonts_.regular,
                      volume.available ? (volume.writable ? "Available" : "Read only") : "Disconnected",
-                     1780.0F, y, 21.0F, volume.available && volume.writable ? kSecondary : kAmber,
+                     1784.0F, y, 21.0F, volume.available && volume.writable ? kSecondary : kAmber,
                      gfx::Align::right);
-            scene_.rounded_rect({1230.0F, y + 24.0F, 550.0F, 10.0F}, 5.0F, kText.with_alpha(0.14F));
-            scene_.rounded_rect({1230.0F, y + 24.0F, 550.0F * std::clamp(fraction, 0.0F, 1.0F), 10.0F},
+            const float bar_x = 1200.0F;
+            const float bar_y = y + 28.0F;
+            const float bar_w = 584.0F;
+            scene_.rounded_rect({bar_x, bar_y, bar_w, 12.0F}, 6.0F, kText.with_alpha(0.14F));
+            scene_.rounded_rect({bar_x, bar_y, bar_w * std::clamp(fraction, 0.0F, 1.0F), 12.0F},
                                 5.0F, volume.available ? kAccent : kMuted);
-            y += 112.0F;
+            scene_.rounded_rect({bar_x + bar_w * std::clamp(fraction, 0.0F, 1.0F), bar_y,
+                                 bar_w * std::clamp(reserved, 0.0F, 1.0F), 12.0F},
+                                5.0F, volume.available ? kAmber : kMuted);
+            ui::text(scene_, fonts_.regular, "Capacity  " + byte_count(volume.capacity_bytes),
+                     1200.0F, y + 76.0F, 18.0F, kSecondary);
+            ui::text(scene_, fonts_.regular, "Used  " + byte_count(volume.used_bytes),
+                     1200.0F, y + 106.0F, 18.0F, kSecondary);
+            ui::text(scene_, fonts_.regular, "Reserved  " + byte_count(volume.reserved_bytes),
+                     1784.0F, y + 76.0F, 18.0F, kSecondary, gfx::Align::right);
+            ui::text(scene_, fonts_.semibold, "Free  " + byte_count(free),
+                     1784.0F, y + 106.0F, 18.0F, volume.available ? kText : kMuted,
+                     gfx::Align::right);
+            y += 192.0F;
         }
     }
 
@@ -1008,8 +1187,12 @@ class Render::Impl
         }
         else
         {
-            for (std::size_t index = 0; index < labels.size() && index < 5; ++index)
+            for (std::size_t index = 0; index < labels.size() && hints.size() < 5; ++index)
+            {
+                if (labels[index].find("Sections") != std::string::npos)
+                    continue;
                 hints.push_back({legend_button(labels[index], index), labels[index].c_str()});
+            }
             const bool has_back = std::any_of(labels.begin(), labels.end(), [](const std::string &label) {
                 return label.find("Back") != std::string::npos ||
                        label.find("Cancel") != std::string::npos;
