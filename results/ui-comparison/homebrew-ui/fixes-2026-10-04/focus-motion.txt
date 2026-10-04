@@ -1,0 +1,8 @@
+action route:home
+frame 30
+action right
+frame 30
+action right
+frame 3
+action right
+frame 60

@@ -1,0 +1,70 @@
+{
+  "source_commit": "3796598080dab9141f18bc4082abc2f63d7908e8",
+  "merge_commit": "3bc1e38",
+  "host_tests": {
+    "passed": 11,
+    "failed": 0
+  },
+  "existing_tests": {
+    "passed": 14,
+    "failed": 0
+  },
+  "captures": {
+    "native_1080p": 4,
+    "native_4k": 4
+  },
+  "motion": {
+    "frames": 128,
+    "encoding_fps": 60,
+    "fixture_clock": 1760000000,
+    "performance_measurement": false
+  },
+  "console_verified": false,
+  "deployed": false,
+  "wip_stash": "1f8f649d6e1430f1898b942845db53db668f17a4",
+  "artifacts_sha256": {
+    "README.md": "c39a72c43642cb0054476e5f05bf2b287b179bfacdc52b260b317874ea26b95c",
+    "cjk-library-1920x1080.json": "a33418ef2e65687c2dbd77a3f1e7dc4b5304d98a3e3d211a32e013e1c2189986",
+    "cjk-library-1920x1080.png": "5c5211e5ee921dbca1d4b4b3d82784ff844e9dcc0317ae7361855d7a8eef8be7",
+    "cjk-library-1920x1080.png.render.json": "ec53cd379c4a76d01ad9ca1508e96661715bacab3934a43647419f0e3efcca06",
+    "cjk-library-3840x2160.json": "a33418ef2e65687c2dbd77a3f1e7dc4b5304d98a3e3d211a32e013e1c2189986",
+    "cjk-library-3840x2160.png": "44567ebb4f76377905d2a9a3f565e78017a47a45b302ebc4214918511d26fa97",
+    "cjk-library-3840x2160.png.render.json": "425ac0ebffe0f5718bad62c82c15b36c2d6a1893cf54095c70724f2ad375a955",
+    "cjk-library.txt": "84669168e6b3954f601c89ed17486016ba4a5d9322e66185282e83f8bde9b917",
+    "existing-tests.log": "22500ab29dd283163e6e8fb556f5a0171255e67081989ccadee58a9ce73583df",
+    "focus-motion.jsonl": "7096d15283d406941dfa2ee4757d77eb73fdea9b881a61e83a8055e23e68fd0d",
+    "focus-motion.mp4": "d8675d45a76c2f592a5389c22550060ee3c73464a7d5547e559ec35473ba2668",
+    "focus-motion.txt": "2dfeac4ef29990be96485383c7c7c91515200c3db7c806b7b13cc142ae1654df",
+    "greek-details-1920x1080.json": "32c1b73ec2db8b1d4596e0568509de0c267e7dece1ec3dbd9072e9c0a15369ff",
+    "greek-details-1920x1080.png": "28a186c5af4f97d2ab25ed90b613271c74b756013c7b24c3395af68b9e80a792",
+    "greek-details-1920x1080.png.render.json": "9b10e46c2cf0da1be64eb09ef11528fdc1acdf5c9caf733eaa4c1201e354768e",
+    "greek-details-3840x2160.json": "32c1b73ec2db8b1d4596e0568509de0c267e7dece1ec3dbd9072e9c0a15369ff",
+    "greek-details-3840x2160.png": "a11fd965978cbb7a1541907cbe9001e3fed79a2f414b08651be6db3f6365cbf3",
+    "greek-details-3840x2160.png.render.json": "c44781e0411a7b0efe7c2b87e5b3788c0ba7bbd36745499495b5a6f1932939b3",
+    "greek-details.txt": "703b82cb9488242ecada291644d8714c0de7e8a835cab5259377333ff8af2bdc",
+    "home-tabs-1920x1080.json": "c2ce12de9a70b8e72bbdbfae1e1172ee627601f6c3f147f19f621f095b452bd9",
+    "home-tabs-1920x1080.png": "d700317f1c7767342fbc5fa8798bf60fda2e53239c93774016b0f4620a259471",
+    "home-tabs-1920x1080.png.render.json": "44886096bd7cd20110ce91573489c0fc0d2d98e9e8fa97cc843b0cfb3c53cb9a",
+    "home-tabs-3840x2160.json": "c2ce12de9a70b8e72bbdbfae1e1172ee627601f6c3f147f19f621f095b452bd9",
+    "home-tabs-3840x2160.png": "f6fabfc4bb9cd160afbc10d3708788720d256a03719222d4baf796a38224afd8",
+    "home-tabs-3840x2160.png.render.json": "1a65c0160a668e8dd1376a689191ced38bfa7eb56520095f73e617e541d8130f",
+    "home-tabs.txt": "cdeece1f5840dd4c9c8b6555860cc84dc6b7b2d4a44af8a9ba8ad837fe855d14",
+    "host-tests.log": "34dfa141e184ba5097f7d0de3fcc453f06940a335c518703c1ad3bd1c525ce86",
+    "ps5-build.log": "cf1072eae740634dd939411801af958ff4bfc6cf110840b1d5700be3241ec336",
+    "quit-wrap-1920x1080.json": "7fb18bde21d9ce4c252b339fd4455a24b7503d756652c58116008ab229ac9753",
+    "quit-wrap-1920x1080.png": "7766a3a4d8e25e1297ab337ba6cdf4cf14323647de11a42e3ebc9325dde09c21",
+    "quit-wrap-1920x1080.png.render.json": "d9ff56c25e6c2bfd69ab2458cc51460d37a1c8ecc9873b66bb9f28ed381c178a",
+    "quit-wrap-3840x2160.json": "7fb18bde21d9ce4c252b339fd4455a24b7503d756652c58116008ab229ac9753",
+    "quit-wrap-3840x2160.png": "6811fe6de1ff7b911432e879dfe817a405ff62ee76a33d34782fcf07960da62e",
+    "quit-wrap-3840x2160.png.render.json": "8d0700b1a97ebee3e2c5e843a7c6bf3092110942c76ab10f9568b808df6f562f",
+    "quit-wrap.txt": "124a5e9a1af626220ebfa73ddc68bc9bee6275ce898ea7a91a9c91a1f59e24b2",
+    "review.md": "ff56635b65e1ce45182cfad428e1c9404e16cc6dbab86a5c98da27f978d207f8",
+    "visual-tests.log": "cfb2b0939f48ddad51ce00a1de44388cd64dac4da53c0542f07e3542498469b4"
+  },
+  "local_artifacts": {
+    "build/homebrew-host/playden-homebrew": "9e2c7edeb197d2add4cc8302eff310f96ba957ef4e32a6c8e876e34e790bc66f",
+    "build/homebrew-ps5/dist/FAKE77031/eboot.bin": "3a08ac3ac459eb7d1544061240dbd112aa7bfe72678e5bcb18d1734b37967241",
+    "build/homebrew-ps5/dist/FAKE77031/assets/fonts/noto-greek-fallback.huifont": "66f2e156c897eeb4f1831187ba14acf93f45a9a2a1b152bee10207f98e89be8f",
+    "build/homebrew-ps5/dist/FAKE77031/assets/fonts/NotoSans-OFL.txt": "3c05a56499a20ee045a6d36834b6a9e1108f359eede10d7c1613bc4524d01eef"
+  }
+}

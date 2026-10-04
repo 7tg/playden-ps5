@@ -1,0 +1,3 @@
+action route:settings
+action focus:settings-quit
+action cross

@@ -1,0 +1,28 @@
+Internal ctest changing into directory: /Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5-launcher/build/homebrew-host
+Test project /Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5-launcher/build/homebrew-host
+      Start  1: homebrew_focus_motion
+ 1/11 Test  #1: homebrew_focus_motion ............   Passed    0.00 sec
+      Start  2: homebrew_storage
+ 2/11 Test  #2: homebrew_storage .................   Passed    0.00 sec
+      Start  3: homebrew_controller_tour
+ 3/11 Test  #3: homebrew_controller_tour .........   Passed    2.24 sec
+      Start  4: homebrew_host_input
+ 4/11 Test  #4: homebrew_host_input ..............   Passed    0.01 sec
+      Start  5: homebrew_browse
+ 5/11 Test  #5: homebrew_browse ..................   Passed    0.01 sec
+      Start  6: homebrew_simulation
+ 6/11 Test  #6: homebrew_simulation ..............   Passed    0.12 sec
+      Start  7: homebrew_font_latin
+ 7/11 Test  #7: homebrew_font_latin ..............   Passed    0.03 sec
+      Start  8: homebrew_font_cff
+ 8/11 Test  #8: homebrew_font_cff ................   Passed    0.22 sec
+      Start  9: homebrew_font_arabic
+ 9/11 Test  #9: homebrew_font_arabic .............   Passed    0.02 sec
+      Start 10: homebrew_font_greek
+10/11 Test #10: homebrew_font_greek ..............   Passed    0.04 sec
+      Start 11: ui_comparison_fixture
+11/11 Test #11: ui_comparison_fixture ............   Passed    0.43 sec
+
+100% tests passed, 0 tests failed out of 11
+
+Total Test time (real) =   3.13 sec

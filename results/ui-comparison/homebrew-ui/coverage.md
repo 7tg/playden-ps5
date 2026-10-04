@@ -60,7 +60,7 @@ Evidence abbreviations: **M** = `homebrew_simulation` acceptance/transition test
 
 ## Limitations and remaining platform work
 
-The frozen fonts lack Greek accented alpha/omicron U+03AC/U+03CC. These remain visible missing-glyph limitations with the original title bytes preserved. A coordinated shared-font revision is needed to fix them. The candidate deliberately reports Arabic glyphs without shaping or bidirectional layout, whole-string fallback, and an opaque warm panel/dim scrim instead of the reference blur. These are visible fidelity gaps, not hidden English substitutions. See [framework-gap.md](framework-gap.md).
+The frozen comparison fonts lack accented Greek letters. The post-selection main implementation supplies them through a licensed supplemental fallback outside the unchanged fixture package; see [post-selection verification](fixes-2026-10-04/README.md). The original comparison captures retain the original missing-glyph result. The candidate deliberately reports Arabic glyphs without shaping or bidirectional layout, whole-string fallback, and an opaque warm panel/dim scrim instead of the reference blur. These are visible fidelity gaps, not hidden English substitutions. See [framework-gap.md](framework-gap.md).
 
 The deterministic delayed-art event validates placeholder-to-art arrival with unchanged geometry. Actual background file decoding, upload scheduling, eviction and generation cancellation are **blocked** in this candidate's artwork pipeline: the current implementation preloads the nine shared images once. Recovery work is a background decoder plus a bounded render-thread upload queue and generation-aware cache. This is a component-level limitation even though the U05/T12 fixture state transition and bound are verified.
 

@@ -69,8 +69,12 @@ The local native package is `build/homebrew-ps5/dist/FAKE77031/`, containing `eb
 
 The title attempts candidate-local persistence at `/app0/playden-hui-comparison/profile.json`; filesystem writability and physical pad/rendering behavior require coordinated console verification. A failed save produces the recovery flow rather than becoming an installation path. Fixture volume labels never produce real writable game paths.
 
-Known rendering limitations include missing Greek accented alpha/omicron glyphs, Arabic shaping/bidirectional layout, whole-string fallback rather than shaped runs, and dim-panel blur approximation. The full per-component report distinguishes these limitations from functional simulation checks. No native 4K60, RSS, upload time, controller latency or physical-console claim is made.
+The original comparison build had missing accented Greek glyphs; the later main fixes add a licensed fallback. Remaining rendering limitations include Arabic shaping/bidirectional layout, whole-string fallback rather than shaped runs, and dim-panel blur approximation. The full per-component report distinguishes these limitations from functional simulation checks. No native 4K60, RSS, upload time, controller latency or physical-console claim is made.
 
-Final code review/build point: `7c961f9`. Native host CTest passed 6/6; strict UndefinedBehaviorSanitizer simulation run passed. See [artifact manifest](artifact-manifest.json) for local host/package hashes and the [independent review](test-output/review.md). AddressSanitizer could not enter main on this host; its initialization boundary is recorded in [sanitizer notes](test-output/sanitizer-notes.md).
+Original comparison code review/build point: `7c961f9`. Native host CTest passed 6/6; strict UndefinedBehaviorSanitizer simulation run passed. See [artifact manifest](artifact-manifest.json) for local host/package hashes and the [independent review](test-output/review.md). AddressSanitizer could not enter main on this host; its initialization boundary is recorded in [sanitizer notes](test-output/sanitizer-notes.md).
 
 Agent A confirmed its final handoff at `1bd3e0f`: its top bar shows the fixture account and authentication state, with no wall-time text. Candidate B retains the reference `21:42` display. This is a visual difference between candidates; both assert the same logical service clock `1760000000`. Agent A has 54 native captures and the unchanged shared fixtures. Neither candidate was deployed or profiled.
+
+## Post-selection changes on main
+
+The candidate was merged as `3bc1e38`. Later wrapping, active-tab, font, and focus-motion fixes have separate [native captures and verification](fixes-2026-10-04/README.md); the original comparison artifacts above are retained unchanged.

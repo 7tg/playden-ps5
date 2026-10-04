@@ -1,0 +1,9 @@
+PASS quit-wrap-1920x1080
+PASS quit-wrap-3840x2160
+PASS cjk-library-1920x1080
+PASS cjk-library-3840x2160
+PASS greek-details-1920x1080
+PASS greek-details-3840x2160
+PASS home-tabs-1920x1080
+PASS home-tabs-3840x2160
+PASS native focus motion: 128 frames at 60 Hz; fixture clock unchanged

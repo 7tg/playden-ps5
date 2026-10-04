@@ -48,9 +48,10 @@ Barlow file for code points it does not contain and reports 151 skipped requests
 and the fixture's supported accented Latin render from Barlow. The renderer checks the preferred
 face and selects the shared Noto CJK atlas when a missing code point is available there; coverage
 checks confirm base Greek, Cyrillic and CJK glyph coverage. The frozen font files do not
-contain Greek accented alpha/omicron U+03AC and U+03CC; these remain missing in the Greek
-fixture. The original title bytes are preserved. Adding a face with those glyphs requires a
-coordinated shared-asset revision rather than a unilateral fixture-font replacement.
+contain all accented Greek letters; the original comparison build showed missing glyphs.
+The post-selection main renderer now uses a licensed supplemental Noto Sans face outside
+the unchanged shared assets. Its atlas test requires every character of the original Greek
+title. See [post-selection evidence](fixes-2026-10-04/README.md).
 
 Noto CJK and Noto Arabic fixture subsets are baked into two remaining Hui font slots. The view
 selects these fallbacks for dynamic strings containing CJK or Arabic code points. Hui does not
@@ -83,3 +84,7 @@ the shared framework checkout and is required only for the macOS comparison host
 ## Cross-candidate visual difference
 
 Agent A confirmed at handoff `1bd3e0f` that its top bar displays the fixture account and authentication state without wall-time text. Candidate B retains the reference `21:42` clock. The logical service clock is matched at `1760000000` in both capture sets; there is no displayed Candidate A time to match. This is a composition difference, not a simulation-clock mismatch.
+
+## Post-selection font fixes
+
+The later main implementation repairs CFF outline baking and adds a licensed Greek fallback outside the immutable fixtures. The font coverage limitations above describe the original frozen comparison build. See [font baking diagnosis](font-baking-fix.md) and [post-selection evidence](fixes-2026-10-04/README.md). Arabic shaping/BiDi remains deferred.
