@@ -61,7 +61,7 @@ InstallAssessment assess_install(const State& state, GameId game_id,
 
 void reconcile_storage(State& state) noexcept {
     for (auto& job : state.jobs) {
-        if (job.state != JobState::Downloaded) continue;
+        if (job.state != JobState::Downloaded || job.completion_applied) continue;
         if (job.kind == "install") {
             std::uint64_t footprint = job.reserved_bytes;
             if (footprint == 0) {
@@ -80,11 +80,13 @@ void reconcile_storage(State& state) noexcept {
                 added.game_id = job.game_id;
                 added.volume_id = job.volume_id;
                 added.installed_bytes = footprint;
+                added.runtime_ready = false;
                 state.installations.push_back(std::move(added));
             } else {
                 installation->volume_id = job.volume_id;
                 installation->installed_bytes = footprint;
                 installation->available = true;
+                installation->runtime_ready = false;
             }
             for (auto& duplicate : state.jobs) {
                 if (duplicate.kind == "install" && duplicate.game_id == job.game_id)
@@ -102,6 +104,7 @@ void reconcile_storage(State& state) noexcept {
             }
             job.reservation_held = false;
         }
+        job.completion_applied = true;
     }
 
     for (auto& volume : state.volumes) {

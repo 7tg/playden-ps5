@@ -137,6 +137,8 @@ void completion_moves_reservation_to_used_and_uninstall_preserves_saves() {
     reconcile_storage(state);
     check(state.installations.size() == 1 && state.installations[0].installed_bytes == 300,
           "completed install materializes its exact reserved footprint");
+    check(!state.installations[0].runtime_ready,
+          "download completion never implies runtime readiness");
     check(!state.jobs[0].reservation_held && !state.jobs[1].reservation_held,
           "completion clears all duplicate reservations for the installed game");
     check(state.volumes[0].used_bytes == 400 && state.volumes[0].reserved_bytes == 20,
@@ -154,6 +156,12 @@ void completion_moves_reservation_to_used_and_uninstall_preserves_saves() {
           "uninstall removes exact installed footprint while preserving saves");
     check(state.volumes[0].used_bytes == 100 && state.volumes[0].reserved_bytes == 20,
           "uninstall leaves unrelated used and reserved baselines unchanged");
+    state.jobs.push_back(install_job("reinstall-2", 2, "external", 300, JobState::Downloaded));
+    reconcile_storage(state);
+    reconcile_storage(state);
+    check(state.installations[0].installed_bytes == 300 && state.installations[0].saves_present &&
+              !state.installations[0].runtime_ready && state.volumes[0].used_bytes == 400,
+          "old completion records cannot repeat mutations or erase a reinstallation");
 }
 
 } // namespace
