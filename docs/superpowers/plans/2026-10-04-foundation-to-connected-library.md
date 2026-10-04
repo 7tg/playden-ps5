@@ -38,7 +38,7 @@
 - **1A–1B are historical completions** for the RmlFocus consumer; keep their evidence. The selected UI needs its own production storage/lifecycle integration and coordinated native acceptance.
 - **2A presentation is superseded by the merged direct-Hui UI.** Existing Home/Library/details, controller keyboard, filtering/collections, account/settings, management/session simulations and recovery flows are reusable. Do not build them again from the old RML file list.
 - Selected UI evidence at `3796598`, documented by `703dd1f`: host CTest **11/11**, existing suite **14/14**, eight native-resolution **host framebuffer** captures, a 128-frame focus animation, and a signed local PS5 package. These are not PS5 gameplay/display evidence, physical-controller acceptance, or runtime frame-rate measurements.
-- **3A passed on PS5** in the earlier native transport probe. **3B foundations are committed** in `da4f925`, `82fd531`, and `5a42a0d`: worker/session storage, protobuf codec/fixtures, and verified HTTP/native networking. Real QR auth and restoration are not implemented yet.
+- **3A passed on PS5** in the earlier native transport probe. **3B foundations are committed** in `da4f925`, `82fd531`, and `5a42a0d`: worker/session storage, protobuf codec/fixtures, and verified HTTP/native networking. Concrete Begin/Poll/Renew AuthClient and bounded JSON/token parsing are now implemented in `8eb78fe` with synthetic host/UBSan and PS5 compile evidence; real account-screen integration and console authentication acceptance remain pending.
 - The selected CMake branch currently returns before creating the backend targets. Its default state, QR, jobs, artwork, account and persistence remain simulation-driven. Building the comparison executable alone does not exercise Steam.
 
 ## Order and gates
@@ -57,12 +57,14 @@ The technical lead owns shared contracts, build integration, account-generation 
 
 **Interfaces:** `playden_storage`, `playden_steam_core`, protocol/transport libraries, and backend test targets must not depend on either renderer. The selected host executable remains `playden-homebrew`; native title ID remains `FAKE77031`. Keep one pinned curl/TLS dependency set per executable and package the CA bundle for the selected consumer.
 
-- [ ] Register the committed protobuf/auth-message/HTTP fixture tests in CTest; build session/service tests under the selected configuration, not only the old `host` target.
-- [ ] Move renderer-independent target definitions before presentation selection, and link them into the selected host and native targets. Preserve the verified native resolver/nonblocking behavior and archive/header/CA hash checks; include dependencies in custom link/package rebuild rules.
-- [ ] Add selected-UI configure/build/test presets and document current commands. Preserve legacy presets under explicit names; do not silently mistake their successful build for selected-consumer validation.
-- [ ] Pin the Hui revision, both patches, header-only image dependency, and supplemental font/license inputs. This task establishes target/link/test/trust-asset integration; production startup and lifecycle checks belong to 4A.1.
-- [ ] Build and test the selected host; inspect the graphical executable after integration. Build the selected PS5 package locally. Coordinate any device run first; a build/upload alone is not acceptance.
-- [ ] Obtain independent review and commit the reproducible consumer/backend integration.
+- [x] Register the committed protobuf/auth-message/HTTP fixture tests in CTest; build session/service tests under the selected configuration, not only the old `host` target.
+- [x] Move renderer-independent target definitions before presentation selection, and link them into the selected host and native targets. Preserve the verified native resolver/nonblocking behavior and archive/header/CA hash checks; include dependencies in custom link/package rebuild rules.
+- [x] Add selected-UI configure/build/test presets and document current commands. Preserve legacy presets under explicit names; do not silently mistake their successful build for selected-consumer validation.
+- [x] Pin the Hui revision, both patches, header-only image dependency, and supplemental font/license inputs. This task establishes target/link/test/trust-asset integration; production startup and lifecycle checks belong to 4A.1.
+- [x] Build and test the selected host; inspect the graphical executable after integration. Build the selected PS5 package locally. Coordinate any device run first; a build/upload alone is not acceptance.
+- [x] Obtain independent review and commit the reproducible consumer/backend integration.
+
+**Verification:** Selected host CTest 21/21, legacy CTest 18/18, actual Home capture unchanged from the selected baseline, local PS5 package and pinned CA verified. Incremental tamper checks reject modified patched/clean/third-party source files. Independent review findings resolved. No console deployment.
 
 **Done when:** The selected graphical target links the committed backend foundation and ships its trust assets on both platforms; its test configuration exercises those modules rather than bypassing them. This does not establish real authentication or production startup behavior.
 
@@ -169,15 +171,15 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 ### 3B QR authentication and account persistence
 
-**Implemented foundation:** `src/steam/service.*`, `session_store.*`, `auth_backend.h`, `backend/{http_client,native_network,proto_wire,auth_messages}.*`, and their tests/fixtures are committed. Worker generation invalidation, late approval/cancel/sign-out races, private-file permissions, and bounded codec/HTTP behavior have host evidence. Continue these implementations; do not recreate them.
+**Implemented foundation:** `src/steam/service.*`, `session_store.*`, `auth_backend.h`, `backend/{http_client,native_network,proto_wire,auth_messages,auth_client,json,token_claims}.*`, and their tests/fixtures are committed. Worker generation invalidation, late approval/cancel/sign-out races, private-file permissions, and bounded codec/HTTP behavior have host evidence. Continue these implementations; do not recreate them.
 
-**Files:** Extend the existing Steam service/tests as needed; create `src/steam/backend/auth_client.{h,cpp}`, bounded token/JSON helpers, `src/diagnostics/redaction.{h,cpp}`, and `tests/auth_client_test.cpp`. Reuse the committed schema codec and session repository.
+**Files:** Extend the existing Steam service, AuthClient, bounded JSON/token helpers and tests as needed; add `src/diagnostics/redaction.{h,cpp}` and its tests when the production controller is wired, using whitelisted diagnostic fields that exclude tokens and QR challenges. Reuse the committed schema codec and session repository.
 
 **Interfaces:** `SteamService::BeginQrSignIn() -> RequestId`, `Cancel(RequestId) -> void`, `RestoreSession() -> RequestId`, `SignOut() -> void`, and `Pump(size_t max_events) -> std::vector<SteamEvent>`. Define `RequestId`, `SteamEvent`, and an account/session generation in `service.h`. Events cover challenge, awaiting approval, expiry, authenticated, signed out, and failure; secret token material never enters presentation events.
 
 - [ ] Add deterministic protocol/state tests for challenge replacement, expiry, retry, rejected approval, network timeout, cancellation, and approval arriving for a stale request. Assert stale generations cannot establish a session.
 - [ ] Add persistence tests for valid restoration, corrupt data, revoked credentials, and sign-out racing with a late success. Assert no logged record contains fixture token strings.
-- [ ] Implement `AuthBackend` using `BeginAuthSessionViaQR`, server-paced `PollAuthSessionStatus`, and `GenerateAccessTokenForApp` from the pinned reference. Test expiry, challenge/client-ID replacement, token subject validation, malformed responses, revoked credentials and renewal rotation. Use a lazy worker-owned HTTP client, finite deadlines and interruptible waits. Save through `SessionRepository`; reject stale generations before persistence or publication.
+- [x] Implement `AuthBackend` using `BeginAuthSessionViaQR`, server-paced `PollAuthSessionStatus`, and `GenerateAccessTokenForApp` from the pinned reference. Test expiry, challenge/client-ID replacement, token subject validation, malformed responses, revoked credentials and renewal rotation. Use a lazy worker-owned HTTP client, finite deadlines and interruptible waits. Save through `SessionRepository`; reject stale generations before persistence or publication.
 - [ ] Keep challenge URLs private to the active QR presentation and out of snapshots, replay logs and committed evidence. Encode the actual Steam challenge as QR in 4A.1; the comparison renderer's synthetic matrix cannot authenticate. Tests use synthetic secrets and assert their absence from diagnostic output.
 - [ ] Run tests to passing. Verify real QR approval, restart restoration, and sign-out on PS5; do not store QR challenge URLs or session secrets in published evidence.
 - [ ] Commit the authenticated service and evidence summary.

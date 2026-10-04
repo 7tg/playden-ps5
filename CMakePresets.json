@@ -7,48 +7,72 @@
   },
   "configurePresets": [
     {
-      "name": "host",
-      "displayName": "macOS host",
+      "name": "legacy-host",
+      "displayName": "Legacy RmlFocus macOS host",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/host",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "PLAYDEN_HOMEBREW_UI": "OFF",
         "PLAYDEN_PLATFORM_PS5": "OFF",
         "PLAYDEN_DEVELOPER_FIXTURES": "OFF"
       }
     },
     {
-      "name": "host-fixtures",
-      "inherits": "host",
-      "displayName": "macOS development fixtures",
+      "name": "legacy-host-fixtures",
+      "inherits": "legacy-host",
+      "displayName": "Legacy RmlFocus macOS development fixtures",
       "binaryDir": "${sourceDir}/build/host-fixtures",
       "cacheVariables": {
         "PLAYDEN_DEVELOPER_FIXTURES": "ON"
+      }
+    },
+    {
+      "name": "homebrew-host",
+      "displayName": "Selected direct Hui macOS host",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/homebrew-host",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "PLAYDEN_HOMEBREW_UI": "ON",
+        "PLAYDEN_PLATFORM_PS5": "OFF"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "host",
-      "configurePreset": "host"
+      "name": "legacy-host",
+      "configurePreset": "legacy-host"
     },
     {
-      "name": "host-fixtures",
-      "configurePreset": "host-fixtures"
+      "name": "legacy-host-fixtures",
+      "configurePreset": "legacy-host-fixtures"
+    },
+    {
+      "name": "homebrew-host",
+      "configurePreset": "homebrew-host"
     }
   ],
   "testPresets": [
     {
-      "name": "host",
-      "configurePreset": "host",
+      "name": "legacy-host",
+      "configurePreset": "legacy-host",
       "output": {
         "outputOnFailure": true
       }
     },
     {
-      "name": "host-fixtures",
-      "configurePreset": "host-fixtures",
+      "name": "legacy-host-fixtures",
+      "configurePreset": "legacy-host-fixtures",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "homebrew-host",
+      "configurePreset": "homebrew-host",
       "output": {
         "outputOnFailure": true
       }

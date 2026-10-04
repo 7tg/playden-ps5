@@ -12,6 +12,22 @@ set(PLAYDEN_STB_IMAGE_INCLUDE_DIR
     "/Users/leolobato/Documents/Projetos/Personal/GameNative/rmlfocus/third_party/stb" CACHE PATH
     "Directory containing the pinned header-only stb_image.h decoder")
 
+string(JSON expected_hui_revision GET "${playden_dependency_lock}" homebrew_ui revision)
+if(NOT expected_hui_revision STREQUAL PLAYDEN_HOMEBREW_UI_REVISION)
+    message(FATAL_ERROR "CMake Hui revision does not match dependencies.lock.json")
+endif()
+foreach(patch_name homebrew-ui-macos-4.1.patch homebrew-ui-cff-sdf.patch)
+    string(JSON expected_patch_hash GET "${playden_dependency_lock}" homebrew_ui patches "${patch_name}")
+    file(SHA256 "${CMAKE_SOURCE_DIR}/patches/${patch_name}" actual_patch_hash)
+    if(NOT actual_patch_hash STREQUAL expected_patch_hash)
+        message(FATAL_ERROR "Pinned Hui patch hash mismatch: ${patch_name}")
+    endif()
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/dependencies.lock.json"
+    "${CMAKE_SOURCE_DIR}/patches/homebrew-ui-macos-4.1.patch"
+    "${CMAKE_SOURCE_DIR}/patches/homebrew-ui-cff-sdf.patch")
+
 if(NOT EXISTS "${PLAYDEN_HUI_SOURCE_DIR}/src/gfx/renderer.cpp")
     message(FATAL_ERROR
         "ps5-homebrew-ui is not prepared. Run scripts/build-homebrew.sh --prepare-only")
@@ -27,9 +43,80 @@ if(NOT playden_hui_revision_status EQUAL 0 OR
     message(FATAL_ERROR
         "ps5-homebrew-ui must be ${PLAYDEN_HOMEBREW_UI_REVISION}; found '${playden_hui_revision}'")
 endif()
+set(expected_hui_changes " M src/gfx/backdrop.cpp\n M src/gfx/backdrop.hpp\n M src/gfx/canvas.cpp\n M src/gfx/canvas.hpp\n M src/gfx/gl_batch.cpp\n M src/gfx/gl_batch.hpp\n M src/gfx/gl_program.hpp\n M src/gfx/renderer.cpp\n M tools/font-baker/bake_font.cpp\n?? src/gfx/gl.hpp")
+execute_process(
+    COMMAND git -C "${PLAYDEN_HUI_SOURCE_DIR}" status --porcelain --untracked-files=all
+    OUTPUT_VARIABLE actual_hui_changes OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY)
+if(NOT actual_hui_changes STREQUAL expected_hui_changes)
+    message(FATAL_ERROR "Isolated ps5-homebrew-ui checkout differs from the two pinned patches")
+endif()
+foreach(patch_name homebrew-ui-macos-4.1.patch homebrew-ui-cff-sdf.patch)
+    execute_process(
+        COMMAND git -C "${PLAYDEN_HUI_SOURCE_DIR}" apply --check --reverse
+            "${CMAKE_SOURCE_DIR}/patches/${patch_name}"
+        RESULT_VARIABLE reverse_patch_status ERROR_QUIET)
+    if(NOT reverse_patch_status EQUAL 0)
+        message(FATAL_ERROR "Pinned Hui patch is not applied cleanly: ${patch_name}")
+    endif()
+endforeach()
+string(JSON expected_patched_file_count LENGTH "${playden_dependency_lock}"
+    homebrew_ui patched_files)
+math(EXPR expected_patched_file_last "${expected_patched_file_count} - 1")
+foreach(file_index RANGE 0 ${expected_patched_file_last})
+    string(JSON patched_file MEMBER "${playden_dependency_lock}"
+        homebrew_ui patched_files ${file_index})
+    string(JSON expected_patched_hash GET "${playden_dependency_lock}"
+        homebrew_ui patched_files "${patched_file}")
+    file(SHA256 "${PLAYDEN_HUI_SOURCE_DIR}/${patched_file}" actual_patched_hash)
+    if(NOT actual_patched_hash STREQUAL expected_patched_hash)
+        message(FATAL_ERROR "Pinned Hui patched-file hash mismatch: ${patched_file}")
+    endif()
+endforeach()
+
+# Every source/header that can enter the Hui libraries or platform front ends triggers a fresh
+# configure, where the exact worktree status and patched-file hashes are checked again.
+file(GLOB_RECURSE playden_hui_trusted_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
+    "${PLAYDEN_HUI_SOURCE_DIR}/src/*"
+    "${PLAYDEN_HUI_SOURCE_DIR}/host/*"
+    "${PLAYDEN_HUI_SOURCE_DIR}/third_party/*"
+    "${PLAYDEN_HUI_SOURCE_DIR}/tools/font-baker/*")
+foreach(trusted_source IN LISTS playden_hui_trusted_sources)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${trusted_source}")
+endforeach()
 if(NOT EXISTS "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}/stb_image.h")
     message(FATAL_ERROR "PLAYDEN_STB_IMAGE_INCLUDE_DIR must contain stb_image.h")
 endif()
+string(JSON expected_stb_hash GET "${playden_dependency_lock}" homebrew_ui stb_image sha256)
+file(SHA256 "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}/stb_image.h" actual_stb_hash)
+if(NOT actual_stb_hash STREQUAL expected_stb_hash)
+    message(FATAL_ERROR "Pinned stb_image.h hash mismatch")
+endif()
+foreach(font_file
+        fixtures/ui-comparison/assets/fonts/Barlow-Regular.ttf
+        fixtures/ui-comparison/assets/fonts/Barlow-Medium.ttf
+        fixtures/ui-comparison/assets/fonts/Barlow-SemiBold.ttf
+        fixtures/ui-comparison/assets/fonts/BarlowCondensed-Medium.ttf
+        fixtures/ui-comparison/assets/fonts/BarlowCondensed-SemiBold.ttf
+        fixtures/ui-comparison/assets/fonts/NotoSansCJKsc-Regular.otf
+        fixtures/ui-comparison/assets/fonts/NotoSansArabic.ttf
+        fixtures/ui-comparison/assets/fonts/barlow-OFL.txt
+        fixtures/ui-comparison/assets/fonts/barlowcondensed-OFL.txt
+        fixtures/ui-comparison/assets/fonts/noto-cjk-LICENSE.txt
+        fixtures/ui-comparison/assets/fonts/noto-arabic-OFL.txt
+        assets/fonts/NotoSans-Regular.ttf
+        assets/fonts/NotoSans-OFL.txt)
+    string(JSON expected_font_hash GET "${playden_dependency_lock}" homebrew_ui assets "${font_file}")
+    file(SHA256 "${CMAKE_SOURCE_DIR}/${font_file}" actual_font_hash)
+    if(NOT actual_font_hash STREQUAL expected_font_hash)
+        message(FATAL_ERROR "Pinned Hui font/license hash mismatch: ${font_file}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/${font_file}")
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}/stb_image.h")
 
 file(GLOB playden_hui_gfx_sources CONFIGURE_DEPENDS
     "${PLAYDEN_HUI_SOURCE_DIR}/src/gfx/*.cpp")
@@ -44,8 +131,8 @@ add_library(playden_hui STATIC
 target_compile_features(playden_hui PUBLIC cxx_std_20)
 target_include_directories(playden_hui PUBLIC
     "${PLAYDEN_HUI_SOURCE_DIR}/src"
-    "${PLAYDEN_HUI_SOURCE_DIR}/third_party/stb"
-    "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
+    "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}"
+    "${PLAYDEN_HUI_SOURCE_DIR}/third_party/stb")
 
 add_library(playden_homebrew_model STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/simulation.cpp"
@@ -174,12 +261,11 @@ target_compile_definitions(playden-homebrew PRIVATE
     PLAYDEN_HOMEBREW_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/fixtures/ui-comparison"
     PLAYDEN_HOMEBREW_DEFAULT_PROFILE="${CMAKE_BINARY_DIR}/homebrew-profile.json")
 target_link_libraries(playden-homebrew PRIVATE
-    playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
-add_dependencies(playden-homebrew playden_homebrew_assets)
+    playden_homebrew_ui playden_library playden_steam_auth PkgConfig::SDL2 OpenGL::GL)
+add_dependencies(playden-homebrew playden_homebrew_assets playden_steam_trust)
 set_target_properties(playden-homebrew PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-include(CTest)
 if(BUILD_TESTING)
     add_executable(homebrew_focus_motion_test "${CMAKE_SOURCE_DIR}/tests/homebrew_focus_motion_test.cpp")
     target_compile_features(homebrew_focus_motion_test PRIVATE cxx_std_20)

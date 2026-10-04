@@ -65,7 +65,7 @@
     }
   },
   "steam_network_probe": {
-    "status": "experimental; native transport gate pending",
+    "status": "passed on PS5 native title; production transport selected",
     "curl": {
       "version": "8.22.0",
       "source_sha256": "f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7",
@@ -78,14 +78,6 @@
     "ca_bundle": {
       "version": "2026-09-25",
       "sha256": "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505"
-    },
-    "ps5_archives": {
-      "libcurl.a": "4d3a53c0fb710931a6c1c99a8b540d2a4298d491a17813f889d5e0ae9c60cb37",
-      "libeverest.a": "beb61a9fb21e7a9cc016f0ad7fc9027cc09da674a3f2c743bfa8d1bfe06de00c",
-      "libmbedcrypto.a": "ac7d5c54ed457d4e4948dfecd80f9f2157c4b164b4770ab706218238d74557a0",
-      "libmbedtls.a": "ef06e96fcb4967b3e9b7e85570e0e1503dfb608e01e868a9f05a7372635e54b4",
-      "libmbedx509.a": "cf958baa32e5d20631b8d873365eb81589487e4fbb800faab86a6bed68426e65",
-      "libp256m.a": "412e12a472d4b2a3377760ccea57c87609831197c9183736ccd848d23b27da02"
     },
     "public_headers": {
       "curl/curl.h": "9ec2e9040d8d95545a4c331461c54748651edc3852a6ceca0672f858103e0528",
@@ -100,6 +92,61 @@
       "curl/typecheck-gcc.h": "62bf346ae4dc33bc61cd99a9e935c62dfbcd8120399cdbd5874d15897a57e681",
       "curl/urlapi.h": "d888326d5bdebb84b5fe133d7ef7703d4e88732757ce4d6b0476f0c668d38a6e",
       "curl/websockets.h": "05b70dbce5274aa6e360703bb17d67a0390fea18bf4437745a25b08b55d6962b"
+    },
+    "host_archives": {
+      "libcurl.a": "0615adf3968ad866c611ca271a42b8b111d0dae91fad05f28eacc80b4481bf99",
+      "libeverest.a": "2d53e341a74369badac02b5f24b95b135f86c786ebcbb55918c4cb6e0a04bc0e",
+      "libmbedcrypto.a": "9bf5a58d7b16ac2259def66308aed0502b328d17905cb3757b9436680e5e52bf",
+      "libmbedtls.a": "91e0a41ceb4f81eddd7ef10482dbeed88523f29739c29b1427d94710c4e8b177",
+      "libmbedx509.a": "90076847ce9754f49fb6090923261f43fc4bcf261eb16a6387bc26fc211b943f",
+      "libp256m.a": "be40621d7f1a7fc88bd0ee980a90cde38ec7fffcacdf6fe7b28720f206255ace"
+    },
+    "ps5_archives": {
+      "libcurl.a": "4d3a53c0fb710931a6c1c99a8b540d2a4298d491a17813f889d5e0ae9c60cb37",
+      "libeverest.a": "beb61a9fb21e7a9cc016f0ad7fc9027cc09da674a3f2c743bfa8d1bfe06de00c",
+      "libmbedcrypto.a": "ac7d5c54ed457d4e4948dfecd80f9f2157c4b164b4770ab706218238d74557a0",
+      "libmbedtls.a": "ef06e96fcb4967b3e9b7e85570e0e1503dfb608e01e868a9f05a7372635e54b4",
+      "libmbedx509.a": "cf958baa32e5d20631b8d873365eb81589487e4fbb800faab86a6bed68426e65",
+      "libp256m.a": "412e12a472d4b2a3377760ccea57c87609831197c9183736ccd848d23b27da02"
+    }
+  },
+  "homebrew_ui": {
+    "revision": "8a716f294835e26a24ef5612f1535aabffef4080",
+    "source": "https://github.com/ps5-payload-dev/ps5-homebrew-ui",
+    "patches": {
+      "homebrew-ui-macos-4.1.patch": "8f672e19009e1e63601c4276979aaa31d19b7a5ff4b00184206b89041af66c09",
+      "homebrew-ui-cff-sdf.patch": "5af8fe22fa96c9cb2f8f7402fbd9c17d38ac1cadf249bfff2dec42a2623bea1a"
+    },
+    "stb_image": {
+      "source": "Pinned sibling rmlfocus/third_party/stb/stb_image.h",
+      "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
+    },
+    "assets": {
+      "fixtures/ui-comparison/assets/fonts/Barlow-Regular.ttf": "95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea",
+      "fixtures/ui-comparison/assets/fonts/Barlow-Medium.ttf": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4",
+      "fixtures/ui-comparison/assets/fonts/Barlow-SemiBold.ttf": "86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5",
+      "fixtures/ui-comparison/assets/fonts/BarlowCondensed-Medium.ttf": "262bd143292ce479ee0cd09a42b47ab173fca8e9c6eb5ed0b5c8a845bc371d17",
+      "fixtures/ui-comparison/assets/fonts/BarlowCondensed-SemiBold.ttf": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9",
+      "fixtures/ui-comparison/assets/fonts/NotoSansCJKsc-Regular.otf": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+      "fixtures/ui-comparison/assets/fonts/NotoSansArabic.ttf": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e",
+      "fixtures/ui-comparison/assets/fonts/barlow-OFL.txt": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "fixtures/ui-comparison/assets/fonts/barlowcondensed-OFL.txt": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+      "fixtures/ui-comparison/assets/fonts/noto-cjk-LICENSE.txt": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "fixtures/ui-comparison/assets/fonts/noto-arabic-OFL.txt": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
+      "assets/fonts/NotoSans-Regular.ttf": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+      "assets/fonts/NotoSans-OFL.txt": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb"
+    },
+    "patched_files": {
+      "src/gfx/backdrop.cpp": "92367fbbdfbd2582be2744f824fbc07852bfd4f45f16d42f42725c60152fa7b1",
+      "src/gfx/backdrop.hpp": "eb6fd3b94c39c4a5925774bcde15f62bef761a8b1b426c4e61957cf83633aea8",
+      "src/gfx/canvas.cpp": "b69cf8857e736c00a571f1e09b29b2a061d97ddfe5b348f2e1c103251d96002b",
+      "src/gfx/canvas.hpp": "1da1223c39d3b9c4048b350febef5b281e2f1ad55f1ba1330a01cf22336f48b5",
+      "src/gfx/gl_batch.cpp": "d9155bda5ae755a3caee21c9a61cc53f3f763193034bb724c02b74616570d87a",
+      "src/gfx/gl_batch.hpp": "76474147ce8f4f29d752871fae95a8c6a8d79eb56ac47c0eb5873310178fddf2",
+      "src/gfx/gl_program.hpp": "cf8be9e4099a6bb3f6bb35bdc64942c128546b9bf0af1110ae042bb3a75198cc",
+      "src/gfx/renderer.cpp": "2d9ab40a6e5d9f6e9ed20588261020c063ece4f20262a894da6ca6488df71b78",
+      "src/gfx/gl.hpp": "ecbca1f585e2dcddb9a3ac02d33acea9613a6f4bf5c393f53bf5e86c6abea98f",
+      "tools/font-baker/bake_font.cpp": "610b17f80c217329ad25977f63f8367ce3b55ee78354485f28164001eb9fa316"
     }
   }
 }

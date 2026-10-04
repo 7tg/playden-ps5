@@ -16,12 +16,12 @@ Current work and unproven acceptance gates are tracked in the [v1 execution ledg
 
 ## Build and run
 
-Build the selected presentation with the commands below. See its [build notes](results/ui-comparison/homebrew-ui/README.md) for prerequisites/overrides and the [execution plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) for remaining production integration. The older [build instructions](docs/engineering/build.md) describe the historical RmlFocus target; the existing `host` preset still selects that target.
+Build the selected presentation with the commands below. See its [build notes](results/ui-comparison/homebrew-ui/README.md) for prerequisites/overrides and the [execution plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) for remaining production integration. The [build instructions](docs/engineering/build.md) document the selected `homebrew-host` preset and the explicitly named `legacy-host` regression path.
 
 ```sh
 scripts/build-homebrew.sh
-cmake --build build/homebrew-host
-ctest --test-dir build/homebrew-host --output-on-failure
+cmake --build --preset homebrew-host
+ctest --preset homebrew-host --output-on-failure
 build/homebrew-host/playden-homebrew
 ```
 

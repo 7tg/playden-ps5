@@ -1,25 +1,54 @@
 # Building Playden Launcher
 
-> **Selected UI:** Direct ps5-homebrew-ui is now the selected consumer. Use `scripts/build-homebrew.sh`, `cmake --build build/homebrew-host`, `ctest --test-dir build/homebrew-host --output-on-failure`, and `scripts/build-homebrew-ps5.sh`; see [selected build notes](../../results/ui-comparison/homebrew-ui/README.md). The instructions below document the historical RmlFocus consumer. Shared production-backend integration and selected presets are pending task S1 of the [updated plan](../superpowers/plans/2026-10-04-foundation-to-connected-library.md).
+The selected consumer uses direct ps5-homebrew-ui and builds with renderer-independent library query/cache, storage, Steam service, reduced protobuf codec, QR authentication client, and verified HTTP transport targets. The old RmlFocus launcher remains available through presets whose names begin with `legacy-`; its successful build is historical regression evidence rather than selected-consumer validation.
+
+## Selected macOS consumer
+
+Prepare the pinned isolated Hui checkout, apply the two verified patches, bake the pinned fonts, configure, and build:
+
+```sh
+scripts/build-homebrew.sh
+cmake --build --preset homebrew-host
+ctest --preset homebrew-host --output-on-failure
+build/homebrew-host/playden-homebrew
+```
+
+The selected test preset includes the Hui behavior checks plus `library_query`, `library_cache`, `proto_wire`, `auth_messages`, `steam_json`, `token_claims`, `http_client`, `auth_client`, `session_store`, and `steam_auth`. The HTTP check uses a local TLS fixture with its own test CA; it does not contact Steam. Runtime trust is separate: `build/homebrew-host/trust/cacert.pem` is copied from the pinned curl 8.22/Mbed TLS dependency prefix.
+
+The selected build rejects a Hui revision mismatch, unexpected files in its isolated patched checkout, modified patch files, modified font/license inputs, a modified `stb_image.h`, and mismatched curl headers, transport archives, or CA bundle. If the pinned HTTP dependencies are absent, `scripts/build-homebrew.sh` prepares them from source archives whose hashes are recorded in `dependencies.lock.json`.
+
+The direct UI still runs in its explicit simulation mode. Linking these production backend targets and trust assets does not activate QR sign-in or real library startup; that lifecycle wiring belongs to task 4A.1.
+
+## Selected PS5 build-only package
+
+```sh
+scripts/build-homebrew-ps5.sh
+```
+
+This first verifies the exact prepared Hui checkout and refreshes every font atlas from its pinned baker, font files, and current catalog. It then configures the selected cross-build with the allocated `FAKE77031` title ID, links the same backend foundations against the pinned PS5 curl 8.22/Mbed TLS archives, copies `trust/cacert.pem` into the title, and writes `build/homebrew-ps5/dist/FAKE77031`. `PLAYDEN_HUI_SOURCE_DIR` continues to select an alternate prepared checkout at the pinned revision; the font refresh validates it without applying patches or otherwise modifying it. The script does not discover, upload to, launch, or otherwise contact a console. A successful package is build evidence only.
+
+The PS5 custom link depends on every backend archive and pinned curl/TLS archive, and packaging depends directly on the CA bundle. Changes therefore relink or restage the title without requiring a clean build.
+
+## Historical RmlFocus consumer
 
 The launcher consumes the installed public `RmlFocus` CMake package and compiles the framework's patched RmlUi GL3 renderer into each graphical front end. `dependencies.lock.json` pins the exact RmlFocus checkout, RmlUi, FreeType, PS5 payload SDK, ps5-opengl, native-title tooling, compiler runtime, and packaged font sources. Configure refuses a different or tracked-dirty RmlFocus checkout and rejects mismatched pinned source checkouts.
 
 The default framework source is the sibling `../rmlfocus`. Override it explicitly when the checkout lives elsewhere:
 
 ```sh
-cmake --preset host -DPLAYDEN_RMLFOCUS_SOURCE_DIR=/absolute/path/to/rmlfocus
+cmake --preset legacy-host -DPLAYDEN_RMLFOCUS_SOURCE_DIR=/absolute/path/to/rmlfocus
 ```
 
 The override must resolve to the revision in `dependencies.lock.json`. The dependency build installs RmlFocus under the launcher build directory; it does not link the framework's in-tree CMake target. SDL2 compatibility, FreeType, OpenGL, libcurl, CMake, Ninja, and Apple Clang are host system packages. The versions used for the recorded host build are listed in the lock file.
 
-## macOS
+### macOS
 
 Install CMake, Ninja, FreeType, SDL2 compatibility, and libcurl, then run:
 
 ```sh
-cmake --preset host
-cmake --build --preset host
-ctest --preset host --output-on-failure
+cmake --preset legacy-host
+cmake --build --preset legacy-host
+ctest --preset legacy-host --output-on-failure
 build/host/playden-launcher
 ```
 
@@ -32,7 +61,7 @@ build/host/playden-launcher --keys R1,R1 --run-for-seconds 2 --shot build/host/s
 
 Host preferences use the directory returned by SDL's platform preference-path API. Diagnostics are emitted as JSON lines on stderr with frame-start intervals, measured drawable/render-target dimensions, the queried display refresh mode, process resident memory, and launcher/framework revisions.
 
-## PS5 build-only package
+### PS5 build-only package
 
 The PS5 build uses the payload SDK environment wrapper in sibling `../playden-ps5`. A title ID is mandatory; there is no framework, runtime, or launcher default:
 
@@ -48,10 +77,11 @@ PS5 persistence is enabled only when a launch-time atomic write/read probe succe
 
 ## Artifacts and evidence
 
-- Host executable: `build/host/playden-launcher`
-- Host tests: `build/host/*_test`
-- PS5 title directory: `build/ps5/dist/<TITLE_ID>`
-- PS5 executable: `build/ps5/dist/<TITLE_ID>/eboot.bin`
+- Selected host executable: `build/homebrew-host/playden-homebrew`
+- Selected host tests and trust: `build/homebrew-host/*_test`, `build/homebrew-host/trust/cacert.pem`
+- Selected PS5 title and executable: `build/homebrew-ps5/dist/FAKE77031`, including `eboot.bin` and `trust/cacert.pem`
+- Historical host executable and tests: `build/host/playden-launcher`, `build/host/*_test`
+- Historical PS5 title directory: `build/ps5/dist/<TITLE_ID>`
 - PS5 runtime log after a console run: `/app0/logs/playden.log`
 
 Build metadata contains the launcher Git revision with a `+dirty` marker when tracked or untracked files differ, the pinned RmlFocus revision, and the platform environment label. Console launch, navigation, clean exit, storage, and frame-delivery results remain separate runtime evidence.

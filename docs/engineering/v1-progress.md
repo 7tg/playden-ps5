@@ -9,11 +9,11 @@ The updated [execution plan](../superpowers/plans/2026-10-04-foundation-to-conne
 | Task | State | Next evidence / work |
 | --- | --- | --- |
 | 1A–1B | Historical RmlFocus shell complete | Retain results/20261004T132145Z-shell; selected consumer needs its own lifecycle/storage validation |
-| S1 | New selected-consumer integration step | Make backend/domain targets available before the Hui CMake early return; selected host/PS5 linkage, CA packaging, dependency pins and backend CTests |
+| S1 | Complete build integration, independently reviewed | Selected host 21/21, legacy 18/18, actual graphical Home capture unchanged, local PS5 package/CA verified; startup service wiring remains 4A.1 |
 | 2A | Selected Hui UI merged; host-verified simulations and local PS5 package | Reuse existing screens, focus, keyboard, filters and management simulations; do not rebuild them in RML |
 | 2B | Deferred by user; not passed | No profiling, MSAA, RSS or soak work; eventual selected-renderer native 4K60 acceptance remains open |
 | 3A | Complete on PS5 | Native DNS, cancellation, timeout, verified HTTPS/WSS and matching PONG; backend decision/evidence committed |
-| 3B | Foundation committed in da4f925, 82fd531, 5a42a0d | Concrete Begin/Poll/Renew AuthClient, real challenge encoding, service integration and direct PS5 approval/restore/sign-out |
+| 3B | Concrete AuthClient and bounded JSON/token parsing committed in 8eb78fe; synthetic host/UBSan and PS5 compile checks pass | Real QR encoding/presentation, service lifecycle integration and direct PS5 approval/restore/sign-out |
 | 3C | Pending authentication | Authenticated CM, real owned library and metadata, bounded recovery; no public-profile/key requirement |
 | 4A.1 | Existing account screens use simulation | Production controller, real service events, private QR lifecycle, separate credentials and account-scoped settings |
 | 4A.2 | Account-scoped LibraryCache exists; selected UI not connected | Real records, generation isolation, offline/retry, identity/focus preservation |
@@ -45,3 +45,7 @@ User direction (2026-10-04): defer 4K performance work for now. Stop profiling, 
 Earlier user direction deferred UI to a separate session. That session merged the selected direct-Hui work; the user has now authorized resuming integration here. The old RmlUi partial edits were stashed by that session, as recorded above.
 
 Native Steam transport gate passed: results/20261004-steam-network-ps5 records the packaged title, pinned dependencies/patch, all required transport results and clean exit. Backend selection is recorded in steam-backend-decision.md; authentication and owned-library retrieval remain incomplete.
+
+Authentication protocol progress: `8eb78fe` implements Begin/Poll/Renew with server-paced, cancelable polling and a 300-second lifetime. Independent review found and resolved fresh-login rejection incorrectly revoking an existing session, plus invalid/empty account-name handling. The regression uses concrete AuthClient through SteamService and proves prior credentials survive a failed replacement. UI connection and live Steam acceptance remain open.
+
+Selected-consumer build progress: common domain/backend targets now exist before renderer selection, with separate pinned curl graphs for selected and legacy consumers. Exact patched-file hashes and source/header/archive/CA watchers reject incremental dependency mutations; the PS5 entrypoint refreshes generated font atlases before packaging. Selected host tests pass 21/21, legacy tests 18/18, and the new actual graphical Home capture matches the committed selected baseline byte-for-byte. Local PS5 package eboot SHA-256: `3a08ac3ac459eb7d1544061240dbd112aa7bfe72678e5bcb18d1734b37967241`. No upload, live sign-in, console acceptance or performance claim was made.
