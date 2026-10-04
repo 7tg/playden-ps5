@@ -20,6 +20,8 @@ enum class StorageError {
   kWriteFailed,
   kRenameFailed,
   kInvalidData,
+  kPermissionFailed,
+  kRemoveFailed,
 };
 
 template <typename T>
@@ -91,8 +93,18 @@ class Storage {
   Result<void> WriteAtomic(const std::string& relative_path,
                            const Bytes& bytes) const;
 
+  // Creates the temporary file with owner-only permissions before writing any
+  // bytes. Platforms without a supported permission primitive report failure.
+  Result<void> WriteAtomicPrivate(const std::string& relative_path,
+                                  const Bytes& bytes) const;
+
+  // Missing files are already removed and therefore succeed.
+  Result<void> Remove(const std::string& relative_path) const;
+
  private:
   Result<std::string> Resolve(const std::string& relative_path) const;
+  Result<void> WriteAtomicImpl(const std::string& relative_path,
+                               const Bytes& bytes, bool private_file) const;
 
   std::string root_;
 };

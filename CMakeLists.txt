@@ -66,6 +66,14 @@ foreach(utf8proc_file utf8proc.c utf8proc.h utf8proc_data.c LICENSE.md)
  endif()
 endforeach()
 
+add_library(playden_storage STATIC src/platform/storage.cpp)
+target_include_directories(playden_storage PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_storage PUBLIC cxx_std_17)
+add_library(playden_steam_core STATIC src/steam/session_store.cpp src/steam/service.cpp)
+target_include_directories(playden_steam_core PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_steam_core PUBLIC cxx_std_17)
+target_link_libraries(playden_steam_core PUBLIC playden_storage Threads::Threads)
+
 add_library(playden_core STATIC
  third_party/utf8proc/utf8proc.c
  src/library/query.cpp
@@ -77,14 +85,13 @@ add_library(playden_core STATIC
 	src/app/preferences.cpp
 	src/diagnostics/frame_stats.cpp
  src/diagnostics/phase_stats.cpp
-	src/platform/storage.cpp
 	src/ui/shell.cpp)
 target_include_directories(playden_core PUBLIC "${CMAKE_SOURCE_DIR}/src" PRIVATE "${CMAKE_SOURCE_DIR}/third_party/utf8proc")
 target_compile_definitions(playden_core PRIVATE UTF8PROC_STATIC)
 target_compile_features(playden_core PUBLIC cxx_std_17)
 target_compile_definitions(playden_core PUBLIC PLAYDEN_REVISION="${playden_revision}"
 	PLAYDEN_RMLFOCUS_REVISION="${PLAYDEN_RMLFOCUS_REVISION}")
-target_link_libraries(playden_core PUBLIC RmlFocus::RmlUi Threads::Threads)
+target_link_libraries(playden_core PUBLIC RmlFocus::RmlUi Threads::Threads playden_storage)
 if(PLAYDEN_DEVELOPER_FIXTURES)
  find_package(Python3 REQUIRED COMPONENTS Interpreter)
  add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/developer_fixture.cpp"
@@ -134,6 +141,11 @@ if(NOT PLAYDEN_PLATFORM_PS5)
         add_test(NAME library_fixture_compiler COMMAND "${Python3_EXECUTABLE}" -m unittest discover
             -s "${CMAKE_SOURCE_DIR}/tests" -p test_library_fixture.py)
         set_tests_properties(library_fixture_compiler PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+        foreach(test_name session_store steam_auth)
+            add_executable(${test_name}_test tests/${test_name}_test.cpp)
+            target_link_libraries(${test_name}_test PRIVATE playden_steam_core)
+            add_test(NAME ${test_name} COMMAND ${test_name}_test)
+        endforeach()
         add_executable(memory_probe_test tests/memory_probe_test.cpp src/platform/ps5/memory_probe.cpp)
         target_include_directories(memory_probe_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
         target_compile_features(memory_probe_test PRIVATE cxx_std_17)

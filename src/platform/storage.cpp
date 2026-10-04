@@ -3,6 +3,9 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace playden {
 namespace {
@@ -11,6 +14,14 @@ std::string ErrnoMessage(const std::string& action,
                          const std::string& relative_path,
                          int error_number) {
   return action + " '" + relative_path + "': " + std::strerror(error_number);
+}
+
+std::string WriteErrorMessage(const std::string& action,
+                              const std::string& relative_path,
+                              int error_number,
+                              bool numeric_only) {
+  if (!numeric_only) return ErrnoMessage(action, relative_path, error_number);
+  return action + " '" + relative_path + "' (errno " + std::to_string(error_number) + ")";
 }
 
 bool IsSafeRelativePath(const std::string& path) {
@@ -106,6 +117,17 @@ Result<Bytes> Storage::Read(const std::string& relative_path, std::size_t max_by
 
 Result<void> Storage::WriteAtomic(const std::string& relative_path,
                                   const Bytes& bytes) const {
+  return WriteAtomicImpl(relative_path, bytes, false);
+}
+
+Result<void> Storage::WriteAtomicPrivate(const std::string& relative_path,
+                                         const Bytes& bytes) const {
+  return WriteAtomicImpl(relative_path, bytes, true);
+}
+
+Result<void> Storage::WriteAtomicImpl(const std::string& relative_path,
+                                      const Bytes& bytes,
+                                      bool private_file) const {
   const auto resolved = Resolve(relative_path);
   if (!resolved.ok()) {
     return Result<void>::Failure(resolved.error(), resolved.message());
@@ -113,11 +135,57 @@ Result<void> Storage::WriteAtomic(const std::string& relative_path,
 
   const std::string temporary_path = resolved.value() + ".tmp";
   errno = 0;
-  std::FILE* file = std::fopen(temporary_path.c_str(), "wb");
+  std::FILE* file = nullptr;
+  if (private_file) {
+    const int descriptor = open(temporary_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (descriptor < 0) {
+      return Result<void>::Failure(StorageError::kOpenFailed,
+                                   "private storage open failed for '" + relative_path +
+                                       "' (errno " + std::to_string(errno) + ")");
+    }
+    if (fchmod(descriptor, 0600) != 0) {
+      const int permission_error = errno;
+      close(descriptor);
+      std::remove(temporary_path.c_str());
+      return Result<void>::Failure(StorageError::kPermissionFailed,
+                                   "private storage permissions failed for '" + relative_path +
+                                       "' (errno " + std::to_string(permission_error) + ")");
+    }
+    struct stat status {};
+    if (fstat(descriptor, &status) != 0) {
+      const int permission_error = errno;
+      close(descriptor);
+      std::remove(temporary_path.c_str());
+      return Result<void>::Failure(
+          StorageError::kPermissionFailed,
+          "private storage permission verification failed for '" + relative_path +
+              "' (errno " + std::to_string(permission_error) + ")");
+    }
+    if ((status.st_mode & 0777) != 0600) {
+      const unsigned observed_mode = static_cast<unsigned>(status.st_mode & 0777);
+      close(descriptor);
+      std::remove(temporary_path.c_str());
+      return Result<void>::Failure(
+          StorageError::kPermissionFailed,
+          "private storage mode verification failed for '" + relative_path +
+              "' (mode " + std::to_string(observed_mode) + ")");
+    }
+    file = fdopen(descriptor, "wb");
+    if (!file) {
+      const int stream_error = errno;
+      close(descriptor);
+      std::remove(temporary_path.c_str());
+      return Result<void>::Failure(StorageError::kOpenFailed,
+                                   "private storage stream failed for '" + relative_path +
+                                       "' (errno " + std::to_string(stream_error) + ")");
+    }
+  } else {
+    file = std::fopen(temporary_path.c_str(), "wb");
+  }
   if (file == nullptr) {
     return Result<void>::Failure(
         StorageError::kOpenFailed,
-        ErrnoMessage("could not open temporary file for", relative_path, errno));
+        WriteErrorMessage("could not open temporary file for", relative_path, errno, private_file));
   }
 
   if (!bytes.empty() &&
@@ -127,7 +195,7 @@ Result<void> Storage::WriteAtomic(const std::string& relative_path,
     std::remove(temporary_path.c_str());
     return Result<void>::Failure(
         StorageError::kWriteFailed,
-        ErrnoMessage("could not write", relative_path, write_error));
+        WriteErrorMessage("could not write", relative_path, write_error, private_file));
   }
   if (std::fflush(file) != 0) {
     const int flush_error = errno;
@@ -135,14 +203,14 @@ Result<void> Storage::WriteAtomic(const std::string& relative_path,
     std::remove(temporary_path.c_str());
     return Result<void>::Failure(
         StorageError::kWriteFailed,
-        ErrnoMessage("could not flush", relative_path, flush_error));
+        WriteErrorMessage("could not flush", relative_path, flush_error, private_file));
   }
   if (std::fclose(file) != 0) {
     const int close_error = errno;
     std::remove(temporary_path.c_str());
     return Result<void>::Failure(
         StorageError::kWriteFailed,
-        ErrnoMessage("could not close", relative_path, close_error));
+        WriteErrorMessage("could not close", relative_path, close_error, private_file));
   }
 
   errno = 0;
@@ -151,9 +219,20 @@ Result<void> Storage::WriteAtomic(const std::string& relative_path,
     std::remove(temporary_path.c_str());
     return Result<void>::Failure(
         StorageError::kRenameFailed,
-        ErrnoMessage("could not replace", relative_path, rename_error));
+        WriteErrorMessage("could not replace", relative_path, rename_error, private_file));
   }
   return Result<void>::Success();
+}
+
+Result<void> Storage::Remove(const std::string& relative_path) const {
+  const auto resolved = Resolve(relative_path);
+  if (!resolved.ok()) return Result<void>::Failure(resolved.error(), resolved.message());
+  errno = 0;
+  if (unlink(resolved.value().c_str()) == 0 || errno == ENOENT) return Result<void>::Success();
+  const int remove_error = errno;
+  return Result<void>::Failure(StorageError::kRemoveFailed,
+                               "storage remove failed for '" + relative_path + "' (errno " +
+                                   std::to_string(remove_error) + ")");
 }
 
 }  // namespace playden

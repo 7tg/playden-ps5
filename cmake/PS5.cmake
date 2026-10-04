@@ -159,12 +159,12 @@ function(playden_add_ps5_title)
 			$<TARGET_OBJECTS:playden_ps5_renderer> $<TARGET_OBJECTS:playden_ps5_app>
 			--start-group "${gl_sdk}/lib/libPS5OpenGL.a" "${sdk}/target/lib/libunwind.a"
 			"${sdk}/target/lib/libc++abi.a" "${sdk}/target/lib/libc++.a"
-			"${rf_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_core>
+			"${rf_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_core> $<TARGET_FILE:playden_storage>
 			$<TARGET_FILE:RmlFocus::RmlUi> $<TARGET_FILE:RmlFocus::RmlFocus>
 			$<TARGET_FILE:RmlUi::Core> "${playden_rmlui_prefix}/lib/libfreetype.a"
 			${probe_libraries} --end-group --as-needed ${link_stubs}
 		WORKING_DIRECTORY "${out}/link"
-		DEPENDS ${probe_libraries} playden_ps5_runtime playden_ps5_shims playden_ps5_renderer playden_ps5_app playden_core
+		DEPENDS ${probe_libraries} playden_ps5_runtime playden_ps5_shims playden_ps5_renderer playden_ps5_app playden_core playden_storage
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
 			$<TARGET_OBJECTS:playden_ps5_renderer> $<TARGET_OBJECTS:playden_ps5_app>
 			"${gl_source}/native-app/ps5-pie.ld" "${gl_source}/native-app/app-symbols.map"
