@@ -16,7 +16,9 @@ namespace playden::homebrew {
 using GameId = std::uint32_t;
 
 enum class Route { Startup, SignIn, Home, Library, Downloads, Settings, Details, Session };
-enum class AuthState { SignedOut, Waiting, Expired, Failed, Cancelled, Syncing, SignedIn, Offline };
+enum class ModelMode { Simulation, Live };
+enum class ServiceAction { BeginQr, CancelQr, SignOut, SwitchAccount, RefreshLibrary };
+enum class AuthState { SignedOut, Restoring, Waiting, Expired, Failed, Cancelled, Syncing, SigningOut, SignedIn, Offline };
 enum class JobState { Queued, Downloading, Pausing, Paused, Verifying, Downloaded, Failed, Cancelled, Interrupted };
 enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
@@ -28,11 +30,21 @@ enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, P
 struct Account {
     std::string id;
     std::string display_name;
+    std::string challenge_url;
     AuthState authentication = AuthState::SignedOut;
     std::int64_t challenge_expiry = 0;
     std::int64_t last_sync = 0;
     bool cache_available = false;
     std::string error;
+};
+
+struct AccountUpdate {
+    AuthState authentication = AuthState::SignedOut;
+    std::string id;
+    std::string display_name;
+    std::string challenge_url;
+    std::string error;
+    bool clear_library = false;
 };
 
 struct Game {
@@ -218,6 +230,7 @@ struct State {
     bool library_offline = false;
     bool screenshot_mode = false;
     bool quit_requested = false;
+    bool simulation_mode = true;
     std::int64_t clock_ticks = 0;
 };
 
@@ -259,13 +272,17 @@ struct ViewData {
 
 class Simulation {
 public:
-    Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path);
+    Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path,
+               ModelMode mode = ModelMode::Simulation);
 
     bool scenario(const std::string& name);
     bool action(const std::string& logical_action);
     void controller_sample(ControllerState sample);
     void text(const std::string& utf8);
     void tick(int ticks = 1);
+    void SetControllerConnected(bool connected);
+    void UpdateAccount(AccountUpdate update);
+    [[nodiscard]] std::vector<ServiceAction> TakeServiceActions();
 
     [[nodiscard]] const State& state() const noexcept { return state_; }
     [[nodiscard]] const ViewData& view() const noexcept { return view_; }
@@ -277,6 +294,7 @@ public:
 private:
     std::filesystem::path fixture_directory_;
     std::filesystem::path profile_path_;
+    ModelMode mode_ = ModelMode::Simulation;
     State state_;
     ViewData view_;
     ViewData route_view_;
@@ -289,6 +307,7 @@ private:
     std::uint64_t cancelled_challenge_generation_ = 0;
     std::uint64_t next_collection_serial_ = 1;
     std::uint64_t next_job_serial_ = 1;
+    std::vector<ServiceAction> pending_service_actions_;
 
     void load_fixtures();
     void load_profile();
@@ -306,6 +325,9 @@ private:
     void advance_jobs();
     void start_logs();
     void finish_logs();
+    void queue_service_action(ServiceAction action);
+    void clear_account_specific_state();
+    [[nodiscard]] bool live() const noexcept { return mode_ == ModelMode::Live; }
     [[nodiscard]] std::string next_job_id();
 };
 

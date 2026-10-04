@@ -79,11 +79,13 @@ std::string route_name(Route route) {
 std::string auth_name(AuthState state) {
     switch (state) {
     case AuthState::SignedOut: return "signed-out";
+    case AuthState::Restoring: return "restoring";
     case AuthState::Waiting: return "waiting";
     case AuthState::Expired: return "expired";
     case AuthState::Failed: return "failed";
     case AuthState::Cancelled: return "cancelled";
     case AuthState::Syncing: return "syncing";
+    case AuthState::SigningOut: return "signing-out";
     case AuthState::SignedIn: return "signed-in";
     case AuthState::Offline: return "offline";
     }
@@ -277,9 +279,13 @@ std::string trimmed(std::string value) {
 
 } // namespace
 
-Simulation::Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path)
-    : fixture_directory_(std::move(fixture_directory)), profile_path_(std::move(profile_path)) {
+Simulation::Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path, ModelMode mode)
+    : fixture_directory_(std::move(fixture_directory)), profile_path_(std::move(profile_path)), mode_(mode) {
     reset_default_state();
+    if (live()) {
+        rebuild_view();
+        return;
+    }
     load_fixtures();
     scenario("default");
     load_profile();
@@ -288,7 +294,8 @@ Simulation::Simulation(std::filesystem::path fixture_directory, std::filesystem:
 
 void Simulation::reset_default_state() {
     state_ = {};
-    state_.clock_ticks = kFixtureClock;
+    state_.simulation_mode = !live();
+    state_.clock_ticks = live() ? 0 : kFixtureClock;
     state_.navigation.scroll_offsets["library-grid"] = 0;
     state_.navigation.scroll_offsets["home"] = 0;
     state_.navigation.scroll_offsets["details"] = 0;
@@ -299,7 +306,101 @@ void Simulation::reset_default_state() {
     last_error_.clear();
 }
 
+void Simulation::SetControllerConnected(bool connected) {
+    state_.controller_connected = connected;
+    rebuild_view();
+}
+
+std::vector<ServiceAction> Simulation::TakeServiceActions() {
+    auto actions = std::move(pending_service_actions_);
+    pending_service_actions_.clear();
+    return actions;
+}
+
+void Simulation::queue_service_action(ServiceAction action) {
+    constexpr std::size_t kMaxPendingActions = 32;
+    const bool barrier = action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount;
+    if (barrier && std::find(pending_service_actions_.begin(), pending_service_actions_.end(), action) != pending_service_actions_.end()) return;
+    if (pending_service_actions_.size() >= kMaxPendingActions) {
+        if (!barrier) return;
+        const auto disposable = std::find_if(pending_service_actions_.begin(), pending_service_actions_.end(), [](ServiceAction pending) {
+            return pending != ServiceAction::SignOut && pending != ServiceAction::SwitchAccount;
+        });
+        if (disposable == pending_service_actions_.end()) return;
+        pending_service_actions_.erase(disposable);
+    }
+    pending_service_actions_.push_back(action);
+}
+
+void Simulation::clear_account_specific_state() {
+    state_.account.challenge_url.clear();
+    state_.account.challenge_expiry = 0;
+    state_.account.last_sync = 0;
+    state_.account.cache_available = false;
+    state_.account.error.clear();
+    state_.games.clear();
+    state_.library = {};
+    state_.installations.clear();
+    state_.jobs.clear();
+    state_.volumes.clear();
+    state_.profiles.clear();
+    state_.selected_profiles.clear();
+    state_.custom_profiles.clear();
+    state_.navigation.detail_id.reset();
+    state_.navigation.selected_game_id = 0;
+    state_.navigation.selected_index = 0;
+    state_.navigation.home_shelf = 0;
+    state_.navigation.home_shelf_focus.clear();
+    state_.navigation.scroll_offsets.clear();
+    state_.navigation.modals.clear();
+    state_.editor = {};
+    state_.session = SessionState::Idle;
+    state_.session_game_id = 0;
+    state_.session_error.clear();
+    state_.runtime = RuntimeState::Unavailable;
+    state_.library_syncing = false;
+    state_.library_loading = false;
+    state_.notices.clear();
+    state_.log_state = LogState::Ready;
+    state_.log_lines.clear();
+    state_.log_offset = 0;
+    state_.log_context.clear();
+    pending_destructive_action_.clear();
+    selected_volume_id_.clear();
+    selected_profile_id_.clear();
+    editing_target_id_.clear();
+}
+
+void Simulation::UpdateAccount(AccountUpdate update) {
+    if (!live()) return;
+    if (update.clear_library) clear_account_specific_state();
+    state_.account.authentication = update.authentication;
+    state_.account.id = std::move(update.id);
+    state_.account.display_name = std::move(update.display_name);
+    state_.account.challenge_url = std::move(update.challenge_url);
+    state_.account.error = std::move(update.error);
+    state_.account.challenge_expiry = 0;
+    state_.library_syncing = update.authentication == AuthState::Syncing;
+
+    if (update.authentication == AuthState::Waiting || update.authentication == AuthState::Expired || update.authentication == AuthState::Failed) {
+        state_.navigation.route = Route::SignIn;
+        state_.navigation.focus_key = update.authentication == AuthState::Expired ? "qr-refresh"
+            : update.authentication == AuthState::Failed ? "qr-retry" : "qr-cancel";
+    } else if (update.authentication == AuthState::SignedIn || update.authentication == AuthState::Offline) {
+        if (state_.navigation.route == Route::Startup || state_.navigation.route == Route::SignIn) state_.navigation.route = Route::Home;
+        state_.navigation.focus_key = state_.games.empty() ? "home-library" : game_key(state_.games.front().id);
+    } else if (update.authentication == AuthState::SignedOut || update.authentication == AuthState::Cancelled) {
+        state_.navigation.route = Route::Startup;
+        state_.navigation.focus_key = "startup-connect";
+    } else if (update.authentication == AuthState::Restoring) {
+        state_.navigation.route = Route::Startup;
+        state_.navigation.focus_key = "startup-loading";
+    }
+    rebuild_view();
+}
+
 void Simulation::load_fixtures() {
+    if (live()) return;
     const auto source = read_file(fixture_directory_ / "catalog.json");
     const auto root = json::parse(source);
     if (!root || !root->object()) {
@@ -443,6 +544,7 @@ void Simulation::load_fixtures() {
 }
 
 void Simulation::load_profile() {
+    if (live()) return;
     const auto source = read_file(profile_path_);
     if (source.empty()) return;
     const auto root = json::parse(source);
@@ -580,6 +682,7 @@ void Simulation::load_profile() {
 }
 
 bool Simulation::save_profile() {
+    if (live()) return true;
     if (!state_.persistence_available) {
         state_.notices.push_back({"save-failed", "Changes cannot be saved", "retry-save", true, 0});
         return false;
@@ -681,6 +784,7 @@ bool Simulation::save_profile() {
 }
 
 bool Simulation::scenario(const std::string& name) {
+    if (live()) return false;
     if (name == "default") {
         state_.account.authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Home;
@@ -883,7 +987,7 @@ void Simulation::rebuild_view() {
     }
     view_ = {};
     view_.surface = route_name(state_.navigation.route);
-    view_.show_simulation_label = true;
+    view_.show_simulation_label = state_.simulation_mode;
     if (state_.editor.active) view_.surface = "keyboard";
     else if (!state_.navigation.modals.empty()) view_.surface = state_.navigation.modals.back().id;
 
@@ -963,7 +1067,7 @@ void Simulation::rebuild_view() {
             else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account.authentication); item.subtitle = state_.account.error; item.enabled = false; }
             else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account.last_sync == 0 ? "Never" : std::to_string(state_.account.last_sync); item.enabled = false; }
             else if (action_key.rfind("open-game:", 0) == 0) item.title = "Open game";
-            else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = "UI comparison fixture"; item.enabled = false; }
+            else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? "Live service model" : "UI comparison fixture"; item.enabled = false; }
             else if (action_key == "about-framework") { item.kind = RowKind::Status; item.value = "Homebrew native model + Hui"; item.enabled = false; }
             else if (action_key == "about-platform") { item.kind = RowKind::Status; item.value = "Host / PS5 homebrew"; item.enabled = false; }
             else if (action_key == "install-confirm" || action_key == "install-estimate-retry") {
@@ -1001,10 +1105,10 @@ void Simulation::rebuild_view() {
         view_.legends = {"Cross Select", "Circle Cancel"};
     } else if (state_.navigation.route == Route::Startup) {
         view_.title = "Welcome to Playden";
-        view_.subtitle = "Browse the local UI fixture or connect a simulated Steam account.";
-        if (state_.startup_loading) {
-            row("startup-loading", RowKind::Status, "Loading saved fixture state…", "").enabled = false;
-            row("startup-advance", RowKind::Action, "Advance fixture clock", "advance-clock");
+        view_.subtitle = live() ? "Connect Steam to load your library." : "Browse the local UI fixture or connect a simulated Steam account.";
+        if (state_.startup_loading || state_.account.authentication == AuthState::Restoring) {
+            row("startup-loading", RowKind::Status, live() ? "Restoring Steam session…" : "Loading saved fixture state…", "").enabled = false;
+            if (!live()) row("startup-advance", RowKind::Action, "Advance fixture clock", "advance-clock");
         }
         else if (!state_.persistence_available) {
             row("startup-retry-save", RowKind::Action, "Retry saved state", "retry-save");
@@ -1015,15 +1119,22 @@ void Simulation::rebuild_view() {
         }
     } else if (state_.navigation.route == Route::SignIn) {
         view_.title = "Connect Steam";
-        view_.subtitle = state_.account.authentication == AuthState::Waiting ? "Simulated QR challenge — not a working Steam code" : state_.account.error;
-        if (state_.account.authentication == AuthState::Syncing) row("sync-advance", RowKind::Action, "Advance fixture sync", "advance-clock");
+        view_.subtitle = state_.account.authentication == AuthState::Waiting
+            ? (live() ? "Scan the QR code with the Steam mobile app." : "Simulated QR challenge — not a working Steam code")
+            : state_.account.authentication == AuthState::Syncing ? "Loading your library…" : state_.account.error;
+        if (state_.account.authentication == AuthState::Syncing) {
+            if (live()) row("sync-status", RowKind::Status, "Loading library…", "").enabled = false;
+            else row("sync-advance", RowKind::Action, "Advance fixture sync", "advance-clock");
+        }
         else if (state_.account.authentication == AuthState::Expired) row("qr-refresh", RowKind::Action, "Refresh code", "qr-refresh");
         else if (state_.account.authentication == AuthState::Failed) row("qr-retry", RowKind::Action, "Retry", "qr-retry");
         else row("qr-cancel", RowKind::Action, "Cancel", "qr-cancel");
-        if (state_.account.authentication != AuthState::Syncing) row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
+        if (!live() && state_.account.authentication != AuthState::Syncing) row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
     } else if (state_.navigation.route == Route::Home) {
         view_.title = "Home";
-        view_.subtitle = state_.account.authentication == AuthState::SignedIn ? "Fixture history — simulated" : "Signed out";
+        view_.subtitle = state_.account.authentication == AuthState::SignedIn
+            ? (live() ? (state_.account.error.empty() ? "Your Steam library" : state_.account.error) : "Fixture history — simulated")
+            : "Signed out";
         for (const auto* game : visible_games()) {
             if (view_.rows.size() >= 12) break;
             auto& item = row(game_key(game->id), RowKind::Game, game->title, "open-game");
@@ -1057,7 +1168,7 @@ void Simulation::rebuild_view() {
         const auto games = visible_games();
         view_.total_count = games.size();
         view_.subtitle = std::to_string(games.size()) + " games";
-        if (state_.library_loading) view_.subtitle += " · Refreshing fixture library…";
+        if (state_.library_loading) view_.subtitle += live() ? " · Refreshing library…" : " · Refreshing fixture library…";
         const std::size_t window_size = 24;
         const std::size_t selected = static_cast<std::size_t>(std::max(0, state_.navigation.selected_index));
         view_.first_index = games.size() <= window_size ? 0 : std::min(selected > window_size / 2 ? selected - window_size / 2 : 0, games.size() - window_size);
@@ -1084,7 +1195,7 @@ void Simulation::rebuild_view() {
         primary.enabled = true;
         row("details-favorite", RowKind::Toggle, "Favorite", "favorite").selected = game && state_.library.favorites.contains(game->id);
         row("details-settings", RowKind::Action, "Game settings", "game-settings");
-        row("details-simulate-launch", RowKind::Action, "Simulate launch", "launch");
+        if (!live()) row("details-simulate-launch", RowKind::Action, "Simulate launch", "launch");
         row("details-more", RowKind::Action, "More", "context");
         view_.legends = {"Cross Select", "Options Actions", "Circle Back"};
     } else if (state_.navigation.route == Route::Downloads) {
@@ -1106,16 +1217,21 @@ void Simulation::rebuild_view() {
         view_.legends = {"Cross Actions", "Options Actions", "L1/R1 Sections"};
     } else if (state_.navigation.route == Route::Settings) {
         view_.title = "Settings";
+        if (live()) view_.subtitle = state_.account.error;
         row("settings-account", RowKind::Action, "Account", "account").value = state_.account.display_name;
-        row("settings-storage", RowKind::Action, "Library and storage", "storage-manager");
+        auto& storage = row("settings-storage", live() ? RowKind::Status : RowKind::Action, "Library and storage", live() ? "" : "storage-manager");
+        if (live()) { storage.subtitle = "Available after library integration"; storage.enabled = false; }
         row("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion").selected = state_.reduced_motion;
         row("settings-controller", RowKind::Action, "Controller", "controller-test").value = state_.controller_connected ? "Connected" : "Disconnected";
         auto& runtime = row("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
-        runtime.value = state_.runtime == RuntimeState::Ready ? "Ready — simulated" : state_.runtime == RuntimeState::Checking ? "Checking — simulated" : state_.runtime == RuntimeState::Failed ? "Failed — simulated" : "Unavailable — simulated";
-        row("settings-simulation", RowKind::Action, "Simulation controls", "simulation-controls");
-        row("settings-scenarios", RowKind::Action, "Fixture scenarios", "scenario-picker");
+        runtime.value = state_.runtime == RuntimeState::Ready ? (live() ? "Ready" : "Ready — simulated") : state_.runtime == RuntimeState::Checking ? (live() ? "Checking" : "Checking — simulated") : state_.runtime == RuntimeState::Failed ? (live() ? "Failed" : "Failed — simulated") : (live() ? "Unavailable" : "Unavailable — simulated");
+        if (!live()) {
+            row("settings-simulation", RowKind::Action, "Simulation controls", "simulation-controls");
+            row("settings-scenarios", RowKind::Action, "Fixture scenarios", "scenario-picker");
+        }
         row("settings-about", RowKind::Action, "About", "about");
-        row("settings-logs", RowKind::Action, "Logs", "logs");
+        auto& logs = row("settings-logs", live() ? RowKind::Status : RowKind::Action, "Logs", live() ? "" : "logs");
+        if (live()) { logs.subtitle = "No operation logs available"; logs.enabled = false; runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false; }
         if (!state_.notices.empty()) row("settings-notices", RowKind::Action, "Warnings", "notices").value = std::to_string(state_.notices.size());
         row("settings-reset", RowKind::Action, "Reset UI data", "reset-confirm").dangerous = true;
         if (state_.account.authentication != AuthState::SignedOut)
@@ -1255,6 +1371,7 @@ void Simulation::cancel() {
         return;
     }
     if (state_.navigation.route == Route::SignIn) {
+        if (live()) queue_service_action(ServiceAction::CancelQr);
         cancelled_challenge_generation_ = challenge_generation_;
         state_.account.authentication = AuthState::Cancelled;
         state_.navigation.route = Route::Startup;
@@ -1365,7 +1482,16 @@ void Simulation::activate() {
     const ViewRow selected = view_.rows[static_cast<std::size_t>(index)];
     if (!selected.enabled) return;
     const auto& action_name = selected.action;
-    if (action_name == "connect" || action_name == "qr-retry" || action_name == "qr-refresh") scenario("qr-waiting");
+    if (action_name == "connect" || action_name == "qr-retry" || action_name == "qr-refresh") {
+        if (live()) {
+            queue_service_action(ServiceAction::BeginQr);
+            state_.account.authentication = AuthState::Waiting;
+            state_.account.challenge_url.clear();
+            state_.account.error.clear();
+            state_.navigation.route = Route::SignIn;
+            state_.navigation.focus_key = "qr-cancel";
+        } else scenario("qr-waiting");
+    }
     else if (action_name == "retry-save") { state_.persistence_available = true; save_profile(); }
     else if (action_name == "continue-without-saving") { state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(), [](const Notice& notice) { return notice.id == "persistence"; }), state_.notices.end()); state_.navigation.route = Route::Home; }
     else if (action_name == "skip" || action_name == "library") { state_.navigation.route = action_name == "skip" ? Route::Home : Route::Library; state_.navigation.focus_key.clear(); }
@@ -1510,11 +1636,17 @@ void Simulation::activate() {
                 state_.navigation.focus_key = "job-" + (has_duplicate ? existing_id : state_.jobs.back().id);
             }
         }
-        else if (pending_destructive_action_ == "signout-confirm") { state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear(); state_.account.cache_available = false; state_.library = {}; clear_profile_customizations(state_); state_.navigation.route = Route::Startup; }
+        else if (pending_destructive_action_ == "signout-confirm") {
+            if (live()) { queue_service_action(ServiceAction::SignOut); state_.account.authentication = AuthState::SigningOut; }
+            else { state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear(); state_.account.cache_available = false; state_.library = {}; clear_profile_customizations(state_); state_.navigation.route = Route::Startup; }
+        }
         else if (pending_destructive_action_ == "account-switch") {
-            state_.library = {}; clear_profile_customizations(state_); state_.account = {};
-            state_.account.authentication = AuthState::Waiting; state_.account.challenge_expiry = state_.clock_ticks + 30;
-            ++challenge_generation_; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel";
+            if (live()) { queue_service_action(ServiceAction::SwitchAccount); state_.account.authentication = AuthState::SigningOut; }
+            else {
+                state_.library = {}; clear_profile_customizations(state_); state_.account = {};
+                state_.account.authentication = AuthState::Waiting; state_.account.challenge_expiry = state_.clock_ticks + 30;
+                ++challenge_generation_; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel";
+            }
         }
         else if (pending_destructive_action_ == "reset-confirm") { const auto installs = state_.installations; state_.library = {}; state_.installations = installs; clear_profile_customizations(state_); state_.reduced_motion = false; }
         else if (pending_destructive_action_ == "quit-game") { state_.session = SessionState::Stopping; state_.navigation.route = Route::Session; }
@@ -1638,7 +1770,7 @@ void Simulation::activate() {
         {"inject-qr-approved", "inject-qr-expired", "inject-qr-failure", "inject-qr-denied", "advance-clock", "cancel"}, 0, false});
     else if (action_name == "simulation-controls") open_modal({"simulation-controls", "Simulation controls", state_.navigation.focus_key,
         {"advance-clock", "inject-download-failed", "inject-verification-failed", "inject-uninstall-failed", "inject-storage-disconnect", "inject-storage-reconnect", "inject-controller-disconnect", "inject-controller-reconnect", "inject-launch-failure", "inject-stop-failure", "inject-runtime-failed", "inject-save-failure", "inject-logs-loading", "inject-logs-empty", "inject-logs-failure", "inject-logs-ready", "inject-delayed-art", "inject-failed-art", "inject-library-refresh", "inject-startup-loading", "cancel"}, 0, false});
-    else if (action_name == "about") open_modal({"about", "About Playden UI simulation", state_.navigation.focus_key,
+    else if (action_name == "about") open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", state_.navigation.focus_key,
         {"about-build", "about-framework", "about-platform", "about-back"}, 0, false});
     else if (action_name == "about-back") close_modal();
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
@@ -1676,8 +1808,12 @@ void Simulation::activate() {
         actions.push_back("cancel");
         open_modal({"account", state_.account.display_name.empty() ? "Account" : state_.account.display_name, state_.navigation.focus_key, std::move(actions), 0, false});
     }
-    else if (action_name == "account-sync") { close_modal(); state_.account.authentication = AuthState::Syncing; state_.library_syncing = true; state_.navigation.route = Route::Home; }
-    else if (action_name == "account-recover") { state_.navigation.modals.clear(); scenario("qr-waiting"); }
+    else if (action_name == "account-sync") { close_modal(); state_.account.authentication = AuthState::Syncing; state_.library_syncing = true; state_.navigation.route = Route::Home; if (live()) queue_service_action(ServiceAction::RefreshLibrary); }
+    else if (action_name == "account-recover") {
+        state_.navigation.modals.clear();
+        if (live()) { queue_service_action(ServiceAction::BeginQr); state_.account.authentication = AuthState::Waiting; state_.account.challenge_url.clear(); state_.account.error.clear(); state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel"; }
+        else scenario("qr-waiting");
+    }
     else if (action_name == "account-switch") { pending_destructive_action_ = "account-switch"; open_modal({"confirmation", "Switch account? Current account cache will be cleared.", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true}); }
 }
 
@@ -1696,6 +1832,39 @@ bool Simulation::action(const std::string& logical_action) {
     else if (logical_action == "l2") state_.controller.l2 = 1.0F;
     else if (logical_action == "r2") state_.controller.r2 = 1.0F;
     else if (logical_action == "options") state_.controller.options = true;
+    if (live()) {
+        if (logical_action == "connect" || logical_action == "qr-retry" || logical_action == "qr-refresh") {
+            queue_service_action(ServiceAction::BeginQr);
+            state_.account.authentication = AuthState::Waiting;
+            state_.account.challenge_url.clear(); state_.account.error.clear();
+            state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel";
+            rebuild_view(); return true;
+        }
+        if (logical_action == "qr-cancel") {
+            queue_service_action(ServiceAction::CancelQr);
+            state_.account.authentication = AuthState::Cancelled;
+            state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
+            rebuild_view(); return true;
+        }
+        if (logical_action == "account-sync" || logical_action == "refresh-library") {
+            queue_service_action(ServiceAction::RefreshLibrary);
+            state_.account.authentication = AuthState::Syncing; state_.library_syncing = true;
+            rebuild_view(); return true;
+        }
+        if (logical_action == "signout" || logical_action == "account-switch") {
+            queue_service_action(logical_action == "signout" ? ServiceAction::SignOut : ServiceAction::SwitchAccount);
+            state_.account.authentication = AuthState::SigningOut;
+            rebuild_view(); return true;
+        }
+        const bool synthetic = logical_action.rfind("scenario:", 0) == 0 || logical_action.rfind("inject:", 0) == 0
+            || logical_action.rfind("route:", 0) == 0 || logical_action.rfind("install:", 0) == 0
+            || logical_action.rfind("job:", 0) == 0 || logical_action.rfind("session:", 0) == 0
+            || logical_action == "advance-clock" || logical_action == "simulation-controls"
+            || logical_action == "scenario-picker" || logical_action == "session-fixture-controls"
+            || logical_action == "qr-fixture-controls" || logical_action == "logs-fixture-controls"
+            || logical_action == "launch" || logical_action == "runtime-retry";
+        if (synthetic) return false;
+    }
     if (logical_action.rfind("collection:create:", 0) == 0) {
         const auto name = trimmed(logical_action.substr(18));
         if (name.empty() || std::any_of(state_.library.collections.begin(), state_.library.collections.end(), [&name](const Collection& value) { return value.name == name; })) return false;
@@ -2008,6 +2177,10 @@ void Simulation::advance_jobs() {
 }
 
 void Simulation::tick(int ticks) {
+    if (live()) {
+        rebuild_view();
+        return;
+    }
     for (int index = 0; index < std::max(0, ticks); ++index) {
         if (!state_.screenshot_mode) {
             ++state_.clock_ticks;
@@ -2043,7 +2216,7 @@ void Simulation::tick(int ticks) {
 std::string Simulation::snapshot() const {
     StringBuilder output;
     const auto visible = visible_games();
-    output << "{\"simulation\":true,\"clock\":" << state_.clock_ticks << ",\"route\":\""
+    output << "{\"simulation\":" << (state_.simulation_mode ? "true" : "false") << ",\"clock\":" << state_.clock_ticks << ",\"route\":\""
            << route_name(state_.navigation.route) << "\",\"surface\":\"" << json::escape(view_.surface)
            << "\",\"focus\":\"" << json::escape(state_.navigation.focus_key) << "\",\"selected_game_id\":"
            << state_.navigation.selected_game_id << ",\"account\":\"" << auth_name(state_.account.authentication)

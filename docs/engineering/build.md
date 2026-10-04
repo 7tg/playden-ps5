@@ -13,11 +13,34 @@ ctest --preset homebrew-host --output-on-failure
 build/homebrew-host/playden-homebrew
 ```
 
-The selected test preset includes the Hui behavior checks plus `library_query`, `library_cache`, `proto_wire`, `auth_messages`, `steam_json`, `token_claims`, `http_client`, `auth_client`, `session_store`, and `steam_auth`. The HTTP check uses a local TLS fixture with its own test CA; it does not contact Steam. Runtime trust is separate: `build/homebrew-host/trust/cacert.pem` is copied from the pinned curl 8.22/Mbed TLS dependency prefix.
+The host starts in live-service mode and stores the private Steam session under
+`build/homebrew-host/playden-data` by default. Use `--data-dir PATH` to select another live
+storage root. Fixture profiles, replays, captures, snapshots, recordings, and headless runs are
+available only in an explicit simulation context, for example:
+
+```sh
+build/homebrew-host/playden-homebrew --simulation --scenario signed-out
+build/homebrew-host/playden-homebrew --scenario qr-waiting --capture build/homebrew-host/qr.png
+```
+
+`--profile` configures simulation presentation state; it is never read as a credential file.
+State-dump options are rejected in live mode so an active QR challenge or account identity cannot
+enter generic comparison evidence.
+
+The selected test preset includes the Hui behavior checks, live model/controller/session/redaction/QR
+checks, plus `library_query`, `library_cache`, `proto_wire`, `auth_messages`, `steam_json`,
+`token_claims`, `http_client`, `auth_client`, `session_store`, and `steam_auth`. The HTTP check uses a
+local TLS fixture with its own test CA; it does not contact Steam. Runtime trust is separate:
+`build/homebrew-host/trust/cacert.pem` is copied from the pinned curl 8.22/Mbed TLS dependency
+prefix. The vendored Nayuki QR C sources and MIT license are pinned by exact hash in
+`dependencies.lock.json`.
 
 The selected build rejects a Hui revision mismatch, unexpected files in its isolated patched checkout, modified patch files, modified font/license inputs, a modified `stb_image.h`, and mismatched curl headers, transport archives, or CA bundle. If the pinned HTTP dependencies are absent, `scripts/build-homebrew.sh` prepares them from source archives whose hashes are recorded in `dependencies.lock.json`.
 
-The direct UI still runs in its explicit simulation mode. Linking these production backend targets and trust assets does not activate QR sign-in or real library startup; that lifecycle wiring belongs to task 4A.1.
+The direct UI constructs the verified HTTP authentication backend, lazy private session repository,
+and asynchronous service controller only in live mode. Service work is drained before drawing and
+is canceled and joined before graphics teardown. Owned-library retrieval remains a later stage, so
+a successful sign-in does not synthesize an empty or fixture library.
 
 ## Selected PS5 build-only package
 
@@ -26,6 +49,17 @@ scripts/build-homebrew-ps5.sh
 ```
 
 This first verifies the exact prepared Hui checkout and refreshes every font atlas from its pinned baker, font files, and current catalog. It then configures the selected cross-build with the allocated `FAKE77031` title ID, links the same backend foundations against the pinned PS5 curl 8.22/Mbed TLS archives, copies `trust/cacert.pem` into the title, and writes `build/homebrew-ps5/dist/FAKE77031`. `PLAYDEN_HUI_SOURCE_DIR` continues to select an alternate prepared checkout at the pinned revision; the font refresh validates it without applying patches or otherwise modifying it. The script does not discover, upload to, launch, or otherwise contact a console. A successful package is build evidence only.
+
+Normal packages start live, use `/app0/playden-data` through the worker-owned session repository,
+and do not contain scenario, profile, replay, or synthetic-library files. A developer-only
+simulation package is explicit:
+
+```sh
+PLAYDEN_UI_SIMULATION=ON scripts/build-homebrew-ps5.sh
+```
+
+That switch packages the comparison fixtures and starts the same presentation in labelled
+simulation mode. It does not change the default package or contact a console.
 
 The PS5 custom link depends on every backend archive and pinned curl/TLS archive, and packaging depends directly on the CA bundle. Changes therefore relink or restage the title without requiring a clean build.
 

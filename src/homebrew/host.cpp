@@ -4,8 +4,12 @@
 
 #include "homebrew/render.hpp"
 #include "homebrew/simulation.hpp"
+#include "homebrew/controller.hpp"
 #include "homebrew/input_adapter.hpp"
 #include "homebrew/json.hpp"
+
+#include "steam/backend/auth_client.h"
+#include "steam/local_session_repository.h"
 
 #include "core/input.hpp"
 #include "gfx/gl.hpp"
@@ -30,6 +34,7 @@ namespace {
 struct Options {
     std::string scenario;
     std::filesystem::path profile = PLAYDEN_HOMEBREW_DEFAULT_PROFILE;
+    std::filesystem::path data_directory = PLAYDEN_HOMEBREW_DEFAULT_DATA_DIR;
     std::filesystem::path replay;
     std::filesystem::path capture;
     std::filesystem::path snapshot;
@@ -38,11 +43,13 @@ struct Options {
     int height = 1080;
     bool headless = false;
     bool record_motion = false;
+    bool simulation = false;
 };
 
 void usage(const char* executable) {
     std::fprintf(stderr,
-                 "usage: %s [--scenario ID] [--profile PATH] [--replay PATH]\n"
+                 "usage: %s [--simulation] [--scenario ID] [--profile PATH] [--replay PATH]\n"
+                 "          [--data-dir PATH]\n"
                  "          [--capture PATH.png] [--snapshot PATH|-] [--record-dir PATH] [--headless]\n"
                  "          [--width PX] [--height PX] [--record-motion]\n",
                  executable);
@@ -66,6 +73,10 @@ std::optional<Options> parse_options(int argc, char** argv) {
             options.headless = true;
             continue;
         }
+        if (option == "--simulation") {
+            options.simulation = true;
+            continue;
+        }
         if (option == "--record-motion") {
             options.record_motion = true;
             continue;
@@ -79,12 +90,17 @@ std::optional<Options> parse_options(int argc, char** argv) {
             return std::nullopt;
         }
         const char* argument = argv[++index];
-        if (option == "--scenario")
+        if (option == "--scenario") {
             options.scenario = argument;
-        else if (option == "--profile")
+            options.simulation = true;
+        } else if (option == "--profile") {
             options.profile = argument;
-        else if (option == "--replay")
+            options.simulation = true;
+        } else if (option == "--replay") {
             options.replay = argument;
+            options.simulation = true;
+        } else if (option == "--data-dir")
+            options.data_directory = argument;
         else if (option == "--capture")
             options.capture = argument;
         else if (option == "--snapshot")
@@ -101,6 +117,13 @@ std::optional<Options> parse_options(int argc, char** argv) {
         }
     }
     if (!options.capture.empty() || !options.recording.empty()) options.headless = true;
+    const bool exposes_simulation_state = options.headless || !options.capture.empty() ||
+        !options.snapshot.empty() || !options.recording.empty() || options.record_motion;
+    if (exposes_simulation_state && !options.simulation) {
+        std::fprintf(stderr, "capture, snapshot, recording, and headless options require --simulation\n");
+        usage(argv[0]);
+        return std::nullopt;
+    }
     return options;
 }
 
@@ -331,7 +354,15 @@ int main(int argc, char** argv) {
     const auto options = parse_options(argc, argv);
     if (!options) return 2;
 
-    playden::homebrew::Simulation simulation(PLAYDEN_HOMEBREW_FIXTURES_DIR, options->profile);
+    const auto mode = options->simulation ? playden::homebrew::ModelMode::Simulation
+                                          : playden::homebrew::ModelMode::Live;
+    playden::homebrew::Simulation simulation(
+        options->simulation ? std::filesystem::path(PLAYDEN_HOMEBREW_FIXTURES_DIR)
+                            : std::filesystem::path{},
+        options->simulation ? options->profile : std::filesystem::path{}, mode);
+    std::unique_ptr<playden::steam::AuthClient> auth;
+    std::unique_ptr<playden::LocalSessionRepository> sessions;
+    std::unique_ptr<playden::homebrew::Controller> services;
     if (!options->scenario.empty() && !simulation.scenario(options->scenario)) {
         std::fprintf(stderr, "%s\n", simulation.last_error().c_str());
         return 2;
@@ -364,6 +395,13 @@ int main(int argc, char** argv) {
     }
     SDL_GL_SetSwapInterval(options->headless ? 0 : 1);
     hui::gfx::set_glsl_prefix("#version 410 core\n");
+
+    if (!options->simulation) {
+        auth = std::make_unique<playden::steam::AuthClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        sessions = std::make_unique<playden::LocalSessionRepository>(
+            options->data_directory.string());
+        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions);
+    }
 
     auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR);
     if (!options->capture.empty() && options->recording.empty()) {
@@ -445,7 +483,7 @@ int main(int argc, char** argv) {
         const hui::PadSample pad = controller_sample(controller, now_us);
         const auto input = controller_input.update(std::span(&pad, 1), now_us);
         if (!options->headless && input.connected != was_connected) {
-            simulation.action(input.connected ? "inject:controller-reconnect" : "inject:controller-disconnect");
+            simulation.SetControllerConnected(input.connected);
             was_connected = input.connected;
         }
         apply_input(simulation, input);
@@ -470,6 +508,7 @@ int main(int argc, char** argv) {
         const float frame_dt = last_render_us == 0 ? 1.0F / 60.0F :
             static_cast<float>(now_us - last_render_us) / 1000000.0F;
         last_render_us = now_us;
+        if (services) services->Tick();
         render->draw(simulation, width, height, options->headless ? 1.0F / 60.0F : frame_dt);
         rendered_once = true;
         if (simulation.state().quit_requested) running = false;
@@ -498,6 +537,7 @@ int main(int argc, char** argv) {
     const bool snapshot_written = write_snapshot(simulation, options->snapshot);
     if (controller) SDL_GameControllerClose(controller);
     SDL_StopTextInput();
+    if (services) services->Shutdown();
     render.reset();
     SDL_GL_DeleteContext(context);
     SDL_DestroyWindow(window);

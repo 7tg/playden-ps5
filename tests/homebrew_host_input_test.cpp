@@ -14,6 +14,40 @@ static void require(bool okay, const char* message) {
 
 int main(int argc, char** argv) {
     require(argc == 2, "fixture directory argument");
+
+    {
+        char program[] = "playden-homebrew";
+        char* live_argv[] = {program};
+        const auto live = parse_options(1, live_argv);
+        require(live && !live->simulation, "host defaults to live services");
+
+        char simulation_flag[] = "--simulation";
+        char* simulation_argv[] = {program, simulation_flag};
+        const auto explicit_simulation = parse_options(2, simulation_argv);
+        require(explicit_simulation && explicit_simulation->simulation,
+                "explicit simulation mode is accepted");
+
+        char snapshot_flag[] = "--snapshot";
+        char snapshot_path[] = "-";
+        char* live_snapshot_argv[] = {program, snapshot_flag, snapshot_path};
+        require(!parse_options(3, live_snapshot_argv),
+                "live mode rejects state snapshots");
+
+        char scenario_flag[] = "--scenario";
+        char scenario_name[] = "signed-in";
+        char* scenario_argv[] = {program, scenario_flag, scenario_name};
+        const auto scenario = parse_options(3, scenario_argv);
+        require(scenario && scenario->simulation,
+                "scenario selection explicitly chooses simulation");
+
+        char data_flag[] = "--data-dir";
+        char data_path[] = "/tmp/playden-live-data";
+        char* data_argv[] = {program, data_flag, data_path};
+        const auto data = parse_options(3, data_argv);
+        require(data && !data->simulation && data->data_directory == data_path,
+                "live data directory is independent from fixture profiles");
+    }
+
     const auto profile = std::filesystem::temp_directory_path() / ("playden-hui-host-input-test-" + std::to_string(getpid()) + ".json");
     std::error_code error;
     std::filesystem::remove(profile, error);

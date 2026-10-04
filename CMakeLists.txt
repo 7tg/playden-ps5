@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(PlaydenLauncher VERSION 0.1.0 LANGUAGES C CXX)
 
 option(PLAYDEN_HOMEBREW_UI "Build the selected direct Hui presentation" OFF)
+option(PLAYDEN_UI_SIMULATION "Package selected PS5 UI with developer simulation fixtures" OFF)
 set(PLAYDEN_CAPTURE_AFTER_SECONDS "0" CACHE STRING "Explicit native framebuffer capture time; 0 disables")
 option(PLAYDEN_MSAA_PROBE "Run a bounded native 4/0/4 MSAA comparison" OFF)
 option(PLAYDEN_STEAM_NETWORK_PROBE "Run credential-free native network probe instead of UI" OFF)

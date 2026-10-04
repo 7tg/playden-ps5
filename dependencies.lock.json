@@ -148,5 +148,16 @@
       "src/gfx/gl.hpp": "ecbca1f585e2dcddb9a3ac02d33acea9613a6f4bf5c393f53bf5e86c6abea98f",
       "tools/font-baker/bake_font.cpp": "610b17f80c217329ad25977f63f8367ce3b55ee78354485f28164001eb9fa316"
     }
+  },
+  "qrcodegen": {
+    "source": "https://github.com/nayuki/QR-Code-generator",
+    "revision": "3c6d0b3cefb4e049dc337e82237c9644399716a8",
+    "license": "MIT",
+    "files": {
+      "qrcodegen.c": "6a2b9cc65176f2345dde260c74b6d352627e8a0a6385d086ae0e9c5d0913c70c",
+      "qrcodegen.h": "e82df4bff37d18b5863b9e7486fe6bda1b6cda8c3b9ecebfec473907265cb589",
+      "LICENSE": "f97d5844abb82e8548ed0ac82374e31bc17562b20584f395bd8ae0935044caca",
+      "README.md": "414777ae32f259704c25485f3af95a372e6075d137418fa3e6c58c206b0d5f10"
+    }
   }
 }

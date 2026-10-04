@@ -204,14 +204,16 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 ### 4A.1 Existing account/QR surfaces backed by real services
 
+Implementation is host-verified (27/27 selected tests) with real QR decoder round-trips and local PS5 packaging. Native account acceptance remains open; account-scoped production preferences follow in 4B. See the execution ledger for evidence and limits.
+
 **Files:** Create `src/homebrew/controller.{hpp,cpp}`, `tests/homebrew_account_test.cpp`; modify `src/homebrew/{simulation.hpp,simulation.cpp,render.hpp,view.cpp,host.cpp,ps5.cpp}` only at the state/service boundary. Add a pinned QR encoder if the selected kit lacks one.
 
 **Interfaces:** `Controller::Tick()` drains a bounded number of `SteamService::Pump()` events; UI actions issue `BeginQrSignIn()`, `Cancel(RequestId)`, `RestoreSession()`, and `SignOut()`. Carry request ID and account generation into all presentation updates. Refactor `Render::draw(Simulation&, ...)` to consume shared presentation state/projections if needed; both production and simulation must use the same screens and navigation logic.
 
-- [ ] Extract an explicit production/service mode. Normal startup loads no fixture account, catalog, installs, jobs, runtime readiness or synthetic challenges. Scenario/replay/injection controls remain available only in labelled simulation mode with separate persistence.
-- [ ] Use the earlier validated `/app0/playden-data` adapter with a fresh availability/private-write check in the selected native entry point; do not treat `/app0/playden-hui-comparison/profile.json` as credential storage. Fail safely on unavailable storage/networking, surface initialization errors, and cancel/join service work before renderer/display shutdown.
-- [ ] Bind existing QR waiting/expired/retry/cancel and Settings account actions to real events. Encode a real challenge with a tested decoder round-trip; replace/clear its private buffer and rendered QR on retry, cancellation, expiry and sign-out.
-- [ ] Test stale approvals, replacement challenges, late cancellation, restore failures, and storage errors against the view state. Preserve safe modal defaults, opener focus, reduced motion, and controller-only access.
+- [x] Extract an explicit production/service mode. Normal startup loads no fixture account, catalog, installs, jobs, runtime readiness or synthetic challenges. Scenario/replay/injection controls remain available only in labelled simulation mode with separate persistence.
+- [x] Use the earlier validated `/app0/playden-data` adapter with a fresh availability/private-write check in the selected native entry point; do not treat `/app0/playden-hui-comparison/profile.json` as credential storage. Fail safely on unavailable storage/networking, surface initialization errors, and cancel/join service work before renderer/display shutdown.
+- [x] Bind existing QR waiting/expired/retry/cancel and Settings account actions to real events. Encode a real challenge with a tested decoder round-trip; replace/clear its private buffer and rendered QR on retry, cancellation, expiry and sign-out.
+- [x] Test stale approvals, replacement challenges, late cancellation, restore failures, and storage errors against the view state. Preserve safe modal defaults, opener focus, reduced motion, and controller-only access.
 - [ ] Do not restore authentication from simulation `profile.json`. Keep secrets in `SessionStore`; scope real user annotations/settings that belong to an account to that account. Dispatch persistence away from rendering. A failed clear must remain an explicit failure, not a successful sign-out.
 - [ ] Build and inspect the actual selected graphical host. After coordination, verify phone approval from a PS5-issued QR, clean restart restoration, cancellation, and sign-out on `FAKE77031`; publish only sanitized status evidence.
 - [ ] Review and commit the account integration with remaining native checks explicitly identified.

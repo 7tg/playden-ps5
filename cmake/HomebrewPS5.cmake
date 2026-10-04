@@ -75,10 +75,13 @@ function(playden_add_homebrew_ps5_title)
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/pad.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/system.cpp")
     target_include_directories(playden_ps5_app PRIVATE "${gl_sdk}/include" "${PLAYDEN_HUI_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src")
-    target_compile_definitions(playden_ps5_app PRIVATE GL_GLEXT_PROTOTYPES=1 PLAYDEN_PS5_TITLE_ID="${PLAYDEN_PS5_TITLE_ID}")
+    target_compile_definitions(playden_ps5_app PRIVATE GL_GLEXT_PROTOTYPES=1
+        PLAYDEN_PS5_TITLE_ID="${PLAYDEN_PS5_TITLE_ID}"
+        PLAYDEN_UI_SIMULATION=$<BOOL:${PLAYDEN_UI_SIMULATION}>)
     target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti)
     target_compile_features(playden_ps5_app PRIVATE cxx_std_20)
-    target_link_libraries(playden_ps5_app PRIVATE playden_hui playden_library playden_steam_auth)
+    target_link_libraries(playden_ps5_app PRIVATE playden_hui playden_library playden_steam_auth
+        playden_homebrew_controller playden_local_session_repository)
 
 	set(host_tool "${host}/ps5-native-tool")
 	set(libc_prx "${host}/libc.prx")
@@ -101,6 +104,8 @@ function(playden_add_homebrew_ps5_title)
 			--start-group "${gl_sdk}/lib/libPS5OpenGL.a" "${sdk}/target/lib/libunwind.a"
 			"${sdk}/target/lib/libc++abi.a" "${sdk}/target/lib/libc++.a"
 			"${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_hui> $<TARGET_FILE:playden_homebrew_ui> $<TARGET_FILE:playden_homebrew_model>
+			$<TARGET_FILE:playden_homebrew_qr> $<TARGET_FILE:playden_homebrew_controller>
+			$<TARGET_FILE:playden_local_session_repository> $<TARGET_FILE:playden_auth_diagnostics>
 			$<TARGET_FILE:playden_steam_http> $<TARGET_FILE:playden_steam_protocol>
 			$<TARGET_FILE:playden_steam_auth>
 			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_storage>
@@ -109,6 +114,7 @@ function(playden_add_homebrew_ps5_title)
 			--end-group --as-needed ${link_stubs}
 		WORKING_DIRECTORY "${out}/link"
 		DEPENDS playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui playden_homebrew_model
+			playden_homebrew_qr playden_homebrew_controller playden_local_session_repository playden_auth_diagnostics
 			playden_library playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_storage
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
 			$<TARGET_OBJECTS:playden_ps5_app>
@@ -116,22 +122,39 @@ function(playden_add_homebrew_ps5_title)
 			$<TARGET_FILE:playden_steam_auth>
 			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_storage>
 			$<TARGET_FILE:playden_library>
+			$<TARGET_FILE:playden_homebrew_qr> $<TARGET_FILE:playden_homebrew_controller>
+			$<TARGET_FILE:playden_local_session_repository> $<TARGET_FILE:playden_auth_diagnostics>
 			"${gl_source}/native-app/ps5-pie.ld" "${gl_source}/native-app/app-symbols.map"
 			"${gl_sdk}/lib/libPS5OpenGL.a" "${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a"
 			${PLAYDEN_STEAM_LINK_ARCHIVES}
 		COMMAND_EXPAND_LISTS VERBATIM)
 
 	set(stamp "${app}/.packaged")
-	file(GLOB_RECURSE package_inputs CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/*" "${CMAKE_SOURCE_DIR}/build/homebrew-fonts/*")
+	file(GLOB_RECURSE package_inputs CONFIGURE_DEPENDS
+		"${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets/*"
+		"${CMAKE_SOURCE_DIR}/build/homebrew-fonts/*")
+	set(simulation_package_commands)
+	set(playden_title_name "Playden")
+	if(PLAYDEN_UI_SIMULATION)
+		set(playden_title_name "Playden UI Simulation")
+		file(GLOB_RECURSE simulation_inputs CONFIGURE_DEPENDS
+			"${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/*"
+			"${CMAKE_SOURCE_DIR}/fixtures/library.json")
+		list(APPEND package_inputs ${simulation_inputs})
+		set(simulation_package_commands
+			COMMAND "${CMAKE_COMMAND}" -E copy_directory
+				"${CMAKE_SOURCE_DIR}/fixtures/ui-comparison" "${app}/fixtures/ui-comparison"
+			COMMAND "${CMAKE_COMMAND}" -E copy
+				"${CMAKE_SOURCE_DIR}/fixtures/library.json" "${app}/fixtures/library.json")
+	endif()
 	add_custom_command(OUTPUT "${stamp}"
 		COMMAND "${host_tool}" link --in "${pie}" --out "${out}/eboot.elf" --stub-dir "${out}/stubs"
 			--module-sdk 0x02000009 --companion-sdk 0x08050001 --file-name eboot.elf
 		COMMAND "${CMAKE_COMMAND}" -DAPP_DIR=${app} -DBOILERPLATE=${boilerplate}
 			-DASSETS_DIR=${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets -DFONTS_DIR=${CMAKE_SOURCE_DIR}/build/homebrew-fonts
 			-DPARAM_SOURCE=${gl_source}/native-app/param.json -DPARAM_DEST=${app}/sce_sys/param.json
-			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=Playden Hui Comparison" -P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison" "${app}/fixtures/ui-comparison"
-        COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_SOURCE_DIR}/fixtures/library.json" "${app}/fixtures/library.json"
+			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=${playden_title_name}" -P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
+		${simulation_package_commands}
 		COMMAND "${CMAKE_COMMAND}" -E make_directory "${app}/trust"
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PLAYDEN_STEAM_CA_BUNDLE}" "${app}/trust/cacert.pem"
 		COMMAND "${host_tool}" self --sign --in "${out}/eboot.elf" --out "${app}/eboot.bin" --magic 0x1D3D154F

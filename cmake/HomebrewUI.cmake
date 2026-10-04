@@ -141,11 +141,48 @@ add_library(playden_homebrew_model STATIC
 target_compile_features(playden_homebrew_model PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_model PUBLIC "${CMAKE_SOURCE_DIR}/src")
 
+foreach(qr_file qrcodegen.c qrcodegen.h LICENSE README.md)
+    set(qr_path "${CMAKE_SOURCE_DIR}/third_party/qrcodegen/${qr_file}")
+    string(JSON expected_qr_hash GET "${playden_dependency_lock}" qrcodegen files "${qr_file}")
+    file(SHA256 "${qr_path}" actual_qr_hash)
+    if(NOT actual_qr_hash STREQUAL expected_qr_hash)
+        message(FATAL_ERROR "Pinned qrcodegen file hash mismatch: ${qr_file}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${qr_path}")
+endforeach()
+
+add_library(playden_homebrew_qr STATIC
+    "${CMAKE_SOURCE_DIR}/src/homebrew/qr.cpp"
+    "${CMAKE_SOURCE_DIR}/third_party/qrcodegen/qrcodegen.c")
+target_compile_features(playden_homebrew_qr PUBLIC cxx_std_20 PRIVATE c_std_99)
+target_include_directories(playden_homebrew_qr PUBLIC "${CMAKE_SOURCE_DIR}/src"
+    PRIVATE "${CMAKE_SOURCE_DIR}/third_party/qrcodegen")
+
+add_library(playden_auth_diagnostics STATIC
+    "${CMAKE_SOURCE_DIR}/src/diagnostics/redaction.cpp")
+target_compile_features(playden_auth_diagnostics PUBLIC cxx_std_17)
+target_include_directories(playden_auth_diagnostics PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(playden_auth_diagnostics PUBLIC playden_steam_core)
+
+add_library(playden_local_session_repository STATIC
+    "${CMAKE_SOURCE_DIR}/src/steam/local_session_repository.cpp")
+target_compile_features(playden_local_session_repository PUBLIC cxx_std_17)
+target_include_directories(playden_local_session_repository PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(playden_local_session_repository PUBLIC playden_steam_core)
+
+add_library(playden_homebrew_controller STATIC
+    "${CMAKE_SOURCE_DIR}/src/homebrew/controller.cpp")
+target_compile_features(playden_homebrew_controller PUBLIC cxx_std_20)
+target_include_directories(playden_homebrew_controller PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(playden_homebrew_controller PUBLIC
+    playden_homebrew_model playden_steam_core playden_auth_diagnostics)
+
 add_library(playden_homebrew_ui STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/view.cpp")
 target_compile_features(playden_homebrew_ui PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_ui PUBLIC "${CMAKE_SOURCE_DIR}/src")
-target_link_libraries(playden_homebrew_ui PUBLIC playden_homebrew_model playden_hui)
+target_link_libraries(playden_homebrew_ui PUBLIC
+    playden_homebrew_model playden_homebrew_qr playden_hui)
 
 if(PLAYDEN_PLATFORM_PS5)
     target_include_directories(playden_hui PUBLIC
@@ -153,6 +190,11 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_definitions(playden_hui PUBLIC GL_GLEXT_PROTOTYPES=1)
     target_compile_options(playden_hui PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_homebrew_model PUBLIC -fno-exceptions -fno-rtti)
+    target_compile_options(playden_homebrew_qr PUBLIC
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti>)
+    target_compile_options(playden_auth_diagnostics PUBLIC -fno-exceptions -fno-rtti)
+    target_compile_options(playden_local_session_repository PUBLIC -fno-exceptions -fno-rtti)
+    target_compile_options(playden_homebrew_controller PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_homebrew_ui PUBLIC -fno-exceptions -fno-rtti)
     include("${CMAKE_CURRENT_LIST_DIR}/HomebrewPS5.cmake")
     playden_add_homebrew_ps5_title()
@@ -259,9 +301,12 @@ target_compile_definitions(playden-homebrew PRIVATE
     GL_SILENCE_DEPRECATION=1
     PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}"
     PLAYDEN_HOMEBREW_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/fixtures/ui-comparison"
-    PLAYDEN_HOMEBREW_DEFAULT_PROFILE="${CMAKE_BINARY_DIR}/homebrew-profile.json")
+    PLAYDEN_HOMEBREW_DEFAULT_PROFILE="${CMAKE_BINARY_DIR}/homebrew-profile.json"
+    PLAYDEN_HOMEBREW_DEFAULT_DATA_DIR="${CMAKE_BINARY_DIR}/playden-data"
+    PLAYDEN_HOMEBREW_CA_BUNDLE="${playden_staged_ca}")
 target_link_libraries(playden-homebrew PRIVATE
-    playden_homebrew_ui playden_library playden_steam_auth PkgConfig::SDL2 OpenGL::GL)
+    playden_homebrew_ui playden_homebrew_controller playden_local_session_repository
+    playden_library playden_steam_auth PkgConfig::SDL2 OpenGL::GL)
 add_dependencies(playden-homebrew playden_homebrew_assets playden_steam_trust)
 set_target_properties(playden-homebrew PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -283,9 +328,13 @@ if(BUILD_TESTING)
     target_compile_features(homebrew_host_input_test PRIVATE cxx_std_20)
     target_compile_definitions(homebrew_host_input_test PRIVATE
         PLAYDEN_HOMEBREW_DEFAULT_PROFILE="unused"
+        PLAYDEN_HOMEBREW_DEFAULT_DATA_DIR="unused-live-data"
+        PLAYDEN_HOMEBREW_CA_BUNDLE="${playden_staged_ca}"
         PLAYDEN_HOMEBREW_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/fixtures/ui-comparison"
         PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
-    target_link_libraries(homebrew_host_input_test PRIVATE playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
+    target_link_libraries(homebrew_host_input_test PRIVATE playden_homebrew_ui
+        playden_homebrew_controller playden_local_session_repository playden_steam_auth
+        PkgConfig::SDL2 OpenGL::GL)
     add_test(NAME homebrew_host_input COMMAND homebrew_host_input_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
     add_executable(homebrew_browse_test "${CMAKE_SOURCE_DIR}/tests/homebrew_browse_test.cpp")
     target_compile_features(homebrew_browse_test PRIVATE cxx_std_20)
@@ -297,6 +346,43 @@ if(BUILD_TESTING)
     target_link_libraries(homebrew_simulation_test PRIVATE playden_homebrew_model)
     add_test(NAME homebrew_simulation
         COMMAND homebrew_simulation_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
+
+    add_executable(homebrew_live_model_test
+        "${CMAKE_SOURCE_DIR}/tests/homebrew_live_model_test.cpp")
+    target_compile_features(homebrew_live_model_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_live_model_test PRIVATE playden_homebrew_model)
+    add_test(NAME homebrew_live_model COMMAND homebrew_live_model_test)
+
+    add_executable(homebrew_account_test
+        "${CMAKE_SOURCE_DIR}/tests/homebrew_account_test.cpp")
+    target_compile_features(homebrew_account_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_account_test PRIVATE playden_homebrew_controller)
+    add_test(NAME homebrew_account COMMAND homebrew_account_test)
+
+    add_executable(local_session_repository_test
+        "${CMAKE_SOURCE_DIR}/tests/local_session_repository_test.cpp")
+    target_compile_features(local_session_repository_test PRIVATE cxx_std_17)
+    target_link_libraries(local_session_repository_test PRIVATE playden_local_session_repository)
+    add_test(NAME local_session_repository COMMAND local_session_repository_test)
+
+    add_executable(auth_redaction_test
+        "${CMAKE_SOURCE_DIR}/tests/auth_redaction_test.cpp")
+    target_compile_features(auth_redaction_test PRIVATE cxx_std_17)
+    target_link_libraries(auth_redaction_test PRIVATE playden_auth_diagnostics)
+    add_test(NAME auth_redaction COMMAND auth_redaction_test)
+
+    add_executable(homebrew_qr_test
+        "${CMAKE_SOURCE_DIR}/tests/homebrew_qr_test.cpp")
+    target_compile_features(homebrew_qr_test PRIVATE cxx_std_20)
+    target_compile_definitions(homebrew_qr_test PRIVATE
+        PLAYDEN_QR_GRAPHICAL_TEST=1
+        PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
+    target_link_libraries(homebrew_qr_test PRIVATE
+        playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
+    add_dependencies(homebrew_qr_test playden_homebrew_assets)
+    add_test(NAME homebrew_qr COMMAND homebrew_qr_test)
+    add_test(NAME homebrew_qr_graphical COMMAND homebrew_qr_test
+        "${CMAKE_BINARY_DIR}/qr-roundtrip.png" 1920 1080)
 
     add_executable(homebrew_font_atlas_test "${CMAKE_SOURCE_DIR}/tests/homebrew_font_atlas_test.cpp")
     target_compile_features(homebrew_font_atlas_test PRIVATE cxx_std_20)

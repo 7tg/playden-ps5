@@ -6,6 +6,7 @@
 
 #include "homebrew/browse.hpp"
 #include "homebrew/focus_motion.hpp"
+#include "homebrew/qr.hpp"
 #include "homebrew/simulation.hpp"
 
 #include "gfx/draw_list.hpp"
@@ -375,6 +376,7 @@ class Render::Impl
         stats_.native_width = width;
         stats_.native_height = height;
         const State &state = simulation.state();
+        update_qr_cache(state);
         focus_motion_.begin_frame(dt, state.reduced_motion);
         const ViewData &view = simulation.view();
         const ViewData &route_view = simulation.route_view();
@@ -756,7 +758,10 @@ class Render::Impl
             const gfx::Rect loading{96.0F, 520.0F, 560.0F, 112.0F};
             scene_.rounded_rect(loading, 10.0F, kPanel);
             scene_.circle(130.0F, 558.0F, 7.0F, kAccent);
-            ui::text(scene_, fonts_.semibold, "Loading saved fixture state…", 154.0F, 566.0F,
+            ui::text(scene_, fonts_.semibold,
+                     state.simulation_mode ? "Loading saved fixture state…" :
+                                             "Restoring your Steam session…",
+                     154.0F, 566.0F,
                      24.0F, kText);
             scene_.rounded_rect({128.0F, 594.0F, 496.0F, 6.0F}, 3.0F,
                                 kText.with_alpha(0.14F));
@@ -776,13 +781,37 @@ class Render::Impl
                                  kAccent.with_alpha(0.25F), kPanel);
         ui::text(scene_, fonts_.display, "YOUR GAMES", 1100.0F, 704.0F, 48.0F, kText);
         ui::text(scene_, fonts_.regular,
-                 state.startup_loading ? "Restoring local fixture…" :
+                 state.startup_loading ?
+                     (state.simulation_mode ? "Restoring local fixture…" : "Connecting securely…") :
                  state.persistence_available ? "Ready when you are." : "Browsing can continue without saving.",
                  1100.0F, 752.0F, 25.0F,
                  state.persistence_available || state.startup_loading ? kSecondary : kAmber);
     }
 
-    void draw_qr(float x, float y, float side)
+    void clear_qr_cache()
+    {
+        std::fill(cached_qr_url_.begin(), cached_qr_url_.end(), '\0');
+        std::string{}.swap(cached_qr_url_);
+        cached_qr_ = {};
+        cached_qr_error_.clear();
+    }
+
+    void update_qr_cache(const State &state)
+    {
+        const bool usable = state.account.authentication == AuthState::Waiting &&
+                            !state.account.challenge_url.empty();
+        if (!usable) {
+            clear_qr_cache();
+            return;
+        }
+        if (cached_qr_url_ == state.account.challenge_url)
+            return;
+        clear_qr_cache();
+        cached_qr_url_ = state.account.challenge_url;
+        cached_qr_ = encode_qr(cached_qr_url_, &cached_qr_error_);
+    }
+
+    void draw_simulated_qr(float x, float y, float side)
     {
         scene_.rounded_rect({x, y, side, side}, 16.0F, kText);
         constexpr int cells = 21;
@@ -803,18 +832,89 @@ class Render::Impl
         }
     }
 
+    bool draw_encoded_qr(float x, float y, int available_side)
+    {
+        const QrLayout layout = qr_layout(cached_qr_, available_side);
+        if (layout.module_pixels <= 0)
+            return false;
+        const float x0 = x + static_cast<float>(layout.offset_pixels);
+        const float y0 = y + static_cast<float>(layout.offset_pixels);
+        scene_.rounded_rect({x0, y0, static_cast<float>(layout.side_pixels),
+                             static_cast<float>(layout.side_pixels)},
+                            0.0F, kText);
+        for (int row = 0; row < cached_qr_.size(); ++row) {
+            for (int column = 0; column < cached_qr_.size();) {
+                if (!cached_qr_.at(column, row)) {
+                    ++column;
+                    continue;
+                }
+                int end = column + 1;
+                while (end < cached_qr_.size() && cached_qr_.at(end, row))
+                    ++end;
+                scene_.rounded_rect(
+                    {x0 + static_cast<float>((kQrQuietZoneModules + column) * layout.module_pixels),
+                     y0 + static_cast<float>((kQrQuietZoneModules + row) * layout.module_pixels),
+                     static_cast<float>((end - column) * layout.module_pixels),
+                     static_cast<float>(layout.module_pixels)},
+                    0.0F, kBackground);
+                column = end;
+            }
+        }
+        return true;
+    }
+
+    void draw_qr_placeholder(float x, float y, float side, std::string_view title,
+                             std::string_view detail)
+    {
+        scene_.rounded_rect({x, y, side, side}, 0.0F, kText);
+        ui::text(scene_, fonts_.display, title, x + side * 0.5F, y + side * 0.48F,
+                 30.0F, kBackground, gfx::Align::center);
+        ui::text(scene_, fonts_.regular, detail, x + side * 0.5F, y + side * 0.57F,
+                 20.0F, kBackground.with_alpha(0.78F), gfx::Align::center);
+    }
+
     void draw_sign_in(ui::Canvas &, const ViewData &view, const State &state)
     {
         section_label("Connect Steam", 96.0F, 78.0F);
         draw_title(view, 96.0F, 272.0F, 720.0F);
         draw_actions(view, 96.0F, 594.0F, 540.0F);
-        draw_qr(1116.0F, 224.0F, 430.0F);
-        scene_.rounded_rect({1185.0F, 678.0F, 292.0F, 42.0F}, 21.0F, kAmber.with_alpha(0.18F));
-        ui::text(scene_, fonts_.semibold, "SIMULATED QR — NOT LIVE", 1331.0F, 706.0F, 18.0F,
-                 kAmber, gfx::Align::center);
-        const char *status = "Waiting for approval";
+        constexpr float qr_x = 1116.0F;
+        constexpr float qr_y = 224.0F;
+        constexpr int qr_side = 430;
+        if (state.simulation_mode && state.account.challenge_url.empty()) {
+            draw_simulated_qr(qr_x, qr_y, static_cast<float>(qr_side));
+        } else if (state.account.authentication == AuthState::Waiting &&
+                   state.account.challenge_url.empty()) {
+            draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
+                                "Preparing QR code", "Waiting for a secure challenge…");
+        } else if (state.account.authentication == AuthState::Syncing) {
+            draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
+                                "Sign-in approved", "Loading your library…");
+        } else if (state.account.authentication == AuthState::Expired) {
+            draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
+                                "QR code expired", "Refresh to continue");
+        } else if (state.account.authentication == AuthState::Failed) {
+            draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
+                                "Connection failed", "Retry the connection");
+        } else if (!cached_qr_error_.empty() || !draw_encoded_qr(qr_x, qr_y, qr_side)) {
+            draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
+                                "QR code unavailable", "Retry the connection");
+        }
+        if (state.simulation_mode) {
+            scene_.rounded_rect({1185.0F, 678.0F, 292.0F, 42.0F}, 21.0F,
+                                kAmber.with_alpha(0.18F));
+            ui::text(scene_, fonts_.semibold, "SIMULATED QR — NOT LIVE", 1331.0F, 706.0F,
+                     18.0F, kAmber, gfx::Align::center);
+        }
+        const char *status = !state.simulation_mode && state.account.challenge_url.empty() ?
+            "Connecting securely" : "Waiting for approval";
         gfx::Color color = kAccent;
-        if (state.account.authentication == AuthState::Expired)
+        if (!cached_qr_error_.empty())
+        {
+            status = "QR code unavailable · Retry connection";
+            color = kRed;
+        }
+        else if (state.account.authentication == AuthState::Expired)
         {
             status = "Challenge expired";
             color = kAmber;
@@ -826,8 +926,16 @@ class Render::Impl
         }
         else if (state.account.authentication == AuthState::Syncing)
         {
-            status = "Approved · Syncing library";
+            status = state.simulation_mode ? "Approved · Syncing library" : "Approved · Loading library";
             color = kGreen;
+        }
+        else if (state.account.authentication == AuthState::Restoring)
+        {
+            status = state.simulation_mode ? "Restoring fixture state" : "Restoring your Steam session";
+        }
+        else if (state.account.authentication == AuthState::SigningOut)
+        {
+            status = "Signing out securely";
         }
         scene_.circle(1198.0F, 772.0F, 7.0F, color);
         ui::text(scene_, fonts_.regular, status, 1220.0F, 780.0F, 25.0F, kText);
@@ -2039,6 +2147,9 @@ class Render::Impl
     ui::Keyboard keyboard_;
     std::array<std::uint32_t, 8> art_{};
     std::uint32_t hero_ = 0;
+    std::string cached_qr_url_;
+    QrMatrix cached_qr_;
+    std::string cached_qr_error_;
     std::vector<const Game *> visible_grid_games_;
     const State *current_state_ = nullptr;
     float clock_ = 0.0F;

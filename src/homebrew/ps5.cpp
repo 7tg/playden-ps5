@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: MIT
 #include "homebrew/render.hpp"
 #include "homebrew/simulation.hpp"
+#include "homebrew/controller.hpp"
 #include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
+#include "steam/backend/auth_client.h"
+#include "steam/local_session_repository.h"
 #include "platform/ps5/display_egl.hpp"
 #include "platform/ps5/pad.hpp"
 #include "platform/ps5/system.hpp"
@@ -12,6 +15,7 @@
 #include <array>
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <sys/stat.h>
 
 extern "C" void playden_release_splash(void);
@@ -47,10 +51,17 @@ int main() {
     hui::ps5::Display display;
     if (!display.open(3840, 2160)) { hui::sys::log("Playden Hui display failed"); hui::sys::park(); }
     {
-        // Candidate-local state is in the title sandbox. Fixture volume labels
-        // never become writable paths or trigger actual installation work.
+#if PLAYDEN_UI_SIMULATION
         mkdir("/app0/playden-hui-comparison", 0777);
-        playden::homebrew::Simulation simulation("/app0/fixtures/ui-comparison", "/app0/playden-hui-comparison/profile.json");
+        playden::homebrew::Simulation simulation(
+            "/app0/fixtures/ui-comparison", "/app0/playden-hui-comparison/profile.json",
+            playden::homebrew::ModelMode::Simulation);
+#else
+        playden::homebrew::Simulation simulation({}, {}, playden::homebrew::ModelMode::Live);
+        playden::steam::AuthClient auth("/app0/trust/cacert.pem");
+        playden::LocalSessionRepository sessions("/app0/playden-data");
+        playden::homebrew::Controller services(simulation, auth, sessions);
+#endif
         playden::homebrew::Render renderer("/app0/assets");
         hui::ps5::Pad pad;
         pad.open();
@@ -64,11 +75,14 @@ int main() {
             const auto count = pad.read(samples);
             const auto input = tracker.update(std::span<const hui::PadSample>(samples.data(), count), now);
             if (input.connected != was_connected) {
-                simulation.action(input.connected ? "inject:controller-reconnect" : "inject:controller-disconnect");
+                simulation.SetControllerConnected(input.connected);
                 was_connected = input.connected;
             }
             dispatch(simulation, input);
             simulation.controller_sample(playden::homebrew::diagnostic_sample(input));
+#if !PLAYDEN_UI_SIMULATION
+            services.Tick();
+#endif
             if (simulation.state().quit_requested) break;
             const float frame_dt = last_render_us == 0 ? 1.0F / 60.0F :
                 static_cast<float>(now - last_render_us) / 1000000.0F;
@@ -79,6 +93,9 @@ int main() {
             // Work advances only through the documented manual fixture clock.
             pad.tick(1.0F / 60.0F);
         }
+#if !PLAYDEN_UI_SIMULATION
+        services.Shutdown();
+#endif
     }
     display.close();
     hui::sys::quit();
