@@ -63,3 +63,5 @@ Arabic face skipped 58 non-Arabic corpus code points. The fallback atlases
 cover the shared CJK and Arabic fixture titles, but Hui provides neither
 Arabic shaping nor bidirectional layout; Arabic remains unjoined and
 left-to-right.
+
+The final verification records six passing CTests, strict UBSan simulation, 52 common captures plus nine supplemental outputs and the independent review in `test-output/`. `initial/` contains the earlier smoke render; final comparison images and render diagnostics are in `screenshots/`. The current host/package hashes are recorded in `artifact-manifest.json`. Greek accented alpha/omicron U+03AC/U+03CC are absent in the frozen fonts; `test-output/font-coverage.log` records the glyph probes.

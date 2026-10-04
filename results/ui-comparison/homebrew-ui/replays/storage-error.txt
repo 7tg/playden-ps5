@@ -1,0 +1,4 @@
+action route:settings
+action select:900012
+action focus:settings-storage
+action cross

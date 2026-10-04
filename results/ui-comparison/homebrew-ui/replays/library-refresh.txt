@@ -1,0 +1,2 @@
+action route:library
+action inject:library-refresh

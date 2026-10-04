@@ -33,7 +33,7 @@ The reference blur is approximated by a dim scrim and opaque warm panel. The ren
 kit glass capture for overlay frames, but the custom panel does not currently sample that blurred
 texture.
 
-Right-anchored sheets use a 220 ms cubic ease for their horizontal entrance and scrim fade, inside
+Right-anchored sheets use a nominal 220 ms cubic ease at the current fixed 60 Hz presentation timestep for their horizontal entrance and scrim fade, inside
 the reference's 180–280 ms range. Kit components receive the simulation's reduced-motion flag;
 custom sheets complete immediately when reduced motion is enabled. Other custom surfaces are
 frame-stable compositions and do not invent additional motion. Recorded comparison captures draw
@@ -47,7 +47,10 @@ SDF atlases from the frozen shared font files. The current baker's `european` ra
 Barlow file for code points it does not contain and reports 151 skipped requests. Basic Latin
 and the fixture's supported accented Latin render from Barlow. The renderer checks the preferred
 face and selects the shared Noto CJK atlas when a missing code point is available there; coverage
-checks confirm that this supplies the fixture's Greek and Cyrillic strings as well as CJK.
+checks confirm base Greek, Cyrillic and CJK glyph coverage. The frozen font files do not
+contain Greek accented alpha/omicron U+03AC and U+03CC; these remain missing in the Greek
+fixture. The original title bytes are preserved. Adding a face with those glyphs requires a
+coordinated shared-asset revision rather than a unilateral fixture-font replacement.
 
 Noto CJK and Noto Arabic fixture subsets are baked into two remaining Hui font slots. The view
 selects these fallbacks for dynamic strings containing CJK or Arabic code points. Hui does not

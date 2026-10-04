@@ -1,0 +1,3 @@
+build/homebrew-host/homebrew-fonts/barlow-regular.huifont: Greek alpha=0 Cyrillic=0 CJK=0 Arabic=0 Greek-tonos-alpha=0 Greek-tonos-omicron=0
+build/homebrew-host/homebrew-fonts/noto-cjk-fallback.huifont: Greek alpha=1 Cyrillic=1 CJK=1 Arabic=0 Greek-tonos-alpha=0 Greek-tonos-omicron=0
+build/homebrew-host/homebrew-fonts/noto-arabic-fallback.huifont: Greek alpha=0 Cyrillic=0 CJK=0 Arabic=1 Greek-tonos-alpha=0 Greek-tonos-omicron=0
