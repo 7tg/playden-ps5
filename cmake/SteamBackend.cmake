@@ -119,11 +119,12 @@ if(PLAYDEN_HOMEBREW_UI)
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_client.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/entitled_library.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_app_details.cpp"
-        "${CMAKE_SOURCE_DIR}/src/steam/backend/cdn_client.cpp")
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/cdn_client.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/depot_installer.cpp")
     target_include_directories(playden_steam_cm PUBLIC "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(playden_steam_cm PUBLIC cxx_std_17)
     target_link_libraries(playden_steam_cm PUBLIC
-        playden_steam_http playden_steam_protocol playden_steam_cm_codec playden_steam_core)
+        playden_steam_http playden_steam_protocol playden_steam_cm_codec playden_depot_codec playden_steam_core)
     if(PLAYDEN_PLATFORM_PS5)
         target_compile_options(playden_steam_cm PRIVATE -fno-exceptions -fno-rtti)
     endif()
@@ -191,6 +192,9 @@ function(playden_register_steam_backend_tests)
             target_link_libraries(${test_name}_test PRIVATE playden_steam_cm)
             add_test(NAME ${test_name} COMMAND ${test_name}_test "${CMAKE_SOURCE_DIR}/fixtures/steam/cm")
         endforeach()
+        add_executable(depot_installer_test "${CMAKE_SOURCE_DIR}/tests/depot_installer_test.cpp")
+        target_link_libraries(depot_installer_test PRIVATE playden_steam_cm)
+        add_test(NAME depot_installer COMMAND depot_installer_test)
         add_executable(cdn_client_test "${CMAKE_SOURCE_DIR}/tests/cdn_client_test.cpp")
         target_link_libraries(cdn_client_test PRIVATE playden_steam_cm)
         add_test(NAME cdn_client COMMAND cdn_client_test)
