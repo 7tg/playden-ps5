@@ -8,7 +8,7 @@ The reference implementation is sibling `../playden`, branch `feature/launchers`
 
 The [PRD and roadmap](docs/superpowers/specs/2026-10-04-playden-ps5-launcher-design.md) records the agreed direction and proposed acceptance criteria. Milestone 1 implements a graphical Mac/PS5 shell with Home, Library, Settings, controller navigation, atomic preferences, and frame diagnostics. The active scope is the connected-library v1 in the approved four-milestone plan; Wine integration remains independent and out of scope.
 
-The [UI map and framework comparison brief](docs/superpowers/specs/2026-10-04-ui-framework-comparison.md) reopens the framework choice for a side-by-side RmlFocus and ps5-homebrew-ui evaluation. It maps the macOS reference screens, proposes the shared prototype scope, and defines controller behavior, fixtures, acceptance journeys, and agent handoffs.
+The selected presentation is **direct ps5-homebrew-ui**, merged into `main` in `3bc1e38`. Its [post-selection evidence](results/ui-comparison/homebrew-ui/fixes-2026-10-04/README.md) records the verified layout, font and focus fixes. The [comparison brief](docs/superpowers/specs/2026-10-04-ui-framework-comparison.md) remains the screen/navigation reference. These screens currently use simulated services; real Steam integration is the next work. The old RmlFocus shell remains a historical regression path.
 
 The [Foundation to Connected Library plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) breaks the first four milestones into tasks: launcher shell, native 4K60 validation, Steam connectivity, and the integrated MVP.
 
@@ -16,20 +16,20 @@ Current work and unproven acceptance gates are tracked in the [v1 execution ledg
 
 ## Build and run
 
-See [build instructions](docs/engineering/build.md) for pinned prerequisites and platform overrides.
+Build the selected presentation with the commands below. See its [build notes](results/ui-comparison/homebrew-ui/README.md) for prerequisites/overrides and the [execution plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) for remaining production integration. The older [build instructions](docs/engineering/build.md) describe the historical RmlFocus target; the existing `host` preset still selects that target.
 
 ```sh
-cmake --preset host
-cmake --build --preset host
-ctest --preset host --output-on-failure
-build/host/playden-launcher
+scripts/build-homebrew.sh
+cmake --build build/homebrew-host
+ctest --test-dir build/homebrew-host --output-on-failure
+build/homebrew-host/playden-homebrew
 ```
 
-PS5 packaging requires an explicitly allocated title ID and does not contact the console:
+Selected PS5 packaging uses the allocated `FAKE77031` title ID and does not contact the console:
 
 ```sh
-scripts/build-ps5.sh --title-id FAKE77031
+scripts/build-homebrew-ps5.sh
 ```
 
 `FAKE77031` is allocated to this launcher. Do not use it for another application.
-Native 3840 × 2160 at 60 Hz remains the MVP requirement; shell builds and brief smoke tests do not establish the milestone 2 performance gate.
+4K performance work is deferred by user direction. Native 3840 × 2160 at 60 Hz remains the eventual MVP requirement; shell builds and brief smoke tests do not establish the milestone 2 performance gate.

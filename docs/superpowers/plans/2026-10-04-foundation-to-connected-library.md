@@ -1,14 +1,14 @@
 # Foundation to Connected Library Implementation Plan
 
-> **For agentic workers:** Use `superpowers:executing-plans` for inline execution, or `superpowers:subagent-driven-development` if the user selects delegation. Execute task by task; this document does not authorize starting implementation.
+> **Execution status:** Approved and in progress on `main`, using native subagents through `agent-team:agent-team`. Updated after the user selected the direct ps5-homebrew-ui implementation merged in `3bc1e38`, with fixes/evidence through `703dd1f`. This revision supersedes the original RmlFocus presentation choice and the earlier UI-work pause. The user's 4K performance deferral remains in force.
 
 **Goal:** Deliver a native 4K60 Playden shell, prove representative UI performance and direct Steam connectivity, then combine them into the connected-library MVP.
 
-**Architecture:** A C++ presentation shell consumes RmlFocus through its public package and owns Playden documents and state. Platform and Steam adapters run blocking work away from rendering and deliver bounded events. Steam implementation selection is gated by a portability and console networking probe before writing its production adapter.
+**Architecture:** The selected C++20 presentation consumes ps5-homebrew-ui directly through `src/homebrew/`. Reuse its existing layouts, navigation, focus, keyboard, and state projections; connect them to production application services without introducing another renderer or rewriting the screens. Network, persistence, metadata, and image decoding run away from rendering and deliver bounded, generation-tagged results. Keep deterministic simulation as an explicit development mode.
 
-**Tech Stack:** C++, CMake, RmlFocus with its pinned RmlUi and patched GL renderer, SDL for Mac development, and the established PS5 native-title toolchain. Steam transport/protobuf dependencies are selected in task 3A; this plan does not assume Swift is available on PS5.
+**Tech Stack:** C++20 UI/C++17 backend, CMake, direct ps5-homebrew-ui `8a716f294835e26a24ef5612f1535aabffef4080` plus the checked-in macOS/CFF patches, SDL/OpenGL on Mac, and the established PS5 native-title toolchain. Steam uses curl 8.22.0, Mbed TLS 3.6.6, the pinned CA bundle, native resolver/nonblocking adapter, and reduced protobuf codec selected by the passed 3A probe. The old RmlFocus targets remain historical regression/reference paths, not the v1 presentation.
 
-**Spec:** [Playden PS5 PRD](../specs/2026-10-04-playden-ps5-launcher-design.md).
+**Spec:** [Playden PS5 PRD](../specs/2026-10-04-playden-ps5-launcher-design.md), with the selected [comparison UI](../specs/2026-10-04-ui-framework-comparison.md) and [post-selection evidence](../../../results/ui-comparison/homebrew-ui/fixes-2026-10-04/README.md). The framework selection recorded here supersedes the original PRD's RmlFocus-specific implementation instructions; product requirements remain.
 
 ## Global constraints
 
@@ -17,11 +17,13 @@
 - Preserve PS5-style navigation and focus restoration.
 - Build game-management UI before real installation. The install sheet and changing queue here are performance fixtures, not delivery of the full v2 management feature set.
 - Keep Wine integration independent and out of these four milestones.
-- Keep reusable rendering, focus, and control changes in RmlFocus; keep product behavior here.
+- Keep product behavior here. Reusable changes for the selected renderer belong in ps5-homebrew-ui; retain the recorded isolated dependency patches until separately integrated upstream. Do not modify RmlFocus to implement new direct-Hui behavior.
 - Use `../playden` branch `feature/launchers`, inspected at `de952b3d49167e635945ada88cd8533e07d40d44`, provisionally for the user's requested `feature/launcher`. The exact singular branch was absent locally. Record the resolved revision in the reference audit.
 - Read each repository's current `AGENTS.md` before changing it. Do not switch or disturb the macOS reference checkout; use `git show <revision>:<path>`.
 - Console builds, uploads, and actual acceptance runs are distinct evidence. Coordinate device use with the Wine effort before running tests.
-- New paths below are proposed files to create, not claims that code or commands already exist.
+- New paths below are proposed unless marked implemented. Do not reimplement completed comparison screens or disturb the frozen fixture package. The six old RmlUi WIP files are preserved in stash `1f8f649d6e1430f1898b942845db53db668f17a4`; do not restore them into the selected UI.
+- Defer profiling, MSAA experiments, RSS investigation, sustained performance runs, and soaks until the user resumes them. Keep native 3840×2160 output; never report deferred 4K60 acceptance as passed.
+- Preserve the selected orange active tabs, wrapped confirmation headings, CFF/Greek font fixes, poster spring motion, reduced-motion behavior, and safe modal focus defaults.
 
 ## Review focus
 
@@ -31,31 +33,52 @@
 - Sign-out races with sync or restart: never show another account's cached library, tested in 3B and 4A.
 - Networking or storage stalls during navigation: remain responsive and report timeout/failure, tested in 2B, 3B, and 4B.
 
+## Current baseline and evidence
+
+- **1A–1B are historical completions** for the RmlFocus consumer; keep their evidence. The selected UI needs its own production storage/lifecycle integration and coordinated native acceptance.
+- **2A presentation is superseded by the merged direct-Hui UI.** Existing Home/Library/details, controller keyboard, filtering/collections, account/settings, management/session simulations and recovery flows are reusable. Do not build them again from the old RML file list.
+- Selected UI evidence at `3796598`, documented by `703dd1f`: host CTest **11/11**, existing suite **14/14**, eight native-resolution **host framebuffer** captures, a 128-frame focus animation, and a signed local PS5 package. These are not PS5 gameplay/display evidence, physical-controller acceptance, or runtime frame-rate measurements.
+- **3A passed on PS5** in the earlier native transport probe. **3B foundations are committed** in `da4f925`, `82fd531`, and `5a42a0d`: worker/session storage, protobuf codec/fixtures, and verified HTTP/native networking. Real QR auth and restoration are not implemented yet.
+- The selected CMake branch currently returns before creating the backend targets. Its default state, QR, jobs, artwork, account and persistence remain simulation-driven. Building the comparison executable alone does not exercise Steam.
+
 ## Order and gates
 
-1. Complete **1A–1B**: reproducible shell and lifecycle.
-2. Complete **2A–2B**: representative screens and measured 4K60. Investigate **3A** independently once native packaging is available; Steam feasibility need not wait for all visual polish.
-3. Complete **3B–3C**: real QR authentication and library acquisition.
-4. Complete **4A–4B**: real-data integration and MVP acceptance.
+1. **S1:** make the selected graphical consumer and backend build together, retaining an explicit simulation mode and independent backend tests.
+2. **3B:** finish real authentication and wire its bounded events into the existing account/QR surfaces (**4A.1**); then verify direct PS5 phone approval, restore, cancellation, and sign-out. Backend completion need not wait for owned-library retrieval.
+3. **3C:** implement authenticated CM/library metadata retrieval; **4A.2** binds those results and account-scoped cache to the existing browsing surfaces.
+4. **4A.3 and 4B:** add real asynchronous artwork, validate dynamic title coverage and controller search, then exercise the connected journey and recovery on the actual selected graphical consumer.
+5. **2B is deferred.** Keep the final native 4K60 acceptance gate open; functional connected-library work can proceed independently.
 
-Each task ends with its stated checks and a focused commit. Commit launcher and RmlFocus changes separately; update the launcher's dependency pin only after the framework change passes its checks. No time estimates are implied.
+The technical lead owns shared contracts, build integration, account-generation rules, console coordination and final verification. Delegate independent backend and presentation-adapter tasks with separate file ownership; sequence consumers after their contracts. Have an independent reviewer inspect meaningful changes, resolve findings, and commit coherent slices on `main`.
 
-## Proposed file map
+## S1 Selected UI and backend build integration
+
+**Files:** Modify `CMakeLists.txt`, `CMakePresets.json`, `cmake/HomebrewUI.cmake`, `cmake/HomebrewPS5.cmake`, `scripts/build-homebrew{,-ps5}.sh`, `dependencies.lock.json`, and `docs/engineering/build.md`; create `cmake/SteamBackend.cmake` and `cmake/PlaydenCore.cmake` if needed to share backend/domain targets between consumers.
+
+**Interfaces:** `playden_storage`, `playden_steam_core`, protocol/transport libraries, and backend test targets must not depend on either renderer. The selected host executable remains `playden-homebrew`; native title ID remains `FAKE77031`. Keep one pinned curl/TLS dependency set per executable and package the CA bundle for the selected consumer.
+
+- [ ] Register the committed protobuf/auth-message/HTTP fixture tests in CTest; build session/service tests under the selected configuration, not only the old `host` target.
+- [ ] Move renderer-independent target definitions before presentation selection, and link them into the selected host and native targets. Preserve the verified native resolver/nonblocking behavior and archive/header/CA hash checks; include dependencies in custom link/package rebuild rules.
+- [ ] Add selected-UI configure/build/test presets and document current commands. Preserve legacy presets under explicit names; do not silently mistake their successful build for selected-consumer validation.
+- [ ] Pin the Hui revision, both patches, header-only image dependency, and supplemental font/license inputs. This task establishes target/link/test/trust-asset integration; production startup and lifecycle checks belong to 4A.1.
+- [ ] Build and test the selected host; inspect the graphical executable after integration. Build the selected PS5 package locally. Coordinate any device run first; a build/upload alone is not acceptance.
+- [ ] Obtain independent review and commit the reproducible consumer/backend integration.
+
+**Done when:** The selected graphical target links the committed backend foundation and ships its trust assets on both platforms; its test configuration exercises those modules rather than bypassing them. This does not establish real authentication or production startup behavior.
+
+## File ownership for remaining work
 
 | Paths | Responsibility |
 | --- | --- |
-| `CMakeLists.txt`, `CMakePresets.json`, `cmake/`, `dependencies.lock.json`, `scripts/` | Reproducible host/PS5 builds and pinned dependencies |
-| `src/app/application.{h,cpp}`, `src/platform/{mac,ps5}/main.cpp` | Shared app lifecycle and platform entry points |
-| `src/platform/storage.{h,cpp}`, `src/app/preferences.{h,cpp}` | Persistent settings behind platform-owned paths |
-| `src/ui/shell.{h,cpp}`, `assets/ui/` | Playden routing, documents, styling, and event binding |
-| `src/library/{model,service,cache}.{h,cpp}` | Stable game records, synchronization, and account-scoped cache |
-| `src/steam/{service,session_store}.{h,cpp}` | Presentation-facing Steam contract and session persistence |
-| `src/steam/backend/` | Production protocol adapter selected in 3A |
-| `src/diagnostics/{frame_stats,redaction}.{h,cpp}` | Performance records and credential-safe diagnostics |
-| `tests/`, `fixtures/`, `tools/` | Behavioral tests, synthetic data, repeatable runs, and report checking |
-| `docs/engineering/`, `results/` | Decisions and reviewed evidence; no credentials or private account dumps |
+| `src/homebrew/{view.cpp,render.hpp,input_adapter.hpp,host.cpp,ps5.cpp}` | Selected presentation, input and platform entry points; preserve merged visuals |
+| `src/homebrew/{simulation.*,browse.*,storage_sim.*}` | Existing UI state/projection and deterministic simulation; extract only the service boundary needed for production |
+| `src/homebrew/controller.{hpp,cpp}` (new) | Production action dispatch and bounded application-event mapping into the existing view state |
+| `src/app/library_controller.{h,cpp}` (new), `src/library/` | Account-scoped real library, cache, identity and queries |
+| `src/steam/`, `src/steam/backend/` | Authentication worker, credential persistence, HTTP/protobuf/CM adapters |
+| `src/homebrew/artwork.{hpp,cpp}` (new) | Visible-key texture subscriptions and UI-thread uploads; background IO/decoding adapter |
+| `tests/`, `fixtures/steam/`, `results/` | Behavior checks, synthetic protocol fixtures, sanitized acceptance evidence |
 
-Do not import the RmlFocus fixture launcher as Playden's domain model. Its installed consumer demonstrates linking but uses a null renderer; it is not the graphical application bootstrap. Use the actual Mac/PS5 front ends as lifecycle references.
+The following completed sections retain the original implementation details as history. Their RmlFocus paths are not instructions to port future work back to RML.
 
 ## 1 Build the launcher shell
 
@@ -111,16 +134,18 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 **Done when:** The scenarios exercise the proposed real application workload without depending on Steam or Wine.
 
-### 2B Console measurements and RmlFocus improvements
+### 2B Console measurements and selected-framework improvements — deferred
 
-**Files:** Create `tools/check_frame_report.py`, `tests/test_frame_report.py`, `docs/engineering/performance.md`, and `results/<run-id>-4k60/`. Modify RmlFocus files only after profiling identifies the responsible path; inspect its renderer and collection/image implementations rather than preselecting a rewrite.
+**Status:** Do not execute this task while the user's performance deferral is active. The existing checker and RmlFocus measurements remain historical; re-establish a selected-Hui baseline when resumed.
+
+**Files:** Reuse `tools/check_frame_report.py`, `tests/test_frame_report.py`, and `docs/engineering/performance.md`; create new `results/<run-id>-4k60/`. Profile the selected ps5-homebrew-ui renderer before proposing reusable framework changes.
 
 **Interfaces:** Export report fields `render_width`, `render_height`, `refresh_hz`, frame intervals, missed presentations, memory samples, scenario markers, and build/dependency revisions. The checker rejects missing data instead of interpreting it as zero.
 
 - [ ] Define acceptance before testing: proposed runs are a 10-minute scripted navigation/artwork/sheet/queue sequence, a 30-minute memory soak, and a physical-controller check. Record loading separately. Proposed interactive gate: frame-interval p99 no greater than 18 ms, missed presentations no greater than 0.1%, no burst of three consecutive missed presentations, and no persistent memory growth after caches reach their limits. Treat these as proposed numerical criteria for review; retain the PRD's native 4K60 requirement regardless of tuning.
 - [ ] Test the checker with a valid 4K60 trace, a 1080p trace, a 4K30 trace, missing samples, and average-60 traces hiding repeated stalls. Assert that only the acceptable trace passes.
 - [ ] Capture an unmodified baseline on PS5 with concurrent fixture artwork and queue updates. Profile CPU layout, GPU/effects/clipping, texture uploads, and presentation separately where tooling supports it; label unavailable measurements.
-- [ ] Make the smallest measured improvements in RmlFocus. Add focused regression checks for each changed behavior, run its required tests, and update its own evidence/docs.
+- [ ] Make the smallest measured improvements in the selected ps5-homebrew-ui dependency. Add focused regression checks for each changed behavior, run its required tests, and update its own evidence/docs.
 - [ ] Pin the passing framework revision in Playden, rerun the representative scenario, and inspect the actual 4K captures for text sharpness, clipping, focus, and modal ordering.
 - [ ] Commit the reviewed performance report and checker; keep large raw artifacts out of Git if necessary, with a reproducible manifest and artifact location.
 
@@ -144,13 +169,16 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 ### 3B QR authentication and account persistence
 
-**Files:** Create `src/steam/service.{h,cpp}`, `src/steam/session_store.{h,cpp}`, `src/diagnostics/redaction.{h,cpp}`, `tests/steam_auth_test.cpp`, and `tests/session_store_test.cpp`; create the backend files selected in 3A.
+**Implemented foundation:** `src/steam/service.*`, `session_store.*`, `auth_backend.h`, `backend/{http_client,native_network,proto_wire,auth_messages}.*`, and their tests/fixtures are committed. Worker generation invalidation, late approval/cancel/sign-out races, private-file permissions, and bounded codec/HTTP behavior have host evidence. Continue these implementations; do not recreate them.
+
+**Files:** Extend the existing Steam service/tests as needed; create `src/steam/backend/auth_client.{h,cpp}`, bounded token/JSON helpers, `src/diagnostics/redaction.{h,cpp}`, and `tests/auth_client_test.cpp`. Reuse the committed schema codec and session repository.
 
 **Interfaces:** `SteamService::BeginQrSignIn() -> RequestId`, `Cancel(RequestId) -> void`, `RestoreSession() -> RequestId`, `SignOut() -> void`, and `Pump(size_t max_events) -> std::vector<SteamEvent>`. Define `RequestId`, `SteamEvent`, and an account/session generation in `service.h`. Events cover challenge, awaiting approval, expiry, authenticated, signed out, and failure; secret token material never enters presentation events.
 
 - [ ] Add deterministic protocol/state tests for challenge replacement, expiry, retry, rejected approval, network timeout, cancellation, and approval arriving for a stale request. Assert stale generations cannot establish a session.
 - [ ] Add persistence tests for valid restoration, corrupt data, revoked credentials, and sign-out racing with a late success. Assert no logged record contains fixture token strings.
-- [ ] Run tests to confirm the missing behavior, then implement the chosen backend with finite timeouts and server-directed polling. Save session data through the validated platform adapter and invalidate work when account generation changes.
+- [ ] Implement `AuthBackend` using `BeginAuthSessionViaQR`, server-paced `PollAuthSessionStatus`, and `GenerateAccessTokenForApp` from the pinned reference. Test expiry, challenge/client-ID replacement, token subject validation, malformed responses, revoked credentials and renewal rotation. Use a lazy worker-owned HTTP client, finite deadlines and interruptible waits. Save through `SessionRepository`; reject stale generations before persistence or publication.
+- [ ] Keep challenge URLs private to the active QR presentation and out of snapshots, replay logs and committed evidence. Encode the actual Steam challenge as QR in 4A.1; the comparison renderer's synthetic matrix cannot authenticate. Tests use synthetic secrets and assert their absence from diagnostic output.
 - [ ] Run tests to passing. Verify real QR approval, restart restoration, and sign-out on PS5; do not store QR challenge URLs or session secrets in published evidence.
 - [ ] Commit the authenticated service and evidence summary.
 
@@ -170,42 +198,68 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 **Done when:** The console obtains real account-owned game data with stable identity and recoverable errors, independent of the graphical library.
 
-## 4 Connect Steam to the MVP experience
+## 4 Connect Steam to the selected MVP presentation
 
-### 4A Real data, artwork, and offline cache
+### 4A.1 Existing account/QR surfaces backed by real services
 
-**Files:** Create `src/library/cache.{h,cpp}`, `src/app/library_controller.{h,cpp}`, `assets/ui/signin.rml`, `tests/library_controller_test.cpp`, and `tests/library_cache_test.cpp`; modify the existing shell/library/details views.
+**Files:** Create `src/homebrew/controller.{hpp,cpp}`, `tests/homebrew_account_test.cpp`; modify `src/homebrew/{simulation.hpp,simulation.cpp,render.hpp,view.cpp,host.cpp,ps5.cpp}` only at the state/service boundary. Add a pinned QR encoder if the selected kit lacks one.
 
-**Interfaces:** `LibraryController::Tick() -> void` drains bounded service events and updates views. `LibraryCache::Load(account_id) -> Result<LibrarySnapshot>` and `Save(account_id, snapshot) -> Result<void>` scope records by account; define `LibrarySnapshot` with schema version, retrieval time, and games in `cache.h`.
+**Interfaces:** `Controller::Tick()` drains a bounded number of `SteamService::Pump()` events; UI actions issue `BeginQrSignIn()`, `Cancel(RequestId)`, `RestoreSession()`, and `SignOut()`. Carry request ID and account generation into all presentation updates. Refactor `Render::draw(Simulation&, ...)` to consume shared presentation state/projections if needed; both production and simulation must use the same screens and navigation logic.
 
-- [ ] Add tests for cache schema/corruption, offline startup, failed refresh preserving data, account switching/sign-out isolating caches, and refresh/filter changes preserving focus.
-- [ ] Run tests to confirm the missing behavior; wire real QR/authentication states into the shell and real library records into the existing views.
-- [ ] Load/cache artwork through RmlFocus with fixed card dimensions and placeholders. Keep raw Steam markup and untrusted names as text, never executable UI markup.
-- [ ] Add empty/loading/stale/error presentations with retry and cancellation. Display ownership independently of installation/readiness; real games do not inherit fixture install states.
-- [ ] Run tests to passing and inspect real-data navigation, artwork arrival, network loss, restart, and sign-out on host fixtures and the console.
-- [ ] Commit the integrated connected library.
+- [ ] Extract an explicit production/service mode. Normal startup loads no fixture account, catalog, installs, jobs, runtime readiness or synthetic challenges. Scenario/replay/injection controls remain available only in labelled simulation mode with separate persistence.
+- [ ] Use the earlier validated `/app0/playden-data` adapter with a fresh availability/private-write check in the selected native entry point; do not treat `/app0/playden-hui-comparison/profile.json` as credential storage. Fail safely on unavailable storage/networking, surface initialization errors, and cancel/join service work before renderer/display shutdown.
+- [ ] Bind existing QR waiting/expired/retry/cancel and Settings account actions to real events. Encode a real challenge with a tested decoder round-trip; replace/clear its private buffer and rendered QR on retry, cancellation, expiry and sign-out.
+- [ ] Test stale approvals, replacement challenges, late cancellation, restore failures, and storage errors against the view state. Preserve safe modal defaults, opener focus, reduced motion, and controller-only access.
+- [ ] Do not restore authentication from simulation `profile.json`. Keep secrets in `SessionStore`; scope real user annotations/settings that belong to an account to that account. Dispatch persistence away from rendering. A failed clear must remain an explicit failure, not a successful sign-out.
+- [ ] Build and inspect the actual selected graphical host. After coordination, verify phone approval from a PS5-issued QR, clean restart restoration, cancellation, and sign-out on `FAKE77031`; publish only sanitized status evidence.
+- [ ] Review and commit the account integration with remaining native checks explicitly identified.
 
-**Done when:** A signed-in player sees their own library, and offline/retry/account transitions preserve correct identity and responsive navigation.
+**Done when:** Existing account screens operate on the real service and PS5 completes 3B acceptance, with no simulation approval path in normal mode.
 
-### 4B Search, settings, and complete MVP acceptance
+### 4A.2 Owned data and account-scoped offline recovery
 
-**Files:** Create `src/library/query.{h,cpp}`, `assets/ui/search.rml`, `tests/library_query_test.cpp`, `tests/mvp_journey_test.cpp`, and `docs/engineering/mvp-acceptance.md`; extend Settings and add reusable keyboard work in RmlFocus if still missing.
+**Files:** Create `src/app/library_controller.{h,cpp}`, `tests/library_controller_test.cpp`; reuse `src/library/cache.*`, `model.h`, `query.*`, and `tests/library_cache_test.cpp`; extend the selected controller/state projection.
 
-**Interfaces:** `QueryLibrary(games, query, sort) -> std::vector<GameId>` operates on cached data. Define query/filter/sort types in `query.h`; MVP filters use available metadata and never imply game compatibility. Controller keyboard integration uses the public RmlFocus control API established by its own implementation.
+**Interfaces:** `LibraryController::Tick()` drains bounded `LibraryService` events. Reuse `LibraryCache::Load(account_id)` / `Save(account_id, snapshot)`. Map `GameSummary` into existing `homebrew::Game` view records by stable Steam app ID; missing metadata stays unknown. Account/session generation accompanies pending sync/cache work.
 
-- [ ] Define and test deterministic title search/sort behavior: empty query, punctuation, case-insensitive Latin matching, exact non-Latin substring matching, and no-results recovery. Do not claim locale-aware collation unless implemented and tested.
-- [ ] Implement controller text entry with confirm/cancel, retained search text, and correct focus return. Complete account sign-out/retry and persisted presentation settings.
-- [ ] Add a scripted journey covering fresh sign-in states, browsing, details/back, search, refresh failure, cached restart, and sign-out; assert no keyboard/mouse dependency outside phone approval.
-- [ ] Run `ctest --preset host --output-on-failure` and the scenario checker to passing. Record physical DualSense acceptance separately from injected input.
-- [ ] Repeat the 4K60 scenario with real library data and live artwork; inject transport delay and storage failure. Reopen milestone 2 if integration regresses performance.
-- [ ] Record results, limits, revisions, and any remaining failures in the acceptance document. Commit only a passing MVP claim when all required console checks have evidence.
+- [ ] Test loading, genuine empty ownership, metadata omissions, interrupted refresh and failed refresh preserving the prior valid snapshot. A failed request must never publish a successful empty library.
+- [ ] Scope cache load/save, favorites, collections, notes and selected identity to the authenticated account. Test account switch/sign-out during disk IO or sync, offline startup and corrupt cache; old account results must not repopulate cleared views.
+- [ ] Populate existing Home/Library/details/loading/stale/error surfaces from real results. Preserve focus/scroll by ID across updates and choose a predictable neighbor on removal; retain search/filter state where valid.
+- [ ] Treat installation, runtime readiness, compatibility, download size and play history as independent facts. Hide or explain unavailable real operations; keep the merged install/download/session simulation only in development mode. Do not expand v1 into actual installation or Wine.
+- [ ] Run selected UI/controller and backend tests, inspect real-data navigation, and verify cache/retry/sign-out on PS5 independently of performance profiling. Review and commit.
 
-**Done when:** The PRD's connected-library MVP is usable on PS5 at native 4K60 with real Steam connectivity, controller search, persistence, and visible recovery paths.
+**Done when:** The selected UI shows real owned games and correct account-scoped offline data without synthetic operational status.
+
+### 4A.3 Real artwork and dynamic title coverage
+
+**Files:** Create `src/homebrew/artwork.{hpp,cpp}`, `tests/homebrew_artwork_test.cpp`; extend selected view/renderer and build dependency definitions. Reuse the passed TLS adapter for bounded image retrieval.
+
+**Interfaces:** Artwork requests carry account generation, game ID, source identity and a visible-cell subscription key. IO/decoding returns bounded decoded images; only the graphics thread creates/releases textures with the Hui API. Cache and upload work have explicit count/byte limits, placeholders and cancellation.
+
+- [ ] Replace the fixed nine-fixture-texture path in production with asynchronous download/decode, bounded cache/eviction and bounded per-frame upload work. Reject malformed/oversized images before unbounded allocations; failures retain fixed-size placeholders.
+- [ ] Test a late image completing after cell reuse, account change, source change, eviction and shutdown; no stale result may replace another game's cover. Keep fixture timing deterministic.
+- [ ] Plan font coverage for actual library titles: current CJK/Arabic atlases are fixture subsets, not general Unicode support. Supply bounded additional glyph coverage or an explicit unsupported-glyph fallback. Test real strings beyond the catalog and mixed scripts; preserve the committed CFF and accented-Greek fixes. Arabic shaping/BiDi remains a documented limitation, not a completed capability.
+- [ ] Inspect the selected graphical consumer with delayed and failed real artwork at native dimensions. Validate functionality and bounds without restarting deferred profiling/soaks. Review and commit.
+
+**Done when:** Real titles and artwork arrive asynchronously without wrong-image reuse, unbounded allocations or navigation stalls; remaining script limitations are explicit.
+
+### 4B Search, preferences and connected journey acceptance
+
+**Files:** Reuse `src/library/query.*`, selected `src/homebrew/{browse.*,simulation.*,input_adapter.hpp}`, and merged keyboard; add `tests/mvp_journey_test.cpp`, production search/persistence regressions and `docs/engineering/mvp-acceptance.md`.
+
+**Interfaces:** Retain the selected controller action/focus contract. Reuse the existing UTF-8 query semantics where applicable rather than replacing the merged keyboard or maintaining conflicting search behavior.
+
+- [ ] Verify empty query, punctuation, Latin case folding, exact non-Latin substrings, malformed text, confirm/cancel, retained query, stable sorting and no-results recovery against real game records. Only expose filters supported by actual metadata.
+- [ ] Persist production presentation preferences through the real platform adapter; test corrupt/failed writes and restart with a visible recovery path. Simulation profiles do not establish real persistence acceptance.
+- [ ] Add one controller journey through fresh sign-in, library, details/back, text entry, retry, offline cached restart, account switch and sign-out. Keep the phone as the only external interaction required for QR approval.
+- [ ] Run selected UI and backend suites, inspect graphical captures, build/package, then coordinate native lifecycle and physical DualSense verification. Record physical checks separately from injected input and host replays.
+- [ ] **Deferred:** repeat the agreed native 4K60 scenario with real library/artwork, transport delay and storage failure only when the user resumes performance work. Keep the MVP acceptance gate open until required measurements exist.
+- [ ] Record revisions, results, pending hardware checks and limitations; review and commit. Do not claim complete MVP acceptance while real Steam, physical-controller or required performance evidence is absent.
 
 ## Scope after these tasks
 
-The next implementation plan covers complete v2 management UI: deterministic jobs, storage selection, queue control, verification/uninstall flows, and restart recovery. The small management scenes in milestone 2 exist to test rendering and navigation performance; they do not count as completing v2. Real installation and Wine integration remain subsequent, separately specified work.
+The merged comparison already supplies broad v2 management **simulation** surfaces and behavioral evidence. Preserve and reuse them; do not schedule a duplicate UI build. A later plan can productize those simulations, real installation, or runtime integration separately. Their presence does not authorize v1 to download games, uninstall files, or launch Wine.
 
 ## Plan review
 
-This plan covers the requested four milestones. The Steam backend is deliberately gated by evidence in 3A, whose output must specify concrete implementation files and dependencies before 3B. Proposed numeric performance criteria require review before hardware acceptance; native 4K60 itself is already agreed. Execution has not started.
+This revision retains historical shell/probe evidence, adopts the user's selected direct-Hui UI, records the committed backend foundation, and sequences the remaining service integration. User authorization to resume and commit on `main` persists. 4K performance work remains deferred; successful host captures and local packages are never promoted to console acceptance.

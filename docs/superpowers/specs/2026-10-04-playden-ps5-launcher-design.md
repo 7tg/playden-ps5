@@ -2,6 +2,8 @@
 
 Written 2026-10-04. Product direction agreed with Leo; this written specification is awaiting review. Detailed acceptance scenarios and architectural boundaries below are proposed implementation requirements, not claims of completed work.
 
+> **Implementation decision update (2026-10-04):** The user selected direct ps5-homebrew-ui, merged in `3bc1e38` with follow-up fixes/evidence through `703dd1f`. This supersedes the RmlFocus-specific framework and ownership choices below; product behavior, direct PS5 Steam access, and separation from Wine remain unchanged. The [updated execution plan](../plans/2026-10-04-foundation-to-connected-library.md) describes integration into the selected screens. Historical RmlFocus evidence is retained. Performance work is deferred by the user, and native 4K60 acceptance remains open.
+
 ## Product purpose
 
 Playden brings the macOS Playden library and couch experience to a jailbroken PS5. A player connects Steam, browses games with a DualSense, and eventually installs and launches Windows games through the separately developed PS5 Wine runtime.

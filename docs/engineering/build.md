@@ -1,5 +1,7 @@
 # Building Playden Launcher
 
+> **Selected UI:** Direct ps5-homebrew-ui is now the selected consumer. Use `scripts/build-homebrew.sh`, `cmake --build build/homebrew-host`, `ctest --test-dir build/homebrew-host --output-on-failure`, and `scripts/build-homebrew-ps5.sh`; see [selected build notes](../../results/ui-comparison/homebrew-ui/README.md). The instructions below document the historical RmlFocus consumer. Shared production-backend integration and selected presets are pending task S1 of the [updated plan](../superpowers/plans/2026-10-04-foundation-to-connected-library.md).
+
 The launcher consumes the installed public `RmlFocus` CMake package and compiles the framework's patched RmlUi GL3 renderer into each graphical front end. `dependencies.lock.json` pins the exact RmlFocus checkout, RmlUi, FreeType, PS5 payload SDK, ps5-opengl, native-title tooling, compiler runtime, and packaged font sources. Configure refuses a different or tracked-dirty RmlFocus checkout and rejects mismatched pinned source checkouts.
 
 The default framework source is the sibling `../rmlfocus`. Override it explicitly when the checkout lives elsewhere:
