@@ -1,0 +1,118 @@
+{
+  "title_id": "FAKE77031",
+  "eboot_remote_readback_matches": true,
+  "files": {
+    ".packaged": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "assets/fonts/DMSerifDisplay-LICENSE.txt": {
+      "bytes": 4605,
+      "sha256": "a3e5cdd67d4571dd0a24fcc968de0efde7ae97ef752daf0906e4767619dd7231"
+    },
+    "assets/fonts/DMSerifDisplay-Regular.ttf": {
+      "bytes": 76580,
+      "sha256": "8cc3643535edf039aa5d95440a8542735e9197e4f4b8d9303e980fefbf5ab616"
+    },
+    "assets/fonts/Inter-Bold.ttf": {
+      "bytes": 420428,
+      "sha256": "288316099b1e0a47a4716d159098005eef7c0066921f34e3200393dbdb01947f"
+    },
+    "assets/fonts/Inter-LICENSE.txt": {
+      "bytes": 4380,
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+    },
+    "assets/fonts/Inter-Medium.ttf": {
+      "bytes": 417300,
+      "sha256": "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872"
+    },
+    "assets/fonts/Inter-Regular.ttf": {
+      "bytes": 411640,
+      "sha256": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82"
+    },
+    "assets/fonts/Inter-SemiBold.ttf": {
+      "bytes": 419744,
+      "sha256": "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3"
+    },
+    "assets/fonts/LatoLatin-Bold.ttf": {
+      "bytes": 146156,
+      "sha256": "74dc638cf436cce77a0217a2a55ce7906a4cc9e4c595c6f1dcd9dd858078c1b6"
+    },
+    "assets/fonts/LatoLatin-LICENSE.txt": {
+      "bytes": 14920,
+      "sha256": "c97278bb336ab0fb2d3bb7ba3f303d638224d6dd1edc6e6fcdd4ba28b8dbf2a6"
+    },
+    "assets/fonts/LatoLatin-Regular.ttf": {
+      "bytes": 148540,
+      "sha256": "d785334ac4e7810f571def986bbad41161f68ac385db8813f798bf04d71478e1"
+    },
+    "assets/fonts/SpaceGrotesk-Bold.ttf": {
+      "bytes": 116056,
+      "sha256": "7209bbb75fc0f5c546a5f5773b0db74ffc6abf04c2148c1105cace5765a96bdb"
+    },
+    "assets/fonts/SpaceGrotesk-LICENSE.txt": {
+      "bytes": 4495,
+      "sha256": "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72"
+    },
+    "assets/fonts/SpaceGrotesk-Medium.ttf": {
+      "bytes": 116664,
+      "sha256": "3183b7eb0b4241476360e2cd8e527868616cc16d3ce332c4376505989b772b44"
+    },
+    "assets/fonts/SpaceGrotesk-Regular.ttf": {
+      "bytes": 114428,
+      "sha256": "5ede28c4425f3fe4830c8f4754b39e9a87a93d0c3baa5e0a9924532aaa8a98bd"
+    },
+    "assets/ui/about.rml": {
+      "bytes": 429,
+      "sha256": "09a9976edaded27547ac7f9d7e9b7cbd4b6c467242dddaac169cc51fd4ce7c99"
+    },
+    "assets/ui/exit.rml": {
+      "bytes": 388,
+      "sha256": "360d6bde75e4ee44e52bc92bdee3a30469620dc6d599869a190b4521a35fec84"
+    },
+    "assets/ui/home.rml": {
+      "bytes": 870,
+      "sha256": "645572fc00bf48cc64ac0e020a65884a542fdcd8838e23c5d548b01b54820dbb"
+    },
+    "assets/ui/library.rml": {
+      "bytes": 819,
+      "sha256": "5fa691b73453ba490d9483841d76ca0a08c31abf45b66c4139833710a509607d"
+    },
+    "assets/ui/playden.rcss": {
+      "bytes": 1829,
+      "sha256": "48fd4eecd9e7022bdacf65b6b0f9e6c64a45882582c501a61eb5f836654985f7"
+    },
+    "assets/ui/settings.rml": {
+      "bytes": 841,
+      "sha256": "2ac80577d36cc7532ff2c721f1edb7f992b8066850227b139b9496943359d6e1"
+    },
+    "eboot.bin": {
+      "bytes": 24037843,
+      "sha256": "7557b67282fa49879a1b359e036804da32adb96d710415cd5b671107505a1fde"
+    },
+    "sce_module/libc.prx": {
+      "bytes": 1284674,
+      "sha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036"
+    },
+    "sce_sys/icon0.png": {
+      "bytes": 357566,
+      "sha256": "a3f0c938f6057107197dda67846762be037f34be0e9a17432830cf59242742b6"
+    },
+    "sce_sys/param.json": {
+      "bytes": 1109,
+      "sha256": "bea1f6bed6e450eff0d090652563b1556e7d767e3f6280c1419b534f72de7c07"
+    },
+    "sce_sys/pic0.dds": {
+      "bytes": 8294548,
+      "sha256": "7d44477ebb0c95a667e076cebc1d0482298df8d795f81f153a6da5224128d96b"
+    },
+    "sce_sys/pic1.dds": {
+      "bytes": 8294548,
+      "sha256": "59773e85ea5ba0076df6b49f61797a26cf620ad818d4ea647cfdc7ca9e505c1a"
+    },
+    "sce_sys/snd0.at9": {
+      "bytes": 360616,
+      "sha256": "51309ebd2e010421a0078980ae4994dbf6cd571e9c2ac548583147605b3918cf"
+    }
+  }
+}

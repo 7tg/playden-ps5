@@ -59,6 +59,8 @@ Do not import the RmlFocus fixture launcher as Playden's domain model. Its insta
 
 ## 1 Build the launcher shell
 
+Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261004T132145Z-shell/README.md). Later milestones remain unstarted.
+
 ### 1A Reproducible graphical consumer
 
 **Files:** Create `CMakeLists.txt`, `CMakePresets.json`, `dependencies.lock.json`, `scripts/build-ps5.sh`, `src/app/application.{h,cpp}`, `src/platform/mac/main.cpp`, `src/platform/ps5/main.cpp`, and `docs/engineering/build.md`.
@@ -67,12 +69,12 @@ Do not import the RmlFocus fixture launcher as Playden's domain model. Its insta
 
 **Interfaces:** `Application::Initialize() -> bool`, `Application::Tick(float dt_seconds) -> void`, and `Application::Shutdown() -> void`. Platform entry points own display/input setup and pass semantic commands to the app; application code does not open platform devices.
 
-- [ ] Record the exact RmlFocus revision and transitive toolchain/assets needed for reproducibility in `dependencies.lock.json`; document local override paths explicitly.
-- [ ] Add a `host` configure/build/test preset and an interactive `playden-launcher` target linking the public RmlFocus package. Show a Playden title, focusable control, and controller hints using real rendering.
-- [ ] Add the PS5 target and a build-only packaging script with an explicitly supplied title ID. Never reuse a framework or runtime title ID by default.
-- [ ] Verify `cmake --preset host` and `cmake --build --preset host`; launch `build/host/playden-launcher` and inspect input, rendering, and shutdown.
-- [ ] Verify `scripts/build-ps5.sh --title-id <allocated-id>` produces the title package without contacting the console. Record a separate console launch/navigation/clean-exit result when device access is available.
-- [ ] Commit the working consumer and its build instructions.
+- [x] Record the exact RmlFocus revision and transitive toolchain/assets needed for reproducibility in `dependencies.lock.json`; document local override paths explicitly.
+- [x] Add a `host` configure/build/test preset and an interactive `playden-launcher` target linking the public RmlFocus package. Show a Playden title, focusable control, and controller hints using real rendering.
+- [x] Add the PS5 target and a build-only packaging script with an explicitly supplied title ID. Never reuse a framework or runtime title ID by default.
+- [x] Verify `cmake --preset host` and `cmake --build --preset host`; launch `build/host/playden-launcher` and inspect input, rendering, and shutdown.
+- [x] Verify `scripts/build-ps5.sh --title-id <allocated-id>` produces the title package without contacting the console. Record a separate console launch/navigation/clean-exit result when device access is available.
+- [x] Commit the working consumer and its build instructions.
 
 **Done when:** A developer can repeat both builds, run the Mac app, and identify the exact artifacts used for a successful console shell run.
 
@@ -82,12 +84,12 @@ Do not import the RmlFocus fixture launcher as Playden's domain model. Its insta
 
 **Interfaces:** `Shell::Handle(const rf::InputEvent&) -> void` consumes the public type in `rmlfocus/input.h`, without introducing a parallel input vocabulary. `Storage::Read(relative_path) -> Result<Bytes>` and `Storage::WriteAtomic(relative_path, bytes) -> Result<void>` own path validation and error reporting. Define these shared `Result`/`Bytes` types in `src/platform/storage.h` before consumers use them.
 
-- [ ] Add behavioral tests: L1/R1 moves sections, Circle returns one level, a dismissed sheet restores its opener, and a corrupt preference file restores defaults with a visible diagnostic.
-- [ ] Run `ctest --preset host --output-on-failure` and confirm the new behavioral assertions fail before implementing the missing behavior.
-- [ ] Implement Home/Library/Settings navigation using RmlFocus routing; save one preference atomically and restore it on restart. Determine and record writable PS5 paths using console evidence rather than assuming `/data` is accessible.
-- [ ] Implement frame-start timing and periodic frame/memory records. Capture actual surface/render-target dimensions and refresh configuration; do not infer them from the HDMI output alone.
-- [ ] Run the host tests to passing, inspect focus on the Mac, and verify preference persistence and clean exit on PS5. Store sanitized evidence under `results/<run-id>-shell/`.
-- [ ] Commit the shell behavior and diagnostics.
+- [x] Add behavioral tests: L1/R1 moves sections, Circle returns one level, a dismissed sheet restores its opener, and a corrupt preference file restores defaults with a visible diagnostic.
+- [x] Run `ctest --preset host --output-on-failure` and confirm the new behavioral assertions fail before implementing the missing behavior.
+- [x] Implement Home/Library/Settings navigation using RmlFocus routing; save one preference atomically and restore it on restart. Determine and record writable PS5 paths using console evidence rather than assuming `/data` is accessible.
+- [x] Implement frame-start timing and periodic frame/memory records. Capture actual surface/render-target dimensions and refresh configuration; do not infer them from the HDMI output alone.
+- [x] Run the host tests to passing, inspect focus on the Mac, and verify preference persistence and clean exit on PS5. Store sanitized evidence under `results/<run-id>-shell/`.
+- [x] Commit the shell behavior and diagnostics.
 
 **Done when:** Navigation and persistence survive app restarts, and the app can report trustworthy frame timing for milestone 2.
 

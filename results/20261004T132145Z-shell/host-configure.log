@@ -1,0 +1,15 @@
+Preset CMake variables:
+
+  CMAKE_BUILD_TYPE="Debug"
+  CMAKE_EXPORT_COMPILE_COMMANDS="ON"
+  PLAYDEN_PLATFORM_PS5="OFF"
+
+'/Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5-launcher/scripts/prepare-rmlfocus.sh' 'host' '/Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5-launcher/../rmlfocus' '/Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5-launcher/build/host'
+-- Found Freetype: /opt/homebrew/lib/libfreetype.dylib (found suitable exact version "2.14.3")
+-- Found CURL: /Applications/Xcode_26.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/usr/lib/libcurl.tbd (found suitable exact version "8.7.1")
+-- Found CURL: /Applications/Xcode_26.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/usr/lib/libcurl.tbd (found version "8.7.1")
+-- Found Freetype: /opt/homebrew/lib/libfreetype.dylib (found version "2.14.3")
+-- Found Freetype target Freetype::Freetype - Freetype font engine enabled
+-- Configuring done (0.9s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5-launcher/build/host
