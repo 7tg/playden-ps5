@@ -139,6 +139,7 @@ add_library(playden_homebrew_model STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/storage_sim.cpp"
     "${CMAKE_SOURCE_DIR}/src/homebrew/browse.cpp")
 target_compile_features(playden_homebrew_model PUBLIC cxx_std_20)
+target_link_libraries(playden_homebrew_model PUBLIC playden_library)
 target_include_directories(playden_homebrew_model PUBLIC "${CMAKE_SOURCE_DIR}/src")
 
 foreach(qr_file qrcodegen.c qrcodegen.h LICENSE README.md)

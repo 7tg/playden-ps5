@@ -285,9 +285,22 @@ void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
           "external wall clock cannot alter deterministic simulation time");
 }
 
+void live_filters_only_use_available_facts() {
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    check(model.state().games.front().folded_title=="synthetic","production delivery caches Unicode key once");
+    check(model.action("r1") && model.action("triangle"),"live filter modal opens");
+    const auto& actions=model.state().navigation.modals.back().action_keys;
+    for(const auto& unavailable:{"sort-recent-added","sort-install-size","filter-installed","filter-genre-adventure","filter-controller-full"})
+        check(std::find(actions.begin(),actions.end(),unavailable)==actions.end(),"unknown facts are not filter choices");
+    check(std::find(actions.begin(),actions.end(),"filter-compat-playable")!=actions.end(),"personal compatibility remains filterable");
+}
+
 } // namespace
 
 int main() {
+    live_filters_only_use_available_facts();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();
     rejects_invalid_snapshots_transactionally_and_leaves_simulation_alone();

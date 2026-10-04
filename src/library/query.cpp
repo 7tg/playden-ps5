@@ -5,8 +5,7 @@
 #include <unordered_set>
 
 namespace playden {
-namespace {
-std::string Fold(const std::string& value) {
+std::string FoldLibraryText(const std::string& value) {
     utf8proc_uint8_t* mapped = nullptr;
     const auto count = utf8proc_map(reinterpret_cast<const utf8proc_uint8_t*>(value.data()),
         static_cast<utf8proc_ssize_t>(value.size()), &mapped,
@@ -16,21 +15,22 @@ std::string Fold(const std::string& value) {
     std::free(mapped);
     return result;
 }
+namespace {
 struct Match { GameId id; std::string title; };
 }
 
 std::vector<GameId> QueryLibrary(const std::vector<GameSummary>& games,
                                 const LibraryQuery& query, LibrarySort sort) {
-    const auto text = Fold(query.text);
-    const auto developer = Fold(query.developer);
+    const auto text = FoldLibraryText(query.text);
+    const auto developer = FoldLibraryText(query.developer);
     std::vector<Match> matches;
     matches.reserve(games.size());
     std::unordered_set<GameId> seen;
     for (const auto& game : games) {
         if (game.id == 0 || !seen.insert(game.id).second) continue;
-        auto title = Fold(game.title);
+        auto title = FoldLibraryText(game.title);
         if (!text.empty() && title.find(text) == std::string::npos) continue;
-        if (!developer.empty() && Fold(game.developer) != developer) continue;
+        if (!developer.empty() && FoldLibraryText(game.developer) != developer) continue;
         matches.push_back({game.id, std::move(title)});
     }
     std::sort(matches.begin(), matches.end(), [sort](const Match& a, const Match& b) {

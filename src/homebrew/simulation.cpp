@@ -1,3 +1,4 @@
+#include "library/query.h"
 // simulation.cpp - Deterministic state transitions for the Playden UI comparison.
 // Copyright (c) 2026 Playden contributors
 // SPDX-License-Identifier: MIT
@@ -444,6 +445,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             Game game;
             game.id = summary.id;
             game.title = std::move(summary.title);
+            game.folded_title = FoldLibraryText(game.title);
             game.description = std::move(summary.description);
             game.source = "Steam";
             game.artwork_source = std::move(summary.artwork_source);
@@ -2196,11 +2198,14 @@ bool Simulation::action(const std::string& logical_action) {
     else if (logical_action == "circle") cancel();
     else if (logical_action == "search") { if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) start_editor("Search", state_.library.query); }
     else if (logical_action == "triangle") {
-        if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty())
-            open_modal({"filters", "Sort and filters", state_.navigation.focus_key,
-                        {"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime", "sort-install-size",
-                         "filter-installed", "filter-genre-adventure", "filter-controller-full", "filter-compat-playable",
-                         "filters-reset", "cancel"}, 0, false});
+        if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) {
+            std::vector<std::string> actions = live()
+            ? std::vector<std::string>{"sort-name", "sort-recent-played", "sort-playtime", "filter-compat-playable", "filters-reset", "cancel"}
+            : std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime", "sort-install-size",
+                                      "filter-installed", "filter-genre-adventure", "filter-controller-full", "filter-compat-playable",
+                                      "filters-reset", "cancel"};
+        open_modal({"filters", "Sort and filters", state_.navigation.focus_key, std::move(actions), 0, false});
+        }
     }
     else if (logical_action == "options") {
         if (!state_.editor.active && state_.navigation.route == Route::Details && state_.navigation.modals.empty()) open_modal({"context", "Game actions", "details-more", context_actions(live()), 0, false});

@@ -1098,6 +1098,7 @@ class Render::Impl
             {"rail-favorites", "Favorites", std::to_string(state.library.favorites.size()),
              state.library.scope == "favorites"},
             {"rail-hidden", "Hidden", std::to_string(state.library.hidden.size()), state.library.scope == "hidden"}};
+        if(!state.simulation_mode) entries.erase(entries.begin());
         for (const Collection &collection : state.library.collections)
             entries.push_back({"rail-" + collection.id, collection.name,
                                std::to_string(collection.members.size()),

@@ -264,12 +264,40 @@ void disconnected_installations_remain_installed(const std::filesystem::path& fi
           "Recently installed keeps disconnected games visible");
 }
 
+void live_unicode_query() {
+    State state;
+    state.simulation_mode=false;
+    const auto scopes=library_rail_scopes(state);
+    check(scopes.front()=="all" && std::find(scopes.begin(),scopes.end(),"installed")==scopes.end(),"live scopes omit unavailable installation facts");
+    state.account.authentication=AuthState::SignedIn;
+    for(const auto& [id,title]:std::vector<std::pair<playden::GameId,std::string>>{
+        {9,"Straße"},{8,"STRASSE"},{7,"CAFÉ: Beyond"},{6,"Αθήνα"},{5,"東京物語"},{4,std::string("bad\xff",4)}}) {
+        Game game;game.id=id;game.title=title;state.games.push_back(game);
+    }
+    state.library.query="strasse";
+    auto result=filtered_games(state);
+    check(result.size()==2 && result[0]->id==8 && result[1]->id==9,"live Unicode folding expands sharp s with deterministic ID ties");
+    state.library.query="café:";
+    check(filtered_games(state).size()==1 && filtered_games(state)[0]->id==7,"live accented case folding preserves punctuation");
+    state.library.query="ΑΘΉΝΑ";
+    check(filtered_games(state).size()==1 && filtered_games(state)[0]->id==6,"live Greek case folding");
+    state.library.query="東京";
+    check(filtered_games(state).size()==1,"live exact CJK substring");
+    state.library.query=std::string("bad\xff",4);
+    check(filtered_games(state).size()==1,"malformed input matches byte-exactly");
+    state.library.query="no match";
+    check(filtered_games(state).empty(),"live empty result");
+    state.library.query.clear();
+    check(filtered_games(state).size()==6,"clearing live query restores records");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
     check(argc == 2, "fixture directory argument is required");
     const std::filesystem::path fixtures(argv[1]);
+    live_unicode_query();
     filtering_uses_real_fixture(fixtures);
     all_sorts_keep_unknown_values_last(fixtures);
     shelves_are_nonempty_and_restore_children(fixtures);

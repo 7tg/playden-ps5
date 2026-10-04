@@ -79,6 +79,15 @@ int main(int argc,char** argv) {
     capture("home.png");
     assert(model.action("r1") && model.state().navigation.route==Route::Library);
     capture("library.png");
+    assert(model.action("search"));model.text("CAFÉ");assert(model.action("done"));
+    assert(model.visible_games().size()==1 && model.visible_games().front()->id==43);
+    capture("search.png");
+    assert(model.action("search"));model.text(" discarded");assert(model.action("circle"));
+    assert(model.state().library.query=="CAFÉ" && model.visible_games().size()==1);
+    assert(model.action("search") && model.action("clear"));model.text("no result");assert(model.action("done"));
+    assert(model.visible_games().empty());
+    assert(model.action("search") && model.action("clear") && model.action("done"));
+    assert(model.visible_games().size()==3);
     // The first Library focus can be its sidebar. Move right into its grid.
     if(model.state().navigation.library_rail_focused) assert(model.action("right"));
     assert(model.action("cross") && model.state().navigation.route==Route::Details);

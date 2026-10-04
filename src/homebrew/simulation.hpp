@@ -64,6 +64,7 @@ struct Game {
     std::string description;
     std::string source;
     std::string artwork_source;
+    std::string folded_title; // Derived once for production query/sort; never persisted.
     std::string cover_key;
     std::string hero_key;
     std::string logo_key;

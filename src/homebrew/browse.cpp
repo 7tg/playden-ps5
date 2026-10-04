@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "homebrew/browse.hpp"
+#include "library/query.h"
 
 #include <algorithm>
 #include <cctype>
@@ -96,7 +97,15 @@ std::vector<const Game*> filtered_games(const State& state)
     if (!catalog_available(state) || state.library.filters.contains("empty-fixture"))
         return result;
 
-    const std::string query = ascii_lower(state.library.query);
+    const std::string query = state.simulation_mode ? ascii_lower(state.library.query)
+                                                   : FoldLibraryText(state.library.query);
+    std::map<GameId,std::string> folded_titles;
+    if(!state.simulation_mode)
+        for(const auto& game:state.games)
+            if(game.folded_title.empty()) folded_titles.emplace(game.id,FoldLibraryText(game.title));
+    const auto folded_title=[&](const Game& game)->const std::string& {
+        return game.folded_title.empty() ? folded_titles.at(game.id) : game.folded_title;
+    };
     const Collection* collection = selected_collection(state);
     for (const Game& game : state.games)
     {
@@ -110,8 +119,12 @@ std::vector<const Game*> filtered_games(const State& state)
             continue;
         if (state.library.scope != "hidden" && state.library.hidden.contains(game.id))
             continue;
-        if (!query.empty() && ascii_lower(game.title).find(query) == std::string::npos)
-            continue;
+        if (!query.empty()) {
+            const bool matches=state.simulation_mode
+                ? ascii_lower(game.title).find(query)!=std::string::npos
+                : folded_title(game).find(query)!=std::string::npos;
+            if(!matches) continue;
+        }
         if (state.library.filters.contains("installed") && !installed(state, game.id))
             continue;
         if (state.library.filters.contains("genre-adventure") &&
@@ -131,7 +144,11 @@ std::vector<const Game*> filtered_games(const State& state)
 
     if (state.library.sort == "name")
     {
-        std::stable_sort(result.begin(), result.end(), [](const Game* left, const Game* right) {
+        std::stable_sort(result.begin(), result.end(), [&](const Game* left, const Game* right) {
+            if(!state.simulation_mode) {
+                const auto& a=folded_title(*left);const auto& b=folded_title(*right);
+                return a==b ? left->id<right->id : a<b;
+            }
             return ascii_lower(left->title) < ascii_lower(right->title);
         });
     }
@@ -234,7 +251,8 @@ ShelfWindow shelf_window(int item_count, int focused_item, int capacity) noexcep
 
 std::vector<std::string> library_rail_scopes(const State& state)
 {
-    std::vector<std::string> result{"installed", "all", "favorites", "hidden"};
+    std::vector<std::string> result{"all", "favorites", "hidden"};
+    if(state.simulation_mode) result.insert(result.begin(),"installed");
     for (const Collection& collection : state.library.collections)
         result.push_back(collection.id);
     result.push_back("new-collection");
@@ -318,7 +336,7 @@ bool move_browser(State& state, int delta_x, int delta_y)
         {
             state.navigation.library_rail_focused = true;
             const auto scope = std::find(scopes.begin(), scopes.end(), state.library.scope);
-            const int rail_index = scope == scopes.end() ? 1 : static_cast<int>(std::distance(scopes.begin(), scope));
+            const int rail_index = scope == scopes.end() ? (state.simulation_mode ? 1 : 0) : static_cast<int>(std::distance(scopes.begin(), scope));
             state.navigation.selected_index = rail_index;
             state.navigation.focus_key = rail_key(scopes[static_cast<std::size_t>(rail_index)]);
         }
@@ -337,7 +355,7 @@ bool move_browser(State& state, int delta_x, int delta_y)
         state.navigation.library_grid_column = column;
         state.navigation.library_rail_focused = true;
         const auto scope = std::find(scopes.begin(), scopes.end(), state.library.scope);
-        const int rail_index = scope == scopes.end() ? 1 : static_cast<int>(std::distance(scopes.begin(), scope));
+        const int rail_index = scope == scopes.end() ? (state.simulation_mode ? 1 : 0) : static_cast<int>(std::distance(scopes.begin(), scope));
         state.navigation.selected_index = rail_index;
         state.navigation.focus_key = rail_key(scopes[static_cast<std::size_t>(rail_index)]);
         return true;
