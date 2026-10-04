@@ -12,6 +12,7 @@
 #include "steam/backend/auth_client.h"
 #include "steam/backend/cm_app_details.h"
 #include "steam/backend/entitled_library.h"
+#include "steam/backend/steam_install_runner.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
 #include "library/cache.h"
@@ -383,6 +384,11 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::steam::CmAppDetailsSource> details_source;
     std::unique_ptr<playden::LocalSessionRepository> details_sessions;
     std::unique_ptr<playden::steam::AppDetailsService> app_details;
+    std::unique_ptr<playden::steam::CmClient> install_cm;
+    std::unique_ptr<playden::steam::CdnClient> install_cdn;
+    std::unique_ptr<playden::steam::SteamInstallRunner> install_runner;
+    std::unique_ptr<playden::LocalSessionRepository> install_sessions;
+    std::unique_ptr<playden::steam::InstallService> installs;
     std::unique_ptr<playden::homebrew::Controller> services;
     std::unique_ptr<playden::homebrew::HttpArtworkBackend> artwork_backend;
     std::unique_ptr<playden::homebrew::ArtworkService> artwork;
@@ -442,7 +448,13 @@ int main(int argc, char** argv) {
         details_source = std::make_unique<playden::steam::CmAppDetailsSource>(*details_cm);
         details_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
         app_details = std::make_unique<playden::steam::AppDetailsService>(*details_source, *details_sessions);
-        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get());
+        install_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
+        install_cdn = std::make_unique<playden::steam::CdnClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        install_runner = std::make_unique<playden::steam::SteamInstallRunner>(*install_cm, *install_cdn);
+        install_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        installs = std::make_unique<playden::steam::InstallService>(*install_runner, *install_sessions,
+                                                                    (options->data_directory / "games").string());
+        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get());
     }
 
     if (!options->simulation) {

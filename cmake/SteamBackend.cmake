@@ -120,7 +120,8 @@ if(PLAYDEN_HOMEBREW_UI)
         "${CMAKE_SOURCE_DIR}/src/steam/backend/entitled_library.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_app_details.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cdn_client.cpp"
-        "${CMAKE_SOURCE_DIR}/src/steam/backend/depot_installer.cpp")
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/depot_installer.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/steam_install_runner.cpp")
     target_include_directories(playden_steam_cm PUBLIC "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(playden_steam_cm PUBLIC cxx_std_17)
     target_link_libraries(playden_steam_cm PUBLIC
@@ -192,6 +193,9 @@ function(playden_register_steam_backend_tests)
             target_link_libraries(${test_name}_test PRIVATE playden_steam_cm)
             add_test(NAME ${test_name} COMMAND ${test_name}_test "${CMAKE_SOURCE_DIR}/fixtures/steam/cm")
         endforeach()
+        add_executable(install_service_test "${CMAKE_SOURCE_DIR}/tests/install_service_test.cpp")
+        target_link_libraries(install_service_test PRIVATE playden_steam_core)
+        add_test(NAME install_service COMMAND install_service_test)
         add_executable(depot_installer_test "${CMAKE_SOURCE_DIR}/tests/depot_installer_test.cpp")
         target_link_libraries(depot_installer_test PRIVATE playden_steam_cm)
         add_test(NAME depot_installer COMMAND depot_installer_test)

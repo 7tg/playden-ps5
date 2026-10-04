@@ -109,6 +109,14 @@ AuthState parse_auth_state(const std::string& state) {
     return AuthState::SignedOut;
 }
 
+std::string format_bytes(std::uint64_t bytes) {
+    if (bytes == 0) return {};
+    char text[32];
+    if (bytes >= 1000ull * 1000 * 1000) std::snprintf(text, sizeof(text), "%.1f GB", static_cast<double>(bytes) / 1e9);
+    else std::snprintf(text, sizeof(text), "%.0f MB", std::max(1.0, static_cast<double>(bytes) / 1e6));
+    return text;
+}
+
 std::string job_state_name(JobState state) {
     switch (state) {
     case JobState::Queued: return "queued";
@@ -244,7 +252,7 @@ void reconcile_library_selection(State& state) {
 std::string game_key(GameId id) { return "game-" + std::to_string(id); }
 
 std::vector<std::string> context_actions(bool live) {
-    if (live) return {"favorite", "collection", "note", "hide", "cancel"};
+    if (live) return {"favorite", "collection", "note", "hide", "uninstall", "cancel"};
     return {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"};
 }
 
@@ -430,6 +438,36 @@ std::vector<ServiceAction> Simulation::TakeServiceActions() {
     auto actions = std::move(pending_service_actions_);
     pending_service_actions_.clear();
     return actions;
+}
+
+std::vector<InstallRequest> Simulation::TakeInstallRequests() {
+    auto requests = std::move(pending_install_requests_);
+    pending_install_requests_.clear();
+    return requests;
+}
+
+void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed) {
+    if (!live()) return;
+    std::vector<Job> projected;
+    int order = 0;
+    for (const auto& live_job : jobs) {
+        Job job;
+        job.id = std::to_string(live_job.game_id);
+        job.game_id = live_job.game_id;
+        job.queue_order = order++;
+        job.state = live_job.state;
+        job.completed_bytes = live_job.done_bytes;
+        job.total_bytes = live_job.total_bytes;
+        job.failure = live_job.failure;
+        job.volume_id = "internal";
+        projected.push_back(std::move(job));
+    }
+    std::vector<Installation> installations;
+    for (const auto& game : installed)
+        installations.push_back({game.game_id, "internal", game.install_bytes, true, false, false});
+    state_.jobs = std::move(projected);
+    state_.installations = std::move(installations);
+    rebuild_view();
 }
 
 void Simulation::queue_service_action(ServiceAction action) {
@@ -1845,6 +1883,23 @@ void Simulation::rebuild_view() {
                                 installed ? (installation->runtime_ready ? "launch" : "runtime-status") : "install");
             primary.enabled = true;
         }
+        if (live() && game) {
+            // Real install state: an install job, a finished install, or what Steam allows.
+            const auto* job = find_job(state_, std::to_string(game->id));
+            if (installed) {
+                row("details-installed", RowKind::Status, "Installed", "").value = format_bytes(installation->installed_bytes);
+            } else if (job) {
+                auto& status = row("details-download", RowKind::Action, "Download", "open-downloads");
+                status.value = job_state_name(job->state);
+                status.progress = job->total_bytes == 0 ? 0.0F : static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
+            } else if (game->windows_installable.value_or(false)) {
+                row("details-install", RowKind::Action, "Install", "live-install").value = format_bytes(game->download_bytes.value_or(0));
+            } else if (game->windows_installable.has_value()) {
+                row("details-unavailable", RowKind::Status, "No Windows version to install", "").enabled = false;
+            } else {
+                row("details-checking", RowKind::Status, "Checking Steam…", "").enabled = false;
+            }
+        }
         row("details-favorite", RowKind::Toggle, "Favorite", "favorite").selected = game && state_.library.favorites.contains(game->id);
         if (!live()) {
             row("details-settings", RowKind::Action, "Game settings", "game-settings");
@@ -2222,6 +2277,20 @@ void Simulation::activate() {
         else if (job && job->state != JobState::Cancelled) actions.push_back("job-cancel-" + id);
         actions.push_back("logs"); actions.push_back("cancel");
         open_modal({"job-actions", "Download actions", selected.key, std::move(actions), 0, false});
+    } else if (live() && action_name == "live-install") {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id});
+    } else if (live() && action_name == "open-downloads") {
+        state_.navigation.route = Route::Downloads;
+        state_.navigation.focus_key = "job-" + std::to_string(state_.navigation.detail_id.value_or(0));
+    } else if (live() && (action_name.rfind("job-pause-", 0) == 0 || action_name.rfind("job-resume-", 0) == 0 ||
+                          action_name.rfind("job-retry-", 0) == 0)) {
+        const auto dash = action_name.find('-', 4);
+        if (const auto* job = find_job(state_, action_name.substr(dash + 1))) {
+            const auto kind = action_name.rfind("job-pause-", 0) == 0 ? InstallRequestKind::Pause : InstallRequestKind::Resume;
+            pending_install_requests_.push_back({kind, job->game_id});
+        }
+        close_modal();
     } else if (action_name.rfind("job-pause-", 0) == 0) { if (auto* job = find_job(state_, action_name.substr(10))) job->state = JobState::Pausing; close_modal(); }
     else if (action_name.rfind("job-resume-", 0) == 0) {
         if (auto* job = find_job(state_, action_name.substr(11))) {
@@ -2286,11 +2355,23 @@ void Simulation::activate() {
                 body = "Your sign-in, library and settings are kept for next time.";
             } else if (action_name == "reset-confirm") {
                 body = "Favorites, collections, notes and display preferences return to their defaults.";
+            } else if (action_name == "uninstall") {
+                title = "Uninstall this game?";
+                body = "The game's files are removed from this console. You can install it again from Steam.";
             }
         }
         ModalEntry confirmation{"confirmation", std::move(title), state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
         confirmation.body = std::move(body);
         open_modal(std::move(confirmation));
+    } else if (action_name == "confirm-destructive" && live() &&
+               (pending_destructive_action_.rfind("job-cancel-", 0) == 0 || pending_destructive_action_ == "uninstall")) {
+        if (pending_destructive_action_ == "uninstall") {
+            pending_install_requests_.push_back({InstallRequestKind::Uninstall, state_.navigation.selected_game_id});
+        } else if (const auto* job = find_job(state_, pending_destructive_action_.substr(11))) {
+            pending_install_requests_.push_back({InstallRequestKind::Cancel, job->game_id});
+        }
+        pending_destructive_action_.clear();
+        state_.navigation.modals.clear();
     } else if (action_name == "confirm-destructive") {
         if (pending_destructive_action_.rfind("job-cancel-", 0) == 0) {
             if (auto* job = find_job(state_, pending_destructive_action_.substr(11))) { job->state = JobState::Cancelled; job->reservation_held = false; }

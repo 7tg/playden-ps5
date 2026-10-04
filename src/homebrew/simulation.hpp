@@ -28,6 +28,23 @@ enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
 enum class RuntimeState { Unavailable, Checking, Ready, Failed };
 enum class LogState { Loading, Ready, Failed };
+enum class InstallRequestKind { Install, Pause, Resume, Cancel, Uninstall };
+struct InstallRequest {
+    InstallRequestKind kind = InstallRequestKind::Install;
+    GameId game_id = 0;
+};
+// Live install state projected from the real install service.
+struct LiveInstallJob {
+    GameId game_id = 0;
+    JobState state = JobState::Queued;
+    std::uint64_t done_bytes = 0;
+    std::uint64_t total_bytes = 0;
+    std::string failure;
+};
+struct LiveInstalledGame {
+    GameId game_id = 0;
+    std::uint64_t install_bytes = 0;
+};
 enum class Compatibility { Untested, Works, Playable, Broken };
 enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, Profile, Status, Separator };
 
@@ -311,6 +328,9 @@ public:
     void SetWallClock(std::int64_t unix_seconds);
     void UpdateAccount(AccountUpdate update);
     bool UpdateLibrary(LibraryUpdate update);
+    // Live mode: requests for the real install service, and its state for display.
+    [[nodiscard]] std::vector<InstallRequest> TakeInstallRequests();
+    void UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed);
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
     bool UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
                           std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable);
@@ -361,6 +381,7 @@ private:
     std::uint64_t next_collection_serial_ = 1;
     std::uint64_t next_job_serial_ = 1;
     std::vector<ServiceAction> pending_service_actions_;
+    std::vector<InstallRequest> pending_install_requests_;
     bool library_catalog_received_ = false;
 
     struct OrganizationJournalEntry {

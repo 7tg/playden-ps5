@@ -10,6 +10,7 @@
 #include "steam/backend/auth_client.h"
 #include "steam/backend/cm_app_details.h"
 #include "steam/backend/entitled_library.h"
+#include "steam/backend/steam_install_runner.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
 #include "library/cache.h"
@@ -144,7 +145,12 @@ int main() {
         playden::steam::CmAppDetailsSource details_source(details_cm);
         playden::LocalSessionRepository details_sessions("/app0/playden-data");
         playden::steam::AppDetailsService app_details(details_source, details_sessions);
-        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details);
+        playden::steam::CmClient install_cm("/app0/trust/cacert.pem", library_storage);
+        playden::steam::CdnClient install_cdn("/app0/trust/cacert.pem");
+        playden::steam::SteamInstallRunner install_runner(install_cm, install_cdn);
+        playden::LocalSessionRepository install_sessions("/app0/playden-data");
+        playden::steam::InstallService installs(install_runner, install_sessions, "/app0/games");
+        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs);
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer("/app0/assets");

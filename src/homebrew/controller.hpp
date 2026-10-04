@@ -4,6 +4,7 @@
 #include "app/library_controller.h"
 #include "app/persistence_controller.h"
 #include "steam/app_details_service.h"
+#include "steam/install_service.h"
 #include <memory>
 #include <optional>
 
@@ -14,7 +15,7 @@ class Controller {
  public:
   Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
              LibraryService* library_service = nullptr, app::PersistenceService* persistence_service = nullptr,
-             steam::AppDetailsService* app_details = nullptr);
+             steam::AppDetailsService* app_details = nullptr, steam::InstallService* installs = nullptr);
   ~Controller();
   void Tick();
   void Shutdown();
@@ -32,8 +33,11 @@ class Controller {
   void Update(AuthState state, const std::string& error = {}, bool clear = false,
               const std::string& challenge = {});
   void TickAppDetails();
+  void TickInstalls();
   Simulation& model_;
   steam::AppDetailsService* app_details_ = nullptr;
+  steam::InstallService* installs_ = nullptr;
+  std::uint64_t install_revision_ = 0;
   std::optional<GameId> requested_detail_;
   std::uint64_t requested_generation_ = 0;
   std::unique_ptr<steam::SteamService> service_;

@@ -237,9 +237,44 @@ void live_details_keep_personal_edits_and_block_fixture_operations() {
           "live details enter on a visible enabled favorite action");
     check(model.action("focus:details-more") && model.action("cross"), "personal context opens");
     check(has_row(model, "favorite") && has_row(model, "collection") && has_row(model, "note")
-              && has_row(model, "hide") && !has_row(model, "verify")
-              && !has_row(model, "uninstall") && !has_row(model, "logs"),
+              && has_row(model, "hide") && !has_row(model, "verify") && !has_row(model, "logs"),
           "live context retains personal actions and hides fixture operations");
+    const auto uninstall = std::find_if(model.view().rows.begin(), model.view().rows.end(),
+                                        [](const auto& row) { return row.key == "uninstall"; });
+    check(uninstall != model.view().rows.end() && !uninstall->enabled, "live Uninstall is disabled until installed");
+}
+
+void live_install_requests_and_projection() {
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    check(model.action("details:42"), "details open");
+    check(has_row(model, "details-checking"), "install state waits for Steam details");
+    check(model.UpdateAppDetails(42, 300'000'000, 600'000'000, true), "app details apply");
+    check(has_row(model, "details-install"), "an installable game offers Install");
+    activate(model, "details-install");
+    auto requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Install && requests[0].game_id == 42,
+          "Install sends one request");
+    model.UpdateInstalls({{42, playden::homebrew::JobState::Downloading, 50, 200, {}}}, {});
+    check(has_row(model, "details-download") && !has_row(model, "details-install"), "a running job replaces Install");
+    activate(model, "details-download");
+    check(model.state().navigation.route == playden::homebrew::Route::Downloads, "the download row opens Downloads");
+    activate(model, "job-42");
+    activate(model, "job-pause-42");
+    requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Pause, "Pause goes to the service");
+    model.UpdateInstalls({}, {{42, 600'000'000}});
+    check(model.action("details:42") && has_row(model, "details-installed"), "a finished install shows Installed");
+    check(model.action("focus:details-more") && model.action("cross"), "context opens");
+    activate(model, "uninstall");
+    activate(model, "confirm-destructive");
+    requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Uninstall && requests[0].game_id == 42,
+          "Uninstall confirms and goes to the service");
+    model.UpdateAppDetails(42, std::nullopt, std::nullopt, false);
+    model.UpdateInstalls({}, {});
+    check(model.action("details:42") && has_row(model, "details-unavailable"), "a game without Windows content says so");
 }
 
 void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
@@ -316,6 +351,7 @@ void live_filters_only_use_available_facts() {
 } // namespace
 
 int main() {
+    live_install_requests_and_projection();
     live_filters_only_use_available_facts();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();

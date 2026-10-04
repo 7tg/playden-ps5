@@ -5,8 +5,8 @@
 namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
                        LibraryService* library_service, app::PersistenceService* persistence_service,
-                       steam::AppDetailsService* app_details)
-    : model_(model), app_details_(app_details), library_service_(library_service) {
+                       steam::AppDetailsService* app_details, steam::InstallService* installs)
+    : model_(model), app_details_(app_details), installs_(installs), library_service_(library_service) {
   if (model_.state().simulation_mode) return;
   if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
   service_ = std::make_unique<steam::SteamService>(backend,repository);
@@ -30,6 +30,7 @@ void Controller::Shutdown() {
   }
   if(persistence_) { persistence_->FlushAndShutdown();AdvanceOrganizationClear(); }
   if(app_details_) app_details_->Shutdown();
+  if(installs_) installs_->Shutdown();
   service_.reset();
   persistence_.reset();
   library_.reset();
@@ -126,6 +127,36 @@ void Controller::Tick() {
   if(library_) { library_->Tick();AdvanceClear(); }
   if(persistence_) { persistence_->Tick();AdvanceOrganizationClear(); }
   TickAppDetails();
+  TickInstalls();
+}
+void Controller::TickInstalls() {
+  if (!installs_) return;
+  for (const auto& request : model_.TakeInstallRequests()) {
+    switch (request.kind) {
+      case InstallRequestKind::Install: installs_->Install(request.game_id); break;
+      case InstallRequestKind::Pause: installs_->Pause(request.game_id); break;
+      case InstallRequestKind::Resume: installs_->Resume(request.game_id); break;
+      case InstallRequestKind::Cancel: installs_->Cancel(request.game_id); break;
+      case InstallRequestKind::Uninstall: installs_->Uninstall(request.game_id); break;
+    }
+  }
+  const auto snapshot = installs_->Snapshot();
+  if (snapshot.revision == install_revision_) return;
+  install_revision_ = snapshot.revision;
+  std::vector<LiveInstallJob> jobs;
+  for (const auto& job : snapshot.jobs) {
+    JobState state = JobState::Queued;
+    switch (job.state) {
+      case steam::InstallJobState::kQueued: state = JobState::Queued; break;
+      case steam::InstallJobState::kRunning: state = JobState::Downloading; break;
+      case steam::InstallJobState::kPaused: state = JobState::Paused; break;
+      case steam::InstallJobState::kFailed: state = JobState::Failed; break;
+    }
+    jobs.push_back({job.id, state, job.done_bytes, job.total_bytes, job.failure});
+  }
+  std::vector<LiveInstalledGame> installed;
+  for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes});
+  model_.UpdateInstalls(jobs, installed);
 }
 void Controller::TickAppDetails() {
   if (!app_details_) return;
