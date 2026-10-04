@@ -1,0 +1,11 @@
+{
+  "eboot_sha256": "905d1a0ad3c58923d3756d75d692b70b0f145afed1b8cc93a8352b4937a25c97",
+  "source_base": "02bdd63 + phase instrumentation (before final stage-label rename)",
+  "rmlfocus_revision": "31d2d8fd39ca3e3bb3ba91a43f50561c04429d57",
+  "title_id": "FAKE77031",
+  "capture_enabled": false,
+  "msaa_samples": 4,
+  "files": {
+    "playden.log": "ae05d9ba19e326b69fea5976a58a398787af7f3bf8e54c7a9937c09f4773fd71"
+  }
+}
