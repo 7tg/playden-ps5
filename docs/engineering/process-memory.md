@@ -111,6 +111,81 @@ prefix of that larger record remains disabled until its compatibility is
 independently justified and reviewed; until then the resident-memory acceptance
 requirement remains incomplete.
 
+## Experimental 1096-byte memory probe
+
+`playden::ps5::RunMemoryProbe()` is a temporary, explicitly invoked native
+probe. It does not change `ReadProcessResidentBytes()` and a successful probe
+sample is not accepted as production RSS evidence. It prints numeric fields to
+standard output and never prints the process or parent-process identifier.
+
+The compatibility case for probing the early prefix is narrower than support
+for the complete record:
+
+- The pinned FreeBSD 11-derived SDK and the supplied kstuff-lite FreeBSD 9
+  headers both define a 1088-byte `kinfo_proc`. Cross-compiling their
+  definitions for the target places `ki_structsize` at byte 0, `ki_pid` at 72,
+  `ki_ppid` at 76, `ki_size` at 256, and the signed 64-bit `ki_rssize` at 264.
+  Later string fields differ between those two layouts, so the probe reads no
+  field after the resident-page count.
+- `../ps5-homebrew/kstuff-lite/ps5-kstuff/main.c` requests a 1096-byte
+  `KERN_PROC_PID` record and reads the process name at byte 447. The launcher
+  independently observed the same 1096-byte required size on PS5.
+- Hardware research for PS4 firmware 13.52 reports a 1096-byte process record
+  while locating several FreeBSD 9-compatible strings between bytes 394 and
+  467. This supports preservation of the early prefix on a Sony-derived
+  kernel, but it is neither a PS5 ABI definition nor proof for the target
+  firmware.
+
+No inspected SDK or firmware header defines the 1096-byte structure or
+explains the extra eight bytes. The probe therefore fetches into fixed
+1096-byte byte storage and uses `memcpy` into fixed-width scalars. It requires:
+
+- both the size query and returned length to equal 1096;
+- the embedded signed 32-bit structure size to equal 1096;
+- the signed 32-bit process and parent-process fields to equal the values from
+  `getpid()` and `getppid()`;
+- runtime `getpagesize()` to equal 16384;
+- a positive signed 64-bit resident-page count whose checked byte conversion
+  does not exceed the unsigned 64-bit virtual size at byte 256.
+
+The probe emits three phases: `0` is the baseline, `1` follows a successful
+32 MiB anonymous mapping and a volatile write to every 16 KiB page, and `2`
+follows `munmap`. The two settling waits are each bounded to 100 ms. Mapping,
+unmapping, waits, both sysctl calls, returned sizes, and every prefix validation
+have numeric status or error fields. Allocation is fixed; the kernel-advertised
+record size never controls allocation. Once a mapping succeeds, every path
+attempts to unmap it before returning.
+
+The numeric `MemoryProbeStatus` values are:
+
+| Value | Meaning |
+| ---: | --- |
+| 0 | Validated experimental sample. |
+| 1 | `getpid()` did not return a valid process ID. |
+| 2 | `getppid()` did not return a valid parent process ID. |
+| 3 | Record size query failed. |
+| 4 | Advertised or parser input size was not exactly 1096. |
+| 5 | Record fetch failed. |
+| 6 | Successful fetch reported a length other than 1096. |
+| 7 | Embedded structure size was not 1096. |
+| 8 | Embedded process ID did not match the caller. |
+| 9 | Embedded parent process ID did not match the caller. |
+| 10 | Runtime page size was not 16 KiB. |
+| 11 | Resident page count was zero or negative. |
+| 12 | Page-to-byte conversion overflowed. |
+| 13 | Resident bytes exceeded virtual bytes. |
+| 14 | Anonymous mapping failed. |
+| 15 | Unmapping failed. |
+| 16 | Parser received null record storage. |
+
+The pinned import library contains `sceKernelGetResidentCount`, and community
+syscall tables describe a one-process-ID resident-count call. No inspected SDK
+header declares its C signature, return units, error convention, or title
+credential requirements. The probe deliberately does not guess that ABI. A
+future direct-API probe needs an independently reviewed declaration and must
+still establish current-versus-peak semantics and units with the same
+controlled mapping delta.
+
 ## Presentation-status ABI probe
 
 The packaged ps5-opengl runtime owns the VideoOut handle. The probe therefore
