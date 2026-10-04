@@ -23,11 +23,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
-#include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -107,13 +107,36 @@ ui::Theme playden_theme()
 
 bool read_file(const std::filesystem::path &path, std::string *out)
 {
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream)
+    std::FILE *file = std::fopen(path.string().c_str(), "rb");
+    if (file == nullptr)
         return false;
-    std::ostringstream bytes;
-    bytes << stream.rdbuf();
-    *out = bytes.str();
-    return stream.good() || stream.eof();
+
+    const auto close_file = [&file]() { std::fclose(file); };
+    if (std::fseek(file, 0, SEEK_END) != 0)
+    {
+        close_file();
+        return false;
+    }
+    const long length = std::ftell(file);
+    if (length < 0 || static_cast<unsigned long>(length) > std::numeric_limits<std::size_t>::max())
+    {
+        close_file();
+        return false;
+    }
+    if (std::fseek(file, 0, SEEK_SET) != 0)
+    {
+        close_file();
+        return false;
+    }
+
+    std::string bytes(static_cast<std::size_t>(length), '\0');
+    const std::size_t read = bytes.empty() ? 0 : std::fread(bytes.data(), 1, bytes.size(), file);
+    const bool ok = read == bytes.size() && std::ferror(file) == 0;
+    close_file();
+    if (!ok)
+        return false;
+    *out = std::move(bytes);
+    return true;
 }
 
 std::filesystem::path first_existing(const std::vector<std::filesystem::path> &paths)
@@ -151,16 +174,18 @@ std::string byte_count(std::optional<std::uint64_t> bytes)
     if (!bytes)
         return "Unknown";
     constexpr double gib = 1024.0 * 1024.0 * 1024.0;
-    std::ostringstream value;
-    value.setf(std::ios::fixed);
-    value.precision(*bytes >= static_cast<std::uint64_t>(10.0 * gib) ? 0 : 1);
-    value << static_cast<double>(*bytes) / gib << " GB";
-    return value.str();
+    std::array<char, 32> value{};
+    const int precision = *bytes >= static_cast<std::uint64_t>(10.0 * gib) ? 0 : 1;
+    const int written = std::snprintf(value.data(), value.size(), "%.*f GB", precision,
+                                      static_cast<double>(*bytes) / gib);
+    return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : "Unknown";
 }
 
 ui::Button legend_button(std::string_view legend, std::size_t index)
 {
     if (legend.find("Favorite") != std::string_view::npos)
+        return ui::Button::square;
+    if (legend.find("Backspace") != std::string_view::npos)
         return ui::Button::square;
     if (legend.find("Sort") != std::string_view::npos || legend.find("Filter") != std::string_view::npos)
         return ui::Button::triangle;
@@ -221,6 +246,8 @@ class Render::Impl
         overlay_.clear();
         const State &state = simulation.state();
         const ViewData &view = simulation.view();
+        const ViewData &route_view = simulation.route_view();
+        route_focus_ = !state.editor.active && state.navigation.modals.empty();
         current_state_ = &state;
         clock_ = static_cast<float>(state.clock_ticks) / 60.0F;
         ui::Canvas scene{scene_, fonts_, renderer_.glass_texture(), clock_};
@@ -234,10 +261,10 @@ class Render::Impl
         switch (state.navigation.route)
         {
         case Route::Startup:
-            draw_startup(scene, view, state);
+            draw_startup(scene, route_view, state);
             break;
         case Route::SignIn:
-            draw_sign_in(scene, view, state);
+            draw_sign_in(scene, route_view, state);
             break;
         case Route::Home:
             draw_home(scene, simulation);
@@ -246,16 +273,16 @@ class Render::Impl
             draw_library(scene, simulation);
             break;
         case Route::Downloads:
-            draw_downloads(scene, view, state);
+            draw_downloads(scene, route_view, state);
             break;
         case Route::Settings:
-            draw_settings(scene, view, state);
+            draw_settings(scene, route_view, state);
             break;
         case Route::Details:
-            draw_details(scene, view, state);
+            draw_details(scene, route_view, state);
             break;
         case Route::Session:
-            draw_session(scene, view, state);
+            draw_session(scene, route_view, state);
             break;
         }
 
@@ -420,6 +447,7 @@ class Render::Impl
         tabs_.style.theme = theme_;
         tabs_.style.theme.primary = kText.with_alpha(0.12F);
         tabs_.style.theme.on_primary = kText;
+        tabs_.style.theme.label = ui::FontRole::display;
         tabs_.style.kind = ui::TabKind::boxed;
         tabs_.style.height = 56.0F;
         tabs_.style.gap = 14.0F;
@@ -437,7 +465,7 @@ class Render::Impl
         grid_.style.cell_height = 315.0F;
         grid_.style.gap_x = 24.0F;
         grid_.style.gap_y = 24.0F;
-        grid_.style.padding = 7.0F;
+        grid_.style.padding = 27.0F;
         grid_.style.scroll_thumb = false;
         grid_.style.edge_fade = 0.0F;
         grid_.style.entrance_step = 0.0F;
@@ -447,7 +475,7 @@ class Render::Impl
         grid_.style.card.radius = 8.0F;
         // The third row continues beneath the y=986 legend, matching the pinned
         // reference rather than reserving a separate blank footer strip.
-        grid_.set_bounds({437.0F, 143.0F, 1394.0F, 883.0F});
+        grid_.set_bounds({417.0F, 123.0F, 1434.0F, 903.0F});
 
         list_.style.theme = theme_;
         list_.style.panel = false;
@@ -515,7 +543,7 @@ class Render::Impl
     void draw_action(const ViewRow &row, const gfx::Rect &rect, bool focused, bool primary = false)
     {
         ui::Painter painter(scene_, fonts_, theme_, renderer_.glass_texture());
-        ui::Look look{focused ? 1.0F : 0.0F, 0.0F, !row.enabled};
+        ui::Look look{focused && route_focus_ ? 1.0F : 0.0F, 0.0F, !row.enabled};
         painter.button(rect, fit(fonts_.display, row.title, primary ? 34.0F : 27.0F, rect.w - 36.0F),
                        primary ? ui::ButtonKind::primary : ui::ButtonKind::secondary, look);
         if (!row.value.empty())
@@ -623,7 +651,7 @@ class Render::Impl
 
     void draw_home(ui::Canvas &, Simulation &simulation)
     {
-        const ViewData &view = simulation.view();
+        const ViewData &view = simulation.route_view();
         section_label(view.title.empty() ? "Home" : view.title, 96.0F, 168.0F);
         const auto games = simulation.visible_games();
         if (games.empty())
@@ -644,7 +672,7 @@ class Render::Impl
             {
                 const Game &game = *games[game_index];
                 const gfx::Rect art{96.0F + column * 233.0F, top + 28.0F, 213.0F, 320.0F};
-                const bool focused = static_cast<int>(game_index) == view.focused_row;
+                const bool focused = route_focus_ && static_cast<int>(game_index) == view.focused_row;
                 draw_poster(game, art, focused, {}, -1.0F, false);
             }
         }
@@ -653,9 +681,9 @@ class Render::Impl
     void draw_library(ui::Canvas &canvas, Simulation &simulation)
     {
         const State &state = simulation.state();
-        const ViewData &view = simulation.view();
+        const ViewData &view = simulation.route_view();
         const auto games = simulation.visible_games();
-        draw_library_rail(view, state, games.size());
+        draw_library_rail(view, state);
 
         if (games.empty())
         {
@@ -672,9 +700,10 @@ class Render::Impl
 
         visible_grid_games_ = games;
         grid_.style.reduced_motion = state.reduced_motion;
+        grid_.style.theme.focus = route_focus_ ? kAccent : kAccent.with_alpha(0.0F);
         grid_.set_count(static_cast<int>(games.size()));
         grid_.set_focus(std::clamp(view.focused_row, 0, static_cast<int>(games.size()) - 1), true);
-        grid_.set_active(true);
+        grid_.set_active(route_focus_);
         grid_.content = [this](ui::Canvas &, const gfx::Rect &cell, const ui::CardItem &, int index,
                               float focus) {
             const Game &game = *visible_grid_games_[static_cast<std::size_t>(index)];
@@ -687,25 +716,41 @@ class Render::Impl
         grid_.draw(canvas);
     }
 
-    void draw_library_rail(const ViewData &view, const State &state, std::size_t count)
+    void draw_library_rail(const ViewData &view, const State &state)
     {
-        const std::array<std::pair<const char *, const char *>, 6> entries = {{{"Installed", "14"},
-                                                                               {"All", "24"},
-                                                                               {"Favorites", "8"},
-                                                                               {"Hidden", "2"},
-                                                                               {"Short sessions", "11"},
-                                                                               {"New collection", "+"}}};
-        const int selected = state.library.scope == "installed" ? 0 : state.library.scope == "favorites" ? 2 :
-                             state.library.scope == "hidden" ? 3 : 1;
+        struct RailEntry
+        {
+            std::string title;
+            std::string value;
+            bool selected = false;
+        };
+        const std::size_t installed = std::count_if(
+            state.installations.begin(), state.installations.end(),
+            [](const Installation &installation) { return installation.available; });
+        std::vector<RailEntry> entries = {
+            {"Installed", std::to_string(installed), state.library.scope == "installed"},
+            {"All", std::to_string(state.games.size()), state.library.scope == "all"},
+            {"Favorites", std::to_string(state.library.favorites.size()),
+             state.library.scope == "favorites"},
+            {"Hidden", std::to_string(state.library.hidden.size()), state.library.scope == "hidden"}};
+        for (const Collection &collection : state.library.collections)
+            entries.push_back({collection.name, std::to_string(collection.members.size()),
+                               state.library.scope == collection.id});
+        entries.push_back({"New collection", "+", false});
+        const int selected = state.library.scope == "installed" ? 0 :
+                             state.library.scope == "all" ? 1 :
+                             state.library.scope == "favorites" ? 2 :
+                             state.library.scope == "hidden" ? 3 : -1;
         for (std::size_t index = 0; index < entries.size(); ++index)
         {
             const float y = 155.0F + index * 66.0F;
-            if (static_cast<int>(index) == selected)
+            if (entries[index].selected || static_cast<int>(index) == selected)
                 scene_.rounded_rect({96.0F, y, 300.0F, 60.0F}, 8.0F, kText.with_alpha(0.10F));
-            ui::text(scene_, fonts_.display, entries[index].first, 118.0F, y + 39.0F, 27.0F,
-                     static_cast<int>(index) == selected ? kText : kSecondary);
-            const std::string value = index == 1 ? std::to_string(count) : entries[index].second;
-            ui::text(scene_, fonts_.regular, value, 374.0F, y + 38.0F, 20.0F, kMuted,
+            ui::text(scene_, fonts_.display,
+                     fit(fonts_.display, entries[index].title, 27.0F, 225.0F), 118.0F, y + 39.0F,
+                     27.0F, entries[index].selected || static_cast<int>(index) == selected ? kText
+                                                                                           : kSecondary);
+            ui::text(scene_, fonts_.regular, entries[index].value, 374.0F, y + 38.0F, 20.0F, kMuted,
                      gfx::Align::right);
         }
         if (!state.library.query.empty())
@@ -750,7 +795,7 @@ class Render::Impl
         if (focused && title_overlay)
         {
             scene_.gradient_rect({rect.x, rect.y + rect.h - 98.0F, rect.w, 98.0F}, 8.0F,
-                                 kBackground.with_alpha(0.78F), kBackground.with_alpha(0.98F));
+                                 kBackground.with_alpha(0.96F), kBackground);
             dynamic_text(game.title, rect.x + 13.0F, rect.y + rect.h - 45.0F, 23.0F, kText,
                          rect.w - 26.0F);
         }
@@ -800,11 +845,12 @@ class Render::Impl
                         float row_height = 90.0F)
     {
         list_.style.row_height = row_height;
+        list_.style.theme.focus = route_focus_ ? kAccent : kAccent.with_alpha(0.0F);
         list_.set_items(list_items(view));
         list_.set_bounds(bounds);
         list_.set_focus(std::clamp(view.focused_row, 0, std::max(0, static_cast<int>(view.rows.size()) - 1)),
                         true);
-        list_.set_active(true);
+        list_.set_active(route_focus_);
         list_.update(1.0F / 60.0F);
         list_.draw(canvas);
 
@@ -962,9 +1008,16 @@ class Render::Impl
         }
         else
         {
-            for (std::size_t index = 0; index < labels.size() && index < 7; ++index)
+            for (std::size_t index = 0; index < labels.size() && index < 5; ++index)
                 hints.push_back({legend_button(labels[index], index), labels[index].c_str()});
+            const bool has_back = std::any_of(labels.begin(), labels.end(), [](const std::string &label) {
+                return label.find("Back") != std::string::npos ||
+                       label.find("Cancel") != std::string::npos;
+            });
+            if (!has_back)
+                hints.push_back({ui::Button::circle, "Back"});
         }
+        hints.push_back({ui::Button::l1, "Sections", ui::Button::r1});
         ui::HintLayout layout;
         layout.size = 38.0F;
         layout.text_size = 22.0F;
@@ -974,6 +1027,29 @@ class Render::Impl
         ui::GlyphStyle glyphs = ui::GlyphStyle::mono(kText, kBackground);
         ui::draw_hints(scene_, fonts_, glyphs, hints.data(), static_cast<int>(hints.size()), 96.0F,
                        false, layout);
+        if (current_state_ != nullptr)
+        {
+            const auto job = std::find_if(current_state_->jobs.begin(), current_state_->jobs.end(),
+                                          [](const Job &value) {
+                                              return value.state == JobState::Downloading ||
+                                                     value.state == JobState::Verifying ||
+                                                     value.state == JobState::Paused;
+                                          });
+            if (job != current_state_->jobs.end())
+            {
+                const Game *game = game_by_id(*current_state_, job->game_id);
+                const float progress = job->total_bytes == 0 ? 0.0F :
+                    static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
+                const float x = 1480.0F;
+                scene_.rounded_rect({1464.0F, 986.0F, 168.0F, 40.0F}, 8.0F,
+                                    kBackground.with_alpha(0.86F));
+                dynamic_text(game == nullptr ? std::string_view("Transfer") : std::string_view(game->title),
+                             x, 1004.0F, 16.0F, kText, 136.0F, false);
+                scene_.rounded_rect({x, 1013.0F, 136.0F, 6.0F}, 3.0F, kText.with_alpha(0.18F));
+                scene_.rounded_rect({x, 1013.0F, 136.0F * std::clamp(progress, 0.0F, 1.0F), 6.0F},
+                                    3.0F, job->state == JobState::Paused ? kAmber : kAccent);
+            }
+        }
         if (view.show_simulation_label)
         {
             scene_.rounded_rect({1652.0F, 989.0F, 172.0F, 34.0F}, 17.0F, kText.with_alpha(0.08F));
@@ -992,7 +1068,11 @@ class Render::Impl
         }
         if (!state.navigation.modals.empty())
         {
-            draw_modal_overlay(state.navigation.modals.back(), view);
+            const ModalEntry &modal = state.navigation.modals.back();
+            if (modal.destructive || modal.id == "confirmation")
+                draw_modal_overlay(modal, view);
+            else
+                draw_sheet_overlay(view);
             return;
         }
         if (view.surface != "home" && view.surface != "library" && view.surface != "downloads" &&
@@ -1026,7 +1106,7 @@ class Render::Impl
         ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
         const gfx::Rect field{476.0F, 232.0F, 968.0F, 76.0F};
         painter.field(field, state.editor.value, false,
-                      {1.0F, 0.0F, false});
+                      {0.0F, 0.0F, false});
         const std::size_t caret = std::min(state.editor.caret, state.editor.value.size());
         const float caret_x = field.x + 22.0F +
                               fonts_.regular.measure(std::string_view(state.editor.value).substr(0, caret),
@@ -1057,16 +1137,28 @@ class Render::Impl
             "Review the impact before continuing. This fixture changes simulated state only." : view.subtitle;
         ui::paragraph(overlay_, fonts_.regular, body, panel.x + 48.0F, panel.y + 132.0F, 25.0F,
                       panel.w - 96.0F, 35.0F, kSecondary, 5);
-        const float button_width = (panel.w - 112.0F) / std::max<std::size_t>(1, modal.action_keys.size());
-        for (std::size_t index = 0; index < modal.action_keys.size(); ++index)
+        const std::size_t count = std::max<std::size_t>(1, view.rows.size());
+        const float button_width = (panel.w - 112.0F) / count;
+        for (std::size_t index = 0; index < view.rows.size(); ++index)
         {
+            std::string label = overlay_label(view.rows[index]);
+            if (view.rows[index].action == "confirm-destructive")
+            {
+                if (modal.title.find("Uninstall") != std::string::npos)
+                    label = "Uninstall";
+                else if (modal.title.find("download") != std::string::npos)
+                    label = "Cancel download";
+                else
+                    label = "Confirm";
+            }
             const gfx::Rect button{panel.x + 48.0F + index * (button_width + 16.0F), panel.y + 388.0F,
                                    button_width, 68.0F};
             ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
-            painter.button(button, modal.action_keys[index],
-                           modal.destructive && index + 1 == modal.action_keys.size() ?
-                               ui::ButtonKind::secondary : ui::ButtonKind::primary,
-                           {static_cast<int>(index) == modal.focused_action ? 1.0F : 0.0F, 0.0F, false});
+            painter.button(button, label,
+                           view.rows[index].dangerous ?
+                               ui::ButtonKind::primary : ui::ButtonKind::secondary,
+                           {static_cast<int>(index) == view.focused_row ? 1.0F : 0.0F, 0.0F,
+                            !view.rows[index].enabled});
         }
     }
 
@@ -1094,6 +1186,70 @@ class Render::Impl
                  gfx::Align::left, 2.4F);
     }
 
+    std::string overlay_label(const ViewRow &row) const
+    {
+        if (row.action == "profile-picker")
+            return "Profile";
+        if (row.action == "resolution-picker")
+            return "Resolution";
+        if (row.action == "frame-picker")
+            return "Frame limit";
+        if (row.action == "toggle-vsync")
+            return "VSync";
+        if (row.action == "edit-arguments")
+            return "Launch arguments";
+        if (row.action == "reset-settings")
+            return "Reset all to profile";
+        if (row.action == "cancel")
+            return "Cancel";
+        if (row.action.rfind("resolution-", 0) == 0)
+        {
+            std::string resolution = row.action.substr(11);
+            const std::size_t separator = resolution.find('x');
+            if (separator != std::string::npos)
+                resolution.replace(separator, 1, "×");
+            return resolution;
+        }
+        if (row.action.rfind("frame-", 0) == 0)
+            return row.action.substr(6);
+        if (row.action.rfind("profile-", 0) == 0 && current_state_ != nullptr)
+        {
+            const std::string id = row.action.substr(8);
+            const auto found = std::find_if(current_state_->profiles.begin(), current_state_->profiles.end(),
+                                            [&id](const Profile &profile) { return profile.id == id; });
+            if (found != current_state_->profiles.end())
+                return found->name;
+        }
+        std::string label = row.title.empty() ? row.action : row.title;
+        std::replace(label.begin(), label.end(), '-', ' ');
+        if (!label.empty() && label.front() >= 'a' && label.front() <= 'z')
+            label.front() = static_cast<char>(label.front() - 'a' + 'A');
+        return label;
+    }
+
+    std::string overlay_value(const ViewRow &row) const
+    {
+        if (!row.value.empty())
+            return row.value;
+        if (!row.badge.empty())
+            return row.badge;
+        if (current_state_ == nullptr || current_state_->profiles.empty())
+            return {};
+        const Profile &profile = current_state_->profiles.size() > 1 ? current_state_->profiles[1]
+                                                                    : current_state_->profiles.front();
+        if (row.action == "profile-picker")
+            return profile.name;
+        if (row.action == "resolution-picker")
+            return profile.resolution;
+        if (row.action == "frame-picker")
+            return profile.frame_limit;
+        if (row.action == "toggle-vsync")
+            return profile.vsync ? "On" : "Off";
+        if (row.action == "edit-arguments")
+            return profile.launch_arguments.empty() ? "None" : profile.launch_arguments;
+        return {};
+    }
+
     void draw_overlay_rows(const ViewData &view, const gfx::Rect &bounds)
     {
         float y = bounds.y;
@@ -1111,7 +1267,7 @@ class Render::Impl
                 continue;
             }
             const gfx::Rect rect{bounds.x, y, bounds.w, 72.0F};
-            painter.row(rect, row.title, row.value.empty() ? row.badge : row.value,
+            painter.row(rect, overlay_label(row), overlay_value(row),
                         row.selected ? 1.0F : 0.0F,
                         {index == view.focused_row ? 1.0F : 0.0F, 0.0F, !row.enabled});
             if (row.progress > 0.0F)
@@ -1170,6 +1326,7 @@ class Render::Impl
     float clock_ = 0.0F;
     bool ready_ = false;
     bool has_frame_ = false;
+    bool route_focus_ = true;
     int last_width_ = 0;
     int last_height_ = 0;
     mutable GLuint capture_framebuffer_ = 0;
