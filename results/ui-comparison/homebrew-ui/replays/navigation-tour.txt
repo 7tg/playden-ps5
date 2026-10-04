@@ -1,0 +1,23 @@
+# One continuing simulation. These are logical controller actions, not frames from separate scenarios.
+action r1
+action down
+action down
+action cross
+action options
+action circle
+action circle
+action search
+action right
+action cross
+action circle
+action triangle
+action down
+action circle
+action r1
+action options
+action circle
+action r1
+action down
+action down
+action cross
+action circle

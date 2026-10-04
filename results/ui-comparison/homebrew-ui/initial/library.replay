@@ -1,0 +1,4 @@
+# Deterministic host replay: Home -> Library -> move focus.
+scenario default
+action r1
+action right

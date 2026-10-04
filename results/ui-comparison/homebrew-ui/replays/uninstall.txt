@@ -1,0 +1,4 @@
+action details:900001
+action options
+action focus:uninstall
+action cross

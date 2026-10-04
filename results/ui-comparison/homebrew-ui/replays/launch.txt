@@ -1,0 +1,3 @@
+action details:900001
+action focus:details-simulate-launch
+action cross

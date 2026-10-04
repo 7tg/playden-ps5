@@ -1,0 +1,784 @@
+{
+  "code_revision": "7c961f9",
+  "capture_tool_revision": "e8627fec69a4724ec1801310b0f47c44d8d5ab32",
+  "fixture_revision": "2d161059540c1c73c61cfb2ffebb8a0e4efcecd1",
+  "deployed": false,
+  "title_id": "FAKE77031",
+  "host_binary": {
+    "path": "build/homebrew-host/playden-homebrew",
+    "sha256": "f922d7c4f6e472e2a32dd835bb447ef1f98c0cf8642af2a495879ef160bb91cb"
+  },
+  "ps5_package": {
+    "path": "build/homebrew-ps5/dist/FAKE77031",
+    "files": [
+      {
+        "path": "assets/art/hero.png",
+        "bytes": 185684,
+        "sha256": "cc9e9d19e68d375254aae2fb700e93d3267f7a130425365698e0eef72d063b8a"
+      },
+      {
+        "path": "assets/art/poster1.png",
+        "bytes": 35848,
+        "sha256": "afd2a68c3549257a1f781dc7475858792ce1132b0951ea06f6f3831a829a25fd"
+      },
+      {
+        "path": "assets/art/poster2.png",
+        "bytes": 40287,
+        "sha256": "d4296677cfff516600d06faa426d2203d6265cdb15f8eafbaa4716a0c3759efd"
+      },
+      {
+        "path": "assets/art/poster3.png",
+        "bytes": 43104,
+        "sha256": "028885697eb454dbc3f66e10cef786f878e2b5ad37d456b9106c7dfbaea55bdc"
+      },
+      {
+        "path": "assets/art/poster4.png",
+        "bytes": 36819,
+        "sha256": "803147d90e9c2da2afb8f49427e90ed1d25da54b61a03c49a193d3a4c9c1de8a"
+      },
+      {
+        "path": "assets/art/poster5.png",
+        "bytes": 33872,
+        "sha256": "cb4e976cac8c05d13575bb038e79c9a5dee968242356c614c6c142980c29b0d3"
+      },
+      {
+        "path": "assets/art/poster6.png",
+        "bytes": 44025,
+        "sha256": "6276023cb82fff5bd086ca780fb5e078acebaefbbbf2a56665d40c2afe56d3f6"
+      },
+      {
+        "path": "assets/art/poster7.png",
+        "bytes": 38807,
+        "sha256": "71d7385939c1102eaf4790831fad2dceae6730bc67999ffff43ec362b525e1d6"
+      },
+      {
+        "path": "assets/art/poster8.png",
+        "bytes": 46743,
+        "sha256": "8807fb95bfb149b487146c4722bad990da210a6ea4aa5935c6d85a23ff7eb2d1"
+      },
+      {
+        "path": "assets/fonts/Barlow-Medium.ttf",
+        "bytes": 103536,
+        "sha256": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4"
+      },
+      {
+        "path": "assets/fonts/Barlow-Regular.ttf",
+        "bytes": 104068,
+        "sha256": "95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea"
+      },
+      {
+        "path": "assets/fonts/Barlow-SemiBold.ttf",
+        "bytes": 108348,
+        "sha256": "86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5"
+      },
+      {
+        "path": "assets/fonts/BarlowCondensed-Medium.ttf",
+        "bytes": 103360,
+        "sha256": "262bd143292ce479ee0cd09a42b47ab173fca8e9c6eb5ed0b5c8a845bc371d17"
+      },
+      {
+        "path": "assets/fonts/BarlowCondensed-SemiBold.ttf",
+        "bytes": 109428,
+        "sha256": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9"
+      },
+      {
+        "path": "assets/fonts/NotoSansArabic.ttf",
+        "bytes": 844676,
+        "sha256": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e"
+      },
+      {
+        "path": "assets/fonts/NotoSansCJKsc-Regular.otf",
+        "bytes": 16437364,
+        "sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b"
+      },
+      {
+        "path": "assets/fonts/barlow-OFL.txt",
+        "bytes": 4377,
+        "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"
+      },
+      {
+        "path": "assets/fonts/barlow-condensed-medium.huifont",
+        "bytes": 839704,
+        "sha256": "cb01a37819615cdd650b6550248caf826b3f0926d73de04f905f4a52278f741f"
+      },
+      {
+        "path": "assets/fonts/barlow-condensed-semibold.huifont",
+        "bytes": 900416,
+        "sha256": "e6c1b26db357c46da0515ca87a30e30a5f2e6518d71ef6feb78501f8acfd715a"
+      },
+      {
+        "path": "assets/fonts/barlow-medium.huifont",
+        "bytes": 981420,
+        "sha256": "7abdc64eb668fefbbcda78738dfe5d13e4618eb71fdb6c2006e2cacd84217ab5"
+      },
+      {
+        "path": "assets/fonts/barlow-regular.huifont",
+        "bytes": 967084,
+        "sha256": "7f8028d80330ee14c737dfd643a4dfaae5428ffccea9c06c550cfd6a7f2e4044"
+      },
+      {
+        "path": "assets/fonts/barlow-semibold.huifont",
+        "bytes": 985648,
+        "sha256": "e208352ac37ca31cb69ca82aa4f49da568bacc5e2c4c3d994a7fed41b01bdd79"
+      },
+      {
+        "path": "assets/fonts/barlowcondensed-OFL.txt",
+        "bytes": 4377,
+        "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"
+      },
+      {
+        "path": "assets/fonts/noto-arabic-OFL.txt",
+        "bytes": 4382,
+        "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96"
+      },
+      {
+        "path": "assets/fonts/noto-arabic-fallback.huifont",
+        "bytes": 379944,
+        "sha256": "666f09ba18650c7ca9f6e768a8a8b8460f7d3dfd1a22c4b5ddd0432fe5bd002e"
+      },
+      {
+        "path": "assets/fonts/noto-cjk-LICENSE.txt",
+        "bytes": 4301,
+        "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+      },
+      {
+        "path": "assets/fonts/noto-cjk-fallback.huifont",
+        "bytes": 1193508,
+        "sha256": "bdcad855e131f150a066cd7ff250c921fa58ba5fcc171a5b75e0b4fe4dee0091"
+      },
+      {
+        "path": "assets/glyphs/circle.svg",
+        "bytes": 237,
+        "sha256": "f047617196db73415f9e463a58aadddefdabb5594478c0fc8fbcdfd6dcf9791a"
+      },
+      {
+        "path": "assets/glyphs/cross.svg",
+        "bytes": 217,
+        "sha256": "ac924a11802096d5f3014c476888c25860508fadc15b14e1552a29a6982eb766"
+      },
+      {
+        "path": "assets/glyphs/square.svg",
+        "bytes": 210,
+        "sha256": "f59115ef2bef1d83eb62bed42348ade4e3c7cf3f08e60410a0f67d24563554f5"
+      },
+      {
+        "path": "assets/glyphs/triangle.svg",
+        "bytes": 211,
+        "sha256": "d19d5e8485ed5fb985edbc8bf58a56bfcbf11ef5eae3b3acccc4b496df73bceb"
+      },
+      {
+        "path": "eboot.bin",
+        "bytes": 22220819,
+        "sha256": "d3031823846bb2dc32101d1454cd93732b1bac3e63448acc82509a5a112eaeb4"
+      },
+      {
+        "path": "fixtures/library.json",
+        "bytes": 333439,
+        "sha256": "3ab470de6a3fd37acd0dc79fe24bf6efbcb63345993b97a0186fb2721eda9b61"
+      },
+      {
+        "path": "fixtures/ui-comparison/README.md",
+        "bytes": 5411,
+        "sha256": "ca5f61c2c69e32556194e0569f09c242122516889c9a62b75a357eee36955e00"
+      },
+      {
+        "path": "fixtures/ui-comparison/asset-manifest.json",
+        "bytes": 5144,
+        "sha256": "c78e18012482333c139391fc4c1d26bfa099b547a287ef165d51c2cc5d147e4a"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/hero.png",
+        "bytes": 185684,
+        "sha256": "cc9e9d19e68d375254aae2fb700e93d3267f7a130425365698e0eef72d063b8a"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster1.png",
+        "bytes": 35848,
+        "sha256": "afd2a68c3549257a1f781dc7475858792ce1132b0951ea06f6f3831a829a25fd"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster2.png",
+        "bytes": 40287,
+        "sha256": "d4296677cfff516600d06faa426d2203d6265cdb15f8eafbaa4716a0c3759efd"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster3.png",
+        "bytes": 43104,
+        "sha256": "028885697eb454dbc3f66e10cef786f878e2b5ad37d456b9106c7dfbaea55bdc"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster4.png",
+        "bytes": 36819,
+        "sha256": "803147d90e9c2da2afb8f49427e90ed1d25da54b61a03c49a193d3a4c9c1de8a"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster5.png",
+        "bytes": 33872,
+        "sha256": "cb4e976cac8c05d13575bb038e79c9a5dee968242356c614c6c142980c29b0d3"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster6.png",
+        "bytes": 44025,
+        "sha256": "6276023cb82fff5bd086ca780fb5e078acebaefbbbf2a56665d40c2afe56d3f6"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster7.png",
+        "bytes": 38807,
+        "sha256": "71d7385939c1102eaf4790831fad2dceae6730bc67999ffff43ec362b525e1d6"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/art/poster8.png",
+        "bytes": 46743,
+        "sha256": "8807fb95bfb149b487146c4722bad990da210a6ea4aa5935c6d85a23ff7eb2d1"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/Barlow-Medium.ttf",
+        "bytes": 103536,
+        "sha256": "f8906f762cb73dca441da034bc363b2d8e2e68bc10d5c05e58717646c20cc4b4"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/Barlow-Regular.ttf",
+        "bytes": 104068,
+        "sha256": "95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/Barlow-SemiBold.ttf",
+        "bytes": 108348,
+        "sha256": "86577cb32f8abe3673db53ca0f4221e6856751a4f6730c867e00f720f8bb1fc5"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/BarlowCondensed-Medium.ttf",
+        "bytes": 103360,
+        "sha256": "262bd143292ce479ee0cd09a42b47ab173fca8e9c6eb5ed0b5c8a845bc371d17"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/BarlowCondensed-SemiBold.ttf",
+        "bytes": 109428,
+        "sha256": "7b619d14bc2327509a9ef32b0890f709626f7ecc9ff61191c2a4314c5499d2d9"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/NotoSansArabic.ttf",
+        "bytes": 844676,
+        "sha256": "63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/NotoSansCJKsc-Regular.otf",
+        "bytes": 16437364,
+        "sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/barlow-OFL.txt",
+        "bytes": 4377,
+        "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/barlowcondensed-OFL.txt",
+        "bytes": 4377,
+        "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/noto-arabic-OFL.txt",
+        "bytes": 4382,
+        "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/fonts/noto-cjk-LICENSE.txt",
+        "bytes": 4301,
+        "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/glyphs/circle.svg",
+        "bytes": 237,
+        "sha256": "f047617196db73415f9e463a58aadddefdabb5594478c0fc8fbcdfd6dcf9791a"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/glyphs/cross.svg",
+        "bytes": 217,
+        "sha256": "ac924a11802096d5f3014c476888c25860508fadc15b14e1552a29a6982eb766"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/glyphs/square.svg",
+        "bytes": 210,
+        "sha256": "f59115ef2bef1d83eb62bed42348ade4e3c7cf3f08e60410a0f67d24563554f5"
+      },
+      {
+        "path": "fixtures/ui-comparison/assets/glyphs/triangle.svg",
+        "bytes": 211,
+        "sha256": "d19d5e8485ed5fb985edbc8bf58a56bfcbf11ef5eae3b3acccc4b496df73bceb"
+      },
+      {
+        "path": "fixtures/ui-comparison/catalog.json",
+        "bytes": 21549,
+        "sha256": "f9c86f04a68f151539fe175b90340361e7e0fd145054141e1d634782a0cff03b"
+      },
+      {
+        "path": "fixtures/ui-comparison/scenarios.json",
+        "bytes": 11970,
+        "sha256": "2c01f435c3014aacc11a0047979d9aeeb2134e410d325d3236b8864cdda528df"
+      },
+      {
+        "path": "sce_module/libc.prx",
+        "bytes": 1284674,
+        "sha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036"
+      },
+      {
+        "path": "sce_sys/icon0.png",
+        "bytes": 357566,
+        "sha256": "a3f0c938f6057107197dda67846762be037f34be0e9a17432830cf59242742b6"
+      },
+      {
+        "path": "sce_sys/param.json",
+        "bytes": 1124,
+        "sha256": "4cc2a2cc98fbbb58a6f21fe3ab2ff621bbc1ffc6de174e2256ce1dac81afc621"
+      },
+      {
+        "path": "sce_sys/pic0.dds",
+        "bytes": 8294548,
+        "sha256": "7d44477ebb0c95a667e076cebc1d0482298df8d795f81f153a6da5224128d96b"
+      },
+      {
+        "path": "sce_sys/pic1.dds",
+        "bytes": 8294548,
+        "sha256": "59773e85ea5ba0076df6b49f61797a26cf620ad818d4ea647cfdc7ca9e505c1a"
+      },
+      {
+        "path": "sce_sys/snd0.at9",
+        "bytes": 360616,
+        "sha256": "51309ebd2e010421a0078980ae4994dbf6cd571e9c2ac548583147605b3918cf"
+      }
+    ]
+  },
+  "framework_patch": {
+    "path": "patches/homebrew-ui-macos-4.1.patch",
+    "sha256": "8f672e19009e1e63601c4276979aaa31d19b7a5ff4b00184206b89041af66c09"
+  },
+  "captures": [
+    {
+      "path": "screenshots/collection-editor-1920x1080.png",
+      "bytes": 217351,
+      "sha256": "6844a3f5c8b1e33cf4b2f479c9f1259a682806cf5ec88bf51bce3c0257227951",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/collection-editor-3840x2160.png",
+      "bytes": 590638,
+      "sha256": "b5036e99367bc8b4fed42134cc9f999aee15bf26bdbf2df8a4e4898de88d40c2",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/context-1920x1080.png",
+      "bytes": 278190,
+      "sha256": "ed2f674b7a32ea39e885a8b26222d439e8504b728367e72c970a9a2d4513cf86",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/context-3840x2160.png",
+      "bytes": 725704,
+      "sha256": "1a757080abe6bfc83240ef292fe74d2d0c19589086876697d8250a6d3a0d18f8",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/delayed-art-after-1920x1080.png",
+      "bytes": 392508,
+      "sha256": "7d0f748e0d7e6748d17f6bf6f77f4e9819aa0df3fac742ab1d86a33ebe6ae447",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/delayed-art-before-1920x1080.png",
+      "bytes": 374301,
+      "sha256": "42bcc88e2f66df4d4caa78c559878bd2baa4ad42fe2a3a7c6c0b784b86ee3c8e",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/details-focused-favorite-1920x1080.png",
+      "bytes": 301381,
+      "sha256": "2420c914111d2db66c2f595b6c99ac3c849c0d9b649f4675f44f166730c2f70e",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/details-not-installed-1920x1080.png",
+      "bytes": 301382,
+      "sha256": "81f77097423c264dc6d19d5b0a93fb888ca482c1ab9a29b83b1e4ceb7ceb8b65",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/details-not-installed-3840x2160.png",
+      "bytes": 750599,
+      "sha256": "b34ada3e07bde43247086398760ec94727a88b1d10a092467e9adbbcf46154ab",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/details-runtime-unavailable-1920x1080.png",
+      "bytes": 376671,
+      "sha256": "836ae7eb3b922b2326eafc9d8cfaebca31134045fc05a54c50314cef1a5e8c9b",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/details-runtime-unavailable-3840x2160.png",
+      "bytes": 908886,
+      "sha256": "04f26319b6b812763d073e877e3c4b6763fb5ad4f7b0da21e295f96d386b92ab",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/downloads-active-1920x1080.png",
+      "bytes": 218130,
+      "sha256": "7a11bde3f733e6fa013847d0c5370885971244b70e2dc3c8ba7acfd29634c41a",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/downloads-active-3840x2160.png",
+      "bytes": 614440,
+      "sha256": "372dd0ee927c516e4bcb2bd680b5312d53b9155cd1340e07182285169babc512",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/downloads-failed-1920x1080.png",
+      "bytes": 214768,
+      "sha256": "dcc89eb6afc9844d65b03f0e7fca35b787cc0e2abc3d563813a0f21da01e9c14",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/downloads-failed-3840x2160.png",
+      "bytes": 606889,
+      "sha256": "8e3884be07c8a7e552fa006e83f5500c68423ee4be2dc1ad0191f35c456aef9e",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/filters-1920x1080.png",
+      "bytes": 328338,
+      "sha256": "d841b613acf542829bda005deaaa69e077dd83505e3f0a7c2cb00e80b8d9808e",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/filters-3840x2160.png",
+      "bytes": 914322,
+      "sha256": "a5ae8eb2f8ba4de026e817e6ad4f5d90d335661f558cc1876aa987831c1cf41c",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/game-settings-1920x1080.png",
+      "bytes": 260287,
+      "sha256": "672f1ed509e6b5b1cae9ee111f9a7afa7edc6654efc7e13f668f68fb0db8cdb8",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/game-settings-3840x2160.png",
+      "bytes": 688488,
+      "sha256": "f7aded5af22c12168adaef80a6a7b541ba2c51e621ccef5d8a6c47a588898c4c",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/home-1920x1080.png",
+      "bytes": 356644,
+      "sha256": "0755282ef7834eff74b81da19b057597ce11fb9d55920e0452fd0d516cc34875",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/home-3840x2160.png",
+      "bytes": 1033368,
+      "sha256": "69e7a9e6c94c9b09edc3975faa65f6fb0291c1aa5d0acf78147b99bf5d9fb550",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/install-error-1920x1080.png",
+      "bytes": 203012,
+      "sha256": "9a4dcdf8f038d002fd749912c199383254099c8ba61fa5da2bbe6ff7598d430a",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/install-error-3840x2160.png",
+      "bytes": 566143,
+      "sha256": "529d65b1537cdadd1e2c8d162a93162b912ca88658e772c262d2ca829a56dfe7",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/keyboard-1920x1080.png",
+      "bytes": 256278,
+      "sha256": "dffc25371027184dc229b1608b1b3b7528f8a1e68ec958c903307e0ca8a3841c",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/keyboard-3840x2160.png",
+      "bytes": 722936,
+      "sha256": "d066f43d1d4a198fed1c05d34cd229199d49b0a5399bbb8636e83081184684b9",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/launch-1920x1080.png",
+      "bytes": 182598,
+      "sha256": "b6e994db9d7356e57eac9e8a9965bd239ed87bcef3658f2490bfa938d7b430ee",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/launch-3840x2160.png",
+      "bytes": 516816,
+      "sha256": "68f57e705cfca7aeeb106eacf0903269f97fe2e31d3bea890fd5470daa461c2f",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/library-empty-1920x1080.png",
+      "bytes": 153753,
+      "sha256": "9c11545aec1eac63f8a2bae97c98ed0d73c0b32098419681076aa3d0884294a6",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/library-empty-3840x2160.png",
+      "bytes": 470552,
+      "sha256": "9089ee927d5393ef65a1f76079e015eec5fd541add265d39c8961a74db0eb0f5",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/library-focused-1920x1080.png",
+      "bytes": 509354,
+      "sha256": "419d76492b2e890bcfdb29ad0c6be19bb9829a530cfdb58a14e1ef48fcf2625f",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/library-focused-3840x2160.png",
+      "bytes": 1439333,
+      "sha256": "644488bb056c1968924a88552668a6774ef04b2f84091094763ac17e336bdfd1",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/library-no-results-1920x1080.png",
+      "bytes": 155294,
+      "sha256": "b4f866ec5fc474d9c1bc9c79b9c27dfd6a236c5fd8bf525ee0e85c1912172075",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/library-no-results-3840x2160.png",
+      "bytes": 474765,
+      "sha256": "a8582b06e22249d9cc20472125424dcfbb305427c19560d07c01f9e9fdd9c0e3",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/library-refresh-1920x1080.png",
+      "bytes": 518670,
+      "sha256": "f50a85c733a8e84cbbf13874b8d80232f6acaa06970ed4d0778d52a332208942",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/logs-1920x1080.png",
+      "bytes": 247919,
+      "sha256": "b51175ee89ad55a465b2e9b5b7f9296619148083784b374ddb81097ae52b2ed6",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/logs-3840x2160.png",
+      "bytes": 662378,
+      "sha256": "ab3ca7153e55e9feb51527ae8a91de9e5edcc575f1d9fca1d6bac23527db6aaf",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/multilingual-1920x1080.png",
+      "bytes": 392516,
+      "sha256": "b661fb79b397ef3f62e82685c97419a9ea6cbe5319a0e79f22675376843145d6",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/multilingual-3840x2160.png",
+      "bytes": 1122836,
+      "sha256": "5fe9ff3fe323aadc2bf81846703c9180dea64602d8ecabd40b72b661a192d37c",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/multilingual-arabic-1920x1080.png",
+      "bytes": 315908,
+      "sha256": "80ef5702129a2994304405859151de32699f70e0ae566fa36a08eeaef63ef4c7",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/multilingual-arabic-3840x2160.png",
+      "bytes": 779742,
+      "sha256": "ddea6f46c45b2d01162940338fb2d32c5da139823ed70dd8c107ce2fadaa0ca1",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/profile-1920x1080.png",
+      "bytes": 248962,
+      "sha256": "713b1ed8b325eac32866d324d7bdcb0f3458e6c998629f3bd37708b25023d037",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/profile-3840x2160.png",
+      "bytes": 664791,
+      "sha256": "192865ed67d70f8829d9b1f2d0a8d0d99033290b499dedafa166b217dec45d68",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/qr-error-1920x1080.png",
+      "bytes": 134838,
+      "sha256": "b88f09f41bd47f10dcd23334cf8266586d90ac42d0394931a433f736d5268486",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/qr-error-3840x2160.png",
+      "bytes": 426035,
+      "sha256": "2847a7bf67072d5cfbb45fb3544eab0e82c1ec43c758a04722c641a49807551b",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/qr-waiting-1920x1080.png",
+      "bytes": 141572,
+      "sha256": "c9ddfab4b4277483b1fe13fedb271dffd30c90389493b1c3eaca464af6cf2827",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/qr-waiting-3840x2160.png",
+      "bytes": 439930,
+      "sha256": "d098dab77e293d196be526929023de7af17131fa5b25b03a5b9388848b0e02da",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/reduced-motion-1920x1080.png",
+      "bytes": 504249,
+      "sha256": "97dd22baea92a8f948ccc4274dafa2c48e47777db5c5c35808dedad6e0a4f8fe",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/reduced-motion-3840x2160.png",
+      "bytes": 1428669,
+      "sha256": "36fb4b925e7e6c14eea264bcdfed6cfee10a4835dfc96ed9ecf989a2a6dbf81d",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/session-controls-1920x1080.png",
+      "bytes": 181131,
+      "sha256": "cea027a215eb2d70ff5a7152906f3da1eec63565aa38d20c6f40e9be131c1ced",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/session-controls-3840x2160.png",
+      "bytes": 513883,
+      "sha256": "033c3da9ffffac159e165ec55b1432ab9b01674b86f96c02715b8a82bc7109df",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/setting-picker-1920x1080.png",
+      "bytes": 269304,
+      "sha256": "3d44acca1581bf6100f9a8ad745c0e37e90ff1d47f5da70ee6f52dc46ce52334",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/setting-picker-3840x2160.png",
+      "bytes": 706581,
+      "sha256": "4a503e6fe31e627f9a1880bac0a0cd285c523ac9e0928a91f8c5c872f9464414",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/settings-1920x1080.png",
+      "bytes": 180174,
+      "sha256": "a4ecab02e0b4cd0f936d8d23a8af9ddd25eab2c2552470aaebf216ff6a676083",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/settings-3840x2160.png",
+      "bytes": 521144,
+      "sha256": "9d1e397867e987e8448dbeacb503dc667df30a7a56c1d48450a97f1155b40802",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/signed-out-home-1920x1080.png",
+      "bytes": 135451,
+      "sha256": "890bba8056d586a84e41800950fdc6e6013d5a56c00f4461840387a19bf05378",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/storage-error-1920x1080.png",
+      "bytes": 216839,
+      "sha256": "792bc44b34dba987a1ad46b4380bafaab1320b5d6c4edf90dbb52b8404bd5d04",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/storage-error-3840x2160.png",
+      "bytes": 600022,
+      "sha256": "82a6fcda8481183b299710f46b238ed2509a7f5df2d3ba15e642a73ade2b4e07",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/stress-focused-1920x1080.png",
+      "bytes": 255559,
+      "sha256": "f18a3f9142cf549eed6d9e0d971aa0f5c3cf71650b0b549f6253dc6987ef6f6d",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/stress-traversal-3840x2160.png",
+      "bytes": 833245,
+      "sha256": "7221fcd48c55450930b32ef99f8ded6036108c7a25c631cca55c31a24495ec71",
+      "native_width": 3840,
+      "native_height": 2160
+    },
+    {
+      "path": "screenshots/uninstall-1920x1080.png",
+      "bytes": 270364,
+      "sha256": "1a64ee5bc518a655fe884670339d1eb9ad73d76cd6c3926a8fea54651c7ec3be",
+      "native_width": 1920,
+      "native_height": 1080
+    },
+    {
+      "path": "screenshots/uninstall-3840x2160.png",
+      "bytes": 700969,
+      "sha256": "9abce6c4e6fec87a4ce55127c762e4ce22242af9efdac03e1328b3bb178dc472",
+      "native_width": 3840,
+      "native_height": 2160
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+action details:900001
+action focus:details-settings
+action cross
+action focus:resolution-picker
+action cross

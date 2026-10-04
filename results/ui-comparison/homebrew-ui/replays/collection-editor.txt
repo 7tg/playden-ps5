@@ -1,0 +1,6 @@
+action details:900001
+action options
+action focus:collection
+action cross
+action focus:collection-new
+action cross

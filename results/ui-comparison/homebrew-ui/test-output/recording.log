@@ -1,0 +1,46 @@
+ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers
+  built with Apple clang version 21.0.0 (clang-2100.3.34.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/9.0.2 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvmaf --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      61.  1.102 / 61.  1.102
+  libavcodec     63.  1.102 / 63.  1.102
+  libavformat    63.  1.102 / 63.  1.102
+  libavdevice    63.  1.102 / 63.  1.102
+  libavfilter    12.  1.102 / 12.  1.102
+  libswscale     10.  1.102 / 10.  1.102
+  libswresample   7.  1.102 /  7.  1.102
+Input #0, image2, from 'build/navigation-recording/frame-%04d.png':
+  Duration: 00:00:11.50, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgba(pc, gbr/unknown/unknown), 1920x1080, 2 fps, 2 tbr, 2 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[libx264 @ 0xa3d024a80] using cpu capabilities: ARMv8 NEON DotProd I8MM
+[libx264 @ 0xa3d024a80] profile High, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0xa3d024a80] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=3 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=7 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=1 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=22 lookahead_threads=3 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=2 keyint=250 keyint_min=2 scenecut=40 intra_refresh=0 rc_lookahead=40 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'results/ui-comparison/homebrew-ui/navigation.mp4':
+  Metadata:
+    encoder         : Lavf63.1.102
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1920x1080, q=2-31, 2 fps, 16384 tbn
+    Metadata:
+      encoder         : Lavc63.1.102 libx264
+    Side data:
+      CPB properties: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+[out#0/mp4 @ 0xa3d028240] video:575KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.180023%
+frame=   23 fps=0.0 q=-1.0 Lsize=     576KiB time=00:00:10.50 bitrate= 449.4kbits/s speed=  55x elapsed=0:00:00.19    
+[libx264 @ 0xa3d024a80] frame I:2     Avg QP:11.45  size: 49774
+[libx264 @ 0xa3d024a80] frame P:16    Avg QP:14.44  size: 25942
+[libx264 @ 0xa3d024a80] frame B:5     Avg QP:13.85  size: 14701
+[libx264 @ 0xa3d024a80] consecutive B-frames: 60.9% 26.1% 13.0%  0.0%
+[libx264 @ 0xa3d024a80] mb I  I16..4: 45.2% 41.2% 13.6%
+[libx264 @ 0xa3d024a80] mb P  I16..4: 22.9% 14.0%  5.6%  P16..4:  8.6%  0.7%  0.3%  0.0%  0.0%    skip:47.9%
+[libx264 @ 0xa3d024a80] mb B  I16..4: 23.0% 12.7%  3.4%  B16..8:  1.1%  0.3%  0.0%  direct: 0.6%  skip:58.9%  L0:52.0% L1:46.0% BI: 2.0%
+[libx264 @ 0xa3d024a80] 8x8 transform intra:34.4% inter:64.5%
+[libx264 @ 0xa3d024a80] coded y,uvDC,uvAC intra: 12.5% 18.5% 13.6% inter: 2.3% 2.8% 0.4%
+[libx264 @ 0xa3d024a80] i16 v,h,dc,p: 62% 35%  2%  1%
+[libx264 @ 0xa3d024a80] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 38% 23% 32%  1%  1%  1%  2%  1%  1%
+[libx264 @ 0xa3d024a80] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 35% 31% 16%  2%  4%  4%  4%  2%  3%
+[libx264 @ 0xa3d024a80] i8c dc,h,v,p: 67% 24%  8%  2%
+[libx264 @ 0xa3d024a80] Weighted P-Frames: Y:18.8% UV:18.8%
+[libx264 @ 0xa3d024a80] ref P L0: 26.9%  2.4%  2.5% 35.0% 33.2%
+[libx264 @ 0xa3d024a80] ref B L0: 88.2% 11.8%
+[libx264 @ 0xa3d024a80] kb/s:409.13

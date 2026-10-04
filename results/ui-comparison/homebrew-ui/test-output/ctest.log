@@ -1,0 +1,18 @@
+Internal ctest changing into directory: /Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-ui/.worktrees/homebrew-ui/build/homebrew-host
+Test project /Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-ui/.worktrees/homebrew-ui/build/homebrew-host
+    Start 1: homebrew_storage
+1/6 Test #1: homebrew_storage .................   Passed    0.00 sec
+    Start 2: homebrew_controller_tour
+2/6 Test #2: homebrew_controller_tour .........   Passed    0.13 sec
+    Start 3: homebrew_host_input
+3/6 Test #3: homebrew_host_input ..............   Passed    0.02 sec
+    Start 4: homebrew_browse
+4/6 Test #4: homebrew_browse ..................   Passed    0.01 sec
+    Start 5: homebrew_simulation
+5/6 Test #5: homebrew_simulation ..............   Passed    0.02 sec
+    Start 6: ui_comparison_fixture
+6/6 Test #6: ui_comparison_fixture ............   Passed    0.50 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Total Test time (real) =   0.69 sec

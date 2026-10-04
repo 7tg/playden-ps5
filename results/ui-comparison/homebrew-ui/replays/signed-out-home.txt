@@ -1,0 +1,2 @@
+action focus:startup-skip
+action cross
