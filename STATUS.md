@@ -29,7 +29,7 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 | Order | Work | Completion evidence |
 | --- | --- | --- |
 | 1 | Finish the connected journey on the console | Done on the PS5: QR approval, real library, covers, CM dates. Remaining: restart restoration with the fixed build, offline/retry, account switch/sign-out, preferences restart, clean exit, physical DualSense. Coordinate shared access; keep the claim refreshed |
-| 2 | Investigate prospero-win as the Wine implementation | `../ps5-homebrew/prospero-win` is the selected Wine implementation (user direction, 2026-10-05). Investigate the repository and document how games downloaded from Steam (and other stores) should be packaged and installed for it, before any install/runtime integration |
+| 2 | prospero-win packaging and install design | Survey done: [investigation](docs/engineering/prospero-win-investigation.md). Next: resolve its open decisions with the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) before v3 install work |
 | 3 | Native 4K60 performance acceptance, deferred | Only resume when the user lifts the deferral. Measure the actual selected consumer and required scenarios; native 3840×2160 at 60 Hz remains an unverified MVP requirement |
 
 Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 investigates how downloaded games are packaged and installed for it.
