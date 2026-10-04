@@ -37,13 +37,14 @@ struct Options {
     int width = 1920;
     int height = 1080;
     bool headless = false;
+    bool record_motion = false;
 };
 
 void usage(const char* executable) {
     std::fprintf(stderr,
                  "usage: %s [--scenario ID] [--profile PATH] [--replay PATH]\n"
                  "          [--capture PATH.png] [--snapshot PATH|-] [--record-dir PATH] [--headless]\n"
-                 "          [--width PX] [--height PX]\n",
+                 "          [--width PX] [--height PX] [--record-motion]\n",
                  executable);
 }
 
@@ -63,6 +64,10 @@ std::optional<Options> parse_options(int argc, char** argv) {
         const std::string_view option(argv[index]);
         if (option == "--headless") {
             options.headless = true;
+            continue;
+        }
+        if (option == "--record-motion") {
+            options.record_motion = true;
             continue;
         }
         if (option == "--help") {
@@ -125,7 +130,15 @@ bool apply_replay(playden::homebrew::Simulation& simulation, const std::filesyst
         const std::string argument =
             separator == std::string::npos ? std::string{} : trim(line.substr(separator + 1));
         bool accepted = true;
-        if (command == "scenario")
+        if (command == "frame" && record) {
+            int frames = 0;
+            if (positive_integer(argument, &frames)) {
+                for (int frame = 0; frame < frames; ++frame)
+                    if (!record(line)) return false;
+                continue;
+            }
+            accepted = false;
+        } else if (command == "scenario")
             accepted = !argument.empty() && simulation.scenario(argument);
         else if (command == "action")
             accepted = !argument.empty() && simulation.action(argument);
@@ -364,7 +377,7 @@ int main(int argc, char** argv) {
         std::ofstream states(options->recording / "states.jsonl");
         unsigned frame_index = 0;
         const auto record = [&](const std::string& command) {
-            for (int settle = 0; settle < 16; ++settle)
+            for (int settle = 0; settle < (options->record_motion ? 1 : 16); ++settle)
                 render->draw(simulation, options->width, options->height);
             char filename[32];
             std::snprintf(filename, sizeof(filename), "frame-%04u.png", frame_index++);
@@ -398,6 +411,7 @@ int main(int argc, char** argv) {
     bool was_connected = true;
     bool suppress_initiating_text = false;
 
+    std::uint64_t last_render_us = 0;
     while (running) {
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
@@ -453,7 +467,10 @@ int main(int argc, char** argv) {
         keys.buttons = keyboard_buttons;
         keys.timestamp_us = now_us;
         apply_input(simulation, keyboard_input.update(std::span(&keys, 1), now_us));
-        render->draw(simulation, width, height);
+        const float frame_dt = last_render_us == 0 ? 1.0F / 60.0F :
+            static_cast<float>(now_us - last_render_us) / 1000000.0F;
+        last_render_us = now_us;
+        render->draw(simulation, width, height, options->headless ? 1.0F / 60.0F : frame_dt);
         rendered_once = true;
         if (simulation.state().quit_requested) running = false;
 

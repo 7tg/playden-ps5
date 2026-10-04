@@ -58,6 +58,7 @@ int main() {
         std::array<hui::PadSample, 64> samples{};
         bool presented = false;
         bool was_connected = true;
+        std::uint64_t last_render_us = 0;
         for (;;) {
             const auto now = hui::sys::monotonic_us();
             const auto count = pad.read(samples);
@@ -69,7 +70,10 @@ int main() {
             dispatch(simulation, input);
             simulation.controller_sample(playden::homebrew::diagnostic_sample(input));
             if (simulation.state().quit_requested) break;
-            renderer.draw(simulation, display.width(), display.height());
+            const float frame_dt = last_render_us == 0 ? 1.0F / 60.0F :
+                static_cast<float>(now - last_render_us) / 1000000.0F;
+            last_render_us = now;
+            renderer.draw(simulation, display.width(), display.height(), frame_dt);
             if (!display.swap()) break;
             if (!presented) { hui::sys::hide_splash_screen(); presented = true; }
             // Work advances only through the documented manual fixture clock.

@@ -36,7 +36,7 @@ class Render final
     Render(const Render &) = delete;
     Render &operator=(const Render &) = delete;
 
-    void draw(Simulation &simulation, int width, int height);
+    void draw(Simulation &simulation, int width, int height, float dt = 1.0F / 60.0F);
     bool capture_png(const std::filesystem::path &path, int width, int height) const;
     [[nodiscard]] RenderStats diagnostics() const noexcept;
 

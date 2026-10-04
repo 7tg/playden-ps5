@@ -181,6 +181,10 @@ set_target_properties(playden-homebrew PROPERTIES
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(homebrew_focus_motion_test "${CMAKE_SOURCE_DIR}/tests/homebrew_focus_motion_test.cpp")
+    target_compile_features(homebrew_focus_motion_test PRIVATE cxx_std_20)
+    target_include_directories(homebrew_focus_motion_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    add_test(NAME homebrew_focus_motion COMMAND homebrew_focus_motion_test)
     add_executable(homebrew_storage_test "${CMAKE_SOURCE_DIR}/tests/homebrew_storage_test.cpp")
     target_compile_features(homebrew_storage_test PRIVATE cxx_std_20)
     target_link_libraries(homebrew_storage_test PRIVATE playden_homebrew_model)

@@ -5,6 +5,7 @@
 #include "homebrew/render.hpp"
 
 #include "homebrew/browse.hpp"
+#include "homebrew/focus_motion.hpp"
 #include "homebrew/simulation.hpp"
 
 #include "gfx/draw_list.hpp"
@@ -361,7 +362,7 @@ class Render::Impl
             glDeleteFramebuffers(1, &capture_framebuffer_);
     }
 
-    void draw(Simulation &simulation, int width, int height)
+    void draw(Simulation &simulation, int width, int height, float dt)
     {
         if (!ready_ || width <= 0 || height <= 0)
             return;
@@ -374,6 +375,7 @@ class Render::Impl
         stats_.native_width = width;
         stats_.native_height = height;
         const State &state = simulation.state();
+        focus_motion_.begin_frame(dt, state.reduced_motion);
         const ViewData &view = simulation.view();
         const ViewData &route_view = simulation.route_view();
         const std::string overlay_key = state.editor.active ? "keyboard" :
@@ -428,6 +430,7 @@ class Render::Impl
         draw_persistent_status(scene, state);
         draw_footer(scene, view);
         draw_overlays(state, view);
+        focus_motion_.end_frame();
 
         renderer_.begin();
         gfx::BackdropSpec backdrop = theme_.backdrop;
@@ -527,6 +530,8 @@ class Render::Impl
         fonts_.mono = fonts_.regular;
         fonts_.pixel = fonts_.semibold;
         fonts_.hand = fonts_.regular;
+        if (!load_face(&greek_face_, &greek_, {"noto-greek-fallback.huifont"}))
+            return false;
         load_face(&cjk_face_, &cjk_, {"noto-cjk-fallback.huifont"});
         load_face(&arabic_face_, &arabic_, {"noto-arabic-fallback.huifont"});
         return true;
@@ -538,6 +543,10 @@ class Render::Impl
         while (index < value.size())
         {
             const std::uint32_t codepoint = gfx::next_codepoint(value, &index);
+            const bool greek = (codepoint >= 0x0370 && codepoint <= 0x03FF) ||
+                               (codepoint >= 0x1F00 && codepoint <= 0x1FFF);
+            if (greek && greek_.font != nullptr && greek_.font->has_glyph(codepoint))
+                return greek_;
             const bool arabic = codepoint >= 0x0600 && codepoint <= 0x06FF;
             if (arabic && arabic_.font != nullptr)
                 return arabic_;
@@ -590,8 +599,8 @@ class Render::Impl
     void configure_components()
     {
         tabs_.style.theme = theme_;
-        tabs_.style.theme.primary = kText.with_alpha(0.12F);
-        tabs_.style.theme.on_primary = kText;
+        tabs_.style.theme.primary = kAccent;
+        tabs_.style.theme.on_primary = theme_.on_primary;
         tabs_.style.theme.label = ui::FontRole::display;
         tabs_.style.kind = ui::TabKind::boxed;
         tabs_.style.height = 56.0F;
@@ -615,7 +624,11 @@ class Render::Impl
         grid_.style.edge_fade = 0.0F;
         grid_.style.entrance_step = 0.0F;
         grid_.style.card.text = ui::CardText::none;
-        grid_.style.card.focus_scale = 1.08F;
+        // Custom poster content owns the per-key spring so fast retargets retain
+        // momentum instead of snapping the grid highlight on each model draw.
+        grid_.style.card.focus_scale = 1.0F;
+        grid_.style.card.ring = false;
+        grid_.style.card.glow = false;
         grid_.style.card.lift = 0.0F;
         grid_.style.card.radius = 8.0F;
         // The third row continues beneath the y=986 legend, matching the pinned
@@ -862,7 +875,7 @@ class Render::Impl
                     stats_.focused_control_key = shelf.items[static_cast<std::size_t>(item_index)].key;
                 draw_poster(*game, art, focused,
                             shelf.items[static_cast<std::size_t>(item_index)].badge,
-                            job_progress(game->id), false);
+                            job_progress(game->id), false, "home-" + shelf.key + "-" + std::to_string(game->id));
             }
         }
     }
@@ -905,7 +918,7 @@ class Render::Impl
         grid_.set_focus(grid_focus, true);
         grid_.set_active(grid_active);
         grid_.content = [this](ui::Canvas &, const gfx::Rect &cell, const ui::CardItem &, int index,
-                              float focus) {
+                              float /*focus*/) {
             ++stats_.grid_drawn_cell_count;
             const Game &game = *visible_grid_games_[static_cast<std::size_t>(index)];
             std::string badge;
@@ -922,7 +935,10 @@ class Render::Impl
                                      return installation.game_id == game.id && installation.installed_bytes > 0;
                                  }))
                 badge = "Installed";
-            draw_poster(game, cell, focus > 0.5F, badge, job_progress(game.id));
+            const bool focused = route_focus_ && !current_state_->navigation.library_rail_focused &&
+                                 game.id == stats_.grid_focused_game_id;
+            draw_poster(game, cell, focused, badge, job_progress(game.id), true,
+                        "library-" + std::to_string(game.id));
         };
         grid_.accent = [this](int index) {
             return id_color(visible_grid_games_[static_cast<std::size_t>(index)]->id);
@@ -1014,8 +1030,10 @@ class Render::Impl
     }
 
     void draw_poster(const Game &game, const gfx::Rect &rect, bool focused, std::string_view badge,
-                     float progress, bool title_overlay = true)
+                     float progress, bool title_overlay = true, std::string_view motion_key = {})
     {
+        const float scale = motion_key.empty() ? 1.0F : focus_motion_.focus(motion_key, focused);
+        scene_.push_transform(scale, rect.cx(), rect.cy(), 0.0F, 0.0F);
         const std::size_t texture_index = game.id >= 900001 ? (game.id - 900001) % art_.size() :
                                                               game.id % art_.size();
         const std::uint32_t texture = game.art_failed || game.art_pending ? 0 : art_[texture_index];
@@ -1093,6 +1111,7 @@ class Render::Impl
                                  (rect.w - 24.0F) * std::clamp(progress, 0.0F, 1.0F), 6.0F},
                                 3.0F, kAccent);
         }
+        scene_.pop_transform();
     }
 
     std::vector<ui::ListItem> list_items(const ViewData &view) const
@@ -1575,12 +1594,14 @@ class Render::Impl
         const gfx::Rect panel{(kWidth - width) * 0.5F, 254.0F, width, 500.0F};
         overlay_.shadow(panel, 16.0F, 40.0F, gfx::Color::rgb(0x000000, 0.65F));
         overlay_.rounded_rect(panel, 16.0F, kPanel);
-        ui::text(overlay_, fonts_.display, modal.title, panel.x + 48.0F, panel.y + 76.0F, 48.0F,
-                 modal.destructive ? kAmber : kText);
+        const float heading_bottom = ui::paragraph(
+            overlay_, fonts_.display, modal.title, panel.x + 48.0F, panel.y + 76.0F,
+            48.0F, panel.w - 96.0F, 54.0F, modal.destructive ? kAmber : kText, 3);
         const std::string body = view.subtitle.empty() ?
             "Review the impact before continuing. This fixture changes simulated state only." : view.subtitle;
-        ui::paragraph(overlay_, fonts_.regular, body, panel.x + 48.0F, panel.y + 132.0F, 25.0F,
-                      panel.w - 96.0F, 35.0F, kSecondary, 5);
+        ui::paragraph(overlay_, fonts_.regular, body, panel.x + 48.0F, heading_bottom + 24.0F, 25.0F,
+                      panel.w - 96.0F, 35.0F, kSecondary,
+                      std::max(1, static_cast<int>((panel.y + 352.0F - heading_bottom - 24.0F) / 35.0F) + 1));
         const std::size_t count = std::max<std::size_t>(1, view.rows.size());
         const float button_width = (panel.w - 112.0F) / count;
         for (std::size_t index = 0; index < view.rows.size(); ++index)
@@ -2002,13 +2023,16 @@ class Render::Impl
     gfx::Font regular_;
     gfx::Font semibold_;
     gfx::Font display_;
+    gfx::Font greek_face_;
     gfx::Font cjk_face_;
     gfx::Font arabic_face_;
     ui::Fonts fonts_;
+    ui::FontRef greek_;
     ui::FontRef cjk_;
     ui::FontRef arabic_;
     gfx::DrawList scene_;
     gfx::DrawList overlay_;
+    FocusMotion focus_motion_;
     ui::TabBar tabs_;
     ui::GridView grid_;
     ui::ListView list_;
@@ -2041,9 +2065,9 @@ Render::~Render() = default;
 Render::Render(Render &&) noexcept = default;
 Render &Render::operator=(Render &&) noexcept = default;
 
-void Render::draw(Simulation &simulation, int width, int height)
+void Render::draw(Simulation &simulation, int width, int height, float dt)
 {
-    impl_->draw(simulation, width, height);
+    impl_->draw(simulation, width, height, dt);
 }
 
 bool Render::capture_png(const std::filesystem::path &path, int width, int height) const

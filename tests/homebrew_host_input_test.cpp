@@ -50,6 +50,15 @@ int main(int argc, char** argv) {
             !simulation.state().controller.cross && simulation.state().controller.left_x == 0.75F &&
             simulation.state().controller.right_y == -0.5F && simulation.state().controller.l2 == 0.4F,
             "diagnostics reflect actual kit held buttons, sticks and triggers");
+    const auto replay = profile.string() + ".replay";
+    { std::ofstream stream(replay); stream << "frame 3\n"; }
+    unsigned rendered = 0;
+    const auto initial_clock = simulation.state().clock_ticks;
+    require(apply_replay(simulation, replay, [&](const std::string&) { ++rendered; return true; }),
+            "presentation-only frame replay is accepted when recording");
+    require(rendered == 3 && simulation.state().clock_ticks == initial_clock,
+            "motion proof draws requested frames without advancing simulation");
+    std::filesystem::remove(replay, error);
     std::filesystem::remove(profile, error);
     std::puts("PASS: SDL Search gesture, printable edit isolation, simultaneous controller activation");
 }
