@@ -309,6 +309,16 @@ class Render::Impl
         const State &state = simulation.state();
         const ViewData &view = simulation.view();
         const ViewData &route_view = simulation.route_view();
+        const std::string overlay_key = state.editor.active ? "keyboard" :
+            state.navigation.modals.empty() ? std::string{} : state.navigation.modals.back().id;
+        if (overlay_key != overlay_key_)
+        {
+            overlay_key_ = overlay_key;
+            overlay_progress_ = state.reduced_motion || overlay_key.empty() ? 1.0F : 0.0F;
+        }
+        else
+            overlay_progress_ = state.reduced_motion ? 1.0F :
+                std::min(1.0F, overlay_progress_ + (1.0F / 60.0F) / 0.22F);
         route_focus_ = !state.editor.active && state.navigation.modals.empty();
         current_state_ = &state;
         clock_ = static_cast<float>(state.clock_ticks) / 60.0F;
@@ -857,7 +867,7 @@ class Render::Impl
     {
         const std::size_t texture_index = game.id >= 900001 ? (game.id - 900001) % art_.size() :
                                                               game.id % art_.size();
-        const std::uint32_t texture = game.art_failed ? 0 : art_[texture_index];
+        const std::uint32_t texture = game.art_failed || game.art_pending ? 0 : art_[texture_index];
         scene_.shadow(rect, 8.0F, focused ? 26.0F : 12.0F,
                       gfx::Color::rgb(0x000000, focused ? 0.65F : 0.35F));
         if (texture != 0)
@@ -865,11 +875,23 @@ class Render::Impl
         else
         {
             scene_.gradient_rect(rect, 8.0F, id_color(game.id), gfx::Color::rgb(0x24201D));
-            const ui::FontRef &face = font_for(game.title, fonts_.display);
-            ui::paragraph(scene_, face, game.title, rect.x + 18.0F, rect.y + rect.h * 0.42F,
-                          28.0F, rect.w - 36.0F, 31.0F, kText, 4, gfx::Align::center);
+            if (game.art_pending)
+            {
+                ui::text(scene_, fonts_.display, "Artwork loading", rect.cx(), rect.y + rect.h * 0.52F,
+                         25.0F, kText, gfx::Align::center);
+                scene_.rounded_rect({rect.x + 12.0F, rect.y + 12.0F, rect.w - 24.0F, 30.0F}, 6.0F,
+                                    kBackground.with_alpha(0.82F));
+                ui::text(scene_, fonts_.semibold, "ARTWORK PENDING", rect.cx(), rect.y + 33.0F,
+                         14.0F, kSecondary, gfx::Align::center, 1.0F);
+            }
+            else
+            {
+                const ui::FontRef &face = font_for(game.title, fonts_.display);
+                ui::paragraph(scene_, face, game.title, rect.x + 18.0F, rect.y + rect.h * 0.42F,
+                              28.0F, rect.w - 36.0F, 31.0F, kText, 4, gfx::Align::center);
+            }
         }
-        if (focused && title_overlay)
+        if (focused && title_overlay && !game.art_pending)
         {
             scene_.gradient_rect({rect.x, rect.y + rect.h - 98.0F, rect.w, 98.0F}, 8.0F,
                                  kBackground.with_alpha(0.96F), kBackground);
@@ -1347,11 +1369,15 @@ class Render::Impl
 
     void draw_sheet_overlay(const ViewData &view)
     {
-        overlay_.rounded_rect({0.0F, 0.0F, kWidth, kHeight}, 0.0F, gfx::Color::rgb(0x000000, 0.58F));
+        const float ease = 1.0F - std::pow(1.0F - overlay_progress_, 3.0F);
+        overlay_.rounded_rect({0.0F, 0.0F, kWidth, kHeight}, 0.0F,
+                              gfx::Color::rgb(0x000000, 0.58F * ease));
         const bool wide = view.surface.find("settings") != std::string::npos ||
-                          view.surface.find("profile") != std::string::npos;
+                          view.surface.find("profile") != std::string::npos ||
+                          view.surface == "controller" || view.surface == "logs" ||
+                          view.surface == "storage";
         const float width = wide ? 960.0F : 640.0F;
-        const gfx::Rect panel{kWidth - width, 0.0F, width, kHeight};
+        const gfx::Rect panel{kWidth - width + (1.0F - ease) * width, 0.0F, width, kHeight};
         overlay_.shadow({panel.x - 18.0F, 0.0F, panel.w + 18.0F, panel.h}, 0.0F, 36.0F,
                         gfx::Color::rgb(0x000000, 0.75F));
         overlay_.rounded_rect(panel, 0.0F, kPanel);
@@ -1360,7 +1386,177 @@ class Render::Impl
         if (!view.subtitle.empty())
             ui::paragraph(overlay_, fonts_.regular, view.subtitle, panel.x + 48.0F, 190.0F, 23.0F,
                           panel.w - 96.0F, 32.0F, kSecondary, 3);
-        draw_overlay_rows(view, {panel.x + 40.0F, 292.0F, panel.w - 80.0F, 650.0F});
+        if (view.surface == "storage")
+            draw_storage_overlay_rows(view, {panel.x + 40.0F, 246.0F, panel.w - 80.0F, 710.0F});
+        else if (view.surface == "logs")
+            draw_log_overlay(view, {panel.x + 40.0F, 246.0F, panel.w - 80.0F, 710.0F});
+        else if (view.surface == "controller")
+            draw_controller_overlay(view, {panel.x + 40.0F, 236.0F, panel.w - 80.0F, 720.0F});
+        else
+            draw_overlay_rows(view, {panel.x + 40.0F, 292.0F, panel.w - 80.0F, 650.0F});
+    }
+
+    void draw_storage_overlay_rows(const ViewData &view, const gfx::Rect &bounds)
+    {
+        if (current_state_ == nullptr)
+            return;
+        float y = bounds.y;
+        ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
+        for (const ViewRow &row : view.rows)
+        {
+            if (row.action.rfind("volume-", 0) != 0)
+                continue;
+            const std::string id = row.action.substr(7);
+            const auto found = std::find_if(current_state_->volumes.begin(), current_state_->volumes.end(),
+                                            [&id](const Volume &volume) { return volume.id == id; });
+            if (found == current_state_->volumes.end())
+                continue;
+            const Volume &volume = *found;
+            const std::uint64_t occupied = std::min(volume.capacity_bytes,
+                                                     volume.used_bytes + volume.reserved_bytes);
+            const std::uint64_t free = volume.capacity_bytes - occupied;
+            const int row_index = static_cast<int>(&row - view.rows.data());
+            const gfx::Rect card{bounds.x, y, bounds.w, 156.0F};
+            overlay_.rounded_rect(card, 8.0F, kText.with_alpha(row.selected ? 0.10F : 0.04F));
+            if (row_index == view.focused_row)
+                overlay_.bordered_rect(card.inset(-4.0F), 10.0F, kBackground.with_alpha(0.0F),
+                                       4.0F, kAccent);
+            ui::text(overlay_, fonts_.display, volume.label, card.x + 22.0F, card.y + 38.0F,
+                     27.0F, row.enabled ? kText : kMuted);
+            ui::text(overlay_, fonts_.regular, row.subtitle, card.x + card.w - 22.0F,
+                     card.y + 38.0F, 18.0F, row.enabled ? kSecondary : kAmber, gfx::Align::right);
+            const float fraction = volume.capacity_bytes == 0 ? 0.0F :
+                static_cast<float>(occupied) / static_cast<float>(volume.capacity_bytes);
+            overlay_.rounded_rect({card.x + 22.0F, card.y + 58.0F, card.w - 44.0F, 8.0F}, 4.0F,
+                                  kText.with_alpha(0.14F));
+            overlay_.rounded_rect({card.x + 22.0F, card.y + 58.0F,
+                                   (card.w - 44.0F) * std::clamp(fraction, 0.0F, 1.0F), 8.0F},
+                                  4.0F, volume.available ? kAccent : kMuted);
+            ui::text(overlay_, fonts_.regular, "Capacity  " + byte_count(volume.capacity_bytes),
+                     card.x + 22.0F, card.y + 98.0F, 17.0F, kSecondary);
+            ui::text(overlay_, fonts_.regular, "Used  " + byte_count(volume.used_bytes),
+                     card.x + 22.0F, card.y + 128.0F, 17.0F, kSecondary);
+            ui::text(overlay_, fonts_.regular, "Reserved  " + byte_count(volume.reserved_bytes),
+                     card.x + card.w - 22.0F, card.y + 98.0F, 17.0F, kSecondary,
+                     gfx::Align::right);
+            ui::text(overlay_, fonts_.semibold, "Free  " + byte_count(free),
+                     card.x + card.w - 22.0F, card.y + 128.0F, 17.0F, kText,
+                     gfx::Align::right);
+            y += 174.0F;
+        }
+        const auto cancel = std::find_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
+            return row.action == "cancel";
+        });
+        if (cancel != view.rows.end() && y + 70.0F < bounds.y + bounds.h)
+        {
+            const int index = static_cast<int>(std::distance(view.rows.begin(), cancel));
+            painter.row({bounds.x, y, bounds.w, 66.0F}, "Cancel", "", 0.0F,
+                        {index == view.focused_row ? 1.0F : 0.0F, 0.0F, false});
+        }
+    }
+
+    void draw_log_overlay(const ViewData &view, const gfx::Rect &bounds)
+    {
+        overlay_.rounded_rect(bounds, 8.0F, kBackground.with_alpha(0.72F));
+        float y = bounds.y + 42.0F;
+        bool any = false;
+        const auto line = [this, &y, &any, &bounds](std::string_view kind, std::string_view message,
+                                                    gfx::Color color) {
+            if (y > bounds.y + bounds.h - 110.0F)
+                return;
+            ui::text(overlay_, fonts_.semibold, kind, bounds.x + 24.0F, y, 17.0F, color);
+            dynamic_overlay_text(message, bounds.x + 144.0F, y, 19.0F, kText,
+                                 bounds.w - 168.0F);
+            y += 42.0F;
+            any = true;
+        };
+        if (current_state_ != nullptr)
+        {
+            if (!current_state_->session_error.empty())
+                line("SESSION", current_state_->session_error, kRed);
+            for (const Job &job : current_state_->jobs)
+                if (!job.failure.empty())
+                    line("TRANSFER", job.failure, kRed);
+            for (const Notice &notice : current_state_->notices)
+                line(notice.persistent ? "STATUS" : "NOTICE", notice.message,
+                     notice.persistent ? kAmber : kAccent);
+        }
+        if (!any)
+            line("STATUS", "No errors recorded in this simulation.", kGreen);
+        const auto back = std::find_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
+            return row.action == "logs-back" || row.action == "cancel";
+        });
+        if (back != view.rows.end())
+        {
+            ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
+            painter.button({bounds.x + 24.0F, bounds.y + bounds.h - 82.0F, 240.0F, 58.0F},
+                           "Back", ui::ButtonKind::secondary, {1.0F, 0.0F, false});
+        }
+    }
+
+    void draw_controller_overlay(const ViewData &view, const gfx::Rect &bounds)
+    {
+        const bool connected = current_state_ != nullptr && current_state_->controller_connected;
+        const ControllerState input = current_state_ == nullptr ? ControllerState{} :
+                                                                  current_state_->controller;
+        overlay_.rounded_rect(bounds, 12.0F, kBackground.with_alpha(0.52F));
+        ui::text(overlay_, fonts_.display, connected ? "Controller connected" : "Controller disconnected",
+                 bounds.x + bounds.w * 0.5F, bounds.y + 54.0F, 31.0F,
+                 connected ? kGreen : kAmber, gfx::Align::center);
+        const gfx::Color shell = connected ? kText.with_alpha(0.12F) : kMuted.with_alpha(0.10F);
+        const float cx = bounds.x + bounds.w * 0.5F;
+        const float cy = bounds.y + 292.0F;
+        overlay_.rounded_rect({cx - 286.0F, cy - 136.0F, 572.0F, 250.0F}, 88.0F, shell);
+        overlay_.circle(cx - 224.0F, cy + 96.0F, 92.0F, shell);
+        overlay_.circle(cx + 224.0F, cy + 96.0F, 92.0F, shell);
+        overlay_.rounded_rect({cx - 242.0F, cy - 164.0F, 158.0F, 24.0F}, 8.0F,
+                              input.l2 > 0.5F ? kAccent : kText.with_alpha(0.16F));
+        overlay_.rounded_rect({cx + 84.0F, cy - 164.0F, 158.0F, 24.0F}, 8.0F,
+                              input.r2 > 0.5F ? kAccent : kText.with_alpha(0.16F));
+        ui::text(overlay_, fonts_.semibold, "L2", cx - 163.0F, cy - 146.0F, 16.0F, kText,
+                 gfx::Align::center);
+        ui::text(overlay_, fonts_.semibold, "R2", cx + 163.0F, cy - 146.0F, 16.0F, kText,
+                 gfx::Align::center);
+
+        const auto stick = [this](float x, float y, float axis_x, float axis_y) {
+            overlay_.circle(x, y, 48.0F, kBackground.with_alpha(0.72F));
+            overlay_.circle(x + axis_x * 24.0F, y + axis_y * 24.0F, 22.0F,
+                            (axis_x != 0.0F || axis_y != 0.0F) ? kAccent : kSecondary);
+        };
+        stick(cx - 112.0F, cy + 48.0F, input.left_x, input.left_y);
+        stick(cx + 72.0F, cy + 48.0F, input.right_x, input.right_y);
+
+        const auto face = [this](float x, float y, bool active, ui::Button button) {
+            overlay_.circle(x, y, 23.0F, active ? kAccent : kBackground.with_alpha(0.78F));
+            ui::draw_button(overlay_, fonts_,
+                            ui::GlyphStyle::mono(active ? kBackground : kText, kBackground),
+                            button, x - ui::button_width(button, 30.0F) * 0.5F, y, 30.0F);
+        };
+        face(cx + 200.0F, cy - 28.0F, input.triangle, ui::Button::triangle);
+        face(cx + 248.0F, cy + 20.0F, input.circle, ui::Button::circle);
+        face(cx + 200.0F, cy + 68.0F, input.cross, ui::Button::cross);
+        face(cx + 152.0F, cy + 20.0F, input.square, ui::Button::square);
+
+        const gfx::Color dpad = (input.left_x != 0.0F || input.left_y != 0.0F) ? kAccent : kSecondary;
+        overlay_.rounded_rect({cx - 232.0F, cy - 4.0F, 92.0F, 28.0F}, 5.0F, dpad);
+        overlay_.rounded_rect({cx - 200.0F, cy - 36.0F, 28.0F, 92.0F}, 5.0F, dpad);
+        overlay_.rounded_rect({cx - 34.0F, cy - 18.0F, 68.0F, 30.0F}, 8.0F,
+                              input.options ? kAccent : kBackground.with_alpha(0.72F));
+        ui::text(overlay_, fonts_.semibold, "OPTIONS", cx, cy + 3.0F, 12.0F, kText,
+                 gfx::Align::center, 0.8F);
+        ui::text(overlay_, fonts_.regular, "Left stick", cx - 112.0F, cy + 122.0F, 16.0F,
+                 kSecondary, gfx::Align::center);
+        ui::text(overlay_, fonts_.regular, "Right stick", cx + 72.0F, cy + 122.0F, 16.0F,
+                 kSecondary, gfx::Align::center);
+        draw_overlay_rows(view, {bounds.x + 20.0F, bounds.y + bounds.h - 104.0F,
+                                 bounds.w - 40.0F, 84.0F});
+    }
+
+    void dynamic_overlay_text(std::string_view value, float x, float y, float size,
+                              gfx::Color color, float max_width)
+    {
+        const ui::FontRef &face = font_for(value, fonts_.regular);
+        ui::text(overlay_, face, face.font->fit(value, size, max_width), x, y, size, color);
     }
 
     void section_overlay(std::string_view value, float x, float y)
@@ -1416,6 +1612,8 @@ class Render::Impl
             return row.value;
         if (!row.badge.empty())
             return row.badge;
+        if (!row.subtitle.empty())
+            return row.subtitle;
         if (current_state_ == nullptr || current_state_->profiles.empty())
             return {};
         const Profile &profile = current_state_->profiles.size() > 1 ? current_state_->profiles[1]
@@ -1510,6 +1708,8 @@ class Render::Impl
     bool ready_ = false;
     bool has_frame_ = false;
     bool route_focus_ = true;
+    std::string overlay_key_;
+    float overlay_progress_ = 1.0F;
     int last_width_ = 0;
     int last_height_ = 0;
     mutable GLuint capture_framebuffer_ = 0;

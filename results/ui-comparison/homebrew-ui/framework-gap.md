@@ -17,8 +17,10 @@ than scaling a completed 1080p framebuffer.
 ## Custom composition
 
 The product shell, Home shelves, details hero, storage summary, deterministic simulated QR,
-poster status marks, persistent warnings and modal content are composed from public `DrawList`
-and `Painter` operations. These product-specific layouts do not exist as kit components.
+poster status marks, controller diagnostic diagram, operation-log presentation, persistent warnings
+and modal content are composed from public `DrawList` and `Painter` operations. These
+product-specific layouts do not exist as kit components. Controller highlights use the current
+model input snapshot; log rows use only session errors, transfer failures and model notices.
 
 Sheets and confirmations use custom composition because the simulation owns the focus stack and
 publishes resolved rows. Instantiating the kit's stateful `Sheet` or `Dialog` would create a
@@ -29,6 +31,13 @@ The reference focus glow is approximated with the kit's SDF glow plus a four-uni
 The reference blur is approximated by a dim scrim and opaque warm panel. The renderer requests a
 kit glass capture for overlay frames, but the custom panel does not currently sample that blurred
 texture.
+
+Right-anchored sheets use a 220 ms cubic ease for their horizontal entrance and scrim fade, inside
+the reference's 180–280 ms range. Kit components receive the simulation's reduced-motion flag;
+custom sheets complete immediately when reduced motion is enabled. Other custom surfaces are
+frame-stable compositions and do not invent additional motion. Recorded comparison captures draw
+settling frames before capture, while reduced-motion and screenshot fixture states remain
+deterministic.
 
 ## Typography and international text
 
@@ -48,10 +57,11 @@ dynamic string, rather than splitting a mixed-script string into shaped runs.
 ## Artwork lifecycle
 
 All eight shared synthetic posters and the shared hero are uploaded once when the renderer is
-created. Missing or failed cover art uses an ID-derived stable placeholder without changing cell
-geometry. The renderer can display the simulation's failed-art state. `Game` currently exposes a
-failure boolean but no delayed/loading generation or texture-ready transition, so the delayed-art
-scenario cannot demonstrate asynchronous arrival inside this renderer yet.
+created: a fixed nine-texture cache. Missing, pending or failed cover art uses an ID-derived stable
+placeholder without changing cell geometry. The delayed-art fixture first exposes that placeholder
+and a later deterministic simulation tick clears `art_pending`, at which point the renderer uses
+the already uploaded poster. This validates state transition and layout stability; it does not
+claim asynchronous file decoding, background upload, eviction or generation tracking.
 
 ## Host compatibility
 
