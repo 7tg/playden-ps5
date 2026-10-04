@@ -25,6 +25,15 @@ if(PLAYDEN_HOMEBREW_UI)
     if(PLAYDEN_PLATFORM_PS5)
         target_compile_options(playden_steam_auth PRIVATE -fno-exceptions -fno-rtti)
     endif()
+    add_library(playden_steam_library STATIC
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/library_client.cpp")
+    target_include_directories(playden_steam_library PUBLIC "${CMAKE_SOURCE_DIR}/src")
+    target_compile_features(playden_steam_library PUBLIC cxx_std_17)
+    target_link_libraries(playden_steam_library PUBLIC
+        playden_steam_http playden_steam_protocol playden_library_service)
+    if(PLAYDEN_PLATFORM_PS5)
+        target_compile_options(playden_steam_library PRIVATE -fno-exceptions -fno-rtti)
+    endif()
     set(PLAYDEN_STEAM_PREFIX
         "${CMAKE_SOURCE_DIR}/probes/steam-network/.deps/${playden_steam_dependency_platform}"
         CACHE PATH "Pinned curl/Mbed TLS prefix prepared by the native Steam probe")
@@ -160,5 +169,10 @@ function(playden_register_steam_backend_tests)
         add_executable(auth_client_test "${CMAKE_SOURCE_DIR}/tests/auth_client_test.cpp")
         target_link_libraries(auth_client_test PRIVATE playden_steam_auth)
         add_test(NAME auth_client COMMAND auth_client_test)
+
+        add_executable(library_client_test "${CMAKE_SOURCE_DIR}/tests/library_client_test.cpp")
+        target_link_libraries(library_client_test PRIVATE playden_steam_library)
+        add_test(NAME library_client COMMAND library_client_test
+            "${CMAKE_SOURCE_DIR}/fixtures/steam/library")
     endif()
 endfunction()

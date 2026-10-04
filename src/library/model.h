@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace playden {
@@ -11,5 +12,7 @@ struct GameSummary {
     std::string artwork_source;
     std::string description;
     std::string developer;
+    std::optional<std::uint64_t> playtime_minutes;
+    std::optional<std::uint64_t> last_played_unix_seconds;
 };
 } // namespace playden

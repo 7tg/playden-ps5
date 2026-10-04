@@ -35,7 +35,16 @@ target_include_directories(playden_steam_core PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_steam_core PUBLIC cxx_std_17)
 target_link_libraries(playden_steam_core PUBLIC playden_storage Threads::Threads)
 
+add_library(playden_library_service STATIC
+    "${CMAKE_SOURCE_DIR}/src/library/service.cpp")
+target_include_directories(playden_library_service PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_library_service PUBLIC cxx_std_17)
+target_link_libraries(playden_library_service PUBLIC playden_steam_core)
+
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(library_sync_test "${CMAKE_SOURCE_DIR}/tests/library_sync_test.cpp")
+    target_link_libraries(library_sync_test PRIVATE playden_library_service)
+    add_test(NAME library_sync COMMAND library_sync_test)
     foreach(test_name library_query library_cache)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_library)

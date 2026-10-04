@@ -12,6 +12,18 @@ int main(){
  auto restored=cache.Load("76561198000000001");Check(restored.ok(),"load snapshot after creating a new cache reader");
  Check(restored.value().games.size()==2 && restored.value().games[1].title=="星の旅","Unicode title roundtrip");
  Check(restored.value().retrieved_at_unix_seconds==123456,"stale timestamp preserved");
+ Check(!restored.value().games[0].playtime_minutes && !restored.value().games[0].last_played_unix_seconds,"old schema never invents history");
+ auto with_history=original;with_history.schema_version=2;
+ with_history.games[0].playtime_minutes=0;
+ with_history.games[0].last_played_unix_seconds=123400;
+ with_history.games[1].playtime_minutes=999;
+ Check(cache.Save("76561198000000003",with_history).ok(),"save real history in version two");
+ auto history=cache.Load("76561198000000003");
+ Check(history.ok() && history.value().schema_version==2,"load version two");
+ Check(history.value().games[0].playtime_minutes==0 && history.value().games[0].last_played_unix_seconds==123400,"zero playtime and timestamp roundtrip");
+ Check(history.value().games[1].playtime_minutes==999 && !history.value().games[1].last_played_unix_seconds,"unknown last played remains unknown");
+ auto lossy=with_history;lossy.schema_version=1;
+ Check(!cache.Save("76561198000000003",lossy).ok(),"old schema cannot silently discard history");
  Check(!cache.Load("76561198000000002").ok(),"another account never receives first account data");
  Check(!cache.Save("../escape",original).ok(),"reject account path traversal");
  auto bad=original;bad.schema_version=99;Check(!cache.Save("76561198000000001",bad).ok(),"unsupported schema cannot replace valid cache");
@@ -37,6 +49,6 @@ int main(){
  Check(!storage.Read("library-76561198000000001.cache",33*1024*1024).ok(),"excessive read bound rejected");
  LibrarySnapshot empty{1,123457,{}};Check(cache.Save("76561198000000001",empty).ok(),"empty library is legitimate cached state");
  Check(cache.Load("76561198000000001").value().games.empty(),"empty library survives restart");
- std::remove((std::string(root)+"/library-76561198000000001.cache").c_str());std::remove((std::string(root)+"/library-76561198000000002.cache").c_str());rmdir(root);
+ std::remove((std::string(root)+"/library-76561198000000001.cache").c_str());std::remove((std::string(root)+"/library-76561198000000002.cache").c_str());std::remove((std::string(root)+"/library-76561198000000003.cache").c_str());rmdir(root);
  puts("library_cache_test passed");
 }
