@@ -73,7 +73,6 @@ add_library(playden_core STATIC
  src/ui/details.cpp
  src/ui/install_fixture.cpp
 	src/app/application.cpp
-	src/app/preferences.cpp
 	src/diagnostics/frame_stats.cpp
  src/diagnostics/phase_stats.cpp
 	src/ui/shell.cpp)
@@ -81,7 +80,7 @@ target_include_directories(playden_core PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_core PUBLIC cxx_std_17)
 target_compile_definitions(playden_core PUBLIC PLAYDEN_REVISION="${playden_revision}"
 	PLAYDEN_RMLFOCUS_REVISION="${PLAYDEN_RMLFOCUS_REVISION}")
-target_link_libraries(playden_core PUBLIC RmlFocus::RmlUi Threads::Threads playden_storage playden_library)
+target_link_libraries(playden_core PUBLIC RmlFocus::RmlUi Threads::Threads playden_storage playden_library playden_preferences)
 if(PLAYDEN_DEVELOPER_FIXTURES)
  find_package(Python3 REQUIRED COMPONENTS Interpreter)
  add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/developer_fixture.cpp"
@@ -138,7 +137,7 @@ if(NOT PLAYDEN_PLATFORM_PS5)
         target_include_directories(process_memory_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
         target_compile_features(process_memory_test PRIVATE cxx_std_17)
         add_test(NAME process_memory COMMAND process_memory_test)
-		foreach(test_name preferences frame_stats phase_stats)
+		foreach(test_name frame_stats phase_stats)
 			add_executable("${test_name}_test" "tests/${test_name}_test.cpp")
 			target_link_libraries("${test_name}_test" PRIVATE playden_core)
 			add_test(NAME "${test_name}" COMMAND "${test_name}_test")
