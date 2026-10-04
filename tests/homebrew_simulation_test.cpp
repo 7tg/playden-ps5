@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
@@ -21,7 +22,7 @@ void check(bool condition, const char* message) {
 }
 
 std::filesystem::path temp_profile() {
-    auto path = std::filesystem::temp_directory_path() / "playden-homebrew-simulation-test.json";
+    auto path = std::filesystem::temp_directory_path() / ("playden-homebrew-simulation-test-" + std::to_string(getpid()) + ".json");
     std::error_code error;
     std::filesystem::remove(path, error);
     return path;
@@ -40,6 +41,12 @@ void t01_authentication_ignores_late_approval(const std::filesystem::path& fixtu
     simulation.action("cross");
     check(simulation.state().account.authentication == playden::homebrew::AuthState::Waiting,
           "T01 Connect Steam opens a waiting challenge");
+    playden::homebrew::Simulation waiting_restart(fixtures, profile);
+    check(waiting_restart.state().account.authentication == playden::homebrew::AuthState::SignedOut
+              && waiting_restart.state().navigation.route == playden::homebrew::Route::Startup
+              && waiting_restart.state().account.id.empty() && waiting_restart.state().account.display_name.empty()
+              && !waiting_restart.state().account.cache_available,
+          "T01 restarting an anonymous waiting challenge invalidates it without leaking catalog identity");
     simulation.scenario("qr-expired");
     check(simulation.state().account.authentication == playden::homebrew::AuthState::Expired,
           "T01 injected QR expiry is visible");
@@ -59,6 +66,15 @@ void t01_authentication_ignores_late_approval(const std::filesystem::path& fixtu
     check(std::any_of(simulation.view().rows.begin(), simulation.view().rows.end(),
                       [](const playden::homebrew::ViewRow& row) { return row.key == "home-connect"; }),
           "T01 empty signed-out Home offers both Library and Connect");
+    simulation.scenario("signed-out"); simulation.action("cross"); simulation.action("inject:qr-approved");
+    playden::homebrew::Simulation syncing_restart(fixtures, profile);
+    check(syncing_restart.state().account.authentication == playden::homebrew::AuthState::Failed
+              && syncing_restart.state().navigation.route == playden::homebrew::Route::SignIn
+              && syncing_restart.state().navigation.focus_key == "qr-retry",
+          "T01 interrupted sync restarts at a controller-recoverable retry state");
+    syncing_restart.action("cross");
+    check(syncing_restart.state().account.authentication == playden::homebrew::AuthState::Waiting,
+          "T01 retry creates a fresh challenge after interrupted sync");
 }
 
 void t02_focus_and_nested_modal_restoration(const std::filesystem::path& fixtures,

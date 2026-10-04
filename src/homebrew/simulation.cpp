@@ -454,16 +454,29 @@ void Simulation::load_profile() {
     const auto saved_account = string_value(root->get("account_id"));
     const auto saved_auth = string_value(root->get("authentication"));
     const auto restored_auth = parse_auth_state(saved_auth);
-    if (!saved_account.empty() && saved_account != state_.account.id) {
+    if (saved_account != state_.account.id) {
         state_.library = {};
         state_.selected_profiles.clear();
         state_.custom_profiles.clear();
-        state_.account.id = saved_account;
-        state_.account.display_name = string_value(root->get("account_display_name"), "Connected fixture account");
     }
+    state_.account.id = saved_account;
+    state_.account.display_name = saved_account.empty() ? std::string{} : string_value(root->get("account_display_name"), "Connected fixture account");
     state_.reduced_motion = bool_value(root->get("reduced_motion"));
-    if (saved_auth == "signed-out") { state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear(); state_.account.cache_available = false; state_.navigation.route = Route::Startup; }
-    else if (!saved_auth.empty()) { state_.account.authentication = restored_auth; state_.account.cache_available = restored_auth == AuthState::SignedIn || restored_auth == AuthState::Offline; }
+    if (saved_auth == "signed-out" || saved_auth == "cancelled" || (saved_auth == "waiting" && saved_account.empty())) {
+        state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear();
+        state_.account.cache_available = false; state_.account.challenge_expiry = 0; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
+    } else if (saved_auth == "syncing") {
+        state_.account.authentication = AuthState::Failed; state_.account.cache_available = false; state_.account.challenge_expiry = 0;
+        state_.account.error = "Account sync was interrupted"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-retry";
+    } else if (saved_auth == "waiting" || saved_auth == "expired") {
+        state_.account.authentication = AuthState::Expired; state_.account.cache_available = false; state_.account.challenge_expiry = 0;
+        state_.account.error = "Challenge expired during restart"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-refresh";
+    } else if (saved_auth == "failed") {
+        state_.account.authentication = AuthState::Failed; state_.account.cache_available = false; state_.account.challenge_expiry = 0;
+        state_.account.error = "Account connection needs retry"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-retry";
+    } else if (!saved_auth.empty()) {
+        state_.account.authentication = restored_auth; state_.account.cache_available = restored_auth == AuthState::SignedIn || restored_auth == AuthState::Offline;
+    }
     state_.account.last_sync = static_cast<std::int64_t>(uint_value(root->get("account_last_sync"), static_cast<std::uint64_t>(state_.account.last_sync)));
     state_.library.query = string_value(root->get("query"), state_.library.query);
     state_.library.scope = string_value(root->get("scope"), state_.library.scope);
@@ -557,6 +570,11 @@ void Simulation::load_profile() {
             found->reserved_bytes = uint_value(item.get("reserved"), found->reserved_bytes);
             found->available = bool_value(item.get("available"), found->available);
         }
+    }
+    if (state_.account.authentication == AuthState::SignedOut) {
+        state_.library = {};
+        state_.selected_profiles.clear();
+        state_.custom_profiles.clear();
     }
     reconcile_storage(state_);
 }
@@ -1932,7 +1950,11 @@ bool Simulation::action(const std::string& logical_action) {
         else if (injected == "startup-loading") { state_.startup_loading = true; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-loading"; }
         else if (injected == "late-approval") {
             if (state_.account.authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) state_.account.authentication = AuthState::Syncing;
-        } else return scenario(injected);
+        } else {
+            if (!scenario(injected)) return false;
+            if (state_.persistence_available) save_profile();
+            return true;
+        }
         if (state_.persistence_available) save_profile();
         rebuild_view(); return true;
     }
