@@ -30,3 +30,5 @@ Controller keyboard lives in RmlFocus main `31d2d8fd39ca3e3bb3ba91a43f50561c0442
 Native visual evidence: results/20261004-library-ps5 records a direct 3840×2160 framebuffer capture, search text entry/cancel, and restored-focus details navigation. Host suite now passes 10/10. Native capture runs are excluded from sustained performance acceptance, and observed frame intervals exceed the target. No 4K60 claim is made.
 
 User direction (2026-10-04): defer 4K performance work for now. Stop profiling, MSAA comparisons, and RSS/soak work; preserve existing diagnostics and evidence. Continue Steam networking and the connected-library implementation. Native 4K60 remains an unverified final acceptance requirement and is not waived.
+
+User direction (2026-10-04): defer all UI work to a separate session/agent. This session continues Steam networking/backend only. Uncommitted partial sort/filter work is preserved in src/ui/shell.{h,cpp}, assets/ui/library.rml, assets/ui/playden.rcss, assets/ui/library-options.rml, and tests/library_options_test.cpp. The final added no-results assertions have not been compiled/run; no UI completion claim or UI commit was made.
