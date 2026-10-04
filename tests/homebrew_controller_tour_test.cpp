@@ -85,6 +85,63 @@ int main(int argc, char** argv) {
     Simulation restored(argv[1], profile);
     require(restored.state().account.authentication == AuthState::SignedOut &&
             restored.visible_games().empty(), "controller sign-out remains signed out after restart");
+    require(restored.state().account.id.empty() && restored.state().account.display_name.empty(),
+            "sign-out removes visible identity on restart");
+    simulation.scenario("default");
+    press(simulation, "l1");
+    choose(simulation, "settings-logs");
+    require(simulation.state().log_state == LogState::Loading, "logs visibly start Loading");
+    choose(simulation, "logs-fixture-controls");
+    choose(simulation, "inject-logs-failure");
+    require(simulation.view().surface == "logs" && simulation.state().log_state == LogState::Failed,
+            "controller injects and displays log failure");
+    choose(simulation, "logs-retry");
+    choose(simulation, "logs-fixture-controls");
+    choose(simulation, "inject-logs-empty");
+    require(simulation.state().log_lines.empty() && simulation.state().log_state == LogState::Ready,
+            "controller can inspect empty logs");
+    choose(simulation, "logs-fixture-controls");
+    choose(simulation, "inject-logs-ready");
+    require(simulation.state().log_lines.size() <= 128, "logs have a hard record bound");
+    press(simulation, "r2");
+    require(simulation.state().log_offset > 0, "controller pages bounded log records");
+    press(simulation, "circle");
+    require(simulation.state().navigation.focus_key == "settings-logs", "Logs restores Settings opener");
+    simulation.scenario("default");
+    press(simulation, "cross");
+    choose(simulation, "details-simulate-launch");
+    choose(simulation, "session-fixture-controls");
+    choose(simulation, "advance-clock");
+    choose(simulation, "advance-clock");
+    press(simulation, "circle");
+    require(simulation.state().session == SessionState::Running, "controller advances preparation to running");
+    choose(simulation, "session-quit");
+    require(simulation.state().navigation.focus_key == "cancel", "Quit game defaults to Cancel");
+    choose(simulation, "confirm-destructive");
+    require(simulation.state().session == SessionState::Stopping, "controller quit visibly stops");
+    choose(simulation, "session-fixture-controls");
+    choose(simulation, "inject-stop-failure");
+    choose(simulation, "session-force-stop");
+    require(simulation.state().navigation.focus_key == "cancel", "force-stop defaults to Cancel");
+    choose(simulation, "confirm-destructive");
+    require(simulation.state().session == SessionState::Idle, "controller can recover failed stop");
+    simulation.scenario("stress");
+    for (int page = 0; page < 50; ++page) {
+        press(simulation, "r2");
+        require(simulation.view().rows.size() <= 24, "controller traversal materializes at most 24 games");
+        const auto selected_id = simulation.state().navigation.selected_game_id;
+        simulation.tick(1);
+        require(simulation.state().navigation.selected_game_id == selected_id,
+                "job updates preserve focus during stress traversal");
+        require(std::any_of(simulation.view().rows.begin(), simulation.view().rows.end(),
+                [selected_id](const ViewRow& row) { return row.game_id == selected_id; }),
+                "the bounded presentation window contains the selected game");
+    }
+    require(simulation.state().navigation.selected_index == 996,
+            "controller paging reaches the final row and preserves its column");
+    press(simulation, "right"); press(simulation, "right"); press(simulation, "right");
+    require(simulation.state().navigation.selected_index == 999,
+            "controller traverses the final row to the 1,000th game");
     std::filesystem::remove(profile, error);
-    std::puts("PASS: Home return, UTF-8/editor opener, rating/collection controller reachability, sign-out restart");
+    std::puts("PASS: QR, Home return, UTF-8/editor opener, organization, sign-out, bounded log recovery, failed session stop");
 }

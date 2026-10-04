@@ -300,6 +300,19 @@ void apply_input(playden::homebrew::Simulation& simulation, const hui::InputFram
 
 } // namespace
 
+bool write_render_snapshot(const playden::homebrew::Render& renderer,
+                           const std::filesystem::path& png) {
+    const auto stats = renderer.diagnostics();
+    const auto path = png.string() + ".render.json";
+    std::FILE* file = std::fopen(path.c_str(), "wb");
+    if (!file) return false;
+    const int written = std::fprintf(file,
+        "{\"grid_focused_game_id\":%u,\"grid_drawn_cell_count\":%zu,\"artwork_texture_count\":%zu,\"native_width\":%d,\"native_height\":%d}\n",
+        stats.grid_focused_game_id, stats.grid_drawn_cell_count, stats.artwork_texture_count,
+        stats.native_width, stats.native_height);
+    return std::fclose(file) == 0 && written > 0;
+}
+
 int main(int argc, char** argv) {
     const auto options = parse_options(argc, argv);
     if (!options) return 2;
@@ -355,6 +368,7 @@ int main(int argc, char** argv) {
             char filename[32];
             std::snprintf(filename, sizeof(filename), "frame-%04u.png", frame_index++);
             if (!render->capture_png(options->recording / filename, options->width, options->height) ||
+                !write_render_snapshot(*render, options->recording / filename) ||
                 glGetError() != GL_NO_ERROR) return false;
             states << "{\"command\":\"" << playden::homebrew::json::escape(command)
                    << "\",\"state\":" << simulation.snapshot() << "}\n";
@@ -444,7 +458,8 @@ int main(int argc, char** argv) {
 
         if (!options->capture.empty()) {
             glFinish();
-            if (!render->capture_png(options->capture, width, height)) {
+            if (!render->capture_png(options->capture, width, height) ||
+                !write_render_snapshot(*render, options->capture)) {
                 std::fprintf(stderr, "PNG capture failed: %s\n", options->capture.c_str());
                 running = false;
                 rendered_once = false;

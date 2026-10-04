@@ -96,6 +96,12 @@ def main():
                 png = (screenshots / (name + ".png")).read_bytes()
                 assert png[:8] == b"\x89PNG\r\n\x1a\n"
                 assert struct.unpack(">II", png[16:24]) == (width, height), name
+                render_state = json.loads((screenshots / (name + ".png.render.json")).read_text())
+                assert (render_state["native_width"], render_state["native_height"]) == (width, height)
+                assert render_state["artwork_texture_count"] == 9, (name, render_state)
+                assert render_state["grid_drawn_cell_count"] <= 24, (name, render_state)
+                if capture["surface"] == "library" and capture["game_id"] is not None:
+                    assert render_state["grid_focused_game_id"] == capture["game_id"], (name, render_state)
                 if capture["id"] == "downloads-active":
                     assert state["focus"] == "job-job-1", (name, state)
                     assert state["jobs"][0]["completed"] == 461708984
