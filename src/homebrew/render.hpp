@@ -5,12 +5,23 @@
 #pragma once
 
 #include <filesystem>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace playden::homebrew
 {
 
 class Simulation;
+
+struct RenderStats
+{
+    std::uint32_t grid_focused_game_id = 0;
+    std::size_t grid_drawn_cell_count = 0;
+    std::size_t artwork_texture_count = 0;
+    int native_width = 0;
+    int native_height = 0;
+};
 
 class Render final
 {
@@ -25,6 +36,7 @@ class Render final
 
     void draw(Simulation &simulation, int width, int height);
     bool capture_png(const std::filesystem::path &path, int width, int height) const;
+    [[nodiscard]] RenderStats diagnostics() const noexcept;
 
   private:
     class Impl;

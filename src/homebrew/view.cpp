@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -191,6 +192,66 @@ std::string transfer_rate(std::optional<std::uint64_t> bytes_per_second)
     return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : "—";
 }
 
+std::string join_words(const std::vector<std::string> &words)
+{
+    if (words.empty())
+        return "Unknown";
+    std::string result;
+    for (const std::string &word : words)
+    {
+        if (!result.empty())
+            result += " · ";
+        result += word;
+    }
+    return result;
+}
+
+std::string playtime_label(std::optional<std::uint64_t> minutes)
+{
+    if (!minutes)
+        return "Unknown";
+    if (*minutes < 60)
+        return std::to_string(*minutes) + " min";
+    return std::to_string(*minutes / 60) + " h " + std::to_string(*minutes % 60) + " min";
+}
+
+std::string relative_time(std::optional<std::int64_t> timestamp, std::int64_t now)
+{
+    if (!timestamp)
+        return "Unknown";
+    const std::int64_t seconds = std::max<std::int64_t>(0, now - *timestamp);
+    if (seconds < 3600)
+        return "Less than an hour ago";
+    if (seconds < 86400)
+        return std::to_string(seconds / 3600) + " h ago";
+    return std::to_string(seconds / 86400) + " d ago";
+}
+
+std::size_t utf8_boundary(std::string_view text, std::size_t offset)
+{
+    offset = std::min(offset, text.size());
+    while (offset > 0 && offset < text.size() &&
+           (static_cast<unsigned char>(text[offset]) & 0xC0U) == 0x80U)
+        --offset;
+    return offset;
+}
+
+const char *rating_label(Compatibility rating)
+{
+    switch (rating)
+    {
+    case Compatibility::Untested:
+        return "Untested";
+    case Compatibility::Works:
+        return "Works · user rating";
+    case Compatibility::Playable:
+        return "Playable · user rating";
+    case Compatibility::Broken:
+        return "Broken · user rating";
+    }
+    return "Untested";
+}
+
 const char* job_stage_label(JobStage stage)
 {
     switch (stage)
@@ -306,6 +367,10 @@ class Render::Impl
 
         scene_.clear();
         overlay_.clear();
+        stats_.grid_focused_game_id = 0;
+        stats_.grid_drawn_cell_count = 0;
+        stats_.native_width = width;
+        stats_.native_height = height;
         const State &state = simulation.state();
         const ViewData &view = simulation.view();
         const ViewData &route_view = simulation.route_view();
@@ -378,6 +443,11 @@ class Render::Impl
         has_frame_ = true;
     }
 
+    [[nodiscard]] RenderStats diagnostics() const noexcept
+    {
+        return stats_;
+    }
+
     bool capture_png(const std::filesystem::path &path, int width, int height) const
     {
         if (!ready_ || !has_frame_ || width <= 0 || height <= 0 || !ensure_capture(width, height))
@@ -405,6 +475,9 @@ class Render::Impl
         if (!load_fonts())
             return false;
         load_art();
+        stats_.artwork_texture_count = static_cast<std::size_t>(std::count_if(
+            art_.begin(), art_.end(), [](std::uint32_t texture) { return texture != 0; })) +
+            (hero_ == 0 ? 0U : 1U);
         configure_components();
         ready_ = true;
         return true;
@@ -784,18 +857,48 @@ class Render::Impl
         const bool grid_active = route_focus_ && !state.navigation.library_rail_focused;
         grid_.style.theme.focus = grid_active ? kAccent : kAccent.with_alpha(0.0F);
         grid_.set_count(static_cast<int>(games.size()));
-        grid_.set_focus(std::clamp(view.focused_row, 0, static_cast<int>(games.size()) - 1), true);
+        int grid_focus = std::clamp(state.navigation.selected_index, 0,
+                                    static_cast<int>(games.size()) - 1);
+        const auto selected = std::find_if(games.begin(), games.end(), [&state](const Game *game) {
+            return game->id == state.navigation.selected_game_id;
+        });
+        if (selected != games.end())
+            grid_focus = static_cast<int>(std::distance(games.begin(), selected));
+        stats_.grid_focused_game_id = games[static_cast<std::size_t>(grid_focus)]->id;
+        grid_.set_focus(grid_focus, true);
         grid_.set_active(grid_active);
         grid_.content = [this](ui::Canvas &, const gfx::Rect &cell, const ui::CardItem &, int index,
                               float focus) {
+            ++stats_.grid_drawn_cell_count;
             const Game &game = *visible_grid_games_[static_cast<std::size_t>(index)];
-            draw_poster(game, cell, focus > 0.5F, {}, job_progress(game.id));
+            std::string badge;
+            const auto job = current_state_ == nullptr ? std::vector<Job>::const_iterator{} :
+                std::find_if(current_state_->jobs.begin(), current_state_->jobs.end(),
+                             [&game](const Job &candidate) {
+                                 return candidate.game_id == game.id && candidate.state != JobState::Cancelled;
+                             });
+            if (current_state_ != nullptr && job != current_state_->jobs.end())
+                badge = job_state_label(job->state);
+            else if (current_state_ != nullptr &&
+                     std::any_of(current_state_->installations.begin(), current_state_->installations.end(),
+                                 [&game](const Installation &installation) {
+                                     return installation.game_id == game.id && installation.available;
+                                 }))
+                badge = "Installed";
+            draw_poster(game, cell, focus > 0.5F, badge, job_progress(game.id));
         };
         grid_.accent = [this](int index) {
             return id_color(visible_grid_games_[static_cast<std::size_t>(index)]->id);
         };
         grid_.update(1.0F / 60.0F);
         grid_.draw(canvas);
+        if (state.library_syncing)
+        {
+            scene_.rounded_rect({1398.0F, 86.0F, 426.0F, 48.0F}, 8.0F, kPanel);
+            scene_.circle(1424.0F, 110.0F, 6.0F, kAccent);
+            ui::text(scene_, fonts_.regular, "Refreshing library · focus preserved", 1444.0F,
+                     118.0F, 19.0F, kSecondary);
+        }
     }
 
     void draw_library_rail(const ViewData &view, const State &state)
@@ -908,10 +1011,34 @@ class Render::Impl
         {
             scene_.rounded_rect({rect.x + 10.0F, rect.y + 10.0F, 112.0F, 32.0F}, 6.0F,
                                 kBackground.with_alpha(0.88F));
-            ui::text(scene_, fonts_.semibold, badge, rect.x + 22.0F, rect.y + 33.0F, 16.0F, kText);
+            ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, badge, 16.0F, 90.0F),
+                     rect.x + 22.0F, rect.y + 33.0F, 16.0F, kText);
+        }
+        if (current_state_ != nullptr)
+        {
+            const auto installation = std::find_if(current_state_->installations.begin(),
+                                                    current_state_->installations.end(),
+                                                    [&game](const Installation &item) {
+                                                        return item.game_id == game.id && item.available;
+                                                    });
+            if (installation != current_state_->installations.end() && installation->volume_id != "internal")
+            {
+                scene_.rounded_rect({rect.x + rect.w - 86.0F, rect.y + 10.0F, 76.0F, 32.0F}, 6.0F,
+                                    kBackground.with_alpha(0.88F));
+                ui::text(scene_, fonts_.semibold, "DRIVE", rect.x + rect.w - 48.0F,
+                         rect.y + 33.0F, 14.0F, kText, gfx::Align::center, 1.0F);
+            }
         }
         if (progress >= 0.0F)
         {
+            const auto job = current_state_ == nullptr ? std::vector<Job>::const_iterator{} :
+                std::find_if(current_state_->jobs.begin(), current_state_->jobs.end(),
+                             [&game](const Job &item) {
+                                 return item.game_id == game.id && item.state != JobState::Cancelled;
+                             });
+            if (current_state_ != nullptr && job != current_state_->jobs.end())
+                ui::text(scene_, fonts_.semibold, job_state_label(job->state), rect.x + rect.w - 12.0F,
+                         rect.y + rect.h - 24.0F, 14.0F, kText, gfx::Align::right);
             scene_.rounded_rect({rect.x + 12.0F, rect.y + rect.h - 15.0F, rect.w - 24.0F, 6.0F},
                                 3.0F, kText.with_alpha(0.20F));
             scene_.rounded_rect({rect.x + 12.0F, rect.y + rect.h - 15.0F,
@@ -1137,23 +1264,69 @@ class Render::Impl
 
         const std::string description = game == nullptr || game->description.empty() ?
                                             "Description unavailable." : game->description;
-        ui::paragraph(scene_, fonts_.regular, description, 550.0F, 670.0F, 25.0F, 820.0F, 35.0F,
-                      kSecondary, 7);
+        const auto detail_scroll = state.navigation.scroll_offsets.find("details-content");
+        constexpr std::size_t page_size = 420;
+        const int requested_page = detail_scroll == state.navigation.scroll_offsets.end() ? 0 :
+                                       std::max(0, detail_scroll->second);
+        const int max_page = description.empty() ? 0 :
+                                 static_cast<int>((description.size() - 1) / page_size);
+        const int page = std::min(requested_page, max_page);
+        const std::size_t offset = utf8_boundary(description, static_cast<std::size_t>(page) * page_size);
+        const std::size_t end = utf8_boundary(description, std::min(description.size(), offset + page_size));
+        std::string page_text = description.substr(offset, end - offset);
+        if (offset > 0)
+            page_text.insert(0, "…");
+        if (offset + page_size < description.size())
+            page_text += "…";
+        ui::text(scene_, fonts_.display, "About", 550.0F, 674.0F, 25.0F, kText);
+        ui::paragraph(scene_, fonts_.regular, page_text, 550.0F, 706.0F, 19.0F, 520.0F, 26.0F,
+                      kSecondary, 8);
+        if (description.size() > page_size)
+            ui::text(scene_, fonts_.regular, "L2/R2 Read more · page " +
+                         std::to_string(page + 1) + " of " + std::to_string(max_page + 1),
+                     550.0F, 934.0F, 17.0F, kMuted);
         if (game != nullptr)
         {
-            scene_.rounded_rect({1420.0F, 638.0F, 404.0F, 300.0F}, 12.0F, kPanel);
-            detail_line("Source", game->source, 1452.0F, 700.0F);
-            detail_line("Download", byte_count(game->download_bytes), 1452.0F, 760.0F);
-            detail_line("Installed", byte_count(game->install_bytes), 1452.0F, 820.0F);
+            scene_.rounded_rect({1112.0F, 638.0F, 712.0F, 300.0F}, 12.0F, kPanel);
+            const Installation *installation = nullptr;
+            const auto found_installation = std::find_if(
+                state.installations.begin(), state.installations.end(), [&game](const Installation &item) {
+                    return item.game_id == game->id && item.available;
+                });
+            if (found_installation != state.installations.end())
+                installation = &*found_installation;
+            std::string location = "Not installed";
+            if (installation != nullptr)
+            {
+                const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
+                                                 [installation](const Volume &item) {
+                                                     return item.id == installation->volume_id;
+                                                 });
+                location = volume == state.volumes.end() ? installation->volume_id : volume->label;
+            }
+            const auto rating = state.library.ratings.find(game->id);
+            const Compatibility compatibility = rating == state.library.ratings.end() ?
+                                                    Compatibility::Untested : rating->second;
+            const std::string history = relative_time(game->last_played, state.clock_ticks) + " · " +
+                                        playtime_label(game->playtime_minutes);
+            detail_line("Genres", join_words(game->genres), 1144.0F, 682.0F, 632.0F);
+            detail_line("Source", game->source.empty() ? "Unknown" : game->source, 1144.0F, 714.0F,
+                        632.0F);
+            detail_line("Download size", byte_count(game->download_bytes), 1144.0F, 746.0F, 632.0F);
+            detail_line("Install size", byte_count(game->install_bytes), 1144.0F, 778.0F, 632.0F);
+            detail_line("Play history", history, 1144.0F, 810.0F, 632.0F);
+            detail_line("Compatibility", rating_label(compatibility), 1144.0F, 842.0F, 632.0F);
+            detail_line("Location", location, 1144.0F, 874.0F, 632.0F);
             detail_line("Controller", game->controller_support.empty() ? "Unknown" : game->controller_support,
-                        1452.0F, 880.0F);
+                        1144.0F, 906.0F, 632.0F);
         }
     }
 
-    void detail_line(std::string_view label, std::string_view value, float x, float y)
+    void detail_line(std::string_view label, std::string_view value, float x, float y, float width)
     {
         ui::text(scene_, fonts_.regular, label, x, y, 20.0F, kMuted);
-        ui::text(scene_, fonts_.semibold, value, x + 338.0F, y, 21.0F, kText, gfx::Align::right);
+        ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, value, 19.0F, width - 180.0F),
+                 x + width, y, 19.0F, kText, gfx::Align::right);
     }
 
     void draw_session(ui::Canvas &, const ViewData &view, const State &state)
@@ -1458,39 +1631,97 @@ class Render::Impl
     void draw_log_overlay(const ViewData &view, const gfx::Rect &bounds)
     {
         overlay_.rounded_rect(bounds, 8.0F, kBackground.with_alpha(0.72F));
-        float y = bounds.y + 42.0F;
-        bool any = false;
-        const auto line = [this, &y, &any, &bounds](std::string_view kind, std::string_view message,
-                                                    gfx::Color color) {
-            if (y > bounds.y + bounds.h - 110.0F)
-                return;
-            ui::text(overlay_, fonts_.semibold, kind, bounds.x + 24.0F, y, 17.0F, color);
-            dynamic_overlay_text(message, bounds.x + 144.0F, y, 19.0F, kText,
-                                 bounds.w - 168.0F);
-            y += 42.0F;
-            any = true;
-        };
-        if (current_state_ != nullptr)
+        if (current_state_ == nullptr)
+            return;
+        const State &state = *current_state_;
+        const gfx::Rect viewport{bounds.x + 20.0F, bounds.y + 20.0F,
+                                 bounds.w - 40.0F, bounds.h - 132.0F};
+        overlay_.rounded_rect(viewport, 6.0F, kPanel.with_alpha(0.48F));
+
+        if (state.log_state == LogState::Loading)
         {
-            if (!current_state_->session_error.empty())
-                line("SESSION", current_state_->session_error, kRed);
-            for (const Job &job : current_state_->jobs)
-                if (!job.failure.empty())
-                    line("TRANSFER", job.failure, kRed);
-            for (const Notice &notice : current_state_->notices)
-                line(notice.persistent ? "STATUS" : "NOTICE", notice.message,
-                     notice.persistent ? kAmber : kAccent);
+            overlay_.circle(viewport.x + 34.0F, viewport.y + 44.0F, 7.0F, kAccent);
+            ui::text(overlay_, fonts_.semibold, "Loading fixture logs…", viewport.x + 58.0F,
+                     viewport.y + 52.0F, 22.0F, kText);
+            overlay_.rounded_rect({viewport.x + 24.0F, viewport.y + 78.0F,
+                                   viewport.w - 48.0F, 5.0F}, 2.5F, kText.with_alpha(0.12F));
+            const float pulse = 0.18F + 0.22F * (0.5F + 0.5F * std::sin(clock_ * 5.0F));
+            overlay_.rounded_rect({viewport.x + 24.0F, viewport.y + 78.0F,
+                                   (viewport.w - 48.0F) * pulse, 5.0F}, 2.5F, kAccent);
         }
-        if (!any)
-            line("STATUS", "No errors recorded in this simulation.", kGreen);
-        const auto back = std::find_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
-            return row.action == "logs-back" || row.action == "cancel";
-        });
-        if (back != view.rows.end())
+        else if (state.log_state == LogState::Failed)
+        {
+            ui::text(overlay_, fonts_.display, "Logs unavailable", viewport.x + 24.0F,
+                     viewport.y + 54.0F, 30.0F, kRed);
+            const auto error = std::find_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
+                return row.key == "logs-error";
+            });
+            const std::string_view message = error == view.rows.end() || error->subtitle.empty() ?
+                                                 std::string_view("The simulated log source failed.") :
+                                                 std::string_view(error->subtitle);
+            dynamic_overlay_text(message, viewport.x + 24.0F, viewport.y + 96.0F, 20.0F,
+                                 kSecondary, viewport.w - 48.0F);
+        }
+        else if (state.log_lines.empty())
+        {
+            ui::text(overlay_, fonts_.display, "No log entries", viewport.cx(),
+                     viewport.y + viewport.h * 0.48F, 34.0F, kSecondary, gfx::Align::center);
+            ui::text(overlay_, fonts_.regular, "This fixture has no lines for the current context.",
+                     viewport.cx(), viewport.y + viewport.h * 0.48F + 38.0F, 19.0F, kMuted,
+                     gfx::Align::center);
+        }
+        else
+        {
+            constexpr int visible_lines = 8;
+            const int begin = std::clamp(state.log_offset, 0,
+                                         std::max(0, static_cast<int>(state.log_lines.size()) - visible_lines));
+            const int end = std::min(static_cast<int>(state.log_lines.size()), begin + visible_lines);
+            float y = viewport.y + 38.0F;
+            for (int index = begin; index < end; ++index)
+            {
+                std::array<char, 12> number{};
+                std::snprintf(number.data(), number.size(), "%03d", index + 1);
+                ui::text(overlay_, fonts_.regular, number.data(), viewport.x + 22.0F, y,
+                         16.0F, kMuted);
+                dynamic_overlay_text(state.log_lines[static_cast<std::size_t>(index)],
+                                     viewport.x + 72.0F, y, 18.0F, kText, viewport.w - 106.0F);
+                y += 52.0F;
+            }
+            const std::string range = std::to_string(begin + 1) + "–" + std::to_string(end) +
+                                      " of " + std::to_string(state.log_lines.size());
+            ui::text(overlay_, fonts_.regular, range, viewport.x + viewport.w - 24.0F,
+                     viewport.y + viewport.h - 18.0F, 16.0F, kMuted, gfx::Align::right);
+            if (state.log_lines.size() > visible_lines)
+            {
+                const float track_h = viewport.h - 52.0F;
+                const float thumb_h = std::max(36.0F, track_h * visible_lines /
+                                                        static_cast<float>(state.log_lines.size()));
+                const float travel = track_h - thumb_h;
+                const float denominator = static_cast<float>(state.log_lines.size() - visible_lines);
+                const float thumb_y = viewport.y + 18.0F + travel * begin / denominator;
+                overlay_.rounded_rect({viewport.x + viewport.w - 7.0F, viewport.y + 18.0F,
+                                       3.0F, track_h}, 1.5F, kText.with_alpha(0.10F));
+                overlay_.rounded_rect({viewport.x + viewport.w - 7.0F, thumb_y, 3.0F, thumb_h},
+                                      1.5F, kSecondary);
+            }
+        }
+
+        std::vector<const ViewRow*> actions;
+        for (const ViewRow &row : view.rows)
+            if (!row.action.empty())
+                actions.push_back(&row);
+        if (!actions.empty())
         {
             ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
-            painter.button({bounds.x + 24.0F, bounds.y + bounds.h - 82.0F, 240.0F, 58.0F},
-                           "Back", ui::ButtonKind::secondary, {1.0F, 0.0F, false});
+            const float width = std::min(260.0F, (bounds.w - 48.0F) / actions.size() - 10.0F);
+            for (std::size_t index = 0; index < actions.size(); ++index)
+            {
+                const bool focused = state.navigation.focus_key == actions[index]->key;
+                painter.button({bounds.x + 24.0F + index * (width + 16.0F),
+                                bounds.y + bounds.h - 82.0F, width, 58.0F},
+                               overlay_label(*actions[index]), ui::ButtonKind::secondary,
+                               {focused ? 1.0F : 0.0F, 0.0F, !actions[index]->enabled});
+            }
         }
     }
 
@@ -1608,6 +1839,22 @@ class Render::Impl
 
     std::string overlay_value(const ViewRow &row) const
     {
+        if (row.key == "account-auth")
+        {
+            std::string status = row.value;
+            if (!status.empty() && status.front() >= 'a' && status.front() <= 'z')
+                status.front() = static_cast<char>(status.front() - 'a' + 'A');
+            if (!row.subtitle.empty())
+                status += (status.empty() ? "" : " · ") + row.subtitle;
+            return status;
+        }
+        if (row.key == "account-last-sync" && current_state_ != nullptr && row.value != "Never")
+        {
+            std::int64_t timestamp = 0;
+            const auto parsed = std::from_chars(row.value.data(), row.value.data() + row.value.size(), timestamp);
+            if (parsed.ec == std::errc{})
+                return relative_time(timestamp, current_state_->clock_ticks);
+        }
         if (!row.value.empty())
             return row.value;
         if (!row.badge.empty())
@@ -1716,6 +1963,7 @@ class Render::Impl
     mutable GLuint capture_color_ = 0;
     mutable int capture_width_ = 0;
     mutable int capture_height_ = 0;
+    RenderStats stats_{};
 };
 
 Render::Render(std::filesystem::path assets_directory)
@@ -1735,6 +1983,11 @@ void Render::draw(Simulation &simulation, int width, int height)
 bool Render::capture_png(const std::filesystem::path &path, int width, int height) const
 {
     return impl_->capture_png(path, width, height);
+}
+
+RenderStats Render::diagnostics() const noexcept
+{
+    return impl_->diagnostics();
 }
 
 } // namespace playden::homebrew

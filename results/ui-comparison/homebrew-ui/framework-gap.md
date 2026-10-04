@@ -20,7 +20,8 @@ The product shell, Home shelves, details hero, storage summary, deterministic si
 poster status marks, controller diagnostic diagram, operation-log presentation, persistent warnings
 and modal content are composed from public `DrawList` and `Painter` operations. These
 product-specific layouts do not exist as kit components. Controller highlights use the current
-model input snapshot; log rows use only session errors, transfer failures and model notices.
+model input snapshot. The log sheet consumes the model's bounded 128-line fixture buffer and
+eight-line offset directly, including loading, empty and failed states with retry/back actions.
 
 Sheets and confirmations use custom composition because the simulation owns the focus stack and
 publishes resolved rows. Instantiating the kit's stateful `Sheet` or `Dialog` would create a
@@ -62,6 +63,11 @@ placeholder without changing cell geometry. The delayed-art fixture first expose
 and a later deterministic simulation tick clears `art_pending`, at which point the renderer uses
 the already uploaded poster. This validates state transition and layout stability; it does not
 claim asynchronous file decoding, background upload, eviction or generation tracking.
+
+Capture sidecars expose presentation-only diagnostics: the selected game ID resolved by the
+library grid, the number of grid cell callbacks issued for that frame, the fixed artwork texture
+count and the native framebuffer dimensions. These counters verify bounded rendering and focus
+mapping without adding timers or resource polling.
 
 ## Host compatibility
 
