@@ -528,6 +528,51 @@ TokenRenewal CmClient::RenewAccessToken(const StoredSession& stored,
   return renewal;
 }
 
+DepotAccessResult CmClient::FetchDepotAccess(const StoredSession& stored, std::uint32_t app_id,
+                                            const std::vector<DepotRequest>& depots,
+                                            const std::atomic<bool>& cancel) {
+  DepotAccessResult result;
+  if (app_id == 0 || depots.empty() || depots.size() > 64) return result;  // kProtocol
+  const auto deadline = Clock::now() + std::chrono::milliseconds(hooks_.deadline_ms);
+  std::unique_ptr<MessageTransport> transport;
+  std::unique_ptr<Session> session;
+  auto finish = [&](CmError error) {
+    if (transport) transport->Close();
+    result.error = error;
+    if (error != CmError::kNone) result.grants.clear();
+    return result;
+  };
+  if (const auto open = Open(stored, cancel, deadline, &transport, &session); open != CmError::kNone)
+    return finish(open);
+  for (const auto& depot : depots) {
+    DepotGrant grant;
+    grant.depot_id = depot.depot_id;
+    grant.manifest_gid = depot.manifest_gid;
+    std::vector<std::uint8_t> reply;
+    if (const auto call = session->Call(cm::kEMsgClientGetDepotDecryptionKey, {},
+                                        cm::EncodeDepotKeyRequest(depot.depot_id, app_id),
+                                        cm::kEMsgClientGetDepotDecryptionKeyResponse, &reply);
+        call != CmError::kNone)
+      return finish(call);
+    cm::DepotKeyResponse key;
+    if (!cm::DecodeDepotKeyResponse(reply, &key)) return finish(CmError::kProtocol);
+    if (key.eresult != cm::kEResultOk) return finish(CmError::kRejected);
+    if (key.depot_id != depot.depot_id || key.key.size() != grant.key.size()) return finish(CmError::kProtocol);
+    std::copy(key.key.begin(), key.key.end(), grant.key.begin());
+    reply.clear();
+    if (const auto call = session->ServiceMethod(
+            "ContentServerDirectory.GetManifestRequestCode#1",
+            cm::EncodeManifestRequestCodeRequest(app_id, depot.depot_id, depot.manifest_gid), &reply);
+        call != CmError::kNone)
+      return finish(call);
+    if (!cm::DecodeManifestRequestCodeResponse(reply, &grant.manifest_request_code) ||
+        grant.manifest_request_code == 0)
+      return finish(CmError::kRejected);
+    result.grants.push_back(grant);
+  }
+  return finish(CmError::kNone);
+}
+
 AppInfoBuffers CmClient::FetchAppInfo(const StoredSession& stored,
                                      const std::vector<std::uint32_t>& app_ids,
                                      const std::atomic<bool>& cancel) {

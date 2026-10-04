@@ -19,6 +19,8 @@ enum EMsg : std::uint32_t {
   kEMsgClientLogOnResponse = 751,
   kEMsgClientLoggedOff = 757,
   kEMsgClientLicenseList = 780,
+  kEMsgClientGetDepotDecryptionKey = 5438,
+  kEMsgClientGetDepotDecryptionKeyResponse = 5439,
   kEMsgClientLogon = 5514,
   kEMsgClientPICSProductInfoRequest = 8903,
   kEMsgClientPICSProductInfoResponse = 8904,
@@ -140,5 +142,18 @@ std::vector<std::uint8_t> EncodePicsAccessTokenRequest(const std::vector<std::ui
 bool DecodePicsAccessTokenResponse(const std::vector<std::uint8_t>& body,
                                    std::vector<AppRequest>* tokens);
 bool DecodePicsResponse(const std::vector<std::uint8_t>& body, PicsResponse* response);
+
+std::vector<std::uint8_t> EncodeDepotKeyRequest(std::uint32_t depot_id, std::uint32_t app_id);
+struct DepotKeyResponse {
+  std::int32_t eresult = kEResultFail;
+  std::uint32_t depot_id = 0;
+  std::vector<std::uint8_t> key;
+};
+bool DecodeDepotKeyResponse(const std::vector<std::uint8_t>& body, DepotKeyResponse* response);
+
+// ContentServerDirectory.GetManifestRequestCode#1 on the public branch.
+std::vector<std::uint8_t> EncodeManifestRequestCodeRequest(std::uint32_t app_id, std::uint32_t depot_id,
+                                                           std::uint64_t manifest_id);
+bool DecodeManifestRequestCodeResponse(const std::vector<std::uint8_t>& body, std::uint64_t* code);
 
 }  // namespace playden::steam::cm

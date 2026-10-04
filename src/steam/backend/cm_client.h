@@ -7,6 +7,7 @@
 #include "steam/auth_backend.h"
 #include "steam/session_store.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <optional>
@@ -53,6 +54,22 @@ struct AppInfoBuffers {
   bool ok() const { return error == CmError::kNone; }
 };
 
+struct DepotRequest {
+  std::uint32_t depot_id = 0;
+  std::uint64_t manifest_gid = 0;
+};
+struct DepotGrant {
+  std::uint32_t depot_id = 0;
+  std::uint64_t manifest_gid = 0;
+  std::array<std::uint8_t, 32> key{};
+  std::uint64_t manifest_request_code = 0;  // short-lived; fetch the manifest soon after
+};
+struct DepotAccessResult {
+  CmError error = CmError::kProtocol;
+  std::vector<DepotGrant> grants;  // one per requested depot, in request order
+  bool ok() const { return error == CmError::kNone; }
+};
+
 // The CM-only library facts. Implementations run synchronously on the caller's worker thread.
 class AcquisitionSource {
  public:
@@ -94,6 +111,12 @@ class CmClient final : public AcquisitionSource {
 
   // PICS app info buffers (text VDF) for up to kMaxAppInfoBatch apps, using app access tokens
   // where Steam grants them. Apps Steam does not describe are absent from the result.
+  // Depot decryption keys and public-branch manifest request codes for one app's depots.
+  // Any refused depot fails the whole call (kRejected): a partial install is never planned.
+  DepotAccessResult FetchDepotAccess(const StoredSession& session, std::uint32_t app_id,
+                                     const std::vector<DepotRequest>& depots,
+                                     const std::atomic<bool>& cancel);
+
   AppInfoBuffers FetchAppInfo(const StoredSession& session, const std::vector<std::uint32_t>& app_ids,
                               const std::atomic<bool>& cancel);
 

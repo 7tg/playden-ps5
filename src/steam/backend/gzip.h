@@ -13,4 +13,8 @@ inline constexpr std::size_t kMaxGunzipBytes = 4 * 1024 * 1024;
 bool Gunzip(const std::uint8_t* data, std::size_t size, std::size_t expected_size,
             std::vector<std::uint8_t>* out);
 
+// Raw deflate (no zlib/gzip framing) into exactly expected_size bytes, e.g. a zip entry.
+bool InflateRaw(const std::uint8_t* data, std::size_t size, std::size_t expected_size,
+                std::vector<std::uint8_t>* out);
+
 }  // namespace playden::steam

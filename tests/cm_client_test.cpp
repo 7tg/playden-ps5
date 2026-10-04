@@ -357,6 +357,41 @@ void AppInfoUsesAccessTokensAndCollectsMultipartBuffers() {
   assert(client.FetchAppInfo(Session(), {}, cancel).error == CmError::kProtocol);
 }
 
+std::shared_ptr<Script> DepotScript(std::int32_t key_result, std::uint64_t code) {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9))};
+  proto::Writer key;
+  key.AddVarint(1, static_cast<std::uint32_t>(key_result));
+  key.AddVarint(2, 441);
+  key.AddBytes(3, std::vector<std::uint8_t>(32, 0x5a));
+  script->on_emsg[cm::kEMsgClientGetDepotDecryptionKey] = {
+      ServerFrame(cm::kEMsgClientGetDepotDecryptionKeyResponse, key.bytes(), std::nullopt, 1)};
+  proto::Writer request_code;
+  request_code.AddVarint(1, code);
+  script->on_service = {ServerFrame(cm::kEMsgServiceMethodResponse, request_code.bytes(), std::nullopt, 2)};
+  return script;
+}
+
+void DepotAccessReturnsKeysAndManifestCodes() {
+  auto script = DepotScript(cm::kEResultOk, 987654321);
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  const auto access = client.FetchDepotAccess(Session(), 440, {{441, 11}}, cancel);
+  assert(access.ok() && access.grants.size() == 1);
+  assert(access.grants[0].depot_id == 441 && access.grants[0].manifest_gid == 11);
+  assert(access.grants[0].key[0] == 0x5a && access.grants[0].manifest_request_code == 987654321u);
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    const std::string raw(script->raw_sent.back().begin(), script->raw_sent.back().end());
+    assert(raw.find("ContentServerDirectory.GetManifestRequestCode#1") != std::string::npos);
+    assert(raw.find("public") != std::string::npos);
+  }
+  auto refused = MakeClient(DepotScript(cm::kEResultAccessDenied, 1));
+  assert(refused.FetchDepotAccess(Session(), 440, {{441, 11}}, cancel).error == CmError::kRejected);
+  auto no_code = MakeClient(DepotScript(cm::kEResultOk, 0));
+  assert(no_code.FetchDepotAccess(Session(), 440, {{441, 11}}, cancel).error == CmError::kRejected);
+}
+
 void DeviceSeedPersistsPerInstall() {
   const auto root = std::filesystem::temp_directory_path() / "playden-cm-seed-test";
   std::filesystem::remove_all(root);
@@ -386,5 +421,6 @@ int main(int argc, char** argv) {
   AccessTokenRenewsThroughAuthenticatedServiceMethod();
   RefusedServiceCallIsNotARefusedLogon();
   AppInfoUsesAccessTokensAndCollectsMultipartBuffers();
+  DepotAccessReturnsKeysAndManifestCodes();
   DeviceSeedPersistsPerInstall();
 }

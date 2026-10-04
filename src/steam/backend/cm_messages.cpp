@@ -350,4 +350,56 @@ bool DecodePicsAccessTokenResponse(const std::vector<std::uint8_t>& body,
   return true;
 }
 
+std::vector<std::uint8_t> EncodeDepotKeyRequest(std::uint32_t depot_id, std::uint32_t app_id) {
+  proto::Writer body;
+  body.AddVarint(1, depot_id);
+  body.AddVarint(2, app_id);
+  return body.bytes();
+}
+
+bool DecodeDepotKeyResponse(const std::vector<std::uint8_t>& body, DepotKeyResponse* response) {
+  proto::Reader reader(body, kLimits);
+  proto::Field field;
+  DepotKeyResponse decoded;
+  while (reader.Next(&field)) {
+    if (field.number == 1) {
+      if (!IsVarint(field)) return false;
+      decoded.eresult = AsInt32(field.value);
+    } else if (field.number == 2) {
+      if (!IsVarint(field)) return false;
+      decoded.depot_id = static_cast<std::uint32_t>(field.value);
+    } else if (field.number == 3) {
+      if (!IsBytes(field) || field.size > 64) return false;
+      decoded.key = Bytes(field);
+    }
+  }
+  if (!reader.ok()) return false;
+  *response = std::move(decoded);
+  return true;
+}
+
+std::vector<std::uint8_t> EncodeManifestRequestCodeRequest(std::uint32_t app_id, std::uint32_t depot_id,
+                                                           std::uint64_t manifest_id) {
+  proto::Writer body;
+  body.AddVarint(1, app_id);
+  body.AddVarint(2, depot_id);
+  body.AddVarint(3, manifest_id);
+  body.AddString(4, "public");
+  return body.bytes();
+}
+
+bool DecodeManifestRequestCodeResponse(const std::vector<std::uint8_t>& body, std::uint64_t* code) {
+  proto::Reader reader(body, kLimits);
+  proto::Field field;
+  std::uint64_t value = 0;
+  while (reader.Next(&field)) {
+    if (field.number != 1) continue;
+    if (!IsVarint(field)) return false;
+    value = field.value;
+  }
+  if (!reader.ok()) return false;
+  *code = value;
+  return true;
+}
+
 }  // namespace playden::steam::cm

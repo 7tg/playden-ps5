@@ -104,6 +104,34 @@ target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
+
+set(PLAYDEN_ZSTD_DIR "${CMAKE_SOURCE_DIR}/third_party/zstd")
+add_library(playden_depot_codec STATIC
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/depot_chunk.cpp"
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/depot_manifest.cpp"
+    "${CMAKE_SOURCE_DIR}/third_party/lzma-sdk/LzmaDec.c"
+    "${PLAYDEN_ZSTD_DIR}/common/debug.c"
+    "${PLAYDEN_ZSTD_DIR}/common/entropy_common.c"
+    "${PLAYDEN_ZSTD_DIR}/common/error_private.c"
+    "${PLAYDEN_ZSTD_DIR}/common/fse_decompress.c"
+    "${PLAYDEN_ZSTD_DIR}/common/xxhash.c"
+    "${PLAYDEN_ZSTD_DIR}/common/zstd_common.c"
+    "${PLAYDEN_ZSTD_DIR}/decompress/huf_decompress.c"
+    "${PLAYDEN_ZSTD_DIR}/decompress/zstd_ddict.c"
+    "${PLAYDEN_ZSTD_DIR}/decompress/zstd_decompress.c"
+    "${PLAYDEN_ZSTD_DIR}/decompress/zstd_decompress_block.c")
+target_include_directories(playden_depot_codec PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_include_directories(playden_depot_codec PRIVATE
+    "${CMAKE_SOURCE_DIR}/third_party/lzma-sdk"
+    "${PLAYDEN_ZSTD_DIR}"
+    "${PLAYDEN_ZSTD_DIR}/common"
+    "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
+target_compile_definitions(playden_depot_codec PRIVATE ZSTD_DISABLE_ASM=1 ZSTD_LEGACY_SUPPORT=0)
+target_compile_features(playden_depot_codec PUBLIC cxx_std_17)
+target_link_libraries(playden_depot_codec PUBLIC playden_curl_8_22 playden_steam_protocol)
+if(PLAYDEN_PLATFORM_PS5)
+    target_compile_options(playden_depot_codec PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
+endif()
 foreach(font_file
         fixtures/ui-comparison/assets/fonts/Barlow-Regular.ttf
         fixtures/ui-comparison/assets/fonts/Barlow-Medium.ttf
@@ -433,6 +461,14 @@ if(BUILD_TESTING)
         target_compile_features(${test_name}_test PRIVATE cxx_std_20)
         add_test(NAME ${test_name} COMMAND ${test_name}_test)
     endforeach()
+    add_executable(steam_depot_chunk_test "${CMAKE_SOURCE_DIR}/tests/steam_depot_chunk_test.cpp")
+    target_link_libraries(steam_depot_chunk_test PRIVATE playden_depot_codec)
+    target_compile_features(steam_depot_chunk_test PRIVATE cxx_std_20)
+    add_test(NAME steam_depot_chunk COMMAND steam_depot_chunk_test)
+    add_executable(steam_depot_manifest_test "${CMAKE_SOURCE_DIR}/tests/steam_depot_manifest_test.cpp")
+    target_link_libraries(steam_depot_manifest_test PRIVATE playden_depot_codec)
+    target_compile_features(steam_depot_manifest_test PRIVATE cxx_std_20)
+    add_test(NAME steam_depot_manifest COMMAND steam_depot_manifest_test "${CMAKE_SOURCE_DIR}/fixtures/steam/manifest")
     foreach(test_name homebrew_artwork homebrew_artwork_backend homebrew_artwork_cache)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_homebrew_artwork_cache)

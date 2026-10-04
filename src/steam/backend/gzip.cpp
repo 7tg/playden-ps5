@@ -111,4 +111,18 @@ bool Gunzip(const std::uint8_t* data, std::size_t size, std::size_t expected_siz
   return true;
 }
 
+bool InflateRaw(const std::uint8_t* data, std::size_t size, std::size_t expected_size,
+                std::vector<std::uint8_t>* out) {
+  if (!data || !out || expected_size == 0 || expected_size > kMaxGunzipBytes * 16 ||
+      size > static_cast<std::size_t>(INT_MAX) || expected_size > static_cast<std::size_t>(INT_MAX))
+    return false;
+  std::vector<std::uint8_t> result(expected_size);
+  const int written = stbi_zlib_decode_noheader_buffer(
+      reinterpret_cast<char*>(result.data()), static_cast<int>(expected_size),
+      reinterpret_cast<const char*>(data), static_cast<int>(size));
+  if (written < 0 || static_cast<std::size_t>(written) != expected_size) return false;
+  *out = std::move(result);
+  return true;
+}
+
 }  // namespace playden::steam
