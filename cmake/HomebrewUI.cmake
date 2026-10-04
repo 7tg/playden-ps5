@@ -126,7 +126,7 @@ target_include_directories(playden_depot_codec PRIVATE
     "${PLAYDEN_ZSTD_DIR}"
     "${PLAYDEN_ZSTD_DIR}/common"
     "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
-target_compile_definitions(playden_depot_codec PRIVATE ZSTD_DISABLE_ASM=1 ZSTD_LEGACY_SUPPORT=0)
+target_compile_definitions(playden_depot_codec PRIVATE ZSTD_DISABLE_ASM=1 ZSTD_LEGACY_SUPPORT=0 ZSTD_TRACE=0)
 target_compile_features(playden_depot_codec PUBLIC cxx_std_17)
 target_link_libraries(playden_depot_codec PUBLIC playden_curl_8_22 playden_steam_protocol)
 if(PLAYDEN_PLATFORM_PS5)
