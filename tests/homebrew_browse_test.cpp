@@ -199,6 +199,38 @@ void library_grid_and_rail_edges(const std::filesystem::path& fixtures)
     move_browser(state, -1, 0);
     check(state.navigation.library_rail_focused && state.navigation.focus_key == "rail-all",
           "an empty result grid can still move left into the rail");
+
+    state.library.collections.clear();
+    for (int index = 0; index < 16; ++index)
+        state.library.collections.push_back({"collection-" + std::to_string(index),
+                                             "Collection " + std::to_string(index), false, {}});
+    const auto many_scopes = library_rail_scopes(state);
+    check(many_scopes.size() == 21, "sixteen collections extend the complete Library rail");
+    const ShelfWindow rail_window = shelf_window(static_cast<int>(many_scopes.size()), 19, 12);
+    check(rail_window.count == 12 && rail_window.first <= 19 &&
+              19 < rail_window.first + rail_window.count,
+          "twelve-row Library rail projection keeps a late collection focused");
+}
+
+void download_window_keeps_late_jobs_visible(const std::filesystem::path& fixtures)
+{
+    State state = fixture_state(fixtures);
+    state.jobs.clear();
+    for (int index = 0; index < 15; ++index)
+    {
+        Job job;
+        job.id = "bulk-" + std::to_string(index);
+        job.game_id = state.games[static_cast<std::size_t>(index)].id;
+        job.queue_order = index;
+        job.state = index == 0 ? JobState::Downloading : JobState::Queued;
+        state.jobs.push_back(std::move(job));
+    }
+    const int focused_secondary = 12;
+    const ShelfWindow window = shelf_window(static_cast<int>(state.jobs.size()) - 1,
+                                            focused_secondary, 6);
+    check(window.count == 6 && window.first <= focused_secondary &&
+              focused_secondary < window.first + window.count,
+          "six-row Downloads projection keeps a late queued job focused");
 }
 
 void utf8_caret_boundaries()
@@ -225,6 +257,7 @@ int main(int argc, char** argv)
     all_sorts_keep_unknown_values_last(fixtures);
     shelves_are_nonempty_and_restore_children(fixtures);
     library_grid_and_rail_edges(fixtures);
+    download_window_keeps_late_jobs_visible(fixtures);
     utf8_caret_boundaries();
     std::cout << "homebrew browse tests passed\n";
     return 0;

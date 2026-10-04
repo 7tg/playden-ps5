@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace playden::homebrew
 {
@@ -17,6 +18,7 @@ class Simulation;
 struct RenderStats
 {
     std::uint32_t grid_focused_game_id = 0;
+    std::string focused_control_key;
     std::size_t grid_drawn_cell_count = 0;
     std::size_t artwork_texture_count = 0;
     int native_width = 0;

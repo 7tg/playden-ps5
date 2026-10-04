@@ -370,6 +370,7 @@ class Render::Impl
         overlay_.clear();
         stats_.grid_focused_game_id = 0;
         stats_.grid_drawn_cell_count = 0;
+        stats_.focused_control_key.clear();
         stats_.native_width = width;
         stats_.native_height = height;
         const State &state = simulation.state();
@@ -692,6 +693,8 @@ class Render::Impl
 
     void draw_action(const ViewRow &row, const gfx::Rect &rect, bool focused, bool primary = false)
     {
+        if (focused && route_focus_)
+            stats_.focused_control_key = row.key;
         ui::Painter painter(scene_, fonts_, theme_, renderer_.glass_texture());
         ui::Look look{focused && route_focus_ ? 1.0F : 0.0F, 0.0F, !row.enabled};
         const auto title = row.kind == RowKind::Toggle ? row.title + (row.selected ? " · On" : " · Off") : row.title;
@@ -858,6 +861,8 @@ class Render::Impl
                 const gfx::Rect art{96.0F + column * 233.0F, top + 28.0F, 213.0F, 320.0F};
                 const bool focused = route_focus_ && shelf_index == active_shelf &&
                                      item_index == focused_item;
+                if (focused)
+                    stats_.focused_control_key = shelf.items[static_cast<std::size_t>(item_index)].key;
                 draw_poster(*game, art, focused,
                             shelf.items[static_cast<std::size_t>(item_index)].badge,
                             job_progress(game->id), false);
@@ -898,6 +903,8 @@ class Render::Impl
         if (selected != games.end())
             grid_focus = static_cast<int>(std::distance(games.begin(), selected));
         stats_.grid_focused_game_id = games[static_cast<std::size_t>(grid_focus)]->id;
+        if (grid_active)
+            stats_.focused_control_key = "game-" + std::to_string(stats_.grid_focused_game_id);
         grid_.set_focus(grid_focus, true);
         grid_.set_active(grid_active);
         grid_.content = [this](ui::Canvas &, const gfx::Rect &cell, const ui::CardItem &, int index,
@@ -938,51 +945,62 @@ class Render::Impl
     {
         struct RailEntry
         {
+            std::string key;
             std::string title;
             std::string value;
             bool selected = false;
         };
         const std::size_t installed = std::count_if(
             state.installations.begin(), state.installations.end(),
-            [](const Installation &installation) { return installation.available; });
+            [](const Installation &installation) { return installation.installed_bytes > 0; });
         std::vector<RailEntry> entries = {
-            {"Installed", std::to_string(installed), state.library.scope == "installed"},
-            {"All", std::to_string(state.games.size()), state.library.scope == "all"},
-            {"Favorites", std::to_string(state.library.favorites.size()),
+            {"rail-installed", "Installed", std::to_string(installed), state.library.scope == "installed"},
+            {"rail-all", "All", std::to_string(state.games.size()), state.library.scope == "all"},
+            {"rail-favorites", "Favorites", std::to_string(state.library.favorites.size()),
              state.library.scope == "favorites"},
-            {"Hidden", std::to_string(state.library.hidden.size()), state.library.scope == "hidden"}};
+            {"rail-hidden", "Hidden", std::to_string(state.library.hidden.size()), state.library.scope == "hidden"}};
         for (const Collection &collection : state.library.collections)
-            entries.push_back({collection.name, std::to_string(collection.members.size()),
+            entries.push_back({"rail-" + collection.id, collection.name,
+                               std::to_string(collection.members.size()),
                                state.library.scope == collection.id});
-        entries.push_back({"New collection", "+", false});
-        const int selected = state.library.scope == "installed" ? 0 :
-                             state.library.scope == "all" ? 1 :
-                             state.library.scope == "favorites" ? 2 :
-                             state.library.scope == "hidden" ? 3 : -1;
-        for (std::size_t index = 0; index < entries.size(); ++index)
+        entries.push_back({"rail-new-collection", "New collection", "+", false});
+        const auto selected_entry = std::find_if(entries.begin(), entries.end(),
+                                                 [](const RailEntry &entry) { return entry.selected; });
+        const int selected = selected_entry == entries.end() ? -1 :
+                                 static_cast<int>(std::distance(entries.begin(), selected_entry));
+        const int focus_index = state.navigation.library_rail_focused ? state.navigation.selected_index :
+                                                                         std::max(0, selected);
+        const ShelfWindow window = shelf_window(static_cast<int>(entries.size()), focus_index, 12);
+        for (int visible = 0; visible < window.count; ++visible)
         {
-            const float y = 155.0F + index * 66.0F;
+            const int index = window.first + visible;
+            const float y = 150.0F + visible * 66.0F;
             const bool focused = route_focus_ && state.navigation.library_rail_focused &&
-                                 static_cast<int>(index) == state.navigation.selected_index;
-            if (entries[index].selected || static_cast<int>(index) == selected)
+                                 index == state.navigation.selected_index;
+            if (entries[static_cast<std::size_t>(index)].selected || index == selected)
                 scene_.rounded_rect({96.0F, y, 300.0F, 60.0F}, 8.0F, kText.with_alpha(0.10F));
             if (focused)
+            {
                 scene_.bordered_rect({96.0F, y, 300.0F, 60.0F}, 8.0F,
                                      kBackground.with_alpha(0.0F), 4.0F, kAccent);
+                stats_.focused_control_key = entries[static_cast<std::size_t>(index)].key;
+            }
             ui::text(scene_, fonts_.display,
-                     fit(fonts_.display, entries[index].title, 27.0F, 225.0F), 118.0F, y + 39.0F,
-                     27.0F, entries[index].selected || static_cast<int>(index) == selected ? kText
-                                                                                           : kSecondary);
-            ui::text(scene_, fonts_.regular, entries[index].value, 374.0F, y + 38.0F, 20.0F, kMuted,
+                     fit(fonts_.display, entries[static_cast<std::size_t>(index)].title, 27.0F, 225.0F),
+                     118.0F, y + 39.0F, 27.0F,
+                     entries[static_cast<std::size_t>(index)].selected || index == selected ? kText
+                                                                                             : kSecondary);
+            ui::text(scene_, fonts_.regular, entries[static_cast<std::size_t>(index)].value,
+                     374.0F, y + 38.0F, 20.0F, kMuted,
                      gfx::Align::right);
         }
         if (!state.library.query.empty())
         {
-            scene_.rounded_rect({96.0F, 600.0F, 300.0F, 62.0F}, 8.0F, kPanel);
-            ui::text(scene_, fonts_.regular, fit(fonts_.regular, state.library.query, 23.0F, 240.0F),
-                     122.0F, 640.0F, 23.0F, kText);
+            scene_.rounded_rect({96.0F, 112.0F, 300.0F, 34.0F}, 6.0F, kPanel);
+            ui::text(scene_, fonts_.regular, fit(fonts_.regular, state.library.query, 17.0F, 250.0F),
+                     118.0F, 136.0F, 17.0F, kText);
         }
-        if (!view.subtitle.empty())
+        if (!view.subtitle.empty() && entries.size() <= 8)
             ui::paragraph(scene_, fonts_.regular, view.subtitle, 96.0F, 722.0F, 21.0F, 300.0F,
                           29.0F, kSecondary, 4);
     }
@@ -1193,15 +1211,28 @@ class Render::Impl
             ui::text(scene_, fonts_.regular, transfer_rate(primary->bytes_per_second), 1038.0F,
                      348.0F, 21.0F, kSecondary, gfx::Align::right);
             if (route_focus_ && state.navigation.focus_key == "job-" + primary->id)
+            {
                 scene_.bordered_rect(active_card.inset(-5.0F), 14.0F, kBackground.with_alpha(0.0F),
                                      4.0F, kAccent);
+                stats_.focused_control_key = "job-" + primary->id;
+            }
         }
 
+        std::vector<const Job*> secondary;
+        secondary.reserve(jobs.size());
+        for (const Job *job : jobs)
+            if (job != primary)
+                secondary.push_back(job);
+        const auto focused_job = std::find_if(secondary.begin(), secondary.end(), [&state](const Job *job) {
+            return state.navigation.focus_key == "job-" + job->id;
+        });
+        const int secondary_focus = focused_job == secondary.end() ? 0 :
+            static_cast<int>(std::distance(secondary.begin(), focused_job));
+        const ShelfWindow job_window = shelf_window(static_cast<int>(secondary.size()), secondary_focus, 6);
         float row_y = 438.0F;
-        for (const Job* job : jobs)
+        for (int visible = 0; visible < job_window.count; ++visible)
         {
-            if (job == primary || row_y > 914.0F)
-                continue;
+            const Job *job = secondary[static_cast<std::size_t>(job_window.first + visible)];
             const Game* game = game_by_id(state, job->game_id);
             const gfx::Rect row{96.0F, row_y, 1000.0F, 82.0F};
             scene_.rounded_rect(row, 8.0F, kPanel);
@@ -1218,9 +1249,12 @@ class Render::Impl
             scene_.rounded_rect({122.0F, row_y + 60.0F, 946.0F * std::clamp(progress, 0.0F, 1.0F), 5.0F},
                                 2.5F, job->state == JobState::Failed ? kRed : kAccent);
             if (route_focus_ && state.navigation.focus_key == "job-" + job->id)
+            {
                 scene_.bordered_rect(row.inset(-4.0F), 10.0F, kBackground.with_alpha(0.0F), 3.0F,
                                      kAccent);
-            row_y += 94.0F;
+                stats_.focused_control_key = "job-" + job->id;
+            }
+            row_y += 92.0F;
         }
 
         scene_.rounded_rect({1160.0F, 160.0F, 664.0F, 780.0F}, 12.0F, kPanel);
