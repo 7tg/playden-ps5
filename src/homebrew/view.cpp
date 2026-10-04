@@ -725,7 +725,20 @@ class Render::Impl
     {
         section_label("Playden", 96.0F, 78.0F);
         draw_title(view, 96.0F, 292.0F, 720.0F);
-        draw_actions(view, 96.0F, 520.0F, 560.0F);
+        if (state.startup_loading)
+        {
+            const gfx::Rect loading{96.0F, 520.0F, 560.0F, 112.0F};
+            scene_.rounded_rect(loading, 10.0F, kPanel);
+            scene_.circle(130.0F, 558.0F, 7.0F, kAccent);
+            ui::text(scene_, fonts_.semibold, "Loading saved fixture state…", 154.0F, 566.0F,
+                     24.0F, kText);
+            scene_.rounded_rect({128.0F, 594.0F, 496.0F, 6.0F}, 3.0F,
+                                kText.with_alpha(0.14F));
+            const float pulse = 0.18F + 0.22F * (0.5F + 0.5F * std::sin(clock_ * 5.0F));
+            scene_.rounded_rect({128.0F, 594.0F, 496.0F * pulse, 6.0F}, 3.0F, kAccent);
+        }
+        else
+            draw_actions(view, 96.0F, 520.0F, 560.0F);
 
         scene_.rounded_rect({988.0F, 194.0F, 724.0F, 680.0F}, 14.0F, kPanel);
         scene_.glow({1050.0F, 268.0F, 600.0F, 360.0F}, 12.0F, 42.0F, kAccent.with_alpha(0.08F));
@@ -737,8 +750,10 @@ class Render::Impl
                                  kAccent.with_alpha(0.25F), kPanel);
         ui::text(scene_, fonts_.display, "YOUR GAMES", 1100.0F, 704.0F, 48.0F, kText);
         ui::text(scene_, fonts_.regular,
+                 state.startup_loading ? "Restoring local fixture…" :
                  state.persistence_available ? "Ready when you are." : "Browsing can continue without saving.",
-                 1100.0F, 752.0F, 25.0F, state.persistence_available ? kSecondary : kAmber);
+                 1100.0F, 752.0F, 25.0F,
+                 state.persistence_available || state.startup_loading ? kSecondary : kAmber);
     }
 
     void draw_qr(float x, float y, float side)
