@@ -21,6 +21,7 @@ Read [HANDOFF.md](HANDOFF.md) for exact worktree state, commands, ownership, and
 | Asynchronous artwork | Background fetch of the app-ID-derived Steam CDN portrait, bounded JPEG/PNG decode, graphics-thread texture cache, timed retry of failed covers, placeholders on failure | Host 42/42, legacy 21/21, TSan-clean service test, inspected synthetic captures, public HTTPS smoke, PS5 package; [artwork evidence](results/20261004-artwork-host/README.md). Real covers on the console remain for the connected journey |
 | Title glyph fallback | Characters outside the baked atlases draw a visible `?`; Greek fully covered; one face per string; Arabic unshaped, isolated forms, drawn LTR | Graphical test with titles outside the catalog, `?` required in every fallback face; [glyph evidence](results/20261004-glyph-fallback-host/README.md). Broad coverage awaits ps5-homebrew-ui `feat/unicode-text` |
 | Authenticated Steam CM | Hello, logon with refresh token and per-install device identity, license list, package PICS; acquisition dates feed "Recently added" (cache schema 4, carried forward when CM fails); CM renewal fallback for access tokens | Host tests with protoc fixtures and a scripted transport; real-account run on the PS5 offered and applied "Recently added". See [connected run](results/20261005-connected-ps5/README.md) |
+| v2 management UI (simulated) | Install, storage, space, queue, pause/resume/cancel/retry, verify, uninstall, failure and restart recovery on the deterministic simulator; unavailable in normal builds | Acceptance matrix and controller-only tour: [v2 evidence](results/20261005-v2-management-simulation/README.md) |
 
 At `d237176`, the selected host suite passed **38/38**, legacy regression suite **21/21**, and selected PS5 compile/link/sign/package passed. The real graphical persistence restoration capture is in [persistence evidence](results/20261004-persistence-host/README.md). These results do not establish native lifecycle or physical-controller acceptance.
 
@@ -28,13 +29,12 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 
 | Order | Work | Completion evidence |
 | --- | --- | --- |
-| 1 | v2: install and management UI on the simulated backend | Formal v2 acceptance per the PRD: queue, storage, confirmation, recovery and restart scenarios controller-accessible and tested without Wine |
-| 2 | v3: real Steam downloads and management | Depot download, job recovery, verification, managed uninstall |
-| 3 | prospero-win packaging and install design | Survey done: [investigation](docs/engineering/prospero-win-investigation.md). Next: resolve its open decisions with the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) before v3 install work |
-| 4 | Runtime milestone: launch through prospero-win | A runtime-validated game launches, exits and returns to Playden with useful diagnostics |
+| 1 | v3: real Steam downloads and management | Depot download, job recovery, verification, managed uninstall |
+| 2 | prospero-win packaging and install design | Survey done: [investigation](docs/engineering/prospero-win-investigation.md). Next: resolve its open decisions with the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) before v3 install work |
+| 3 | Runtime milestone: launch through prospero-win | A runtime-validated game launches, exits and returns to Playden with useful diagnostics |
 | — | Native 4K60 performance | Removed from the MVP by the user (2026-10-05); kept as a separate, unscheduled performance goal |
 
-Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 3 covers how downloaded games are packaged and installed for it.
+Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 covers how downloaded games are packaged and installed for it.
 
 ## Working constraints
 
