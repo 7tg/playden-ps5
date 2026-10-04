@@ -53,13 +53,25 @@ endif()
 find_package(RmlFocus CONFIG REQUIRED COMPONENTS RmlUi)
 find_package(Threads REQUIRED)
 
+file(READ "${CMAKE_SOURCE_DIR}/dependencies.lock.json" playden_dependency_lock)
+foreach(utf8proc_file utf8proc.c utf8proc.h utf8proc_data.c LICENSE.md)
+ string(JSON expected_utf8proc_hash GET "${playden_dependency_lock}" utf8proc files "${utf8proc_file}")
+ file(SHA256 "${CMAKE_SOURCE_DIR}/third_party/utf8proc/${utf8proc_file}" actual_utf8proc_hash)
+ if(NOT actual_utf8proc_hash STREQUAL expected_utf8proc_hash)
+  message(FATAL_ERROR "Pinned utf8proc source hash mismatch: ${utf8proc_file}")
+ endif()
+endforeach()
+
 add_library(playden_core STATIC
+ third_party/utf8proc/utf8proc.c
+ src/library/query.cpp
 	src/app/application.cpp
 	src/app/preferences.cpp
 	src/diagnostics/frame_stats.cpp
 	src/platform/storage.cpp
 	src/ui/shell.cpp)
-target_include_directories(playden_core PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_include_directories(playden_core PUBLIC "${CMAKE_SOURCE_DIR}/src" PRIVATE "${CMAKE_SOURCE_DIR}/third_party/utf8proc")
+target_compile_definitions(playden_core PRIVATE UTF8PROC_STATIC)
 target_compile_features(playden_core PUBLIC cxx_std_17)
 target_compile_definitions(playden_core PUBLIC PLAYDEN_REVISION="${playden_revision}"
 	PLAYDEN_RMLFOCUS_REVISION="${PLAYDEN_RMLFOCUS_REVISION}")
@@ -99,7 +111,7 @@ endif()
 if(NOT PLAYDEN_PLATFORM_PS5)
 	include(CTest)
 	if(BUILD_TESTING)
-		foreach(test_name preferences frame_stats)
+		foreach(test_name preferences frame_stats library_query)
 			add_executable("${test_name}_test" "tests/${test_name}_test.cpp")
 			target_link_libraries("${test_name}_test" PRIVATE playden_core)
 			add_test(NAME "${test_name}" COMMAND "${test_name}_test")

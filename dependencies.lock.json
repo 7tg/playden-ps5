@@ -36,7 +36,12 @@
   },
   "fonts": {
     "source": "Pinned RmlFocus demo/assets/fonts directory",
-    "families": ["Inter", "Space Grotesk", "Lato Latin", "DM Serif Display"]
+    "families": [
+      "Inter",
+      "Space Grotesk",
+      "Lato Latin",
+      "DM Serif Display"
+    ]
   },
   "recorded_host_toolchain": {
     "platform": "macOS Apple Silicon",
@@ -47,5 +52,16 @@
     "freetype": "2.14.3",
     "libcurl": "8.7.1",
     "note": "Host compiler, SDL2 compatibility, FreeType, OpenGL, and libcurl are system packages. CMake enforces the recorded SDL2, FreeType, and libcurl versions; OpenGL is provided by the pinned macOS SDK/toolchain environment."
+  },
+  "utf8proc": {
+    "version": "2.11.3",
+    "revision": "e5e799221b45bbb90f5fdc5c69b6b8dfbf017e78",
+    "source": "https://github.com/JuliaStrings/utf8proc",
+    "files": {
+      "LICENSE.md": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
+      "utf8proc.c": "edf80118fd34796bcabef4567cc684adebc7058f2afe8cfdc11b7a78e383ed84",
+      "utf8proc.h": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+      "utf8proc_data.c": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7"
+    }
   }
 }
