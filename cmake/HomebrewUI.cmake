@@ -48,7 +48,9 @@ target_include_directories(playden_hui PUBLIC
     "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
 
 add_library(playden_homebrew_model STATIC
-    "${CMAKE_SOURCE_DIR}/src/homebrew/simulation.cpp")
+    "${CMAKE_SOURCE_DIR}/src/homebrew/simulation.cpp"
+    "${CMAKE_SOURCE_DIR}/src/homebrew/storage_sim.cpp"
+    "${CMAKE_SOURCE_DIR}/src/homebrew/browse.cpp")
 target_compile_features(playden_homebrew_model PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_model PUBLIC "${CMAKE_SOURCE_DIR}/src")
 
@@ -163,6 +165,26 @@ set_target_properties(playden-homebrew PROPERTIES
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(homebrew_storage_test "${CMAKE_SOURCE_DIR}/tests/homebrew_storage_test.cpp")
+    target_compile_features(homebrew_storage_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_storage_test PRIVATE playden_homebrew_model)
+    add_test(NAME homebrew_storage COMMAND homebrew_storage_test)
+    add_executable(homebrew_controller_tour_test "${CMAKE_SOURCE_DIR}/tests/homebrew_controller_tour_test.cpp")
+    target_compile_features(homebrew_controller_tour_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_controller_tour_test PRIVATE playden_homebrew_model)
+    add_test(NAME homebrew_controller_tour COMMAND homebrew_controller_tour_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
+    add_executable(homebrew_host_input_test "${CMAKE_SOURCE_DIR}/tests/homebrew_host_input_test.cpp")
+    target_compile_features(homebrew_host_input_test PRIVATE cxx_std_20)
+    target_compile_definitions(homebrew_host_input_test PRIVATE
+        PLAYDEN_HOMEBREW_DEFAULT_PROFILE="unused"
+        PLAYDEN_HOMEBREW_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/fixtures/ui-comparison"
+        PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
+    target_link_libraries(homebrew_host_input_test PRIVATE playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
+    add_test(NAME homebrew_host_input COMMAND homebrew_host_input_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
+    add_executable(homebrew_browse_test "${CMAKE_SOURCE_DIR}/tests/homebrew_browse_test.cpp")
+    target_compile_features(homebrew_browse_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_browse_test PRIVATE playden_homebrew_model)
+    add_test(NAME homebrew_browse COMMAND homebrew_browse_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
     add_executable(homebrew_simulation_test
         "${CMAKE_SOURCE_DIR}/tests/homebrew_simulation_test.cpp")
     target_compile_features(homebrew_simulation_test PRIVATE cxx_std_20)

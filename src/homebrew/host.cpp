@@ -198,6 +198,27 @@ const char* keyboard_action(const SDL_KeyboardEvent& event, bool editing) {
     }
 }
 
+void text_key_event(playden::homebrew::Simulation& simulation, const SDL_Event& event,
+                    bool& suppress_initiating_text) {
+    if (event.type == SDL_KEYDOWN) {
+        if (event.key.repeat == 0 && event.key.keysym.sym == SDLK_t &&
+            !simulation.state().editor.active) {
+            simulation.tick();
+        } else if (const char* action = keyboard_action(event.key, simulation.state().editor.active)) {
+            const bool was_editing = simulation.state().editor.active;
+            simulation.action(action);
+            suppress_initiating_text = !was_editing && simulation.state().editor.active &&
+                                      event.key.keysym.sym >= SDLK_SPACE &&
+                                      event.key.keysym.sym <= SDLK_z;
+        }
+    } else if (event.type == SDL_KEYUP) {
+        suppress_initiating_text = false;
+    } else if (event.type == SDL_TEXTINPUT) {
+        if (!suppress_initiating_text) simulation.text(event.text.text);
+        suppress_initiating_text = false;
+    }
+}
+
 std::uint8_t axis_byte(Sint16 value) {
     return static_cast<std::uint8_t>(
         (static_cast<std::int32_t>(value) + 32768) * 255 / 65535);
@@ -366,20 +387,10 @@ int main(int argc, char** argv) {
                 height = event.window.data2;
             } else if (event.type == SDL_KEYDOWN) {
                 keyboard_buttons |= navigation_bit(event.key.keysym.sym);
-                if (event.key.repeat == 0 && event.key.keysym.sym == SDLK_t &&
-                    !simulation.state().editor.active)
-                    simulation.tick();
-                else if (const char* action =
-                             keyboard_action(event.key, simulation.state().editor.active)) {
-                    const bool was_editing = simulation.state().editor.active;
-                    simulation.action(action);
-                    suppress_initiating_text = !was_editing && simulation.state().editor.active &&
-                                              event.key.keysym.sym >= SDLK_SPACE &&
-                                              event.key.keysym.sym <= SDLK_z;
-                }
+                text_key_event(simulation, event, suppress_initiating_text);
             } else if (event.type == SDL_KEYUP) {
                 keyboard_buttons &= ~navigation_bit(event.key.keysym.sym);
-                suppress_initiating_text = false;
+                text_key_event(simulation, event, suppress_initiating_text);
             } else if (event.type == SDL_CONTROLLERDEVICEADDED && !controller) {
                 controller = SDL_GameControllerOpen(event.cdevice.which);
             } else if (event.type == SDL_CONTROLLERDEVICEREMOVED && controller &&
@@ -388,8 +399,7 @@ int main(int argc, char** argv) {
                 SDL_GameControllerClose(controller);
                 controller = nullptr;
             } else if (event.type == SDL_TEXTINPUT) {
-                if (!suppress_initiating_text) simulation.text(event.text.text);
-                suppress_initiating_text = false;
+                text_key_event(simulation, event, suppress_initiating_text);
             }
         }
 
