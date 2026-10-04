@@ -37,7 +37,10 @@ class CdnClient {
   CdnError Chunk(const ContentServer& server, std::uint32_t depot_id, const std::string& sha_hex,
                  std::size_t max_bytes, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out);
 
-  static constexpr std::size_t kMaxManifestDownloadBytes = 64 * 1024 * 1024;
+  // Bounded by the HTTP client's response cap.
+  static constexpr std::size_t kMaxManifestDownloadBytes = kMaxHttpResponseBytes;
+  // The last failure as "http=<status>" or "transport=<category>", for sanitized logs.
+  const std::string& last_failure() const { return last_failure_; }
 
  private:
   CdnError Get(const std::string& url, std::size_t max_bytes, std::uint32_t timeout_ms,
@@ -45,6 +48,7 @@ class CdnClient {
   std::string ca_bundle_;
   Perform perform_;
   std::unique_ptr<HttpClient> http_;
+  std::string last_failure_;
 };
 
 // A host or vhost from the directory may only contain DNS name characters.

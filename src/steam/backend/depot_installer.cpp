@@ -192,6 +192,7 @@ DepotInstaller::DepotInstaller(CmClient& cm, CdnClient& cdn) {
     return cdn.Chunk(server, depot, sha, max_bytes, cancel, out);
   };
   hooks_.free_bytes = &DefaultFreeBytes;
+  hooks_.last_failure = [&cdn] { return cdn.last_failure(); };
 }
 
 DepotInstaller::DepotInstaller(InstallerHooks hooks) : hooks_(std::move(hooks)) {
@@ -218,7 +219,11 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     requests.push_back({depot.id, *depot.manifest_gid});
   }
   const auto access = hooks_.access(session, target.app_id, requests, cancel);
-  if (!access.ok()) return fail(FromCm(access.error), "depot access failed");
+  if (!access.ok()) {
+    outcome.error = FromCm(access.error);
+    outcome.detail = access.detail.empty() ? "depot access failed" : access.detail;
+    return outcome;
+  }
   if (access.grants.size() != requests.size()) return fail(InstallError::kProtocol, "incomplete depot access");
 
   std::vector<ContentServer> servers;
@@ -234,7 +239,12 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       fetched = hooks_.manifest(servers[attempt % servers.size()], access.grants[index], cancel, &manifests[index]);
       if (fetched != InstallError::kNetwork) break;
     }
-    if (fetched != InstallError::kNone) return fail(fetched, "manifest unavailable");
+    if (fetched != InstallError::kNone) {
+      outcome.error = fetched;
+      outcome.detail = "manifest unavailable";
+      if (hooks_.last_failure) outcome.detail += " " + hooks_.last_failure();
+      return outcome;
+    }
   }
 
   // Later depots replace the same path from earlier ones; identical copies stay with the first.
@@ -321,7 +331,13 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
         ++server_cursor;
         result = InstallError::kCorrupt;
       }
-      if (result != InstallError::kNone) { std::fclose(journal); return fail(result, "chunk unavailable"); }
+      if (result != InstallError::kNone) {
+        std::fclose(journal);
+        outcome.error = result;
+        outcome.detail = "chunk unavailable";
+        if (hooks_.last_failure && result == InstallError::kNetwork) outcome.detail += " " + hooks_.last_failure();
+        return outcome;
+      }
       if (!WriteAt(path, file.size, chunk.offset, plain)) { std::fclose(journal); return fail(InstallError::kStorage, "cannot write file"); }
       std::fprintf(journal, "%s\n", entry.c_str());
       std::fflush(journal);

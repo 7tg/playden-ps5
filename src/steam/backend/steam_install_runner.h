@@ -16,10 +16,15 @@ class SteamInstallRunner final : public InstallRunner {
                  const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t)>& progress) override;
   bool Remove(const std::string& root) override { return RemoveManagedInstall(root); }
+  // Optional sanitized log: step, error category and a short detail; never tokens or IDs of accounts.
+  void SetLog(std::function<void(const char* step, const char* category, const char* detail)> log) {
+    log_ = std::move(log);
+  }
 
  private:
   CmClient& cm_;
   DepotInstaller installer_;
+  std::function<void(const char*, const char*, const char*)> log_;
 };
 
 // User-facing text for an install failure category.

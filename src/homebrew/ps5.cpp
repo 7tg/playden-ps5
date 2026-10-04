@@ -148,6 +148,13 @@ int main() {
         playden::steam::CmClient install_cm("/app0/trust/cacert.pem", library_storage);
         playden::steam::CdnClient install_cdn("/app0/trust/cacert.pem");
         playden::steam::SteamInstallRunner install_runner(install_cm, install_cdn);
+        install_runner.SetLog([](const char* step, const char* category, const char* detail) {
+            mkdir("/app0/logs", 0777);
+            if (FILE* log = std::fopen("/app0/logs/install.log", "a")) {
+                std::fprintf(log, "install step=%s result=%s detail=%s\n", step, category, detail);
+                std::fclose(log);
+            }
+        });
         playden::LocalSessionRepository install_sessions("/app0/playden-data");
         playden::steam::InstallService installs(install_runner, install_sessions, "/app0/games");
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs);

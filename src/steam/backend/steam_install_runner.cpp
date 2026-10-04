@@ -2,6 +2,8 @@
 
 #include "steam/backend/app_info.h"
 
+#include <set>
+
 namespace playden::steam {
 
 const char* InstallFailureText(InstallError error) {
@@ -23,18 +25,23 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
                                                   const std::atomic<bool>& cancel,
                                                   const std::function<void(std::uint64_t, std::uint64_t)>& progress) {
   Result result;
+  auto log = [this](const char* step, const char* category, const char* detail) {
+    if (log_) log_(step, category, detail);
+  };
   const auto info = cm_.FetchAppInfo(session, {id}, cancel);
   if (cancel.load()) {
     result.canceled = true;
     return result;
   }
   if (!info.ok()) {
+    log("app_info", CmErrorName(info.error), "");
     result.failure = "Could not reach Steam. Resume to try again.";
     return result;
   }
   const auto buffer = info.buffers.find(id);
   const auto app = buffer == info.buffers.end() ? std::nullopt : ParseAppInfo(id, buffer->second);
   if (!app) {
+    log("app_info", "missing", buffer == info.buffers.end() ? "no buffer" : "unparsable");
     result.failure = "Steam has no install details for this game.";
     return result;
   }
@@ -42,7 +49,21 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
   target.app_id = id;
   target.install_root = root;
   std::string reason;
-  if (!SelectDepots(*app, {id}, std::nullopt, &target.depots, &reason)) {
+  // Like the reference, only depots this account's licenses grant are installed.
+  const auto entitlements = cm_.FetchAcquisitionDates(session, cancel);
+  if (cancel.load()) {
+    result.canceled = true;
+    return result;
+  }
+  if (!entitlements.ok()) {
+    log("entitlements", CmErrorName(entitlements.error), "");
+    result.failure = "Could not read this account's licenses. Resume to try again.";
+    return result;
+  }
+  std::set<std::uint32_t> owned_apps = entitlements.owned_apps;
+  owned_apps.insert(id);
+  if (!SelectDepots(*app, owned_apps, entitlements.owned_depots, &target.depots, &reason)) {
+    log("depots", "none", reason.c_str());
     result.failure = "No Windows content to install.";
     return result;
   }
@@ -55,6 +76,7 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
   const auto outcome = installer_.Run(session, target, cancel, [&](const InstallProgress& state) {
     if (progress) progress(state.download_done, state.download_total);
   });
+  log("install", InstallErrorName(outcome.error), outcome.detail.c_str());
   result.ok = outcome.error == InstallError::kNone;
   result.canceled = outcome.error == InstallError::kCanceled;
   result.failure = InstallFailureText(outcome.error);

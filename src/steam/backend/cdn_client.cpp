@@ -45,7 +45,12 @@ CdnError CdnClient::Get(const std::string& url, std::size_t max_bytes, std::uint
     response = http_->Perform(request, cancel);
   }
   const auto error = FromHttp(response);
-  if (error == CdnError::kNone) *out = std::move(response.body);
+  if (error == CdnError::kNone) {
+    *out = std::move(response.body);
+  } else {
+    last_failure_ = response.ok() ? "http=" + std::to_string(response.status_code)
+                                  : std::string("transport=") + HttpErrorName(response.error);
+  }
   return error;
 }
 

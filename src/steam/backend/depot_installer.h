@@ -56,6 +56,8 @@ struct InstallerHooks {
   std::function<CdnError(const ContentServer&, std::uint32_t depot_id, const std::string& sha_hex,
                          std::size_t max_bytes, const std::atomic<bool>&, std::vector<std::uint8_t>*)> chunk;
   std::function<std::uint64_t(const std::string& path)> free_bytes;
+  // Optional: the last CDN failure detail for logs.
+  std::function<std::string()> last_failure;
 };
 
 // Downloads and assembles an app's depots into install_root. Safe to run again after any

@@ -2,6 +2,10 @@
 
 Deferred items found during console runs. Newest first. Remove an item when it is fixed.
 
+## Downloads
+
+- Depot manifests larger than 16 MiB (the HTTP client's response cap) cannot be downloaded yet; very large games need a streamed or larger-cap manifest fetch.
+
 ## Cosmetic and UX
 
 - **Text is small for a TV.** Fonts across Home, Library, Details, Downloads and Settings read small from couch distance; raise the type scale for 10-foot viewing (user feedback, 2026-10-05).

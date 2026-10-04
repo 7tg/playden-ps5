@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -36,6 +37,9 @@ struct AcquisitionResult {
   CmError error = CmError::kProtocol;
   // App ID -> earliest acquisition (unix seconds) among this account's active licenses.
   std::map<std::uint32_t, std::uint32_t> acquired_at;
+  // Apps and depots granted by those licenses' packages, for depot selection.
+  std::set<std::uint32_t> owned_apps;
+  std::set<std::uint32_t> owned_depots;
   bool ok() const { return error == CmError::kNone; }
 };
 
@@ -67,6 +71,7 @@ struct DepotGrant {
 struct DepotAccessResult {
   CmError error = CmError::kProtocol;
   std::vector<DepotGrant> grants;  // one per requested depot, in request order
+  std::string detail;              // which step refused, with Steam's result code
   bool ok() const { return error == CmError::kNone; }
 };
 

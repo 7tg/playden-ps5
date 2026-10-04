@@ -556,7 +556,10 @@ DepotAccessResult CmClient::FetchDepotAccess(const StoredSession& stored, std::u
       return finish(call);
     cm::DepotKeyResponse key;
     if (!cm::DecodeDepotKeyResponse(reply, &key)) return finish(CmError::kProtocol);
-    if (key.eresult != cm::kEResultOk) return finish(CmError::kRejected);
+    if (key.eresult != cm::kEResultOk) {
+      result.detail = "depot key refused eresult=" + std::to_string(key.eresult);
+      return finish(CmError::kRejected);
+    }
     if (key.depot_id != depot.depot_id || key.key.size() != grant.key.size()) return finish(CmError::kProtocol);
     std::copy(key.key.begin(), key.key.end(), grant.key.begin());
     reply.clear();
@@ -566,8 +569,10 @@ DepotAccessResult CmClient::FetchDepotAccess(const StoredSession& stored, std::u
         call != CmError::kNone)
       return finish(call);
     if (!cm::DecodeManifestRequestCodeResponse(reply, &grant.manifest_request_code) ||
-        grant.manifest_request_code == 0)
+        grant.manifest_request_code == 0) {
+      result.detail = "manifest request code refused";
       return finish(CmError::kRejected);
+    }
     result.grants.push_back(grant);
   }
   return finish(CmError::kNone);
@@ -630,7 +635,11 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
   auto finish = [&](CmError error) {
     if (transport) transport->Close();
     result.error = error;
-    if (error != CmError::kNone) result.acquired_at.clear();
+    if (error != CmError::kNone) {
+      result.acquired_at.clear();
+      result.owned_apps.clear();
+      result.owned_depots.clear();
+    }
     return result;
   };
   if (const auto open = Open(stored, cancel, deadline, &transport, &opened); open != CmError::kNone)
@@ -673,6 +682,8 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
           return finish(CmError::kProtocol);
         auto& apps = package_apps[package.package_id];
         apps.insert(apps.end(), contents.app_ids.begin(), contents.app_ids.end());
+        result.owned_apps.insert(contents.app_ids.begin(), contents.app_ids.end());
+        result.owned_depots.insert(contents.depot_ids.begin(), contents.depot_ids.end());
         received.insert(package.package_id);
       }
     }
