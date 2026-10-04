@@ -1,0 +1,23 @@
+foreach(required APP_DIR BOILERPLATE ASSETS_DIR FONTS_DIR PARAM_SOURCE PARAM_DEST TITLE_ID TITLE_NAME)
+	if(NOT DEFINED ${required})
+		message(FATAL_ERROR "${required} is required")
+	endif()
+endforeach()
+
+file(REMOVE_RECURSE "${APP_DIR}")
+file(MAKE_DIRECTORY "${APP_DIR}/sce_sys" "${APP_DIR}/sce_module" "${APP_DIR}/assets/fonts")
+file(COPY "${BOILERPLATE}/sce_sys/icon0.png" "${BOILERPLATE}/sce_sys/pic0.dds"
+	"${BOILERPLATE}/sce_sys/pic1.dds" "${BOILERPLATE}/sce_sys/snd0.at9" DESTINATION "${APP_DIR}/sce_sys")
+file(COPY "${ASSETS_DIR}/" DESTINATION "${APP_DIR}/assets")
+file(COPY "${FONTS_DIR}/" DESTINATION "${APP_DIR}/assets/fonts")
+
+file(READ "${PARAM_SOURCE}" param)
+string(JSON param SET "${param}" titleId "\"${TITLE_ID}\"")
+string(SUBSTRING "${TITLE_ID}" 4 5 concept_id)
+string(JSON param SET "${param}" conceptId "\"${concept_id}\"")
+string(JSON param SET "${param}" contentId "\"UP9000-${TITLE_ID}_00-PLAYDENLAUNCHER1\"")
+string(JSON param SET "${param}" localizedParameters en-US titleName "\"${TITLE_NAME}\"")
+string(JSON attribute3 GET "${param}" attribute3)
+math(EXPR attribute3 "(${attribute3} & ~0x80040) | 0x80040")
+string(JSON param SET "${param}" attribute3 "${attribute3}")
+file(WRITE "${PARAM_DEST}" "${param}\n")

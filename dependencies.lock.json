@@ -1,0 +1,51 @@
+{
+  "rmlfocus": {
+    "revision": "be7b7e48875ab5b87d2184ae57caed6a58c47cf8",
+    "default_source": "../rmlfocus",
+    "override": "Set PLAYDEN_RMLFOCUS_SOURCE_DIR to another checkout at exactly this revision",
+    "renderer": "poc/rmlui-gl3/RmlUi_Renderer_GL3_rf.cpp"
+  },
+  "rmlui": {
+    "version": "6.3",
+    "revision": "ba95ffe8bfb6370efb2cdcca927eaad4710c5413"
+  },
+  "freetype": {
+    "version": "2.13.3",
+    "revision": "42608f77f20749dd6ddc9e0536788eaad70ea4b5"
+  },
+  "ps5_payload_sdk": {
+    "version": "v0.43",
+    "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip",
+    "sha256": "a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb"
+  },
+  "ps5_opengl": {
+    "version": "1.0.0",
+    "source_revision": "dce74910af7f4274c48d05e0ae001b3038462588",
+    "sdk_url": "https://github.com/blackbearreloaded/ps5-opengl/releases/download/v1.0.0/ps5-opengl-sdk-1.0.0.tar.gz",
+    "sdk_sha256": "f93643c04c843d56143b00951df1f8042ea7706ae9f19e4e9abf158e1ead77c5",
+    "libPS5OpenGL_sha256": "11ab03a347cf75e143c7aa896ff0fd94714ded471a92146aa0f2aba82722ae95"
+  },
+  "ps5_native_app_boilerplate": {
+    "revision": "4f531c4b517f80bcb6b1267135848168d2250047",
+    "patch": "sce_module_writer.cpp heap size changed to 0x10000000 in a build-local copy",
+    "libc_prx_sha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036"
+  },
+  "compiler_rt_builtins": {
+    "version": "18.1.8",
+    "sha256": "61002d0f8fa316a09db9c97f47744cfa5866862e9dc3fdd554d7cf6fdc3c2566"
+  },
+  "fonts": {
+    "source": "Pinned RmlFocus demo/assets/fonts directory",
+    "families": ["Inter", "Space Grotesk", "Lato Latin", "DM Serif Display"]
+  },
+  "recorded_host_toolchain": {
+    "platform": "macOS Apple Silicon",
+    "apple_clang": "17.0.0",
+    "cmake": "3.30.3",
+    "ninja": "1.13.2",
+    "sdl2_compat": "2.32.72",
+    "freetype": "2.14.3",
+    "libcurl": "8.7.1",
+    "note": "Host compiler, SDL2 compatibility, FreeType, OpenGL, and libcurl are system packages. CMake enforces the recorded SDL2, FreeType, and libcurl versions; OpenGL is provided by the pinned macOS SDK/toolchain environment."
+  }
+}
