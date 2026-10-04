@@ -35,7 +35,9 @@ Library ownership, files downloaded, runtime preparation, and playability are se
 
 Playden requests runtime operations through an explicit interface. The exact transport and process model are chosen with the runtime project once its supported interface exists. No runtime transport or process-creation capability is assumed by this PRD.
 
-The macOS app is the reference for journeys, branding, assets, and Steam behavior. SwiftUI, Apple input APIs, CrossOver commands, and macOS storage assumptions are not part of the PS5 architecture. Reuse of SteamKit source is subject to a portability review; reuse of protocol knowledge and fixtures does not require keeping Swift.
+The macOS app's launcher branch in `/Users/leolobato/Documents/Projetos/Personal/GameNative/playden` is the reference implementation for journeys, branding, assets, and Steam behavior. The user specified `feature/launcher`; inspection found no local ref with that exact name, but found `feature/launchers` checked out at `de952b3`. Use `feature/launchers` provisionally as the intended reference, with this naming discrepancy explicit. Inspect that branch rather than defaulting to `main`, and record the exact revision used for each porting decision as it evolves.
+
+SwiftUI, Apple input APIs, CrossOver commands, and macOS storage assumptions are not part of the PS5 architecture. Reuse of SteamKit source is subject to a portability review; reuse of protocol knowledge and fixtures does not require keeping Swift.
 
 ## User journeys
 
@@ -153,7 +155,7 @@ These are feasibility or delivery choices, not changes to the agreed product sco
 
 Paths below are sibling working copies used during planning, not build dependencies:
 
-- macOS Playden: `../playden/docs/prd/` and `../playden/Packages/SteamKit/README.md`.
+- macOS Playden: the launcher branch identified above, including `../playden/docs/prd/` and `../playden/Packages/SteamKit/README.md`; inspect branch contents rather than assuming these documents fully describe its implementation.
 - RmlFocus status and evidence: `../rmlfocus/docs/plan/roadmap.md`, `../rmlfocus/docs/design/launcher-sample.md`, and `../rmlfocus/docs/design/content-api.md`.
 - Alternative UI evaluation: `../rmlfocus/results/20261004T235331Z-hui-playden/README.md` and `../ps5-homebrew/ps5-homebrew-ui/docs/ADOPTING.md`.
 - Wine project context: `../playden-ps5/README.md`; its runtime progress is independent of this roadmap.
