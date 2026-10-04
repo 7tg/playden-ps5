@@ -4,6 +4,7 @@
 
 #include "homebrew/render.hpp"
 #include "homebrew/simulation.hpp"
+#include "homebrew/input_adapter.hpp"
 #include "homebrew/json.hpp"
 
 #include "core/input.hpp"
@@ -338,6 +339,11 @@ int main(int argc, char** argv) {
     hui::gfx::set_glsl_prefix("#version 410 core\n");
 
     auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR);
+    if (!options->capture.empty() && options->recording.empty()) {
+        // Settle presentation motion without advancing the manual fixture clock.
+        for (int settle = 0; settle < 16; ++settle)
+            render->draw(simulation, options->width, options->height);
+    }
     if (!options->recording.empty()) {
         std::error_code error;
         std::filesystem::create_directories(options->recording, error);
@@ -414,6 +420,19 @@ int main(int argc, char** argv) {
             was_connected = input.connected;
         }
         apply_input(simulation, input);
+        auto diagnostics = playden::homebrew::diagnostic_sample(input);
+        if (!input.connected && !simulation.state().editor.active) {
+            const auto* keyboard = SDL_GetKeyboardState(nullptr);
+            diagnostics.cross = keyboard[SDL_SCANCODE_RETURN];
+            diagnostics.circle = keyboard[SDL_SCANCODE_ESCAPE];
+            diagnostics.square = keyboard[SDL_SCANCODE_X];
+            diagnostics.triangle = keyboard[SDL_SCANCODE_F];
+            diagnostics.l1 = keyboard[SDL_SCANCODE_Q]; diagnostics.r1 = keyboard[SDL_SCANCODE_E];
+            diagnostics.options = keyboard[SDL_SCANCODE_O];
+            diagnostics.left_x = float(keyboard[SDL_SCANCODE_RIGHT]) - float(keyboard[SDL_SCANCODE_LEFT]);
+            diagnostics.left_y = float(keyboard[SDL_SCANCODE_DOWN]) - float(keyboard[SDL_SCANCODE_UP]);
+        }
+        simulation.controller_sample(diagnostics);
         hui::PadSample keys;
         keys.connected = true;
         keys.buttons = keyboard_buttons;

@@ -42,6 +42,13 @@ int main(int argc, char** argv) {
     apply_input(simulation, input);
     require(simulation.state().navigation.route == playden::homebrew::Route::Details &&
             simulation.state().navigation.modals.empty(), "simultaneous Cross/Options applies one edge");
+    input.held = hui::action_bit(hui::Action::west) | hui::action_bit(hui::Action::page_next);
+    input.stick_x = 0.75F; input.stick2_y = -0.5F; input.trigger_l = 0.4F;
+    simulation.controller_sample(playden::homebrew::diagnostic_sample(input));
+    require(simulation.state().controller.square && simulation.state().controller.r1 &&
+            !simulation.state().controller.cross && simulation.state().controller.left_x == 0.75F &&
+            simulation.state().controller.right_y == -0.5F && simulation.state().controller.l2 == 0.4F,
+            "diagnostics reflect actual kit held buttons, sticks and triggers");
     std::filesystem::remove(profile, error);
     std::puts("PASS: SDL Search gesture, printable edit isolation, simultaneous controller activation");
 }

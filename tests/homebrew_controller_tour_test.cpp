@@ -32,6 +32,16 @@ int main(int argc, char** argv) {
     std::error_code error;
     std::filesystem::remove(profile, error);
     Simulation simulation(argv[1], profile);
+    simulation.scenario("first-run");
+    choose(simulation, "startup-connect");
+    choose(simulation, "qr-fixture-controls");
+    choose(simulation, "inject-qr-expired");
+    require(simulation.state().account.authentication == AuthState::Expired, "controller can expire QR challenge");
+    choose(simulation, "qr-refresh");
+    choose(simulation, "qr-fixture-controls");
+    choose(simulation, "inject-qr-approved");
+    choose(simulation, "sync-advance");
+    require(simulation.state().navigation.route == Route::Home, "controller completes QR approval and sync");
     // Enter a Home shelf, visit details, then restore the actual shelf child.
     press(simulation, "right");
     const auto home_id = simulation.state().navigation.selected_game_id;

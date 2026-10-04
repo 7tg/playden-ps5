@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 #include "homebrew/render.hpp"
 #include "homebrew/simulation.hpp"
+#include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
 #include "platform/ps5/display_egl.hpp"
 #include "platform/ps5/pad.hpp"
@@ -66,6 +67,7 @@ int main() {
                 was_connected = input.connected;
             }
             dispatch(simulation, input);
+            simulation.controller_sample(playden::homebrew::diagnostic_sample(input));
             if (simulation.state().quit_requested) break;
             renderer.draw(simulation, display.width(), display.height());
             if (!display.swap()) break;
