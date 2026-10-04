@@ -1,6 +1,6 @@
 {
   "rmlfocus": {
-    "revision": "be7b7e48875ab5b87d2184ae57caed6a58c47cf8",
+    "revision": "31d2d8fd39ca3e3bb3ba91a43f50561c04429d57",
     "default_source": "../rmlfocus",
     "override": "Set PLAYDEN_RMLFOCUS_SOURCE_DIR to another checkout at exactly this revision",
     "renderer": "poc/rmlui-gl3/RmlUi_Renderer_GL3_rf.cpp"

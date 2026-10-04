@@ -9,11 +9,11 @@ Previous goal turn classification: progress — Unicode query and account-scoped
 | 1A–1B | Complete | Committed shell evidence under results/20261004T132145Z-shell |
 | 2A | Complete host scenes/captures; PS5 packaging passes | Bounded 1,000-game views, identity/focus/artwork tests, real captures |
 | 2B | Reviewed checker committed; hardware counters still unavailable | 10-minute scenario, 30-minute soak, native 4K60 report, physical controller |
-| 3A | Host transport pass; native probe crashes during DNS; debugging | Direct native-title TLS and CM transport, backend decision |
+| 3A | Native DNS passes; curl allocation failure under investigation | Direct native-title TLS and CM transport, backend decision |
 | 3B | Waiting for 3A | Real Steam QR approval, restart, cancellation/sign-out isolation |
 | 3C | Waiting for 3A/3B | Real owned library with metadata/recovery |
 | 4A | Account-scoped cache committed; integration awaits services | Connected UI and account-scoped offline caches |
-| 4B | Unicode query committed; framework keyboard underway | Controller entry, complete journey, real-data performance acceptance |
+| 4B | Controller search implemented/reviewed; native acceptance pending | Controller entry, complete journey, real-data performance acceptance |
 
 Shared model: `src/library/model.h` defines GameId (Steam app ID) and GameSummary. Synthetic state stays outside the real game record. Lead owns application integration, shared interfaces, builds and console coordination. Workers own UI, networking audit/probe, and checker independently. No production Steam backend is selected before task 3A evidence.
 
@@ -24,3 +24,5 @@ Ruling: retain the approved plan's RmlUi binding and the accepted milestone 1 gr
 Independent progress: deterministic Unicode query implementation uses vendored, revision/hash-pinned utf8proc 2.11.3 (upstream MIT/Unicode licenses preserved). A failing empty-query test preceded implementation; host tests now include extended Latin, multi-character folding, exact non-Latin substring, punctuation, stable sorting, metadata filter, no-results recovery, and malformed text.
 
 Host scene verification: both normal and fixture suites pass 8/8. Screenshot mode disables host swap synchronization because unattended macOS presentation blocked at the first swap; checked-in 3840×2160 captures verify layout only, never timing. PS5 fixture packaging passes; representative console performance remains open.
+
+Controller keyboard lives in RmlFocus main `31d2d8fd39ca3e3bb3ba91a43f50561c04429d57` after independent review and 23 passing framework tests. Launcher normal/fixture host suites pass 9/9 with controller search, confirm/cancel, retained query and empty-results recovery. Graphical captures under results/20261004-search-host are layout evidence only; the PS5 graphical package builds but this search revision is not console accepted.

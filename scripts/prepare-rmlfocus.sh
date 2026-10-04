@@ -9,7 +9,7 @@ fi
 platform=$1
 rmlfocus_source=$(cd "$2" && pwd)
 launcher_build=$3
-rmlfocus_expected=be7b7e48875ab5b87d2184ae57caed6a58c47cf8
+rmlfocus_expected=31d2d8fd39ca3e3bb3ba91a43f50561c04429d57
 actual=$(git -C "$rmlfocus_source" rev-parse HEAD)
 if [[ "$actual" != "$rmlfocus_expected" ]]; then
     echo "RmlFocus must be revision $rmlfocus_expected; found $actual in $rmlfocus_source" >&2

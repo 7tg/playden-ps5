@@ -2,6 +2,7 @@
 #include "details.h"
 #include "install_fixture.h"
 #include "library.h"
+#include "library/query.h"
 #include <rmlfocus/images.h>
 #include <rmlfocus/rml_router.h>
 #include <functional>
@@ -23,6 +24,8 @@ public:
     void SetGames(const std::vector<GameSummary>& games);
     void SetDeveloperFixtures(bool enabled);
     bool FocusGame(GameId id);
+    void SetQuery(const std::string& text);
+    const std::string& Query() const { return query_text_; }
     GameId SelectedGame() const;
     std::size_t LibraryLogicalCount() const;
     std::size_t LibraryMaterializedCount() const;
@@ -40,6 +43,8 @@ private:
     void ConfigureCollectionNavigation();
     static std::string EventKey(Rml::Element* element);
     void Refresh();
+    void ApplyQuery();
+    void OpenSearch();
     Rml::Context* context_;
     std::string assets_root_;
     std::unique_ptr<rf::RmlRouter> router_;
@@ -48,6 +53,8 @@ private:
     DetailsView details_;
     InstallFixture install_fixture_;
     std::vector<GameSummary> games_;
+    std::vector<GameSummary> visible_games_;
+    std::string query_text_;
     GameId selected_game_ = 0;
     bool reduce_motion_ = false;
     bool exit_requested_ = false;

@@ -5,7 +5,7 @@ option(PLAYDEN_DEVELOPER_FIXTURES "Compile explicitly synthetic development scen
 option(PLAYDEN_PLATFORM_PS5 "Build a PS5 native title" OFF)
 set(PLAYDEN_PS5_TITLE_ID "" CACHE STRING "Explicit PS5 title id (required for PS5 packaging)")
 set(PLAYDEN_RMLFOCUS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../rmlfocus" CACHE PATH "Pinned RmlFocus source checkout")
-set(PLAYDEN_RMLFOCUS_REVISION "be7b7e48875ab5b87d2184ae57caed6a58c47cf8")
+set(PLAYDEN_RMLFOCUS_REVISION "31d2d8fd39ca3e3bb3ba91a43f50561c04429d57")
 
 execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
 	OUTPUT_VARIABLE playden_revision OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
@@ -135,7 +135,7 @@ if(NOT PLAYDEN_PLATFORM_PS5)
 			target_link_libraries("${test_name}_test" PRIVATE playden_core)
 			add_test(NAME "${test_name}" COMMAND "${test_name}_test")
 		endforeach()
-		foreach(test_name shell library_navigation artwork_binding)
+		foreach(test_name shell library_navigation artwork_binding search)
 			add_executable(${test_name}_test tests/${test_name}_test.cpp)
 			target_link_libraries(${test_name}_test PRIVATE playden_core RmlUi::Core)
 			add_dependencies(${test_name}_test playden-assets)
