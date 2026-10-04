@@ -4,6 +4,7 @@
 
 #include "homebrew/render.hpp"
 
+#include "homebrew/browse.hpp"
 #include "homebrew/simulation.hpp"
 
 #include "gfx/draw_list.hpp"
@@ -662,9 +663,15 @@ class Render::Impl
         tabs_.update(1.0F / 60.0F);
         tabs_.draw(canvas);
 
-        scene_.circle(1680.0F, 82.0F, 20.0F, kAccent);
-        ui::text(scene_, fonts_.semibold, "Leo", 1714.0F, 91.0F, 24.0F, kText);
-        ui::text(scene_, fonts_.regular, "21:42", 1824.0F, 91.0F, 22.0F, kSecondary,
+        scene_.circle(1580.0F, 82.0F, 20.0F,
+                      current_state_->account.display_name.empty() ? kMuted : kAccent);
+        const std::string identity = current_state_->account.display_name.empty() ?
+            "Signed out" : current_state_->account.display_name;
+        dynamic_text(identity, 1614.0F, 91.0F, 24.0F, kText, 140.0F, false);
+        const auto minutes = current_state_->clock_ticks / 60;
+        char time[8];
+        std::snprintf(time, sizeof(time), "%02d:%02d", int((minutes / 60) % 24), int(minutes % 60));
+        ui::text(scene_, fonts_.regular, time, 1824.0F, 91.0F, 22.0F, kSecondary,
                  gfx::Align::right);
     }
 
@@ -687,7 +694,8 @@ class Render::Impl
     {
         ui::Painter painter(scene_, fonts_, theme_, renderer_.glass_texture());
         ui::Look look{focused && route_focus_ ? 1.0F : 0.0F, 0.0F, !row.enabled};
-        painter.button(rect, fit(fonts_.display, row.title, primary ? 34.0F : 27.0F, rect.w - 36.0F),
+        const auto title = row.kind == RowKind::Toggle ? row.title + (row.selected ? " · On" : " · Off") : row.title;
+        painter.button(rect, fit(fonts_.display, title, primary ? 34.0F : 27.0F, rect.w - 36.0F),
                        primary ? ui::ButtonKind::primary : ui::ButtonKind::secondary, look);
         if (!row.value.empty())
             ui::text(scene_, fonts_.regular, row.value, rect.x + rect.w - 20.0F, rect.cy() + 7.0F,
@@ -707,17 +715,22 @@ class Render::Impl
         {
             for (const ViewRow &row : view.rows)
             {
-                if (row.kind == RowKind::Action)
+                if (row.kind == RowKind::Action || row.kind == RowKind::Toggle)
                     actions.push_back(&row);
             }
         }
         const int focused = view.actions.empty() ? view.focused_row : view.focused_action;
         for (std::size_t index = 0; index < actions.size(); ++index)
         {
-            const float height = large_first && index == 0 ? 84.0F : 64.0F;
+            const bool details = current_state_->navigation.route == Route::Details;
+            const float height = large_first && index == 0 ? (details ? 72.0F : 84.0F) : (details ? 54.0F : 64.0F);
+            const bool is_focused = view.actions.empty() ?
+                (focused >= 0 && static_cast<std::size_t>(focused) < view.rows.size() &&
+                 view.rows[static_cast<std::size_t>(focused)].key == actions[index]->key) :
+                static_cast<int>(index) == focused;
             draw_action(*actions[index], {x, y, width, height},
-                        static_cast<int>(index) == focused, index == 0);
-            y += height + 16.0F;
+                        is_focused, index == 0);
+            y += height + (details ? 12.0F : 16.0F);
         }
     }
 
@@ -834,14 +847,19 @@ class Render::Impl
             const auto remembered = state.navigation.home_shelf_focus.find(shelf.key);
             const int focused_item = remembered == state.navigation.home_shelf_focus.end() ?
                                          shelf.focused_item : remembered->second;
-            for (int column = 0; column < 7 && column < static_cast<int>(shelf.items.size()); ++column)
+            const ShelfWindow window = shelf_window(static_cast<int>(shelf.items.size()), focused_item);
+            for (int column = 0; column < window.count; ++column)
             {
-                const Game *game = game_by_id(state, shelf.items[static_cast<std::size_t>(column)].game_id);
+                const int item_index = window.first + column;
+                const Game *game = game_by_id(
+                    state, shelf.items[static_cast<std::size_t>(item_index)].game_id);
                 if (game == nullptr)
                     continue;
                 const gfx::Rect art{96.0F + column * 233.0F, top + 28.0F, 213.0F, 320.0F};
-                const bool focused = route_focus_ && shelf_index == active_shelf && column == focused_item;
-                draw_poster(*game, art, focused, shelf.items[static_cast<std::size_t>(column)].badge,
+                const bool focused = route_focus_ && shelf_index == active_shelf &&
+                                     item_index == focused_item;
+                draw_poster(*game, art, focused,
+                            shelf.items[static_cast<std::size_t>(item_index)].badge,
                             job_progress(game->id), false);
             }
         }
@@ -897,7 +915,7 @@ class Render::Impl
             else if (current_state_ != nullptr &&
                      std::any_of(current_state_->installations.begin(), current_state_->installations.end(),
                                  [&game](const Installation &installation) {
-                                     return installation.game_id == game.id && installation.available;
+                                     return installation.game_id == game.id && installation.installed_bytes > 0;
                                  }))
                 badge = "Installed";
             draw_poster(game, cell, focus > 0.5F, badge, job_progress(game.id));
@@ -907,7 +925,7 @@ class Render::Impl
         };
         grid_.update(1.0F / 60.0F);
         grid_.draw(canvas);
-        if (state.library_syncing)
+        if (state.library_syncing || state.library_loading)
         {
             scene_.rounded_rect({1398.0F, 86.0F, 426.0F, 48.0F}, 8.0F, kPanel);
             scene_.circle(1424.0F, 110.0F, 6.0F, kAccent);
@@ -1306,7 +1324,7 @@ class Render::Impl
             const Installation *installation = nullptr;
             const auto found_installation = std::find_if(
                 state.installations.begin(), state.installations.end(), [&game](const Installation &item) {
-                    return item.game_id == game->id && item.available;
+                    return item.game_id == game->id && item.installed_bytes > 0;
                 });
             if (found_installation != state.installations.end())
                 installation = &*found_installation;
@@ -1318,6 +1336,8 @@ class Render::Impl
                                                      return item.id == installation->volume_id;
                                                  });
                 location = volume == state.volumes.end() ? installation->volume_id : volume->label;
+                if (!installation->available || (volume != state.volumes.end() && !volume->available))
+                    location += " · Disconnected";
             }
             const auto rating = state.library.ratings.find(game->id);
             const Compatibility compatibility = rating == state.library.ratings.end() ?
