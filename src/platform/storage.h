@@ -83,6 +83,9 @@ class Storage {
   // defend against symlinks created by another writer inside that root.
   explicit Storage(std::string root);
 
+  // Idempotent worker-side setup of the app-owned root; parent must exist.
+  Result<void> EnsureRootDirectory() const;
+
   // Reads are bounded so a damaged file cannot consume unbounded memory.
   static constexpr std::size_t kMaxReadBytes = 1024 * 1024;
   Result<Bytes> Read(const std::string& relative_path,

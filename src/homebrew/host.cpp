@@ -369,6 +369,9 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::Storage> library_storage;
     std::unique_ptr<playden::LibraryCache> library_cache;
     std::unique_ptr<playden::LibraryService> library_service;
+    std::unique_ptr<playden::PreferencesStore> preferences;
+    std::unique_ptr<playden::OrganizationStore> organization;
+    std::unique_ptr<playden::app::PersistenceService> persistence;
     std::unique_ptr<playden::homebrew::Controller> services;
     if (!options->scenario.empty() && !simulation.scenario(options->scenario)) {
         std::fprintf(stderr, "%s\n", simulation.last_error().c_str());
@@ -412,7 +415,10 @@ int main(int argc, char** argv) {
         library_storage = std::make_unique<playden::Storage>(options->data_directory.string());
         library_cache = std::make_unique<playden::LibraryCache>(*library_storage);
         library_service = std::make_unique<playden::LibraryService>(*library_backend,*library_sessions,library_cache.get());
-        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get());
+        preferences=std::make_unique<playden::PreferencesStore>(*library_storage);
+        organization=std::make_unique<playden::OrganizationStore>(*library_storage);
+        persistence=std::make_unique<playden::app::PersistenceService>(*preferences,*organization);
+        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get());
     }
 
     auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR);

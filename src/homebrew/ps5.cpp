@@ -67,7 +67,10 @@ int main() {
         playden::Storage library_storage("/app0/playden-data");
         playden::LibraryCache library_cache(library_storage);
         playden::LibraryService library_service(library_backend,library_sessions,&library_cache);
-        playden::homebrew::Controller services(simulation, auth, sessions,&library_service);
+        playden::PreferencesStore preferences(library_storage);
+        playden::OrganizationStore organization(library_storage);
+        playden::app::PersistenceService persistence(preferences,organization);
+        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence);
 #endif
         playden::homebrew::Render renderer("/app0/assets");
         hui::ps5::Pad pad;

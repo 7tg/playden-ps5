@@ -18,7 +18,7 @@
 - Build game-management UI before real installation. The install sheet and changing queue here are performance fixtures, not delivery of the full v2 management feature set.
 - Keep Wine integration independent and out of these four milestones.
 - Keep product behavior here. Reusable changes for the selected renderer belong in ps5-homebrew-ui; retain the recorded isolated dependency patches until separately integrated upstream. Do not modify RmlFocus to implement new direct-Hui behavior.
-- Use `../playden` branch `feature/launchers`, inspected at `de952b3d49167e635945ada88cd8533e07d40d44`, provisionally for the user's requested `feature/launcher`. The exact singular branch was absent locally. Record the resolved revision in the reference audit.
+- Use the confirmed `../playden` branch `feature/launchers`, inspected at `de952b3d49167e635945ada88cd8533e07d40d44`; the earlier singular name was a naming discrepancy. Record the resolved revision in the reference audit.
 - Read each repository's current `AGENTS.md` before changing it. Do not switch or disturb the macOS reference checkout; use `git show <revision>:<path>`.
 - Console builds, uploads, and actual acceptance runs are distinct evidence. Coordinate device use with the Wine effort before running tests.
 - New paths below are proposed unless marked implemented. Do not reimplement completed comparison screens or disturb the frozen fixture package. The six old RmlUi WIP files are preserved in stash `1f8f649d6e1430f1898b942845db53db668f17a4`; do not restore them into the selected UI.
@@ -35,11 +35,11 @@
 
 ## Current baseline and evidence
 
-- **1A–1B are historical completions** for the RmlFocus consumer; keep their evidence. The selected UI needs its own production storage/lifecycle integration and coordinated native acceptance.
+- **1A–1B are historical completions** for the RmlFocus consumer; keep their evidence. The selected UI now has host-verified production storage/lifecycle integration; coordinated native acceptance remains open.
 - **2A presentation is superseded by the merged direct-Hui UI.** Existing Home/Library/details, controller keyboard, filtering/collections, account/settings, management/session simulations and recovery flows are reusable. Do not build them again from the old RML file list.
 - Selected UI evidence at `3796598`, documented by `703dd1f`: host CTest **11/11**, existing suite **14/14**, eight native-resolution **host framebuffer** captures, a 128-frame focus animation, and a signed local PS5 package. These are not PS5 gameplay/display evidence, physical-controller acceptance, or runtime frame-rate measurements.
-- **3A passed on PS5** in the earlier native transport probe. **3B foundations are committed** in `da4f925`, `82fd531`, and `5a42a0d`: worker/session storage, protobuf codec/fixtures, and verified HTTP/native networking. Concrete Begin/Poll/Renew AuthClient and bounded JSON/token parsing are now implemented in `8eb78fe` with synthetic host/UBSan and PS5 compile evidence; real account-screen integration and console authentication acceptance remain pending.
-- S1 now builds the shared backend with the selected graphical consumer. Normal startup uses real authentication and library services; comparison journeys remain explicit simulation. Artwork and personal preferences still need production integration.
+- **3A passed on PS5** in the earlier native transport probe. **3B foundations are committed** in `da4f925`, `82fd531`, and `5a42a0d`: worker/session storage, protobuf codec/fixtures, and verified HTTP/native networking. Concrete Begin/Poll/Renew AuthClient and bounded JSON/token parsing are now implemented in `8eb78fe` with synthetic host/UBSan and PS5 compile evidence; the real account-screen integration is host-verified, while console authentication acceptance remains pending.
+- S1 now builds the shared backend with the selected graphical consumer. Normal startup uses real authentication and library services; comparison journeys remain explicit simulation. Production organization and global preferences are now bound to the selected model; asynchronous artwork and dynamic title coverage remain next, alongside authenticated CM and native functional acceptance.
 
 ## Order and gates
 
@@ -75,7 +75,8 @@ The technical lead owns shared contracts, build integration, account-generation 
 | `src/homebrew/{view.cpp,render.hpp,input_adapter.hpp,host.cpp,ps5.cpp}` | Selected presentation, input and platform entry points; preserve merged visuals |
 | `src/homebrew/{simulation.*,browse.*,storage_sim.*}` | Existing UI state/projection and deterministic simulation; extract only the service boundary needed for production |
 | `src/homebrew/controller.{hpp,cpp}` (new) | Production action dispatch and bounded application-event mapping into the existing view state |
-| `src/app/library_controller.{h,cpp}` (new), `src/library/` | Account-scoped real library, cache, identity and queries |
+| `src/app/library_controller.{h,cpp}`, `src/library/` | Account-scoped real library, cache, identity and queries |
+| `src/app/{persistence_controller.*,persistence_service.*,preferences.*}` | Worker-backed global preferences and account organization; load/edit reconciliation and deletion barriers |
 | `src/steam/`, `src/steam/backend/` | Authentication worker, credential persistence, HTTP/protobuf/CM adapters |
 | `src/homebrew/artwork.{hpp,cpp}` (new) | Visible-key texture subscriptions and UI-thread uploads; background IO/decoding adapter |
 | `tests/`, `fixtures/steam/`, `results/` | Behavior checks, synthetic protocol fixtures, sanitized acceptance evidence |
@@ -206,7 +207,7 @@ The authenticated HTTP adapter, bounded generation-aware worker, sanitized fixtu
 
 ### 4A.1 Existing account/QR surfaces backed by real services
 
-Implementation is host-verified (27/27 selected tests) with real QR decoder round-trips and local PS5 packaging. Native account acceptance remains open; account-scoped production preferences follow in 4B. See the execution ledger for evidence and limits.
+Implementation is host-verified (27/27 selected tests) with real QR decoder round-trips and local PS5 packaging. Native account acceptance remains open; production persistence is host-verified in 4B. See the execution ledger for evidence and limits.
 
 **Files:** Create `src/homebrew/controller.{hpp,cpp}`, `tests/homebrew_account_test.cpp`; modify `src/homebrew/{simulation.hpp,simulation.cpp,render.hpp,view.cpp,host.cpp,ps5.cpp}` only at the state/service boundary. Add a pinned QR encoder if the selected kit lacks one.
 
@@ -216,7 +217,7 @@ Implementation is host-verified (27/27 selected tests) with real QR decoder roun
 - [x] Use the earlier validated `/app0/playden-data` adapter with a fresh availability/private-write check in the selected native entry point; do not treat `/app0/playden-hui-comparison/profile.json` as credential storage. Fail safely on unavailable storage/networking, surface initialization errors, and cancel/join service work before renderer/display shutdown.
 - [x] Bind existing QR waiting/expired/retry/cancel and Settings account actions to real events. Encode a real challenge with a tested decoder round-trip; replace/clear its private buffer and rendered QR on retry, cancellation, expiry and sign-out.
 - [x] Test stale approvals, replacement challenges, late cancellation, restore failures, and storage errors against the view state. Preserve safe modal defaults, opener focus, reduced motion, and controller-only access.
-- [ ] Do not restore authentication from simulation `profile.json`. Keep secrets in `SessionStore`; scope real user annotations/settings that belong to an account to that account. Dispatch persistence away from rendering. A failed clear must remain an explicit failure, not a successful sign-out.
+- [x] Do not restore authentication from simulation `profile.json`. Keep secrets in `SessionStore`; scope real user annotations/settings that belong to an account to that account. Dispatch persistence away from rendering. A failed clear must remain an explicit failure, not a successful sign-out.
 - [ ] Build and inspect the actual selected graphical host. After coordination, verify phone approval from a PS5-issued QR, clean restart restoration, cancellation, and sign-out on `FAKE77031`; publish only sanitized status evidence.
 - [ ] Review and commit the account integration with remaining native checks explicitly identified.
 
@@ -224,14 +225,14 @@ Implementation is host-verified (27/27 selected tests) with real QR decoder roun
 
 ### 4A.2 Owned data and account-scoped offline recovery
 
-The production LibraryController now binds authentication, account-scoped cache and owned-library retrieval to the selected screens. Network-only restore failure enables cache-only startup; cache deletion precedes credential deletion. Host tests and a synthetic service-driven graphical journey cover this integration. Persistent annotations and direct PS5 acceptance remain open.
+The production LibraryController now binds authentication, account-scoped cache and owned-library retrieval to the selected screens. Network-only restore failure enables cache-only startup; cache deletion precedes credential deletion. Host tests and a synthetic service-driven graphical journey cover this integration. Account-scoped annotations are now bound through PersistenceController (4B); direct PS5 acceptance remains open.
 
 **Files:** Create `src/app/library_controller.{h,cpp}`, `tests/library_controller_test.cpp`; reuse `src/library/cache.*`, `model.h`, `query.*`, and `tests/library_cache_test.cpp`; extend the selected controller/state projection.
 
 **Interfaces:** `LibraryController::Tick()` drains bounded `LibraryService` events. Reuse `LibraryCache::Load(account_id)` / `Save(account_id, snapshot)`. Map `GameSummary` into existing `homebrew::Game` view records by stable Steam app ID; missing metadata stays unknown. Account/session generation accompanies pending sync/cache work.
 
 - [x] Test loading, genuine empty ownership, metadata omissions, interrupted refresh and failed refresh preserving the prior valid snapshot. A failed request must never publish a successful empty library.
-- [ ] Scope cache load/save, favorites, collections, notes and selected identity to the authenticated account. Test account switch/sign-out during disk IO or sync, offline startup and corrupt cache; old account results must not repopulate cleared views.
+- [x] Scope cache load/save, favorites, collections, notes and selected identity to the authenticated account. Test account switch/sign-out during disk IO or sync, offline startup and corrupt cache; old account results must not repopulate cleared views.
 - [x] Populate existing Home/Library/details/loading/stale/error surfaces from real results. Preserve focus/scroll by ID across updates and choose a predictable neighbor on removal; retain search/filter state where valid.
 - [x] Treat installation, runtime readiness, compatibility, download size and play history as independent facts. Hide or explain unavailable real operations; keep the merged install/download/session simulation only in development mode. Do not expand v1 into actual installation or Wine.
 - [ ] Run selected UI/controller and backend tests, inspect real-data navigation, and verify cache/retry/sign-out on PS5 independently of performance profiling. Review and commit.
@@ -253,16 +254,18 @@ The production LibraryController now binds authentication, account-scoped cache 
 
 ### 4B Search, preferences and connected journey acceptance
 
+Production persistence is implemented and host-verified: worker-backed global preferences and account organization, bounded pending-load edit replay, visible failure/retry, ordered sign-out deletion, and final-input shutdown flush. The actual selected graphical test restores favorites and reduced motion through platform storage files. Native restart/storage/controller acceptance remains open; see the execution ledger for final verification and evidence.
+
 **Files:** Reuse `src/library/query.*`, selected `src/homebrew/{browse.*,simulation.*,input_adapter.hpp}`, and merged keyboard; add `tests/mvp_journey_test.cpp`, production search/persistence regressions and `docs/engineering/mvp-acceptance.md`.
 
 **Interfaces:** Retain the selected controller action/focus contract. Reuse the existing UTF-8 query semantics where applicable rather than replacing the merged keyboard or maintaining conflicting search behavior.
 
 - [ ] Verify empty query, punctuation, Latin case folding, exact non-Latin substrings, malformed text, confirm/cancel, retained query, stable sorting and no-results recovery against real game records. Only expose filters supported by actual metadata.
 - [x] Connect live title search/name ordering to the pinned Unicode query folding; retain deterministic simulation behavior and cache folded keys when records arrive. Hide production filters whose metadata is not retrieved.
-- [ ] Bind the new `OrganizationStore` / `PersistenceService` backend to the selected model. Global reduced motion and account-scoped favorites/hidden/collections/ratings/notes/query/filter/sort/selected identity must be restored separately; neither store may contain credentials, installs or runtime state.
-- [ ] Resolve initial-load/edit races before wiring saves: preserve edits made while IO is pending, including collection-ID collisions and explicit reset. A load failure must not silently overwrite disk with defaults; retry must preserve local edits and successful independently loaded components.
-- [ ] Add organization deletion to the pre-credential sign-out barrier. Flush the latest accepted preferences/organization on shutdown, including edits from the final input frame; account invalidation must not discard global preference work.
-- [ ] Persist production presentation preferences through the real platform adapter; test corrupt/failed writes and restart with a visible recovery path. Simulation profiles do not establish real persistence acceptance.
+- [x] Bind the new `OrganizationStore` / `PersistenceService` backend to the selected model. Global reduced motion and account-scoped favorites/hidden/collections/ratings/notes/query/filter/sort/selected identity must be restored separately; neither store may contain credentials, installs or runtime state.
+- [x] Resolve initial-load/edit races before wiring saves: preserve edits made while IO is pending, including collection-ID collisions and explicit reset. A load failure must not silently overwrite disk with defaults; retry must preserve local edits and successful independently loaded components.
+- [x] Add organization deletion to the pre-credential sign-out barrier. Flush the latest accepted preferences/organization on shutdown, including edits from the final input frame; account invalidation must not discard global preference work.
+- [x] Persist production presentation preferences through the real platform adapter; test corrupt/failed writes and restart with a visible recovery path. Simulation profiles do not establish real persistence acceptance.
 - [ ] Add one controller journey through fresh sign-in, library, details/back, text entry, retry, offline cached restart, account switch and sign-out. Keep the phone as the only external interaction required for QR approval.
 - [ ] Run selected UI and backend suites, inspect graphical captures, build/package, then coordinate native lifecycle and physical DualSense verification. Record physical checks separately from injected input and host replays.
 - [ ] **Deferred:** repeat the agreed native 4K60 scenario with real library/artwork, transport delay and storage failure only when the user resumes performance work. Keep the MVP acceptance gate open until required measurements exist.

@@ -8,17 +8,17 @@ The updated [execution plan](../superpowers/plans/2026-10-04-foundation-to-conne
 
 | Task | State | Next evidence / work |
 | --- | --- | --- |
-| 1A–1B | Historical RmlFocus shell complete | Retain results/20261004T132145Z-shell; selected consumer needs its own lifecycle/storage validation |
+| 1A–1B | Historical RmlFocus shell complete | Retain results/20261004T132145Z-shell; selected lifecycle/storage host-verified, native acceptance pending |
 | S1 | Complete build integration, independently reviewed | Selected host 21/21, legacy 18/18, actual graphical Home capture unchanged, local PS5 package/CA verified; startup service wiring remains 4A.1 |
 | 2A | Selected Hui UI merged; host-verified simulations and local PS5 package | Reuse existing screens, focus, keyboard, filters and management simulations; do not rebuild them in RML |
 | 2B | Deferred by user; not passed | No profiling, MSAA, RSS or soak work; eventual selected-renderer native 4K60 acceptance remains open |
 | 3A | Complete on PS5 | Native DNS, cancellation, timeout, verified HTTPS/WSS and matching PONG; backend decision/evidence committed |
-| 3B | Concrete AuthClient and bounded JSON/token parsing committed in 8eb78fe; synthetic host/UBSan and PS5 compile checks pass | Real QR encoding/presentation, service lifecycle integration and direct PS5 approval/restore/sign-out |
-| 3C | Authenticated GetOwnedGames adapter and bounded worker implemented; synthetic tests and PS5 cross-compile pass | Connect real records/cache to selected consumer, retrieve actual account data on PS5; authenticated CM remains unproven |
-| 4A.1 | Live account controller, private storage and real QR rendering implemented; host verified | Direct PS5 approval/restore/sign-out still pending; production preferences remain 4B |
-| 4A.2 | Production library/controller/cache binding implemented; offline/retry and deletion ordering host-tested | Persistent annotations and coordinated real-account PS5 acceptance |
+| 3B | Concrete AuthClient and bounded JSON/token parsing committed in 8eb78fe; synthetic host/UBSan and PS5 compile checks pass | Real QR and service integration host-verified; direct PS5 approval/restore/sign-out pending |
+| 3C | Authenticated GetOwnedGames adapter and bounded worker implemented; synthetic tests and PS5 cross-compile pass | Real records/cache bound to selected consumer; actual account retrieval on PS5 and authenticated CM remain unproven |
+| 4A.1 | Live account controller, private storage and real QR rendering implemented; host verified | Direct PS5 approval/restore/sign-out still pending; production preferences bound in 4B |
+| 4A.2 | Production library/controller/cache binding implemented; offline/retry and deletion ordering host-tested | Persistent annotations implemented; coordinated real-account PS5 acceptance pending |
 | 4A.3 | Nine static fixture textures; font atlases subset fixture text | Real async fetch/decode, bounded texture lifecycle, stale-result rejection, dynamic title coverage |
-| 4B | Merged controller/search/settings behavior has host simulation evidence | Production queries/preferences, connected journey, physical pad/native functional checks; performance acceptance deferred |
+| 4B | Live Unicode queries and production persistence implemented; host worker/model/lifecycle and graphical restoration evidence | Complete connected journey, physical pad/native functional checks; performance acceptance deferred |
 
 Selected UI baseline: `src/homebrew/`, `cmake/HomebrewUI.cmake`, and `cmake/HomebrewPS5.cmake`. The renderer reads state/view projections from `Simulation`; extraction of a production controller must preserve those screens and navigation rather than create a second presentation. `src/library/model.h` and `cache.*` remain renderer-independent real-data components. Reusable selected-renderer fixes belong in ps5-homebrew-ui, with the checked-in dependency patches retained until upstream integration.
 
@@ -97,6 +97,19 @@ The renderer-independent organization store now owns account-scoped favorites, h
 
 A bounded persistence worker separates global preferences from account organization, coalesces pending saves by revision, rejects older revisions, preserves accepted destructive cleanup, and drains accepted saves at shutdown. Rejected submissions leave accepted work unchanged; stale account events cannot cross generations. Independent review covers this backend before production binding.
 
-**The selected live model is not yet connected to this persistence worker.** Startup/load-versus-edit recovery, latest-input-frame flush, preference/annotation failure notices and retry, and organization deletion before session clear remain the next dependent integration step. No production preference restart acceptance is claimed by the backend tests. Artwork, general title glyph coverage, authenticated CM and coordinated real Steam/console acceptance also remain open. Performance work remains deferred.
+**At this backend commit, the selected live model was not yet connected to this persistence worker.** Startup/load-versus-edit recovery, latest-input-frame flush, preference/annotation failure notices and retry, and organization deletion before session clear remain the next dependent integration step. No production preference restart acceptance is claimed by the backend tests. Artwork, general title glyph coverage, authenticated CM and coordinated real Steam/console acceptance also remain open. Performance work remains deferred.
 
 Verification for this slice: selected host **35/35**, legacy regression **21/21**, graphical query inspection, local PS5 compile/link/sign/package and explicit Prospero persistence-service target compilation passed. Independent review resolved reserved collection IDs/names and title-key recomputation, and found no remaining blocker. Package eboot SHA-256: `217911e2e80aebc3345d5f1178fdb16d49f677529aefb097f9fd68461b28ff16`. No console deployment, account approval or performance test was performed.
+
+
+## Production organization and preferences binding (4B)
+
+The selected Mac/PS5 entry points now bind PersistenceController and its worker to the existing model. Global reduced motion restores independently from account favorites, hidden games, collections, ratings, notes, queries, filters, sorting and selected identity. IO stays on the worker. Bounded semantic edit replay preserves changes during pending loads, remaps colliding collection IDs, and honors explicit reset. Failed loads do not overwrite disk with defaults; visible retry preserves local intent. Shared codec validation rejects oversized or invalid merged state before saving.
+
+Sign-out orders library-cache deletion, organization deletion, then credential deletion. Failure retains account identity and permits edits/retry. Shutdown merges required pending loads and saves final input-frame changes before draining the worker. Accepted saves survive account invalidation; account changes do not discard global preferences.
+
+Independent review exposed and resolved dirty-preference retry overwrite, missing action persistence hooks, invalid collection scope, deletion failure recovery, codec/model capacity mismatch, and delayed-load selection/focus disagreement, including Home shelf visibility and preservation of an open note editor’s game target. Regression tests cover these paths, including 10,000 annotation IDs with an independent selected game and exact file-size boundaries.
+
+Selected host **38/38** and legacy regression **21/21** pass. The actual graphical consumer restores favorites and reduced motion from platform storage files using synthetic data; see [persistence evidence](../../results/20261004-persistence-host/README.md). Local PS5 compile/link/sign/package succeeded with eboot SHA-256 `ba57cf4daf9efca8701f7be634e6631814ccdbebb70129b92aa8089306d6407e`. No console deployment or acceptance follows from these checks.
+
+Next: asynchronous artwork and dynamic title coverage (4A.3), authenticated CM and real-account retrieval acceptance, then coordinated native lifecycle/storage and physical-controller checks. The full connected journey and deferred 4K60 gate remain open. Chauffeur inbox and PS5 MCP tools were unavailable in this verification session, so no shared-device access was attempted.

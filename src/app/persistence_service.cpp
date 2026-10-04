@@ -131,8 +131,7 @@ PersistenceRequestId PersistenceService::Submit(Job job) {
   const auto remove_for_submission = [&job, scope_change](const Job& pending) {
     if (job.command == Command::kClearOrganization)
       return pending.command == Command::kLoadOrganization;
-    return scope_change && IsOrganization(pending.command) &&
-           pending.command != Command::kClearOrganization;
+    return scope_change && pending.command == Command::kLoadOrganization;
   };
   const auto removed = static_cast<std::size_t>(std::count_if(
       pending_.begin(), pending_.end(), remove_for_submission));
@@ -170,12 +169,8 @@ void PersistenceService::InvalidateOrganization(std::uint64_t generation) {
   organization_account_ = 0;
   organization_revision_ = 0;
   pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-                                [this](const Job& job) {
-                                  if (!IsOrganization(job.command) ||
-                                      job.command == Command::kClearOrganization) return false;
-                                  if (clear_barrier_ &&
-                                      job.command == Command::kSaveOrganization) return false;
-                                  return true;
+                                [](const Job& job) {
+                                  return job.command == Command::kLoadOrganization;
                                 }), pending_.end());
   wake_.notify_one();
 }
@@ -198,6 +193,11 @@ void PersistenceService::Shutdown() {
   if (worker_.joinable()) worker_.join();
   std::lock_guard<std::mutex> lock(mutex_);
   joined_ = true;
+}
+
+void PersistenceService::WaitIdle() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  idle_.wait(lock, [this] { return pending_.empty() && !active_.has_value(); });
 }
 
 std::vector<PersistenceEvent> PersistenceService::Pump(std::size_t maximum) {
@@ -276,8 +276,11 @@ void PersistenceService::Run() {
       if (current)
         PushEvent(std::move(event), failed.command == Command::kClearOrganization);
     }
-    std::lock_guard<std::mutex> lock(mutex_);
-    active_.reset();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      active_.reset();
+    }
+    idle_.notify_all();
   }
 }
 

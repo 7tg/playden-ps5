@@ -202,13 +202,37 @@ void OrganizationCoalescingAndStaleLoad() {
   organizations.load_release = true;
   std::this_thread::sleep_for(20ms);
   assert(service.Pump(32).empty());
-  assert(organizations.save_calls == 0);
+  assert(organizations.save_calls == 1);
+  {
+    std::lock_guard<std::mutex> lock(organizations.mutex);
+    assert(organizations.snapshots.at(11).favorites == std::set<GameId>{2});
+  }
 
   organizations.load_entered = false;
   const auto current = service.LoadOrganization(22, 2);
   const auto loaded = Await(service, PersistenceEventKind::kOrganizationLoaded, current);
   assert(loaded.account_id == 22 && loaded.account_generation == 2);
   assert(!loaded.organization && loaded.error == StorageError::kNone);
+}
+
+void InvalidationPreservesAnAcceptedAccountSave() {
+  TemporaryDirectory directory;
+  Storage storage(directory.path());
+  PreferencesStore preferences(storage);
+  Repository organizations;
+  organizations.block_load = true;
+  PersistenceService service(preferences, organizations);
+  assert(service.LoadOrganization(11, 1));
+  Wait(organizations.load_entered);
+  assert(service.SaveOrganization(11, 1, 1, Snapshot(11)));
+
+  service.InvalidateOrganization(2);
+  assert(service.LoadOrganization(22, 2));
+  organizations.load_release = true;
+  service.WaitIdle();
+
+  std::lock_guard<std::mutex> lock(organizations.mutex);
+  assert(organizations.snapshots.at(11).favorites == std::set<GameId>{11});
 }
 
 void OrganizationSaveCoalesces() {
@@ -334,15 +358,47 @@ void OrganizationReadWriteFailures() {
   assert(saved.error == StorageError::kWriteFailed && saved.revision == 2);
 }
 
+void WaitIdleDrainsAnAcceptedLoadWithoutStoppingWorker() {
+  TemporaryDirectory directory;
+  Storage storage(directory.path());
+  PreferencesStore preferences(storage);
+  Repository organizations;
+  organizations.block_load = true;
+  PersistenceService service(preferences, organizations);
+  const auto load = service.LoadOrganization(91, 1);
+  assert(load);
+  Wait(organizations.load_entered);
+  const auto save = service.SaveOrganization(91, 1, 1, Snapshot(91));
+  assert(save);
+
+  std::atomic<bool> idle{false};
+  std::thread waiter([&] {
+    service.WaitIdle();
+    idle = true;
+  });
+  std::this_thread::sleep_for(10ms);
+  assert(!idle);
+  organizations.load_release = true;
+  waiter.join();
+  assert(idle);
+
+  const auto loaded = Await(service, PersistenceEventKind::kOrganizationLoaded, load);
+  assert(loaded.error == StorageError::kNone);
+  assert(Await(service, PersistenceEventKind::kOrganizationSaved, save).error ==
+         StorageError::kNone);
+}
+
 }  // namespace
 
 int main() {
   PreferencesLoadSaveCoalesceAndShutdown();
   PreferencesStatusesAndFailures();
   OrganizationCoalescingAndStaleLoad();
+  InvalidationPreservesAnAcceptedAccountSave();
   OrganizationSaveCoalesces();
   SaveThenClearBarrierAndFailure();
   ShutdownDrainsOrganizationSaveAndClear();
   OrganizationReadWriteFailures();
   TerminalCapacityRejectsWithoutChangingScope();
+  WaitIdleDrainsAnAcceptedLoadWithoutStoppingWorker();
 }

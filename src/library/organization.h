@@ -45,6 +45,9 @@ bool operator==(const OrganizationCollection& left,
 bool operator==(const OrganizationSnapshot& left,
                 const OrganizationSnapshot& right);
 
+// Pure validation shared by persistence and presentation, including encoded size.
+bool OrganizationSnapshotIsValid(const OrganizationSnapshot& snapshot);
+
 class OrganizationRepository {
  public:
   virtual ~OrganizationRepository() = default;

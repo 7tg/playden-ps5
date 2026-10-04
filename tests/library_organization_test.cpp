@@ -269,9 +269,38 @@ void ClearRemovesFinalAndTemporaryFiles() {
   Check(store.Clear(kFirstAccount).ok(), "organization clear is idempotent");
 }
 
+void SelectionDoesNotConsumeAnnotationCapacity() {
+  TemporaryDirectory directory;playden::Storage storage(directory.path());playden::OrganizationStore store(storage);
+  playden::OrganizationSnapshot value;
+  for(playden::GameId id=1;id<=10000;++id)value.favorites.insert(id);
+  value.selected_game_id=20000;
+  Check(playden::OrganizationSnapshotIsValid(value),"fixed selection does not consume the annotation ID budget");
+  Check(store.Save(kFirstAccount,value).ok(),"full annotations preserve independent selection");
+  const auto loaded=store.Load(kFirstAccount);
+  Check(loaded.ok() && loaded.value() && loaded.value()->selected_game_id==20000,"selection round trips with full annotation capacity");
+}
+
+void SharedValidationMatchesEncodedBoundary() {
+  TemporaryDirectory directory;playden::Storage storage(directory.path());playden::OrganizationStore store(storage);
+  playden::OrganizationSnapshot value;
+  for(playden::GameId id=1;id<=255;++id)value.notes[id]=std::string(4096,'x');
+  value.notes[256]=std::string(1979,'x');
+  Check(playden::OrganizationSnapshotIsValid(value),"exact one MiB snapshot validates");
+  Check(store.Save(kFirstAccount,value).ok(),"exact one MiB snapshot saves");
+  const auto bytes=storage.Read(Path(kFirstAccount));
+  Check(bytes.ok() && bytes.value().size()==1024*1024,"shared validator includes every encoded prefix and checksum");
+  value.notes[256].push_back('x');
+  Check(!playden::OrganizationSnapshotIsValid(value),"one extra encoded byte is rejected before presentation apply");
+  Check(!store.Save(kFirstAccount,value).ok(),"oversize snapshot cannot replace previous file");
+  const auto restored=store.Load(kFirstAccount);
+  Check(restored.ok() && restored.value() && restored.value()->notes.at(256).size()==1979,"failed replacement preserves prior snapshot");
+}
+
 }  // namespace
 
 int main() {
+  SelectionDoesNotConsumeAnnotationCapacity();
+  SharedValidationMatchesEncodedBoundary();
   RoundTripAndIsolation();
   RejectsInvalidValuesWithoutReplacingGoodData();
   RejectsDamagedAndOversizedFiles();

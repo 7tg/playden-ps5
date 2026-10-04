@@ -57,6 +57,17 @@ Storage::Storage(std::string root) : root_(std::move(root)) {
   }
 }
 
+Result<void> Storage::EnsureRootDirectory() const {
+  if(root_.empty() || root_.find('\0')!=std::string::npos)
+    return Result<void>::Failure(StorageError::kInvalidPath,"Storage root is invalid.");
+  if(mkdir(root_.c_str(),0700)!=0 && errno!=EEXIST)
+    return Result<void>::Failure(StorageError::kOpenFailed,"Storage root could not be created.");
+  struct stat info{};
+  if(stat(root_.c_str(),&info)!=0 || !S_ISDIR(info.st_mode))
+    return Result<void>::Failure(StorageError::kOpenFailed,"Storage root is unavailable.");
+  return Result<void>::Success();
+}
+
 Result<std::string> Storage::Resolve(const std::string& relative_path) const {
   if (root_.empty()) {
     return Result<std::string>::Failure(StorageError::kInvalidPath,

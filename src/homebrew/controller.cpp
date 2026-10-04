@@ -4,13 +4,14 @@
 
 namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
-                       LibraryService* library_service)
+                       LibraryService* library_service, app::PersistenceService* persistence_service)
     : model_(model), library_service_(library_service) {
   if (model_.state().simulation_mode) return;
   if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
   service_ = std::make_unique<steam::SteamService>(backend,repository);
   phase_ = Phase::Restore;
   Update(AuthState::Restoring,{},true);
+  if(persistence_service) persistence_=std::make_unique<app::PersistenceController>(model_,*persistence_service);
   request_ = service_->RestoreSession();
 }
 Controller::~Controller() { Shutdown(); }
@@ -19,14 +20,16 @@ void Controller::Shutdown() {
   // Preserve a confirmed sign-out queued by the last input frame before exit.
   for (const auto action : model_.TakeServiceActions()) {
     if ((action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount) &&
-        phase_!=Phase::ClearLibrary && phase_!=Phase::SignOut) SignOut(false);
+        phase_!=Phase::ClearLibrary && phase_!=Phase::ClearOrganization && phase_!=Phase::SignOut) SignOut(false);
   }
   begin_after_clear_=false;
   if(library_service_) {
     library_service_->Shutdown();
     library_->Tick();AdvanceClear();
   }
+  if(persistence_) { persistence_->FlushAndShutdown();AdvanceOrganizationClear(); }
   service_.reset();
+  persistence_.reset();
   library_.reset();
   phase_ = Phase::Idle;
   Update(AuthState::SignedOut,{},true);
@@ -40,10 +43,11 @@ void Controller::Update(AuthState state,const std::string& error,bool clear,cons
   model_.UpdateAccount(std::move(update));
 }
 void Controller::Begin() {
-  if (phase_ == Phase::SignOut || phase_==Phase::ClearLibrary) { begin_after_clear_ = true; return; }
+  if (phase_ == Phase::SignOut || phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization) { begin_after_clear_ = true; return; }
   if(!model_.state().account.id.empty() && established_auth_==AuthState::Offline) { Restore();return; }
   if(!model_.state().account.id.empty() && established_auth_==AuthState::SignedIn) { SignOut(true);return; }
   if(library_) library_->Reset();
+  if(persistence_) persistence_->Reset();
   phase_ = Phase::SignIn;
   request_ = service_->BeginQrSignIn();
   Update(AuthState::Waiting,{},true);
@@ -54,11 +58,11 @@ void Controller::Restore() {
   Update(AuthState::Restoring);
 }
 void Controller::SignOut(bool switch_account) {
-  if(phase_==Phase::ClearLibrary || phase_==Phase::SignOut) return;
+  if(phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization || phase_==Phase::SignOut) return;
   begin_after_clear_ = switch_account;
   request_ = 0;
   if(library_) { phase_=Phase::ClearLibrary;library_->Clear(); }
-  else { phase_=Phase::SignOut;service_->SignOut(); }
+  else BeginOrganizationClear();
   Update(AuthState::SigningOut);
 }
 void Controller::AdvanceClear() {
@@ -66,11 +70,26 @@ void Controller::AdvanceClear() {
   const auto result=library_->TakeClearResult();
   if(!result) return;
   if(*result==steam::LibraryError::kNone) {
-    phase_=Phase::SignOut;service_->SignOut();
+    BeginOrganizationClear();
   } else {
     phase_=Phase::Idle;begin_after_clear_=false;
     Update(model_.state().account.id.empty()?AuthState::Failed:established_auth_,
            "Sign-out failed. Your saved library remains. Retry sign-out in Settings.");
+  }
+}
+void Controller::BeginOrganizationClear() {
+  if(persistence_) {phase_=Phase::ClearOrganization;persistence_->Clear();}
+  else {phase_=Phase::SignOut;service_->SignOut();}
+}
+void Controller::AdvanceOrganizationClear() {
+  if(phase_!=Phase::ClearOrganization || !persistence_) return;
+  const auto result=persistence_->TakeClearResult();
+  if(!result) return;
+  if(*result==StorageError::kNone) {phase_=Phase::SignOut;service_->SignOut();}
+  else {
+    phase_=Phase::Idle;begin_after_clear_=false;
+    Update(model_.state().account.id.empty()?AuthState::Failed:established_auth_,
+           "Sign-out failed. Your saved organization remains. Retry sign-out in Settings.");
   }
 }
 void Controller::Tick() {
@@ -84,6 +103,7 @@ void Controller::Tick() {
         if (phase_ == Phase::SignIn || phase_ == Phase::Restore) {
           service_->Cancel(request_);
           if(library_) library_->Reset();
+          if(persistence_) persistence_->Reset();
           Update(AuthState::Cancelled,{},true);
         }
         break;
@@ -102,12 +122,13 @@ void Controller::Tick() {
   }
   for (const auto& event : service_->Pump(16)) Apply(event);
   if(library_) { library_->Tick();AdvanceClear(); }
+  if(persistence_) { persistence_->Tick();AdvanceOrganizationClear(); }
 }
 void Controller::Apply(const steam::SteamEvent& event) {
   if (event.generation < generation_) return;
   if (phase_ == Phase::SignOut) {
     if (event.kind != steam::SteamEventKind::kSignedOut && event.kind != steam::SteamEventKind::kFailure) return;
-  } else if (phase_ == Phase::Idle || phase_==Phase::ClearLibrary || event.request_id != request_) return;
+  } else if (phase_ == Phase::Idle || phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization || event.request_id != request_) return;
   generation_ = event.generation;
   switch (event.kind) {
     case steam::SteamEventKind::kChallenge:
@@ -126,6 +147,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       update.clear_library = model_.state().account.id!=update.id;
       if(!library_) update.error = "Library sync is unavailable. Try again later.";
       model_.UpdateAccount(std::move(update));
+      if(persistence_) persistence_->Activate(event.steam_id);
       if(library_) library_->Activate(event.steam_id,offline);
       break;
     }
@@ -133,6 +155,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       phase_ = Phase::Idle;
       established_auth_=AuthState::SignedOut;
       if(library_) library_->Reset();
+      if(persistence_) persistence_->Reset();
       const bool begin = begin_after_clear_; begin_after_clear_ = false;
       Update(AuthState::SignedOut,{},true);
       if (begin) Begin();
@@ -144,7 +167,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       const bool restoring = phase_ == Phase::Restore;
       const bool clearing = phase_ == Phase::SignOut;
       phase_ = Phase::Idle; begin_after_clear_ = false;
-      if(!clearing) { established_auth_=AuthState::SignedOut;if(library_)library_->Reset(); }
+      if(!clearing) { established_auth_=AuthState::SignedOut;if(library_)library_->Reset();if(persistence_)persistence_->Reset(); }
       if (clearing) Update(model_.state().account.id.empty() ? AuthState::Failed : established_auth_,
                            "Sign-out failed. Your saved account remains. Retry sign-out in Settings.");
       else if (restoring && event.error == steam::AuthError::kNoSession) Update(AuthState::SignedOut,{},true);

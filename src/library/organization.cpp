@@ -125,7 +125,7 @@ bool Validate(const OrganizationSnapshot& snapshot) {
   std::set<GameId> game_ids;
   for (GameId id : snapshot.favorites) if (!AddGameId(game_ids, id)) return false;
   for (GameId id : snapshot.hidden) if (!AddGameId(game_ids, id)) return false;
-  if (snapshot.selected_game_id != 0 && !AddGameId(game_ids, snapshot.selected_game_id)) return false;
+  // Selection is one fixed-width scalar, independent of the annotation/member ID budget.
 
   std::set<std::string> collection_ids;
   std::set<std::string> collection_names;
@@ -275,10 +275,25 @@ bool operator==(const OrganizationSnapshot& left,
          left.selected_game_id == right.selected_game_id;
 }
 
+bool OrganizationSnapshotIsValid(const OrganizationSnapshot& snapshot) {
+  if(!Validate(snapshot)) return false;
+  // Version 1: header, all count/string prefixes, and trailing checksum.
+  std::size_t bytes=62 + snapshot.query.size() + snapshot.scope.size() + snapshot.sort.size();
+  bytes += 4*(snapshot.favorites.size()+snapshot.hidden.size());
+  bytes += 5*snapshot.ratings.size();
+  for(const auto& [id,note]:snapshot.notes) { (void)id;bytes+=8+note.size(); }
+  for(const auto& collection:snapshot.collections)
+    bytes += 13+collection.id.size()+collection.name.size()+4*collection.members.size();
+  for(const auto& filter:snapshot.filters) bytes+=4+filter.size();
+  return bytes<=kMaximumSnapshotBytes;
+}
+
 Result<void> OrganizationStore::Save(
     std::uint64_t account_id, const OrganizationSnapshot& snapshot) const {
   if (account_id == 0) return Invalid("account identifier");
-  if (!Validate(snapshot)) return Invalid("snapshot fields");
+  if (!OrganizationSnapshotIsValid(snapshot)) return Invalid("snapshot fields or encoded size");
+  const auto ready=storage_.EnsureRootDirectory();
+  if(!ready.ok()) return ready;
 
   Writer writer;
   bool okay = writer.Raw(kMagic.data(), kMagic.size()) && writer.U16(kVersion) &&
@@ -314,6 +329,8 @@ Result<std::optional<OrganizationSnapshot>> OrganizationStore::Load(
     std::uint64_t account_id) const {
   if (account_id == 0)
     return InvalidValue<std::optional<OrganizationSnapshot>>("account identifier");
+  const auto ready=storage_.EnsureRootDirectory();
+  if(!ready.ok()) return Result<std::optional<OrganizationSnapshot>>::Failure(ready.error(),ready.message());
   const auto loaded = storage_.Read(Path(account_id), kMaximumSnapshotBytes);
   if (!loaded.ok()) {
     if (loaded.error() == StorageError::kNotFound)

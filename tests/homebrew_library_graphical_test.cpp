@@ -1,5 +1,9 @@
 #include "homebrew/render.hpp"
 #include "app/library_controller.h"
+#include "app/persistence_controller.h"
+#include <algorithm>
+#include <cstdlib>
+#include <unistd.h>
 #include <chrono>
 #include <thread>
 #include "homebrew/simulation.hpp"
@@ -96,6 +100,45 @@ int main(int argc,char** argv) {
     controller.Activate(123,true);settle();
     assert(model.state().games.size()==3 && model.state().library_offline);
     capture("offline.png");
+    // Exercise actual private persistence and renderer restoration with synthetic data.
+    auto pattern=(std::filesystem::temp_directory_path()/"playden-graphical-persistence-XXXXXX").string();
+    std::vector<char> temporary(pattern.begin(),pattern.end());temporary.push_back(0);
+    const char* made=mkdtemp(temporary.data());assert(made);
+    const std::filesystem::path private_root(made);
+    {
+      playden::Storage storage(private_root.string());playden::PreferencesStore preferences(storage);
+      playden::OrganizationStore organization(storage);
+      {
+        playden::app::PersistenceService persistence(preferences,organization);
+        playden::app::PersistenceController bridge(model,persistence);bridge.Activate(123);
+        persistence.WaitIdle();bridge.Tick();
+        assert(model.OrganizationAccount()==123);
+        assert(model.action("square") && model.state().library.favorites.contains(43));
+        assert(model.action("circle"));
+        for(int n=0;n<4 && model.state().navigation.route!=Route::Settings;++n)assert(model.action("r1"));
+        const auto& rows=model.view().rows;
+        const auto target=std::find_if(rows.begin(),rows.end(),[](const ViewRow& row){return row.action=="toggle-motion";});
+        assert(target!=rows.end());const int index=static_cast<int>(target-rows.begin());
+        for(int n=0;n<80 && model.view().focused_row!=index;++n)assert(model.action(model.view().focused_row<index?"down":"up"));
+        assert(model.view().focused_row==index && model.action("cross"));
+        bridge.FlushAndShutdown();
+      }
+      Simulation restored({}, {},ModelMode::Live);
+      restored.UpdateAccount({AuthState::Offline,"123","Synthetic account",{},{},true});
+      assert(restored.UpdateLibrary({backend.games,false,{},true,true,1700000000}));
+      playden::app::PersistenceService persistence(preferences,organization);
+      playden::app::PersistenceController bridge(restored,persistence);bridge.Activate(123);
+      const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+      while((!restored.state().library.favorites.contains(43) || !restored.state().reduced_motion) && std::chrono::steady_clock::now()<deadline) {
+        bridge.Tick();std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      assert(restored.state().reduced_motion && restored.state().library.favorites.contains(43));
+      assert(restored.action("r1"));
+      for(int i=0;i<16;++i)renderer.draw(restored,1920,1080);
+      assert(renderer.capture_png(output/"restored.png",1920,1080));
+      bridge.FlushAndShutdown();
+    }
+    std::filesystem::remove_all(private_root);
   }
   SDL_GL_DeleteContext(context); SDL_DestroyWindow(window); SDL_Quit();
 }

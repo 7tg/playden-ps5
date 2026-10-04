@@ -23,6 +23,8 @@ Bytes ToBytes(const char* text) {
 PreferencesStore::PreferencesStore(Storage& storage) : storage_(storage) {}
 
 PreferencesLoadResult PreferencesStore::Load() const {
+  const auto ready=storage_.EnsureRootDirectory();
+  if(!ready.ok()) return {Preferences{},PreferencesLoadStatus::kDefaultReadError,"Preference storage is unavailable."};
   const auto read = storage_.Read(kPreferencesPath);
   if (!read.ok()) {
     if (read.error() == StorageError::kNotFound) {
@@ -52,6 +54,8 @@ PreferencesLoadResult PreferencesStore::Load() const {
 }
 
 Result<void> PreferencesStore::Save(const Preferences& preferences) const {
+  const auto ready=storage_.EnsureRootDirectory();
+  if(!ready.ok()) return ready;
   return storage_.WriteAtomic(
       kPreferencesPath,
       ToBytes(preferences.reduce_motion ? kReduceMotionEnabled

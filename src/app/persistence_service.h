@@ -58,6 +58,10 @@ class PersistenceService {
   PersistenceRequestId ClearOrganization(std::uint64_t account_id,
                                          std::uint64_t account_generation);
   void InvalidateOrganization(std::uint64_t account_generation);
+  // Waits for all currently accepted work to finish without stopping the
+  // worker. Used by shutdown coordination when a load must be merged before
+  // the final save is submitted.
+  void WaitIdle();
   void Shutdown();
   std::vector<PersistenceEvent> Pump(std::size_t max_events);
 
@@ -91,6 +95,7 @@ class PersistenceService {
   OrganizationRepository& organizations_;
   mutable std::mutex mutex_;
   std::condition_variable wake_;
+  std::condition_variable idle_;
   std::deque<Job> pending_;
   std::optional<Job> active_;
   std::deque<PersistenceEvent> events_;

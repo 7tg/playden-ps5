@@ -12,6 +12,9 @@
 #include <algorithm>
 #include <cstdio>
 #include <limits>
+#include <map>
+#include <set>
+#include <string_view>
 #include <utility>
 #include <type_traits>
 
@@ -20,6 +23,8 @@ namespace {
 
 constexpr std::uint64_t kTransferPerTick = 67'108'864;
 constexpr std::int64_t kFixtureClock = 1'760'000'000;
+constexpr std::size_t kOrganizationJournalEntries = 256;
+constexpr std::size_t kOrganizationJournalBytes = 256 * 1024;
 
 struct StringBuilder {
     std::string value;
@@ -283,6 +288,101 @@ std::string trimmed(std::string value) {
     return value.substr(first, last - first + 1);
 }
 
+std::size_t snapshot_size(const playden::OrganizationSnapshot& value) {
+    std::size_t bytes = sizeof(value) + value.query.size() + value.scope.size() + value.sort.size();
+    bytes += (value.favorites.size() + value.hidden.size()) * sizeof(GameId);
+    bytes += value.ratings.size() * (sizeof(GameId) + sizeof(playden::CompatibilityRating));
+    for (const auto& [id, note] : value.notes) bytes += sizeof(id) + note.size();
+    for (const auto& filter : value.filters) bytes += filter.size();
+    for (const auto& collection : value.collections)
+        bytes += collection.id.size() + collection.name.size() + collection.members.size() * sizeof(GameId);
+    return bytes;
+}
+
+bool snapshot_within_model_bounds(const playden::OrganizationSnapshot& value) {
+    return playden::OrganizationSnapshotIsValid(value);
+}
+
+template <typename Value>
+void replay_set_delta(std::set<Value>& base, const std::set<Value>& before,
+                      const std::set<Value>& after) {
+    for (const auto& value : before) if (!after.contains(value)) base.erase(value);
+    for (const auto& value : after) if (!before.contains(value)) base.insert(value);
+}
+
+template <typename Key, typename Value>
+void replay_map_delta(std::map<Key, Value>& base, const std::map<Key, Value>& before,
+                      const std::map<Key, Value>& after) {
+    for (const auto& [key, value] : before) {
+        (void)value;
+        if (!after.contains(key)) base.erase(key);
+    }
+    for (const auto& [key, value] : after) {
+        const auto old = before.find(key);
+        if (old == before.end() || old->second != value) base[key] = value;
+    }
+}
+
+const playden::OrganizationCollection* find_collection(
+    const std::vector<playden::OrganizationCollection>& collections, std::string_view id) {
+    const auto found = std::find_if(collections.begin(), collections.end(), [id](const auto& value) {
+        return value.id == id;
+    });
+    return found == collections.end() ? nullptr : &*found;
+}
+
+std::string free_collection_id(const playden::OrganizationSnapshot& base,
+                               const playden::OrganizationSnapshot& local) {
+    for (std::uint64_t serial = 1;; ++serial) {
+        const auto candidate = "collection-" + std::to_string(serial);
+        if (!find_collection(base.collections, candidate) &&
+            !find_collection(local.collections, candidate)) return candidate;
+    }
+}
+
+void replay_organization_delta(playden::OrganizationSnapshot& base,
+                               const playden::OrganizationSnapshot& before,
+                               const playden::OrganizationSnapshot& after,
+                               bool reset, bool selected) {
+    if (reset) {
+        base = after;
+        return;
+    }
+    replay_set_delta(base.favorites, before.favorites, after.favorites);
+    replay_set_delta(base.hidden, before.hidden, after.hidden);
+    replay_map_delta(base.ratings, before.ratings, after.ratings);
+    replay_map_delta(base.notes, before.notes, after.notes);
+    replay_set_delta(base.filters, before.filters, after.filters);
+
+    for (const auto& old : before.collections) {
+        if (find_collection(after.collections, old.id)) continue;
+        base.collections.erase(std::remove_if(base.collections.begin(), base.collections.end(),
+                                              [&old](const auto& value) { return value.id == old.id; }),
+                               base.collections.end());
+    }
+    for (const auto& local : after.collections) {
+        const auto* prior = find_collection(before.collections, local.id);
+        auto current = std::find_if(base.collections.begin(), base.collections.end(),
+                                    [&local](const auto& value) { return value.id == local.id; });
+        if (!prior) {
+            if (current != base.collections.end()) {
+                const auto replacement = free_collection_id(base, after);
+                if (base.scope == current->id) base.scope = replacement;
+                current->id = replacement;
+            }
+            base.collections.push_back(local);
+        } else if (*prior != local) {
+            if (current == base.collections.end()) base.collections.push_back(local);
+            else *current = local;
+        }
+    }
+    if (before.query != after.query) base.query = after.query;
+    if (before.scope != after.scope) base.scope = after.scope;
+    if (before.sort != after.sort) base.sort = after.sort;
+    if (selected || before.selected_game_id != after.selected_game_id)
+        base.selected_game_id = after.selected_game_id;
+}
+
 } // namespace
 
 Simulation::Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path, ModelMode mode)
@@ -310,6 +410,9 @@ void Simulation::reset_default_state() {
     selected_profile_id_ = "default";
     next_job_serial_ = 1;
     last_error_.clear();
+    captured_organization_ = {};
+    persisted_organization_ = {};
+    captured_preferences_ = {};
 }
 
 void Simulation::SetControllerConnected(bool connected) {
@@ -351,6 +454,7 @@ void Simulation::clear_account_specific_state() {
     state_.account.cache_available = false;
     state_.account.error.clear();
     state_.games.clear();
+    library_catalog_received_ = false;
     state_.library = {};
     state_.installations.clear();
     state_.jobs.clear();
@@ -372,7 +476,9 @@ void Simulation::clear_account_specific_state() {
     state_.runtime = RuntimeState::Unavailable;
     state_.library_syncing = false;
     state_.library_loading = false;
-    state_.notices.clear();
+    state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
+                                        [](const Notice& notice) { return notice.id != "persistence"; }),
+                         state_.notices.end());
     state_.log_state = LogState::Ready;
     state_.log_lines.clear();
     state_.log_offset = 0;
@@ -381,6 +487,20 @@ void Simulation::clear_account_specific_state() {
     selected_volume_id_.clear();
     selected_profile_id_.clear();
     editing_target_id_.clear();
+    organization_account_ = 0;
+    organization_revision_ = 0;
+    organization_saved_revision_ = 0;
+    organization_load_token_ = {};
+    organization_load_pending_ = false;
+    organization_load_failed_ = false;
+    organization_save_failed_ = false;
+    organization_journal_full_ = false;
+    organization_save_suppressed_ = false;
+    organization_journal_.clear();
+    organization_journal_bytes_ = 0;
+    captured_organization_ = {};
+    persisted_organization_ = {};
+    update_persistence_notice();
 }
 
 void Simulation::UpdateAccount(AccountUpdate update) {
@@ -427,11 +547,13 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
     if (update.retrieved_at && *update.retrieved_at < 0) return false;
 
     if (!update.loading && update.error.empty()) {
+        library_catalog_received_ = true;
         const auto prior_visible = visible_games();
         const GameId prior_id = state_.navigation.selected_game_id;
         const auto prior_detail_id = state_.navigation.detail_id;
         const std::string prior_focus = state_.navigation.focus_key;
         const bool prior_overlay = state_.editor.active || !state_.navigation.modals.empty();
+        const bool prior_catalog_empty = state_.games.empty();
         int prior_index = state_.navigation.selected_index;
         const auto prior_selected = std::find_if(prior_visible.begin(), prior_visible.end(), [prior_id](const Game* game) {
             return game->id == prior_id;
@@ -465,6 +587,10 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             identity_retained = true;
             state_.navigation.selected_game_id = prior_id;
             state_.navigation.selected_index = static_cast<int>(std::distance(current_visible.begin(), retained));
+        } else if (prior_catalog_empty && prior_id != 0 && find_game(state_, prior_id)) {
+            identity_retained = true;
+            state_.navigation.selected_game_id = prior_id;
+            state_.navigation.selected_index = 0;
         } else if (!current_visible.empty()) {
             state_.navigation.selected_index = std::clamp(prior_index, 0, static_cast<int>(current_visible.size()) - 1);
             state_.navigation.selected_game_id = current_visible[static_cast<std::size_t>(state_.navigation.selected_index)]->id;
@@ -537,7 +663,363 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
     state_.account.cache_available = update.cache_available;
     state_.account.error = std::move(update.error);
     if (update.retrieved_at) state_.account.last_sync = *update.retrieved_at;
+    captured_organization_.selected_game_id = state_.navigation.selected_game_id;
     rebuild_view();
+    return true;
+}
+
+playden::OrganizationSnapshot Simulation::ExportOrganization() const {
+    playden::OrganizationSnapshot result;
+    result.favorites = state_.library.favorites;
+    result.hidden = state_.library.hidden;
+    result.query = state_.library.query;
+    result.scope = state_.library.scope;
+    result.sort = state_.library.sort;
+    result.filters = state_.library.filters;
+    result.selected_game_id = state_.navigation.selected_game_id;
+    result.collections.reserve(state_.library.collections.size());
+    for (const auto& value : state_.library.collections)
+        result.collections.push_back({value.id, value.name, value.pinned, value.members});
+    for (const auto& [id, rating] : state_.library.ratings)
+        result.ratings[id] = static_cast<playden::CompatibilityRating>(rating);
+    result.notes = state_.library.notes;
+    return result;
+}
+
+playden::Preferences Simulation::ExportPreferences() const {
+    return {state_.reduced_motion};
+}
+
+void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
+    const auto prior_selected_id = state_.navigation.selected_game_id;
+    state_.library.favorites = snapshot.favorites;
+    state_.library.hidden = snapshot.hidden;
+    state_.library.query = snapshot.query;
+    state_.library.scope = snapshot.scope;
+    state_.library.sort = snapshot.sort;
+    state_.library.filters = snapshot.filters;
+    state_.library.collections.clear();
+    for (const auto& value : snapshot.collections)
+        state_.library.collections.push_back({value.id, value.name, value.pinned, value.members});
+    state_.library.ratings.clear();
+    for (const auto& [id, rating] : snapshot.ratings)
+        state_.library.ratings[id] = static_cast<Compatibility>(rating);
+    state_.library.notes = snapshot.notes;
+    state_.navigation.selected_game_id = snapshot.selected_game_id;
+    reconcile_applied_organization_selection(prior_selected_id);
+}
+
+void Simulation::reconcile_applied_organization_selection(GameId prior_selected_id) {
+    if (state_.games.empty()) {
+        if (!library_catalog_received_) return;
+        state_.navigation.selected_game_id = 0;
+        state_.navigation.selected_index = 0;
+        if (state_.navigation.route == Route::Home) state_.navigation.focus_key = "home-library";
+        else if (state_.navigation.route == Route::Library && !state_.navigation.library_rail_focused)
+            state_.navigation.focus_key = state_.library.query.empty() ? "library-empty" : "clear-search";
+        return;
+    }
+    if (state_.navigation.route == Route::Details &&
+        state_.navigation.detail_id == state_.navigation.selected_game_id &&
+        find_game(state_, state_.navigation.selected_game_id)) return;
+
+    const auto visible = visible_games();
+    const auto visible_candidate = [&](GameId wanted) -> std::vector<const Game*>::const_iterator {
+        auto found = std::find_if(visible.begin(), visible.end(), [wanted](const Game* game) {
+            return game->id == wanted;
+        });
+        if (found != visible.end()) return found;
+        found = std::find_if(visible.begin(), visible.end(), [prior_selected_id](const Game* game) {
+            return game->id == prior_selected_id;
+        });
+        if (found != visible.end() || visible.empty()) return found;
+        return visible.begin() + std::clamp(state_.navigation.selected_index, 0,
+                                             static_cast<int>(visible.size()) - 1);
+    };
+    const auto library_item = visible_candidate(state_.navigation.selected_game_id);
+    const GameId library_candidate = library_item == visible.end() ? 0 : (*library_item)->id;
+    if (library_item != visible.end()) {
+        const int index = static_cast<int>(std::distance(visible.begin(), library_item));
+        state_.navigation.selected_index = index;
+        state_.navigation.library_grid_column = index % 6;
+        state_.navigation.scroll_offsets["library-grid"] = index / 6;
+    }
+
+    GameId home_candidate = 0;
+    const auto projected = shelves(state_);
+    auto locate_home = [&projected](GameId id) -> std::optional<std::pair<int, int>> {
+        for (std::size_t shelf_index = 0; shelf_index < projected.size(); ++shelf_index) {
+            const auto& ids = projected[shelf_index].game_ids;
+            const auto item = std::find(ids.begin(), ids.end(), id);
+            if (item != ids.end())
+                return std::pair<int, int>{static_cast<int>(shelf_index),
+                                           static_cast<int>(std::distance(ids.begin(), item))};
+        }
+        return std::nullopt;
+    };
+    auto home_location = locate_home(state_.navigation.selected_game_id);
+    if (!home_location) home_location = locate_home(prior_selected_id);
+    if (!home_location && !projected.empty()) {
+        const int shelf_index = std::clamp(state_.navigation.home_shelf, 0,
+                                           static_cast<int>(projected.size()) - 1);
+        const auto& shelf = projected[static_cast<std::size_t>(shelf_index)];
+        const int item_index = std::clamp(state_.navigation.home_shelf_focus[shelf.key], 0,
+                                          static_cast<int>(shelf.game_ids.size()) - 1);
+        home_location = std::pair<int, int>{shelf_index, item_index};
+    }
+    if (home_location) {
+        const auto [shelf_index, item_index] = *home_location;
+        const auto& shelf = projected[static_cast<std::size_t>(shelf_index)];
+        home_candidate = shelf.game_ids[static_cast<std::size_t>(item_index)];
+        state_.navigation.home_shelf = shelf_index;
+        state_.navigation.home_shelf_focus[shelf.key] = item_index;
+        state_.navigation.scroll_offsets["home"] = shelf_index;
+    } else {
+        home_candidate = library_candidate;
+    }
+
+    if (state_.navigation.route == Route::Library) {
+        state_.navigation.selected_game_id = library_candidate;
+        if (!state_.navigation.library_rail_focused)
+            state_.navigation.focus_key = library_candidate == 0
+                ? (state_.library.query.empty() ? "library-empty" : "clear-search")
+                : game_key(library_candidate);
+    } else if (state_.navigation.route == Route::Home ||
+               state_.navigation.route == Route::Settings ||
+               state_.navigation.route == Route::Downloads) {
+        state_.navigation.selected_game_id = home_candidate;
+        if (state_.navigation.route == Route::Home)
+            state_.navigation.focus_key = home_candidate == 0 ? "home-library" : game_key(home_candidate);
+    }
+}
+
+PersistenceLoadToken Simulation::BeginOrganizationLoad(std::uint64_t account) {
+    if (!live() || account == 0) return {};
+    if (organization_account_ != account) {
+        organization_account_ = account;
+        organization_revision_ = 0;
+        organization_saved_revision_ = 0;
+        organization_journal_.clear();
+        organization_journal_bytes_ = 0;
+        captured_organization_ = ExportOrganization();
+        persisted_organization_ = {};
+        organization_save_suppressed_ = false;
+        organization_journal_full_ = false;
+    } else if (OrganizationDirty() && organization_journal_.empty()) {
+        const auto bytes = snapshot_size(persisted_organization_) + snapshot_size(captured_organization_);
+        if (bytes <= kOrganizationJournalBytes) {
+            organization_journal_.push_back({persisted_organization_, captured_organization_, false, false, bytes});
+            organization_journal_bytes_ = bytes;
+        } else {
+            organization_journal_full_ = true;
+        }
+    }
+    organization_load_token_ = {++next_persistence_load_token_, organization_revision_};
+    organization_load_pending_ = true;
+    return organization_load_token_;
+}
+
+bool Simulation::ApplyOrganization(std::uint64_t account, PersistenceLoadToken token,
+                                   std::optional<playden::OrganizationSnapshot> loaded) {
+    if (!live() || account == 0 || account != organization_account_ ||
+        !organization_load_pending_ || !(token == organization_load_token_)) return false;
+    auto loaded_base = loaded.value_or(playden::OrganizationSnapshot{});
+    auto merged = loaded_base;
+    const bool had_local_edits = !organization_journal_.empty();
+    const bool had_local_selection = std::any_of(
+        organization_journal_.begin(), organization_journal_.end(), [](const auto& entry) {
+            return entry.reset || entry.selected ||
+                   entry.before.selected_game_id != entry.after.selected_game_id;
+        });
+    for (const auto& entry : organization_journal_)
+        replay_organization_delta(merged, entry.before, entry.after, entry.reset, entry.selected);
+    if (!had_local_selection && loaded_base.selected_game_id == 0)
+        merged.selected_game_id = captured_organization_.selected_game_id;
+    if (!snapshot_within_model_bounds(merged)) {
+        organization_load_pending_ = false;
+        organization_load_failed_ = true;
+        update_persistence_notice();
+        rebuild_view();
+        return false;
+    }
+    apply_organization_snapshot(merged);
+    merged.selected_game_id = state_.navigation.selected_game_id;
+    captured_organization_ = merged;
+    persisted_organization_ = std::move(loaded_base);
+    organization_journal_.clear();
+    organization_journal_bytes_ = 0;
+    organization_load_pending_ = false;
+    organization_load_failed_ = false;
+    organization_journal_full_ = false;
+    if (had_local_edits) {
+        if (organization_revision_ == 0) organization_revision_ = 1;
+        organization_saved_revision_ = 0;
+    } else {
+        organization_saved_revision_ = organization_revision_;
+    }
+    update_persistence_notice();
+    rebuild_view();
+    return true;
+}
+
+bool Simulation::FailOrganizationLoad(std::uint64_t account, PersistenceLoadToken token,
+                                      playden::StorageError error) {
+    if (!live() || error == playden::StorageError::kNone || account != organization_account_ ||
+        !organization_load_pending_ || !(token == organization_load_token_)) return false;
+    organization_load_pending_ = false;
+    organization_load_failed_ = true;
+    update_persistence_notice();
+    rebuild_view();
+    return true;
+}
+
+void Simulation::OrganizationCleared(std::uint64_t account) {
+    if (!live() || account == 0 || account != organization_account_) return;
+    organization_load_token_ = {};
+    organization_load_pending_ = false;
+    organization_load_failed_ = false;
+    organization_save_failed_ = false;
+    organization_journal_full_ = false;
+    organization_journal_.clear();
+    organization_journal_bytes_ = 0;
+    organization_save_suppressed_ = true;
+    organization_saved_revision_ = organization_revision_;
+    captured_organization_ = ExportOrganization();
+    persisted_organization_ = {};
+    update_persistence_notice();
+    rebuild_view();
+}
+
+PersistenceLoadToken Simulation::BeginPreferencesLoad() {
+    if (!live()) return {};
+    preferences_load_token_ = {++next_persistence_load_token_, preferences_revision_};
+    preferences_load_pending_ = true;
+    preferences_load_may_apply_ = !PreferencesDirty();
+    return preferences_load_token_;
+}
+
+bool Simulation::ApplyPreferences(PersistenceLoadToken token,
+                                  const playden::PreferencesLoadResult& loaded) {
+    if (!live() || !preferences_load_pending_ || !(token == preferences_load_token_)) return false;
+    preferences_load_pending_ = false;
+    preferences_load_failed_ = loaded.status == playden::PreferencesLoadStatus::kDefaultCorrupt ||
+                               loaded.status == playden::PreferencesLoadStatus::kDefaultReadError;
+    if (preferences_load_may_apply_ && preferences_revision_ == token.baseline_revision) {
+        state_.reduced_motion = loaded.preferences.reduce_motion;
+        captured_preferences_ = loaded.preferences;
+        preferences_saved_revision_ = preferences_revision_;
+    }
+    update_persistence_notice();
+    rebuild_view();
+    return true;
+}
+
+bool Simulation::OrganizationDirty() const noexcept {
+    return !organization_save_suppressed_ && organization_revision_ > organization_saved_revision_;
+}
+
+bool Simulation::PreferencesDirty() const noexcept {
+    return preferences_revision_ > preferences_saved_revision_;
+}
+
+bool Simulation::OrganizationReadyForSave() const noexcept {
+    return live() && organization_account_ != 0 && OrganizationDirty() &&
+           !organization_load_pending_ && !organization_load_failed_ && !organization_journal_full_;
+}
+
+void Simulation::OrganizationSaveResult(std::uint64_t account, std::uint64_t revision,
+                                        playden::StorageError error) {
+    if (!live() || account != organization_account_ || revision > organization_revision_) return;
+    if (error == playden::StorageError::kNone) {
+        organization_saved_revision_ = std::max(organization_saved_revision_, revision);
+        if (revision == organization_revision_) {
+            organization_save_failed_ = false;
+            persisted_organization_ = captured_organization_;
+        }
+    } else {
+        organization_save_failed_ = true;
+    }
+    update_persistence_notice();
+    rebuild_view();
+}
+
+void Simulation::PreferencesSaveResult(std::uint64_t revision, playden::StorageError error) {
+    if (!live() || revision > preferences_revision_) return;
+    if (error == playden::StorageError::kNone) {
+        preferences_saved_revision_ = std::max(preferences_saved_revision_, revision);
+        if (revision == preferences_revision_) preferences_save_failed_ = false;
+    } else {
+        preferences_save_failed_ = true;
+    }
+    update_persistence_notice();
+    rebuild_view();
+}
+
+bool Simulation::TakePersistenceRetryRequest() {
+    const bool requested = persistence_retry_requested_;
+    persistence_retry_requested_ = false;
+    return requested;
+}
+
+void Simulation::update_persistence_notice() {
+    const bool failed = organization_load_failed_ || organization_save_failed_ ||
+                        organization_journal_full_ || preferences_load_failed_ ||
+                        preferences_save_failed_;
+    state_.persistence_available = !failed;
+    state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
+                                        [](const Notice& notice) { return notice.id == "persistence"; }),
+                         state_.notices.end());
+    if (failed)
+        state_.notices.push_back({"persistence", "Saved UI data is unavailable", "retry-save", true, 0});
+}
+
+bool Simulation::record_live_persistence() {
+    auto after_organization = ExportOrganization();
+    auto after_preferences = ExportPreferences();
+    const bool organization_changed = force_organization_reset_ || force_organization_selection_ ||
+                                      !(after_organization == captured_organization_);
+    const bool preferences_changed = force_preferences_reset_ ||
+                                     after_preferences.reduce_motion != captured_preferences_.reduce_motion;
+
+    if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
+        apply_organization_snapshot(captured_organization_);
+        state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
+                                            [](const Notice& notice) { return notice.id == "persistence-validation"; }),
+                             state_.notices.end());
+        state_.notices.push_back({"persistence-validation", "This change is too large to save", "", true, 0});
+        force_organization_reset_ = false;
+        return false;
+    }
+    if (organization_changed && organization_account_ != 0) {
+        if (organization_load_pending_ || organization_load_failed_) {
+            const auto bytes = snapshot_size(captured_organization_) + snapshot_size(after_organization);
+            if (organization_journal_.size() >= kOrganizationJournalEntries ||
+                bytes > kOrganizationJournalBytes - std::min(organization_journal_bytes_, kOrganizationJournalBytes)) {
+                apply_organization_snapshot(captured_organization_);
+                state_.reduced_motion = captured_preferences_.reduce_motion;
+                organization_journal_full_ = true;
+                force_organization_reset_ = false;
+                force_organization_selection_ = false;
+                force_preferences_reset_ = false;
+                update_persistence_notice();
+                return false;
+            }
+            organization_journal_.push_back({captured_organization_, after_organization,
+                                             force_organization_reset_, force_organization_selection_, bytes});
+            organization_journal_bytes_ += bytes;
+        }
+        captured_organization_ = std::move(after_organization);
+        ++organization_revision_;
+        organization_save_suppressed_ = false;
+    }
+    if (preferences_changed) {
+        captured_preferences_ = after_preferences;
+        ++preferences_revision_;
+    }
+    force_organization_reset_ = false;
+    force_organization_selection_ = false;
+    force_preferences_reset_ = false;
+    update_persistence_notice();
     return true;
 }
 
@@ -824,7 +1306,7 @@ void Simulation::load_profile() {
 }
 
 bool Simulation::save_profile() {
-    if (live()) return true;
+    if (live()) return record_live_persistence();
     if (!state_.persistence_available) {
         state_.notices.push_back({"save-failed", "Changes cannot be saved", "retry-save", true, 0});
         return false;
@@ -1118,6 +1600,7 @@ void Simulation::rebuild_view() {
         const auto modals = state_.navigation.modals;
         const auto focus = state_.navigation.focus_key;
         const int selected_index = state_.navigation.selected_index;
+        const GameId selected_game_id = state_.navigation.selected_game_id;
         state_.editor.active = false;
         state_.navigation.modals.clear();
         rebuild_view();
@@ -1126,6 +1609,7 @@ void Simulation::rebuild_view() {
         state_.navigation.modals = modals;
         state_.navigation.focus_key = focus;
         state_.navigation.selected_index = selected_index;
+        state_.navigation.selected_game_id = selected_game_id;
     }
     view_ = {};
     view_.surface = route_name(state_.navigation.route);
@@ -1409,7 +1893,7 @@ void Simulation::rebuild_view() {
         if (state_.navigation.route == Route::Library && view_.first_index > 0)
             view_.focused_row = std::clamp(state_.navigation.selected_index - static_cast<int>(view_.first_index), 0, static_cast<int>(view_.rows.size()) - 1);
         state_.navigation.focus_key = view_.rows[static_cast<std::size_t>(view_.focused_row)].key;
-        if (view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id != 0)
+        if (!has_overlay && view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id != 0)
             state_.navigation.selected_game_id = view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id;
     }
     if (!has_overlay) route_view_ = view_;
@@ -1621,6 +2105,7 @@ void Simulation::activate() {
         save_profile(); return;
     }
     if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id != 0) {
+        if (live()) force_organization_selection_ = true;
         state_.navigation.detail_origin = Route::Home;
         state_.navigation.detail_id = state_.navigation.selected_game_id;
         state_.navigation.route = Route::Details;
@@ -1642,13 +2127,17 @@ void Simulation::activate() {
             state_.navigation.focus_key = "qr-cancel";
         } else scenario("qr-waiting");
     }
-    else if (action_name == "retry-save") { state_.persistence_available = true; save_profile(); }
+    else if (action_name == "retry-save") {
+        if (live()) persistence_retry_requested_ = true;
+        else { state_.persistence_available = true; save_profile(); }
+    }
     else if (action_name == "continue-without-saving") { state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(), [](const Notice& notice) { return notice.id == "persistence"; }), state_.notices.end()); state_.navigation.route = Route::Home; }
     else if (action_name == "skip" || action_name == "library") { state_.navigation.route = action_name == "skip" ? Route::Home : Route::Library; state_.navigation.focus_key.clear(); }
     else if (action_name == "qr-cancel" || action_name == "editor-cancel" || action_name == "cancel") cancel();
     else if (action_name == "editor-done") commit_editor();
     else if (action_name == "clear-search") { state_.library.query.clear(); reconcile_library_selection(state_); }
     else if (action_name == "open-game") {
+        if (live()) force_organization_selection_ = true;
         state_.navigation.detail_origin = state_.navigation.route;
         state_.navigation.detail_id = selected.game_id;
         state_.navigation.selected_game_id = selected.game_id;
@@ -1798,13 +2287,18 @@ void Simulation::activate() {
                 ++challenge_generation_; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel";
             }
         }
-        else if (pending_destructive_action_ == "reset-confirm") { const auto installs = state_.installations; state_.library = {}; state_.installations = installs; clear_profile_customizations(state_); state_.reduced_motion = false; }
+        else if (pending_destructive_action_ == "reset-confirm") { const auto installs = state_.installations; state_.library = {}; state_.installations = installs; clear_profile_customizations(state_); state_.reduced_motion = false; if (live()) { force_organization_reset_ = true; force_preferences_reset_ = true; } }
         else if (pending_destructive_action_ == "quit-game") { state_.session = SessionState::Stopping; state_.navigation.route = Route::Session; }
         else if (pending_destructive_action_ == "force-stop") { state_.session = SessionState::Idle; state_.navigation.route = Route::Details; state_.navigation.detail_id = state_.session_game_id; }
         else if (pending_destructive_action_ == "quit-confirm") state_.quit_requested = true;
         else if (pending_destructive_action_.rfind("collection-delete-", 0) == 0) {
             const auto id = pending_destructive_action_.substr(18);
             state_.library.collections.erase(std::remove_if(state_.library.collections.begin(), state_.library.collections.end(), [&id](const Collection& value) { return value.id == id; }), state_.library.collections.end());
+            if (state_.library.scope == id) {
+                state_.library.scope = "all";
+                state_.navigation.library_rail_focused = false;
+                reconcile_library_selection(state_);
+            }
         }
         state_.navigation.modals.clear();
         pending_destructive_action_.clear();
@@ -1948,7 +2442,10 @@ void Simulation::activate() {
         }
     }
     else if (action_name == "storage-retry") action("inject:storage-reconnect");
-    else if (action_name == "retry-save") { state_.persistence_available = true; save_profile(); }
+    else if (action_name == "retry-save") {
+        if (live()) persistence_retry_requested_ = true;
+        else { state_.persistence_available = true; save_profile(); }
+    }
     else if (action_name == "account") {
         std::vector<std::string> actions = {"account-auth", "account-last-sync"};
         if (state_.account.authentication == AuthState::SignedIn) actions.push_back("account-sync");
@@ -2054,7 +2551,14 @@ bool Simulation::action(const std::string& logical_action) {
         const auto id = logical_action.substr(remove ? 18 : 15);
         auto found = std::find_if(state_.library.collections.begin(), state_.library.collections.end(), [&id](const Collection& value) { return value.id == id; });
         if (found == state_.library.collections.end()) return false;
-        if (remove) state_.library.collections.erase(found); else found->pinned = !found->pinned;
+        if (remove) {
+            state_.library.collections.erase(found);
+            if (state_.library.scope == id) {
+                state_.library.scope = "all";
+                state_.navigation.library_rail_focused = false;
+                reconcile_library_selection(state_);
+            }
+        } else found->pinned = !found->pinned;
         save_profile(); rebuild_view(); return true;
     }
     if (logical_action.rfind("rate:", 0) == 0) {
@@ -2083,7 +2587,7 @@ bool Simulation::action(const std::string& logical_action) {
             state_.jobs.push_back({next_job_id(), id, "install", next_queue_order(state_), JobStage::Download, JobState::Queued, 0, *assessment.download_bytes, std::nullopt, std::nullopt, {}, JobStage::Download, volume_id, 0, assessment.required_bytes.value_or(0), true, false});
             reconcile_storage(state_);
         }
-        if (state_.persistence_available) save_profile();
+        if (live() || state_.persistence_available) save_profile();
         rebuild_view(); return true;
     }
     if (logical_action.rfind("job:move-up:", 0) == 0) {
@@ -2106,7 +2610,7 @@ bool Simulation::action(const std::string& logical_action) {
         job->stage = job->retry_stage; job->state = job->stage == JobStage::Download ? JobState::Downloading : JobState::Verifying; job->failure.clear(); save_profile(); rebuild_view(); return true;
     }
     if (logical_action == "reset") {
-        const auto installs = state_.installations; state_.library = {}; state_.installations = installs; clear_profile_customizations(state_); state_.reduced_motion = false; save_profile(); rebuild_view(); return true;
+        const auto installs = state_.installations; state_.library = {}; state_.installations = installs; clear_profile_customizations(state_); state_.reduced_motion = false; if (live()) { force_organization_reset_ = true; force_preferences_reset_ = true; } save_profile(); rebuild_view(); return true;
     }
     if (logical_action == "session:quit") {
         if (state_.session != SessionState::Running) return false; state_.session = SessionState::Stopping; rebuild_view(); return true;
@@ -2127,6 +2631,7 @@ bool Simulation::action(const std::string& logical_action) {
         const auto parsed = std::from_chars(text_id.data(), text_id.data() + text_id.size(), id);
         if (parsed.ec != std::errc{} || !find_game(state_, id)) { last_error_ = "Unknown game: " + text_id; return false; }
         state_.navigation.selected_game_id = id; state_.navigation.focus_key = game_key(id);
+        if (live()) force_organization_selection_ = true;
         const auto games = visible_games();
         const auto found = std::find_if(games.begin(), games.end(), [id](const Game* game) { return game->id == id; });
         if (found != games.end()) state_.navigation.selected_index = static_cast<int>(std::distance(games.begin(), found));
@@ -2159,7 +2664,7 @@ bool Simulation::action(const std::string& logical_action) {
         if (found == view_.rows.end()) { last_error_ = "Unknown focus key: " + key; return false; }
         state_.navigation.focus_key = key; state_.navigation.selected_index = static_cast<int>(std::distance(view_.rows.begin(), found));
         if (!state_.navigation.modals.empty()) state_.navigation.modals.back().focused_action = state_.navigation.selected_index;
-        rebuild_view(); return true;
+        save_profile(); rebuild_view(); return true;
     }
     if (logical_action.rfind("scenario:", 0) == 0) return scenario(logical_action.substr(9));
     if (logical_action == "advance-clock") { tick(1); return true; }
@@ -2208,12 +2713,19 @@ bool Simulation::action(const std::string& logical_action) {
         }
     }
     else if (logical_action == "options") {
-        if (!state_.editor.active && state_.navigation.route == Route::Details && state_.navigation.modals.empty()) open_modal({"context", "Game actions", "details-more", context_actions(live()), 0, false});
-        else if (!state_.editor.active && state_.navigation.route == Route::Home && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty())
+        if (!state_.editor.active && state_.navigation.route == Route::Details && state_.navigation.modals.empty()) {
+            if (live()) force_organization_selection_ = true;
+            open_modal({"context", "Game actions", "details-more", context_actions(live()), 0, false});
+        } else if (!state_.editor.active && state_.navigation.route == Route::Home && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty()) {
+            if (live()) force_organization_selection_ = true;
             open_modal({"context", "Game actions", state_.navigation.focus_key, context_actions(live()), 0, false});
+        }
         else if (!state_.editor.active && state_.navigation.route == Route::Library && !state_.navigation.modals.empty()) {}
         else if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty()
-                 && state_.navigation.focus_key.rfind("game-", 0) == 0) open_modal({"context", "Game actions", state_.navigation.focus_key, {"favorite", "collection", "note", "hide", "cancel"}, 0, false});
+                 && state_.navigation.focus_key.rfind("game-", 0) == 0) {
+            if (live()) force_organization_selection_ = true;
+            open_modal({"context", "Game actions", state_.navigation.focus_key, {"favorite", "collection", "note", "hide", "cancel"}, 0, false});
+        }
         else if (!state_.editor.active && state_.navigation.route == Route::Downloads && state_.navigation.modals.empty()) activate();
     } else if (logical_action == "square") {
         if (state_.editor.active) {
@@ -2282,15 +2794,15 @@ bool Simulation::action(const std::string& logical_action) {
             if (state_.account.authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) state_.account.authentication = AuthState::Syncing;
         } else {
             if (!scenario(injected)) return false;
-            if (state_.persistence_available) save_profile();
+            if (live() || state_.persistence_available) save_profile();
             return true;
         }
-        if (state_.persistence_available) save_profile();
+        if (live() || state_.persistence_available) save_profile();
         rebuild_view(); return true;
     }
     else { last_error_ = "Unknown action: " + logical_action; return false; }
     rebuild_view();
-    if (state_.persistence_available) save_profile();
+    if (live() || state_.persistence_available) save_profile();
     return true;
 }
 
@@ -2370,7 +2882,7 @@ void Simulation::tick(int ticks) {
             state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(), [](const Notice& notice) { return !notice.persistent && notice.remaining_ticks == 0; }), state_.notices.end());
         }
     }
-    if (ticks > 0 && state_.persistence_available) save_profile();
+    if (ticks > 0 && (live() || state_.persistence_available)) save_profile();
     rebuild_view();
 }
 

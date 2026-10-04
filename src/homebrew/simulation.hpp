@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "app/preferences.h"
+#include "library/organization.h"
 #include "library/model.h"
 
 #include <cstdint>
@@ -57,6 +59,15 @@ struct LibraryUpdate {
     bool cache_available = false;
     std::optional<std::int64_t> retrieved_at;
 };
+
+struct PersistenceLoadToken {
+    std::uint64_t id = 0;
+    std::uint64_t baseline_revision = 0;
+};
+
+inline bool operator==(PersistenceLoadToken left, PersistenceLoadToken right) {
+    return left.id == right.id && left.baseline_revision == right.baseline_revision;
+}
 
 struct Game {
     GameId id = 0;
@@ -297,6 +308,27 @@ public:
     void SetWallClock(std::int64_t unix_seconds);
     void UpdateAccount(AccountUpdate update);
     bool UpdateLibrary(LibraryUpdate update);
+    PersistenceLoadToken BeginOrganizationLoad(std::uint64_t account);
+    bool ApplyOrganization(std::uint64_t account, PersistenceLoadToken token,
+                           std::optional<playden::OrganizationSnapshot> loaded);
+    bool FailOrganizationLoad(std::uint64_t account, PersistenceLoadToken token,
+                              playden::StorageError error);
+    void OrganizationCleared(std::uint64_t account);
+    PersistenceLoadToken BeginPreferencesLoad();
+    bool ApplyPreferences(PersistenceLoadToken token,
+                          const playden::PreferencesLoadResult& loaded);
+    [[nodiscard]] playden::OrganizationSnapshot ExportOrganization() const;
+    [[nodiscard]] playden::Preferences ExportPreferences() const;
+    [[nodiscard]] std::uint64_t OrganizationAccount() const noexcept { return organization_account_; }
+    [[nodiscard]] std::uint64_t OrganizationRevision() const noexcept { return organization_revision_; }
+    [[nodiscard]] std::uint64_t PreferencesRevision() const noexcept { return preferences_revision_; }
+    [[nodiscard]] bool OrganizationDirty() const noexcept;
+    [[nodiscard]] bool PreferencesDirty() const noexcept;
+    [[nodiscard]] bool OrganizationReadyForSave() const noexcept;
+    void OrganizationSaveResult(std::uint64_t account, std::uint64_t revision,
+                                playden::StorageError error);
+    void PreferencesSaveResult(std::uint64_t revision, playden::StorageError error);
+    bool TakePersistenceRetryRequest();
     [[nodiscard]] std::vector<ServiceAction> TakeServiceActions();
 
     [[nodiscard]] const State& state() const noexcept { return state_; }
@@ -323,6 +355,41 @@ private:
     std::uint64_t next_collection_serial_ = 1;
     std::uint64_t next_job_serial_ = 1;
     std::vector<ServiceAction> pending_service_actions_;
+    bool library_catalog_received_ = false;
+
+    struct OrganizationJournalEntry {
+        playden::OrganizationSnapshot before;
+        playden::OrganizationSnapshot after;
+        bool reset = false;
+        bool selected = false;
+        std::size_t bytes = 0;
+    };
+    std::uint64_t next_persistence_load_token_ = 0;
+    std::uint64_t organization_account_ = 0;
+    std::uint64_t organization_revision_ = 0;
+    std::uint64_t organization_saved_revision_ = 0;
+    std::uint64_t preferences_revision_ = 0;
+    std::uint64_t preferences_saved_revision_ = 0;
+    PersistenceLoadToken organization_load_token_;
+    PersistenceLoadToken preferences_load_token_;
+    bool organization_load_pending_ = false;
+    bool organization_load_failed_ = false;
+    bool organization_save_failed_ = false;
+    bool organization_journal_full_ = false;
+    bool organization_save_suppressed_ = false;
+    bool preferences_load_pending_ = false;
+    bool preferences_load_may_apply_ = false;
+    bool preferences_load_failed_ = false;
+    bool preferences_save_failed_ = false;
+    bool persistence_retry_requested_ = false;
+    bool force_organization_reset_ = false;
+    bool force_organization_selection_ = false;
+    bool force_preferences_reset_ = false;
+    std::size_t organization_journal_bytes_ = 0;
+    std::vector<OrganizationJournalEntry> organization_journal_;
+    playden::OrganizationSnapshot captured_organization_;
+    playden::OrganizationSnapshot persisted_organization_;
+    playden::Preferences captured_preferences_;
 
     void load_fixtures();
     void load_profile();
@@ -342,6 +409,10 @@ private:
     void finish_logs();
     void queue_service_action(ServiceAction action);
     void clear_account_specific_state();
+    void apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot);
+    void reconcile_applied_organization_selection(GameId prior_selected_id);
+    bool record_live_persistence();
+    void update_persistence_notice();
     [[nodiscard]] bool live() const noexcept { return mode_ == ModelMode::Live; }
     [[nodiscard]] std::string next_job_id();
 };
