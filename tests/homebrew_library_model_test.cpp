@@ -295,6 +295,22 @@ void live_filters_only_use_available_facts() {
     for(const auto& unavailable:{"sort-recent-added","sort-install-size","filter-installed","filter-genre-adventure","filter-controller-full"})
         check(std::find(actions.begin(),actions.end(),unavailable)==actions.end(),"unknown facts are not filter choices");
     check(std::find(actions.begin(),actions.end(),"filter-compat-playable")!=actions.end(),"personal compatibility remains filterable");
+
+    // A CM acquisition date makes "Recently added" a real fact, sorted newest first.
+    auto dated=make_live();
+    dated.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    auto older=game(42,"Alpha"),newer=game(43,"Beta"),undated=game(44,"Gamma");
+    older.added_at_unix_seconds=1400000000;newer.added_at_unix_seconds=1500000000;
+    check(dated.UpdateLibrary({{older,newer,undated},false,{},false,false,{}}),"dated library loaded");
+    check(dated.state().games.front().added_at==1400000000,"acquisition date projected");
+    check(dated.action("r1") && dated.action("triangle"),"dated filter modal opens");
+    const auto& dated_actions=dated.state().navigation.modals.back().action_keys;
+    check(std::find(dated_actions.begin(),dated_actions.end(),"sort-recent-added")!=dated_actions.end(),"recently added offered when dates exist");
+    activate(dated,"sort-recent-added");
+    check(dated.state().library.sort=="recent-added","recently added sort selected");
+    const auto ordered=dated.visible_games();
+    check(ordered.size()==3 && ordered[0]->id==43 && ordered[1]->id==42 && ordered[2]->id==44,
+          "newest acquisition first, undated last");
 }
 
 } // namespace

@@ -58,6 +58,17 @@ HttpError MapConnectError(CURLcode code) {
   }
 }
 
+// Aborts a blocking connect when the caller cancels or the deadline passes.
+struct ConnectAbort {
+  const std::atomic<bool>* cancel = nullptr;
+  Clock::time_point deadline;
+};
+
+int ConnectProgress(void* context, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+  const auto& abort = *static_cast<const ConnectAbort*>(context);
+  return abort.cancel->load(std::memory_order_acquire) || Clock::now() >= abort.deadline ? 1 : 0;
+}
+
 std::uint32_t RemainingMs(Clock::time_point deadline) {
   const auto remaining =
       std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
@@ -79,6 +90,7 @@ class WebSocketClient::Impl {
     if (!ValidWebSocketUrl(url) || timeout_ms == 0) return HttpError::kInvalidRequest;
     if (cancel.load(std::memory_order_acquire)) return HttpError::kCanceled;
     timeout_ms = std::min(timeout_ms, kMaxConnectTimeoutMs);
+    const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
     easy_ = curl_easy_init();
     if (!easy_) return HttpError::kInitializationFailed;
     bool configured =
@@ -91,10 +103,7 @@ class WebSocketClient::Impl {
         curl_easy_setopt(easy_, CURLOPT_FOLLOWLOCATION, 0L) == CURLE_OK &&
         curl_easy_setopt(easy_, CURLOPT_PROTOCOLS_STR, "wss") == CURLE_OK &&
         curl_easy_setopt(easy_, CURLOPT_NOSIGNAL, 1L) == CURLE_OK &&
-        curl_easy_setopt(easy_, CURLOPT_CONNECT_ONLY, 2L) == CURLE_OK &&
-        curl_easy_setopt(easy_, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(timeout_ms)) ==
-            CURLE_OK &&
-        curl_easy_setopt(easy_, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout_ms)) == CURLE_OK;
+        curl_easy_setopt(easy_, CURLOPT_CONNECT_ONLY, 2L) == CURLE_OK;
     if (!configured) {
       Close();
       return HttpError::kInitializationFailed;
@@ -112,11 +121,31 @@ class WebSocketClient::Impl {
       Close();
       return HttpError::kCanceled;
     }
-    // Bounded by the connect timeout; the upgrade itself is not cancelable mid-handshake.
-    const CURLcode code = curl_easy_perform(easy_);
-    if (code != CURLE_OK) {
+    // Resolution may have used part of the budget; the handshake gets only what is left and
+    // aborts promptly on cancel through the progress callback.
+    const auto remaining = RemainingMs(deadline);
+    if (remaining == 0) {
       Close();
-      return MapConnectError(code);
+      return HttpError::kTimeout;
+    }
+    ConnectAbort abort{&cancel, deadline};
+    if (curl_easy_setopt(easy_, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(remaining)) != CURLE_OK ||
+        curl_easy_setopt(easy_, CURLOPT_TIMEOUT_MS, static_cast<long>(remaining)) != CURLE_OK ||
+        curl_easy_setopt(easy_, CURLOPT_NOPROGRESS, 0L) != CURLE_OK ||
+        curl_easy_setopt(easy_, CURLOPT_XFERINFOFUNCTION, ConnectProgress) != CURLE_OK ||
+        curl_easy_setopt(easy_, CURLOPT_XFERINFODATA, &abort) != CURLE_OK) {
+      Close();
+      return HttpError::kInitializationFailed;
+    }
+    const CURLcode code = curl_easy_perform(easy_);
+    // The abort context lives on this stack frame; never call back into it later.
+    curl_easy_setopt(easy_, CURLOPT_NOPROGRESS, 1L);
+    curl_easy_setopt(easy_, CURLOPT_XFERINFOFUNCTION, nullptr);
+    if (code != CURLE_OK) {
+      const bool canceled = cancel.load(std::memory_order_acquire);
+      Close();
+      if (canceled) return HttpError::kCanceled;
+      return code == CURLE_ABORTED_BY_CALLBACK ? HttpError::kTimeout : MapConnectError(code);
     }
     curl_socket_t socket = CURL_SOCKET_BAD;
     if (curl_easy_getinfo(easy_, CURLINFO_ACTIVESOCKET, &socket) == CURLE_OK) socket_ = socket;

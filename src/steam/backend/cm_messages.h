@@ -13,6 +13,8 @@ namespace playden::steam::cm {
 
 enum EMsg : std::uint32_t {
   kEMsgMulti = 1,
+  kEMsgServiceMethodResponse = 147,
+  kEMsgServiceMethodCallFromClient = 151,
   kEMsgClientHeartBeat = 703,
   kEMsgClientLogOnResponse = 751,
   kEMsgClientLoggedOff = 757,
@@ -27,6 +29,7 @@ enum EResult : std::int32_t {
   kEResultOk = 1,
   kEResultFail = 2,
   kEResultInvalidPassword = 5,
+  kEResultAccessDenied = 15,
   kEResultLogonSessionReplaced = 34,
   kEResultTryAnotherCM = 48,
 };
@@ -44,6 +47,7 @@ struct Header {
   std::int32_t session_id = 0;
   std::optional<std::uint64_t> jobid_source;
   std::optional<std::uint64_t> jobid_target;
+  std::string target_job_name;  // unified service method, e.g. "Authentication.X#1"
   std::optional<std::int32_t> eresult;  // absent means success; the proto default is Fail
 };
 

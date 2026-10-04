@@ -10,6 +10,7 @@
 #include "homebrew/json.hpp"
 
 #include "steam/backend/auth_client.h"
+#include "steam/backend/entitled_library.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
 #include "library/cache.h"
@@ -363,11 +364,15 @@ int main(int argc, char** argv) {
         options->simulation ? std::filesystem::path(PLAYDEN_HOMEBREW_FIXTURES_DIR)
                             : std::filesystem::path{},
         options->simulation ? options->profile : std::filesystem::path{}, mode);
+    std::unique_ptr<playden::Storage> auth_storage;
+    std::unique_ptr<playden::steam::CmClient> auth_cm;
     std::unique_ptr<playden::steam::AuthClient> auth;
     std::unique_ptr<playden::LocalSessionRepository> sessions;
-    std::unique_ptr<playden::steam::LibraryClient> library_backend;
+    std::unique_ptr<playden::steam::LibraryClient> owned_library;
     std::unique_ptr<playden::LocalSessionRepository> library_sessions;
     std::unique_ptr<playden::Storage> library_storage;
+    std::unique_ptr<playden::steam::CmClient> cm_client;
+    std::unique_ptr<playden::steam::EntitledLibraryBackend> library_backend;
     std::unique_ptr<playden::LibraryCache> library_cache;
     std::unique_ptr<playden::LibraryService> library_service;
     std::unique_ptr<playden::PreferencesStore> preferences;
@@ -410,12 +415,19 @@ int main(int argc, char** argv) {
     hui::gfx::set_glsl_prefix("#version 410 core\n");
 
     if (!options->simulation) {
+        auth_storage = std::make_unique<playden::Storage>(options->data_directory.string());
+        auth_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *auth_storage);
         auth = std::make_unique<playden::steam::AuthClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        auth->SetCmRenewal([cm = auth_cm.get()](const playden::StoredSession& stored, const std::atomic<bool>& cancel) {
+            return playden::steam::RenewThroughCm(*cm, stored, cancel);
+        });
         sessions = std::make_unique<playden::LocalSessionRepository>(
             options->data_directory.string());
-        library_backend = std::make_unique<playden::steam::LibraryClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        owned_library = std::make_unique<playden::steam::LibraryClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
         library_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
         library_storage = std::make_unique<playden::Storage>(options->data_directory.string());
+        cm_client = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
+        library_backend = std::make_unique<playden::steam::EntitledLibraryBackend>(*owned_library, *cm_client);
         library_cache = std::make_unique<playden::LibraryCache>(*library_storage);
         library_service = std::make_unique<playden::LibraryService>(*library_backend,*library_sessions,library_cache.get());
         preferences=std::make_unique<playden::PreferencesStore>(*library_storage);

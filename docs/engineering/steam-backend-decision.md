@@ -192,3 +192,36 @@ malformed responses/headers/tokens, renewal rotation and failed replacement pres
 previous repository through `SteamService`. The tests pass on host, including UBSan, and the
 implementation cross-compiles for PS5. This is protocol implementation evidence only: graphical
 QR wiring, real PS5 phone approval, restart restoration, and sign-out acceptance remain pending.
+
+## CM client implementation
+
+`CmClient` (`src/steam/backend/cm_client.cpp`) opens one CM session per call over the selected
+libcurl/Mbed TLS stack: `GetCMListForConnect` (websockets, first four valid `host:port` endpoints),
+verified `wss://<endpoint>/cmsocket/` with native resolution and a connect that aborts on cancel or
+the deadline, `ClientHello`, then `ClientLogon` with the stored **refresh** token in field 108 and the
+reference's device fields (login ID from SHA-256, `MessageObject` machine ID from SHA-1 of a
+per-install seed in `steam-device-id`). Frames follow the reference: `EMsg | 0x80000000`, header
+length, `CMsgProtoBufHeader` with steam ID and session ID; the header `eresult` counts only when
+present. Multi messages are gzip-decoded with the pinned stb inflate (header flags, CRC and size
+checked), nested at most 16 deep. The pushed license list is filtered to this account's active
+licenses (reference flag mask, owner and minute limits) and packages are resolved through PICS in
+batches of 50, collecting multipart responses until `response_pending` is false; binary KeyValues
+package buffers yield app IDs. The earliest `time_created` per app becomes
+`GameSummary::added_at_unix_seconds`. The whole session has a 25 s deadline.
+
+`EntitledLibraryBackend` runs this in parallel with `GetOwnedGames`. As in the reference, a CM
+failure is never fatal and never revokes credentials; previous dates are carried forward from the
+cache. App PICS, app access tokens, text VDF and install sizes are left for the install/runtime work.
+
+Fixtures in `fixtures/steam/cm` are synthetic textprotos encoded by protoc from the vendored
+reference `.proto` files (`fixtures/steam/proto/generate_cm_fixtures.py`); requests must match them
+byte for byte, and complete server frames (gzip Multi, multipart PICS) drive a scripted transport.
+
+## Restoration finding (2026-10-05)
+
+On the PS5, `GenerateAccessTokenForApp` returned EResult 15 (AccessDenied) for the SteamClient
+refresh token that the CM logon accepted. The earlier rule "restoration always calls the server" is
+therefore replaced by the reference behavior: a stored access token with more than a minute left is
+reused offline, and when the Web API refuses renewal with AccessDenied the token is renewed through
+the authenticated CM session (`Authentication.GenerateAccessTokenForApp#1`). Only a refused CM
+logon means revoked credentials.

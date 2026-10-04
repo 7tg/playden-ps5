@@ -139,7 +139,16 @@ void RejectsInvalidValuesWithoutReplacingGoodData() {
   invalid = expected; invalid.filters.insert("fixture-only"); rejects(invalid, "unknown filter rejected");
   invalid = expected; invalid.scope = "installed"; rejects(invalid, "simulation-only installed scope rejected");
   invalid = expected; invalid.scope = "new-collection"; rejects(invalid, "collection action cannot be restored as scope");
-  invalid = expected; invalid.sort = "recent-added"; rejects(invalid, "simulation-only metadata sort rejected");
+  invalid = expected; invalid.sort = "install-size"; rejects(invalid, "simulation-only metadata sort rejected");
+  {
+    // Acquisition dates come from the Steam CM, so the recently-added sort is a live fact.
+    auto dated = expected; dated.sort = "recent-added";
+    Check(store.Save(kFirstAccount, dated).ok(), "recently-added sort accepted");
+    const auto restored = store.Load(kFirstAccount);
+    Check(restored.ok() && restored.value() && restored.value()->sort == "recent-added",
+          "recently-added sort restored");
+    Check(store.Save(kFirstAccount, expected).ok(), "restore the expected organization file");
+  }
   invalid = expected; invalid.filters = {"controller-full"}; rejects(invalid, "simulation-only controller filter rejected");
   invalid = expected; invalid.scope = "missing-collection"; rejects(invalid, "unknown scope rejected");
   invalid = expected; invalid.notes[40] = std::string("bad-") + static_cast<char>(0xc0);

@@ -1,14 +1,17 @@
 #include "steam/backend/cm_client.h"
 
+#include "steam/backend/auth_messages.h"
 #include "steam/backend/binary_kv.h"
 #include "steam/backend/gzip.h"
 #include "steam/backend/json.h"
+#include "steam/backend/token_claims.h"
 
 #include <mbedtls/sha1.h>
 #include <mbedtls/sha256.h>
 
 #include <algorithm>
 #include <chrono>
+#include <mutex>
 #include <set>
 #include <thread>
 #include <vector>
@@ -126,6 +129,9 @@ cm::DeviceIdentity MakeDeviceIdentity(std::string_view seed) {
 }
 
 std::string LoadOrCreateDeviceSeed(const Storage& storage) {
+  // The auth and library CM clients share one install identity; create it once.
+  static std::mutex mutex;
+  std::lock_guard<std::mutex> lock(mutex);
   const auto saved = storage.Read(kDeviceSeedFile, 256);
   if (saved.ok()) {
     std::string text(saved.value().begin(), saved.value().end());
@@ -237,9 +243,41 @@ class CmClient::Session {
     return error;
   }
 
+  // Calls a unified service method and waits for its single response body.
+  CmError ServiceMethod(const std::string& name, const std::vector<std::uint8_t>& body,
+                        std::vector<std::uint8_t>* reply) {
+    const std::uint64_t jobid = ++job_counter_;
+    service_ = ServiceJob{jobid, false, CmError::kNone, {}};
+    cm::Header header;
+    header.steam_id = steam_id_;
+    header.session_id = session_id_;
+    header.jobid_source = jobid;
+    header.target_job_name = name;
+    const auto frame = cm::EncodeFrame(cm::kEMsgServiceMethodCallFromClient, header, body);
+    if (frame.empty()) return CmError::kProtocol;
+    const auto remaining = RemainingMs(deadline_);
+    if (remaining == 0) return CmError::kTimeout;
+    if (const auto sent = FromTransport(transport_.Send(frame, remaining, cancel_));
+        sent != CmError::kNone)
+      return sent;
+    if (const auto waited = WaitFor([this] { return service_ && service_->done; });
+        waited != CmError::kNone)
+      return waited;
+    const auto error = service_->error;
+    *reply = std::move(service_->body);
+    service_.reset();
+    return error;
+  }
+
   std::uint64_t steam_id() const { return steam_id_; }
 
  private:
+  struct ServiceJob {
+    std::uint64_t id = 0;
+    bool done = false;
+    CmError error = CmError::kNone;
+    std::vector<std::uint8_t> body;
+  };
   struct Job {
     std::uint64_t id = 0;
     std::vector<cm::PicsResponse> parts;
@@ -315,6 +353,18 @@ class CmClient::Session {
         break;
     }
 
+    if (service_ && !service_->done && frame.header.jobid_target &&
+        *frame.header.jobid_target == service_->id) {
+      service_->done = true;
+      if (frame.header.eresult && *frame.header.eresult != cm::kEResultOk)
+        service_->error = CmError::kRejected;
+      else if (frame.emsg != cm::kEMsgServiceMethodResponse)
+        service_->error = CmError::kProtocol;
+      else
+        service_->body = std::move(frame.body);
+      return;
+    }
+
     // Job responses: jobid_target defaults to all-ones when absent, so require presence.
     if (!job_ || job_->done || !frame.header.jobid_target ||
         *frame.header.jobid_target != job_->id)
@@ -350,6 +400,7 @@ class CmClient::Session {
   Clock::time_point next_heartbeat_{};
   std::uint64_t job_counter_ = 0;
   std::optional<Job> job_;
+  std::optional<ServiceJob> service_;
   CmError fatal_ = CmError::kNone;
 };
 
@@ -361,22 +412,16 @@ CmClient::CmClient(CmClientHooks hooks, cm::DeviceIdentity device)
 
 CmClient::~CmClient() = default;
 
-AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
-                                                  const std::atomic<bool>& cancel) {
-  AcquisitionResult result;
-  if (cancel.load(std::memory_order_acquire)) {
-    result.error = CmError::kCanceled;
-    return result;
-  }
-  if (stored.account_name.empty() || stored.refresh_token.empty() || stored.steam_id == 0) {
-    result.error = CmError::kNoSession;
-    return result;
-  }
+CmError CmClient::Open(const StoredSession& stored, const std::atomic<bool>& cancel,
+                       Clock::time_point deadline, std::unique_ptr<MessageTransport>* transport,
+                       std::unique_ptr<Session>* opened) {
+  if (cancel.load(std::memory_order_acquire)) return CmError::kCanceled;
+  if (stored.account_name.empty() || stored.refresh_token.empty() || stored.steam_id == 0)
+    return CmError::kNoSession;
   if (!device_) {
-    if (!device_storage_) return result;
+    if (!device_storage_) return CmError::kProtocol;
     device_ = MakeDeviceIdentity(LoadOrCreateDeviceSeed(*device_storage_));
   }
-  const auto deadline = Clock::now() + std::chrono::milliseconds(hooks_.deadline_ms);
 
   HttpRequest request;
   request.url =
@@ -389,14 +434,12 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
   if (hooks_.directory) {
     response = hooks_.directory(request, cancel);
   } else {
-    if (ca_bundle_.empty()) return result;
+    if (ca_bundle_.empty()) return CmError::kProtocol;
     if (!http_) http_ = std::make_unique<HttpClient>(ca_bundle_);
     response = http_->Perform(request, cancel);
   }
-  if (!response.ok() || response.status_code != 200) {
-    result.error = response.error == HttpError::kCanceled ? CmError::kCanceled : CmError::kNetwork;
-    return result;
-  }
+  if (!response.ok() || response.status_code != 200)
+    return response.error == HttpError::kCanceled ? CmError::kCanceled : CmError::kNetwork;
   const std::string_view body(response.body.empty() ? ""
                                                     : reinterpret_cast<const char*>(response.body.data()),
                               response.body.size());
@@ -412,11 +455,10 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
       if (endpoints.size() == kMaxEndpoints) break;
     }
   }
-  if (endpoints.empty()) return result;  // kProtocol
+  if (endpoints.empty()) return CmError::kProtocol;
 
-  std::unique_ptr<MessageTransport> transport =
-      hooks_.transport ? hooks_.transport() : std::make_unique<WebSocketClient>(ca_bundle_);
-  if (!transport) return result;
+  *transport = hooks_.transport ? hooks_.transport() : std::make_unique<WebSocketClient>(ca_bundle_);
+  if (!*transport) return CmError::kProtocol;
   CmError connect_error = CmError::kNetwork;
   bool connected = false;
   for (const auto& endpoint : endpoints) {
@@ -425,31 +467,72 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
       connect_error = CmError::kTimeout;
       break;
     }
-    connect_error = FromTransport(transport->Connect("wss://" + endpoint + "/cmsocket/",
-                                                     remaining, cancel));
+    connect_error = FromTransport((*transport)->Connect("wss://" + endpoint + "/cmsocket/",
+                                                        remaining, cancel));
     if (connect_error == CmError::kNone) {
       connected = true;
       break;
     }
     if (connect_error == CmError::kCanceled) break;
   }
-  if (!connected) {
-    result.error = connect_error;
-    return result;
-  }
+  if (!connected) return connect_error;
 
-  Session session(*transport, deadline, cancel);
+  *opened = std::make_unique<Session>(**transport, deadline, cancel);
+  if (const auto hello = (*opened)->Send(cm::kEMsgClientHello, cm::EncodeHello());
+      hello != CmError::kNone)
+    return hello;
+  return (*opened)->Logon(stored, *device_);
+}
+
+TokenRenewal CmClient::RenewAccessToken(const StoredSession& stored,
+                                        const std::atomic<bool>& cancel) {
+  TokenRenewal renewal;
+  const auto deadline = Clock::now() + std::chrono::milliseconds(hooks_.deadline_ms);
+  std::unique_ptr<MessageTransport> transport;
+  std::unique_ptr<Session> session;
+  renewal.error = Open(stored, cancel, deadline, &transport, &session);
+  if (renewal.error == CmError::kNone) {
+    auth::GenerateAccessTokenForAppRequest request;
+    request.refresh_token = stored.refresh_token;
+    request.steam_id = stored.steam_id;
+    std::vector<std::uint8_t> body;
+    std::vector<std::uint8_t> reply;
+    if (!auth::Encode(request, &body).ok()) {
+      renewal.error = CmError::kProtocol;
+    } else {
+      renewal.error = session->ServiceMethod("Authentication.GenerateAccessTokenForApp#1", body, &reply);
+      // A refused method call is not a refused logon; keep kRejected for the latter.
+      if (renewal.error == CmError::kRejected) renewal.error = CmError::kProtocol;
+      auth::GenerateAccessTokenForAppResponse decoded;
+      if (renewal.error == CmError::kNone) {
+        if (!auth::Decode(reply, &decoded).ok() || decoded.access_token.empty()) {
+          renewal.error = CmError::kProtocol;
+        } else {
+          renewal.access_token = std::move(decoded.access_token);
+          renewal.refresh_token = std::move(decoded.refresh_token);
+        }
+      }
+    }
+  }
+  if (transport) transport->Close();
+  return renewal;
+}
+
+AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
+                                                  const std::atomic<bool>& cancel) {
+  AcquisitionResult result;
+  const auto deadline = Clock::now() + std::chrono::milliseconds(hooks_.deadline_ms);
+  std::unique_ptr<MessageTransport> transport;
+  std::unique_ptr<Session> opened;
   auto finish = [&](CmError error) {
-    transport->Close();
+    if (transport) transport->Close();
     result.error = error;
     if (error != CmError::kNone) result.acquired_at.clear();
     return result;
   };
-  if (const auto hello = session.Send(cm::kEMsgClientHello, cm::EncodeHello());
-      hello != CmError::kNone)
-    return finish(hello);
-  if (const auto logon = session.Logon(stored, *device_); logon != CmError::kNone)
-    return finish(logon);
+  if (const auto open = Open(stored, cancel, deadline, &transport, &opened); open != CmError::kNone)
+    return finish(open);
+  Session& session = *opened;
   std::vector<cm::License> licenses;
   if (const auto waited = session.Licenses(&licenses); waited != CmError::kNone)
     return finish(waited);
@@ -507,6 +590,32 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
     }
   }
   return finish(CmError::kNone);
+}
+
+AuthResult RenewThroughCm(CmClient& client, const StoredSession& session,
+                          const std::atomic<bool>& cancel) {
+  auto renewal = client.RenewAccessToken(session, cancel);
+  switch (renewal.error) {
+    case CmError::kNone: break;
+    case CmError::kCanceled: return {AuthError::kCanceled, std::nullopt};
+    case CmError::kNoSession:
+    case CmError::kRejected: return {AuthError::kCredentialsRevoked, std::nullopt};
+    case CmError::kNetwork:
+    case CmError::kTimeout: return {AuthError::kNetwork, std::nullopt};
+    case CmError::kProtocol: return {AuthError::kProtocol, std::nullopt};
+  }
+  const auto now = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count());
+  auto token_ok = [&](const std::string& token) {
+    const auto claims = InspectTokenClaims(token);
+    return claims && claims->steam_id == session.steam_id && claims->expires_at_unix_seconds > now;
+  };
+  if (!token_ok(renewal.access_token) || (renewal.refresh_token && !token_ok(*renewal.refresh_token)))
+    return {AuthError::kProtocol, std::nullopt};
+  auto updated = session;
+  updated.access_token = std::move(renewal.access_token);
+  if (renewal.refresh_token) updated.refresh_token = std::move(*renewal.refresh_token);
+  return {AuthError::kNone, std::move(updated)};
 }
 
 }  // namespace playden::steam

@@ -8,6 +8,7 @@
 #include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
 #include "steam/backend/auth_client.h"
+#include "steam/backend/entitled_library.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
 #include "library/cache.h"
@@ -61,11 +62,26 @@ int main() {
             playden::homebrew::ModelMode::Simulation);
 #else
         playden::homebrew::Simulation simulation({}, {}, playden::homebrew::ModelMode::Live);
+        playden::Storage auth_storage("/app0/playden-data");
+        playden::steam::CmClient auth_cm("/app0/trust/cacert.pem", auth_storage);
         playden::steam::AuthClient auth("/app0/trust/cacert.pem");
+        auth.SetCmRenewal([&auth_cm](const playden::StoredSession& stored, const std::atomic<bool>& cancel) {
+            return playden::steam::RenewThroughCm(auth_cm, stored, cancel);
+        });
+        // Sanitized: method, HTTP status and X-EResult number; never tokens or account identity.
+        auth.SetFailureReport([](const char* method, long http_status, int eresult) {
+            mkdir("/app0/logs", 0777);
+            if (FILE* log = std::fopen("/app0/logs/auth.log", "a")) {
+                std::fprintf(log, "auth_failure method=%s http=%ld eresult=%d\n", method, http_status, eresult);
+                std::fclose(log);
+            }
+        });
         playden::LocalSessionRepository sessions("/app0/playden-data");
-        playden::steam::LibraryClient library_backend("/app0/trust/cacert.pem");
+        playden::steam::LibraryClient owned_library("/app0/trust/cacert.pem");
         playden::LocalSessionRepository library_sessions("/app0/playden-data");
         playden::Storage library_storage("/app0/playden-data");
+        playden::steam::CmClient cm_client("/app0/trust/cacert.pem", library_storage);
+        playden::steam::EntitledLibraryBackend library_backend(owned_library, cm_client);
         playden::LibraryCache library_cache(library_storage);
         playden::LibraryService library_service(library_backend,library_sessions,&library_cache);
         playden::PreferencesStore preferences(library_storage);

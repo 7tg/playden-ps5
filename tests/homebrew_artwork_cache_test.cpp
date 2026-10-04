@@ -152,9 +152,11 @@ void LateSourceAndGenerationCannotPopulateCurrentIdentity() {
 
   const auto releases = textures.releases.size();
   cache.BeginFrame(2);
+  // The generation change releases everything before this frame draws; the new generation's
+  // load may then finish within this same EndFrame, so check before it.
+  assert(textures.releases.size() == releases + 1 && cache.Stats().texture_count == 0);
   assert(cache.TextureFor(20, "new") == 0);
   cache.EndFrame();
-  assert(textures.releases.size() == releases + 1 && cache.Stats().texture_count == 0);
   assert(AwaitTexture(cache, 2, 20, "new") != 0);
 }
 

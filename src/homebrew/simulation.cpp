@@ -541,6 +541,9 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             || !identifiers.insert(summary.id).second
             || (summary.last_played_unix_seconds
                 && *summary.last_played_unix_seconds
+                    > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+            || (summary.added_at_unix_seconds
+                && *summary.added_at_unix_seconds
                     > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) {
             return false;
         }
@@ -575,6 +578,8 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             game.playtime_minutes = summary.playtime_minutes;
             if (summary.last_played_unix_seconds)
                 game.last_played = static_cast<std::int64_t>(*summary.last_played_unix_seconds);
+            if (summary.added_at_unix_seconds)
+                game.added_at = static_cast<std::int64_t>(*summary.added_at_unix_seconds);
             projected.push_back(std::move(game));
         }
         state_.games = std::move(projected);
@@ -2705,8 +2710,16 @@ bool Simulation::action(const std::string& logical_action) {
     else if (logical_action == "search") { if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) start_editor("Search", state_.library.query); }
     else if (logical_action == "triangle") {
         if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) {
+            // Live mode offers only sorts and filters backed by facts the library actually has.
+            // A restored "recent-added" sort stays listed so it is visible and can be changed.
+            const bool dated = state_.library.sort == "recent-added" ||
+                std::any_of(state_.games.begin(), state_.games.end(),
+                            [](const Game& game) { return game.added_at.has_value(); });
             std::vector<std::string> actions = live()
-            ? std::vector<std::string>{"sort-name", "sort-recent-played", "sort-playtime", "filter-compat-playable", "filters-reset", "cancel"}
+            ? (dated ? std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime",
+                                                "filter-compat-playable", "filters-reset", "cancel"}
+                     : std::vector<std::string>{"sort-name", "sort-recent-played", "sort-playtime", "filter-compat-playable",
+                                                "filters-reset", "cancel"})
             : std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime", "sort-install-size",
                                       "filter-installed", "filter-genre-adventure", "filter-controller-full", "filter-compat-playable",
                                       "filters-reset", "cancel"};

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace playden::steam {
@@ -91,7 +92,7 @@ class Reader {
   bool Section(std::uint32_t depth, Node* out) {
     if (depth >= kMaxDepth) return false;
     out->is_dict = true;
-    std::vector<std::string> lowered_keys;
+    std::unordered_set<std::string> lowered_keys;
     while (offset_ < size_) {
       const std::uint8_t type = data_[offset_++];
       if (type == kTypeEnd) return true;
@@ -131,10 +132,7 @@ class Reader {
           return false;
       }
       std::string lowered = AsciiLower(key);
-      if (std::find(lowered_keys.begin(), lowered_keys.end(), lowered) != lowered_keys.end()) {
-        return false;
-      }
-      lowered_keys.push_back(std::move(lowered));
+      if (!lowered_keys.insert(std::move(lowered)).second) return false;  // duplicate key
       out->entries.emplace_back(std::move(key), std::move(value));
     }
     return false;  // truncated: no terminator

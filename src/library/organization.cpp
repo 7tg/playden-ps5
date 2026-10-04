@@ -99,7 +99,8 @@ bool ReservedCollectionId(const std::string& value) {
 }
 
 bool ValidSort(const std::string& value) {
-  return value == "name" || value == "recent-played" || value == "playtime";
+  return value == "name" || value == "recent-played" || value == "recent-added" ||
+         value == "playtime";
 }
 
 bool ValidFilter(const std::string& value) {

@@ -116,7 +116,8 @@ if(PLAYDEN_HOMEBREW_UI)
 
     # Authenticated CM session for the CM-only library facts (acquisition dates).
     add_library(playden_steam_cm STATIC
-        "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_client.cpp")
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_client.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/entitled_library.cpp")
     target_include_directories(playden_steam_cm PUBLIC "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(playden_steam_cm PUBLIC cxx_std_17)
     target_link_libraries(playden_steam_cm PUBLIC
@@ -188,6 +189,9 @@ function(playden_register_steam_backend_tests)
             target_link_libraries(${test_name}_test PRIVATE playden_steam_cm)
             add_test(NAME ${test_name} COMMAND ${test_name}_test "${CMAKE_SOURCE_DIR}/fixtures/steam/cm")
         endforeach()
+        add_executable(entitled_library_test "${CMAKE_SOURCE_DIR}/tests/entitled_library_test.cpp")
+        target_link_libraries(entitled_library_test PRIVATE playden_steam_cm)
+        add_test(NAME entitled_library COMMAND entitled_library_test)
 
         add_executable(library_client_test "${CMAKE_SOURCE_DIR}/tests/library_client_test.cpp")
         target_link_libraries(library_client_test PRIVATE playden_steam_library)

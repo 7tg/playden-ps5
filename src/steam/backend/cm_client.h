@@ -4,9 +4,12 @@
 #include "steam/backend/cm_messages.h"
 #include "steam/backend/http_client.h"
 #include "steam/backend/ws_client.h"
+#include "steam/auth_backend.h"
 #include "steam/session_store.h"
 
 #include <atomic>
+#include <chrono>
+#include <optional>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -32,6 +35,13 @@ struct AcquisitionResult {
   CmError error = CmError::kProtocol;
   // App ID -> earliest acquisition (unix seconds) among this account's active licenses.
   std::map<std::uint32_t, std::uint32_t> acquired_at;
+  bool ok() const { return error == CmError::kNone; }
+};
+
+struct TokenRenewal {
+  CmError error = CmError::kProtocol;
+  std::string access_token;
+  std::optional<std::string> refresh_token;  // present only when Steam rotated it
   bool ok() const { return error == CmError::kNone; }
 };
 
@@ -69,13 +79,28 @@ class CmClient final : public AcquisitionSource {
   AcquisitionResult FetchAcquisitionDates(const StoredSession& session,
                                           const std::atomic<bool>& cancel) override;
 
+  // Renews the access token through the authenticated CM session
+  // (Authentication.GenerateAccessTokenForApp#1), which accepts SteamClient refresh tokens that
+  // the Web API refuses. A refused CM logon reports kRejected.
+  TokenRenewal RenewAccessToken(const StoredSession& session, const std::atomic<bool>& cancel);
+
  private:
   class Session;
+  // Directory lookup, connect, hello and logon. On success the transport is connected and the
+  // session logged on.
+  CmError Open(const StoredSession& session, const std::atomic<bool>& cancel,
+               std::chrono::steady_clock::time_point deadline,
+               std::unique_ptr<MessageTransport>* transport, std::unique_ptr<Session>* opened);
   CmClientHooks hooks_;
   std::string ca_bundle_;
   const Storage* device_storage_ = nullptr;
   std::optional<cm::DeviceIdentity> device_;
   std::unique_ptr<HttpClient> http_;
 };
+
+// Adapts CM renewal to the auth worker: a refused CM logon means the credentials are gone; network
+// trouble stays a network error so cache-only startup still applies.
+AuthResult RenewThroughCm(CmClient& client, const StoredSession& session,
+                          const std::atomic<bool>& cancel);
 
 }  // namespace playden::steam

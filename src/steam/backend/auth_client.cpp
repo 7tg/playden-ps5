@@ -122,11 +122,17 @@ AuthError AuthClient::Post(const char* method, const std::vector<std::uint8_t>& 
     response = http_->Perform(req, cancel);
   }
   if (cancel.load() || response.error == HttpError::kCanceled) return AuthError::kCanceled;
-  if (!response.ok()) return AuthError::kNetwork;
+  last_eresult_ = 1;
+  auto report = [&](AuthError error, int eresult) {
+    last_eresult_ = eresult;
+    if (hooks_.failure) hooks_.failure(method, response.status_code, eresult);
+    return error;
+  };
+  if (!response.ok()) return report(AuthError::kNetwork, 0);
   if (response.status_code == 401 || response.status_code == 403)
-    return restoring ? AuthError::kCredentialsRevoked : AuthError::kRejected;
-  if (response.status_code == 429 || response.status_code >= 500) return AuthError::kNetwork;
-  if (response.status_code != 200 || response.body.size() > kBodyLimit) return AuthError::kProtocol;
+    return report(restoring ? AuthError::kCredentialsRevoked : AuthError::kRejected, 0);
+  if (response.status_code == 429 || response.status_code >= 500) return report(AuthError::kNetwork, 0);
+  if (response.status_code != 200 || response.body.size() > kBodyLimit) return report(AuthError::kProtocol, 0);
   int result = 1; bool seen = false;
   for (const auto& header : response.headers) {
     if (!ResultHeader(header.first)) continue;
@@ -143,9 +149,9 @@ AuthError AuthClient::Post(const char* method, const std::vector<std::uint8_t>& 
   // headers fail closed instead of silently becoming success.
   if (result != 1) {
     if (restoring && (result == 5 || result == 15 || result == 26 || result == 27))
-      return AuthError::kCredentialsRevoked;
-    if (result == 9 || result == 27) return AuthError::kExpired;
-    return AuthError::kRejected;
+      return report(AuthError::kCredentialsRevoked, result);
+    if (result == 9 || result == 27) return report(AuthError::kExpired, result);
+    return report(AuthError::kRejected, result);
   }
   *body = std::move(response.body);
   return AuthError::kNone;
@@ -234,8 +240,19 @@ AuthResult AuthClient::Renew(const StoredSession& session, const std::atomic<boo
 AuthResult AuthClient::Restore(const StoredSession& session,const std::atomic<bool>& cancel) {
   if (cancel.load()) return Failure(AuthError::kCanceled);
   if (!hooks_.unix_seconds || !AccountNameValid(session.account_name)) return Failure(AuthError::kProtocol);
-  if (!session.steam_id || !ValidToken(session.refresh_token,session.steam_id,hooks_.unix_seconds()))
+  const auto now = hooks_.unix_seconds();
+  if (!session.steam_id || !ValidToken(session.refresh_token,session.steam_id,now))
     return Failure(AuthError::kCredentialsRevoked);
-  return Renew(session,cancel,kRequestTimeoutMs,true);
+  // As the reference client: a stored access token with more than a minute left is used as is.
+  if (const auto claims = InspectTokenClaims(session.access_token);
+      claims && claims->steam_id == session.steam_id && claims->expires_at_unix_seconds > now + 60)
+    return {AuthError::kNone, session};
+  auto renewed = Renew(session,cancel,kRequestTimeoutMs,true);
+  // The Web API refuses SteamClient refresh tokens with AccessDenied although the CM accepts them;
+  // only a refused CM logon then means the credentials are gone.
+  if (renewed.error == AuthError::kCredentialsRevoked && last_eresult_ == 15 && hooks_.cm_renew &&
+      !cancel.load())
+    return hooks_.cm_renew(session, cancel);
+  return renewed;
 }
 }  // namespace playden::steam

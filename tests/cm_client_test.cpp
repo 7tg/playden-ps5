@@ -58,6 +58,8 @@ struct Script {
   // What the fake server answers.
   std::vector<std::vector<std::uint8_t>> on_logon;
   std::vector<std::vector<std::uint8_t>> on_pics;
+  std::vector<std::vector<std::uint8_t>> on_service;
+  std::vector<std::vector<std::uint8_t>> raw_sent;
   std::chrono::milliseconds pics_delay{0};
 
   void Queue(std::vector<std::uint8_t> frame, std::chrono::milliseconds delay = 0ms) {
@@ -84,6 +86,9 @@ class FakeTransport final : public MessageTransport {
       for (const auto& reply : script_->on_logon) script_->Queue(reply);
     if (frame.emsg == cm::kEMsgClientPICSProductInfoRequest)
       for (const auto& reply : script_->on_pics) script_->Queue(reply, script_->pics_delay);
+    if (frame.emsg == cm::kEMsgServiceMethodCallFromClient)
+      for (const auto& reply : script_->on_service) script_->Queue(reply);
+    script_->raw_sent.push_back(message);
     script_->sent.push_back(std::move(frame));
     return HttpError::kNone;
   }
@@ -278,6 +283,37 @@ void MissingSessionOrEndpointsFailEarly() {
   assert(script->connects == 0);
 }
 
+void AccessTokenRenewsThroughAuthenticatedServiceMethod() {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9))};
+  proto::Writer reply;
+  reply.AddString(1, "renewed.access.token");
+  script->on_service = {ServerFrame(cm::kEMsgServiceMethodResponse, reply.bytes(), std::nullopt, 1)};
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  const auto renewal = client.RenewAccessToken(Session(), cancel);
+  assert(renewal.ok() && renewal.access_token == "renewed.access.token" && !renewal.refresh_token);
+  std::lock_guard<std::mutex> lock(script->mutex);
+  assert(script->closed && script->sent.back().emsg == cm::kEMsgServiceMethodCallFromClient);
+  assert(script->sent.back().header.jobid_source == 1u && script->sent.back().header.session_id == 77);
+  const std::string raw(script->raw_sent.back().begin(), script->raw_sent.back().end());
+  assert(raw.find("Authentication.GenerateAccessTokenForApp#1") != std::string::npos);
+  assert(raw.find("synthetic.refresh.token") != std::string::npos);
+}
+
+void RefusedServiceCallIsNotARefusedLogon() {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9))};
+  script->on_service = {ServerFrame(cm::kEMsgServiceMethodResponse, {}, cm::kEResultAccessDenied, 1)};
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  assert(client.RenewAccessToken(Session(), cancel).error == CmError::kProtocol);
+  auto refused = std::make_shared<Script>();
+  refused->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(cm::kEResultInvalidPassword, 9))};
+  auto refused_client = MakeClient(refused);
+  assert(refused_client.RenewAccessToken(Session(), cancel).error == CmError::kRejected);
+}
+
 void DeviceSeedPersistsPerInstall() {
   const auto root = std::filesystem::temp_directory_path() / "playden-cm-seed-test";
   std::filesystem::remove_all(root);
@@ -304,5 +340,7 @@ int main(int argc, char** argv) {
   CancelStopsWaiting();
   HeartbeatIsSentOnTheServerInterval();
   MissingSessionOrEndpointsFailEarly();
+  AccessTokenRenewsThroughAuthenticatedServiceMethod();
+  RefusedServiceCallIsNotARefusedLogon();
   DeviceSeedPersistsPerInstall();
 }

@@ -344,7 +344,7 @@ target_compile_definitions(playden-homebrew PRIVATE
     PLAYDEN_HOMEBREW_CA_BUNDLE="${playden_staged_ca}")
 target_link_libraries(playden-homebrew PRIVATE
     playden_homebrew_ui playden_homebrew_controller playden_local_session_repository
-    playden_library playden_steam_auth playden_steam_library PkgConfig::SDL2 OpenGL::GL)
+    playden_library playden_steam_auth playden_steam_library playden_steam_cm PkgConfig::SDL2 OpenGL::GL)
 add_dependencies(playden-homebrew playden_homebrew_assets playden_steam_trust)
 set_target_properties(playden-homebrew PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -371,7 +371,7 @@ if(BUILD_TESTING)
         PLAYDEN_HOMEBREW_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/fixtures/ui-comparison"
         PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
     target_link_libraries(homebrew_host_input_test PRIVATE playden_homebrew_ui
-        playden_homebrew_controller playden_local_session_repository playden_library playden_steam_auth playden_steam_library
+        playden_homebrew_controller playden_local_session_repository playden_library playden_steam_auth playden_steam_library playden_steam_cm
         PkgConfig::SDL2 OpenGL::GL)
     add_test(NAME homebrew_host_input COMMAND homebrew_host_input_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
     add_executable(homebrew_browse_test "${CMAKE_SOURCE_DIR}/tests/homebrew_browse_test.cpp")

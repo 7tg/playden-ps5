@@ -55,6 +55,16 @@ int main(){
  Check(partial_restored.ok()&&partial_restored.value().metadata_partial,"schema three preserves partial metadata state");
  auto lossy_partial=partial;lossy_partial.schema_version=2;
  Check(!cache.Save("76561198000000004",lossy_partial).ok(),"schema two cannot silently discard partial metadata state");
+ LibrarySnapshot dated{4,123460,{{40,"Dated","","",""},{41,"Undated","","",""}}};
+ dated.games[0].added_at_unix_seconds=1500000000;
+ Check(cache.Save("76561198000000005",dated).ok(),"save schema four acquisition dates");
+ auto dated_restored=cache.Load("76561198000000005");
+ Check(dated_restored.ok()&&dated_restored.value().schema_version==4,"load schema four");
+ Check(dated_restored.value().games[0].added_at_unix_seconds==1500000000u&&!dated_restored.value().games[1].added_at_unix_seconds,"acquisition date roundtrip; unknown stays unknown");
+ auto lossy_dated=dated;lossy_dated.schema_version=3;
+ Check(!cache.Save("76561198000000005",lossy_dated).ok(),"schema three cannot silently discard acquisition dates");
+ auto zero_dated=dated;zero_dated.games[0].added_at_unix_seconds=0;
+ Check(!cache.Save("76561198000000005",zero_dated).ok(),"zero acquisition date rejected");
  auto future=partial;future.retrieved_at_unix_seconds=std::uint64_t{1}<<63;
  Check(!cache.Save("76561198000000004",future).ok(),"timestamp beyond signed presentation range rejected");
  Check(storage.WriteAtomic("library-76561198000000004.cache.tmp",Bytes{'s','t','a','l','e'}).ok(),"write interrupted replacement fixture");

@@ -138,3 +138,12 @@ ps5-native-app-boilerplate (latest upstream f98de73) and ps5-homebrew-ui (8a716f
 Title glyph coverage is closed for v1 as an explicit fallback: characters outside the baked atlases draw a visible `?`, every fallback face is required to contain `?`, and a graphical test renders titles whose non-Latin characters are outside the catalog. Arabic stays unshaped and drawn left to right. Broad run-time coverage belongs to ps5-homebrew-ui `feat/unicode-text`, owned by another effort. See [glyph evidence](../../results/20261004-glyph-fallback-host/README.md).
 
 Next: authenticated CM (hello, logon, heartbeat, Multi with gzip, license list, package PICS with binary KeyValues) feeding the "Recently added" date, then the connected journey on the console.
+
+
+## Authenticated CM, real-account console run, restoration fix (3C/4B)
+
+The CM client, acquisition dates, cache schema 4, carry-forward and the live "Recently added" sort are implemented; see the decision record's "CM client implementation". Independent review found no blockers; its fixes are applied (cancelable, deadline-bounded WSS connect; linear duplicate-key check; the active sort stays listed; the sort test asserts order; a racy artwork-cache assertion moved before the frame that can complete a load).
+
+First real-account run on the PS5: QR approval, 556-game library, streamed covers and CM dates all worked. Restart restoration failed because Steam's Web API refuses SteamClient refresh tokens with AccessDenied; restoration now reuses unexpired access tokens and renews through the CM. See [connected run](../../results/20261005-connected-ps5/README.md). Re-verification of restoration on the console is pending: another agent used the console and the title stopped launching for reasons outside this build.
+
+Selected host **48/48** and legacy **21/21** pass. PS5 package eboot SHA-256: `a9ad7455d42f80bcbdc0d2514d7f201cc022fa371e6a7c2e7a0599243b9a53a3`.

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <unordered_map>
 
 namespace playden {
 namespace {
@@ -251,11 +252,15 @@ void LibraryService::ExecuteRefresh(const Job& job) {
 
   bool cache_available = false;
   StorageError cache_error = StorageError::kNone;
+  // Acquisition dates from the previous snapshot, kept when a refresh cannot obtain them.
+  std::unordered_map<GameId, std::uint64_t> previous_added_at;
   if (cache_) {
     auto loaded = cache_->Load(job.account);
     if (!Current(job)) return;
     if (loaded.ok() && loaded.value().retrieved_at_unix_seconds <= kMaximumTimestamp) {
       cache_available = true;
+      for (const auto& game : loaded.value().games)
+        if (game.added_at_unix_seconds) previous_added_at.emplace(game.id, *game.added_at_unix_seconds);
       LibraryEvent cached;
       cached.kind = LibraryEventKind::kCached;
       cached.request_id = job.request;
@@ -283,6 +288,11 @@ void LibraryService::ExecuteRefresh(const Job& job) {
   LibrarySnapshot snapshot;
   snapshot.retrieved_at_unix_seconds = Now();
   snapshot.games = std::move(result.games);
+  for (auto& game : snapshot.games) {
+    if (game.added_at_unix_seconds) continue;
+    const auto previous = previous_added_at.find(game.id);
+    if (previous != previous_added_at.end()) game.added_at_unix_seconds = previous->second;
+  }
   snapshot.metadata_partial = result.metadata_partial;
   if (cache_) {
     const auto saved = cache_->Save(job.account, snapshot);

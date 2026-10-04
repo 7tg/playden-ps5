@@ -74,6 +74,7 @@ std::vector<std::uint8_t> EncodeFrame(std::uint32_t emsg, const Header& header,
   encoded.AddVarint(2, static_cast<std::uint64_t>(static_cast<std::int64_t>(header.session_id)));
   if (header.jobid_source) encoded.AddFixed64(10, *header.jobid_source);
   if (header.jobid_target) encoded.AddFixed64(11, *header.jobid_target);
+  if (!header.target_job_name.empty()) encoded.AddString(12, header.target_job_name);
   if (header.eresult)
     encoded.AddVarint(13, static_cast<std::uint64_t>(static_cast<std::int64_t>(*header.eresult)));
   if (!encoded.ok() || 8 + encoded.bytes().size() + body.size() > kMaxFrameBytes) return {};

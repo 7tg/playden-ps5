@@ -9,7 +9,7 @@
 namespace playden {
 
 struct LibrarySnapshot {
-  std::uint32_t schema_version = 3;
+  std::uint32_t schema_version = 4;
   std::uint64_t retrieved_at_unix_seconds = 0;
   std::vector<GameSummary> games;
   bool metadata_partial = false;

@@ -72,7 +72,8 @@ struct Fixture {
   }
   ChallengeCallback Callback() { return [this](const std::string& s) { challenges.push_back(s); }; }
 };
-StoredSession Stored() { return {76561198000000001ULL, "synthetic-account", Token(), Token(), 7}; }
+// The access token expires within the minute, so restoration must renew it.
+StoredSession Stored() { return {76561198000000001ULL, "synthetic-account", Token(), Token("76561198000000001", 1900000030), 7}; }
 void QrSuccessAndReplacement() {
   Fixture f; f.replies.push_back(Begin());
   proto::Writer w; w.AddVarint(1, 456); w.AddString(2, "https://s.team/q/synthetic-two");
@@ -226,6 +227,30 @@ void DeadlineAndCancellationEdges() {
   }
 }
 void Restoration() {
+  {
+    // As the reference client, an access token with more than a minute left is reused offline.
+    Fixture f; auto saved = Stored(); saved.access_token = Token(); AuthClient c(f.Hooks());
+    auto r = c.Restore(saved,f.cancel);
+    assert(r.error == AuthError::kNone && r.session->access_token == saved.access_token && f.requests.empty());
+  }
+  {
+    // The Web API refuses a SteamClient refresh token with AccessDenied: renew through the CM.
+    Fixture f; proto::Writer w; f.replies.push_back(Reply(w,15)); int cm_calls = 0;
+    auto hooks = f.Hooks();
+    hooks.cm_renew = [&](const StoredSession& s, const std::atomic<bool>&) {
+      ++cm_calls; auto renewed = s; renewed.access_token = Token(); return AuthResult{AuthError::kNone, renewed};
+    };
+    AuthClient c(hooks); auto r = c.Restore(Stored(),f.cancel);
+    assert(r.error == AuthError::kNone && cm_calls == 1 && r.session->access_token == Token());
+  }
+  {
+    // Any other refusal keeps its meaning; the CM is not consulted.
+    Fixture f; proto::Writer w; f.replies.push_back(Reply(w,5)); int cm_calls = 0;
+    auto hooks = f.Hooks();
+    hooks.cm_renew = [&](const StoredSession&, const std::atomic<bool>&) { ++cm_calls; return AuthResult{}; };
+    AuthClient c(hooks);
+    assert(c.Restore(Stored(),f.cancel).error == AuthError::kCredentialsRevoked && cm_calls == 0);
+  }
   {
     Fixture f; const auto rotation = Token("76561198000000001",2100000000); f.replies.push_back(Renew(Token(), rotation));
     AuthClient c(f.Hooks()); auto r = c.Restore(Stored(),f.cancel);
