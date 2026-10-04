@@ -12,7 +12,7 @@ The selected presentation is **direct ps5-homebrew-ui**, merged into `main` in `
 
 The [Foundation to Connected Library plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) breaks the first four milestones into tasks: launcher shell, native 4K60 validation, Steam connectivity, and the integrated MVP.
 
-Current work and unproven acceptance gates are tracked in the [v1 execution ledger](docs/engineering/v1-progress.md).
+Current work and unproven acceptance gates are tracked in the [v1 execution ledger](docs/engineering/v1-progress.md). See [current status and roadmap](STATUS.md) and [agent handoff](HANDOFF.md) for the latest working-tree snapshot and resume steps.
 
 ## Build and run
 

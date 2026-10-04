@@ -113,3 +113,8 @@ Independent review exposed and resolved dirty-preference retry overwrite, missin
 Selected host **38/38** and legacy regression **21/21** pass. The actual graphical consumer restores favorites and reduced motion from platform storage files using synthetic data; see [persistence evidence](../../results/20261004-persistence-host/README.md). Local PS5 compile/link/sign/package succeeded with eboot SHA-256 `ba57cf4daf9efca8701f7be634e6631814ccdbebb70129b92aa8089306d6407e`. No console deployment or acceptance follows from these checks.
 
 Next: asynchronous artwork and dynamic title coverage (4A.3), authenticated CM and real-account retrieval acceptance, then coordinated native lifecycle/storage and physical-controller checks. The full connected journey and deferred 4K60 gate remain open. Chauffeur inbox and PS5 MCP tools were unavailable in this verification session, so no shared-device access was attempted.
+
+
+## Artwork implementation handoff
+
+The user requested a status file and handoff while artwork integration was in progress. [STATUS.md](../../STATUS.md) and [HANDOFF.md](../../HANDOFF.md) distinguish committed implementation through `d237176` from the uncommitted artwork service/decoder/cache and selected-renderer wiring. The WIP host build, focused artwork **4/4**, public HTTPS cover smoke, and local PS5 package passed. The full expanded 42-test suite, capture inspection, final independent review, and the injected-backend exception contract remain pending. No console or performance acceptance was performed. Preserve the working-tree files listed in the handoff.
