@@ -16,7 +16,7 @@
 - Connect to Steam directly from the PS5 with QR approval on a phone; no desktop companion service.
 - Preserve PS5-style navigation and focus restoration.
 - Build game-management UI before real installation. The install sheet and changing queue here are performance fixtures, not delivery of the full v2 management feature set.
-- Keep Wine integration independent and out of these four milestones.
+- Keep Wine integration out of these four milestones. Update 2026-10-05: the Wine implementation is `../ps5-homebrew/prospero-win`; a follow-up step investigates it and how downloaded Steam/other-store games are packaged and installed for it (see STATUS.md).
 - Keep product behavior here. Reusable changes for the selected renderer belong in ps5-homebrew-ui; retain the recorded isolated dependency patches until separately integrated upstream. Do not modify RmlFocus to implement new direct-Hui behavior.
 - Use the confirmed `../playden` branch `feature/launchers`, inspected at `de952b3d49167e635945ada88cd8533e07d40d44`; the earlier singular name was a naming discrepancy. Record the resolved revision in the reference audit.
 - Read each repository's current `AGENTS.md` before changing it. Do not switch or disturb the macOS reference checkout; use `git show <revision>:<path>`.

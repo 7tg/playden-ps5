@@ -11,7 +11,7 @@ Updated 2026-10-04 at the user's request. **Superseded in part:** the artwork sl
 - Use `agent-team:agent-team`. The lead owns contracts/integration/final verification. Delegate independent work with exclusive ownership, sequence dependencies, and independently review meaningful changes. Skill roles used here: workers **gpt-5.6-sol / medium**, reviewer **gpt-5.6-sol / high**.
 - Selected UI is direct **ps5-homebrew-ui**, merged in `3bc1e38` with fixes/evidence through `703dd1f`. Preserve its screens. Earlier RmlFocus-specific presentation instructions are superseded.
 - **No 4K performance profiling, MSAA experiments, RSS investigations or soaks.** Performance work is deferred, not accepted or waived. Keep native 3840×2160 output.
-- Runtime/Wine is independently owned. Do not implement real installation or runtime integration here.
+- Wine implementation: `../ps5-homebrew/prospero-win` (user direction, 2026-10-05). Next, investigate that repository and document how games downloaded from Steam and other stores are packaged and installed for it (STATUS.md roadmap step 2) before any install/runtime integration.
 
 Reference checkout: `../playden`, confirmed branch `feature/launchers`, inspected revision `de952b3d49167e635945ada88cd8533e07d40d44`. Use `git show`/`git grep` against the revision; never switch or disturb that checkout. Selected framework/examples: `../ps5-homebrew/ps5-homebrew-ui` and `../ps5-homebrew`. Historical framework: `../rmlfocus`. Native toolchain reference: `../playden-ps5`.
 
