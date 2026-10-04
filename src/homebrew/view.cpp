@@ -669,10 +669,7 @@ class Render::Impl
         const std::string identity = current_state_->account.display_name.empty() ?
             "Signed out" : current_state_->account.display_name;
         dynamic_text(identity, 1614.0F, 91.0F, 24.0F, kText, 140.0F, false);
-        const auto minutes = current_state_->clock_ticks / 60;
-        char time[8];
-        std::snprintf(time, sizeof(time), "%02d:%02d", int((minutes / 60) % 24), int(minutes % 60));
-        ui::text(scene_, fonts_.regular, time, 1824.0F, 91.0F, 22.0F, kSecondary,
+        ui::text(scene_, fonts_.regular, "21:42", 1824.0F, 91.0F, 22.0F, kSecondary,
                  gfx::Align::right);
     }
 
