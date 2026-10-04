@@ -14,6 +14,8 @@ public:
     void Tick(float dt_seconds);
     void Shutdown();
     bool ExitRequested() const;
+    rf::ImageStats ImageStats() const { return shell_.ImageStats(); }
+    std::string CurrentRoute() const { return shell_.CurrentRoute(); }
 private:
     void SaveLoop();
     Storage storage_;

@@ -1,5 +1,6 @@
 #include "app/application.h"
 #include "diagnostics/frame_stats.h"
+#include "diagnostics/phase_stats.h"
 #include "platform.h"
 #include "platform/storage.h"
 #include "platform/ps5/process_memory.h"
@@ -202,6 +203,7 @@ int Run()
 	double options_down = -1.0;
 	bool first_frame = true;
  double next_memory_sample = 0;
+ playden::diagnostics::PhaseStats phases;
 	while (!app.ExitRequested()) {
 		const std::uint64_t frame_time = NowNanoseconds();
 		stats.RecordFrameStart(frame_time);
@@ -215,10 +217,13 @@ int Run()
 		app.Tick(static_cast<float>(std::min(now - previous, 0.1)));
 		previous = now;
 		context->Update();
+        const auto after_update = NowNanoseconds();
 		renderer->Clear();
 		renderer->BeginFrame();
 		context->Render();
+        const auto after_render = NowNanoseconds();
 		renderer->EndFrame();
+        const auto after_end = NowNanoseconds();
         if(PLAYDEN_CAPTURE_AFTER_SECONDS > 0 && !capture_done && now-capture_started >= PLAYDEN_CAPTURE_AFTER_SECONDS){
             capture_done=true;
             GLint viewport[4]{};glGetIntegerv(GL_VIEWPORT,viewport);
@@ -227,7 +232,10 @@ int Run()
                 captured ? "/app0/logs/framebuffer.ppm" : "none",captured,width,height,viewport[0],viewport[1],viewport[2],viewport[3],
                 3ull*width*height+9+std::to_string(width).size()+std::to_string(height).size());
         }
+        const auto before_swap = NowNanoseconds();
 		eglSwapBuffers(display, surface);
+        const auto after_swap = NowNanoseconds();
+        phases.Record(after_update-frame_time, after_render-after_update, after_end-after_render, after_swap-before_swap);
 		if (first_frame) {
 			first_frame = false;
 			EGLint scanout_width = 0, scanout_height = 0, refresh_hz = 0;
@@ -248,7 +256,12 @@ int Run()
             else Log("resident memory unavailable error=%d native_error=%d required_record_bytes=%llu returned_record_bytes=%llu", int(memory.error),memory.native_error,
                 static_cast<unsigned long long>(memory.required_record_bytes), static_cast<unsigned long long>(memory.returned_record_bytes));
         }
-		if (stats.RecordDue(after_frame)) Log("%s", playden::diagnostics::FrameStats::FormatRecord(stats.TakeRecord(after_frame)).c_str());
+        if (stats.RecordDue(after_frame)) {
+            Log("%s", playden::diagnostics::FrameStats::FormatRecord(stats.TakeRecord(after_frame)).c_str());
+            Log("%s", phases.FormatAndReset().c_str());
+            const auto images = app.ImageStats();
+            Log("scene route=%s image_cached=%zu image_queued=%zu image_in_flight=%zu image_decoded_bytes=%zu", app.CurrentRoute().c_str(), images.cached_entries, images.queued, images.in_flight, images.decoded_bytes);
+        }
 	}
 
 	app.Shutdown();

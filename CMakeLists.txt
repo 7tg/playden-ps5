@@ -74,6 +74,7 @@ add_library(playden_core STATIC
 	src/app/application.cpp
 	src/app/preferences.cpp
 	src/diagnostics/frame_stats.cpp
+ src/diagnostics/phase_stats.cpp
 	src/platform/storage.cpp
 	src/ui/shell.cpp)
 target_include_directories(playden_core PUBLIC "${CMAKE_SOURCE_DIR}/src" PRIVATE "${CMAKE_SOURCE_DIR}/third_party/utf8proc")
@@ -135,7 +136,7 @@ if(NOT PLAYDEN_PLATFORM_PS5)
         target_include_directories(process_memory_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
         target_compile_features(process_memory_test PRIVATE cxx_std_17)
         add_test(NAME process_memory COMMAND process_memory_test)
-		foreach(test_name preferences frame_stats library_query library_cache)
+		foreach(test_name preferences frame_stats phase_stats library_query library_cache)
 			add_executable("${test_name}_test" "tests/${test_name}_test.cpp")
 			target_link_libraries("${test_name}_test" PRIVATE playden_core)
 			add_test(NAME "${test_name}" COMMAND "${test_name}_test")
