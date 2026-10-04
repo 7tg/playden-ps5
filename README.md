@@ -18,6 +18,12 @@ Current work and unproven acceptance gates are tracked in the [v1 execution ledg
 
 Build the selected presentation with the commands below. See its [build notes](results/ui-comparison/homebrew-ui/README.md) for prerequisites/overrides and the [execution plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) for remaining production integration. The [build instructions](docs/engineering/build.md) document the selected `homebrew-host` preset and the explicitly named `legacy-host` regression path.
 
+Fetch the pinned submodules first:
+
+```sh
+git submodule update --init
+```
+
 ```sh
 scripts/build-homebrew.sh
 cmake --build --preset homebrew-host
@@ -25,7 +31,7 @@ ctest --preset homebrew-host --output-on-failure
 build/homebrew-host/playden-homebrew
 ```
 
-Selected PS5 packaging uses the allocated `FAKE77031` title ID and does not contact the console:
+Selected PS5 packaging uses the allocated `FAKE77031` title ID and does not contact the console. Its native tooling and `libc.prx` runtime shim come from the pinned `third_party/ps5-native-app-boilerplate` submodule:
 
 ```sh
 scripts/build-homebrew-ps5.sh

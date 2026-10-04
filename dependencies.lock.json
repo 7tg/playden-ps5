@@ -26,8 +26,10 @@
     "libPS5OpenGL_sha256": "11ab03a347cf75e143c7aa896ff0fd94714ded471a92146aa0f2aba82722ae95"
   },
   "ps5_native_app_boilerplate": {
-    "revision": "4f531c4b517f80bcb6b1267135848168d2250047",
-    "patch": "sce_module_writer.cpp heap size changed to 0x10000000 in a build-local copy",
+    "revision": "f98de734b68b0b980d38ff03a330066afd6ae16d",
+    "source": "third_party/ps5-native-app-boilerplate submodule (selected Hui PS5 build)",
+  "legacy_rmlfocus_revision": "4f531c4b517f80bcb6b1267135848168d2250047",
+  "patch": "sce_module_writer.cpp heap size changed to 0x10000000 in a build-local copy",
     "libc_prx_sha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036"
   },
   "compiler_rt_builtins": {

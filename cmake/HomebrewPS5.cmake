@@ -9,7 +9,11 @@ function(playden_add_homebrew_ps5_title)
 
 	set(sdk "$ENV{PS5_PAYLOAD_SDK}")
 	set(sdk_deps "${PLAYDEN_PS5_DEPS_DIR}")
-	set(boilerplate "${sdk_deps}/ps5-native-app-boilerplate")
+	# Native tooling, linker script and runtime shim come from the pinned boilerplate submodule.
+	set(boilerplate "${CMAKE_SOURCE_DIR}/third_party/ps5-native-app-boilerplate")
+	if(NOT EXISTS "${boilerplate}/tooling/native/sce_module_writer.cpp")
+		message(FATAL_ERROR "Missing boilerplate submodule; run: git submodule update --init third_party/ps5-native-app-boilerplate")
+	endif()
 	set(gl_source "${sdk_deps}/ps5-opengl-src")
 	set(gl_sdk "${sdk_deps}/ps5-opengl/ps5-opengl-sdk-1.0.0/sdk")
 	set(out "${CMAKE_BINARY_DIR}")

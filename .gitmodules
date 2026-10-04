@@ -1,0 +1,3 @@
+[submodule "third_party/ps5-native-app-boilerplate"]
+	path = third_party/ps5-native-app-boilerplate
+	url = https://github.com/blackbearreloaded/ps5-native-app-boilerplate.git
