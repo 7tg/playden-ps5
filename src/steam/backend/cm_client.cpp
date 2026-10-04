@@ -227,9 +227,12 @@ class CmClient::Session {
   // Requests one batch and collects every response part until response_pending is false.
   CmError Pics(const std::vector<cm::PackageRequest>& batch,
                std::vector<cm::PicsResponse>* parts) {
+    return PicsBody(cm::EncodePicsPackagesRequest(batch), parts);
+  }
+
+  CmError PicsBody(const std::vector<std::uint8_t>& body, std::vector<cm::PicsResponse>* parts) {
     const std::uint64_t jobid = ++job_counter_;
     job_ = Job{jobid, {}, 0, false, CmError::kNone};
-    const auto body = cm::EncodePicsPackagesRequest(batch);
     if (body.empty()) return CmError::kProtocol;
     if (const auto sent = Send(cm::kEMsgClientPICSProductInfoRequest, body, jobid);
         sent != CmError::kNone)
@@ -246,14 +249,20 @@ class CmClient::Session {
   // Calls a unified service method and waits for its single response body.
   CmError ServiceMethod(const std::string& name, const std::vector<std::uint8_t>& body,
                         std::vector<std::uint8_t>* reply) {
+    return Call(cm::kEMsgServiceMethodCallFromClient, name, body, cm::kEMsgServiceMethodResponse, reply);
+  }
+
+  // Sends one job request and waits for its single response of the expected EMsg.
+  CmError Call(std::uint32_t emsg, const std::string& job_name, const std::vector<std::uint8_t>& body,
+               std::uint32_t response_emsg, std::vector<std::uint8_t>* reply) {
     const std::uint64_t jobid = ++job_counter_;
-    service_ = ServiceJob{jobid, false, CmError::kNone, {}};
+    service_ = ServiceJob{jobid, false, CmError::kNone, {}, response_emsg};
     cm::Header header;
     header.steam_id = steam_id_;
     header.session_id = session_id_;
     header.jobid_source = jobid;
-    header.target_job_name = name;
-    const auto frame = cm::EncodeFrame(cm::kEMsgServiceMethodCallFromClient, header, body);
+    header.target_job_name = job_name;
+    const auto frame = cm::EncodeFrame(emsg, header, body);
     if (frame.empty()) return CmError::kProtocol;
     const auto remaining = RemainingMs(deadline_);
     if (remaining == 0) return CmError::kTimeout;
@@ -277,6 +286,7 @@ class CmClient::Session {
     bool done = false;
     CmError error = CmError::kNone;
     std::vector<std::uint8_t> body;
+    std::uint32_t response_emsg = cm::kEMsgServiceMethodResponse;
   };
   struct Job {
     std::uint64_t id = 0;
@@ -358,7 +368,7 @@ class CmClient::Session {
       service_->done = true;
       if (frame.header.eresult && *frame.header.eresult != cm::kEResultOk)
         service_->error = CmError::kRejected;
-      else if (frame.emsg != cm::kEMsgServiceMethodResponse)
+      else if (frame.emsg != service_->response_emsg)
         service_->error = CmError::kProtocol;
       else
         service_->body = std::move(frame.body);
@@ -516,6 +526,54 @@ TokenRenewal CmClient::RenewAccessToken(const StoredSession& stored,
   }
   if (transport) transport->Close();
   return renewal;
+}
+
+AppInfoBuffers CmClient::FetchAppInfo(const StoredSession& stored,
+                                     const std::vector<std::uint32_t>& app_ids,
+                                     const std::atomic<bool>& cancel) {
+  AppInfoBuffers result;
+  if (app_ids.empty() || app_ids.size() > kMaxAppInfoBatch) return result;  // kProtocol
+  const auto deadline = Clock::now() + std::chrono::milliseconds(hooks_.deadline_ms);
+  std::unique_ptr<MessageTransport> transport;
+  std::unique_ptr<Session> session;
+  auto finish = [&](CmError error) {
+    if (transport) transport->Close();
+    result.error = error;
+    if (error != CmError::kNone) result.buffers.clear();
+    return result;
+  };
+  if (const auto open = Open(stored, cancel, deadline, &transport, &session); open != CmError::kNone)
+    return finish(open);
+
+  std::vector<std::uint8_t> reply;
+  if (const auto call = session->Call(cm::kEMsgClientPICSAccessTokenRequest, {},
+                                      cm::EncodePicsAccessTokenRequest(app_ids),
+                                      cm::kEMsgClientPICSAccessTokenResponse, &reply);
+      call != CmError::kNone)
+    return finish(call == CmError::kRejected ? CmError::kProtocol : call);
+  std::vector<cm::AppRequest> tokens;
+  if (!cm::DecodePicsAccessTokenResponse(reply, &tokens)) return finish(CmError::kProtocol);
+  std::vector<cm::AppRequest> requests;
+  for (const auto id : app_ids) {
+    cm::AppRequest request{id, 0};
+    for (const auto& token : tokens)
+      if (token.app_id == id) request.access_token = token.access_token;
+    requests.push_back(request);
+  }
+  std::vector<cm::PicsResponse> parts;
+  if (const auto pics = session->PicsBody(cm::EncodePicsAppsRequest(requests), &parts);
+      pics != CmError::kNone)
+    return finish(pics);
+  const std::set<std::uint32_t> wanted(app_ids.begin(), app_ids.end());
+  for (const auto& part : parts) {
+    for (const auto& app : part.apps) {
+      if (!wanted.count(app.app_id) || app.missing_token || app.buffer.empty()) continue;
+      std::string text(app.buffer.begin(), app.buffer.end());
+      while (!text.empty() && text.back() == '\0') text.pop_back();
+      result.buffers[app.app_id] = std::move(text);
+    }
+  }
+  return finish(CmError::kNone);
 }
 
 AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,

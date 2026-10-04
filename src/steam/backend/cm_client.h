@@ -45,6 +45,14 @@ struct TokenRenewal {
   bool ok() const { return error == CmError::kNone; }
 };
 
+inline constexpr std::size_t kMaxAppInfoBatch = 50;
+
+struct AppInfoBuffers {
+  CmError error = CmError::kProtocol;
+  std::map<std::uint32_t, std::string> buffers;  // app ID -> VDF text (trailing NULs removed)
+  bool ok() const { return error == CmError::kNone; }
+};
+
 // The CM-only library facts. Implementations run synchronously on the caller's worker thread.
 class AcquisitionSource {
  public:
@@ -83,6 +91,11 @@ class CmClient final : public AcquisitionSource {
   // (Authentication.GenerateAccessTokenForApp#1), which accepts SteamClient refresh tokens that
   // the Web API refuses. A refused CM logon reports kRejected.
   TokenRenewal RenewAccessToken(const StoredSession& session, const std::atomic<bool>& cancel);
+
+  // PICS app info buffers (text VDF) for up to kMaxAppInfoBatch apps, using app access tokens
+  // where Steam grants them. Apps Steam does not describe are absent from the result.
+  AppInfoBuffers FetchAppInfo(const StoredSession& session, const std::vector<std::uint32_t>& app_ids,
+                              const std::atomic<bool>& cancel);
 
  private:
   class Session;

@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -59,6 +60,7 @@ struct Script {
   std::vector<std::vector<std::uint8_t>> on_logon;
   std::vector<std::vector<std::uint8_t>> on_pics;
   std::vector<std::vector<std::uint8_t>> on_service;
+  std::map<std::uint32_t, std::vector<std::vector<std::uint8_t>>> on_emsg;
   std::vector<std::vector<std::uint8_t>> raw_sent;
   std::chrono::milliseconds pics_delay{0};
 
@@ -88,6 +90,8 @@ class FakeTransport final : public MessageTransport {
       for (const auto& reply : script_->on_pics) script_->Queue(reply, script_->pics_delay);
     if (frame.emsg == cm::kEMsgServiceMethodCallFromClient)
       for (const auto& reply : script_->on_service) script_->Queue(reply);
+    if (const auto found = script_->on_emsg.find(frame.emsg); found != script_->on_emsg.end())
+      for (const auto& reply : found->second) script_->Queue(reply);
     script_->raw_sent.push_back(message);
     script_->sent.push_back(std::move(frame));
     return HttpError::kNone;
@@ -314,6 +318,45 @@ void RefusedServiceCallIsNotARefusedLogon() {
   assert(refused_client.RenewAccessToken(Session(), cancel).error == CmError::kRejected);
 }
 
+void AppInfoUsesAccessTokensAndCollectsMultipartBuffers() {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9))};
+  proto::Writer token;
+  token.AddVarint(1, 10);
+  token.AddVarint(2, 555);
+  proto::Writer tokens;
+  tokens.AddMessage(3, token);
+  script->on_emsg[cm::kEMsgClientPICSAccessTokenRequest] = {
+      ServerFrame(cm::kEMsgClientPICSAccessTokenResponse, tokens.bytes(), std::nullopt, 1)};
+  auto app_part = [](std::uint32_t id, const std::string& text, bool pending) {
+    proto::Writer app;
+    app.AddVarint(1, id);
+    std::vector<std::uint8_t> buffer(text.begin(), text.end());
+    buffer.push_back(0);
+    buffer.push_back(0);
+    app.AddBytes(5, buffer);
+    proto::Writer response;
+    response.AddMessage(1, app);
+    if (pending) response.AddVarint(6, 1);
+    return response.bytes();
+  };
+  script->on_emsg[cm::kEMsgClientPICSProductInfoRequest] = {
+      ServerFrame(cm::kEMsgClientPICSProductInfoResponse, app_part(10, "\"appinfo\" { }", true), std::nullopt, 2),
+      ServerFrame(cm::kEMsgClientPICSProductInfoResponse, app_part(20, "\"appinfo\" { \"x\" \"y\" }", false), std::nullopt, 2)};
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  const auto result = client.FetchAppInfo(Session(), {10, 20, 30}, cancel);
+  assert(result.ok() && result.buffers.size() == 2);
+  assert(result.buffers.at(10) == "\"appinfo\" { }");  // trailing NULs removed
+  assert(result.buffers.at(20).find("\"x\"") != std::string::npos);
+  std::lock_guard<std::mutex> lock(script->mutex);
+  const auto& request = script->sent.back();
+  assert(request.emsg == cm::kEMsgClientPICSProductInfoRequest && request.header.jobid_source == 2u);
+  // The granted token rides along with app 10 only.
+  assert(request.body == cm::EncodePicsAppsRequest({{10, 555}, {20, 0}, {30, 0}}));
+  assert(client.FetchAppInfo(Session(), {}, cancel).error == CmError::kProtocol);
+}
+
 void DeviceSeedPersistsPerInstall() {
   const auto root = std::filesystem::temp_directory_path() / "playden-cm-seed-test";
   std::filesystem::remove_all(root);
@@ -342,5 +385,6 @@ int main(int argc, char** argv) {
   MissingSessionOrEndpointsFailEarly();
   AccessTokenRenewsThroughAuthenticatedServiceMethod();
   RefusedServiceCallIsNotARefusedLogon();
+  AppInfoUsesAccessTokensAndCollectsMultipartBuffers();
   DeviceSeedPersistsPerInstall();
 }

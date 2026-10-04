@@ -22,6 +22,8 @@ enum EMsg : std::uint32_t {
   kEMsgClientLogon = 5514,
   kEMsgClientPICSProductInfoRequest = 8903,
   kEMsgClientPICSProductInfoResponse = 8904,
+  kEMsgClientPICSAccessTokenRequest = 8905,
+  kEMsgClientPICSAccessTokenResponse = 8906,
   kEMsgClientHello = 9805,
 };
 
@@ -117,10 +119,26 @@ struct PicsPackage {
   bool missing_token = false;
   std::vector<std::uint8_t> buffer;
 };
+struct PicsApp {
+  std::uint32_t app_id = 0;
+  bool missing_token = false;
+  std::vector<std::uint8_t> buffer;  // text VDF, possibly NUL-terminated
+};
 struct PicsResponse {
   std::vector<PicsPackage> packages;
+  std::vector<PicsApp> apps;
   bool response_pending = false;
 };
+
+struct AppRequest {
+  std::uint32_t app_id = 0;
+  std::uint64_t access_token = 0;
+};
+std::vector<std::uint8_t> EncodePicsAppsRequest(const std::vector<AppRequest>& apps);
+std::vector<std::uint8_t> EncodePicsAccessTokenRequest(const std::vector<std::uint32_t>& app_ids);
+// App ID -> access token, for apps Steam granted tokens to (denied apps are absent).
+bool DecodePicsAccessTokenResponse(const std::vector<std::uint8_t>& body,
+                                   std::vector<AppRequest>* tokens);
 bool DecodePicsResponse(const std::vector<std::uint8_t>& body, PicsResponse* response);
 
 }  // namespace playden::steam::cm

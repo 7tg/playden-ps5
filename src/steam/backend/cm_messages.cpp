@@ -258,6 +258,28 @@ bool DecodePicsResponse(const std::vector<std::uint8_t>& body, PicsResponse* res
       decoded.response_pending = field.value != 0;
       continue;
     }
+    if (field.number == 1) {
+      if (decoded.apps.size() >= kMaxRepeatedEntries) return false;
+      proto::Reader child;
+      if (!reader.Submessage(field, &child)) return false;
+      PicsApp app;
+      proto::Field entry;
+      while (child.Next(&entry)) {
+        if (entry.number == 1) {
+          if (!IsVarint(entry)) return false;
+          app.app_id = static_cast<std::uint32_t>(entry.value);
+        } else if (entry.number == 3) {
+          if (!IsVarint(entry)) return false;
+          app.missing_token = entry.value != 0;
+        } else if (entry.number == 5) {
+          if (!IsBytes(entry)) return false;
+          app.buffer = Bytes(entry);
+        }
+      }
+      if (!child.ok()) return false;
+      decoded.apps.push_back(std::move(app));
+      continue;
+    }
     if (field.number != 3) continue;
     if (decoded.packages.size() >= kMaxRepeatedEntries) return false;
     proto::Reader child;
@@ -281,6 +303,50 @@ bool DecodePicsResponse(const std::vector<std::uint8_t>& body, PicsResponse* res
   }
   if (!reader.ok()) return false;
   *response = std::move(decoded);
+  return true;
+}
+
+std::vector<std::uint8_t> EncodePicsAppsRequest(const std::vector<AppRequest>& apps) {
+  proto::Writer body(kMaxFrameBytes);
+  for (const auto& app : apps) {
+    proto::Writer entry;
+    entry.AddVarint(1, app.app_id);
+    entry.AddVarint(2, app.access_token);
+    body.AddMessage(2, entry);
+  }
+  if (!body.ok()) return {};
+  return body.bytes();
+}
+
+std::vector<std::uint8_t> EncodePicsAccessTokenRequest(const std::vector<std::uint32_t>& app_ids) {
+  proto::Writer body(kMaxFrameBytes);
+  for (const auto id : app_ids) body.AddVarint(2, id);
+  if (!body.ok()) return {};
+  return body.bytes();
+}
+
+bool DecodePicsAccessTokenResponse(const std::vector<std::uint8_t>& body,
+                                   std::vector<AppRequest>* tokens) {
+  proto::Reader reader(body, kLimits);
+  proto::Field field;
+  std::vector<AppRequest> decoded;
+  while (reader.Next(&field)) {
+    if (field.number != 3) continue;
+    if (decoded.size() >= kMaxRepeatedEntries) return false;
+    proto::Reader child;
+    if (!reader.Submessage(field, &child)) return false;
+    AppRequest token;
+    proto::Field entry;
+    while (child.Next(&entry)) {
+      if (entry.number == 1 && IsVarint(entry)) token.app_id = static_cast<std::uint32_t>(entry.value);
+      else if (entry.number == 2 && IsVarint(entry)) token.access_token = entry.value;
+      else if (entry.number == 1 || entry.number == 2) return false;
+    }
+    if (!child.ok()) return false;
+    decoded.push_back(token);
+  }
+  if (!reader.ok()) return false;
+  *tokens = std::move(decoded);
   return true;
 }
 
