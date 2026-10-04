@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.24)
 project(PlaydenLauncher VERSION 0.1.0 LANGUAGES C CXX)
 
+option(PLAYDEN_HOMEBREW_UI "Build the isolated direct Hui comparison candidate" OFF)
+if(PLAYDEN_HOMEBREW_UI)
+ include(cmake/HomebrewUI.cmake)
+ return()
+endif()
+
 set(PLAYDEN_CAPTURE_AFTER_SECONDS "0" CACHE STRING "Explicit native framebuffer capture time; 0 disables")
 option(PLAYDEN_MSAA_PROBE "Run a bounded native 4/0/4 MSAA comparison" OFF)
 option(PLAYDEN_DEVELOPER_FIXTURES "Compile explicitly synthetic development scenes" OFF)
