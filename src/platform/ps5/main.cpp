@@ -2,6 +2,7 @@
 #include "diagnostics/frame_stats.h"
 #include "platform.h"
 #include "platform/storage.h"
+#include "platform/ps5/process_memory.h"
 #include "title_shims.h"
 
 #include <rmlfocus/input.h>
@@ -20,9 +21,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
+#include <cerrno>
 #include <memory>
 #include <string>
 #include <sys/stat.h>
+#include <vector>
 
 extern "C" {
 int sceSystemServiceLoadExec(const char* path, char* const argv[]);
@@ -69,6 +72,32 @@ public:
 private:
 	double start_ = NowSeconds();
 };
+
+bool CaptureFramebuffer(int width, int height)
+{
+    // A failed attempt must not leave an old or partial image at the final path.
+    if (std::remove("/app0/logs/framebuffer.ppm") != 0 && errno != ENOENT) return false;
+    if (std::remove("/app0/logs/framebuffer.ppm.tmp") != 0 && errno != ENOENT) return false;
+    if(width <= 0 || height <= 0 || width > 8192 || height > 8192)return false;
+    std::vector<unsigned char> rgba(std::size_t(width)*height*4);
+    glReadPixels(0,0,width,height,GL_RGBA,GL_UNSIGNED_BYTE,rgba.data());
+    if(glGetError()!=GL_NO_ERROR)return false;
+    FILE* file=std::fopen("/app0/logs/framebuffer.ppm.tmp","wb");
+    if(!file)return false;
+    bool okay=std::fprintf(file,"P6\n%d %d\n255\n",width,height)>0;
+    std::vector<unsigned char> rgb(std::size_t(width)*3);
+    for(int y=height-1;okay&&y>=0;--y){
+        for(int x=0;x<width;++x)for(int channel=0;channel<3;++channel)
+            rgb[std::size_t(x)*3+channel]=rgba[(std::size_t(y)*width+x)*4+channel];
+        okay=std::fwrite(rgb.data(),1,rgb.size(),file)==rgb.size();
+    }
+    const bool closed=std::fclose(file)==0;
+    if(!closed||!okay){std::remove("/app0/logs/framebuffer.ppm.tmp");return false;}
+    if(std::rename("/app0/logs/framebuffer.ppm.tmp","/app0/logs/framebuffer.ppm")!=0){
+        std::remove("/app0/logs/framebuffer.ppm.tmp");return false;
+    }
+    return true;
+}
 
 bool LoadFonts()
 {
@@ -160,16 +189,19 @@ int Run()
 		playden::diagnostics::Dimensions::Measured(width, height),
 		playden::diagnostics::RefreshConfig::Unknown()});
 	stats.SetRevisionMetadata({PLAYDEN_REVISION, PLAYDEN_RMLFOCUS_REVISION,
-		"PS5-native-title; memory=ps5-opengl-owned-heap"});
-	Log("diagnostics: memory_source=ps5-opengl-owned-heap (not total process RSS)");
+		"PS5-native-title; memory=process_resident_bytes"});
+	Log("diagnostics: memory_source=process_resident_bytes (unavailable samples stay unknown)");
 
 	sceUserServiceInitialize(nullptr);
 	scePadInit();
 	playden::ps5::PadPlatform platform(NowSeconds, Log);
 	rf::Input input;
 	double previous = NowSeconds();
+ const double capture_started = previous;
+ bool capture_done = false;
 	double options_down = -1.0;
 	bool first_frame = true;
+ double next_memory_sample = 0;
 	while (!app.ExitRequested()) {
 		const std::uint64_t frame_time = NowNanoseconds();
 		stats.RecordFrameStart(frame_time);
@@ -187,6 +219,14 @@ int Run()
 		renderer->BeginFrame();
 		context->Render();
 		renderer->EndFrame();
+        if(PLAYDEN_CAPTURE_AFTER_SECONDS > 0 && !capture_done && now-capture_started >= PLAYDEN_CAPTURE_AFTER_SECONDS){
+            capture_done=true;
+            GLint viewport[4]{};glGetIntegerv(GL_VIEWPORT,viewport);
+            const bool captured=CaptureFramebuffer(width,height);
+            Log("framebuffer capture path=%s success=%d dimensions=%dx%d viewport=%d,%d,%d,%d expected_bytes=%llu; capture run is not performance evidence",
+                captured ? "/app0/logs/framebuffer.ppm" : "none",captured,width,height,viewport[0],viewport[1],viewport[2],viewport[3],
+                3ull*width*height+9+std::to_string(width).size()+std::to_string(height).size());
+        }
 		eglSwapBuffers(display, surface);
 		if (first_frame) {
 			first_frame = false;
@@ -201,7 +241,13 @@ int Run()
 			playden_release_splash();
 		}
 		const std::uint64_t after_frame = NowNanoseconds();
-		stats.RecordMemory(ps5_opengl_heap_live_bytes());
+		if (now >= next_memory_sample) {
+            next_memory_sample = now + 1.0;
+            const auto memory = playden::ps5::ReadProcessResidentBytes();
+            if (memory.available()) stats.RecordMemory(memory.bytes);
+            else Log("resident memory unavailable error=%d native_error=%d required_record_bytes=%llu returned_record_bytes=%llu", int(memory.error),memory.native_error,
+                static_cast<unsigned long long>(memory.required_record_bytes), static_cast<unsigned long long>(memory.returned_record_bytes));
+        }
 		if (stats.RecordDue(after_frame)) Log("%s", playden::diagnostics::FrameStats::FormatRecord(stats.TakeRecord(after_frame)).c_str());
 	}
 

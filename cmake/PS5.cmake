@@ -80,13 +80,18 @@ function(playden_add_ps5_title)
 	target_compile_options(playden_ps5_renderer PRIVATE -O2 -Wall -ffunction-sections -fdata-sections)
 	target_link_libraries(playden_ps5_renderer PRIVATE RmlUi::Core)
 
-	add_library(playden_ps5_app OBJECT src/platform/ps5/main.cpp)
+	add_library(playden_ps5_app OBJECT src/platform/ps5/main.cpp src/platform/ps5/process_memory.cpp)
 	target_include_directories(playden_ps5_app PRIVATE "${gl_sdk}/include" "${playden_rmlui_backends}")
 	target_compile_definitions(playden_ps5_app PRIVATE GL_GLEXT_PROTOTYPES=1
 		RMLUI_GL3_CUSTOM_LOADER=\"gl_ps5.h\" RMLUI_NUM_MSAA_SAMPLES=4
 		PLAYDEN_PS5_TITLE_ID=\"${PLAYDEN_PS5_TITLE_ID}\")
 	target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections)
 	target_link_libraries(playden_ps5_app PRIVATE playden_core RmlUi::Core)
+
+    if(NOT PLAYDEN_CAPTURE_AFTER_SECONDS MATCHES "^(0|[1-9][0-9]*)$")
+        message(FATAL_ERROR "Capture delay must be nonnegative integer seconds")
+    endif()
+    target_compile_definitions(playden_ps5_app PRIVATE PLAYDEN_CAPTURE_AFTER_SECONDS=${PLAYDEN_CAPTURE_AFTER_SECONDS})
 
 	set(host_tool "${host}/ps5-native-tool")
 	set(libc_prx "${host}/libc.prx")

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(PlaydenLauncher VERSION 0.1.0 LANGUAGES C CXX)
 
+set(PLAYDEN_CAPTURE_AFTER_SECONDS "0" CACHE STRING "Explicit native framebuffer capture time; 0 disables")
 option(PLAYDEN_DEVELOPER_FIXTURES "Compile explicitly synthetic development scenes" OFF)
 option(PLAYDEN_PLATFORM_PS5 "Build a PS5 native title" OFF)
 set(PLAYDEN_PS5_TITLE_ID "" CACHE STRING "Explicit PS5 title id (required for PS5 packaging)")
@@ -130,6 +131,10 @@ if(NOT PLAYDEN_PLATFORM_PS5)
         add_test(NAME library_fixture_compiler COMMAND "${Python3_EXECUTABLE}" -m unittest discover
             -s "${CMAKE_SOURCE_DIR}/tests" -p test_library_fixture.py)
         set_tests_properties(library_fixture_compiler PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+        add_executable(process_memory_test tests/process_memory_test.cpp src/platform/ps5/process_memory.cpp)
+        target_include_directories(process_memory_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+        target_compile_features(process_memory_test PRIVATE cxx_std_17)
+        add_test(NAME process_memory COMMAND process_memory_test)
 		foreach(test_name preferences frame_stats library_query library_cache)
 			add_executable("${test_name}_test" "tests/${test_name}_test.cpp")
 			target_link_libraries("${test_name}_test" PRIVATE playden_core)

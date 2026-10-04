@@ -1,0 +1,14 @@
+{
+  "title_id": "FAKE77031",
+  "build_revision": "c00a5bee5de60f674cb3cee4a370173221df77db+dirty",
+  "rmlfocus_revision": "31d2d8fd39ca3e3bb3ba91a43f50561c04429d57",
+  "eboot_sha256": "4177fe17ebf7e1de5913120ab69e30ad13299e591a33ac70fc893e95b707c3b2",
+  "native_ppm_sha256": "55e3b664604a4819318093b86f5bb2858493111617641f347e71ec3d021a61a2",
+  "native_ppm_bytes": 24883217,
+  "files": {
+    "details-hdmi.jpg": "b5c0c7a59395d219973d2bc99d3b35c89b48047c47bc9001a5ff02b480af1fde",
+    "playden.log": "75419d5aa12aa7d619eaa0cef96e1b90c47f0546f9ca1039f84f63176f4f7823",
+    "library-native-3840x2160.png": "c6505df20d5f73b4b7c02c030df8f673edd89b90a3f3eaf6cb3df43c07fb467f",
+    "search-hdmi.jpg": "3c033d5d948fcdab84a76344a0e59be639fa0faf0ccfada04dca1792a579d3e4"
+  }
+}
