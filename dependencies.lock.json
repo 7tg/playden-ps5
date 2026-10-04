@@ -114,7 +114,7 @@
   },
   "homebrew_ui": {
     "revision": "8a716f294835e26a24ef5612f1535aabffef4080",
-    "source": "https://github.com/ps5-payload-dev/ps5-homebrew-ui",
+    "source": "third_party/ps5-homebrew-ui submodule (https://github.com/blackbearreloaded/ps5-homebrew-ui); revision is upstream 4bd9425 plus the local feat/latin-glyphs commits, not yet pushed",
     "patches": {
       "homebrew-ui-macos-4.1.patch": "8f672e19009e1e63601c4276979aaa31d19b7a5ff4b00184206b89041af66c09",
       "homebrew-ui-cff-sdf.patch": "5af8fe22fa96c9cb2f8f7402fbd9c17d38ac1cadf249bfff2dec42a2623bea1a"

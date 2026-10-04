@@ -7,7 +7,7 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 revision=8a716f294835e26a24ef5612f1535aabffef4080
-framework_repo=${PLAYDEN_HUI_REPOSITORY:-/Users/leolobato/Documents/Projetos/Personal/GameNative/ps5-homebrew/ps5-homebrew-ui}
+framework_repo=${PLAYDEN_HUI_REPOSITORY:-"$root/third_party/ps5-homebrew-ui"}
 hui_source="$root/build/dependencies/homebrew-ui"
 patch_files=("$root/patches/homebrew-ui-macos-4.1.patch" "$root/patches/homebrew-ui-cff-sdf.patch")
 build_dir="$root/build/homebrew-host"

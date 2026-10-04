@@ -24,6 +24,8 @@ Fetch the pinned submodules first:
 git submodule update --init
 ```
 
+The ps5-homebrew-ui pin (`8a716f2`) is upstream `4bd9425` plus three local `feat/latin-glyphs` commits that are not pushed yet. Until they are, point that submodule at a local checkout containing the branch: `git config submodule.third_party/ps5-homebrew-ui.url <path>` before the update (add `-c protocol.file.allow=always`).
+
 ```sh
 scripts/build-homebrew.sh
 cmake --build --preset homebrew-host
