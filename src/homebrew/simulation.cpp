@@ -448,6 +448,7 @@ void Simulation::queue_service_action(ServiceAction action) {
 }
 
 void Simulation::clear_account_specific_state() {
+    ++state_.account_generation;
     state_.account.challenge_url.clear();
     state_.account.challenge_expiry = 0;
     state_.account.last_sync = 0;

@@ -245,10 +245,10 @@ The production LibraryController now binds authentication, account-scoped cache 
 
 **Interfaces:** Artwork requests carry account generation, game ID, source identity and a visible-cell subscription key. IO/decoding returns bounded decoded images; only the graphics thread creates/releases textures with the Hui API. Cache and upload work have explicit count/byte limits, placeholders and cancellation.
 
-- [ ] Replace the fixed nine-fixture-texture path in production with asynchronous download/decode, bounded cache/eviction and bounded per-frame upload work. Reject malformed/oversized images before unbounded allocations; failures retain fixed-size placeholders.
-- [ ] Test a late image completing after cell reuse, account change, source change, eviction and shutdown; no stale result may replace another game's cover. Keep fixture timing deterministic.
+- [x] Replace the fixed nine-fixture-texture path in production with asynchronous download/decode, bounded cache/eviction and bounded per-frame upload work. Reject malformed/oversized images before unbounded allocations; failures retain fixed-size placeholders.
+- [x] Test a late image completing after cell reuse, account change, source change, eviction and shutdown; no stale result may replace another game's cover. Keep fixture timing deterministic.
 - [ ] Plan font coverage for actual library titles: current CJK/Arabic atlases are fixture subsets, not general Unicode support. Supply bounded additional glyph coverage or an explicit unsupported-glyph fallback. Test real strings beyond the catalog and mixed scripts; preserve the committed CFF and accented-Greek fixes. Arabic shaping/BiDi remains a documented limitation, not a completed capability.
-- [ ] Inspect the selected graphical consumer with delayed and failed real artwork at native dimensions. Validate functionality and bounds without restarting deferred profiling/soaks. Review and commit.
+- [ ] Inspect the selected graphical consumer with delayed and failed real artwork at native dimensions. Validate functionality and bounds without restarting deferred profiling/soaks. Review and commit. *Host part done: synthetic delayed/ready/failed captures inspected, reviewed and committed ([artwork evidence](../../../results/20261004-artwork-host/README.md)); real covers on the console remain for the connected journey.*
 
 **Done when:** Real titles and artwork arrive asynchronously without wrong-image reuse, unbounded allocations or navigation stalls; remaining script limitations are explicit.
 

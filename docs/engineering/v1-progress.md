@@ -118,3 +118,14 @@ Next: asynchronous artwork and dynamic title coverage (4A.3), authenticated CM a
 ## Artwork implementation handoff
 
 The user requested a status file and handoff while artwork integration was in progress. [STATUS.md](../../STATUS.md) and [HANDOFF.md](../../HANDOFF.md) distinguish committed implementation through `d237176` from the uncommitted artwork service/decoder/cache and selected-renderer wiring. The WIP host build, focused artwork **4/4**, public HTTPS cover smoke, and local PS5 package passed. The full expanded 42-test suite, capture inspection, final independent review, and the injected-backend exception contract remain pending. No console or performance acceptance was performed. Preserve the working-tree files listed in the handoff.
+
+
+## Asynchronous artwork (4A.3)
+
+Real Mac/PS5 startup injects a background ArtworkService and a graphics-thread LiveArtworkCache into the selected renderer, replacing the fixed fixture textures in normal mode. Covers come from the app-ID-derived Steam CDN portrait URL used by the macOS reference. Simulation keeps its fixture artwork.
+
+The handoff's open point is resolved: an exception escaping a backend's `Load` is reduced to a failed load on host builds and the worker survives; PS5 builds compile without exceptions. Independent final review found no blockers. Applied fixes: failed loads now retry while visible (15 s, 30 s, at most 3 attempts) so covers recover after a cold boot, the PNG dimension test uses complete images, the eviction-protection test no longer depends on a sleep, and GL upload errors keep the placeholder.
+
+Selected host **42/42** and legacy **21/21** pass; the artwork service test is clean under ThreadSanitizer. Graphical delayed/ready/failed captures were inspected; see [artwork evidence](../../results/20261004-artwork-host/README.md). Local PS5 package eboot SHA-256: `5701c3589591435179dbe2c9fb642b275dfef5d1ba61b5752688edb235b3551c`. No console deployment or performance test was performed.
+
+Next: pin ps5-native-app-boilerplate and ps5-homebrew-ui as submodules at their latest revisions, dynamic title glyph coverage, authenticated CM, then the connected journey on the console.

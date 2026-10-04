@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "homebrew/render.hpp"
+#include "homebrew/artwork_backend.hpp"
 #include "homebrew/simulation.hpp"
 #include "homebrew/controller.hpp"
 #include "homebrew/input_adapter.hpp"
@@ -373,6 +374,8 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::OrganizationStore> organization;
     std::unique_ptr<playden::app::PersistenceService> persistence;
     std::unique_ptr<playden::homebrew::Controller> services;
+    std::unique_ptr<playden::homebrew::HttpArtworkBackend> artwork_backend;
+    std::unique_ptr<playden::homebrew::ArtworkService> artwork;
     if (!options->scenario.empty() && !simulation.scenario(options->scenario)) {
         std::fprintf(stderr, "%s\n", simulation.last_error().c_str());
         return 2;
@@ -421,7 +424,11 @@ int main(int argc, char** argv) {
         services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get());
     }
 
-    auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR);
+    if (!options->simulation) {
+        artwork_backend = std::make_unique<playden::homebrew::HttpArtworkBackend>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        artwork = std::make_unique<playden::homebrew::ArtworkService>(*artwork_backend);
+    }
+    auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR, artwork.get());
     if (!options->capture.empty() && options->recording.empty()) {
         // Settle presentation motion without advancing the manual fixture clock.
         for (int settle = 0; settle < 16; ++settle)
@@ -556,6 +563,7 @@ int main(int argc, char** argv) {
     if (controller) SDL_GameControllerClose(controller);
     SDL_StopTextInput();
     if (services) services->Shutdown();
+    if (artwork) artwork->Shutdown();
     render.reset();
     SDL_GL_DeleteContext(context);
     SDL_DestroyWindow(window);

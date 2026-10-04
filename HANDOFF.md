@@ -1,6 +1,6 @@
 # Playden PS5 Launcher agent handoff
 
-Updated 2026-10-04 at the user's request. Resume the existing connected-library v1 objective; do not restart implementation or treat the artwork slice as the whole goal. Read [STATUS.md](STATUS.md) first for completed work and the roadmap.
+Updated 2026-10-04 at the user's request. **Superseded in part:** the artwork slice described below has since been committed, with the exception contract resolved; see the ledger's "Asynchronous artwork (4A.3)" entry. The "preserve uncommitted work" instructions no longer apply. Resume the existing connected-library v1 objective; do not restart implementation or treat the artwork slice as the whole goal. Read [STATUS.md](STATUS.md) first for completed work and the roadmap.
 
 ## Repository and instructions
 

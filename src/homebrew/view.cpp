@@ -1,3 +1,4 @@
+#include "homebrew/artwork_cache.hpp"
 // Playden - Direct ps5-homebrew-ui comparison renderer.
 // Copyright (C) 2026 Leo Lobato
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -343,14 +344,16 @@ ui::Status progress_status(const ViewRow &row)
 class Render::Impl
 {
   public:
-    explicit Impl(std::filesystem::path assets_directory)
-        : assets_(std::move(assets_directory)), theme_(playden_theme())
+    explicit Impl(std::filesystem::path assets_directory, ArtworkService* artwork)
+        : assets_(std::move(assets_directory)), theme_(playden_theme()), texture_backend_(renderer_)
     {
-        initialise();
+        initialise(artwork == nullptr);
+        if (artwork) live_artwork_ = std::make_unique<LiveArtworkCache>(*artwork, texture_backend_);
     }
 
     ~Impl()
     {
+        live_artwork_.reset();
         for (const std::uint32_t texture : art_)
         {
             if (texture != 0)
@@ -377,6 +380,7 @@ class Render::Impl
         stats_.native_width = width;
         stats_.native_height = height;
         const State &state = simulation.state();
+        if (live_artwork_) live_artwork_->BeginFrame(state.simulation_mode ? 0 : state.account_generation);
         update_qr_cache(state);
         focus_motion_.begin_frame(dt, state.reduced_motion);
         const ViewData &view = simulation.view();
@@ -439,6 +443,12 @@ class Render::Impl
         draw_footer(scene, view);
         draw_overlays(state, view);
         focus_motion_.end_frame();
+        if (live_artwork_) {
+            live_artwork_->EndFrame();
+            const auto artwork_stats = live_artwork_->Stats();
+            stats_.live_artwork_texture_count = artwork_stats.texture_count;
+            stats_.live_artwork_gpu_bytes = artwork_stats.gpu_bytes;
+        }
 
         renderer_.begin();
         gfx::BackdropSpec backdrop = theme_.backdrop;
@@ -481,13 +491,13 @@ class Render::Impl
     }
 
   private:
-    bool initialise()
+    bool initialise(bool fixture_artwork)
     {
         if (!renderer_.init())
             return false;
         if (!load_fonts())
             return false;
-        load_art();
+        if (fixture_artwork) load_art();
         stats_.artwork_texture_count = static_cast<std::size_t>(std::count_if(
             art_.begin(), art_.end(), [](std::uint32_t texture) { return texture != 0; })) +
             (hero_ == 0 ? 0U : 1U);
@@ -1164,7 +1174,12 @@ class Render::Impl
         const std::size_t texture_index = game.id >= 900001 ? (game.id - 900001) % art_.size() :
                                                               game.id % art_.size();
         const bool simulated = current_state_ != nullptr && current_state_->simulation_mode;
-        const std::uint32_t texture = !simulated || game.art_failed || game.art_pending ? 0 : art_[texture_index];
+        const std::uint32_t texture = simulated
+            ? (game.art_failed || game.art_pending ? 0 : art_[texture_index])
+            : (live_artwork_ && current_state_ && !current_state_->account.id.empty()
+                ? live_artwork_->TextureFor(game.id,
+                    "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
+                    std::to_string(game.id) + "/library_600x900.jpg") : 0);
         scene_.shadow(rect, 8.0F, focused ? 26.0F : 12.0F,
                       gfx::Color::rgb(0x000000, focused ? 0.65F : 0.35F));
         if (texture != 0)
@@ -2150,9 +2165,31 @@ class Render::Impl
         return true;
     }
 
+    class GlTextureBackend final : public TextureBackend {
+      public:
+        explicit GlTextureBackend(gfx::Renderer& renderer) : renderer_(renderer) {}
+        std::uint32_t Upload(const ArtworkImage& image) override {
+            while (glGetError() != GL_NO_ERROR) {}
+            std::uint32_t texture = renderer_.batch().create_texture(static_cast<int>(image.width),
+                static_cast<int>(image.height), image.rgba.data());
+            // A failed allocation still yields a name; report it as a failure so the
+            // placeholder stays and the blank texture is not charged to the budget.
+            if (texture != 0 && glGetError() != GL_NO_ERROR) {
+                glDeleteTextures(1, &texture);
+                return 0;
+            }
+            return texture;
+        }
+        void Release(std::uint32_t texture) override { glDeleteTextures(1, &texture); }
+      private:
+        gfx::Renderer& renderer_;
+    };
+
     std::filesystem::path assets_;
     ui::Theme theme_;
     mutable gfx::Renderer renderer_;
+    GlTextureBackend texture_backend_;
+    std::unique_ptr<LiveArtworkCache> live_artwork_;
     gfx::Font regular_;
     gfx::Font semibold_;
     gfx::Font display_;
@@ -2194,8 +2231,8 @@ class Render::Impl
     RenderStats stats_{};
 };
 
-Render::Render(std::filesystem::path assets_directory)
-    : impl_(std::make_unique<Impl>(std::move(assets_directory)))
+Render::Render(std::filesystem::path assets_directory, ArtworkService* artwork)
+    : impl_(std::make_unique<Impl>(std::move(assets_directory), artwork))
 {
 }
 

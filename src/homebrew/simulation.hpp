@@ -225,6 +225,7 @@ struct ControllerState {
 
 struct State {
     Account account;
+    std::uint64_t account_generation = 1; // Invalidates account-scoped presentation resources.
     std::vector<Game> games;
     UserLibrary library;
     std::vector<Installation> installations;

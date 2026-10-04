@@ -189,12 +189,25 @@ target_include_directories(playden_homebrew_controller PUBLIC "${CMAKE_SOURCE_DI
 target_link_libraries(playden_homebrew_controller PUBLIC
     playden_homebrew_model playden_steam_core playden_auth_diagnostics playden_library_controller playden_persistence_controller)
 
+add_library(playden_homebrew_artwork STATIC
+    "${CMAKE_SOURCE_DIR}/src/homebrew/artwork.cpp"
+    "${CMAKE_SOURCE_DIR}/src/homebrew/artwork_backend.cpp")
+target_compile_features(playden_homebrew_artwork PUBLIC cxx_std_20)
+target_include_directories(playden_homebrew_artwork PUBLIC "${CMAKE_SOURCE_DIR}/src"
+    PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
+target_link_libraries(playden_homebrew_artwork PUBLIC playden_steam_http)
+
+add_library(playden_homebrew_artwork_cache STATIC "${CMAKE_SOURCE_DIR}/src/homebrew/artwork_cache.cpp")
+target_compile_features(playden_homebrew_artwork_cache PUBLIC cxx_std_20)
+target_include_directories(playden_homebrew_artwork_cache PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(playden_homebrew_artwork_cache PUBLIC playden_homebrew_artwork)
+
 add_library(playden_homebrew_ui STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/view.cpp")
 target_compile_features(playden_homebrew_ui PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_ui PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_homebrew_ui PUBLIC
-    playden_homebrew_model playden_homebrew_qr playden_hui)
+    playden_homebrew_model playden_homebrew_qr playden_hui playden_homebrew_artwork_cache)
 
 if(PLAYDEN_PLATFORM_PS5)
     target_include_directories(playden_hui PUBLIC
@@ -209,6 +222,8 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_homebrew_controller PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_library_controller PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_persistence_controller PUBLIC -fno-exceptions -fno-rtti)
+    target_compile_options(playden_homebrew_artwork PUBLIC -fno-exceptions -fno-rtti)
+    target_compile_options(playden_homebrew_artwork_cache PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_homebrew_ui PUBLIC -fno-exceptions -fno-rtti)
     include("${CMAKE_CURRENT_LIST_DIR}/HomebrewPS5.cmake")
     playden_add_homebrew_ps5_title()
@@ -384,6 +399,19 @@ if(BUILD_TESTING)
     add_test(NAME homebrew_library_graphical COMMAND homebrew_library_graphical_test
         "${CMAKE_BINARY_DIR}/synthetic-live-library")
 
+    add_executable(homebrew_artwork_graphical_test "${CMAKE_SOURCE_DIR}/tests/homebrew_artwork_graphical_test.cpp")
+    target_compile_features(homebrew_artwork_graphical_test PRIVATE cxx_std_20)
+    target_compile_definitions(homebrew_artwork_graphical_test PRIVATE PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
+    target_link_libraries(homebrew_artwork_graphical_test PRIVATE playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
+    add_dependencies(homebrew_artwork_graphical_test playden_homebrew_assets)
+    add_test(NAME homebrew_artwork_graphical COMMAND homebrew_artwork_graphical_test "${CMAKE_BINARY_DIR}/synthetic-live-artwork")
+
+    foreach(test_name homebrew_artwork homebrew_artwork_backend homebrew_artwork_cache)
+        add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
+        target_link_libraries(${test_name}_test PRIVATE playden_homebrew_artwork_cache)
+        target_compile_features(${test_name}_test PRIVATE cxx_std_20)
+        add_test(NAME ${test_name} COMMAND ${test_name}_test)
+    endforeach()
     foreach(test_name homebrew_persistence_model persistence_controller homebrew_persistence_integration)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_homebrew_controller)

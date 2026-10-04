@@ -14,6 +14,7 @@ namespace playden::homebrew
 {
 
 class Simulation;
+class ArtworkService;
 
 struct RenderStats
 {
@@ -21,6 +22,8 @@ struct RenderStats
     std::string focused_control_key;
     std::size_t grid_drawn_cell_count = 0;
     std::size_t artwork_texture_count = 0;
+    std::size_t live_artwork_texture_count = 0;
+    std::size_t live_artwork_gpu_bytes = 0;
     int native_width = 0;
     int native_height = 0;
 };
@@ -28,7 +31,7 @@ struct RenderStats
 class Render final
 {
   public:
-    explicit Render(std::filesystem::path assets_directory);
+    explicit Render(std::filesystem::path assets_directory, ArtworkService* artwork = nullptr);
     ~Render();
 
     Render(Render &&) noexcept;

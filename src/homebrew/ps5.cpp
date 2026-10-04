@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Playden contributors
 // SPDX-License-Identifier: MIT
 #include "homebrew/render.hpp"
+#include "homebrew/artwork_backend.hpp"
 #include "homebrew/simulation.hpp"
 #include "homebrew/controller.hpp"
 #include "homebrew/input_adapter.hpp"
@@ -72,7 +73,13 @@ int main() {
         playden::app::PersistenceService persistence(preferences,organization);
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence);
 #endif
+#if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer("/app0/assets");
+#else
+        playden::homebrew::HttpArtworkBackend artwork_backend("/app0/trust/cacert.pem");
+        playden::homebrew::ArtworkService artwork(artwork_backend);
+        playden::homebrew::Render renderer("/app0/assets", &artwork);
+#endif
         hui::ps5::Pad pad;
         pad.open();
         hui::InputTracker tracker;
@@ -105,6 +112,7 @@ int main() {
         }
 #if !PLAYDEN_UI_SIMULATION
         services.Shutdown();
+        artwork.Shutdown();
 #endif
     }
     display.close();

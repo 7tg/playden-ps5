@@ -2,7 +2,7 @@
 
 Updated 2026-10-04. The connected-library v1 is in progress on `main`. The selected direct **ps5-homebrew-ui** presentation is merged and production authentication, library, offline cache, search, and persistence are implemented. Real-account console acceptance remains open. **4K performance work is deferred by user direction.**
 
-The latest completed implementation commit is **`d237176` — Bind live organization and preferences to selected launcher**. An asynchronous artwork implementation is present in the working tree but is **not committed or finally reviewed**. Preserve it when resuming.
+The asynchronous artwork slice is committed on `main` (see the artwork row below). The PS5 MCP tools are available in the current session; claim the console before use.
 
 Read [HANDOFF.md](HANDOFF.md) for exact worktree state, commands, ownership, and next steps. The [approved execution plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) remains authoritative; the [execution ledger](docs/engineering/v1-progress.md) contains historical verification details.
 
@@ -17,35 +17,15 @@ Read [HANDOFF.md](HANDOFF.md) for exact worktree state, commands, ownership, and
 | Search and metadata | Pinned Unicode folding, stable name ordering, controller text entry, retained query/no-results recovery, filters restricted to available facts | Host query/model and selected graphical tests; general font coverage is not established |
 | Organization and preferences | Account favorites, hidden games, collections, ratings, notes, query/filter/sort/selected identity; separate global reduced motion | Worker IO, bounded pending-load edit replay, explicit reset, visible failures/retry, final-input shutdown flush, ordered cache → organization → credentials deletion |
 | Persistence navigation | Reconciles delayed saved selection with visible Home shelves/Library; preserves active editor target and local selection intent | Reviewed regressions for missing/hidden games, empty catalogs, unrelated pending edits, off-route restoration, and note editing |
+| Asynchronous artwork | Background fetch of the app-ID-derived Steam CDN portrait, bounded JPEG/PNG decode, graphics-thread texture cache, timed retry of failed covers, placeholders on failure | Host 42/42, legacy 21/21, TSan-clean service test, inspected synthetic captures, public HTTPS smoke, PS5 package; [artwork evidence](results/20261004-artwork-host/README.md). Real covers on the console remain for the connected journey |
 
 At `d237176`, the selected host suite passed **38/38**, legacy regression suite **21/21**, and selected PS5 compile/link/sign/package passed. The real graphical persistence restoration capture is in [persistence evidence](results/20261004-persistence-host/README.md). These results do not establish native lifecycle or physical-controller acceptance.
-
-## Artwork work in progress
-
-The working tree adds a background artwork service, bounded JPEG/PNG decoder, graphics-thread texture cache, renderer wiring, platform lifetime management, and four tests. It fetches the reference app's portrait-cover URL derived from Steam app ID. Simulation retains its fixed fixture artwork; unavailable production covers retain placeholders.
-
-Implemented limits:
-
-- 64 subscriptions; keys include account generation, app ID, and source identity.
-- 10-second HTTP deadline and 4 MiB transfer limit; verified HTTPS, exact canonical source, no redirects.
-- Maximum decoded dimensions 1024×1024 and 4 MiB RGBA; a separate 16 MiB internal decoder allocation cap.
-- 16 MiB queued decoded results; cancellation, stale-result rejection, and suppression of retries on every frame.
-- 64 textures / 64 MiB GPU cache; at most two uploads / 8 MiB per frame; eviction protects textures referenced by the current frame.
-
-Observed verification for this uncommitted work:
-
-- Selected host build passed; artwork-focused CTest **4/4** passed, including the actual graphical consumer.
-- Public Steam-cover HTTPS smoke passed: **300×450**, **540,000 RGBA bytes**.
-- Local PS5 compile/link/sign/package passed; eboot SHA-256 `859c9bd9de7dbc30ac98e17594a4d067e8d318e16cf729a52608a6ef905732e0`.
-- Early independent source review found no concrete blocker, but **final review is outstanding**.
-- The expanded host suite contains **42 tests**; the entire 42-test suite has **not** been run for this slice. New captures have been generated but not visually inspected or committed.
-- An unexpected exception from an injected ArtworkBackend currently escapes the worker. Decide and test the exception contract before final review; PS5 builds use exceptions disabled.
 
 ## Remaining roadmap
 
 | Order | Work | Completion evidence |
 | --- | --- | --- |
-| 1 | Finish the current artwork slice | Resolve the exception-contract review point, run the full selected suite, inspect delayed/ready/failure captures, obtain final independent review, rebuild/package, record evidence and commit |
+| 1 | Pin dependencies as submodules | ps5-native-app-boilerplate and ps5-homebrew-ui as git submodules at their latest revisions; the PS5 build uses the boilerplate's tooling/runtime from the submodule instead of `rmlfocus/.deps` |
 | 2 | Dynamic title glyph coverage, remaining 4A.3 | Bounded coverage beyond fixture subsets or explicit unsupported-glyph fallback, mixed-script graphical checks; Arabic shaping/BiDi limitations must remain explicit |
 | 3 | Authenticated Steam CM and backend acceptance | Implement/verify authenticated CM and reconcile the remaining entitlement/PICS requirement with the committed backend decision; transport success and GetOwnedGames alone do not close this gate |
 | 4 | Real connected journey and native functional acceptance | Coordinate shared PS5 access; direct QR phone approval, restoration, real library comparison, offline/retry, account switch/sign-out, preferences restart, artwork, clean exit, and physical DualSense checks |
