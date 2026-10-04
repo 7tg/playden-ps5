@@ -248,6 +248,22 @@ void utf8_caret_boundaries()
     check(text == "Aéر", "UTF-8 backspace range removes one complete code point");
 }
 
+void disconnected_installations_remain_installed(const std::filesystem::path& fixtures)
+{
+    auto state = fixture_state(fixtures);
+    state.library.scope = "installed";
+    const auto count = filtered_games(state).size();
+    for (auto& installation : state.installations) installation.available = false;
+    check(filtered_games(state).size() == count && count == 5,
+          "disconnect changes availability without removing installed identities");
+    const auto projected = shelves(state);
+    const auto recent = std::find_if(projected.begin(), projected.end(), [](const Shelf& shelf) {
+        return shelf.key == "installed";
+    });
+    check(recent != projected.end() && recent->game_ids.size() == 5,
+          "Recently installed keeps disconnected games visible");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -260,6 +276,7 @@ int main(int argc, char** argv)
     library_grid_and_rail_edges(fixtures);
     download_window_keeps_late_jobs_visible(fixtures);
     utf8_caret_boundaries();
+    disconnected_installations_remain_installed(fixtures);
     std::cout << "homebrew browse tests passed\n";
     return 0;
 }

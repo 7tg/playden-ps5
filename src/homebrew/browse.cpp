@@ -25,7 +25,7 @@ bool installed(const State& state, GameId id)
 {
     return std::any_of(state.installations.begin(), state.installations.end(),
                        [id](const Installation& value) {
-                           return value.game_id == id && value.available;
+                           return value.game_id == id && value.installed_bytes > 0;
                        });
 }
 
@@ -197,7 +197,7 @@ std::vector<Shelf> shelves(const State& state)
     seen.clear();
     for (auto installation = state.installations.rbegin(); installation != state.installations.rend();
          ++installation)
-        if (installation->available)
+        if (installation->installed_bytes > 0)
             append_known(state, recent, installation->game_id, seen);
     append_shelf(result, std::move(recent));
 
