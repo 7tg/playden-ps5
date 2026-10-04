@@ -79,3 +79,7 @@ OpenGL 4.1 core profile by removing explicit uniform locations, replacing base-i
 and using the portable GL declaration wrapper. PNG decoding is supplied as a header-only pinned
 dependency because the kit exposes texture upload but no image decoder. This host work is outside
 the shared framework checkout and is required only for the macOS comparison host.
+
+## Cross-candidate visual difference
+
+Agent A confirmed at handoff `1bd3e0f` that its top bar displays the fixture account and authentication state without wall-time text. Candidate B retains the reference `21:42` clock. The logical service clock is matched at `1760000000` in both capture sets; there is no displayed Candidate A time to match. This is a composition difference, not a simulation-clock mismatch.
