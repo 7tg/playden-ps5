@@ -160,3 +160,35 @@ account, IP or CM endpoint. Milestone 3A is closed for the tested native-title e
 
 Sanitized native logs and the executable/source/dependency manifest are committed under
 [results/20261004-steam-network-ps5](../../results/20261004-steam-network-ps5/README.md).
+
+## Authentication client implementation
+
+`AuthClient` implements the existing worker-owned `AuthBackend` using the pinned reference's
+`BeginAuthSessionViaQR`, `PollAuthSessionStatus`, and `GenerateAccessTokenForApp` protobuf POSTs.
+It initializes HTTP lazily on the service worker. The device identifies as `Playden (PS5)` with
+SteamClient platform type and the reference's `os_type=0`/`website_id=Client` fields.
+
+Requests have a 10-second maximum and a 64 KiB response cap. QR attempts have a 300-second
+monotonic lifetime; polling waits at least one second, honors a longer server interval, and
+caps each request/wait to the remaining lifetime. Cancellation is checked around requests,
+waits, challenge callbacks and renewal. Replacement challenge/client IDs are applied only after
+validation. Challenge URLs are limited to the Steam `https://s.team/q/` prefix, printable ASCII,
+and 4096 bytes; unexpected URL formats fail visibly rather than producing a misleading QR.
+
+As in the reference, an absent `X-EResult` header means success; malformed or duplicated headers
+are protocol failures. HTTP/server failures are stable error categories with no response text.
+Restoration revocation clears only the stored-session path: a rejection while obtaining the
+access token for a fresh QR attempt must not revoke a previously saved account.
+
+JWT inspection is bounded local parsing, **not signature verification**. Tokens come from
+certificate-verified Steam responses, and restoration always calls the server. The parser
+requires canonical base64url segments, an exact positive uint64 subject and positive integer
+expiry, rejects duplicate JSON keys and malformed UTF-8, and never converts Steam IDs through
+floating point. AuthClient requires unexpired tokens with matching subjects, validates account
+names as nonempty UTF-8, and validates rotated refresh tokens before replacing session data.
+
+Synthetic tests cover replacement, rejection, retry, cancellation, expiry, deadline budgeting,
+malformed responses/headers/tokens, renewal rotation and failed replacement preserving the
+previous repository through `SteamService`. The tests pass on host, including UBSan, and the
+implementation cross-compiles for PS5. This is protocol implementation evidence only: graphical
+QR wiring, real PS5 phone approval, restart restoration, and sign-out acceptance remain pending.
