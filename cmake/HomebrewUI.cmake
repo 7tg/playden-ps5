@@ -170,12 +170,18 @@ target_compile_features(playden_local_session_repository PUBLIC cxx_std_17)
 target_include_directories(playden_local_session_repository PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_local_session_repository PUBLIC playden_steam_core)
 
+add_library(playden_library_controller STATIC
+    "${CMAKE_SOURCE_DIR}/src/app/library_controller.cpp")
+target_compile_features(playden_library_controller PUBLIC cxx_std_20)
+target_include_directories(playden_library_controller PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(playden_library_controller PUBLIC playden_homebrew_model playden_library_service)
+
 add_library(playden_homebrew_controller STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/controller.cpp")
 target_compile_features(playden_homebrew_controller PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_controller PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_homebrew_controller PUBLIC
-    playden_homebrew_model playden_steam_core playden_auth_diagnostics)
+    playden_homebrew_model playden_steam_core playden_auth_diagnostics playden_library_controller)
 
 add_library(playden_homebrew_ui STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/view.cpp")
@@ -195,6 +201,7 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_auth_diagnostics PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_local_session_repository PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_homebrew_controller PUBLIC -fno-exceptions -fno-rtti)
+    target_compile_options(playden_library_controller PUBLIC -fno-exceptions -fno-rtti)
     target_compile_options(playden_homebrew_ui PUBLIC -fno-exceptions -fno-rtti)
     include("${CMAKE_CURRENT_LIST_DIR}/HomebrewPS5.cmake")
     playden_add_homebrew_ps5_title()
@@ -306,7 +313,7 @@ target_compile_definitions(playden-homebrew PRIVATE
     PLAYDEN_HOMEBREW_CA_BUNDLE="${playden_staged_ca}")
 target_link_libraries(playden-homebrew PRIVATE
     playden_homebrew_ui playden_homebrew_controller playden_local_session_repository
-    playden_library playden_steam_auth PkgConfig::SDL2 OpenGL::GL)
+    playden_library playden_steam_auth playden_steam_library PkgConfig::SDL2 OpenGL::GL)
 add_dependencies(playden-homebrew playden_homebrew_assets playden_steam_trust)
 set_target_properties(playden-homebrew PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -333,7 +340,7 @@ if(BUILD_TESTING)
         PLAYDEN_HOMEBREW_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/fixtures/ui-comparison"
         PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
     target_link_libraries(homebrew_host_input_test PRIVATE playden_homebrew_ui
-        playden_homebrew_controller playden_local_session_repository playden_steam_auth
+        playden_homebrew_controller playden_local_session_repository playden_library playden_steam_auth playden_steam_library
         PkgConfig::SDL2 OpenGL::GL)
     add_test(NAME homebrew_host_input COMMAND homebrew_host_input_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
     add_executable(homebrew_browse_test "${CMAKE_SOURCE_DIR}/tests/homebrew_browse_test.cpp")
@@ -365,7 +372,7 @@ if(BUILD_TESTING)
     target_compile_definitions(homebrew_library_graphical_test PRIVATE
         PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
     target_link_libraries(homebrew_library_graphical_test PRIVATE
-        playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
+        playden_library_controller playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
     add_dependencies(homebrew_library_graphical_test playden_homebrew_assets)
     add_test(NAME homebrew_library_graphical COMMAND homebrew_library_graphical_test
         "${CMAKE_BINARY_DIR}/synthetic-live-library")
@@ -375,6 +382,10 @@ if(BUILD_TESTING)
     target_compile_features(homebrew_account_test PRIVATE cxx_std_20)
     target_link_libraries(homebrew_account_test PRIVATE playden_homebrew_controller)
     add_test(NAME homebrew_account COMMAND homebrew_account_test)
+
+    add_executable(library_controller_test "${CMAKE_SOURCE_DIR}/tests/library_controller_test.cpp")
+    target_link_libraries(library_controller_test PRIVATE playden_library_controller)
+    add_test(NAME library_controller COMMAND library_controller_test)
 
     add_executable(local_session_repository_test
         "${CMAKE_SOURCE_DIR}/tests/local_session_repository_test.cpp")

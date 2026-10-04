@@ -14,4 +14,12 @@ int main() {
   assert(record.find("123456789")==std::string::npos);
   assert(record.find("\"request\":7")!=std::string::npos);
   assert(record.find("\"generation\":3")!=std::string::npos);
+
+  event.kind=playden::steam::SteamEventKind::kOfflineSession;
+  event.error=playden::steam::AuthError::kNetwork;
+  const auto offline=playden::diagnostics::AuthRecord(event);
+  assert(offline.find("\"kind\":\"offline-session\"")!=std::string::npos);
+  assert(offline.find("private-synthetic")==std::string::npos);
+  assert(offline.find("s.team")==std::string::npos);
+  assert(offline.find("123456789")==std::string::npos);
 }

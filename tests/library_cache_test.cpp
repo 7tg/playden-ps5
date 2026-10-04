@@ -49,6 +49,22 @@ int main(){
  Check(!storage.Read("library-76561198000000001.cache",33*1024*1024).ok(),"excessive read bound rejected");
  LibrarySnapshot empty{1,123457,{}};Check(cache.Save("76561198000000001",empty).ok(),"empty library is legitimate cached state");
  Check(cache.Load("76561198000000001").value().games.empty(),"empty library survives restart");
+ LibrarySnapshot partial{3,123459,{{30,"Partial","","",""}},true};
+ Check(cache.Save(std::uint64_t{76561198000000004ULL},partial).ok(),"save schema three metadata state through repository API");
+ auto partial_restored=cache.Load(std::uint64_t{76561198000000004ULL});
+ Check(partial_restored.ok()&&partial_restored.value().metadata_partial,"schema three preserves partial metadata state");
+ auto lossy_partial=partial;lossy_partial.schema_version=2;
+ Check(!cache.Save("76561198000000004",lossy_partial).ok(),"schema two cannot silently discard partial metadata state");
+ auto future=partial;future.retrieved_at_unix_seconds=std::uint64_t{1}<<63;
+ Check(!cache.Save("76561198000000004",future).ok(),"timestamp beyond signed presentation range rejected");
+ Check(storage.WriteAtomic("library-76561198000000004.cache.tmp",Bytes{'s','t','a','l','e'}).ok(),"write interrupted replacement fixture");
+ Check(cache.Clear(std::uint64_t{76561198000000004ULL}).ok(),"clear numeric account cache");
+ auto cleared=cache.Load("76561198000000004");
+ Check(!cleared.ok()&&cleared.error()==StorageError::kNotFound,"cleared cache stays absent");
+ auto stale_temporary=storage.Read("library-76561198000000004.cache.tmp");
+ Check(!stale_temporary.ok()&&stale_temporary.error()==StorageError::kNotFound,"clear removes interrupted replacement file");
+ Check(cache.Clear("76561198000000004").ok(),"clearing an absent cache is idempotent");
+ Check(!cache.Clear(std::uint64_t{0}).ok(),"zero account is rejected");
  std::remove((std::string(root)+"/library-76561198000000001.cache").c_str());std::remove((std::string(root)+"/library-76561198000000002.cache").c_str());std::remove((std::string(root)+"/library-76561198000000003.cache").c_str());rmdir(root);
  puts("library_cache_test passed");
 }

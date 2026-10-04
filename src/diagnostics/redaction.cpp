@@ -20,6 +20,7 @@ std::string AuthRecord(const steam::SteamEvent& event) {
     case steam::SteamEventKind::kChallenge: kind="challenge"; break;
     case steam::SteamEventKind::kAwaitingApproval: kind="awaiting-approval"; break;
     case steam::SteamEventKind::kAuthenticated: kind="authenticated"; break;
+    case steam::SteamEventKind::kOfflineSession: kind="offline-session"; break;
     case steam::SteamEventKind::kSignedOut: kind="signed-out"; break;
     case steam::SteamEventKind::kCanceled: kind="canceled"; break;
     case steam::SteamEventKind::kFailure: kind="failure"; break;

@@ -12,7 +12,15 @@
 namespace playden::steam {
 
 using RequestId = std::uint64_t;
-enum class SteamEventKind { kChallenge, kAwaitingApproval, kAuthenticated, kSignedOut, kCanceled, kFailure };
+enum class SteamEventKind {
+  kChallenge,
+  kAwaitingApproval,
+  kAuthenticated,
+  kOfflineSession,
+  kSignedOut,
+  kCanceled,
+  kFailure
+};
 struct SteamEvent {
   SteamEventKind kind = SteamEventKind::kFailure;
   RequestId request_id = 0;

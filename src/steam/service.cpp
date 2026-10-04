@@ -10,6 +10,9 @@ SteamEvent Failure(AuthError error) {
   event.error = error;
   return event;
 }
+bool StructurallyValid(const StoredSession& session) {
+  return session.steam_id != 0 && !session.refresh_token.empty();
+}
 }
 
 SteamService::SteamService(AuthBackend& backend, SessionRepository& repository)
@@ -78,8 +81,9 @@ bool SteamService::Current(const Job& job) const {
 void SteamService::Emit(const Job& job, SteamEvent event) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_ || job.generation != generation_ || job.cancel->load()) return;
-  if (event.kind == SteamEventKind::kAuthenticated || event.kind == SteamEventKind::kSignedOut ||
-      event.kind == SteamEventKind::kFailure || event.kind == SteamEventKind::kCanceled) active_ = false;
+  if (event.kind == SteamEventKind::kAuthenticated || event.kind == SteamEventKind::kOfflineSession ||
+      event.kind == SteamEventKind::kSignedOut || event.kind == SteamEventKind::kFailure ||
+      event.kind == SteamEventKind::kCanceled) active_ = false;
   event.request_id = job.request;
   event.generation = job.generation;
   if (events_.size() == kMaxEvents) events_.pop_front();
@@ -129,6 +133,7 @@ void SteamService::Execute(const Job& job) {
   if (!Current(job)) return;
   AuthResult result;
   std::uint64_t restore_identity = 0;
+  std::string restore_account_name;
   if (job.operation == Operation::kRestore) {
     bool blocked;
     { std::lock_guard<std::mutex> lock(mutex_); blocked = restore_blocked_; }
@@ -137,7 +142,9 @@ void SteamService::Execute(const Job& job) {
     if (!Current(job)) return;
     if (!loaded.ok()) { Emit(job, Failure(AuthError::kPersistence)); return; }
     if (!loaded.value()) { Emit(job, Failure(AuthError::kNoSession)); return; }
+    if (!StructurallyValid(*loaded.value())) { Emit(job, Failure(AuthError::kProtocol)); return; }
     restore_identity = loaded.value()->steam_id;
+    restore_account_name = loaded.value()->account_name;
     result = backend_.Restore(*loaded.value(), *job.cancel);
   } else {
     result = backend_.AuthenticateQr(*job.cancel, [this, &job](const std::string& url) {
@@ -153,6 +160,15 @@ void SteamService::Execute(const Job& job) {
   }
   if (!Current(job)) return;
   if (result.error != AuthError::kNone) {
+    if (job.operation == Operation::kRestore && result.error == AuthError::kNetwork) {
+      SteamEvent event;
+      event.kind = SteamEventKind::kOfflineSession;
+      event.error = AuthError::kNetwork;
+      event.steam_id = restore_identity;
+      event.account_name = std::move(restore_account_name);
+      Emit(job, std::move(event));
+      return;
+    }
     if (result.error == AuthError::kCredentialsRevoked) {
       { std::lock_guard<std::mutex> lock(mutex_); restore_blocked_ = true; }
       if (!repository_.Clear().ok()) {

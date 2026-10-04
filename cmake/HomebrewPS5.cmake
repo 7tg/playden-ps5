@@ -81,7 +81,7 @@ function(playden_add_homebrew_ps5_title)
     target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti)
     target_compile_features(playden_ps5_app PRIVATE cxx_std_20)
     target_link_libraries(playden_ps5_app PRIVATE playden_hui playden_library playden_steam_auth
-        playden_homebrew_controller playden_local_session_repository)
+        playden_homebrew_controller playden_local_session_repository playden_steam_library)
 
 	set(host_tool "${host}/ps5-native-tool")
 	set(libc_prx "${host}/libc.prx")
@@ -105,6 +105,7 @@ function(playden_add_homebrew_ps5_title)
 			"${sdk}/target/lib/libc++abi.a" "${sdk}/target/lib/libc++.a"
 			"${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_hui> $<TARGET_FILE:playden_homebrew_ui> $<TARGET_FILE:playden_homebrew_model>
 			$<TARGET_FILE:playden_homebrew_qr> $<TARGET_FILE:playden_homebrew_controller>
+			$<TARGET_FILE:playden_library_controller> $<TARGET_FILE:playden_library_service> $<TARGET_FILE:playden_steam_library>
 			$<TARGET_FILE:playden_local_session_repository> $<TARGET_FILE:playden_auth_diagnostics>
 			$<TARGET_FILE:playden_steam_http> $<TARGET_FILE:playden_steam_protocol>
 			$<TARGET_FILE:playden_steam_auth>
@@ -115,6 +116,7 @@ function(playden_add_homebrew_ps5_title)
 		WORKING_DIRECTORY "${out}/link"
 		DEPENDS playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui playden_homebrew_model
 			playden_homebrew_qr playden_homebrew_controller playden_local_session_repository playden_auth_diagnostics
+			playden_library_controller playden_library_service playden_steam_library
 			playden_library playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_storage
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
 			$<TARGET_OBJECTS:playden_ps5_app>
@@ -123,6 +125,7 @@ function(playden_add_homebrew_ps5_title)
 			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_storage>
 			$<TARGET_FILE:playden_library>
 			$<TARGET_FILE:playden_homebrew_qr> $<TARGET_FILE:playden_homebrew_controller>
+			$<TARGET_FILE:playden_library_controller> $<TARGET_FILE:playden_library_service> $<TARGET_FILE:playden_steam_library>
 			$<TARGET_FILE:playden_local_session_repository> $<TARGET_FILE:playden_auth_diagnostics>
 			"${gl_source}/native-app/ps5-pie.ld" "${gl_source}/native-app/app-symbols.map"
 			"${gl_sdk}/lib/libPS5OpenGL.a" "${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a"

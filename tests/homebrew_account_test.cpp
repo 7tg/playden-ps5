@@ -53,6 +53,27 @@ class Backend final : public AuthBackend {
   }
   AuthResult Restore(const StoredSession& s,const std::atomic<bool>&) override { return {error,error == AuthError::kNone ? std::optional<StoredSession>(s) : std::nullopt}; }
 };
+class LibraryBackendFixture final : public LibraryBackend {
+ public:
+  std::atomic<int> calls{0};
+  LibraryResult Fetch(const StoredSession&,const std::atomic<bool>&) override {
+    ++calls;return {LibraryError::kNone,{{42,"Connected synthetic game",{},{},{}}},false};
+  }
+};
+class CacheFixture final : public LibraryRepository {
+ public:
+  mutable std::optional<LibrarySnapshot> value;
+  bool fail_clear=false;
+  Result<LibrarySnapshot> Load(std::uint64_t) const override {
+    return value ? Result<LibrarySnapshot>::Success(*value)
+                 : Result<LibrarySnapshot>::Failure(StorageError::kNotFound,"missing");
+  }
+  Result<void> Save(std::uint64_t,const LibrarySnapshot& snapshot) const override {value=snapshot;return Result<void>::Success();}
+  Result<void> Clear(std::uint64_t) const override {
+    if(fail_clear)return Result<void>::Failure(StorageError::kRemoveFailed,"failure");
+    value.reset();return Result<void>::Success();
+  }
+};
 void Wait(Controller& controller,const std::function<bool()>& predicate) {
   const auto deadline = std::chrono::steady_clock::now()+4s;
   do { controller.Tick(); if (predicate()) return; std::this_thread::sleep_for(1ms); } while (std::chrono::steady_clock::now()<deadline);
@@ -148,5 +169,53 @@ void StorageFailureAndRevocation() {
     std::lock_guard<std::mutex> lock(repo.mutex); assert(corrupt?repo.value.has_value():!repo.value.has_value());
   }
 }
+void ConnectedLibraryAndOfflineRestart() {
+  Repository repo;repo.value=Session();CacheFixture cache;
+  {
+    Simulation model({}, {},ModelMode::Live);Backend backend;LibraryBackendFixture library_backend;
+    LibraryService library_service(library_backend,repo,&cache);
+    Controller controller(model,backend,repo,&library_service);
+    Wait(controller,[&]{return model.state().games.size()==1 && !model.state().library_loading;});
+    assert(model.state().account.authentication==AuthState::SignedIn && library_backend.calls==1);
+    assert(model.state().games[0].id==42 && model.state().account.cache_available);
+  }
+  {
+    Simulation model({}, {},ModelMode::Live);Backend backend;backend.error=AuthError::kNetwork;
+    LibraryBackendFixture library_backend;LibraryService library_service(library_backend,repo,&cache);
+    Controller controller(model,backend,repo,&library_service);
+    Wait(controller,[&]{return model.state().account.authentication==AuthState::Offline && model.state().games.size()==1 && !model.state().library_loading;});
+    assert(library_backend.calls==0 && model.state().library_offline);
+    cache.fail_clear=true;SignOut(model);controller.Tick();
+    Wait(controller,[&]{return model.state().account.authentication==AuthState::Offline && !model.state().account.error.empty();});
+    assert(repo.Load().value() && repo.clears==0 && cache.value && model.state().games.size()==1);
+    cache.fail_clear=false;SignOut(model);controller.Tick();
+    Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedOut;});
+    assert(!repo.Load().value() && !cache.value && model.state().games.empty());
+  }
 }
-int main() { ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); }
+void RepeatedClearPreservesFirstIntent() {
+  for(bool switching:{false,true}) {
+    Repository repo;repo.value=Session();CacheFixture cache;
+    Simulation model({}, {},ModelMode::Live);Backend backend;LibraryBackendFixture library_backend;
+    LibraryService library_service(library_backend,repo,&cache);
+    Controller controller(model,backend,repo,&library_service);
+    Wait(controller,[&]{return model.state().games.size()==1 && !model.state().library_loading;});
+    assert(model.action(switching?"account-switch":"signout"));
+    assert(model.action(switching?"signout":"account-switch"));
+    controller.Tick();
+    Wait(controller,[&]{return switching ? !model.state().account.challenge_url.empty()
+                                        : model.state().account.authentication==AuthState::SignedOut;});
+    assert(repo.clears==1 && !cache.value && backend.calls==(switching?1:0));
+  }
+}
+void ShutdownClearsLibraryBeforeSession() {
+  Repository repo;repo.value=Session();CacheFixture cache;
+  Simulation model({}, {},ModelMode::Live);Backend backend;LibraryBackendFixture library_backend;
+  LibraryService library_service(library_backend,repo,&cache);
+  Controller controller(model,backend,repo,&library_service);
+  Wait(controller,[&]{return model.state().games.size()==1 && !model.state().library_loading;});
+  SignOut(model);controller.Shutdown();
+  assert(!repo.Load().value() && !cache.value);
+}
+}
+int main() { ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }

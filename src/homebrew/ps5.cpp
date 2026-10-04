@@ -7,7 +7,9 @@
 #include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
 #include "steam/backend/auth_client.h"
+#include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
+#include "library/cache.h"
 #include "platform/ps5/display_egl.hpp"
 #include "platform/ps5/pad.hpp"
 #include "platform/ps5/system.hpp"
@@ -60,7 +62,12 @@ int main() {
         playden::homebrew::Simulation simulation({}, {}, playden::homebrew::ModelMode::Live);
         playden::steam::AuthClient auth("/app0/trust/cacert.pem");
         playden::LocalSessionRepository sessions("/app0/playden-data");
-        playden::homebrew::Controller services(simulation, auth, sessions);
+        playden::steam::LibraryClient library_backend("/app0/trust/cacert.pem");
+        playden::LocalSessionRepository library_sessions("/app0/playden-data");
+        playden::Storage library_storage("/app0/playden-data");
+        playden::LibraryCache library_cache(library_storage);
+        playden::LibraryService library_service(library_backend,library_sessions,&library_cache);
+        playden::homebrew::Controller services(simulation, auth, sessions,&library_service);
 #endif
         playden::homebrew::Render renderer("/app0/assets");
         hui::ps5::Pad pad;

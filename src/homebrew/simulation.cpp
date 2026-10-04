@@ -1274,7 +1274,9 @@ void Simulation::rebuild_view() {
         view_.title = "Home";
         view_.subtitle = state_.account.authentication == AuthState::SignedIn
             ? (live() ? (state_.account.error.empty() ? "Your Steam library" : state_.account.error) : "Fixture history — simulated")
-            : "Signed out";
+            : state_.account.authentication == AuthState::Offline
+                ? (state_.account.error.empty() ? "Offline — showing available library" : state_.account.error)
+                : "Signed out";
         for (const auto* game : visible_games()) {
             if (view_.rows.size() >= 12) break;
             auto& item = row(game_key(game->id), RowKind::Game, game->title, "open-game");

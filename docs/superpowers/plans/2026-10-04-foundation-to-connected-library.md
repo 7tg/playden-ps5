@@ -39,7 +39,7 @@
 - **2A presentation is superseded by the merged direct-Hui UI.** Existing Home/Library/details, controller keyboard, filtering/collections, account/settings, management/session simulations and recovery flows are reusable. Do not build them again from the old RML file list.
 - Selected UI evidence at `3796598`, documented by `703dd1f`: host CTest **11/11**, existing suite **14/14**, eight native-resolution **host framebuffer** captures, a 128-frame focus animation, and a signed local PS5 package. These are not PS5 gameplay/display evidence, physical-controller acceptance, or runtime frame-rate measurements.
 - **3A passed on PS5** in the earlier native transport probe. **3B foundations are committed** in `da4f925`, `82fd531`, and `5a42a0d`: worker/session storage, protobuf codec/fixtures, and verified HTTP/native networking. Concrete Begin/Poll/Renew AuthClient and bounded JSON/token parsing are now implemented in `8eb78fe` with synthetic host/UBSan and PS5 compile evidence; real account-screen integration and console authentication acceptance remain pending.
-- The selected CMake branch currently returns before creating the backend targets. Its default state, QR, jobs, artwork, account and persistence remain simulation-driven. Building the comparison executable alone does not exercise Steam.
+- S1 now builds the shared backend with the selected graphical consumer. Normal startup uses real authentication and library services; comparison journeys remain explicit simulation. Artwork and personal preferences still need production integration.
 
 ## Order and gates
 
@@ -224,16 +224,16 @@ Implementation is host-verified (27/27 selected tests) with real QR decoder roun
 
 ### 4A.2 Owned data and account-scoped offline recovery
 
-The selected model now accepts typed deliveries with stable focus/scroll, safe operational boundaries and graphical synthetic evidence (31/31 host tests). The production LibraryController and cache/offline binding are next; this boundary does not complete the task.
+The production LibraryController now binds authentication, account-scoped cache and owned-library retrieval to the selected screens. Network-only restore failure enables cache-only startup; cache deletion precedes credential deletion. Host tests and a synthetic service-driven graphical journey cover this integration. Persistent annotations and direct PS5 acceptance remain open.
 
 **Files:** Create `src/app/library_controller.{h,cpp}`, `tests/library_controller_test.cpp`; reuse `src/library/cache.*`, `model.h`, `query.*`, and `tests/library_cache_test.cpp`; extend the selected controller/state projection.
 
 **Interfaces:** `LibraryController::Tick()` drains bounded `LibraryService` events. Reuse `LibraryCache::Load(account_id)` / `Save(account_id, snapshot)`. Map `GameSummary` into existing `homebrew::Game` view records by stable Steam app ID; missing metadata stays unknown. Account/session generation accompanies pending sync/cache work.
 
-- [ ] Test loading, genuine empty ownership, metadata omissions, interrupted refresh and failed refresh preserving the prior valid snapshot. A failed request must never publish a successful empty library.
+- [x] Test loading, genuine empty ownership, metadata omissions, interrupted refresh and failed refresh preserving the prior valid snapshot. A failed request must never publish a successful empty library.
 - [ ] Scope cache load/save, favorites, collections, notes and selected identity to the authenticated account. Test account switch/sign-out during disk IO or sync, offline startup and corrupt cache; old account results must not repopulate cleared views.
-- [ ] Populate existing Home/Library/details/loading/stale/error surfaces from real results. Preserve focus/scroll by ID across updates and choose a predictable neighbor on removal; retain search/filter state where valid.
-- [ ] Treat installation, runtime readiness, compatibility, download size and play history as independent facts. Hide or explain unavailable real operations; keep the merged install/download/session simulation only in development mode. Do not expand v1 into actual installation or Wine.
+- [x] Populate existing Home/Library/details/loading/stale/error surfaces from real results. Preserve focus/scroll by ID across updates and choose a predictable neighbor on removal; retain search/filter state where valid.
+- [x] Treat installation, runtime readiness, compatibility, download size and play history as independent facts. Hide or explain unavailable real operations; keep the merged install/download/session simulation only in development mode. Do not expand v1 into actual installation or Wine.
 - [ ] Run selected UI/controller and backend tests, inspect real-data navigation, and verify cache/retry/sign-out on PS5 independently of performance profiling. Review and commit.
 
 **Done when:** The selected UI shows real owned games and correct account-scoped offline data without synthetic operational status.

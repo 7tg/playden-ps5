@@ -9,7 +9,9 @@
 #include "homebrew/json.hpp"
 
 #include "steam/backend/auth_client.h"
+#include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
+#include "library/cache.h"
 
 #include "core/input.hpp"
 #include "gfx/gl.hpp"
@@ -362,6 +364,11 @@ int main(int argc, char** argv) {
         options->simulation ? options->profile : std::filesystem::path{}, mode);
     std::unique_ptr<playden::steam::AuthClient> auth;
     std::unique_ptr<playden::LocalSessionRepository> sessions;
+    std::unique_ptr<playden::steam::LibraryClient> library_backend;
+    std::unique_ptr<playden::LocalSessionRepository> library_sessions;
+    std::unique_ptr<playden::Storage> library_storage;
+    std::unique_ptr<playden::LibraryCache> library_cache;
+    std::unique_ptr<playden::LibraryService> library_service;
     std::unique_ptr<playden::homebrew::Controller> services;
     if (!options->scenario.empty() && !simulation.scenario(options->scenario)) {
         std::fprintf(stderr, "%s\n", simulation.last_error().c_str());
@@ -400,7 +407,12 @@ int main(int argc, char** argv) {
         auth = std::make_unique<playden::steam::AuthClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
         sessions = std::make_unique<playden::LocalSessionRepository>(
             options->data_directory.string());
-        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions);
+        library_backend = std::make_unique<playden::steam::LibraryClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        library_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        library_storage = std::make_unique<playden::Storage>(options->data_directory.string());
+        library_cache = std::make_unique<playden::LibraryCache>(*library_storage);
+        library_service = std::make_unique<playden::LibraryService>(*library_backend,*library_sessions,library_cache.get());
+        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get());
     }
 
     auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR);

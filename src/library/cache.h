@@ -1,19 +1,18 @@
 #pragma once
-#include "library/model.h"
-#include "platform/storage.h"
-#include <vector>
+#include "library/repository.h"
+#include <string>
 
 namespace playden {
-struct LibrarySnapshot {
-    std::uint32_t schema_version = 2;
-    std::uint64_t retrieved_at_unix_seconds = 0;
-    std::vector<GameSummary> games;
-};
-class LibraryCache {
+class LibraryCache final : public LibraryRepository {
 public:
     explicit LibraryCache(Storage& storage) : storage_(storage) {}
+    Result<LibrarySnapshot> Load(std::uint64_t account_id) const override;
+    Result<void> Save(std::uint64_t account_id, const LibrarySnapshot& snapshot) const override;
+    Result<void> Clear(std::uint64_t account_id) const override;
+    // Kept for existing callers that already hold the canonical decimal ID.
     Result<LibrarySnapshot> Load(const std::string& account_id) const;
     Result<void> Save(const std::string& account_id, const LibrarySnapshot& snapshot) const;
+    Result<void> Clear(const std::string& account_id) const;
 private:
     Storage& storage_;
 };

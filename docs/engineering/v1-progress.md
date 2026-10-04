@@ -16,7 +16,7 @@ The updated [execution plan](../superpowers/plans/2026-10-04-foundation-to-conne
 | 3B | Concrete AuthClient and bounded JSON/token parsing committed in 8eb78fe; synthetic host/UBSan and PS5 compile checks pass | Real QR encoding/presentation, service lifecycle integration and direct PS5 approval/restore/sign-out |
 | 3C | Authenticated GetOwnedGames adapter and bounded worker implemented; synthetic tests and PS5 cross-compile pass | Connect real records/cache to selected consumer, retrieve actual account data on PS5; authenticated CM remains unproven |
 | 4A.1 | Live account controller, private storage and real QR rendering implemented; host verified | Direct PS5 approval/restore/sign-out still pending; production preferences remain 4B |
-| 4A.2 | Transactional real-record projection and history cache implemented; graphical synthetic journey verified | Wire LibraryController to auth/service/cache, account isolation, offline/retry and persistent annotations |
+| 4A.2 | Production library/controller/cache binding implemented; offline/retry and deletion ordering host-tested | Persistent annotations and coordinated real-account PS5 acceptance |
 | 4A.3 | Nine static fixture textures; font atlases subset fixture text | Real async fetch/decode, bounded texture lifecycle, stale-result rejection, dynamic title coverage |
 | 4B | Merged controller/search/settings behavior has host simulation evidence | Production queries/preferences, connected journey, physical pad/native functional checks; performance acceptance deferred |
 
@@ -77,3 +77,14 @@ The selected model now accepts typed library deliveries transactionally. Loading
 Independent review and actual graphical captures exposed and resolved placeholder title overflow, fixture art/download badge leaks, omitted unavailable-action text, inferred installation status, and Details focus on an invisible disabled row. The real renderer now uses safe placeholders, explicit unknown facts and enabled personal actions. Selected host **31/31**, graphical Home/Library/Details inspection and a local PS5 package passed. See [synthetic live projection evidence](../../results/20261004-live-library-projection/README.md).
 
 This prepares the existing presentation; normal startup still needs the production LibraryController binding to the new worker and cache. Real Steam/CM acceptance, offline recovery, persisted account annotations/preferences, asynchronous artwork, dynamic title coverage and physical controller checks remain open. Performance work remains deferred.
+
+
+## Connected library and offline startup (4A.2 integration)
+
+Normal Mac/PS5 startup now constructs the real owned-library client, worker, account-scoped cache and presentation controller. Authentication success starts refresh; a valid saved session whose renewal fails specifically for network reasons enables cache-only startup. Rejected credentials never enter offline authentication. Cache IO runs on the worker, cached data appears before refresh, and failed refresh preserves existing records. Schema 3 retains partial-metadata status while reading previous cache versions.
+
+Sign-out waits for cache deletion before deleting credentials. Failed deletion preserves the account and records for retry; accepted deletion survives invalidation and shutdown, including a late save. Request/account generations reject stale completions. Independent review identified a rejected cached projection swallowing its later valid network result; the failing regression now passes with the fresh request retained.
+
+See [service-driven graphical evidence](../../results/20261004-connected-library-host/README.md). Selected host tests pass **32/32**, including service-driven rendering of Home/Library/Details and offline cached records with synthetic data. Local PS5 compile/link/sign/package passes. These checks do not establish real Steam account retrieval or console acceptance. Production annotations/preferences, asynchronous artwork, broader font coverage, authenticated CM and physical controller/native lifecycle checks remain pending. Performance work remains deferred.
+
+Final package eboot SHA-256 for this slice: `5ac83aed391482db01cf239d6d8f8fc2413c0e1a34ddd2d873dcc094b968011c`. Review also resolved repeated destructive actions changing account-switch intent and crash-left temporary cache files surviving deletion.

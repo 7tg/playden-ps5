@@ -50,16 +50,20 @@ Result<void> Invalid(const char* message) {return Result<void>::Failure(StorageE
 }
 Result<void> LibraryCache::Save(const std::string& account,const LibrarySnapshot& snapshot) const {
     if(!ValidAccount(account))return Invalid("Invalid cache account identifier.");
-    if((snapshot.schema_version!=1&&snapshot.schema_version!=2)||snapshot.games.size()>kMaximumGames)return Invalid("Unsupported library cache schema or size.");
+    if((snapshot.schema_version!=1&&snapshot.schema_version!=2&&snapshot.schema_version!=3)||snapshot.games.size()>kMaximumGames||
+        snapshot.retrieved_at_unix_seconds>static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))return Invalid("Unsupported library cache schema or size.");
+    if(snapshot.schema_version<3&&snapshot.metadata_partial)return Invalid("Cache schema cannot preserve metadata state.");
     Bytes encoded=kMagic;
     encoded[6]=static_cast<std::uint8_t>(snapshot.schema_version);
-    String(encoded,account);Number(encoded,snapshot.retrieved_at_unix_seconds,8);Number(encoded,snapshot.games.size(),4);
+    String(encoded,account);Number(encoded,snapshot.retrieved_at_unix_seconds,8);
+    if(snapshot.schema_version==3)Number(encoded,snapshot.metadata_partial?1u:0u,1);
+    Number(encoded,snapshot.games.size(),4);
     std::unordered_set<GameId> seen;
     for(const auto& game:snapshot.games){
         if(!ValidGame(game)||!seen.insert(game.id).second)return Invalid("Invalid or duplicate cached game.");
         if(snapshot.schema_version==1 && (game.playtime_minutes || game.last_played_unix_seconds))return Invalid("Cache schema cannot preserve game history.");
         Number(encoded,game.id,4);String(encoded,game.title);String(encoded,game.artwork_source);String(encoded,game.description);String(encoded,game.developer);
-        if(snapshot.schema_version==2){
+        if(snapshot.schema_version>=2){
             Number(encoded,(game.playtime_minutes?1u:0u)|(game.last_played_unix_seconds?2u:0u),1);
             if(game.playtime_minutes)Number(encoded,*game.playtime_minutes,8);
             if(game.last_played_unix_seconds)Number(encoded,*game.last_played_unix_seconds,8);
@@ -76,7 +80,7 @@ Result<LibrarySnapshot> LibraryCache::Load(const std::string& account) const {
     if(!read.ok())return Result<LibrarySnapshot>::Failure(read.error(),read.message());
     const auto& bytes=read.value();
     if(bytes.size()<kMagic.size()+4||!std::equal(kMagic.begin(),kMagic.begin()+6,bytes.begin())||
-        (bytes[6]!=1&&bytes[6]!=2)||bytes[7]!=0)return invalid();
+        (bytes[6]!=1&&bytes[6]!=2&&bytes[6]!=3)||bytes[7]!=0)return invalid();
     Reader tail{bytes,bytes.size()-4,bytes.size()};
     if(tail.Number(4)!=Checksum(bytes,bytes.size()-4))return invalid();
     Reader reader{bytes,kMagic.size(),bytes.size()-4};
@@ -84,6 +88,8 @@ Result<LibrarySnapshot> LibraryCache::Load(const std::string& account) const {
     LibrarySnapshot snapshot;
     snapshot.schema_version=bytes[6];
     snapshot.retrieved_at_unix_seconds=reader.Number(8);
+    if(snapshot.retrieved_at_unix_seconds>static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))return invalid();
+    if(snapshot.schema_version==3){const auto partial=reader.Number(1);if(partial>1)return invalid();snapshot.metadata_partial=partial!=0;}
     const auto count=reader.Number(4);
     if(!reader.okay||count>kMaximumGames)return invalid();
     std::unordered_set<GameId> seen;
@@ -91,7 +97,7 @@ Result<LibrarySnapshot> LibraryCache::Load(const std::string& account) const {
         GameSummary game;
         game.id=static_cast<GameId>(reader.Number(4));game.title=reader.String(4096);
         game.artwork_source=reader.String(8192);game.description=reader.String(65536);game.developer=reader.String(4096);
-        if(snapshot.schema_version==2){
+        if(snapshot.schema_version>=2){
             const auto flags=reader.Number(1);
             if(flags>3)return invalid();
             if(flags&1)game.playtime_minutes=reader.Number(8);
@@ -102,5 +108,27 @@ Result<LibrarySnapshot> LibraryCache::Load(const std::string& account) const {
     }
     if(reader.offset!=reader.limit)return invalid();
     return Result<LibrarySnapshot>::Success(std::move(snapshot));
+}
+
+Result<LibrarySnapshot> LibraryCache::Load(std::uint64_t account) const {
+    if(!account)return Result<LibrarySnapshot>::Failure(StorageError::kInvalidData,"Invalid cache account identifier.");
+    return Load(std::to_string(account));
+}
+Result<void> LibraryCache::Save(std::uint64_t account,const LibrarySnapshot& snapshot) const {
+    if(!account)return Invalid("Invalid cache account identifier.");
+    return Save(std::to_string(account),snapshot);
+}
+Result<void> LibraryCache::Clear(const std::string& account) const {
+    if(!ValidAccount(account))return Invalid("Invalid cache account identifier.");
+    const auto path=Path(account);
+    const auto final_result=storage_.Remove(path);
+    const auto temporary_result=storage_.Remove(path+".tmp");
+    if(!final_result.ok())return final_result;
+    if(!temporary_result.ok())return temporary_result;
+    return Result<void>::Success();
+}
+Result<void> LibraryCache::Clear(std::uint64_t account) const {
+    if(!account)return Invalid("Invalid cache account identifier.");
+    return Clear(std::to_string(account));
 }
 } // namespace playden
