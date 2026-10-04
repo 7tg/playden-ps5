@@ -1745,7 +1745,7 @@ class Render::Impl
         const float heading_bottom = ui::paragraph(
             overlay_, fonts_.display, modal.title, panel.x + 48.0F, panel.y + 76.0F,
             48.0F, panel.w - 96.0F, 54.0F, modal.destructive ? kAmber : kText, 3);
-        const std::string body = view.subtitle.empty() ?
+        const std::string body = !modal.body.empty() ? modal.body : view.subtitle.empty() ?
             "Review the impact before continuing. This fixture changes simulated state only." : view.subtitle;
         ui::paragraph(overlay_, fonts_.regular, body, panel.x + 48.0F, heading_bottom + 24.0F, 25.0F,
                       panel.w - 96.0F, 35.0F, kSecondary,

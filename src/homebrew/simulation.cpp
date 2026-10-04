@@ -2261,7 +2261,22 @@ void Simulation::activate() {
         else if (action_name == "signout-confirm") title = "Sign out? Account-visible cache will be cleared.";
         else if (action_name == "quit-confirm") title = "Quit Playden? Active jobs will recover after restart.";
         else title = "Quit the simulated game? Download jobs continue.";
-        open_modal({"confirmation", std::move(title), state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true});
+        std::string body;
+        if (live()) {
+            // Live wording describes what actually happens; no simulated jobs or fixtures exist.
+            if (action_name == "signout-confirm") {
+                title = "Sign out of Steam?";
+                body = "The saved sign-in, this account's library cache and its organization are removed from this console. Signing in again needs the Steam mobile app.";
+            } else if (action_name == "quit-confirm") {
+                title = "Quit Playden?";
+                body = "Your sign-in, library and settings are kept for next time.";
+            } else if (action_name == "reset-confirm") {
+                body = "Favorites, collections, notes and display preferences return to their defaults.";
+            }
+        }
+        ModalEntry confirmation{"confirmation", std::move(title), state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
+        confirmation.body = std::move(body);
+        open_modal(std::move(confirmation));
     } else if (action_name == "confirm-destructive") {
         if (pending_destructive_action_.rfind("job-cancel-", 0) == 0) {
             if (auto* job = find_job(state_, pending_destructive_action_.substr(11))) { job->state = JobState::Cancelled; job->reservation_held = false; }

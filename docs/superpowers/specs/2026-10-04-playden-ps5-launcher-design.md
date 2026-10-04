@@ -6,6 +6,8 @@ Written 2026-10-04. Product direction agreed with Leo; this written specificatio
 
 > **Runtime decision update (2026-10-05):** The PS5 Wine runtime is `../ps5-homebrew/prospero-win`. A follow-up step investigates it and documents how games downloaded from Steam and other stores are packaged and installed for it, before install/runtime integration begins (see `STATUS.md`).
 
+> **MVP scope update (2026-10-05):** The user removed native 4K60 from the MVP acceptance criteria. It remains a separate performance goal. The connected-library v1 is functionally complete on the PS5.
+
 ## Product purpose
 
 Playden brings the macOS Playden library and couch experience to a jailbroken PS5. A player connects Steam, browses games with a DualSense, and eventually installs and launches Windows games through the separately developed PS5 Wine runtime.

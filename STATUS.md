@@ -1,6 +1,6 @@
 # Playden PS5 Launcher status and roadmap
 
-Updated 2026-10-04. The connected-library v1 is in progress on `main`. The selected direct **ps5-homebrew-ui** presentation is merged and production authentication, library, offline cache, search, and persistence are implemented. Real-account console acceptance remains open. **4K performance work is deferred by user direction.**
+Updated 2026-10-05. **The connected-library v1 (MVP) is functionally complete** and verified with a real account on the PS5 ([connected run](results/20261005-connected-ps5/README.md)); native 4K60 was removed from the MVP by the user. The selected direct **ps5-homebrew-ui** presentation is merged and production authentication, library, offline cache, search, and persistence are implemented. Next: v2 management UI, v3 real downloads, then the prospero-win runtime milestone.
 
 The asynchronous artwork slice is committed on `main` (see the artwork row below). The PS5 MCP tools are available in the current session; claim the console before use.
 
@@ -28,9 +28,11 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 
 | Order | Work | Completion evidence |
 | --- | --- | --- |
-| 1 | Finish the connected journey on the console | Done on the PS5: QR approval, real library, covers, CM dates. Remaining: restart restoration with the fixed build, offline/retry, account switch/sign-out, preferences restart, clean exit, physical DualSense. Coordinate shared access; keep the claim refreshed |
-| 2 | prospero-win packaging and install design | Survey done: [investigation](docs/engineering/prospero-win-investigation.md). Next: resolve its open decisions with the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) before v3 install work |
-| 3 | Native 4K60 performance acceptance, deferred | Only resume when the user lifts the deferral. Measure the actual selected consumer and required scenarios; native 3840×2160 at 60 Hz remains an unverified MVP requirement |
+| 1 | v2: install and management UI on the simulated backend | Formal v2 acceptance per the PRD: queue, storage, confirmation, recovery and restart scenarios controller-accessible and tested without Wine |
+| 2 | v3: real Steam downloads and management | Depot download, job recovery, verification, managed uninstall |
+| 3 | prospero-win packaging and install design | Survey done: [investigation](docs/engineering/prospero-win-investigation.md). Next: resolve its open decisions with the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) before v3 install work |
+| 4 | Runtime milestone: launch through prospero-win | A runtime-validated game launches, exits and returns to Playden with useful diagnostics |
+| — | Native 4K60 performance | Removed from the MVP by the user (2026-10-05); kept as a separate, unscheduled performance goal |
 
 Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 investigates how downloaded games are packaged and installed for it.
 

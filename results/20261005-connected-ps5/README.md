@@ -11,7 +11,12 @@ Title `FAKE77031` on the shared dev PS5 (10.0.1.68), deployed over zftpd to `/da
 | Asynchronous real covers | **Pass.** Steam CDN portraits stream in while navigating; titles without a portrait cover keep their placeholder |
 | Authenticated CM | **Pass.** "Recently added" is offered only when acquisition dates exist; it appeared and sorted the library, so CM logon, license list and package PICS succeeded on the console |
 | Private storage | **Pass.** `session.v1` and `steam-device-id` are 0600 (unreadable through FTP and the web file manager); library cache is schema 4 |
-| Restart restoration | **Failed, fixed, re-verification pending** (below) |
+| Restart restoration | **Pass after fix.** With the fixed build the session restored after a full console reboot and after a clean quit, with no renewal failure logged |
+| Preferences across restart | **Pass.** The "Recently added" library sort survived a reboot |
+| Clean exit | **Pass.** Settings > Quit returns to the PS5 home screen without an error |
+| Sign-out | **Pass.** Session, library cache and organization files deleted; device ID and global preferences kept; Welcome screen shown. The user then signed in again on the console |
+| Account switch | Not run: no second account available |
+| Offline startup | Host-tested only; cutting the console's network would also cut remote control |
 
 ## Restoration defect found on the console
 
@@ -23,8 +28,8 @@ Fix (host-tested, rebuilt eboot `a9ad7455…`):
 - When the Web API refuses renewal with AccessDenied, renewal goes through the authenticated CM session (`Authentication.GenerateAccessTokenForApp#1`). Only a refused CM logon now counts as revoked credentials.
 - Auth failures append a sanitized line (method, HTTP status, EResult) to `/app0/logs/auth.log`.
 
-The user approved a second sign-in with the fixed build and the session was saved, but another agent then used the console and `FAKE77031` stopped launching (CE-105773-3, 0x80940033) for reasons outside this build. The restart check is to be repeated once the console is restored.
+The user approved a second sign-in with the fixed build. Another agent then used the console, and after a reboot the homebrew payloads were not running (CE-105773-3); once the user re-applied the jailbreak, restoration passed as above.
 
 ## Still pending on hardware
 
-Restart restoration with the fixed build, CM-path renewal after access-token expiry, offline startup and recovery, sign-out and account switch, preferences across restart, clean exit, and physical DualSense checks. 4K performance remains deferred.
+CM-path renewal after an access token actually expires (unit-tested; occurs about a day after sign-in), account switch with a second account, and offline startup on the console. Live confirmation dialogs used simulation wording; fixed after this run.

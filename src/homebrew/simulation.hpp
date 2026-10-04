@@ -169,6 +169,7 @@ struct ModalEntry {
     std::vector<std::string> action_keys;
     int focused_action = 0;
     bool destructive = false;
+    std::string body;  // explanatory text; empty uses the simulation's default wording
 };
 
 struct Navigation {
