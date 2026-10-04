@@ -13,6 +13,11 @@
 #include <filesystem>
 #include <sys/stat.h>
 
+extern "C" void playden_release_splash(void);
+// The native signer requires every referenced export to resolve, including
+// the kit's optional weak splash callback. Use the launcher's held splash.
+extern "C" void hui_release_splash(void) { playden_release_splash(); }
+
 namespace {
 void dispatch(playden::homebrew::Simulation& simulation, const hui::InputFrame& input) {
     switch (input.nav) {
@@ -61,6 +66,7 @@ int main() {
                 was_connected = input.connected;
             }
             dispatch(simulation, input);
+            if (simulation.state().quit_requested) break;
             renderer.draw(simulation, display.width(), display.height());
             if (!display.swap()) break;
             if (!presented) { hui::sys::hide_splash_screen(); presented = true; }

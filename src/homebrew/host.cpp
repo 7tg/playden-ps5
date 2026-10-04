@@ -4,6 +4,7 @@
 
 #include "homebrew/render.hpp"
 #include "homebrew/simulation.hpp"
+#include "homebrew/json.hpp"
 
 #include "core/input.hpp"
 #include "gfx/gl.hpp"
@@ -17,6 +18,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,6 +32,7 @@ struct Options {
     std::filesystem::path replay;
     std::filesystem::path capture;
     std::filesystem::path snapshot;
+    std::filesystem::path recording;
     int width = 1920;
     int height = 1080;
     bool headless = false;
@@ -38,7 +41,7 @@ struct Options {
 void usage(const char* executable) {
     std::fprintf(stderr,
                  "usage: %s [--scenario ID] [--profile PATH] [--replay PATH]\n"
-                 "          [--capture PATH.png] [--snapshot PATH|-] [--headless]\n"
+                 "          [--capture PATH.png] [--snapshot PATH|-] [--record-dir PATH] [--headless]\n"
                  "          [--width PX] [--height PX]\n",
                  executable);
 }
@@ -80,6 +83,8 @@ std::optional<Options> parse_options(int argc, char** argv) {
             options.capture = argument;
         else if (option == "--snapshot")
             options.snapshot = argument;
+        else if (option == "--record-dir")
+            options.recording = argument;
         else if (option == "--width") {
             if (!positive_integer(argument, &options.width)) return std::nullopt;
         } else if (option == "--height") {
@@ -89,7 +94,7 @@ std::optional<Options> parse_options(int argc, char** argv) {
             return std::nullopt;
         }
     }
-    if (!options.capture.empty()) options.headless = true;
+    if (!options.capture.empty() || !options.recording.empty()) options.headless = true;
     return options;
 }
 
@@ -100,7 +105,8 @@ std::string trim(std::string text) {
     return text.substr(first, last - first + 1);
 }
 
-bool apply_replay(playden::homebrew::Simulation& simulation, const std::filesystem::path& path) {
+bool apply_replay(playden::homebrew::Simulation& simulation, const std::filesystem::path& path,
+                  const std::function<bool(const std::string&)>& record = {}) {
     if (path.empty()) return true;
     std::ifstream input(path);
     if (!input) {
@@ -139,6 +145,7 @@ bool apply_replay(playden::homebrew::Simulation& simulation, const std::filesyst
                 std::fprintf(stderr, "%s\n", simulation.last_error().c_str());
             return false;
         }
+        if (record && !record(line)) return false;
     }
     return true;
 }
@@ -261,7 +268,10 @@ void apply_input(playden::homebrew::Simulation& simulation, const hui::InputFram
          index < static_cast<unsigned>(hui::Action::count); ++index) {
         const auto action = static_cast<hui::Action>(index);
         if (frame.is_pressed(action)) {
-            if (const char* name = action_name(action)) simulation.action(name);
+            if (const char* name = action_name(action)) {
+                simulation.action(name);
+                break;
+            }
         }
     }
 }
@@ -277,7 +287,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", simulation.last_error().c_str());
         return 2;
     }
-    if (!apply_replay(simulation, options->replay)) return 2;
+    if (options->recording.empty() && !apply_replay(simulation, options->replay)) return 2;
 
     SDL_SetHint(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -307,6 +317,31 @@ int main(int argc, char** argv) {
     hui::gfx::set_glsl_prefix("#version 410 core\n");
 
     auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR);
+    if (!options->recording.empty()) {
+        std::error_code error;
+        std::filesystem::create_directories(options->recording, error);
+        std::ofstream states(options->recording / "states.jsonl");
+        unsigned frame_index = 0;
+        const auto record = [&](const std::string& command) {
+            for (int settle = 0; settle < 16; ++settle)
+                render->draw(simulation, options->width, options->height);
+            char filename[32];
+            std::snprintf(filename, sizeof(filename), "frame-%04u.png", frame_index++);
+            if (!render->capture_png(options->recording / filename, options->width, options->height) ||
+                glGetError() != GL_NO_ERROR) return false;
+            states << "{\"command\":\"" << playden::homebrew::json::escape(command)
+                   << "\",\"state\":" << simulation.snapshot() << "}\n";
+            return states.good();
+        };
+        if (error || !states || !record("initial") ||
+            !apply_replay(simulation, options->replay, record)) {
+            render.reset();
+            SDL_GL_DeleteContext(context);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return 1;
+        }
+    }
     SDL_StartTextInput();
     SDL_GameController* controller = nullptr;
     for (int index = 0; index < SDL_NumJoysticks() && !controller; ++index)
@@ -318,6 +353,8 @@ int main(int argc, char** argv) {
     int height = options->height;
     bool running = true;
     bool rendered_once = false;
+    bool was_connected = true;
+    bool suppress_initiating_text = false;
 
     while (running) {
         SDL_Event event{};
@@ -333,10 +370,16 @@ int main(int argc, char** argv) {
                     !simulation.state().editor.active)
                     simulation.tick();
                 else if (const char* action =
-                             keyboard_action(event.key, simulation.state().editor.active))
+                             keyboard_action(event.key, simulation.state().editor.active)) {
+                    const bool was_editing = simulation.state().editor.active;
                     simulation.action(action);
+                    suppress_initiating_text = !was_editing && simulation.state().editor.active &&
+                                              event.key.keysym.sym >= SDLK_SPACE &&
+                                              event.key.keysym.sym <= SDLK_z;
+                }
             } else if (event.type == SDL_KEYUP) {
                 keyboard_buttons &= ~navigation_bit(event.key.keysym.sym);
+                suppress_initiating_text = false;
             } else if (event.type == SDL_CONTROLLERDEVICEADDED && !controller) {
                 controller = SDL_GameControllerOpen(event.cdevice.which);
             } else if (event.type == SDL_CONTROLLERDEVICEREMOVED && controller &&
@@ -345,7 +388,8 @@ int main(int argc, char** argv) {
                 SDL_GameControllerClose(controller);
                 controller = nullptr;
             } else if (event.type == SDL_TEXTINPUT) {
-                simulation.text(event.text.text);
+                if (!suppress_initiating_text) simulation.text(event.text.text);
+                suppress_initiating_text = false;
             }
         }
 
@@ -354,7 +398,12 @@ int main(int argc, char** argv) {
                 std::chrono::steady_clock::now().time_since_epoch())
                 .count());
         const hui::PadSample pad = controller_sample(controller, now_us);
-        apply_input(simulation, controller_input.update(std::span(&pad, 1), now_us));
+        const auto input = controller_input.update(std::span(&pad, 1), now_us);
+        if (!options->headless && input.connected != was_connected) {
+            simulation.action(input.connected ? "inject:controller-reconnect" : "inject:controller-disconnect");
+            was_connected = input.connected;
+        }
+        apply_input(simulation, input);
         hui::PadSample keys;
         keys.connected = true;
         keys.buttons = keyboard_buttons;
@@ -362,6 +411,7 @@ int main(int argc, char** argv) {
         apply_input(simulation, keyboard_input.update(std::span(&keys, 1), now_us));
         render->draw(simulation, width, height);
         rendered_once = true;
+        if (simulation.state().quit_requested) running = false;
 
         if (!options->capture.empty()) {
             glFinish();

@@ -8,10 +8,10 @@ function(playden_add_homebrew_ps5_title)
 	endif()
 
 	set(sdk "$ENV{PS5_PAYLOAD_SDK}")
-	set(rf_deps "${PLAYDEN_PS5_DEPS_DIR}")
-	set(boilerplate "${rf_deps}/ps5-native-app-boilerplate")
-	set(gl_source "${rf_deps}/ps5-opengl-src")
-	set(gl_sdk "${rf_deps}/ps5-opengl/ps5-opengl-sdk-1.0.0/sdk")
+	set(sdk_deps "${PLAYDEN_PS5_DEPS_DIR}")
+	set(boilerplate "${sdk_deps}/ps5-native-app-boilerplate")
+	set(gl_source "${sdk_deps}/ps5-opengl-src")
+	set(gl_sdk "${sdk_deps}/ps5-opengl/ps5-opengl-sdk-1.0.0/sdk")
 	set(out "${CMAKE_BINARY_DIR}")
 	set(app "${out}/dist/${PLAYDEN_PS5_TITLE_ID}")
 	set(host "${out}/host-tools")
@@ -21,7 +21,7 @@ function(playden_add_homebrew_ps5_title)
 	string(JSON expected_builtins_sha GET "${dependency_lock}" compiler_rt_builtins sha256)
 	string(JSON expected_libc_sha GET "${dependency_lock}" ps5_native_app_boilerplate libc_prx_sha256)
 	file(SHA256 "${gl_sdk}/lib/libPS5OpenGL.a" actual_gl_sha)
-	file(SHA256 "${rf_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" actual_builtins_sha)
+	file(SHA256 "${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" actual_builtins_sha)
 	if(NOT actual_gl_sha STREQUAL expected_gl_sha)
 		message(FATAL_ERROR "libPS5OpenGL.a hash mismatch: expected ${expected_gl_sha}, found ${actual_gl_sha}")
 	endif()
@@ -100,14 +100,14 @@ function(playden_add_homebrew_ps5_title)
 			$<TARGET_OBJECTS:playden_ps5_app>
 			--start-group "${gl_sdk}/lib/libPS5OpenGL.a" "${sdk}/target/lib/libunwind.a"
 			"${sdk}/target/lib/libc++abi.a" "${sdk}/target/lib/libc++.a"
-			"${rf_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_hui> $<TARGET_FILE:playden_homebrew_ui>
+			"${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_hui> $<TARGET_FILE:playden_homebrew_ui> $<TARGET_FILE:playden_homebrew_model>
 			--end-group --as-needed ${link_stubs}
 		WORKING_DIRECTORY "${out}/link"
-		DEPENDS playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui
+		DEPENDS playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui playden_homebrew_model
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
 			$<TARGET_OBJECTS:playden_ps5_app>
 			"${gl_source}/native-app/ps5-pie.ld" "${gl_source}/native-app/app-symbols.map"
-			"${gl_sdk}/lib/libPS5OpenGL.a" "${rf_deps}/compiler-rt/libclang_rt.builtins-x86_64.a"
+			"${gl_sdk}/lib/libPS5OpenGL.a" "${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a"
 		COMMAND_EXPAND_LISTS VERBATIM)
 
 	set(stamp "${app}/.packaged")
