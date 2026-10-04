@@ -112,6 +112,13 @@ void t03_search_filters_and_focus_reconciliation(const std::filesystem::path& fi
     simulation.action("done");
     check(simulation.visible_games().size() == 1 && simulation.visible_games().front()->id == 900010,
           "T03 committed search updates results and count");
+    check(simulation.state().navigation.selected_game_id == 900010 && simulation.state().navigation.focus_key == "game-900010",
+          "T03 committing search reconciles logical selection to the visible result");
+    const bool prior_favorite = simulation.state().library.favorites.contains(900001);
+    simulation.action("square");
+    check(simulation.state().library.favorites.contains(900010) && simulation.state().library.favorites.contains(900001) == prior_favorite,
+          "T03 Square after controller search favorites the focused result");
+    simulation.action("square");
     activate(simulation, "game-900010");
     simulation.action("circle");
     simulation.action("options");
@@ -131,7 +138,10 @@ void t03_search_filters_and_focus_reconciliation(const std::filesystem::path& fi
     simulation.action("select:900012");
     const auto selected = simulation.state().navigation.selected_game_id;
     const auto scroll = simulation.state().navigation.scroll_offsets.at("library-grid");
-    simulation.action("inject:library-refresh"); simulation.tick(1);
+    simulation.action("inject:library-refresh");
+    check(simulation.state().library_loading && simulation.view().subtitle.find("Refreshing") != std::string::npos,
+          "T03 refresh has a visible loading state before completion");
+    simulation.tick(1);
     check(!simulation.state().library_loading && simulation.state().navigation.selected_game_id == selected
               && simulation.state().navigation.scroll_offsets.at("library-grid") == scroll,
           "T03 refresh preserves exact library selection and viewport");
@@ -273,7 +283,16 @@ void t09_uninstall_and_reset_preserve_declared_data(const std::filesystem::path&
     simulation.action("options");
     activate(simulation, "uninstall");
     activate(simulation, "confirm-destructive");
-    simulation.tick(2);
+    simulation.action("details:900001"); simulation.action("options"); activate(simulation, "uninstall"); activate(simulation, "confirm-destructive");
+    const auto uninstalls = std::count_if(simulation.state().jobs.begin(), simulation.state().jobs.end(),
+        [](const playden::homebrew::Job& job) { return job.game_id == 900001 && job.kind == "uninstall" && job.state != playden::homebrew::JobState::Cancelled; });
+    check(uninstalls == 1, "T09 repeated uninstall confirmation is idempotent");
+    int active = 0;
+    for (const auto& job : simulation.state().jobs)
+        if (job.state == playden::homebrew::JobState::Downloading || job.state == playden::homebrew::JobState::Verifying) ++active;
+    check(active == 1, "T09 queued uninstall preserves the one-active-operation invariant");
+    simulation.action("job:fail:job-1:download"); simulation.action("job:fail:job-2:download"); simulation.action("job:fail:job-3:download");
+    simulation.tick(3);
     const auto removed = std::find_if(simulation.state().installations.begin(), simulation.state().installations.end(),
                                       [](const playden::homebrew::Installation& value) { return value.game_id == 900001; });
     check(removed != simulation.state().installations.end() && !removed->available && removed->saves_present,
@@ -322,7 +341,9 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     restored.action("inject:controller-reconnect");
     check(restored.view().surface == "filters" && restored.state().navigation.focus_key == focus,
           "T11 controller reconnect retains modal and visible focus");
-    restored.action("circle"); restored.action("route:settings"); activate(restored, "settings-logs");
+    restored.action("circle"); restored.action("route:settings");
+    activate(restored, "settings-notices"); activate(restored, "retry-save"); restored.action("circle");
+    activate(restored, "settings-logs");
     check(restored.state().log_state == playden::homebrew::LogState::Loading, "T11 logs expose a loading state");
     restored.tick(1);
     check(restored.state().log_state == playden::homebrew::LogState::Ready && restored.state().log_lines.size() == 32,
@@ -342,6 +363,16 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     check(restored.state().account.authentication == playden::homebrew::AuthState::SignedIn
               && !restored.state().account.id.empty() && restored.state().account.last_sync > 0,
           "T11 account recovery restores a new fixture identity and last-sync state");
+    restored.action("route:library"); restored.action("search"); restored.text("Night Orchard"); restored.action("done"); restored.action("square");
+    const auto switched_id = restored.state().account.id;
+    const auto switched_name = restored.state().account.display_name;
+    const auto switched_sync = restored.state().account.last_sync;
+    playden::homebrew::Simulation switched_restart(fixtures, profile);
+    check(switched_restart.state().account.id == switched_id && switched_restart.state().account.display_name == switched_name
+              && switched_restart.state().account.last_sync == switched_sync
+              && switched_restart.state().library.query == "Night Orchard"
+              && switched_restart.state().library.favorites.contains(900010),
+          "T11 switched account identity and organization restore only from its profile");
     restored.action("route:settings"); activate(restored, "settings-about");
     check(restored.view().surface == "about" && restored.view().rows.size() == 4,
           "T11 About exposes build, framework, platform, and Back rows");

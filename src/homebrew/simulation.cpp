@@ -90,6 +90,17 @@ std::string auth_name(AuthState state) {
     return "signed-out";
 }
 
+AuthState parse_auth_state(const std::string& state) {
+    if (state == "waiting") return AuthState::Waiting;
+    if (state == "expired") return AuthState::Expired;
+    if (state == "failed") return AuthState::Failed;
+    if (state == "cancelled") return AuthState::Cancelled;
+    if (state == "syncing") return AuthState::Syncing;
+    if (state == "signed-in") return AuthState::SignedIn;
+    if (state == "offline") return AuthState::Offline;
+    return AuthState::SignedOut;
+}
+
 std::string job_state_name(JobState state) {
     switch (state) {
     case JobState::Queued: return "queued";
@@ -189,6 +200,8 @@ const Profile* effective_profile(const State& state, GameId id, const std::strin
     return found == state.profiles.end() ? (state.profiles.empty() ? nullptr : &state.profiles.front()) : &*found;
 }
 
+std::string game_key(GameId id);
+
 void clear_profile_customizations(State& state) {
     state.selected_profiles.clear();
     state.custom_profiles.clear();
@@ -197,6 +210,27 @@ void clear_profile_customizations(State& state) {
         custom.id = "custom"; custom.name = "Custom"; custom.summary = "Default values plus your overrides"; custom.is_default = false;
         state.profiles[1] = std::move(custom);
     }
+}
+
+void reconcile_library_selection(State& state) {
+    if (state.navigation.library_rail_focused) return;
+    const auto games = filtered_games(state);
+    const auto current = std::find_if(games.begin(), games.end(), [&state](const Game* game) {
+        return game->id == state.navigation.selected_game_id;
+    });
+    if (current != games.end()) {
+        state.navigation.selected_index = static_cast<int>(std::distance(games.begin(), current));
+        state.navigation.focus_key = game_key(state.navigation.selected_game_id);
+    } else if (!games.empty()) {
+        state.navigation.selected_index = std::clamp(state.navigation.selected_index, 0, static_cast<int>(games.size()) - 1);
+        state.navigation.selected_game_id = games[static_cast<std::size_t>(state.navigation.selected_index)]->id;
+        state.navigation.focus_key = game_key(state.navigation.selected_game_id);
+    } else {
+        state.navigation.selected_index = 0;
+        state.navigation.selected_game_id = 0;
+        state.navigation.focus_key = state.library.query.empty() ? "library-empty" : "clear-search";
+    }
+    state.navigation.scroll_offsets["library-grid"] = state.navigation.selected_index / 6;
 }
 
 std::string game_key(GameId id) { return "game-" + std::to_string(id); }
@@ -418,10 +452,19 @@ void Simulation::load_profile() {
         return;
     }
     const auto saved_account = string_value(root->get("account_id"));
-    if (!saved_account.empty() && saved_account != state_.account.id) return;
-    state_.reduced_motion = bool_value(root->get("reduced_motion"));
     const auto saved_auth = string_value(root->get("authentication"));
+    const auto restored_auth = parse_auth_state(saved_auth);
+    if (!saved_account.empty() && saved_account != state_.account.id) {
+        state_.library = {};
+        state_.selected_profiles.clear();
+        state_.custom_profiles.clear();
+        state_.account.id = saved_account;
+        state_.account.display_name = string_value(root->get("account_display_name"), "Connected fixture account");
+    }
+    state_.reduced_motion = bool_value(root->get("reduced_motion"));
     if (saved_auth == "signed-out") { state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear(); state_.account.cache_available = false; state_.navigation.route = Route::Startup; }
+    else if (!saved_auth.empty()) { state_.account.authentication = restored_auth; state_.account.cache_available = restored_auth == AuthState::SignedIn || restored_auth == AuthState::Offline; }
+    state_.account.last_sync = static_cast<std::int64_t>(uint_value(root->get("account_last_sync"), static_cast<std::uint64_t>(state_.account.last_sync)));
     state_.library.query = string_value(root->get("query"), state_.library.query);
     state_.library.scope = string_value(root->get("scope"), state_.library.scope);
     if (const auto* favorites = root->get("favorites"); favorites && favorites->array()) {
@@ -525,7 +568,9 @@ bool Simulation::save_profile() {
     }
     std::error_code error;
     if (!profile_path_.parent_path().empty()) std::filesystem::create_directories(profile_path_.parent_path(), error);
-    std::string output = "{\"account_id\":\"" + json::escape(state_.account.id) + "\",\"authentication\":\"" + auth_name(state_.account.authentication) + "\",\"next_job_serial\":" + std::to_string(next_job_serial_) + ",\"reduced_motion\":"
+    std::string output = "{\"account_id\":\"" + json::escape(state_.account.id) + "\",\"account_display_name\":\"" + json::escape(state_.account.display_name)
+        + "\",\"authentication\":\"" + auth_name(state_.account.authentication) + "\",\"account_last_sync\":" + std::to_string(state_.account.last_sync)
+        + ",\"next_job_serial\":" + std::to_string(next_job_serial_) + ",\"reduced_motion\":"
         + (state_.reduced_motion ? "true" : "false") + ",\"query\":\"" + json::escape(state_.library.query)
         + "\",\"scope\":\"" + json::escape(state_.library.scope) + "\",\"favorites\":[";
     bool first = true;
@@ -988,12 +1033,13 @@ void Simulation::rebuild_view() {
         };
         int shelf_index = 0;
         for (const auto& shelf : playden::homebrew::shelves(state_)) add_shelf(shelf.key, shelf.title, shelf.game_ids, shelf_index++);
+        view_.legends = {"Cross Open", "Square Favorite", "Options Actions", "L1/R1 Sections"};
     } else if (state_.navigation.route == Route::Library) {
         view_.title = "Library";
-        if (state_.library_loading) view_.subtitle = "Refreshing fixture library…";
         const auto games = visible_games();
         view_.total_count = games.size();
         view_.subtitle = std::to_string(games.size()) + " games";
+        if (state_.library_loading) view_.subtitle += " · Refreshing fixture library…";
         const std::size_t window_size = 24;
         const std::size_t selected = static_cast<std::size_t>(std::max(0, state_.navigation.selected_index));
         view_.first_index = games.size() <= window_size ? 0 : std::min(selected > window_size / 2 ? selected - window_size / 2 : 0, games.size() - window_size);
@@ -1054,7 +1100,8 @@ void Simulation::rebuild_view() {
         row("settings-logs", RowKind::Action, "Logs", "logs");
         if (!state_.notices.empty()) row("settings-notices", RowKind::Action, "Warnings", "notices").value = std::to_string(state_.notices.size());
         row("settings-reset", RowKind::Action, "Reset UI data", "reset-confirm").dangerous = true;
-        row("settings-signout", RowKind::Action, "Sign out", "signout-confirm").dangerous = true;
+        if (state_.account.authentication != AuthState::SignedOut)
+            row("settings-signout", RowKind::Action, "Sign out", "signout-confirm").dangerous = true;
         row("settings-quit", RowKind::Action, "Quit", "quit-confirm").dangerous = true;
     } else if (state_.navigation.route == Route::Session) {
         view_.title = state_.session == SessionState::Running ? "Game running" : "Simulated session";
@@ -1078,6 +1125,8 @@ void Simulation::rebuild_view() {
         if (state_.navigation.route == Route::Library && view_.first_index > 0)
             view_.focused_row = std::clamp(state_.navigation.selected_index - static_cast<int>(view_.first_index), 0, static_cast<int>(view_.rows.size()) - 1);
         state_.navigation.focus_key = view_.rows[static_cast<std::size_t>(view_.focused_row)].key;
+        if (view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id != 0)
+            state_.navigation.selected_game_id = view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id;
     }
     if (!has_overlay) route_view_ = view_;
 }
@@ -1139,7 +1188,7 @@ void Simulation::start_editor(std::string purpose, std::string value) {
 }
 
 void Simulation::commit_editor() {
-    if (state_.editor.purpose == "Search") state_.library.query = state_.editor.value;
+    if (state_.editor.purpose == "Search") { state_.library.query = state_.editor.value; reconcile_library_selection(state_); }
     else if (state_.editor.purpose == "Launch arguments" && state_.profiles.size() > 1) {
         auto& profile = custom_profile(state_, state_.navigation.selected_game_id);
         profile.launch_arguments = state_.editor.value;
@@ -1304,7 +1353,7 @@ void Simulation::activate() {
     else if (action_name == "skip" || action_name == "library") { state_.navigation.route = action_name == "skip" ? Route::Home : Route::Library; state_.navigation.focus_key.clear(); }
     else if (action_name == "qr-cancel" || action_name == "editor-cancel" || action_name == "cancel") cancel();
     else if (action_name == "editor-done") commit_editor();
-    else if (action_name == "clear-search") { state_.library.query.clear(); state_.navigation.selected_index = 0; }
+    else if (action_name == "clear-search") { state_.library.query.clear(); reconcile_library_selection(state_); }
     else if (action_name == "open-game") {
         state_.navigation.detail_origin = state_.navigation.route;
         state_.navigation.detail_id = selected.game_id;
@@ -1318,7 +1367,7 @@ void Simulation::activate() {
     } else if (action_name == "hide") {
         if (state_.library.hidden.contains(state_.navigation.selected_game_id)) state_.library.hidden.erase(state_.navigation.selected_game_id);
         else state_.library.hidden.insert(state_.navigation.selected_game_id);
-        close_modal();
+        close_modal(); reconcile_library_selection(state_);
         const auto remaining = visible_games();
         if (remaining.empty()) state_.navigation.focus_key = state_.library.query.empty() ? "library-empty" : "clear-search";
         else {
@@ -1373,16 +1422,14 @@ void Simulation::activate() {
     } else if (action_name.rfind("job-pause-", 0) == 0) { if (auto* job = find_job(state_, action_name.substr(10))) job->state = JobState::Pausing; close_modal(); }
     else if (action_name.rfind("job-resume-", 0) == 0) {
         if (auto* job = find_job(state_, action_name.substr(11))) {
-            if (job->kind != "uninstall")
-                for (auto& other : state_.jobs) if (&other != job && other.kind != "uninstall" && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
+            for (auto& other : state_.jobs) if (&other != job && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
             job->state = job->stage == JobStage::Download ? JobState::Downloading : JobState::Verifying;
         }
         close_modal();
     }
     else if (action_name.rfind("job-retry-", 0) == 0) {
         if (auto* job = find_job(state_, action_name.substr(10))) {
-            if (job->kind != "uninstall")
-                for (auto& other : state_.jobs) if (&other != job && other.kind != "uninstall" && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
+            for (auto& other : state_.jobs) if (&other != job && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
             job->stage = job->retry_stage; job->state = job->stage == JobStage::Download ? JobState::Downloading : JobState::Verifying; job->failure.clear();
         }
         close_modal();
@@ -1440,7 +1487,7 @@ void Simulation::activate() {
                 const bool has_duplicate = duplicate != state_.jobs.end();
                 const auto existing_id = has_duplicate ? duplicate->id : std::string{};
                 if (!has_duplicate)
-                    state_.jobs.push_back({next_job_id(), state_.navigation.selected_game_id, "uninstall", next_queue_order(state_), JobStage::Uninstall, JobState::Verifying, 0, installation->installed_bytes, std::nullopt, std::nullopt, {}, JobStage::Uninstall, installation->volume_id, 0, 0, false, false});
+                    state_.jobs.push_back({next_job_id(), state_.navigation.selected_game_id, "uninstall", next_queue_order(state_), JobStage::Uninstall, JobState::Queued, 0, installation->installed_bytes, std::nullopt, std::nullopt, {}, JobStage::Uninstall, installation->volume_id, 0, 0, false, false});
                 state_.navigation.route = Route::Downloads;
                 state_.navigation.focus_key = "job-" + (has_duplicate ? existing_id : state_.jobs.back().id);
             }
@@ -1462,13 +1509,13 @@ void Simulation::activate() {
         state_.navigation.modals.clear();
         pending_destructive_action_.clear();
     } else if (action_name.rfind("sort-", 0) == 0) {
-        state_.library.sort = action_name.substr(5); close_modal(); save_profile();
+        state_.library.sort = action_name.substr(5); close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name.rfind("filter-", 0) == 0) {
         const auto filter = action_name.substr(7);
         if (state_.library.filters.contains(filter)) state_.library.filters.erase(filter); else state_.library.filters.insert(filter);
-        close_modal(); save_profile();
+        close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name == "filters-reset") {
-        state_.library.filters.clear(); state_.library.sort = "name"; close_modal(); save_profile();
+        state_.library.filters.clear(); state_.library.sort = "name"; close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name == "game-settings") {
         const auto selected = state_.selected_profiles.find(state_.navigation.selected_game_id);
         selected_profile_id_ = selected == state_.selected_profiles.end() ? "default" : selected->second;
@@ -1710,8 +1757,7 @@ bool Simulation::action(const std::string& logical_action) {
     }
     if (logical_action.rfind("job:retry:", 0) == 0) {
         auto* job = find_job(state_, logical_action.substr(10)); if (!job) return false;
-        if (job->kind != "uninstall")
-            for (auto& other : state_.jobs) if (&other != job && other.kind != "uninstall" && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
+        for (auto& other : state_.jobs) if (&other != job && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
         job->stage = job->retry_stage; job->state = job->stage == JobStage::Download ? JobState::Downloading : JobState::Verifying; job->failure.clear(); save_profile(); rebuild_view(); return true;
     }
     if (logical_action == "reset") {
@@ -1815,6 +1861,8 @@ bool Simulation::action(const std::string& logical_action) {
     }
     else if (logical_action == "options") {
         if (!state_.editor.active && state_.navigation.route == Route::Details && state_.navigation.modals.empty()) open_modal({"context", "Game actions", "details-more", {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"}, 0, false});
+        else if (!state_.editor.active && state_.navigation.route == Route::Home && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty())
+            open_modal({"context", "Game actions", state_.navigation.focus_key, {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"}, 0, false});
         else if (!state_.editor.active && state_.navigation.route == Route::Library && !state_.navigation.modals.empty()) {}
         else if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty()
                  && state_.navigation.focus_key.rfind("game-", 0) == 0) open_modal({"context", "Game actions", state_.navigation.focus_key, {"favorite", "collection", "note", "hide", "cancel"}, 0, false});
@@ -1822,7 +1870,7 @@ bool Simulation::action(const std::string& logical_action) {
     } else if (logical_action == "square") {
         if (state_.editor.active) {
             if (state_.editor.caret > 0) { const auto prior = previous_caret(state_.editor.value, state_.editor.caret); state_.editor.value.erase(prior, state_.editor.caret - prior); state_.editor.caret = prior; }
-        } else if (state_.navigation.modals.empty() && (state_.navigation.route == Route::Library || state_.navigation.route == Route::Details) && state_.navigation.selected_game_id != 0) {
+        } else if (state_.navigation.modals.empty() && (state_.navigation.route == Route::Home || state_.navigation.route == Route::Library || state_.navigation.route == Route::Details) && state_.navigation.selected_game_id != 0) {
             if (state_.library.favorites.contains(state_.navigation.selected_game_id)) state_.library.favorites.erase(state_.navigation.selected_game_id);
             else state_.library.favorites.insert(state_.navigation.selected_game_id);
             save_profile();
@@ -1907,18 +1955,8 @@ void Simulation::controller_sample(ControllerState sample) {
 
 void Simulation::advance_jobs() {
     for (auto& job : state_.jobs) if (job.state == JobState::Pausing) job.state = JobState::Paused;
-    for (auto& job : state_.jobs) {
-        if (job.kind != "uninstall" || job.state != JobState::Verifying) continue;
-        ++job.stage_ticks;
-        if (job.stage_ticks >= 2) {
-            job.state = JobState::Downloaded;
-            job.completed_bytes = job.total_bytes;
-            reconcile_storage(state_);
-            state_.notices.push_back({"job-complete-" + job.id, "Uninstall complete; saves preserved", "open-game:" + std::to_string(job.game_id), false, 5});
-        }
-    }
     Job* active = nullptr;
-    for (auto& job : state_.jobs) if (job.kind != "uninstall" && (job.state == JobState::Downloading || job.state == JobState::Verifying)) { active = &job; break; }
+    for (auto& job : state_.jobs) if (job.state == JobState::Downloading || job.state == JobState::Verifying) { active = &job; break; }
     if (!active) {
         auto queued = std::min_element(state_.jobs.begin(), state_.jobs.end(), [](const Job& left, const Job& right) {
             const int left_order = left.state == JobState::Queued ? left.queue_order : std::numeric_limits<int>::max();
@@ -1940,7 +1978,8 @@ void Simulation::advance_jobs() {
             active->state = JobState::Downloaded;
             active->completed_bytes = active->total_bytes;
             reconcile_storage(state_);
-            const auto message = active->kind == "verify" ? "Verification complete" : "Download complete";
+            const auto message = active->kind == "verify" ? "Verification complete"
+                : active->kind == "uninstall" ? "Uninstall complete; saves preserved" : "Download complete";
             state_.notices.push_back({"job-complete-" + active->id, message, "open-game:" + std::to_string(active->game_id), false, 5});
         }
     }
