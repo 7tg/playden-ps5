@@ -88,10 +88,51 @@ function(playden_add_ps5_title)
 	target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections)
 	target_link_libraries(playden_ps5_app PRIVATE playden_core RmlUi::Core)
 
-    if(PLAYDEN_MSAA_PROBE AND (NOT PLAYDEN_DEVELOPER_FIXTURES OR NOT PLAYDEN_CAPTURE_AFTER_SECONDS STREQUAL "0"))
+    if(PLAYDEN_MSAA_PROBE AND (NOT PLAYDEN_DEVELOPER_FIXTURES OR PLAYDEN_STEAM_NETWORK_PROBE OR NOT PLAYDEN_CAPTURE_AFTER_SECONDS STREQUAL "0"))
         message(FATAL_ERROR "MSAA probe requires developer fixtures, no network probe and capture disabled")
     endif()
     target_compile_definitions(playden_ps5_app PRIVATE PLAYDEN_MSAA_PROBE=$<BOOL:${PLAYDEN_MSAA_PROBE}>)
+
+    set(probe_libraries)
+    if(PLAYDEN_STEAM_NETWORK_PROBE)
+        set(probe_root "${CMAKE_SOURCE_DIR}/probes/steam-network")
+        set(probe_prefix "${probe_root}/.deps/ps5")
+        file(GLOB_RECURSE probe_headers CONFIGURE_DEPENDS "${probe_prefix}/include/curl/*.h")
+        string(JSON expected_header_count LENGTH "${playden_dependency_lock}" steam_network_probe public_headers)
+        list(LENGTH probe_headers actual_header_count)
+        if(NOT actual_header_count EQUAL expected_header_count)
+            message(FATAL_ERROR "Pinned curl public-header set mismatch")
+        endif()
+        foreach(header IN LISTS probe_headers)
+            file(RELATIVE_PATH header_key "${probe_prefix}/include" "${header}")
+            string(JSON expected_header_hash GET "${playden_dependency_lock}" steam_network_probe public_headers "${header_key}")
+            file(SHA256 "${header}" actual_header_hash)
+            if(NOT actual_header_hash STREQUAL expected_header_hash)
+                message(FATAL_ERROR "Pinned curl public-header hash mismatch: ${header_key}")
+            endif()
+        endforeach()
+        target_sources(playden_ps5_app PRIVATE "${probe_root}/main.cpp")
+        target_include_directories(playden_ps5_app PRIVATE "${probe_root}" "${probe_prefix}/include")
+        target_compile_features(playden_ps5_app PRIVATE cxx_std_20)
+        target_compile_definitions(playden_ps5_app PRIVATE PLAYDEN_STEAM_NETWORK_PROBE=1 PLAYDEN_STEAM_NETWORK_PROBE_NO_MAIN=1 PLAYDEN_STEAM_NETWORK_PROBE_PS5=1)
+        foreach(name curl mbedtls mbedx509 mbedcrypto everest p256m)
+            set(probe_archive "${probe_prefix}/lib/lib${name}.a")
+            string(JSON expected_probe_hash GET "${playden_dependency_lock}" steam_network_probe ps5_archives "lib${name}.a")
+            file(SHA256 "${probe_archive}" actual_probe_hash)
+            if(NOT actual_probe_hash STREQUAL expected_probe_hash)
+                message(FATAL_ERROR "Pinned native network archive mismatch: lib${name}.a; rebuild with probes/steam-network/prepare-ps5-deps.sh")
+            endif()
+            list(APPEND probe_libraries "${probe_archive}")
+        endforeach()
+        file(SHA256 "${probe_prefix}/cacert.pem" probe_ca_hash)
+        string(JSON expected_probe_ca_hash GET "${playden_dependency_lock}" steam_network_probe ca_bundle sha256)
+        if(NOT probe_ca_hash STREQUAL expected_probe_ca_hash)
+            message(FATAL_ERROR "Probe CA bundle does not match pinned hash")
+        endif()
+        set(probe_ca "${probe_prefix}/cacert.pem")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            ${probe_headers} ${probe_libraries} "${probe_ca}" "${CMAKE_SOURCE_DIR}/dependencies.lock.json")
+    endif()
 
     if(NOT PLAYDEN_CAPTURE_AFTER_SECONDS MATCHES "^(0|[1-9][0-9]*)$")
         message(FATAL_ERROR "Capture delay must be nonnegative integer seconds")
@@ -121,9 +162,9 @@ function(playden_add_ps5_title)
 			"${rf_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_core>
 			$<TARGET_FILE:RmlFocus::RmlUi> $<TARGET_FILE:RmlFocus::RmlFocus>
 			$<TARGET_FILE:RmlUi::Core> "${playden_rmlui_prefix}/lib/libfreetype.a"
-			--end-group --as-needed ${link_stubs}
+			${probe_libraries} --end-group --as-needed ${link_stubs}
 		WORKING_DIRECTORY "${out}/link"
-		DEPENDS playden_ps5_runtime playden_ps5_shims playden_ps5_renderer playden_ps5_app playden_core
+		DEPENDS ${probe_libraries} playden_ps5_runtime playden_ps5_shims playden_ps5_renderer playden_ps5_app playden_core
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
 			$<TARGET_OBJECTS:playden_ps5_renderer> $<TARGET_OBJECTS:playden_ps5_app>
 			"${gl_source}/native-app/ps5-pie.ld" "${gl_source}/native-app/app-symbols.map"
@@ -138,11 +179,11 @@ function(playden_add_ps5_title)
 		COMMAND "${CMAKE_COMMAND}" -DAPP_DIR=${app} -DBOILERPLATE=${boilerplate}
 			-DASSETS_DIR=${CMAKE_SOURCE_DIR}/assets -DFONTS_DIR=${playden_fonts}
 			-DPARAM_SOURCE=${gl_source}/native-app/param.json -DPARAM_DEST=${app}/sce_sys/param.json
-			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=Playden" -P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
+			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=Playden" -DPROBE_CA_BUNDLE=${probe_ca} -P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
 		COMMAND "${host_tool}" self --sign --in "${out}/eboot.elf" --out "${app}/eboot.bin" --magic 0x1D3D154F
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${libc_prx}" "${app}/sce_module/libc.prx"
 		COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
-		DEPENDS "${pie}" "${host_tool}" "${libc_prx}" "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake" ${package_inputs}
+		DEPENDS ${probe_ca} "${pie}" "${host_tool}" "${libc_prx}" "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake" ${package_inputs}
 		VERBATIM)
 	add_custom_target(playden-ps5-package ALL DEPENDS "${stamp}")
 endfunction()

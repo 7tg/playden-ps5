@@ -1,0 +1,19 @@
+{
+  "title_id": "FAKE77031",
+  "build_base_revision": "b3b3f162a85d199f946c7187e02d3a9f2df5e717",
+  "build_state": "dirty; explicit network probe only; UI work not accepted",
+  "eboot_sha256": "001ac03c04089817b1a8110c670dcd86955ba05c03faa940b4ea232779712cd5",
+  "rmlfocus_revision": "31d2d8fd39ca3e3bb3ba91a43f50561c04429d57",
+  "source_hashes": {
+    "probes/steam-network/main.cpp": "2e68ddbb71de0ab31d4eba7196164fa98dca41d3fe21de20754bd7a1841c374a",
+    "probes/steam-network/patches/curl-ps5-native-nonblock.patch": "8ad3d3b23ed6c526d89e289c0acc11784df994f6ba99a3d6392cac0f5065e526",
+    "probes/steam-network/prepare-ps5-deps.sh": "083c0feaa653e888f270000c365a25fa8e5016e077456c242393a30459c6bdd9",
+    "src/platform/ps5/main.cpp": "706e1197b6e4976b9fec9668f8f3ffc73b1014f4745d28e30ef2eaaf11c997ae",
+    "cmake/PS5.cmake": "b2b299a4bd5c6d91fcc46ec2c7518db04d80b548d903bb52770a25575c22e0e0"
+  },
+  "files": {
+    "dependencies.txt": "a598b5c74403f02e4c8b4180735a55bcea315d39f024033c8e97bee5f6973d04",
+    "playden.log": "21398c02349b27ff54bc0b925381b9b408e9f6161548a3693dc5c3ddd8f1deb3",
+    "steam-network.jsonl": "3b2a34deca0eaf5cc5c686fd831e4f59c738525b9c16e24a0e2119fb6c47c73b"
+  }
+}

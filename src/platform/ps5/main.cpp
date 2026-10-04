@@ -5,6 +5,9 @@
 #include "platform/storage.h"
 #include "platform/ps5/process_memory.h"
 #include "title_shims.h"
+#ifdef PLAYDEN_STEAM_NETWORK_PROBE
+#include "probe.h"
+#endif
 
 #include <rmlfocus/input.h>
 
@@ -292,7 +295,19 @@ int Run()
 
 int main()
 {
-	const int status = Run();
+	#ifdef PLAYDEN_STEAM_NETWORK_PROBE
+    Log("steam probe: starting");
+    mkdir("/app0/logs", 0777);
+    int status = 2;
+    if (std::freopen("/app0/logs/steam-network.jsonl", "w", stdout)) {
+        Log("steam probe: stdout opened");
+        std::setvbuf(stdout, nullptr, _IONBF, 0);
+        Log("steam probe: stdout configured; entering Run");
+        status = playden::steam_probe::Run("/app0/probe/cacert.pem");
+    }
+#else
+    const int status = Run();
+#endif
 	Log("exit status=%d", status);
 	std::fflush(nullptr);
 	sceSystemServiceLoadExec("exit", nullptr);

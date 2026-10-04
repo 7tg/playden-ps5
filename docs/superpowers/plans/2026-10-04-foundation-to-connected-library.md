@@ -134,11 +134,11 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 **Reference revision:** Inspect `SteamAuth.swift`, `WebAPI.swift`, `CMClient.swift`, `CMTransport.swift`, `CMDeviceIdentity.swift`, `Library.swift`, `Entitlements.swift`, `PICS.swift`, and `TokenStore.swift` under `Packages/SteamKit/Sources/SteamCore/`, plus `App/AccountModel.swift` and `App/LibraryModel.swift`, at the recorded branch revision.
 
-- [ ] Map the smallest chain from QR challenge through approval, persistent session, CM logon, entitlement/library retrieval, and metadata. Record Apple dependencies and the source of generated protocol definitions.
-- [ ] Probe DNS, certificate-validated HTTPS, request cancellation/timeouts, and the required persistent CM transport in native-title context. Never disable certificate checks to make the probe pass.
-- [ ] Compare retaining portable source with porting the required protocol subset to a PS5-compatible implementation. Select one based on compiler/runtime support, transport evidence, and dependency footprint.
-- [ ] Record the chosen libraries, versions, exact backend file map, build instructions, and protocol fixture strategy in the decision document before starting 3B. If no choice is viable yet, report the specific failing probe and continue independent UI work.
-- [ ] Commit the audit and evidence with tokens and account identifiers removed.
+- [x] Map the smallest chain from QR challenge through approval, persistent session, CM logon, entitlement/library retrieval, and metadata. Record Apple dependencies and the source of generated protocol definitions.
+- [x] Probe DNS, certificate-validated HTTPS, request cancellation/timeouts, and the required persistent CM transport in native-title context. Never disable certificate checks to make the probe pass.
+- [x] Compare retaining portable source with porting the required protocol subset to a PS5-compatible implementation. Select one based on compiler/runtime support, transport evidence, and dependency footprint.
+- [x] Record the chosen libraries, versions, exact backend file map, build instructions, and protocol fixture strategy in the decision document before starting 3B. If no choice is viable yet, report the specific failing probe and continue independent UI work.
+- [x] Commit the audit and evidence with tokens and account identifiers removed.
 
 **Done when:** There is an evidence-backed path for both authentication HTTPS and the transport required to obtain a real library. A host-only success does not pass this gate.
 

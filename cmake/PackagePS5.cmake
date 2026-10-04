@@ -21,3 +21,8 @@ string(JSON attribute3 GET "${param}" attribute3)
 math(EXPR attribute3 "(${attribute3} & ~0x80040) | 0x80040")
 string(JSON param SET "${param}" attribute3 "${attribute3}")
 file(WRITE "${PARAM_DEST}" "${param}\n")
+
+if(PROBE_CA_BUNDLE)
+ file(MAKE_DIRECTORY "${APP_DIR}/probe")
+ file(COPY "${PROBE_CA_BUNDLE}" DESTINATION "${APP_DIR}/probe")
+endif()

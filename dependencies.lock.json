@@ -63,5 +63,43 @@
       "utf8proc.h": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
       "utf8proc_data.c": "950e549dbfc853c4304425f3af1875e72fa9fc9697c273c763400c2da4e380a7"
     }
+  },
+  "steam_network_probe": {
+    "status": "experimental; native transport gate pending",
+    "curl": {
+      "version": "8.22.0",
+      "source_sha256": "f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7",
+      "ps5_nonblock_patch_sha256": "8ad3d3b23ed6c526d89e289c0acc11784df994f6ba99a3d6392cac0f5065e526"
+    },
+    "mbedtls": {
+      "version": "3.6.6",
+      "source_sha256": "8fb65fae8dcae5840f793c0a334860a411f884cc537ea290ce1c52bb64ca007a"
+    },
+    "ca_bundle": {
+      "version": "2026-09-25",
+      "sha256": "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505"
+    },
+    "ps5_archives": {
+      "libcurl.a": "4d3a53c0fb710931a6c1c99a8b540d2a4298d491a17813f889d5e0ae9c60cb37",
+      "libeverest.a": "beb61a9fb21e7a9cc016f0ad7fc9027cc09da674a3f2c743bfa8d1bfe06de00c",
+      "libmbedcrypto.a": "ac7d5c54ed457d4e4948dfecd80f9f2157c4b164b4770ab706218238d74557a0",
+      "libmbedtls.a": "ef06e96fcb4967b3e9b7e85570e0e1503dfb608e01e868a9f05a7372635e54b4",
+      "libmbedx509.a": "cf958baa32e5d20631b8d873365eb81589487e4fbb800faab86a6bed68426e65",
+      "libp256m.a": "412e12a472d4b2a3377760ccea57c87609831197c9183736ccd848d23b27da02"
+    },
+    "public_headers": {
+      "curl/curl.h": "9ec2e9040d8d95545a4c331461c54748651edc3852a6ceca0672f858103e0528",
+      "curl/curlver.h": "c4ed114da4eca953a328fa2efa8128308fc32879f15b58c245b2592f4bfaf9dc",
+      "curl/easy.h": "f101da02dd373151ea7b00082cb62c9d6e482361ab26b6d430ee96aab1b71565",
+      "curl/header.h": "e92525a91bb1119034dd45dd42d255ff9b6a49d964ca7105964e0107671b3395",
+      "curl/mprintf.h": "a79657fa15db71e732bcb58bc4645ab65bdb3222767f34be5bab56aa0d4f4cc9",
+      "curl/multi.h": "0466a7c91067cb11c98f37e16103b992b66e84221467c2a70ef951877502f77a",
+      "curl/options.h": "32fe87f843367d25a9db91a47386652402f08c9668617b4c51295ef31d93f8b0",
+      "curl/stdcheaders.h": "d7588b86814a35ffc3766ff6242e6f6705e04401fc9c208a195caff3503af81c",
+      "curl/system.h": "edb2c507a084448a5e3c7e2b9c65c408e22ffeaca5ab0c1ee2e76d82a21113fa",
+      "curl/typecheck-gcc.h": "62bf346ae4dc33bc61cd99a9e935c62dfbcd8120399cdbd5874d15897a57e681",
+      "curl/urlapi.h": "d888326d5bdebb84b5fe133d7ef7703d4e88732757ce4d6b0476f0c668d38a6e",
+      "curl/websockets.h": "05b70dbce5274aa6e360703bb17d67a0390fea18bf4437745a25b08b55d6962b"
+    }
   }
 }

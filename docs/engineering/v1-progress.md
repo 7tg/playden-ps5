@@ -9,8 +9,8 @@ Previous goal turn classification: progress — native 3840×2160 framebuffer ev
 | 1A–1B | Complete | Committed shell evidence under results/20261004T132145Z-shell |
 | 2A | Complete host scenes/captures; native PS5 visual/routing evidence recorded | Bounded 1,000-game views, identity/focus/artwork tests, real captures |
 | 2B | Native frame intervals exceed target; RSS and presentation counters unavailable | 10-minute scenario, 30-minute soak, native 4K60 report, physical controller |
-| 3A | Native DNS and bounded empty poll pass; curl request stalls before timeout | Direct native-title TLS and CM transport, backend decision |
-| 3B | Waiting for 3A | Real Steam QR approval, restart, cancellation/sign-out isolation |
+| 3A | Complete: native DNS, cancellation, timeout, verified HTTPS/WSS and matching PONG | Direct native-title TLS and CM transport, backend decision |
+| 3B | Transport gate passed; authentication/session work next | Real Steam QR approval, restart, cancellation/sign-out isolation |
 | 3C | Waiting for 3A/3B | Real owned library with metadata/recovery |
 | 4A | Account-scoped cache committed; integration awaits services | Connected UI and account-scoped offline caches |
 | 4B | Controller search implemented/reviewed; injected native input passes; physical check pending | Controller entry, complete journey, real-data performance acceptance |
@@ -32,3 +32,5 @@ Native visual evidence: results/20261004-library-ps5 records a direct 3840×2160
 User direction (2026-10-04): defer 4K performance work for now. Stop profiling, MSAA comparisons, and RSS/soak work; preserve existing diagnostics and evidence. Continue Steam networking and the connected-library implementation. Native 4K60 remains an unverified final acceptance requirement and is not waived.
 
 User direction (2026-10-04): defer all UI work to a separate session/agent. This session continues Steam networking/backend only. Uncommitted partial sort/filter work is preserved in src/ui/shell.{h,cpp}, assets/ui/library.rml, assets/ui/playden.rcss, assets/ui/library-options.rml, and tests/library_options_test.cpp. The final added no-results assertions have not been compiled/run; no UI completion claim or UI commit was made.
+
+Native Steam transport gate passed: results/20261004-steam-network-ps5 records the packaged title, pinned dependencies/patch, all required transport results and clean exit. Backend selection is recorded in steam-backend-decision.md; authentication and owned-library retrieval remain incomplete.
