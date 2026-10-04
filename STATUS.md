@@ -10,6 +10,7 @@ Read [HANDOFF.md](HANDOFF.md) for exact worktree state, commands, ownership, and
 
 | Area | Implemented behavior | Evidence and limits |
 | --- | --- | --- |
+| Pinned dependencies | ps5-native-app-boilerplate (tooling, `libc.prx`) and ps5-homebrew-ui as submodules under `third_party/` | Boilerplate at upstream latest; Hui at upstream latest plus unpushed local `feat/latin-glyphs` commits (see README) |
 | Selected presentation and builds | Merged Home, Library, Details, account/settings, controller keyboard, focus/navigation, and management simulations; selected Mac/PS5 builds with pinned dependencies | Actual graphical host captures and local PS5 packages. Legacy RmlFocus remains a regression path, not the selected presentation |
 | Native Steam transport | Native DNS, certificate-validated HTTPS/WSS, cancellation, timeout, and persistent transport probe | Earlier PS5 gate passed; [transport evidence](results/20261004-steam-network-ps5/README.md). This is not authenticated CM or real-account acceptance |
 | Authentication | QR Begin/Poll/Renew, bounded worker events, private session persistence, restore/cancel/retry/sign-out, real QR encoding in selected UI | Synthetic protocol/state tests and graphical QR decoder checks. PS5-issued QR approval and real session restart remain pending |
@@ -18,6 +19,7 @@ Read [HANDOFF.md](HANDOFF.md) for exact worktree state, commands, ownership, and
 | Organization and preferences | Account favorites, hidden games, collections, ratings, notes, query/filter/sort/selected identity; separate global reduced motion | Worker IO, bounded pending-load edit replay, explicit reset, visible failures/retry, final-input shutdown flush, ordered cache → organization → credentials deletion |
 | Persistence navigation | Reconciles delayed saved selection with visible Home shelves/Library; preserves active editor target and local selection intent | Reviewed regressions for missing/hidden games, empty catalogs, unrelated pending edits, off-route restoration, and note editing |
 | Asynchronous artwork | Background fetch of the app-ID-derived Steam CDN portrait, bounded JPEG/PNG decode, graphics-thread texture cache, timed retry of failed covers, placeholders on failure | Host 42/42, legacy 21/21, TSan-clean service test, inspected synthetic captures, public HTTPS smoke, PS5 package; [artwork evidence](results/20261004-artwork-host/README.md). Real covers on the console remain for the connected journey |
+| Title glyph fallback | Characters outside the baked atlases draw a visible `?`; Greek fully covered; one face per string; Arabic unshaped, isolated forms, drawn LTR | Graphical test with titles outside the catalog, `?` required in every fallback face; [glyph evidence](results/20261004-glyph-fallback-host/README.md). Broad coverage awaits ps5-homebrew-ui `feat/unicode-text` |
 
 At `d237176`, the selected host suite passed **38/38**, legacy regression suite **21/21**, and selected PS5 compile/link/sign/package passed. The real graphical persistence restoration capture is in [persistence evidence](results/20261004-persistence-host/README.md). These results do not establish native lifecycle or physical-controller acceptance.
 
@@ -25,11 +27,9 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 
 | Order | Work | Completion evidence |
 | --- | --- | --- |
-| 1 | Pin dependencies as submodules | ps5-native-app-boilerplate and ps5-homebrew-ui as git submodules at their latest revisions; the PS5 build uses the boilerplate's tooling/runtime from the submodule instead of `rmlfocus/.deps` |
-| 2 | Dynamic title glyph coverage, remaining 4A.3 | Bounded coverage beyond fixture subsets or explicit unsupported-glyph fallback, mixed-script graphical checks; Arabic shaping/BiDi limitations must remain explicit |
-| 3 | Authenticated Steam CM and backend acceptance | Implement/verify authenticated CM and reconcile the remaining entitlement/PICS requirement with the committed backend decision; transport success and GetOwnedGames alone do not close this gate |
-| 4 | Real connected journey and native functional acceptance | Coordinate shared PS5 access; direct QR phone approval, restoration, real library comparison, offline/retry, account switch/sign-out, preferences restart, artwork, clean exit, and physical DualSense checks |
-| 5 | Native 4K60 performance acceptance, deferred | Only resume when the user lifts the deferral. Measure the actual selected consumer and required scenarios; native 3840×2160 at 60 Hz remains an unverified MVP requirement |
+| 1 | Authenticated Steam CM and backend acceptance | Implement/verify authenticated CM and reconcile the remaining entitlement/PICS requirement with the committed backend decision; transport success and GetOwnedGames alone do not close this gate |
+| 2 | Real connected journey and native functional acceptance | Coordinate shared PS5 access; direct QR phone approval, restoration, real library comparison, offline/retry, account switch/sign-out, preferences restart, artwork, clean exit, and physical DualSense checks |
+| 3 | Native 4K60 performance acceptance, deferred | Only resume when the user lifts the deferral. Measure the actual selected consumer and required scenarios; native 3840×2160 at 60 Hz remains an unverified MVP requirement |
 
 Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration remain outside this v1 scope; another effort owns the runtime.
 

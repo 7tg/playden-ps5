@@ -129,3 +129,12 @@ The handoff's open point is resolved: an exception escaping a backend's `Load` i
 Selected host **42/42** and legacy **21/21** pass; the artwork service test is clean under ThreadSanitizer. Graphical delayed/ready/failed captures were inspected; see [artwork evidence](../../results/20261004-artwork-host/README.md). Local PS5 package eboot SHA-256: `5701c3589591435179dbe2c9fb642b275dfef5d1ba61b5752688edb235b3551c`. No console deployment or performance test was performed.
 
 Next: pin ps5-native-app-boilerplate and ps5-homebrew-ui as submodules at their latest revisions, dynamic title glyph coverage, authenticated CM, then the connected journey on the console.
+
+
+## Pinned submodules and title glyph fallback (4A.3)
+
+ps5-native-app-boilerplate (latest upstream f98de73) and ps5-homebrew-ui (8a716f2: upstream latest 4bd9425 plus the local, unpushed `feat/latin-glyphs` baker commits) are now submodules under `third_party/`. The selected PS5 build takes the boilerplate's native tooling and `libc.prx` from the submodule; the eboot was byte-identical after both moves.
+
+Title glyph coverage is closed for v1 as an explicit fallback: characters outside the baked atlases draw a visible `?`, every fallback face is required to contain `?`, and a graphical test renders titles whose non-Latin characters are outside the catalog. Arabic stays unshaped and drawn left to right. Broad run-time coverage belongs to ps5-homebrew-ui `feat/unicode-text`, owned by another effort. See [glyph evidence](../../results/20261004-glyph-fallback-host/README.md).
+
+Next: authenticated CM (hello, logon, heartbeat, Multi with gzip, license list, package PICS with binary KeyValues) feeding the "Recently added" date, then the connected journey on the console.

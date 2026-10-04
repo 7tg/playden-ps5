@@ -405,6 +405,12 @@ if(BUILD_TESTING)
     target_link_libraries(homebrew_artwork_graphical_test PRIVATE playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
     add_dependencies(homebrew_artwork_graphical_test playden_homebrew_assets)
     add_test(NAME homebrew_artwork_graphical COMMAND homebrew_artwork_graphical_test "${CMAKE_BINARY_DIR}/synthetic-live-artwork")
+    add_executable(homebrew_glyph_fallback_graphical_test "${CMAKE_SOURCE_DIR}/tests/homebrew_glyph_fallback_graphical_test.cpp")
+    target_compile_features(homebrew_glyph_fallback_graphical_test PRIVATE cxx_std_20)
+    target_compile_definitions(homebrew_glyph_fallback_graphical_test PRIVATE PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
+    target_link_libraries(homebrew_glyph_fallback_graphical_test PRIVATE playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
+    add_dependencies(homebrew_glyph_fallback_graphical_test playden_homebrew_assets)
+    add_test(NAME homebrew_glyph_fallback_graphical COMMAND homebrew_glyph_fallback_graphical_test "${CMAKE_BINARY_DIR}/glyph-fallback")
 
     foreach(test_name homebrew_artwork homebrew_artwork_backend homebrew_artwork_cache)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
@@ -468,7 +474,7 @@ if(BUILD_TESTING)
         add_test(NAME homebrew_font_${font_test}
             COMMAND homebrew_font_atlas_test
                 "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets/fonts/${font_source}"
-                "${playden_homebrew_fonts}/${font_output}")
+                "${playden_homebrew_fonts}/${font_output}" "?")
     endforeach()
 
     file(READ "${playden_catalog}" playden_font_catalog_json)
@@ -487,7 +493,7 @@ if(BUILD_TESTING)
     add_test(NAME homebrew_font_greek
         COMMAND homebrew_font_atlas_test
             "${CMAKE_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf"
-            "${playden_greek_font}" "${playden_greek_title}")
+            "${playden_greek_font}" "${playden_greek_title}?")
 
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(NAME ui_comparison_fixture
