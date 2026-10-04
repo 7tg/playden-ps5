@@ -220,6 +220,18 @@ std::vector<Shelf> shelves(const State& state)
     return result;
 }
 
+ShelfWindow shelf_window(int item_count, int focused_item, int capacity) noexcept
+{
+    item_count = std::max(0, item_count);
+    capacity = std::max(1, capacity);
+    if (item_count == 0)
+        return {};
+    focused_item = std::clamp(focused_item, 0, item_count - 1);
+    const int count = std::min(item_count, capacity);
+    const int first = std::clamp(focused_item - capacity / 2, 0, item_count - count);
+    return {first, count};
+}
+
 std::vector<std::string> library_rail_scopes(const State& state)
 {
     std::vector<std::string> result{"installed", "all", "favorites", "hidden"};

@@ -18,8 +18,15 @@ struct Shelf {
     std::vector<GameId> game_ids;
 };
 
+struct ShelfWindow {
+    int first = 0;
+    int count = 0;
+};
+
 [[nodiscard]] std::vector<const Game*> filtered_games(const State& state);
 [[nodiscard]] std::vector<Shelf> shelves(const State& state);
+[[nodiscard]] ShelfWindow shelf_window(int item_count, int focused_item,
+                                       int capacity = 7) noexcept;
 [[nodiscard]] std::vector<std::string> library_rail_scopes(const State& state);
 
 // Moves only Home and Library browse focus. Returning true means the route

@@ -4,6 +4,7 @@
 
 #include "homebrew/browse.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -139,6 +140,26 @@ void shelves_are_nonempty_and_restore_children(const std::filesystem::path& fixt
     check(state.navigation.home_shelf == 1 &&
               state.navigation.home_shelf_focus[projected[1].key] == 1,
           "returning to a Home shelf restores its child");
+
+    state.library.favorites.clear();
+    for (std::size_t index = 0; index < 10; ++index)
+        state.library.favorites.insert(state.games[index].id);
+    const auto expanded = shelves(state);
+    const auto favorite = std::find_if(expanded.begin(), expanded.end(), [](const Shelf& shelf) {
+        return shelf.key == "favorites";
+    });
+    check(favorite != expanded.end() && favorite->game_ids.size() == 10,
+          "expanded Favorites fixture has more items than one Home row");
+    state.navigation.home_shelf = static_cast<int>(std::distance(expanded.begin(), favorite));
+    state.navigation.home_shelf_focus["favorites"] = 6;
+    move_browser(state, 1, 0);
+    check(state.navigation.home_shelf_focus["favorites"] == 7,
+          "controller right reaches the eighth Favorites child");
+    const ShelfWindow window = shelf_window(static_cast<int>(favorite->game_ids.size()), 7);
+    check(window.count == 7 && window.first <= 7 && 7 < window.first + window.count,
+          "seven-cell Home projection keeps the eighth focused child visible");
+    check(shelf_window(3, 2).first == 0 && shelf_window(3, 2).count == 3,
+          "short Home shelves retain their original positions");
 }
 
 void library_grid_and_rail_edges(const std::filesystem::path& fixtures)
