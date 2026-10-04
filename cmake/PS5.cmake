@@ -88,6 +88,11 @@ function(playden_add_ps5_title)
 	target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections)
 	target_link_libraries(playden_ps5_app PRIVATE playden_core RmlUi::Core)
 
+    if(PLAYDEN_MSAA_PROBE AND (NOT PLAYDEN_DEVELOPER_FIXTURES OR NOT PLAYDEN_CAPTURE_AFTER_SECONDS STREQUAL "0"))
+        message(FATAL_ERROR "MSAA probe requires developer fixtures, no network probe and capture disabled")
+    endif()
+    target_compile_definitions(playden_ps5_app PRIVATE PLAYDEN_MSAA_PROBE=$<BOOL:${PLAYDEN_MSAA_PROBE}>)
+
     if(NOT PLAYDEN_CAPTURE_AFTER_SECONDS MATCHES "^(0|[1-9][0-9]*)$")
         message(FATAL_ERROR "Capture delay must be nonnegative integer seconds")
     endif()

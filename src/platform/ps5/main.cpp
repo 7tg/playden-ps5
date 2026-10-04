@@ -28,6 +28,8 @@
 #include <sys/stat.h>
 #include <vector>
 
+extern int g_rf_msaa_samples;
+
 extern "C" {
 int sceSystemServiceLoadExec(const char* path, char* const argv[]);
 int sceUserServiceInitialize(const void* params);
@@ -200,6 +202,7 @@ int Run()
 	double previous = NowSeconds();
  const double capture_started = previous;
  bool capture_done = false;
+ int msaa_phase = -1;
 	double options_down = -1.0;
 	bool first_frame = true;
  double next_memory_sample = 0;
@@ -208,6 +211,16 @@ int Run()
 		const std::uint64_t frame_time = NowNanoseconds();
 		stats.RecordFrameStart(frame_time);
 		const double now = NowSeconds();
+        if (PLAYDEN_MSAA_PROBE) {
+            const double elapsed = now - capture_started;
+            if (elapsed >= 205.0) { Log("msaa probe complete; diagnostic only"); break; }
+            const int phase = elapsed < 75.0 ? 0 : elapsed < 140.0 ? 1 : 2;
+            if (phase != msaa_phase) {
+                msaa_phase = phase;
+                g_rf_msaa_samples = phase == 1 ? 0 : 4;
+                Log("msaa probe phase=%d samples=%d elapsed_seconds=%.3f settle_seconds=%d dimensions=%dx%d", phase, g_rf_msaa_samples, elapsed, phase == 0 ? 15 : 5, width, height);
+            }
+        }
 		if (platform.TakeInputReset()) input.Reset();
 		for (const rf::InputEvent& event : input.Update(platform.PollInput(), now)) app.Handle(event);
 		const bool options = platform.OptionsHeld();
