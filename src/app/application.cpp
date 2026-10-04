@@ -2,10 +2,18 @@
 #include <cstdio>
 #include <utility>
 namespace playden {
+#ifdef PLAYDEN_DEVELOPER_FIXTURES
+std::vector<GameSummary> DeveloperLibraryFixture();
+#endif
 Application::Application(Rml::Context* context,std::string assets,std::string storage):
  storage_(std::move(storage)),preferences_store_(storage_),shell_(context,std::move(assets)){}
 Application::~Application(){Shutdown();}
-bool Application::Initialize(){
+bool Application::Initialize(bool developer_fixtures){
+#ifdef PLAYDEN_DEVELOPER_FIXTURES
+    if(developer_fixtures){shell_.SetGames(DeveloperLibraryFixture());shell_.SetDeveloperFixtures(true);}
+#else
+    if(developer_fixtures){std::fprintf(stderr,"Developer fixtures were not compiled into this build.\n");return false;}
+#endif
     // Startup read precedes the frame loop. Writes run on a bounded, coalescing worker.
     auto loaded=preferences_store_.Load();preferences_=loaded.preferences;
     shell_.SetReduceMotion(preferences_.reduce_motion);

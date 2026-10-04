@@ -21,3 +21,26 @@ body.modal { background-color: #050912dd; }
 .sheet { position: absolute; left: 360dp; right: 360dp; top: 270dp; background-color: #192538; border: 2dp #415778; border-radius: 20dp; padding: 64dp; }
 .sheet h1 { font-size: 48dp; }
 .modal .hints { right: 96dp; bottom: 50dp; padding: 12dp 0; background-color: #0b1019; }
+.library-page { position: absolute; left: 80dp; right: 80dp; top: 145dp; bottom: 70dp; display: block; }
+.library-page h1 { font-size: 52dp; margin-bottom: 4dp; }
+.library-summary { font-size: 20dp; margin-bottom: 4dp; }
+#library-fixture { display: none; position: absolute; right: 0; top: 0; margin: 0; }
+#library-grid { display: block; width: 100%; height: 700dp; overflow: hidden; }
+.game-tile { width: 220dp; height: 300dp; padding: 0; overflow: hidden; border: 3dp #263650; border-radius: 10dp; background-color: #151f30; }
+.rf-collection-item:focus .game-tile { border-color: #d5e6ff; background-color: #263b5c; }
+.game-art { display: block; width: 214dp; height: 230dp; background-color: #202c40; }
+.game-art-missing { color: #7890b0; text-align: center; padding-top: 96dp; height: 134dp; font-size: 16dp; }
+rf-image:loading { background-color: #202c40; }
+rf-image:error { background-color: #472b35; }
+.game-title { display: block; margin: 10dp 12dp; height: 48dp; line-height: 1.25; font-size: 18dp; overflow: hidden; }
+.details-art { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background-color: #202c40; }
+.details-scrim { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background-color: #07101ad9; }
+.details-copy { position: absolute; left: 100dp; top: 190dp; width: 1500dp; display: block; }
+.details-copy h1 { font-size: 64dp; margin-bottom: 16dp; }
+.details-developer { color: #a9c9ff; font-size: 26dp; margin-bottom: 18dp; }
+.details-description { font-size: 28dp; max-width: 1450dp; max-height: 180dp; overflow: hidden; }
+.fixture-banner { display: block; color: #ffd38a; background-color: #33291b; border: 3dp #8f713c; border-radius: 12dp; padding: 16dp 22dp; margin: 24dp 0; font-size: 26dp; }
+.confirmation { position: absolute; left: 360dp; right: 360dp; top: 270dp; background-color: #192538; border: 3dp #6c82a3; border-radius: 22dp; padding: 64dp; }
+.confirmation h1 { font-size: 58dp; }
+.progress-track { display: block; width: 100%; height: 48dp; background-color: #0b1019; border-radius: 24dp; overflow: hidden; margin: 38dp 0 20dp; }
+.progress-bar { display: block; height: 48dp; width: 0%; background-color: #7eb4ff; }

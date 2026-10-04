@@ -80,11 +80,13 @@ bool ParseCommand(const std::string& name, rf::Command& command)
 int main(int argc, char** argv)
 {
 	double run_for_seconds = 0.0;
+ bool developer_fixtures = false;
 	std::string shot;
 	std::vector<rf::Command> scripted_commands;
 	for (int index = 1; index < argc; index += 2) {
+		if (std::string(argv[index]) == "--developer-fixtures") { developer_fixtures = true; --index; continue; }
 		if (index + 1 >= argc) {
-			std::fprintf(stderr, "usage: %s [--run-for-seconds N] [--shot image.ppm] [--keys R1,Cross]\n", argv[0]);
+			std::fprintf(stderr, "usage: %s [--run-for-seconds N] [--shot image.ppm] [--keys R1,Cross] [--developer-fixtures]\n", argv[0]);
 			return 2;
 		}
 		const std::string option = argv[index];
@@ -102,7 +104,7 @@ int main(int argc, char** argv)
 			}
 		}
 		else {
-			std::fprintf(stderr, "usage: %s [--run-for-seconds N] [--shot image.ppm] [--keys R1,Cross]\n", argv[0]);
+			std::fprintf(stderr, "usage: %s [--run-for-seconds N] [--shot image.ppm] [--keys R1,Cross] [--developer-fixtures]\n", argv[0]);
 			return 2;
 		}
 	}
@@ -126,7 +128,9 @@ int main(int argc, char** argv)
 		SDL_Quit();
 		return 1;
 	}
-	SDL_GL_SetSwapInterval(1);
+	// Automated captures can run while the macOS window is occluded. Do not
+	// wait on its display link; these runs are visual evidence, not timing runs.
+	SDL_GL_SetSwapInterval(shot.empty() ? 1 : 0);
 
 	int width = 0, height = 0;
 	SDL_GL_GetDrawableSize(window, &width, &height);
@@ -163,7 +167,7 @@ int main(int argc, char** argv)
 	const std::string storage = preference_path ? preference_path : PLAYDEN_STORAGE_DIR;
 	SDL_free(preference_path);
 	auto app = std::make_unique<playden::Application>(context, PLAYDEN_ASSETS_DIR, storage);
-	if (!app->Initialize()) {
+	if (!app->Initialize(developer_fixtures)) {
 		std::fprintf(stderr, "Playden application initialization failed\n");
 		app->Shutdown();
 		context->Update();

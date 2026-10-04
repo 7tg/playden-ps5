@@ -9,7 +9,7 @@ class Application {
 public:
     Application(Rml::Context* context, std::string assets_root, std::string storage_root);
     ~Application();
-    bool Initialize();
+    bool Initialize(bool developer_fixtures = false);
     void Handle(const rf::InputEvent& event);
     void Tick(float dt_seconds);
     void Shutdown();

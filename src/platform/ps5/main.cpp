@@ -148,7 +148,12 @@ int Run()
 	// which produces a visible storage diagnostic without touching an assumed /data path.
 	const std::string storage = ProbeStorage();
 	playden::Application app(context, "/app0/assets", storage);
-	if (!app.Initialize()) { Log("application initialization failed"); return 1; }
+	#ifdef PLAYDEN_DEVELOPER_FIXTURES
+ const bool developer_fixtures = true;
+#else
+ const bool developer_fixtures = false;
+#endif
+ if (!app.Initialize(developer_fixtures)) { Log("application initialization failed"); return 1; }
 
 	playden::diagnostics::FrameStats stats;
 	stats.SetDisplayConfig({playden::diagnostics::Dimensions::Measured(width, height),

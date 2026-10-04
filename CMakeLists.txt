@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(PlaydenLauncher VERSION 0.1.0 LANGUAGES C CXX)
 
+option(PLAYDEN_DEVELOPER_FIXTURES "Compile explicitly synthetic development scenes" OFF)
 option(PLAYDEN_PLATFORM_PS5 "Build a PS5 native title" OFF)
 set(PLAYDEN_PS5_TITLE_ID "" CACHE STRING "Explicit PS5 title id (required for PS5 packaging)")
 set(PLAYDEN_RMLFOCUS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../rmlfocus" CACHE PATH "Pinned RmlFocus source checkout")
@@ -66,6 +67,9 @@ add_library(playden_core STATIC
  third_party/utf8proc/utf8proc.c
  src/library/query.cpp
  src/library/cache.cpp
+ src/ui/library.cpp
+ src/ui/details.cpp
+ src/ui/install_fixture.cpp
 	src/app/application.cpp
 	src/app/preferences.cpp
 	src/diagnostics/frame_stats.cpp
@@ -77,6 +81,16 @@ target_compile_features(playden_core PUBLIC cxx_std_17)
 target_compile_definitions(playden_core PUBLIC PLAYDEN_REVISION="${playden_revision}"
 	PLAYDEN_RMLFOCUS_REVISION="${PLAYDEN_RMLFOCUS_REVISION}")
 target_link_libraries(playden_core PUBLIC RmlFocus::RmlUi Threads::Threads)
+if(PLAYDEN_DEVELOPER_FIXTURES)
+ find_package(Python3 REQUIRED COMPONENTS Interpreter)
+ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/developer_fixture.cpp"
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/compile_library_fixture.py"
+   "${CMAKE_SOURCE_DIR}/fixtures/library.json" "${CMAKE_BINARY_DIR}/developer_fixture.cpp"
+  DEPENDS tools/compile_library_fixture.py fixtures/library.json VERBATIM)
+ target_sources(playden_core PRIVATE "${CMAKE_BINARY_DIR}/developer_fixture.cpp")
+ target_compile_definitions(playden_core PUBLIC PLAYDEN_DEVELOPER_FIXTURES=1)
+endif()
+
 
 set(playden_renderer "${PLAYDEN_RMLFOCUS_SOURCE_DIR}/poc/rmlui-gl3/RmlUi_Renderer_GL3_rf.cpp")
 set(playden_rmlui_backends "${PLAYDEN_RMLFOCUS_SOURCE_DIR}/.deps/RmlUi/Backends")
@@ -112,14 +126,20 @@ endif()
 if(NOT PLAYDEN_PLATFORM_PS5)
 	include(CTest)
 	if(BUILD_TESTING)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_test(NAME library_fixture_compiler COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+            -s "${CMAKE_SOURCE_DIR}/tests" -p test_library_fixture.py)
+        set_tests_properties(library_fixture_compiler PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 		foreach(test_name preferences frame_stats library_query library_cache)
 			add_executable("${test_name}_test" "tests/${test_name}_test.cpp")
 			target_link_libraries("${test_name}_test" PRIVATE playden_core)
 			add_test(NAME "${test_name}" COMMAND "${test_name}_test")
 		endforeach()
-		add_executable(shell_test tests/shell_test.cpp)
-		target_link_libraries(shell_test PRIVATE playden_core RmlUi::Core)
-		add_dependencies(shell_test playden-assets)
-		add_test(NAME shell COMMAND shell_test "${CMAKE_BINARY_DIR}/assets")
+		foreach(test_name shell library_navigation artwork_binding)
+			add_executable(${test_name}_test tests/${test_name}_test.cpp)
+			target_link_libraries(${test_name}_test PRIVATE playden_core RmlUi::Core)
+			add_dependencies(${test_name}_test playden-assets)
+			add_test(NAME ${test_name} COMMAND ${test_name}_test "${CMAKE_BINARY_DIR}/assets")
+		endforeach()
 	endif()
 endif()

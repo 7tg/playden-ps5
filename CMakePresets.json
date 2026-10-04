@@ -14,7 +14,17 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "PLAYDEN_PLATFORM_PS5": "OFF"
+        "PLAYDEN_PLATFORM_PS5": "OFF",
+        "PLAYDEN_DEVELOPER_FIXTURES": "OFF"
+      }
+    },
+    {
+      "name": "host-fixtures",
+      "inherits": "host",
+      "displayName": "macOS development fixtures",
+      "binaryDir": "${sourceDir}/build/host-fixtures",
+      "cacheVariables": {
+        "PLAYDEN_DEVELOPER_FIXTURES": "ON"
       }
     }
   ],
@@ -22,12 +32,23 @@
     {
       "name": "host",
       "configurePreset": "host"
+    },
+    {
+      "name": "host-fixtures",
+      "configurePreset": "host-fixtures"
     }
   ],
   "testPresets": [
     {
       "name": "host",
       "configurePreset": "host",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "host-fixtures",
+      "configurePreset": "host-fixtures",
       "output": {
         "outputOnFailure": true
       }

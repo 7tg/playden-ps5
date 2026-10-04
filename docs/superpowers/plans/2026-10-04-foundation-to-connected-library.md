@@ -59,7 +59,7 @@ Do not import the RmlFocus fixture launcher as Playden's domain model. Its insta
 
 ## 1 Build the launcher shell
 
-Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261004T132145Z-shell/README.md). Later milestones remain unstarted.
+Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261004T132145Z-shell/README.md). Later milestones are tracked below and in the v1 execution ledger.
 
 ### 1A Reproducible graphical consumer
 
@@ -101,13 +101,13 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 **Interfaces:** Define `GameId` as a stable Steam app ID and `GameSummary` with ID, display name, and artwork source. `LibraryView::SetGames(const std::vector<GameSummary>&) -> void` preserves selection by ID. Fixture management state is explicitly separate from real installation state.
 
-- [ ] Create a deterministic 1,000-entry fixture with long names, punctuation, mixed scripts, absent art, and invalid image sources. Use synthetic artwork by default; document provenance for any real assets.
-- [ ] Add tests that filtering preserves the selected ID where present, removal chooses a neighboring item, nested Back restores each opener, and a late artwork result cannot replace the current tile's cover.
-- [ ] Run those tests and observe the intended failures; implement bounded visible collections and artwork subscriptions through RmlFocus.
-- [ ] Add details → install sheet → confirmation and a changing fixture queue. Mark all synthetic operations visibly and keep them unavailable in normal mode.
-- [ ] Configure native 3840 × 2160 rendering and readable TV scale. Validate font coverage for the fixture names and budget uploads as well as decoding.
-- [ ] Run `ctest --preset host --output-on-failure` to passing and inspect screenshots of library, long/international names, nested sheets, and queue states.
-- [ ] Commit the representative scenes and fixtures.
+- [x] Create a deterministic 1,000-entry fixture with long names, punctuation, mixed scripts, absent art, and invalid image sources. Use synthetic artwork by default; document provenance for any real assets.
+- [x] Add tests that filtering preserves the selected ID where present, removal chooses a neighboring item, nested Back restores each opener, and a late artwork result cannot replace the current tile's cover.
+- [x] Run those tests and observe the intended failures; implement bounded visible collections and artwork subscriptions through RmlFocus.
+- [x] Add details → install sheet → confirmation and a changing fixture queue. Mark all synthetic operations visibly and keep them unavailable in normal mode.
+- [x] Configure native 3840 × 2160 rendering and readable TV scale. Validate font coverage for the fixture names and budget uploads as well as decoding.
+- [x] Run `ctest --preset host --output-on-failure` to passing and inspect screenshots of library, long/international names, nested sheets, and queue states.
+- [x] Commit the representative scenes and fixtures.
 
 **Done when:** The scenarios exercise the proposed real application workload without depending on Steam or Wine.
 

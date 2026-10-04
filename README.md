@@ -6,9 +6,11 @@ This repository owns the launcher and Steam connectivity. Wine development lives
 
 The reference implementation is sibling `../playden`, branch `feature/launchers`, inspected at `de952b3d49167e635945ada88cd8533e07d40d44`. The earlier singular branch name was a naming discrepancy; the reference checkout is not modified.
 
-The [PRD and roadmap](docs/superpowers/specs/2026-10-04-playden-ps5-launcher-design.md) records the agreed direction and proposed acceptance criteria. Milestone 1 implements a graphical Mac/PS5 shell with Home, Library, Settings, controller navigation, atomic preferences, and frame diagnostics. Steam and Wine integration remain out of scope.
+The [PRD and roadmap](docs/superpowers/specs/2026-10-04-playden-ps5-launcher-design.md) records the agreed direction and proposed acceptance criteria. Milestone 1 implements a graphical Mac/PS5 shell with Home, Library, Settings, controller navigation, atomic preferences, and frame diagnostics. The active scope is the connected-library v1 in the approved four-milestone plan; Wine integration remains independent and out of scope.
 
 The [Foundation to Connected Library plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) breaks the first four milestones into tasks: launcher shell, native 4K60 validation, Steam connectivity, and the integrated MVP.
+
+Current work and unproven acceptance gates are tracked in the [v1 execution ledger](docs/engineering/v1-progress.md).
 
 ## Build and run
 
