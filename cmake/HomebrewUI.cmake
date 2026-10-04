@@ -142,7 +142,23 @@ foreach(font_spec IN ITEMS
     list(APPEND playden_barlow_outputs "${font_file}")
 endforeach()
 
+# Supplemental Greek coverage lives outside the immutable comparison assets.
+set(playden_greek_font "${playden_homebrew_fonts}/noto-greek-fallback.huifont")
+add_custom_command(
+    OUTPUT "${playden_greek_font}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${playden_homebrew_fonts}"
+    COMMAND "$<TARGET_FILE:playden_hui_font_baker>"
+        "${CMAKE_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf" "${playden_greek_font}"
+        56 8 2048 "european,text=${playden_catalog}"
+    DEPENDS playden_hui_font_baker "${CMAKE_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf"
+        "${CMAKE_SOURCE_DIR}/assets/fonts/NotoSans-OFL.txt" "${playden_catalog}"
+    COMMENT "Baking complete Greek fallback coverage"
+    VERBATIM)
+list(APPEND playden_barlow_outputs "${playden_greek_font}")
+
 add_custom_target(playden_homebrew_assets ALL
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/assets/fonts/NotoSans-OFL.txt" "${playden_homebrew_fonts}/NotoSans-OFL.txt"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets" "${playden_homebrew_assets}"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
@@ -209,6 +225,24 @@ if(BUILD_TESTING)
                 "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets/fonts/${font_source}"
                 "${playden_homebrew_fonts}/${font_output}")
     endforeach()
+
+    file(READ "${playden_catalog}" playden_font_catalog_json)
+    string(JSON playden_font_game_count LENGTH "${playden_font_catalog_json}" games)
+    math(EXPR playden_font_game_last "${playden_font_game_count} - 1")
+    set(playden_greek_title "")
+    foreach(game_index RANGE 0 ${playden_font_game_last})
+        string(JSON game_id GET "${playden_font_catalog_json}" games ${game_index} id)
+        if(game_id EQUAL 900003)
+            string(JSON playden_greek_title GET "${playden_font_catalog_json}" games ${game_index} title)
+        endif()
+    endforeach()
+    if(playden_greek_title STREQUAL "")
+        message(FATAL_ERROR "Greek fixture title missing from font coverage test")
+    endif()
+    add_test(NAME homebrew_font_greek
+        COMMAND homebrew_font_atlas_test
+            "${CMAKE_SOURCE_DIR}/assets/fonts/NotoSans-Regular.ttf"
+            "${playden_greek_font}" "${playden_greek_title}")
 
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(NAME ui_comparison_fixture

@@ -20,7 +20,7 @@ static std::string read(const std::string &path)
 
 int main(int argc, char **argv)
 {
-    if (argc != 3) return 2;
+    if (argc != 3 && argc != 4) return 2;
     const std::string source = read(argv[1]), baked = read(argv[2]);
     stbtt_fontinfo info{};
     hui::gfx::Font font;
@@ -35,6 +35,19 @@ int main(int argc, char **argv)
     const float scale = stbtt_ScaleForMappingEmToPixels(&info, header.pixel_size);
     int failures = 0, tested = 0;
     double worst = 0.0;
+    if (argc == 4)
+    {
+        const std::string required = argv[3];
+        for (std::size_t index = 0; index < required.size();)
+        {
+            const auto codepoint = hui::gfx::next_codepoint(required, &index);
+            if (!font.has_glyph(codepoint))
+            {
+                std::fprintf(stderr, "required title missing glyph U+%04X\n", codepoint);
+                ++failures;
+            }
+        }
+    }
     for (unsigned i = 0; i < header.glyph_count; ++i)
     {
         hui::gfx::font_format::Glyph glyph{};

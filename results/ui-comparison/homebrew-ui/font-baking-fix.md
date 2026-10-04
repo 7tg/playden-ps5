@@ -69,3 +69,29 @@ Physical PS5 verification remains outstanding; this establishes the offline
 root cause and corrected atlas contents, not a new console capture. Arabic
 shaping and BiDi are explicitly deferred; the Arabic test covers atlas
 integrity only.
+
+## Accented Greek coverage follow-up
+
+A subsequent host capture exposed a second, independent issue after the cubic
+outlines were corrected: the fixture's Noto CJK face lacks U+03CC (ό), U+03AF
+(ί), and U+03AC (ά). The title contains four occurrences of those codepoints,
+so the runtime replaced four letters with question marks. Silhouette-only
+tests did not detect missing glyphs because absent codepoints have no atlas
+records to inspect.
+
+Added the licensed, unmodified `assets/fonts/NotoSans-Regular.ttf` as a
+supplemental face outside immutable fixtures. Its local source revision,
+font/license hashes and packaging details are in `assets/fonts/README.md`.
+Both bake paths produce `noto-greek-fallback.huifont` and include the OFL
+license. The renderer must load this sixth face and select it for Greek text
+before the CJK fallback.
+
+The regression now accepts required text and calls `Font::has_glyph` for
+every codepoint. CMake reads the complete title from fixture game 900003;
+it does not duplicate or alter the title. With the corrected CJK atlas this
+check reproduces four missing-glyph failures. With the supplemental Greek
+atlas it reports no missing characters and all **463 glyph silhouettes pass**,
+with 0% worst interior mismatch. The four font checks and immutable-fixture
+verification pass. Host/native generated font directories include the
+matching license. A fresh console capture remains pending; Arabic shaping
+and BiDi remain outside this fix.

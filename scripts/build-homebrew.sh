@@ -70,6 +70,11 @@ NotoSansCJKsc-Regular.otf|noto-cjk-fallback.huifont|catalog-european
 NotoSansArabic.ttf|noto-arabic-fallback.huifont|catalog
 FONTS
 
+# Supplemental font for complete Greek coverage; frozen comparison fixtures stay intact.
+"$baker" "$root/assets/fonts/NotoSans-Regular.ttf" \
+    "$font_dir/noto-greek-fallback.huifont" 56 8 2048 "european,text=$root/fixtures/ui-comparison/catalog.json" >/dev/null
+cp "$root/assets/fonts/NotoSans-OFL.txt" "$font_dir/NotoSans-OFL.txt"
+
 if (( prepare_only )); then
     printf 'Prepared ps5-homebrew-ui %s and Barlow atlases in %s\n' "$revision" "$font_dir"
     exit 0
