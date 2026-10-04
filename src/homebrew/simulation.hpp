@@ -21,6 +21,7 @@ enum class JobState { Queued, Downloading, Pausing, Paused, Verifying, Downloade
 enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
 enum class RuntimeState { Unavailable, Checking, Ready, Failed };
+enum class LogState { Loading, Ready, Failed };
 enum class Compatibility { Untested, Works, Playable, Broken };
 enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, Profile, Status, Separator };
 
@@ -98,6 +99,7 @@ struct Job {
     int stage_ticks = 0;
     std::uint64_t reserved_bytes = 0;
     bool reservation_held = false;
+    bool completion_applied = false;
 };
 
 struct Volume {
@@ -200,6 +202,10 @@ struct State {
     std::map<GameId, Profile> custom_profiles;
     SessionState session = SessionState::Idle;
     RuntimeState runtime = RuntimeState::Unavailable;
+    LogState log_state = LogState::Ready;
+    std::vector<std::string> log_lines;
+    int log_offset = 0;
+    std::string log_context;
     GameId session_game_id = 0;
     std::string session_error;
     bool reduced_motion = false;
@@ -207,6 +213,8 @@ struct State {
     ControllerState controller;
     bool persistence_available = true;
     bool library_syncing = false;
+    bool startup_loading = false;
+    bool library_loading = false;
     bool library_offline = false;
     bool screenshot_mode = false;
     bool quit_requested = false;
@@ -280,6 +288,7 @@ private:
     std::uint64_t challenge_generation_ = 0;
     std::uint64_t cancelled_challenge_generation_ = 0;
     std::uint64_t next_collection_serial_ = 1;
+    std::uint64_t next_job_serial_ = 1;
 
     void load_fixtures();
     void load_profile();
@@ -295,6 +304,9 @@ private:
     void start_editor(std::string purpose, std::string value);
     void commit_editor();
     void advance_jobs();
+    void start_logs();
+    void finish_logs();
+    [[nodiscard]] std::string next_job_id();
 };
 
 } // namespace playden::homebrew

@@ -146,6 +146,18 @@ Installation* find_installation(State& state, GameId id) {
     return found == state.installations.end() ? nullptr : &*found;
 }
 
+bool is_installed(const State& state, GameId id) {
+    const auto found = std::find_if(state.installations.begin(), state.installations.end(),
+                                    [id](const Installation& installation) { return installation.game_id == id; });
+    return found != state.installations.end() && found->installed_bytes > 0;
+}
+
+int next_queue_order(const State& state) {
+    int order = -1;
+    for (const auto& job : state.jobs) order = std::max(order, job.queue_order);
+    return order + 1;
+}
+
 Job* find_job(State& state, const std::string& id) {
     const auto found = std::find_if(state.jobs.begin(), state.jobs.end(),
                                     [&id](const Job& job) { return job.id == id; });
@@ -207,7 +219,14 @@ std::string action_label(const std::string& key) {
         {"inject-launch-failure", "Inject launch failure"}, {"inject-crash", "Inject session crash"},
         {"runtime-retry", "Retry runtime check"}, {"inject-qr-approved", "Approve current challenge"},
         {"inject-qr-expired", "Expire current challenge"}, {"inject-qr-failure", "Inject network failure"},
-        {"inject-qr-denied", "Deny current challenge"}};
+        {"inject-qr-denied", "Deny current challenge"}, {"logs-retry", "Retry loading logs"},
+        {"inject-logs-empty", "Inject empty logs"}, {"inject-logs-failure", "Inject log failure"},
+        {"inject-logs-ready", "Inject ready logs"}, {"account-auth", "Authentication"},
+        {"account-last-sync", "Last library sync"}, {"account-sync", "Sync now"},
+        {"account-recover", "Reconnect account"}, {"account-switch", "Switch account"},
+        {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
+        {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
+        {"inject-startup-loading", "Show startup loading"}};
     if (const auto found = labels.find(key); found != labels.end()) return found->second;
     std::string title = key;
     std::replace(title.begin(), title.end(), '-', ' ');
@@ -239,8 +258,10 @@ void Simulation::reset_default_state() {
     state_.navigation.scroll_offsets["library-grid"] = 0;
     state_.navigation.scroll_offsets["home"] = 0;
     state_.navigation.scroll_offsets["details"] = 0;
+    state_.navigation.scroll_offsets["details-content"] = 0;
     selected_volume_id_ = "external";
     selected_profile_id_ = "default";
+    next_job_serial_ = 1;
     last_error_.clear();
 }
 
@@ -378,6 +399,13 @@ void Simulation::load_fixtures() {
             state_.profiles[1].vsync = state_.profiles.front().vsync;
         }
     }
+    for (const auto& job : state_.jobs) {
+        if (job.id.rfind("job-", 0) != 0) continue;
+        std::uint64_t serial = 0;
+        const auto text = job.id.substr(4);
+        const auto result = std::from_chars(text.data(), text.data() + text.size(), serial);
+        if (result.ec == std::errc{} && result.ptr == text.data() + text.size()) next_job_serial_ = std::max(next_job_serial_, serial + 1);
+    }
 }
 
 void Simulation::load_profile() {
@@ -393,7 +421,7 @@ void Simulation::load_profile() {
     if (!saved_account.empty() && saved_account != state_.account.id) return;
     state_.reduced_motion = bool_value(root->get("reduced_motion"));
     const auto saved_auth = string_value(root->get("authentication"));
-    if (saved_auth == "signed-out") { state_.account.authentication = AuthState::SignedOut; state_.account.cache_available = false; state_.navigation.route = Route::Startup; }
+    if (saved_auth == "signed-out") { state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear(); state_.account.cache_available = false; state_.navigation.route = Route::Startup; }
     state_.library.query = string_value(root->get("query"), state_.library.query);
     state_.library.scope = string_value(root->get("scope"), state_.library.scope);
     if (const auto* favorites = root->get("favorites"); favorites && favorites->array()) {
@@ -467,10 +495,12 @@ void Simulation::load_profile() {
             if (const auto eta = optional_uint(item.get("eta"))) job.eta_seconds = static_cast<int>(*eta);
             job.reserved_bytes = uint_value(item.get("reserved"));
             job.reservation_held = bool_value(item.get("reservation_held"));
+            job.completion_applied = bool_value(item.get("completion_applied"));
             if (job.state == JobState::Downloading || job.state == JobState::Verifying || job.state == JobState::Pausing) job.state = JobState::Interrupted;
             state_.jobs.push_back(std::move(job));
         }
     }
+    next_job_serial_ = std::max(next_job_serial_, uint_value(root->get("next_job_serial"), next_job_serial_));
     if (const auto* installations = root->get("installations"); installations && installations->array()) {
         state_.installations.clear();
         for (const auto& item : *installations->array()) state_.installations.push_back({static_cast<GameId>(uint_value(item.get("game_id"))), string_value(item.get("volume")), uint_value(item.get("bytes")), bool_value(item.get("available"), true), bool_value(item.get("runtime")), bool_value(item.get("saves"), true)});
@@ -495,7 +525,7 @@ bool Simulation::save_profile() {
     }
     std::error_code error;
     if (!profile_path_.parent_path().empty()) std::filesystem::create_directories(profile_path_.parent_path(), error);
-    std::string output = "{\"account_id\":\"" + json::escape(state_.account.id) + "\",\"authentication\":\"" + auth_name(state_.account.authentication) + "\",\"reduced_motion\":"
+    std::string output = "{\"account_id\":\"" + json::escape(state_.account.id) + "\",\"authentication\":\"" + auth_name(state_.account.authentication) + "\",\"next_job_serial\":" + std::to_string(next_job_serial_) + ",\"reduced_motion\":"
         + (state_.reduced_motion ? "true" : "false") + ",\"query\":\"" + json::escape(state_.library.query)
         + "\",\"scope\":\"" + json::escape(state_.library.scope) + "\",\"favorites\":[";
     bool first = true;
@@ -557,7 +587,8 @@ bool Simulation::save_profile() {
             + ",\"rate\":" + (job.bytes_per_second ? std::to_string(*job.bytes_per_second) : "null")
             + ",\"eta\":" + (job.eta_seconds ? std::to_string(*job.eta_seconds) : "null")
             + ",\"stage_ticks\":" + std::to_string(job.stage_ticks) + ",\"reserved\":" + std::to_string(job.reserved_bytes)
-            + ",\"reservation_held\":" + (job.reservation_held ? "true" : "false") + '}';
+            + ",\"reservation_held\":" + (job.reservation_held ? "true" : "false")
+            + ",\"completion_applied\":" + (job.completion_applied ? "true" : "false") + '}';
     }
     output += "],\"installations\":[";
     first = true;
@@ -604,9 +635,13 @@ bool Simulation::scenario(const std::string& name) {
         }
     } else if (name == "first-run" || name == "signed-out") {
         state_.account.authentication = AuthState::SignedOut;
+        state_.account.id.clear();
+        state_.account.display_name.clear();
         state_.account.cache_available = false;
         state_.navigation.route = Route::Startup;
         state_.navigation.focus_key = "startup-connect";
+    } else if (name == "startup-loading") {
+        state_.startup_loading = true; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-loading";
     } else if (name == "persistence-corrupt") {
         state_.persistence_available = false;
         state_.navigation.route = Route::Startup;
@@ -628,6 +663,7 @@ bool Simulation::scenario(const std::string& name) {
         state_.navigation.focus_key = "qr-retry";
     } else if (name == "qr-approved") {
         if (state_.account.authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) {
+            if (state_.account.id.empty()) { state_.account.id = "fixture-connected"; state_.account.display_name = "Connected fixture account"; }
             state_.account.authentication = AuthState::Syncing;
             state_.navigation.route = Route::SignIn;
             state_.navigation.focus_key = "sync-status";
@@ -751,6 +787,18 @@ bool Simulation::scenario(const std::string& name) {
 }
 
 std::vector<const Game*> Simulation::visible_games() const {
+    if (state_.editor.active && state_.editor.purpose == "Search") {
+        auto preview = state_;
+        preview.library.query = state_.editor.value;
+        const auto filtered = filtered_games(preview);
+        std::vector<const Game*> result;
+        result.reserve(filtered.size());
+        for (const auto* game : filtered) {
+            const auto index = static_cast<std::size_t>(game - preview.games.data());
+            result.push_back(&state_.games[index]);
+        }
+        return result;
+    }
     return filtered_games(state_);
 }
 
@@ -786,12 +834,30 @@ void Simulation::rebuild_view() {
     if (state_.editor.active) {
         view_.title = state_.editor.purpose;
         view_.subtitle = state_.editor.value;
+        if (state_.editor.purpose == "Search") view_.subtitle += " · " + std::to_string(visible_games().size()) + " results";
         row("keyboard-done", RowKind::Action, "Done", "editor-done");
         row("keyboard-cancel", RowKind::Action, "Cancel", "editor-cancel");
         view_.legends = {"Cross Select", "Square Backspace", "L1/R1 Move caret", "Triangle Clear", "Circle Cancel"};
     } else if (!state_.navigation.modals.empty()) {
         const auto& modal = state_.navigation.modals.back();
         view_.title = modal.title;
+        if (modal.id == "logs") {
+            view_.subtitle = state_.log_context;
+            if (state_.log_state == LogState::Loading) row("logs-loading", RowKind::Status, "Loading fixture logs…", "").enabled = false;
+            else if (state_.log_state == LogState::Failed) {
+                auto& status = row("logs-error", RowKind::Status, "Logs unavailable", ""); status.subtitle = "Simulated log service failure"; status.enabled = false;
+            } else if (state_.log_lines.empty()) {
+                row("logs-empty", RowKind::Status, "No log entries", "").enabled = false;
+            } else {
+                constexpr int visible_lines = 8;
+                const int begin = std::clamp(state_.log_offset, 0, std::max(0, static_cast<int>(state_.log_lines.size()) - visible_lines));
+                const int end = std::min(static_cast<int>(state_.log_lines.size()), begin + visible_lines);
+                for (int index = begin; index < end; ++index) {
+                    auto& line = row("log-line-" + std::to_string(index), RowKind::Text, state_.log_lines[static_cast<std::size_t>(index)], "");
+                    line.enabled = false;
+                }
+            }
+        }
         const Profile* profile_values = effective_profile(state_, state_.navigation.selected_game_id, selected_profile_id_);
         for (const auto& action_key : modal.action_keys) {
             auto& item = row(action_key, RowKind::Action, action_label(action_key), action_key);
@@ -827,10 +893,16 @@ void Simulation::rebuild_view() {
             }
             else if (action_key.rfind("frame-", 0) == 0 && profile_values) item.selected = action_key.substr(6) == profile_values->frame_limit;
             else if (action_key == "verify" || action_key == "uninstall") {
-                if (!find_installation(state_, state_.navigation.selected_game_id)) { item.enabled = false; item.subtitle = "Game is not installed"; }
+                if (!is_installed(state_, state_.navigation.selected_game_id)) { item.enabled = false; item.subtitle = "Game is not installed"; }
             } else if (action_key == "hide") item.title = state_.library.hidden.contains(state_.navigation.selected_game_id) ? "Unhide" : "Hide";
             else if (action_key == "graphics-backend") { item.title = "Graphics backend"; item.value = "Unavailable"; item.subtitle = "Simulated settings; PS5 runtime support is unavailable."; item.enabled = false; }
             else if (action_key == "runtime-retry") item.subtitle = state_.runtime == RuntimeState::Ready ? "Ready — simulated" : state_.runtime == RuntimeState::Checking ? "Checking — simulated" : state_.runtime == RuntimeState::Failed ? "Failed — retry available" : "Unavailable — retry available";
+            else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account.authentication); item.subtitle = state_.account.error; item.enabled = false; }
+            else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account.last_sync == 0 ? "Never" : std::to_string(state_.account.last_sync); item.enabled = false; }
+            else if (action_key.rfind("open-game:", 0) == 0) item.title = "Open game";
+            else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = "UI comparison fixture"; item.enabled = false; }
+            else if (action_key == "about-framework") { item.kind = RowKind::Status; item.value = "Homebrew native model + Hui"; item.enabled = false; }
+            else if (action_key == "about-platform") { item.kind = RowKind::Status; item.value = "Host / PS5 homebrew"; item.enabled = false; }
             else if (action_key == "install-confirm" || action_key == "install-estimate-retry") {
                 const auto assessment = assess_install(state_, state_.navigation.selected_game_id, selected_volume_id_);
                 if (action_key == "install-estimate-retry") item.enabled = assessment.readiness == InstallReadiness::UnknownSize;
@@ -867,7 +939,11 @@ void Simulation::rebuild_view() {
     } else if (state_.navigation.route == Route::Startup) {
         view_.title = "Welcome to Playden";
         view_.subtitle = "Browse the local UI fixture or connect a simulated Steam account.";
-        if (!state_.persistence_available) {
+        if (state_.startup_loading) {
+            row("startup-loading", RowKind::Status, "Loading saved fixture state…", "").enabled = false;
+            row("startup-advance", RowKind::Action, "Advance fixture clock", "advance-clock");
+        }
+        else if (!state_.persistence_available) {
             row("startup-retry-save", RowKind::Action, "Retry saved state", "retry-save");
             row("startup-continue", RowKind::Action, "Continue without saving", "continue-without-saving");
         } else {
@@ -891,7 +967,10 @@ void Simulation::rebuild_view() {
             item.game_id = game->id;
             item.badge = state_.library.favorites.contains(game->id) ? "Favorite" : "";
         }
-        if (view_.rows.empty()) row("home-library", RowKind::Action, "Open Library", "library");
+        if (view_.rows.empty()) {
+            row("home-library", RowKind::Action, "Open Library", "library");
+            if (state_.account.authentication != AuthState::SignedIn) row("home-connect", RowKind::Action, "Connect Steam", "connect");
+        }
         auto add_shelf = [this](std::string key, std::string title, const std::vector<GameId>& ids, int shelf_index) {
             ViewData::Shelf shelf;
             shelf.key = std::move(key); shelf.title = std::move(title);
@@ -911,6 +990,7 @@ void Simulation::rebuild_view() {
         for (const auto& shelf : playden::homebrew::shelves(state_)) add_shelf(shelf.key, shelf.title, shelf.game_ids, shelf_index++);
     } else if (state_.navigation.route == Route::Library) {
         view_.title = "Library";
+        if (state_.library_loading) view_.subtitle = "Refreshing fixture library…";
         const auto games = visible_games();
         view_.total_count = games.size();
         view_.subtitle = std::to_string(games.size()) + " games";
@@ -933,9 +1013,10 @@ void Simulation::rebuild_view() {
         view_.title = game ? game->title : "Game unavailable";
         view_.subtitle = game ? game->description : "The selected fixture no longer exists.";
         Installation* installation = game ? find_installation(state_, game->id) : nullptr;
-        auto& primary = row(installation ? "details-play" : "details-install", RowKind::Action,
-                            installation ? (installation->runtime_ready ? "Play" : "Runtime unavailable") : "Install",
-                            installation ? (installation->runtime_ready ? "launch" : "runtime-status") : "install");
+        const bool installed = installation && installation->installed_bytes > 0;
+        auto& primary = row(installed ? "details-play" : "details-install", RowKind::Action,
+                            installed ? (installation->runtime_ready ? "Play" : "Runtime unavailable") : "Install",
+                            installed ? (installation->runtime_ready ? "launch" : "runtime-status") : "install");
         primary.enabled = true;
         row("details-favorite", RowKind::Toggle, "Favorite", "favorite").selected = game && state_.library.favorites.contains(game->id);
         row("details-settings", RowKind::Action, "Game settings", "game-settings");
@@ -968,6 +1049,8 @@ void Simulation::rebuild_view() {
         auto& runtime = row("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
         runtime.value = state_.runtime == RuntimeState::Ready ? "Ready — simulated" : state_.runtime == RuntimeState::Checking ? "Checking — simulated" : state_.runtime == RuntimeState::Failed ? "Failed — simulated" : "Unavailable — simulated";
         row("settings-simulation", RowKind::Action, "Simulation controls", "simulation-controls");
+        row("settings-scenarios", RowKind::Action, "Fixture scenarios", "scenario-picker");
+        row("settings-about", RowKind::Action, "About", "about");
         row("settings-logs", RowKind::Action, "Logs", "logs");
         if (!state_.notices.empty()) row("settings-notices", RowKind::Action, "Warnings", "notices").value = std::to_string(state_.notices.size());
         row("settings-reset", RowKind::Action, "Reset UI data", "reset-confirm").dangerous = true;
@@ -985,10 +1068,12 @@ void Simulation::rebuild_view() {
             row("session-logs", RowKind::Action, "Open logs", "logs");
             row("session-back", RowKind::Action, "Back to details", "details-back");
         }
+        row("session-fixture-controls", RowKind::Action, "Session fixture controls", "session-fixture-controls");
     }
     auto focused = std::find_if(view_.rows.begin(), view_.rows.end(), [this](const ViewRow& item) { return item.key == state_.navigation.focus_key; });
     if (focused != view_.rows.end()) view_.focused_row = static_cast<int>(std::distance(view_.rows.begin(), focused));
-    else if (!view_.rows.empty() && !(state_.navigation.route == Route::Library && state_.navigation.library_rail_focused)) {
+    else if (!view_.rows.empty() && !(state_.navigation.route == Route::Library && state_.navigation.library_rail_focused)
+             && !(state_.navigation.route == Route::Home && !view_.shelves.empty())) {
         view_.focused_row = std::clamp(state_.navigation.selected_index, 0, static_cast<int>(view_.rows.size()) - 1);
         if (state_.navigation.route == Route::Library && view_.first_index > 0)
             view_.focused_row = std::clamp(state_.navigation.selected_index - static_cast<int>(view_.first_index), 0, static_cast<int>(view_.rows.size()) - 1);
@@ -1008,6 +1093,37 @@ void Simulation::close_modal() {
     const auto opener = state_.navigation.modals.back().opener_focus_key;
     state_.navigation.modals.pop_back();
     state_.navigation.focus_key = opener;
+}
+
+void Simulation::start_logs() {
+    state_.log_state = LogState::Loading;
+    state_.log_lines.clear();
+    state_.log_offset = 0;
+    if (state_.navigation.route == Route::Session || state_.session != SessionState::Idle)
+        state_.log_context = "Session fixture · game " + std::to_string(state_.session_game_id);
+    else if (state_.navigation.route == Route::Downloads)
+        state_.log_context = "Transfer fixture · game " + std::to_string(state_.navigation.selected_game_id);
+    else if (state_.navigation.selected_game_id != 0)
+        state_.log_context = "Game fixture · " + std::to_string(state_.navigation.selected_game_id);
+    else state_.log_context = "Playden fixture diagnostics";
+}
+
+void Simulation::finish_logs() {
+    state_.log_state = LogState::Ready;
+    state_.log_lines.clear();
+    state_.log_lines.reserve(32);
+    for (int index = 0; index < 32; ++index) {
+        state_.log_lines.push_back("[fixture " + std::to_string(index + 1) + "] deterministic event for " + state_.log_context);
+    }
+    if (state_.log_lines.size() > 128) state_.log_lines.erase(state_.log_lines.begin(), state_.log_lines.end() - 128);
+    state_.log_offset = 0;
+}
+
+std::string Simulation::next_job_id() {
+    for (;;) {
+        const auto id = "job-" + std::to_string(next_job_serial_++);
+        if (!find_job(state_, id)) return id;
+    }
 }
 
 void Simulation::start_editor(std::string purpose, std::string value) {
@@ -1094,6 +1210,11 @@ void Simulation::move(int delta_x, int delta_y) {
     }
     if (!state_.navigation.modals.empty()) {
         auto& modal = state_.navigation.modals.back();
+        if (modal.id == "logs" && state_.log_state == LogState::Ready && !state_.log_lines.empty()) {
+            const int delta = delta_y != 0 ? delta_y : delta_x;
+            state_.log_offset = std::clamp(state_.log_offset + delta, 0, std::max(0, static_cast<int>(state_.log_lines.size()) - 8));
+            return;
+        }
         const int delta = delta_y != 0 ? delta_y : delta_x;
         modal.focused_action = std::clamp(modal.focused_action + delta, 0, static_cast<int>(modal.action_keys.size()) - 1);
         state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
@@ -1169,7 +1290,7 @@ void Simulation::activate() {
         state_.navigation.detail_origin = Route::Home;
         state_.navigation.detail_id = state_.navigation.selected_game_id;
         state_.navigation.route = Route::Details;
-        state_.navigation.focus_key = find_installation(state_, state_.navigation.selected_game_id) ? "details-play" : "details-install";
+        state_.navigation.focus_key = is_installed(state_, state_.navigation.selected_game_id) ? "details-play" : "details-install";
         return;
     }
     if (view_.rows.empty()) return;
@@ -1189,7 +1310,7 @@ void Simulation::activate() {
         state_.navigation.detail_id = selected.game_id;
         state_.navigation.selected_game_id = selected.game_id;
         state_.navigation.route = Route::Details;
-        state_.navigation.focus_key = find_installation(state_, selected.game_id) ? "details-play" : "details-install";
+        state_.navigation.focus_key = is_installed(state_, selected.game_id) ? "details-play" : "details-install";
     } else if (action_name == "favorite") {
         if (state_.library.favorites.contains(state_.navigation.selected_game_id)) state_.library.favorites.erase(state_.navigation.selected_game_id);
         else state_.library.favorites.insert(state_.navigation.selected_game_id);
@@ -1222,10 +1343,13 @@ void Simulation::activate() {
         } else if (assessment.readiness != InstallReadiness::Ready) {
             state_.notices.push_back({"install-blocked", "Selected storage is unavailable or has insufficient space", "storage-picker", true, 0});
         } else {
-            const auto existing = std::find_if(state_.jobs.begin(), state_.jobs.end(), [this](const Job& job) { return job.game_id == state_.navigation.selected_game_id && job.state != JobState::Cancelled; });
+            const auto existing = std::find_if(state_.jobs.begin(), state_.jobs.end(), [this](const Job& job) {
+                return job.game_id == state_.navigation.selected_game_id && job.kind == "install"
+                    && job.state != JobState::Cancelled && job.state != JobState::Downloaded && job.state != JobState::Failed;
+            });
             if (existing == state_.jobs.end()) {
                 const auto required = assessment.required_bytes.value_or(0);
-                state_.jobs.push_back({"job-" + std::to_string(state_.jobs.size() + 1), state_.navigation.selected_game_id, "install", static_cast<int>(state_.jobs.size()), JobStage::Download, JobState::Queued, 0, *assessment.download_bytes, std::nullopt, std::nullopt, {}, JobStage::Download, selected_volume_id_, 0, required, true});
+                state_.jobs.push_back({next_job_id(), state_.navigation.selected_game_id, "install", next_queue_order(state_), JobStage::Download, JobState::Queued, 0, *assessment.download_bytes, std::nullopt, std::nullopt, {}, JobStage::Download, selected_volume_id_, 0, required, true, false});
                 reconcile_storage(state_);
             }
             close_modal();
@@ -1249,7 +1373,8 @@ void Simulation::activate() {
     } else if (action_name.rfind("job-pause-", 0) == 0) { if (auto* job = find_job(state_, action_name.substr(10))) job->state = JobState::Pausing; close_modal(); }
     else if (action_name.rfind("job-resume-", 0) == 0) {
         if (auto* job = find_job(state_, action_name.substr(11))) {
-            for (auto& other : state_.jobs) if (&other != job && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
+            if (job->kind != "uninstall")
+                for (auto& other : state_.jobs) if (&other != job && other.kind != "uninstall" && (other.state == JobState::Downloading || other.state == JobState::Verifying)) other.state = JobState::Queued;
             job->state = job->stage == JobStage::Download ? JobState::Downloading : JobState::Verifying;
         }
         close_modal();
@@ -1284,7 +1409,12 @@ void Simulation::activate() {
         pending_destructive_action_ = action_name;
         open_modal({"confirmation", "Cancel download?", selected.key, {"cancel", "confirm-destructive"}, 0, true});
     } else if (action_name == "verify") {
-        state_.jobs.push_back({"verify-" + std::to_string(state_.navigation.selected_game_id), state_.navigation.selected_game_id, "verify", 0, JobStage::Verify, JobState::Verifying, 0, 0, std::nullopt, std::nullopt, {}, JobStage::Verify, {}, 0, 0, false});
+        const auto duplicate = std::find_if(state_.jobs.begin(), state_.jobs.end(), [this](const Job& job) {
+            return job.game_id == state_.navigation.selected_game_id && job.kind == "verify"
+                && job.state != JobState::Downloaded && job.state != JobState::Cancelled && job.state != JobState::Failed;
+        });
+        if (duplicate == state_.jobs.end())
+            state_.jobs.push_back({next_job_id(), state_.navigation.selected_game_id, "verify", next_queue_order(state_), JobStage::Verify, JobState::Queued, 0, 0, std::nullopt, std::nullopt, {}, JobStage::Verify, {}, 0, 0, false, false});
         while (!state_.navigation.modals.empty()) close_modal();
         state_.navigation.route = Route::Downloads;
     } else if (action_name == "uninstall" || action_name == "reset-confirm" || action_name == "signout-confirm" || action_name == "quit-confirm" || action_name == "quit-game") {
@@ -1303,12 +1433,24 @@ void Simulation::activate() {
         }
         else if (pending_destructive_action_ == "uninstall") {
             if (const auto* installation = find_installation(state_, state_.navigation.selected_game_id)) {
-                state_.jobs.push_back({"uninstall-" + std::to_string(state_.navigation.selected_game_id), state_.navigation.selected_game_id, "uninstall", static_cast<int>(state_.jobs.size()), JobStage::Uninstall, JobState::Verifying, 0, installation->installed_bytes, std::nullopt, std::nullopt, {}, JobStage::Uninstall, installation->volume_id, 0, 0, false});
+                const auto duplicate = std::find_if(state_.jobs.begin(), state_.jobs.end(), [this](const Job& job) {
+                    return job.game_id == state_.navigation.selected_game_id && job.kind == "uninstall"
+                        && job.state != JobState::Downloaded && job.state != JobState::Cancelled;
+                });
+                const bool has_duplicate = duplicate != state_.jobs.end();
+                const auto existing_id = has_duplicate ? duplicate->id : std::string{};
+                if (!has_duplicate)
+                    state_.jobs.push_back({next_job_id(), state_.navigation.selected_game_id, "uninstall", next_queue_order(state_), JobStage::Uninstall, JobState::Verifying, 0, installation->installed_bytes, std::nullopt, std::nullopt, {}, JobStage::Uninstall, installation->volume_id, 0, 0, false, false});
                 state_.navigation.route = Route::Downloads;
-                state_.navigation.focus_key = "job-uninstall-" + std::to_string(state_.navigation.selected_game_id);
+                state_.navigation.focus_key = "job-" + (has_duplicate ? existing_id : state_.jobs.back().id);
             }
         }
-        else if (pending_destructive_action_ == "signout-confirm") { state_.account.authentication = AuthState::SignedOut; state_.account.cache_available = false; state_.library = {}; clear_profile_customizations(state_); state_.navigation.route = Route::Startup; }
+        else if (pending_destructive_action_ == "signout-confirm") { state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear(); state_.account.cache_available = false; state_.library = {}; clear_profile_customizations(state_); state_.navigation.route = Route::Startup; }
+        else if (pending_destructive_action_ == "account-switch") {
+            state_.library = {}; clear_profile_customizations(state_); state_.account = {};
+            state_.account.authentication = AuthState::Waiting; state_.account.challenge_expiry = state_.clock_ticks + 30;
+            ++challenge_generation_; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel";
+        }
         else if (pending_destructive_action_ == "reset-confirm") { const auto installs = state_.installations; state_.library = {}; state_.installations = installs; clear_profile_customizations(state_); state_.reduced_motion = false; }
         else if (pending_destructive_action_ == "quit-game") { state_.session = SessionState::Stopping; state_.navigation.route = Route::Session; }
         else if (pending_destructive_action_ == "force-stop") { state_.session = SessionState::Idle; state_.navigation.route = Route::Details; state_.navigation.detail_id = state_.session_game_id; }
@@ -1419,19 +1561,30 @@ void Simulation::activate() {
     else if (action_name == "return-game") state_.session = SessionState::Running;
     else if (action_name == "force-stop") { pending_destructive_action_ = "force-stop"; open_modal({"confirmation", "Force stop simulated session?", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true}); }
     else if (action_name == "details-back") { state_.navigation.route = Route::Details; state_.navigation.detail_id = state_.session_game_id; }
-    else if (action_name == "logs") open_modal({"logs", "Operation logs", state_.navigation.focus_key, {"logs-back"}, 0, false});
+    else if (action_name == "logs") { start_logs(); open_modal({"logs", "Operation logs", state_.navigation.focus_key, {"logs-fixture-controls", "logs-back"}, 0, false}); }
+    else if (action_name == "logs-retry") { start_logs(); state_.navigation.modals.back().action_keys = {"logs-fixture-controls", "logs-back"}; state_.navigation.modals.back().focused_action = 0; state_.navigation.focus_key = "logs-fixture-controls"; }
     else if (action_name == "logs-back") close_modal();
+    else if (action_name == "logs-fixture-controls") open_modal({"logs-controls", "Log fixture controls", state_.navigation.focus_key,
+        {"inject-logs-loading", "inject-logs-empty", "inject-logs-failure", "inject-logs-ready", "cancel"}, 0, false});
     else if (action_name == "controller-test") open_modal({"controller", "Controller diagnostics", state_.navigation.focus_key, {"cancel"}, 0, false});
     else if (action_name == "settings-runtime") open_modal({"runtime", "Runtime status — simulated", state_.navigation.focus_key, {"runtime-retry", "cancel"}, 0, false});
     else if (action_name == "runtime-retry") { state_.runtime = RuntimeState::Checking; state_.session_error.clear(); }
     else if (action_name == "qr-fixture-controls") open_modal({"qr-controls", "QR fixture controls", state_.navigation.focus_key,
         {"inject-qr-approved", "inject-qr-expired", "inject-qr-failure", "inject-qr-denied", "advance-clock", "cancel"}, 0, false});
     else if (action_name == "simulation-controls") open_modal({"simulation-controls", "Simulation controls", state_.navigation.focus_key,
-        {"advance-clock", "inject-download-failed", "inject-verification-failed", "inject-uninstall-failed", "inject-storage-disconnect", "inject-storage-reconnect", "inject-controller-disconnect", "inject-controller-reconnect", "inject-launch-failure", "inject-crash", "cancel"}, 0, false});
+        {"advance-clock", "inject-download-failed", "inject-verification-failed", "inject-uninstall-failed", "inject-storage-disconnect", "inject-storage-reconnect", "inject-controller-disconnect", "inject-controller-reconnect", "inject-launch-failure", "inject-stop-failure", "inject-runtime-failed", "inject-save-failure", "inject-logs-loading", "inject-logs-empty", "inject-logs-failure", "inject-logs-ready", "inject-delayed-art", "inject-failed-art", "inject-library-refresh", "inject-startup-loading", "cancel"}, 0, false});
+    else if (action_name == "about") open_modal({"about", "About Playden UI simulation", state_.navigation.focus_key,
+        {"about-build", "about-framework", "about-platform", "about-back"}, 0, false});
+    else if (action_name == "about-back") close_modal();
+    else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
+        {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "cancel"}, 0, false});
+    else if (action_name.rfind("scenario-", 0) == 0) { state_.navigation.modals.clear(); scenario(action_name.substr(9)); }
+    else if (action_name == "session-fixture-controls") open_modal({"session-controls", "Session fixture controls", state_.navigation.focus_key,
+        {"advance-clock", "inject-stop-failure", "inject-crash", "cancel"}, 0, false});
     else if (action_name == "advance-clock") tick(1);
     else if (action_name.rfind("inject-", 0) == 0) {
         const auto injected = action_name.substr(7);
-        if (state_.navigation.modals.back().id == "qr-controls") close_modal();
+        if (!state_.navigation.modals.empty() && (state_.navigation.modals.back().id == "qr-controls" || state_.navigation.modals.back().id == "logs-controls" || state_.navigation.modals.back().id == "session-controls")) close_modal();
         action("inject:" + injected);
     }
     else if (action_name == "notices") {
@@ -1439,9 +1592,28 @@ void Simulation::activate() {
         for (const auto& notice : state_.notices) if (!notice.action.empty()) actions.push_back(notice.action);
         actions.push_back("cancel"); open_modal({"notices", "Warnings", state_.navigation.focus_key, std::move(actions), 0, false});
     }
+    else if (action_name.rfind("open-game:", 0) == 0) {
+        GameId id = 0; const auto number = action_name.substr(10);
+        if (std::from_chars(number.data(), number.data() + number.size(), id).ec == std::errc{} && find_game(state_, id)) {
+            state_.navigation.modals.clear(); state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
+            state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
+            state_.navigation.focus_key = is_installed(state_, id) ? "details-play" : "details-install";
+        }
+    }
     else if (action_name == "storage-retry") action("inject:storage-reconnect");
     else if (action_name == "retry-save") { state_.persistence_available = true; save_profile(); }
-    else if (action_name == "account") open_modal({"account", "Account", state_.navigation.focus_key, {"signout-confirm", "cancel"}, 0, false});
+    else if (action_name == "account") {
+        std::vector<std::string> actions = {"account-auth", "account-last-sync"};
+        if (state_.account.authentication == AuthState::SignedIn) actions.push_back("account-sync");
+        else actions.push_back("account-recover");
+        actions.push_back("account-switch");
+        if (state_.account.authentication != AuthState::SignedOut) actions.push_back("signout-confirm");
+        actions.push_back("cancel");
+        open_modal({"account", state_.account.display_name.empty() ? "Account" : state_.account.display_name, state_.navigation.focus_key, std::move(actions), 0, false});
+    }
+    else if (action_name == "account-sync") { close_modal(); state_.account.authentication = AuthState::Syncing; state_.library_syncing = true; state_.navigation.route = Route::Home; }
+    else if (action_name == "account-recover") { state_.navigation.modals.clear(); scenario("qr-waiting"); }
+    else if (action_name == "account-switch") { pending_destructive_action_ = "account-switch"; open_modal({"confirmation", "Switch account? Current account cache will be cleared.", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true}); }
 }
 
 bool Simulation::action(const std::string& logical_action) {
@@ -1511,9 +1683,12 @@ bool Simulation::action(const std::string& logical_action) {
         const auto volume_id = remainder.substr(separator + 1);
         const auto assessment = assess_install(state_, id, volume_id);
         if (assessment.readiness != InstallReadiness::Ready || !assessment.download_bytes) return false;
-        const auto existing = std::find_if(state_.jobs.begin(), state_.jobs.end(), [id](const Job& value) { return value.game_id == id && value.state != JobState::Cancelled; });
+        const auto existing = std::find_if(state_.jobs.begin(), state_.jobs.end(), [id](const Job& value) {
+            return value.game_id == id && value.kind == "install" && value.state != JobState::Cancelled
+                && value.state != JobState::Downloaded && value.state != JobState::Failed;
+        });
         if (existing == state_.jobs.end()) {
-            state_.jobs.push_back({"job-" + std::to_string(state_.jobs.size() + 1), id, "install", static_cast<int>(state_.jobs.size()), JobStage::Download, JobState::Queued, 0, *assessment.download_bytes, std::nullopt, std::nullopt, {}, JobStage::Download, volume_id, 0, assessment.required_bytes.value_or(0), true});
+            state_.jobs.push_back({next_job_id(), id, "install", next_queue_order(state_), JobStage::Download, JobState::Queued, 0, *assessment.download_bytes, std::nullopt, std::nullopt, {}, JobStage::Download, volume_id, 0, assessment.required_bytes.value_or(0), true, false});
             reconcile_storage(state_);
         }
         if (state_.persistence_available) save_profile();
@@ -1580,7 +1755,7 @@ bool Simulation::action(const std::string& logical_action) {
                 state_.navigation.scroll_offsets["home"] = chosen_shelf;
             }
         }
-        if (details) { state_.navigation.detail_origin = state_.navigation.route; state_.navigation.route = Route::Details; state_.navigation.detail_id = id; state_.navigation.focus_key = find_installation(state_, id) ? "details-play" : "details-install"; }
+        if (details) { state_.navigation.detail_origin = state_.navigation.route; state_.navigation.route = Route::Details; state_.navigation.detail_id = id; state_.navigation.focus_key = is_installed(state_, id) ? "details-play" : "details-install"; }
         else if (state_.navigation.route == Route::Downloads) {
             const auto job = std::find_if(state_.jobs.begin(), state_.jobs.end(), [id](const Job& value) { return value.game_id == id && value.state != JobState::Cancelled; });
             if (job != state_.jobs.end()) state_.navigation.focus_key = "job-" + job->id;
@@ -1612,6 +1787,14 @@ bool Simulation::action(const std::string& logical_action) {
     if (state_.editor.active && logical_action == "r1") { state_.editor.caret = next_caret(state_.editor.value, state_.editor.caret); rebuild_view(); return true; }
     if (state_.editor.active && logical_action == "triangle") { state_.editor.value.clear(); state_.editor.caret = 0; rebuild_view(); return true; }
     if (state_.editor.active && (logical_action == "l2" || logical_action == "r2" || logical_action == "options" || logical_action == "search")) return true;
+    if (!state_.editor.active && state_.navigation.modals.empty() && state_.navigation.route == Route::Details
+        && (logical_action == "l2" || logical_action == "r2")) {
+        auto& offset = state_.navigation.scroll_offsets["details-content"];
+        const auto* game = find_game(state_, state_.navigation.detail_id.value_or(state_.navigation.selected_game_id));
+        const int last_page = game ? std::max(0, static_cast<int>((game->description.size() + 419) / 420) - 1) : 0;
+        offset = std::clamp(offset + (logical_action == "l2" ? -1 : 1), 0, last_page);
+        rebuild_view(); return true;
+    }
     if (logical_action == "up") move(0, -1);
     else if (logical_action == "down") move(0, 1);
     else if (logical_action == "left") move(-1, 0);
@@ -1650,10 +1833,12 @@ bool Simulation::action(const std::string& logical_action) {
         if (injected == "controller-reconnect") injected = "controller-reconnected";
         if (injected == "storage-disconnect") {
             if (auto* volume = find_volume(state_, "external")) volume->available = false;
+            for (auto& installation : state_.installations) if (installation.volume_id == "external") installation.available = false;
             for (auto& job : state_.jobs) if (job.volume_id == "external" && (job.state == JobState::Downloading || job.state == JobState::Verifying)) { job.state = JobState::Interrupted; job.failure = "Storage disconnected"; }
             state_.notices.push_back({"storage", "USB fixture library disconnected", "storage-retry", true, 0});
         } else if (injected == "storage-reconnect") {
             if (auto* volume = find_volume(state_, "external")) volume->available = true;
+            for (auto& installation : state_.installations) if (installation.volume_id == "external" && installation.installed_bytes > 0) installation.available = true;
             state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(), [](const Notice& notice) { return notice.id == "storage"; }), state_.notices.end());
         } else if (injected == "controller-disconnected") {
             state_.controller_connected = false;
@@ -1662,7 +1847,15 @@ bool Simulation::action(const std::string& logical_action) {
             state_.controller_connected = true;
             state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(), [](const Notice& notice) { return notice.id == "controller"; }), state_.notices.end());
         } else if (injected == "download-failed" || injected == "verification-failed") {
-            if (auto* job = find_job(state_, "job-1")) { job->state = JobState::Failed; job->retry_stage = injected == "verification-failed" ? JobStage::Verify : JobStage::Download; job->stage = job->retry_stage; job->failure = injected == "verification-failed" ? "Verification failed" : "Download failed"; }
+            Job* job = nullptr;
+            const auto wanted_stage = injected == "verification-failed" ? JobStage::Verify : JobStage::Download;
+            const auto active = std::find_if(state_.jobs.begin(), state_.jobs.end(), [wanted_stage](const Job& value) {
+                return value.stage == wanted_stage && (value.state == JobState::Downloading || value.state == JobState::Verifying);
+            });
+            if (active != state_.jobs.end()) job = &*active;
+            if (!job && state_.navigation.focus_key.rfind("job-", 0) == 0) job = find_job(state_, state_.navigation.focus_key.substr(4));
+            if (!job) job = find_job(state_, "job-1");
+            if (job) { job->state = JobState::Failed; job->retry_stage = wanted_stage; job->stage = job->retry_stage; job->failure = injected == "verification-failed" ? "Verification failed" : "Download failed"; }
         } else if (injected == "uninstall-failed") {
             const auto job = std::find_if(state_.jobs.begin(), state_.jobs.end(), [](const Job& value) { return value.kind == "uninstall" && value.state != JobState::Downloaded; });
             if (job != state_.jobs.end()) { job->state = JobState::Failed; job->stage = JobStage::Uninstall; job->retry_stage = JobStage::Uninstall; job->failure = "Uninstall failed"; }
@@ -1674,6 +1867,21 @@ bool Simulation::action(const std::string& logical_action) {
             state_.session = SessionState::Running; state_.session_error.clear(); state_.navigation.route = Route::Session; state_.navigation.focus_key = "session-return";
         } else if (injected == "runtime-ready") state_.runtime = RuntimeState::Ready;
         else if (injected == "runtime-failed") state_.runtime = RuntimeState::Failed;
+        else if (injected == "logs-loading") start_logs();
+        else if (injected == "logs-ready") finish_logs();
+        else if (injected == "logs-empty") { state_.log_state = LogState::Ready; state_.log_lines.clear(); state_.log_offset = 0; }
+        else if (injected == "logs-failure") {
+            state_.log_state = LogState::Failed; state_.log_lines.clear(); state_.log_offset = 0;
+            if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "logs") {
+                state_.navigation.modals.back().action_keys = {"logs-retry", "logs-fixture-controls", "logs-back"};
+                state_.navigation.modals.back().focused_action = 0; state_.navigation.focus_key = "logs-retry";
+            }
+        } else if (injected == "delayed-art" || injected == "failed-art") {
+            const GameId id = injected == "delayed-art" ? 900007 : 900008;
+            auto game = std::find_if(state_.games.begin(), state_.games.end(), [id](const Game& value) { return value.id == id; });
+            if (game != state_.games.end()) { game->art_pending = injected == "delayed-art"; game->art_failed = injected == "failed-art"; }
+        } else if (injected == "library-refresh") state_.library_loading = true;
+        else if (injected == "startup-loading") { state_.startup_loading = true; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-loading"; }
         else if (injected == "late-approval") {
             if (state_.account.authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) state_.account.authentication = AuthState::Syncing;
         } else return scenario(injected);
@@ -1706,7 +1914,7 @@ void Simulation::advance_jobs() {
             job.state = JobState::Downloaded;
             job.completed_bytes = job.total_bytes;
             reconcile_storage(state_);
-            state_.notices.push_back({"job-complete-" + job.id, "Uninstall complete; saves preserved", "open-game", false, 5});
+            state_.notices.push_back({"job-complete-" + job.id, "Uninstall complete; saves preserved", "open-game:" + std::to_string(job.game_id), false, 5});
         }
     }
     Job* active = nullptr;
@@ -1717,7 +1925,8 @@ void Simulation::advance_jobs() {
             const int right_order = right.state == JobState::Queued ? right.queue_order : std::numeric_limits<int>::max();
             return left_order < right_order;
         });
-        if (queued != state_.jobs.end() && queued->state == JobState::Queued) queued->state = JobState::Downloading;
+        if (queued != state_.jobs.end() && queued->state == JobState::Queued)
+            queued->state = queued->stage == JobStage::Download ? JobState::Downloading : JobState::Verifying;
         return;
     }
     if (active->state == JobState::Downloading) {
@@ -1732,7 +1941,7 @@ void Simulation::advance_jobs() {
             active->completed_bytes = active->total_bytes;
             reconcile_storage(state_);
             const auto message = active->kind == "verify" ? "Verification complete" : "Download complete";
-            state_.notices.push_back({"job-complete-" + active->id, message, "open-game", false, 5});
+            state_.notices.push_back({"job-complete-" + active->id, message, "open-game:" + std::to_string(active->game_id), false, 5});
         }
     }
 }
@@ -1748,6 +1957,8 @@ void Simulation::tick(int ticks) {
             }
             if (state_.account.authentication == AuthState::Syncing) {
                 state_.account.authentication = AuthState::SignedIn;
+                state_.account.cache_available = true;
+                state_.account.last_sync = state_.clock_ticks;
                 state_.library_syncing = false;
                 state_.navigation.route = Route::Home;
                 state_.navigation.focus_key = game_key(state_.navigation.selected_game_id);
@@ -1756,6 +1967,9 @@ void Simulation::tick(int ticks) {
             else if (state_.session == SessionState::Launching) state_.session = SessionState::Running;
             else if (state_.session == SessionState::Stopping) { state_.session = SessionState::Idle; state_.navigation.route = Route::Details; state_.navigation.detail_id = state_.session_game_id; }
             if (state_.runtime == RuntimeState::Checking) state_.runtime = RuntimeState::Ready;
+            if (state_.log_state == LogState::Loading) finish_logs();
+            state_.startup_loading = false;
+            state_.library_loading = false;
             for (auto& game : state_.games) if (game.art_pending) game.art_pending = false;
             for (auto& notice : state_.notices) if (!notice.persistent && notice.remaining_ticks > 0) --notice.remaining_ticks;
             state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(), [](const Notice& notice) { return !notice.persistent && notice.remaining_ticks == 0; }), state_.notices.end());
@@ -1778,6 +1992,11 @@ std::string Simulation::snapshot() const {
            << json::escape(state_.library.scope) << "\",\"sort\":\"" << json::escape(state_.library.sort)
            << "\",\"visible_count\":" << visible.size() << ",\"materialized_row_count\":" << view_.rows.size()
            << ",\"modal_depth\":" << state_.navigation.modals.size()
+           << ",\"startup_loading\":" << (state_.startup_loading ? "true" : "false")
+           << ",\"library_loading\":" << (state_.library_loading ? "true" : "false")
+           << ",\"logs\":{\"state\":\"" << (state_.log_state == LogState::Loading ? "loading" : state_.log_state == LogState::Failed ? "failed" : "ready")
+           << "\",\"context\":\"" << json::escape(state_.log_context) << "\",\"count\":" << state_.log_lines.size()
+           << ",\"offset\":" << state_.log_offset << "}"
            << ",\"editor\":{\"active\":" << (state_.editor.active ? "true" : "false") << ",\"value\":\""
            << json::escape(state_.editor.value) << "\",\"original\":\"" << json::escape(state_.editor.original)
            << "\",\"caret\":" << state_.editor.caret << "},\"scroll_offsets\":{";
@@ -1800,6 +2019,7 @@ std::string Simulation::snapshot() const {
                << "\",\"completed\":" << job.completed_bytes << ",\"total\":" << job.total_bytes
                << ",\"stage_ticks\":" << job.stage_ticks << ",\"reserved\":" << job.reserved_bytes
                << ",\"reservation_held\":" << (job.reservation_held ? "true" : "false")
+               << ",\"completion_applied\":" << (job.completion_applied ? "true" : "false")
                << ",\"failure\":\"" << json::escape(job.failure) << "\"}";
     }
     output << "],\"installations\":[";

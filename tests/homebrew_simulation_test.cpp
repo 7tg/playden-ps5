@@ -30,6 +30,10 @@ std::filesystem::path temp_profile() {
 void t01_authentication_ignores_late_approval(const std::filesystem::path& fixtures,
                                                const std::filesystem::path& profile) {
     playden::homebrew::Simulation simulation(fixtures, profile);
+    simulation.scenario("startup-loading");
+    check(simulation.view().rows.front().key == "startup-loading", "T01 startup exposes deterministic loading");
+    simulation.tick(1);
+    check(simulation.view().rows.front().key == "startup-connect", "T01 advancing the clock completes startup loading");
     simulation.scenario("signed-out");
     check(simulation.state().navigation.route == playden::homebrew::Route::Startup,
           "T01 signed-out scenario starts at first run");
@@ -51,6 +55,10 @@ void t01_authentication_ignores_late_approval(const std::filesystem::path& fixtu
     simulation.tick(5);
     check(simulation.state().account.authentication == playden::homebrew::AuthState::Cancelled,
           "T01 late approval cannot revive a cancelled challenge");
+    simulation.scenario("signed-out"); simulation.action("focus:startup-skip"); simulation.action("cross");
+    check(std::any_of(simulation.view().rows.begin(), simulation.view().rows.end(),
+                      [](const playden::homebrew::ViewRow& row) { return row.key == "home-connect"; }),
+          "T01 empty signed-out Home offers both Library and Connect");
 }
 
 void t02_focus_and_nested_modal_restoration(const std::filesystem::path& fixtures,
@@ -95,6 +103,8 @@ void t03_search_filters_and_focus_reconciliation(const std::filesystem::path& fi
     simulation.action("route:library");
     simulation.action("search");
     simulation.text("temporary");
+    check(simulation.visible_games().empty() && simulation.view().subtitle.find("0 results") != std::string::npos,
+          "T03 search result count updates live before commit");
     simulation.action("circle");
     check(simulation.state().library.query.empty(), "T03 cancelling search restores the original query");
     simulation.action("search");
@@ -118,6 +128,13 @@ void t03_search_filters_and_focus_reconciliation(const std::filesystem::path& fi
     activate(simulation, "filters-reset");
     check(simulation.state().library.filters.empty() && simulation.state().library.sort == "name",
           "T03 reset clears every filter and restores name sort");
+    simulation.action("select:900012");
+    const auto selected = simulation.state().navigation.selected_game_id;
+    const auto scroll = simulation.state().navigation.scroll_offsets.at("library-grid");
+    simulation.action("inject:library-refresh"); simulation.tick(1);
+    check(!simulation.state().library_loading && simulation.state().navigation.selected_game_id == selected
+              && simulation.state().navigation.scroll_offsets.at("library-grid") == scroll,
+          "T03 refresh preserves exact library selection and viewport");
 }
 
 void t04_organization_persists_without_deleting_games(const std::filesystem::path& fixtures,
@@ -185,6 +202,15 @@ void t06_queue_transitions_are_single_active_and_safe(const std::filesystem::pat
     check(simulation.action("job:retry:job-1"), "T06 failure retry is reachable");
     check(simulation.state().jobs.front().state == playden::homebrew::JobState::Downloading,
           "T06 retry resumes the failed stage");
+    simulation.action("details:900001"); simulation.action("options"); activate(simulation, "verify");
+    simulation.action("details:900001"); simulation.action("options"); activate(simulation, "verify");
+    const auto verifies = std::count_if(simulation.state().jobs.begin(), simulation.state().jobs.end(),
+        [](const playden::homebrew::Job& job) { return job.kind == "verify" && job.game_id == 900001; });
+    check(verifies == 1, "T06 repeated Verify creates one queued operation");
+    active = 0;
+    for (const auto& job : simulation.state().jobs)
+        if (job.state == playden::homebrew::JobState::Downloading || job.state == playden::homebrew::JobState::Verifying) ++active;
+    check(active == 1, "T06 queued verification preserves one active transfer");
 }
 
 void t07_interruption_and_verification_recovery(const std::filesystem::path& fixtures,
@@ -257,6 +283,10 @@ void t09_uninstall_and_reset_preserve_declared_data(const std::filesystem::path&
                                           [](const playden::homebrew::Installation& value) { return value.game_id == 900001; });
     check(after_reset != simulation.state().installations.end() && after_reset->saves_present,
           "T09 reset preserves fixture installs and saves");
+    check(simulation.action("install:900001:external"), "T09 a completed uninstall does not block reinstall");
+    check(std::any_of(simulation.state().jobs.begin(), simulation.state().jobs.end(),
+                      [](const playden::homebrew::Job& job) { return job.game_id == 900001 && job.kind == "install" && job.state == playden::homebrew::JobState::Queued; }),
+          "T09 reinstall creates a fresh stable job");
 }
 
 void t10_session_failure_running_stop_and_crash(const std::filesystem::path& fixtures,
@@ -292,6 +322,29 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     restored.action("inject:controller-reconnect");
     check(restored.view().surface == "filters" && restored.state().navigation.focus_key == focus,
           "T11 controller reconnect retains modal and visible focus");
+    restored.action("circle"); restored.action("route:settings"); activate(restored, "settings-logs");
+    check(restored.state().log_state == playden::homebrew::LogState::Loading, "T11 logs expose a loading state");
+    restored.tick(1);
+    check(restored.state().log_state == playden::homebrew::LogState::Ready && restored.state().log_lines.size() == 32,
+          "T11 logs resolve deterministically to bounded contextual records");
+    for (int index = 0; index < 20; ++index) restored.action("r2");
+    check(restored.state().log_offset == 24 && restored.state().log_lines.size() <= 128,
+          "T11 log scrolling clamps to the eight-row viewport");
+    restored.action("inject:logs-failure"); activate(restored, "logs-retry"); restored.tick(1);
+    check(restored.state().log_state == playden::homebrew::LogState::Ready, "T11 failed logs retry through normal actions");
+    restored.action("circle"); activate(restored, "settings-account"); activate(restored, "account-switch");
+    check(restored.state().navigation.modals.back().focused_action == 0, "T11 account switch defaults to Cancel");
+    activate(restored, "confirm-destructive");
+    check(restored.state().account.authentication == playden::homebrew::AuthState::Waiting
+              && restored.state().account.id.empty() && restored.state().library.favorites.empty(),
+          "T11 account switch clears identity and account-visible cache");
+    restored.action("inject:qr-approved"); restored.tick(1);
+    check(restored.state().account.authentication == playden::homebrew::AuthState::SignedIn
+              && !restored.state().account.id.empty() && restored.state().account.last_sync > 0,
+          "T11 account recovery restores a new fixture identity and last-sync state");
+    restored.action("route:settings"); activate(restored, "settings-about");
+    check(restored.view().surface == "about" && restored.view().rows.size() == 4,
+          "T11 About exposes build, framework, platform, and Back rows");
 }
 
 void t12_stress_dataset_keeps_logical_focus(const std::filesystem::path& fixtures,
