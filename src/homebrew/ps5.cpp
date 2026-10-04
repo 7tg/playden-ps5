@@ -18,6 +18,9 @@
 
 #include <array>
 #include <cstdio>
+#include <vector>
+#include <string>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <sys/stat.h>
@@ -50,6 +53,55 @@ void dispatch(playden::homebrew::Simulation& simulation, const hui::InputFrame& 
     }
 }
 }
+
+// Title-to-title launch, as Itemzflow does: the target receives argv as its arguments.
+extern "C" {
+struct PlaydenLncAppParam {
+    uint32_t size;
+    uint32_t user_id;
+    uint32_t app_options;
+    uint64_t crash_report;
+    uint32_t check_flag;  // 2 = skip the system update check
+};
+uint32_t sceLncUtilLaunchApp(const char* title_id, const char* argv[], PlaydenLncAppParam* param);
+int sceUserServiceGetForegroundUser(uint32_t* user_id);
+}
+
+namespace {
+// Development probe for the runtime handoff: when /app0/dev/launch-request.txt holds
+// "<TITLE_ID> [arg ...]", it is consumed once and that title is launched with the arguments.
+// The result is appended to /app0/logs/launch.log. Nothing in the UI triggers this.
+void run_launch_request() {
+    const char* request_path = "/app0/dev/launch-request.txt";
+    FILE* request = std::fopen(request_path, "r");
+    if (!request) return;
+    char line[512] = {};
+    const bool read = std::fgets(line, sizeof(line), request) != nullptr;
+    std::fclose(request);
+    std::remove(request_path);
+    if (!read) return;
+    std::vector<std::string> words;
+    for (char* word = std::strtok(line, " \t\r\n"); word && words.size() < 9; word = std::strtok(nullptr, " \t\r\n"))
+        words.emplace_back(word);
+    if (words.empty()) return;
+    std::vector<const char*> argv;
+    for (std::size_t index = 1; index < words.size(); ++index) argv.push_back(words[index].c_str());
+    argv.push_back(nullptr);
+    uint32_t user = 0;
+    const int user_result = sceUserServiceGetForegroundUser(&user);
+    PlaydenLncAppParam param{sizeof(PlaydenLncAppParam), user, 0, 0, 2};
+    mkdir("/app0/logs", 0777);
+    if (FILE* log = std::fopen("/app0/logs/launch.log", "a")) {
+        std::fprintf(log, "launch_request title=%s args=%zu user_result=%d\n", words[0].c_str(), words.size() - 1, user_result);
+        std::fclose(log);
+    }
+    const uint32_t result = sceLncUtilLaunchApp(words[0].c_str(), argv.data(), &param);
+    if (FILE* log = std::fopen("/app0/logs/launch.log", "a")) {
+        std::fprintf(log, "launch_result title=%s result=0x%08x\n", words[0].c_str(), result);
+        std::fclose(log);
+    }
+}
+}  // namespace
 
 int main() {
     hui::ps5::Display display;
@@ -122,7 +174,11 @@ int main() {
             last_render_us = now;
             renderer.draw(simulation, display.width(), display.height(), frame_dt);
             if (!display.swap()) break;
-            if (!presented) { hui::sys::hide_splash_screen(); presented = true; }
+            if (!presented) {
+                hui::sys::hide_splash_screen();
+                presented = true;
+                run_launch_request();
+            }
             // Work advances only through the documented manual fixture clock.
             pad.tick(1.0F / 60.0F);
         }
