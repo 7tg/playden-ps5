@@ -9,7 +9,7 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 revision=8a716f294835e26a24ef5612f1535aabffef4080
 framework_repo=${PLAYDEN_HUI_REPOSITORY:-/Users/leolobato/Documents/Projetos/Personal/GameNative/ps5-homebrew/ps5-homebrew-ui}
 hui_source="$root/build/dependencies/homebrew-ui"
-patch_file="$root/patches/homebrew-ui-macos-4.1.patch"
+patch_files=("$root/patches/homebrew-ui-macos-4.1.patch" "$root/patches/homebrew-ui-cff-sdf.patch")
 build_dir="$root/build/homebrew-host"
 font_dir="$root/build/homebrew-fonts"
 prepare_only=0
@@ -36,13 +36,15 @@ if [[ $actual_revision != "$revision" ]]; then
     exit 1
 fi
 
-if git -C "$hui_source" apply --check "$patch_file" >/dev/null 2>&1; then
-    git -C "$hui_source" apply "$patch_file"
-elif ! git -C "$hui_source" apply --check --reverse "$patch_file" >/dev/null 2>&1; then
-    printf 'isolated ps5-homebrew-ui checkout has changes outside the recorded patch\n' >&2
-    git -C "$hui_source" status --short >&2
-    exit 1
-fi
+for patch_file in "${patch_files[@]}"; do
+    if git -C "$hui_source" apply --check "$patch_file" >/dev/null 2>&1; then
+        git -C "$hui_source" apply "$patch_file"
+    elif ! git -C "$hui_source" apply --check --reverse "$patch_file" >/dev/null 2>&1; then
+        printf 'isolated ps5-homebrew-ui checkout conflicts with recorded patch: %s\n' "$patch_file" >&2
+        git -C "$hui_source" status --short >&2
+        exit 1
+    fi
+done
 
 cxx=$(command -v "${HOST_CXX:-clang++}")
 baker="$root/build/hui-bake-font"

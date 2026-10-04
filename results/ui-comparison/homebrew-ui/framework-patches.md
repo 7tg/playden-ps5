@@ -5,6 +5,7 @@ The shared framework source is unchanged. Candidate-specific changes are applied
 | Delta | Purpose | Evidence |
 | --- | --- | --- |
 | `patches/homebrew-ui-macos-4.1.patch` | Apple GL declaration wrapper; GLSL 4.1 and linked uniform lookup; base-instance attribute rebasing; portable canvas copy; valid font sampler bindings; corpus-driven font baker ranges | `host-compatibility.md`, native host build and captures |
+| `patches/homebrew-ui-cff-sdf.patch` | Offline SDF baking for CFF cubic outlines, correcting Greek/CJK fallback corruption | `font-baking-fix.md`, `homebrew_font_cff` regression |
 | Candidate `src/homebrew/view.cpp` | Shared Barlow plus Noto fallback atlas selection; custom Playden shell/shelves/details/management/modal composition using public kit drawing/controls | `framework-gap.md` and matching captures |
 | Candidate native linker integration | Explicit Hui/UI/model archives and read-only PS5 SDK/OpenGL/runtime dependencies; no Rml archives | `cmake/HomebrewPS5.cmake`, PS5 build output |
 | Copied native module writer heap patch | 256 MiB initial title heap in candidate-local generated host-tool source | `cmake/HomebrewPS5.cmake`; no shared boilerplate edits |

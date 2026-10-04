@@ -192,6 +192,24 @@ if(BUILD_TESTING)
     add_test(NAME homebrew_simulation
         COMMAND homebrew_simulation_test "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison")
 
+    add_executable(homebrew_font_atlas_test "${CMAKE_SOURCE_DIR}/tests/homebrew_font_atlas_test.cpp")
+    target_compile_features(homebrew_font_atlas_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_font_atlas_test PRIVATE playden_hui)
+    add_dependencies(homebrew_font_atlas_test playden_homebrew_assets)
+    foreach(font_spec IN ITEMS
+            "Barlow-Regular.ttf|barlow-regular.huifont|latin"
+            "NotoSansCJKsc-Regular.otf|noto-cjk-fallback.huifont|cff"
+            "NotoSansArabic.ttf|noto-arabic-fallback.huifont|arabic")
+        string(REPLACE "|" ";" font_fields "${font_spec}")
+        list(GET font_fields 0 font_source)
+        list(GET font_fields 1 font_output)
+        list(GET font_fields 2 font_test)
+        add_test(NAME homebrew_font_${font_test}
+            COMMAND homebrew_font_atlas_test
+                "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets/fonts/${font_source}"
+                "${playden_homebrew_fonts}/${font_output}")
+    endforeach()
+
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(NAME ui_comparison_fixture
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_ui_comparison.py"
