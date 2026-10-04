@@ -10,6 +10,7 @@
 #include "homebrew/json.hpp"
 
 #include "steam/backend/auth_client.h"
+#include "steam/backend/cm_app_details.h"
 #include "steam/backend/entitled_library.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
@@ -378,6 +379,10 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::PreferencesStore> preferences;
     std::unique_ptr<playden::OrganizationStore> organization;
     std::unique_ptr<playden::app::PersistenceService> persistence;
+    std::unique_ptr<playden::steam::CmClient> details_cm;
+    std::unique_ptr<playden::steam::CmAppDetailsSource> details_source;
+    std::unique_ptr<playden::LocalSessionRepository> details_sessions;
+    std::unique_ptr<playden::steam::AppDetailsService> app_details;
     std::unique_ptr<playden::homebrew::Controller> services;
     std::unique_ptr<playden::homebrew::HttpArtworkBackend> artwork_backend;
     std::unique_ptr<playden::homebrew::ArtworkService> artwork;
@@ -433,7 +438,11 @@ int main(int argc, char** argv) {
         preferences=std::make_unique<playden::PreferencesStore>(*library_storage);
         organization=std::make_unique<playden::OrganizationStore>(*library_storage);
         persistence=std::make_unique<playden::app::PersistenceService>(*preferences,*organization);
-        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get());
+        details_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
+        details_source = std::make_unique<playden::steam::CmAppDetailsSource>(*details_cm);
+        details_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        app_details = std::make_unique<playden::steam::AppDetailsService>(*details_source, *details_sessions);
+        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get());
     }
 
     if (!options->simulation) {

@@ -3,7 +3,9 @@
 #include "steam/service.h"
 #include "app/library_controller.h"
 #include "app/persistence_controller.h"
+#include "steam/app_details_service.h"
 #include <memory>
+#include <optional>
 
 namespace playden::homebrew {
 // Main-thread bridge. The backend/repository outlive this object. IO stays on service
@@ -11,7 +13,8 @@ namespace playden::homebrew {
 class Controller {
  public:
   Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
-             LibraryService* library_service = nullptr, app::PersistenceService* persistence_service = nullptr);
+             LibraryService* library_service = nullptr, app::PersistenceService* persistence_service = nullptr,
+             steam::AppDetailsService* app_details = nullptr);
   ~Controller();
   void Tick();
   void Shutdown();
@@ -28,7 +31,11 @@ class Controller {
   void Apply(const steam::SteamEvent& event);
   void Update(AuthState state, const std::string& error = {}, bool clear = false,
               const std::string& challenge = {});
+  void TickAppDetails();
   Simulation& model_;
+  steam::AppDetailsService* app_details_ = nullptr;
+  std::optional<GameId> requested_detail_;
+  std::uint64_t requested_generation_ = 0;
   std::unique_ptr<steam::SteamService> service_;
   LibraryService* library_service_ = nullptr;
   std::unique_ptr<app::LibraryController> library_;

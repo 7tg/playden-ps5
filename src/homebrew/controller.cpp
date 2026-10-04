@@ -4,8 +4,9 @@
 
 namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
-                       LibraryService* library_service, app::PersistenceService* persistence_service)
-    : model_(model), library_service_(library_service) {
+                       LibraryService* library_service, app::PersistenceService* persistence_service,
+                       steam::AppDetailsService* app_details)
+    : model_(model), app_details_(app_details), library_service_(library_service) {
   if (model_.state().simulation_mode) return;
   if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
   service_ = std::make_unique<steam::SteamService>(backend,repository);
@@ -28,6 +29,7 @@ void Controller::Shutdown() {
     library_->Tick();AdvanceClear();
   }
   if(persistence_) { persistence_->FlushAndShutdown();AdvanceOrganizationClear(); }
+  if(app_details_) app_details_->Shutdown();
   service_.reset();
   persistence_.reset();
   library_.reset();
@@ -123,6 +125,28 @@ void Controller::Tick() {
   for (const auto& event : service_->Pump(16)) Apply(event);
   if(library_) { library_->Tick();AdvanceClear(); }
   if(persistence_) { persistence_->Tick();AdvanceOrganizationClear(); }
+  TickAppDetails();
+}
+void Controller::TickAppDetails() {
+  if (!app_details_) return;
+  const auto& state = model_.state();
+  const auto generation = state.account_generation;
+  if (generation != requested_generation_) {
+    app_details_->Invalidate(generation);
+    requested_generation_ = generation;
+    requested_detail_.reset();
+  }
+  // Fetch Steam app info when the player opens a game's details while signed in.
+  if (state.account.authentication == AuthState::SignedIn && state.navigation.detail_id &&
+      state.navigation.detail_id != requested_detail_) {
+    requested_detail_ = state.navigation.detail_id;
+    app_details_->Request(*state.navigation.detail_id, generation);
+  }
+  for (const auto& details : app_details_->Pump()) {
+    if (details.account_generation != generation) continue;
+    if (details.available)
+      model_.UpdateAppDetails(details.id, details.download_bytes, details.install_bytes, details.windows_installable);
+  }
 }
 void Controller::Apply(const steam::SteamEvent& event) {
   if (event.generation < generation_) return;

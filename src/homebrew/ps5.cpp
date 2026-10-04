@@ -8,6 +8,7 @@
 #include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
 #include "steam/backend/auth_client.h"
+#include "steam/backend/cm_app_details.h"
 #include "steam/backend/entitled_library.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
@@ -139,7 +140,11 @@ int main() {
         playden::PreferencesStore preferences(library_storage);
         playden::OrganizationStore organization(library_storage);
         playden::app::PersistenceService persistence(preferences,organization);
-        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence);
+        playden::steam::CmClient details_cm("/app0/trust/cacert.pem", library_storage);
+        playden::steam::CmAppDetailsSource details_source(details_cm);
+        playden::LocalSessionRepository details_sessions("/app0/playden-data");
+        playden::steam::AppDetailsService app_details(details_source, details_sessions);
+        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details);
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer("/app0/assets");

@@ -532,6 +532,20 @@ void Simulation::UpdateAccount(AccountUpdate update) {
     rebuild_view();
 }
 
+bool Simulation::UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
+                                  std::optional<std::uint64_t> install_bytes,
+                                  std::optional<bool> windows_installable) {
+    if (!live()) return false;
+    const auto game = std::find_if(state_.games.begin(), state_.games.end(),
+                                   [id](const Game& candidate) { return candidate.id == id; });
+    if (game == state_.games.end()) return false;
+    game->download_bytes = download_bytes;
+    game->install_bytes = install_bytes;
+    game->windows_installable = windows_installable;
+    rebuild_view();
+    return true;
+}
+
 bool Simulation::UpdateLibrary(LibraryUpdate update) {
     if (!live()) return false;
 

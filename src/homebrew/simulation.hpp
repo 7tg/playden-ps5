@@ -86,6 +86,7 @@ struct Game {
     std::optional<std::int64_t> added_at;
     std::optional<std::int64_t> last_played;
     std::optional<std::uint64_t> playtime_minutes;
+    std::optional<bool> windows_installable;  // from Steam app info; absent until fetched
     bool art_pending = false;
     bool art_failed = false;
 };
@@ -310,6 +311,9 @@ public:
     void SetWallClock(std::int64_t unix_seconds);
     void UpdateAccount(AccountUpdate update);
     bool UpdateLibrary(LibraryUpdate update);
+    // Live mode: Steam app-info estimates for one game (download/install size, installability).
+    bool UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
+                          std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable);
     PersistenceLoadToken BeginOrganizationLoad(std::uint64_t account);
     bool ApplyOrganization(std::uint64_t account, PersistenceLoadToken token,
                            std::optional<playden::OrganizationSnapshot> loaded);
