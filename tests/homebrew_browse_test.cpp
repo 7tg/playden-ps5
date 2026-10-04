@@ -10,6 +10,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -27,7 +28,7 @@ void check(bool condition, const char* message)
 
 std::filesystem::path temp_profile()
 {
-    const auto path = std::filesystem::temp_directory_path() / "playden-homebrew-browse-test.json";
+    const auto path = std::filesystem::temp_directory_path() / ("playden-homebrew-browse-test-" + std::to_string(getpid()) + ".json");
     std::error_code error;
     std::filesystem::remove(path, error);
     return path;

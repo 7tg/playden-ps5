@@ -307,9 +307,10 @@ bool write_render_snapshot(const playden::homebrew::Render& renderer,
     std::FILE* file = std::fopen(path.c_str(), "wb");
     if (!file) return false;
     const int written = std::fprintf(file,
-        "{\"grid_focused_game_id\":%u,\"grid_drawn_cell_count\":%zu,\"artwork_texture_count\":%zu,\"native_width\":%d,\"native_height\":%d}\n",
+        "{\"grid_focused_game_id\":%u,\"grid_drawn_cell_count\":%zu,\"artwork_texture_count\":%zu,\"native_width\":%d,\"native_height\":%d,\"focused_control_key\":\"%s\"}\n",
         stats.grid_focused_game_id, stats.grid_drawn_cell_count, stats.artwork_texture_count,
-        stats.native_width, stats.native_height);
+        stats.native_width, stats.native_height,
+        playden::homebrew::json::escape(stats.focused_control_key).c_str());
     return std::fclose(file) == 0 && written > 0;
 }
 

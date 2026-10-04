@@ -6,6 +6,7 @@
 #undef main
 #include <cstdlib>
 #include <cstring>
+#include <unistd.h>
 
 static void require(bool okay, const char* message) {
     if (!okay) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
@@ -13,7 +14,7 @@ static void require(bool okay, const char* message) {
 
 int main(int argc, char** argv) {
     require(argc == 2, "fixture directory argument");
-    const auto profile = std::filesystem::temp_directory_path() / "playden-hui-host-input-test.json";
+    const auto profile = std::filesystem::temp_directory_path() / ("playden-hui-host-input-test-" + std::to_string(getpid()) + ".json");
     std::error_code error;
     std::filesystem::remove(profile, error);
     playden::homebrew::Simulation simulation(argv[1], profile);

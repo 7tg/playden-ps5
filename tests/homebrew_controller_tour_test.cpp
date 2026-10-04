@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <unistd.h>
 
 using namespace playden::homebrew;
 static void require(bool okay, const char* message) {
@@ -28,7 +29,7 @@ static void choose(Simulation& simulation, const std::string& key) {
 
 int main(int argc, char** argv) {
     require(argc == 2, "fixture argument");
-    const auto profile = std::filesystem::temp_directory_path() / "playden-hui-controller-tour-test.json";
+    const auto profile = std::filesystem::temp_directory_path() / ("playden-hui-controller-tour-test-" + std::to_string(getpid()) + ".json");
     std::error_code error;
     std::filesystem::remove(profile, error);
     Simulation simulation(argv[1], profile);
