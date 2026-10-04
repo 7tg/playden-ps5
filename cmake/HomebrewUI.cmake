@@ -93,6 +93,15 @@ file(SHA256 "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}/stb_image.h" actual_stb_hash)
 if(NOT actual_stb_hash STREQUAL expected_stb_hash)
     message(FATAL_ERROR "Pinned stb_image.h hash mismatch")
 endif()
+add_library(playden_steam_cm_codec STATIC
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/gzip.cpp"
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/binary_kv.cpp")
+target_include_directories(playden_steam_cm_codec PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_include_directories(playden_steam_cm_codec PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
+target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
+if(PLAYDEN_PLATFORM_PS5)
+    target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
+endif()
 foreach(font_file
         fixtures/ui-comparison/assets/fonts/Barlow-Regular.ttf
         fixtures/ui-comparison/assets/fonts/Barlow-Medium.ttf
@@ -412,6 +421,12 @@ if(BUILD_TESTING)
     add_dependencies(homebrew_glyph_fallback_graphical_test playden_homebrew_assets)
     add_test(NAME homebrew_glyph_fallback_graphical COMMAND homebrew_glyph_fallback_graphical_test "${CMAKE_BINARY_DIR}/glyph-fallback")
 
+    foreach(test_name steam_gzip steam_binary_kv)
+        add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
+        target_link_libraries(${test_name}_test PRIVATE playden_steam_cm_codec)
+        target_compile_features(${test_name}_test PRIVATE cxx_std_20)
+        add_test(NAME ${test_name} COMMAND ${test_name}_test)
+    endforeach()
     foreach(test_name homebrew_artwork homebrew_artwork_backend homebrew_artwork_cache)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_homebrew_artwork_cache)

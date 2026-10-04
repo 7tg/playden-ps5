@@ -1,0 +1,122 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+// Reduced Steam CM (connection manager) messages: the protobuf frame, hello, logon, heartbeat,
+// Multi, license list and package PICS. Field numbers follow the pinned reference .proto files in
+// fixtures/steam/proto; requests encode fields in ascending number order, like protoc.
+namespace playden::steam::cm {
+
+enum EMsg : std::uint32_t {
+  kEMsgMulti = 1,
+  kEMsgClientHeartBeat = 703,
+  kEMsgClientLogOnResponse = 751,
+  kEMsgClientLoggedOff = 757,
+  kEMsgClientLicenseList = 780,
+  kEMsgClientLogon = 5514,
+  kEMsgClientPICSProductInfoRequest = 8903,
+  kEMsgClientPICSProductInfoResponse = 8904,
+  kEMsgClientHello = 9805,
+};
+
+enum EResult : std::int32_t {
+  kEResultOk = 1,
+  kEResultFail = 2,
+  kEResultInvalidPassword = 5,
+  kEResultLogonSessionReplaced = 34,
+  kEResultTryAnotherCM = 48,
+};
+
+inline constexpr std::uint32_t kProtoMask = 0x80000000u;
+inline constexpr std::uint32_t kProtocolVersion = 65580;
+inline constexpr std::uint32_t kClientPackageVersion = 1771;
+// Individual account, desktop instance, public universe, account 0: the pre-logon identity.
+inline constexpr std::uint64_t kAnonymousSteamId = 0x0110000100000000ull;
+inline constexpr std::size_t kMaxFrameBytes = 8 * 1024 * 1024;
+inline constexpr std::size_t kMaxRepeatedEntries = 100'000;
+
+struct Header {
+  std::uint64_t steam_id = 0;
+  std::int32_t session_id = 0;
+  std::optional<std::uint64_t> jobid_source;
+  std::optional<std::uint64_t> jobid_target;
+  std::optional<std::int32_t> eresult;  // absent means success; the proto default is Fail
+};
+
+struct Frame {
+  std::uint32_t emsg = 0;
+  Header header;
+  std::vector<std::uint8_t> body;
+};
+
+std::vector<std::uint8_t> EncodeFrame(std::uint32_t emsg, const Header& header,
+                                      const std::vector<std::uint8_t>& body);
+// Accepts only protobuf frames (mask bit set) within kMaxFrameBytes.
+bool DecodeFrame(const std::uint8_t* data, std::size_t size, Frame* frame);
+
+struct DeviceIdentity {
+  std::uint32_t login_id = 0;  // sent as obfuscated_private_ip; logons sharing it replace each other
+  std::string machine_name;
+  std::vector<std::uint8_t> machine_id;  // binary KeyValues "MessageObject"
+};
+
+std::vector<std::uint8_t> EncodeHello();
+std::vector<std::uint8_t> EncodeLogon(const std::string& account_name,
+                                      const std::string& refresh_token, std::uint32_t cell_id,
+                                      const DeviceIdentity& device);
+std::vector<std::uint8_t> EncodeHeartBeat();
+
+struct LogonResponse {
+  std::int32_t eresult = kEResultFail;
+  std::int32_t heartbeat_seconds = 9;
+  std::uint32_t cell_id = 0;
+};
+bool DecodeLogonResponse(const std::vector<std::uint8_t>& body, LogonResponse* response);
+bool DecodeLoggedOff(const std::vector<std::uint8_t>& body, std::int32_t* eresult);
+
+struct Multi {
+  std::uint32_t size_unzipped = 0;
+  std::vector<std::uint8_t> message_body;
+};
+bool DecodeMulti(const std::vector<std::uint8_t>& body, Multi* multi);
+// Splits a Multi payload of (u32 LE size, frame) entries. A truncated tail fails the whole payload.
+bool SplitMultiPayload(const std::vector<std::uint8_t>& payload,
+                       std::vector<std::vector<std::uint8_t>>* frames);
+
+struct License {
+  std::uint32_t package_id = 0;
+  std::uint32_t time_created = 0;
+  std::int32_t minute_limit = 0;
+  std::int32_t minutes_used = 0;
+  std::uint32_t flags = 0;
+  std::uint32_t owner_id = 0;
+  std::uint64_t access_token = 0;
+};
+struct LicenseList {
+  std::optional<std::int32_t> eresult;
+  std::vector<License> licenses;
+};
+bool DecodeLicenseList(const std::vector<std::uint8_t>& body, LicenseList* list);
+
+struct PackageRequest {
+  std::uint32_t package_id = 0;
+  std::uint64_t access_token = 0;
+};
+std::vector<std::uint8_t> EncodePicsPackagesRequest(const std::vector<PackageRequest>& packages);
+
+struct PicsPackage {
+  std::uint32_t package_id = 0;
+  bool missing_token = false;
+  std::vector<std::uint8_t> buffer;
+};
+struct PicsResponse {
+  std::vector<PicsPackage> packages;
+  bool response_pending = false;
+};
+bool DecodePicsResponse(const std::vector<std::uint8_t>& body, PicsResponse* response);
+
+}  // namespace playden::steam::cm

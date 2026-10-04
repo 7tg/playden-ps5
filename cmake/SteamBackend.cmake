@@ -3,6 +3,7 @@
 add_library(playden_steam_protocol STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/backend/proto_wire.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/auth_messages.cpp"
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_messages.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/json.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/token_claims.cpp")
 target_include_directories(playden_steam_protocol PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -103,6 +104,7 @@ if(PLAYDEN_HOMEBREW_UI)
 
     add_library(playden_steam_http STATIC
         "${CMAKE_SOURCE_DIR}/src/steam/backend/http_client.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/ws_client.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/native_network.cpp")
     target_include_directories(playden_steam_http PUBLIC "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(playden_steam_http PUBLIC cxx_std_17)
@@ -110,6 +112,17 @@ if(PLAYDEN_HOMEBREW_UI)
     if(PLAYDEN_PLATFORM_PS5)
         target_compile_definitions(playden_steam_http PRIVATE PLAYDEN_PLATFORM_PS5=1)
         target_compile_options(playden_steam_http PRIVATE -fno-exceptions -fno-rtti)
+    endif()
+
+    # Authenticated CM session for the CM-only library facts (acquisition dates).
+    add_library(playden_steam_cm STATIC
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_client.cpp")
+    target_include_directories(playden_steam_cm PUBLIC "${CMAKE_SOURCE_DIR}/src")
+    target_compile_features(playden_steam_cm PUBLIC cxx_std_17)
+    target_link_libraries(playden_steam_cm PUBLIC
+        playden_steam_http playden_steam_protocol playden_steam_cm_codec playden_steam_core)
+    if(PLAYDEN_PLATFORM_PS5)
+        target_compile_options(playden_steam_cm PRIVATE -fno-exceptions -fno-rtti)
     endif()
 
     set(PLAYDEN_STEAM_CA_BUNDLE "${PLAYDEN_STEAM_PREFIX}/cacert.pem"
@@ -169,6 +182,12 @@ function(playden_register_steam_backend_tests)
         add_executable(auth_client_test "${CMAKE_SOURCE_DIR}/tests/auth_client_test.cpp")
         target_link_libraries(auth_client_test PRIVATE playden_steam_auth)
         add_test(NAME auth_client COMMAND auth_client_test)
+
+        foreach(test_name cm_messages cm_client)
+            add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
+            target_link_libraries(${test_name}_test PRIVATE playden_steam_cm)
+            add_test(NAME ${test_name} COMMAND ${test_name}_test "${CMAKE_SOURCE_DIR}/fixtures/steam/cm")
+        endforeach()
 
         add_executable(library_client_test "${CMAKE_SOURCE_DIR}/tests/library_client_test.cpp")
         target_link_libraries(library_client_test PRIVATE playden_steam_library)
