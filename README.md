@@ -8,6 +8,8 @@ The reference implementation is sibling `../playden`, branch `feature/launchers`
 
 The [PRD and roadmap](docs/superpowers/specs/2026-10-04-playden-ps5-launcher-design.md) records the agreed direction and proposed acceptance criteria. Milestone 1 implements a graphical Mac/PS5 shell with Home, Library, Settings, controller navigation, atomic preferences, and frame diagnostics. The active scope is the connected-library v1 in the approved four-milestone plan; Wine integration remains independent and out of scope.
 
+The [UI map and framework comparison brief](docs/superpowers/specs/2026-10-04-ui-framework-comparison.md) reopens the framework choice for a side-by-side RmlFocus and ps5-homebrew-ui evaluation. It maps the macOS reference screens, proposes the shared prototype scope, and defines controller behavior, fixtures, acceptance journeys, and agent handoffs.
+
 The [Foundation to Connected Library plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) breaks the first four milestones into tasks: launcher shell, native 4K60 validation, Steam connectivity, and the integrated MVP.
 
 Current work and unproven acceptance gates are tracked in the [v1 execution ledger](docs/engineering/v1-progress.md).
