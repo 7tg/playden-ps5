@@ -59,7 +59,9 @@ Result<std::string> Storage::Resolve(const std::string& relative_path) const {
   return Result<std::string>::Success(root_ + "/" + relative_path);
 }
 
-Result<Bytes> Storage::Read(const std::string& relative_path) const {
+Result<Bytes> Storage::Read(const std::string& relative_path, std::size_t max_bytes) const {
+  if (max_bytes == 0 || max_bytes > 32 * 1024 * 1024)
+    return Result<Bytes>::Failure(StorageError::kReadFailed, "invalid bounded read size");
   const auto resolved = Resolve(relative_path);
   if (!resolved.ok()) {
     return Result<Bytes>::Failure(resolved.error(), resolved.message());
@@ -79,12 +81,12 @@ Result<Bytes> Storage::Read(const std::string& relative_path) const {
   std::uint8_t buffer[4096];
   while (true) {
     const std::size_t count = std::fread(buffer, 1, sizeof(buffer), file);
-    if (count > kMaxReadBytes - bytes.size()) {
+    if (count > max_bytes - bytes.size()) {
       std::fclose(file);
       return Result<Bytes>::Failure(
           StorageError::kReadFailed,
           "could not read '" + relative_path +
-              "': file exceeds the 1048576-byte limit");
+              "': file exceeds the " + std::to_string(max_bytes) + "-byte limit");
     }
     bytes.insert(bytes.end(), buffer, buffer + count);
     if (count < sizeof(buffer)) {

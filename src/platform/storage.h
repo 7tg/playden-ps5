@@ -19,6 +19,7 @@ enum class StorageError {
   kReadFailed,
   kWriteFailed,
   kRenameFailed,
+  kInvalidData,
 };
 
 template <typename T>
@@ -82,7 +83,8 @@ class Storage {
 
   // Reads are bounded so a damaged file cannot consume unbounded memory.
   static constexpr std::size_t kMaxReadBytes = 1024 * 1024;
-  Result<Bytes> Read(const std::string& relative_path) const;
+  Result<Bytes> Read(const std::string& relative_path,
+                     std::size_t max_bytes = kMaxReadBytes) const;
 
   // A single app writer is assumed. Rename makes replacement atomic for
   // readers, but this does not promise persistence across sudden power loss.

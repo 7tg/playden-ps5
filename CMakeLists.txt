@@ -65,6 +65,7 @@ endforeach()
 add_library(playden_core STATIC
  third_party/utf8proc/utf8proc.c
  src/library/query.cpp
+ src/library/cache.cpp
 	src/app/application.cpp
 	src/app/preferences.cpp
 	src/diagnostics/frame_stats.cpp
@@ -111,7 +112,7 @@ endif()
 if(NOT PLAYDEN_PLATFORM_PS5)
 	include(CTest)
 	if(BUILD_TESTING)
-		foreach(test_name preferences frame_stats library_query)
+		foreach(test_name preferences frame_stats library_query library_cache)
 			add_executable("${test_name}_test" "tests/${test_name}_test.cpp")
 			target_link_libraries("${test_name}_test" PRIVATE playden_core)
 			add_test(NAME "${test_name}" COMMAND "${test_name}_test")
