@@ -34,7 +34,7 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 | 4 | Runtime milestone: launch through prospero-win | A runtime-validated game launches, exits and returns to Playden with useful diagnostics |
 | — | Native 4K60 performance | Removed from the MVP by the user (2026-10-05); kept as a separate, unscheduled performance goal |
 
-Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 investigates how downloaded games are packaged and installed for it.
+Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 3 covers how downloaded games are packaged and installed for it.
 
 ## Working constraints
 
