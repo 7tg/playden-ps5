@@ -1,5 +1,6 @@
 #include "homebrew/controller.hpp"
 #include "diagnostics/redaction.h"
+#include <chrono>
 
 namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository)
@@ -45,6 +46,8 @@ void Controller::SignOut(bool switch_account) {
 }
 void Controller::Tick() {
   if (!service_) return;
+  model_.SetWallClock(std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count());
   for (const auto action : model_.TakeServiceActions()) {
     switch (action) {
       case ServiceAction::BeginQr: Begin(); break;
@@ -60,7 +63,8 @@ void Controller::Tick() {
         // Ownership retrieval is the next implementation stage. Never pretend
         // that a tick completed a sync or synthesize a successful empty result.
         if (phase_ == Phase::Idle && !model_.state().account.id.empty())
-          Update(AuthState::SignedIn,"Library sync is unavailable. Try again later.");
+          model_.UpdateLibrary({{},false,"Library sync is unavailable. Try again later.",
+                                model_.state().library_offline,model_.state().account.cache_available,{}});
         break;
     }
   }

@@ -353,6 +353,23 @@ if(BUILD_TESTING)
     target_link_libraries(homebrew_live_model_test PRIVATE playden_homebrew_model)
     add_test(NAME homebrew_live_model COMMAND homebrew_live_model_test)
 
+    add_executable(homebrew_library_model_test
+        "${CMAKE_SOURCE_DIR}/tests/homebrew_library_model_test.cpp")
+    target_compile_features(homebrew_library_model_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_library_model_test PRIVATE playden_homebrew_model)
+    add_test(NAME homebrew_library_model COMMAND homebrew_library_model_test)
+
+    add_executable(homebrew_library_graphical_test
+        "${CMAKE_SOURCE_DIR}/tests/homebrew_library_graphical_test.cpp")
+    target_compile_features(homebrew_library_graphical_test PRIVATE cxx_std_20)
+    target_compile_definitions(homebrew_library_graphical_test PRIVATE
+        PLAYDEN_HOMEBREW_ASSETS_DIR="${playden_homebrew_assets}")
+    target_link_libraries(homebrew_library_graphical_test PRIVATE
+        playden_homebrew_ui PkgConfig::SDL2 OpenGL::GL)
+    add_dependencies(homebrew_library_graphical_test playden_homebrew_assets)
+    add_test(NAME homebrew_library_graphical COMMAND homebrew_library_graphical_test
+        "${CMAKE_BINARY_DIR}/synthetic-live-library")
+
     add_executable(homebrew_account_test
         "${CMAKE_SOURCE_DIR}/tests/homebrew_account_test.cpp")
     target_compile_features(homebrew_account_test PRIVATE cxx_std_20)

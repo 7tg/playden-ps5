@@ -101,7 +101,7 @@ void AuthenticationRestoreAndSignOut() {
     assert(model.action("account-sync"));
     controller.Tick();
     assert(model.state().account.authentication==AuthState::SignedIn);
-    assert(!model.state().library_syncing && !model.state().account.error.empty());
+    assert(!model.state().library_syncing && !model.state().library_loading && !model.state().account.error.empty());
     assert(model.snapshot().find("fixture-refresh-secret")==std::string::npos);
     assert(model.snapshot().find("Synthetic account")==std::string::npos);
   }

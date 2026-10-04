@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "library/model.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -13,7 +15,7 @@
 
 namespace playden::homebrew {
 
-using GameId = std::uint32_t;
+using GameId = playden::GameId;
 
 enum class Route { Startup, SignIn, Home, Library, Downloads, Settings, Details, Session };
 enum class ModelMode { Simulation, Live };
@@ -47,11 +49,21 @@ struct AccountUpdate {
     bool clear_library = false;
 };
 
+struct LibraryUpdate {
+    std::vector<playden::GameSummary> games;
+    bool loading = false;
+    std::string error;
+    bool stale = false;
+    bool cache_available = false;
+    std::optional<std::int64_t> retrieved_at;
+};
+
 struct Game {
     GameId id = 0;
     std::string title;
     std::string description;
     std::string source;
+    std::string artwork_source;
     std::string cover_key;
     std::string hero_key;
     std::string logo_key;
@@ -281,7 +293,9 @@ public:
     void text(const std::string& utf8);
     void tick(int ticks = 1);
     void SetControllerConnected(bool connected);
+    void SetWallClock(std::int64_t unix_seconds);
     void UpdateAccount(AccountUpdate update);
+    bool UpdateLibrary(LibraryUpdate update);
     [[nodiscard]] std::vector<ServiceAction> TakeServiceActions();
 
     [[nodiscard]] const State& state() const noexcept { return state_; }

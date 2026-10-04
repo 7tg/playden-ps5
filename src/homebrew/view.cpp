@@ -8,6 +8,7 @@
 #include "homebrew/focus_motion.hpp"
 #include "homebrew/qr.hpp"
 #include "homebrew/simulation.hpp"
+#include <ctime>
 
 #include "gfx/draw_list.hpp"
 #include "gfx/font.hpp"
@@ -392,7 +393,12 @@ class Render::Impl
                 std::min(1.0F, overlay_progress_ + (1.0F / 60.0F) / 0.22F);
         route_focus_ = !state.editor.active && state.navigation.modals.empty();
         current_state_ = &state;
-        clock_ = static_cast<float>(state.clock_ticks) / 60.0F;
+        if (state.simulation_mode) clock_ = static_cast<float>(state.clock_ticks) / 60.0F;
+        else {
+            live_animation_clock_ = std::fmod(live_animation_clock_ +
+                std::clamp(std::isfinite(dt) ? dt : 0.0F, 0.0F, 0.25F), 3600.0F);
+            clock_ = live_animation_clock_;
+        }
         ui::Canvas scene{scene_, fonts_, renderer_.glass_texture(), clock_};
 
         draw_background();
@@ -666,6 +672,10 @@ class Render::Impl
 
     void draw_top_navigation(ui::Canvas &canvas, Route route, bool reduced_motion)
     {
+        if (simulation_tabs_ != current_state_->simulation_mode) {
+            simulation_tabs_ = current_state_->simulation_mode;
+            tabs_.set_tabs({{"Home"}, {"Library"}, {"Downloads", simulation_tabs_ ? 1 : 0}, {"Settings"}});
+        }
         int selected = 0;
         if (route == Route::Library)
             selected = 1;
@@ -684,7 +694,15 @@ class Render::Impl
         const std::string identity = current_state_->account.display_name.empty() ?
             "Signed out" : current_state_->account.display_name;
         dynamic_text(identity, 1614.0F, 91.0F, 24.0F, kText, 140.0F, false);
-        ui::text(scene_, fonts_.regular, "21:42", 1824.0F, 91.0F, 22.0F, kSecondary,
+        std::string clock_label = "21:42";
+        if (!current_state_->simulation_mode) {
+            const std::time_t wall_time = static_cast<std::time_t>(current_state_->clock_ticks);
+            char formatted[6]{};
+            const auto* local = std::localtime(&wall_time);
+            clock_label = local != nullptr && std::strftime(formatted, sizeof(formatted), "%H:%M", local)
+                ? formatted : "--:--";
+        }
+        ui::text(scene_, fonts_.regular, clock_label, 1824.0F, 91.0F, 22.0F, kSecondary,
                  gfx::Align::right);
     }
 
@@ -1144,7 +1162,8 @@ class Render::Impl
         scene_.push_transform(scale, rect.cx(), rect.cy(), 0.0F, 0.0F);
         const std::size_t texture_index = game.id >= 900001 ? (game.id - 900001) % art_.size() :
                                                               game.id % art_.size();
-        const std::uint32_t texture = game.art_failed || game.art_pending ? 0 : art_[texture_index];
+        const bool simulated = current_state_ != nullptr && current_state_->simulation_mode;
+        const std::uint32_t texture = !simulated || game.art_failed || game.art_pending ? 0 : art_[texture_index];
         scene_.shadow(rect, 8.0F, focused ? 26.0F : 12.0F,
                       gfx::Color::rgb(0x000000, focused ? 0.65F : 0.35F));
         if (texture != 0)
@@ -1164,7 +1183,7 @@ class Render::Impl
             else
             {
                 const ui::FontRef &face = font_for(game.title, fonts_.display);
-                ui::paragraph(scene_, face, game.title, rect.x + 18.0F, rect.y + rect.h * 0.42F,
+                ui::paragraph(scene_, face, game.title, rect.cx(), rect.y + rect.h * 0.42F,
                               28.0F, rect.w - 36.0F, 31.0F, kText, 4, gfx::Align::center);
             }
         }
@@ -1430,17 +1449,19 @@ class Render::Impl
                  132.0F, 552.0F, 34.0F, kText);
         ui::text(scene_, fonts_.regular,
                  state.account.authentication == AuthState::Offline ? "Cached library · Offline" :
-                 state.account.authentication == AuthState::SignedIn ? "Steam connected · Synced" : "Connect Steam",
+                 state.account.authentication == AuthState::SignedIn ?
+                     (state.simulation_mode || state.account.last_sync > 0 ? "Steam connected · Synced" : "Steam connected") : "Connect Steam",
                  132.0F, 594.0F, 23.0F,
                  state.account.authentication == AuthState::Offline ? kAmber : kSecondary);
-        ui::text(scene_, fonts_.regular, "Direct ps5-homebrew-ui comparison", 132.0F, 646.0F, 20.0F, kMuted);
+        ui::text(scene_, fonts_.regular, state.simulation_mode ? "Direct ps5-homebrew-ui comparison" : "Playden",
+                 132.0F, 646.0F, 20.0F, kMuted);
     }
 
     void draw_details(ui::Canvas &, const ViewData &view, const State &state)
     {
         const GameId id = state.navigation.detail_id.value_or(state.navigation.selected_game_id);
         const Game *game = game_by_id(state, id);
-        if (hero_ != 0)
+        if (state.simulation_mode && hero_ != 0)
             scene_.image_gradient(hero_, {0.0F, 0.0F, 1920.0F, 620.0F}, gfx::kFullUv,
                                   kText.with_alpha(0.72F), kBackground.with_alpha(1.0F));
         else
@@ -1452,6 +1473,9 @@ class Render::Impl
         const ui::FontRef &title_face = font_for(title, fonts_.display);
         ui::paragraph(scene_, title_face, title, 96.0F, 320.0F, 68.0F, 800.0F, 72.0F, kText, 3);
         draw_actions(view, 96.0F, 638.0F, 390.0F, true);
+        if (!state.simulation_mode)
+            ui::paragraph(scene_, fonts_.regular, "Install and launch are unavailable.",
+                          96.0F, 836.0F, 19.0F, 390.0F, 26.0F, kSecondary, 2);
 
         const std::string description = game == nullptr || game->description.empty() ?
                                             "Description unavailable." : game->description;
@@ -1486,7 +1510,7 @@ class Render::Impl
                 });
             if (found_installation != state.installations.end())
                 installation = &*found_installation;
-            std::string location = "Not installed";
+            std::string location = state.simulation_mode ? "Not installed" : "Unknown";
             if (installation != nullptr)
             {
                 const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
@@ -2152,7 +2176,9 @@ class Render::Impl
     std::string cached_qr_error_;
     std::vector<const Game *> visible_grid_games_;
     const State *current_state_ = nullptr;
+    bool simulation_tabs_ = true;
     float clock_ = 0.0F;
+    float live_animation_clock_ = 0.0F;
     bool ready_ = false;
     bool has_frame_ = false;
     bool route_focus_ = true;

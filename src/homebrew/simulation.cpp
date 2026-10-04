@@ -237,6 +237,11 @@ void reconcile_library_selection(State& state) {
 
 std::string game_key(GameId id) { return "game-" + std::to_string(id); }
 
+std::vector<std::string> context_actions(bool live) {
+    if (live) return {"favorite", "collection", "note", "hide", "cancel"};
+    return {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"};
+}
+
 std::string action_label(const std::string& key) {
     static const std::map<std::string, std::string> labels = {
         {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"favorite", "Favorite"},
@@ -308,6 +313,12 @@ void Simulation::reset_default_state() {
 
 void Simulation::SetControllerConnected(bool connected) {
     state_.controller_connected = connected;
+    rebuild_view();
+}
+
+void Simulation::SetWallClock(std::int64_t unix_seconds) {
+    if (!live() || state_.clock_ticks == unix_seconds) return;
+    state_.clock_ticks = unix_seconds;
     rebuild_view();
 }
 
@@ -397,6 +408,135 @@ void Simulation::UpdateAccount(AccountUpdate update) {
         state_.navigation.focus_key = "startup-loading";
     }
     rebuild_view();
+}
+
+bool Simulation::UpdateLibrary(LibraryUpdate update) {
+    if (!live()) return false;
+
+    std::set<GameId> identifiers;
+    for (const auto& summary : update.games) {
+        if (summary.id == 0 || trimmed(summary.title).empty()
+            || !identifiers.insert(summary.id).second
+            || (summary.last_played_unix_seconds
+                && *summary.last_played_unix_seconds
+                    > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) {
+            return false;
+        }
+    }
+    if (update.retrieved_at && *update.retrieved_at < 0) return false;
+
+    if (!update.loading && update.error.empty()) {
+        const auto prior_visible = visible_games();
+        const GameId prior_id = state_.navigation.selected_game_id;
+        const auto prior_detail_id = state_.navigation.detail_id;
+        const std::string prior_focus = state_.navigation.focus_key;
+        const bool prior_overlay = state_.editor.active || !state_.navigation.modals.empty();
+        int prior_index = state_.navigation.selected_index;
+        const auto prior_selected = std::find_if(prior_visible.begin(), prior_visible.end(), [prior_id](const Game* game) {
+            return game->id == prior_id;
+        });
+        if (prior_selected != prior_visible.end())
+            prior_index = static_cast<int>(std::distance(prior_visible.begin(), prior_selected));
+
+        std::vector<Game> projected;
+        projected.reserve(update.games.size());
+        for (auto& summary : update.games) {
+            Game game;
+            game.id = summary.id;
+            game.title = std::move(summary.title);
+            game.description = std::move(summary.description);
+            game.source = "Steam";
+            game.artwork_source = std::move(summary.artwork_source);
+            game.playtime_minutes = summary.playtime_minutes;
+            if (summary.last_played_unix_seconds)
+                game.last_played = static_cast<std::int64_t>(*summary.last_played_unix_seconds);
+            projected.push_back(std::move(game));
+        }
+        state_.games = std::move(projected);
+
+        const auto current_visible = visible_games();
+        const auto retained = std::find_if(current_visible.begin(), current_visible.end(), [prior_id](const Game* game) {
+            return game->id == prior_id;
+        });
+        bool identity_retained = false;
+        if (retained != current_visible.end()) {
+            identity_retained = true;
+            state_.navigation.selected_game_id = prior_id;
+            state_.navigation.selected_index = static_cast<int>(std::distance(current_visible.begin(), retained));
+        } else if (!current_visible.empty()) {
+            state_.navigation.selected_index = std::clamp(prior_index, 0, static_cast<int>(current_visible.size()) - 1);
+            state_.navigation.selected_game_id = current_visible[static_cast<std::size_t>(state_.navigation.selected_index)]->id;
+            if (!state_.navigation.modals.empty()) state_.navigation.modals.clear();
+            state_.editor.active = false;
+        } else {
+            state_.navigation.selected_index = 0;
+            state_.navigation.selected_game_id = 0;
+            state_.navigation.modals.clear();
+            state_.editor.active = false;
+        }
+
+        if (state_.navigation.route == Route::Details && prior_detail_id) {
+            const auto retained_detail = std::find_if(state_.games.begin(), state_.games.end(), [prior_detail_id](const Game& game) {
+                return game.id == *prior_detail_id;
+            });
+            if (retained_detail != state_.games.end()) {
+                state_.navigation.detail_id = *prior_detail_id;
+                state_.navigation.selected_game_id = *prior_detail_id;
+                const auto visible_detail = std::find_if(current_visible.begin(), current_visible.end(), [prior_detail_id](const Game* game) {
+                    return game->id == *prior_detail_id;
+                });
+                if (visible_detail != current_visible.end())
+                    state_.navigation.selected_index = static_cast<int>(std::distance(current_visible.begin(), visible_detail));
+                identity_retained = true;
+            } else {
+                state_.navigation.detail_id = state_.navigation.selected_game_id == 0
+                    ? std::nullopt : std::optional<GameId>{state_.navigation.selected_game_id};
+                identity_retained = false;
+            }
+        }
+
+        if (state_.navigation.route == Route::Details && state_.navigation.selected_game_id == 0) {
+            state_.navigation.route = state_.navigation.detail_origin == Route::Home
+                ? Route::Home : Route::Library;
+            state_.navigation.detail_id.reset();
+        }
+
+        if (prior_overlay && identity_retained) {
+            state_.navigation.focus_key = prior_focus;
+        } else if (state_.navigation.route == Route::Library && state_.navigation.library_rail_focused) {
+            state_.navigation.focus_key = prior_focus;
+        } else if (state_.navigation.route == Route::Home || state_.navigation.route == Route::Library) {
+            state_.navigation.focus_key = state_.navigation.selected_game_id == 0
+                ? (state_.library.query.empty() ? "library-empty" : "clear-search")
+                : game_key(state_.navigation.selected_game_id);
+        } else if (state_.navigation.route == Route::Details) {
+            if (identity_retained) state_.navigation.focus_key = prior_focus;
+            else state_.navigation.focus_key = live() ? "details-favorite"
+                                                       : (is_installed(state_, state_.navigation.selected_game_id)
+                                                              ? "details-play" : "details-install");
+        } else {
+            state_.navigation.focus_key = prior_focus;
+        }
+
+        const auto projected_shelves = shelves(state_);
+        for (std::size_t shelf_index = 0; shelf_index < projected_shelves.size(); ++shelf_index) {
+            const auto& shelf = projected_shelves[shelf_index];
+            const auto selected = std::find(shelf.game_ids.begin(), shelf.game_ids.end(), state_.navigation.selected_game_id);
+            if (selected == shelf.game_ids.end()) continue;
+            state_.navigation.home_shelf = static_cast<int>(shelf_index);
+            state_.navigation.home_shelf_focus[shelf.key] = static_cast<int>(std::distance(shelf.game_ids.begin(), selected));
+            break;
+        }
+    }
+
+    state_.library_loading = update.loading;
+    state_.library_syncing = update.loading;
+    state_.library_offline = update.stale;
+    state_.account.cache_available = update.cache_available;
+    state_.account.error = std::move(update.error);
+    if (update.retrieved_at) state_.account.last_sync = *update.retrieved_at;
+    rebuild_view();
+    return true;
 }
 
 void Simulation::load_fixtures() {
@@ -1169,6 +1309,8 @@ void Simulation::rebuild_view() {
         view_.total_count = games.size();
         view_.subtitle = std::to_string(games.size()) + " games";
         if (state_.library_loading) view_.subtitle += live() ? " · Refreshing library…" : " · Refreshing fixture library…";
+        else if (live() && state_.library_offline) view_.subtitle += " · Cached library";
+        if (live() && !state_.account.error.empty()) view_.subtitle += " · " + state_.account.error;
         const std::size_t window_size = 24;
         const std::size_t selected = static_cast<std::size_t>(std::max(0, state_.navigation.selected_index));
         view_.first_index = games.size() <= window_size ? 0 : std::min(selected > window_size / 2 ? selected - window_size / 2 : 0, games.size() - window_size);
@@ -1189,13 +1331,17 @@ void Simulation::rebuild_view() {
         view_.subtitle = game ? game->description : "The selected fixture no longer exists.";
         Installation* installation = game ? find_installation(state_, game->id) : nullptr;
         const bool installed = installation && installation->installed_bytes > 0;
-        auto& primary = row(installed ? "details-play" : "details-install", RowKind::Action,
-                            installed ? (installation->runtime_ready ? "Play" : "Runtime unavailable") : "Install",
-                            installed ? (installation->runtime_ready ? "launch" : "runtime-status") : "install");
-        primary.enabled = true;
+        if (!live()) {
+            auto& primary = row(installed ? "details-play" : "details-install", RowKind::Action,
+                                installed ? (installation->runtime_ready ? "Play" : "Runtime unavailable") : "Install",
+                                installed ? (installation->runtime_ready ? "launch" : "runtime-status") : "install");
+            primary.enabled = true;
+        }
         row("details-favorite", RowKind::Toggle, "Favorite", "favorite").selected = game && state_.library.favorites.contains(game->id);
-        row("details-settings", RowKind::Action, "Game settings", "game-settings");
-        if (!live()) row("details-simulate-launch", RowKind::Action, "Simulate launch", "launch");
+        if (!live()) {
+            row("details-settings", RowKind::Action, "Game settings", "game-settings");
+            row("details-simulate-launch", RowKind::Action, "Simulate launch", "launch");
+        }
         row("details-more", RowKind::Action, "More", "context");
         view_.legends = {"Cross Select", "Options Actions", "Circle Back"};
     } else if (state_.navigation.route == Route::Downloads) {
@@ -1474,7 +1620,7 @@ void Simulation::activate() {
         state_.navigation.detail_origin = Route::Home;
         state_.navigation.detail_id = state_.navigation.selected_game_id;
         state_.navigation.route = Route::Details;
-        state_.navigation.focus_key = is_installed(state_, state_.navigation.selected_game_id) ? "details-play" : "details-install";
+        state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, state_.navigation.selected_game_id) ? "details-play" : "details-install");
         return;
     }
     if (view_.rows.empty()) return;
@@ -1503,7 +1649,7 @@ void Simulation::activate() {
         state_.navigation.detail_id = selected.game_id;
         state_.navigation.selected_game_id = selected.game_id;
         state_.navigation.route = Route::Details;
-        state_.navigation.focus_key = is_installed(state_, selected.game_id) ? "details-play" : "details-install";
+        state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, selected.game_id) ? "details-play" : "details-install");
     } else if (action_name == "favorite") {
         if (state_.library.favorites.contains(state_.navigation.selected_game_id)) state_.library.favorites.erase(state_.navigation.selected_game_id);
         else state_.library.favorites.insert(state_.navigation.selected_game_id);
@@ -1519,7 +1665,7 @@ void Simulation::activate() {
             state_.navigation.selected_game_id = remaining[static_cast<std::size_t>(state_.navigation.selected_index)]->id;
             state_.navigation.focus_key = game_key(state_.navigation.selected_game_id);
         }
-    } else if (action_name == "context") open_modal({"context", "Game actions", "details-more", {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"}, 0, false});
+    } else if (action_name == "context") open_modal({"context", "Game actions", "details-more", context_actions(live()), 0, false});
     else if (action_name == "install") open_modal({"install", "Install game", "details-install", {"install-confirm", "install-estimate-retry", "storage-picker", "cancel"}, 0, false});
     else if (action_name == "storage-picker" || action_name == "storage-manager") {
         std::vector<std::string> actions;
@@ -1794,7 +1940,7 @@ void Simulation::activate() {
         if (std::from_chars(number.data(), number.data() + number.size(), id).ec == std::errc{} && find_game(state_, id)) {
             state_.navigation.modals.clear(); state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
             state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
-            state_.navigation.focus_key = is_installed(state_, id) ? "details-play" : "details-install";
+            state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install");
         }
     }
     else if (action_name == "storage-retry") action("inject:storage-reconnect");
@@ -1808,7 +1954,14 @@ void Simulation::activate() {
         actions.push_back("cancel");
         open_modal({"account", state_.account.display_name.empty() ? "Account" : state_.account.display_name, state_.navigation.focus_key, std::move(actions), 0, false});
     }
-    else if (action_name == "account-sync") { close_modal(); state_.account.authentication = AuthState::Syncing; state_.library_syncing = true; state_.navigation.route = Route::Home; if (live()) queue_service_action(ServiceAction::RefreshLibrary); }
+    else if (action_name == "account-sync") {
+        close_modal();
+        if (!live()) state_.account.authentication = AuthState::Syncing;
+        state_.library_syncing = true;
+        state_.library_loading = true;
+        state_.navigation.route = Route::Home;
+        if (live()) queue_service_action(ServiceAction::RefreshLibrary);
+    }
     else if (action_name == "account-recover") {
         state_.navigation.modals.clear();
         if (live()) { queue_service_action(ServiceAction::BeginQr); state_.account.authentication = AuthState::Waiting; state_.account.challenge_url.clear(); state_.account.error.clear(); state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel"; }
@@ -1848,7 +2001,8 @@ bool Simulation::action(const std::string& logical_action) {
         }
         if (logical_action == "account-sync" || logical_action == "refresh-library") {
             queue_service_action(ServiceAction::RefreshLibrary);
-            state_.account.authentication = AuthState::Syncing; state_.library_syncing = true;
+            state_.library_syncing = true;
+            state_.library_loading = true;
             rebuild_view(); return true;
         }
         if (logical_action == "signout" || logical_action == "account-switch") {
@@ -1988,7 +2142,7 @@ bool Simulation::action(const std::string& logical_action) {
                 state_.navigation.scroll_offsets["home"] = chosen_shelf;
             }
         }
-        if (details) { state_.navigation.detail_origin = state_.navigation.route; state_.navigation.route = Route::Details; state_.navigation.detail_id = id; state_.navigation.focus_key = is_installed(state_, id) ? "details-play" : "details-install"; }
+        if (details) { state_.navigation.detail_origin = state_.navigation.route; state_.navigation.route = Route::Details; state_.navigation.detail_id = id; state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install"); }
         else if (state_.navigation.route == Route::Downloads) {
             const auto job = std::find_if(state_.jobs.begin(), state_.jobs.end(), [id](const Job& value) { return value.game_id == id && value.state != JobState::Cancelled; });
             if (job != state_.jobs.end()) state_.navigation.focus_key = "job-" + job->id;
@@ -2047,9 +2201,9 @@ bool Simulation::action(const std::string& logical_action) {
                          "filters-reset", "cancel"}, 0, false});
     }
     else if (logical_action == "options") {
-        if (!state_.editor.active && state_.navigation.route == Route::Details && state_.navigation.modals.empty()) open_modal({"context", "Game actions", "details-more", {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"}, 0, false});
+        if (!state_.editor.active && state_.navigation.route == Route::Details && state_.navigation.modals.empty()) open_modal({"context", "Game actions", "details-more", context_actions(live()), 0, false});
         else if (!state_.editor.active && state_.navigation.route == Route::Home && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty())
-            open_modal({"context", "Game actions", state_.navigation.focus_key, {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"}, 0, false});
+            open_modal({"context", "Game actions", state_.navigation.focus_key, context_actions(live()), 0, false});
         else if (!state_.editor.active && state_.navigation.route == Route::Library && !state_.navigation.modals.empty()) {}
         else if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty()
                  && state_.navigation.focus_key.rfind("game-", 0) == 0) open_modal({"context", "Game actions", state_.navigation.focus_key, {"favorite", "collection", "note", "hide", "cancel"}, 0, false});

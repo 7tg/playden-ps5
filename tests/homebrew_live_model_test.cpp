@@ -146,7 +146,8 @@ void account_commands_dispatch_refresh_and_switch_barriers(const std::filesystem
     activate(refresh, "account-sync");
     auto actions = refresh.TakeServiceActions();
     check(actions.size() == 1 && actions.front() == ServiceAction::RefreshLibrary
-              && refresh.state().account.authentication == AuthState::Syncing,
+              && refresh.state().account.authentication == AuthState::SignedIn
+              && refresh.state().library_loading && refresh.state().library_syncing,
           "account sync dispatches refresh and remains pending external completion");
 
     auto switching = make_live(base);

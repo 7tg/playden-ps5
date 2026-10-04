@@ -188,6 +188,8 @@ Implemented and verified 2026-10-04. See [shell evidence](../../../results/20261
 
 ### 3C Owned library and metadata retrieval
 
+The authenticated HTTP adapter, bounded generation-aware worker, sanitized fixtures and history-preserving cache are committed in `0f7a54c`. Synthetic host and Prospero compilation evidence pass; real retrieval and authenticated CM acceptance remain open.
+
 **Files:** Create `src/library/service.{h,cpp}`, `tests/library_sync_test.cpp`, and sanitized protocol fixtures under `fixtures/steam/`; extend the selected Steam backend.
 
 **Interfaces:** `LibraryService::Refresh() -> RequestId` and `Pump(size_t max_events) -> std::vector<LibraryEvent>`. Events carry account generation and stable game IDs, report loading/completion/errors, and distinguish partial metadata from a successful empty library.
@@ -221,6 +223,8 @@ Implementation is host-verified (27/27 selected tests) with real QR decoder roun
 **Done when:** Existing account screens operate on the real service and PS5 completes 3B acceptance, with no simulation approval path in normal mode.
 
 ### 4A.2 Owned data and account-scoped offline recovery
+
+The selected model now accepts typed deliveries with stable focus/scroll, safe operational boundaries and graphical synthetic evidence (31/31 host tests). The production LibraryController and cache/offline binding are next; this boundary does not complete the task.
 
 **Files:** Create `src/app/library_controller.{h,cpp}`, `tests/library_controller_test.cpp`; reuse `src/library/cache.*`, `model.h`, `query.*`, and `tests/library_cache_test.cpp`; extend the selected controller/state projection.
 

@@ -16,7 +16,7 @@ The updated [execution plan](../superpowers/plans/2026-10-04-foundation-to-conne
 | 3B | Concrete AuthClient and bounded JSON/token parsing committed in 8eb78fe; synthetic host/UBSan and PS5 compile checks pass | Real QR encoding/presentation, service lifecycle integration and direct PS5 approval/restore/sign-out |
 | 3C | Authenticated GetOwnedGames adapter and bounded worker implemented; synthetic tests and PS5 cross-compile pass | Connect real records/cache to selected consumer, retrieve actual account data on PS5; authenticated CM remains unproven |
 | 4A.1 | Live account controller, private storage and real QR rendering implemented; host verified | Direct PS5 approval/restore/sign-out still pending; production preferences remain 4B |
-| 4A.2 | Account-scoped LibraryCache exists; selected UI not connected | Real records, generation isolation, offline/retry, identity/focus preservation |
+| 4A.2 | Transactional real-record projection and history cache implemented; graphical synthetic journey verified | Wire LibraryController to auth/service/cache, account isolation, offline/retry and persistent annotations |
 | 4A.3 | Nine static fixture textures; font atlases subset fixture text | Real async fetch/decode, bounded texture lifecycle, stale-result rejection, dynamic title coverage |
 | 4B | Merged controller/search/settings behavior has host simulation evidence | Production queries/preferences, connected journey, physical pad/native functional checks; performance acceptance deferred |
 
@@ -69,3 +69,11 @@ Added the pinned reference's authenticated `IPlayerService/GetOwnedGames` reques
 The HTTP adapter bounds response bytes, records, JSON structure and metadata. It validates duplicate entries before keeping the first stable app ID, marks incomplete metadata, retains Unicode titles, maps validated artwork hashes, and preserves known playtime/last-played values without inventing absent facts. Committed synthetic response fixtures cover populated, empty and incomplete libraries. Cache schema 2 preserves optional history and continues reading schema 1 as history unknown; lossy schema-1 writes are rejected.
 
 Verification: focused library HTTP/service/cache tests **3/3** pass, including cancellation, stale network/storage completions, account mismatch, generation rollback, metadata boundaries, and old/new cache formats. The library adapter, worker and cache compile with the Prospero toolchain. This is backend evidence only: production presentation wiring, offline recovery, artwork fetching and real-account console retrieval remain pending.
+
+## Selected library projection (4A.2 boundary)
+
+The selected model now accepts typed library deliveries transactionally. Loading/failure preserves valid records; successful empty snapshots clear them; stable IDs preserve focus/scroll and choose a deterministic neighbor on removal. Real playtime and last-played values are projected; unsupported installation/runtime actions remain unavailable. Library loading does not change authentication state. Production wall time is injected independently of render animation time.
+
+Independent review and actual graphical captures exposed and resolved placeholder title overflow, fixture art/download badge leaks, omitted unavailable-action text, inferred installation status, and Details focus on an invisible disabled row. The real renderer now uses safe placeholders, explicit unknown facts and enabled personal actions. Selected host **31/31**, graphical Home/Library/Details inspection and a local PS5 package passed. See [synthetic live projection evidence](../../results/20261004-live-library-projection/README.md).
+
+This prepares the existing presentation; normal startup still needs the production LibraryController binding to the new worker and cache. Real Steam/CM acceptance, offline recovery, persisted account annotations/preferences, asynchronous artwork, dynamic title coverage and physical controller checks remain open. Performance work remains deferred.
