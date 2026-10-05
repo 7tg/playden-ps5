@@ -129,6 +129,13 @@ std::vector<SettingDefinition> BuildCatalogue() {
                          {"verbose", "Verbose", "Also warnings and exceptions. Larger logs."}},
                         "normal"));
   // Advanced (T3).
+  {
+    auto environment = Text("environment", "Environment variables",
+                            "Extra variables for the game, separated by ';', like WINE_CPU_TOPOLOGY=4:0,1,2,3.",
+                            "[environment]", T::kAdvanced);
+    environment.phase = 2;
+    list.push_back(std::move(environment));
+  }
   list.push_back(Text("library_overrides", "Library overrides", "Use the game's own copy of a Windows library.",
                       "WINEDLLOVERRIDES · [application] dll_overrides", T::kAdvanced));
   return list;
@@ -182,6 +189,7 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
     if ((id == "frame_latency" || id == "reported_vram") && !kit.dxvk_unverified) return "Not checked on the console yet.";
   }
   if (id == "windows_version" && !kit.registry) return "Needs a runtime update.";
+  if (id == "environment" && !kit.environment) return "Needs a prospero-win update that reads [environment].";
   if (id == "performance_overlay" && graphics == "gdi") return "Only available with DXVK or OpenGL.";
   if (id == "scaling" && dxvk) return "Not available with DXVK output yet.";
   if ((id == "refresh" || id == "opengl_thread") && graphics != "opengl") return "Only available with OpenGL.";
@@ -230,6 +238,30 @@ bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::st
     if (value.size() > kProsperoMaxArgumentBytes) return fail("too long");
     if (value.find_first_of("{}") != std::string_view::npos) return fail("braces are not allowed");
     if (!SplitProsperoArguments(value, nullptr)) return fail("unclosed quote or too many words");
+    return true;
+  }
+  if (id == "environment") {
+    if (value.empty()) return true;
+    std::size_t count = 0;
+    std::set<std::string> names;
+    std::size_t start = 0;
+    while (start <= value.size()) {
+      const auto end = std::min(value.find(';', start), value.size());
+      auto entry = value.substr(start, end - start);
+      start = end + 1;
+      while (!entry.empty() && entry.front() == ' ') entry.remove_prefix(1);
+      while (!entry.empty() && entry.back() == ' ') entry.remove_suffix(1);
+      if (entry.empty()) continue;
+      const auto equals = entry.find('=');
+      if (equals == std::string_view::npos) return fail("each entry needs NAME=value");
+      auto name = entry.substr(0, equals);
+      auto item = entry.substr(equals + 1);
+      while (!name.empty() && name.back() == ' ') name.remove_suffix(1);
+      while (!item.empty() && item.front() == ' ') item.remove_prefix(1);
+      if (!IsProsperoEnvironmentEntry(name, item)) return fail(std::string(name) + " is not an allowed variable");
+      if (!names.insert(std::string(name)).second) return fail(std::string(name) + " appears twice");
+      if (++count > kProsperoMaxEnvironmentEntries) return fail("at most 8 variables");
+    }
     return true;
   }
   if (id == "library_overrides") {
@@ -377,8 +409,29 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
 
   if (value("logging") == "verbose") text += std::string("\n[debug]\nwinedebug = ") + kVerboseWinedebug + "\n";
 
+  const auto& environment = settings.values.at("environment");
+  const bool environment_section = environment.available && !environment.value.empty();
+  if (environment_section) {
+    text += "\n[environment]\n";
+    std::size_t start = 0;
+    const auto& entries = environment.value;
+    while (start <= entries.size()) {
+      const auto end = std::min(entries.find(';', start), entries.size());
+      std::string entry = entries.substr(start, end - start);
+      start = end + 1;
+      const auto equals = entry.find('=');
+      if (equals == std::string::npos) continue;
+      std::string name = entry.substr(0, equals), item = entry.substr(equals + 1);
+      while (!name.empty() && name.front() == ' ') name.erase(0, 1);
+      while (!name.empty() && name.back() == ' ') name.pop_back();
+      while (!item.empty() && item.front() == ' ') item.erase(0, 1);
+      while (!item.empty() && item.back() == ' ') item.pop_back();
+      text += name + " = " + item + "\n";
+    }
+  }
+
   std::string why;
-  if (!CheckProsperoProfile(text, &why)) return fail("generated profile is invalid: " + why);
+  if (!CheckProsperoProfile(text, &why, environment_section)) return fail("generated profile is invalid: " + why);
   *profile = {target.id, std::move(text)};
   return true;
 }

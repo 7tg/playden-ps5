@@ -182,7 +182,21 @@ bool IsProsperoDllOverrides(std::string_view value) {
   return true;
 }
 
-bool CheckProsperoProfile(std::string_view text, std::string* reason) {
+bool IsProsperoEnvironmentEntry(std::string_view name, std::string_view value) {
+  if (name.empty() || name.size() >= 64 || value.empty() || value.size() >= 128) return false;
+  for (std::size_t i = 0; i < name.size(); ++i) {
+    const char c = name[i];
+    if (!((c >= 'A' && c <= 'Z') || c == '_' || (i > 0 && c >= '0' && c <= '9'))) return false;
+  }
+  const auto starts = [&](std::string_view prefix) { return name.size() > prefix.size() && name.substr(0, prefix.size()) == prefix; };
+  if (!(starts("DXVK_") || starts("MESA_") || starts("RADV_") || starts("SDL_") || name == "WINE_CPU_TOPOLOGY")) return false;
+  if (name == "DXVK_HUD" || name == "SDL_JOYSTICK_RAWINPUT") return false;
+  for (const unsigned char c : value)
+    if (c < 0x20 || c > 0x7e || c == '"' || c == '\'') return false;
+  return true;
+}
+
+bool CheckProsperoProfile(std::string_view text, std::string* reason, bool environment_section) {
   const auto fail = [&](std::string why) {
     if (reason) *reason = std::move(why);
     return false;
@@ -206,7 +220,8 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason) {
     if (line.front() == '[') {
       if (line.size() < 3 || line.back() != ']') return fail("bad section line");
       const auto name = Lower(line.substr(1, line.size() - 2));
-      if ((name != "application" && name != "display" && name != "input" && name != "debug") ||
+      if ((name != "application" && name != "display" && name != "input" && name != "debug" &&
+           !(environment_section && name == "environment")) ||
           std::find(sections.begin(), sections.end(), name) != sections.end())
         return fail("section [" + name + "] unknown or repeated");
       if (sections.empty() != (name == "application")) return fail("[application] must come first");
@@ -223,6 +238,13 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason) {
     while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) value.remove_prefix(1);
     if (key_view.empty()) return fail("line without a key");
     if (section.empty()) return fail("line before any section");
+    if (section == "environment") {
+      // Names are case-sensitive here, as in the environment itself.
+      if (!seen.insert(std::string(key_view)).second) return fail("duplicate " + std::string(key_view));
+      if (!IsProsperoEnvironmentEntry(key_view, value)) return fail("environment " + std::string(key_view) + " is not allowed");
+      if (seen.size() > kProsperoMaxEnvironmentEntries) return fail("more than 8 environment variables");
+      continue;
+    }
     const auto key = Lower(key_view);
     if (!seen.insert(key).second) return fail("duplicate " + key);
     const auto bad = [&](const char* what) { return fail(key + ": " + what); };

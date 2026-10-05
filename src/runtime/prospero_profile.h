@@ -63,9 +63,17 @@ bool IsProsperoBinding(std::string_view value);
 // separated by ';', mode one of n, b, d, n,b, b,n or empty.
 bool IsProsperoDllOverrides(std::string_view value);
 
+// One [environment] entry a runtime with that section accepts: an upper-case name from the
+// DXVK_, MESA_, RADV_ or SDL_ families or WINE_CPU_TOPOLOGY (not DXVK_HUD or
+// SDL_JOYSTICK_RAWINPUT, which the title sets), and a printable value without quotes.
+constexpr std::size_t kProsperoMaxEnvironmentEntries = 8;
+bool IsProsperoEnvironmentEntry(std::string_view name, std::string_view value);
+
 // Applies the rules of prospero-win's profile parsers (and prospero-win-profiles'
 // tools/check_profiles.py): strict sections and keys, value vocabularies and limits.
-bool CheckProsperoProfile(std::string_view text, std::string* reason);
+// environment_section: the target runtime accepts [environment] (prospero-win
+// feat/profile-environment); released runtimes refuse it.
+bool CheckProsperoProfile(std::string_view text, std::string* reason, bool environment_section = false);
 
 std::string ProsperoProfileId(std::uint32_t app_id);
 

@@ -157,6 +157,24 @@ int main(int argc, char** argv) {
   CHECK(BuildEffectiveSettings(gdi, nullptr, {{"performance_overlay", "on"}}, KitCapabilities{}, &settings, &error));
   CHECK(!settings.values.at("performance_overlay").available && Value(settings, "performance_overlay") == "off");
 
+  // Environment variables need a runtime that reads [environment]; released ones refuse it.
+  const std::map<std::string, std::string> environment = {{"environment", "WINE_CPU_TOPOLOGY=4:0,1,2,3; DXVK_FRAME_RATE = 45"}};
+  CHECK(BuildEffectiveSettings(hl2, nullptr, environment, KitCapabilities{}, &settings, &error));
+  CHECK(!settings.values.at("environment").available);
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("[environment]") == std::string::npos);
+  KitCapabilities environment_kit;
+  environment_kit.environment = true;
+  CHECK(BuildEffectiveSettings(hl2, nullptr, environment, environment_kit, &settings, &error));
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("\n[environment]\nWINE_CPU_TOPOLOGY = 4:0,1,2,3\nDXVK_FRAME_RATE = 45\n") != std::string::npos);
+  CHECK(!CheckProsperoProfile(profile.text, &reason));                // a released runtime refuses it
+  CHECK(CheckProsperoProfile(profile.text, &reason, true));
+  CHECK(!ValidateSettingValue(hl2, "environment", "WINEPREFIX=C:\\x", &reason));
+  CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_HUD=full", &reason));
+  CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A=1;DXVK_A=2", &reason));
+  CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A", &reason));
+
   // Bad player values are rejected before saving; stale ones never block a launch.
   CHECK(!ValidateSettingValue(hl2, "resolution", "3840x2160", &reason));
   CHECK(!ValidateSettingValue(hl2, "extra_arguments", "-a \"b", &reason));
