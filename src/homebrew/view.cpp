@@ -1335,7 +1335,9 @@ class Render::Impl
         if (primary == nullptr)
         {
             ui::text(scene_, fonts_.display, "No transfers", 136.0F, 262.0F, 42.0F, kText);
-            ui::text(scene_, fonts_.regular, "Install a game to start a simulated transfer.",
+            ui::text(scene_, fonts_.regular,
+                     state.simulation_mode ? "Install a game to start a simulated transfer."
+                                           : "Install a game from its details to download it here.",
                      136.0F, 310.0F, 23.0F, kSecondary);
         }
         else
@@ -1705,18 +1707,23 @@ class Render::Impl
             view.surface != "startup" && view.surface != "session")
             draw_sheet_overlay(view);
 
+        // Live notifications wait behind dialogs (they also stop counting down there).
+        const bool hide_transient = !state.simulation_mode &&
+            (!state.navigation.modals.empty() || state.editor.active);
         float y = 118.0F;
         for (const Notice &notice : state.notices)
         {
-            if (notice.persistent)
+            if (notice.persistent || hide_transient)
                 continue;
             overlay_.shadow({1288.0F, y, 536.0F, 84.0F}, 10.0F, 28.0F, gfx::Color::rgb(0x000000, 0.6F));
             overlay_.rounded_rect({1288.0F, y, 536.0F, 84.0F}, 10.0F, kPanel);
-            overlay_.circle(1320.0F, y + 42.0F, 7.0F, kAccent);
+            overlay_.circle(1320.0F, y + 42.0F, 7.0F, notice.failure ? kRed : kAccent);
             ui::text(overlay_, fonts_.semibold, fit(fonts_.semibold, notice.message, 22.0F, 440.0F),
                      1342.0F, y + 36.0F, 22.0F, kText);
-            if (!notice.action.empty())
-                ui::text(overlay_, fonts_.regular, notice.action, 1342.0F, y + 62.0F, 18.0F, kAccent);
+            const std::string &second = notice.detail.empty() ? notice.action : notice.detail;
+            if (!second.empty())
+                ui::text(overlay_, fonts_.regular, fit(fonts_.regular, second, 18.0F, 460.0F), 1342.0F, y + 62.0F,
+                         18.0F, notice.detail.empty() ? kAccent : kSecondary);
             y += 98.0F;
         }
     }
@@ -1845,8 +1852,21 @@ class Render::Impl
                                        4.0F, kAccent);
             ui::text(overlay_, fonts_.display, volume.label, card.x + 22.0F, card.y + 38.0F,
                      27.0F, row.enabled ? kText : kMuted);
-            ui::text(overlay_, fonts_.regular, row.subtitle, card.x + card.w - 22.0F,
-                     card.y + 38.0F, 18.0F, row.enabled ? kSecondary : kAmber, gfx::Align::right);
+            const bool is_default = !current_state_->simulation_mode && volume.id == current_state_->default_volume_id;
+            ui::text(overlay_, fonts_.regular, is_default && row.enabled ? "Default · " + row.subtitle : row.subtitle,
+                     card.x + card.w - 22.0F, card.y + 38.0F, 18.0F, row.enabled ? kSecondary : kAmber,
+                     gfx::Align::right);
+            if (!volume.capacity_known)
+            {
+                ui::text(overlay_, fonts_.regular, "Used by games  " + byte_count(volume.games_bytes),
+                         card.x + 22.0F, card.y + 98.0F, 17.0F, kSecondary);
+                ui::text(overlay_, fonts_.regular, "Reserved by queue  " + byte_count(volume.reserved_bytes),
+                         card.x + card.w - 22.0F, card.y + 98.0F, 17.0F, kSecondary, gfx::Align::right);
+                ui::text(overlay_, fonts_.regular, "Free space is not reported on this console",
+                         card.x + 22.0F, card.y + 128.0F, 17.0F, kMuted);
+                y += 174.0F;
+                continue;
+            }
             const float fraction = volume.capacity_bytes == 0 ? 0.0F :
                 static_cast<float>(occupied) / static_cast<float>(volume.capacity_bytes);
             overlay_.rounded_rect({card.x + 22.0F, card.y + 58.0F, card.w - 44.0F, 8.0F}, 4.0F,

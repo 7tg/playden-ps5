@@ -336,6 +336,73 @@ void live_install_volumes() {
     check(install && install->subtitle == "To M.2 SSD", "Install names the default drive when there is a choice");
 }
 
+const playden::homebrew::Notice* find_notice(const Simulation& model, const std::string& id) {
+    const auto found = std::find_if(model.state().notices.begin(), model.state().notices.end(),
+                                    [&id](const auto& notice) { return notice.id == id; });
+    return found == model.state().notices.end() ? nullptr : &*found;
+}
+
+void live_install_notifications() {
+    using playden::homebrew::JobState;
+    auto model = make_live();
+    model.SetWallClock(1'000);
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Finishing"), game(43, "Failing"), game(44, "Removed")}, false, {}, false, false, {}}),
+          "library loaded");
+
+    // The first snapshot is restored state: a failed job from before restart is not announced.
+    model.UpdateInstalls({{42, JobState::Downloading, 10, 100, {}, "internal"}, {43, JobState::Failed, 0, 100, "Old failure", "internal"}},
+                         {{44, 500, "internal", true}});
+    check(model.state().notices.empty(), "restored history raises no notification");
+
+    // A job that finishes into an install, and a job that newly fails.
+    model.UpdateInstalls({{43, JobState::Downloading, 5, 100, {}, "internal"}}, {{42, 100, "internal", true}, {44, 500, "internal", true}});
+    model.UpdateInstalls({{43, JobState::Failed, 5, 100, "Steam refused the download.", "internal"}},
+                         {{42, 100, "internal", true}, {44, 500, "internal", true}});
+    const auto* done = find_notice(model, "install-42");
+    check(done && !done->persistent && !done->failure && done->message == "Download complete" && done->detail == "Finishing",
+          "a finished download is announced with the game's name");
+    const auto* failed = find_notice(model, "install-43");
+    check(failed && failed->failure && failed->message == "Download failed"
+              && failed->detail == "Failing · Steam refused the download.", "a new failure is announced with its reason");
+    model.UpdateInstalls({{43, JobState::Failed, 5, 100, "Steam refused the download.", "internal"}},
+                         {{42, 100, "internal", true}, {44, 500, "internal", true}});
+    check(std::count_if(model.state().notices.begin(), model.state().notices.end(),
+                        [](const auto& notice) { return notice.id == "install-43"; }) == 1,
+          "a failure that persists is not announced twice");
+
+    // Uninstall: only a removal the player asked for is announced.
+    check(model.action("details:44") && model.action("focus:details-more") && model.action("cross"), "context opens");
+    activate(model, "uninstall");
+    activate(model, "confirm-destructive");
+    model.TakeInstallRequests();
+    model.UpdateInstalls({{43, JobState::Failed, 5, 100, "Steam refused the download.", "internal"}}, {{42, 100, "internal", true}});
+    const auto* removed = find_notice(model, "install-44");
+    check(removed && removed->message == "Game uninstalled" && removed->detail == "Removed", "an uninstall is announced");
+
+    // Notifications count down only while visible and then disappear.
+    check(model.action("details:42") && model.action("focus:details-more") && model.action("cross")
+              && !model.state().navigation.modals.empty(), "a dialog opens");
+    model.SetWallClock(1'030);
+    check(find_notice(model, "install-42") != nullptr, "notifications wait behind a dialog");
+    check(model.action("circle"), "the dialog closes");
+    model.SetWallClock(1'033);
+    check(find_notice(model, "install-42") != nullptr, "a visible notification lasts a few seconds");
+    model.SetWallClock(1'040);
+    check(!find_notice(model, "install-42") && !find_notice(model, "install-44"), "visible notifications expire");
+    check(find_notice(model, "install-43") != nullptr, "failures stay up longer");
+    model.SetWallClock(1'060);
+    check(!find_notice(model, "install-43"), "failures expire too");
+
+    // Controller: a lasting warning while disconnected, a short notice on reconnect.
+    model.SetControllerConnected(false);
+    const auto* lost = find_notice(model, "controller");
+    check(lost && lost->persistent && lost->failure, "a disconnected controller raises a lasting warning");
+    model.SetControllerConnected(true);
+    check(!find_notice(model, "controller") && find_notice(model, "controller-connected"),
+          "reconnecting clears the warning and says so briefly");
+}
+
 void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
@@ -412,6 +479,7 @@ void live_filters_only_use_available_facts() {
 int main() {
     live_install_requests_and_projection();
     live_install_volumes();
+    live_install_notifications();
     live_filters_only_use_available_facts();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();

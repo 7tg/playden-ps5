@@ -237,7 +237,9 @@ struct Notice {
     std::string message;
     std::string action;
     bool persistent = false;
-    int remaining_ticks = 0;
+    int remaining_ticks = 0;  // simulation ticks; live mode counts wall-clock seconds while visible
+    bool failure = false;     // drawn with the failure tone
+    std::string detail;       // second line; when empty the action key is shown, as fixtures expect
 };
 
 struct ControllerState {
@@ -400,6 +402,11 @@ private:
     std::vector<ServiceAction> pending_service_actions_;
     std::vector<InstallRequest> pending_install_requests_;
     bool library_catalog_received_ = false;
+    // Live install events become notifications; the first snapshot is restored history, not an event.
+    bool live_installs_seen_ = false;
+    std::map<GameId, JobState> live_job_states_;
+    std::set<GameId> live_installed_ids_;
+    std::set<GameId> pending_uninstalls_;
 
     struct OrganizationJournalEntry {
         playden::OrganizationSnapshot before;
@@ -458,6 +465,8 @@ private:
     bool record_live_persistence();
     void update_persistence_notice();
     void apply_live_volume_usage();
+    void push_notice(Notice notice);
+    [[nodiscard]] bool live_notices_visible() const noexcept;
     [[nodiscard]] bool live() const noexcept { return mode_ == ModelMode::Live; }
     [[nodiscard]] std::string next_job_id();
 };

@@ -23,6 +23,7 @@ namespace {
 
 constexpr std::uint64_t kTransferPerTick = 67'108'864;
 constexpr std::int64_t kFixtureClock = 1'760'000'000;
+constexpr int kLiveNoticeSeconds = 6;  // how long a live notification stays on screen
 constexpr std::size_t kOrganizationJournalEntries = 256;
 constexpr std::size_t kOrganizationJournalBytes = 256 * 1024;
 
@@ -424,14 +425,54 @@ void Simulation::reset_default_state() {
 }
 
 void Simulation::SetControllerConnected(bool connected) {
+    const bool changed = state_.controller_connected != connected;
     state_.controller_connected = connected;
+    if (live() && changed) {
+        if (!connected) {
+            push_notice({"controller", "Controller disconnected", "", true, 0, true, "Reconnect it to keep playing"});
+        } else {
+            state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
+                                                [](const Notice& notice) { return notice.id == "controller"; }),
+                                 state_.notices.end());
+            push_notice({"controller-connected", "Controller connected", "", false, kLiveNoticeSeconds, false, ""});
+        }
+    }
     rebuild_view();
 }
 
 void Simulation::SetWallClock(std::int64_t unix_seconds) {
     if (!live() || state_.clock_ticks == unix_seconds) return;
+    // Notifications only count down while they can be seen, so none expires behind a dialog.
+    const auto elapsed = state_.clock_ticks == 0 ? 0 : std::clamp<std::int64_t>(unix_seconds - state_.clock_ticks, 0, 60);
     state_.clock_ticks = unix_seconds;
+    if (elapsed > 0 && live_notices_visible()) {
+        for (auto& notice : state_.notices)
+            if (!notice.persistent) notice.remaining_ticks -= static_cast<int>(elapsed);
+        state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
+                                            [](const Notice& notice) { return !notice.persistent && notice.remaining_ticks <= 0; }),
+                             state_.notices.end());
+    }
     rebuild_view();
+}
+
+void Simulation::push_notice(Notice notice) {
+    state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
+                                        [&notice](const Notice& existing) { return existing.id == notice.id; }),
+                         state_.notices.end());
+    state_.notices.push_back(std::move(notice));
+    // Keep at most a few transient notifications; the oldest give way.
+    constexpr std::size_t kMaxTransient = 8;
+    std::size_t transient = 0;
+    for (const auto& existing : state_.notices) transient += existing.persistent ? 0 : 1;
+    for (auto it = state_.notices.begin(); transient > kMaxTransient && it != state_.notices.end();) {
+        if (!it->persistent) { it = state_.notices.erase(it); --transient; }
+        else ++it;
+    }
+}
+
+bool Simulation::live_notices_visible() const noexcept {
+    return state_.navigation.modals.empty() && !state_.editor.active &&
+           state_.navigation.route != Route::Startup && state_.navigation.route != Route::SignIn;
 }
 
 std::vector<ServiceAction> Simulation::TakeServiceActions() {
@@ -448,6 +489,35 @@ std::vector<InstallRequest> Simulation::TakeInstallRequests() {
 
 void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed) {
     if (!live()) return;
+    std::map<GameId, JobState> job_states;
+    for (const auto& job : jobs) job_states[job.game_id] = job.state;
+    std::set<GameId> installed_ids;
+    for (const auto& game : installed) installed_ids.insert(game.game_id);
+    if (live_installs_seen_) {
+        const auto title = [this](GameId id) {
+            const auto* game = find_game(state_, id);
+            return game ? game->title : std::string("A game");
+        };
+        for (const auto& [id, previous] : live_job_states_) {
+            if (job_states.contains(id) || !installed_ids.contains(id)) continue;
+            push_notice({"install-" + std::to_string(id), "Download complete", "", false, kLiveNoticeSeconds, false, title(id)});
+        }
+        for (const auto& job : jobs) {
+            const auto previous = live_job_states_.find(job.game_id);
+            if (job.state != JobState::Failed || (previous != live_job_states_.end() && previous->second == JobState::Failed)) continue;
+            push_notice({"install-" + std::to_string(job.game_id), "Download failed", "", false, kLiveNoticeSeconds * 2, true,
+                         title(job.game_id) + (job.failure.empty() ? std::string() : " · " + job.failure)});
+        }
+        for (const auto id : live_installed_ids_) {
+            if (installed_ids.contains(id) || job_states.contains(id) || !pending_uninstalls_.contains(id)) continue;
+            push_notice({"install-" + std::to_string(id), "Game uninstalled", "", false, kLiveNoticeSeconds, false, title(id)});
+        }
+    }
+    for (auto it = pending_uninstalls_.begin(); it != pending_uninstalls_.end();)
+        it = installed_ids.contains(*it) ? std::next(it) : pending_uninstalls_.erase(it);
+    live_installs_seen_ = true;
+    live_job_states_ = std::move(job_states);
+    live_installed_ids_ = std::move(installed_ids);
     std::vector<Job> projected;
     int order = 0;
     for (const auto& live_job : jobs) {
@@ -2436,6 +2506,7 @@ void Simulation::activate() {
                (pending_destructive_action_.rfind("job-cancel-", 0) == 0 || pending_destructive_action_ == "uninstall")) {
         if (pending_destructive_action_ == "uninstall") {
             pending_install_requests_.push_back({InstallRequestKind::Uninstall, state_.navigation.selected_game_id});
+            pending_uninstalls_.insert(state_.navigation.selected_game_id);
         } else if (const auto* job = find_job(state_, pending_destructive_action_.substr(11))) {
             pending_install_requests_.push_back({InstallRequestKind::Cancel, job->game_id});
         }
