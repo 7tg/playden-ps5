@@ -16,24 +16,36 @@ NativePathKind SafeKind(const char* path) {
   std::size_t cursor = 1;
   bool missing = false;
   struct stat info{};
+  int directory = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (directory < 0) return NativePathKind::kOther;
   while (cursor < value.size()) {
     const auto end = value.find('/', cursor);
     const std::string component = value.substr(cursor, end - cursor);
-    if (component.empty() || component == "." || component == "..")
+    if (component.empty() || component == "." || component == "..") {
+      close(directory);
       return NativePathKind::kOther;
+    }
     if (!missing) {
-      const std::string prefix = value.substr(0, end);
-      if (lstat(prefix.c_str(), &info) != 0) {
-        if (errno != ENOENT) return NativePathKind::kOther;
+      const int child = openat(directory, component.c_str(),
+          O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK |
+          (end != std::string::npos ? O_DIRECTORY : 0));
+      if (child < 0) {
+        if (errno != ENOENT) { close(directory); return NativePathKind::kOther; }
         missing = true;
-      } else if (S_ISLNK(info.st_mode) ||
-                 (end != std::string::npos && !S_ISDIR(info.st_mode))) {
-        return NativePathKind::kOther;
+      } else {
+        close(directory);
+        directory = child;
+        if (fstat(directory, &info) != 0 ||
+            (end != std::string::npos && !S_ISDIR(info.st_mode))) {
+          close(directory);
+          return NativePathKind::kOther;
+        }
       }
     }
     if (end == std::string::npos) break;
     cursor = end + 1;
   }
+  close(directory);
   if (missing) return NativePathKind::kMissing;
   if (S_ISDIR(info.st_mode)) return NativePathKind::kDirectory;
   return S_ISREG(info.st_mode) ? NativePathKind::kFile : NativePathKind::kOther;

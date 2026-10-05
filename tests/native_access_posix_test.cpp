@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace playden::ps5;
@@ -58,6 +59,10 @@ int main() {
   CHECK(!ops.path_accessible(ops.context, (root / "alias/identity").c_str(), NativePathAccess::kRead));
   CHECK(ops.path_kind(ops.context, (root / "alias/missing").c_str()) == NativePathKind::kOther);
   CHECK(ops.path_kind(ops.context, (title / "../FAKE77031").c_str()) == NativePathKind::kOther);
+  CHECK(ops.path_kind(ops.context, (root / "identity/missing").c_str()) == NativePathKind::kOther);
+  CHECK(mkfifo((root / "fifo").c_str(), 0600) == 0);
+  CHECK(ops.path_kind(ops.context, (root / "fifo").c_str()) == NativePathKind::kOther);
+  CHECK(!ops.path_accessible(ops.context, (root / "fifo").c_str(), NativePathAccess::kRead));
 
   NativeAccessPosixBackend unavailable("FAKE77031", {});
   const auto missing_ops = unavailable.Ops();

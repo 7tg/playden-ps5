@@ -2,6 +2,7 @@
 #include "platform/ps5/native_access_posix.h"
 #include "platform/ps5/display_egl.hpp"
 #include "steam/backend/native_network.h"
+#include "app/diagnostic_log.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -25,8 +26,10 @@ struct StartupContext {
 };
 
 int InitializeUser(void* data) {
+  app::AppendLogLine("/app0/logs", "native-startup.log", "user service initialization starting");
   auto& context = *static_cast<StartupContext*>(data);
   const auto result = static_cast<std::uint32_t>(sceUserServiceInitialize(nullptr));
+  app::AppendLogLine("/app0/logs", "native-startup.log", "user service result=" + std::to_string(result));
   if (result != 0 && result != 0x80960003U) return static_cast<int>(result);
   const auto ops = context.filesystem->Ops();
   ops.read_source_identity(ops.context, "/app0", &context.source_identity);
@@ -34,13 +37,17 @@ int InitializeUser(void* data) {
 }
 
 int PrepareGraphics(void* data) {
+  app::AppendLogLine("/app0/logs", "native-startup.log", "graphics preparation starting");
   auto& display = static_cast<StartupContext*>(data)->display;
-  return display.width() > 0 || display.open(3840, 2160) ? 0 : EIO;
+  const int result = display.width() > 0 || display.open(3840, 2160) ? 0 : EIO;
+  app::AppendLogLine("/app0/logs", "native-startup.log", "graphics result=" + std::to_string(result));
+  return result;
 }
 
 int RequestData(void* data) {
 #if PLAYDEN_NATIVE_ACCESS_SOURCE
   auto& context = *static_cast<StartupContext*>(data);
+  app::AppendLogLine("/app0/logs", "native-startup.log", "data grant starting");
   if (!steam::internal::InitializeNativeNetwork()) return ENETDOWN;
   const auto ops = context.filesystem->Ops();
   std::string helper;
@@ -78,6 +85,11 @@ NativeAccessResult PrepareNativeStartup(hui::ps5::Display& display,
   NativeAccessOptions options;
   options.title_id = title_id;
   NativeAccessBootstrap bootstrap(filesystem.Ops(), options);
-  return bootstrap.Prepare();
+  const auto result = bootstrap.Prepare();
+  const std::string logs = result.launcher_ready ? result.paths.log_root : "/app0/logs";
+  app::AppendLogLine(logs, "native-startup.log",
+      "bootstrap launcher_ready=" + std::to_string(result.launcher_ready) +
+      " runtime_ready=" + std::to_string(result.runtime_ready) + " error=" + result.error);
+  return result;
 }
 }
