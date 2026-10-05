@@ -77,7 +77,8 @@ target_include_directories(playden_runtime_install_service PUBLIC "${CMAKE_SOURC
 target_compile_features(playden_runtime_install_service PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_install_service PUBLIC playden_runtime_installs)
 
-add_library(playden_runtime_package_installer STATIC "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp")
+add_library(playden_runtime_package_installer STATIC "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp")
 target_include_directories(playden_runtime_package_installer PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_package_installer PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_package_installer PUBLIC playden_runtime_install_service)

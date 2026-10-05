@@ -1,4 +1,5 @@
 #include "runtime/package_installer.h"
+#include "runtime/private_directories.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -10,6 +11,8 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <sys/resource.h>
+#include <csignal>
 #include <unistd.h>
 #include <vector>
 
@@ -114,6 +117,7 @@ struct Fixture {
   int fail_sync_call = -1;
   bool fail_title_post_rename_once = false;
   bool fail_bottle_post_rename_once = false;
+  bool publish_public_profile = false;
 
   Fixture() {
     Write(kit / "titles/variant/eboot.bin", "native", 0755);
@@ -218,12 +222,12 @@ struct Fixture {
                                    const ProfilePublication& publication,
                                    const std::string& metadata) {
       ++writes;
-      Write(output.profile, publication.profile_bytes);
-      Write(output.catalog, publication.profile_id + ".profile\n");
+      Write(output.profile, publication.profile_bytes, publish_public_profile ? 0644 : 0600);
+      Write(output.catalog, publication.profile_id + ".profile\n", 0600);
       for (const auto& preset : publication.input_presets)
-        Write(output.input_directory / preset.filename, preset.bytes);
+        Write(output.input_directory / preset.filename, preset.bytes, 0600);
       Write(output.descriptor, publication.descriptor_bytes);
-      Write(output.metadata, metadata);
+      Write(output.metadata, metadata, 0600);
       return PackageActionResult{PackageActionState::kComplete, {}, {}};
     };
     return FilesystemPackageInstaller(view, paths, std::move(operations));
@@ -245,6 +249,16 @@ void CompletePublicationAndFreshInspection() {
                       "playden/games/install-hl2/library/prefixes/game";
   CHECK(Read(bottle / "dosdevices/.pw-symlinks") == "c:\t../drive_c\nz:\t/\n");
   CHECK(!std::filesystem::is_symlink(bottle / "dosdevices/c:"));
+  for (const auto& path : {bottle, bottle / "drive_c", bottle / "drive_c/windows", bottle / "dosdevices"}) {
+    struct stat info{};
+    CHECK(::lstat(path.c_str(), &info) == 0);
+    CHECK(info.st_uid == ::geteuid());
+    CHECK((info.st_mode & 0777) == 0700);
+  }
+  struct stat registry{};
+  CHECK(::lstat((bottle / "drive_c/windows/system.reg").c_str(), &registry) == 0);
+  CHECK(registry.st_uid == ::geteuid());
+  CHECK((registry.st_mode & 0777) == 0600);
   CHECK(installer.ValidateArtifacts(record).state == PackageActionState::kComplete);
   CHECK(installer.PublishProfile(record).state == PackageActionState::kComplete);
   const auto status = installer.Inspect(record);
@@ -445,12 +459,12 @@ void InputPresetsAreOwnerPublishedAndHashVerified() {
   operations.publish_owned = [](const PublicationPaths& output,
                                 const ProfilePublication& value,
                                 const std::string& metadata) {
-    Write(output.profile, value.profile_bytes);
-    Write(output.catalog, value.profile_id + ".profile\n");
+    Write(output.profile, value.profile_bytes, 0600);
+    Write(output.catalog, value.profile_id + ".profile\n", 0600);
     for (const auto& preset : value.input_presets)
-      Write(output.input_directory / preset.filename, preset.bytes);
+      Write(output.input_directory / preset.filename, preset.bytes, 0600);
     Write(output.descriptor, value.descriptor_bytes);
-    Write(output.metadata, metadata);
+    Write(output.metadata, metadata, 0600);
     return PackageActionResult{PackageActionState::kComplete, {}, {}};
   };
   FilesystemPackageInstaller installer(fixture.view, fixture.paths, std::move(operations));
@@ -519,6 +533,77 @@ void MissingReferencedInputAndSymlinkedManagedParentsAreRejected() {
 }  // namespace
 
 int main() {
+  {
+    Fixture fixture;
+    const auto game = fixture.host_data / "playden/games/install-hl2";
+    std::filesystem::create_directories(game);
+    CHECK(::chmod(game.c_str(), 0755) == 0);
+    Write(game / "existing-save", "keep this save");
+    std::string detail;
+    CHECK(!EnsurePrivateDirectories(fixture.host_data, game, game / "library/prefixes", &detail));
+    CHECK(detail.find("wrong owner or permissions") != std::string::npos);
+    CHECK(Read(game / "existing-save") == "keep this save");
+    struct stat info{};
+    CHECK(::stat(game.c_str(), &info) == 0 && (info.st_mode & 0777) == 0755);
+    CHECK(!std::filesystem::exists(game / "library"));
+    CHECK(!EnsurePrivateDirectories(fixture.host_data, game, fixture.host_data / "../outside", &detail));
+  }
+  {
+    Fixture fixture;
+    const auto game = fixture.host_data / "playden/games/install-hl2";
+    std::filesystem::create_directories(game.parent_path());
+    std::filesystem::create_directories(fixture.temporary.path / "outside");
+    std::filesystem::create_directory_symlink(fixture.temporary.path / "outside", game);
+    std::string detail;
+    CHECK(!EnsurePrivateDirectories(fixture.host_data, game, game / "library", &detail));
+    CHECK(std::filesystem::is_empty(fixture.temporary.path / "outside"));
+  }
+  for (const auto& relative : {"library", "library/prefixes"}) {
+    Fixture fixture;
+    auto installer = fixture.Installer();
+    const auto record = Record();
+    CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+    const auto drifted = fixture.host_data / "playden/games/install-hl2" / relative;
+    CHECK(::chmod(drifted.c_str(), 0755) == 0);
+    CHECK(!installer.Inspect(record).mutable_bottle_owned);
+    CHECK(installer.CopyTemplate(record).code == "bottle-collision");
+    CHECK(Read(fixture.host_data / "playden/games/install-hl2/library/prefixes/game/drive_c/windows/system.reg") == "registry");
+  }
+  {
+    Fixture fixture;
+    auto installer = fixture.Installer();
+    struct rlimit original{}, limited{};
+    CHECK(::getrlimit(RLIMIT_FSIZE, &original) == 0);
+    limited = original;
+    limited.rlim_cur = 8; // Exercise a partial stage marker write, before payload copying.
+    const auto previous = std::signal(SIGXFSZ, SIG_IGN);
+    CHECK(::setrlimit(RLIMIT_FSIZE, &limited) == 0);
+    const auto result = installer.CopyTemplate(Record());
+    CHECK(::setrlimit(RLIMIT_FSIZE, &original) == 0);
+    std::signal(SIGXFSZ, previous);
+    CHECK(result.code == "staging-unavailable");
+    CHECK(!std::filesystem::exists(fixture.host_data / "playden/staging/bottle-install-hl2"));
+    CHECK(installer.CopyTemplate(Record()).state == PackageActionState::kComplete);
+  }
+  {
+    Fixture fixture;
+    auto record = Record();
+    record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                        {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+    auto installer = fixture.Installer();
+    CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+    CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+    fixture.publish_public_profile = true;
+    CHECK(installer.PublishProfile(record).code == "publication-verification");
+    CHECK(!installer.Inspect(record).profile_published);
+    const auto profiles = fixture.host_data / "playden/games/install-hl2/library/profiles";
+    CHECK(IsPrivateDirectory(profiles));
+    fixture.publish_public_profile = false;
+    CHECK(installer.PublishProfile(record).state == PackageActionState::kComplete);
+    CHECK(::chmod(profiles.c_str(), 0755) == 0);
+    CHECK(!installer.Inspect(record).profile_published);
+    CHECK(installer.PublishProfile(record).code == "private-directory");
+  }
   CompletePublicationAndFreshInspection();
   CancelAndSpaceFailuresAreBounded();
   SyncFailureNeverPublishesWatchedTitle();

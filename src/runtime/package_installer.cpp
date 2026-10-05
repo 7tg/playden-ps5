@@ -1,4 +1,5 @@
 #include "runtime/package_installer.h"
+#include "runtime/private_directories.h"
 
 #include "steam/backend/json.h"
 
@@ -16,6 +17,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <dirent.h>
 
 namespace playden::runtime {
 namespace fs = std::filesystem;
@@ -168,12 +170,60 @@ std::optional<std::string> ReadBounded(const fs::path& path, std::size_t limit) 
   return bytes;
 }
 
+bool IsPrivateFile(const fs::path& path) {
+  struct stat info{};
+  return ::lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
+         info.st_uid == ::geteuid() && (info.st_mode & 07777) == 0600;
+}
+
 bool WriteFile(const fs::path& path, const std::string& bytes, unsigned mode) {
-  std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-  if (!stream) return false;
-  stream.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-  stream.close();
-  return stream.good() && ::chmod(path.c_str(), mode) == 0;
+  const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
+  if (fd < 0) return false;
+  struct stat info{};
+  bool ok = ::fchmod(fd, mode) == 0 && ::fstat(fd, &info) == 0 &&
+            S_ISREG(info.st_mode) && info.st_uid == ::geteuid() &&
+            (info.st_mode & 07777) == mode;
+  std::size_t offset = 0;
+  while (ok && offset < bytes.size()) {
+    const auto written = ::write(fd, bytes.data() + offset, bytes.size() - offset);
+    if (written < 0 && errno == EINTR) continue;
+    if (written <= 0) { ok = false; break; }
+    offset += static_cast<std::size_t>(written);
+  }
+  if (::close(fd) != 0) ok = false;
+  return ok;
+}
+
+// Only the just-created directory and its initial marker may be removed here.
+// An interrupted initialization must not strand an unidentifiable staging tree.
+void CleanInitialStage(const fs::path& staging, const struct stat& created) {
+  const int fd = ::open(staging.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  if (fd < 0) return;
+  struct stat current{};
+  if (::fstat(fd, &current) != 0 || current.st_dev != created.st_dev ||
+      current.st_ino != created.st_ino || current.st_uid != ::geteuid()) {
+    ::close(fd); return;
+  }
+  DIR* listing = ::fdopendir(::dup(fd));
+  bool safe = listing != nullptr;
+  if (listing) {
+    errno = 0;
+    while (const auto* entry = ::readdir(listing)) {
+      const std::string name = entry->d_name;
+      if (name != "." && name != ".." && name != kStageOwner) safe = false;
+    }
+    if (errno != 0) safe = false;
+    ::closedir(listing);
+  }
+  struct stat marker{};
+  if (safe && ::fstatat(fd, kStageOwner, &marker, AT_SYMLINK_NOFOLLOW) == 0) {
+    safe = S_ISREG(marker.st_mode) && marker.st_uid == ::geteuid();
+    if (safe) safe = ::unlinkat(fd, kStageOwner, 0) == 0;
+  } else if (safe && errno != ENOENT) safe = false;
+  ::close(fd);
+  if (safe && ::lstat(staging.c_str(), &current) == 0 &&
+      current.st_dev == created.st_dev && current.st_ino == created.st_ino)
+    ::rmdir(staging.c_str());
 }
 
 std::map<std::string, std::string> ParseMarker(const std::string& bytes) {
@@ -462,7 +512,7 @@ bool FilesystemPackageInstaller::TitleMatches(
 
 bool FilesystemPackageInstaller::BottleOwned(
     const RuntimeInstall& record, const ResolvedPaths& paths) const {
-  return IsDirectoryNoSymlink(paths.bottle) &&
+  return IsPrivateDirectoryTree(paths.game, paths.bottle) &&
          MarkerEquals(paths.bottle / kTemplateOwner,
                       OwnerMarker(record, kit_, "template")) &&
          operations_.validate_bottle(paths.bottle);
@@ -498,6 +548,10 @@ bool FilesystemPackageInstaller::ArtifactsMatch(
 bool FilesystemPackageInstaller::PublicationMatches(
     const RuntimeInstall& record, const ResolvedPaths& paths,
     std::uint64_t* revision) const {
+  if (!IsPrivateDirectoryTree(paths.game, paths.publication.profile.parent_path()) ||
+      !IsPrivateDirectoryTree(paths.game, paths.publication.input_directory) ||
+      !IsPrivateFile(paths.publication.profile) || !IsPrivateFile(paths.publication.catalog) ||
+      !IsPrivateFile(paths.publication.metadata)) return false;
   const auto profile = ReadBounded(paths.publication.profile, kMaxPublicationBytes);
   const auto descriptor = ReadBounded(paths.publication.descriptor, kMaxPublicationBytes);
   const auto catalog = ReadBounded(paths.publication.catalog, 256);
@@ -545,7 +599,7 @@ bool FilesystemPackageInstaller::PublicationMatches(
     const auto preset_path = paths.publication.input_directory / name->second;
     if (!PathComponentsHaveNoSymlink(paths.library,
                                      fs::path("input") / name->second, true) ||
-        !IsRegularNoSymlink(preset_path))
+        !IsPrivateFile(preset_path))
       return false;
     const auto actual_hash = operations_.hash_file(preset_path);
     if (!actual_hash || *actual_hash != expected_hash->second) return false;
@@ -714,6 +768,8 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   if (!staging_known)
     return Failed("staging-unavailable", "staging state is unavailable");
   if (staging_exists) {
+    if (stage_kind == "template" && !IsPrivateDirectory(staging))
+      return Failed("staging-collision", "existing bottle staging has wrong owner or permissions");
     if (!MarkerEquals(staging / kStageOwner, expected_stage))
       return Failed("staging-collision", "staging path is not owned by this install");
     // RuntimeInstallService has already established stopped activity. Only our
@@ -721,9 +777,20 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     fs::remove_all(staging, error);
     if (error) return Failed("staging-cleanup", "owned incomplete staging could not be cleaned");
   }
-  fs::create_directories(staging, error);
-  if (error || !WriteFile(staging / kStageOwner, expected_stage, 0600))
+  if (stage_kind == "template") {
+    std::string detail;
+    if (!EnsurePrivateDirectories(paths_.host_data_root, staging, staging, &detail))
+      return Failed("private-directory", detail);
+  } else {
+    fs::create_directories(staging, error);
+  }
+  struct stat created_stage{};
+  if (error || ::lstat(staging.c_str(), &created_stage) != 0)
     return Failed("staging-unavailable", "owned staging could not be initialized");
+  if (!WriteFile(staging / kStageOwner, expected_stage, 0600)) {
+    CleanInitialStage(staging, created_stage);
+    return Failed("staging-unavailable", "owned staging could not be initialized");
+  }
   if (!SyncPath(staging / kStageOwner, false) || !SyncPath(staging, true))
     return Failed("sync-failed", "owned staging identity was not durably synced");
   if (operations_.canceled && operations_.canceled()) return Canceled();
@@ -736,23 +803,46 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     const auto destination = staging / mapping.destination_relative;
     if (!PathComponentsHaveNoSymlink(staging, mapping.destination_relative, false))
       return Failed("destination-invalid", "staging destination contains a symbolic link");
-    fs::create_directories(destination.parent_path(), error);
+    if (stage_kind == "template") {
+      std::string detail;
+      if (!EnsurePrivateDirectories(paths_.host_data_root, staging, destination.parent_path(), &detail))
+        return Failed("private-directory", detail);
+    } else {
+      fs::create_directories(destination.parent_path(), error);
+    }
     if (error) return Failed("copy-failed", "staging directory could not be created");
     std::ifstream input(source, std::ios::binary);
-    std::ofstream output(destination, std::ios::binary | std::ios::trunc);
-    if (!input || !output) return Failed("copy-failed", "package file could not be opened");
+    const unsigned mode = stage_kind == "template" ? (0600 | (mapping.file->mode & 0100)) : mapping.file->mode;
+    const int output = ::open(destination.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
+    if (!input || output < 0) {
+      if (output >= 0) ::close(output);
+      return Failed("copy-failed", "package file could not be opened exclusively");
+    }
+    struct stat destination_info{};
+    if (::fchmod(output, mode) != 0 || ::fstat(output, &destination_info) != 0 ||
+        !S_ISREG(destination_info.st_mode) || destination_info.st_uid != ::geteuid() ||
+        (destination_info.st_mode & 07777) != mode) {
+      ::close(output); return Failed("copy-failed", "package file mode could not be set before copying");
+    }
+    bool wrote = true;
     while (input) {
       input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
       const auto count = input.gcount();
-      if (count > 0) output.write(buffer.data(), count);
-      if (!output) return Failed("copy-failed", "package file write failed");
+      std::streamsize offset = 0;
+      while (offset < count) {
+        const auto written = ::write(output, buffer.data() + offset, static_cast<std::size_t>(count - offset));
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) { wrote = false; break; }
+        offset += written;
+      }
+      if (!wrote) break;
       if (operations_.canceled && operations_.canceled()) {
-        output.close();
+        ::close(output);
         return Canceled();
       }
     }
-    output.close();
-    if (!input.eof() || !output.good() || ::chmod(destination.c_str(), mapping.file->mode) != 0)
+    const bool closed = ::close(output) == 0;
+    if (!input.eof() || !wrote || !closed)
       return Failed("copy-failed", "package file copy or mode publication failed");
     const auto hash = operations_.hash_file(destination);
     if (!hash || *hash != mapping.file->sha256)
@@ -786,7 +876,14 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   if (final_parent_relative.empty() ||
       !PathComponentsHaveNoSymlink(paths_.host_data_root, final_parent_relative, true))
     return Failed("destination-invalid", "final destination contains a symbolic link");
-  fs::create_directories(final.parent_path(), error);
+  if (stage_kind == "template") {
+    std::string detail;
+    const auto game = paths_.host_data_root / "playden/games" / record.install_id;
+    if (!EnsurePrivateDirectories(paths_.host_data_root, game, final.parent_path(), &detail))
+      return Failed("private-directory", detail);
+  } else {
+    fs::create_directories(final.parent_path(), error);
+  }
   bool final_known = false;
   const bool final_exists = ExistsNoThrow(final, &final_known);
   if (error || !final_known || final_exists)
@@ -928,6 +1025,12 @@ PackageActionResult FilesystemPackageInstaller::PublishProfile(
   if (!final_paths || !PublicationPathsSafe(publication, final_paths->publication))
     return Failed("managed-path-invalid",
                   "managed publication path changed or contains a symbolic link");
+  std::string private_error;
+  if (!EnsurePrivateDirectories(paths_.host_data_root, final_paths->game,
+                                final_paths->publication.profile.parent_path(), &private_error) ||
+      !EnsurePrivateDirectories(paths_.host_data_root, final_paths->game,
+                                final_paths->publication.input_directory, &private_error))
+    return Failed("private-directory", private_error);
   auto result = operations_.publish_owned(final_paths->publication, publication, metadata.str());
   if (result.state != PackageActionState::kComplete) return result;
   const auto published_paths = Resolve(record);

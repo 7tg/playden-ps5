@@ -73,7 +73,7 @@ function(playden_add_homebrew_ps5_title)
 	set(shim_wraps --wrap=glDrawArrays --wrap=glDrawArraysInstanced --wrap=glDrawArraysInstancedBaseInstance
 		--wrap=glDrawElements --wrap=glDrawElementsInstanced --wrap=glBindFramebuffer --wrap=glBlitFramebuffer
 		--wrap=glTexImage2D --wrap=glTexSubImage2D --wrap=glClear --wrap=sceSystemServiceHideSplashScreen
-        --wrap=openat)
+        --wrap=openat --wrap=mkdirat)
 
 	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp src/platform/ps5/title_runtime.cpp
         src/platform/ps5/native_startup.cpp
@@ -107,7 +107,7 @@ function(playden_add_homebrew_ps5_title)
             message(FATAL_ERROR "The native provisioning diagnostic requires an explicit usable prospero-win source")
         endif()
         target_sources(playden_ps5_app PRIVATE src/platform/ps5/title_contract_probe.cpp src/platform/ps5/title_registry.cpp
-            src/platform/ps5/title_probe_contract.cpp)
+            src/platform/ps5/title_probe_contract.cpp src/runtime/private_directories.cpp)
         if(NOT native_access_source)
             target_sources(playden_ps5_app PRIVATE
                 "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"

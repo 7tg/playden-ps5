@@ -2,7 +2,9 @@
 #include "steam/backend/native_network.h"
 #include "platform/ps5/title_registry.h"
 #include "platform/ps5/title_probe_contract.h"
+#include "runtime/private_directories.h"
 extern "C" {
+int playden_ps5_directory_api_ready(void);
 int sceKernelLoadStartModule(const char*, std::size_t, const void*, unsigned, void*, int*);
 int sceKernelDlsym(int, const char*, void**);
 int sceSysmoduleLoadModuleInternal(unsigned);
@@ -16,6 +18,7 @@ int sceUserServiceGetForegroundUser(unsigned*);
 #include <unistd.h>
 #include <string>
 #include <fcntl.h>
+#include <dirent.h>
 
 namespace playden::ps5 {
 static size_t receive(char* data, size_t size, size_t count, void* destination) {
@@ -79,7 +82,108 @@ static std::optional<std::string> read_probe_metadata(const char* path) {
   if (close(fd)) return std::nullopt;
   return content;
 }
-static void bootstrap_registration_probe(FILE* log) {
+static bool directory_entries(const char* path, const std::string& expected) {
+  DIR* directory = opendir(path);
+  if (!directory) return false;
+  bool found = false, ok = true;
+  errno = 0;
+  while (const auto* entry = readdir(directory)) {
+    const std::string name = entry->d_name;
+    if (name == "." || name == "..") continue;
+    if (expected.empty() || name != expected || found) { ok = false; break; }
+    found = true;
+  }
+  if (errno) ok = false;
+  closedir(directory);
+  return ok && (expected.empty() || found);
+}
+static void private_copy_probe(FILE* log, const std::string& descriptor) {
+  const int directory_api = playden_ps5_directory_api_ready();
+  std::fprintf(log, "private copy directory_api_ready=%d\n", directory_api); std::fflush(log);
+  if (!directory_api) return;
+  const char* root = "/data/playden/games/acceptance-hl2-fresh-v16";
+  const char* retired = "/data/playden/games/acceptance-hl2-fresh-v16.ftp-staging";
+  const auto user = geteuid();
+  struct stat info{};
+  // Preserve the empty FTP scaffold rather than adopting its ownership. Never
+  // retire a real bottle or any directory containing files/saves.
+  bool empty = user == 1 && seteuid(0) == 0;
+  const int root_stat = lstat(root, &info);
+  const bool root_missing = root_stat != 0 && errno == ENOENT;
+  const bool root_private = root_stat == 0 && S_ISDIR(info.st_mode) && info.st_uid == user &&
+      (info.st_mode & 07777) == 0700;
+  const bool resume = root_missing || root_private;
+  const std::string base = resume ? retired : root;
+  for (const auto& suffix : {"", "/library", "/library/profiles", "/library/prefixes", "/library/input"}) {
+    if (!empty) break;
+    empty = lstat((base + suffix).c_str(), &info) == 0 && S_ISDIR(info.st_mode) && info.st_uid == 0 &&
+        (info.st_mode & 07777) == 0700;
+  }
+  empty = empty && directory_entries(base.c_str(), "library");
+  if (empty) {
+    DIR* library = opendir((base + "/library").c_str());
+    unsigned mask = 0;
+    if (!library) empty = false;
+    if (library) {
+      errno = 0;
+      while (const auto* entry = readdir(library)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        const unsigned bit = name == "profiles" ? 1 : name == "prefixes" ? 2 : name == "input" ? 4 : 0;
+        if (!bit || (mask & bit)) { empty = false; break; }
+        mask |= bit;
+      }
+      if (errno || mask != 7) empty = false;
+      closedir(library);
+    }
+  }
+  for (const char* suffix : {"/library/profiles", "/library/prefixes", "/library/input"})
+    empty = empty && directory_entries((base + suffix).c_str(), "");
+  const bool destination_free = lstat(retired, &info) != 0 && errno == ENOENT;
+  const bool preserved = empty && (resume || (destination_free && rename(root, retired) == 0));
+  const int preserve_error = preserved ? 0 : errno;
+  const bool restored = seteuid(user) == 0 && geteuid() == user;
+  std::fprintf(log, "private copy scaffold_empty=%d preserved=%d errno=%d uid_restored=%d euid=%d\n",
+      empty, preserved, preserve_error, restored, geteuid()); std::fflush(log);
+  if (!preserved || !restored) return;
+  std::string error;
+  const std::string target = std::string(root) + "/library/prefixes/game";
+  // Fixed developer fixture: establish app-owned creation/copy separately from
+  // the production descriptor-relative API gate. Never use this as a generic
+  // production fallback; the directory-contract probe records that openat's
+  // relative-dirfd behavior still needs a supported adapter on this firmware.
+  bool made = true;
+  for (const char* suffix : {"", "/library", "/library/prefixes", "/library/prefixes/game"}) {
+    const std::string path = std::string(root) + suffix;
+    if (mkdir(path.c_str(), 0700) != 0 && errno != EEXIST) {
+      made = false; error = "cannot create " + path + ": " + strerror(errno); break;
+    }
+    if (!runtime::IsPrivateDirectory(path)) {
+      made = false; error = "directory is not private and app-owned: " + path; break;
+    }
+  }
+  std::fprintf(log, "private copy directories=%d error=%s\n", made, error.c_str()); std::fflush(log);
+  if (!made) return;
+  const std::string proof = std::string(root) + "/library/prefixes/game/bootstrap-copy-proof.json";
+  const int fd = open(proof.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+  bool copied = fd >= 0;
+  std::size_t offset = 0;
+  while (copied && offset < descriptor.size()) {
+    const auto count = write(fd, descriptor.data() + offset, descriptor.size() - offset);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) { copied = false; break; }
+    offset += std::size_t(count);
+  }
+  copied = copied && fstat(fd, &info) == 0 && info.st_uid == user && (info.st_mode & 07777) == 0600 && fsync(fd) == 0;
+  if (fd >= 0 && close(fd)) copied = false;
+  const int parent = open(target.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  const bool synced = parent >= 0 && fsync(parent) == 0;
+  if (parent >= 0) close(parent);
+  const auto readback = read_probe_metadata(proof.c_str());
+  std::fprintf(log, "private copy file=%d directory_sync=%d readback=%d uid=%u mode=%o\n", copied, synced,
+      readback && *readback == descriptor, unsigned(info.st_uid), unsigned(info.st_mode & 07777));
+}
+static void bootstrap_registration_probe(FILE* log, bool copy = false, bool session = false) {
   struct stat directory{};
   for (const char* path : {"/data/homebrew", "/data/homebrew/FAKE78001", "/data/homebrew/FAKE78001/sce_sys"}) {
     if (lstat(path, &directory) || !S_ISDIR(directory.st_mode)) {
@@ -91,6 +195,17 @@ static void bootstrap_registration_probe(FILE* log) {
   const auto param = read_probe_metadata("/data/homebrew/FAKE78001/sce_sys/param.json");
   if (!owner || !descriptor || !param || !ValidateBootstrapProbeSource(*owner, *descriptor, *param)) {
     std::fprintf(log, "bootstrap registration refused: fixture identity\n"); return;
+  }
+  if (copy) { private_copy_probe(log, *descriptor); return; }
+  if (session) {
+    const char* path = "/data/playden/games/acceptance-hl2-fresh-v16/logs/sessions/3771c232-a7b7-47eb-af39-fdb231176185.json";
+    struct stat info{};
+    const auto record = read_probe_metadata(path);
+    const bool private_record = lstat(path, &info) == 0 && S_ISREG(info.st_mode) &&
+        info.st_uid == geteuid() && (info.st_mode & 07777) == 0600;
+    std::fprintf(log, "private session readable=%d owned=%d uid=%u mode=%o record=%s\n",
+        bool(record), private_record, unsigned(info.st_uid), unsigned(info.st_mode & 07777), record ? record->c_str() : "unavailable");
+    return;
   }
   TitleRegistry registry([log](const auto& route, const auto& body) { return service_post(log, route, body); });
   const auto result = registry.Register("FAKE78001");
@@ -172,8 +287,37 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   const int result = access.granted ? 0 : -1;
   std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
-  if (std::string(action) == "register-bootstrap") {
-    bootstrap_registration_probe(log);
+  if (std::string(action) == "directory-contract") {
+    const int root = open("/data", O_RDONLY);
+    struct stat info{};
+    const int inspected = root >= 0 ? fstat(root, &info) : -1;
+    std::fprintf(log, "directory contract root_fd=%d stat=%d mode=%o\n", root, inspected, unsigned(info.st_mode));
+    for (const int flags : {O_RDONLY, O_RDONLY | O_NOFOLLOW, O_RDONLY | O_DIRECTORY, O_RDONLY | O_NOFOLLOW | O_DIRECTORY}) {
+      for (const bool absolute : {false, true}) {
+        errno = 0;
+        const int fd = openat(absolute ? AT_FDCWD : root, absolute ? "/data/playden" : "playden", flags);
+        const int error = fd < 0 ? errno : 0;
+        const int checked = fd >= 0 ? fstat(fd, &info) : -1;
+        std::fprintf(log, "directory contract absolute=%d flags=%x fd=%d errno=%d stat=%d mode=%o\n", absolute, flags, fd, error, checked, unsigned(info.st_mode));
+        if (fd >= 0) close(fd);
+      }
+    }
+    if (root >= 0) close(root);
+    std::fprintf(log, "end\n"); std::fclose(log); return true;
+  }
+  if (std::string(action) == "ownership-api") {
+    for (const int module : {1, 0x2001}) {
+      for (const char* name : {"chown", "_chown", "fchown", "__wrap_fchown", "sceKernelChown", "sceKernelFchown", "getpid"}) {
+        void* function = nullptr;
+        const int rc = sceKernelDlsym(module, name, &function);
+        std::fprintf(log, "ownership api module=%x name=%s result=%08x pointer=%p\n", module, name, unsigned(rc), function);
+
+      }
+    }
+    std::fprintf(log, "end\n"); std::fclose(log); return true;
+  }
+  if (std::string(action) == "register-bootstrap" || std::string(action) == "private-copy" || std::string(action) == "private-session") {
+    bootstrap_registration_probe(log, std::string(action) == "private-copy", std::string(action) == "private-session");
     std::fprintf(log, "end\n"); std::fclose(log); return true;
   }
   if (result == 0) {
