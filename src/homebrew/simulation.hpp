@@ -234,6 +234,7 @@ struct Navigation {
     int home_shelf = 0;
     std::map<std::string, int> home_shelf_focus;
     bool library_rail_focused = false;
+    bool settings_rail_focused = false;
     int library_grid_column = 0;
 };
 
@@ -327,6 +328,7 @@ struct ViewRow {
     bool enabled = true;
     bool selected = false;
     bool dangerous = false;
+    std::string section;  // Settings: the rail section the row belongs to
 };
 
 struct ViewData {
@@ -478,6 +480,7 @@ private:
     void activate();
     void cancel();
     void move(int delta_x, int delta_y);
+    bool move_settings(int delta_x, int delta_y);
     void change_route(int delta);
     void open_modal(ModalEntry modal);
     void close_modal();

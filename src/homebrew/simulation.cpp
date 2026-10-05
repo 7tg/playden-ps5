@@ -2106,8 +2106,23 @@ void Simulation::rebuild_view() {
     } else if (state_.navigation.route == Route::Settings) {
         view_.title = "Settings";
         if (live()) view_.subtitle = state_.account.error;
-        row("settings-account", RowKind::Action, "Account", "account").value = state_.account.display_name;
-        auto& storage = row("settings-storage", RowKind::Action, "Library and storage", "storage-manager");
+        // Rows come grouped by the macOS sections; the rail shows the focused row's section.
+        std::string section = "Account";
+        const auto add = [&](std::string key, RowKind kind, std::string title, std::string action) -> ViewRow& {
+            auto& added = row(std::move(key), kind, std::move(title), std::move(action));
+            added.section = section;
+            return added;
+        };
+        auto& account = add("settings-account", RowKind::Action, "Account", "account");
+        account.value = state_.account.display_name;
+        account.subtitle = state_.account.authentication == AuthState::Offline ? "Cached library · Offline"
+            : state_.account.authentication == AuthState::SignedIn
+                ? (!live() || state_.account.last_sync > 0 ? "Steam connected · Synced" : "Steam connected")
+                : "Connect Steam";
+        if (state_.account.authentication != AuthState::SignedOut)
+            add("settings-signout", RowKind::Action, "Sign out", "signout-confirm").dangerous = true;
+        section = "Library";
+        auto& storage = add("settings-storage", RowKind::Action, "Library and storage", "storage-manager");
         if (live()) {
             const auto* volume = find_volume(state_, selected_volume_id_);
             storage.title = "Games storage";
@@ -2115,26 +2130,34 @@ void Simulation::rebuild_view() {
             storage.subtitle = "Where new games are installed";
             if (state_.volumes.empty()) { storage.kind = RowKind::Status; storage.action.clear(); storage.enabled = false; storage.subtitle = "Storage is unavailable"; }
         }
-        row("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion").selected = state_.reduced_motion;
-        row("settings-controller", RowKind::Action, "Controller", "controller-test").value = state_.controller_connected ? "Connected" : "Disconnected";
-        auto& runtime = row("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
+        auto& runtime = add("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
         runtime.value = state_.runtime == RuntimeState::Ready ? (live() ? "Ready" : "Ready — simulated") : state_.runtime == RuntimeState::Checking ? (live() ? "Checking" : "Checking — simulated") : state_.runtime == RuntimeState::Failed ? (live() ? "Failed" : "Failed — simulated") : (live() ? "Unavailable" : "Unavailable — simulated");
-        if (!live()) {
-            row("settings-simulation", RowKind::Action, "Simulation controls", "simulation-controls");
-            row("settings-scenarios", RowKind::Action, "Fixture scenarios", "scenario-picker");
-        }
-        row("settings-about", RowKind::Action, "About", "about");
-        auto& logs = row("settings-logs", RowKind::Action, "Logs", live() ? "logs-pick" : "logs");
+        if (live()) { runtime.subtitle = "Games run through prospero-win"; runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false; }
+        section = "Display";
+        auto& motion = add("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion");
+        motion.selected = state_.reduced_motion;
+        motion.subtitle = "Keep the focus ring; turn off scaling and transitions";
+        section = "Controller";
+        auto& controller = add("settings-controller", RowKind::Action, "Controller", "controller-test");
+        controller.value = state_.controller_connected ? "Connected" : "Disconnected";
+        controller.subtitle = "Test the buttons and sticks";
+        section = "About";
+        add("settings-about", RowKind::Action, "About", "about").subtitle = "Playden for PlayStation 5";
+        auto& logs = add("settings-logs", RowKind::Action, "Logs", live() ? "logs-pick" : "logs");
         if (live()) {
             logs.subtitle = "Install, Cloud saves, sign-in and launch diagnostics";
             if (log_directory_.empty()) { logs.kind = RowKind::Status; logs.action.clear(); logs.enabled = false; logs.subtitle = "No logs on this device"; }
-            runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
         }
-        if (!state_.notices.empty()) row("settings-notices", RowKind::Action, "Warnings", "notices").value = std::to_string(state_.notices.size());
-        row("settings-reset", RowKind::Action, "Reset UI data", "reset-confirm").dangerous = true;
-        if (state_.account.authentication != AuthState::SignedOut)
-            row("settings-signout", RowKind::Action, "Sign out", "signout-confirm").dangerous = true;
-        row("settings-quit", RowKind::Action, "Quit", "quit-confirm").dangerous = true;
+        if (!state_.notices.empty()) add("settings-notices", RowKind::Action, "Warnings", "notices").value = std::to_string(state_.notices.size());
+        if (!live()) {
+            add("settings-simulation", RowKind::Action, "Simulation controls", "simulation-controls");
+            add("settings-scenarios", RowKind::Action, "Fixture scenarios", "scenario-picker");
+        }
+        auto& reset = add("settings-reset", RowKind::Action, "Reset UI data", "reset-confirm");
+        reset.dangerous = true;
+        reset.subtitle = "Forget favorites, collections and view state on this console";
+        section = "Quit Playden";
+        add("settings-quit", RowKind::Action, "Quit", "quit-confirm").dangerous = true;
     } else if (state_.navigation.route == Route::Session) {
         view_.title = state_.session == SessionState::Running ? "Game running" : "Simulated session";
         view_.subtitle = state_.session_error;
@@ -2309,6 +2332,11 @@ void Simulation::commit_editor() {
 }
 
 void Simulation::cancel() {
+    if (state_.navigation.route == Route::Settings && state_.navigation.settings_rail_focused &&
+        state_.navigation.modals.empty() && !state_.editor.active) {
+        state_.navigation.settings_rail_focused = false;
+        return;
+    }
     if (state_.editor.active) { state_.editor.active = false; state_.navigation.focus_key = state_.editor.opener_focus_key; return; }
     if (!state_.navigation.modals.empty()) {
         const bool crash_logs = state_.navigation.modals.back().id == "logs" && state_.session == SessionState::Crashed;
@@ -2356,6 +2384,7 @@ void Simulation::move(int delta_x, int delta_y) {
         return;
     }
     if (move_browser(state_, delta_x, delta_y)) return;
+    if (state_.navigation.route == Route::Settings && move_settings(delta_x, delta_y)) return;
     const int columns = state_.navigation.route == Route::Library ? 6 : 1;
     const int delta = delta_y != 0 ? delta_y * columns : delta_x;
     if (view_.rows.empty()) return;
@@ -2367,6 +2396,32 @@ void Simulation::move(int delta_x, int delta_y) {
     if (state_.navigation.route == Route::Home) state_.navigation.scroll_offsets["home"] = state_.navigation.selected_index;
 }
 
+// Settings sections, as on macOS: Left moves to the section rail, Up/Down there switches
+// section (focusing its first row), Right or Cross returns to the rows. Up/Down on the rows
+// crosses into the next section so every row stays reachable in order.
+bool Simulation::move_settings(int delta_x, int delta_y) {
+    if (view_.rows.empty()) return true;
+    const int current = std::clamp(view_.focused_row, 0, static_cast<int>(view_.rows.size()) - 1);
+    if (!state_.navigation.settings_rail_focused) {
+        if (delta_x < 0) { state_.navigation.settings_rail_focused = true; return true; }
+        return delta_x > 0;
+    }
+    if (delta_x > 0) { state_.navigation.settings_rail_focused = false; return true; }
+    if (delta_y == 0) return true;
+    std::vector<std::string> sections;
+    for (const auto& item : view_.rows)
+        if (sections.empty() || sections.back() != item.section) sections.push_back(item.section);
+    const auto here = std::find(sections.begin(), sections.end(), view_.rows[static_cast<std::size_t>(current)].section);
+    const int index = std::clamp(static_cast<int>(std::distance(sections.begin(), here)) + (delta_y > 0 ? 1 : -1), 0,
+                                 static_cast<int>(sections.size()) - 1);
+    const auto first = std::find_if(view_.rows.begin(), view_.rows.end(), [&](const ViewRow& item) {
+        return item.section == sections[static_cast<std::size_t>(index)];
+    });
+    state_.navigation.selected_index = static_cast<int>(std::distance(view_.rows.begin(), first));
+    state_.navigation.focus_key = first->key;
+    return true;
+}
+
 void Simulation::change_route(int delta) {
     if (state_.editor.active || !state_.navigation.modals.empty()) return;
     constexpr Route routes[] = {Route::Home, Route::Library, Route::Downloads, Route::Settings};
@@ -2376,9 +2431,15 @@ void Simulation::change_route(int delta) {
     state_.navigation.route = routes[index];
     state_.navigation.selected_index = 0;
     state_.navigation.focus_key.clear();
+    state_.navigation.settings_rail_focused = false;
 }
 
 void Simulation::activate() {
+    if (state_.navigation.route == Route::Settings && state_.navigation.settings_rail_focused &&
+        state_.navigation.modals.empty() && !state_.editor.active) {
+        state_.navigation.settings_rail_focused = false;
+        return;
+    }
     if (state_.editor.active) {
         static constexpr const char* letters[] = {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"};
         static constexpr const char* symbols[] = {"1234567890", "!@#$%^&*()", "-_=+[]{}<>", "/\\|:;\"'~`?"};
@@ -3109,7 +3170,7 @@ bool Simulation::action(const std::string& logical_action) {
         && (logical_action == "l2" || logical_action == "r2")) {
         auto& offset = state_.navigation.scroll_offsets["details-content"];
         const auto* game = find_game(state_, state_.navigation.detail_id.value_or(state_.navigation.selected_game_id));
-        const int last_page = game ? std::max(0, static_cast<int>((game->description.size() + 419) / 420) - 1) : 0;
+        const int last_page = game ? std::max(0, static_cast<int>((game->description.size() + 299) / 300) - 1) : 0;
         offset = std::clamp(offset + (logical_action == "l2" ? -1 : 1), 0, last_page);
         rebuild_view(); return true;
     }

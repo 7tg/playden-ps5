@@ -423,6 +423,32 @@ void t12_stress_dataset_keeps_logical_focus(const std::filesystem::path& fixture
           "T12 snapshot records bounded library materialization");
 }
 
+void t13_settings_sections_rail(const std::filesystem::path& fixtures, const std::filesystem::path& profile) {
+    playden::homebrew::Simulation simulation(fixtures, profile);
+    simulation.action("route:settings");
+    const auto section = [&simulation] {
+        const auto& view = simulation.view();
+        return view.rows[static_cast<std::size_t>(view.focused_row)].section;
+    };
+    check(section() == "Account", "T13 Settings opens on the Account section");
+    simulation.action("left");
+    check(simulation.state().navigation.settings_rail_focused, "T13 Left moves to the section rail");
+    simulation.action("down");
+    check(section() == "Library" && simulation.state().navigation.focus_key == "settings-storage",
+          "T13 Down on the rail switches to the next section's first row");
+    simulation.action("cross");
+    check(!simulation.state().navigation.settings_rail_focused && simulation.state().navigation.focus_key == "settings-storage",
+          "T13 Cross on the rail enters the section without activating its row");
+    simulation.action("down");
+    simulation.action("down");
+    check(section() == "Display" && simulation.state().navigation.focus_key == "settings-motion",
+          "T13 Down past a section's last row continues into the next section");
+    simulation.action("left");
+    simulation.action("right");
+    check(!simulation.state().navigation.settings_rail_focused && simulation.state().navigation.focus_key == "settings-motion",
+          "T13 Right returns from the rail to the same row");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -454,6 +480,9 @@ int main(int argc, char** argv) {
     t11_preferences_failure_and_controller_modal_recovery(fixtures, profile);
     clean();
     t12_stress_dataset_keeps_logical_focus(fixtures, profile);
+    clean();
+    t13_settings_sections_rail(fixtures, profile);
+    clean();
     public_contract_and_snapshot(fixtures, profile);
     std::error_code error;
     std::filesystem::remove(profile, error);

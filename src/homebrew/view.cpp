@@ -1668,22 +1668,111 @@ class Render::Impl
         }
     }
 
-    void draw_settings(ui::Canvas &canvas, const ViewData &view, const State &state)
+    // The macOS Settings screen: a rail of sections, then the focused section's rows, each
+    // with its title and summary and a toggle or a button on the right.
+    void draw_settings(ui::Canvas &, const ViewData &view, const State &state)
     {
-        section_label("Settings", 96.0F, 170.0F);
-        draw_title(view, 96.0F, 246.0F, 560.0F);
-        draw_view_list(canvas, view, {720.0F, 168.0F, 1104.0F, 772.0F}, 84.0F);
-        scene_.rounded_rect({96.0F, 494.0F, 530.0F, 188.0F}, 12.0F, kPanel);
-        ui::text(scene_, fonts_.display, state.account.display_name.empty() ? "Signed out" : state.account.display_name,
-                 132.0F, 552.0F, 34.0F, kText);
-        ui::text(scene_, fonts_.regular,
-                 state.account.authentication == AuthState::Offline ? "Cached library · Offline" :
-                 state.account.authentication == AuthState::SignedIn ?
-                     (state.simulation_mode || state.account.last_sync > 0 ? "Steam connected · Synced" : "Steam connected") : "Connect Steam",
-                 132.0F, 594.0F, 23.0F,
-                 state.account.authentication == AuthState::Offline ? kAmber : kSecondary);
-        ui::text(scene_, fonts_.regular, state.simulation_mode ? "Direct ps5-homebrew-ui comparison" : "Playden",
-                 132.0F, 646.0F, 20.0F, kMuted);
+        if (view.rows.empty())
+            return;
+        const int focused = std::clamp(view.focused_row, 0, static_cast<int>(view.rows.size()) - 1);
+        const std::string &current = view.rows[static_cast<std::size_t>(focused)].section;
+        std::vector<std::string> sections;
+        for (const ViewRow &row : view.rows)
+            if (sections.empty() || sections.back() != row.section)
+                sections.push_back(row.section);
+        const bool rail = state.navigation.settings_rail_focused;
+        for (std::size_t index = 0; index < sections.size(); ++index)
+        {
+            const gfx::Rect entry{kSafeX, 150.0F + index * 66.0F, 300.0F, 60.0F};
+            const bool active = sections[index] == current;
+            const float amount = control_focus("section-" + sections[index], route_focus_ && rail && active);
+            focus_glow(scene_, entry, amount, true);
+            scene_.rounded_rect(entry, 8.0F, kBackground);
+            if (active)
+                scene_.rounded_rect(entry, 8.0F, kText.with_alpha(0.10F));
+            focus_ring(scene_, entry, amount, true);
+            ui::text(scene_, fonts_.display, sections[index], entry.x + 22.0F, entry.y + 40.0F, 28.0F,
+                     active ? kText : kSecondary);
+            if (route_focus_ && rail && active)
+                stats_.focused_control_key = "section-" + sections[index];
+        }
+
+        constexpr float left = 444.0F;
+        constexpr float width = 1380.0F;
+        section_label(current, left, 172.0F);
+        if (!view.subtitle.empty())
+            ui::text(scene_, fonts_.regular, fit(fonts_.regular, view.subtitle, 22.0F, width), left + 300.0F, 172.0F,
+                     22.0F, kAmber);
+        // Rows of the section; long sections scroll to keep the focused row in view.
+        std::vector<int> rows;
+        for (int index = 0; index < static_cast<int>(view.rows.size()); ++index)
+            if (view.rows[static_cast<std::size_t>(index)].section == current)
+                rows.push_back(index);
+        const auto height = [&](const ViewRow &row) { return row.subtitle.empty() ? 92.0F : 118.0F; };
+        float offset = 0.0F;
+        {
+            float top = 0.0F;
+            for (const int index : rows)
+            {
+                const float h = height(view.rows[static_cast<std::size_t>(index)]);
+                if (index == focused && top + h > 740.0F)
+                    offset = top + h - 740.0F;
+                top += h + 24.0F;
+            }
+        }
+        scene_.push_clip({left - 24.0F, 190.0F, width + 48.0F, 790.0F});
+        float y = 206.0F - offset;
+        for (const int index : rows)
+        {
+            const ViewRow &row = view.rows[static_cast<std::size_t>(index)];
+            const float h = height(row);
+            const gfx::Rect card{left, y, width, h};
+            const bool is_focused = route_focus_ && !rail && index == focused;
+            if (is_focused)
+                stats_.focused_control_key = row.key;
+            const float amount = control_focus(row.key, is_focused);
+            focus_glow(scene_, card, amount);
+            scene_.rounded_rect(card, 8.0F, kBackground);
+            scene_.rounded_rect(card, 8.0F, kText.with_alpha(row.dangerous ? 0.0F : 0.04F));
+            if (row.dangerous)
+                scene_.bordered_rect(card, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kRed.with_alpha(0.35F));
+            const gfx::Color title_ink = !row.enabled ? kMuted : row.dangerous ? kRed : kText;
+            const float title_y = row.subtitle.empty() ? card.cy() + 11.0F : card.y + 50.0F;
+            ui::text(scene_, fonts_.display, fit(fonts_.display, row.title, 30.0F, 760.0F), card.x + 30.0F, title_y,
+                     30.0F, title_ink);
+            if (!row.subtitle.empty())
+                ui::text(scene_, fonts_.regular, fit(fonts_.regular, row.subtitle, 22.0F, 900.0F), card.x + 30.0F,
+                         card.y + 88.0F, 22.0F, kSecondary);
+            const float right = card.x + card.w - 30.0F;
+            if (row.kind == RowKind::Toggle)
+            {
+                const gfx::Rect track{right - 84.0F, card.cy() - 22.0F, 84.0F, 44.0F};
+                scene_.rounded_rect(track, 22.0F, row.selected ? kAccent : kText.with_alpha(0.15F));
+                scene_.circle(row.selected ? track.x + track.w - 22.0F : track.x + 22.0F, track.cy(), 18.0F,
+                              row.selected ? kBackground : kSecondary);
+            }
+            else if (!row.enabled || row.kind == RowKind::Status)
+            {
+                if (!row.value.empty())
+                    ui::text(scene_, fonts_.display, row.value, right, card.cy() + 9.0F, 26.0F, kMuted,
+                             gfx::Align::right);
+            }
+            else
+            {
+                // "Manage ›" on macOS; the chevron is drawn, as the console fonts lack it.
+                const std::string label = row.value.empty() ? std::string(row.dangerous ? "Review" : "Open") : row.value;
+                const float pill = fonts_.display.measure(label, 26.0F) + 64.0F;
+                const gfx::Rect button{right - pill, card.cy() - 28.0F, pill, 56.0F};
+                scene_.bordered_rect(button, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kText.with_alpha(0.2F));
+                ui::text(scene_, fonts_.display, label, button.x + 22.0F, button.cy() + 9.0F, 26.0F, kText);
+                const float chevron = button.x + button.w - 26.0F;
+                scene_.line(chevron - 3.0F, button.cy() - 6.0F, chevron + 2.5F, button.cy(), 2.2F, kText);
+                scene_.line(chevron + 2.5F, button.cy(), chevron - 3.0F, button.cy() + 6.0F, 2.2F, kText);
+            }
+            focus_ring(scene_, card, amount);
+            y += h + 24.0F;
+        }
+        scene_.pop_clip();
     }
 
     std::string steam_art(GameId id, std::string_view name) const
