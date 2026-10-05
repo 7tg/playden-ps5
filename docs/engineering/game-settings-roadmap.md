@@ -429,6 +429,18 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **U4** ◐ | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
 | **U5** | Scaling on the DXVK path; DXVK 120 Hz | Un-hides Scaling and 120 Hz for DXVK |
 
+### Remaining roadmap (2026-10-05)
+
+| # | Work | Owner / blocked by | Done when |
+| --- | --- | --- | --- |
+| R1 | U4 rest: trigger threshold, mouse wheel on a stick, per-game volume and mute (`pw_audio_mix_set_gain`), then the matching S9 rows | Settings track; local prospero-win branch | prospero-win parser and native tests; Playden rows hidden until the kit has them |
+| R2 | prospero-win-profiles checker accepts the new `[input]` keys and `[environment]` | Settings track; local `feat/recipe-sidecar` | `check_profiles.py` tests pass |
+| R3 | U5: Scaling and 120 Hz on the DXVK path | prospero-win native display work | Console: fit, integer and stretch differ on HL2; 120 Hz reported |
+| R4 | S4 live wiring: profile, `dxvk.conf` and registry applied before Play | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 launched from Playden |
+| R5 | S6 maintenance: clear shader cache, repair, save backup, recreate bottle | Integration Task 8 | Task 8 acceptance |
+| R6 | Kit adoption: U1 and U4 land upstream (needs approval to push), then the kit sets `environment` and `input_tuning` | Owner approval; prospero-win maintainers | Console: an environment variable and the dead zone reach HL2 |
+| R7 | S10 community presets: fetch pinned sidecars, "Community" banner, apply and revert | U3 published (owner approval) | Apply and revert keep local overrides |
+
 Order: S0 and the U1–U3 proposals in the first week. Then S1 → S2 → S3, which do not
 need the console. S4 follows integration Task 6. S5 follows S0. S6–S10 follow their
 dependencies.
