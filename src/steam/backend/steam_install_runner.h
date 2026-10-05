@@ -18,7 +18,8 @@ class SteamInstallRunner final : public InstallRunner {
   bool Remove(const std::string& root) override { return RemoveManagedInstall(root); }
   // Optional sanitized log: step, error category and a short detail; never tokens or IDs of accounts.
   void SetLog(std::function<void(const char* step, const char* category, const char* detail)> log) {
-    log_ = std::move(log);
+    log_ = log;
+    installer_.SetTrace([log](const char* step) { if (log) log("trace", step, ""); });
   }
 
  private:

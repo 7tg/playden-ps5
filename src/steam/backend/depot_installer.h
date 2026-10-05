@@ -58,6 +58,8 @@ struct InstallerHooks {
   std::function<std::uint64_t(const std::string& path)> free_bytes;
   // Optional: the last CDN failure detail for logs.
   std::function<std::string()> last_failure;
+  // Optional: step markers for diagnosing native failures (no identifiers).
+  std::function<void(const char* step)> trace;
 };
 
 // Downloads and assembles an app's depots into install_root. Safe to run again after any
@@ -78,6 +80,8 @@ class DepotInstaller {
 
  private:
   InstallerHooks hooks_;
+ public:
+  void SetTrace(std::function<void(const char*)> trace) { hooks_.trace = std::move(trace); }
 };
 
 // Removes a managed install directory: only paths under install_root, and only when it holds

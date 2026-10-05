@@ -87,6 +87,7 @@ class InstallService {
   void Scan();
   Job* Find(GameId id);
   void Publish();
+  void SaveRegistry();
 
   InstallRunner& runner_;
   SessionRepository& sessions_;

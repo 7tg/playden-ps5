@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <mutex>
 #include <thread>
 #include <unistd.h>
@@ -52,6 +53,7 @@ class Runner final : public InstallRunner {
       std::this_thread::sleep_for(1ms);
     }
     std::filesystem::create_directories(root);
+    std::ofstream(std::filesystem::path(root) / ".playden-install.json") << "{\"install_bytes\":4096}";
     progress(100, 100);
     return {true, false, {}, 4096};
   }
@@ -93,6 +95,7 @@ int main() {
   std::ofstream(root / "100" / ".playden-install.json") << "{\"version\":1,\"app_id\":100,\"install_bytes\":777}";
   std::filesystem::create_directories(root / "200" / ".playden-download");
   std::filesystem::create_directories(root / "not-a-game");
+  std::ofstream(root / ".playden-games") << "100\n200\nnot-a-number\n0\n";
 
   Sessions sessions;
   Runner runner;
@@ -139,6 +142,14 @@ int main() {
     sessions.present = false;
     service.Install(500);
     AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { auto* job = JobOf(s, 500); return job && job->state == InstallJobState::kFailed && !job->failure.empty(); });
+  }
+  {
+    // The registry survives a restart: the finished 300 and failed 500 are found again.
+    std::ifstream registry(root / ".playden-games");
+    const std::string text((std::istreambuf_iterator<char>(registry)), std::istreambuf_iterator<char>());
+    CHECK(text.find("300") != std::string::npos);
+    InstallService again(runner, sessions, root.string());
+    CHECK(Installed(again.Snapshot(), 300));
   }
   std::filesystem::remove_all(root);
   std::puts("install service tests passed");

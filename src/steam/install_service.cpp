@@ -1,6 +1,5 @@
 #include "steam/install_service.h"
 
-#include <dirent.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -13,6 +12,7 @@ namespace {
 
 constexpr const char* kRecord = ".playden-install.json";
 constexpr const char* kJournal = ".playden-download";
+constexpr const char* kRegistry = ".playden-games";
 
 bool Exists(const std::string& path) {
   struct stat info {};
@@ -46,14 +46,23 @@ InstallService::~InstallService() { Shutdown(); }
 
 std::string InstallService::RootFor(GameId id) const { return games_root_ + "/" + std::to_string(id); }
 
+// The games root keeps a registry of app IDs Playden manages; directory listing is avoided because
+// the console's readdir did not return entries reliably.
 void InstallService::Scan() {
-  DIR* dir = opendir(games_root_.c_str());
-  if (!dir) return;
-  while (dirent* entry = readdir(dir)) {
-    std::uint32_t id = 0;
-    const std::string name = entry->d_name;
-    const auto parsed = std::from_chars(name.data(), name.data() + name.size(), id);
-    if (parsed.ec != std::errc{} || parsed.ptr != name.data() + name.size() || id == 0) continue;
+  std::vector<GameId> ids;
+  if (FILE* registry = std::fopen((games_root_ + "/" + kRegistry).c_str(), "r")) {
+    char line[64];
+    while (std::fgets(line, sizeof(line), registry) && ids.size() < kMaxJobs * 4) {
+      std::uint32_t id = 0;
+      const auto length = std::strcspn(line, "\r\n");
+      const auto parsed = std::from_chars(line, line + length, id);
+      if (parsed.ec == std::errc{} && parsed.ptr == line + length && id != 0 &&
+          std::find(ids.begin(), ids.end(), id) == ids.end())
+        ids.push_back(id);
+    }
+    std::fclose(registry);
+  }
+  for (const auto id : ids) {
     const auto root = RootFor(id);
     if (Exists(root + "/" + kRecord)) {
       installed_.push_back({id, RecordedBytes(root + "/" + kRecord), root});
@@ -65,10 +74,22 @@ void InstallService::Scan() {
       jobs_.push_back(job);
     }
   }
-  closedir(dir);
   std::sort(installed_.begin(), installed_.end(),
             [](const InstalledGame& left, const InstalledGame& right) { return left.id < right.id; });
   ++revision_;
+}
+
+void InstallService::SaveRegistry() {
+  std::vector<GameId> ids;
+  for (const auto& game : installed_) ids.push_back(game.id);
+  for (const auto& job : jobs_) ids.push_back(job.view.id);
+  mkdir(games_root_.c_str(), 0777);
+  const auto path = games_root_ + "/" + kRegistry;
+  const auto temporary = path + ".tmp";
+  FILE* registry = std::fopen(temporary.c_str(), "w");
+  if (!registry) return;
+  for (const auto id : ids) std::fprintf(registry, "%u\n", id);
+  if (std::fclose(registry) == 0) std::rename(temporary.c_str(), path.c_str());
 }
 
 InstallService::Job* InstallService::Find(GameId id) {
@@ -77,7 +98,10 @@ InstallService::Job* InstallService::Find(GameId id) {
   return nullptr;
 }
 
-void InstallService::Publish() { ++revision_; }
+void InstallService::Publish() {
+  ++revision_;
+  SaveRegistry();
+}
 
 void InstallService::Install(GameId id) {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -201,7 +225,7 @@ void InstallService::Run() {
                                  if (auto* job = Find(id)) {
                                    job->view.done_bytes = done;
                                    job->view.total_bytes = total;
-                                   Publish();
+                                   ++revision_;  // progress only; the registry is unchanged
                                  }
                                });
     }

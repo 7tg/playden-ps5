@@ -6,12 +6,15 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
+#include <sys/mount.h>
+#include <sys/param.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
+#include <limits>
 #include <map>
 #include <set>
 
@@ -89,9 +92,22 @@ bool EnsureFileSize(const std::string& path, std::uint64_t size) {
 }
 
 std::uint64_t DefaultFreeBytes(const std::string& path) {
-  struct statvfs info {};
-  if (statvfs(path.c_str(), &info) != 0) return 0;
-  return static_cast<std::uint64_t>(info.f_bavail) * static_cast<std::uint64_t>(info.f_frsize);
+#if PLAYDEN_PLATFORM_PS5
+  // statfs/statvfs terminate the title on the console (sandboxed call), so free space is unknown
+  // there; a full disk surfaces as a write failure instead.
+  (void)path;
+  return std::numeric_limits<std::uint64_t>::max();
+#endif
+  // statfs is the kernel call on both FreeBSD (PS5) and macOS. The PS5 kernel fills a larger
+  // struct than the SDK header declares (a header-sized buffer overflowed the stack), so give it
+  // generous room; the block size and counts read here sit at the struct's stable start.
+  union {
+    struct statfs info;
+    unsigned char room[16384];
+  } buffer;
+  std::memset(&buffer, 0, sizeof(buffer));
+  if (statfs(path.c_str(), &buffer.info) != 0) return 0;
+  return static_cast<std::uint64_t>(buffer.info.f_bavail) * static_cast<std::uint64_t>(buffer.info.f_bsize);
 }
 
 bool RemoveTree(const std::string& path) {
@@ -212,6 +228,8 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       target.depots.empty() || target.install_root.find("/..") != std::string::npos)
     return fail(InstallError::kProtocol, "invalid install target");
   if (cancel.load()) return fail(InstallError::kCanceled, "canceled");
+  auto trace = [this](const char* step) { if (hooks_.trace) hooks_.trace(step); };
+  trace("access");
 
   std::vector<DepotRequest> requests;
   for (const auto& depot : target.depots) {
@@ -231,6 +249,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   if (listed == CdnError::kCanceled) return fail(InstallError::kCanceled, "canceled");
   if (listed != CdnError::kNone || servers.empty()) return fail(InstallError::kNetwork, "no content servers");
 
+  trace("manifests");
   // Manifests, in mounting order.
   std::vector<DepotManifest> manifests(access.grants.size());
   for (std::size_t index = 0; index < access.grants.size(); ++index) {
@@ -247,6 +266,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     }
   }
 
+  trace("merge");
   // Later depots replace the same path from earlier ones; identical copies stay with the first.
   std::map<std::string, Placement> placements;
   for (std::size_t depot = 0; depot < manifests.size(); ++depot) {
@@ -269,6 +289,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     for (const auto& chunk : placement.file->chunks) progress.download_total += chunk.compressed_size;
   }
 
+  trace("journal");
   // Journal of chunks already written in a previous run.
   const std::string journal_dir = target.install_root + "/" + kJournalDir;
   const std::string journal_path = journal_dir + "/journal";
@@ -293,10 +314,12 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       else remaining_bytes += chunk.original_size;
     }
   }
+  trace("space");
   if (hooks_.free_bytes(target.install_root) < remaining_bytes + 64ull * 1024 * 1024)
     return fail(InstallError::kNoSpace, "not enough free space");
   if (on_progress) on_progress(progress);
 
+  trace("write");
   FILE* journal = std::fopen(journal_path.c_str(), "a");
   if (!journal) return fail(InstallError::kStorage, "cannot write journal");
   std::size_t server_cursor = 0;
@@ -317,6 +340,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       const auto entry = JournalKey(grant.depot_id, file.path, chunk.offset);
       if (done.count(entry)) continue;
       if (cancel.load()) { std::fclose(journal); return fail(InstallError::kCanceled, "canceled"); }
+      if (progress.download_done == 0) trace("first-chunk");
       std::vector<std::uint8_t> plain;
       InstallError result = InstallError::kNetwork;
       const auto attempts = static_cast<std::size_t>(kChunkAttempts) * std::max<std::size_t>(1, std::min<std::size_t>(servers.size(), 2));
@@ -338,6 +362,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
         if (hooks_.last_failure && result == InstallError::kNetwork) outcome.detail += " " + hooks_.last_failure();
         return outcome;
       }
+      if (progress.download_done == 0) trace("first-write");
       if (!WriteAt(path, file.size, chunk.offset, plain)) { std::fclose(journal); return fail(InstallError::kStorage, "cannot write file"); }
       std::fprintf(journal, "%s\n", entry.c_str());
       std::fflush(journal);
