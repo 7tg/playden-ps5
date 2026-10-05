@@ -45,3 +45,13 @@ The experimental [Wine build](../../results/20261006-wine-build/README.md) is no
 replacement runtime input: it lacks graphics driver inputs, a complete runtime
 inventory and native loading/gameplay acceptance. It does not enable additional
 settings capabilities.
+
+`prospero_kit_producer_consumer` exercises the pinned Python packager's emitted
+manifest through C++ `VerifyInstalledKit`, using production streaming SHA-256.
+Its synthetic PE/PRX/title fixture uses Wine's Enhanced crypto provider registry
+layout in both views and repaired COM registrations. It checks independent
+manifest trust, changed/extra payload rejection and a self-consistent helper
+replacement against independent title pins. The fake helper allowlist override
+exists only in that Python test process; production trust is unchanged. This
+format/integrity regression does not establish real runtime provenance, licenses,
+template initialization or PS5 filesystem/loading acceptance.

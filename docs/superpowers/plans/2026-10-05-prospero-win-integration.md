@@ -642,3 +642,12 @@ Wrong-revision CMake overrides are rejected. See [kit instructions and limits](.
 Remote clean-checkout distribution, immutable kit/manifest hash, producer-to-
 consumer validation and fresh-bottle acceptance remain open; no Task 3 completion
 or replacement-runtime capability is claimed.
+
+Task 3 producer/consumer regression: the pinned Python packager now emits a
+synthetic kit that the C++ production SHA-256 admission backend consumes. The
+fixture uses the Enhanced-provider selection independently in both Wine registry
+views; it retains the repaired 32-bit MMDeviceEnumerator/DirectInput8 shape.
+Changed payloads, extra files, a wrong manifest pin and a self-consistent helper
+replacement are refused. Synthetic fixture trust overrides are test-only.
+This closes the format-boundary test gap, while admission of the actual release
+runtime/template and its independently bound preparation provenance remains open.

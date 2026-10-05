@@ -59,6 +59,13 @@ if(PLAYDEN_HOMEBREW_UI)
     target_link_libraries(playden_runtime_kit_admission PUBLIC
         playden_runtime_kit_manifest playden_runtime_artifact_hash)
     if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+        add_executable(prospero_kit_consumer_test
+            "${CMAKE_SOURCE_DIR}/tests/kit_producer_consumer_test.cpp")
+        target_link_libraries(prospero_kit_consumer_test PRIVATE playden_runtime_kit_admission)
+        add_test(NAME prospero_kit_producer_consumer
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_kit_producer_consumer.py"
+                --source "${PLAYDEN_PROSPERO_SOURCE_DIR}"
+                --consumer $<TARGET_FILE:prospero_kit_consumer_test>)
         add_executable(runtime_kit_admission_test
             "${CMAKE_SOURCE_DIR}/tests/runtime_kit_manifest_test.cpp")
         target_compile_definitions(runtime_kit_admission_test PRIVATE PLAYDEN_TEST_KIT_ADMISSION=1)
