@@ -19,6 +19,11 @@ directory to the profile's `working_directory` before launch
 (`native/wine64_main.c:1055-1061`). Added the ownership table and the
 implementation plan.
 
+**S0 result 2026-10-05:** the probe passed. A `dxvk.conf` with `d3d9.maxFrameRate = 30`
+in the HL2 folder dropped the menu from 59.1 to 29.9 FPS on the console
+([evidence](../../results/20261005-dxvk-conf-probe/README.md)). The "Probe" rows below are
+Playden-only work.
+
 ## Terms
 
 The word "profile" means three different things across the projects. This
@@ -97,7 +102,7 @@ write `[display]`, `[input]`, `[debug]` or `dll_overrides`.
 | --- | --- |
 | **Ready** | prospero-win reads it now. Only Playden work. |
 | **Ready, path-gated** | Reads it, but only some graphics paths honor it. Playden must gate the row. |
-| **Probe** | Possible today through `dxvk.conf` in the game folder. Confirm with the S0 console probe. |
+| **Probe** | Works today through `dxvk.conf` in the game folder (S0 passed for the frame limit). Each option still needs its own console check. |
 | **prospero-win change** | Needs a new profile key, section or tool in prospero-win. |
 | **prospero-win backend** | Needs native PS5 driver, input or audio work in prospero-win. |
 
@@ -118,7 +123,7 @@ write `[display]`, `[input]`, `[debug]` or `dll_overrides`.
 | Graphics backend | Ready, but locked by recipe | None while locked | Read-only row |
 | Library overrides | Ready | None | Merge after locked overrides; validate |
 | Logging | Ready | None | Presets plus revert-after-one-session |
-| Frame limit | Probe | None if probe passes, else forward `DXVK_CONFIG_FILE` | Write `dxvk.conf` in the game folder; keep it through repair and verify |
+| Frame limit | Probe (passed) | None | Write `dxvk.conf` in the game folder; keep it through repair and verify |
 | VSync | Probe | Same | Same |
 | Frame latency | Probe | Same | Same |
 | Reported GPU vendor / VRAM | Probe | Same | Same; recipe-scoped values |
@@ -365,7 +370,7 @@ longest lead time.
 
 | Step | Work | Depends on | Done when |
 | --- | --- | --- | --- |
-| **S0** | Console probe: put a `dxvk.conf` with `d3d9.maxFrameRate = 30` in the HL2 folder and launch it with the existing profile path | Console, HL2 install | `hl2_d3d9.log` shows `Found config file` and the frame rate is capped. The result decides whether frame limit, VSync, frame latency and reported VRAM are Playden-only |
+| **S0** ✅ | Console probe: put a `dxvk.conf` with `d3d9.maxFrameRate = 30` in the HL2 folder and launch it with the existing profile path | Console, HL2 install | `hl2_d3d9.log` shows `Found config file` and the frame rate is capped. The result decides whether frame limit, VSync, frame latency and reported VRAM are Playden-only |
 | **S1** | Settings catalogue and model in `src/runtime/game_settings.{h,cpp}`: setting ids, tiers, bindings, apply modes, `requires`; overrides; `BuildEffectiveSettings(recipe, preset, overrides)` | — | Host tests: absent vs explicit values, locked recipe values, preset reset |
 | **S2** | Full prospero profile writer: `[display]`, `[input]`, `[debug]`, `dll_overrides`; recipe format with locked arguments and `resolution_args`; HL2 recipe; bundled presets and `.input` files | S1 | Round-trip tests against the upstream parser rules (`check_profiles.py`); HL2 output equals the owner-verified profile |
 | **S3** | P1 settings UI in simulation: sheet, picker, preset chooser, disabled and locked rows, toast; replaces the simulation-only modal and its tests | S1 | Host graphical tests pass |

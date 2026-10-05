@@ -376,6 +376,10 @@ int main(int argc, char** argv) {
         std::vector<playden::runtime::SettingsPreset> presets;
         std::vector<playden::runtime::GameRecipe> recipes;
         std::string reason;
+        // The kit's DXVK reads dxvk.conf from the game folder (results/20261005-dxvk-conf-probe).
+        playden::runtime::KitCapabilities kit;
+        kit.dxvk_config = true;
+        simulation.SetKitCapabilities(kit);
         if (playden::runtime::LoadSettingsData(std::string(PLAYDEN_HOMEBREW_ASSETS_DIR) + "/runtime", &presets, &recipes, &reason))
             simulation.SetSettingsData(std::move(presets), std::move(recipes));
         else
