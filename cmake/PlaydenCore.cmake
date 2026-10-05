@@ -72,7 +72,14 @@ target_include_directories(playden_runtime_installs PUBLIC "${CMAKE_SOURCE_DIR}/
 target_compile_features(playden_runtime_installs PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_installs PUBLIC playden_storage playden_steam_protocol playden_game_paths)
 
+add_library(playden_native_access STATIC "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_access.cpp")
+target_include_directories(playden_native_access PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_native_access PUBLIC cxx_std_17)
+
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(native_access_test "${CMAKE_SOURCE_DIR}/tests/native_access_test.cpp")
+    target_link_libraries(native_access_test PRIVATE playden_native_access)
+    add_test(NAME native_access COMMAND native_access_test)
     add_executable(runtime_game_install_test "${CMAKE_SOURCE_DIR}/tests/runtime_game_install_test.cpp")
     target_link_libraries(runtime_game_install_test PRIVATE playden_runtime_installs)
     add_test(NAME runtime_game_install COMMAND runtime_game_install_test)
