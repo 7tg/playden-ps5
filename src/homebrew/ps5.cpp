@@ -20,6 +20,7 @@
 
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 #include <string>
 #include <cstring>
@@ -102,6 +103,18 @@ void run_launch_request() {
         std::fprintf(log, "launch_result title=%s result=0x%08x\n", words[0].c_str(), result);
         std::fclose(log);
     }
+}
+// Development aid for unattended console runs: /app0/dev/install-request.txt holding one Steam
+// app ID queues that install once. Nothing in the UI triggers it.
+std::uint32_t take_install_request() {
+    const char* request_path = "/app0/dev/install-request.txt";
+    FILE* request = std::fopen(request_path, "r");
+    if (!request) return 0;
+    char line[64] = {};
+    const bool read = std::fgets(line, sizeof(line), request) != nullptr;
+    std::fclose(request);
+    std::remove(request_path);
+    return read ? static_cast<std::uint32_t>(std::strtoul(line, nullptr, 10)) : 0;
 }
 }  // namespace
 
@@ -196,6 +209,9 @@ int main() {
                 hui::sys::hide_splash_screen();
                 presented = true;
                 run_launch_request();
+#if !PLAYDEN_UI_SIMULATION
+                if (const auto app = take_install_request()) installs.Install(app);
+#endif
             }
             // Work advances only through the documented manual fixture clock.
             pad.tick(1.0F / 60.0F);
