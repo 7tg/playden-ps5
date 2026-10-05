@@ -1,0 +1,4 @@
+REC seq=45 t=32803.477174420 WINE info:  Found config file: dxvk.conf
+REC seq=46 t=32803.481240783 WINE info:  Effective configuration:
+REC seq=47 t=32803.481312629 WINE info:    d3d9.maxAvailableMemory = 2048
+REC seq=48 t=32803.481328345 WINE info:    d3d9.maxFrameLatency = 1

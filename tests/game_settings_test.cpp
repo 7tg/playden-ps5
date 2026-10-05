@@ -139,14 +139,12 @@ int main(int argc, char** argv) {
   KitCapabilities dxvk_kit;
   dxvk_kit.dxvk_config = true;
   overrides = {{"frame_limit", "30"}, {"vsync", "off"}, {"frame_latency", "1"}, {"reported_vram", "4096"}};
-  // Only the console-checked frame cap applies with today's kit.
+  // VSync off needs a display that honors DXVK's present interval; the rest apply today.
   CHECK(BuildEffectiveSettings(hl2, nullptr, overrides, dxvk_kit, &settings, &error));
   CHECK(settings.values.at("frame_limit").available && !settings.values.at("vsync").available &&
-        !settings.values.at("frame_latency").available && !settings.values.at("reported_vram").available);
-  CHECK(RenderDxvkConfig(settings) == RenderDxvkConfig(settings).substr(0, RenderDxvkConfig(settings).find('\n') + 1) +
-                                          "dxgi.maxFrameRate = 30\nd3d9.maxFrameRate = 30\n");
+        settings.values.at("frame_latency").available && settings.values.at("reported_vram").available);
+  CHECK(RenderDxvkConfig(settings).find("presentInterval") == std::string::npos);
   dxvk_kit.dxvk_present = true;
-  dxvk_kit.dxvk_unverified = true;
   CHECK(BuildEffectiveSettings(hl2, nullptr, overrides, KitCapabilities{}, &settings, &error));
   CHECK(RenderDxvkConfig(settings).empty());
   CHECK(BuildEffectiveSettings(hl2, nullptr, overrides, dxvk_kit, &settings, &error));
@@ -154,7 +152,7 @@ int main(int argc, char** argv) {
   CHECK(config.find("dxgi.maxFrameRate = 30\nd3d9.maxFrameRate = 30\n") != std::string::npos);
   CHECK(config.find("dxgi.syncInterval = 0\nd3d9.presentInterval = 0\n") != std::string::npos);
   CHECK(config.find("d3d9.maxFrameLatency = 1\n") != std::string::npos);
-  CHECK(config.find("dxgi.maxDeviceMemory = 4096\n") != std::string::npos);
+  CHECK(config.find("dxgi.maxDeviceMemory = 4096\nd3d9.maxAvailableMemory = 4096\n") != std::string::npos);
 
   // With dxvk.conf, a DXVK overlay is written as dxvk.hud and show_fps stays false.
   CHECK(BuildEffectiveSettings(hl2, nullptr, {{"performance_overlay", "on"}, {"overlay_detail", "frametimes"}}, dxvk_kit,

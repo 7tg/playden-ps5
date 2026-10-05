@@ -29,7 +29,6 @@ enum class ValueSource { kPlayden, kRecipe, kPreset, kUser };
 struct KitCapabilities {
   bool dxvk_config = false;   // dxvk.conf in the game folder is read (roadmap step S0)
   bool dxvk_present = false;  // the display honors DXVK's present interval (VSync off)
-  bool dxvk_unverified = false;  // frame latency and reported VRAM, not yet checked on a console
   bool environment = false;  // prospero-win [environment] section (upstream U1, not released)
   bool registry = false;     // Playden can edit the stopped bottle's user.reg (decision D2)
   bool input_tuning = false;  // prospero-win [input] stick_deadzone and rumble (upstream U4, not released)

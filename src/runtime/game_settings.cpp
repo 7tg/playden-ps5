@@ -145,7 +145,7 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"game", "Game default", ""}, {"1", "1", "Lowest delay."}, {"2", "2", ""}, {"3", "3", ""}},
                         "game", 2));
   list.push_back(Choice("reported_vram", "Reported video memory", "How much VRAM the game is told it has. Does not add memory.",
-                        "dxgi.maxDeviceMemory", T::kCompatibility,
+                        "dxgi.maxDeviceMemory · d3d9.maxAvailableMemory", T::kCompatibility,
                         {{"game", "DXVK default", ""}, {"2048", "2 GB", ""}, {"4096", "4 GB", ""}}, "game", 2));
   list.push_back(Choice("windows_version", "Windows version", "Which Windows the game is told it runs on.",
                         "winver · registry", T::kCompatibility,
@@ -217,10 +217,9 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   if (id == "frame_limit" || id == "vsync" || id == "frame_latency" || id == "reported_vram") {
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
-    // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, VSync off
-    // does not change the 60 Hz pacing, latency and VRAM have no visible effect yet.
+    // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, DXVK applies
+    // latency and VRAM, VSync off does not change the 60 Hz pacing.
     if (id == "vsync" && !kit.dxvk_present) return "The PS5 display paces frames at 60 Hz; VSync cannot be turned off yet.";
-    if ((id == "frame_latency" || id == "reported_vram") && !kit.dxvk_unverified) return "Not checked on the console yet.";
   }
   if ((id == "windows_version" || id == "text_scale") && !kit.registry)
     return "Needs access to the game's bottle, which comes with the Play button.";
@@ -524,7 +523,8 @@ std::string RenderDxvkConfig(const EffectiveSettings& settings) {
     text += std::string("dxvk.hud = ") + elements + "\n";
   }
   const auto& vram = option("reported_vram");
-  if (vram.available && vram.value != "game") text += "dxgi.maxDeviceMemory = " + vram.value + "\n";
+  if (vram.available && vram.value != "game")
+    text += "dxgi.maxDeviceMemory = " + vram.value + "\nd3d9.maxAvailableMemory = " + vram.value + "\n";
   if (text.empty()) return text;
   return std::string(kDxvkHeader) + " Changes here are replaced on the next launch.\n" + text;
 }

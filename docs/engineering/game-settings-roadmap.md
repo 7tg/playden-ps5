@@ -402,8 +402,8 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
   edited DPI. The rows stay disabled until the production path can reach the stopped bottle
   (S4, integration-owned).
 - S5: `ApplyGameSettings` writes the profile and `dxvk.conf`. Still open: call it from
-  the real Play action (S4). VSync off was checked and has no effect (row disabled); latency
-  and VRAM could not be observed (rows disabled until checked).
+  the real Play action (S4). VSync off was checked and has no effect (row disabled); DXVK
+  applies frame latency and reported VRAM (D3D9 and DXGI options), so those rows are enabled.
 
 | Step | Work | Depends on | Done when |
 | --- | --- | --- | --- |
