@@ -441,13 +441,17 @@ journaled profile/descriptor publication and the kit trust configuration.
    `KitCapabilitiesFromManifest(result.capabilities, bottle_access)` and pass the result to the
    settings sheet (`Simulation::SetKitCapabilities`) and to the launch plan. `bottle_access`
    is true only when the adapter can reach the stopped bottle. A kit that lists none of these
-   keeps every gated row disabled, which is the safe default. The released prospero-win kit
+   keeps every gated row disabled, which is the safe default. Manifests list capabilities in
+   sorted order, so these names sort between `ps5-…` and `wine-…` entries. The released prospero-win kit
    should list `settings-dxvk-config` (checked on the console); the other three need U5/U4/U1.
 2. **Launch plan.** `BuildSettingsLaunchPlan({recipe, preset, record, kit, {profile_id,
    install_path}, runtime_dir})` returns the profile bytes, the input presets the profile
    references (bundled in `runtime/input`), `dxvk.conf`, registry values and
    `settings_revision` (the record's `revision`). A missing preset fails the plan; stale
-   player values are ignored, as in the sheet.
+   player values are ignored, as in the sheet. The plan points into the recipe, so it must not
+   outlive it. The player can change Launch option, so the adapter should compare
+   `plan.launch_entry_id` and the profile's `executable`/`working_directory` with the
+   `RuntimeInstall` record, and either update the record or refuse to publish.
 3. **Publication.** In `provide_publication`, call `FillProfilePublication(plan, &publication)`;
    it sets `profile_id`, `profile_bytes`, `settings_revision`, `required_input_presets` and
    `input_presets`. The adapter fills identity fields and `profile_references_validated` from

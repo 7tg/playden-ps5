@@ -227,7 +227,8 @@ struct SettingsLaunchPlan {
   std::vector<std::pair<std::string, std::string>> input_presets;
   std::string dxvk_config;               // empty: no Playden dxvk.conf (an old one is removed)
   std::vector<RegistryValue> registry;   // empty unless the kit has bottle access
-  EffectiveSettings settings;            // its launch pointer refers into the recipe
+  EffectiveSettings settings;            // its launch pointer refers into the recipe: the plan
+                                         // must not outlive the recipe it was built from
 };
 
 struct SettingsLaunchInput {

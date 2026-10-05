@@ -1305,15 +1305,25 @@ bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& insta
   if (read == RelativeRead::kError) return close_fail("cannot read dxvk.conf");
   if (has_config && existing.compare(0, std::char_traits<char>::length(kDxvkHeader), kDxvkHeader) != 0)
     return close_fail("the game folder has its own dxvk.conf; Playden will not replace it");
-  // The registry goes first: it can fail on a malformed bottle, and then nothing has changed.
-  if (!plan.registry.empty() && !ApplyRegistrySettings(plan.settings, prefix_dir, unix_time, reason)) {
-    ::close(directory);
-    return false;
-  }
+  // dxvk.conf first: if the registry then fails (a malformed bottle), dxvk.conf is put back,
+  // so a refusal leaves both as they were.
+  bool changed = false;
   if (plan.dxvk_config.empty()) {
-    if (has_config && ::unlinkat(directory, "dxvk.conf", 0) != 0) return close_fail("cannot remove dxvk.conf");
+    if (has_config) {
+      if (::unlinkat(directory, "dxvk.conf", 0) != 0) return close_fail("cannot remove dxvk.conf");
+      changed = true;
+    }
   } else if (!has_config || existing != plan.dxvk_config) {
     if (!WriteAtomicAt(directory, "dxvk.conf", plan.dxvk_config)) return close_fail("cannot write dxvk.conf");
+    changed = true;
+  }
+  if (!plan.registry.empty() && !ApplyRegistrySettings(plan.settings, prefix_dir, unix_time, reason)) {
+    if (changed) {
+      if (has_config) WriteAtomicAt(directory, "dxvk.conf", existing);
+      else ::unlinkat(directory, "dxvk.conf", 0);
+    }
+    ::close(directory);
+    return false;
   }
   ::close(directory);
   return true;
