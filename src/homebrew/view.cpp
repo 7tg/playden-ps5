@@ -33,6 +33,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -393,6 +394,7 @@ class Render::Impl
         if (live_artwork_) live_artwork_->BeginFrame(state.simulation_mode ? 0 : state.account_generation);
         update_qr_cache(state);
         focus_motion_.begin_frame(dt, state.reduced_motion);
+        frame_dt_ = std::isfinite(dt) ? std::clamp(dt, 0.0F, 0.1F) : 0.0F;
         const ViewData &view = simulation.view();
         const ViewData &route_view = simulation.route_view();
         const std::string overlay_key = state.editor.active ? "keyboard" :
@@ -1107,29 +1109,43 @@ class Render::Impl
             return;
         }
 
+        // As on macOS (`FocusViewport.reveal`): Home scrolls only when the focused shelf or tile
+        // would leave the screen, and eases there, so the highlight is what moves; each shelf
+        // keeps its own column and scroll position.
+        constexpr float shelf_pitch = 380.0F;
+        constexpr float tile_pitch = 233.0F;
+        constexpr float tile_width = 213.0F;
         const int active_shelf = std::clamp(state.navigation.home_shelf, 0,
                                             static_cast<int>(view.shelves.size()) - 1);
-        const int first_shelf = std::clamp(active_shelf > 0 ? active_shelf - 1 : 0, 0,
-                                           std::max(0, static_cast<int>(view.shelves.size()) - 2));
-        for (int visible = 0; visible < 2 && first_shelf + visible < static_cast<int>(view.shelves.size());
-             ++visible)
+        const float shelves_height = static_cast<float>(view.shelves.size()) * shelf_pitch;
+        home_scroll_.target = reveal(home_scroll_.target, active_shelf * shelf_pitch,
+                                     active_shelf * shelf_pitch + shelf_pitch, 2.0F * shelf_pitch, shelves_height);
+        const float vertical = home_scroll_.step(frame_dt_, state.reduced_motion);
+        scene_.push_clip({0.0F, 180.0F, kWidth, kFooterY - 180.0F});
+        for (int shelf_index = 0; shelf_index < static_cast<int>(view.shelves.size()); ++shelf_index)
         {
-            const int shelf_index = first_shelf + visible;
             const ViewData::Shelf &shelf = view.shelves[static_cast<std::size_t>(shelf_index)];
-            const float top = 205.0F + visible * 380.0F;
-            section_label(shelf.title, 96.0F, top);
+            const float top = 205.0F + shelf_index * shelf_pitch - vertical;
             const auto remembered = state.navigation.home_shelf_focus.find(shelf.key);
-            const int focused_item = remembered == state.navigation.home_shelf_focus.end() ?
-                                         shelf.focused_item : remembered->second;
-            const ShelfWindow window = shelf_window(static_cast<int>(shelf.items.size()), focused_item);
-            for (int column = 0; column < window.count; ++column)
+            const int count = static_cast<int>(shelf.items.size());
+            const int focused_item = std::clamp(remembered == state.navigation.home_shelf_focus.end() ?
+                                                    shelf.focused_item : remembered->second, 0, std::max(0, count - 1));
+            Scroll &row = home_rows_[shelf.key];
+            row.target = reveal(row.target, focused_item * tile_pitch, focused_item * tile_pitch + tile_width,
+                                kWidth - 2.0F * kSafeX, count * tile_pitch - (tile_pitch - tile_width));
+            const float horizontal = row.step(frame_dt_, state.reduced_motion);
+            if (top + shelf_pitch < 180.0F || top > kFooterY)
+                continue;
+            section_label(shelf.title, 96.0F, top);
+            const int first = std::max(0, static_cast<int>(horizontal / tile_pitch) - 1);
+            const int last = std::min(count, static_cast<int>((horizontal + kWidth) / tile_pitch) + 1);
+            for (int item_index = first; item_index < last; ++item_index)
             {
-                const int item_index = window.first + column;
                 const Game *game = game_by_id(
                     state, shelf.items[static_cast<std::size_t>(item_index)].game_id);
                 if (game == nullptr)
                     continue;
-                const gfx::Rect art{96.0F + column * 233.0F, top + 28.0F, 213.0F, 320.0F};
+                const gfx::Rect art{kSafeX + item_index * tile_pitch - horizontal, top + 28.0F, tile_width, 320.0F};
                 const bool focused = route_focus_ && shelf_index == active_shelf &&
                                      item_index == focused_item;
                 if (focused)
@@ -1138,7 +1154,41 @@ class Render::Impl
                             "home-" + shelf.key + "-" + std::to_string(game->id));
             }
         }
+        scene_.pop_clip();
     }
+
+    // The smallest scroll that keeps [item_min, item_max] inside the viewport (macOS FocusViewport).
+    static float reveal(float offset, float item_min, float item_max, float viewport, float content)
+    {
+        const float maximum = std::max(0.0F, content - viewport);
+        float result = std::clamp(offset, 0.0F, maximum);
+        if (item_min < result)
+            result = item_min;
+        else if (item_max > result + viewport)
+            result = item_max - viewport;
+        return std::clamp(result, 0.0F, maximum);
+    }
+
+    // A scroll position easing to its target, close to the macOS 0.18 s ease-out.
+    struct Scroll
+    {
+        float target = 0.0F;
+        float value = 0.0F;
+        bool started = false;
+        float step(float dt, bool reduced_motion)
+        {
+            if (!started || reduced_motion)
+            {
+                started = true;
+                value = target;
+                return value;
+            }
+            value += (target - value) * (1.0F - std::exp(-dt / 0.05F));
+            if (std::fabs(target - value) < 0.5F)
+                value = target;
+            return value;
+        }
+    };
 
     void draw_library(ui::Canvas &canvas, Simulation &simulation)
     {
@@ -2657,6 +2707,9 @@ class Render::Impl
     gfx::DrawList scene_;
     gfx::DrawList overlay_;
     FocusMotion focus_motion_;
+    Scroll home_scroll_;
+    std::map<std::string, Scroll> home_rows_;
+    float frame_dt_ = 1.0F / 60.0F;
     ui::TabBar tabs_;
     ui::GridView grid_;
     ui::ListView list_;
