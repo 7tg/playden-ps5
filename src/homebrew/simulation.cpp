@@ -288,6 +288,12 @@ std::string action_label(const std::string& key) {
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
         {"inject-startup-loading", "Show startup loading"}};
     if (const auto found = labels.find(key); found != labels.end()) return found->second;
+    // Per-job actions carry the job id after the verb.
+    for (const auto& [prefix, label] : std::initializer_list<std::pair<const char*, const char*>>{
+             {"job-pause-", "Pause download"}, {"job-resume-", "Resume download"}, {"job-retry-", "Retry download"},
+             {"job-cancel-", "Cancel download"}, {"job-up-", "Move up"}, {"job-down-", "Move down"},
+             {"job-open-", "Open game"}, {"job-dismiss-", "Dismiss"}})
+        if (key.rfind(prefix, 0) == 0) return label;
     std::string title = key;
     std::replace(title.begin(), title.end(), '-', ' ');
     if (!title.empty()) title.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(title.front())));
@@ -2729,7 +2735,7 @@ void Simulation::activate() {
         open_live_log("install", game_id);
     }
     else if (live() && action_name == "logs-pick")
-        open_modal({"logs-pick", "Logs", state_.navigation.focus_key, {"log-install", "log-auth", "log-launch", "cancel"}, 0, false});
+        open_modal({"diagnostics", "Logs", state_.navigation.focus_key, {"log-install", "log-auth", "log-launch", "cancel"}, 0, false});
     else if (live() && (action_name == "log-install" || action_name == "log-auth" || action_name == "log-launch"))
         open_live_log(action_name.substr(4), 0);
     else if (live() && action_name == "logs-refresh") load_live_log();

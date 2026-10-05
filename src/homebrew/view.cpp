@@ -746,7 +746,8 @@ class Render::Impl
                      gfx::Align::right);
     }
 
-    void draw_actions(const ViewData &view, float x, float y, float width, bool large_first = true)
+    // Returns the y just below the last action drawn.
+    float draw_actions(const ViewData &view, float x, float y, float width, bool large_first = true)
     {
         std::vector<const ViewRow *> actions;
         if (!view.actions.empty())
@@ -775,6 +776,7 @@ class Render::Impl
                         is_focused, index == 0);
             y += height + (details ? 12.0F : 16.0F);
         }
+        return y;
     }
 
     void draw_startup(ui::Canvas &, const ViewData &view, const State &state)
@@ -1504,10 +1506,35 @@ class Render::Impl
         const std::string title = game == nullptr ? view.title : game->title;
         const ui::FontRef &title_face = font_for(title, fonts_.display);
         ui::paragraph(scene_, title_face, title, 96.0F, 320.0F, 68.0F, 800.0F, 72.0F, kText, 3);
-        draw_actions(view, 96.0F, 638.0F, 390.0F, true);
+        const float actions_bottom = draw_actions(view, 96.0F, 638.0F, 390.0F, true);
         if (!state.simulation_mode)
-            ui::paragraph(scene_, fonts_.regular, "Install and launch are unavailable.",
-                          96.0F, 836.0F, 19.0F, 390.0F, 26.0F, kSecondary, 2);
+        {
+            // Live status under the actions: install state, its drive, or where an install would go.
+            std::string note = "Launching games is not available yet.";
+            gfx::Color tone = kSecondary;
+            for (const ViewRow &row : view.rows)
+            {
+                if (row.key.rfind("details-", 0) != 0)
+                    continue;
+                if (row.kind == RowKind::Status)
+                {
+                    note = row.title;
+                    if (!row.value.empty())
+                        note += " · " + row.value;
+                    if (!row.subtitle.empty())
+                        note += " · " + row.subtitle;
+                    tone = row.title == "Storage disconnected" ? kAmber : kSecondary;
+                    break;
+                }
+                if (row.key == "details-install" && !row.subtitle.empty())
+                {
+                    note = row.subtitle.rfind("To ", 0) == 0 ? "Installs to " + row.subtitle.substr(3) : row.subtitle;
+                    break;
+                }
+            }
+            ui::paragraph(scene_, fonts_.regular, note, 96.0F, std::max(836.0F, actions_bottom + 22.0F), 19.0F, 390.0F,
+                          26.0F, tone, 2);
+        }
 
         const std::string description = game == nullptr || game->description.empty() ?
                                             "Description unavailable." : game->description;
@@ -1537,8 +1564,8 @@ class Render::Impl
             scene_.rounded_rect({1112.0F, 638.0F, 712.0F, 300.0F}, 12.0F, kPanel);
             const Installation *installation = nullptr;
             const auto found_installation = std::find_if(
-                state.installations.begin(), state.installations.end(), [&game](const Installation &item) {
-                    return item.game_id == game->id && item.installed_bytes > 0;
+                state.installations.begin(), state.installations.end(), [&game, &state](const Installation &item) {
+                    return item.game_id == game->id && (item.installed_bytes > 0 || !state.simulation_mode);
                 });
             if (found_installation != state.installations.end())
                 installation = &*found_installation;
@@ -2102,8 +2129,10 @@ class Render::Impl
             if (found != current_state_->profiles.end())
                 return found->name;
         }
+        // Titles come labeled from the model; only a bare action key needs its dashes softened.
         std::string label = row.title.empty() ? row.action : row.title;
-        std::replace(label.begin(), label.end(), '-', ' ');
+        if (row.title.empty())
+            std::replace(label.begin(), label.end(), '-', ' ');
         if (!label.empty() && label.front() >= 'a' && label.front() <= 'z')
             label.front() = static_cast<char>(label.front() - 'a' + 'A');
         return label;
