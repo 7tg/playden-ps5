@@ -175,6 +175,10 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   if (id == "frame_limit" || id == "vsync" || id == "frame_latency" || id == "reported_vram") {
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
+    // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, VSync off
+    // does not change the 60 Hz pacing, latency and VRAM have no visible effect yet.
+    if (id == "vsync" && !kit.dxvk_present) return "The PS5 display paces frames at 60 Hz; VSync cannot be turned off yet.";
+    if ((id == "frame_latency" || id == "reported_vram") && !kit.dxvk_unverified) return "Not checked on the console yet.";
   }
   if (id == "windows_version" && !kit.registry) return "Needs a runtime update.";
   if (id == "performance_overlay" && graphics == "gdi") return "Only available with DXVK or OpenGL.";

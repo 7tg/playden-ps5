@@ -27,7 +27,9 @@ enum class ValueSource { kPlayden, kRecipe, kPreset, kUser };
 
 // What the runtime kit can apply beyond the prospero profile.
 struct KitCapabilities {
-  bool dxvk_config = false;  // dxvk.conf in the game folder is read (roadmap step S0)
+  bool dxvk_config = false;   // dxvk.conf in the game folder is read (roadmap step S0)
+  bool dxvk_present = false;  // the display honors DXVK's present interval (VSync off)
+  bool dxvk_unverified = false;  // frame latency and reported VRAM, not yet checked on a console
   bool environment = false;  // prospero-win [environment] section (upstream U1)
   bool registry = false;     // stopped-bottle registry overlays (upstream U2)
 };

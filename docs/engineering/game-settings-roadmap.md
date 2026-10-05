@@ -124,9 +124,9 @@ write `[display]`, `[input]`, `[debug]` or `dll_overrides`.
 | Library overrides | Ready | None | Merge after locked overrides; validate |
 | Logging | Ready | None | Presets plus revert-after-one-session |
 | Frame limit | Probe (passed) | None | Write `dxvk.conf` in the game folder; keep it through repair and verify |
-| VSync | Probe | Same | Same |
-| Frame latency | Probe | Same | Same |
-| Reported GPU vendor / VRAM | Probe | Same | Same; recipe-scoped values |
+| VSync | prospero-win backend | VSync off was checked: still paced at 60 Hz (56–59 FPS). Needs immediate/mailbox present on the RADV/display-plane path | Row disabled with that reason |
+| Frame latency | Probe (not observable yet) | None expected | Row disabled until a console check shows an effect |
+| Reported GPU vendor / VRAM | Probe (not observable yet) | None expected | Row disabled until checked; recipe-scoped values |
 | Overlay detail (frame time, memory) | Probe, with a decision | `show_fps` sets env `DXVK_HUD=fps`, which overrides `dxvk.hud`. Either Playden writes `dxvk.hud` and keeps `show_fps=false`, or prospero-win takes an element list | Depends on decision D1 |
 | Environment variables | prospero-win change | New typed `[environment]` section with an allowlist, plus a schema/minimum-runtime marker so older runtimes fail clearly | Text row with validation |
 | Windows version, text scale, locale, DLL load order in registry, CPU topology | prospero-win change, or Playden | A registry overlay helper with backup, both registry views, run while the title is stopped | Rows with "Game must be closed"; decision D2 |
@@ -375,7 +375,8 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
   `runtime/recipes/steam-220-hl2-v1.json`; profiles checked against prospero-win's parser rules.
 - S3: the sheet, pickers, preset chooser, button mapping and save toast in simulation mode.
 - S5: `ApplyGameSettings` writes the profile and `dxvk.conf`. Still open: call it from
-  the real Play action (S4) and check VSync, latency and VRAM on the console.
+  the real Play action (S4). VSync off was checked and has no effect (row disabled); latency
+  and VRAM could not be observed (rows disabled until checked).
 
 | Step | Work | Depends on | Done when |
 | --- | --- | --- | --- |

@@ -22,3 +22,16 @@ consistent with this.
 
 Not shown: VSync, latency and VRAM options were not measured here; each still needs its
 own console acceptance when its row ships (roadmap S5).
+
+## VSync off (21:07–21:09)
+
+- `dxvk-vsync-off.conf` (`dxgi.syncInterval = 0`, `d3d9.presentInterval = 0`) in the same
+  folder. The menu read **56.0** then **59.4 FPS** (`vsync-off-56fps.jpg`,
+  `vsync-off-59fps.jpg`): no uncapping. The PS5 presentation path still paces at 60 Hz, as
+  the settings catalogue predicted (tearing/immediate modes need RADV/display-plane work).
+- The file was removed afterwards and the folder listed to confirm. Claim released.
+
+Result: VSync stays disabled in Game settings with the reason "The PS5 display paces frames
+at 60 Hz; VSync cannot be turned off yet." Frame latency and reported VRAM were not
+observable here (prospero-win session logs do not show DXVK's config lines), so those rows
+stay disabled until a check proves an effect.
