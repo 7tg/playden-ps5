@@ -1413,7 +1413,7 @@ namespace playden::runtime {
 
 bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit) {
   for (const auto& feature : community.requires_prospero_win) {
-    if ((feature == "environment" && !kit.environment) || (feature == "input-tuning" && !kit.input_tuning) ||
+    if ((feature == "profile-environment" && !kit.environment) || (feature == "input-tuning" && !kit.input_tuning) ||
         (feature == "input-wheel" && !kit.input_wheel) || (feature == "audio-volume" && !kit.audio_volume))
       return false;
   }

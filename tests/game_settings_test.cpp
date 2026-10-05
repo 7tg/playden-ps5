@@ -322,6 +322,8 @@ int main(int argc, char** argv) {
   needs_volume.requires_prospero_win.push_back("audio-volume");
   CHECK(!CommunityPresetSupported(needs_volume, KitCapabilities{}));
   CHECK(CommunityPresetSupported(needs_volume, KitCapabilitiesFromManifest({kKitAudioVolume}, false)));
+  needs_volume.requires_prospero_win.push_back("profile-environment");
+  CHECK(!CommunityPresetSupported(needs_volume, KitCapabilitiesFromManifest({kKitAudioVolume}, false)));
   CHECK(BuildEffectiveSettings(hl2, &community.preset, {}, KitCapabilities{}, &settings, &error));
   CHECK(settings.values.at("controller").value == "keyboard");
   CHECK(!ParseProfileSidecar(R"({"schema_version":2,"profile":"x","game":{"name":"X"},"checks":[{}]})", &community, &reason));
