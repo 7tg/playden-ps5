@@ -10,18 +10,20 @@
 
 **Spec:** This document's proposed design below, informed by [the runtime owner's report](../../../../ps5-homebrew/prospero-win/docs/FW1360_HALFLIFE2_REPORT.md), [our investigation](../../engineering/prospero-win-investigation.md) and [our launch baseline](../../../results/20261005-hl2-runtime-baseline/README.md). The proposed contract and file names are new work, not existing runtime APIs.
 
-**Status:** Approved by the user on 2026-10-05. Implementation branch: `feat/prospero-win-integration`. Use the patched local Lapy fork described below.
+**Status:** Original design approved on 2026-10-05; Task 1 complete. Remaining-work execution details updated for review on 2026-10-05. Implementation branch: `feat/prospero-win-integration`. Use the patched local Lapy fork described below.
+
+**Roadmap:** [Milestones, dependencies and acceptance gates](../../engineering/prospero-win-roadmap.md).
 
 ## Evidence and scope
 
 - The runtime owner now verifies HL2 train-station gameplay, audio, left-stick movement, right-stick look, Cross jump, Options menu and keyboard Escape resume on firmware 13.60. The user confirmed physical keyboard movement and working audio. Playden has independently observed rendered gameplay; the control/audio acceptance is the owner's evidence. Saves, sustained frame pacing and long sessions remain unverified.
-- Pin the prospero-win wrapper/source baseline to `54caac176e86c60c7c407972583b491f67838ed9` on `feat/fw-v13.60-support`. It includes required native startup fix `824b4ec960b9ee93365437d7bb063db1d0e44b28`; `54caac1` adds verified configuration documentation only. Keep the tested Wine runtime from `e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9`; rebuilding Wine from the wrapper pin is not a reproduction of that runtime. Audio/controller repairs changed bottle registry state, not Wine code.
+- Pin the prospero-win wrapper/source baseline to a tested Task 2 descendant of baseline `54caac176e86c60c7c407972583b491f67838ed9` on `feat/fw-v13.60-support`. It includes required native startup fix `824b4ec960b9ee93365437d7bb063db1d0e44b28`; `54caac1` adds verified configuration documentation only. Keep the tested Wine runtime from `e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9`; rebuilding Wine from the wrapper pin is not a reproduction of that runtime. Audio/controller repairs changed bottle registry state, not Wine code.
 - The successful combination uses a rebuilt native launcher and helper (`PS5-Lapy-JB-Daemon` `611fa5f`), a repaired prefix, DXVK 2.6.2 and a 1920×1080 virtual monitor. The report's artifact hashes are the baseline, not a ready-to-distribute installation kit.
 - Playden already downloads entitled Windows depots, records installs, reads PICS launch metadata, detects PE32/PE64 and drafts strict profiles. `ProsperoGame` currently defaults to shared `prefix = playden` and emits `graphics = auto`.
 - Playden's original LncUtil probe crashed before handoff; later instrumentation found null imports. Task 1 uses the public SystemService path after its exact-title root grant; actual handoff is verified separately from caller return codes.
 - Existing Cloud code assumes `state_root + "/prefix"`; it does not sync the runtime's actual bottle. Live UI blocks launch/runtime simulation actions and has no production launch service.
 
-First deliverable: a reproducibly prepared, separately registered HL2 title with a real Play action. Next deliverable: lifecycle, Cloud and safe maintenance. General game compatibility and arbitrary Windows installers are outside this milestone.
+First hardware deliverable (M1): a reproducibly prepared, separately registered HL2 title launched directly from Home. First product deliverable (M2): adopt/install HL2 and launch it through a real Play action. Next deliverable: lifecycle, Cloud and safe maintenance. General game compatibility and arbitrary Windows installers are outside this milestone.
 
 ## Proposed design and choices
 
@@ -52,18 +54,20 @@ Do not add the helper or Wine dependency repositories as separate Playden submod
 
 | Component | Required revision / preparation |
 | --- | --- |
-| prospero-win source/submodule | `54caac176e86c60c7c407972583b491f67838ed9` (`feat/fw-v13.60-support`) |
+| prospero-win wrapper/source baseline | `54caac176e86c60c7c407972583b491f67838ed9` (`feat/fw-v13.60-support`) |
 | Required wrapper code fix | `824b4ec960b9ee93365437d7bb063db1d0e44b28` (included in the source pin) |
+| Exact FAKE-title build extension | `e9f2cfc2c3913e42fdf83d74291e270b041ff0d9` (descends from the patched base) |
 | Patched Lapy base | `611fa5f7ed46cdde7094b764168390ab5c4e89f8`, [PR #49](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon/pull/49) |
 | Helper build foundation | `9c0b994a048521af6fb84c73ded364504fe250e9`, SDK v0.42 |
 | Tested Wine runtime | `e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9`; retain existing verified runtime artifacts |
 | Bottle preparation | Restore and validate 32-bit MMDeviceEnumerator and DirectInput8 registrations |
 
 These are planned integration pins; the source submodule and kit lock are still
-Task 3 work. Replace both the downloaded helper and its matching manifest during
+Task 3 work. Task 2 introduces a new wrapper revision; pin its tested descendant
+in the submodule/kit lock rather than packaging the unchanged baseline without per-game support. Replace both the downloaded helper and its matching manifest during
 packaging; a rebuilt wrapper alone does not replace them. The Task 1 helper adds
-local explicit FAKE-title CLI support on top of the patched Lapy base. Commit and
-pin that extension before shipping kits for FAKE game titles; do not label a helper
+explicit FAKE-title CLI support committed as `e9f2cfc2c3913e42fdf83d74291e270b041ff0d9`
+on top of the patched Lapy base. Pin that extension before shipping kits for FAKE game titles; do not label a helper
 built from modified sources as an unmodified `611fa5f` artifact.
 
 ### Installation identity and storage
@@ -83,14 +87,14 @@ Use a durable `install_id` and persistent allocated `title_id`. Steam app ID ide
   library/prefixes/game/            # mutable prepared bottle
   library/input/
   cloud/                           # account-aware baseline and backups
-  cache/, logs/, session.json
+  cache/, logs/sessions/<session_id>.json
 
 <selected volume games_root>/<app_id>/  # existing Steam game files
 ```
 
 These are canonical paths after obtaining `/data` access. Playden must have a verified way to provision/access them before this layout is implemented. Keep existing downloaded games in place; adopt HL2 at `/data/homebrew/FAKE77031/games/220` without another download. New bottle state belongs on internal storage initially; game files use existing volume routing. Moving existing Cloud saves requires a backed-up migration.
 
-The proposed `game-launch.json` v1 carries `schema_version`, `install_id`, `title_id`, `app_id`, `data_root`, `default_profile_id`, `runtime_bundle_id`, `recipe_id`, `recipe_version`, and `exit_policy = "exit-title"`. It contains no Steam credentials. Wrapper and package validation must reject unknown schema versions, identity mismatches, missing profiles and paths outside the recorded managed roots.
+The proposed `game-launch.json` v1 carries `schema_version`, `install_id`, `title_id`, `app_id`, `data_root`, `default_profile_id`, `settings_revision`, `runtime_bundle_id`, `recipe_id`, `recipe_version`, and `exit_policy = "exit-title"`. It contains no Steam credentials. Wrapper and package validation must reject unknown schema versions, identity mismatches, missing profiles and paths outside the recorded managed roots.
 
 Maintain a separate runtime registry so old Steam install records still mean “download complete.” Runtime records hold the descriptor, selected launch entry, volume/path, preparation state, effective settings revision, artifact hashes and last failure. States: `downloaded → preparing → registering → ready`, plus `failed`, `unavailable` and `removing`. Only `ready` enables Play. Interrupted preparation stays repairable without losing downloaded files or saves.
 
@@ -106,7 +110,7 @@ Settings precedence: validated recipe defaults → persisted user overrides → 
 
 Launch by the recorded title ID. Default profile selection in the wrapper makes argument-free PS5 Home launch identical to Playden launch. Game exit closes the per-game title; it must not reopen prospero-win's generic catalog. Automatic return-to-Playden is deferred until a return API is proven.
 
-Before handoff, Playden rechecks readiness/volume and resolves Cloud sync or offers an explicit “Play without syncing” choice for offline/network failure. Conflicts and account confirmation require the player's existing resolution flow. Persist pending session information and flush application state before the native launch call. An API success means handoff accepted, not game running.
+Before handoff, Playden rechecks readiness/volume and resolves Cloud sync or offers an explicit “Play without syncing” choice for offline/network failure. Conflicts and account confirmation require the player's existing resolution flow. Persist pending session information and flush application state before the native launch call. A returned result is not proof of game startup. Task 1 observed `0x80940010` followed by successful ShadowMount handoff; persist the result and reconcile service/wrapper evidence instead of immediately declaring Running or final failure.
 
 The wrapper writes game-scoped startup/exit records with a session ID, settings revision and versions. On the next Playden open, reconcile these with pending launches. A missing exit record means interrupted/unknown, not successful exit. Home launches write their own session ID. Sync saves on the next Playden open, after ensuring the title is no longer using the bottle. Home launch uses local saves and has no automatic network sync in v1; show this behavior in game settings.
 
@@ -155,9 +159,9 @@ installer/removal or production Play action is claimed from these diagnostics.
 
 ### Task 2: Add per-game wrapper mode upstream
 
-**Files (prospero-win):** Modify `native/wine64_main.c`, `tools/build_native.sh`, `tools/package_release.sh`; create `src/pw_title_launch.{h,c}`, `tests/test_pw_title_launch.c`; extend `tests/test_title_identity.py` and `tests/test_package_release.py`. Coordinate helper changes in `../PS5-Lapy-JB-Daemon` if its identity contract requires them.
+**Files (prospero-win):** Modify `native/wine64_main.c`, `tools/build_native.sh`, `tools/package_release.sh`, `Makefile`; create `src/pw_title_launch.{h,c}`, `tests/test_pw_title_launch.c`; extend `tests/test_title_identity.py` and `tests/test_package_release.py`. Coordinate helper changes in `../PS5-Lapy-JB-Daemon` if its identity contract requires them.
 
-**Interfaces:** `pw_title_launch_parse(bytes, length, out)` parses the v1 descriptor. The wrapper consumes its title identity, data root, default profile and exit policy; runtime roots must follow the actual title rather than hardcoded `PPSA99995` sandbox paths.
+**Interfaces:** `pw_title_launch_parse(bytes, length, expected_title_id, out, error, error_size)` parses the v1 descriptor. The wrapper consumes its title identity, data root, default profile and exit policy; runtime roots must follow the actual title rather than hardcoded `PPSA99995` sandbox paths.
 
 - [ ] Add failing parser/package tests for valid descriptors, unknown schema, unsafe roots, title mismatch, absent default profile and helper mismatch.
 - [ ] Add explicit title ID and local pinned helper+manifest build inputs; remove the integration build's dependence on downloading an unfixed “latest” helper. Parameterize metadata and package output paths.
@@ -178,14 +182,15 @@ installer/removal or production Play action is claimed from these diagnostics.
 - [ ] Produce the pinned HL2 kit and record hashes, size and disk requirements including staging overhead. Inspect it for host paths, credentials, user saves and developer log destinations; include dependency licenses/source provenance.
 - [ ] Verify the recipe emits the owner's effective HL2 configuration and starts from a fresh bottle on the console. Commit kit tooling/manifest/recipe; keep large generated artifacts outside Git with a documented verified source.
 
-### Task 4: Persist runtime identity and generate effective profiles
+### Task 4: Persist runtime identity, establish native access and generate effective profiles
 
-**Files:** Create `src/runtime/game_install.{h,cpp}`, `src/runtime/game_settings.{h,cpp}` and `tests/runtime_game_install_test.cpp`; modify `src/runtime/prospero_profile.{h,cpp}`, `tests/prospero_profile_test.cpp`, `cmake/HomebrewUI.cmake` and `cmake/HomebrewPS5.cmake`.
+**Files:** Create `src/platform/ps5/native_access.{h,cpp}`, `src/runtime/game_install.{h,cpp}`, `src/runtime/game_settings.{h,cpp}`, `tests/native_access_test.cpp` and `tests/runtime_game_install_test.cpp`; modify `src/homebrew/ps5.cpp`, `src/runtime/prospero_profile.{h,cpp}`, `tests/prospero_profile_test.cpp`, `cmake/HomebrewUI.cmake`, `cmake/HomebrewPS5.cmake` and `scripts/build-homebrew-ps5.sh`.
 
 **Interfaces:** `RuntimeInstall` stores the v1 descriptor plus preparation/settings state. `RuntimeInstallRepository::Load/Save` atomically persists records and title reservations. `BuildEffectiveSettings(recipe, overrides)` returns validated settings; extend `ProsperoGame` to consume them with an explicit bottle identifier.
 
 - [ ] Add failing tests for reservations/collisions, restart/reinstall identity, legacy installs without runtime records, malformed records and unsupported kit versions. Import existing HL2 as `downloaded`, retaining its path and Steam install record.
 - [ ] Test exact HL2 profile output: `prefix = game`, DXVK/D3D9 override, display and required arguments. Cover quotes/backslashes/spaces, runtime argument-count/storage limits, and rejected paths/overlong values.
+- [ ] Add production native access before UI/services start; resolve title assets, trust store, existing Steam state and logs through stable paths after the grant. On failure retain ordinary launcher browsing/download behavior and disable preparation/launch with a capability error. Verify existing account, artwork and Downloads still work after access succeeds.
 - [ ] Implement recipe/user override persistence and atomic profile publication into a one-entry catalog. Settings reset removes overrides without deleting the bottle.
 - [ ] Validate generated profiles using pinned upstream `pw_game_profile_parse` **and** the runtime argument splitter in host contract tests; Playden's current Windows argument parser and PW's splitter are not assumed equivalent.
 - [ ] Run focused host tests and package compile/link; commit the record/settings/profile increment.
@@ -197,7 +202,7 @@ installer/removal or production Play action is claimed from these diagnostics.
 **Interfaces:** `RuntimeInstallService::Prepare(install_id)`, `Retry(install_id)`, `Snapshot()`; a worker consumes downloaded game records + kit and produces preparation states. The Steam download service retains its existing completion meaning.
 
 - [ ] Add failure-injection tests at template copy, hash verification, profile publication, registration and ready-record write. Restart after each boundary must resume/reconcile without duplicate registration or a false Play action.
-- [ ] Stage kit/bottle/title, validate free space and all hashes/modes, publish the descriptor/profile, then register. Confirm registration before committing `ready`. Preserve downloaded game files on preparation failure/cancel.
+- [ ] Stage kit/bottle/title, validate free space and all hashes/modes, publish the descriptor/profile, then register. Confirm registration before committing `ready`; queued scans are pending, and service-cache absence is insufficient for title allocation. Treat stale hooks/unreachable providers as recoverable preparation failures without automatically restarting services. Preserve downloaded game files on preparation failure/cancel.
 - [ ] Reconcile already registered owned titles against descriptor/install ID; reject unrelated collisions. Clean only owned incomplete staging files and never overwrite a mutable bottle during retry.
 - [ ] Project `Preparing compatibility`, `Registering game`, `Ready` and actionable failure/retry into Details/Downloads. Do not label unsupported games ready.
 - [ ] Run host service tests and a console adoption of existing HL2; commit with evidence that no redownload occurred.
@@ -208,14 +213,14 @@ installer/removal or production Play action is claimed from these diagnostics.
 
 **Interfaces:** `LaunchService::Request(install_id)` and `Snapshot()` perform readiness checks and emit a main-thread handoff request; `TitleBackend::Launch(title_id)` performs the platform call. Host tests inject a fake backend; normal macOS builds report native launch unavailable.
 
-- [ ] Test missing volume/bottle/runtime/helper, duplicate Play requests, changed settings during preparation and failed native launch. No invalid input may invoke the title backend.
+- [ ] Test missing volume/bottle/runtime/helper, duplicate Play requests, changed settings during preparation and failed native launch. Include `0x80940010` followed by startup, the same code without startup, and launcher termination before the result can be persisted. No invalid input may invoke the title backend.
 - [ ] Wire live UI Play requests through the controller instead of the simulation session timer. Show `Preparing`/`Launching` and native failure text; never synthesize `Running` from a timer or successful API return.
 - [ ] Flush preferences/settings, persist the pending session and bounded launch log, then call the native adapter on its required thread. Remove the one-shot development request path from normal launch behavior.
 - [ ] Hardware-test Playden → HL2 and argument-free Home → HL2 using the same profile, then exit/reopen/retry. Commit the real launch increment.
 
 ### Task 7: Bind Cloud to the actual bottle and reconcile sessions
 
-**Files:** Modify `src/steam/cloud_service.h`, `src/steam/backend/steam_cloud_runner.{h,cpp}`, `src/homebrew/controller.{hpp,cpp}` and launch service; create `src/runtime/session_reconciler.{h,cpp}`, `tests/runtime_session_reconciler_test.cpp`; extend `tests/steam_cloud_test.cpp` and `tests/cloud_service_test.cpp`.
+**Files:** Modify `src/steam/cloud_service.h`, `src/steam/backend/steam_cloud_runner.{h,cpp}`, `src/homebrew/controller.{hpp,cpp}` and launch service; create `src/runtime/session_reconciler.{h,cpp}`, `tests/runtime_session_reconciler_test.cpp`; persist per-session files from Task 2 rather than relying on a single overwritten session.json; extend `tests/steam_cloud_test.cpp` and `tests/cloud_service_test.cpp`.
 
 **Interfaces:** Add explicit `prefix_root` to `CloudLocation`, retaining a legacy fallback for unprepared installs. `SessionReconciler::Reconcile(records, title_status)` queues an account-aware Cloud check only when the game is no longer active; it does not require Playden to have survived handoff.
 
@@ -230,13 +235,208 @@ installer/removal or production Play action is claimed from these diagnostics.
 
 **Interfaces:** `Repair(install_id)` revalidates assets/recipe without replacing saves; `Remove(install_id, remove_saves)` unregisters owned title/files while defaulting to save retention; updates stage a new pinned kit and retain the previous manifest for rollback.
 
-- [ ] Expose preset/reset, launch entry/arguments, validated resolution, controller preset and FPS overlay; put supported graphics/runtime/DLL/log choices in advanced settings. Hide unsupported frame-limit/VSync mappings, DXVK 120 Hz and unvalidated scaling options. HL2 input defaults remain marked unverified until tested.
+- [ ] Expose preset/reset, launch entry/arguments, validated resolution, controller preset and FPS overlay; put supported graphics/runtime/DLL/log choices in advanced settings. Hide unsupported frame-limit/VSync mappings, DXVK 120 Hz and unvalidated scaling options. The owner-verified HL2 input defaults remain recipe-scoped; validate them again with the new per-game title and fresh bottle.
 - [ ] Test settings persistence and identical Home/Playden effective profiles; repair failure retains saves and user overrides. Back up game-root saves before deleting downloaded game files.
+- [ ] Verify an existing supported post-exit unregister mechanism; native Playden receives EBUSY while open. If none exists, design and review a narrow helper/worker as a separate dependency before implementing automated removal. Never mark removal complete from request acceptance.
 - [ ] Test interrupted uninstall, failed unregister, unavailable volume and running game; resume owned cleanup safely while preserving the allocation until unregister completes. Default uninstall retains bottle/saves/Cloud state; deleting saves is a separate explicit choice.
 - [ ] Stage updates without modifying active runtime assets; block update/reset while running. If a recipe migrates the bottle, back it up and include it in rollback; otherwise preserve the bottle. Test failed update restores old runtime/settings and launchability.
 - [ ] Run host maintenance/graphical tests and console repair/reinstall/save-retention checks; commit and update status/evidence.
 
+## Remaining-task execution details
+
+This section fixes the interfaces and test boundaries for Tasks 2–8. Names below
+are proposed new APIs/test targets, not claims that they exist. Add each target to
+its repository's test configuration when writing that task's tests. Use the
+[roadmap](../../engineering/prospero-win-roadmap.md) for milestone ordering.
+
+### Shared contracts
+
+- Descriptor v1 is the `game-launch.json` defined above; limit it to 8192 bytes,
+  require a nine-byte native title ID, and validate `data_root` against the exact
+  `/data/playden/games/<install_id>` root. Reject traversal and symlink escapes.
+- Task 2 defines `PwTitleLaunch` and
+  `pw_title_launch_parse(bytes, length, expected_title_id, out, error, error_size)`
+  returning int zero on success; bytes/expected_title_id/error are char pointers,
+  length/error_size are size_t, and out is a PwTitleLaunch pointer. It validates identity before elevation and resolves
+  the single configured profile afterwards. No descriptor preserves generic mode;
+  a present invalid descriptor fails visibly instead of using generic mode.
+- Session v1 stores `session_id`, `install_id`, `title_id`, `origin`,
+  `settings_revision`, `runtime_bundle_id`, `phase`, and optional `exit_code`.
+  Phases are `starting`, `running`, `exited`, `failed`; `running` requires actual
+  game-process startup. Write per-session files under `logs/sessions/<session_id>.json`
+  atomically, so a new launch cannot erase an unreconciled prior session.
+- Per-game mode accepts optional `session=<id>` for a Playden handoff; without it,
+  generate a fresh ID and set origin to Home. Session IDs are UUID strings;
+  validate before deriving a session filename. Reject malformed IDs and profile
+  selection overrides in this mode. Generic mode retains its existing arguments.
+- `RuntimeInstallRepository::Load/Save` owns persisted install/title reservations
+  and preparation journals. `BuildEffectiveSettings(recipe, overrides)` returns
+  either validated effective settings or a preparation error. Implement its value
+  types in `game_install.h` / `game_settings.h`, using the identity fields above.
+- In `native_access.h`, define `NativePaths` with string fields `title_root`,
+  `trust_store`, `steam_state_root`, `log_root`; define `NativeAccessResult` with
+  `bool granted` and `std::string error`. `AcquireNativeAccess(title_id, helper_path)`
+  takes two string references and returns `NativeAccessResult`;
+  `ResolveNativePaths(title_id)` returns `std::optional<NativePaths>`.
+  Resolve readable paths independently of grant success for ordinary browsing;
+  preparation and native launch additionally require `granted=true`; no downstream service may cache `/app0` paths across
+  a successful grant. Prefer the readable title sandbox app0 path after elevation;
+  validate any source-directory fallback against the launcher's owned title.
+- `RuntimeInstallService::Prepare/Retry/Snapshot` owns preparation; it consumes
+  persisted records and a validated kit. `LaunchService::Request/Snapshot` owns
+  launch preflight/pending sessions and emits the native handoff on the application
+  thread. It calls the existing `TitleBackend::Launch(title_id, {"session=" + id})`.
+- `CloudLocation.prefix_root` explicitly selects the bottle; `state_root` remains
+  the Cloud baseline/backups root. `SessionReconciler::Reconcile(records, title_status)`
+  consumes durable wrapper sessions and native activity checks. Unknown activity
+  blocks upload/maintenance rather than assuming the title stopped.
+
+### Task 2 execution: wrapper and lifecycle
+
+- [ ] Step 1: Add `test_pw_title_launch.c` and register it in upstream `Makefile`. Assert
+   `HomeUsesDescriptorDefault`, `MissingDescriptorKeepsGenericMode`,
+   `InvalidDescriptorNeverFallsBack`, `TitleMismatchRejected`,
+   `DataRootEscapeRejected`, `SessionIdentityPreserved` and `GameExitExitsTitle`.
+   Extend package tests to reject a helper/manifest for another title.
+- [ ] Step 2: Run `make -C ../ps5-homebrew/prospero-win build/host/test_pw_title_launch`
+   and its test binary; expect failure before parser/lifecycle implementation.
+- [ ] Step 3: Implement the parser and descriptor read-before-grant/bootstrap-after-grant in
+   `native/wine64_main.c`; parameterize title roots and package metadata. Add
+   explicit local helper/manifest inputs to build/package scripts. Update session
+   records only from observed lifecycle events; exit-title suppresses catalog cycles.
+- [ ] Step 4: Run the new C test plus `python3 tests/test_title_identity.py` and
+   `python3 tests/test_package_release.py` from the upstream checkout. Expected:
+   all assertions pass, including existing generic-mode tests. Run upstream
+   `make test` in its supported host environment before committing.
+- [ ] Step 5: Package an owned FAKE78xxx HL2 title with the real wrapper/runtime and a copied
+   private bottle. Verify Home starts its default profile without arguments,
+   malformed descriptor fails clearly, and game exit returns to Home. Capture
+   title/helper identity, logs and rendered evidence; obtain review and commit.
+
+### Task 3 execution: kit, recipe and submodule
+
+- [ ] Step 1: Add `tests/test_playden_kit.py` upstream. Assert rejection of missing syswow64,
+   wrong CPU/crypto registry views, missing 32-bit MMDeviceEnumerator/DirectInput8,
+   mismatched DXVK, wrong-title helper, traversal, escaping symlinks and missing
+   executable modes. Add a valid minimal manifest fixture; run the test before
+   implementing the packager and confirm it fails for the missing behavior.
+- [ ] Step 2: Implement `tools/package_playden_kit.py` and offline validation by reusing the
+   existing prefix/install/runtime tools. Require explicit helper build inputs and
+   preserve the tested Wine artifacts; emit per-file hashes/modes and source provenance.
+- [ ] Step 3: Add the tested Task 2 source gitlink, `cmake/ProsperoRuntime.cmake`, explicit kit
+   build script, recipe and dependency lock. Reject release source overrides at
+   other revisions; ordinary Playden builds never invoke Wine compilation.
+- [ ] Step 4: Run `python3 tests/test_playden_kit.py` upstream and the selected Playden host
+   build/tests from a clean checkout with initialized submodules. Expected:
+   reproducible kit validation passes; wrong pin/hash/template fails before copying.
+- [ ] Step 5: Prepare a fresh HL2 bottle offline, package it without game files/personal state,
+   and test the per-game Home title with the exact recipe. Record hashes, disk/staging
+   requirements and licenses; review and commit the source/kit lock together.
+
+### Task 4 execution: records, settings and production access
+
+- [ ] Step 1: Add `runtime_game_install`, `prospero_profile` extensions and `native_access`
+   tests. Assert `ReservationSurvivesRestart`, `ForeignNativeTitleCollision`,
+   `LegacyDownloadAdoptsWithoutCopy`, `RecipeArgumentsPreserved`,
+   `ProfileRoundTripsThroughUpstreamParser`, `PathsRemainValidAfterGrant` and
+   `GrantFailureDisablesRuntimeOnly`. Verify the new assertions fail first.
+- [ ] Step 2: Implement repository/settings value types and atomic persistence, using
+   FAKE78000–FAKE78999 reservations checked against native inventory/source paths.
+   Keep downloaded/ready meanings separate and preserve the existing HL2 game root.
+- [ ] Step 3: Implement bootstrap access and stable path resolution before services/UI are
+   constructed; initialize user service before foreground-user/native launch calls.
+   Include the launcher's exact-title helper+manifest in its production
+   package. Resolve graphics/module loading before or through stable paths too;
+   do not assume the headless diagnostic proved live UI operation after elevation.
+- [ ] Step 4: Run `ctest --preset homebrew-host -R '^(runtime_game_install|prospero_profile|native_access)$'`
+   after building the new targets; expected: all named cases pass. Check generated
+   profiles with both upstream profile parser and argument splitter.
+- [ ] Step 5: Build/deploy the normal launcher, verify account/library/artwork/download state
+   survives the grant and reopen, and verify saved settings/profile identity.
+   Review and commit before connecting preparation to the UI.
+
+### Task 5 execution: preparation and readiness
+
+- [ ] Step 1: Add `runtime_install_service` and `runtime_package_installer` tests. Inject
+   failure/cancel at copy/hash/profile/registration/ready-write boundaries; assert
+   preserved downloads/saves, no duplicate ID, recoverable journal and no false Play.
+   Include `ScanQueuedIsPending`, `StaleHookRetainsJournal` and `CacheAbsentIsNotAllocation`.
+   Run the new cases and confirm failures before implementing the transitions.
+- [ ] Step 2: Implement staged publication, bounded copying/space checks, modes, ownership
+   checks and registration through the existing Task 1 registry transport. Never
+   overwrite a mutable bottle during retry; reconcile native completion before Ready.
+- [ ] Step 3: Wire download completion into preparation eligibility and project preparation,
+   registration, failure and retry states into Details/Downloads; unsupported recipes
+   remain downloaded. Do not automatically restart console payloads for stale hooks.
+- [ ] Step 4: Run `ctest --preset homebrew-host -R '^runtime_(install_service|package_installer)$'`
+   after building; expected: failure-injection/restart cases pass at every boundary.
+- [ ] Step 5: Adopt the current HL2 download without network redownload, prepare/register an
+   owned title, interrupt and retry once, and inspect Ready/profile/ownership records.
+   Archive evidence, review and commit.
+
+### Task 6 execution: real Play and startup reconciliation
+
+- [ ] Step 1: Add `runtime_launch_service` tests for missing inputs/media, duplicate requests,
+   settings changes, state flush, native errors, launcher disappearance and pending
+   sessions. Assert `Error80940010ThenStartupIsReconciled`,
+   `Error80940010WithoutStartupRemainsFailedOrUnknown`, and `TimerNeverMeansRunning`.
+   Run the cases and confirm they fail before wiring native launch.
+- [ ] Step 2: Implement readiness/volume preflight, durable pending session and bounded launch
+   diagnostics. Invoke the existing native backend on the application thread after
+   state flush, with the optional session argument described above. On reopen,
+   reconcile observed wrapper status; never infer final failure solely from 80940010.
+- [ ] Step 3: Connect live UI Play to the service, retaining simulation only for explicit
+   fixtures. Remove one-shot developer launch requests from production behavior.
+- [ ] Step 4: Run `ctest --preset homebrew-host -R '^(runtime_launch_service|homebrew_live_model|homebrew_simulation)$'`
+   after building; expected: invalid inputs never invoke the native backend and
+   existing host/live UI behavior remains covered.
+- [ ] Step 5: Verify Playden → HL2, exit/reopen/retry, and argument-free Home → HL2 with identical
+   effective settings. Correlate session IDs, native results, service handoff and
+   target startup. Until Task 7 maps Cloud to the real bottle, use explicit local-save
+   play and do not invoke the legacy prefix mapping for prepared installs.
+   Review and commit; this closes M2, not the Cloud milestone.
+
+### Task 7 execution: actual-bottle Cloud and sessions
+
+- [ ] Step 1: Extend `cloud_service`/`steam_cloud` tests and add `runtime_session_reconciler`.
+   Assert actual prefix_root mapping, backed-up migration, ambiguous save conflict,
+   account switch, explicit offline play, clean/crashed/Home session, duplicate
+   reconciliation and no uploads from active or unknown-status titles. Confirm failure.
+- [ ] Step 2: Add explicit bottle mapping to CloudLocation/runner and integrate prelaunch Cloud
+   decisions with LaunchService. Persist reconciliation per session/account; migrate
+   legacy saves only with backups and explicit resolution of differing copies.
+- [ ] Step 3: Run `ctest --preset homebrew-host -R '^(cloud_service|steam_cloud|runtime_session_reconciler|runtime_launch_service)$'`
+   after building; expected: conflicts wait for a choice, cancelled sync prevents
+   handoff, and repeated next-open reconciliation is idempotent.
+- [ ] Step 4: On the console, save/close/reload through both launch paths, then test offline play
+   and a controlled Cloud conflict with backup files. Inspect baseline/account state
+   and wrapper session records; do not infer save mapping from successful menu launch.
+- [ ] Step 5: Review and commit with console evidence, closing M3.
+
+### Task 8 execution: settings and maintenance
+
+- [ ] Step 1: Establish whether the existing service supports post-exit unregister. If not,
+   write a separate helper/worker design with ownership checks, bounded lifetime,
+   persisted results and no credentials; complete its review before adding the
+   dependency. A UI-only retry of the current EBUSY call cannot close this gate.
+- [ ] Step 2: Add `runtime_maintenance` tests for running/unknown title, interrupted removal,
+   failed unregister, source retirement recovery, missing volume, save retention,
+   settings reset, failed update and rollback of runtime/settings/bottle migration.
+   Confirm they fail before implementing maintenance transitions.
+- [ ] Step 3: Implement validated settings, owned repair, staged kit update/rollback and durable
+   removal through the reviewed execution path. Keep reservations until native
+   disappearance is confirmed; default remove_saves=false and preserve Cloud backups.
+- [ ] Step 4: Run `ctest --preset homebrew-host -R '^(runtime_maintenance|homebrew_management_tour|homebrew_live_model)$'`
+   after building; extend the registered management/live-model tests with settings
+   and maintenance UI cases. Expected: maintenance failures
+   preserve launchable prior assets or a recoverable owned removal journal.
+- [ ] Step 5: Verify console repair/reinstall/save retention, interrupted uninstall recovery and
+   failed-update rollback; then execute final release acceptance below. Review and
+   commit with exact kit/helper revisions and evidence, closing M4.
+
 ## Verification and release gates
+
+All newly named test targets must be registered in CMake/Makefile before verification. A focused run with zero matched tests is a failure, not acceptance.
 
 For each task, run newly added focused tests first, then the selected host build/suite when the increment is complete. Register tests in the selected CMake targets. Run legacy checks only for changes to shared code; run upstream C/Python contract suites for wrapper/kit changes. A failing hardware gate leaves the corresponding milestone open.
 
@@ -249,13 +449,13 @@ git diff --check
 
 Final console acceptance: fresh validated bottle; launch from Playden and Home; start a level; movement/look/actions/menu controls; audio; save, close and load after restart; Cloud reconciliation and conflicts; unavailable volume recovery; repair/update rollback/uninstall save retention. Record HDMI evidence and startup/helper/Wine logs with exact artifact versions. Run at least 20 minutes of gameplay and report measured pacing/crashes separately from the existing menu FPS overlay; no blanket 60 fps claim.
 
-## Decisions for this review
+## Preserved design decisions
 
-1. Approve the recommended per-game title/bottle and bundled-runtime model, with shared runtime deduplication deferred.
+1. Use the approved per-game title/bottle and bundled-runtime model, with shared runtime deduplication deferred.
    Use a pinned `third_party/prospero-win` source submodule and separately versioned, hash-verified binary/template kits.
-2. Approve prebuilt validated compatibility kits and curated recipes as the first preparation mechanism; generic host-dependent installers remain unsupported.
-3. Approve exit-to-Home plus next-open Cloud reconciliation; Home launches initially use local saves.
-4. Approve HL2-only initial acceptance and save-preserving uninstall by default.
-5. Resolve platform access/title allocation in Task 1 before committing to automatic native installation. Any required persistent broker gets its own reviewed design.
+2. Use prebuilt validated compatibility kits and curated recipes as the first preparation mechanism; generic host-dependent installers remain unsupported.
+3. Use exit-to-Home plus next-open Cloud reconciliation; Home launches initially use local saves.
+4. Keep HL2-only initial acceptance and save-preserving uninstall by default.
+5. Use Task 1’s measured platform contract; complete production access and collision checks before automatic installation. Any required persistent broker gets its own reviewed design.
 
 Recommended order: prove platform contracts → upstream wrapper + reproducible kit → adopt HL2 and enable real launch → Cloud/lifecycle → maintenance and broader recipes. Tasks 1–6 establish the first launch milestone; Tasks 7–8 complete managed runtime integration.
