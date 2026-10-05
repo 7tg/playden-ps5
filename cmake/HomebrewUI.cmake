@@ -97,7 +97,8 @@ add_library(playden_steam_cm_codec STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/backend/gzip.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/binary_kv.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/vdf.cpp"
-    "${CMAKE_SOURCE_DIR}/src/steam/backend/app_info.cpp")
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/app_info.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/prospero_profile.cpp")
 target_include_directories(playden_steam_cm_codec PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_include_directories(playden_steam_cm_codec PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
 target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
@@ -455,7 +456,7 @@ if(BUILD_TESTING)
     add_dependencies(homebrew_glyph_fallback_graphical_test playden_homebrew_assets)
     add_test(NAME homebrew_glyph_fallback_graphical COMMAND homebrew_glyph_fallback_graphical_test "${CMAKE_BINARY_DIR}/glyph-fallback")
 
-    foreach(test_name steam_gzip steam_binary_kv steam_vdf steam_app_info)
+    foreach(test_name steam_gzip steam_binary_kv steam_vdf steam_app_info prospero_profile)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_steam_cm_codec)
         target_compile_features(${test_name}_test PRIVATE cxx_std_20)
