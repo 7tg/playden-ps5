@@ -621,3 +621,12 @@ The settings handoff through `47db605` is merged (`473cb1b`), with unsupported/m
 App-owned private bottle copying, full private ancestor admission, pre-write file ownership/modes, and initial-marker retry recovery are committed (`9d023ce`). Private profile/input publication readiness is also verified. The production descriptor-relative API still fails on PS5; libc and kernel-created directory FDs both produce relative `openat` errno 22. Do not connect this preparation path as ready until the native API contract is resolved.
 
 The wrapper's private session repair passed its host regression and native build. PS5 acceptance confirmed app UID1/mode0600 session persistence and private log directories for an intentionally failed startup, with ordinary credentials restored after the helper. The original public fixture logs were preserved. Full wrapper success/exit and runtime/gameplay acceptance remain outstanding. See [private-session evidence](../../../results/20261006-private-session/README.md) and [implementation details](../../engineering/results/2026-10-06-private-bottle-copy.md). The normal preview was restored and the PS5 released after testing.
+
+The isolated baseline-plus-0895 Wine build now exits 0 with 11 PRX and 14 selected
+PE DLLs; [exact inventory and limitations](../../../results/20261006-wine-build/README.md)
+are recorded. This does not replace the retained runtime or close kit acceptance.
+The wrapper development branch is `3d05a57`, with native foundation `9c0b994`
+unchanged and PRX tooling isolated at `182f1ea`. Native directory aliases also
+failed (`ENOENT`), leaving both production private copying and descriptor-relative
+settings persistence gated. The launcher package rebuilt with the developer probe
+disabled; it has not been deployed for new UI acceptance.

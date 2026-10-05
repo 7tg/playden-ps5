@@ -8,4 +8,11 @@ The isolated `FAKE78001` wrapper was rebuilt against native foundation `9c0b994`
 
 The same native evidence compares libc-created and direct-kernel directory FDs. Both are valid directories; relative `openat` fails with errno 22 for all tested flags, while absolute `openat` succeeds. Production descriptor-relative bottle preparation remains gated. The source of that refusal is not yet established.
 
+[Read-only alias follow-up](native-directory-alias.log), PID1028, repeats the
+comparison after successful bootstrap restoration to EUID1. `/dev/fd/14/playden`,
+`/proc/self/fd/14/playden`, `/proc/curproc/fd/14/playden` and
+`/proc/1028/fd/14/playden` all fail with `ENOENT`. None resolves to the expected
+directory inode. This rules out these tested aliases as a directory-FD workaround;
+it does not establish relative deletion/rename support or explain the open refusal.
+
 After both diagnostics, normal `FAKE77031` eboot SHA-256 `109e55a60d1e554104ba787421cce77ef2c153acc2379284cf5364af6d1552b1` and its package identity were restored byte-for-byte. The diagnostic was closed and the PS5 claim released. This proves private persistence/access for failed startup, not a complete install, game execution, successful exit, or gameplay.

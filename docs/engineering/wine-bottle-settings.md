@@ -69,6 +69,29 @@ kit are pinned.
 | Application | A game-specific option or argument; requires a recipe, not a universal Wine mapping. |
 | Managed | Installer/lifecycle owns the value. Display in diagnostics where useful; do not make it a free-form player setting. |
 
+### Native persistence gate (2026-10-06)
+
+The merged settings model and UI do not yet establish native persistence. On the
+tested FW13.60 console, relative `openat` returns `EINVAL` with both libc-created
+and directly kernel-created directory FDs. Absolute paths succeed. The tested
+`/dev/fd` and proc descriptor aliases all return `ENOENT`; they cannot currently
+provide a directory-FD anchor. See [native evidence](../../results/20261006-private-session/native-directory-alias.log).
+
+| Affected operation | Reason unavailable on PS5 | Implementation needed | Acceptance |
+| --- | --- | --- | --- |
+| Load/save game settings | `LoadGameSettingsFile` and `SaveGameSettingsFile` use the descriptor-relative safe-directory walk. Native relative opens fail before reading or publishing settings. | A measured PS5 directory-operation contract used by the settings persistence adapter; retain ownership, symlink refusal, exclusive temporary writes and durable publication. | Save, close, reopen, reset and read back settings on PS5; reject public/foreign parents and symlinks without changing existing settings. |
+| Apply profile/registry/DXVK configuration | `ApplyGameSettings` and `ApplySettingsFiles` use the same safe walk to publish profile overlays, `user.reg` and `dxvk.conf`. Host tests cannot establish native success. | Route publication through the validated platform contract and OWNER journal while the game is confirmed stopped. | Apply/reset on PS5, inspect exact generated files and effective game behavior, and verify interrupted publication recovery. |
+| Clear shader cache | `ClearShaderCache` uses safe directory opens and relative deletion. Native directory admission currently fails; relative deletion support is not established by these open tests. | Validate the platform's deletion operations separately, retaining owned cache-root boundaries and stopped-title checks. | Clear only the selected game's cache on PS5; refuse symlink/foreign/running-title fixtures and preserve saves and other games. |
+| Prepare private bottle | The installer's descriptor-relative private-directory walk encounters the same relative-open failure. The fixed developer fixture's absolute-path copy is not production installer acceptance. | Resolve the shared native directory contract before connecting installer readiness to the live application. | Fresh app-owned `0700` bottle tree and `0600` files, durable validated copy, retry/recovery and foreign-tree refusal on PS5. |
+
+A userspace wrapper that joins a remembered directory path with a child name is
+not equivalent to a kernel directory-FD operation when that path is renamed or
+replaced. Do not silently substitute it under the current contract. An absolute
+path policy, if selected, needs explicit invariants and race/replacement tests
+before these operations become available. Existing runtime capability gates
+remain independent: solving persistence does not add input/audio patches to the
+retained Wine artifacts.
+
 ### Required detail for unsupported and partial settings
 
 Keep unavailable settings in this document as implementation backlog entries.

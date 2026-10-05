@@ -337,6 +337,27 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
       }
       if (root >= 0) close(root);
     }
+    // Kernel-owned descriptor aliases, if mounted, could preserve FD-relative
+    // semantics without resolving a remembered userspace pathname. Read only.
+    const int alias_root = playden_ps5_probe_kernel_directory("/data");
+    const int target = open("/data/playden", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    struct stat expected{};
+    const bool expected_ok = target >= 0 && fstat(target, &expected) == 0;
+    for (const auto& prefix : {std::string("/dev/fd/"), std::string("/proc/self/fd/"),
+                             std::string("/proc/curproc/fd/"), "/proc/" + std::to_string(getpid()) + "/fd/"}) {
+      const std::string path = prefix + std::to_string(alias_root) + "/playden";
+      errno = 0;
+      const int fd = alias_root >= 0 ? open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW) : -1;
+      const int error = fd < 0 ? errno : 0;
+      struct stat actual{};
+      const bool same = expected_ok && fd >= 0 && fstat(fd, &actual) == 0 &&
+          S_ISDIR(actual.st_mode) && actual.st_dev == expected.st_dev && actual.st_ino == expected.st_ino;
+      std::fprintf(log, "directory alias path=%s fd=%d errno=%d same_object=%d device=%llu inode=%llu\n",
+          path.c_str(), fd, error, same, (unsigned long long)actual.st_dev, (unsigned long long)actual.st_ino);
+      if (fd >= 0) close(fd);
+    }
+    if (target >= 0) close(target);
+    if (alias_root >= 0) close(alias_root);
     std::fprintf(log, "end\n"); std::fclose(log); return true;
   }
   if (std::string(action) == "ownership-api") {

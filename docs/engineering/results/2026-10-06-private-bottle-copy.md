@@ -45,3 +45,20 @@ The additional read-only syscall comparison opened `/data` both through libc and
 A separate foundation worktree, `.worktrees/prospero-foundation-prx` on `feat/playden-wine-prx`, starts from `30597512539e7edfde079cbcaf4a626bc0a948c5` (the module-export converter required by Wine). Its host `ps5-native-tool` compiled using LLVM18 and host zlib. The shared native-title foundation remains exactly `9c0b994`.
 
 An initial module test failed because its independent reader still queried hash buckets with encoded symbol IDs. The upstream `fffeab6` hardware-backed fix deliberately hashes library/module names while retaining encoded symbol strings. The isolated branch updates the reader and module documentation to that published contract; it does not change the converter behavior. All 9 module-writer checks now pass; the isolated test/documentation correction is committed at `182f1ea`. Host module checks do not establish FW13.60 loader acceptance. The settings peer also reported Wine patch `0895` (`7182441`) fixing the generated header inventory so the pinned Wine ELF stage can compile; its PRX output still needs reproduction and validation. Retained runtime `e16ec8f` and kit capability gates are unchanged.
+
+## Runtime build and filesystem follow-up
+
+The header fix is now adopted on the per-game wrapper branch at `3d05a57`. The
+isolated Wine build completed with process exit 0 after supplying all host tool
+dependencies. All 11 PRX and 14 selected PE DLL hashes were checked against disk;
+see [build inventory and limits](../../../results/20261006-wine-build/README.md).
+This is not a complete kit or console loading acceptance; graphics driver inputs
+and full runtime/template/provenance acceptance remain open.
+
+The additional read-only native probe also ruled out the tested `/dev/fd` and
+proc descriptor aliases (all `ENOENT`). The same directory API gate affects
+settings loading/saving, registry/DXVK/profile application and cache clearing;
+their reasons and implementation/acceptance work are recorded in the
+[settings catalogue](../wine-bottle-settings.md#native-persistence-gate-2026-10-06).
+No remembered-path substitute was enabled. The normal preview was restored and
+the PS5 released after the test.

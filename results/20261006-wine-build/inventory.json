@@ -1,0 +1,252 @@
+{
+  "wine_commit": "490f6d5dcbb2a5047345b8af88d114bbcaad69a8",
+  "prospero_commit": "3d05a57e9f6317608a699d500b3aa940e82042f1",
+  "native_foundation_commit": "9c0b994a048521af6fb84c73ded364504fe250e9",
+  "prx_foundation_commit": "182f1ea5bea85eaa432938d667b6baf750ec673b",
+  "build_exit_code": 0,
+  "patches": [
+    "0100-ntdll-no-fstab-device-on-ps5.patch",
+    "0101-server-realpath-into-server-memory.patch",
+    "0102-server-user-shared-data-fills-a-host-page.patch",
+    "0110-server-run-in-process-on-ps5.patch",
+    "0111-ntdll-connect-to-the-in-process-server.patch",
+    "0120-server-ps5-default-audio-driver.patch",
+    "0130-ntdll-ps5-report-main-exe-load-failure.patch",
+    "0140-ntdll-ps5-list-directory-by-name.patch",
+    "0150-server-ps5-save-the-registry-in-1mib-writes.patch",
+    "0160-ntdll-ps5-keep-listings-of-searched-directories.patch",
+    "0400-win32u-ps5-user-driver.patch",
+    "0410-win32u-ps5-fontless-metrics-and-server-desktop.patch",
+    "0420-win32u-ps5-driver-cursor.patch",
+    "0430-win32u-ps5-driver-window-view.patch",
+    "0440-win32u-ps5-driver-cursor-edges.patch",
+    "0450-winevulkan-host-display-extension.patch",
+    "0455-win32u-vulkan-optional-host-external-capabilities.patch",
+    "0456-win32u-vulkan-keep-swapchain-chain-when-scaling.patch",
+    "0457-win32u-vulkan-placed-map-properties-khr.patch",
+    "0460-win32u-ps5-driver-vulkan-display-plane.patch",
+    "0470-xinput-ps5-title-controller.patch",
+    "0500-ntdll-ps5-signal-context-and-segment-bases.patch",
+    "0510-ntdll-ps5-host-page-size.patch",
+    "0520-ntdll-ps5-ntdll-directory.patch",
+    "0530-ntdll-syscall-dispatcher-slot-in-large-host-page.patch",
+    "0540-ntdll-count-host-vm-calls-and-skip-unchanged-mprotect.patch",
+    "0545-ntdll-keep-the-pages-that-fault-most-often.patch",
+    "0550-ntdll-ps5-no-process-creation.patch",
+    "0560-ntdll-stderr-output-sink.patch",
+    "0570-ntdll-ps5-reserve-virtual-range.patch",
+    "0580-ntdll-ps5-config-dir-parent-ownership.patch",
+    "0590-ntdll-ps5-repair-null-fs-on-unix-entry.patch",
+    "0600-ntdll-ps5-direct-memory-for-anonymous-memory.patch",
+    "0601-ntdll-ps5-keep-i386-images-below-4gib.patch",
+    "0610-ntdll-ps5-segv-hook-for-the-wow64-cpu.patch",
+    "0620-ntdll-generic-processor-topology.patch",
+    "0630-win32u-ps5-driver-display-modes.patch",
+    "0640-win32u-ps5-flush-period.patch",
+    "0650-win32u-ps5-black-surfaces.patch",
+    "0660-win32u-ps5-opengl-egl.patch",
+    "0661-win32u-ps5-opengl-fbo-compat.patch",
+    "0662-win32u-ps5-opengl-present-gl21.patch",
+    "0670-win32u-ps5-relative-mouse.patch",
+    "0680-server-ps5-wait-watchdog.patch",
+    "0690-ntdll-ps5-slow-operation-log.patch",
+    "0700-strmbase-renderer-state-wait-without-filter-lock.patch",
+    "0710-ntdll-ps5-guest-access-violations-from-the-wow64-cpu.patch",
+    "0720-opengl32-batch-immediate-mode-calls.patch",
+    "0721-win32u-ps5-log-opengl-frame-rate.patch",
+    "0722-win32u-ps5-opengl-refresh-rate.patch",
+    "0723-win32u-ps5-opengl-cursor.patch",
+    "0730-server-ps5-anonymous-mappings-in-shared-memory.patch",
+    "0740-win32u-ps5-vulkan-hardware-cursor.patch",
+    "0750-winspool-fail-unix-calls-without-a-backend.patch",
+    "0760-ws2-32-read-fqdn-once.patch",
+    "0770-server-ps5-run-sync-requests-on-client-threads.patch",
+    "0780-ws2-32-keep-fqdn-until-the-registry-changes.patch",
+    "0790-server-ps5-immediate-mutex-calls.patch",
+    "0810-server-ps5-shared-mutex-word.patch",
+    "0820-ntdll-ps5-shared-mutex-client.patch",
+    "0870-server-ps5-release-image-view-fds.patch",
+    "0880-wine-ps5-runtime-defaults.patch",
+    "0885-server-ps5-shared-sync-word.patch",
+    "0886-server-ps5-shared-sync-lifetime.patch",
+    "0887-ntdll-ps5-shared-sync-client.patch",
+    "0888-ntdll-ps5-shared-sync-default-on.patch",
+    "0890-ntdll-ps5-share-name-changes-with-the-server.patch",
+    "0895-include-list-ps5-sync-headers.patch"
+  ],
+  "files": {
+    "prx/sce_module/ntdll.prx": {
+      "sha256": "32df5774cd57c1d2f5a46caaf4d092086e7529bd979be06d974421e651bec86d",
+      "bytes": 711366,
+      "data_imports": [
+        "__isthreaded",
+        "__stderrp",
+        "__stdoutp",
+        "environ"
+      ],
+      "needed": [
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "prx/sce_module/win32u.prx": {
+      "sha256": "7e022336e1f1a8225fe2b67b56bd88324e66b92102bf5fce388fd25262044c54",
+      "bytes": 2446982,
+      "data_imports": [],
+      "needed": [
+        "ntdll.prx",
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "prx/sce_module/wineserver.prx": {
+      "sha256": "2d9d3519488a4eb97fe4963c3c82205ffe770019a3d79359829b415969075c14",
+      "bytes": 773007,
+      "data_imports": [
+        "__stderrp",
+        "__stdoutp"
+      ],
+      "needed": [
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "prx/sce_module/wowprospero.prx": {
+      "sha256": "e983c0a15fa4d5e7bbeea0927b51164b0dda81782e0d9e2fcbd79373605ecdd8",
+      "bytes": 298543,
+      "data_imports": [
+        "__stderrp"
+      ],
+      "needed": [
+        "ntdll.prx",
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "prx/sce_module/wineps5.prx": {
+      "sha256": "d1fc4fc2986222758384d68c480687fc74deeb4d806403f6c0434640a09050ce",
+      "bytes": 44007,
+      "data_imports": [],
+      "needed": [
+        "ntdll.prx",
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "prx/sce_module/libfreetype.prx": {
+      "sha256": "58bb3982c6b2dcaca0942fe2d234abf176d269dd6ef1f605f9f03ba134235d39",
+      "bytes": 652649,
+      "data_imports": [],
+      "needed": [
+        "libSceLibcInternal.sprx"
+      ]
+    },
+    "prx/sce_module/xinput1_3.prx": {
+      "sha256": "8d6b86c371b6b25d964ba6d3d8d4d2ca13ebd9044a31427a9c7ecc30b5384154",
+      "bytes": 5498,
+      "data_imports": [],
+      "needed": [
+        "ntdll.prx"
+      ]
+    },
+    "prx/sce_module/winevulkan.prx": {
+      "sha256": "2f0770f199dc9e315ea9e2363bd3cd828293194e25e78cf3554aa1397bfc7037",
+      "bytes": 749735,
+      "data_imports": [],
+      "needed": [
+        "ntdll.prx",
+        "win32u.prx",
+        "libSceLibcInternal.sprx"
+      ]
+    },
+    "prx/sce_module/opengl32.prx": {
+      "sha256": "4795d9ff49448a0dc50323d47a992e87d5a5f4b88003d44ad422fb5db40e21cc",
+      "bytes": 994892,
+      "data_imports": [
+        "__stderrp"
+      ],
+      "needed": [
+        "ntdll.prx",
+        "win32u.prx",
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "prx/sce_module/ws2_32.prx": {
+      "sha256": "e1dc7cb72ea40669a6a63ba15f947a54e40114fdae03d4a98754d9982b1bd0b1",
+      "bytes": 24182,
+      "data_imports": [],
+      "needed": [
+        "ntdll.prx",
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "prx/sce_module/crypt32.prx": {
+      "sha256": "ff64a6ee520b534d69714788c7edbd600e0e9bcccbdd389d0b6136b7252a2fe2",
+      "bytes": 12743,
+      "data_imports": [],
+      "needed": [
+        "ntdll.prx",
+        "libSceLibcInternal.sprx",
+        "libkernel_web.sprx"
+      ]
+    },
+    "pe/i386-windows/opengl32.dll": {
+      "sha256": "4b9c56e4735f0db900449ab5cd3081fa4c11ee0b8a2c3b61caea6bf74dae8e44",
+      "bytes": 5826575
+    },
+    "pe/i386-windows/quartz.dll": {
+      "sha256": "0aa47050262927717c56bd7b8ee550af48228129aaf79593982d67aa9774bbee",
+      "bytes": 3206757
+    },
+    "pe/i386-windows/xinput1_1.dll": {
+      "sha256": "0576e6af81dd501284f9523df931eac38338f57421e2e24f29e75535070cd170",
+      "bytes": 264398
+    },
+    "pe/i386-windows/xinput1_2.dll": {
+      "sha256": "d7b4d885f7fb4f472a6b1f1f1ba3b04d541e80d7a2a8714e208ee8be3256d9be",
+      "bytes": 264398
+    },
+    "pe/i386-windows/xinput1_3.dll": {
+      "sha256": "f82b2eb3af191c61e11371c752e97bca6efc6a45c7c9501c2b8f371fb1a3fc9f",
+      "bytes": 264600
+    },
+    "pe/i386-windows/xinput1_4.dll": {
+      "sha256": "9e1a6a04a07a195b9f7ad8cff5f797c8fbf9fabcffc3d54677633652472acf3b",
+      "bytes": 265613
+    },
+    "pe/i386-windows/xinputuap.dll": {
+      "sha256": "3e63160f5915ab417a39fe189a8bd7b04c81e617fce41ef70729d4c61dcc254e",
+      "bytes": 265508
+    },
+    "pe/x86_64-windows/opengl32.dll": {
+      "sha256": "3c835b53018f296e7b21de09fe41d51541c5e91ad918474950083da0ae7b58dd",
+      "bytes": 7533356
+    },
+    "pe/x86_64-windows/quartz.dll": {
+      "sha256": "862ef380767c6ca8f93a9bdc30e1689d43c07a52821ab5e5a52c78b486a9523b",
+      "bytes": 3944354
+    },
+    "pe/x86_64-windows/xinput1_1.dll": {
+      "sha256": "a9d63631e646f9ccfcd55bd1683854efcfc3c8a6b80e95e17013177f801a0701",
+      "bytes": 309444
+    },
+    "pe/x86_64-windows/xinput1_2.dll": {
+      "sha256": "293187f3a27e47b4be913d9649265a9a54a1f6e7b0883c01311917b59d642943",
+      "bytes": 309444
+    },
+    "pe/x86_64-windows/xinput1_3.dll": {
+      "sha256": "eb3c244c2ad059a3c4de8b2de4336052088879525cd70794cb59b64b4099ffb5",
+      "bytes": 309646
+    },
+    "pe/x86_64-windows/xinput1_4.dll": {
+      "sha256": "8447ca1b78cbf0f402a79bb5fa9027366e1cab1ddc8a7f61af59bcf7cb656148",
+      "bytes": 315021
+    },
+    "pe/x86_64-windows/xinputuap.dll": {
+      "sha256": "daadce3681973a8f990fedd7c6184e84bc0730b147768a8f6f75522cc78c262c",
+      "bytes": 314916
+    }
+  }
+}
