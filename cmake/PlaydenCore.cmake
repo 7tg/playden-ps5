@@ -63,7 +63,19 @@ target_include_directories(playden_persistence_service PUBLIC "${CMAKE_SOURCE_DI
 target_compile_features(playden_persistence_service PUBLIC cxx_std_17)
 target_link_libraries(playden_persistence_service PUBLIC playden_preferences playden_library Threads::Threads)
 
+add_library(playden_game_paths STATIC "${CMAKE_SOURCE_DIR}/src/steam/backend/game_path.cpp")
+target_include_directories(playden_game_paths PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_game_paths PUBLIC cxx_std_17)
+
+add_library(playden_runtime_installs STATIC "${CMAKE_SOURCE_DIR}/src/runtime/game_install.cpp")
+target_include_directories(playden_runtime_installs PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_installs PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_installs PUBLIC playden_storage playden_steam_protocol playden_game_paths)
+
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(runtime_game_install_test "${CMAKE_SOURCE_DIR}/tests/runtime_game_install_test.cpp")
+    target_link_libraries(runtime_game_install_test PRIVATE playden_runtime_installs)
+    add_test(NAME runtime_game_install COMMAND runtime_game_install_test)
     add_executable(diagnostic_log_test "${CMAKE_SOURCE_DIR}/tests/diagnostic_log_test.cpp")
     target_link_libraries(diagnostic_log_test PRIVATE playden_diagnostic_log)
     add_test(NAME diagnostic_log COMMAND diagnostic_log_test)

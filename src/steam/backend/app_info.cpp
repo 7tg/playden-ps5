@@ -95,14 +95,6 @@ int NaturalCompare(std::string_view a, std::string_view b) {
   return 0;
 }
 
-bool IsControl(std::string_view s, std::size_t i) {
-  const auto c = static_cast<unsigned char>(s[i]);
-  if (c < 0x20 || c == 0x7F) return true;
-  // U+0080..U+009F encode as C2 80..C2 9F.
-  return c == 0xC2 && i + 1 < s.size() && static_cast<unsigned char>(s[i + 1]) >= 0x80 &&
-         static_cast<unsigned char>(s[i + 1]) <= 0x9F;
-}
-
 bool Fail(std::string* reason, const char* text) {
   if (reason != nullptr) *reason = text;
   return false;
@@ -462,41 +454,6 @@ bool EligibleLaunches(const AppInfo& app, const std::set<std::uint32_t>& owned_a
   });
   if (launches != nullptr) *launches = std::move(eligible);
   return true;
-}
-
-std::optional<std::string> RelativeGamePath(std::string_view raw, bool allow_root) {
-  std::string path(raw);
-  for (char& c : path) {
-    if (c == '\\') c = '/';
-  }
-  if (!path.empty() && path.front() == '/') return std::nullopt;
-  if (path.find(':') != std::string::npos) return std::nullopt;
-  for (std::size_t i = 0; i < path.size(); ++i) {
-    if (IsControl(path, i)) return std::nullopt;
-  }
-  std::vector<std::string_view> parts;
-  std::string_view rest(path);
-  while (!rest.empty()) {
-    const std::size_t slash = rest.find('/');
-    const std::string_view part = rest.substr(0, slash);
-    if (!part.empty() && part != ".") parts.push_back(part);
-    if (slash == std::string_view::npos) break;
-    rest.remove_prefix(slash + 1);
-  }
-  for (const std::string_view part : parts) {
-    if (part == "..") return std::nullopt;
-  }
-  if (!parts.empty() && LowerString(parts.front()) == ".gn-download") return std::nullopt;
-  if (parts.empty()) {
-    if (!allow_root) return std::nullopt;
-    return std::string(".");
-  }
-  std::string out;
-  for (std::size_t i = 0; i < parts.size(); ++i) {
-    if (i != 0) out.push_back('/');
-    out.append(parts[i]);
-  }
-  return out;
 }
 
 std::optional<std::vector<std::string>> ParseWindowsArguments(std::string_view raw) {
