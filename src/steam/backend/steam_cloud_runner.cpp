@@ -53,7 +53,9 @@ void SteamCloudRunner::SetLog(std::function<void(GameId app, const char* event, 
 SteamCloudRunner::SteamCloudRunner(cloud::CloudHooks hooks) : sync_(std::move(hooks)) {}
 
 cloud::GameSaveLocation SteamCloudRunner::SaveLocation(const CloudLocation& location) {
-  return {location.id, location.game_root, location.state_root + "/prefix", location.state_root};
+  return {location.id, location.game_root,
+          location.prefix_root.empty() ? location.state_root + "/prefix" : location.prefix_root,
+          location.state_root};
 }
 
 CloudReport SteamCloudRunner::Check(const StoredSession& session, const CloudLocation& location,
@@ -62,7 +64,7 @@ CloudReport SteamCloudRunner::Check(const StoredSession& session, const CloudLoc
   auto plan = sync_.Check(session, SaveLocation(location), cancel);
   auto report = Report(plan);
   if (log_) log_(location.id, (std::string("check-") + StateName(report.state)).c_str(), report.message);
-  plans_[location.id] = std::move(plan);
+  plans_[location.id] = {std::move(plan), SaveLocation(location)};
   return report;
 }
 
@@ -74,12 +76,21 @@ CloudReport SteamCloudRunner::Apply(const StoredSession& session, const CloudLoc
     report.message = "Check this game's saves again.";
     return report;
   }
+  const auto requested = SaveLocation(location);
+  const auto& checked = found->second.location;
+  if (requested.app_id != checked.app_id || requested.game_root != checked.game_root ||
+      requested.prefix_root != checked.prefix_root || requested.state_root != checked.state_root) {
+    plans_.erase(found);
+    CloudReport report;
+    report.message = "This game's save location changed. Check its saves again.";
+    return report;
+  }
   const auto choice = resolution == CloudResolution::kUseLocal   ? cloud::Resolution::kUseLocal
                       : resolution == CloudResolution::kUseCloud ? cloud::Resolution::kUseCloud
                                                                  : cloud::Resolution::kAutomatic;
   current_app_ = location.id;
-  auto report = Report(found->second);
-  const auto outcome = sync_.Apply(session, SaveLocation(location), found->second, choice, confirm_account, cancel);
+  auto report = Report(found->second.plan);
+  const auto outcome = sync_.Apply(session, checked, found->second.plan, choice, confirm_account, cancel);
   plans_.erase(found);  // a plan is used once; the next sync checks again
   report.state = outcome.ok ? CloudState::kSynced : CloudState::kFailed;
   report.message = outcome.message;

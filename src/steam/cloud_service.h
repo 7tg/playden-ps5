@@ -29,12 +29,15 @@ enum class CloudState {
 
 enum class CloudResolution { kAutomatic, kUseLocal, kUseCloud };
 
-// Where one game's saves live: the install, plus a folder that outlives it holding the game's Wine
-// prefix (for Windows user folders), the sync baseline and backups.
+// Where one game's saves live: the install, its optional explicit Wine bottle,
+// and a state folder holding the sync baseline/backups that outlives uninstall.
 struct CloudLocation {
   GameId id = 0;
   std::string game_root;
   std::string state_root;
+  // Managed games use their actual bottle; empty retains the legacy
+  // state_root/prefix mapping for unprepared installs.
+  std::string prefix_root;
 };
 
 // One check or sync, as the player sees it.

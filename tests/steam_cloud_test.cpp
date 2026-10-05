@@ -2,6 +2,7 @@
 #include "steam/backend/cloud_mapping.h"
 #include "steam/backend/cloud_messages.h"
 #include "steam/backend/cloud_sync.h"
+#include "steam/backend/steam_cloud_runner.h"
 #include "steam/backend/proto_wire.h"
 
 #include <mbedtls/sha1.h>
@@ -505,9 +506,48 @@ void SyncEndToEnd() {
   std::filesystem::remove_all(base);
 }
 
+void ManagedPrefixAndPlanBinding() {
+  const auto base = std::filesystem::temp_directory_path() /
+                    ("playden-cloud-managed-" + std::to_string(getpid()));
+  std::filesystem::remove_all(base);
+  const CloudLocation legacy{kApp, (base / "game").string(), (base / "cloud").string()};
+  CHECK(SteamCloudRunner::SaveLocation(legacy).prefix_root == legacy.state_root + "/prefix");
+  CloudLocation managed = legacy;
+  managed.prefix_root = (base / "library/prefixes/game").string();
+  const auto mapping = SteamCloudRunner::SaveLocation(managed);
+  CHECK(mapping.prefix_root == managed.prefix_root);
+  CHECK(mapping.state_root == managed.state_root);
+  const std::string relative = "/drive_c/users/prospero/Documents/My Games/Cloud Game/mine.sav";
+  WriteText(managed.prefix_root + relative, "managed progress");
+  FakeCloud remote;
+  SteamCloudRunner runner(remote.Hooks());
+  const StoredSession session{kSteamId, "user", "refresh", "access", {}};
+  std::atomic<bool> cancel{false};
+  auto report = runner.Check(session, managed, cancel);
+  CHECK(report.uploads == 1);
+  CloudLocation replacement = managed;
+  replacement.prefix_root = (base / "other-bottle").string();
+  std::filesystem::copy(managed.prefix_root, replacement.prefix_root,
+                        std::filesystem::copy_options::recursive);
+  report = runner.Apply(session, replacement, CloudResolution::kUseLocal, true, cancel);
+  CHECK(report.state == CloudState::kFailed);
+  CHECK(remote.files.empty());
+  // A refused location switch invalidates the stale plan, including when the
+  // old location is supplied again. Only a new check authorizes a transfer.
+  report = runner.Apply(session, managed, CloudResolution::kUseLocal, true, cancel);
+  CHECK(report.state == CloudState::kFailed);
+  runner.Check(session, managed, cancel);
+  report = runner.Apply(session, managed, CloudResolution::kUseLocal, true, cancel);
+  CHECK(report.state == CloudState::kSynced);
+  CHECK(remote.files.at("%WinMyDocuments%My Games/Cloud Game/mine.sav").data == Bytes("managed progress"));
+  CHECK(!std::filesystem::exists(base / "cloud/prefix"));
+  std::filesystem::remove_all(base);
+}
+
 }  // namespace
 
 int main() {
+  ManagedPrefixAndPlanBinding();
   MessagesRoundTrip();
   ParsesUfsAndMaps();
   SyncEndToEnd();

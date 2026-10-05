@@ -662,3 +662,15 @@ DLL, drive-table conversion and CPU/audio registry bindings. Tests reject prefix
 template, permission, directory and metadata drift plus unprepared specs.
 This establishes the host preparation identity gate, not release-kit/runtime
 provenance, remote distribution, native directory operations or gameplay.
+
+Task 7 mapping increment: `CloudLocation` accepts an explicit `prefix_root` for
+the actual managed bottle while retaining the legacy state-folder prefix for
+unprepared installs. `SteamCloudRunner` binds each pending plan to the exact
+game/prefix/state location checked; a changed location invalidates that plan
+without transferring files and requires a new check. Host fixtures upload from
+`library/prefixes/game` with baseline/state at `cloud/`, and verify the legacy
+mapping, service request propagation and refusal after a bottle switch. The
+location guard's regression failed when the guard was temporarily removed.
+Controller runtime-record wiring, backed-up legacy save migration/conflict
+resolution, persisted next-open session reconciliation and console acceptance
+remain open. Do not enable managed sync before those production gates are met.
