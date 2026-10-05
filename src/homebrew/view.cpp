@@ -1109,9 +1109,9 @@ class Render::Impl
             return;
         }
 
-        // As on macOS (`FocusViewport.reveal`): a shelf scrolls sideways only when the focused
-        // tile would leave the screen, and eases there, so the highlight is what moves; each
-        // shelf keeps its own column and scroll position.
+        // As on macOS (`FocusViewport.reveal`): Home scrolls only when the focused tile or shelf
+        // would leave the screen, and eases there, so the highlight is what moves; each shelf
+        // keeps its own column and scroll position.
         // macOS spacing: room under each shelf for the focused game's title and status.
         constexpr float shelf_pitch = 456.0F;
         constexpr float tile_pitch = 233.0F;
@@ -1119,9 +1119,11 @@ class Render::Impl
         const int active_shelf = std::clamp(state.navigation.home_shelf, 0,
                                             static_cast<int>(view.shelves.size()) - 1);
         const float shelves_height = static_cast<float>(view.shelves.size()) * shelf_pitch;
-        // The focused shelf sits at the top, whole, with the next one peeking below it.
-        home_scroll_.target = std::clamp(active_shelf * shelf_pitch, 0.0F,
-                                         std::max(0.0F, shelves_height - shelf_pitch));
+        // Vertically too, only as far as needed to show the focused shelf and its title.
+        constexpr float shelf_extent = 430.0F;
+        home_scroll_.target = reveal(home_scroll_.target, active_shelf * shelf_pitch,
+                                     active_shelf * shelf_pitch + shelf_extent, kFooterY - 205.0F,
+                                     shelves_height - shelf_pitch + shelf_extent);
         const float vertical = home_scroll_.step(frame_dt_, state.reduced_motion);
         scene_.push_clip({0.0F, 180.0F, kWidth, kFooterY - 180.0F});
         for (int shelf_index = 0; shelf_index < static_cast<int>(view.shelves.size()); ++shelf_index)
