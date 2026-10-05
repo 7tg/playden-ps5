@@ -9,8 +9,9 @@ automatic game installation or declare a game ready to play.
 `src/platform/ps5/title_runtime.{h,cpp}` exposes
 `TitleBackend::Launch(title_id, arguments) -> TitleResult`. It validates a nine-byte
 title ID (four uppercase letters and five digits), limits diagnostic argument vectors
-to eight entries of at most 512 bytes, initializes LncUtil, obtains the foreground
-user and submits the request. Failure stops the sequence. LncUtil already-initialized
+to eight entries of at most 512 bytes, obtains the foreground user and submits the
+request. The private provider first initializes LncUtil; the public provider does
+not depend on its unavailable private entry points. Failure stops the sequence. LncUtil already-initialized
 `0x80940018` is accepted. A returned app ID with its high bit clear means the request
 was accepted; it is not proof that the target started or rendered.
 
@@ -27,10 +28,11 @@ The ABI matches the local Itemzflow, CheatRunner and PS5 MCP references:
 Our old probe submitted without initialization, with `check_flag = 2`. The diagnostic
 deployed on firmware 13.60 at 15:40:45 UTC established that **both direct LncUtil
 imports were null**, while `sceUserServiceGetForegroundUser` resolved. The adapter
-returned `ENOSYS` without calling either missing function. The later null import is a plausible explanation for the earlier pre-handoff
-crash; the earlier attempt
-did not retain a Playden crash backtrace, so no original faulting instruction address
-is claimed from those logs.
+returned `ENOSYS` without calling either missing function. The first attempt did not retain a Playden crash backtrace. A later replay of the
+untouched original executable captured SIGSEGV at instruction address zero (pid
+535), with ShadowMount independently identifying that PID as FAKE77031. The null
+import is consistent with this fault; identifying the exact import remains an
+inference because the caller is not symbolized. See the replay evidence below.
 
 The proposed native provider uses internal SystemService ID `0x80000010`, obtains its
 system module handle, and resolves `sceLncUtilInitialize` and `sceLncUtilLaunchApp`
@@ -192,10 +194,9 @@ Selected host suite: 64/64 passed after adding launch sequencing/provider and
 registration-state/collision tests. Patched helper Python suite: 49/49 passed.
 Diagnostic native compile/link/sign/package passed. Final adapter startup is recorded in the service log and repeated rendered target
 checks passed. External write,
-registration/query/removal and repeated target handoff have been observed. An
-original Playden crash backtrace was not retained; the measured null import is a
-subsequent diagnosis, not a captured original fault address. This evidence gap must
-remain explicit in the Task 1 requirements audit.
+registration/query/removal and repeated target handoff have been observed. The original artifact's fault location was captured by replay after fix development;
+the first historical trace remains unrecovered. This timing deviation is recorded
+explicitly, rather than claiming the trace preceded development.
 
 ## ShadowMount health check
 
@@ -207,11 +208,11 @@ The MCP filesystem inventory lists staging directories too, so its appearance
 there was not successful registration. Launch showed the corrupted-app screen
 and no startup marker. Repeating registration refused the existing directory.
 
-General mounting is still working: fresh PPSA99995 mount/handoff records and live
-HL2 gameplay were observed. Registration is specifically broken in this service
-instance. Source `sm_shellcore_hooks.c` retains `SHELLCORE_HOOKS_STALE`; its start
-routine will not reinstall a nonempty state. A clean service/console baseline is
-needed before treating this as a registration API rejection or adding a new broker.
+At that stage general mounting worked: fresh PPSA99995 mount/handoff records and
+live HL2 gameplay were observed. Registration was specifically broken in that
+service instance. Source `sm_shellcore_hooks.c` retains `SHELLCORE_HOOKS_STALE`; its start
+routine will not reinstall a nonempty state. A clean service baseline was needed before attributing this to the API or adding
+a new broker; the existing payload restart below restored registration.
 Both referenced AppInst internal IDs (`0x80000014`, `0x80000068`) also return
 `0x80020063` from the native diagnostic.
 
@@ -246,8 +247,8 @@ Fresh independent review found the cache/native-inventory distinction above; the
 contract and header now state the mandatory caller checks. Review found no other
 critical or important implementation issues. The diagnostic remove action is not
 a retryable unattended workflow after retirement: a busy response requires the
-verified after-close cleanup path. Original crash capture was not retained, and
-fixture execution failed; neither is claimed as successful evidence.
+verified after-close cleanup path. The original artifact crash location is now captured by replay; the first historic
+trace remains unrecovered. Fixture execution failed and is not claimed successful.
 
 ## Original probe reproduction and normal-build restoration
 
@@ -262,3 +263,36 @@ remains explicit. The measured later null import is a plausible cause.
 Restored the normal probe-OFF package, observed Playden Home, closed it and released
 the console. Diagnostic requests were consumed. Artifact hashes and reproduction
 logs are retained with the evidence; no original binary is committed.
+
+## Captured original-artifact fault, 17:12:40 UTC
+
+Replayed the unchanged backed-up original eboot (SHA-256 `713fffc424725906048a9936ccf810b447c7008eb14ad3aaae8d9d793c500e12`)
+with its original one-shot launch request. The existing kernel-log payload collected
+the failure immediately: SIGSEGV, pid 535, instruction-fetch page fault at address
+`0x0`, RIP `0x0`. ShadowMount records FAKE77031 pid 535 starting at 17:12:39 UTC and
+crashing at 17:12:40; the native log records the handoff request and no return.
+The captured backtrace is limited to `0x40015b` and `0x0`, so the particular import
+is not directly symbolized. Earlier instrumentation established null LncUtil imports.
+
+This closes the crash-location evidence requirement through a reproducible replay
+of the original artifact before restoring the fixed console executable. It does not
+recover the first historical trace: capture occurred after fix development, a
+recorded deviation from the requested initial investigation order. Independent
+review verified the PID/title association, fault record and unchanged binary hash.
+No new payload/broker was installed. Normal probe-OFF Playden was restored, its Home
+rendered, it was closed, and the PS5 claim released.
+
+## Task 1 completion audit
+
+| Requirement | Verified evidence and scope |
+| --- | --- |
+| ABI, initialization, module loading, original crash location | 32-byte layout assertions and provider tests; native resolver logs; original-artifact replay kernel fault at RIP zero, correlated with FAKE77031 pid535. First historical capture was missed; replay timing is explicit. |
+| Repaired isolated handoff and repeat after launcher restart | ShadowMount pid477 -> 482 immediate adapter handoff; repeated rendered HL2 menu screenshots, including pid497 -> 502. Native error80940010 retained separately from service retry/target startup. |
+| External write and disposable registration/query/removal | Exact FAKE77031 helper grant and proof readback; FAKE78000 native source preparation, TitleDir bridge result0, native Ready query; manual-source retirement then existing console uninstall after Playden closes, app.db disappearance and owned-source cleanup. |
+| Metadata, modes, collisions, namespace, unavailable provider | Registered Playden Contract Probe name/icon observed; executable0755 readback; existing source refused without overwrite; foreign-path/unavailable-provider host tests; FAKE78000-78999 policy with mandatory independent native/source checks. |
+| Separate committed adapter and evidence; automated-install gate | df19870 adapter/evidence; e9f2cfc helper build extension on patched611fa5f; crash capture follow-up committed separately. Diagnostic gate defaults OFF and no production installer is enabled. |
+
+The supported paths rely on the existing patched helper and installed ShadowMount
+service. Native AppInstUtil is unavailable; no new persistent broker was introduced.
+Task 1 proves the incremental contracts, not a production unattended installer,
+removal service or fixture executable. Those limits are retained for later tasks.

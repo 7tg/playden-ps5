@@ -135,14 +135,17 @@ The wrapper writes game-scoped startup/exit records with a session ID, settings 
 
 **Interfaces:** Produce a documented contract for initialization, foreground user, launch/registration/query/removal APIs, title allocation namespace and `/data` provisioning. Proposed platform interface: `TitleBackend::Launch(const std::string& title_id) -> TitleResult`; registration/query/removal signatures are finalized from the native API evidence in this task.
 
-- [ ] Inspect SDK and local working Itemzflow/CheatRunner/native installers to establish exact launch ABI, initialization and required module loading. Capture our crash location before changing the probe.
+- [x] Inspect SDK and local working Itemzflow/CheatRunner/native installers to establish exact launch ABI, initialization and required module loading. Capture our crash location before changing the probe.
 - [x] Repair and run the isolated handoff probe against an already registered title. Verify actual target startup and repeat after launcher restart; record failures separately from return codes.
 - [x] Prove Playden can write outside its current sandbox and register/query/remove a disposable title. Identify whether it needs a title-compatible Lapy helper or a supported installer broker. Treat the broker as a new dependency requiring review if needed.
 - [x] Test title metadata/registration visibility, permission preservation, and collision detection. Document title reservation rules and unavailable-provider behavior.
 - [x] Commit the platform adapter and evidence as a separate increment. **Gate:** do not start automated installation until native launch, provisioning and registration have a demonstrated supported path.
 
-Task 1 audit: ABI/module inspection is complete, but no original crash backtrace
-was retained; the first checkbox remains open for that evidence gap. Native handoff
+Task 1 audit: complete. ABI/module inspection and original-artifact fault capture
+are verified. The first historical trace was not retained; replay of the unchanged
+original executable captured SIGSEGV/RIP zero for FAKE77031 pid535. This replay
+occurred after fix development and before restoring the fixed console executable,
+a recorded deviation from the requested initial investigation order. Native handoff
 and external provisioning/registration/query are demonstrated. Removal completed
 through the existing console path after closing Playden (native EBUSY while active).
 The tiny disposable executable failed module loading separately from registration.

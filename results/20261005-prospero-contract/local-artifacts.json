@@ -21,6 +21,19 @@
   },
   "original_probe_reproduction": {
     "sha256": "713fffc424725906048a9936ccf810b447c7008eb14ad3aaae8d9d793c500e12",
-    "result": "Playden CE-108255-1, pid519 at17:05:44UTC; original fault instruction not captured"
+    "result": "Earlier pid519 reproduction CE-108255-1 at17:05:44UTC; no fault instruction captured in that attempt"
+  },
+  "original_fault_capture": {
+    "original_eboot_sha256": "713fffc424725906048a9936ccf810b447c7008eb14ad3aaae8d9d793c500e12",
+    "utc": "2026-10-05T17:12:40Z",
+    "title_id": "FAKE77031",
+    "pid": 535,
+    "signal": "SIGSEGV",
+    "fault_address": "0x0",
+    "rip": "0x0",
+    "capture_payload_path": "/data/pldmgr/payloads/playden-kernel-log-probe/playden-kernel-log-probe.elf",
+    "capture_remote_path": "/data/playden/logs/kernel-capture-LtC7Sg",
+    "full_capture_sha256": "379af4353f7595bbfc28fd48481fc04d0971093c8e2c4c3b730e957f8dcb7f89",
+    "limitations": "Replayed untouched original artifact after fix development, before restoring fixed executable; first historical trace not recovered; exact failing import not symbolized"
   }
 }
