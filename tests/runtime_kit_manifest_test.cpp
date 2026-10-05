@@ -1,4 +1,8 @@
 #include "runtime/kit_manifest.h"
+#if PLAYDEN_TEST_KIT_ADMISSION
+#include "runtime/artifact_hash.h"
+#include "runtime/kit_admission.h"
+#endif
 
 #include <cassert>
 #include <cstdio>
@@ -16,6 +20,9 @@ using namespace playden::runtime;
 namespace {
 
 std::string HashBytes(std::string_view bytes) {
+#if PLAYDEN_TEST_KIT_ADMISSION
+  return *HashArtifactBytes(bytes);
+#else
   std::uint64_t value = 1469598103934665603ULL;
   for (unsigned char byte : bytes) value = (value ^ byte) * 1099511628211ULL;
   std::ostringstream output;
@@ -23,12 +30,17 @@ std::string HashBytes(std::string_view bytes) {
   for (unsigned index = 0; index < 4; ++index)
     output << std::setw(16) << (value + index * 0x9e3779b97f4a7c15ULL);
   return output.str();
+#endif
 }
 
 std::optional<std::string> HashFile(const fs::path& path) {
+#if PLAYDEN_TEST_KIT_ADMISSION
+  return HashArtifactFile(path);
+#else
   std::ifstream input(path, std::ios::binary);
   if (!input) return std::nullopt;
   return HashBytes(std::string(std::istreambuf_iterator<char>(input), {}));
+#endif
 }
 
 void Write(const fs::path& path, const std::string& bytes, unsigned mode = 0644) {
@@ -53,7 +65,7 @@ std::string Pe(bool pe64) {
 std::string Quote(const std::string& text) { return "\"" + text + "\""; }
 
 struct Fixture {
-  fs::path root = fs::temp_directory_path() /
+  fs::path root = fs::canonical(fs::temp_directory_path()) /
                   ("playden-kit-manifest-" + std::to_string(::getpid()));
   const std::string wrapper = std::string(40, 'a');
   const std::string wine = std::string(40, 'b');
@@ -237,7 +249,13 @@ struct Fixture {
     trust.manifest_sha256 = *HashFile(root / "manifest.json");
   }
 
-  KitManifestResult Verify() const { return VerifyKitManifest(root, trust); }
+  KitManifestResult Verify() const {
+#if PLAYDEN_TEST_KIT_ADMISSION
+    return VerifyInstalledKit(root, trust);
+#else
+    return VerifyKitManifest(root, trust);
+#endif
+  }
 };
 
 void CheckRejected(const KitManifestResult& result, KitManifestStatus status) {
@@ -297,5 +315,34 @@ int main() {
     Fixture fixture; fixture.WriteRegistry(false); fixture.RewriteManifest();
     CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
   }
+#if PLAYDEN_TEST_KIT_ADMISSION
+  {
+    Fixture fixture;
+    // Admission must bind real SHA-256 rather than trusting caller callbacks.
+    fixture.trust.hash_file = [](const fs::path&) -> std::optional<std::string> {
+      return std::nullopt;
+    };
+    fixture.trust.hash_bytes = [](std::string_view) -> std::optional<std::string> {
+      return std::string(64, '0');
+    };
+    assert(fixture.Verify().status == KitManifestStatus::kVerified);
+    Write(fixture.root / "titles/variant/eboot.bin", "changed", 0755);
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    Fixture fixture;
+    // Same-length mutation catches substitution independently of file size.
+    Write(fixture.root / "titles/variant/eboot.bin", "other", 0755);
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    Fixture fixture;
+    const auto ancestor = fixture.root.parent_path() / (fixture.root.filename().string() + "-alias");
+    fs::create_directory_symlink(fixture.root.parent_path(), ancestor);
+    const auto result = VerifyInstalledKit(ancestor / fixture.root.filename(), fixture.trust);
+    fs::remove(ancestor);
+    CheckRejected(result, KitManifestStatus::kIntegrityFailure);
+  }
+#endif
   std::puts("runtime_kit_manifest_test: all assertions passed");
 }

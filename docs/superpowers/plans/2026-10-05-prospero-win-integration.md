@@ -371,9 +371,19 @@ and PS5 builds. The normal host suite passes 72/72; the PS5 build compiles the
 admission library and packages the launcher successfully. The upstream kit and
 bottle preparation tests pass 25/25 and 12/12 locally. These checks do not close
 Task 3: source gitlink, clean source provenance, release kit/lock, licenses and
-fresh-bottle console acceptance remain required. Hash callbacks and independent
-trust pins still need the production adapter; registering a validator is not
+fresh-bottle console acceptance remain required. Registering a validator is not
 evidence that an installed kit has been admitted.
+
+Production hash checkpoint (2026-10-05): `VerifyInstalledKit` binds manifest
+verification to the real streaming SHA-256 backend, ignoring caller-supplied
+hash callbacks. A second run of the manifest cases uses real on-disk SHA-256 and
+checks same-size payload substitution, wrong helper pins, unsupported sources,
+extra payloads, invalid registry state and symlinked ancestors. All 74 host tests
+pass and the PS5 SDK build compiles the adapter. Independent trust pins still
+need to be loaded from the final dependency lock and wired into preparation.
+Console filesystem support for the full verifier remains unproven: its metadata
+and traversal operations still need testing through native access. The adapter
+is not yet called by the launcher's production installation service.
 
 Kit manifest contract: `playden-prospero-kit/1`, with separate runtime artifact
 revision, template and recipe identity/version, source provenance, sorted per-file
