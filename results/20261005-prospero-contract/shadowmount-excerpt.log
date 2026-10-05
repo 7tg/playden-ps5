@@ -1,0 +1,67 @@
+[18:15:25]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x000000000000C018 delta=0x000000000000C01F low32=0x0000C018 high32=0x00000000 decoded=APP_ID=0x0000C018
+[18:15:27]   [MANUAL] API added source: /data/homebrew/FAKE78000
+[18:15:27] [SCAN] immediate scan requested by HTTP API manual source added
+[18:15:33]   [GAME] process exited, awaiting same-app handoff: FAKE77031 pid=355 app_id=0x0000C018
+[18:15:34]   [WAIT] Playden Contract Probe modified 7s ago. Waiting...
+[18:15:34]   [SKIP] source not stable yet: Playden Contract Probe (/data/homebrew/FAKE78000)
+[18:15:34]   [MANUAL] scanned 1 manual source(s)
+[18:15:34] [SCAN] running immediate full scan (manual.lst changed)
+[18:15:44]   [MANUAL] scanned 1 manual source(s)
+[18:15:44]   [ACTION] Installing: Playden Contract Probe (FAKE78000)
+[18:15:44] NOTIFY: Installing: Playden Contract Probe (FAKE78000)...
+[18:15:45]   [LINK] nullfs mounted: /data/homebrew/FAKE78000 -> /system_ex/app/FAKE78000
+[18:15:45]   [LINK] mount.lnk created: /user/app/FAKE78000/mount.lnk -> /data/homebrew/FAKE78000
+[18:15:45]   [SHELLCORE] AppInstallAll hook is no longer installed
+[18:15:45]   [REG] internal AppInstallTitleDir bridge unavailable
+[18:15:45] NOTIFY: Register failed: Playden Contract Probe (FAKE78000)
+TitleDir bridge unavailable
+[18:15:45]   [LINK] runtime layers released: FAKE78000
+[18:15:50]   [LINK] nullfs mounted: /data/homebrew/PPSA99995 -> /system_ex/app/PPSA99995
+[18:15:50]   [SHELLCORE] launch mount ready: PPSA99995
+[18:23:28]   [SHELLFLAG] SceLncUtilSystemStatus value=0x0000000000000002 delta=0x0000000000000000 low32=0x00000002 high32=0x00000000 decoded=SHELLUI_FG_GAME_BG_CPU_MODE
+[18:23:28]   [SHELLCORE] game switch prepared: outgoing=FAKE77031 incoming=FAKE78000
+[18:23:28]   [LINK] nullfs mounted: /data/homebrew/FAKE78000 -> /system_ex/app/FAKE78000
+[18:23:28]   [SHELLCORE] launch mount ready: FAKE78000
+[18:23:28]   [SHELLCORE] sandbox ready handled: FAKE78000
+[18:23:28]   [SHELLFLAG] SceLncUtilSystemStatus poll rc=0x80020010
+[18:23:28]   [GAME] finalizing stopped application: FAKE77031 pid=377
+[18:23:28]   [LINK] runtime layers released: FAKE77031
+[18:23:28]   [GAME] started: FAKE78000 pid=382 app_id=0x00006018
+[18:23:28]   [MDBG] tracking crash-candidate state: FAKE78000 pid=382 app_id=0x00006018
+[18:23:28]   [MDBG] log monitor ready: FAKE78000 buffer_size=0x20018
+[18:23:28]   [KSTUFF] tracking game launch: FAKE78000 pid=382 app_id=0x00006018 source=direct pause_delay=15s
+[18:23:29]   [MDBG] fatal error for FAKE78000:
+0xa0020102 (PRX_SCE_MODULE_LOAD_ERROR)
+thread name: eboot.bin
+[18:23:29]   [MDBG] FAKE78000 crashed before kstuff auto-pause: 0xa0020102 (PRX_SCE_MODULE_LOAD_ERROR)
+[18:23:29] NOTIFY: FAKE78000 crashed before KStuff pause:
+[18:23:29]   [SHELLFLAG] SceLncUtilSystemStatus value=0x0000000000000002 delta=0x0000000000000000 low32=0x00000002 high32=0x00000000 decoded=SHELLUI_FG_GAME_BG_CPU_MODE
+[18:26:02]   [SHELLCORE] game switch prepared: outgoing=FAKE78000 incoming=PPSA99995
+[18:26:02]   [LINK] nullfs mounted: /data/homebrew/PPSA99995 -> /system_ex/app/PPSA99995
+[18:26:02]   [SHELLCORE] launch mount ready: PPSA99995
+[18:26:02]   [SHELLCORE] launch retry prepared during game switch: PPSA99995
+[18:26:05]   [GAME] process exited, awaiting same-app handoff: FAKE78000 pid=382 app_id=0x00006018
+[18:26:05]   [LINK] nullfs mounted: /data/homebrew/PPSA99995 -> /system_ex/app/PPSA99995
+[18:26:05]   [SHELLCORE] launch mount ready: PPSA99995
+[18:26:05]   [GAME] started: PPSA99995 pid=383 app_id=0x00008018
+[18:26:05]   [KSTUFF] handoff tracked game pid=382 (FAKE78000) -> pid=383 (PPSA99995)
+[18:26:05]   [MDBG] tracking crash-candidate state: PPSA99995 pid=383 app_id=0x00008018
+[18:26:05]   [MDBG] log monitor ready: PPSA99995 buffer_size=0x20018
+[18:26:05]   [KSTUFF] tracking game launch: PPSA99995 pid=383 app_id=0x00008018 source=direct pause_delay=15s
+[18:26:05]   [GAME] finalizing stopped application: FAKE78000 pid=382
+[18:26:05]   [SHELLCORE] runtime release awaiting sandbox removal: FAKE78000
+[18:26:05]   [DB] snd0info normalized after game exit rows=0 title=FAKE78000
+[18:26:05]   [SHELLCORE] title sandbox gone; releasing runtime: FAKE78000
+[18:26:05]   [SHELLCORE] runtime release start: FAKE78000
+[18:26:05]   [LINK] runtime layers released: FAKE78000
+[18:26:07]   [GAME] process exited, awaiting same-app handoff: PPSA99995 pid=383 app_id=0x00008018
+[18:26:08]   [MDBG] replacing tracked game pid=383 (PPSA99995) with pid=388 (PPSA99995)
+[18:26:02]   [LINK] runtime layers released: PPSA99995
+[18:26:05]   [SHELLCORE] sandbox ready handled: PPSA99995
+[18:26:05]   [SHELLFLAG] SceLncUtilSystemStatus poll rc=0x80020010
+[18:26:08]   [MDBG] tracking crash-candidate state: PPSA99995 pid=388 app_id=0x00008018
+[18:26:08]   [MDBG] log monitor ready: PPSA99995 buffer_size=0x20018
+[18:26:08]   [KSTUFF] process handoff: PPSA99995 pid=383 -> pid=388 (pause_applied=no)
+[18:26:08]   [GAME] process handoff: PPSA99995 app_id=0x00008018 pid=383 -> pid=388 kstuff=preserved
+[18:26:08]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000008018 delta=0x000000000000801F low32=0x00008018 high32=0x00000000 decoded=APP_ID=0x00008018
+[18:26:20]   [KSTUFF] pause deadline reached for PPSA99995 pid=388 but kstuff was already disabled

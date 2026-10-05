@@ -1,0 +1,46 @@
+#include "platform/ps5/title_registry.h"
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+using namespace playden::ps5;
+#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #x); std::exit(1); } } while (0)
+int main() {
+  std::string response = R"({"status":0,"games":[]})";
+  std::string mutation_response = R"({"status":0})";
+  std::vector<std::string> requests;
+  TitleRegistry registry([&](const std::string& route, const std::string& body) -> std::optional<std::string> {
+    requests.push_back(route + " " + body); return route == "/api/v1/games" ? response : mutation_response;
+  });
+  CHECK(registry.Query("FAKE78000").state == RegistrationState::kAbsent);
+  response = R"({"status":0,"games":[{"title_id":"FAKE78000","installed":true,"managed":true,"source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78000"}]})";
+  CHECK(registry.Query("FAKE78000").state == RegistrationState::kReady);
+  response = R"({"status":0,"games":[{"title_id":"FAKE78000","installed":true,"managed":true,"source_available":true,"path":"/data/somebody-else"}]})";
+  CHECK(registry.Query("FAKE78000").state == RegistrationState::kCollision);
+  auto collisions_before = requests.size();
+  CHECK(!registry.Register("FAKE78000").ok);
+  CHECK(requests.size() == collisions_before + 1);
+  response = "{}";
+  CHECK(registry.Query("FAKE78000").state == RegistrationState::kUnavailable);
+  response = R"({"status":0,"games":[{"title_id":"FAKE78000","installed":false,"managed":true,"source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78000"}]})";
+  CHECK(registry.Query("FAKE78000").state == RegistrationState::kPending);
+  response = R"({"status":0,"games":[]})";
+  CHECK(registry.Register("FAKE78000").ok);
+  CHECK(requests[requests.size()-2] == "/api/v1/manual/add {\"path\":\"/data/homebrew/FAKE78000\"}");
+  CHECK(requests.back() == "/api/v1/scan {}");
+  auto before = requests.size();
+  CHECK(!registry.Register("FAKE77031").ok && !registry.Register("PPSA99995").ok);
+  CHECK(requests.size() == before);
+  mutation_response = R"({"status":16,"error":"busy"})";
+  const auto busy = registry.Register("FAKE78000");
+  CHECK(!busy.ok && busy.code == 16);
+  mutation_response = R"({"status":0})";
+  CHECK(registry.RemoveManualSource("FAKE78000").ok);
+  CHECK(requests.back() == "/api/v1/manual/remove {\"path\":\"/data/homebrew/FAKE78000\"}");
+  CHECK(registry.Unregister("FAKE78000").ok);
+  CHECK(requests.back() == "/api/v1/games/uninstall {\"title_id\":\"FAKE78000\"}");
+  CHECK(!registry.Unregister("FAKE77031").ok);
+  TitleRegistry offline([](const auto&, const auto&) -> std::optional<std::string> { return {}; });
+  CHECK(offline.Query("FAKE78000").state == RegistrationState::kUnavailable);
+  CHECK(!offline.Register("FAKE78000").ok);
+  std::puts("title registry tests passed");
+}

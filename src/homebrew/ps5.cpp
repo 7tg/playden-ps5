@@ -7,6 +7,10 @@
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
 #include "app/diagnostic_log.h"
+#include "platform/ps5/title_runtime.h"
+#if PLAYDEN_TITLE_CONTRACT_PROBE
+#include "platform/ps5/title_contract_probe.h"
+#endif
 #include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
 #include "steam/backend/auth_client.h"
@@ -62,18 +66,32 @@ void dispatch(playden::homebrew::Simulation& simulation, const hui::InputFrame& 
 
 // Title-to-title launch, as Itemzflow does: the target receives argv as its arguments.
 extern "C" {
-struct PlaydenLncAppParam {
-    uint32_t size;
-    uint32_t user_id;
-    uint32_t app_options;
-    uint64_t crash_report;
-    uint32_t check_flag;  // 2 = skip the system update check
-};
-uint32_t sceLncUtilLaunchApp(const char* title_id, const char* argv[], PlaydenLncAppParam* param);
+int sceLncUtilInitialize(void);
+uint32_t sceLncUtilLaunchApp(const char* title_id, const char* argv[], playden::ps5::LaunchParameters* param);
+uint32_t sceSystemServiceLaunchApp(const char* title_id, const char* argv[], void* param);
+int sceSysmoduleLoadModuleInternal(uint32_t id);
+int sceSysmoduleGetModuleHandleInternal(uint32_t id, int32_t* handle);
+int sceKernelDlsym(int32_t handle, const char* name, void** address);
 int sceUserServiceGetForegroundUser(uint32_t* user_id);
 }
 
 namespace {
+int trace_module_load(uint32_t id) {
+    const int rc = sceSysmoduleLoadModuleInternal(id);
+    char line[160]; std::snprintf(line, sizeof(line), "module_load id=%08x result=%08x", id, unsigned(rc));
+    playden::app::AppendLogLine("/app0/logs", "launch.log", line); return rc;
+}
+int trace_module_handle(uint32_t id, int32_t* handle) {
+    const int rc = sceSysmoduleGetModuleHandleInternal(id, handle);
+    char line[160]; std::snprintf(line, sizeof(line), "module_handle id=%08x result=%08x handle=%d", id, unsigned(rc), *handle);
+    playden::app::AppendLogLine("/app0/logs", "launch.log", line); return rc;
+}
+int trace_module_resolve(int32_t handle, const char* name, void** address) {
+    int rc = sceKernelDlsym(handle, name, address);
+    char line[160]; std::snprintf(line, sizeof(line), "module_resolve name=%s result=%08x address=%p", name, unsigned(rc), *address);
+    playden::app::AppendLogLine("/app0/logs", "launch.log", line);
+    return rc;
+}
 // Development probe for the runtime handoff: when /app0/dev/launch-request.txt holds
 // "<TITLE_ID> [arg ...]", it is consumed once and that title is launched with the arguments.
 // The result is appended to /app0/logs/launch.log. Nothing in the UI triggers this.
@@ -90,18 +108,26 @@ void run_launch_request() {
     for (char* word = std::strtok(line, " \t\r\n"); word && words.size() < 9; word = std::strtok(nullptr, " \t\r\n"))
         words.emplace_back(word);
     if (words.empty()) return;
-    std::vector<const char*> argv;
-    for (std::size_t index = 1; index < words.size(); ++index) argv.push_back(words[index].c_str());
-    argv.push_back(nullptr);
-    uint32_t user = 0;
-    const int user_result = sceUserServiceGetForegroundUser(&user);
-    PlaydenLncAppParam param{sizeof(PlaydenLncAppParam), user, 0, 0, 2};
     char line_text[160];
-    std::snprintf(line_text, sizeof(line_text), "launch_request title=%s args=%zu user_result=%d", words[0].c_str(),
-                  words.size() - 1, user_result);
+    std::snprintf(line_text, sizeof(line_text), "launch_request title=%s args=%zu", words[0].c_str(), words.size() - 1);
     playden::app::AppendLogLine("/app0/logs", "launch.log", line_text);
-    const uint32_t result = sceLncUtilLaunchApp(words[0].c_str(), argv.data(), &param);
-    std::snprintf(line_text, sizeof(line_text), "launch_result title=%s result=0x%08x", words[0].c_str(), result);
+    std::snprintf(line_text, sizeof(line_text), "launch_provider initialize=%p foreground=%p launch=%p",
+                  reinterpret_cast<void*>(sceLncUtilInitialize), reinterpret_cast<void*>(sceUserServiceGetForegroundUser),
+                  reinterpret_cast<void*>(sceLncUtilLaunchApp));
+    playden::app::AppendLogLine("/app0/logs", "launch.log", line_text);
+    auto api = playden::ps5::ResolveTitleApi(
+        {trace_module_load, trace_module_handle, trace_module_resolve}, sceUserServiceGetForegroundUser);
+    if (!api.launch && !api.public_launch) {
+        api.public_launch = sceSystemServiceLaunchApp;
+        api.foreground_user = sceUserServiceGetForegroundUser;
+    }
+    std::snprintf(line_text, sizeof(line_text), "launch_resolved initialize=%p launch=%p public=%p",
+                  reinterpret_cast<void*>(api.initialize), reinterpret_cast<void*>(api.launch), reinterpret_cast<void*>(api.public_launch));
+    playden::app::AppendLogLine("/app0/logs", "launch.log", line_text);
+    playden::ps5::TitleBackend backend(api);
+    const auto result = backend.Launch(words[0], {words.begin() + 1, words.end()});
+    std::snprintf(line_text, sizeof(line_text), "launch_result title=%s stage=%s accepted=%d result=0x%08x", words[0].c_str(),
+                  result.stage.c_str(), result.ok, result.code);
     playden::app::AppendLogLine("/app0/logs", "launch.log", line_text);
 }
 // Development aid for unattended console runs: /app0/dev/install-request.txt holding one Steam
@@ -119,6 +145,9 @@ std::uint32_t take_install_request() {
 }  // namespace
 
 int main() {
+#if PLAYDEN_TITLE_CONTRACT_PROBE
+    if (playden::ps5::RunTitleContractProbe()) hui::sys::park();
+#endif
     hui::ps5::Display display;
     if (!display.open(3840, 2160)) { hui::sys::log("Playden Hui display failed"); hui::sys::park(); }
     {

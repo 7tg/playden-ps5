@@ -74,15 +74,27 @@ function(playden_add_homebrew_ps5_title)
 		--wrap=glDrawElements --wrap=glDrawElementsInstanced --wrap=glBindFramebuffer --wrap=glBlitFramebuffer
 		--wrap=glTexImage2D --wrap=glTexSubImage2D --wrap=glClear --wrap=sceSystemServiceHideSplashScreen)
 
-	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp
+	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp src/platform/ps5/title_runtime.cpp
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/display_egl.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/pad.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/system.cpp")
+    option(PLAYDEN_TITLE_CONTRACT_PROBE "Compile one-shot native provisioning diagnostic" OFF)
+    if(PLAYDEN_TITLE_CONTRACT_PROBE)
+        set(PLAYDEN_PROSPERO_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../ps5-homebrew/prospero-win" CACHE PATH
+            "Explicit upstream source used by the Task 1 diagnostic only")
+        target_sources(playden_ps5_app PRIVATE src/platform/ps5/title_contract_probe.cpp src/platform/ps5/title_registry.cpp
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_data_mount.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/ps5log/ps5log_ps5_net.c")
+        target_include_directories(playden_ps5_app PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/native")
+    endif()
     target_include_directories(playden_ps5_app PRIVATE "${gl_sdk}/include" "${PLAYDEN_HUI_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src")
     target_compile_definitions(playden_ps5_app PRIVATE GL_GLEXT_PROTOTYPES=1
         PLAYDEN_PS5_TITLE_ID="${PLAYDEN_PS5_TITLE_ID}"
+        PLAYDEN_TITLE_CONTRACT_PROBE=$<BOOL:${PLAYDEN_TITLE_CONTRACT_PROBE}>
         PLAYDEN_UI_SIMULATION=$<BOOL:${PLAYDEN_UI_SIMULATION}>)
-    target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections -fno-exceptions -fno-rtti)
+    target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti>)
     target_compile_features(playden_ps5_app PRIVATE cxx_std_20)
     target_link_libraries(playden_ps5_app PRIVATE playden_hui playden_library playden_steam_auth
         playden_homebrew_controller playden_local_session_repository playden_steam_library playden_steam_cm)
