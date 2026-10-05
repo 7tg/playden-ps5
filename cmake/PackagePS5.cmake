@@ -6,8 +6,10 @@ endforeach()
 
 file(REMOVE_RECURSE "${APP_DIR}")
 file(MAKE_DIRECTORY "${APP_DIR}/sce_sys" "${APP_DIR}/sce_module" "${APP_DIR}/assets/fonts")
-file(COPY "${BOILERPLATE}/sce_sys/icon0.png" "${BOILERPLATE}/sce_sys/pic0.dds"
-	"${BOILERPLATE}/sce_sys/pic1.dds" "${BOILERPLATE}/sce_sys/snd0.at9" DESTINATION "${APP_DIR}/sce_sys")
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/../sce_sys/icon0.png"
+	"${CMAKE_CURRENT_LIST_DIR}/../sce_sys/pic0.dds"
+	"${CMAKE_CURRENT_LIST_DIR}/../sce_sys/pic1.dds"
+	"${BOILERPLATE}/sce_sys/snd0.at9" DESTINATION "${APP_DIR}/sce_sys")
 file(COPY "${ASSETS_DIR}/" DESTINATION "${APP_DIR}/assets")
 file(COPY "${FONTS_DIR}/" DESTINATION "${APP_DIR}/assets/fonts")
 

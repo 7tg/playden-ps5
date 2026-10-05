@@ -2,3 +2,5 @@
 /.deps/
 /.worktrees/
 .DS_Store
+/.env
+/output/imagegen/
