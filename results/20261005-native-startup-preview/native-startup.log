@@ -1,0 +1,6 @@
+2026-10-05T20:48:00Z user service initialization starting
+2026-10-05T20:48:00Z user service result=0
+2026-10-05T20:48:00Z graphics preparation starting
+2026-10-05T20:48:00Z graphics result=0
+2026-10-05T20:48:00Z data grant starting
+2026-10-05T20:48:00Z bootstrap launcher_ready=1 runtime_ready=0 error=native data grant failed (code 13)

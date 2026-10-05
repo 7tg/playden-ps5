@@ -67,12 +67,13 @@ function(playden_add_homebrew_ps5_title)
 	target_compile_options(playden_ps5_runtime PRIVATE -O2 -ffunction-sections -fdata-sections
 		$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti>)
 
-	add_library(playden_ps5_shims OBJECT src/platform/ps5/title_shims.c)
+	add_library(playden_ps5_shims OBJECT src/platform/ps5/title_shims.c src/platform/ps5/file_shims.c)
 	target_include_directories(playden_ps5_shims PRIVATE "${gl_sdk}/include")
 	target_compile_options(playden_ps5_shims PRIVATE -O2 -Wall -ffunction-sections -fdata-sections)
 	set(shim_wraps --wrap=glDrawArrays --wrap=glDrawArraysInstanced --wrap=glDrawArraysInstancedBaseInstance
 		--wrap=glDrawElements --wrap=glDrawElementsInstanced --wrap=glBindFramebuffer --wrap=glBlitFramebuffer
-		--wrap=glTexImage2D --wrap=glTexSubImage2D --wrap=glClear --wrap=sceSystemServiceHideSplashScreen)
+		--wrap=glTexImage2D --wrap=glTexSubImage2D --wrap=glClear --wrap=sceSystemServiceHideSplashScreen
+        --wrap=openat)
 
 	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp src/platform/ps5/title_runtime.cpp
         src/platform/ps5/native_startup.cpp

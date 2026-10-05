@@ -41,7 +41,17 @@ int main() {
   CHECK(observed == identity);
   CHECK(ops.path_kind(ops.context, title.c_str()) == NativePathKind::kDirectory);
   CHECK(ops.path_kind(ops.context, (title / "missing").c_str()) == NativePathKind::kMissing);
+  const fs::path reserved_probe = title / (".playden-access-" + std::to_string(getpid()) + "-0");
+  Write(reserved_probe, "preserve foreign probe");
   CHECK(ops.path_accessible(ops.context, title.c_str(), NativePathAccess::kReadWrite));
+  std::ifstream probe_input(reserved_probe);
+  std::string probe_contents;
+  std::getline(probe_input, probe_contents);
+  CHECK(probe_contents == "preserve foreign probe");
+  probe_input.close();
+  for (const auto& entry : fs::directory_iterator(title))
+    CHECK(entry.path() == reserved_probe || entry.path() == title / "playden-package.identity");
+  fs::remove(reserved_probe);
 
   Write(title / "playden-package.identity", "playden-native/1\nFAKE77032\n" + std::string(64, 'a') + "\n");
   CHECK(!ops.read_source_identity(ops.context, title.c_str(), &observed));

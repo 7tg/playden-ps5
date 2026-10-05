@@ -402,6 +402,16 @@ installation offline and independent of a host SDK.
 
 ### Task 4 execution: records, settings and production access
 
+Hardware checkpoint (2026-10-05): the normal launcher now renders after native
+bootstrap, with the cached library/artwork and installed games preserved. The
+account name was removed from the top bar at the user's request. Sandbox
+`lstat`/`access` failures required operational path checks; the folder-title link
+also needed the SDK's `openat` adapter. See [preview evidence](../../../results/20261005-native-startup-preview/README.md).
+All 73 host tests pass after the corrections. Native grant still fails with code
+13, so this establishes browsing fallback only and does not close Step 5 or
+permit connecting preparation/launch as ready. The console was released for the
+user to inspect the deployed preview.
+
 - [ ] Step 1: Add `runtime_game_install`, `prospero_profile` extensions and `native_access`
    tests. Assert `ReservationSurvivesRestart`, `ForeignNativeTitleCollision`,
    `LegacyDownloadAdoptsWithoutCopy`, `RecipeArgumentsPreserved`,
