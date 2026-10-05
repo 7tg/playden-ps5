@@ -14,6 +14,16 @@
 
 **Roadmap:** [Milestones, dependencies and acceptance gates](../../engineering/prospero-win-roadmap.md).
 
+**Settings ownership:** The user assigned game settings, including associated
+prospero-win/dependency patches, to `feat/game-settings`. That branch owns the
+Task 4 settings model/effective profile writer and Task 8 settings UI. This
+integration branch supplies runtime records, bottles/kits, native access and
+preparation/launch/lifecycle services. Integrate the owner's settings changes
+through their recorded interfaces and parser capability revisions; do not ship
+a competing settings model. Our interrupted partial settings files are preserved
+only in ignored `build/game-settings-handoff/` for reference. Maintenance and
+uninstall lifecycle work remain part of this integration goal.
+
 ## Evidence and scope
 
 - The runtime owner now verifies HL2 train-station gameplay, audio, left-stick movement, right-stick look, Cross jump, Options menu and keyboard Escape resume on firmware 13.60. The user confirmed physical keyboard movement and working audio. Playden has independently observed rendered gameplay; the control/audio acceptance is the owner's evidence. Saves, sustained frame pacing and long sessions remain unverified.
