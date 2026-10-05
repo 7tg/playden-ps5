@@ -1,6 +1,7 @@
 #include "runtime/game_settings.h"
 #include "runtime/settings_publication.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -219,6 +220,30 @@ int main(int argc, char** argv) {
   CHECK(BuildEffectiveSettings(hl2, nullptr, {{"controller", "keyboard"}, {"rumble", "0"}}, tuning_kit, &settings, &error));
   CHECK(!settings.values.at("rumble").available && settings.values.at("rumble").reason == "Only with the Xbox controller.");
   CHECK(!ValidateSettingValue(hl2, "stick_deadzone", "60", &reason) && ValidateSettingValue(hl2, "rumble", "25", &reason));
+
+  // Trigger dead zone rides with controller tuning; the wheel and volume have their own gates.
+  const std::map<std::string, std::string> more_tuning = {
+      {"trigger_deadzone", "10"}, {"wheel_stick", "right_stick"}, {"volume", "50"}};
+  CHECK(BuildEffectiveSettings(hl2, nullptr, more_tuning, tuning_kit, &settings, &error));
+  CHECK(settings.values.at("trigger_deadzone").available && !settings.values.at("wheel_stick").available &&
+        !settings.values.at("volume").available);
+  CHECK(!SettingShown(*FindSetting("wheel_stick"), tuning_kit) && !SettingShown(*FindSetting("volume"), tuning_kit));
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("\ntrigger_deadzone = 10\n") != std::string::npos &&
+        profile.text.find("wheel") == std::string::npos && profile.text.find("[audio]") == std::string::npos);
+  const auto all_kit = KitCapabilitiesFromManifest(SettingsKitCapabilityNames(), false);
+  CHECK(SettingShown(*FindSetting("wheel_stick"), all_kit) && SettingShown(*FindSetting("volume"), all_kit));
+  CHECK(BuildEffectiveSettings(hl2, nullptr, more_tuning, all_kit, &settings, &error));
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("\nwheel = right_stick\n") != std::string::npos);
+  CHECK(profile.text.find("\n[audio]\nvolume = 50\n") != std::string::npos);
+  CHECK(!CheckProsperoProfile(profile.text, &reason));                // a released runtime refuses both
+  CHECK(CheckProsperoProfile(profile.text, &reason,
+                             {.input_tuning = true, .input_wheel = true, .audio_section = true}));
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"volume", "100"}, {"wheel_stick", "none"}}, all_kit, &settings, &error));
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("[audio]") == std::string::npos && profile.text.find("wheel") == std::string::npos);
+  CHECK(std::is_sorted(SettingsKitCapabilityNames().begin(), SettingsKitCapabilityNames().end()));
   CHECK(!ValidateSettingValue(hl2, "environment", "WINEPREFIX=C:\\x", &reason));
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_HUD=full", &reason));
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A=1;DXVK_A=2", &reason));

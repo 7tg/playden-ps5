@@ -74,7 +74,9 @@ bool IsProsperoEnvironmentEntry(std::string_view name, std::string_view value);
 // Profile features newer than the released runtime; released runtimes refuse them.
 struct ProsperoProfileFeatures {
   bool environment_section = false;  // [environment] (prospero-win feat/profile-environment)
-  bool input_tuning = false;         // [input] stick_deadzone and rumble (feat/profile-input-tuning)
+  bool input_tuning = false;         // [input] stick_deadzone, rumble, trigger_deadzone
+  bool input_wheel = false;          // [input] wheel
+  bool audio_section = false;        // [audio] volume
 };
 bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoProfileFeatures features = {});
 
