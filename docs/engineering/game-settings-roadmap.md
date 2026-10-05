@@ -374,6 +374,14 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 - S1/S2: `src/runtime/game_settings.{h,cpp}`, `runtime/presets.json`,
   `runtime/recipes/steam-220-hl2-v1.json`; profiles checked against prospero-win's parser rules.
 - S3: the sheet, pickers, preset chooser, button mapping and save toast in simulation mode.
+- Live mode keeps settings in `playden-data/game-settings.json` (ready for S4).
+- S8: the Environment variables row writes `[environment]` only for a runtime that reads it;
+  disabled until U1 lands.
+- S10: `ParseProfileSidecar` turns a sidecar into a "Community" preset; fetching waits for U3.
+- U1 drafted locally (not pushed): prospero-win `feat/profile-environment` in
+  `~/.chauffeur/worktrees/prospero-win-environment`, parser tests pass.
+- U3 drafted locally (not pushed): prospero-win-profiles `feat/recipe-sidecar` in
+  `~/.chauffeur/worktrees/prospero-win-profiles-sidecar`, `SIDECARS.md` and checker.
 - S5: `ApplyGameSettings` writes the profile and `dxvk.conf`. Still open: call it from
   the real Play action (S4). VSync off was checked and has no effect (row disabled); latency
   and VRAM could not be observed (rows disabled until checked).
@@ -388,17 +396,17 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **S5** ◐ | `dxvk.conf` settings: frame limit, VSync, frame latency, reported VRAM/vendor, overlay detail (D1) | S0 passed, S2 | Console: cap, tearing and overlay measured; file kept by repair and verify |
 | **S6** | Maintenance actions: reset, repair, clear shader cache, back up saves, recreate bottle | Integration Task 8 | Task 8 acceptance |
 | **S7** | P3 registry rows | U2 or D2(b) | Fixture reports the version; reset restores it |
-| **S8** | Environment variables row | U1 | Values reach the Wine process; reserved keys rejected |
+| **S8** ◐ | Environment variables row | U1 | Values reach the Wine process; reserved keys rejected |
 | **S9** | P4 rows, one at a time | U4 per feature | Per-feature console fixture |
-| **S10** | Community recipes: fetch the pinned index, "Community recipe" banner, apply and revert | U3 | Apply and revert keep local overrides |
+| **S10** ◐ | Community recipes: fetch the pinned index, "Community recipe" banner, apply and revert | U3 | Apply and revert keep local overrides |
 
 ### Upstream track (prospero-win and prospero-win-profiles)
 
 | Step | Proposal | Unblocks |
 | --- | --- | --- |
-| **U1** | Typed `[environment]` section with an allowlist, `DXVK_CONFIG_FILE` forwarding, and a profile schema or minimum-runtime marker | S8; fallback for S5 if the S0 probe fails |
+| **U1** ◐ | Typed `[environment]` section with an allowlist, `DXVK_CONFIG_FILE` forwarding, and a profile schema or minimum-runtime marker | S8; fallback for S5 if the S0 probe fails |
 | **U2** | Registry overlay tool: backup, both registry views, run while stopped (if D2 is (a)) | S7 |
-| **U3** | Sidecar JSON per recipe in prospero-win-profiles (identity, `min_runtime`, tested firmware, status, defaults) | S10 |
+| **U3** ◐ | Sidecar JSON per recipe in prospero-win-profiles (identity, `min_runtime`, tested firmware, status, defaults) | S10 |
 | **U4** | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
 | **U5** | Scaling on the DXVK path; DXVK 120 Hz | Un-hides Scaling and 120 Hz for DXVK |
 
