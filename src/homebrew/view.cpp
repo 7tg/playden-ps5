@@ -777,9 +777,6 @@ class Render::Impl
 
         scene_.circle(1580.0F, 82.0F, 20.0F,
                       current_state_->account.display_name.empty() ? kMuted : kAccent);
-        const std::string identity = current_state_->account.display_name.empty() ?
-            "Signed out" : current_state_->account.display_name;
-        dynamic_text(identity, 1614.0F, 91.0F, 24.0F, kText, 140.0F, false);
         std::string clock_label = "21:42";
         if (!current_state_->simulation_mode) {
             const std::time_t wall_time = static_cast<std::time_t>(current_state_->clock_ticks);
