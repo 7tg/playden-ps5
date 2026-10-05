@@ -1,4 +1,5 @@
 #include "runtime/game_settings.h"
+#include "runtime/settings_publication.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -452,6 +453,77 @@ int main(int argc, char** argv) {
   CHECK(!LoadGameSettingsFile(fifo_settings.string(), &loaded_records, &reason));
   CHECK(reason.find("cannot read") != std::string::npos);
   std::filesystem::remove_all(root);
+
+  // Integration contract: kit capabilities come from the verified kit manifest; bottle access
+  // is the adapter's own fact.
+  const auto none_kit = KitCapabilitiesFromManifest({"wine-wow64"}, false);
+  CHECK(!none_kit.dxvk_config && !none_kit.environment && !none_kit.input_tuning && !none_kit.registry);
+  const auto full_kit = KitCapabilitiesFromManifest(SettingsKitCapabilityNames(), true);
+  CHECK(full_kit.dxvk_config && full_kit.dxvk_present && full_kit.environment && full_kit.input_tuning && full_kit.registry);
+
+  // BuildSettingsLaunchPlan: profile, referenced input presets, dxvk.conf, registry, revision.
+  const auto plan_root = std::filesystem::canonical(std::filesystem::temp_directory_path()) /
+                         ("playden-plan-" + std::to_string(::getpid()));
+  std::filesystem::remove_all(plan_root);
+  std::filesystem::create_directories(plan_root / "game");
+  std::filesystem::create_directories(plan_root / "prefix");
+  { std::ofstream(plan_root / "game" / "hl2.exe") << "MZ"; }
+  const std::string bottle_reg = "WINE REGISTRY Version 2\n\n[Control Panel\\\\Desktop] 1\n\"CaretWidth\"=dword:00000001\n";
+  { std::ofstream(plan_root / "prefix" / "user.reg") << bottle_reg; }
+  SettingsLaunchInput launch_input;
+  launch_input.recipe = &hl2;
+  launch_input.record.overrides = {{"frame_limit", "30"}, {"controller_preset", "gamepad"}, {"windows_version", "win7"}};
+  launch_input.record.revision = 42;
+  launch_input.kit = KitCapabilitiesFromManifest({kKitDxvkConfig}, false);
+  launch_input.target = {"playden-steam-220", (plan_root / "game").string()};
+  launch_input.runtime_dir = (source / "runtime").string();
+  SettingsLaunchPlan plan;
+  CHECK(BuildSettingsLaunchPlan(launch_input, &plan, &reason));
+  CHECK(plan.profile_id == "playden-steam-220" && plan.settings_revision == 42 && plan.launch_entry_id == "hl2");
+  CHECK(plan.profile_bytes.find("\npreset = gamepad\n") != std::string::npos && CheckProsperoProfile(plan.profile_bytes, &reason));
+  CHECK(plan.input_presets.size() == 1 && plan.input_presets[0].first == "gamepad.input" &&
+        plan.input_presets[0].second == ReadText(source / "runtime/input/gamepad.input"));
+  CHECK(plan.dxvk_config.find("d3d9.maxFrameRate = 30\n") != std::string::npos);
+  CHECK(plan.registry.empty());                                   // no bottle access: nothing for the registry
+  ProfilePublication publication;
+  publication.required_input_presets = {"stale.input"};
+  FillProfilePublication(plan, &publication);
+  CHECK(publication.profile_id == plan.profile_id && publication.profile_bytes == plan.profile_bytes &&
+        publication.settings_revision == 42);
+  CHECK(publication.required_input_presets == std::vector<std::string>{"gamepad.input"} &&
+        publication.input_presets.size() == 1 && publication.input_presets[0].filename == "gamepad.input");
+  // A preset the build does not ship blocks the plan; a stale override is ignored instead.
+  launch_input.runtime_dir = (plan_root / "missing").string();
+  CHECK(!BuildSettingsLaunchPlan(launch_input, &plan, &reason) && reason.find("gamepad") != std::string::npos);
+  launch_input.runtime_dir = (source / "runtime").string();
+  auto bad_input = launch_input;
+  bad_input.record.overrides["frame_limit"] = "999";
+  CHECK(BuildSettingsLaunchPlan(bad_input, &plan, &reason) && plan.dxvk_config.empty());
+
+  // ApplySettingsFiles writes dxvk.conf and, with bottle access, the registry with a backup.
+  launch_input.kit = KitCapabilitiesFromManifest({kKitDxvkConfig}, true);
+  CHECK(BuildSettingsLaunchPlan(launch_input, &plan, &reason) && plan.registry.size() == 2);  // version, and 100% text scale (removes)
+  CHECK(ApplySettingsFiles(plan, (plan_root / "game").string(), (plan_root / "prefix").string(), 1791300000, &reason));
+  CHECK(ReadText(plan_root / "game" / "dxvk.conf") == plan.dxvk_config);
+  CHECK(ReadText(plan_root / "prefix" / "user.reg").find("[Software\\\\Wine\\\\AppDefaults\\\\hl2.exe] 1791300000\n\"Version\"=\"win7\"\n") !=
+        std::string::npos);
+  CHECK(ReadText(plan_root / "prefix" / "user.reg.playden-backup") == bottle_reg);
+  // Back to defaults: Playden's dxvk.conf goes, the per-game Windows version is removed.
+  launch_input.record.overrides.clear();
+  CHECK(BuildSettingsLaunchPlan(launch_input, &plan, &reason) && plan.dxvk_config.empty() && plan.input_presets.empty());
+  CHECK(ApplySettingsFiles(plan, (plan_root / "game").string(), (plan_root / "prefix").string(), 1791300001, &reason));
+  CHECK(!std::filesystem::exists(plan_root / "game" / "dxvk.conf"));
+  CHECK(ReadText(plan_root / "prefix" / "user.reg").find("\"Version\"") == std::string::npos);
+  // A dxvk.conf that came with the game is never replaced, and then the bottle is untouched too.
+  { std::ofstream(plan_root / "game" / "dxvk.conf") << "d3d9.maxFrameRate = 20\n"; }
+  launch_input.record.overrides = {{"frame_limit", "30"}, {"windows_version", "winxp"}};
+  CHECK(BuildSettingsLaunchPlan(launch_input, &plan, &reason));
+  const auto reg_before = ReadText(plan_root / "prefix" / "user.reg");
+  CHECK(!ApplySettingsFiles(plan, (plan_root / "game").string(), (plan_root / "prefix").string(), 1791300002, &reason));
+  CHECK(reason.find("own dxvk.conf") != std::string::npos);
+  CHECK(ReadText(plan_root / "game" / "dxvk.conf") == "d3d9.maxFrameRate = 20\n" &&
+        ReadText(plan_root / "prefix" / "user.reg") == reg_before);
+  std::filesystem::remove_all(plan_root);
 
   std::puts("game settings tests passed");
 }

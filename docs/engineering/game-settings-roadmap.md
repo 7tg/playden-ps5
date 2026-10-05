@@ -429,6 +429,38 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **U4** ◐ | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
 | **U5** | Scaling on the DXVK path; DXVK 120 Hz | Un-hides Scaling and 120 Hz for DXVK |
 
+### Integration contract for S4 and Task 8
+
+What the settings module gives the integration's production adapters (`src/runtime/game_settings.h`,
+`src/runtime/settings_publication.h`). The adapters keep ownership of stopped-title checks, the
+journaled profile/descriptor publication and the kit trust configuration.
+
+1. **Kit capabilities.** Add `SettingsKitCapabilityNames()` (`settings-dxvk-config`,
+   `settings-dxvk-present`, `settings-input-tuning`, `settings-profile-environment`) to the
+   kit trust config's `allowed_capabilities`. After `VerifyKitManifest`, call
+   `KitCapabilitiesFromManifest(result.capabilities, bottle_access)` and pass the result to the
+   settings sheet (`Simulation::SetKitCapabilities`) and to the launch plan. `bottle_access`
+   is true only when the adapter can reach the stopped bottle. A kit that lists none of these
+   keeps every gated row disabled, which is the safe default. The released prospero-win kit
+   should list `settings-dxvk-config` (checked on the console); the other three need U5/U4/U1.
+2. **Launch plan.** `BuildSettingsLaunchPlan({recipe, preset, record, kit, {profile_id,
+   install_path}, runtime_dir})` returns the profile bytes, the input presets the profile
+   references (bundled in `runtime/input`), `dxvk.conf`, registry values and
+   `settings_revision` (the record's `revision`). A missing preset fails the plan; stale
+   player values are ignored, as in the sheet.
+3. **Publication.** In `provide_publication`, call `FillProfilePublication(plan, &publication)`;
+   it sets `profile_id`, `profile_bytes`, `settings_revision`, `required_input_presets` and
+   `input_presets`. The adapter fills identity fields and `profile_references_validated` from
+   its pinned parser. Republish when `PackageStatus::profile_settings_revision` differs from
+   the record's revision. Home and Playden then read the same published profile.
+4. **Game folder and bottle.** After `NativeCoordinator::Activity` reports `kStopped`, call
+   `ApplySettingsFiles(plan, install_path, prefix_dir, now)`. It writes or removes Playden's
+   `dxvk.conf` in the launch working folder (never a game's own) and edits `user.reg` with a
+   backup. It writes nothing when it refuses. Unknown or active state must not reach it.
+5. **Maintenance (Task 8).** Reset clears the record's overrides (the chosen preset stays) and bumps its
+   revision; `ClearShaderCache(launch, install_path)` removes only `<exe>.dxvk-cache`. Both
+   need the stopped-title check. The sheet's Clear shader cache stays simulated until wired.
+
 ### Remaining roadmap (2026-10-05)
 
 | # | Work | Owner / blocked by | Done when |

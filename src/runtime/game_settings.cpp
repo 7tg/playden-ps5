@@ -1227,3 +1227,96 @@ bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string&
 }
 
 }  // namespace playden::runtime
+
+namespace playden::runtime {
+
+const std::vector<std::string>& SettingsKitCapabilityNames() {
+  static const std::vector<std::string> names = {kKitDxvkConfig, kKitDxvkPresent, kKitInputTuning, kKitEnvironment};
+  return names;
+}
+
+KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capabilities, bool bottle_access) {
+  const auto has = [&](const char* name) {
+    return std::find(capabilities.begin(), capabilities.end(), name) != capabilities.end();
+  };
+  KitCapabilities kit;
+  kit.dxvk_config = has(kKitDxvkConfig);
+  kit.dxvk_present = has(kKitDxvkPresent);
+  kit.environment = has(kKitEnvironment);
+  kit.input_tuning = has(kKitInputTuning);
+  kit.registry = bottle_access;
+  return kit;
+}
+
+bool BuildSettingsLaunchPlan(const SettingsLaunchInput& input, SettingsLaunchPlan* plan, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  if (!input.recipe) return fail("no recipe");
+  SettingsLaunchPlan out;
+  SettingsError error;
+  if (!BuildEffectiveSettings(*input.recipe, input.preset, input.record.overrides, input.kit, &out.settings, &error))
+    return fail(error.setting_id.empty() ? error.message : error.setting_id + ": " + error.message);
+  ProsperoProfile profile;
+  if (!RenderProsperoProfile(*input.recipe, out.settings, input.target, &profile, reason)) return false;
+  out.profile_id = profile.id;
+  out.profile_bytes = std::move(profile.text);
+  out.settings_revision = input.record.revision;
+  out.launch_entry_id = out.settings.launch ? out.settings.launch->id : std::string();
+
+  // Every preset the profile names must ship with it, or the runtime refuses the profile.
+  const auto& preset = out.settings.values.at("controller_preset").value;
+  if (!preset.empty() && preset != "none") {
+    if (preset.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-_") != std::string::npos)
+      return fail("controller preset name is not valid");
+    const int directory = OpenSafeDirectoryPath(input.runtime_dir + "/input");
+    if (directory < 0) return fail("controller preset " + preset + " is not available");
+    std::string bytes;
+    const auto file = preset + ".input";
+    const auto read = ReadRegularAt(directory, file.c_str(), kProsperoMaxProfileBytes, &bytes);
+    ::close(directory);
+    if (read != RelativeRead::kPresent || bytes.find("[input]") == std::string::npos)
+      return fail("controller preset " + preset + " is not available");
+    out.input_presets.emplace_back(file, std::move(bytes));
+  }
+  out.dxvk_config = RenderDxvkConfig(out.settings);
+  out.registry = RenderRegistryValues(out.settings);
+  *plan = std::move(out);
+  return true;
+}
+
+bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& install_root, const std::string& prefix_dir,
+                        std::int64_t unix_time, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  if (!plan.settings.launch) return fail("no launch option");
+  const int directory = OpenLaunchDirectory(*plan.settings.launch, install_root);
+  if (directory < 0) return fail("launch working folder is not a safe directory");
+  std::string existing;
+  const auto read = ReadRegularAt(directory, "dxvk.conf", 256u * 1024u, &existing);
+  const bool has_config = read == RelativeRead::kPresent;
+  const auto close_fail = [&](std::string why) {
+    ::close(directory);
+    return fail(std::move(why));
+  };
+  if (read == RelativeRead::kError) return close_fail("cannot read dxvk.conf");
+  if (has_config && existing.compare(0, std::char_traits<char>::length(kDxvkHeader), kDxvkHeader) != 0)
+    return close_fail("the game folder has its own dxvk.conf; Playden will not replace it");
+  // The registry goes first: it can fail on a malformed bottle, and then nothing has changed.
+  if (!plan.registry.empty() && !ApplyRegistrySettings(plan.settings, prefix_dir, unix_time, reason)) {
+    ::close(directory);
+    return false;
+  }
+  if (plan.dxvk_config.empty()) {
+    if (has_config && ::unlinkat(directory, "dxvk.conf", 0) != 0) return close_fail("cannot remove dxvk.conf");
+  } else if (!has_config || existing != plan.dxvk_config) {
+    if (!WriteAtomicAt(directory, "dxvk.conf", plan.dxvk_config)) return close_fail("cannot write dxvk.conf");
+  }
+  ::close(directory);
+  return true;
+}
+
+}  // namespace playden::runtime

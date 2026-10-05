@@ -203,6 +203,53 @@ struct CommunityPreset {
 };
 bool ParseProfileSidecar(std::string_view json, CommunityPreset* community, std::string* reason);
 
+// --- Integration contract (roadmap S4, integration Tasks 4-6 and 8) ---
+
+// Capability names a runtime kit manifest may list for settings ("capabilities", sorted).
+// The kit trust config should allow exactly these besides its own runtime names.
+inline constexpr const char* kKitDxvkConfig = "settings-dxvk-config";        // DXVK reads dxvk.conf
+inline constexpr const char* kKitDxvkPresent = "settings-dxvk-present";      // VSync off honored
+inline constexpr const char* kKitEnvironment = "settings-profile-environment";  // [environment]
+inline constexpr const char* kKitInputTuning = "settings-input-tuning";      // stick_deadzone, rumble
+const std::vector<std::string>& SettingsKitCapabilityNames();
+
+// Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the
+// stopped bottle's user.reg (decision D2); it is not a kit property.
+KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capabilities, bool bottle_access);
+
+// Everything one game's settings put on disk for its next launch.
+struct SettingsLaunchPlan {
+  std::string profile_id;
+  std::string profile_bytes;             // full prospero profile, checked for the kit's features
+  std::uint64_t settings_revision = 0;   // GameSettingsRecord::revision it was built from
+  std::string launch_entry_id;
+  // Input preset files the profile references ([input] preset), as <name>.input and bytes.
+  std::vector<std::pair<std::string, std::string>> input_presets;
+  std::string dxvk_config;               // empty: no Playden dxvk.conf (an old one is removed)
+  std::vector<RegistryValue> registry;   // empty unless the kit has bottle access
+  EffectiveSettings settings;            // its launch pointer refers into the recipe
+};
+
+struct SettingsLaunchInput {
+  const GameRecipe* recipe = nullptr;
+  const SettingsPreset* preset = nullptr;  // the record's preset, or null for Playden default
+  GameSettingsRecord record;
+  KitCapabilities kit;
+  ProfileTarget target;     // profile id and console path of the game files
+  std::string runtime_dir;  // bundled settings data; input presets are read from <runtime_dir>/input
+};
+
+// Builds the plan, or false with a reason (invalid override, missing input preset, a profile
+// the kit's runtime would refuse). Pure apart from reading the input preset files.
+bool BuildSettingsLaunchPlan(const SettingsLaunchInput& input, SettingsLaunchPlan* plan, std::string* reason);
+
+// Writes the plan's game-folder and bottle files: dxvk.conf in the launch working folder
+// (never replacing one Playden did not write) and the registry values in <prefix_dir>/user.reg
+// (with a backup). The profile is not written here: the integration publishes profile_bytes
+// through its journaled profile/descriptor publication. Call only while the title is stopped.
+bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& install_root, const std::string& prefix_dir,
+                        std::int64_t unix_time, std::string* reason);
+
 // Per-game records in one small JSON file ({"version":1,"games":{"<app id>":record}}).
 // A missing file loads as no records. Saving replaces the file atomically.
 bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameSettingsRecord>* records,
