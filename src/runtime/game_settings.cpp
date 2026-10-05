@@ -71,6 +71,11 @@ std::vector<SettingDefinition> BuildCatalogue() {
                          {"gamepad", "Gamepad", "Keyboard keys on the usual gamepad positions."},
                          {"mouse", "Mouse", "Right stick moves the pointer; Cross and Circle click."}},
                         "none"));
+  list.push_back(Choice("volume", "Volume", "How loud this game plays, without changing the console's volume.",
+                        "[audio] volume", T::kBasic,
+                        {{"100", "100%", ""}, {"75", "75%", ""}, {"50", "50%", ""}, {"25", "25%", ""},
+                         {"0", "Muted", ""}},
+                        "100", 4));
   list.push_back(Choice("performance_overlay", "Performance overlay", "Frame rate in the corner of the screen.",
                         "DXVK HUD · [display] show_fps", T::kBasic,
                         {{"off", "Off", ""}, {"on", "On", "Shows frames per second."}}, "off"));
@@ -123,6 +128,15 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"100", "Full", ""}, {"75", "75%", ""}, {"50", "50%", ""}, {"25", "25%", ""},
                          {"0", "Off", ""}},
                         "100", 4));
+  list.push_back(Choice("trigger_deadzone", "Trigger dead zone",
+                        "How far L2 and R2 travel before the game sees them. Raise it for worn triggers.",
+                        "[input] trigger_deadzone", T::kCompatibility,
+                        {{"0", "Off", ""}, {"5", "5%", ""}, {"10", "10%", ""}, {"20", "20%", ""}, {"30", "30%", ""}},
+                        "0", 4));
+  list.push_back(Choice("wheel_stick", "Mouse wheel stick", "Scroll the mouse wheel by pushing a stick up or down.",
+                        "[input] wheel", T::kCompatibility,
+                        {{"none", "None", ""}, {"left_stick", "Left stick", ""}, {"right_stick", "Right stick", ""}},
+                        "none", 4));
   list.push_back(Choice("scaling", "Scaling", "How the game's screen fills the TV.", "[display] scaling",
                         T::kCompatibility,
                         {{"fit", "Fit", "Keeps the shape; black bars if needed."},
@@ -225,7 +239,9 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   if ((id == "windows_version" || id == "text_scale") && !kit.registry)
     return "Needs access to the game's bottle, which comes with the Play button.";
   if (id == "environment" && !kit.environment) return "Needs a prospero-win update that reads [environment].";
-  if (id == "stick_deadzone" || id == "rumble") {
+  if (id == "wheel_stick" && !kit.input_wheel) return "Needs a prospero-win update that turns the mouse wheel.";
+  if (id == "volume" && !kit.audio_volume) return "Needs a prospero-win update with per-game volume.";
+  if (id == "stick_deadzone" || id == "rumble" || id == "trigger_deadzone") {
     if (!kit.input_tuning) return "Needs a prospero-win update with controller tuning.";
     const auto controller = values.find("controller");
     if (controller == values.end() || controller->second.value != "xinput") return "Only with the Xbox controller.";
@@ -271,7 +287,11 @@ bool SettingShown(const SettingDefinition& definition, const KitCapabilities& ki
   if (definition.id == "environment") return kit.environment;
   if (definition.phase == 2) return kit.dxvk_config;
   if (definition.phase == 3) return kit.registry;
-  if (definition.phase == 4) return kit.input_tuning;
+  if (definition.phase == 4) {
+    if (definition.id == "wheel_stick") return kit.input_wheel;
+    if (definition.id == "volume") return kit.audio_volume;
+    return kit.input_tuning;
+  }
   return true;
 }
 
@@ -463,12 +483,19 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   // Written only when they differ from the runtime's defaults (no dead zone, full rumble).
   const bool tuned_deadzone = settings.values.at("stick_deadzone").available && value("stick_deadzone") != "0";
   const bool tuned_rumble = settings.values.at("rumble").available && value("rumble") != "100";
+  const bool tuned_triggers = settings.values.at("trigger_deadzone").available && value("trigger_deadzone") != "0";
+  const bool wheel = settings.values.at("wheel_stick").available && value("wheel_stick") != "none";
   if (tuned_deadzone) text += "stick_deadzone = " + value("stick_deadzone") + "\n";
   if (tuned_rumble) text += "rumble = " + value("rumble") + "\n";
+  if (tuned_triggers) text += "trigger_deadzone = " + value("trigger_deadzone") + "\n";
+  if (wheel) text += "wheel = " + value("wheel_stick") + "\n";
   for (const auto& button : ProsperoButtons()) {
     const auto& binding = settings.values.at("button." + button).value;
     if (!binding.empty()) text += button + " = " + binding + "\n";
   }
+
+  const bool audio_section = settings.values.at("volume").available && value("volume") != "100";
+  if (audio_section) text += "\n[audio]\nvolume = " + value("volume") + "\n";
 
   if (value("logging") == "verbose") text += std::string("\n[debug]\nwinedebug = ") + kVerboseWinedebug + "\n";
 
@@ -496,7 +523,9 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   std::string why;
   ProsperoProfileFeatures features;
   features.environment_section = environment_section;
-  features.input_tuning = tuned_deadzone || tuned_rumble;
+  features.input_tuning = tuned_deadzone || tuned_rumble || tuned_triggers;
+  features.input_wheel = wheel;
+  features.audio_section = audio_section;
   if (!CheckProsperoProfile(text, &why, features)) return fail("generated profile is invalid: " + why);
   *profile = {target.id, std::move(text)};
   return true;
@@ -1256,7 +1285,9 @@ bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string&
 namespace playden::runtime {
 
 const std::vector<std::string>& SettingsKitCapabilityNames() {
-  static const std::vector<std::string> names = {kKitDxvkConfig, kKitDxvkPresent, kKitInputTuning, kKitEnvironment};
+  // Sorted, as a kit manifest lists them.
+  static const std::vector<std::string> names = {kKitAudioVolume, kKitDxvkConfig,  kKitDxvkPresent,
+                                                 kKitInputTuning, kKitInputWheel,  kKitEnvironment};
   return names;
 }
 
@@ -1269,6 +1300,8 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.dxvk_present = has(kKitDxvkPresent);
   kit.environment = has(kKitEnvironment);
   kit.input_tuning = has(kKitInputTuning);
+  kit.input_wheel = has(kKitInputWheel);
+  kit.audio_volume = has(kKitAudioVolume);
   kit.registry = bottle_access;
   return kit;
 }
@@ -1371,6 +1404,19 @@ bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& insta
     return close_fail("settings apply failed; reconciliation required: " + registry_reason);
   }
   ::close(directory);
+  return true;
+}
+
+}  // namespace playden::runtime
+
+namespace playden::runtime {
+
+bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit) {
+  for (const auto& feature : community.requires_prospero_win) {
+    if ((feature == "profile-environment" && !kit.environment) || (feature == "input-tuning" && !kit.input_tuning) ||
+        (feature == "input-wheel" && !kit.input_wheel) || (feature == "audio-volume" && !kit.audio_volume))
+      return false;
+  }
   return true;
 }
 

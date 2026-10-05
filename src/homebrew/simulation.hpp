@@ -319,6 +319,7 @@ struct ViewRow {
     bool dangerous = false;
     bool modified = false;  // Game settings: the player changed this value
     std::string section;  // Settings: the rail section the row belongs to
+    bool rail_only = false;  // Settings: the section's rail entry is the action (Quit Playden), no card
 };
 
 struct ViewData {

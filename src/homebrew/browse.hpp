@@ -12,11 +12,21 @@
 
 namespace playden::homebrew {
 
+// Continue playing shows at most this many games; the rest are a "More" cell that opens the Library.
+inline constexpr std::size_t kShelfLimit = 20;
+
 struct Shelf {
     std::string key;
     std::string title;
     std::vector<GameId> game_ids;
+    int more = 0;  // games left out; above 0, a "More" cell follows the last game
 };
+
+// Focusable cells in a shelf: its games, plus the "More" cell when games were left out.
+[[nodiscard]] inline int shelf_cells(const Shelf& shelf) noexcept {
+    return static_cast<int>(shelf.game_ids.size()) + (shelf.more > 0 ? 1 : 0);
+}
+[[nodiscard]] inline std::string shelf_more_key(const Shelf& shelf) { return "shelf-" + shelf.key + "-more"; }
 
 struct ShelfWindow {
     int first = 0;

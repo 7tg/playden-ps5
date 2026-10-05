@@ -1143,13 +1143,35 @@ class Render::Impl
             const int last = std::min(count, static_cast<int>((horizontal + kWidth) / tile_pitch) + 1);
             for (int item_index = first; item_index < last; ++item_index)
             {
-                const Game *game = game_by_id(
-                    state, shelf.items[static_cast<std::size_t>(item_index)].game_id);
-                if (game == nullptr)
-                    continue;
+                const ViewRow &cell = shelf.items[static_cast<std::size_t>(item_index)];
                 const gfx::Rect art{kSafeX + item_index * tile_pitch - horizontal, top + 28.0F, tile_width, 320.0F};
                 const bool focused = route_focus_ && shelf_index == active_shelf &&
                                      item_index == focused_item;
+                if (cell.game_id == 0 && cell.action == "shelf-more")
+                {
+                    // The rest of the shelf lives in the Library: a poster-sized card with the count.
+                    if (focused)
+                        stats_.focused_control_key = cell.key;
+                    const float amount = control_focus(cell.key, focused);
+                    focus_glow(scene_, art, amount);
+                    scene_.rounded_rect(art, 8.0F, kBackground);
+                    scene_.rounded_rect(art, 8.0F, kText.with_alpha(0.06F));
+                    scene_.bordered_rect(art, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kText.with_alpha(0.2F));
+                    ui::text(scene_, fonts_.display, cell.value, art.cx(), art.cy() + 4.0F, 56.0F, kText, gfx::Align::center);
+                    ui::text(scene_, fonts_.display, "Library", art.cx(), art.cy() + 52.0F, 26.0F, kSecondary,
+                             gfx::Align::center);
+                    focus_ring(scene_, art, amount);
+                    if (amount > 0.0F)
+                    {
+                        scene_.push_opacity(amount);
+                        dynamic_text(cell.title, art.x, art.y + art.h + 46.0F, 24.0F, kText, 420.0F);
+                        scene_.pop_opacity();
+                    }
+                    continue;
+                }
+                const Game *game = game_by_id(state, cell.game_id);
+                if (game == nullptr)
+                    continue;
                 if (focused)
                     stats_.focused_control_key = shelf.items[static_cast<std::size_t>(item_index)].key;
                 const std::string key = "home-" + shelf.key + "-" + std::to_string(game->id);
@@ -1769,7 +1791,8 @@ class Render::Impl
         // Rows of the section; long sections scroll to keep the focused row in view.
         std::vector<int> rows;
         for (int index = 0; index < static_cast<int>(view.rows.size()); ++index)
-            if (view.rows[static_cast<std::size_t>(index)].section == current)
+            if (view.rows[static_cast<std::size_t>(index)].section == current &&
+                !view.rows[static_cast<std::size_t>(index)].rail_only)
                 rows.push_back(index);
         const auto height = [&](const ViewRow &row) { return row.subtitle.empty() ? 92.0F : 118.0F; };
         float offset = 0.0F;

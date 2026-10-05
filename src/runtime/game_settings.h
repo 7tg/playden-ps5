@@ -31,7 +31,9 @@ struct KitCapabilities {
   bool dxvk_present = false;  // the display honors DXVK's present interval (VSync off)
   bool environment = false;  // prospero-win [environment] section (upstream U1, not released)
   bool registry = false;     // Playden can edit the stopped bottle's user.reg (decision D2)
-  bool input_tuning = false;  // prospero-win [input] stick_deadzone and rumble (upstream U4, not released)
+  bool input_tuning = false;  // prospero-win [input] stick_deadzone, rumble, trigger_deadzone (U4, not released)
+  bool input_wheel = false;   // prospero-win [input] wheel, with Wine patch 0745 (U4, not built yet)
+  bool audio_volume = false;  // prospero-win [audio] volume (U4, not released)
 };
 
 struct SettingChoice {
@@ -203,6 +205,12 @@ struct CommunityPreset {
 };
 bool ParseProfileSidecar(std::string_view json, CommunityPreset* community, std::string* reason);
 
+// Whether the kit's runtime has every newer profile feature the sidecar declares in
+// requires.prospero_win: the kit capability names without "settings-" (profile-environment,
+// input-tuning, input-wheel, audio-volume; see prospero-win-profiles SIDECARS.md). Other entries
+// (pull requests, versions) are not checked.
+bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit);
+
 // --- Integration contract (roadmap S4, integration Tasks 4-6 and 8) ---
 
 // Capability names a runtime kit manifest may list for settings ("capabilities", sorted).
@@ -210,7 +218,9 @@ bool ParseProfileSidecar(std::string_view json, CommunityPreset* community, std:
 inline constexpr const char* kKitDxvkConfig = "settings-dxvk-config";        // DXVK reads dxvk.conf
 inline constexpr const char* kKitDxvkPresent = "settings-dxvk-present";      // VSync off honored
 inline constexpr const char* kKitEnvironment = "settings-profile-environment";  // [environment]
-inline constexpr const char* kKitInputTuning = "settings-input-tuning";      // stick_deadzone, rumble
+inline constexpr const char* kKitInputTuning = "settings-input-tuning";      // stick/trigger dead zones, rumble
+inline constexpr const char* kKitInputWheel = "settings-input-wheel";        // [input] wheel
+inline constexpr const char* kKitAudioVolume = "settings-audio-volume";      // [audio] volume
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the
@@ -248,7 +258,8 @@ bool BuildSettingsLaunchPlan(const SettingsLaunchInput& input, SettingsLaunchPla
 
 // Writes the plan's game-folder and bottle files: dxvk.conf in the launch working folder
 // (never replacing one Playden did not write) and the registry values in <prefix_dir>/user.reg
-// (with a backup). The profile is not written here: the integration publishes profile_bytes
+// (with a backup). If the registry edit fails, dxvk.conf is put back; should that rewrite itself
+// fail, the folder keeps the new dxvk.conf and the call still returns false. The profile is not written here: the integration publishes profile_bytes
 // through its journaled profile/descriptor publication. Call only while the title is stopped.
 // Writes include file/directory durability barriers and preserve file modes. This helper
 // is not a cross-directory transaction: the owner must journal apply/publication and

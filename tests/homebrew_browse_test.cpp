@@ -293,6 +293,48 @@ void live_unicode_query() {
 
 } // namespace
 
+void continue_playing_ends_in_more(const std::filesystem::path& fixtures)
+{
+    State state = fixture_state(fixtures);
+    // Make 30 played games: Continue playing keeps the 20 most recent and a "More" cell.
+    const Game base = state.games.front();
+    state.games.clear();
+    for (int index = 0; index < 30; ++index)
+    {
+        Game game = base;
+        game.id = static_cast<GameId>(500000 + index);
+        game.title = "Played " + std::to_string(index);
+        game.playtime_minutes = 10;
+        game.last_played = 1000 + index;
+        state.games.push_back(game);
+    }
+    state.library = {};
+    const auto projected = shelves(state);
+    check(!projected.empty() && projected[0].key == "continue", "Continue playing is the first shelf");
+    const Shelf& continued = projected[0];
+    check(continued.game_ids.size() == kShelfLimit && continued.more == 10 && shelf_cells(continued) == 21,
+          "Continue playing shows 20 games and counts the rest");
+    check(continued.game_ids.front() == 500029, "the most recently played game comes first");
+    check(shelf_more_key(continued) == "shelf-continue-more", "the More cell has a stable focus key");
+
+    state.navigation.route = Route::Home;
+    state.navigation.home_shelf = 0;
+    state.navigation.home_shelf_focus["continue"] = 19;
+    move_browser(state, 1, 0);
+    check(state.navigation.home_shelf_focus["continue"] == 20 && state.navigation.selected_game_id == 0 &&
+              state.navigation.focus_key == "shelf-continue-more",
+          "Right after the 20th game focuses More, with no game selected");
+    move_browser(state, 1, 0);
+    check(state.navigation.home_shelf_focus["continue"] == 20, "More is the end of the shelf");
+    move_browser(state, -1, 0);
+    check(state.navigation.selected_game_id == continued.game_ids.back(), "Left from More returns to the last game");
+
+    state.games.resize(20);
+    const auto exact = shelves(state);
+    check(exact[0].game_ids.size() == 20 && exact[0].more == 0 && shelf_cells(exact[0]) == 20,
+          "a shelf of exactly 20 games has no More cell");
+}
+
 int main(int argc, char** argv)
 {
     check(argc == 2, "fixture directory argument is required");
@@ -301,6 +343,7 @@ int main(int argc, char** argv)
     filtering_uses_real_fixture(fixtures);
     all_sorts_keep_unknown_values_last(fixtures);
     shelves_are_nonempty_and_restore_children(fixtures);
+    continue_playing_ends_in_more(fixtures);
     library_grid_and_rail_edges(fixtures);
     download_window_keeps_late_jobs_visible(fixtures);
     utf8_caret_boundaries();

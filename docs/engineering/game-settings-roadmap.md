@@ -390,6 +390,13 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
   rescaled) and `rumble` (0-100%) for the XInput controller; parser and native tests pass.
 - S9 first rows: Stick dead zone and Rumble (`KitCapabilities::input_tuning`), hidden until a
   runtime with U4 is in the kit; the checker accepts the keys only for such a runtime.
+- R1 (2026-10-06): Trigger dead zone (`input_tuning`), Mouse wheel stick (`input_wheel`) and
+  Volume (`audio_volume`, a basic row) write `[input] trigger_deadzone`, `[input] wheel` and
+  `[audio] volume`, each hidden until the kit lists its capability. prospero-win side drafted
+  locally on `feat/profile-input-audio` (`~/.chauffeur/worktrees/prospero-win-input-tuning`):
+  parser, native and audio tests pass and the title sources compile with the PS5 toolchain. The
+  wheel also needs Wine patch 0745, which applies to the patched driver source but is not built
+  (no `PS5_PRX_FOUNDATION` on this Mac). None of it is checked on a console.
 - U3 drafted locally (not pushed): prospero-win-profiles `feat/recipe-sidecar` in
   `~/.chauffeur/worktrees/prospero-win-profiles-sidecar`, `SIDECARS.md` and checker.
 - S6: "Clear shader cache" deletes only `<exe>.dxvk-cache` (`ClearShaderCache`); the sheet's
@@ -435,15 +442,17 @@ What the settings module gives the integration's production adapters (`src/runti
 `src/runtime/settings_publication.h`). The adapters keep ownership of stopped-title checks, the
 journaled profile/descriptor publication and the kit trust configuration.
 
-1. **Kit capabilities.** Add `SettingsKitCapabilityNames()` (`settings-dxvk-config`,
-   `settings-dxvk-present`, `settings-input-tuning`, `settings-profile-environment`) to the
+1. **Kit capabilities.** Add `SettingsKitCapabilityNames()` (`settings-audio-volume`,
+   `settings-dxvk-config`, `settings-dxvk-present`, `settings-input-tuning`,
+   `settings-input-wheel`, `settings-profile-environment`) to the
    kit trust config's `allowed_capabilities`. After `VerifyKitManifest`, call
    `KitCapabilitiesFromManifest(result.capabilities, bottle_access)` and pass the result to the
    settings sheet (`Simulation::SetKitCapabilities`) and to the launch plan. `bottle_access`
    is true only when the adapter can reach the stopped bottle. A kit that lists none of these
    keeps every gated row disabled, which is the safe default. Manifests list capabilities in
    sorted order, so these names sort between `ps5-…` and `wine-…` entries. The released prospero-win kit
-   should list `settings-dxvk-config` (checked on the console); the other three need U5/U4/U1.
+   should list `settings-dxvk-config` (checked on the console); the others need U4 (input,
+   wheel, volume), U5 (VSync) and U1 (environment).
 2. **Launch plan.** `BuildSettingsLaunchPlan({recipe, preset, record, kit, {profile_id,
    install_path}, runtime_dir})` returns the profile bytes, the input presets the profile
    references (bundled in `runtime/input`), `dxvk.conf`, registry values and
@@ -477,9 +486,9 @@ journaled profile/descriptor publication and the kit trust configuration.
 
 | # | Work | Owner / blocked by | Done when |
 | --- | --- | --- | --- |
-| R1 | U4 rest: trigger threshold, mouse wheel on a stick, per-game volume and mute (`pw_audio_mix_set_gain`), then the matching S9 rows | Settings track; local prospero-win branch | prospero-win parser and native tests; Playden rows hidden until the kit has them |
-| R2 | prospero-win-profiles checker accepts the new `[input]` keys and `[environment]` | Settings track; local `feat/recipe-sidecar` | `check_profiles.py` tests pass |
-| R3 | U5: Scaling and 120 Hz on the DXVK path | prospero-win native display work | Console: fit, integer and stretch differ on HL2; 120 Hz reported |
+| R1 ◐ | U4 rest: trigger dead zone, mouse wheel on a stick, per-game volume and mute, then the matching S9 rows | Settings track; local prospero-win branch | Done in code and host tests; wheel's Wine patch unbuilt; console check needs a test title build |
+| R2 ✅ | prospero-win-profiles checker accepts the new `[input]` keys, `[environment]` and `[audio]` when the sidecar declares the feature | Settings track; local `feat/checker-runtime-features` (`8fa9213`) | `check_profiles.py` tests pass |
+| R3 ◐ | U5: Scaling and 120 Hz on the DXVK path. Investigated in [dxvk-scaling-and-120hz.md](dxvk-scaling-and-120hz.md): needs Wine patches (scaling behavior after 0456, a 120 Hz mode near 0460) and RADV WSI work | Blocked on a Wine/RADV build environment (`PS5_PRX_FOUNDATION`, ps5vk sources) and a test title | Console: fit, integer and stretch differ on HL2; 120 Hz reported |
 | R4 | S4 live wiring: profile, `dxvk.conf` and registry applied before Play | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 launched from Playden |
 | R5 | S6 maintenance: clear shader cache, repair, save backup, recreate bottle | Integration Task 8 | Task 8 acceptance |
 | R6 | Kit adoption: U1 and U4 land upstream (needs approval to push), then the kit sets `environment` and `input_tuning` | Owner approval; prospero-win maintainers | Console: an environment variable and the dead zone reach HL2 |

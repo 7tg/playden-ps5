@@ -221,7 +221,8 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoPr
       if (line.size() < 3 || line.back() != ']') return fail("bad section line");
       const auto name = Lower(line.substr(1, line.size() - 2));
       if ((name != "application" && name != "display" && name != "input" && name != "debug" &&
-           !(features.environment_section && name == "environment")) ||
+           !(features.environment_section && name == "environment") &&
+           !(features.audio_section && name == "audio")) ||
           std::find(sections.begin(), sections.end(), name) != sections.end())
         return fail("section [" + name + "] unknown or repeated");
       if (sections.empty() != (name == "application")) return fail("[application] must come first");
@@ -304,7 +305,9 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoPr
       } else if (key == "mouse_speed") {
         const long speed = IsDigits(value, 9) ? std::atol(std::string(value).c_str()) : 0;
         if (speed < 1 || speed > 20000) return bad("not 1-20000");
-      } else if (features.input_tuning && (key == "stick_deadzone" || key == "rumble")) {
+      } else if (features.input_wheel && key == "wheel") {
+        if (!OneOf(value, {"none", "left_stick", "right_stick"})) return bad("unknown wheel stick");
+      } else if (features.input_tuning && (key == "stick_deadzone" || key == "rumble" || key == "trigger_deadzone")) {
         const long maximum = key == "rumble" ? 100 : 50;
         if (!IsDigits(value, 3) || std::atol(std::string(value).c_str()) > maximum)
           return bad(key == "rumble" ? "not 0-100" : "not 0-50");
@@ -313,6 +316,9 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoPr
       } else {
         return fail("unknown [input] key " + key);
       }
+    } else if (section == "audio") {
+      if (key != "volume") return fail("unknown [audio] key " + key);
+      if (!IsDigits(value, 3) || std::atol(std::string(value).c_str()) > 100) return bad("not 0-100");
     } else {
       if (key != "winedebug") return fail("unknown [debug] key " + key);
       if (value.empty() || value.size() > kProsperoMaxWinedebugBytes ||

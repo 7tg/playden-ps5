@@ -174,6 +174,14 @@ int main(int argc, char** argv) {
   CHECK(!CheckProsperoProfile(base + "[input]\nstick_deadzone = 51\n", &reason, {.input_tuning = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\nrumble = 101\n", &reason, {.input_tuning = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\nrumble = -1\n", &reason, {.input_tuning = true}));
+  CHECK(CheckProsperoProfile(base + "[input]\ntrigger_deadzone = 50\n", &reason, {.input_tuning = true}));
+  CHECK(!CheckProsperoProfile(base + "[input]\nwheel = left_stick\n", &reason, {.input_tuning = true}));
+  CHECK(CheckProsperoProfile(base + "[input]\nwheel = left_stick\n", &reason, {.input_wheel = true}));
+  CHECK(!CheckProsperoProfile(base + "[input]\nwheel = dpad\n", &reason, {.input_wheel = true}));
+  CHECK(!CheckProsperoProfile(base + "[audio]\nvolume = 50\n", &reason));
+  CHECK(CheckProsperoProfile(base + "[audio]\nvolume = 0\n", &reason, {.audio_section = true}));
+  CHECK(!CheckProsperoProfile(base + "[audio]\nvolume = 101\n", &reason, {.audio_section = true}));
+  CHECK(!CheckProsperoProfile(base + "[audio]\nmute = true\n", &reason, {.audio_section = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\ncross = f25\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[input]\ncross = vk:0x00\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[debug]\nwinedebug = +all relay\n", &reason));

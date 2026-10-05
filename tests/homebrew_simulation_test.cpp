@@ -623,6 +623,24 @@ void t13_settings_sections_rail(const std::filesystem::path& fixtures, const std
     simulation.action("right");
     check(!simulation.state().navigation.settings_rail_focused && simulation.state().navigation.focus_key == "settings-motion",
           "T13 Right returns from the rail to the same row");
+
+    // Quit Playden, as on macOS: the rail entry is the action, with no "Quit / Review" card.
+    simulation.action("left");
+    for (int step = 0; step < 12; ++step) simulation.action("down");
+    check(section() == "Quit Playden" && simulation.state().navigation.focus_key == "settings-quit",
+          "T13 the last rail entry is Quit Playden");
+    simulation.action("right");
+    check(simulation.state().navigation.settings_rail_focused, "T13 Right stays on the Quit Playden rail entry");
+    simulation.action("cross");
+    check(!simulation.state().navigation.modals.empty() && simulation.state().navigation.modals.back().id == "confirmation",
+          "T13 Cross on Quit Playden asks to confirm quitting");
+    simulation.action("circle");
+    check(simulation.state().navigation.modals.empty() && simulation.state().navigation.settings_rail_focused,
+          "T13 cancelling returns to the Quit Playden rail entry");
+    simulation.action("up");
+    simulation.action("right");
+    for (int step = 0; step < 20; ++step) simulation.action("down");
+    check(section() != "Quit Playden", "T13 moving down the rows never lands on the Quit Playden entry");
 }
 
 } // namespace
