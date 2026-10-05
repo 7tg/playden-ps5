@@ -368,14 +368,23 @@ longest lead time.
 
 ### Playden track
 
+Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
+
+- S0: `results/20261005-dxvk-conf-probe`.
+- S1/S2: `src/runtime/game_settings.{h,cpp}`, `runtime/presets.json`,
+  `runtime/recipes/steam-220-hl2-v1.json`; profiles checked against prospero-win's parser rules.
+- S3: the sheet, pickers, preset chooser, button mapping and save toast in simulation mode.
+- S5: `ApplyGameSettings` writes the profile and `dxvk.conf`. Still open: call it from
+  the real Play action (S4) and check VSync, latency and VRAM on the console.
+
 | Step | Work | Depends on | Done when |
 | --- | --- | --- | --- |
 | **S0** ✅ | Console probe: put a `dxvk.conf` with `d3d9.maxFrameRate = 30` in the HL2 folder and launch it with the existing profile path | Console, HL2 install | `hl2_d3d9.log` shows `Found config file` and the frame rate is capped. The result decides whether frame limit, VSync, frame latency and reported VRAM are Playden-only |
-| **S1** | Settings catalogue and model in `src/runtime/game_settings.{h,cpp}`: setting ids, tiers, bindings, apply modes, `requires`; overrides; `BuildEffectiveSettings(recipe, preset, overrides)` | — | Host tests: absent vs explicit values, locked recipe values, preset reset |
-| **S2** | Full prospero profile writer: `[display]`, `[input]`, `[debug]`, `dll_overrides`; recipe format with locked arguments and `resolution_args`; HL2 recipe; bundled presets and `.input` files | S1 | Round-trip tests against the upstream parser rules (`check_profiles.py`); HL2 output equals the owner-verified profile |
-| **S3** | P1 settings UI in simulation: sheet, picker, preset chooser, disabled and locked rows, toast; replaces the simulation-only modal and its tests | S1 | Host graphical tests pass |
+| **S1** ✅ | Settings catalogue and model in `src/runtime/game_settings.{h,cpp}`: setting ids, tiers, bindings, apply modes, `requires`; overrides; `BuildEffectiveSettings(recipe, preset, overrides)` | — | Host tests: absent vs explicit values, locked recipe values, preset reset |
+| **S2** ✅ | Full prospero profile writer: `[display]`, `[input]`, `[debug]`, `dll_overrides`; recipe format with locked arguments and `resolution_args`; HL2 recipe; bundled presets and `.input` files | S1 | Round-trip tests against the upstream parser rules (`check_profiles.py`); HL2 output equals the owner-verified profile |
+| **S3** ✅ | P1 settings UI in simulation: sheet, picker, preset chooser, disabled and locked rows, toast; replaces the simulation-only modal and its tests | S1 | Host graphical tests pass |
 | **S4** | Live wiring: settings entry in live mode, flush before handoff, Home and Playden produce the same profile | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 |
-| **S5** | `dxvk.conf` settings: frame limit, VSync, frame latency, reported VRAM/vendor, overlay detail (D1) | S0 passed, S2 | Console: cap, tearing and overlay measured; file kept by repair and verify |
+| **S5** ◐ | `dxvk.conf` settings: frame limit, VSync, frame latency, reported VRAM/vendor, overlay detail (D1) | S0 passed, S2 | Console: cap, tearing and overlay measured; file kept by repair and verify |
 | **S6** | Maintenance actions: reset, repair, clear shader cache, back up saves, recreate bottle | Integration Task 8 | Task 8 acceptance |
 | **S7** | P3 registry rows | U2 or D2(b) | Fixture reports the version; reset restores it |
 | **S8** | Environment variables row | U1 | Values reach the Wine process; reserved keys rejected |
