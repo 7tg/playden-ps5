@@ -24,6 +24,24 @@ a competing settings model. Our interrupted partial settings files are preserved
 only in ignored `build/game-settings-handoff/` for reference. Maintenance and
 uninstall lifecycle work remain part of this integration goal.
 
+The owner's worktree is
+`/Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-game-settings`.
+Its settings model and generated profiles were inspected at `e3cc160`; settings
+UI work is already present at `ff3ffa6`. These are coordination checkpoints,
+not approved dependency pins. Read the current branch before integration and
+preserve its in-progress work.
+
+Use these interfaces when joining the branches:
+
+| Boundary | Integration requirement |
+| --- | --- |
+| Settings to profile | Use the owner's `BuildEffectiveSettings` and `RenderProsperoProfile`, followed by the strict prospero parser check. The installation service calls an injected profile publisher; it does not define another settings model. |
+| Settings revision | Runtime records and the wrapper descriptor use exact `uint64_t`; the current owner's `GameSettingsRecord` uses `uint32_t`. Resolve this width difference before publication. Never truncate or wrap a revision, and make the record, generated profile metadata and descriptor agree. |
+| Recipe identity | Convert the owner's positive integer recipe version to a canonical decimal string for the runtime record/descriptor. Keep the recipe ID and selected launch entry consistent across publication. |
+| Capabilities | Populate the owner's `KitCapabilities` only from the installed kit's verified parser/runtime capabilities. Defaults remain false for DXVK config, environment forwarding and registry overlays until their implementation and acceptance checks pass. |
+| Publication and retry | Publish the effective profile and matching descriptor while the game is stopped. Persist a journal before effects, reconcile interrupted publication on retry, and expose Ready only after ownership, artifact and settings-revision checks pass. Home and Playden must consume the same persisted profile. |
+| Source and dependency pins | Combine the tested per-title wrapper changes with the owner's Wine/settings patches in an isolated checkout, review and test the combination, then pin the resulting source commit and kit hashes. Keep the retained Wine runtime until its replacement is independently verified. |
+
 ## Evidence and scope
 
 - The runtime owner now verifies HL2 train-station gameplay, audio, left-stick movement, right-stick look, Cross jump, Options menu and keyboard Escape resume on firmware 13.60. The user confirmed physical keyboard movement and working audio. Playden has independently observed rendered gameplay; the control/audio acceptance is the owner's evidence. Saves, sustained frame pacing and long sessions remain unverified.
