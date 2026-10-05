@@ -189,13 +189,14 @@ std::string byte_count(std::optional<std::uint64_t> bytes)
     return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : "Unknown";
 }
 
-// Sizes as the macOS tiles show them: megabytes below a gigabyte.
+// Sizes as macOS shows files (decimal units), matching the model's labels: megabytes below a gigabyte.
 std::string short_size(std::uint64_t bytes)
 {
-    constexpr double mib = 1024.0 * 1024.0;
-    if (static_cast<double>(bytes) < 1024.0 * mib)
-        return std::to_string(std::max<std::uint64_t>(1, static_cast<std::uint64_t>(bytes / mib + 0.5))) + " MB";
-    return byte_count(bytes);
+    std::array<char, 32> value{};
+    const double amount = static_cast<double>(bytes);
+    const int written = amount >= 1e9 ? std::snprintf(value.data(), value.size(), "%.1f GB", amount / 1e9)
+                                      : std::snprintf(value.data(), value.size(), "%.0f MB", std::max(1.0, amount / 1e6));
+    return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : std::string("Unknown");
 }
 
 std::string transfer_rate(std::optional<std::uint64_t> bytes_per_second)
