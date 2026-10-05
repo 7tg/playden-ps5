@@ -1,5 +1,7 @@
 #include "steam/backend/http_client.h"
 
+#include <strings.h>
+
 #include "steam/backend/native_network.h"
 
 #include <curl/curl.h>
@@ -141,7 +143,7 @@ bool ValidRequest(const HttpRequest& request) {
       request.body.size() > kMaxHttpResponseBytes ||
       request.headers.size() > kMaxHttpResponseHeaderCount)
     return false;
-  if ((request.method != HttpMethod::kGet && request.method != HttpMethod::kPost) ||
+  if ((request.method != HttpMethod::kGet && request.method != HttpMethod::kPost && request.method != HttpMethod::kPut) ||
       (request.method == HttpMethod::kGet && !request.body.empty()))
     return false;
   std::size_t total_header_bytes = 0;
@@ -236,6 +238,19 @@ class HttpClient::Impl {
       if (!appended) goto cleanup;
       request_headers = appended;
     }
+    if (request.method == HttpMethod::kPut) {
+      // A signed upload carries exactly the headers it was given: drop curl's form Content-Type and
+      // the Expect: 100-continue handshake unless the caller set them.
+      bool has_content_type = false;
+      for (const auto& header : request.headers)
+        if (header.first.size() == 12 && strncasecmp(header.first.c_str(), "Content-Type", 12) == 0) has_content_type = true;
+      for (const char* removal : {has_content_type ? nullptr : "Content-Type:", "Expect:"}) {
+        if (!removal) continue;
+        curl_slist* appended = curl_slist_append(request_headers, removal);
+        if (!appended) goto cleanup;
+        request_headers = appended;
+      }
+    }
 
 #define PLAYDEN_SETOPT(option, value) \
     do { if (curl_easy_setopt(easy, option, value) != CURLE_OK) goto cleanup; } while (false)
@@ -255,8 +270,9 @@ class HttpClient::Impl {
     PLAYDEN_SETOPT(CURLOPT_HEADERFUNCTION, WriteHeader);
     PLAYDEN_SETOPT(CURLOPT_HEADERDATA, &transfer);
     if (request_headers) PLAYDEN_SETOPT(CURLOPT_HTTPHEADER, request_headers);
-    if (request.method == HttpMethod::kPost) {
+    if (request.method == HttpMethod::kPost || request.method == HttpMethod::kPut) {
       PLAYDEN_SETOPT(CURLOPT_POST, 1L);
+      if (request.method == HttpMethod::kPut) PLAYDEN_SETOPT(CURLOPT_CUSTOMREQUEST, "PUT");
       PLAYDEN_SETOPT(CURLOPT_POSTFIELDS,
                      request.body.empty() ? "" : reinterpret_cast<const char*>(request.body.data()));
       PLAYDEN_SETOPT(CURLOPT_POSTFIELDSIZE_LARGE,

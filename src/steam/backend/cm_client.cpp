@@ -273,10 +273,14 @@ class CmClient::Session {
         waited != CmError::kNone)
       return waited;
     const auto error = service_->error;
+    last_eresult_ = service_->eresult;
     *reply = std::move(service_->body);
     service_.reset();
     return error;
   }
+
+  // EResult of the last refused call, or kEResultOk.
+  int last_eresult() const { return last_eresult_; }
 
   std::uint64_t steam_id() const { return steam_id_; }
 
@@ -287,7 +291,9 @@ class CmClient::Session {
     CmError error = CmError::kNone;
     std::vector<std::uint8_t> body;
     std::uint32_t response_emsg = cm::kEMsgServiceMethodResponse;
+    int eresult = cm::kEResultOk;
   };
+  int last_eresult_ = cm::kEResultOk;
   struct Job {
     std::uint64_t id = 0;
     std::vector<cm::PicsResponse> parts;
@@ -366,8 +372,10 @@ class CmClient::Session {
     if (service_ && !service_->done && frame.header.jobid_target &&
         *frame.header.jobid_target == service_->id) {
       service_->done = true;
-      if (frame.header.eresult && *frame.header.eresult != cm::kEResultOk)
+      if (frame.header.eresult && *frame.header.eresult != cm::kEResultOk) {
         service_->error = CmError::kRejected;
+        service_->eresult = static_cast<int>(*frame.header.eresult);
+      }
       else if (frame.emsg != service_->response_emsg)
         service_->error = CmError::kProtocol;
       else
@@ -576,6 +584,26 @@ DepotAccessResult CmClient::FetchDepotAccess(const StoredSession& stored, std::u
     result.grants.push_back(grant);
   }
   return finish(CmError::kNone);
+}
+
+CmError CmClient::WithServiceSession(const StoredSession& stored, std::uint32_t deadline_ms, const std::atomic<bool>& cancel,
+                                     const std::function<CmError(const ServiceCall& call, std::uint64_t steam_id)>& work) {
+  const auto deadline = Clock::now() + std::chrono::milliseconds(deadline_ms);
+  std::unique_ptr<MessageTransport> transport;
+  std::unique_ptr<Session> session;
+  if (const auto open = Open(stored, cancel, deadline, &transport, &session); open != CmError::kNone) {
+    if (transport) transport->Close();
+    return open;
+  }
+  const ServiceCall call = [&session](const std::string& method, const std::vector<std::uint8_t>& body,
+                                      std::vector<std::uint8_t>* reply, int* eresult) {
+    const auto error = session->ServiceMethod(method, body, reply);
+    if (eresult) *eresult = session->last_eresult();
+    return error;
+  };
+  const auto result = work(call, session->steam_id());
+  transport->Close();
+  return result;
 }
 
 AppInfoBuffers CmClient::FetchAppInfo(const StoredSession& stored,

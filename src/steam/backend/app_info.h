@@ -38,6 +38,36 @@ struct AppLaunch {
   std::optional<std::string> description;
 };
 
+// Steam Cloud ("ufs") save roots. Steam writes them as %Token% in appinfo and in Cloud file names.
+enum class SavePathRoot {
+  kNone, kGameInstall, kSteamUserData, kWinMyDocuments, kWinAppDataLocal, kWinAppDataLocalLow,
+  kWinAppDataRoaming, kWinSavedGames, kWinProgramData, kRoot,
+  kLinuxHome, kLinuxXdgDataHome, kLinuxXdgConfigHome, kMacHome, kMacAppSupport,
+};
+// Accepts the token with or without '%', case-insensitively, including Steam's aliases.
+SavePathRoot ParseSavePathRoot(std::string_view token);
+// The canonical token name without '%' ("WinMyDocuments"); empty for kNone.
+const char* SavePathRootName(SavePathRoot root);
+bool IsWindowsSavePathRoot(SavePathRoot root);
+
+// One Windows save location, with any root override applied. Cloud file names are built from the
+// root and path as Steam declared them (upload_root, upload_path), before overrides.
+struct SaveFilePattern {
+  SavePathRoot root = SavePathRoot::kNone;
+  std::string path;     // forward slashes
+  std::string pattern;  // file name glob
+  int recursive = 0;
+  SavePathRoot upload_root = SavePathRoot::kNone;
+  std::string upload_path;
+};
+
+struct CloudSaveInfo {
+  bool declared = false;  // the app has a ufs section
+  std::uint64_t quota = 0;
+  std::uint64_t max_num_files = 0;
+  std::vector<SaveFilePattern> patterns;
+};
+
 struct AppInfo {
   std::uint32_t app_id = 0;
   std::string name;
@@ -48,6 +78,7 @@ struct AppInfo {
   std::vector<std::uint32_t> dlc_app_ids;
   std::vector<AppLaunch> launches;  // sorted by id
   std::string controller_support;
+  CloudSaveInfo cloud;
 };
 
 // Parses a PICS app buffer (text VDF with optional trailing NULs) whose root is "appinfo".

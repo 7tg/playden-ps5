@@ -125,6 +125,16 @@ class CmClient final : public AcquisitionSource {
   AppInfoBuffers FetchAppInfo(const StoredSession& session, const std::vector<std::uint32_t>& app_ids,
                               const std::atomic<bool>& cancel);
 
+  // A unified service call on an open session. When Steam refuses it, the result is kRejected and
+  // `eresult` (optional) holds Steam's EResult.
+  using ServiceCall = std::function<CmError(const std::string& method, const std::vector<std::uint8_t>& body,
+                                            std::vector<std::uint8_t>* reply, int* eresult)>;
+  // Opens one logged-on session that stays usable for `deadline_ms` and runs `work` with a service
+  // call function and the logged-on SteamID. The session closes when `work` returns; the result is
+  // the logon failure or whatever `work` returns.
+  CmError WithServiceSession(const StoredSession& session, std::uint32_t deadline_ms, const std::atomic<bool>& cancel,
+                             const std::function<CmError(const ServiceCall& call, std::uint64_t steam_id)>& work);
+
  private:
   class Session;
   // Directory lookup, connect, hello and logon. On success the transport is connected and the

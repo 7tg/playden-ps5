@@ -121,7 +121,10 @@ if(PLAYDEN_HOMEBREW_UI)
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_app_details.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cdn_client.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/depot_installer.cpp"
-        "${CMAKE_SOURCE_DIR}/src/steam/backend/steam_install_runner.cpp")
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/steam_install_runner.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_messages.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_mapping.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_sync.cpp")
     target_include_directories(playden_steam_cm PUBLIC "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(playden_steam_cm PUBLIC cxx_std_17)
     target_link_libraries(playden_steam_cm PUBLIC
@@ -203,6 +206,10 @@ function(playden_register_steam_backend_tests)
         add_executable(depot_installer_test "${CMAKE_SOURCE_DIR}/tests/depot_installer_test.cpp")
         target_link_libraries(depot_installer_test PRIVATE playden_steam_cm)
         add_test(NAME depot_installer COMMAND depot_installer_test)
+        add_executable(steam_cloud_test "${CMAKE_SOURCE_DIR}/tests/steam_cloud_test.cpp")
+        target_link_libraries(steam_cloud_test PRIVATE playden_steam_cm)
+        target_compile_features(steam_cloud_test PRIVATE cxx_std_20)
+        add_test(NAME steam_cloud COMMAND steam_cloud_test)
         add_executable(cdn_client_test "${CMAKE_SOURCE_DIR}/tests/cdn_client_test.cpp")
         target_link_libraries(cdn_client_test PRIVATE playden_steam_cm)
         add_test(NAME cdn_client COMMAND cdn_client_test)

@@ -13,6 +13,7 @@ namespace playden::steam {
 enum class HttpMethod {
   kGet,
   kPost,
+  kPut,  // body sent as-is; no default Content-Type is added
 };
 
 enum class HttpError {
