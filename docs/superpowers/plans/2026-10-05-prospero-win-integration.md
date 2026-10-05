@@ -469,6 +469,21 @@ ownership and granted credentials next; do not reset the account or weaken
 private-file checks. The known browsing preview was restored and verified.
 See [session access evidence](../../../results/20261005-session-access-diagnosis/README.md).
 
+Credential/volume correction: after the helper succeeds, restore the original
+effective UID through `seteuid` and verify it. On the console this retains native
+managed-data writes and permits reading the existing mode-0600 session in the
+stable view, without changing file permissions/ownership. Primary volume
+candidates now use the verified title root, preserving the existing installed
+game registry after `/app0` disappears. Host regression exercises actual
+InstallService scanning through the supplied stable volume; all 74 tests pass.
+The deployed build renders Home/library/artwork and both installed entries;
+Downloads reports their 5.5 GB of used console storage. See
+[native state evidence](../../../results/20261005-native-owner-and-volumes/README.md).
+This closes the observed grant/session/installed-inventory startup failures;
+it does not establish a fresh network download, settings persistence or per-game
+preparation/launch. The successful build is left installed and the PS5 released.
+
+
 
 
 

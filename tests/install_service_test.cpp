@@ -1,4 +1,5 @@
 #include "steam/install_service.h"
+#include "steam/install_volumes.h"
 
 #include <algorithm>
 #include <atomic>
@@ -94,6 +95,25 @@ bool Installed(const InstallSnapshot& snapshot, GameId id) {
 }  // namespace
 
 int main() {
+  {
+    // Installed records must survive removal of the title's /app0 view.
+    const auto stable = std::filesystem::temp_directory_path() /
+        ("playden-stable-title-" + std::to_string(::getpid()));
+    std::filesystem::remove_all(stable);
+    std::filesystem::create_directories(stable / "games/220");
+    std::ofstream(stable / "games/.playden-games") << "220\n";
+    std::ofstream(stable / "games/220/.playden-install.json") << "{\"install_bytes\":8192}";
+    auto candidates = ConsoleVolumeCandidates(stable.string());
+    candidates.resize(1);
+    Runner runner;
+    Sessions sessions;
+    InstallService service(runner, sessions, DiscoverInstallVolumes(candidates));
+    const auto installed = service.Snapshot().installed;
+    CHECK(installed.size() == 1 && installed[0].id == 220 && installed[0].available);
+    CHECK(installed[0].root == (stable / "games/220").string() && installed[0].install_bytes == 8192);
+    std::filesystem::remove_all(stable);
+  }
+
   const auto root = std::filesystem::temp_directory_path() / ("playden-install-service-" + std::to_string(::getpid()));
   std::filesystem::remove_all(root);
   std::filesystem::create_directories(root / "100");

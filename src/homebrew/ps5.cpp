@@ -230,7 +230,7 @@ int main() {
         });
         playden::LocalSessionRepository install_sessions(paths.steam_state_root);
         playden::steam::InstallService installs(install_runner, install_sessions,
-            playden::steam::DiscoverInstallVolumes(playden::steam::ConsoleVolumeCandidates()));
+            playden::steam::DiscoverInstallVolumes(playden::steam::ConsoleVolumeCandidates(paths.title_root)));
         playden::steam::CmClient cloud_cm(paths.trust_store, library_storage);
         playden::steam::HttpClient cloud_http(paths.trust_store);
         playden::steam::SteamCloudRunner cloud_runner(cloud_cm, cloud_http);

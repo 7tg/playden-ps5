@@ -52,9 +52,9 @@ std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandid
   return volumes;
 }
 
-std::vector<VolumeCandidate> ConsoleVolumeCandidates() {
+std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_root) {
   return {
-      {InstallService::kPrimaryVolumeId, "Console storage", "/app0", "/app0/games"},
+      {InstallService::kPrimaryVolumeId, "Console storage", title_root, title_root + "/games"},
       {"m2", "M.2 SSD", "/mnt/ext1", "/mnt/ext1/playden/games"},
       {"extended", "Extended storage", "/mnt/ext0", "/mnt/ext0/playden/games"},
       {"usb0", "USB drive", "/mnt/usb0", "/mnt/usb0/playden/games"},

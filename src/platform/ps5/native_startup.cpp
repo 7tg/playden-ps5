@@ -6,6 +6,8 @@
 
 #include <cerrno>
 #include <cstdint>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -51,6 +53,25 @@ int PrepareGraphics(void* data) {
   return result;
 }
 
+void ReportSessionAccess(const std::string& root, const char* stage) {
+  const std::string file = root + "/playden-data/session.v1";
+  struct stat metadata{};
+  const int status = stat(file.c_str(), &metadata);
+  const int status_error = status ? errno : 0;
+  const int descriptor = open(file.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
+  const int open_error = descriptor < 0 ? errno : 0;
+  if (descriptor >= 0) close(descriptor);
+  app::AppendLogLine(root + "/logs", "native-startup.log",
+      std::string("session access stage=") + stage +
+      " uid=" + std::to_string(getuid()) + " euid=" + std::to_string(geteuid()) +
+      " gid=" + std::to_string(getgid()) + " egid=" + std::to_string(getegid()) +
+      " stat_error=" + std::to_string(status_error) +
+      " file_uid=" + std::to_string(metadata.st_uid) +
+      " file_gid=" + std::to_string(metadata.st_gid) +
+      " mode=" + std::to_string(metadata.st_mode & 0777) +
+      " open_error=" + std::to_string(open_error));
+}
+
 int RequestData(void* data) {
 #if PLAYDEN_NATIVE_ACCESS_SOURCE
   auto& context = *static_cast<StartupContext*>(data);
@@ -69,6 +90,8 @@ int RequestData(void* data) {
     }
   }
   if (helper.empty()) return ENOENT;
+  const uid_t original_effective_uid = geteuid();
+  ReportSessionAccess("/app0", "before-grant");
   struct pw_lapy_elevation_diagnostics diagnostic{};
   const int grant = pw_lapy_elevation_request_at_detailed(
       static_cast<std::int32_t>(getpid()), helper.c_str(), &diagnostic);
@@ -77,6 +100,17 @@ int RequestData(void* data) {
       " status=" + (diagnostic.helper_status_valid ? std::to_string(diagnostic.helper_status) : "unavailable") +
       " error=" + std::to_string(diagnostic.error);
   if (grant != 0) return grant_error ? grant_error : EIO;
+  ReportSessionAccess("/data/homebrew/" + context.title_id, "after-grant");
+  // The filesystem grant must not change ownership of the launcher's private
+  // session/settings files. Let the kernel clone/update the credential normally;
+  // keep the granted root view and verify effective UID before services start.
+  if (geteuid() != original_effective_uid && seteuid(original_effective_uid) != 0) {
+    const int restore_error = errno ? errno : EIO;
+    context.grant_diagnostic += "; effective uid restoration failed error=" + std::to_string(restore_error);
+    return restore_error;
+  }
+  if (geteuid() != original_effective_uid) return EACCES;
+  ReportSessionAccess("/data/homebrew/" + context.title_id, "after-uid-restore");
   // The helper may still be settling the process after its cooperative reply.
   struct timespec delay{1, 0};
   while (nanosleep(&delay, &delay) != 0)
