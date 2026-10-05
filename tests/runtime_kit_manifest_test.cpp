@@ -146,11 +146,11 @@ struct Fixture {
 
   void WriteRegistry(bool valid) {
     const std::string crypto64 =
-        "[Software\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider Types\\\\Type 001]\n\"Name\"=\"RSA Full\"\n"
-        "[Software\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider\\\\RSA Full]\n\"Image Path\"=\"C:\\\\windows\\\\system32\\\\rsaenh.dll\"\n\"Type\"=dword:00000001\n";
+        "[Software\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider Types\\\\Type 001]\n\"Name\"=\"Microsoft Enhanced Cryptographic Provider v1.0\"\n"
+        "[Software\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider\\\\Microsoft Enhanced Cryptographic Provider v1.0]\n\"Image Path\"=\"C:\\\\windows\\\\system32\\\\rsaenh.dll\"\n\"Type\"=dword:00000001\n";
     const std::string crypto32 =
-        "[Software\\\\Wow6432Node\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider Types\\\\Type 001]\n\"Name\"=\"RSA Full\"\n"
-        "[Software\\\\Wow6432Node\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider\\\\RSA Full]\n\"Image Path\"=\"C:\\\\windows\\\\system32\\\\rsaenh.dll\"\n\"Type\"=dword:00000001\n";
+        "[Software\\\\Wow6432Node\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider Types\\\\Type 001]\n\"Name\"=\"Microsoft Enhanced Cryptographic Provider v1.0\"\n"
+        "[Software\\\\Wow6432Node\\\\Microsoft\\\\Cryptography\\\\Defaults\\\\Provider\\\\Microsoft Enhanced Cryptographic Provider v1.0]\n\"Image Path\"=\"C:\\\\windows\\\\system32\\\\rsaenh.dll\"\n\"Type\"=dword:00000001\n";
     const std::string com =
         "[Software\\\\Classes\\\\Wow6432Node\\\\CLSID\\\\{BCDE0395-E52F-467C-8E3D-C4579291692E}]\n"
         "[Software\\\\Classes\\\\Wow6432Node\\\\CLSID\\\\{BCDE0395-E52F-467C-8E3D-C4579291692E}\\\\InprocServer32]\n@=\"C:\\\\windows\\\\system32\\\\mmdevapi.dll\"\n\"ThreadingModel\"=\"Both\"\n"
@@ -277,6 +277,48 @@ int main() {
     assert(result.available_variant_ids == std::vector<std::string>{"variant"});
     assert(result.capabilities == std::vector<std::string>({"ps5-audio", "wine-wow64"}));
     assert(result.artifacts.size() >= 2);
+  }
+  {
+    // TypeName is descriptive: a real Wine registration selects this provider
+    // independently for each view. The Base provider is also legitimate.
+    Fixture fixture;
+    const auto path = fixture.root / "template/bottle/system.reg";
+    std::ifstream input(path);
+    std::string registry(std::istreambuf_iterator<char>(input), {});
+    const std::string enhanced = "Microsoft Enhanced Cryptographic Provider v1.0";
+    const std::string base = "Microsoft Base Cryptographic Provider v1.0";
+    for (unsigned i = 0; i < 2; ++i) {
+      const auto pos = registry.find(enhanced);
+      assert(pos != std::string::npos);
+      registry.replace(pos, enhanced.size(), base);
+    }
+    Write(path, registry); fixture.RewriteManifest();
+    assert(fixture.Verify().status == KitManifestStatus::kVerified);
+  }
+  {
+    // An unregistered selected provider must not fall back to an unrelated
+    // rsaenh registration that happens to be present elsewhere in the file.
+    Fixture fixture;
+    const auto path = fixture.root / "template/bottle/system.reg";
+    std::ifstream input(path);
+    std::string registry(std::istreambuf_iterator<char>(input), {});
+    const auto pos = registry.find("Microsoft Enhanced Cryptographic Provider v1.0");
+    assert(pos != std::string::npos);
+    registry.replace(pos, std::string("Microsoft Enhanced Cryptographic Provider v1.0").size(),
+                     "Absent Provider");
+    Write(path, registry); fixture.RewriteManifest();
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    Fixture fixture;
+    const auto path = fixture.root / "template/bottle/system.reg";
+    std::ifstream input(path);
+    std::string registry(std::istreambuf_iterator<char>(input), {});
+    const auto pos = registry.find("\"Name\"=");
+    assert(pos != std::string::npos);
+    registry.insert(pos, "\"Name\"=\"Ambiguous Provider\"\n");
+    Write(path, registry); fixture.RewriteManifest();
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
   }
   {
     Fixture fixture; fixture.trust.sources["wine"]["revision"] = std::string(40, '9');

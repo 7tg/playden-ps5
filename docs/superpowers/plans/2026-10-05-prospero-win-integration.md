@@ -12,6 +12,8 @@
 
 **Status:** Original design approved on 2026-10-05; Task 1 complete. Remaining-work execution details updated for review on 2026-10-05. Implementation branch: `feat/prospero-win-integration`. Use the patched local Lapy fork described below.
 
+**Interim review:** [Per-game/kit findings, corrections and remaining release gates](../../../results/20261005-per-game-kit-review/README.md). Structural test passes do not close provenance, native glue or fresh-bottle hardware acceptance gates.
+
 **Roadmap:** [Milestones, dependencies and acceptance gates](../../engineering/prospero-win-roadmap.md).
 
 **Settings ownership:** The user assigned game settings, including associated

@@ -145,6 +145,32 @@ bool RegistrySectionValue(const std::string& registry, const std::string& sectio
   return ContainsLine(registry.substr(body + 1, end == std::string::npos ? end : end - body - 1), assignment);
 }
 
+// Wine Type 001 names the selected provider; TypeName ("RSA Full...") is
+// descriptive metadata and must never select the provider registration.
+std::optional<std::string> RegistryStringValue(const std::string& registry,
+                                             const std::string& section,
+                                             const std::string& key) {
+  const std::string header = "[" + section + "]";
+  const auto begin = registry.find(header);
+  if (begin == std::string::npos || (begin != 0 && registry[begin - 1] != '\n') ||
+      registry.find(header, begin + header.size()) != std::string::npos) return std::nullopt;
+  const auto body = registry.find('\n', begin + header.size());
+  if (body == std::string::npos) return std::nullopt;
+  const auto end = registry.find("\n[", body);
+  std::istringstream lines(registry.substr(body + 1, end == std::string::npos ? end : end - body - 1));
+  const std::string assignment = "\"" + key + "\"=";
+  std::optional<std::string> value;
+  std::string line;
+  while (std::getline(lines, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.compare(0, assignment.size(), assignment) != 0) continue;
+    if (value || line.size() < assignment.size() + 2 ||
+        line[assignment.size()] != '\"' || line.back() != '\"') return std::nullopt;
+    value = line.substr(assignment.size() + 1, line.size() - assignment.size() - 2);
+  }
+  return value;
+}
+
 bool ValidateRegistry(const fs::path& bottle, bool require_audio) {
   const auto system = Read(bottle / "system.reg", 8 * 1024 * 1024);
   const auto user = Read(bottle / "user.reg", 8 * 1024 * 1024);
@@ -152,9 +178,12 @@ bool ValidateRegistry(const fs::path& bottle, bool require_audio) {
   if (!RegistrySectionValue(*system, R"(Software\\Microsoft\\Wow64\\x86)", R"(@="wowprospero.dll")")) return false;
   for (const char* prefix : {R"(Software\\)", R"(Software\\Wow6432Node\\)"}) {
     const std::string base = std::string(prefix) + R"(Microsoft\\Cryptography\\Defaults\\)";
-    if (!RegistrySectionValue(*system, base + R"(Provider Types\\Type 001)", R"("Name"="RSA Full")") ||
-        !RegistrySectionValue(*system, base + R"(Provider\\RSA Full)", R"("Image Path"="C:\\windows\\system32\\rsaenh.dll")") ||
-        !RegistrySectionValue(*system, base + R"(Provider\\RSA Full)", R"("Type"=dword:00000001)")) return false;
+    const auto selected = RegistryStringValue(*system, base + R"(Provider Types\\Type 001)", "Name");
+    if (!selected || selected->empty() || selected->size() > 128 ||
+        selected->find_first_of("\\[]\r\n\"") != std::string::npos) return false;
+    const std::string provider = base + R"(Provider\\)" + *selected;
+    if (!RegistrySectionValue(*system, provider, R"("Image Path"="C:\\windows\\system32\\rsaenh.dll")") ||
+        !RegistrySectionValue(*system, provider, R"("Type"=dword:00000001)")) return false;
   }
   for (const auto& item : {std::pair{R"({BCDE0395-E52F-467C-8E3D-C4579291692E})", "mmdevapi.dll"},
                            std::pair{R"({25E609E4-B259-11CF-BFC7-444553540000})", "dinput8.dll"}}) {
