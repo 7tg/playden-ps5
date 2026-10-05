@@ -390,6 +390,11 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 - S6: "Clear shader cache" deletes only `<exe>.dxvk-cache` (`ClearShaderCache`); the sheet's
   action is simulated until the install service exposes game folders (Task 8). Repair,
   backup and bottle reset stay with Task 8.
+- S7 (decision D2): `ApplyRegistrySettings` edits the stopped bottle's `user.reg` for Windows
+  version (`AppDefaults\<exe>`) and text scale (`Software\Wine\Fonts` `LogPixels`), keeping
+  every other line, after a `user.reg.playden-backup`. Format taken from the console bottle.
+  The rows stay disabled until Playden can reach the bottle (Play, Task 4); Wine reading the
+  edited file is not yet checked on the console.
 - S5: `ApplyGameSettings` writes the profile and `dxvk.conf`. Still open: call it from
   the real Play action (S4). VSync off was checked and has no effect (row disabled); latency
   and VRAM could not be observed (rows disabled until checked).
@@ -403,7 +408,7 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **S4** | Live wiring: settings entry in live mode, flush before handoff, Home and Playden produce the same profile | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 |
 | **S5** ◐ | `dxvk.conf` settings: frame limit, VSync, frame latency, reported VRAM/vendor, overlay detail (D1) | S0 passed, S2 | Console: cap, tearing and overlay measured; file kept by repair and verify |
 | **S6** ◐ | Maintenance actions: reset, repair, clear shader cache, back up saves, recreate bottle | Integration Task 8 | Task 8 acceptance |
-| **S7** | P3 registry rows | U2 or D2(b) | Fixture reports the version; reset restores it |
+| **S7** ◐ | P3 registry rows | U2 or D2(b) | Fixture reports the version; reset restores it |
 | **S8** ◐ | Environment variables row | U1 | Values reach the Wine process; reserved keys rejected |
 | **S9** | P4 rows, one at a time | U4 per feature | Per-feature console fixture |
 | **S10** ◐ | Community recipes: fetch the pinned index, "Community recipe" banner, apply and revert | U3 | Apply and revert keep local overrides |

@@ -129,6 +129,9 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"win10", "Windows 10", ""}, {"win81", "Windows 8.1", ""}, {"win7", "Windows 7", ""},
                          {"winxp", "Windows XP", ""}},
                         "win10", 3, ApplyMode::kGameClosed));
+  list.push_back(Choice("text_scale", "Text scale", "Size of Windows text and dialogs. Shared by every game in the same bottle.",
+                        "LogPixels · DPI", T::kCompatibility,
+                        {{"96", "100%", ""}, {"120", "125%", ""}, {"144", "150%", ""}}, "96", 3, ApplyMode::kGameClosed));
   list.push_back(Choice("logging", "Logging", "How much detail goes into the game's log file.", "WINEDEBUG",
                         T::kCompatibility,
                         {{"normal", "Normal", "Errors and loaded modules."},
@@ -194,7 +197,8 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
     if (id == "vsync" && !kit.dxvk_present) return "The PS5 display paces frames at 60 Hz; VSync cannot be turned off yet.";
     if ((id == "frame_latency" || id == "reported_vram") && !kit.dxvk_unverified) return "Not checked on the console yet.";
   }
-  if (id == "windows_version" && !kit.registry) return "Needs a runtime update.";
+  if ((id == "windows_version" || id == "text_scale") && !kit.registry)
+    return "Needs access to the game's bottle, which comes with the Play button.";
   if (id == "environment" && !kit.environment) return "Needs a prospero-win update that reads [environment].";
   if (id == "performance_overlay" && graphics == "gdi") return "Only available with DXVK or OpenGL.";
   if (id == "overlay_detail") {
@@ -819,6 +823,123 @@ bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root
   if (!file) return true;
   std::fclose(file);
   if (std::remove(path.c_str()) != 0) return fail("cannot delete the shader cache");
+  return true;
+}
+
+std::vector<RegistryValue> RenderRegistryValues(const EffectiveSettings& settings) {
+  std::vector<RegistryValue> values;
+  const auto& version = settings.values.at("windows_version");
+  if (version.available && settings.launch) {
+    auto executable = settings.launch->executable;
+    std::replace(executable.begin(), executable.end(), '\\', '/');
+    const auto slash = executable.rfind('/');
+    const auto exe = slash == std::string::npos ? executable : executable.substr(slash + 1);
+    // Windows 10 is Wine's default here, so it removes the per-game value.
+    values.push_back({"Software\\Wine\\AppDefaults\\" + exe, "Version",
+                      version.value == "win10" ? std::string() : "\"" + version.value + "\""});
+  }
+  const auto& scale = settings.values.at("text_scale");
+  if (scale.available) {
+    char dword[16];
+    std::snprintf(dword, sizeof(dword), "dword:%08lx", std::strtoul(scale.value.c_str(), nullptr, 10));
+    values.push_back({"Software\\Wine\\Fonts", "LogPixels", dword});
+  }
+  return values;
+}
+
+namespace {
+
+std::string RegistryHeader(const std::string& key) {
+  std::string escaped;
+  for (const char c : key) escaped += c == '\\' ? std::string("\\\\") : std::string(1, c);
+  return "[" + escaped + "]";
+}
+
+}  // namespace
+
+bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>& values, std::int64_t unix_time,
+                         std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  if (user_reg->compare(0, 23, "WINE REGISTRY Version 2") != 0) return fail("not a Wine registry file");
+  std::string text = *user_reg;
+  for (const auto& value : values) {
+    if (value.key.empty() || value.name.empty() || value.name.find('"') != std::string::npos ||
+        HasControl(value.key) || HasControl(value.name) || HasControl(value.data))
+      return fail("bad registry value");
+    const auto header = RegistryHeader(value.key);
+    const auto line_prefix = "\"" + value.name + "\"=";
+    // Find "<header> <time>" at the start of a line.
+    std::size_t section = std::string::npos;
+    for (auto at = text.find("\n" + header + " "); at != std::string::npos; at = text.find("\n" + header + " ", at + 1)) {
+      section = at + 1;
+      break;
+    }
+    if (section == std::string::npos) {
+      if (value.data.empty()) continue;
+      if (!text.empty() && text.back() != '\n') text += '\n';
+      text += "\n" + header + " " + std::to_string(unix_time) + "\n" + line_prefix + value.data + "\n";
+      continue;
+    }
+    // The section ends at the next blank line or section header.
+    auto body = text.find('\n', section) + 1;
+    auto end = body;
+    while (end < text.size() && text[end] != '\n' && text[end] != '[') end = text.find('\n', end) + 1;
+    if (end == 0 || end > text.size()) end = text.size();
+    std::size_t line = std::string::npos;
+    for (auto at = body; at < end;) {
+      if (text.compare(at, line_prefix.size(), line_prefix) == 0) { line = at; break; }
+      const auto next = text.find('\n', at);
+      if (next == std::string::npos) break;
+      at = next + 1;
+    }
+    if (line != std::string::npos) {
+      auto line_end = text.find('\n', line);
+      line_end = line_end == std::string::npos ? text.size() : line_end + 1;
+      text.replace(line, line_end - line, value.data.empty() ? std::string() : line_prefix + value.data + "\n");
+    } else if (!value.data.empty()) {
+      text.insert(end, line_prefix + value.data + "\n");
+    }
+  }
+  *user_reg = std::move(text);
+  return true;
+}
+
+bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string& prefix_dir, std::int64_t unix_time,
+                           std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  const auto values = RenderRegistryValues(settings);
+  if (values.empty()) return true;
+  const auto path = prefix_dir + "/user.reg";
+  std::string original;
+  FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file) return fail("cannot read the bottle's user.reg");
+  char buffer[16384];
+  std::size_t read = 0;
+  while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0 && original.size() < 32u * 1024 * 1024)
+    original.append(buffer, read);
+  std::fclose(file);
+  std::string edited = original;
+  if (!ApplyRegistryValues(&edited, values, unix_time, reason)) return false;
+  if (edited == original) return true;
+  const auto write = [](const std::string& target, const std::string& text) {
+    const auto temporary = target + ".tmp";
+    FILE* out = std::fopen(temporary.c_str(), "wb");
+    if (!out) return false;
+    const bool ok = std::fwrite(text.data(), 1, text.size(), out) == text.size();
+    if (std::fclose(out) != 0 || !ok || std::rename(temporary.c_str(), target.c_str()) != 0) {
+      std::remove(temporary.c_str());
+      return false;
+    }
+    return true;
+  };
+  if (!write(path + ".playden-backup", original)) return fail("cannot back up user.reg");
+  if (!write(path, edited)) return fail("cannot write user.reg");
   return true;
 }
 

@@ -188,6 +188,37 @@ int main(int argc, char** argv) {
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A=1;DXVK_A=2", &reason));
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A", &reason));
 
+  // Registry settings: Windows version per executable and text scale, edited in user.reg.
+  KitCapabilities registry_kit;
+  registry_kit.registry = true;
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"windows_version", "win7"}, {"text_scale", "120"}}, KitCapabilities{},
+                               &settings, &error));
+  CHECK(RenderRegistryValues(settings).empty());   // no bottle access: nothing to write
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"windows_version", "win7"}, {"text_scale", "120"}}, registry_kit,
+                               &settings, &error));
+  auto registry = RenderRegistryValues(settings);
+  CHECK(registry.size() == 2 && registry[0].key == "Software\\Wine\\AppDefaults\\hl2.exe" && registry[0].data == "\"win7\"");
+  CHECK(registry[1].key == "Software\\Wine\\Fonts" && registry[1].data == "dword:00000078");
+  std::string user_reg =
+      "WINE REGISTRY Version 2\n;; All keys relative to REGISTRY\\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n\n"
+      "[Software\\\\Wine\\\\AppDefaults] 1791210546\n#time=1dd54d5e1bfad0c\n\n"
+      "[Software\\\\Wine\\\\Fonts] 1791229249\n#time=1dd54d7acc7d208\n\"LogPixels\"=dword:00000060\n\"Other\"=\"x\"\n\n"
+      "[Software\\\\Wine\\\\Fonts\\\\External Fonts] 1791211318\n\"A\"=\"b\"\n";
+  const auto before_registry = user_reg;
+  CHECK(ApplyRegistryValues(&user_reg, registry, 1791300000, &reason));
+  CHECK(user_reg.find("\"LogPixels\"=dword:00000078\n\"Other\"=\"x\"\n") != std::string::npos);
+  CHECK(user_reg.find("\n[Software\\\\Wine\\\\AppDefaults\\\\hl2.exe] 1791300000\n\"Version\"=\"win7\"\n") != std::string::npos);
+  CHECK(user_reg.find("[Software\\\\Wine\\\\Fonts\\\\External Fonts] 1791211318\n\"A\"=\"b\"\n") != std::string::npos);
+  // Applying again changes nothing; Windows 10 and 100% remove or reset the values.
+  auto again = user_reg;
+  CHECK(ApplyRegistryValues(&again, registry, 1791400000, &reason) && again == user_reg);
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {}, registry_kit, &settings, &error));
+  CHECK(ApplyRegistryValues(&user_reg, RenderRegistryValues(settings), 1791400000, &reason));
+  CHECK(user_reg.find("\"Version\"") == std::string::npos && user_reg.find("\"LogPixels\"=dword:00000060\n") != std::string::npos);
+  std::string not_registry = "hello";
+  CHECK(!ApplyRegistryValues(&not_registry, registry, 1, &reason));
+  (void)before_registry;
+
   // A prospero-win-profiles sidecar becomes a community preset for its game.
   CommunityPreset community;
   CHECK(ParseProfileSidecar(R"({"schema_version":1,"profile":"half-life-2",

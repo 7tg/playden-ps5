@@ -31,7 +31,7 @@ struct KitCapabilities {
   bool dxvk_present = false;  // the display honors DXVK's present interval (VSync off)
   bool dxvk_unverified = false;  // frame latency and reported VRAM, not yet checked on a console
   bool environment = false;  // prospero-win [environment] section (upstream U1, not released)
-  bool registry = false;     // stopped-bottle registry overlays (upstream U2)
+  bool registry = false;     // Playden can edit the stopped bottle's user.reg (decision D2)
 };
 
 struct SettingChoice {
@@ -162,6 +162,29 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
 // <exe stem>.dxvk-cache, next to where DXVK writes it from the working directory) and
 // nothing else. Missing cache is success. Call only while the game is not running.
 bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root, std::string* reason);
+
+// One value Playden owns in the bottle's user.reg (HKEY_CURRENT_USER). An empty data
+// removes the value, so the game inherits Wine's default again.
+struct RegistryValue {
+  std::string key;   // e.g. Software\Wine\AppDefaults\hl2.exe (single backslashes)
+  std::string name;  // e.g. Version
+  std::string data;  // Wine's text form: "\"win7\"" or "dword:00000078"; empty removes
+};
+
+// The registry values the effective settings ask for: Windows version for the launch
+// executable (AppDefaults) and text scale (Wine's LogPixels). Empty when the kit cannot
+// edit the bottle.
+std::vector<RegistryValue> RenderRegistryValues(const EffectiveSettings& settings);
+
+// Applies values to Wine's user.reg text, keeping every other line. Sections Playden adds
+// carry the given Unix time. Returns false for text that is not a Wine registry file.
+bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>& values, std::int64_t unix_time,
+                         std::string* reason);
+
+// Edits <prefix>/user.reg in place: copies it to user.reg.playden-backup first, then replaces
+// it atomically. Call only while the bottle is stopped (no wineserver).
+bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string& prefix_dir, std::int64_t unix_time,
+                           std::string* reason);
 
 // A prospero-win-profiles sidecar (sidecars/<id>.json, schema_version 1) as a preset for
 // the game it describes: "Community · <name>", its newest console check as the hint, and
