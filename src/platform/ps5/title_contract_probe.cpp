@@ -5,6 +5,7 @@
 #include "runtime/private_directories.h"
 extern "C" {
 int playden_ps5_directory_api_ready(void);
+int playden_ps5_probe_kernel_directory(const char*);
 int sceKernelLoadStartModule(const char*, std::size_t, const void*, unsigned, void*, int*);
 int sceKernelDlsym(int, const char*, void**);
 int sceSysmoduleLoadModuleInternal(unsigned);
@@ -183,7 +184,7 @@ static void private_copy_probe(FILE* log, const std::string& descriptor) {
   std::fprintf(log, "private copy file=%d directory_sync=%d readback=%d uid=%u mode=%o\n", copied, synced,
       readback && *readback == descriptor, unsigned(info.st_uid), unsigned(info.st_mode & 07777));
 }
-static void bootstrap_registration_probe(FILE* log, bool copy = false, bool session = false) {
+static void bootstrap_registration_probe(FILE* log, bool copy = false, int session = 0) {
   struct stat directory{};
   for (const char* path : {"/data/homebrew", "/data/homebrew/FAKE78001", "/data/homebrew/FAKE78001/sce_sys"}) {
     if (lstat(path, &directory) || !S_ISDIR(directory.st_mode)) {
@@ -197,14 +198,45 @@ static void bootstrap_registration_probe(FILE* log, bool copy = false, bool sess
     std::fprintf(log, "bootstrap registration refused: fixture identity\n"); return;
   }
   if (copy) { private_copy_probe(log, *descriptor); return; }
-  if (session) {
-    const char* path = "/data/playden/games/acceptance-hl2-fresh-v16/logs/sessions/3771c232-a7b7-47eb-af39-fdb231176185.json";
-    struct stat info{};
-    const auto record = read_probe_metadata(path);
-    const bool private_record = lstat(path, &info) == 0 && S_ISREG(info.st_mode) &&
-        info.st_uid == geteuid() && (info.st_mode & 07777) == 0600;
-    std::fprintf(log, "private session readable=%d owned=%d uid=%u mode=%o record=%s\n",
-        bool(record), private_record, unsigned(info.st_uid), unsigned(info.st_mode & 07777), record ? record->c_str() : "unavailable");
+  if (session == 2) {
+    const std::string root = "/data/playden/games/acceptance-hl2-fresh-v16";
+    const auto prior = read_probe_metadata((root + "/logs/sessions/3771c232-a7b7-47eb-af39-fdb231176185.json").c_str());
+    struct stat info{}, retired{};
+    const bool app_root = runtime::IsPrivateDirectory(root);
+    const bool old_logs = lstat((root + "/logs").c_str(), &info) == 0 &&
+        S_ISDIR(info.st_mode) && info.st_uid == geteuid() && (info.st_mode & 07777) == 0755;
+    const bool free_destination = lstat((root + "/logs.before-private-session").c_str(), &retired) != 0 && errno == ENOENT;
+    const bool prior_failed = prior && prior->find("\"install_id\":\"acceptance-hl2-fresh-v16\"") != std::string::npos &&
+        prior->find("\"phase\":\"failed\"") != std::string::npos;
+    const bool preserved = app_root && old_logs && prior_failed && free_destination &&
+        rename((root + "/logs").c_str(), (root + "/logs.before-private-session").c_str()) == 0;
+    std::fprintf(log, "session preparation app_root=%d old_logs=%d prior_failed=%d free_destination=%d preserved=%d errno=%d\n",
+        app_root, old_logs, prior_failed, free_destination, preserved, preserved ? 0 : errno);
+    return;
+  }
+  if (session == 1) {
+    const std::string directory = "/data/playden/games/acceptance-hl2-fresh-v16/logs/sessions";
+    DIR* listing = opendir(directory.c_str());
+    std::fprintf(log, "private sessions directory_private=%d readable=%d\n",
+        runtime::IsPrivateDirectory("/data/playden/games/acceptance-hl2-fresh-v16") &&
+        runtime::IsPrivateDirectory("/data/playden/games/acceptance-hl2-fresh-v16/logs") && runtime::IsPrivateDirectory(directory), listing != nullptr);
+    unsigned count = 0;
+    if (listing) {
+      while (const auto* entry = readdir(listing)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        if (++count > 8) { std::fprintf(log, "session listing limit\n"); break; }
+        if (name.size() != 41 || name.substr(36) != ".json" || name.find('/') != std::string::npos) continue;
+        const std::string path = directory + "/" + name;
+        struct stat info{};
+        const auto record = read_probe_metadata(path.c_str());
+        const bool private_record = lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
+            info.st_uid == geteuid() && (info.st_mode & 07777) == 0600;
+        std::fprintf(log, "private session readable=%d owned=%d uid=%u mode=%o record=%s\n",
+            bool(record), private_record, unsigned(info.st_uid), unsigned(info.st_mode & 07777), record ? record->c_str() : "unavailable");
+      }
+      closedir(listing);
+    }
     return;
   }
   TitleRegistry registry([log](const auto& route, const auto& body) { return service_post(log, route, body); });
@@ -288,21 +320,23 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
   if (std::string(action) == "directory-contract") {
-    const int root = open("/data", O_RDONLY);
-    struct stat info{};
-    const int inspected = root >= 0 ? fstat(root, &info) : -1;
-    std::fprintf(log, "directory contract root_fd=%d stat=%d mode=%o\n", root, inspected, unsigned(info.st_mode));
-    for (const int flags : {O_RDONLY, O_RDONLY | O_NOFOLLOW, O_RDONLY | O_DIRECTORY, O_RDONLY | O_NOFOLLOW | O_DIRECTORY}) {
-      for (const bool absolute : {false, true}) {
-        errno = 0;
-        const int fd = openat(absolute ? AT_FDCWD : root, absolute ? "/data/playden" : "playden", flags);
-        const int error = fd < 0 ? errno : 0;
-        const int checked = fd >= 0 ? fstat(fd, &info) : -1;
-        std::fprintf(log, "directory contract absolute=%d flags=%x fd=%d errno=%d stat=%d mode=%o\n", absolute, flags, fd, error, checked, unsigned(info.st_mode));
-        if (fd >= 0) close(fd);
+    for (const bool kernel_fd : {false, true}) {
+      const int root = kernel_fd ? playden_ps5_probe_kernel_directory("/data") : open("/data", O_RDONLY);
+      struct stat info{};
+      const int inspected = root >= 0 ? fstat(root, &info) : -1;
+      std::fprintf(log, "directory contract kernel_fd=%d root_fd=%d stat=%d mode=%o\n", kernel_fd, root, inspected, unsigned(info.st_mode));
+      for (const int flags : {O_RDONLY, O_RDONLY | O_NOFOLLOW, O_RDONLY | O_DIRECTORY, O_RDONLY | O_NOFOLLOW | O_DIRECTORY}) {
+        for (const bool absolute : {false, true}) {
+          errno = 0;
+          const int fd = openat(absolute ? AT_FDCWD : root, absolute ? "/data/playden" : "playden", flags);
+          const int error = fd < 0 ? errno : 0;
+          const int checked = fd >= 0 ? fstat(fd, &info) : -1;
+          std::fprintf(log, "directory contract kernel_fd=%d absolute=%d flags=%x fd=%d errno=%d stat=%d mode=%o\n", kernel_fd, absolute, flags, fd, error, checked, unsigned(info.st_mode));
+          if (fd >= 0) close(fd);
+        }
       }
+      if (root >= 0) close(root);
     }
-    if (root >= 0) close(root);
     std::fprintf(log, "end\n"); std::fclose(log); return true;
   }
   if (std::string(action) == "ownership-api") {
@@ -316,8 +350,8 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
     }
     std::fprintf(log, "end\n"); std::fclose(log); return true;
   }
-  if (std::string(action) == "register-bootstrap" || std::string(action) == "private-copy" || std::string(action) == "private-session") {
-    bootstrap_registration_probe(log, std::string(action) == "private-copy", std::string(action) == "private-session");
+  if (std::string(action) == "register-bootstrap" || std::string(action) == "private-copy" || std::string(action) == "private-session" || std::string(action) == "prepare-private-session") {
+    bootstrap_registration_probe(log, std::string(action) == "private-copy", std::string(action) == "prepare-private-session" ? 2 : std::string(action) == "private-session" ? 1 : 0);
     std::fprintf(log, "end\n"); std::fclose(log); return true;
   }
   if (result == 0) {

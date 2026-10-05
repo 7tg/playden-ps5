@@ -613,3 +613,11 @@ Final console acceptance: fresh validated bottle; launch from Playden and Home; 
 5. Use Task 1’s measured platform contract; complete production access and collision checks before automatic installation. Any required persistent broker gets its own reviewed design.
 
 Recommended order: prove platform contracts → upstream wrapper + reproducible kit → adopt HL2 and enable real launch → Cloud/lifecycle → maintenance and broader recipes. Tasks 1–6 establish the first launch milestone; Tasks 7–8 complete managed runtime integration.
+
+### 2026-10-06 execution follow-up: private data and settings handoff
+
+The settings handoff through `47db605` is merged (`473cb1b`), with unsupported/malformed community requirements corrected (`1f75230`). Combined host tests remain 76/76 and the full native SDK package builds. New input/audio runtime capabilities remain disabled until their separately patched runtime is built and verified.
+
+App-owned private bottle copying, full private ancestor admission, pre-write file ownership/modes, and initial-marker retry recovery are committed (`9d023ce`). Private profile/input publication readiness is also verified. The production descriptor-relative API still fails on PS5; libc and kernel-created directory FDs both produce relative `openat` errno 22. Do not connect this preparation path as ready until the native API contract is resolved.
+
+The wrapper's private session repair passed its host regression and native build. PS5 acceptance confirmed app UID1/mode0600 session persistence and private log directories for an intentionally failed startup, with ordinary credentials restored after the helper. The original public fixture logs were preserved. Full wrapper success/exit and runtime/gameplay acceptance remain outstanding. See [private-session evidence](../../../results/20261006-private-session/README.md) and [implementation details](../../engineering/results/2026-10-06-private-bottle-copy.md). The normal preview was restored and the PS5 released after testing.

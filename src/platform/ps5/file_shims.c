@@ -53,6 +53,19 @@ static int directory_call(long number, int directory, const char* path, long thi
     return (int)result.value;
 }
 
+#if PLAYDEN_TITLE_CONTRACT_PROBE
+// Read-only diagnostic: compare a syscall-created directory FD with libc's FD.
+int playden_ps5_probe_kernel_directory(const char* path)
+{
+    if (!playden_ps5_directory_api_ready()) { errno = ENOSYS; return -1; }
+    void* entry = (void*)atomic_load_explicit(&directory_gateway, memory_order_acquire);
+    const struct directory_result result = directory_syscall(entry, SYS_open,
+        (long)(uintptr_t)path, (const char*)(uintptr_t)O_RDONLY, 0, 0);
+    if (result.failed) { errno = (int)result.value; return -1; }
+    return (int)result.value;
+}
+#endif
+
 int __wrap_openat(int directory, const char* path, int flags, ...)
 {
     mode_t mode = 0;

@@ -1,0 +1,8 @@
+HELLO ps5log/1 title=FAKE78001 app=prospero-win-wine64 boot=0x24465736ed85 tag=playden-per-game-bootstrap
+1	39884532457130	INFO	PW_WINE64 hid preload libSceKeyboard id=0x106 status=0 handle=208
+2	39884534597679	INFO	PW_WINE64 hid preload libSceMouse id=0xa9 status=0 handle=209
+3	39886180589311	INFO	PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 credential_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/download0/prospero-win
+4	39886215214578	INFO	PW_WINE64 session id=084963e7-2dea-486e-9104-e679c1d70904 origin=home phase=starting
+5	39886215290834	INFO	PW_WINE64 managed library path refused root=/data/playden/games/acceptance-hl2-fresh-v16/library
+6	39886230096752	INFO	PW_WINE64 startup blocked reason=per-game-bootstrap
+BYE seq=6 reason=per-game-bootstrap

@@ -81,6 +81,8 @@ function(playden_add_homebrew_ps5_title)
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/pad.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/system.cpp")
     option(PLAYDEN_TITLE_CONTRACT_PROBE "Compile one-shot native provisioning diagnostic" OFF)
+    target_compile_definitions(playden_ps5_shims PRIVATE
+        PLAYDEN_TITLE_CONTRACT_PROBE=$<BOOL:${PLAYDEN_TITLE_CONTRACT_PROBE}>)
     option(PLAYDEN_NATIVE_RUNTIME_ACCESS "Require the native runtime client and exact title helper" ON)
     set(prospero_default_source "${CMAKE_SOURCE_DIR}/third_party/prospero-win")
     if(PLAYDEN_TITLE_CONTRACT_PROBE AND NOT EXISTS "${prospero_default_source}/native/pw_data_mount.c")

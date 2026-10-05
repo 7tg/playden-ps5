@@ -22,10 +22,19 @@ Developer diagnostics ran against the isolated `FAKE78001` / `acceptance-hl2-fre
 
 Local raw evidence: `build/ownership-api-20261006/title-contract.log` and `wrapper-private-tree.log`. The normal `FAKE77031` preview was restored with byte-for-byte readback after diagnostics and the PS5 claim was released. The new production build has not been deployed for user acceptance.
 
-Next: repair and retest private wrapper session records; resolve the native relative directory API contract; then connect the validated installer, OWNER publication, and launch services to the live application and run the full installation/gameplay acceptance plan.
+Next: resolve the native relative directory API contract; then connect the validated installer, OWNER publication, and launch services to the live application and run the full installation/gameplay acceptance plan.
 
-## Wrapper privacy repair prepared
+## Wrapper privacy repair and acceptance
 
 The upstream `feat/playden-per-game-title` worktree now creates session log directories as `0700`, session temporary records/reservations as `0600`, and verifies file ownership/type/mode before writing bytes. Existing public or foreign-owned session directories are refused rather than changed. Session phase updates also refuse a log directory that has become non-private. Host lifecycle assertions first reproduced the `0644` record and now pass, including a public-parent rejection and later mode drift without advancing the recorded phase.
 
-The patched wrapper rebuilt successfully with Lapy `611fa5f` and native foundation `9c0b994` (SDK v0.42). Developer artifact: `dist/FAKE78001-playden-private-session/eboot.bin` in that upstream worktree, SHA-256 `0dc9860a1a4634895963cfe077c7323c32df60a6d64dbbf0fdce884fafd17e76`. These wrapper changes remain uncommitted with the wider title-wrapper implementation and have not been deployed/retested on PS5. The existing acceptance fixture's old public log directories must be preserved separately before a fresh private session test; their presence must not be silently treated as permission to weaken the new policy.
+The patched wrapper rebuilt successfully with Lapy `611fa5f` and native foundation `9c0b994` (SDK v0.42). Developer artifact: `dist/FAKE78001-playden-private-session/eboot.bin` in that upstream worktree, SHA-256 `0dc9860a1a4634895963cfe077c7323c32df60a6d64dbbf0fdce884fafd17e76`. These wrapper changes remain uncommitted with the wider title-wrapper implementation. Console acceptance below verifies their privacy behavior; real runtime/gameplay/normal exits remain open.
+
+
+## Console follow-up: privacy confirmed; relative API still unavailable
+
+The developer diagnostic preserved the fixture's old app-owned `0755` logs as `logs.before-private-session`, after checking the exact fixture identity, private root, prior failed record, and absence of the destination. The rebuilt wrapper then created Home session `084963e7-2dea-486e-9104-e679c1d70904`. Playden confirmed private root/logs/sessions directories and read the resulting failed session record: UID `1`, mode `0600`. Directory sync, session atomic replacement, and cross-title private-record access therefore worked for this failed startup case. The fixture still lacks managed profiles/input and a complete runtime; its native startup fails closed. No ready install or gameplay is claimed.
+
+The additional read-only syscall comparison opened `/data` both through libc and directly through the validated syscall gateway. Both directory FDs were valid according to `fstat`, and every relative `openat` flag combination still returned `EINVAL`; absolute paths succeeded. This rules out the tested libc-versus-kernel FD-origin hypothesis. It does not prove why the console refuses relative paths, nor admit a generic path-based fallback.
+
+[Trimmed native and wrapper evidence](../../../results/20261006-private-session/README.md). After testing, the normal preview executable and identity were restored with exact readback, the diagnostic was closed, and the console was released. The isolated `FAKE78001` source retains the privacy-fixed developer wrapper. The launcher developer probe is disabled in the normal SDK build.
