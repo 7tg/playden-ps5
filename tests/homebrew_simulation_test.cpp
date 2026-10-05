@@ -402,6 +402,10 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
     check(!simulation.state().game_settings.at(900001).overrides.count("button.touchpad"), "T08b inherit removes the binding");
     simulation.action("circle");
     check(find_row(simulation, "button-mapping")->modified, "T08b changed bindings mark the row");
+    activate(simulation, "clear-shader-cache");
+    check(std::any_of(simulation.state().notices.begin(), simulation.state().notices.end(),
+                      [](const playden::homebrew::Notice& notice) { return notice.id == "shader-cache"; }),
+          "T08b clear shader cache reports");
     // Games without a recipe still get a usable sheet.
     simulation.action("circle");
     simulation.action("details:900003");

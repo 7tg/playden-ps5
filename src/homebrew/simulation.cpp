@@ -276,7 +276,7 @@ std::string action_label(const std::string& key) {
         {"cloud-sync", "Cloud saves"}, {"cloud-choose", "Cloud saves"}, {"cloud-use-cloud", "Use Cloud saves"},
         {"cloud-use-local", "Use console saves"}, {"cloud-confirm-account", "Use this account"},
         {"install-confirm", "Install"}, {"storage-picker", "Change storage"},
-        {"preset-picker", "Preset"}, {"reset-settings", "Reset all to preset"},
+        {"preset-picker", "Preset"}, {"reset-settings", "Reset all to preset"}, {"clear-shader-cache", "Clear shader cache"},
         {"section-more", "More settings"}, {"section-advanced", "Advanced"},
         {"sort-name", "Name"}, {"sort-recent-played", "Recently played"}, {"sort-recent-added", "Recently added"},
         {"sort-playtime", "Playtime"}, {"sort-install-size", "Install size"}, {"filter-installed", "Installed"},
@@ -1942,6 +1942,10 @@ void Simulation::rebuild_view() {
                 item.subtitle = "Type a key name, a letter, F1–F24 or vk:0xNN.";
             } else if (settings_ready && action_key == "reset-settings") {
                 item.enabled = settings_custom;
+            } else if (settings_ready && action_key == "clear-shader-cache") {
+                item.subtitle = "Shaders compile again on the next launch. Saves and settings stay.";
+                item.badge = "Game must be closed";
+                item.enabled = state_.session == SessionState::Idle || state_.session_game_id != settings_game;
             } else if (action_key.rfind("volume-", 0) == 0) {
                 item.kind = RowKind::Volume;
                 if (const auto* volume = find_volume(state_, action_key.substr(7))) {
@@ -2954,6 +2958,11 @@ void Simulation::activate() {
     } else if (action_name == "section-more" || action_name == "section-advanced") {
         if (!expanded_settings_sections_.erase(action_name)) expanded_settings_sections_.insert(action_name);
         refresh_game_settings();
+    } else if (action_name == "clear-shader-cache") {
+        // Live mode: the install service owns game files; until Play exists this is
+        // simulated. The runtime call is ClearShaderCache(launch, install_root).
+        push_notice({"shader-cache", "Shader cache cleared", "", false, kLiveNoticeSeconds, false,
+                     "Shaders compile again on the next launch"});
     } else if (action_name == "reset-settings") {
         auto& record = state_.game_settings[state_.navigation.selected_game_id];
         if (!record.overrides.empty()) { record.overrides.clear(); ++record.revision; }
@@ -3697,6 +3706,7 @@ std::vector<std::string> Simulation::game_settings_actions() const {
             if (definition.tier == tier && shown(definition)) actions.push_back("setting-" + definition.id);
     }
     actions.push_back("reset-settings");
+    actions.push_back("clear-shader-cache");
     actions.push_back("cancel");
     return actions;
 }

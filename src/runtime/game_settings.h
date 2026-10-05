@@ -158,6 +158,11 @@ bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* pr
 bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, std::string* reason);
 std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
 
+// Deletes the DXVK pipeline cache for the launch entry's executable (<install_root>/
+// <exe stem>.dxvk-cache, next to where DXVK writes it from the working directory) and
+// nothing else. Missing cache is success. Call only while the game is not running.
+bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root, std::string* reason);
+
 // A prospero-win-profiles sidecar (sidecars/<id>.json, schema_version 1) as a preset for
 // the game it describes: "Community · <name>", its newest console check as the hint, and
 // only the settings this build knows and accepts. Returns false for other schema versions.

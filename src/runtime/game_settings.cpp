@@ -774,4 +774,31 @@ bool ParseProfileSidecar(std::string_view text, CommunityPreset* community, std:
   return true;
 }
 
+bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  const auto executable = steam::RelativeGamePath(launch.executable);
+  if (!executable) return fail("launch executable is not a game path");
+  std::string working = launch.working_directory;
+  if (working.empty()) {
+    const auto slash = executable->rfind('/');
+    working = slash == std::string::npos ? std::string() : executable->substr(0, slash);
+  } else if (const auto relative = steam::RelativeGamePath(working, true)) {
+    working = *relative;
+  } else {
+    return fail("launch working folder is not a game path");
+  }
+  auto stem = executable->substr(executable->rfind('/') == std::string::npos ? 0 : executable->rfind('/') + 1);
+  if (stem.size() > 4 && (stem.compare(stem.size() - 4, 4, ".exe") == 0 || stem.compare(stem.size() - 4, 4, ".EXE") == 0))
+    stem.resize(stem.size() - 4);
+  const auto path = install_root + (working.empty() ? "" : "/" + working) + "/" + stem + ".dxvk-cache";
+  FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file) return true;
+  std::fclose(file);
+  if (std::remove(path.c_str()) != 0) return fail("cannot delete the shader cache");
+  return true;
+}
+
 }  // namespace playden::runtime

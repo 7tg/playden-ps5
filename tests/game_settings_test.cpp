@@ -253,6 +253,14 @@ int main(int argc, char** argv) {
   CHECK(!ApplyGameSettings(hl2, settings, apply_target, prospero, &reason) && reason.find("own dxvk.conf") != std::string::npos);
   CHECK(ReadText(root / "game" / "dxvk.conf") == "d3d9.samplerAnisotropy = 16\n");
   CHECK(ReadText(root / "prospero" / "profiles" / "playden-steam-220.profile") == profile_before);
+  // Clearing the shader cache removes only <exe>.dxvk-cache.
+  std::ofstream(root / "game" / "hl2.dxvk-cache") << "cache";
+  std::ofstream(root / "game" / "hl2.exe") << "game";
+  CHECK(ClearShaderCache(hl2.launch_entries.front(), (root / "game").string(), &reason));
+  CHECK(!std::filesystem::exists(root / "game" / "hl2.dxvk-cache") && std::filesystem::exists(root / "game" / "hl2.exe"));
+  CHECK(ClearShaderCache(hl2.launch_entries.front(), (root / "game").string(), &reason));  // nothing to clear
+  CHECK(!ClearShaderCache({"bad", "Bad", "../escape.exe", ""}, (root / "game").string(), &reason));
+
   // The per-game settings file round-trips, skips empty records and tolerates junk entries.
   const auto file = (root / "game-settings.json").string();
   std::map<std::uint32_t, GameSettingsRecord> records = {{220, {"mouse-driven", {{"resolution", "1280x720"}}, 3}},
