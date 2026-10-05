@@ -395,6 +395,8 @@ public:
     void SetSettingsData(std::vector<playden::runtime::SettingsPreset> presets,
                          std::vector<playden::runtime::GameRecipe> recipes);
     void SetKitCapabilities(playden::runtime::KitCapabilities kit);
+    // Live mode: where per-game settings are kept (loaded now, saved on every change).
+    void SetGameSettingsFile(std::filesystem::path path);
     // The recipe and effective settings the sheet shows for a game.
     [[nodiscard]] const playden::runtime::GameRecipe& RecipeFor(GameId id) const;
     [[nodiscard]] bool EffectiveSettingsFor(GameId id, playden::runtime::EffectiveSettings* settings) const;
@@ -422,6 +424,8 @@ private:
     playden::runtime::KitCapabilities kit_;
     std::set<std::string> expanded_settings_sections_;
     std::string editing_setting_id_;
+    std::filesystem::path game_settings_file_;
+    std::map<GameId, playden::runtime::GameSettingsRecord> saved_game_settings_;
     std::optional<playden::runtime::GameSettingsRecord> settings_opened_record_;  // for the close toast
     std::string editing_target_id_;
     std::uint64_t challenge_generation_ = 0;

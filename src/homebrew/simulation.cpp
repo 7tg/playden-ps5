@@ -1486,6 +1486,13 @@ void Simulation::load_profile() {
 }
 
 bool Simulation::save_profile() {
+    if (live() && !game_settings_file_.empty() && state_.game_settings != saved_game_settings_) {
+        std::map<std::uint32_t, rt::GameSettingsRecord> records;
+        for (const auto& [id, record] : state_.game_settings) records[static_cast<std::uint32_t>(id)] = record;
+        std::string reason;
+        if (rt::SaveGameSettingsFile(game_settings_file_.string(), records, &reason)) saved_game_settings_ = state_.game_settings;
+        else push_notice({"settings-save-failed", "Game settings were not saved", "", false, kLiveNoticeSeconds, true, reason});
+    }
     if (live()) return record_live_persistence();
     if (!state_.persistence_available) {
         state_.notices.push_back({"save-failed", "Changes cannot be saved", "retry-save", true, 0});
@@ -3613,6 +3620,18 @@ void Simulation::SetSettingsData(std::vector<rt::SettingsPreset> presets, std::v
     recipes_.clear();
     for (auto& recipe : recipes) recipes_[recipe.app_id] = std::move(recipe);
     simulated_recipes_.clear();
+    rebuild_view();
+}
+
+void Simulation::SetGameSettingsFile(std::filesystem::path path) {
+    game_settings_file_ = std::move(path);
+    std::map<std::uint32_t, rt::GameSettingsRecord> records;
+    std::string reason;
+    if (!rt::LoadGameSettingsFile(game_settings_file_.string(), &records, &reason))
+        push_notice({"settings-load-failed", "Game settings could not be read", "", false, kLiveNoticeSeconds, true, reason});
+    state_.game_settings.clear();
+    for (auto& [id, record] : records) state_.game_settings[static_cast<GameId>(id)] = std::move(record);
+    saved_game_settings_ = state_.game_settings;
     rebuild_view();
 }
 

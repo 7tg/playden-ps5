@@ -173,6 +173,7 @@ int main() {
                 playden::app::AppendLogLine("/app0/logs", "launch.log", "game settings data unavailable: " + reason);
         }
 #if !PLAYDEN_UI_SIMULATION
+        simulation.SetGameSettingsFile("/app0/playden-data/game-settings.json");
         playden::Storage auth_storage("/app0/playden-data");
         playden::steam::CmClient auth_cm("/app0/trust/cacert.pem", auth_storage);
         playden::steam::AuthClient auth("/app0/trust/cacert.pem");

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <utility>
 
 namespace playden::runtime {
@@ -512,19 +513,29 @@ bool ParseSettingsPresets(std::string_view text, std::vector<SettingsPreset>* pr
   return true;
 }
 
+namespace {
+
+bool RecordFromValue(const json::Value& root, GameSettingsRecord* out) {
+  const auto* revision = root.get("revision");
+  if (!root.object() || !StringField(root, "preset", &out->preset_id, false) ||
+      !StringMap(root.get("overrides"), &out->overrides) || (revision && !revision->number()))
+    return false;
+  if (revision) out->revision = static_cast<std::uint32_t>(*revision->number());
+  // Settings this build does not know are dropped so an older record still loads.
+  for (auto it = out->overrides.begin(); it != out->overrides.end();)
+    it = FindSetting(it->first) ? std::next(it) : out->overrides.erase(it);
+  return true;
+}
+
+}  // namespace
+
 bool ParseGameSettingsRecord(std::string_view text, GameSettingsRecord* record, std::string* reason) {
   const auto root = json::parse(text);
   GameSettingsRecord out;
-  const auto* revision = root ? root->get("revision") : nullptr;
-  if (!root || !root->object() || !StringField(*root, "preset", &out.preset_id, false) ||
-      !StringMap(root->get("overrides"), &out.overrides) || (revision && !revision->number())) {
+  if (!root || !RecordFromValue(*root, &out)) {
     if (reason) *reason = "settings record is malformed";
     return false;
   }
-  if (revision) out.revision = static_cast<std::uint32_t>(*revision->number());
-  // Settings this build does not know are dropped so an older record still loads.
-  for (auto it = out.overrides.begin(); it != out.overrides.end();)
-    it = FindSetting(it->first) ? std::next(it) : out.overrides.erase(it);
   *record = std::move(out);
   return true;
 }
@@ -615,6 +626,51 @@ bool ApplyGameSettings(const GameRecipe& recipe, const EffectiveSettings& settin
   if (std::fclose(file) != 0 || !written || std::rename(temporary.c_str(), config_path.c_str()) != 0) {
     std::remove(temporary.c_str());
     return fail("cannot write dxvk.conf");
+  }
+  return true;
+}
+
+bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameSettingsRecord>* records,
+                          std::string* reason) {
+  records->clear();
+  std::string text;
+  if (!ReadSmallFile(path, &text)) return true;
+  const auto root = json::parse(text);
+  const auto* version = root ? root->get("version") : nullptr;
+  const auto* games = root ? root->get("games") : nullptr;
+  if (!version || version->number() != 1.0 || !games || !games->object()) {
+    if (reason) *reason = "game settings file is malformed";
+    return false;
+  }
+  for (const auto& [key, value] : *games->object()) {
+    char* end = nullptr;
+    const auto app_id = std::strtoul(key.c_str(), &end, 10);
+    GameSettingsRecord record;
+    if (key.empty() || *end != '\0' || app_id == 0 || !RecordFromValue(value, &record)) continue;
+    (*records)[static_cast<std::uint32_t>(app_id)] = std::move(record);
+  }
+  return true;
+}
+
+bool SaveGameSettingsFile(const std::string& path, const std::map<std::uint32_t, GameSettingsRecord>& records,
+                          std::string* reason) {
+  std::string text = "{\"version\":1,\"games\":{";
+  bool first = true;
+  for (const auto& [app_id, record] : records) {
+    if (record.preset_id.empty() && record.overrides.empty()) continue;
+    if (!first) text += ",";
+    first = false;
+    text += "\"" + std::to_string(app_id) + "\":" + SerializeGameSettingsRecord(record);
+  }
+  text += "}}\n";
+  const auto temporary = path + ".tmp";
+  FILE* file = std::fopen(temporary.c_str(), "wb");
+  const bool written = file && std::fwrite(text.data(), 1, text.size(), file) == text.size();
+  if (file && std::fclose(file) != 0) return false;
+  if (!written || std::rename(temporary.c_str(), path.c_str()) != 0) {
+    std::remove(temporary.c_str());
+    if (reason) *reason = "cannot write game settings";
+    return false;
   }
   return true;
 }

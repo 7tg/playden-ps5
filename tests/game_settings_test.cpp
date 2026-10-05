@@ -216,6 +216,19 @@ int main(int argc, char** argv) {
   CHECK(!ApplyGameSettings(hl2, settings, apply_target, prospero, &reason) && reason.find("own dxvk.conf") != std::string::npos);
   CHECK(ReadText(root / "game" / "dxvk.conf") == "d3d9.samplerAnisotropy = 16\n");
   CHECK(ReadText(root / "prospero" / "profiles" / "playden-steam-220.profile") == profile_before);
+  // The per-game settings file round-trips, skips empty records and tolerates junk entries.
+  const auto file = (root / "game-settings.json").string();
+  std::map<std::uint32_t, GameSettingsRecord> records = {{220, {"mouse-driven", {{"resolution", "1280x720"}}, 3}},
+                                                          {400, {"", {}, 1}}};
+  std::map<std::uint32_t, GameSettingsRecord> loaded_records;
+  CHECK(LoadGameSettingsFile(file, &loaded_records, &reason) && loaded_records.empty());  // missing file
+  CHECK(SaveGameSettingsFile(file, records, &reason));
+  CHECK(LoadGameSettingsFile(file, &loaded_records, &reason));
+  CHECK(loaded_records.size() == 1 && loaded_records.at(220) == records.at(220));
+  std::ofstream(file) << R"({"version":1,"games":{"220":{"preset":"","overrides":{"vsync":"on"}},"x":{},"0":{}}})";
+  CHECK(LoadGameSettingsFile(file, &loaded_records, &reason) && loaded_records.size() == 1);
+  std::ofstream(file) << "{";
+  CHECK(!LoadGameSettingsFile(file, &loaded_records, &reason));
   std::filesystem::remove_all(root);
 
   std::puts("game settings tests passed");

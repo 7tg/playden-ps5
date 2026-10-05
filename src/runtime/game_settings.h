@@ -100,6 +100,11 @@ struct GameSettingsRecord {
   std::uint32_t revision = 0;
 };
 
+inline bool operator==(const GameSettingsRecord& left, const GameSettingsRecord& right) {
+  return left.preset_id == right.preset_id && left.overrides == right.overrides && left.revision == right.revision;
+}
+inline bool operator!=(const GameSettingsRecord& left, const GameSettingsRecord& right) { return !(left == right); }
+
 struct EffectiveValue {
   std::string value;  // empty = not written
   ValueSource source = ValueSource::kPlayden;
@@ -152,6 +157,13 @@ bool ParseGameRecipe(std::string_view json, GameRecipe* recipe, std::string* rea
 bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* presets, std::string* reason);
 bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, std::string* reason);
 std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
+
+// Per-game records in one small JSON file ({"version":1,"games":{"<app id>":record}}).
+// A missing file loads as no records. Saving replaces the file atomically.
+bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameSettingsRecord>* records,
+                          std::string* reason);
+bool SaveGameSettingsFile(const std::string& path, const std::map<std::uint32_t, GameSettingsRecord>& records,
+                          std::string* reason);
 
 // Loads <runtime_dir>/presets.json and the recipes listed in <runtime_dir>/recipes/recipes.lst.
 // The console title cannot list folders, so recipes are found through the list file.
