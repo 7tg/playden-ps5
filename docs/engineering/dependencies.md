@@ -48,7 +48,7 @@ not consumed yet:
 | prospero-win | `.worktrees/prospero-win-per-game` | `feat/playden-per-game-title` (development; final pin pending) | `c1b81d3` |
 | prospero-win | `~/.chauffeur/worktrees/prospero-win-environment` | `feat/profile-environment` (U1, local) | `06e6399` |
 | prospero-win | `~/.chauffeur/worktrees/prospero-win-input-tuning` | `feat/profile-input-audio` (U4/R1, local; stacked on `feat/profile-input-tuning` `410ac1c`) | `eeac05b` |
-| prospero-win-profiles | `~/.chauffeur/worktrees/prospero-win-profiles-sidecar` | `feat/checker-runtime-features` (R2, local; stacked on `feat/recipe-sidecar` `9325e0c`) | `646aac0` |
+| prospero-win-profiles | `~/.chauffeur/worktrees/prospero-win-profiles-sidecar` | `feat/checker-runtime-features` (R2, local; stacked on `feat/recipe-sidecar` `9325e0c`) | `8fa9213` |
 | ps5-opengl | `~/.chauffeur/worktrees/ps5-opengl-legacy-varyings` | `fix/legacy-varying-linkage` | `e9c1104` |
 | PS5-Lapy-JB-Daemon | `../ps5-homebrew/PS5-Lapy-JB-Daemon` | `feat/playden-title-helper` | `e9f2cfc` |
 
