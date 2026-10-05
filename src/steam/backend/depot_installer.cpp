@@ -294,6 +294,18 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   const std::string journal_dir = target.install_root + "/" + kJournalDir;
   const std::string journal_path = journal_dir + "/journal";
   if (!MakeDirs(journal_dir)) return fail(InstallError::kStorage, "cannot create install folder");
+  // Every path this install may create, so removal never has to list directories (the console's
+  // readdir is unreliable).
+  {
+    const std::string list_path = target.install_root + "/" + kFileList;
+    FILE* list = std::fopen((list_path + ".tmp").c_str(), "w");
+    if (!list) return fail(InstallError::kStorage, "cannot write file list");
+    for (const auto& [key, placement] : placements)
+      if (!placement.file->is_symlink())
+        std::fprintf(list, "%c\t%s\n", placement.file->is_directory() ? 'd' : 'f', placement.file->path.c_str());
+    if (std::fclose(list) != 0 || std::rename((list_path + ".tmp").c_str(), list_path.c_str()) != 0)
+      return fail(InstallError::kStorage, "cannot write file list");
+  }
   std::set<std::string> done;
   if (FILE* journal = std::fopen(journal_path.c_str(), "r")) {
     char line[8192];
@@ -386,7 +398,8 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   const bool closed = std::fclose(record) == 0;
   if (!closed || std::rename(temporary.c_str(), record_path.c_str()) != 0)
     return fail(InstallError::kStorage, "cannot write install record");
-  RemoveTree(journal_dir);
+  std::remove(journal_path.c_str());
+  rmdir(journal_dir.c_str());
   outcome.error = InstallError::kNone;
   outcome.progress = progress;
   return outcome;
@@ -398,6 +411,39 @@ bool RemoveManagedInstall(const std::string& install_root) {
   if (!Exists(install_root + "/" + DepotInstaller::kInstallRecord) &&
       !Exists(install_root + "/" + DepotInstaller::kJournalDir))
     return false;  // not a Playden-managed folder
+  // Remove exactly the paths the install recorded, deepest first, then Playden's own files.
+  std::vector<std::string> files;
+  std::vector<std::string> directories;
+  if (FILE* list = std::fopen((install_root + "/" + DepotInstaller::kFileList).c_str(), "r")) {
+    char line[8192];
+    while (std::fgets(line, sizeof(line), list)) {
+      std::string entry(line);
+      while (!entry.empty() && (entry.back() == '\n' || entry.back() == '\r')) entry.pop_back();
+      if (entry.size() < 3 || entry[1] != '\t') continue;
+      const auto path = entry.substr(2);
+      if (path.empty() || path[0] == '/' || path.find("..") != std::string::npos) continue;
+      (entry[0] == 'd' ? directories : files).push_back(install_root + "/" + path);
+    }
+    std::fclose(list);
+  }
+  for (const auto& file : files) std::remove(file.c_str());
+  std::sort(directories.begin(), directories.end(),
+            [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
+  for (const auto& directory : directories) rmdir(directory.c_str());
+  // Parent folders of recorded files that the manifest did not list explicitly.
+  std::vector<std::string> parents;
+  for (const auto& file : files)
+    for (auto parent = Parent(file); parent.size() > install_root.size(); parent = Parent(parent)) parents.push_back(parent);
+  std::sort(parents.begin(), parents.end(),
+            [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
+  for (const auto& parent : parents) rmdir(parent.c_str());
+  const std::string journal_dir = install_root + "/" + DepotInstaller::kJournalDir;
+  std::remove((journal_dir + "/journal").c_str());
+  rmdir(journal_dir.c_str());
+  std::remove((install_root + "/" + DepotInstaller::kFileList).c_str());
+  std::remove((install_root + "/" + DepotInstaller::kInstallRecord).c_str());
+  if (rmdir(install_root.c_str()) == 0) return true;
+  // Files the list did not cover (for example written by the game itself): fall back to a walk.
   return RemoveTree(install_root);
 }
 

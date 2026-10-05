@@ -4,8 +4,11 @@ Deferred items found during console runs. Newest first. Remove an item when it i
 
 ## Downloads
 
+- Details size estimates sum every Windows/English depot (140: 610 MB estimated, 87 MB installed); use the licensed depots, as the installer does.
+- Chunks download one at a time over a new TLS connection each; add bounded parallelism and connection reuse.
+
 - Free space is not checked before installing on the console: `statfs`/`statvfs` terminate the title there. Find a permitted way to read free space (e.g. a system service) and restore the pre-check.
-- The install service avoids `readdir` (it returned no entries on the console) by keeping a registry file; `RemoveManagedInstall` still walks directories and needs checking on the console.
+- The console's `readdir` returned no entries: the install service keeps a registry and installs write a file list used for removal; a directory walk remains only as a fallback for files the list does not cover.
 
 - Depot manifests larger than 16 MiB (the HTTP client's response cap) cannot be downloaded yet; very large games need a streamed or larger-cap manifest fetch.
 

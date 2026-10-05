@@ -203,6 +203,8 @@ void InstallsMergedDepotsAndWritesRecord(const std::filesystem::path& root) {
   CHECK(std::filesystem::exists(root / "empty.txt") && std::filesystem::file_size(root / "empty.txt") == 0);
   CHECK(std::filesystem::exists(root / DepotInstaller::kInstallRecord));
   CHECK(!std::filesystem::exists(root / DepotInstaller::kJournalDir));
+  CHECK(Read(root / DepotInstaller::kFileList).find("f\tdata/level.dat") != std::string::npos ||
+        Read(root / DepotInstaller::kFileList).find("f\tDATA/level.dat") != std::string::npos);
   CHECK(last.download_done == last.download_total && last.files_total == 3);
   CHECK(world.chunk_calls == 3);  // the shadowed base level.dat is never fetched
   CHECK(Read(root / DepotInstaller::kInstallRecord).find("\"app_id\":440") != std::string::npos);

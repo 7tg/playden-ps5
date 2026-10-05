@@ -76,6 +76,7 @@ class DepotInstaller {
 
   static constexpr const char* kJournalDir = ".playden-download";
   static constexpr const char* kInstallRecord = ".playden-install.json";
+  static constexpr const char* kFileList = ".playden-files";
   static constexpr int kChunkAttempts = 3;
 
  private:
