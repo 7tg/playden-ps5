@@ -9,6 +9,15 @@ This document is the settings spec for two tasks in the
 [integration plan](../superpowers/plans/2026-10-05-prospero-win-integration.md):
 Task 4 (`game_settings.{h,cpp}`, `BuildEffectiveSettings(recipe, overrides)`) and
 Task 8 (settings UI). It does not restate their lifecycle, repair or uninstall work.
+Dependencies and their local paths are in [dependencies.md](dependencies.md).
+
+**Change 2026-10-05 (later):** frame limit, VSync, frame latency and reported
+GPU/VRAM moved from "needs prospero-win" to "Playden only, if a console probe
+passes". DXVK 2.6.2 loads `dxvk.conf` from the working directory
+(`src/util/config/config.cpp:1576-1581`), and prospero-win sets the Wine working
+directory to the profile's `working_directory` before launch
+(`native/wine64_main.c:1055-1061`). Added the ownership table and the
+implementation plan.
 
 ## Terms
 
@@ -75,6 +84,61 @@ backend is recipe-locked for HL2, and video memory and vendor spoofing need a
 managed `dxvk.conf`. The honest plan is to ship the existing fields well first
 and drive the runtime work for the popular rows next.
 
+## Who implements what
+
+prospero-win checked at `defd38b` (2026-10-05). No open prospero-win PR changes the
+profile schema. "Reads it" still means Playden work:
+`src/runtime/prospero_profile.cpp` writes only `[application]` today. It does not
+write `[display]`, `[input]`, `[debug]` or `dll_overrides`.
+
+| Readiness | Meaning |
+| --- | --- |
+| **Ready** | prospero-win reads it now. Only Playden work. |
+| **Ready, path-gated** | Reads it, but only some graphics paths honor it. Playden must gate the row. |
+| **Probe** | Possible today through `dxvk.conf` in the game folder. Confirm with the S0 console probe. |
+| **prospero-win change** | Needs a new profile key, section or tool in prospero-win. |
+| **prospero-win backend** | Needs native PS5 driver, input or audio work in prospero-win. |
+
+| Setting | Readiness | prospero-win work | Playden work |
+| --- | --- | --- | --- |
+| Preset | Ready | None | Preset catalogue and chooser |
+| Launch option | Ready | None | Recipe launch entries; write `executable`, `working_directory` |
+| Resolution 720p/1080p/1440p | Ready, path-gated | None. Only 1080p is proven on hardware | Write `desktop` and `resolution_args`; verify each size on the console |
+| Controller (XInput / keyboard) | Ready | None | Always write `mode` |
+| Controller preset | Ready | None | Ship `.input` files into the bottle's `input/` folder |
+| Performance overlay (FPS) | Ready, path-gated | None (DXVK and OpenGL; not GDI) | Write `show_fps`; disable for GDI |
+| Extra arguments | Ready | Optional: escape syntax in the argument parser | Merge after locked recipe arguments; validate limits |
+| Button mapping | Ready | None | Per-button picker for 17 buttons |
+| Pointer stick and speed | Ready | None | Write `mouse`, `mouse_speed` |
+| Scaling | Ready, path-gated | Pass the mode to the DXVK swapchain/display-plane path | Hide on the DXVK path until then |
+| Window view | Ready | None | Write `view` |
+| 120 Hz, OpenGL thread | Ready, path-gated (OpenGL only) | DXVK 120 Hz needs RADV/display-mode work | Show only for OpenGL |
+| Graphics backend | Ready, but locked by recipe | None while locked | Read-only row |
+| Library overrides | Ready | None | Merge after locked overrides; validate |
+| Logging | Ready | None | Presets plus revert-after-one-session |
+| Frame limit | Probe | None if probe passes, else forward `DXVK_CONFIG_FILE` | Write `dxvk.conf` in the game folder; keep it through repair and verify |
+| VSync | Probe | Same | Same |
+| Frame latency | Probe | Same | Same |
+| Reported GPU vendor / VRAM | Probe | Same | Same; recipe-scoped values |
+| Overlay detail (frame time, memory) | Probe, with a decision | `show_fps` sets env `DXVK_HUD=fps`, which overrides `dxvk.hud`. Either Playden writes `dxvk.hud` and keeps `show_fps=false`, or prospero-win takes an element list | Depends on decision D1 |
+| Environment variables | prospero-win change | New typed `[environment]` section with an allowlist, plus a schema/minimum-runtime marker so older runtimes fail clearly | Text row with validation |
+| Windows version, text scale, locale, DLL load order in registry, CPU topology | prospero-win change, or Playden | A registry overlay helper with backup, both registry views, run while the title is stopped | Rows with "Game must be closed"; decision D2 |
+| Stick deadzones, triggers, rumble, mouse wheel | prospero-win backend | Native input transforms before Wine pad publication | Rows when it lands |
+| Per-game volume and mute | prospero-win backend | Gain and mute in the audio sink | Rows when it lands |
+| Audio device, microphone, surround, HDR, VRR, upscaling, multiple controllers | prospero-win backend (large) | Driver work, catalogue §2–§4 | Not scheduled |
+
+### Decisions needed
+
+- **D1, overlay detail.** (a) Playden writes `dxvk.hud` into `dxvk.conf` and writes
+  `show_fps=false`. No upstream change, but the overlay then depends on the
+  `dxvk.conf` route. (b) prospero-win accepts an element list for `show_fps`, which is
+  cleaner and needs an upstream change. Recommendation: (a) for DXVK, keep `show_fps` for OpenGL.
+- **D2, registry overlays.** (a) prospero-win owns a registry overlay tool, which
+  the catalogue assumes. One owner of the `.reg` format, but an upstream dependency.
+  (b) Playden edits the stopped bottle's `user.reg`/`system.reg` itself, since it
+  runs natively on the console. No upstream dependency, but Playden then owns Wine
+  registry-format edits. Recommendation: (a), and propose it upstream early.
+
 ## Tiers and phases
 
 **Tier** is where the setting appears in the UI. **Phase** is when it can ship.
@@ -90,7 +154,7 @@ and drive the runtime work for the popular rows next.
 | Phase | Depends on | Integration plan |
 | --- | --- | --- |
 | **P1** Existing profile fields | Nothing new in prospero-win | Task 4 + Task 8 |
-| **P2** Launch-time config | prospero-win: typed env allowlist and an owned `DXVK_CONFIG_FILE` per game | New prospero-win work, then a Playden follow-up |
+| **P2** Launch-time config | `dxvk.conf` in the game folder (S0 probe); prospero-win `[environment]` section for env vars (U1) | Playden S5, S8 |
 | **P3** Stopped-bottle registry overlays | prospero-win/host: transactional registry overlay with backup | After Task 8 |
 | **P4** Input transforms, audio | prospero-win native input and audio work | After P3 |
 | **P5** Shared presets and recipes | Agreement with prospero-win-profiles | Last |
@@ -133,11 +197,12 @@ Missing backend, Preparation, Application, Managed.
 | Library overrides | T3 | 8 | Library overrides | `dll_overrides`, merged after locked recipe overrides | Existing | Text entry, Wine syntax, semantic validation; ≤256 bytes |
 | Logging | Dev → T2 | — | — | `[debug] winedebug` | Existing | Normal · Verbose · Custom (text). Verbose auto-reverts after one session |
 
-#### P2: launch-time configuration (needs prospero-win work)
+#### P2: launch-time configuration
 
-prospero-win must first: forward a typed allowlist of environment variables from a
-new profile section, and point `DXVK_CONFIG_FILE` at a per-game file that
-Playden generates. Option names must come from the pinned DXVK 2.6.2 `dxvk.conf`.
+The DXVK rows can be Playden-only: Playden writes `dxvk.conf` into the game's
+working directory, if the S0 probe passes. Environment variables still need the
+prospero-win `[environment]` section (U1). Option names must come from the pinned
+DXVK 2.6.2 `dxvk.conf`.
 
 | Setting | Tier | Pop. rank | macOS equivalent | Binding (DXVK 2.6.2) | Control |
 | --- | --- | --- | --- | --- | --- |
@@ -289,14 +354,37 @@ whether `min_runtime` can become a real version rather than a PR number, and
 whether the runtime could ignore an optional `[x-*]` section in future so the
 INI can carry an id link to its sidecar.
 
-## Order of work
+## Implementation plan
 
-1. P1 catalogue and `BuildEffectiveSettings` with round-trip tests against the
-   upstream parser (`check_profiles.py` rules); HL2 recipe values unchanged.
-2. P1 UI: sheet, picker, preset chooser, disabled and locked states; Home and
-   Playden produce identical prospero profiles.
-3. Bundled presets for PS5 (start with: Playden default, Mouse-driven game,
-   Keyboard game with controller mapping, OpenGL game).
-4. Upstream P2 prospero-win changes, then frame limit, VSync and overlay detail.
-5. P3 registry overlays, then P4 per feature.
-6. P5 sidecar proposal upstream, then community fetch.
+Two tracks run in parallel. The upstream track starts first because it has the
+longest lead time.
+
+### Playden track
+
+| Step | Work | Depends on | Done when |
+| --- | --- | --- | --- |
+| **S0** | Console probe: put a `dxvk.conf` with `d3d9.maxFrameRate = 30` in the HL2 folder and launch it with the existing profile path | Console, HL2 install | `hl2_d3d9.log` shows `Found config file` and the frame rate is capped. The result decides whether frame limit, VSync, frame latency and reported VRAM are Playden-only |
+| **S1** | Settings catalogue and model in `src/runtime/game_settings.{h,cpp}`: setting ids, tiers, bindings, apply modes, `requires`; overrides; `BuildEffectiveSettings(recipe, preset, overrides)` | — | Host tests: absent vs explicit values, locked recipe values, preset reset |
+| **S2** | Full prospero profile writer: `[display]`, `[input]`, `[debug]`, `dll_overrides`; recipe format with locked arguments and `resolution_args`; HL2 recipe; bundled presets and `.input` files | S1 | Round-trip tests against the upstream parser rules (`check_profiles.py`); HL2 output equals the owner-verified profile |
+| **S3** | P1 settings UI in simulation: sheet, picker, preset chooser, disabled and locked rows, toast; replaces the simulation-only modal and its tests | S1 | Host graphical tests pass |
+| **S4** | Live wiring: settings entry in live mode, flush before handoff, Home and Playden produce the same profile | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 |
+| **S5** | `dxvk.conf` settings: frame limit, VSync, frame latency, reported VRAM/vendor, overlay detail (D1) | S0 passed, S2 | Console: cap, tearing and overlay measured; file kept by repair and verify |
+| **S6** | Maintenance actions: reset, repair, clear shader cache, back up saves, recreate bottle | Integration Task 8 | Task 8 acceptance |
+| **S7** | P3 registry rows | U2 or D2(b) | Fixture reports the version; reset restores it |
+| **S8** | Environment variables row | U1 | Values reach the Wine process; reserved keys rejected |
+| **S9** | P4 rows, one at a time | U4 per feature | Per-feature console fixture |
+| **S10** | Community recipes: fetch the pinned index, "Community recipe" banner, apply and revert | U3 | Apply and revert keep local overrides |
+
+### Upstream track (prospero-win and prospero-win-profiles)
+
+| Step | Proposal | Unblocks |
+| --- | --- | --- |
+| **U1** | Typed `[environment]` section with an allowlist, `DXVK_CONFIG_FILE` forwarding, and a profile schema or minimum-runtime marker | S8; fallback for S5 if the S0 probe fails |
+| **U2** | Registry overlay tool: backup, both registry views, run while stopped (if D2 is (a)) | S7 |
+| **U3** | Sidecar JSON per recipe in prospero-win-profiles (identity, `min_runtime`, tested firmware, status, defaults) | S10 |
+| **U4** | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
+| **U5** | Scaling on the DXVK path; DXVK 120 Hz | Un-hides Scaling and 120 Hz for DXVK |
+
+Order: S0 and the U1–U3 proposals in the first week. Then S1 → S2 → S3, which do not
+need the console. S4 follows integration Task 6. S5 follows S0. S6–S10 follow their
+dependencies.
