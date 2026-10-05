@@ -111,6 +111,17 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"600", "600", ""}, {"900", "900", ""}, {"1200", "1200", ""}, {"1800", "1800", ""},
                          {"2400", "2400", ""}},
                         "1200"));
+  list.push_back(Choice("stick_deadzone", "Stick dead zone",
+                        "How far a stick moves before the game sees it. Raise it if the camera drifts.",
+                        "[input] stick_deadzone", T::kCompatibility,
+                        {{"0", "Off", "The game's own dead zone only."}, {"5", "5%", ""}, {"10", "10%", ""},
+                         {"15", "15%", ""}, {"20", "20%", ""}, {"30", "30%", "For a badly drifting stick."}},
+                        "0", 4));
+  list.push_back(Choice("rumble", "Rumble", "How strongly the controller vibrates.", "[input] rumble",
+                        T::kCompatibility,
+                        {{"100", "Full", ""}, {"75", "75%", ""}, {"50", "50%", ""}, {"25", "25%", ""},
+                         {"0", "Off", ""}},
+                        "100", 4));
   list.push_back(Choice("scaling", "Scaling", "How the game's screen fills the TV.", "[display] scaling",
                         T::kCompatibility,
                         {{"fit", "Fit", "Keeps the shape; black bars if needed."},
@@ -214,6 +225,11 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   if ((id == "windows_version" || id == "text_scale") && !kit.registry)
     return "Needs access to the game's bottle, which comes with the Play button.";
   if (id == "environment" && !kit.environment) return "Needs a prospero-win update that reads [environment].";
+  if (id == "stick_deadzone" || id == "rumble") {
+    if (!kit.input_tuning) return "Needs a prospero-win update with controller tuning.";
+    const auto controller = values.find("controller");
+    if (controller == values.end() || controller->second.value != "xinput") return "Only with the Xbox controller.";
+  }
   if (id == "performance_overlay" && graphics == "gdi") return "Only available with DXVK or OpenGL.";
   if (id == "overlay_detail") {
     if (!dxvk) return "Only available with DXVK.";
@@ -248,6 +264,14 @@ const SettingDefinition* FindSetting(std::string_view id) {
   for (const auto& definition : SettingsCatalogue())
     if (definition.id == id) return &definition;
   return nullptr;
+}
+
+bool SettingShown(const SettingDefinition& definition, const KitCapabilities& kit) {
+  if (definition.id.rfind("button.", 0) == 0) return false;
+  if (definition.phase == 2) return kit.dxvk_config;
+  if (definition.phase == 3) return kit.registry;
+  if (definition.phase == 4) return kit.input_tuning;
+  return true;
 }
 
 bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::string_view value, std::string* reason) {
@@ -435,6 +459,11 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   text += "mode = " + value("controller") + "\n";
   text += "mouse = " + value("pointer_stick") + "\n";
   if (settings.values.at("pointer_speed").available) text += "mouse_speed = " + value("pointer_speed") + "\n";
+  // Written only when they differ from the runtime's defaults (no dead zone, full rumble).
+  const bool tuned_deadzone = settings.values.at("stick_deadzone").available && value("stick_deadzone") != "0";
+  const bool tuned_rumble = settings.values.at("rumble").available && value("rumble") != "100";
+  if (tuned_deadzone) text += "stick_deadzone = " + value("stick_deadzone") + "\n";
+  if (tuned_rumble) text += "rumble = " + value("rumble") + "\n";
   for (const auto& button : ProsperoButtons()) {
     const auto& binding = settings.values.at("button." + button).value;
     if (!binding.empty()) text += button + " = " + binding + "\n";
@@ -464,7 +493,10 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   }
 
   std::string why;
-  if (!CheckProsperoProfile(text, &why, environment_section)) return fail("generated profile is invalid: " + why);
+  ProsperoProfileFeatures features;
+  features.environment_section = environment_section;
+  features.input_tuning = tuned_deadzone || tuned_rumble;
+  if (!CheckProsperoProfile(text, &why, features)) return fail("generated profile is invalid: " + why);
   *profile = {target.id, std::move(text)};
   return true;
 }

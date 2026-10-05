@@ -385,6 +385,11 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 - S10: `ParseProfileSidecar` turns a sidecar into a "Community" preset; fetching waits for U3.
 - U1 drafted locally (not pushed): prospero-win `feat/profile-environment` in
   `~/.chauffeur/worktrees/prospero-win-environment`, parser tests pass.
+- U4 first slice drafted locally (not pushed): prospero-win `feat/profile-input-tuning` in
+  `~/.chauffeur/worktrees/prospero-win-input-tuning`, `[input] stick_deadzone` (0-50%, round,
+  rescaled) and `rumble` (0-100%) for the XInput controller; parser and native tests pass.
+- S9 first rows: Stick dead zone and Rumble (`KitCapabilities::input_tuning`), hidden until a
+  runtime with U4 is in the kit; the checker accepts the keys only for such a runtime.
 - U3 drafted locally (not pushed): prospero-win-profiles `feat/recipe-sidecar` in
   `~/.chauffeur/worktrees/prospero-win-profiles-sidecar`, `SIDECARS.md` and checker.
 - S6: "Clear shader cache" deletes only `<exe>.dxvk-cache` (`ClearShaderCache`); the sheet's
@@ -411,7 +416,7 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **S6** ◐ | Maintenance actions: reset, repair, clear shader cache, back up saves, recreate bottle | Integration Task 8 | Task 8 acceptance |
 | **S7** ◐ | P3 registry rows (console-checked; live wiring with S4) | U2 or D2(b) | Fixture reports the version; reset restores it |
 | **S8** ◐ | Environment variables row | U1 | Values reach the Wine process; reserved keys rejected |
-| **S9** | P4 rows, one at a time | U4 per feature | Per-feature console fixture |
+| **S9** ◐ | P4 rows, one at a time (dead zone, rumble done; triggers, wheel, audio open) | U4 per feature | Per-feature console fixture |
 | **S10** ◐ | Community recipes: fetch the pinned index, "Community recipe" banner, apply and revert | U3 | Apply and revert keep local overrides |
 
 ### Upstream track (prospero-win and prospero-win-profiles)
@@ -421,7 +426,7 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **U1** ◐ | Typed `[environment]` section with an allowlist, `DXVK_CONFIG_FILE` forwarding, and a profile schema or minimum-runtime marker | S8; fallback for S5 if the S0 probe fails |
 | **U2** | Registry overlay tool: backup, both registry views, run while stopped (if D2 is (a)) | S7 |
 | **U3** ◐ | Sidecar JSON per recipe in prospero-win-profiles (identity, `min_runtime`, tested firmware, status, defaults) | S10 |
-| **U4** | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
+| **U4** ◐ | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
 | **U5** | Scaling on the DXVK path; DXVK 120 Hz | Un-hides Scaling and 120 Hz for DXVK |
 
 Order: S0 and the U1–U3 proposals in the first week. Then S1 → S2 → S3, which do not

@@ -196,7 +196,7 @@ bool IsProsperoEnvironmentEntry(std::string_view name, std::string_view value) {
   return true;
 }
 
-bool CheckProsperoProfile(std::string_view text, std::string* reason, bool environment_section) {
+bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoProfileFeatures features) {
   const auto fail = [&](std::string why) {
     if (reason) *reason = std::move(why);
     return false;
@@ -221,7 +221,7 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason, bool envir
       if (line.size() < 3 || line.back() != ']') return fail("bad section line");
       const auto name = Lower(line.substr(1, line.size() - 2));
       if ((name != "application" && name != "display" && name != "input" && name != "debug" &&
-           !(environment_section && name == "environment")) ||
+           !(features.environment_section && name == "environment")) ||
           std::find(sections.begin(), sections.end(), name) != sections.end())
         return fail("section [" + name + "] unknown or repeated");
       if (sections.empty() != (name == "application")) return fail("[application] must come first");
@@ -304,6 +304,10 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason, bool envir
       } else if (key == "mouse_speed") {
         const long speed = IsDigits(value, 9) ? std::atol(std::string(value).c_str()) : 0;
         if (speed < 1 || speed > 20000) return bad("not 1-20000");
+      } else if (features.input_tuning && (key == "stick_deadzone" || key == "rumble")) {
+        const long maximum = key == "rumble" ? 100 : 50;
+        if (!IsDigits(value, 3) || std::atol(std::string(value).c_str()) > maximum)
+          return bad(key == "rumble" ? "not 0-100" : "not 0-50");
       } else if (std::find(std::begin(kButtons), std::end(kButtons), key) != std::end(kButtons)) {
         if (!IsProsperoBinding(value)) return bad("not a key, mouse button or none");
       } else {

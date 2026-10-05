@@ -1929,9 +1929,7 @@ void Simulation::rebuild_view() {
                 const auto tier = action_key == "section-more" ? rt::SettingTier::kCompatibility : rt::SettingTier::kAdvanced;
                 int count = 0;
                 for (const auto& definition : rt::SettingsCatalogue())
-                    if (definition.tier == tier && definition.id.rfind("button.", 0) != 0 &&
-                        (definition.phase == 1 || (definition.phase == 2 && kit_.dxvk_config) || (definition.phase == 3 && kit_.registry)))
-                        ++count;
+                    if (definition.tier == tier && rt::SettingShown(definition, kit_)) ++count;
                 if (tier == rt::SettingTier::kCompatibility) ++count;  // Button mapping
                 item.value = expanded_settings_sections_.count(action_key) ? "Hide" : "Show " + std::to_string(count);
             } else if (settings_ready && !modal.setting_id.empty() && action_key.rfind("choice-", 0) == 0 && action_key != "choice-custom") {
@@ -3719,14 +3717,7 @@ bool Simulation::EffectiveSettingsFor(GameId id, rt::EffectiveSettings* settings
 }
 
 std::vector<std::string> Simulation::game_settings_actions() const {
-    // Phase 2 and 3 rows appear only when the kit can apply them; path-gated rows stay
-    // visible and disabled with their reason.
-    const auto shown = [this](const rt::SettingDefinition& definition) {
-        if (definition.id.rfind("button.", 0) == 0) return false;
-        if (definition.phase == 2) return kit_.dxvk_config;
-        if (definition.phase == 3) return kit_.registry;
-        return true;
-    };
+    const auto shown = [this](const rt::SettingDefinition& definition) { return rt::SettingShown(definition, kit_); };
     std::vector<std::string> actions = {"preset-picker"};
     for (const auto& definition : rt::SettingsCatalogue())
         if (definition.tier == rt::SettingTier::kBasic && shown(definition)) actions.push_back("setting-" + definition.id);

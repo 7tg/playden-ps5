@@ -32,6 +32,7 @@ struct KitCapabilities {
   bool dxvk_unverified = false;  // frame latency and reported VRAM, not yet checked on a console
   bool environment = false;  // prospero-win [environment] section (upstream U1, not released)
   bool registry = false;     // Playden can edit the stopped bottle's user.reg (decision D2)
+  bool input_tuning = false;  // prospero-win [input] stick_deadzone and rumble (upstream U4, not released)
 };
 
 struct SettingChoice {
@@ -55,6 +56,11 @@ struct SettingDefinition {
 
 const std::vector<SettingDefinition>& SettingsCatalogue();
 const SettingDefinition* FindSetting(std::string_view id);
+
+// Whether the sheet lists a setting at all: rows from a later roadmap phase appear only
+// once the kit can apply them (rows gated by the game, such as graphics mode, stay listed
+// and disabled with their reason). Button rows live under Button mapping.
+bool SettingShown(const SettingDefinition& definition, const KitCapabilities& kit);
 
 // The 17 controller buttons prospero-win binds, as setting ids "button.<name>".
 const std::vector<std::string>& ProsperoButtons();

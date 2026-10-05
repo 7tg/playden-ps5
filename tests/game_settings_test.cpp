@@ -193,7 +193,28 @@ int main(int argc, char** argv) {
   CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
   CHECK(profile.text.find("\n[environment]\nWINE_CPU_TOPOLOGY = 4:0,1,2,3\nDXVK_FRAME_RATE = 45\n") != std::string::npos);
   CHECK(!CheckProsperoProfile(profile.text, &reason));                // a released runtime refuses it
-  CHECK(CheckProsperoProfile(profile.text, &reason, true));
+  CHECK(CheckProsperoProfile(profile.text, &reason, {.environment_section = true}));
+  // Stick dead zone and rumble need a runtime with controller tuning and the Xbox controller;
+  // only values that differ from the runtime's defaults are written.
+  const std::map<std::string, std::string> tuning = {{"stick_deadzone", "15"}, {"rumble", "50"}};
+  CHECK(BuildEffectiveSettings(hl2, nullptr, tuning, KitCapabilities{}, &settings, &error));
+  CHECK(!settings.values.at("stick_deadzone").available && !settings.values.at("rumble").available);
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("stick_deadzone") == std::string::npos && profile.text.find("rumble") == std::string::npos);
+  KitCapabilities tuning_kit;
+  tuning_kit.input_tuning = true;
+  CHECK(!SettingShown(*FindSetting("rumble"), KitCapabilities{}) && SettingShown(*FindSetting("rumble"), tuning_kit));
+  CHECK(BuildEffectiveSettings(hl2, nullptr, tuning, tuning_kit, &settings, &error));
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("\nstick_deadzone = 15\nrumble = 50\n") != std::string::npos);
+  CHECK(!CheckProsperoProfile(profile.text, &reason));                // a released runtime refuses it
+  CHECK(CheckProsperoProfile(profile.text, &reason, {.input_tuning = true}));
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {}, tuning_kit, &settings, &error));
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("stick_deadzone") == std::string::npos && profile.text.find("rumble") == std::string::npos);
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"controller", "keyboard"}, {"rumble", "0"}}, tuning_kit, &settings, &error));
+  CHECK(!settings.values.at("rumble").available && settings.values.at("rumble").reason == "Only with the Xbox controller.");
+  CHECK(!ValidateSettingValue(hl2, "stick_deadzone", "60", &reason) && ValidateSettingValue(hl2, "rumble", "25", &reason));
   CHECK(!ValidateSettingValue(hl2, "environment", "WINEPREFIX=C:\\x", &reason));
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_HUD=full", &reason));
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A=1;DXVK_A=2", &reason));
