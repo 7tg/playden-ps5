@@ -8,10 +8,12 @@ Title FAKE77031 on the dev PS5 (firmware 12.02), signed into a real Steam accoun
 - Result: `140.exe`, `140_Data/`, `steam_api.dll`, install record `.playden-install.json`; **58 files, 87 MB**.
 - The crash-and-resume path was exercised: after an interrupted run the job came back **Paused** ("Interrupted. Resume to continue.") from the on-disk journal, and Resume completed it without re-fetching finished chunks.
 
-## app 220 (Half-Life 2) — downloading, pause/resume verified
+## app 220 (Half-Life 2) — installed, pause/resume verified
 
 - Selected because prospero-win's compatibility list and Wine's own list treat the Source engine as safe, and it is a large multi-depot title that exercises the pipeline harder than app 140.
-- Reached ~1.5 GB / 2.8 GB, then was interrupted (the console was borrowed to test the prospero-win runtime). On relaunch the job reappeared as **Paused**; "Job resume 220" from the Downloads actions continued it from the journal (byte counts repopulate after the manifest/app-info step), and chunk writes advanced past the interruption point.
+- Reached ~1.5 GB / 2.8 GB, then was interrupted (the console was borrowed to test the prospero-win runtime). On relaunch the job reappeared as **Paused**; "Job resume 220" from the Downloads actions continued it from the journal (byte counts repopulated to 2.0 GB / 2.8 GB after the manifest/app-info step) and finished without re-fetching the already-downloaded chunks.
+- Final install record: **1,471 files, 5.77 GB** (`install_bytes` 5,770,568,474) from **4 licensed depots** (233, 234, 221, 222: Source Engine + HL2 content, HL2 binaries, Lost Coast, HL2MP). Journal removed on completion; `hl2.exe` and the `hl2`, `hl2_complete`, `hl2mp`, `lostcoast`, `platform`, `bin` content trees are present under `/app0/games/220`.
+- After completion the Downloads tab shows "No transfers" and the Home screen's **Recently Installed** shelf lists Half-Life 2 and 140 — the whole download → assemble → register → UI flow works on real hardware.
 
 ## Console findings (also in TODO.md)
 
