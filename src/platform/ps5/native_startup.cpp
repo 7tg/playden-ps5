@@ -1,6 +1,6 @@
 #include "platform/ps5/native_startup.h"
 #include "platform/ps5/native_access_posix.h"
-#include "platform/ps5/display_egl.hpp"
+#include <EGL/egl.h>
 #include "steam/backend/native_network.h"
 #include "app/diagnostic_log.h"
 
@@ -19,7 +19,6 @@ extern "C" {
 namespace playden::ps5 {
 namespace {
 struct StartupContext {
-  hui::ps5::Display& display;
   std::string title_id;
   NativeAccessPosixBackend* filesystem = nullptr;
   std::string source_identity;
@@ -38,10 +37,13 @@ int InitializeUser(void* data) {
 }
 
 int PrepareGraphics(void* data) {
-  app::AppendLogLine("/app0/logs", "native-startup.log", "graphics preparation starting");
-  auto& display = static_cast<StartupContext*>(data)->display;
-  const int result = display.width() > 0 || display.open(3840, 2160) ? 0 : EIO;
-  app::AppendLogLine("/app0/logs", "native-startup.log", "graphics result=" + std::to_string(result));
+  (void)data;
+  app::AppendLogLine("/app0/logs", "native-startup.log", "graphics entry point probe starting");
+  // The linked EGL implementation returns its static display from this call.
+  // eglInitialize/Display::open creates graphics threads; defer that until main
+  // after the helper has verified and cloned a single-threaded title credential.
+  const int result = eglGetDisplay(EGL_DEFAULT_DISPLAY) != EGL_NO_DISPLAY ? 0 : EIO;
+  app::AppendLogLine("/app0/logs", "native-startup.log", "graphics entry point result=" + std::to_string(result));
   return result;
 }
 
@@ -49,7 +51,7 @@ int RequestData(void* data) {
 #if PLAYDEN_NATIVE_ACCESS_SOURCE
   auto& context = *static_cast<StartupContext*>(data);
   app::AppendLogLine("/app0/logs", "native-startup.log", "data grant starting");
-  if (!steam::internal::InitializeNativeNetwork()) return ENETDOWN;
+  if (!steam::internal::InitializeNativeNetworkForBootstrap()) return ENETDOWN;
   const auto ops = context.filesystem->Ops();
   std::string helper;
   for (const auto& root : {std::string("/app0"), "/data/homebrew/" + context.title_id}) {
@@ -83,9 +85,8 @@ int RequestData(void* data) {
 }
 }
 
-NativeAccessResult PrepareNativeStartup(hui::ps5::Display& display,
-                                       const std::string& title_id) {
-  StartupContext context{display, title_id, nullptr, {}};
+NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
+  StartupContext context{title_id, nullptr, {}, {}};
   NativeAccessPosixBackend filesystem(title_id,
       {&context, InitializeUser, PrepareGraphics, RequestData});
   context.filesystem = &filesystem;

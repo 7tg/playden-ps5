@@ -100,20 +100,31 @@ bool NativeNonblockingPreflight() {
 }
 
 bool InitializeNativeNetworkOnce() {
-  if (sceNetInit() != 0) return false;
   // Do not call sceNetTerm: ownership may be shared with rendering or artwork subsystems, and the
   // process-wide runtime is needed for the full application lifetime.
-  return NativeNonblockingPreflight();
+  return sceNetInit() == 0;
 }
 #endif
 
 }  // namespace
 
-bool InitializeNativeNetwork() {
+bool InitializeNativeNetworkForBootstrap() {
 #if defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5
   static std::once_flag once;
   static bool ready = false;
   std::call_once(once, [] { ready = InitializeNativeNetworkOnce(); });
+  return ready;
+#else
+  return true;
+#endif
+}
+
+bool InitializeNativeNetwork() {
+  if (!InitializeNativeNetworkForBootstrap()) return false;
+#if defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5
+  static std::once_flag once;
+  static bool ready = false;
+  std::call_once(once, [] { ready = NativeNonblockingPreflight(); });
   return ready;
 #else
   return true;

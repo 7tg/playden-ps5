@@ -442,6 +442,17 @@ Startup sequencing must grant access before additional graphics threads, while
 preserving graphics module/path availability and browsing fallback. Keep the
 helper ownership checks intact. The console was released after both captures.
 
+Sequencing follow-up: display initialization now follows bootstrap; graphics
+preparation probes the linked EGL entry point only. Basic network initialization
+is separated from the watchdog-based nonblocking preflight, which Steam/curl
+still perform after bootstrap. Both experiments preserve rendered Home and
+existing state, and the final build passes 74 host tests. However, Lapy still
+observes two threads before the grant. EGL initialization and the networking
+watchdog are therefore not the sole cause. Isolate UserService, basic network
+initialization and earlier module startup next; do not relax credential checks.
+See [sequencing evidence](../../../results/20261005-single-thread-bootstrap/README.md).
+
+
 - [ ] Step 1: Add `runtime_game_install`, `prospero_profile` extensions and `native_access`
    tests. Assert `ReservationSurvivesRestart`, `ForeignNativeTitleCollision`,
    `LegacyDownloadAdoptsWithoutCopy`, `RecipeArgumentsPreserved`,
