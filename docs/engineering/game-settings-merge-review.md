@@ -43,7 +43,7 @@ Fresh verification of the restored destination checkout on 2026-10-05:
 The original stash is retained as a backup. Live settings and maintenance remain
 subject to the integration work and acceptance described above.
 
-## Final settings handoff review — 2026-10-05
+## Final settings handoff review — 2026-10-05–06
 
 Reviewed the six follow-up commits through `8f81a3d` against integration
 `a84710d`. The independent review found preset identity, borrowed recipe
@@ -74,3 +74,5 @@ caught private registry backup permissions; backups and temporary files now
 inherit the source mode before receiving data, with a first-backup regression.
 No console claim or deployment occurred during this merge review. The existing
 working preview remains installed.
+
+The final settings handoff and review corrections are merged at `37fa032`.

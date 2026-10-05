@@ -27,6 +27,12 @@ uncommitted upstream work, not approval of a release kit or full integration.
 - Python allowed duplicate firmware entries that Playden rejects. Packaging
   and standalone validation now reject them; the regression reproduced the gap.
 
+- Exact Windows user binding is now checked by preparation and packaging via a
+  shared helper, and by Playden admission. Fresh v16's Volatile Environment
+  USERNAME/USERPROFILE binding passes; another user's binding and unrelated
+  comments cannot substitute for it. The Playden admission regression first
+  demonstrated incorrect acceptance and then passed after correction.
+
 ## Required follow-up gates
 
 These remain open; passing structural tests cannot certify these properties.
@@ -44,29 +50,36 @@ These remain open; passing structural tests cannot certify these properties.
 4. Bind the complete runtime inventory to independently reviewed retained
    artifact provenance. Six essential DLLs/PRXs and a regenerated inventory
    do not establish the complete runtime.
-5. Check all shipped binary payloads for host paths. Current development
-   binaries contain absolute builder paths; text-only checks miss them.
+5. Rebuild release binaries without host paths. Packaging now scans binary and
+   text payloads (including UTF-16 strings) with bounded memory. The real
+   development ntdll fails this gate; removing leaked paths from the build is
+   still required.
 6. Ship dependency license texts and bind their hashes/source identities.
-7. Validate the exact Windows user registry profile/environment bindings,
-   rather than only directories or unrelated substring occurrences.
-8. Add a producer-to-consumer integration check using an emitted Python
+7. Add a producer-to-consumer integration check using an emitted Python
    manifest and real registry shape through Playden admission. C++ fixture
    regressions cover the provider bug but are not this cross-validator gate.
-9. Exercise the native wrapper glue for Home default, missing descriptor
+8. Exercise the native wrapper glue for Home default, missing descriptor
    generic mode, invalid descriptor fail closed, credential ordering and game
    exit without catalog restart. Parser/session tests alone do not do this.
-10. Prove random source, atomic session replacement, directory fsync, fresh
+9. Prove random source, atomic session replacement, directory fsync, fresh
     private bottle, Home launch and game exit on the target console. HID module
     preload remains before grant per its existing native contract; no other
     explicit thread-producing initialization was found there.
 
 ## Verification
 
-Playden: complete host build and 74/74 CTest tests pass; PS5 SDK build passes.
-Upstream: 27 kit tests, 12 bottle preparation tests, title identity, release
+Playden: complete combined host build and 75/75 CTest tests pass after the final
+settings merge review; PS5 SDK build passes.
+Upstream: 29 kit tests, 12 bottle preparation tests, title identity, release
 packaging and native contract checks pass; both data mount tests pass.
 Previously recorded portable title parser/session ASan/UBSan checks pass on
 native Linux ARM64. The complete x86 suite is still unverified: Docker x86
 emulation fails the original MAP32 host-execution test. No per-game console
 acceptance is claimed. The user's working Playden preview remains deployed and
 this review did not take a console claim or change the deployed title.
+
+Local upstream commits: `f2939de` preserves the effective UID, and `c1b81d3`
+records development kit/bottle tooling. The data mount source also compiles
+strictly with Playden's PS5 SDK v0.43. That is not the pinned v0.42 foundation
+per-game build or hardware acceptance. Native title lifecycle sources remain
+under development; neither commit is the final clean-source release pin.

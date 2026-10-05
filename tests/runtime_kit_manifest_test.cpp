@@ -160,7 +160,8 @@ struct Fixture {
           std::string("[Software\\\\Microsoft\\\\Wow64\\\\x86]\n@=\"") +
               (valid ? "wowprospero.dll" : "wrong.dll") + "\"\n" + crypto64 + crypto32 + com);
     Write(root / "template/bottle/user.reg",
-          "[Software\\\\Wine\\\\Drivers]\n\"Audio\"=\"ps5\"\n");
+          "[Software\\\\Wine\\\\Drivers]\n\"Audio\"=\"ps5\"\n"
+          "[Volatile Environment]\n\"USERNAME\"=\"prospero\"\n\"USERPROFILE\"=\"C:\\\\users\\\\prospero\"\n");
   }
 
   void RefreshInnerManifests() {
@@ -318,6 +319,15 @@ int main() {
     assert(pos != std::string::npos);
     registry.insert(pos, "\"Name\"=\"Ambiguous Provider\"\n");
     Write(path, registry); fixture.RewriteManifest();
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    Fixture fixture;
+    Write(fixture.root / "template/bottle/user.reg",
+          "[Software\\\\Wine\\\\Drivers]\n\"Audio\"=\"ps5\"\n"
+          "[Volatile Environment]\n\"USERNAME\"=\"other\"\n\"USERPROFILE\"=\"C:\\\\users\\\\other\"\n"
+          "; expected prospero C:\\\\users\\\\prospero\n");
+    fixture.RewriteManifest();
     CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
   }
   {

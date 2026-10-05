@@ -175,6 +175,9 @@ bool ValidateRegistry(const fs::path& bottle, bool require_audio) {
   const auto system = Read(bottle / "system.reg", 8 * 1024 * 1024);
   const auto user = Read(bottle / "user.reg", 8 * 1024 * 1024);
   if (!system || !user) return false;
+  if (RegistryStringValue(*user, "Volatile Environment", "USERNAME") != "prospero" ||
+      RegistryStringValue(*user, "Volatile Environment", "USERPROFILE") != R"(C:\\users\\prospero)")
+    return false;
   if (!RegistrySectionValue(*system, R"(Software\\Microsoft\\Wow64\\x86)", R"(@="wowprospero.dll")")) return false;
   for (const char* prefix : {R"(Software\\)", R"(Software\\Wow6432Node\\)"}) {
     const std::string base = std::string(prefix) + R"(Microsoft\\Cryptography\\Defaults\\)";
