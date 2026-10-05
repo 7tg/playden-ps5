@@ -17,7 +17,7 @@ Paths are relative to the main checkout of this repository,
 | **PS5-Lapy-JB-Daemon** | Grants the title access to `/data` | `../ps5-homebrew/PS5-Lapy-JB-Daemon` | `mpereiraesaa/PS5-Lapy-JB-Daemon` (fork of `ArkSama/PS5-Lapy-JB-Daemon`) | `611fa5f` preserve SDK credential attribute arrays for the 13.60 helper; [PR #49](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon/pull/49) open |
 | **ps5-opengl** | Launcher graphics and OpenGL games | `../ps5-homebrew/ps5-opengl` | `blackbearreloaded/ps5-opengl` | `e9c1104` link legacy OpenGL texture and color varyings, on `fix/legacy-varying-linkage` |
 | **ps5-native-app-boilerplate** | Native title runtime and packaging | `third_party/ps5-native-app-boilerplate` (submodule); standalone at `../ps5-homebrew/ps5-native-app-boilerplate` | `blackbearreloaded/ps5-native-app-boilerplate` | Existing foundation fixes; nothing new from the 13.60 investigation |
-| **ps5-prx-foundation** | Wine PRX conversion and linking (`ps5-native-tool`, `ps5-pie.ld`) | **Not checked out on this Mac.** prospero-win's `tools/build_wine_ps5.sh` takes it as `--prx-foundation DIR` or `$PS5_PRX_FOUNDATION`, a foundation checkout with module-export publishing (branch `exp/prx-module`) | — | Existing module-export support; no new patch |
+| **ps5-prx-foundation** | Wine PRX conversion and linking (`ps5-native-tool`, `ps5-pie.ld`) | `.worktrees/prospero-foundation-prx` | Separate isolated foundation checkout | `182f1ea` aligns independent tests/documentation with the hardware-backed symbol hash fix; native title foundation stays `9c0b994` |
 | **ps5-payload-dev/sdk** | Compiler and platform headers | `../ps5-homebrew/ps5-payload-dev-sdk` (source). Builds use the released SDK through the environment wrapper in `../playden-ps5`; see [build.md](build.md) | `ps5-payload-dev/sdk` | None; released SDKs only |
 | **ps5-homebrew-ui** | Launcher UI toolkit | `third_party/ps5-homebrew-ui` (submodule); standalone at `../ps5-homebrew/ps5-homebrew-ui` | `blackbearreloaded/ps5-homebrew-ui` | None |
 | **prospero-win-profiles** | Hand-written prospero profiles, input presets, recipes | Not checked out | `mpereiraesaa/prospero-win-profiles` | None; see [game settings roadmap](game-settings-roadmap.md) P5 |
@@ -37,7 +37,7 @@ not consumed yet:
 | ps5-opengl | SDK `1.0.0`, source `dce7491` | No. `e9c1104` is on an unreleased branch |
 | ps5-native-app-boilerplate | `f98de73` | Not applicable |
 | ps5-homebrew-ui | `8a716f2` | Not applicable |
-| prospero-win | Not pinned yet. Integration plan Task 3 adds the submodule and kit | No |
+| prospero-win | `3d05a57` source submodule (local development commit, not published); release kit pending | Includes native startup and per-game wrapper changes; retained runtime remains `e16ec8f` |
 
 ## Branch checkouts in use
 

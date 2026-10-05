@@ -1,4 +1,44 @@
 # Offline kit admission; ordinary launcher builds do not compile Wine.
+set(PLAYDEN_PROSPERO_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/prospero-win" CACHE PATH
+    "Exact pinned prospero-win source; overrides must match dependencies.lock.json")
+option(PLAYDEN_PROSPERO_RELEASE_SOURCE "Require a published prospero source pin" OFF)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(prospero_source_check_args --source "${PLAYDEN_PROSPERO_SOURCE_DIR}")
+if(PLAYDEN_PROSPERO_RELEASE_SOURCE)
+    list(APPEND prospero_source_check_args --release)
+endif()
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/prospero_source.py"
+    ${prospero_source_check_args}
+    RESULT_VARIABLE prospero_source_check_result ERROR_VARIABLE prospero_source_check_error
+    OUTPUT_QUIET)
+if(NOT prospero_source_check_result STREQUAL "0")
+    message(FATAL_ERROR "${prospero_source_check_error}\nInitialize third_party/prospero-win or select a clean checkout at the locked revision.")
+endif()
+
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_test(NAME prospero_source_pin COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+        -s "${CMAKE_SOURCE_DIR}/tests" -p test_prospero_source.py)
+    foreach(contract title_launch title_session app_profile game_profile profile_catalog)
+        set(contract_sources
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/tests/test_pw_${contract}.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_${contract}.c")
+        if(contract STREQUAL "game_profile")
+            list(APPEND contract_sources "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c")
+        elseif(contract STREQUAL "profile_catalog")
+            list(APPEND contract_sources "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_game_profile.c"
+                "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c")
+        endif()
+        add_executable(prospero_${contract}_contract ${contract_sources})
+        target_compile_features(prospero_${contract}_contract PRIVATE c_std_11)
+        target_compile_options(prospero_${contract}_contract PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+        if(contract STREQUAL "title_session")
+            find_package(Threads REQUIRED)
+            target_link_libraries(prospero_${contract}_contract PRIVATE Threads::Threads)
+        endif()
+        add_test(NAME prospero_${contract}_contract COMMAND prospero_${contract}_contract)
+    endforeach()
+endif()
+
 add_library(playden_runtime_kit_manifest STATIC
     "${CMAKE_SOURCE_DIR}/src/runtime/kit_manifest.cpp")
 target_include_directories(playden_runtime_kit_manifest PUBLIC "${CMAKE_SOURCE_DIR}/src")

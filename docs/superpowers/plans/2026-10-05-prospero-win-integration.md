@@ -630,3 +630,15 @@ unchanged and PRX tooling isolated at `182f1ea`. Native directory aliases also
 failed (`ENOENT`), leaving both production private copying and descriptor-relative
 settings persistence gated. The launcher package rebuilt with the developer probe
 disabled; it has not been deployed for new UI acceptance.
+
+Task 3 source/tooling follow-up: `third_party/prospero-win` now pins the clean
+development source `3d05a57`, with an upstream HTTPS URL and `published: false`
+in the dependency lock. CMake validates the source revision/cleanliness before
+compilation; the explicit offline kit script applies the same check. Release
+source validation refuses the unpublished pin. Five upstream portable parser/
+session contracts are registered in Playden's host suite, which passed 82/82;
+the PS5 launcher package also built from the submodule with diagnostics disabled.
+Wrong-revision CMake overrides are rejected. See [kit instructions and limits](../../../runtime/kits/README.md).
+Remote clean-checkout distribution, immutable kit/manifest hash, producer-to-
+consumer validation and fresh-bottle acceptance remain open; no Task 3 completion
+or replacement-runtime capability is claimed.
