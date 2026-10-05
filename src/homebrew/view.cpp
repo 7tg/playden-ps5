@@ -1568,12 +1568,10 @@ class Render::Impl
             ui::text(scene_, fonts_.regular, bytes, 282.0F, 348.0F, 21.0F, kText);
             ui::text(scene_, fonts_.regular, transfer_rate(primary->bytes_per_second), 1038.0F,
                      348.0F, 21.0F, kSecondary, gfx::Align::right);
-            if (route_focus_ && state.navigation.focus_key == "job-" + primary->id)
-            {
-                scene_.bordered_rect(active_card.inset(-5.0F), 14.0F, kBackground.with_alpha(0.0F),
-                                     4.0F, kAccent);
+            const bool card_focused = route_focus_ && state.navigation.focus_key == "job-" + primary->id;
+            focus_ring(scene_, active_card, control_focus("job-" + primary->id, card_focused));
+            if (card_focused)
                 stats_.focused_control_key = "job-" + primary->id;
-            }
         }
 
         std::vector<const Job*> secondary;
@@ -1606,12 +1604,10 @@ class Render::Impl
             scene_.rounded_rect({122.0F, row_y + 60.0F, 946.0F, 5.0F}, 2.5F, kText.with_alpha(0.12F));
             scene_.rounded_rect({122.0F, row_y + 60.0F, 946.0F * std::clamp(progress, 0.0F, 1.0F), 5.0F},
                                 2.5F, job->state == JobState::Failed ? kRed : kAccent);
-            if (route_focus_ && state.navigation.focus_key == "job-" + job->id)
-            {
-                scene_.bordered_rect(row.inset(-4.0F), 10.0F, kBackground.with_alpha(0.0F), 3.0F,
-                                     kAccent);
+            const bool row_focused = route_focus_ && state.navigation.focus_key == "job-" + job->id;
+            focus_ring(scene_, row, control_focus("job-" + job->id, row_focused), true);
+            if (row_focused)
                 stats_.focused_control_key = "job-" + job->id;
-            }
             row_y += 92.0F;
         }
 
@@ -2256,10 +2252,11 @@ class Render::Impl
             const std::uint64_t free = volume.capacity_bytes - occupied;
             const int row_index = static_cast<int>(&row - view.rows.data());
             const gfx::Rect card{bounds.x, y, bounds.w, 156.0F};
+            const float amount = control_focus("volume-" + row.key, row_index == view.focused_row);
+            focus_glow(overlay_, card, amount);
+            overlay_.rounded_rect(card, 8.0F, kPanel);
             overlay_.rounded_rect(card, 8.0F, kText.with_alpha(row.selected ? 0.10F : 0.04F));
-            if (row_index == view.focused_row)
-                overlay_.bordered_rect(card.inset(-4.0F), 10.0F, kBackground.with_alpha(0.0F),
-                                       4.0F, kAccent);
+            focus_ring(overlay_, card, amount);
             ui::text(overlay_, fonts_.display, volume.label, card.x + 22.0F, card.y + 38.0F,
                      27.0F, row.enabled ? kText : kMuted);
             const bool is_default = !current_state_->simulation_mode && volume.id == current_state_->default_volume_id;
@@ -2577,12 +2574,22 @@ class Render::Impl
                 continue;
             }
             const gfx::Rect rect{bounds.x, y, bounds.w, 72.0F};
-            painter.row(rect, overlay_label(row), overlay_value(row),
-                        row.selected ? 1.0F : 0.0F,
-                        {index == view.focused_row ? 1.0F : 0.0F, 0.0F, !row.enabled});
+            const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
+            focus_glow(overlay_, rect, amount);
+            overlay_.rounded_rect(rect, 8.0F, kPanel);
+            overlay_.rounded_rect(rect, 8.0F, kText.with_alpha(row.selected ? 0.10F : 0.04F));
+            const gfx::Color ink = !row.enabled ? kMuted : row.dangerous ? kRed : kText;
+            const std::string value = overlay_value(row);
+            const float value_width = value.empty() ? 0.0F : std::min(rect.w * 0.45F, fonts_.regular.measure(value, 22.0F));
+            ui::text(overlay_, fonts_.display, fit(fonts_.display, overlay_label(row), 28.0F, rect.w - 64.0F - value_width),
+                     rect.x + 24.0F, rect.cy() + 10.0F, 28.0F, ink);
+            if (!value.empty())
+                ui::text(overlay_, fonts_.regular, fit(fonts_.regular, value, 22.0F, value_width), rect.x + rect.w - 24.0F,
+                         rect.cy() + 8.0F, 22.0F, row.selected ? kAccent : kSecondary, gfx::Align::right);
             if (row.progress > 0.0F)
-                painter.progress({rect.x + 22.0F, rect.y + 58.0F, rect.w - 44.0F, 6.0F}, row.progress);
-            y += 80.0F;
+                painter.progress({rect.x + 22.0F, rect.y + 60.0F, rect.w - 44.0F, 6.0F}, row.progress);
+            focus_ring(overlay_, rect, amount);
+            y += 84.0F;
         }
     }
 
