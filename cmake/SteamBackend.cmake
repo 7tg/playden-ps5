@@ -124,7 +124,8 @@ if(PLAYDEN_HOMEBREW_UI)
         "${CMAKE_SOURCE_DIR}/src/steam/backend/steam_install_runner.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_messages.cpp"
         "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_mapping.cpp"
-        "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_sync.cpp")
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_sync.cpp"
+        "${CMAKE_SOURCE_DIR}/src/steam/backend/steam_cloud_runner.cpp")
     target_include_directories(playden_steam_cm PUBLIC "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(playden_steam_cm PUBLIC cxx_std_17)
     target_link_libraries(playden_steam_cm PUBLIC
@@ -200,6 +201,9 @@ function(playden_register_steam_backend_tests)
         add_executable(install_service_test "${CMAKE_SOURCE_DIR}/tests/install_service_test.cpp")
         target_link_libraries(install_service_test PRIVATE playden_steam_core)
         add_test(NAME install_service COMMAND install_service_test)
+        add_executable(cloud_service_test "${CMAKE_SOURCE_DIR}/tests/cloud_service_test.cpp")
+        target_link_libraries(cloud_service_test PRIVATE playden_steam_core)
+        add_test(NAME cloud_service COMMAND cloud_service_test)
         add_executable(install_volumes_test "${CMAKE_SOURCE_DIR}/tests/install_volumes_test.cpp")
         target_link_libraries(install_volumes_test PRIVATE playden_steam_core)
         add_test(NAME install_volumes COMMAND install_volumes_test)

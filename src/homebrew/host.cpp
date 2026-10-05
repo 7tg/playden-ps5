@@ -15,6 +15,7 @@
 #include "steam/backend/cm_app_details.h"
 #include "steam/backend/entitled_library.h"
 #include "steam/backend/steam_install_runner.h"
+#include "steam/backend/steam_cloud_runner.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
 #include "library/cache.h"
@@ -394,6 +395,11 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::steam::SteamInstallRunner> install_runner;
     std::unique_ptr<playden::LocalSessionRepository> install_sessions;
     std::unique_ptr<playden::steam::InstallService> installs;
+    std::unique_ptr<playden::steam::CmClient> cloud_cm;
+    std::unique_ptr<playden::steam::HttpClient> cloud_http;
+    std::unique_ptr<playden::steam::SteamCloudRunner> cloud_runner;
+    std::unique_ptr<playden::LocalSessionRepository> cloud_sessions;
+    std::unique_ptr<playden::steam::CloudService> cloud;
     std::unique_ptr<playden::homebrew::Controller> services;
     std::unique_ptr<playden::homebrew::HttpArtworkBackend> artwork_backend;
     std::unique_ptr<playden::homebrew::ArtworkService> artwork;
@@ -479,8 +485,16 @@ int main(int argc, char** argv) {
         }
         installs = std::make_unique<playden::steam::InstallService>(*install_runner, *install_sessions,
                                                                     playden::steam::DiscoverInstallVolumes(candidates));
+        cloud_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
+        cloud_http = std::make_unique<playden::steam::HttpClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        cloud_runner = std::make_unique<playden::steam::SteamCloudRunner>(*cloud_cm, *cloud_http);
+        cloud_runner->SetLog([log_directory](playden::GameId app, const char* event, const std::string& message) {
+            playden::app::AppendLogLine(log_directory, "cloud.log", "app=" + std::to_string(app) + " event=" + event + " " + message);
+        });
+        cloud_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        cloud = std::make_unique<playden::steam::CloudService>(*cloud_runner, *cloud_sessions);
         simulation.SetLogDirectory(options->data_directory / "logs");
-        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get());
+        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get(),cloud.get());
     }
 
     if (!options->simulation) {

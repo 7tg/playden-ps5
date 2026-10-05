@@ -265,7 +265,9 @@ std::string action_label(const std::string& key) {
         {"collection", "Collections"}, {"note", "Compatibility and note"}, {"verify", "Verify files"},
         {"uninstall", "Uninstall"}, {"logs", "Open logs"}, {"logs-back", "Back"},
         {"logs-pick", "Logs"}, {"log-install", "Install log"}, {"log-auth", "Sign-in log"},
-        {"log-launch", "Launch log"}, {"logs-refresh", "Refresh"},
+        {"log-launch", "Launch log"}, {"log-cloud", "Cloud saves log"}, {"logs-refresh", "Refresh"},
+        {"cloud-sync", "Cloud saves"}, {"cloud-choose", "Cloud saves"}, {"cloud-use-cloud", "Use Cloud saves"},
+        {"cloud-use-local", "Use console saves"}, {"cloud-confirm-account", "Use this account"},
         {"install-confirm", "Install"}, {"storage-picker", "Change storage"},
         {"profile-picker", "Profile"}, {"resolution-picker", "Resolution"}, {"frame-picker", "Frame limit"},
         {"toggle-vsync", "VSync"}, {"edit-arguments", "Launch arguments"}, {"reset-settings", "Reset all overrides"},
@@ -497,6 +499,33 @@ std::vector<InstallRequest> Simulation::TakeInstallRequests() {
     return requests;
 }
 
+std::vector<CloudRequest> Simulation::TakeCloudRequests() {
+    auto requests = std::move(pending_cloud_requests_);
+    pending_cloud_requests_.clear();
+    return requests;
+}
+
+void Simulation::UpdateCloud(const std::vector<LiveCloudGame>& games) {
+    if (!live()) return;
+    for (const auto& game : games) {
+        const auto previous = state_.cloud.find(game.game_id);
+        const auto before = previous == state_.cloud.end() ? CloudStatus::None : previous->second.status;
+        if (before != game.status) {
+            const auto* known = find_game(state_, game.game_id);
+            const std::string title = known ? known->title : "A game";
+            const auto id = "cloud-" + std::to_string(game.game_id);
+            if (game.status == CloudStatus::Synced)
+                push_notice({id, "Cloud saves synced", "", false, kLiveNoticeSeconds, false, title + " · " + game.message});
+            else if (game.status == CloudStatus::Failed)
+                push_notice({id, "Cloud sync failed", "", false, kLiveNoticeSeconds * 2, true, title + " · " + game.message});
+            else if (game.status == CloudStatus::Conflict || game.status == CloudStatus::NeedsAccount)
+                push_notice({id, "Cloud saves need a choice", "", false, kLiveNoticeSeconds * 2, false, title + " · open its details"});
+        }
+        state_.cloud[game.game_id] = game;
+    }
+    rebuild_view();
+}
+
 void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed) {
     if (!live()) return;
     std::map<GameId, JobState> job_states;
@@ -618,6 +647,7 @@ void Simulation::clear_account_specific_state() {
     state_.installations.clear();
     state_.jobs.clear();
     state_.volumes.clear();
+    state_.cloud.clear();
     state_.profiles.clear();
     state_.selected_profiles.clear();
     state_.custom_profiles.clear();
@@ -2017,6 +2047,23 @@ void Simulation::rebuild_view() {
                                    installation->available ? "Installed" : "Storage disconnected", "");
                 status.value = installation->installed_bytes > 0 ? format_bytes(installation->installed_bytes) : "";
                 status.subtitle = installation->available ? "On " + label : "Connect " + label + " to use this game";
+                if (installation->available) {
+                    // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
+                    const auto cloud = state_.cloud.find(game->id);
+                    const auto cloud_status = cloud == state_.cloud.end() ? CloudStatus::None : cloud->second.status;
+                    const bool busy = cloud_status == CloudStatus::Checking || cloud_status == CloudStatus::Syncing;
+                    const bool choice = cloud_status == CloudStatus::Conflict || cloud_status == CloudStatus::NeedsAccount;
+                    auto& saves = row("details-cloud", busy ? RowKind::Status : RowKind::Action, "Cloud saves",
+                                      busy ? "" : choice ? "cloud-choose" : "cloud-sync");
+                    saves.value = cloud_status == CloudStatus::None        ? "Sync"
+                                  : busy                                  ? (cloud_status == CloudStatus::Checking ? "Checking…" : "Syncing…")
+                                  : choice                                ? "Choose"
+                                  : cloud_status == CloudStatus::Failed   ? "Retry"
+                                  : cloud_status == CloudStatus::Unsupported ? "Unavailable"
+                                                                          : "Synced";
+                    if (cloud != state_.cloud.end()) saves.subtitle = cloud->second.message;
+                    saves.enabled = !busy;
+                }
             } else if (job) {
                 auto& status = row("details-download", RowKind::Action, "Download", "open-downloads");
                 status.value = job_state_name(job->state);
@@ -2079,7 +2126,7 @@ void Simulation::rebuild_view() {
         row("settings-about", RowKind::Action, "About", "about");
         auto& logs = row("settings-logs", RowKind::Action, "Logs", live() ? "logs-pick" : "logs");
         if (live()) {
-            logs.subtitle = "Install, sign-in and launch diagnostics";
+            logs.subtitle = "Install, Cloud saves, sign-in and launch diagnostics";
             if (log_directory_.empty()) { logs.kind = RowKind::Status; logs.action.clear(); logs.enabled = false; logs.subtitle = "No logs on this device"; }
             runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
         }
@@ -2156,7 +2203,9 @@ void Simulation::open_live_log(const std::string& topic, GameId game_id) {
             actions.push_back("job-retry-" + job->id);
     actions.push_back("logs-refresh");
     actions.push_back("logs-back");
-    const std::string title = topic == "auth" ? "Sign-in log" : topic == "launch" ? "Launch log" : "Install log";
+    const std::string title = topic == "auth" ? "Sign-in log" : topic == "launch" ? "Launch log"
+                              : topic == "cloud"                       ? "Cloud saves log"
+                                                                       : "Install log";
     load_live_log();
     open_modal({"logs", title, state_.navigation.focus_key, std::move(actions), 0, false});
 }
@@ -2481,6 +2530,41 @@ void Simulation::activate() {
         else if (job && job->state != JobState::Cancelled) actions.push_back("job-cancel-" + id);
         actions.push_back("logs"); actions.push_back("cancel");
         open_modal({"job-actions", "Download actions", selected.key, std::move(actions), 0, false});
+    } else if (live() && action_name == "cloud-sync") {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        if (id != 0) pending_cloud_requests_.push_back({CloudRequestKind::Sync, id});
+    } else if (live() && action_name == "cloud-choose") {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        const auto cloud = state_.cloud.find(id);
+        if (cloud != state_.cloud.end() && cloud->second.status == CloudStatus::Conflict) {
+            const auto& facts = cloud->second;
+            const auto age = [this](std::int64_t when) -> std::string {
+                if (when <= 0 || state_.clock_ticks <= 0) return "";
+                const auto days = (state_.clock_ticks - when) / 86'400;
+                return days <= 0 ? ", changed today" : days == 1 ? ", changed yesterday" : ", changed " + std::to_string(days) + " days ago";
+            };
+            ModalEntry choice{"confirmation", "Which saves should Playden keep?", state_.navigation.focus_key,
+                              {"cloud-use-cloud", "cloud-use-local", "cancel"}, 0, false};
+            choice.body = "Steam Cloud: " + std::to_string(facts.remote_files) + " files, " + format_bytes(facts.remote_bytes) +
+                          age(facts.remote_latest) + ". This console: " + std::to_string(facts.local_files) + " files, " +
+                          format_bytes(facts.local_bytes) + age(facts.local_latest) +
+                          ". Saves that get replaced here are backed up first.";
+            open_modal(std::move(choice));
+        } else if (cloud != state_.cloud.end() && cloud->second.status == CloudStatus::NeedsAccount) {
+            ModalEntry confirm{"confirmation", "Upload saves to this Steam account?", state_.navigation.focus_key,
+                               {"cloud-confirm-account", "cancel"}, 0, false};
+            confirm.body = "Playden has not synced this game's saves for " +
+                           (state_.account.display_name.empty() ? std::string("this account") : state_.account.display_name) +
+                           " before. Confirm to upload this console's saves to its Steam Cloud.";
+            open_modal(std::move(confirm));
+        }
+    } else if (live() && (action_name == "cloud-use-cloud" || action_name == "cloud-use-local" || action_name == "cloud-confirm-account")) {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        const auto kind = action_name == "cloud-use-cloud" ? CloudRequestKind::UseCloud
+                          : action_name == "cloud-use-local" ? CloudRequestKind::UseLocal
+                                                             : CloudRequestKind::ConfirmAccount;
+        if (id != 0) pending_cloud_requests_.push_back({kind, id});
+        close_modal();
     } else if (live() && action_name == "live-install") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id});
@@ -2735,8 +2819,9 @@ void Simulation::activate() {
         open_live_log("install", game_id);
     }
     else if (live() && action_name == "logs-pick")
-        open_modal({"diagnostics", "Logs", state_.navigation.focus_key, {"log-install", "log-auth", "log-launch", "cancel"}, 0, false});
-    else if (live() && (action_name == "log-install" || action_name == "log-auth" || action_name == "log-launch"))
+        open_modal({"diagnostics", "Logs", state_.navigation.focus_key, {"log-install", "log-cloud", "log-auth", "log-launch", "cancel"}, 0, false});
+    else if (live() && (action_name == "log-install" || action_name == "log-cloud" || action_name == "log-auth" ||
+                        action_name == "log-launch"))
         open_live_log(action_name.substr(4), 0);
     else if (live() && action_name == "logs-refresh") load_live_log();
     else if (action_name == "logs") { start_logs(); open_modal({"logs", "Operation logs", state_.navigation.focus_key, {"logs-fixture-controls", "logs-back"}, 0, false}); }

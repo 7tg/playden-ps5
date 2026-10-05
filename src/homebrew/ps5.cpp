@@ -13,6 +13,7 @@
 #include "steam/backend/cm_app_details.h"
 #include "steam/backend/entitled_library.h"
 #include "steam/backend/steam_install_runner.h"
+#include "steam/backend/steam_cloud_runner.h"
 #include "steam/backend/library_client.h"
 #include "steam/local_session_repository.h"
 #include "library/cache.h"
@@ -166,8 +167,16 @@ int main() {
         playden::LocalSessionRepository install_sessions("/app0/playden-data");
         playden::steam::InstallService installs(install_runner, install_sessions,
             playden::steam::DiscoverInstallVolumes(playden::steam::ConsoleVolumeCandidates()));
+        playden::steam::CmClient cloud_cm("/app0/trust/cacert.pem", library_storage);
+        playden::steam::HttpClient cloud_http("/app0/trust/cacert.pem");
+        playden::steam::SteamCloudRunner cloud_runner(cloud_cm, cloud_http);
+        cloud_runner.SetLog([](playden::GameId app, const char* event, const std::string& message) {
+            playden::app::AppendLogLine("/app0/logs", "cloud.log", "app=" + std::to_string(app) + " event=" + event + " " + message);
+        });
+        playden::LocalSessionRepository cloud_sessions("/app0/playden-data");
+        playden::steam::CloudService cloud(cloud_runner, cloud_sessions);
         simulation.SetLogDirectory("/app0/logs");
-        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs);
+        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud);
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer("/app0/assets");

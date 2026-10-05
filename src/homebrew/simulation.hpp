@@ -57,6 +57,24 @@ struct LiveVolume {
     std::optional<std::uint64_t> total_bytes;
     std::optional<std::uint64_t> free_bytes;
 };
+// Live Steam Cloud save state for one game, projected from the cloud service.
+enum class CloudStatus { None, Checking, Syncing, Synced, UpToDate, Conflict, NeedsAccount, Unsupported, Failed };
+struct LiveCloudGame {
+    GameId game_id = 0;
+    CloudStatus status = CloudStatus::None;
+    std::string message;
+    std::size_t local_files = 0;
+    std::size_t remote_files = 0;
+    std::uint64_t local_bytes = 0;
+    std::uint64_t remote_bytes = 0;
+    std::int64_t local_latest = 0;
+    std::int64_t remote_latest = 0;
+};
+enum class CloudRequestKind { Sync, UseLocal, UseCloud, ConfirmAccount };
+struct CloudRequest {
+    CloudRequestKind kind = CloudRequestKind::Sync;
+    GameId game_id = 0;
+};
 enum class Compatibility { Untested, Works, Playable, Broken };
 enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, Profile, Status, Separator };
 
@@ -267,6 +285,7 @@ struct State {
     std::vector<Job> jobs;
     std::vector<Volume> volumes;
     std::string default_volume_id;  // live: where new installs go
+    std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
     std::vector<Profile> profiles;
     Navigation navigation;
     EditorState editor;
@@ -348,6 +367,9 @@ public:
     // Live mode: requests for the real install service, and its state for display.
     [[nodiscard]] std::vector<InstallRequest> TakeInstallRequests();
     void UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed);
+    // Live mode: Steam Cloud save requests for the cloud service, and its state for display.
+    [[nodiscard]] std::vector<CloudRequest> TakeCloudRequests();
+    void UpdateCloud(const std::vector<LiveCloudGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
@@ -410,6 +432,7 @@ private:
     std::set<GameId> live_installed_ids_;
     std::set<GameId> pending_uninstalls_;
     std::filesystem::path log_directory_;
+    std::vector<CloudRequest> pending_cloud_requests_;
     std::string live_log_topic_;
     GameId live_log_game_ = 0;
 

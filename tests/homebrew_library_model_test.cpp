@@ -473,6 +473,64 @@ void live_log_viewer() {
     std::filesystem::remove_all(directory);
 }
 
+void live_cloud_saves() {
+    using playden::homebrew::CloudRequestKind;
+    using playden::homebrew::CloudStatus;
+    auto model = make_live();
+    model.SetWallClock(10 * 86'400);
+    model.UpdateAccount({AuthState::SignedIn, "123", "Player", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Saved Game"), game(43, "Not Installed")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{42, 100, "internal", true}});
+
+    check(model.action("details:43") && model.UpdateAppDetails(43, 1, 2, true) && !has_row(model, "details-cloud"),
+          "a game that is not installed has no Cloud saves row");
+    check(model.action("details:42"), "installed game opens");
+    const auto* saves = find_row(model, "details-cloud");
+    check(saves && saves->enabled && saves->action == "cloud-sync" && saves->value == "Sync", "an installed game offers Cloud saves");
+    activate(model, "details-cloud");
+    auto requests = model.TakeCloudRequests();
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::Sync && requests[0].game_id == 42, "Cloud saves asks for a sync");
+
+    model.UpdateCloud({{42, CloudStatus::Checking, "Checking Steam Cloud…"}});
+    saves = find_row(model, "details-cloud");
+    check(saves && !saves->enabled && saves->value == "Checking…", "a running sync cannot be started twice");
+    model.UpdateCloud({{42, CloudStatus::Synced, "2 saves downloaded"}});
+    saves = find_row(model, "details-cloud");
+    check(saves && saves->enabled && saves->value == "Synced" && saves->subtitle == "2 saves downloaded", "a finished sync says what moved");
+    const auto* synced = find_notice(model, "cloud-42");
+    check(synced && synced->message == "Cloud saves synced" && synced->detail == "Saved Game · 2 saves downloaded", "a sync is announced");
+
+    // A conflict opens a dialog describing both sides; the choice goes to the service.
+    model.UpdateCloud({{42, CloudStatus::Conflict, "Saves here and in Steam Cloud both changed.", 2, 3, 2'048, 4'096,
+                        9 * 86'400, 10 * 86'400}});
+    check(find_notice(model, "cloud-42")->message == "Cloud saves need a choice", "a pending choice is announced");
+    saves = find_row(model, "details-cloud");
+    check(saves && saves->action == "cloud-choose" && saves->value == "Choose", "a conflict asks for a choice");
+    activate(model, "details-cloud");
+    const auto& modal = model.state().navigation.modals.back();
+    check(modal.id == "confirmation" && modal.body.find("Steam Cloud: 3 files") != std::string::npos
+              && modal.body.find("This console: 2 files") != std::string::npos
+              && modal.body.find("changed yesterday") != std::string::npos,
+          "the choice dialog describes both sides");
+    check(has_row(model, "cloud-use-cloud") && has_row(model, "cloud-use-local"), "both choices are offered");
+    activate(model, "cloud-use-local");
+    requests = model.TakeCloudRequests();
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::UseLocal && model.state().navigation.modals.empty(),
+          "choosing local saves goes to the service and closes the dialog");
+
+    // Uploads for an account Playden has not synced before need its confirmation.
+    model.UpdateCloud({{42, CloudStatus::NeedsAccount, "Confirm this Steam account."}});
+    activate(model, "details-cloud");
+    check(model.state().navigation.modals.back().body.find("Player") != std::string::npos && has_row(model, "cloud-confirm-account"),
+          "the account dialog names the signed-in account");
+    activate(model, "cloud-confirm-account");
+    requests = model.TakeCloudRequests();
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::ConfirmAccount, "confirming goes to the service");
+
+    model.UpdateCloud({{42, CloudStatus::Failed, "Steam is not reachable. Try again."}});
+    check(find_notice(model, "cloud-42")->failure && find_row(model, "details-cloud")->value == "Retry", "a failure can be retried");
+}
+
 void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
@@ -551,6 +609,7 @@ int main() {
     live_install_volumes();
     live_install_notifications();
     live_log_viewer();
+    live_cloud_saves();
     live_filters_only_use_available_facts();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();

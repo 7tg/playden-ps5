@@ -5,7 +5,9 @@
 #include "app/persistence_controller.h"
 #include "steam/app_details_service.h"
 #include "steam/install_service.h"
+#include "steam/cloud_service.h"
 #include <chrono>
+#include <map>
 #include <memory>
 #include <optional>
 
@@ -16,7 +18,8 @@ class Controller {
  public:
   Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
              LibraryService* library_service = nullptr, app::PersistenceService* persistence_service = nullptr,
-             steam::AppDetailsService* app_details = nullptr, steam::InstallService* installs = nullptr);
+             steam::AppDetailsService* app_details = nullptr, steam::InstallService* installs = nullptr,
+             steam::CloudService* cloud = nullptr);
   ~Controller();
   void Tick();
   void Shutdown();
@@ -35,11 +38,16 @@ class Controller {
               const std::string& challenge = {});
   void TickAppDetails();
   void TickInstalls();
+  void TickCloud();
   Simulation& model_;
   steam::AppDetailsService* app_details_ = nullptr;
   steam::InstallService* installs_ = nullptr;
   std::uint64_t install_revision_ = 0;
   std::uint64_t install_generation_ = 0;
+  steam::CloudService* cloud_ = nullptr;
+  std::uint64_t cloud_revision_ = 0;
+  std::map<GameId, std::string> game_roots_;  // installed games' folders, for Steam Cloud
+  std::string saves_root_;                    // per-game save state folders, on the primary drive
   std::chrono::steady_clock::time_point volume_refreshed_at_{};
   std::optional<GameId> requested_detail_;
   std::uint64_t requested_generation_ = 0;

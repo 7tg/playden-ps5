@@ -6,8 +6,9 @@
 namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
                        LibraryService* library_service, app::PersistenceService* persistence_service,
-                       steam::AppDetailsService* app_details, steam::InstallService* installs)
-    : model_(model), app_details_(app_details), installs_(installs), library_service_(library_service) {
+                       steam::AppDetailsService* app_details, steam::InstallService* installs,
+                       steam::CloudService* cloud)
+    : model_(model), app_details_(app_details), installs_(installs), cloud_(cloud), library_service_(library_service) {
   if (model_.state().simulation_mode) return;
   if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
   service_ = std::make_unique<steam::SteamService>(backend,repository);
@@ -32,6 +33,7 @@ void Controller::Shutdown() {
   if(persistence_) { persistence_->FlushAndShutdown();AdvanceOrganizationClear(); }
   if(app_details_) app_details_->Shutdown();
   if(installs_) installs_->Shutdown();
+  if(cloud_) cloud_->Shutdown();
   service_.reset();
   persistence_.reset();
   library_.reset();
@@ -129,6 +131,44 @@ void Controller::Tick() {
   if(persistence_) { persistence_->Tick();AdvanceOrganizationClear(); }
   TickAppDetails();
   TickInstalls();
+  TickCloud();
+}
+void Controller::TickCloud() {
+  if (!cloud_) return;
+  for (const auto& request : model_.TakeCloudRequests()) {
+    const auto root = game_roots_.find(request.game_id);
+    if (root == game_roots_.end() || saves_root_.empty()) continue;  // only installed games sync
+    const steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
+    switch (request.kind) {
+      case CloudRequestKind::Sync: cloud_->Sync(location); break;
+      case CloudRequestKind::UseLocal: cloud_->Resolve(location, steam::CloudResolution::kUseLocal, true); break;
+      case CloudRequestKind::UseCloud: cloud_->Resolve(location, steam::CloudResolution::kUseCloud, true); break;
+      case CloudRequestKind::ConfirmAccount: cloud_->Resolve(location, steam::CloudResolution::kAutomatic, true); break;
+    }
+  }
+  const auto snapshot = cloud_->Snapshot();
+  if (snapshot.revision == cloud_revision_) return;
+  cloud_revision_ = snapshot.revision;
+  std::vector<LiveCloudGame> games;
+  for (const auto& game : snapshot.games) {
+    CloudStatus status = CloudStatus::None;
+    switch (game.report.state) {
+      case steam::CloudState::kIdle: status = CloudStatus::None; break;
+      case steam::CloudState::kChecking: status = CloudStatus::Checking; break;
+      case steam::CloudState::kSyncing: status = CloudStatus::Syncing; break;
+      case steam::CloudState::kSynced: status = CloudStatus::Synced; break;
+      case steam::CloudState::kUpToDate: status = CloudStatus::UpToDate; break;
+      case steam::CloudState::kConflict: status = CloudStatus::Conflict; break;
+      case steam::CloudState::kNeedsAccount: status = CloudStatus::NeedsAccount; break;
+      case steam::CloudState::kUnsupported: status = CloudStatus::Unsupported; break;
+      case steam::CloudState::kFailed: status = CloudStatus::Failed; break;
+    }
+    const auto& report = game.report;
+    games.push_back({game.id, status, report.message, report.local_files, report.remote_files, report.local_bytes,
+                     report.remote_bytes, static_cast<std::int64_t>(report.local_latest),
+                     static_cast<std::int64_t>(report.remote_latest)});
+  }
+  model_.UpdateCloud(games);
 }
 void Controller::TickInstalls() {
   if (!installs_) return;
@@ -143,6 +183,10 @@ void Controller::TickInstalls() {
     }
   }
   const auto snapshot = installs_->Snapshot();
+  game_roots_.clear();
+  for (const auto& game : snapshot.installed)
+    if (game.available) game_roots_[game.id] = game.root;
+  if (!snapshot.volumes.empty()) saves_root_ = snapshot.volumes.front().games_root + "/.playden-saves";
   // Free space changes outside Playden too, so volumes refresh every few seconds as well.
   const auto now = std::chrono::steady_clock::now();
   const bool account_changed = model_.state().account_generation != install_generation_;
