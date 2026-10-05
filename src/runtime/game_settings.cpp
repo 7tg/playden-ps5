@@ -61,6 +61,12 @@ std::vector<SettingDefinition> BuildCatalogue() {
   list.push_back(Choice("performance_overlay", "Performance overlay", "Frame rate in the corner of the screen.",
                         "DXVK HUD · [display] show_fps", T::kBasic,
                         {{"off", "Off", ""}, {"on", "On", "Shows frames per second."}}, "off"));
+  list.push_back(Choice("overlay_detail", "Overlay detail", "What the performance overlay shows.", "dxvk.hud",
+                        T::kBasic,
+                        {{"fps", "Frame rate", ""},
+                         {"frametimes", "Frame rate and frame times", "Adds a graph of how long each frame took."},
+                         {"full", "Everything", "Also memory, GPU load and the DXVK version."}},
+                        "fps", 2));
   list.push_back(Text("extra_arguments", "Extra arguments", "Added after the arguments the recipe needs.",
                       "[application] arguments", T::kBasic));
   list.push_back(Choice("frame_limit", "Frame limit", "Caps the frame rate for steadier motion and less heat.",
@@ -191,6 +197,12 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   if (id == "windows_version" && !kit.registry) return "Needs a runtime update.";
   if (id == "environment" && !kit.environment) return "Needs a prospero-win update that reads [environment].";
   if (id == "performance_overlay" && graphics == "gdi") return "Only available with DXVK or OpenGL.";
+  if (id == "overlay_detail") {
+    if (!dxvk) return "Only available with DXVK.";
+    if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
+    const auto overlay = values.find("performance_overlay");
+    if (overlay == values.end() || overlay->second.value != "on") return "Turn the performance overlay on first.";
+  }
   if (id == "scaling" && dxvk) return "Not available with DXVK output yet.";
   if ((id == "refresh" || id == "opengl_thread") && graphics != "opengl") return "Only available with OpenGL.";
   if (id == "pointer_speed") {
@@ -391,7 +403,10 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   text += "desktop = " + value("resolution") + "\n";
   if (settings.values.at("scaling").available) text += "scaling = " + value("scaling") + "\n";
   text += "view = " + value("window_view") + "\n";
-  text += std::string("show_fps = ") + on("performance_overlay") + "\n";
+  // With a kit that reads dxvk.conf, a DXVK game's overlay is dxvk.hud there; the title's
+  // own DXVK_HUD=fps would override it, so show_fps stays false.
+  const bool hud_in_config = settings.values.at("overlay_detail").available;
+  text += std::string("show_fps = ") + (hud_in_config ? "false" : on("performance_overlay")) + "\n";
   if (settings.graphics == "opengl") {
     text += "refresh = " + value("refresh") + "\n";
     text += std::string("opengl_thread = ") + on("opengl_thread") + "\n";
@@ -452,6 +467,12 @@ std::string RenderDxvkConfig(const EffectiveSettings& settings) {
   const auto& latency = option("frame_latency");
   if (latency.available && latency.value != "game")
     text += "dxgi.maxFrameLatency = " + latency.value + "\nd3d9.maxFrameLatency = " + latency.value + "\n";
+  const auto& detail = option("overlay_detail");
+  if (detail.available) {
+    const char* elements = detail.value == "full" ? "fps,frametimes,memory,gpuload,version"
+                           : detail.value == "frametimes" ? "fps,frametimes" : "fps";
+    text += std::string("dxvk.hud = ") + elements + "\n";
+  }
   const auto& vram = option("reported_vram");
   if (vram.available && vram.value != "game") text += "dxgi.maxDeviceMemory = " + vram.value + "\n";
   if (text.empty()) return text;

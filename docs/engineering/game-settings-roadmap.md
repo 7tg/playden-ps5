@@ -136,10 +136,15 @@ write `[display]`, `[input]`, `[debug]` or `dll_overrides`.
 
 ### Decisions needed
 
+- **D1, overlay detail — decided (a), checked on the console** (frame-time graph shown from
+  `dxvk.hud` with `show_fps = false`; see the probe record).
+  Original options:
 - **D1, overlay detail.** (a) Playden writes `dxvk.hud` into `dxvk.conf` and writes
   `show_fps=false`. No upstream change, but the overlay then depends on the
   `dxvk.conf` route. (b) prospero-win accepts an element list for `show_fps`, which is
   cleaner and needs an upstream change. Recommendation: (a) for DXVK, keep `show_fps` for OpenGL.
+- **D2, registry overlays — decided (b): Playden edits the stopped bottle's registry.**
+  Original options:
 - **D2, registry overlays.** (a) prospero-win owns a registry overlay tool, which
   the catalogue assumes. One owner of the `.reg` format, but an upstream dependency.
   (b) Playden edits the stopped bottle's `user.reg`/`system.reg` itself, since it

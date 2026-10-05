@@ -35,3 +35,15 @@ Result: VSync stays disabled in Game settings with the reason "The PS5 display p
 at 60 Hz; VSync cannot be turned off yet." Frame latency and reported VRAM were not
 observable here (prospero-win session logs do not show DXVK's config lines), so those rows
 stay disabled until a check proves an effect.
+
+## Overlay detail through dxvk.hud (21:39–21:41)
+
+- Temporarily added `show_fps = false` to `/data/prospero-win/profiles/playden-steam-220.profile`
+  (original SHA-256 `014fc1af…4ff3`) and uploaded `dxvk-hud.conf` (`dxvk.hud = fps,frametimes`)
+  as the HL2 `dxvk.conf`.
+- The HL2 menu showed the FPS counter and DXVK's frame-time graph (`hud-frametimes.jpg`), so
+  `dxvk.hud` drives the overlay when prospero-win does not set `DXVK_HUD`.
+- Restored the original profile (read back, same SHA-256) and deleted `dxvk.conf`. Claim released.
+
+Result: decision D1 (a) works. Playden writes the DXVK overlay into dxvk.conf and keeps
+`show_fps = false` for DXVK games when the kit reads dxvk.conf.

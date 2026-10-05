@@ -145,6 +145,19 @@ int main(int argc, char** argv) {
   CHECK(config.find("d3d9.maxFrameLatency = 1\n") != std::string::npos);
   CHECK(config.find("dxgi.maxDeviceMemory = 4096\n") != std::string::npos);
 
+  // With dxvk.conf, a DXVK overlay is written as dxvk.hud and show_fps stays false.
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"performance_overlay", "on"}, {"overlay_detail", "frametimes"}}, dxvk_kit,
+                               &settings, &error));
+  CHECK(RenderDxvkConfig(settings).find("dxvk.hud = fps,frametimes\n") != std::string::npos);
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("show_fps = false\n") != std::string::npos);
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"overlay_detail", "full"}}, dxvk_kit, &settings, &error));
+  CHECK(!settings.values.at("overlay_detail").available);   // overlay off
+  CHECK(RenderDxvkConfig(settings).find("dxvk.hud") == std::string::npos);
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"performance_overlay", "on"}}, KitCapabilities{}, &settings, &error));
+  CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+  CHECK(profile.text.find("show_fps = true\n") != std::string::npos);  // no dxvk.conf: the title's HUD
+
   // OpenGL games get refresh and the worker thread; GDI cannot show the overlay.
   auto opengl = hl2;
   opengl.graphics = "opengl";
