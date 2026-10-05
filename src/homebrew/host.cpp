@@ -6,6 +6,7 @@
 #include "homebrew/artwork_backend.hpp"
 #include "homebrew/simulation.hpp"
 #include "homebrew/controller.hpp"
+#include "steam/install_volumes.h"
 #include "homebrew/input_adapter.hpp"
 #include "homebrew/json.hpp"
 
@@ -41,6 +42,7 @@ struct Options {
     std::string scenario;
     std::filesystem::path profile = PLAYDEN_HOMEBREW_DEFAULT_PROFILE;
     std::filesystem::path data_directory = PLAYDEN_HOMEBREW_DEFAULT_DATA_DIR;
+    std::vector<std::filesystem::path> extra_volumes;  // more drives for installs (--extra-volume)
     std::filesystem::path replay;
     std::filesystem::path capture;
     std::filesystem::path snapshot;
@@ -55,7 +57,7 @@ struct Options {
 void usage(const char* executable) {
     std::fprintf(stderr,
                  "usage: %s [--simulation] [--scenario ID] [--profile PATH] [--replay PATH]\n"
-                 "          [--data-dir PATH]\n"
+                 "          [--data-dir PATH] [--extra-volume PATH]...\n"
                  "          [--capture PATH.png] [--snapshot PATH|-] [--record-dir PATH] [--headless]\n"
                  "          [--width PX] [--height PX] [--record-motion]\n",
                  executable);
@@ -107,6 +109,8 @@ std::optional<Options> parse_options(int argc, char** argv) {
             options.simulation = true;
         } else if (option == "--data-dir")
             options.data_directory = argument;
+        else if (option == "--extra-volume")
+            options.extra_volumes.emplace_back(argument);
         else if (option == "--capture")
             options.capture = argument;
         else if (option == "--snapshot")
@@ -452,8 +456,16 @@ int main(int argc, char** argv) {
         install_cdn = std::make_unique<playden::steam::CdnClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
         install_runner = std::make_unique<playden::steam::SteamInstallRunner>(*install_cm, *install_cdn);
         install_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        std::vector<playden::steam::VolumeCandidate> candidates = {
+            {playden::steam::InstallService::kPrimaryVolumeId, "Mac storage", options->data_directory.string(),
+             (options->data_directory / "games").string()}};
+        for (std::size_t index = 0; index < options->extra_volumes.size(); ++index) {
+            const auto& mount = options->extra_volumes[index];
+            candidates.push_back({"extra" + std::to_string(index + 1), "Extra drive " + std::to_string(index + 1),
+                                  mount.string(), (mount / "playden" / "games").string()});
+        }
         installs = std::make_unique<playden::steam::InstallService>(*install_runner, *install_sessions,
-                                                                    (options->data_directory / "games").string());
+                                                                    playden::steam::DiscoverInstallVolumes(candidates));
         services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get());
     }
 

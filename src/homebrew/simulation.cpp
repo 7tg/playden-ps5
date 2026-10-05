@@ -459,15 +459,55 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         job.completed_bytes = live_job.done_bytes;
         job.total_bytes = live_job.total_bytes;
         job.failure = live_job.failure;
-        job.volume_id = "internal";
+        job.volume_id = live_job.volume_id;
         projected.push_back(std::move(job));
     }
     std::vector<Installation> installations;
     for (const auto& game : installed)
-        installations.push_back({game.game_id, "internal", game.install_bytes, true, false, false});
+        installations.push_back({game.game_id, game.volume_id, game.install_bytes, game.available, false, false});
     state_.jobs = std::move(projected);
     state_.installations = std::move(installations);
+    apply_live_volume_usage();
     rebuild_view();
+}
+
+void Simulation::UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id) {
+    if (!live()) return;
+    std::vector<Volume> projected;
+    for (const auto& live_volume : volumes) {
+        Volume volume;
+        volume.id = live_volume.id;
+        volume.label = live_volume.label;
+        volume.available = live_volume.available;
+        volume.writable = live_volume.available;
+        volume.capacity_known = live_volume.total_bytes.has_value() && live_volume.free_bytes.has_value();
+        if (volume.capacity_known) {
+            volume.capacity_bytes = *live_volume.total_bytes;
+            volume.base_used_bytes = *live_volume.total_bytes - std::min(*live_volume.free_bytes, *live_volume.total_bytes);
+        }
+        projected.push_back(std::move(volume));
+    }
+    state_.volumes = std::move(projected);
+    selected_volume_id_ = default_volume_id;
+    state_.default_volume_id = default_volume_id;
+    apply_live_volume_usage();
+    rebuild_view();
+}
+
+// Live volumes: used space is what the drive reports (or, without a report, the finished installs
+// on it); reserved space is what queued and running downloads still need.
+void Simulation::apply_live_volume_usage() {
+    for (auto& volume : state_.volumes) {
+        volume.games_bytes = 0;
+        volume.reserved_bytes = 0;
+        for (const auto& installation : state_.installations)
+            if (installation.volume_id == volume.id) volume.games_bytes += installation.installed_bytes;
+        for (const auto& job : state_.jobs)
+            if (job.volume_id == volume.id && job.total_bytes > job.completed_bytes)
+                volume.reserved_bytes += job.total_bytes - job.completed_bytes;
+        volume.used_bytes = volume.capacity_known ? volume.base_used_bytes : volume.games_bytes;
+        if (volume.capacity_known) volume.reserved_bytes = std::min(volume.reserved_bytes, volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes));
+    }
 }
 
 void Simulation::queue_service_action(ServiceAction action) {
@@ -1718,7 +1758,10 @@ void Simulation::rebuild_view() {
                 if (const auto* volume = find_volume(state_, action_key.substr(7))) {
                     item.title = volume->label;
                     const auto occupied = std::min(volume->capacity_bytes, volume->used_bytes + volume->reserved_bytes);
-                    item.value = std::to_string((volume->capacity_bytes - occupied) / (1024U * 1024U * 1024U)) + " GiB free";
+                    if (volume->capacity_known)
+                        item.value = std::to_string((volume->capacity_bytes - occupied) / (1024U * 1024U * 1024U)) + " GiB free";
+                    else
+                        item.value = format_bytes(volume->games_bytes) + " in games";
                     item.subtitle = !volume->available ? "Disconnected" : !volume->writable ? "Read-only" : "Available";
                     item.enabled = volume->available && volume->writable;
                     item.selected = volume->id == selected_volume_id_;
@@ -1876,7 +1919,8 @@ void Simulation::rebuild_view() {
         view_.title = game ? game->title : "Game unavailable";
         view_.subtitle = game ? game->description : "The selected fixture no longer exists.";
         Installation* installation = game ? find_installation(state_, game->id) : nullptr;
-        const bool installed = installation && installation->installed_bytes > 0;
+        // Live installations are only finished installs; their size may be unknown on an absent drive.
+        const bool installed = installation && (live() || installation->installed_bytes > 0);
         if (!live()) {
             auto& primary = row(installed ? "details-play" : "details-install", RowKind::Action,
                                 installed ? (installation->runtime_ready ? "Play" : "Runtime unavailable") : "Install",
@@ -1887,13 +1931,21 @@ void Simulation::rebuild_view() {
             // Real install state: an install job, a finished install, or what Steam allows.
             const auto* job = find_job(state_, std::to_string(game->id));
             if (installed) {
-                row("details-installed", RowKind::Status, "Installed", "").value = format_bytes(installation->installed_bytes);
+                const auto* volume = find_volume(state_, installation->volume_id);
+                const std::string label = volume ? volume->label : "its storage";
+                auto& status = row("details-installed", RowKind::Status,
+                                   installation->available ? "Installed" : "Storage disconnected", "");
+                status.value = installation->installed_bytes > 0 ? format_bytes(installation->installed_bytes) : "";
+                status.subtitle = installation->available ? "On " + label : "Connect " + label + " to use this game";
             } else if (job) {
                 auto& status = row("details-download", RowKind::Action, "Download", "open-downloads");
                 status.value = job_state_name(job->state);
                 status.progress = job->total_bytes == 0 ? 0.0F : static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
             } else if (game->windows_installable.value_or(false)) {
-                row("details-install", RowKind::Action, "Install", "live-install").value = format_bytes(game->download_bytes.value_or(0));
+                auto& install = row("details-install", RowKind::Action, "Install", "live-install");
+                install.value = format_bytes(game->download_bytes.value_or(0));
+                if (state_.volumes.size() > 1)
+                    if (const auto* volume = find_volume(state_, selected_volume_id_)) install.subtitle = "To " + volume->label;
             } else if (game->windows_installable.has_value()) {
                 row("details-unavailable", RowKind::Status, "No Windows version to install", "").enabled = false;
             } else {
@@ -1928,8 +1980,14 @@ void Simulation::rebuild_view() {
         view_.title = "Settings";
         if (live()) view_.subtitle = state_.account.error;
         row("settings-account", RowKind::Action, "Account", "account").value = state_.account.display_name;
-        auto& storage = row("settings-storage", live() ? RowKind::Status : RowKind::Action, "Library and storage", live() ? "" : "storage-manager");
-        if (live()) { storage.subtitle = "Available after library integration"; storage.enabled = false; }
+        auto& storage = row("settings-storage", RowKind::Action, "Library and storage", "storage-manager");
+        if (live()) {
+            const auto* volume = find_volume(state_, selected_volume_id_);
+            storage.title = "Games storage";
+            storage.value = volume ? volume->label : "";
+            storage.subtitle = "Where new games are installed";
+            if (state_.volumes.empty()) { storage.kind = RowKind::Status; storage.action.clear(); storage.enabled = false; storage.subtitle = "Storage is unavailable"; }
+        }
         row("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion").selected = state_.reduced_motion;
         row("settings-controller", RowKind::Action, "Controller", "controller-test").value = state_.controller_connected ? "Connected" : "Disconnected";
         auto& runtime = row("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
@@ -2241,7 +2299,18 @@ void Simulation::activate() {
         actions.push_back("cancel");
         open_modal({"storage", "Choose storage", state_.navigation.focus_key, std::move(actions), 0, false});
     } else if (action_name.rfind("volume-", 0) == 0) {
-        selected_volume_id_ = action_name.substr(7);
+        const auto id = action_name.substr(7);
+        if (live()) {
+            // The install service owns the choice; reflect it now and let its next snapshot confirm.
+            const auto* volume = find_volume(state_, id);
+            if (volume && volume->available && id != selected_volume_id_) {
+                pending_install_requests_.push_back({InstallRequestKind::SetDefaultVolume, 0, id});
+                selected_volume_id_ = id;
+                state_.default_volume_id = id;
+            }
+        } else {
+            selected_volume_id_ = id;
+        }
         close_modal();
     } else if (action_name == "install-confirm") {
         const auto assessment = assess_install(state_, state_.navigation.selected_game_id, selected_volume_id_);

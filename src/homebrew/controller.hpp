@@ -5,6 +5,7 @@
 #include "app/persistence_controller.h"
 #include "steam/app_details_service.h"
 #include "steam/install_service.h"
+#include <chrono>
 #include <memory>
 #include <optional>
 
@@ -38,6 +39,8 @@ class Controller {
   steam::AppDetailsService* app_details_ = nullptr;
   steam::InstallService* installs_ = nullptr;
   std::uint64_t install_revision_ = 0;
+  std::uint64_t install_generation_ = 0;
+  std::chrono::steady_clock::time_point volume_refreshed_at_{};
   std::optional<GameId> requested_detail_;
   std::uint64_t requested_generation_ = 0;
   std::unique_ptr<steam::SteamService> service_;

@@ -1429,10 +1429,24 @@ class Render::Impl
             const float reserved = volume.capacity_bytes == 0 ? 0.0F :
                 static_cast<float>(volume.reserved_bytes) / static_cast<float>(volume.capacity_bytes);
             ui::text(scene_, fonts_.display, volume.label, 1200.0F, y, 29.0F, kText);
+            const bool is_default = !state.simulation_mode && volume.id == state.default_volume_id;
             ui::text(scene_, fonts_.regular,
-                     volume.available ? (volume.writable ? "Available" : "Read only") : "Disconnected",
+                     volume.available ? (volume.writable ? (is_default ? "Default · Available" : "Available") : "Read only")
+                                      : "Disconnected",
                      1784.0F, y, 21.0F, volume.available && volume.writable ? kSecondary : kAmber,
                      gfx::Align::right);
+            if (!volume.capacity_known)
+            {
+                // The console cannot report drive capacity to the title: show what Playden knows.
+                ui::text(scene_, fonts_.regular, "Used by games  " + byte_count(volume.games_bytes),
+                         1200.0F, y + 46.0F, 18.0F, kSecondary);
+                ui::text(scene_, fonts_.regular, "Reserved by queue  " + byte_count(volume.reserved_bytes),
+                         1200.0F, y + 76.0F, 18.0F, kSecondary);
+                ui::text(scene_, fonts_.regular, "Free space is not reported on this console",
+                         1200.0F, y + 106.0F, 18.0F, kMuted);
+                y += 192.0F;
+                continue;
+            }
             const float bar_x = 1200.0F;
             const float bar_y = y + 28.0F;
             const float bar_w = 584.0F;

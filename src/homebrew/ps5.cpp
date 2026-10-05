@@ -5,6 +5,7 @@
 #include "homebrew/artwork_backend.hpp"
 #include "homebrew/simulation.hpp"
 #include "homebrew/controller.hpp"
+#include "steam/install_volumes.h"
 #include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
 #include "steam/backend/auth_client.h"
@@ -169,7 +170,8 @@ int main() {
             }
         });
         playden::LocalSessionRepository install_sessions("/app0/playden-data");
-        playden::steam::InstallService installs(install_runner, install_sessions, "/app0/games");
+        playden::steam::InstallService installs(install_runner, install_sessions,
+            playden::steam::DiscoverInstallVolumes(playden::steam::ConsoleVolumeCandidates()));
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs);
 #endif
 #if PLAYDEN_UI_SIMULATION

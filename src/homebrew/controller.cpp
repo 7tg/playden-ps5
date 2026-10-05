@@ -1,5 +1,6 @@
 #include "homebrew/controller.hpp"
 #include "diagnostics/redaction.h"
+#include "steam/install_volumes.h"
 #include <chrono>
 
 namespace playden::homebrew {
@@ -138,11 +139,35 @@ void Controller::TickInstalls() {
       case InstallRequestKind::Resume: installs_->Resume(request.game_id); break;
       case InstallRequestKind::Cancel: installs_->Cancel(request.game_id); break;
       case InstallRequestKind::Uninstall: installs_->Uninstall(request.game_id); break;
+      case InstallRequestKind::SetDefaultVolume: installs_->SetDefaultVolume(request.volume_id); break;
     }
   }
   const auto snapshot = installs_->Snapshot();
-  if (snapshot.revision == install_revision_) return;
+  // Free space changes outside Playden too, so volumes refresh every few seconds as well.
+  const auto now = std::chrono::steady_clock::now();
+  const bool account_changed = model_.state().account_generation != install_generation_;
+  const bool space_due = now - volume_refreshed_at_ >= std::chrono::seconds(10);
+  if (snapshot.revision == install_revision_ && !account_changed && !space_due) return;
+  {
+    std::vector<LiveVolume> volumes;
+    for (const auto& volume : snapshot.volumes) {
+      LiveVolume live{volume.id, volume.label, volume.available, std::nullopt, std::nullopt};
+      if (volume.available) {
+        auto space = steam::QueryVolumeSpace(volume.games_root);
+        if (!space) {
+          const auto slash = volume.games_root.find_last_of('/');
+          if (slash != std::string::npos && slash > 0) space = steam::QueryVolumeSpace(volume.games_root.substr(0, slash));
+        }
+        if (space) { live.total_bytes = space->total_bytes; live.free_bytes = space->free_bytes; }
+      }
+      volumes.push_back(std::move(live));
+    }
+    model_.UpdateVolumes(volumes, snapshot.default_volume_id);
+    volume_refreshed_at_ = now;
+  }
+  if (snapshot.revision == install_revision_ && !account_changed) return;
   install_revision_ = snapshot.revision;
+  install_generation_ = model_.state().account_generation;
   std::vector<LiveInstallJob> jobs;
   for (const auto& job : snapshot.jobs) {
     JobState state = JobState::Queued;
@@ -152,10 +177,10 @@ void Controller::TickInstalls() {
       case steam::InstallJobState::kPaused: state = JobState::Paused; break;
       case steam::InstallJobState::kFailed: state = JobState::Failed; break;
     }
-    jobs.push_back({job.id, state, job.done_bytes, job.total_bytes, job.failure});
+    jobs.push_back({job.id, state, job.done_bytes, job.total_bytes, job.failure, job.volume_id});
   }
   std::vector<LiveInstalledGame> installed;
-  for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes});
+  for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes, game.volume_id, game.available});
   model_.UpdateInstalls(jobs, installed);
 }
 void Controller::TickAppDetails() {

@@ -13,6 +13,8 @@ namespace {
 constexpr const char* kRecord = ".playden-install.json";
 constexpr const char* kJournal = ".playden-download";
 constexpr const char* kRegistry = ".playden-games";
+constexpr const char* kDefaultVolume = ".playden-default-volume";
+constexpr const char* kVolumeUnavailable = "The game's storage is not available.";
 
 bool Exists(const std::string& path) {
   struct stat info {};
@@ -34,43 +36,121 @@ std::uint64_t RecordedBytes(const std::string& record_path) {
   return value;
 }
 
+// Volume ids are short identifiers written into the registry; anything else is refused.
+bool ValidVolumeId(std::string_view id) {
+  if (id.empty() || id.size() > 32) return false;
+  for (const char value : id)
+    if (!((value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') || value == '-' || value == '_')) return false;
+  return true;
+}
+
+struct RegistryEntry {
+  GameId id = 0;
+  std::string volume_id;
+  std::uint64_t install_bytes = 0;
+};
+
+// One line per game: "<app id>" (legacy, primary volume) or "<app id>\t<volume id>\t<install bytes>".
+std::optional<RegistryEntry> ParseRegistryLine(std::string_view line) {
+  RegistryEntry entry;
+  const auto first_tab = line.find('\t');
+  const auto id_text = line.substr(0, first_tab);
+  const auto parsed = std::from_chars(id_text.data(), id_text.data() + id_text.size(), entry.id);
+  if (parsed.ec != std::errc{} || parsed.ptr != id_text.data() + id_text.size() || entry.id == 0) return std::nullopt;
+  if (first_tab == std::string_view::npos) return entry;
+  const auto rest = line.substr(first_tab + 1);
+  const auto second_tab = rest.find('\t');
+  const auto volume = rest.substr(0, second_tab);
+  if (!ValidVolumeId(volume)) return std::nullopt;
+  entry.volume_id = std::string(volume);
+  if (second_tab != std::string_view::npos) {
+    const auto bytes = rest.substr(second_tab + 1);
+    std::from_chars(bytes.data(), bytes.data() + bytes.size(), entry.install_bytes);
+  }
+  return entry;
+}
+
 }  // namespace
 
 InstallService::InstallService(InstallRunner& runner, SessionRepository& sessions, std::string games_root)
-    : runner_(runner), sessions_(sessions), games_root_(std::move(games_root)) {
+    : InstallService(runner, sessions, std::vector<InstallVolume>{{kPrimaryVolumeId, "Console storage", std::move(games_root), true}}) {}
+
+InstallService::InstallService(InstallRunner& runner, SessionRepository& sessions, std::vector<InstallVolume> volumes)
+    : runner_(runner), sessions_(sessions), volumes_(std::move(volumes)) {
+  if (volumes_.empty()) volumes_.push_back({kPrimaryVolumeId, "Console storage", "games", true});
+  volumes_.front().available = true;
+  default_volume_id_ = volumes_.front().id;
   Scan();
   worker_ = std::thread([this] { Run(); });
 }
 
 InstallService::~InstallService() { Shutdown(); }
 
-std::string InstallService::RootFor(GameId id) const { return games_root_ + "/" + std::to_string(id); }
+const InstallVolume* InstallService::FindVolume(const std::string& id) const {
+  for (const auto& volume : volumes_)
+    if (volume.id == id) return &volume;
+  return nullptr;
+}
 
-// The games root keeps a registry of app IDs Playden manages; directory listing is avoided because
-// the console's readdir did not return entries reliably.
+std::string InstallService::RootOn(const std::string& volume_id, GameId id) const {
+  const auto* volume = FindVolume(volume_id);
+  return volume ? volume->games_root + "/" + std::to_string(id) : std::string();
+}
+
+std::string InstallService::LockedRootFor(GameId id) const {
+  for (const auto& job : jobs_)
+    if (job.view.id == id) return RootOn(job.view.volume_id, id);
+  for (const auto& game : installed_)
+    if (game.id == id) return RootOn(game.volume_id, id);
+  return RootOn(default_volume_id_, id);
+}
+
+std::string InstallService::RootFor(GameId id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return LockedRootFor(id);
+}
+
+// The primary volume keeps a registry of app IDs Playden manages and the volume of each;
+// directory listing is avoided because the console's readdir did not return entries reliably.
 void InstallService::Scan() {
-  std::vector<GameId> ids;
-  if (FILE* registry = std::fopen((games_root_ + "/" + kRegistry).c_str(), "r")) {
-    char line[64];
-    while (std::fgets(line, sizeof(line), registry) && ids.size() < kMaxJobs * 4) {
-      std::uint32_t id = 0;
+  const auto& primary = volumes_.front().games_root;
+  std::vector<RegistryEntry> entries;
+  if (FILE* registry = std::fopen((primary + "/" + kRegistry).c_str(), "r")) {
+    char line[128];
+    while (std::fgets(line, sizeof(line), registry) && entries.size() < kMaxJobs * 4) {
       const auto length = std::strcspn(line, "\r\n");
-      const auto parsed = std::from_chars(line, line + length, id);
-      if (parsed.ec == std::errc{} && parsed.ptr == line + length && id != 0 &&
-          std::find(ids.begin(), ids.end(), id) == ids.end())
-        ids.push_back(id);
+      auto entry = ParseRegistryLine(std::string_view(line, length));
+      if (!entry) continue;
+      if (entry->volume_id.empty()) entry->volume_id = volumes_.front().id;
+      if (std::none_of(entries.begin(), entries.end(), [&](const RegistryEntry& other) { return other.id == entry->id; }))
+        entries.push_back(std::move(*entry));
     }
     std::fclose(registry);
   }
-  for (const auto id : ids) {
-    const auto root = RootFor(id);
+  if (FILE* file = std::fopen((primary + "/" + kDefaultVolume).c_str(), "r")) {
+    char line[64] = {};
+    if (std::fgets(line, sizeof(line), file)) {
+      const std::string id(line, std::strcspn(line, "\r\n"));
+      if (const auto* volume = FindVolume(id); volume && volume->available) default_volume_id_ = id;
+    }
+    std::fclose(file);
+  }
+  for (const auto& entry : entries) {
+    const auto* volume = FindVolume(entry.volume_id);
+    if (!volume || !volume->available) {
+      // Keep games on an absent drive listed so they come back when it does.
+      installed_.push_back({entry.id, entry.install_bytes, RootOn(entry.volume_id, entry.id), entry.volume_id, false});
+      continue;
+    }
+    const auto root = RootOn(entry.volume_id, entry.id);
     if (Exists(root + "/" + kRecord)) {
-      installed_.push_back({id, RecordedBytes(root + "/" + kRecord), root});
+      installed_.push_back({entry.id, RecordedBytes(root + "/" + kRecord), root, entry.volume_id, true});
     } else if (Exists(root + "/" + kJournal) && jobs_.size() < kMaxJobs) {
       Job job;
-      job.view.id = id;
+      job.view.id = entry.id;
       job.view.state = InstallJobState::kPaused;
       job.view.failure = "Interrupted. Resume to continue.";
+      job.view.volume_id = entry.volume_id;
       jobs_.push_back(job);
     }
   }
@@ -80,16 +160,28 @@ void InstallService::Scan() {
 }
 
 void InstallService::SaveRegistry() {
-  std::vector<GameId> ids;
-  for (const auto& game : installed_) ids.push_back(game.id);
-  for (const auto& job : jobs_) ids.push_back(job.view.id);
-  mkdir(games_root_.c_str(), 0777);
-  const auto path = games_root_ + "/" + kRegistry;
+  const auto& primary = volumes_.front().games_root;
+  mkdir(primary.c_str(), 0777);
+  const auto path = primary + "/" + kRegistry;
   const auto temporary = path + ".tmp";
   FILE* registry = std::fopen(temporary.c_str(), "w");
   if (!registry) return;
-  for (const auto id : ids) std::fprintf(registry, "%u\n", id);
+  for (const auto& game : installed_)
+    std::fprintf(registry, "%u\t%s\t%llu\n", game.id, game.volume_id.c_str(),
+                 static_cast<unsigned long long>(game.install_bytes));
+  for (const auto& job : jobs_) std::fprintf(registry, "%u\t%s\t0\n", job.view.id, job.view.volume_id.c_str());
   if (std::fclose(registry) == 0) std::rename(temporary.c_str(), path.c_str());
+}
+
+void InstallService::SaveDefaultVolume() {
+  const auto& primary = volumes_.front().games_root;
+  mkdir(primary.c_str(), 0777);
+  const auto path = primary + "/" + kDefaultVolume;
+  const auto temporary = path + ".tmp";
+  FILE* file = std::fopen(temporary.c_str(), "w");
+  if (!file) return;
+  std::fprintf(file, "%s\n", default_volume_id_.c_str());
+  if (std::fclose(file) == 0) std::rename(temporary.c_str(), path.c_str());
 }
 
 InstallService::Job* InstallService::Find(GameId id) {
@@ -109,6 +201,7 @@ void InstallService::Install(GameId id) {
   if (std::any_of(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; })) return;
   Job job;
   job.view.id = id;
+  job.view.volume_id = default_volume_id_;
   jobs_.push_back(job);
   Publish();
   wake_.notify_all();
@@ -142,9 +235,11 @@ void InstallService::Cancel(GameId id) {
   if (active_ == id) {
     active_cancel_.store(true);
   } else {
+    const auto* volume = FindVolume(job->view.volume_id);
+    const auto root = volume && volume->available ? RootOn(job->view.volume_id, id) : std::string();
     jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [id](const Job& entry) { return entry.view.id == id; }),
                 jobs_.end());
-    removals_.push_back(id);
+    if (!root.empty()) removals_.push_back(root);
   }
   Publish();
   wake_.notify_all();
@@ -153,11 +248,21 @@ void InstallService::Cancel(GameId id) {
 void InstallService::Uninstall(GameId id) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto found = std::find_if(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; });
-  if (found == installed_.end()) return;
+  if (found == installed_.end() || !found->available) return;  // nothing can be deleted on an absent drive
+  const auto root = RootOn(found->volume_id, id);
   installed_.erase(found);
-  removals_.push_back(id);
+  if (!root.empty()) removals_.push_back(root);
   Publish();
   wake_.notify_all();
+}
+
+void InstallService::SetDefaultVolume(const std::string& volume_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto* volume = FindVolume(volume_id);
+  if (!volume || !volume->available || volume_id == default_volume_id_) return;
+  default_volume_id_ = volume_id;
+  SaveDefaultVolume();
+  ++revision_;
 }
 
 InstallSnapshot InstallService::Snapshot() {
@@ -166,6 +271,8 @@ InstallSnapshot InstallService::Snapshot() {
   snapshot.revision = revision_;
   for (const auto& job : jobs_) snapshot.jobs.push_back(job.view);
   snapshot.installed = installed_;
+  snapshot.volumes = volumes_;
+  snapshot.default_volume_id = default_volume_id_;
   return snapshot;
 }
 
@@ -183,7 +290,8 @@ void InstallService::Shutdown() {
 void InstallService::Run() {
   for (;;) {
     std::optional<GameId> next;
-    std::optional<GameId> removal;
+    std::string next_root;
+    std::optional<std::string> removal;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       wake_.wait(lock, [this] {
@@ -197,8 +305,16 @@ void InstallService::Run() {
       } else {
         for (auto& job : jobs_) {
           if (job.view.state != InstallJobState::kQueued) continue;
+          const auto* volume = FindVolume(job.view.volume_id);
+          if (!volume || !volume->available) {
+            job.view.state = InstallJobState::kFailed;
+            job.view.failure = kVolumeUnavailable;
+            Publish();
+            continue;
+          }
           job.view.state = InstallJobState::kRunning;
           next = job.view.id;
+          next_root = RootOn(job.view.volume_id, job.view.id);
           active_ = next;
           active_cancel_.store(false);
           Publish();
@@ -207,7 +323,7 @@ void InstallService::Run() {
       }
     }
     if (removal) {
-      runner_.Remove(RootFor(*removal));
+      runner_.Remove(*removal);
       std::lock_guard<std::mutex> lock(mutex_);
       Publish();
       continue;
@@ -219,7 +335,7 @@ void InstallService::Run() {
     if (!session.ok() || !session.value()) {
       result.failure = "Sign in to Steam to install.";
     } else {
-      result = runner_.Install(*session.value(), *next, RootFor(*next), active_cancel_,
+      result = runner_.Install(*session.value(), *next, next_root, active_cancel_,
                                [this, id = *next](std::uint64_t done, std::uint64_t total) {
                                  std::lock_guard<std::mutex> lock(mutex_);
                                  if (auto* job = Find(id)) {
@@ -240,9 +356,10 @@ void InstallService::Run() {
                     jobs_.end());
         remove_files = true;
       } else if (job && result.ok) {
+        const auto volume_id = job->view.volume_id;
         jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [&](const Job& entry) { return entry.view.id == *next; }),
                     jobs_.end());
-        installed_.push_back({*next, result.install_bytes, RootFor(*next)});
+        installed_.push_back({*next, result.install_bytes, next_root, volume_id, true});
       } else if (job && job->view.state == InstallJobState::kRunning) {
         // A Pause or Resume that arrived while the run was stopping already chose the state.
         job->view.state = result.canceled ? InstallJobState::kPaused : InstallJobState::kFailed;
@@ -250,7 +367,7 @@ void InstallService::Run() {
       }
       Publish();
     }
-    if (remove_files) runner_.Remove(RootFor(*next));
+    if (remove_files) runner_.Remove(next_root);
   }
 }
 

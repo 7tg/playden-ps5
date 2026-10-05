@@ -277,6 +277,65 @@ void live_install_requests_and_projection() {
     check(model.action("details:42") && has_row(model, "details-unavailable"), "a game without Windows content says so");
 }
 
+const playden::homebrew::ViewRow* find_row(const Simulation& model, const std::string& key) {
+    const auto found = std::find_if(model.view().rows.begin(), model.view().rows.end(),
+                                    [&key](const auto& row) { return row.key == key; });
+    return found == model.view().rows.end() ? nullptr : &*found;
+}
+
+void live_install_volumes() {
+    using playden::homebrew::InstallRequestKind;
+    using playden::homebrew::JobState;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Installed"), game(43, "Downloading"), game(44, "On USB"), game(45, "New")},
+                               false, {}, false, false, {}}), "library loaded");
+    model.UpdateVolumes({{"internal", "Console storage", true, std::nullopt, std::nullopt},
+                         {"m2", "M.2 SSD", true, 2'000, 500},
+                         {"usb0", "USB drive", false, std::nullopt, std::nullopt}}, "internal");
+    model.UpdateInstalls({{43, JobState::Downloading, 100, 400, {}, "m2"}},
+                         {{42, 600, "internal", true}, {44, 0, "usb0", false}});
+
+    const auto& volumes = model.state().volumes;
+    check(volumes.size() == 3 && model.state().default_volume_id == "internal", "volumes and default projected");
+    check(!volumes[0].capacity_known && volumes[0].games_bytes == 600 && volumes[0].used_bytes == 600
+              && volumes[0].reserved_bytes == 0, "a drive without a space report counts finished installs");
+    check(volumes[1].capacity_known && volumes[1].capacity_bytes == 2'000 && volumes[1].used_bytes == 1'500
+              && volumes[1].reserved_bytes == 300, "a reported drive uses its own figures plus the queue's remaining bytes");
+    check(!volumes[2].available, "an absent drive stays listed as unavailable");
+
+    // Settings shows the default and changes it through the install service.
+    model.action("r1"); model.action("r1"); model.action("r1");
+    const auto* storage = find_row(model, "settings-storage");
+    check(storage && storage->enabled && storage->value == "Console storage", "Settings shows the default storage");
+    activate(model, "settings-storage");
+    const auto* usb = find_row(model, "volume-usb0");
+    check(has_row(model, "volume-internal") && has_row(model, "volume-m2") && usb && !usb->enabled,
+          "the picker lists every drive and disables an absent one");
+    const auto* m2 = find_row(model, "volume-m2");
+    check(m2 && m2->value.find("free") != std::string::npos, "a reported drive shows its free space");
+    activate(model, "volume-m2");
+    auto requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::SetDefaultVolume && requests[0].volume_id == "m2",
+          "choosing a drive asks the install service to use it");
+    check(model.state().default_volume_id == "m2", "the choice shows immediately");
+    activate(model, "settings-storage");
+    activate(model, "volume-m2");
+    check(model.TakeInstallRequests().empty(), "choosing the current default sends nothing");
+
+    // Details show where a game is and where a new install goes.
+    check(model.action("details:42"), "installed game opens");
+    const auto* installed = find_row(model, "details-installed");
+    check(installed && installed->title == "Installed" && installed->subtitle == "On Console storage", "an installed game names its drive");
+    check(model.action("details:44"), "game on an absent drive opens");
+    installed = find_row(model, "details-installed");
+    check(installed && installed->title == "Storage disconnected" && installed->subtitle == "Connect USB drive to use this game",
+          "a game on an absent drive says so even without a known size");
+    check(model.action("details:45") && model.UpdateAppDetails(45, 1'000, 2'000, true), "new game details");
+    const auto* install = find_row(model, "details-install");
+    check(install && install->subtitle == "To M.2 SSD", "Install names the default drive when there is a choice");
+}
+
 void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
@@ -352,6 +411,7 @@ void live_filters_only_use_available_facts() {
 
 int main() {
     live_install_requests_and_projection();
+    live_install_volumes();
     live_filters_only_use_available_facts();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();

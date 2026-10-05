@@ -44,9 +44,14 @@ class Runner final : public InstallRunner {
   std::atomic<int> canceled{0};
   std::mutex mutex;
   std::vector<std::string> removed;
+  std::vector<std::string> install_roots;
   Result Install(const StoredSession&, GameId, const std::string& root, const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t)>& progress) override {
     ++installs;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      install_roots.push_back(root);
+    }
     progress(10, 100);
     while (block) {
       if (cancel) { ++canceled; return {false, true, {}, 0}; }
@@ -152,5 +157,90 @@ int main() {
     CHECK(Installed(again.Snapshot(), 300));
   }
   std::filesystem::remove_all(root);
+
+  // Several volumes: the primary keeps the registry; new installs follow the default volume.
+  const auto primary = std::filesystem::temp_directory_path() / ("playden-install-primary-" + std::to_string(::getpid()));
+  const auto second = std::filesystem::temp_directory_path() / ("playden-install-second-" + std::to_string(::getpid()));
+  std::filesystem::remove_all(primary);
+  std::filesystem::remove_all(second);
+  std::filesystem::create_directories(primary / "100");
+  std::ofstream(primary / "100" / ".playden-install.json") << "{\"install_bytes\":10}";
+  std::filesystem::create_directories(second / "600");
+  std::ofstream(second / "600" / ".playden-install.json") << "{\"install_bytes\":60}";
+  // Legacy line (primary), a game on a drive that is absent now, a game on the second drive, and junk.
+  std::ofstream(primary / ".playden-games") << "100\n500\tusb0\t1234\n600\tm2\t0\n700\tBAD VOLUME\t1\n";
+  const std::vector<InstallVolume> volumes = {
+      {"internal", "Console storage", primary.string(), true},
+      {"m2", "M.2 SSD", second.string(), true},
+      {"usb0", "USB drive", (second / "absent").string(), false},
+  };
+  sessions.present = true;
+  {
+    Runner multi;
+    InstallService service(multi, sessions, volumes);
+    auto start = service.Snapshot();
+    CHECK(start.default_volume_id == "internal");
+    CHECK(start.volumes.size() == 3);
+    CHECK(start.installed.size() == 3);
+    const auto on = [&](GameId id) {
+      for (const auto& game : start.installed) if (game.id == id) return &game;
+      return static_cast<const InstalledGame*>(nullptr);
+    };
+    CHECK(on(100) && on(100)->volume_id == "internal" && on(100)->available && on(100)->install_bytes == 10);
+    CHECK(on(500) && on(500)->volume_id == "usb0" && !on(500)->available && on(500)->install_bytes == 1234);
+    CHECK(on(600) && on(600)->volume_id == "m2" && on(600)->available && on(600)->install_bytes == 60);
+    CHECK(!on(700));
+
+    service.SetDefaultVolume("usb0");  // unavailable: ignored
+    CHECK(service.Snapshot().default_volume_id == "internal");
+    service.SetDefaultVolume("m2");
+    CHECK(service.Snapshot().default_volume_id == "m2");
+    CHECK(service.RootFor(800) == (second / "800").string());
+    CHECK(service.RootFor(100) == (primary / "100").string());
+
+    service.Install(800);
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, 800); });
+    {
+      std::lock_guard<std::mutex> lock(multi.mutex);
+      CHECK(multi.install_roots.size() == 1 && multi.install_roots[0] == (second / "800").string());
+    }
+    for (const auto& game : service.Snapshot().installed) if (game.id == 800) CHECK(game.volume_id == "m2");
+
+    service.Uninstall(500);  // its drive is absent: nothing to delete, the game stays listed
+    CHECK(Installed(service.Snapshot(), 500));
+    service.Uninstall(600);
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      std::lock_guard<std::mutex> lock(multi.mutex);
+      return !Installed(s, 600) && !multi.removed.empty();
+    });
+    {
+      std::lock_guard<std::mutex> lock(multi.mutex);
+      CHECK(multi.removed.back() == (second / "600").string());
+    }
+  }
+  {
+    // The default volume and every game's volume survive a restart.
+    Runner multi;
+    InstallService again(multi, sessions, volumes);
+    const auto snapshot = again.Snapshot();
+    CHECK(snapshot.default_volume_id == "m2");
+    CHECK(Installed(snapshot, 800) && Installed(snapshot, 500) && Installed(snapshot, 100) && !Installed(snapshot, 600));
+    for (const auto& game : snapshot.installed) {
+      if (game.id == 800) CHECK(game.volume_id == "m2" && game.available);
+      if (game.id == 500) CHECK(game.volume_id == "usb0" && !game.available && game.install_bytes == 1234);
+    }
+  }
+  {
+    // A remembered default whose drive is now absent falls back to the primary volume.
+    auto without_m2 = volumes;
+    without_m2[1].available = false;
+    Runner multi;
+    InstallService fallback(multi, sessions, without_m2);
+    CHECK(fallback.Snapshot().default_volume_id == "internal");
+    for (const auto& game : fallback.Snapshot().installed)
+      if (game.id == 800) CHECK(!game.available);
+  }
+  std::filesystem::remove_all(primary);
+  std::filesystem::remove_all(second);
   std::puts("install service tests passed");
 }

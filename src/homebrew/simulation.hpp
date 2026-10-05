@@ -28,10 +28,11 @@ enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
 enum class RuntimeState { Unavailable, Checking, Ready, Failed };
 enum class LogState { Loading, Ready, Failed };
-enum class InstallRequestKind { Install, Pause, Resume, Cancel, Uninstall };
+enum class InstallRequestKind { Install, Pause, Resume, Cancel, Uninstall, SetDefaultVolume };
 struct InstallRequest {
     InstallRequestKind kind = InstallRequestKind::Install;
     GameId game_id = 0;
+    std::string volume_id;  // SetDefaultVolume only
 };
 // Live install state projected from the real install service.
 struct LiveInstallJob {
@@ -40,10 +41,21 @@ struct LiveInstallJob {
     std::uint64_t done_bytes = 0;
     std::uint64_t total_bytes = 0;
     std::string failure;
+    std::string volume_id;
 };
 struct LiveInstalledGame {
     GameId game_id = 0;
     std::uint64_t install_bytes = 0;
+    std::string volume_id;
+    bool available = true;  // false while the game's drive is absent
+};
+// A drive the real install service can use. Space is absent when the platform cannot report it.
+struct LiveVolume {
+    std::string id;
+    std::string label;
+    bool available = true;
+    std::optional<std::uint64_t> total_bytes;
+    std::optional<std::uint64_t> free_bytes;
 };
 enum class Compatibility { Untested, Works, Playable, Broken };
 enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, Profile, Status, Separator };
@@ -166,6 +178,8 @@ struct Volume {
     bool writable = true;
     std::uint64_t base_used_bytes = 0;
     std::uint64_t base_reserved_bytes = 0;
+    bool capacity_known = true;    // live volumes on the console cannot report capacity
+    std::uint64_t games_bytes = 0; // live: bytes of finished installs on this volume
 };
 
 struct Profile {
@@ -250,6 +264,7 @@ struct State {
     std::vector<Installation> installations;
     std::vector<Job> jobs;
     std::vector<Volume> volumes;
+    std::string default_volume_id;  // live: where new installs go
     std::vector<Profile> profiles;
     Navigation navigation;
     EditorState editor;
@@ -331,6 +346,8 @@ public:
     // Live mode: requests for the real install service, and its state for display.
     [[nodiscard]] std::vector<InstallRequest> TakeInstallRequests();
     void UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed);
+    // Live mode: the drives installs can use and the one new installs go to.
+    void UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id);
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
     bool UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
                           std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable);
@@ -440,6 +457,7 @@ private:
     void reconcile_applied_organization_selection(GameId prior_selected_id);
     bool record_live_persistence();
     void update_persistence_notice();
+    void apply_live_volume_usage();
     [[nodiscard]] bool live() const noexcept { return mode_ == ModelMode::Live; }
     [[nodiscard]] std::string next_job_id();
 };
