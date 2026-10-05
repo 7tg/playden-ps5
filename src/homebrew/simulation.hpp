@@ -422,6 +422,7 @@ private:
     playden::runtime::KitCapabilities kit_;
     std::set<std::string> expanded_settings_sections_;
     std::string editing_setting_id_;
+    std::optional<playden::runtime::GameSettingsRecord> settings_opened_record_;  // for the close toast
     std::string editing_target_id_;
     std::uint64_t challenge_generation_ = 0;
     std::uint64_t cancelled_challenge_generation_ = 0;
@@ -493,6 +494,7 @@ private:
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;
     void refresh_game_settings();
     void set_game_setting(const std::string& id, const std::string& value);
+    void announce_settings_saved();
     [[nodiscard]] const playden::runtime::SettingsPreset* preset_for(GameId id) const;
     void start_logs();
     void finish_logs();

@@ -72,8 +72,14 @@ std::vector<SettingDefinition> BuildCatalogue() {
                          {"off", "Off", ""}},
                         "game", 2));
   // More settings (T2).
+  static const std::map<std::string, std::string> button_names = {
+      {"cross", "Cross"},   {"circle", "Circle"}, {"square", "Square"},   {"triangle", "Triangle"},
+      {"l1", "L1"},         {"r1", "R1"},         {"l2", "L2"},           {"r2", "R2"},
+      {"l3", "L3"},         {"r3", "R3"},         {"up", "D-pad up"},     {"down", "D-pad down"},
+      {"left", "D-pad left"}, {"right", "D-pad right"}, {"options", "Options"}, {"create", "Create"},
+      {"touchpad", "Touchpad"}};
   for (const auto& button : ProsperoButtons()) {
-    auto definition = Text("button." + button, "Button " + button, "Key or mouse button this button sends.",
+    auto definition = Text("button." + button, button_names.at(button), "Key or mouse button this button sends.",
                            "[input] " + button, T::kCompatibility);
     list.push_back(std::move(definition));
   }

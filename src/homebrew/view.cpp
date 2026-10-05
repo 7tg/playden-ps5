@@ -2280,6 +2280,7 @@ class Render::Impl
         const bool wide = view.surface.find("settings") != std::string::npos ||
                           view.surface.find("profile") != std::string::npos ||
                           view.surface == "choice-picker" || view.surface == "preset-picker" ||
+                          view.surface == "button-mapping" ||
                           view.surface == "controller" || view.surface == "logs" ||
                           view.surface == "storage";
         const float width = wide ? 960.0F : 640.0F;
@@ -2288,7 +2289,8 @@ class Render::Impl
                         gfx::Color::rgb(0x000000, 0.75F));
         overlay_.rounded_rect(panel, 0.0F, kPanel);
         // Game settings pickers show where they return to instead of their surface id.
-        const bool settings_picker = view.surface == "choice-picker" || view.surface == "preset-picker";
+        const bool settings_picker = view.surface == "choice-picker" || view.surface == "preset-picker" ||
+                                     view.surface == "button-mapping";
         section_overlay(settings_picker ? std::string_view("Game settings")
                         : view.surface == "game-settings" ? std::string_view("Playden")
                                                           : std::string_view(view.surface),
@@ -2592,7 +2594,7 @@ class Render::Impl
     void draw_overlay_rows(const ViewData &view, const gfx::Rect &bounds)
     {
         const bool settings_sheet = view.surface == "game-settings" || view.surface == "choice-picker" ||
-                                    view.surface == "preset-picker";
+                                    view.surface == "preset-picker" || view.surface == "button-mapping";
         float y = bounds.y;
         const int first = std::max(0, view.focused_row - (settings_sheet ? 3 : 4));
         const int last = std::min(static_cast<int>(view.rows.size()), first + 8);

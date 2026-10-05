@@ -212,6 +212,23 @@ std::string choice_label(const rt::SettingDefinition& definition, const std::str
     return value;
 }
 
+// Bindings offered for a controller button; index 0 inherits the recipe or preset value.
+const std::vector<std::pair<std::string, std::string>>& common_bindings() {
+    static const std::vector<std::pair<std::string, std::string>> bindings = {
+        {"", "Inherit"}, {"none", "Nothing"}, {"escape", "Escape"}, {"enter", "Enter"}, {"space", "Space"},
+        {"tab", "Tab"}, {"shift", "Shift"}, {"ctrl", "Ctrl"}, {"alt", "Alt"}, {"e", "E"}, {"f", "F"}, {"q", "Q"},
+        {"r", "R"}, {"1", "1"}, {"2", "2"}, {"3", "3"}, {"4", "4"}, {"f5", "F5 (quick save)"}, {"f9", "F9 (quick load)"},
+        {"mouse_left", "Left click"}, {"mouse_right", "Right click"}, {"mouse_middle", "Middle click"}};
+    return bindings;
+}
+
+std::string binding_label(const std::string& value) {
+    if (value.empty()) return "Not set";
+    for (const auto& [binding, label] : common_bindings())
+        if (binding == value) return label;
+    return value;
+}
+
 const char* source_label(rt::ValueSource source) {
     switch (source) {
     case rt::ValueSource::kRecipe: return "From recipe";
@@ -1802,7 +1819,8 @@ void Simulation::rebuild_view() {
             }
         }
         const GameId settings_game = state_.navigation.selected_game_id;
-        const bool settings_modal = modal.id == "game-settings" || modal.id == "preset-picker" || !modal.setting_id.empty();
+        const bool settings_modal = modal.id == "game-settings" || modal.id == "preset-picker" || modal.id == "button-mapping" ||
+                                    !modal.setting_id.empty();
         rt::EffectiveSettings settings_values;
         const bool settings_ready = settings_modal && EffectiveSettingsFor(settings_game, &settings_values);
         const auto settings_record = state_.game_settings.find(settings_game);
@@ -1854,7 +1872,9 @@ void Simulation::rebuild_view() {
                 item.kind = definition->kind == rt::SettingKind::kText ? RowKind::Text : RowKind::Choice;
                 item.title = definition->label;
                 item.subtitle = value.available ? definition->effect : value.reason;
+                if (modal.id == "button-mapping") item.subtitle.clear();  // the sheet title says it once
                 if (id == "launch_option") item.value = settings_values.launch->label;
+                else if (id.rfind("button.", 0) == 0) item.value = binding_label(value.value);
                 else if (definition->kind == rt::SettingKind::kText) item.value = value.value.empty() ? "Empty" : value.value;
                 else item.value = choice_label(*definition, value.value);
                 item.badge = value.locked ? "Required by recipe"
@@ -1862,14 +1882,30 @@ void Simulation::rebuild_view() {
                     : definition->apply == rt::ApplyMode::kPreparesBottle ? "Prepares bottle" : "";
                 item.enabled = value.available && !value.locked;
                 item.modified = value.source == rt::ValueSource::kUser;
+            } else if (settings_ready && action_key == "button-mapping") {
+                item.kind = RowKind::Choice;
+                item.title = "Button mapping";
+                item.subtitle = "Keys and mouse clicks the controller buttons send.";
+                int bound = 0;
+                bool changed = false;
+                for (const auto& button : rt::ProsperoButtons()) {
+                    const auto& value = settings_values.values.at("button." + button);
+                    bound += value.value.empty() || value.value == "none" ? 0 : 1;
+                    changed = changed || value.source == rt::ValueSource::kUser;
+                }
+                item.value = bound == 0 ? "None" : std::to_string(bound) + (bound == 1 ? " button" : " buttons");
+                item.modified = changed;
             } else if (settings_ready && (action_key == "section-more" || action_key == "section-advanced")) {
                 item.kind = RowKind::Heading;
                 const auto tier = action_key == "section-more" ? rt::SettingTier::kCompatibility : rt::SettingTier::kAdvanced;
                 int count = 0;
                 for (const auto& definition : rt::SettingsCatalogue())
-                    if (definition.tier == tier && definition.id.rfind("button.", 0) != 0) ++count;
+                    if (definition.tier == tier && definition.id.rfind("button.", 0) != 0 &&
+                        (definition.phase == 1 || (definition.phase == 2 && kit_.dxvk_config) || (definition.phase == 3 && kit_.registry)))
+                        ++count;
+                if (tier == rt::SettingTier::kCompatibility) ++count;  // Button mapping
                 item.value = expanded_settings_sections_.count(action_key) ? "Hide" : "Show " + std::to_string(count);
-            } else if (settings_ready && !modal.setting_id.empty() && action_key.rfind("choice-", 0) == 0) {
+            } else if (settings_ready && !modal.setting_id.empty() && action_key.rfind("choice-", 0) == 0 && action_key != "choice-custom") {
                 item.kind = RowKind::Choice;
                 const auto index = static_cast<std::size_t>(std::stoul(action_key.substr(7)));
                 const auto& recipe = RecipeFor(settings_game);
@@ -1877,14 +1913,26 @@ void Simulation::rebuild_view() {
                 if (modal.setting_id == "launch_option") {
                     value = recipe.launch_entries[index].id;
                     item.title = recipe.launch_entries[index].label;
+                } else if (modal.setting_id.rfind("button.", 0) == 0) {
+                    value = common_bindings()[index].first;
+                    item.title = common_bindings()[index].second;
+                    if (index == 0) item.subtitle = "Use the preset or recipe binding: " + binding_label(inherited.value) + ".";
                 } else {
                     const auto& choice = rt::FindSetting(modal.setting_id)->choices[index];
                     value = choice.value;
                     item.title = choice.label;
                     item.subtitle = choice.explanation;
                 }
-                item.selected = value == settings_values.values.at(modal.setting_id).value;
-                item.value = value == inherited.value ? source_label(inherited.source) : item.selected ? "Your choice" : "";
+                const bool button = modal.setting_id.rfind("button.", 0) == 0;
+                const auto& current = settings_values.values.at(modal.setting_id);
+                item.selected = button && index == 0 ? current.source != rt::ValueSource::kUser
+                    : value == current.value && !(button && current.source != rt::ValueSource::kUser);
+                item.value = button ? (item.selected && index != 0 ? "Your choice" : "")
+                    : value == inherited.value ? source_label(inherited.source) : item.selected ? "Your choice" : "";
+            } else if (settings_ready && action_key == "choice-custom") {
+                item.kind = RowKind::Text;
+                item.title = "Other key…";
+                item.subtitle = "Type a key name, a letter, F1–F24 or vk:0xNN.";
             } else if (settings_ready && action_key == "reset-settings") {
                 item.enabled = settings_custom;
             } else if (action_key.rfind("volume-", 0) == 0) {
@@ -2369,7 +2417,9 @@ void Simulation::cancel() {
     if (state_.editor.active) { state_.editor.active = false; state_.navigation.focus_key = state_.editor.opener_focus_key; return; }
     if (!state_.navigation.modals.empty()) {
         const bool crash_logs = state_.navigation.modals.back().id == "logs" && state_.session == SessionState::Crashed;
+        const bool settings_sheet = state_.navigation.modals.back().id == "game-settings";
         close_modal();
+        if (settings_sheet) announce_settings_saved();
         if (crash_logs) {
             state_.navigation.route = Route::Details;
             state_.navigation.detail_id = state_.session_game_id;
@@ -2809,6 +2859,8 @@ void Simulation::activate() {
         state_.library.filters.clear(); state_.library.sort = "name"; close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name == "game-settings") {
         expanded_settings_sections_.clear();
+        const auto opened = state_.game_settings.find(state_.navigation.selected_game_id);
+        settings_opened_record_ = opened == state_.game_settings.end() ? rt::GameSettingsRecord{} : opened->second;
         open_modal({"game-settings", "Game settings", "details-settings", game_settings_actions(), 0, false});
     }
     else if (action_name == "preset-picker") {
@@ -2836,6 +2888,16 @@ void Simulation::activate() {
             const auto& value = values.values.at(id);
             if (!value.available || value.locked) {
                 // Disabled rows stay focusable so their reason can be read; Cross does nothing.
+            } else if (id.rfind("button.", 0) == 0) {
+                std::vector<std::string> actions;
+                int focused = 0;
+                for (std::size_t index = 0; index < common_bindings().size(); ++index) {
+                    if (value.source == rt::ValueSource::kUser && common_bindings()[index].first == value.value) focused = static_cast<int>(index);
+                    actions.push_back("choice-" + std::to_string(index));
+                }
+                actions.push_back("choice-custom");
+                actions.push_back("cancel");
+                open_modal({"choice-picker", definition->label, action_name, std::move(actions), focused, false, "", id});
             } else if (definition->kind == rt::SettingKind::kText) {
                 start_editor(definition->label, value.value);
                 editing_setting_id_ = id;
@@ -2853,6 +2915,26 @@ void Simulation::activate() {
                 open_modal({"choice-picker", definition->label, action_name, std::move(actions), focused, false, "", id});
             }
         }
+    } else if (action_name == "choice-custom" && !state_.navigation.modals.empty() && !state_.navigation.modals.back().setting_id.empty()) {
+        const auto id = state_.navigation.modals.back().setting_id;
+        rt::EffectiveSettings values;
+        const bool known = EffectiveSettingsFor(state_.navigation.selected_game_id, &values);
+        close_modal();
+        start_editor(rt::FindSetting(id)->label, known ? values.values.at(id).value : std::string{});
+        editing_setting_id_ = id;
+    } else if (action_name == "button-mapping") {
+        std::vector<std::string> actions;
+        for (const auto& button : rt::ProsperoButtons()) actions.push_back("setting-button." + button);
+        actions.push_back("cancel");
+        open_modal({"button-mapping", "Button mapping", "button-mapping", std::move(actions), 0, false});
+    } else if (action_name.rfind("choice-", 0) == 0 && !state_.navigation.modals.empty() && state_.navigation.modals.back().setting_id.rfind("button.", 0) == 0) {
+        const auto id = state_.navigation.modals.back().setting_id;
+        const auto index = static_cast<std::size_t>(std::stoul(action_name.substr(7)));
+        auto& record = state_.game_settings[state_.navigation.selected_game_id];
+        if (index == 0) record.overrides.erase(id);           // inherit the preset or recipe binding
+        else if (index < common_bindings().size()) record.overrides[id] = common_bindings()[index].first;
+        ++record.revision;
+        close_modal(); refresh_game_settings(); save_profile();
     } else if (action_name.rfind("choice-", 0) == 0 && !state_.navigation.modals.empty() && !state_.navigation.modals.back().setting_id.empty()) {
         const auto id = state_.navigation.modals.back().setting_id;
         const auto index = static_cast<std::size_t>(std::stoul(action_name.substr(7)));
@@ -3591,6 +3673,7 @@ std::vector<std::string> Simulation::game_settings_actions() const {
                                        std::pair<const char*, rt::SettingTier>{"section-advanced", rt::SettingTier::kAdvanced}}) {
         actions.push_back(section);
         if (!expanded_settings_sections_.count(section)) continue;
+        if (tier == rt::SettingTier::kCompatibility) actions.push_back("button-mapping");
         for (const auto& definition : rt::SettingsCatalogue())
             if (definition.tier == tier && shown(definition)) actions.push_back("setting-" + definition.id);
     }
@@ -3608,6 +3691,32 @@ void Simulation::refresh_game_settings() {
         modal.focused_action = found == modal.action_keys.end() ? 0 : static_cast<int>(found - modal.action_keys.begin());
         if (&modal == &state_.navigation.modals.back()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
     }
+}
+
+void Simulation::announce_settings_saved() {
+    if (!settings_opened_record_) return;
+    const auto before = *settings_opened_record_;
+    settings_opened_record_.reset();
+    const auto found = state_.game_settings.find(state_.navigation.selected_game_id);
+    const auto after = found == state_.game_settings.end() ? rt::GameSettingsRecord{} : found->second;
+    // Count settings whose stored choice differs; a preset change counts once.
+    std::set<std::string> ids;
+    for (const auto& [id, value] : before.overrides) ids.insert(id);
+    for (const auto& [id, value] : after.overrides) ids.insert(id);
+    int changes = before.preset_id != after.preset_id ? 1 : 0;
+    for (const auto& id : ids) {
+        const auto old_value = before.overrides.find(id);
+        const auto new_value = after.overrides.find(id);
+        if ((old_value == before.overrides.end()) != (new_value == after.overrides.end()) ||
+            (old_value != before.overrides.end() && old_value->second != new_value->second))
+            ++changes;
+    }
+    if (changes == 0) return;
+    const auto* preset = preset_for(state_.navigation.selected_game_id);
+    const std::string name = preset ? preset->name : "Playden default";
+    push_notice({"settings-saved", "Settings saved · " + (after.overrides.empty() ? name : "Custom"), "", false,
+                 kLiveNoticeSeconds, false,
+                 std::to_string(changes) + (changes == 1 ? " change applies" : " changes apply") + " on next launch"});
 }
 
 void Simulation::set_game_setting(const std::string& id, const std::string& value) {

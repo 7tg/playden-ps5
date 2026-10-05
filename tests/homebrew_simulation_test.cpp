@@ -372,12 +372,36 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
     check(!simulation.state().game_settings.at(900001).overrides.empty(), "T08b override recorded");
     activate(simulation, "reset-settings");
     check(simulation.state().game_settings.at(900001).overrides.empty(), "T08b reset all clears overrides");
+    simulation.action("circle");
+    const auto toast = std::find_if(simulation.state().notices.begin(), simulation.state().notices.end(),
+                                    [](const playden::homebrew::Notice& notice) { return notice.id == "settings-saved"; });
+    check(toast != simulation.state().notices.end() && toast->message == "Settings saved · Mouse-driven game"
+              && toast->detail == "1 change applies on next launch",
+          "T08b closing the sheet announces what changed");
+    activate(simulation, "details-settings");
     // dxvk.conf rows appear when the kit reads dxvk.conf.
     rt::KitCapabilities kit;
     kit.dxvk_config = true;
     simulation.SetKitCapabilities(kit);
     check(find_row(simulation, "setting-frame_limit") && find_row(simulation, "setting-frame_limit")->enabled,
           "T08b frame limit appears once the kit supports it");
+    // Button mapping: inherit shows the recipe binding; a common key and a typed key save.
+    activate(simulation, "section-more");
+    activate(simulation, "button-mapping");
+    check(find_row(simulation, "setting-button.options")->value == "Escape", "T08b recipe binding shows");
+    activate(simulation, "setting-button.touchpad");
+    activate(simulation, "choice-17");
+    check(simulation.state().game_settings.at(900001).overrides.at("button.touchpad") == "f5", "T08b common key saves");
+    activate(simulation, "setting-button.l3");
+    activate(simulation, "choice-custom");
+    simulation.text("vk:0x41");
+    simulation.action("done");
+    check(simulation.state().game_settings.at(900001).overrides.at("button.l3") == "vk:0x41", "T08b typed key saves");
+    activate(simulation, "setting-button.touchpad");
+    activate(simulation, "choice-0");
+    check(!simulation.state().game_settings.at(900001).overrides.count("button.touchpad"), "T08b inherit removes the binding");
+    simulation.action("circle");
+    check(find_row(simulation, "button-mapping")->modified, "T08b changed bindings mark the row");
     // Games without a recipe still get a usable sheet.
     simulation.action("circle");
     simulation.action("details:900003");
