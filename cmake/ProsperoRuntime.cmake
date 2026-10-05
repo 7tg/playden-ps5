@@ -6,6 +6,20 @@ target_compile_features(playden_runtime_kit_manifest PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_kit_manifest PUBLIC
     playden_runtime_package_installer playden_steam_protocol)
 
+if(PLAYDEN_HOMEBREW_UI)
+    add_library(playden_runtime_artifact_hash STATIC
+        "${CMAKE_SOURCE_DIR}/src/runtime/artifact_hash.cpp")
+    target_include_directories(playden_runtime_artifact_hash PUBLIC "${CMAKE_SOURCE_DIR}/src")
+    target_compile_features(playden_runtime_artifact_hash PUBLIC cxx_std_17)
+    target_link_libraries(playden_runtime_artifact_hash PRIVATE playden_curl_8_22)
+    if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+        add_executable(runtime_artifact_hash_test
+            "${CMAKE_SOURCE_DIR}/tests/runtime_artifact_hash_test.cpp")
+        target_link_libraries(runtime_artifact_hash_test PRIVATE playden_runtime_artifact_hash)
+        add_test(NAME runtime_artifact_hash COMMAND runtime_artifact_hash_test)
+    endif()
+endif()
+
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(runtime_kit_manifest_test
         "${CMAKE_SOURCE_DIR}/tests/runtime_kit_manifest_test.cpp")
