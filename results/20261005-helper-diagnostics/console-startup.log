@@ -1,0 +1,61 @@
+2026-10-05T20:36:44Z user service initialization starting
+2026-10-05T20:36:44Z user service result=0
+2026-10-05T20:36:44Z graphics preparation starting
+2026-10-05T20:36:44Z graphics result=0
+2026-10-05T20:36:44Z bootstrap launcher_ready=0 runtime_ready=0 error=launcher source is invalid: title root is unavailable; launcher paths unavailable: title root is unavailable
+2026-10-05T20:37:30Z user service initialization starting
+2026-10-05T20:37:30Z user service result=0
+2026-10-05T20:37:30Z app0 lstat=-1 errno=1 mode=0
+2026-10-05T20:37:30Z graphics preparation starting
+2026-10-05T20:37:30Z graphics result=0
+2026-10-05T20:37:30Z bootstrap launcher_ready=0 runtime_ready=0 error=launcher source is invalid: title root is unavailable; launcher paths unavailable: title root is unavailable
+2026-10-05T20:38:22Z user service initialization starting
+2026-10-05T20:38:22Z user service result=0
+2026-10-05T20:38:22Z app0 lstat=-1 errno=1 mode=0
+2026-10-05T20:38:22Z app0 stat=0 errno=17 mode=16895
+2026-10-05T20:38:22Z app0 open=13 fstat=0 errno=17 mode=16895
+2026-10-05T20:38:22Z graphics preparation starting
+2026-10-05T20:38:22Z graphics result=0
+2026-10-05T20:38:22Z bootstrap launcher_ready=0 runtime_ready=0 error=launcher source is invalid: title root is unavailable; launcher paths unavailable: title root is unavailable
+2026-10-05T20:40:34Z user service initialization starting
+2026-10-05T20:40:34Z user service result=0
+2026-10-05T20:43:44Z user service initialization starting
+2026-10-05T20:43:44Z user service result=0
+2026-10-05T20:43:44Z graphics preparation starting
+2026-10-05T20:43:44Z graphics result=0
+2026-10-05T20:43:44Z bootstrap launcher_ready=0 runtime_ready=0 error=launcher source is invalid: title root is unavailable; launcher paths unavailable: title root is unavailable
+2026-10-05T20:44:33Z user service initialization starting
+2026-10-05T20:44:33Z user service result=0
+2026-10-05T20:44:33Z graphics preparation starting
+2026-10-05T20:44:33Z graphics result=0
+2026-10-05T20:44:33Z bootstrap launcher_ready=0 runtime_ready=0 error=launcher source is invalid: title root is unavailable; launcher paths unavailable: title root is unavailable
+2026-10-05T20:45:25Z user service initialization starting
+2026-10-05T20:45:25Z user service result=0
+2026-10-05T20:45:25Z root probe flags=1048832 fd=13 fstat=0 errno=17 mode=16895
+2026-10-05T20:45:25Z root probe flags=1048836 fd=13 fstat=0 errno=17 mode=16895
+2026-10-05T20:45:25Z root probe flags=1179904 fd=13 fstat=0 errno=17 mode=16895
+2026-10-05T20:45:25Z graphics preparation starting
+2026-10-05T20:45:25Z graphics result=0
+2026-10-05T20:45:25Z bootstrap launcher_ready=0 runtime_ready=0 error=launcher source is invalid: title root is unavailable; launcher paths unavailable: title root is unavailable
+2026-10-05T20:46:39Z user service initialization starting
+2026-10-05T20:46:39Z user service result=0
+2026-10-05T20:46:39Z root probe flags=1048832 fd=13 fstat=0 errno=17 mode=16895
+2026-10-05T20:46:39Z root probe flags=1048836 fd=13 fstat=0 errno=17 mode=16895
+2026-10-05T20:46:39Z root probe flags=1179904 fd=13 fstat=0 errno=17 mode=16895
+2026-10-05T20:46:39Z root kind=2 access=-1 errno=1
+2026-10-05T20:46:39Z graphics preparation starting
+2026-10-05T20:46:39Z graphics result=0
+2026-10-05T20:46:39Z bootstrap launcher_ready=0 runtime_ready=0 error=launcher source is invalid: title root is unavailable; launcher paths unavailable: title root is unavailable
+2026-10-05T20:48:00Z user service initialization starting
+2026-10-05T20:48:00Z user service result=0
+2026-10-05T20:48:00Z graphics preparation starting
+2026-10-05T20:48:00Z graphics result=0
+2026-10-05T20:48:00Z data grant starting
+2026-10-05T20:48:00Z bootstrap launcher_ready=1 runtime_ready=0 error=native data grant failed (code 13)
+2026-10-05T21:04:04Z user service initialization starting
+2026-10-05T21:04:04Z user service result=0
+2026-10-05T21:04:04Z graphics preparation starting
+2026-10-05T21:04:04Z graphics result=0
+2026-10-05T21:04:04Z data grant starting
+2026-10-05T21:04:04Z helper stage=helper-result status=7 error=13
+2026-10-05T21:04:04Z bootstrap launcher_ready=1 runtime_ready=0 error=native data grant failed (code 13); helper stage=helper-result status=7 error=13

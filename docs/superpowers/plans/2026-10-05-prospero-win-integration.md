@@ -433,6 +433,15 @@ not deployed: the user's preview remains available, and the exact console
 failure stage is still unverified. Other per-game wrapper changes remain
 uncommitted, and `4e5e2bc` is not the final kit/source release pin.
 
+Console follow-up: the diagnostic build renders Home and records a validated
+`APPLY_FAILED` reply. Lapy logs show `target_preflight error=16`, with two title
+threads where its private credential check requires one. Its root layout probe
+passes and no target roots/credentials are changed. See
+[helper evidence](../../../results/20261005-helper-diagnostics/README.md).
+Startup sequencing must grant access before additional graphics threads, while
+preserving graphics module/path availability and browsing fallback. Keep the
+helper ownership checks intact. The console was released after both captures.
+
 - [ ] Step 1: Add `runtime_game_install`, `prospero_profile` extensions and `native_access`
    tests. Assert `ReservationSurvivesRestart`, `ForeignNativeTitleCollision`,
    `LegacyDownloadAdoptsWithoutCopy`, `RecipeArgumentsPreserved`,

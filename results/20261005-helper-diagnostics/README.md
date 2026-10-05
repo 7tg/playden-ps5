@@ -20,3 +20,25 @@ No console claim or deployment was made for this checkpoint. The existing
 preview remains on the PS5. Native access still has an observed error 13;
 the new diagnostics must be exercised on the console to identify its stage.
 Other per-game source work remains unfinished and this is not a release pin.
+
+## Console diagnosis
+
+The diagnostic eboot `08071c33a65ed19147d65930b14cd9a6d88570b39d669af1079ccb55c880342a`
+was deployed and launched twice on firmware 13.60. Home rendered without the
+account name. The [startup log](console-startup.log) records
+`helper stage=helper-result status=7 error=13`: the validated helper reply is
+`APPLY_FAILED`, rather than a socket or transport failure.
+
+The [helper log](lapy-live.log), captured through its existing configured TCP
+logger, narrows this to `target_preflight error=16` (EBUSY). The target has two
+threads, while `private_process_credential` in the pinned helper requires exactly
+one thread, two credential references and a matching thread credential pointer.
+No roots or credentials were changed (`roots_moved=0 cred_changed=0`). The root
+layout probe itself passed. The extra thread is observed after display startup;
+which initialization created it has not yet been isolated.
+
+Next implementation must establish the grant before starting additional display
+threads while preserving graphics/module availability and launcher fallback.
+Do not relax the helper's credential ownership checks to bypass this failure.
+The final preview was closed so the user can relaunch with their own controller,
+and the console claim was released after each capture.
