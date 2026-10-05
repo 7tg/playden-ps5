@@ -964,6 +964,7 @@ void Simulation::reconcile_applied_organization_selection(GameId prior_selected_
     }
 
     GameId home_candidate = 0;
+    std::string home_more_key;  // the focused "More" cell, kept across library updates
     const auto projected = shelves(state_);
     auto locate_home = [&projected](GameId id) -> std::optional<std::pair<int, int>> {
         for (std::size_t shelf_index = 0; shelf_index < projected.size(); ++shelf_index) {
@@ -982,13 +983,14 @@ void Simulation::reconcile_applied_organization_selection(GameId prior_selected_
                                            static_cast<int>(projected.size()) - 1);
         const auto& shelf = projected[static_cast<std::size_t>(shelf_index)];
         const int item_index = std::clamp(state_.navigation.home_shelf_focus[shelf.key], 0,
-                                          static_cast<int>(shelf.game_ids.size()) - 1);
+                                          playden::homebrew::shelf_cells(shelf) - 1);
         home_location = std::pair<int, int>{shelf_index, item_index};
     }
     if (home_location) {
         const auto [shelf_index, item_index] = *home_location;
         const auto& shelf = projected[static_cast<std::size_t>(shelf_index)];
-        home_candidate = shelf.game_ids[static_cast<std::size_t>(item_index)];
+        if (item_index == static_cast<int>(shelf.game_ids.size())) home_more_key = playden::homebrew::shelf_more_key(shelf);
+        else home_candidate = shelf.game_ids[static_cast<std::size_t>(item_index)];
         state_.navigation.home_shelf = shelf_index;
         state_.navigation.home_shelf_focus[shelf.key] = item_index;
         state_.navigation.scroll_offsets["home"] = shelf_index;
@@ -1007,7 +1009,8 @@ void Simulation::reconcile_applied_organization_selection(GameId prior_selected_
                state_.navigation.route == Route::Downloads) {
         state_.navigation.selected_game_id = home_candidate;
         if (state_.navigation.route == Route::Home)
-            state_.navigation.focus_key = home_candidate == 0 ? "home-library" : game_key(home_candidate);
+            state_.navigation.focus_key = !home_more_key.empty() ? home_more_key
+                                          : home_candidate == 0 ? "home-library" : game_key(home_candidate);
     }
 }
 
@@ -2070,13 +2073,19 @@ void Simulation::rebuild_view() {
             row("home-library", RowKind::Action, "Open Library", "library");
             if (state_.account.authentication != AuthState::SignedIn) row("home-connect", RowKind::Action, "Connect Steam", "connect");
         }
-        auto add_shelf = [this](std::string key, std::string title, const std::vector<GameId>& ids, int shelf_index) {
+        auto add_shelf = [this](const playden::homebrew::Shelf& source, int shelf_index) {
             ViewData::Shelf shelf;
-            shelf.key = std::move(key); shelf.title = std::move(title);
-            for (const auto id : ids) if (const auto* game = find_game(state_, id)) {
+            shelf.key = source.key; shelf.title = source.title;
+            for (const auto id : source.game_ids) if (const auto* game = find_game(state_, id)) {
                 ViewRow item;
                 item.key = "shelf-" + shelf.key + "-game-" + std::to_string(id); item.kind = RowKind::Game; item.title = game->title; item.action = "open-game"; item.game_id = id;
                 shelf.items.push_back(std::move(item));
+            }
+            if (source.more > 0 && !shelf.items.empty()) {
+                ViewRow more;
+                more.key = playden::homebrew::shelf_more_key(source); more.kind = RowKind::Action;
+                more.title = "See all in Library"; more.value = "+" + std::to_string(source.more); more.action = "shelf-more";
+                shelf.items.push_back(std::move(more));
             }
             if (!shelf.items.empty()) {
                 const auto saved = state_.navigation.home_shelf_focus.find(shelf.key);
@@ -2086,7 +2095,7 @@ void Simulation::rebuild_view() {
             }
         };
         int shelf_index = 0;
-        for (const auto& shelf : playden::homebrew::shelves(state_)) add_shelf(shelf.key, shelf.title, shelf.game_ids, shelf_index++);
+        for (const auto& shelf : playden::homebrew::shelves(state_)) add_shelf(shelf, shelf_index++);
         view_.legends = {"Cross Open", "Square Favorite", "Options Actions", "L1/R1 Sections"};
     } else if (state_.navigation.route == Route::Library) {
         view_.title = "Library";
@@ -2243,7 +2252,10 @@ void Simulation::rebuild_view() {
         reset.dangerous = true;
         reset.subtitle = "Forget favorites, collections and view state on this console";
         section = "Quit Playden";
-        add("settings-quit", RowKind::Action, "Quit", "quit-confirm").dangerous = true;
+        // As on macOS, the rail entry itself quits: the section has no rows to review.
+        auto& quit = add("settings-quit", RowKind::Action, "Quit Playden", "quit-confirm");
+        quit.dangerous = true;
+        quit.rail_only = true;
     } else if (state_.navigation.route == Route::Session) {
         view_.title = state_.session == SessionState::Running ? "Game running" : "Simulated session";
         view_.subtitle = state_.session_error;
@@ -2516,9 +2528,17 @@ bool Simulation::move_settings(int delta_x, int delta_y) {
     const int current = std::clamp(view_.focused_row, 0, static_cast<int>(view_.rows.size()) - 1);
     if (!state_.navigation.settings_rail_focused) {
         if (delta_x < 0) { state_.navigation.settings_rail_focused = true; return true; }
+        // A rail-only section (Quit Playden) has no card to move onto from the rows.
+        if (delta_y != 0) {
+            const int target = std::clamp(current + delta_y, 0, static_cast<int>(view_.rows.size()) - 1);
+            if (view_.rows[static_cast<std::size_t>(target)].rail_only) return true;
+        }
         return delta_x > 0;
     }
-    if (delta_x > 0) { state_.navigation.settings_rail_focused = false; return true; }
+    if (delta_x > 0) {
+        if (!view_.rows[static_cast<std::size_t>(current)].rail_only) state_.navigation.settings_rail_focused = false;
+        return true;
+    }
     if (delta_y == 0) return true;
     std::vector<std::string> sections;
     for (const auto& item : view_.rows)
@@ -2549,8 +2569,13 @@ void Simulation::change_route(int delta) {
 void Simulation::activate() {
     if (state_.navigation.route == Route::Settings && state_.navigation.settings_rail_focused &&
         state_.navigation.modals.empty() && !state_.editor.active) {
-        state_.navigation.settings_rail_focused = false;
-        return;
+        // Cross on a rail-only entry (Quit Playden) runs its action, as on macOS.
+        const bool rail_action = !view_.rows.empty() &&
+            view_.rows[static_cast<std::size_t>(std::clamp(view_.focused_row, 0, static_cast<int>(view_.rows.size()) - 1))].rail_only;
+        if (!rail_action) {
+            state_.navigation.settings_rail_focused = false;
+            return;
+        }
     }
     if (state_.editor.active) {
         static constexpr const char* letters[] = {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?"};
@@ -2593,6 +2618,24 @@ void Simulation::activate() {
             state_.navigation.focus_key = game_key(state_.navigation.selected_game_id);
         }
         save_profile(); return;
+    }
+    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id == 0 &&
+        state_.navigation.focus_key.rfind("shelf-", 0) == 0 && state_.navigation.focus_key.size() > 5 &&
+        state_.navigation.focus_key.compare(state_.navigation.focus_key.size() - 5, 5, "-more") == 0) {
+        // "More" at the end of Continue playing: every game in the Library, most recently played first.
+        state_.library.scope = "all";
+        state_.library.sort = "recent-played";
+        state_.library.query.clear();
+        state_.navigation.library_rail_focused = false;
+        state_.navigation.route = Route::Library;
+        state_.navigation.selected_index = 0;
+        state_.navigation.library_grid_column = 0;
+        state_.navigation.scroll_offsets["library-grid"] = 0;
+        const auto games = visible_games();
+        state_.navigation.selected_game_id = games.empty() ? 0 : games.front()->id;
+        state_.navigation.focus_key = games.empty() ? "library-empty" : game_key(state_.navigation.selected_game_id);
+        save_profile();
+        return;
     }
     if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id != 0) {
         if (live()) force_organization_selection_ = true;
