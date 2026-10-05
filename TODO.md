@@ -31,6 +31,5 @@ Deferred items found during console runs. Newest first. Remove an item when it i
 
 - Downloads: a resumed job shows "0.0 GB / 0.0 GB" until its manifest step reports the totals.
 
-- The macOS UI pass (tile focus cross-fade, hero banner and logo, Settings sections, button styling, Home scrolling, type scale) is host-captured only: the console deploy was blocked because the capture card was not detected and the running title kept `eboot.bin` busy (`550 Cannot create file`).
 - Downloads: a failed job shows the stage ("Download") in red but not its failure text; show the job's reason.
 - Some covers stay placeholders (for example Proteus): titles without a `library_600x900` portrait on the Steam CDN. Consider a header-image fallback.
