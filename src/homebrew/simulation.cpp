@@ -847,9 +847,12 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
                 : game_key(state_.navigation.selected_game_id);
         } else if (state_.navigation.route == Route::Details) {
             if (identity_retained) state_.navigation.focus_key = prior_focus;
-            else state_.navigation.focus_key = live() ? "details-favorite"
-                                                       : (is_installed(state_, state_.navigation.selected_game_id)
-                                                              ? "details-play" : "details-install");
+            else {
+                details_primary_pending_ = live();
+                state_.navigation.focus_key = live() ? "details-favorite"
+                                                     : (is_installed(state_, state_.navigation.selected_game_id)
+                                                            ? "details-play" : "details-install");
+            }
         } else {
             state_.navigation.focus_key = prior_focus;
         }
@@ -2172,6 +2175,17 @@ void Simulation::rebuild_view() {
         }
         row("session-fixture-controls", RowKind::Action, "Session fixture controls", "session-fixture-controls");
     }
+    // Live Details opens on Favorite while Steam's app info is still loading; once it arrives
+    // focus moves to the first action (Install, the download, or Cloud saves), as on macOS
+    // where the primary action is focused. Only until the user moves.
+    if (details_primary_pending_ && state_.navigation.route == Route::Details && !has_overlay) {
+        const auto first = std::find_if(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) {
+            return item.enabled && (item.kind == RowKind::Action || item.kind == RowKind::Toggle);
+        });
+        if (first != view_.rows.end()) state_.navigation.focus_key = first->key;
+        if (std::none_of(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) { return item.key == "details-checking"; }))
+            details_primary_pending_ = false;
+    }
     auto focused = std::find_if(view_.rows.begin(), view_.rows.end(), [this](const ViewRow& item) { return item.key == state_.navigation.focus_key; });
     if (focused != view_.rows.end()) view_.focused_row = static_cast<int>(std::distance(view_.rows.begin(), focused));
     else if (!view_.rows.empty() && !(state_.navigation.route == Route::Library && state_.navigation.library_rail_focused)
@@ -2487,7 +2501,7 @@ void Simulation::activate() {
         state_.navigation.detail_origin = Route::Home;
         state_.navigation.detail_id = state_.navigation.selected_game_id;
         state_.navigation.route = Route::Details;
-        state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, state_.navigation.selected_game_id) ? "details-play" : "details-install");
+        details_primary_pending_ = live(); state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, state_.navigation.selected_game_id) ? "details-play" : "details-install");
         return;
     }
     if (view_.rows.empty()) return;
@@ -2520,7 +2534,7 @@ void Simulation::activate() {
         state_.navigation.detail_id = selected.game_id;
         state_.navigation.selected_game_id = selected.game_id;
         state_.navigation.route = Route::Details;
-        state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, selected.game_id) ? "details-play" : "details-install");
+        details_primary_pending_ = live(); state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, selected.game_id) ? "details-play" : "details-install");
     } else if (action_name == "favorite") {
         if (state_.library.favorites.contains(state_.navigation.selected_game_id)) state_.library.favorites.erase(state_.navigation.selected_game_id);
         else state_.library.favorites.insert(state_.navigation.selected_game_id);
@@ -2921,7 +2935,7 @@ void Simulation::activate() {
         if (std::from_chars(number.data(), number.data() + number.size(), id).ec == std::errc{} && find_game(state_, id)) {
             state_.navigation.modals.clear(); state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
             state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
-            state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install");
+            details_primary_pending_ = live(); state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install");
         }
     }
     else if (action_name == "storage-retry") action("inject:storage-reconnect");
@@ -2955,6 +2969,8 @@ void Simulation::activate() {
 }
 
 bool Simulation::action(const std::string& logical_action) {
+    // Any input settles Details focus where the user put it.
+    details_primary_pending_ = false;
     state_.controller = {};
     if (logical_action == "up") state_.controller.left_y = -1.0F;
     else if (logical_action == "down") state_.controller.left_y = 1.0F;
@@ -3134,7 +3150,7 @@ bool Simulation::action(const std::string& logical_action) {
                 state_.navigation.scroll_offsets["home"] = chosen_shelf;
             }
         }
-        if (details) { state_.navigation.detail_origin = state_.navigation.route; state_.navigation.route = Route::Details; state_.navigation.detail_id = id; state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install"); }
+        if (details) { state_.navigation.detail_origin = state_.navigation.route; state_.navigation.route = Route::Details; state_.navigation.detail_id = id; details_primary_pending_ = live(); state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install"); }
         else if (state_.navigation.route == Route::Downloads) {
             const auto job = std::find_if(state_.jobs.begin(), state_.jobs.end(), [id](const Job& value) { return value.game_id == id && value.state != JobState::Cancelled; });
             if (job != state_.jobs.end()) state_.navigation.focus_key = "job-" + job->id;

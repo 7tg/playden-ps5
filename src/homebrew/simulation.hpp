@@ -437,6 +437,7 @@ private:
     std::vector<CloudRequest> pending_cloud_requests_;
     std::string live_log_topic_;
     GameId live_log_game_ = 0;
+    bool details_primary_pending_ = false;  // live Details: move focus to the first action once known
 
     struct OrganizationJournalEntry {
         playden::OrganizationSnapshot before;

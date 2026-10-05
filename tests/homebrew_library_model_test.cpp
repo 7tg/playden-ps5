@@ -254,6 +254,8 @@ void live_install_requests_and_projection() {
     check(has_row(model, "details-checking"), "install state waits for Steam details");
     check(model.UpdateAppDetails(42, 300'000'000, 600'000'000, true), "app details apply");
     check(has_row(model, "details-install"), "an installable game offers Install");
+    check(model.state().navigation.focus_key == "details-install",
+          "focus moves from Favorite to Install once Steam's details arrive");
     activate(model, "details-install");
     auto requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Install && requests[0].game_id == 42,
