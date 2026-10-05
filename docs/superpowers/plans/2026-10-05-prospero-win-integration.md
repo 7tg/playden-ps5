@@ -452,6 +452,17 @@ watchdog are therefore not the sole cause. Isolate UserService, basic network
 initialization and earlier module startup next; do not relax credential checks.
 See [sequencing evidence](../../../results/20261005-single-thread-bootstrap/README.md).
 
+Deferred UserService follow-up: production now grants access before UserService
+initialization, while still completing it before UI/native launch services.
+The console helper observes one thread and completes the verified credential
+and root transfer. UserService then succeeds and bootstrap reports native
+runtime readiness. However, account storage fails in the granted view, so Step 5
+remains open. Restoring the prior preview returns Home and the existing library,
+confirming saved state remains. The grant-enabled executable is not left on the
+console. See [grant evidence](../../../results/20261005-deferred-user-grant/README.md).
+All 74 host tests and the PS5 build pass; the PS5 is released.
+
+
 
 - [ ] Step 1: Add `runtime_game_install`, `prospero_profile` extensions and `native_access`
    tests. Assert `ReservationSurvivesRestart`, `ForeignNativeTitleCollision`,

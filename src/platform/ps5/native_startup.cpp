@@ -26,13 +26,17 @@ struct StartupContext {
 };
 
 int InitializeUser(void* data) {
-  app::AppendLogLine("/app0/logs", "native-startup.log", "user service initialization starting");
   auto& context = *static_cast<StartupContext*>(data);
-  const auto result = static_cast<std::uint32_t>(sceUserServiceInitialize(nullptr));
-  app::AppendLogLine("/app0/logs", "native-startup.log", "user service result=" + std::to_string(result));
-  if (result != 0 && result != 0x80960003U) return static_cast<int>(result);
   const auto ops = context.filesystem->Ops();
-  ops.read_source_identity(ops.context, "/app0", &context.source_identity);
+  std::string identity;
+  const std::string stable = "/data/homebrew/" + context.title_id;
+  const std::string logs = ops.read_source_identity(ops.context, stable.c_str(), &identity) &&
+      !context.source_identity.empty() && identity == context.source_identity ?
+      stable + "/logs" : "/app0/logs";
+  app::AppendLogLine(logs, "native-startup.log", "user service initialization starting");
+  const auto result = static_cast<std::uint32_t>(sceUserServiceInitialize(nullptr));
+  app::AppendLogLine(logs, "native-startup.log", "user service result=" + std::to_string(result));
+  if (result != 0 && result != 0x80960003U) return static_cast<int>(result);
   return 0;
 }
 
@@ -92,6 +96,9 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
   context.filesystem = &filesystem;
   NativeAccessOptions options;
   options.title_id = title_id;
+  options.user_service_after_grant = true;
+  const auto ops = filesystem.Ops();
+  ops.read_source_identity(ops.context, "/app0", &context.source_identity);
   NativeAccessBootstrap bootstrap(filesystem.Ops(), options);
   auto result = bootstrap.Prepare();
   if (!result.runtime_ready && !context.grant_diagnostic.empty())

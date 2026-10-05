@@ -158,6 +158,37 @@ void PathsRemainValidAfterGrant() {
   CHECK(original_identity < grant && grant < stable_identity);
 }
 
+void DeferredUserServiceRunsAfterGrantAndBeforeReturning() {
+  auto fake = OrdinaryLauncher();
+  auto options = Options();
+  options.user_service_after_grant = true;
+  NativeAccessBootstrap bootstrap(Ops(fake), options);
+  CHECK(bootstrap.Prepare().runtime_ready);
+  const auto grant = std::find(fake.calls.begin(), fake.calls.end(), "grant");
+  const auto user = std::find(fake.calls.begin(), fake.calls.end(), "user");
+  CHECK(grant != fake.calls.end() && user != fake.calls.end() && grant < user);
+  const auto calls = fake.calls;
+  CHECK(bootstrap.Prepare().runtime_ready && fake.calls == calls);
+
+  auto failed = OrdinaryLauncher();
+  failed.grant_result = 13;
+  NativeAccessBootstrap failed_bootstrap(Ops(failed), options);
+  CHECK(failed_bootstrap.Prepare().launcher_ready);
+  CHECK(std::find(failed.calls.begin(), failed.calls.end(), "grant") <
+        std::find(failed.calls.begin(), failed.calls.end(), "user"));
+
+  auto user_failed = OrdinaryLauncher();
+  user_failed.user_result = 12;
+  NativeAccessBootstrap user_failed_bootstrap(Ops(user_failed), options);
+  const auto result = user_failed_bootstrap.Prepare();
+  CHECK(result.launcher_ready && result.granted && !result.runtime_ready);
+  CHECK(result.paths.title_root == kStableRoot);
+  CHECK(result.error.find("user service") != std::string::npos);
+  user_failed.user_result = 0;
+  CHECK(user_failed_bootstrap.Prepare().runtime_ready);
+  CHECK(user_failed.grants == 1);
+}
+
 void GrantFailureDisablesRuntimeOnly() {
   auto fake = OrdinaryLauncher();
   fake.grant_result = 71;
@@ -361,6 +392,7 @@ void WritableManagedParentAllowsFirstRuntimeDirectoryCreation() {
 }  // namespace
 
 int main() {
+  DeferredUserServiceRunsAfterGrantAndBeforeReturning();
   PathsRemainValidAfterGrant();
   GrantFailureDisablesRuntimeOnly();
   UserAndGraphicsReadinessPrecedeGrant();

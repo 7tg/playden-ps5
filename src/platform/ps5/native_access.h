@@ -41,6 +41,9 @@ struct NativeAccessOptions {
   // Optional durable package identity. When empty, it is captured from the
   // sandbox root before the grant can invalidate that mount view.
   std::string source_identity;
+  // Helpers requiring a single-threaded target must run before UserService,
+  // which may start background threads. Initialize it before returning to UI.
+  bool user_service_after_grant = false;
 };
 
 struct NativePaths {
@@ -70,6 +73,7 @@ class NativeAccessBootstrap {
   NativeAccessResult Prepare();
 
  private:
+  NativeAccessResult PrepareAccess();
   NativeAccessResult LauncherFallback(const std::string& error,
                                       const NativePaths* stable = nullptr);
 

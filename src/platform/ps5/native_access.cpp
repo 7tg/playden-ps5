@@ -150,6 +150,25 @@ NativeAccessResult NativeAccessBootstrap::LauncherFallback(
 
 NativeAccessResult NativeAccessBootstrap::Prepare() {
   if (complete_) return complete_result_;
+  auto result = PrepareAccess();
+  if (options_.user_service_after_grant && result.launcher_ready &&
+      !user_initialized_ && ops_.initialize_user_service) {
+    const int code = ops_.initialize_user_service(ops_.context);
+    if (code != 0) {
+      complete_ = false;
+      result.runtime_ready = false;
+      if (!result.error.empty()) result.error += "; ";
+      result.error += NativeFailure("user service initialization", code);
+      return result;
+    }
+    user_initialized_ = true;
+  }
+  if (complete_) complete_result_ = result;
+  return result;
+}
+
+NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
+  if (complete_) return complete_result_;
   if (!ValidTitleId(options_.title_id) || options_.sandbox_root.empty() ||
       options_.stable_homebrew_root.empty() ||
       options_.managed_runtime_root.empty() ||
@@ -163,7 +182,7 @@ NativeAccessResult NativeAccessBootstrap::Prepare() {
     return LauncherFallback("native access operations are unavailable");
   }
 
-  if (!user_initialized_) {
+  if (!user_initialized_ && !options_.user_service_after_grant) {
     const int code = ops_.initialize_user_service(ops_.context);
     if (code != 0)
       return LauncherFallback(NativeFailure("user service initialization", code));
