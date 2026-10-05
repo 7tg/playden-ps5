@@ -151,7 +151,8 @@ function(playden_add_homebrew_ps5_title)
 	set(stamp "${app}/.packaged")
 	file(GLOB_RECURSE package_inputs CONFIGURE_DEPENDS
 		"${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets/*"
-		"${CMAKE_SOURCE_DIR}/build/homebrew-fonts/*")
+		"${CMAKE_SOURCE_DIR}/build/homebrew-fonts/*"
+		"${CMAKE_SOURCE_DIR}/runtime/*")
 	set(simulation_package_commands)
 	set(playden_title_name "Playden")
 	if(PLAYDEN_UI_SIMULATION)
@@ -174,6 +175,7 @@ function(playden_add_homebrew_ps5_title)
 			-DPARAM_SOURCE=${gl_source}/native-app/param.json -DPARAM_DEST=${app}/sce_sys/param.json
 			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=${playden_title_name}" -P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
 		${simulation_package_commands}
+		COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/runtime" "${app}/runtime"
 		COMMAND "${CMAKE_COMMAND}" -E make_directory "${app}/trust"
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PLAYDEN_STEAM_CA_BUNDLE}" "${app}/trust/cacert.pem"
 		COMMAND "${host_tool}" self --sign --in "${out}/eboot.elf" --out "${app}/eboot.bin" --magic 0x1D3D154F

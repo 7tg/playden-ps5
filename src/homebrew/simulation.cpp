@@ -200,34 +200,24 @@ Volume* find_volume(State& state, const std::string& id) {
     return found == state.volumes.end() ? nullptr : &*found;
 }
 
-Profile& custom_profile(State& state, GameId id) {
-    if (const auto found = state.custom_profiles.find(id); found != state.custom_profiles.end()) return found->second;
-    Profile profile;
-    if (!state.profiles.empty()) profile = state.profiles.front();
-    profile.id = "custom";
-    profile.name = "Custom";
-    profile.summary = "Default values plus your overrides";
-    profile.is_default = false;
-    return state.custom_profiles.emplace(id, std::move(profile)).first->second;
-}
-
-const Profile* effective_profile(const State& state, GameId id, const std::string& selected_id) {
-    if (selected_id == "custom") {
-        if (const auto found = state.custom_profiles.find(id); found != state.custom_profiles.end()) return &found->second;
-    }
-    const auto found = std::find_if(state.profiles.begin(), state.profiles.end(), [&selected_id](const Profile& profile) { return profile.id == selected_id; });
-    return found == state.profiles.end() ? (state.profiles.empty() ? nullptr : &state.profiles.front()) : &*found;
-}
-
 std::string game_key(GameId id);
 
-void clear_profile_customizations(State& state) {
-    state.selected_profiles.clear();
-    state.custom_profiles.clear();
-    if (state.profiles.size() > 1) {
-        auto custom = state.profiles.front();
-        custom.id = "custom"; custom.name = "Custom"; custom.summary = "Default values plus your overrides"; custom.is_default = false;
-        state.profiles[1] = std::move(custom);
+void clear_profile_customizations(State& state) { state.game_settings.clear(); }
+
+namespace rt = playden::runtime;
+
+std::string choice_label(const rt::SettingDefinition& definition, const std::string& value) {
+    for (const auto& choice : definition.choices)
+        if (choice.value == value) return choice.label;
+    return value;
+}
+
+const char* source_label(rt::ValueSource source) {
+    switch (source) {
+    case rt::ValueSource::kRecipe: return "From recipe";
+    case rt::ValueSource::kPreset: return "From preset";
+    case rt::ValueSource::kUser: return "Your choice";
+    default: return "Playden default";
     }
 }
 
@@ -269,8 +259,8 @@ std::string action_label(const std::string& key) {
         {"cloud-sync", "Cloud saves"}, {"cloud-choose", "Cloud saves"}, {"cloud-use-cloud", "Use Cloud saves"},
         {"cloud-use-local", "Use console saves"}, {"cloud-confirm-account", "Use this account"},
         {"install-confirm", "Install"}, {"storage-picker", "Change storage"},
-        {"profile-picker", "Profile"}, {"resolution-picker", "Resolution"}, {"frame-picker", "Frame limit"},
-        {"toggle-vsync", "VSync"}, {"edit-arguments", "Launch arguments"}, {"reset-settings", "Reset all overrides"},
+        {"preset-picker", "Preset"}, {"reset-settings", "Reset all to preset"},
+        {"section-more", "More settings"}, {"section-advanced", "Advanced"},
         {"sort-name", "Name"}, {"sort-recent-played", "Recently played"}, {"sort-recent-added", "Recently added"},
         {"sort-playtime", "Playtime"}, {"sort-install-size", "Install size"}, {"filter-installed", "Installed"},
         {"filter-genre-adventure", "Adventure"}, {"filter-controller-full", "Full controller support"},
@@ -428,7 +418,7 @@ void Simulation::reset_default_state() {
     state_.navigation.scroll_offsets["details"] = 0;
     state_.navigation.scroll_offsets["details-content"] = 0;
     selected_volume_id_ = "external";
-    selected_profile_id_ = "default";
+    editing_setting_id_.clear();
     next_job_serial_ = 1;
     last_error_.clear();
     captured_organization_ = {};
@@ -648,9 +638,7 @@ void Simulation::clear_account_specific_state() {
     state_.jobs.clear();
     state_.volumes.clear();
     state_.cloud.clear();
-    state_.profiles.clear();
-    state_.selected_profiles.clear();
-    state_.custom_profiles.clear();
+    state_.game_settings.clear();
     state_.navigation.detail_id.reset();
     state_.navigation.selected_game_id = 0;
     state_.navigation.selected_index = 0;
@@ -674,7 +662,7 @@ void Simulation::clear_account_specific_state() {
     state_.log_context.clear();
     pending_destructive_action_.clear();
     selected_volume_id_.clear();
-    selected_profile_id_.clear();
+    editing_setting_id_.clear();
     editing_target_id_.clear();
     organization_account_ = 0;
     organization_revision_ = 0;
@@ -1348,27 +1336,6 @@ void Simulation::load_fixtures() {
             state_.jobs.push_back(std::move(job));
         }
     }
-    if (const auto* values = root->get("profiles"); values && values->array()) {
-        for (const auto& item : *values->array()) {
-            Profile profile;
-            profile.id = string_value(item.get("id"));
-            profile.name = string_value(item.get("name"));
-            profile.summary = string_value(item.get("summary"));
-            profile.is_default = profile.id == "default";
-            if (const auto* settings = item.get("values")) {
-                profile.resolution = string_value(settings->get("resolution"), profile.resolution);
-                profile.frame_limit = string_value(settings->get("frame_limit"), profile.frame_limit);
-                profile.vsync = bool_value(settings->get("vsync"), profile.vsync);
-                profile.launch_arguments = string_value(settings->get("launch_arguments"));
-            }
-            state_.profiles.push_back(std::move(profile));
-        }
-        if (state_.profiles.size() > 1 && state_.profiles[1].id == "custom" && state_.profiles.front().id == "default") {
-            state_.profiles[1].resolution = state_.profiles.front().resolution;
-            state_.profiles[1].frame_limit = state_.profiles.front().frame_limit;
-            state_.profiles[1].vsync = state_.profiles.front().vsync;
-        }
-    }
     for (const auto& job : state_.jobs) {
         if (job.id.rfind("job-", 0) != 0) continue;
         std::uint64_t serial = 0;
@@ -1393,8 +1360,7 @@ void Simulation::load_profile() {
     const auto restored_auth = parse_auth_state(saved_auth);
     if (saved_account != state_.account.id) {
         state_.library = {};
-        state_.selected_profiles.clear();
-        state_.custom_profiles.clear();
+        state_.game_settings.clear();
     }
     state_.account.id = saved_account;
     state_.account.display_name = saved_account.empty() ? std::string{} : string_value(root->get("account_display_name"), "Connected fixture account");
@@ -1448,32 +1414,19 @@ void Simulation::load_profile() {
         state_.library.notes.clear();
         for (const auto& item : *notes->array()) state_.library.notes[static_cast<GameId>(uint_value(item.get("id")))] = string_value(item.get("value"));
     }
-    if (const auto* profiles = root->get("profiles"); profiles && profiles->array()) {
-        for (const auto& item : *profiles->array()) {
-            const auto id = string_value(item.get("id"));
-            auto found = std::find_if(state_.profiles.begin(), state_.profiles.end(), [&id](const Profile& value) { return value.id == id; });
-            if (found == state_.profiles.end()) continue;
-            found->resolution = string_value(item.get("resolution"), found->resolution);
-            found->frame_limit = string_value(item.get("frame_limit"), found->frame_limit);
-            found->vsync = bool_value(item.get("vsync"), found->vsync);
-            found->launch_arguments = string_value(item.get("arguments"));
-        }
-    }
-    if (const auto* profiles = root->get("selected_profiles"); profiles && profiles->array()) {
-        state_.selected_profiles.clear();
-        for (const auto& item : *profiles->array()) state_.selected_profiles[static_cast<GameId>(uint_value(item.get("id")))] = string_value(item.get("profile"));
-    }
-    if (const auto* profiles = root->get("custom_profiles"); profiles && profiles->array()) {
-        state_.custom_profiles.clear();
-        for (const auto& item : *profiles->array()) {
-            const auto id = static_cast<GameId>(uint_value(item.get("game_id")));
-            auto profile = state_.profiles.empty() ? Profile{} : state_.profiles.front();
-            profile.id = "custom"; profile.name = "Custom"; profile.summary = "Default values plus your overrides"; profile.is_default = false;
-            profile.resolution = string_value(item.get("resolution"), profile.resolution);
-            profile.frame_limit = string_value(item.get("frame_limit"), profile.frame_limit);
-            profile.vsync = bool_value(item.get("vsync"), profile.vsync);
-            profile.launch_arguments = string_value(item.get("arguments"));
-            state_.custom_profiles[id] = std::move(profile);
+    // Saved state from before the settings model ("profiles", "custom_profiles") is ignored.
+    if (const auto* settings = root->get("game_settings"); settings && settings->array()) {
+        state_.game_settings.clear();
+        for (const auto& item : *settings->array()) {
+            rt::GameSettingsRecord record;
+            const auto* value = item.get("settings");
+            if (!value || !value->object()) continue;
+            record.preset_id = string_value(value->get("preset"));
+            record.revision = static_cast<std::uint32_t>(uint_value(value->get("revision")));
+            if (const auto* overrides = value->get("overrides"); overrides && overrides->object())
+                for (const auto& [id, text] : *overrides->object())
+                    if (text.string() && rt::FindSetting(id)) record.overrides[id] = *text.string();
+            state_.game_settings[static_cast<GameId>(uint_value(item.get("game_id")))] = std::move(record);
         }
     }
     if (const auto* jobs = root->get("jobs"); jobs && jobs->array()) {
@@ -1510,8 +1463,7 @@ void Simulation::load_profile() {
     }
     if (state_.account.authentication == AuthState::SignedOut) {
         state_.library = {};
-        state_.selected_profiles.clear();
-        state_.custom_profiles.clear();
+        state_.game_settings.clear();
     }
     reconcile_storage(state_);
 }
@@ -1557,24 +1509,11 @@ bool Simulation::save_profile() {
     output += "],\"notes\":[";
     first = true;
     for (const auto& [id, note] : state_.library.notes) { if (!first) output += ','; first = false; output += "{\"id\":" + std::to_string(id) + ",\"value\":\"" + json::escape(note) + "\"}"; }
-    output += "],\"profiles\":[";
+    output += "],\"game_settings\":[";
     first = true;
-    for (const auto& profile : state_.profiles) {
+    for (const auto& [id, record] : state_.game_settings) {
         if (!first) output += ','; first = false;
-        output += "{\"id\":\"" + json::escape(profile.id) + "\",\"resolution\":\"" + json::escape(profile.resolution)
-            + "\",\"frame_limit\":\"" + json::escape(profile.frame_limit) + "\",\"vsync\":" + (profile.vsync ? "true" : "false")
-            + ",\"arguments\":\"" + json::escape(profile.launch_arguments) + "\"}";
-    }
-    output += "],\"selected_profiles\":[";
-    first = true;
-    for (const auto& [id, profile] : state_.selected_profiles) { if (!first) output += ','; first = false; output += "{\"id\":" + std::to_string(id) + ",\"profile\":\"" + json::escape(profile) + "\"}"; }
-    output += "],\"custom_profiles\":[";
-    first = true;
-    for (const auto& [id, profile] : state_.custom_profiles) {
-        if (!first) output += ','; first = false;
-        output += "{\"game_id\":" + std::to_string(id) + ",\"resolution\":\"" + json::escape(profile.resolution)
-            + "\",\"frame_limit\":\"" + json::escape(profile.frame_limit) + "\",\"vsync\":" + (profile.vsync ? "true" : "false")
-            + ",\"arguments\":\"" + json::escape(profile.launch_arguments) + "\"}";
+        output += "{\"game_id\":" + std::to_string(id) + ",\"settings\":" + rt::SerializeGameSettingsRecord(record) + "}";
     }
     output += "],\"jobs\":[";
     first = true;
@@ -1862,11 +1801,93 @@ void Simulation::rebuild_view() {
                 }
             }
         }
-        const Profile* profile_values = effective_profile(state_, state_.navigation.selected_game_id, selected_profile_id_);
+        const GameId settings_game = state_.navigation.selected_game_id;
+        const bool settings_modal = modal.id == "game-settings" || modal.id == "preset-picker" || !modal.setting_id.empty();
+        rt::EffectiveSettings settings_values;
+        const bool settings_ready = settings_modal && EffectiveSettingsFor(settings_game, &settings_values);
+        const auto settings_record = state_.game_settings.find(settings_game);
+        const bool settings_custom = settings_record != state_.game_settings.end() && !settings_record->second.overrides.empty();
+        // A picker marks the value the game would have without the player's choice.
+        rt::EffectiveValue inherited;
+        if (settings_ready && !modal.setting_id.empty()) {
+            auto overrides = settings_record == state_.game_settings.end() ? std::map<std::string, std::string>{} : settings_record->second.overrides;
+            overrides.erase(modal.setting_id);
+            rt::EffectiveSettings base;
+            rt::SettingsError ignored;
+            if (rt::BuildEffectiveSettings(RecipeFor(settings_game), preset_for(settings_game), overrides, kit_, &base, &ignored))
+                inherited = base.values.at(modal.setting_id);
+        }
+        if (modal.id == "game-settings") {
+            if (const auto* game = find_game(state_, settings_game)) view_.subtitle = game->title;
+        } else if (!modal.setting_id.empty()) {
+            if (const auto* definition = rt::FindSetting(modal.setting_id)) {
+                view_.subtitle = definition->effect;
+                view_.subtitle += settings_custom || inherited.source != rt::ValueSource::kPlayden
+                    ? std::string(" ") + source_label(inherited.source) + ": " + (modal.setting_id == "launch_option" ? inherited.value : choice_label(*definition, inherited.value)) + "."
+                    : "";
+                view_.subtitle += " Applies on next launch.";
+            }
+        } else if (modal.id == "preset-picker") {
+            view_.subtitle = "A preset sets several settings at once. Choosing one clears your changes for this game.";
+        }
         for (const auto& action_key : modal.action_keys) {
             auto& item = row(action_key, RowKind::Action, action_label(action_key), action_key);
             item.dangerous = modal.destructive && action_key != "cancel";
-            if (action_key.rfind("volume-", 0) == 0) {
+            if (settings_ready && action_key == "preset-picker") {
+                item.kind = RowKind::Profile;
+                const auto* preset = preset_for(settings_game);
+                const std::string name = preset ? preset->name : "Playden default";
+                item.value = settings_custom ? "Custom · from " + name : name;
+                item.subtitle = "A ready-made bundle of the settings below.";
+            } else if (settings_ready && modal.id == "preset-picker" && action_key.rfind("preset-", 0) == 0) {
+                item.kind = RowKind::Profile;
+                const auto id = action_key.substr(7);
+                const auto* current = preset_for(settings_game);
+                for (const auto& preset : settings_presets_)
+                    if (preset.id == id) { item.title = preset.name; item.subtitle = preset.try_when; item.value = preset.short_hint; }
+                item.selected = current ? current->id == id : id == "playden-default";
+                if (item.selected) item.badge = settings_custom ? "Current · changed" : "Current";
+            } else if (settings_ready && action_key.rfind("setting-", 0) == 0) {
+                const auto id = action_key.substr(8);
+                const auto* definition = rt::FindSetting(id);
+                const auto& value = settings_values.values.at(id);
+                item.kind = definition->kind == rt::SettingKind::kText ? RowKind::Text : RowKind::Choice;
+                item.title = definition->label;
+                item.subtitle = value.available ? definition->effect : value.reason;
+                if (id == "launch_option") item.value = settings_values.launch->label;
+                else if (definition->kind == rt::SettingKind::kText) item.value = value.value.empty() ? "Empty" : value.value;
+                else item.value = choice_label(*definition, value.value);
+                item.badge = value.locked ? "Required by recipe"
+                    : definition->apply == rt::ApplyMode::kGameClosed ? "Game must be closed"
+                    : definition->apply == rt::ApplyMode::kPreparesBottle ? "Prepares bottle" : "";
+                item.enabled = value.available && !value.locked;
+                item.modified = value.source == rt::ValueSource::kUser;
+            } else if (settings_ready && (action_key == "section-more" || action_key == "section-advanced")) {
+                item.kind = RowKind::Heading;
+                const auto tier = action_key == "section-more" ? rt::SettingTier::kCompatibility : rt::SettingTier::kAdvanced;
+                int count = 0;
+                for (const auto& definition : rt::SettingsCatalogue())
+                    if (definition.tier == tier && definition.id.rfind("button.", 0) != 0) ++count;
+                item.value = expanded_settings_sections_.count(action_key) ? "Hide" : "Show " + std::to_string(count);
+            } else if (settings_ready && !modal.setting_id.empty() && action_key.rfind("choice-", 0) == 0) {
+                item.kind = RowKind::Choice;
+                const auto index = static_cast<std::size_t>(std::stoul(action_key.substr(7)));
+                const auto& recipe = RecipeFor(settings_game);
+                std::string value;
+                if (modal.setting_id == "launch_option") {
+                    value = recipe.launch_entries[index].id;
+                    item.title = recipe.launch_entries[index].label;
+                } else {
+                    const auto& choice = rt::FindSetting(modal.setting_id)->choices[index];
+                    value = choice.value;
+                    item.title = choice.label;
+                    item.subtitle = choice.explanation;
+                }
+                item.selected = value == settings_values.values.at(modal.setting_id).value;
+                item.value = value == inherited.value ? source_label(inherited.source) : item.selected ? "Your choice" : "";
+            } else if (settings_ready && action_key == "reset-settings") {
+                item.enabled = settings_custom;
+            } else if (action_key.rfind("volume-", 0) == 0) {
                 item.kind = RowKind::Volume;
                 if (const auto* volume = find_volume(state_, action_key.substr(7))) {
                     item.title = volume->label;
@@ -1879,30 +1900,10 @@ void Simulation::rebuild_view() {
                     item.enabled = volume->available && volume->writable;
                     item.selected = volume->id == selected_volume_id_;
                 }
-            } else if (action_key == "profile-picker") {
-                item.kind = RowKind::Profile;
-                if (profile_values) { item.value = profile_values->name; item.subtitle = profile_values->summary; }
-            } else if (action_key.rfind("profile-", 0) == 0) {
-                item.kind = RowKind::Profile;
-                const auto id = action_key.substr(8);
-                const auto found = std::find_if(state_.profiles.begin(), state_.profiles.end(), [&id](const Profile& profile) { return profile.id == id; });
-                if (found != state_.profiles.end()) { item.title = found->name; item.subtitle = found->summary; item.selected = id == selected_profile_id_; }
-            } else if (action_key == "toggle-vsync") {
-                item.kind = RowKind::Toggle; item.selected = profile_values && profile_values->vsync;
-                item.value = item.selected ? "On" : "Off";
-            } else if (action_key == "resolution-picker" && profile_values) item.value = profile_values->resolution;
-            else if (action_key == "frame-picker" && profile_values) item.value = profile_values->frame_limit;
-            else if (action_key == "edit-arguments" && profile_values) item.value = profile_values->launch_arguments.empty() ? "None" : profile_values->launch_arguments;
-            else if (action_key.rfind("resolution-", 0) == 0 && state_.profiles.size() > 1) {
-                const auto value = action_key.substr(11);
-                const auto display = value == "1280x720" ? "1280×720" : value == "3840x2160" ? "3840×2160" : "1920×1080";
-                item.title = display; item.selected = profile_values && display == profile_values->resolution;
             }
-            else if (action_key.rfind("frame-", 0) == 0 && profile_values) item.selected = action_key.substr(6) == profile_values->frame_limit;
             else if (action_key == "verify" || action_key == "uninstall") {
                 if (!is_installed(state_, state_.navigation.selected_game_id)) { item.enabled = false; item.subtitle = "Game is not installed"; }
             } else if (action_key == "hide") item.title = state_.library.hidden.contains(state_.navigation.selected_game_id) ? "Unhide" : "Hide";
-            else if (action_key == "graphics-backend") { item.title = "Graphics backend"; item.value = "Unavailable"; item.subtitle = "Simulated settings; PS5 runtime support is unavailable."; item.enabled = false; }
             else if (action_key == "runtime-retry") item.subtitle = state_.runtime == RuntimeState::Ready ? "Ready — simulated" : state_.runtime == RuntimeState::Checking ? "Checking — simulated" : state_.runtime == RuntimeState::Failed ? "Failed — retry available" : "Unavailable — retry available";
             else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account.authentication); item.subtitle = state_.account.error; item.enabled = false; }
             else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account.last_sync == 0 ? "Never" : std::to_string(state_.account.last_sync); item.enabled = false; }
@@ -1943,6 +1944,8 @@ void Simulation::rebuild_view() {
         }
         view_.focused_row = modal.focused_action;
         view_.legends = {"Cross Select", "Circle Cancel"};
+        if (modal.id == "game-settings") view_.legends = {"Cross Change", "Triangle Reset", "Circle Close"};
+        else if (!modal.setting_id.empty()) view_.legends = {"Cross Select", "Triangle Reset", "Circle Back"};
     } else if (state_.navigation.route == Route::Startup) {
         view_.title = "Welcome to Playden";
         view_.subtitle = live() ? "Connect Steam to load your library." : "Browse the local UI fixture or connect a simulated Steam account.";
@@ -2299,6 +2302,7 @@ std::string Simulation::next_job_id() {
 
 void Simulation::start_editor(std::string purpose, std::string value) {
     const auto opener = state_.navigation.focus_key;
+    editing_setting_id_.clear();
     state_.editor = {};
     state_.editor.active = true;
     state_.editor.purpose = std::move(purpose);
@@ -2311,12 +2315,23 @@ void Simulation::start_editor(std::string purpose, std::string value) {
 
 void Simulation::commit_editor() {
     if (state_.editor.purpose == "Search") { state_.library.query = state_.editor.value; reconcile_library_selection(state_); }
-    else if (state_.editor.purpose == "Launch arguments" && state_.profiles.size() > 1) {
-        auto& profile = custom_profile(state_, state_.navigation.selected_game_id);
-        profile.launch_arguments = state_.editor.value;
-        state_.profiles[1] = profile;
-        selected_profile_id_ = "custom";
-        state_.selected_profiles[state_.navigation.selected_game_id] = "custom";
+    else if (!editing_setting_id_.empty()) {
+        const auto value = trimmed(state_.editor.value);
+        std::string reason;
+        if (!value.empty() && !rt::ValidateSettingValue(RecipeFor(state_.navigation.selected_game_id), editing_setting_id_, value, &reason)) {
+            state_.notices.push_back({"setting-validation", state_.editor.purpose + ": " + reason, "", true, 0, true});
+            return;
+        }
+        state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
+                                            [](const Notice& notice) { return notice.id == "setting-validation"; }),
+                             state_.notices.end());
+        set_game_setting(editing_setting_id_, value);
+        editing_setting_id_.clear();
+        state_.editor.active = false;
+        state_.navigation.focus_key = state_.editor.opener_focus_key;
+        refresh_game_settings();
+        save_profile();
+        return;
     }
     else if (state_.editor.purpose == "Note") state_.library.notes[state_.navigation.selected_game_id] = state_.editor.value;
     else if (state_.editor.purpose == "Collection name") {
@@ -2793,50 +2808,68 @@ void Simulation::activate() {
     } else if (action_name == "filters-reset") {
         state_.library.filters.clear(); state_.library.sort = "name"; close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name == "game-settings") {
-        const auto selected = state_.selected_profiles.find(state_.navigation.selected_game_id);
-        selected_profile_id_ = selected == state_.selected_profiles.end() ? "default" : selected->second;
-        open_modal({"game-settings", "Game settings", "details-settings", {"profile-picker", "resolution-picker", "reset-resolution", "frame-picker", "reset-frame", "toggle-vsync", "reset-vsync", "edit-arguments", "reset-arguments", "graphics-backend", "reset-settings", "cancel"}, 0, false});
+        expanded_settings_sections_.clear();
+        open_modal({"game-settings", "Game settings", "details-settings", game_settings_actions(), 0, false});
     }
-    else if (action_name == "profile-picker") {
+    else if (action_name == "preset-picker") {
         std::vector<std::string> actions;
-        for (const auto& profile : state_.profiles) actions.push_back("profile-" + profile.id);
-        actions.push_back("cancel"); open_modal({"profile-picker", "Choose profile", "profile-picker", std::move(actions), 0, false});
-    } else if (action_name.rfind("profile-", 0) == 0) {
-        selected_profile_id_ = action_name.substr(8);
-        state_.selected_profiles[state_.navigation.selected_game_id] = selected_profile_id_;
-        if (selected_profile_id_ == "custom") state_.profiles[1] = custom_profile(state_, state_.navigation.selected_game_id);
-        close_modal(); save_profile();
-    }
-    else if (action_name == "resolution-picker") open_modal({"choice-picker", "Resolution", "resolution-picker", {"resolution-1280x720", "resolution-1920x1080", "resolution-3840x2160", "cancel"}, 1, false});
-    else if (action_name == "frame-picker") open_modal({"choice-picker", "Frame limit", "frame-picker", {"frame-30", "frame-60", "frame-Unlimited", "cancel"}, 1, false});
-    else if (action_name.rfind("resolution-", 0) == 0) {
-        if (state_.profiles.size() > 1) {
-            const auto value = action_name.substr(11);
-            auto& profile = custom_profile(state_, state_.navigation.selected_game_id);
-            profile.resolution = value == "1280x720" ? "1280×720" : value == "3840x2160" ? "3840×2160" : "1920×1080";
-            state_.profiles[1] = profile;
-            selected_profile_id_ = "custom"; state_.selected_profiles[state_.navigation.selected_game_id] = "custom";
+        int focused = 0;
+        const auto* current = preset_for(state_.navigation.selected_game_id);
+        for (const auto& preset : settings_presets_) {
+            if (current && preset.id == current->id) focused = static_cast<int>(actions.size());
+            actions.push_back("preset-" + preset.id);
         }
-        close_modal(); save_profile();
-    }
-    else if (action_name.rfind("frame-", 0) == 0) { if (state_.profiles.size() > 1) { auto& profile = custom_profile(state_, state_.navigation.selected_game_id); profile.frame_limit = action_name.substr(6); state_.profiles[1] = profile; selected_profile_id_ = "custom"; state_.selected_profiles[state_.navigation.selected_game_id] = "custom"; } close_modal(); save_profile(); }
-    else if (action_name == "toggle-vsync") { if (state_.profiles.size() > 1) { auto& profile = custom_profile(state_, state_.navigation.selected_game_id); profile.vsync = !profile.vsync; state_.profiles[1] = profile; selected_profile_id_ = "custom"; state_.selected_profiles[state_.navigation.selected_game_id] = "custom"; } save_profile(); }
-    else if (action_name == "edit-arguments") start_editor("Launch arguments", custom_profile(state_, state_.navigation.selected_game_id).launch_arguments);
-    else if (action_name == "reset-settings") {
-        if (state_.profiles.size() > 1) {
-            Profile reset;
-            reset.id = "custom";
-            reset.name = "Custom";
-            reset.summary = "Default values plus your overrides";
-            state_.custom_profiles[state_.navigation.selected_game_id] = reset;
-            state_.profiles[1] = std::move(reset);
+        actions.push_back("cancel");
+        open_modal({"preset-picker", "Choose a preset", "preset-picker", std::move(actions), focused, false});
+    } else if (action_name.rfind("preset-", 0) == 0 && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "preset-picker") {
+        auto& record = state_.game_settings[state_.navigation.selected_game_id];
+        const auto id = action_name.substr(7);
+        record.preset_id = id == "playden-default" ? std::string{} : id;
+        record.overrides.clear();
+        ++record.revision;
+        close_modal(); refresh_game_settings(); save_profile();
+    } else if (action_name.rfind("setting-", 0) == 0) {
+        const auto id = action_name.substr(8);
+        const auto* definition = rt::FindSetting(id);
+        rt::EffectiveSettings values;
+        if (definition && EffectiveSettingsFor(state_.navigation.selected_game_id, &values)) {
+            const auto& value = values.values.at(id);
+            if (!value.available || value.locked) {
+                // Disabled rows stay focusable so their reason can be read; Cross does nothing.
+            } else if (definition->kind == rt::SettingKind::kText) {
+                start_editor(definition->label, value.value);
+                editing_setting_id_ = id;
+            } else {
+                const auto& recipe = RecipeFor(state_.navigation.selected_game_id);
+                const std::size_t count = id == "launch_option" ? recipe.launch_entries.size() : definition->choices.size();
+                std::vector<std::string> actions;
+                int focused = 0;
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto& choice = id == "launch_option" ? recipe.launch_entries[index].id : definition->choices[index].value;
+                    if (choice == value.value) focused = static_cast<int>(index);
+                    actions.push_back("choice-" + std::to_string(index));
+                }
+                actions.push_back("cancel");
+                open_modal({"choice-picker", definition->label, action_name, std::move(actions), focused, false, "", id});
+            }
         }
-        save_profile();
+    } else if (action_name.rfind("choice-", 0) == 0 && !state_.navigation.modals.empty() && !state_.navigation.modals.back().setting_id.empty()) {
+        const auto id = state_.navigation.modals.back().setting_id;
+        const auto index = static_cast<std::size_t>(std::stoul(action_name.substr(7)));
+        const auto& recipe = RecipeFor(state_.navigation.selected_game_id);
+        const auto* definition = rt::FindSetting(id);
+        const bool launch = id == "launch_option";
+        if (definition && index < (launch ? recipe.launch_entries.size() : definition->choices.size()))
+            set_game_setting(id, launch ? recipe.launch_entries[index].id : definition->choices[index].value);
+        close_modal(); refresh_game_settings(); save_profile();
+    } else if (action_name == "section-more" || action_name == "section-advanced") {
+        if (!expanded_settings_sections_.erase(action_name)) expanded_settings_sections_.insert(action_name);
+        refresh_game_settings();
+    } else if (action_name == "reset-settings") {
+        auto& record = state_.game_settings[state_.navigation.selected_game_id];
+        if (!record.overrides.empty()) { record.overrides.clear(); ++record.revision; }
+        refresh_game_settings(); save_profile();
     }
-    else if (action_name == "reset-resolution") { if (state_.profiles.size() > 1) { auto& profile = custom_profile(state_, state_.navigation.selected_game_id); profile.resolution = state_.profiles.front().resolution; state_.profiles[1] = profile; } save_profile(); }
-    else if (action_name == "reset-frame") { if (state_.profiles.size() > 1) { auto& profile = custom_profile(state_, state_.navigation.selected_game_id); profile.frame_limit = state_.profiles.front().frame_limit; state_.profiles[1] = profile; } save_profile(); }
-    else if (action_name == "reset-vsync") { if (state_.profiles.size() > 1) { auto& profile = custom_profile(state_, state_.navigation.selected_game_id); profile.vsync = state_.profiles.front().vsync; state_.profiles[1] = profile; } save_profile(); }
-    else if (action_name == "reset-arguments") { if (state_.profiles.size() > 1) { auto& profile = custom_profile(state_, state_.navigation.selected_game_id); profile.launch_arguments.clear(); state_.profiles[1] = profile; } save_profile(); }
     else if (action_name == "note") open_modal({"compatibility", "Compatibility and note", "note", {"rating-untested", "rating-works", "rating-playable", "rating-broken", "edit-note", "cancel"}, 0, false});
     else if (action_name.rfind("rating-", 0) == 0) {
         const auto value = action_name.substr(7);
@@ -3201,6 +3234,19 @@ bool Simulation::action(const std::string& logical_action) {
     else if (logical_action == "cross") activate();
     else if (logical_action == "circle") cancel();
     else if (logical_action == "search") { if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) start_editor("Search", state_.library.query); }
+    else if (logical_action == "triangle" && !state_.editor.active && !state_.navigation.modals.empty() &&
+             (state_.navigation.modals.back().id == "game-settings" || !state_.navigation.modals.back().setting_id.empty())) {
+        // Triangle returns the focused setting (or the open picker's setting) to the preset value.
+        const auto& modal = state_.navigation.modals.back();
+        const auto id = !modal.setting_id.empty() ? modal.setting_id
+            : state_.navigation.focus_key.rfind("setting-", 0) == 0 ? state_.navigation.focus_key.substr(8) : std::string{};
+        auto record = state_.game_settings.find(state_.navigation.selected_game_id);
+        if (!id.empty() && record != state_.game_settings.end() && record->second.overrides.erase(id)) {
+            ++record->second.revision;
+            if (!modal.setting_id.empty()) close_modal();
+            refresh_game_settings(); save_profile();
+        }
+    }
     else if (logical_action == "triangle") {
         if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) {
             // Live mode offers only sorts and filters backed by facts the library actually has.
@@ -3452,13 +3498,11 @@ std::string Simulation::snapshot() const {
                << ",\"reserved\":" << volume.reserved_bytes << ",\"capacity\":" << volume.capacity_bytes
                << ",\"available\":" << (volume.available ? "true" : "false") << '}';
     }
-    output << "],\"custom_profiles\":[";
+    output << "],\"game_settings\":[";
     first = true;
-    for (const auto& [id, profile] : state_.custom_profiles) {
+    for (const auto& [id, record] : state_.game_settings) {
         if (!first) output << ','; first = false;
-        output << "{\"game_id\":" << id << ",\"resolution\":\"" << json::escape(profile.resolution)
-               << "\",\"frame_limit\":\"" << json::escape(profile.frame_limit) << "\",\"vsync\":"
-               << (profile.vsync ? "true" : "false") << ",\"arguments\":\"" << json::escape(profile.launch_arguments) << "\"}";
+        output << "{\"game_id\":" << id << ",\"settings\":" << rt::SerializeGameSettingsRecord(record) << '}';
     }
     output << "],\"collections\":[";
     first = true;
@@ -3479,6 +3523,106 @@ std::string Simulation::snapshot() const {
            << ",\"l2_milli\":" << static_cast<int>(state_.controller.l2 * 1000.0F)
            << ",\"r2_milli\":" << static_cast<int>(state_.controller.r2 * 1000.0F) << "}}";
     return output.value;
+}
+
+
+void Simulation::SetSettingsData(std::vector<rt::SettingsPreset> presets, std::vector<rt::GameRecipe> recipes) {
+    settings_presets_ = std::move(presets);
+    recipes_.clear();
+    for (auto& recipe : recipes) recipes_[recipe.app_id] = std::move(recipe);
+    simulated_recipes_.clear();
+    rebuild_view();
+}
+
+void Simulation::SetKitCapabilities(rt::KitCapabilities kit) {
+    kit_ = kit;
+    refresh_game_settings();
+    rebuild_view();
+}
+
+const rt::GameRecipe& Simulation::RecipeFor(GameId id) const {
+    if (const auto found = recipes_.find(static_cast<std::uint32_t>(id)); found != recipes_.end()) return found->second;
+    // Games without a recipe get a generic one so the sheet can be shown; a real install
+    // still needs a recipe before it can be prepared.
+    auto& recipe = simulated_recipes_[id];
+    if (recipe.launch_entries.empty()) {
+        const auto* game = find_game(state_, id);
+        recipe.id = "simulated-" + std::to_string(id);
+        recipe.version = 1;
+        recipe.app_id = static_cast<std::uint32_t>(id);
+        recipe.name = game ? game->title : "Game " + std::to_string(id);
+        recipe.launch_entries = {{"game", recipe.name, "game.exe", ""}};
+        recipe.arguments = "{resolution}";
+        recipe.graphics = "dxvk";
+    }
+    return recipe;
+}
+
+const rt::SettingsPreset* Simulation::preset_for(GameId id) const {
+    const auto record = state_.game_settings.find(id);
+    const std::string wanted = record == state_.game_settings.end() || record->second.preset_id.empty()
+        ? std::string("playden-default") : record->second.preset_id;
+    for (const auto& preset : settings_presets_)
+        if (preset.id == wanted) return &preset;
+    return nullptr;
+}
+
+bool Simulation::EffectiveSettingsFor(GameId id, rt::EffectiveSettings* settings) const {
+    const auto record = state_.game_settings.find(id);
+    static const std::map<std::string, std::string> none;
+    rt::SettingsError error;
+    return rt::BuildEffectiveSettings(RecipeFor(id), preset_for(id), record == state_.game_settings.end() ? none : record->second.overrides,
+                                      kit_, settings, &error);
+}
+
+std::vector<std::string> Simulation::game_settings_actions() const {
+    // Phase 2 and 3 rows appear only when the kit can apply them; path-gated rows stay
+    // visible and disabled with their reason.
+    const auto shown = [this](const rt::SettingDefinition& definition) {
+        if (definition.id.rfind("button.", 0) == 0) return false;
+        if (definition.phase == 2) return kit_.dxvk_config;
+        if (definition.phase == 3) return kit_.registry;
+        return true;
+    };
+    std::vector<std::string> actions = {"preset-picker"};
+    for (const auto& definition : rt::SettingsCatalogue())
+        if (definition.tier == rt::SettingTier::kBasic && shown(definition)) actions.push_back("setting-" + definition.id);
+    for (const auto& [section, tier] : {std::pair<const char*, rt::SettingTier>{"section-more", rt::SettingTier::kCompatibility},
+                                       std::pair<const char*, rt::SettingTier>{"section-advanced", rt::SettingTier::kAdvanced}}) {
+        actions.push_back(section);
+        if (!expanded_settings_sections_.count(section)) continue;
+        for (const auto& definition : rt::SettingsCatalogue())
+            if (definition.tier == tier && shown(definition)) actions.push_back("setting-" + definition.id);
+    }
+    actions.push_back("reset-settings");
+    actions.push_back("cancel");
+    return actions;
+}
+
+void Simulation::refresh_game_settings() {
+    for (auto& modal : state_.navigation.modals) {
+        if (modal.id != "game-settings") continue;
+        const auto focused = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+        modal.action_keys = game_settings_actions();
+        const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), focused);
+        modal.focused_action = found == modal.action_keys.end() ? 0 : static_cast<int>(found - modal.action_keys.begin());
+        if (&modal == &state_.navigation.modals.back()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+    }
+}
+
+void Simulation::set_game_setting(const std::string& id, const std::string& value) {
+    const auto game = state_.navigation.selected_game_id;
+    auto& record = state_.game_settings[game];
+    auto overrides = record.overrides;
+    overrides.erase(id);
+    rt::EffectiveSettings base;
+    rt::SettingsError error;
+    // Choosing the inherited value removes the override, so the row is no longer "changed".
+    const bool inherited = rt::BuildEffectiveSettings(RecipeFor(game), preset_for(game), overrides, kit_, &base, &error)
+        && base.values.at(id).value == value;
+    if (inherited) record.overrides.erase(id);
+    else record.overrides[id] = value;
+    ++record.revision;
 }
 
 } // namespace playden::homebrew

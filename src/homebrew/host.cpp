@@ -372,6 +372,15 @@ int main(int argc, char** argv) {
         options->simulation ? std::filesystem::path(PLAYDEN_HOMEBREW_FIXTURES_DIR)
                             : std::filesystem::path{},
         options->simulation ? options->profile : std::filesystem::path{}, mode);
+    {
+        std::vector<playden::runtime::SettingsPreset> presets;
+        std::vector<playden::runtime::GameRecipe> recipes;
+        std::string reason;
+        if (playden::runtime::LoadSettingsData(std::string(PLAYDEN_HOMEBREW_ASSETS_DIR) + "/runtime", &presets, &recipes, &reason))
+            simulation.SetSettingsData(std::move(presets), std::move(recipes));
+        else
+            std::fprintf(stderr, "game settings data unavailable: %s\n", reason.c_str());
+    }
     std::unique_ptr<playden::Storage> auth_storage;
     std::unique_ptr<playden::steam::CmClient> auth_cm;
     std::unique_ptr<playden::steam::AuthClient> auth;

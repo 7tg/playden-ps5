@@ -144,4 +144,9 @@ bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* pr
 bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, std::string* reason);
 std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
 
+// Loads <runtime_dir>/presets.json and the recipes listed in <runtime_dir>/recipes/recipes.lst.
+// The console title cannot list folders, so recipes are found through the list file.
+bool LoadSettingsData(const std::string& runtime_dir, std::vector<SettingsPreset>* presets,
+                      std::vector<GameRecipe>* recipes, std::string* reason);
+
 }  // namespace playden::runtime

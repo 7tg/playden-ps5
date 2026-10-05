@@ -4,6 +4,7 @@
 #include "steam/backend/app_info.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <utility>
 
 namespace playden::runtime {
@@ -526,6 +527,50 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record) {
     text += "\"" + json::escape(id) + "\":\"" + json::escape(value) + "\"";
   }
   return text + "}}";
+}
+
+namespace {
+
+bool ReadSmallFile(const std::string& path, std::string* text) {
+  FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file) return false;
+  text->clear();
+  char buffer[4096];
+  std::size_t read = 0;
+  while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0 && text->size() < 256 * 1024) text->append(buffer, read);
+  std::fclose(file);
+  return true;
+}
+
+}  // namespace
+
+bool LoadSettingsData(const std::string& runtime_dir, std::vector<SettingsPreset>* presets,
+                      std::vector<GameRecipe>* recipes, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  std::string text;
+  if (!ReadSmallFile(runtime_dir + "/presets.json", &text)) return fail("cannot read presets.json");
+  if (!ParseSettingsPresets(text, presets, reason)) return false;
+  recipes->clear();
+  if (!ReadSmallFile(runtime_dir + "/recipes/recipes.lst", &text)) return fail("cannot read recipes.lst");
+  std::size_t start = 0;
+  while (start < text.size()) {
+    const auto end = std::min(text.find('\n', start), text.size());
+    std::string name = text.substr(start, end - start);
+    start = end + 1;
+    while (!name.empty() && (name.back() == '\r' || name.back() == ' ')) name.pop_back();
+    if (name.empty() || name.front() == '#') continue;
+    if (name.find('/') != std::string::npos || name.find("..") != std::string::npos) return fail("bad recipe name " + name);
+    std::string recipe_text;
+    GameRecipe recipe;
+    std::string why;
+    if (!ReadSmallFile(runtime_dir + "/recipes/" + name, &recipe_text)) return fail("cannot read recipe " + name);
+    if (!ParseGameRecipe(recipe_text, &recipe, &why)) return fail(name + ": " + why);
+    recipes->push_back(std::move(recipe));
+  }
+  return true;
 }
 
 }  // namespace playden::runtime

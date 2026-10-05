@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <unistd.h>
 
@@ -256,35 +257,133 @@ void t07_interruption_and_verification_recovery(const std::filesystem::path& fix
           "T07 downloaded/installed remains distinct from runtime readiness");
 }
 
+std::string read_text(const std::filesystem::path& path) {
+    std::ifstream file(path);
+    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+}
+
+// Bundled presets and the HL2 recipe, re-targeted at fixture game 900001.
+void load_settings_data(playden::homebrew::Simulation& simulation, const std::filesystem::path& fixtures) {
+    namespace rt = playden::runtime;
+    const auto source = fixtures.parent_path().parent_path();
+    std::vector<rt::SettingsPreset> presets;
+    rt::GameRecipe recipe;
+    std::string reason;
+    check(rt::ParseSettingsPresets(read_text(source / "runtime/presets.json"), &presets, &reason), "presets load");
+    check(rt::ParseGameRecipe(read_text(source / "runtime/recipes/steam-220-hl2-v1.json"), &recipe, &reason), "recipe loads");
+    recipe.app_id = 900001;
+    recipe.launch_entries.push_back({"hl2-lostcoast", "Lost Coast", "hl2.exe", ""});
+    simulation.SetSettingsData(std::move(presets), {std::move(recipe)});
+}
+
+const playden::homebrew::ViewRow* find_row(const playden::homebrew::Simulation& simulation, const std::string& key) {
+    for (const auto& row : simulation.view().rows)
+        if (row.key == key) return &row;
+    return nullptr;
+}
+
 void t08_nested_settings_restore_openers(const std::filesystem::path& fixtures,
                                          const std::filesystem::path& profile) {
     playden::homebrew::Simulation simulation(fixtures, profile);
+    load_settings_data(simulation, fixtures);
     simulation.action("details:900001");
     activate(simulation, "details-settings");
-    activate(simulation, "resolution-picker");
-    activate(simulation, "resolution-3840x2160");
-    check(simulation.state().navigation.focus_key == "resolution-picker", "T08 picker restores its opener");
-    activate(simulation, "edit-arguments");
+    check(find_row(simulation, "setting-resolution") && find_row(simulation, "setting-resolution")->value == "1920×1080",
+          "T08 sheet shows the recipe resolution");
+    check(!find_row(simulation, "setting-frame_limit"), "T08 dxvk.conf rows stay hidden until the kit reads dxvk.conf");
+    activate(simulation, "setting-resolution");
+    activate(simulation, "choice-2");
+    check(simulation.state().navigation.focus_key == "setting-resolution", "T08 picker restores its opener");
+    check(simulation.state().game_settings.at(900001).overrides.at("resolution") == "2560x1440", "T08 picker saves the override");
+    check(find_row(simulation, "setting-resolution")->modified, "T08 changed row is marked");
+    check(find_row(simulation, "preset-picker")->value == "Custom · from Playden default", "T08 preset reads Custom after a change");
+    activate(simulation, "setting-extra_arguments");
     simulation.text("--fixture");
     simulation.action("circle");
-    check(simulation.state().profiles[1].launch_arguments.empty(), "T08 cancelling text edit discards changes");
-    activate(simulation, "edit-arguments");
+    check(!simulation.state().game_settings.at(900001).overrides.count("extra_arguments"), "T08 cancelling text edit discards changes");
+    activate(simulation, "setting-extra_arguments");
     simulation.text("--fixture");
     simulation.action("done");
-    check(simulation.state().profiles[1].launch_arguments == "--fixture", "T08 committing text edit saves the override");
-    activate(simulation, "profile-picker");
-    activate(simulation, "profile-custom");
-    check(simulation.state().selected_profiles.at(900001) == "custom", "T08 profile selection is scoped to the game");
+    check(simulation.state().game_settings.at(900001).overrides.at("extra_arguments") == "--fixture",
+          "T08 committing text edit saves the override");
+    activate(simulation, "setting-extra_arguments");
+    simulation.text(" \"unclosed");
+    simulation.action("done");
+    check(simulation.state().editor.active && simulation.state().game_settings.at(900001).overrides.at("extra_arguments") == "--fixture",
+          "T08 invalid arguments keep the editor open and the old value");
+    simulation.action("circle");
+    // Choosing the inherited value removes the override instead of storing a copy.
+    activate(simulation, "setting-controller");
+    activate(simulation, "choice-0");
+    check(!simulation.state().game_settings.at(900001).overrides.count("controller"), "T08 inherited choice is not an override");
+    // Triangle resets the focused row to the preset value.
+    check(simulation.action("focus:setting-resolution") && simulation.action("triangle"), "T08 triangle resets");
+    check(!simulation.state().game_settings.at(900001).overrides.count("resolution"), "T08 reset removes the override");
     simulation.action("circle");
     simulation.action("details:900002");
     activate(simulation, "details-settings");
-    activate(simulation, "edit-arguments");
+    activate(simulation, "setting-extra_arguments");
     check(simulation.state().editor.value.empty(), "T08 custom arguments do not leak to another game");
     simulation.action("circle");
+    simulation.action("circle");
     playden::homebrew::Simulation restored(fixtures, profile);
-    check(restored.state().custom_profiles.at(900001).launch_arguments == "--fixture"
-              && restored.state().custom_profiles.at(900002).launch_arguments.empty(),
-          "T08 per-game custom overrides persist independently");
+    check(restored.state().game_settings.at(900001).overrides.at("extra_arguments") == "--fixture"
+              && !restored.state().game_settings.count(900002),
+          "T08 per-game overrides persist independently");
+}
+
+void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std::filesystem::path& profile) {
+    namespace rt = playden::runtime;
+    playden::homebrew::Simulation simulation(fixtures, profile);
+    load_settings_data(simulation, fixtures);
+    simulation.action("details:900001");
+    activate(simulation, "details-settings");
+    // More settings expands inline; graphics is locked by the recipe and scaling is
+    // disabled on DXVK with its reason.
+    check(!find_row(simulation, "setting-graphics"), "T08b More settings starts collapsed");
+    activate(simulation, "section-more");
+    const auto* graphics = find_row(simulation, "setting-graphics");
+    check(graphics && !graphics->enabled && graphics->badge == "Required by recipe", "T08b graphics is locked by the recipe");
+    const auto* scaling = find_row(simulation, "setting-scaling");
+    check(scaling && !scaling->enabled && scaling->subtitle == "Not available with DXVK output yet.", "T08b scaling shows its reason");
+    activate(simulation, "setting-graphics");
+    check(simulation.state().navigation.modals.back().id == "game-settings", "T08b locked rows do not open a picker");
+    // Launch options come from the recipe.
+    activate(simulation, "setting-launch_option");
+    check(find_row(simulation, "choice-1") && find_row(simulation, "choice-1")->title == "Lost Coast", "T08b launch options list recipe entries");
+    activate(simulation, "choice-1");
+    // A preset clears overrides and becomes the base.
+    activate(simulation, "preset-picker");
+    activate(simulation, "preset-mouse-driven");
+    const auto& record = simulation.state().game_settings.at(900001);
+    check(record.preset_id == "mouse-driven" && record.overrides.empty(), "T08b choosing a preset clears overrides");
+    check(find_row(simulation, "preset-picker")->value == "Mouse-driven game", "T08b preset row names the preset");
+    rt::EffectiveSettings settings;
+    check(simulation.EffectiveSettingsFor(900001, &settings) && settings.values.at("controller").value == "keyboard",
+          "T08b preset values apply");
+    // The sheet's settings produce a profile prospero-win accepts.
+    rt::ProsperoProfile generated;
+    std::string reason;
+    check(rt::RenderProsperoProfile(simulation.RecipeFor(900001), settings, {"playden-steam-900001", "/data/playden/games/900001"},
+                                    &generated, &reason), "T08b sheet settings render a valid prospero profile");
+    // Reset all returns to the preset.
+    activate(simulation, "setting-pointer_speed");
+    activate(simulation, "choice-4");
+    check(!simulation.state().game_settings.at(900001).overrides.empty(), "T08b override recorded");
+    activate(simulation, "reset-settings");
+    check(simulation.state().game_settings.at(900001).overrides.empty(), "T08b reset all clears overrides");
+    // dxvk.conf rows appear when the kit reads dxvk.conf.
+    rt::KitCapabilities kit;
+    kit.dxvk_config = true;
+    simulation.SetKitCapabilities(kit);
+    check(find_row(simulation, "setting-frame_limit") && find_row(simulation, "setting-frame_limit")->enabled,
+          "T08b frame limit appears once the kit supports it");
+    // Games without a recipe still get a usable sheet.
+    simulation.action("circle");
+    simulation.action("details:900003");
+    activate(simulation, "details-settings");
+    check(find_row(simulation, "setting-resolution") && find_row(simulation, "setting-resolution")->value == "1920×1080",
+          "T08b games without a recipe show Playden defaults");
 }
 
 void t09_uninstall_and_reset_preserve_declared_data(const std::filesystem::path& fixtures,
@@ -472,6 +571,8 @@ int main(int argc, char** argv) {
     t07_interruption_and_verification_recovery(fixtures, profile);
     clean();
     t08_nested_settings_restore_openers(fixtures, profile);
+    clean();
+    t08b_settings_sheet_rules(fixtures, profile);
     clean();
     t09_uninstall_and_reset_preserve_declared_data(fixtures, profile);
     clean();

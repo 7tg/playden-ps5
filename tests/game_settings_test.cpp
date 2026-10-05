@@ -179,5 +179,12 @@ int main(int argc, char** argv) {
   CHECK(loaded.overrides.size() == 1 && loaded.overrides.count("vsync"));
   CHECK(!ParseGameSettingsRecord("[]", &loaded, &reason));
 
+  // The bundled data loads through the recipe list, as the console title reads it.
+  std::vector<SettingsPreset> loaded_presets;
+  std::vector<GameRecipe> loaded_recipes;
+  CHECK(LoadSettingsData((source / "runtime").string(), &loaded_presets, &loaded_recipes, &reason));
+  CHECK(loaded_presets.size() == 4 && loaded_recipes.size() == 1 && loaded_recipes.front().app_id == 220);
+  CHECK(!LoadSettingsData((source / "missing").string(), &loaded_presets, &loaded_recipes, &reason));
+
   std::puts("game settings tests passed");
 }

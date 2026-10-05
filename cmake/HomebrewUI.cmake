@@ -180,7 +180,7 @@ add_library(playden_homebrew_model STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/storage_sim.cpp"
     "${CMAKE_SOURCE_DIR}/src/homebrew/browse.cpp")
 target_compile_features(playden_homebrew_model PUBLIC cxx_std_20)
-target_link_libraries(playden_homebrew_model PUBLIC playden_library playden_diagnostic_log)
+target_link_libraries(playden_homebrew_model PUBLIC playden_library playden_diagnostic_log playden_steam_cm_codec)
 target_include_directories(playden_homebrew_model PUBLIC "${CMAKE_SOURCE_DIR}/src")
 
 foreach(qr_file qrcodegen.c qrcodegen.h LICENSE README.md)
@@ -362,6 +362,8 @@ add_custom_target(playden_homebrew_assets ALL
         "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets" "${playden_homebrew_assets}"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${playden_homebrew_fonts}" "${playden_homebrew_assets}/fonts"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${CMAKE_SOURCE_DIR}/runtime" "${playden_homebrew_assets}/runtime"
     DEPENDS ${playden_barlow_outputs}
     VERBATIM)
 

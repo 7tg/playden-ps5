@@ -2279,6 +2279,7 @@ class Render::Impl
                               gfx::Color::rgb(0x000000, 0.58F * ease));
         const bool wide = view.surface.find("settings") != std::string::npos ||
                           view.surface.find("profile") != std::string::npos ||
+                          view.surface == "choice-picker" || view.surface == "preset-picker" ||
                           view.surface == "controller" || view.surface == "logs" ||
                           view.surface == "storage";
         const float width = wide ? 960.0F : 640.0F;
@@ -2286,7 +2287,12 @@ class Render::Impl
         overlay_.shadow({panel.x - 18.0F, 0.0F, panel.w + 18.0F, panel.h}, 0.0F, 36.0F,
                         gfx::Color::rgb(0x000000, 0.75F));
         overlay_.rounded_rect(panel, 0.0F, kPanel);
-        section_overlay(view.surface, panel.x + 48.0F, 72.0F);
+        // Game settings pickers show where they return to instead of their surface id.
+        const bool settings_picker = view.surface == "choice-picker" || view.surface == "preset-picker";
+        section_overlay(settings_picker ? std::string_view("Game settings")
+                        : view.surface == "game-settings" ? std::string_view("Playden")
+                                                          : std::string_view(view.surface),
+                        panel.x + 48.0F, 72.0F);
         ui::text(overlay_, fonts_.display, view.title, panel.x + 48.0F, 142.0F, 48.0F, kText);
         if (!view.subtitle.empty())
             ui::paragraph(overlay_, fonts_.regular, view.subtitle, panel.x + 48.0F, 190.0F, 23.0F,
@@ -2545,38 +2551,8 @@ class Render::Impl
 
     std::string overlay_label(const ViewRow &row) const
     {
-        if (row.action == "profile-picker")
-            return "Profile";
-        if (row.action == "resolution-picker")
-            return "Resolution";
-        if (row.action == "frame-picker")
-            return "Frame limit";
-        if (row.action == "toggle-vsync")
-            return "VSync";
-        if (row.action == "edit-arguments")
-            return "Launch arguments";
-        if (row.action == "reset-settings")
-            return "Reset all to profile";
         if (row.action == "cancel")
             return "Cancel";
-        if (row.action.rfind("resolution-", 0) == 0)
-        {
-            std::string resolution = row.action.substr(11);
-            const std::size_t separator = resolution.find('x');
-            if (separator != std::string::npos)
-                resolution.replace(separator, 1, "×");
-            return resolution;
-        }
-        if (row.action.rfind("frame-", 0) == 0)
-            return row.action.substr(6);
-        if (row.action.rfind("profile-", 0) == 0 && current_state_ != nullptr)
-        {
-            const std::string id = row.action.substr(8);
-            const auto found = std::find_if(current_state_->profiles.begin(), current_state_->profiles.end(),
-                                            [&id](const Profile &profile) { return profile.id == id; });
-            if (found != current_state_->profiles.end())
-                return found->name;
-        }
         // Titles come labeled from the model; only a bare action key needs its dashes softened.
         std::string label = row.title.empty() ? row.action : row.title;
         if (row.title.empty())
@@ -2610,32 +2586,36 @@ class Render::Impl
             return row.badge;
         if (!row.subtitle.empty())
             return row.subtitle;
-        if (current_state_ == nullptr || current_state_->profiles.empty())
-            return {};
-        const Profile &profile = current_state_->profiles.size() > 1 ? current_state_->profiles[1]
-                                                                    : current_state_->profiles.front();
-        if (row.action == "profile-picker")
-            return profile.name;
-        if (row.action == "resolution-picker")
-            return profile.resolution;
-        if (row.action == "frame-picker")
-            return profile.frame_limit;
-        if (row.action == "toggle-vsync")
-            return profile.vsync ? "On" : "Off";
-        if (row.action == "edit-arguments")
-            return profile.launch_arguments.empty() ? "None" : profile.launch_arguments;
         return {};
     }
 
     void draw_overlay_rows(const ViewData &view, const gfx::Rect &bounds)
     {
+        const bool settings_sheet = view.surface == "game-settings" || view.surface == "choice-picker" ||
+                                    view.surface == "preset-picker";
         float y = bounds.y;
-        const int first = std::max(0, view.focused_row - 4);
+        const int first = std::max(0, view.focused_row - (settings_sheet ? 3 : 4));
         const int last = std::min(static_cast<int>(view.rows.size()), first + 8);
         ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
         for (int index = first; index < last; ++index)
         {
             const ViewRow &row = view.rows[static_cast<std::size_t>(index)];
+            if (settings_sheet && y + 72.0F > bounds.y + bounds.h)
+                break;
+            if (settings_sheet && row.kind == RowKind::Heading)
+            {
+                // Collapsible section header: focusable, shows "Show n" or "Hide".
+                const gfx::Rect rect{bounds.x, y, bounds.w, 54.0F};
+                const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
+                focus_glow(overlay_, rect, amount);
+                ui::text(overlay_, fonts_.display, ui::upper(row.title), rect.x + 24.0F, rect.y + 35.0F,
+                         20.0F, kSecondary, gfx::Align::left, 2.4F);
+                ui::text(overlay_, fonts_.regular, row.value, rect.x + rect.w - 24.0F, rect.y + 35.0F, 18.0F,
+                         kMuted, gfx::Align::right);
+                focus_ring(overlay_, rect, amount);
+                y += rect.h + 12.0F;
+                continue;
+            }
             if (row.kind == RowKind::Heading || row.kind == RowKind::Separator)
             {
                 ui::text(overlay_, fonts_.display, ui::upper(row.title), bounds.x + 12.0F, y + 28.0F,
@@ -2643,23 +2623,47 @@ class Render::Impl
                 y += 54.0F;
                 continue;
             }
-            const gfx::Rect rect{bounds.x, y, bounds.w, 72.0F};
+            // Game settings rows carry an effect line under the name (or the reason a row is
+            // disabled), an accent dot when the player changed the value, and a tag.
+            const bool described = settings_sheet && !row.subtitle.empty() && row.kind != RowKind::Heading;
+            const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F : 72.0F};
             const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
             focus_glow(overlay_, rect, amount);
             overlay_.rounded_rect(rect, 8.0F, kPanel);
             overlay_.rounded_rect(rect, 8.0F, kText.with_alpha(row.selected ? 0.10F : 0.04F));
             const gfx::Color ink = !row.enabled ? kMuted : row.dangerous ? kRed : kText;
-            const std::string value = overlay_value(row);
+            const std::string value = settings_sheet && row.kind != RowKind::Heading ? row.value : overlay_value(row);
             const float value_width = value.empty() ? 0.0F : std::min(rect.w * 0.45F, fonts_.regular.measure(value, 22.0F));
-            ui::text(overlay_, fonts_.display, fit(fonts_.display, overlay_label(row), 28.0F, rect.w - 64.0F - value_width),
-                     rect.x + 24.0F, rect.cy() + 10.0F, 28.0F, ink);
+            const float name_y = described ? rect.y + 40.0F : rect.cy() + 10.0F;
+            float name_x = rect.x + 24.0F;
+            if (row.modified)
+            {
+                overlay_.circle(name_x + 5.0F, name_y - 9.0F, 5.0F, kAccent);
+                name_x += 20.0F;
+            }
+            const std::string label = fit(fonts_.display, overlay_label(row), 28.0F, rect.w - 64.0F - value_width);
+            ui::text(overlay_, fonts_.display, label, name_x, name_y, 28.0F, ink);
+            if (settings_sheet && !row.badge.empty() && row.kind != RowKind::Heading)
+            {
+                const float tag_x = name_x + fonts_.display.measure(label, 28.0F) + 14.0F;
+                const float tag_w = fonts_.semibold.measure(ui::upper(row.badge), 13.0F) + 16.0F;
+                if (tag_x + tag_w < rect.x + rect.w - 40.0F - value_width)
+                {
+                    overlay_.rounded_rect({tag_x, name_y - 21.0F, tag_w, 24.0F}, 4.0F, kText.with_alpha(0.08F));
+                    ui::text(overlay_, fonts_.semibold, ui::upper(row.badge), tag_x + 8.0F, name_y - 4.0F, 13.0F, kSecondary);
+                }
+            }
+            if (described)
+                ui::text(overlay_, fonts_.regular, fit(fonts_.regular, row.subtitle, 19.0F, rect.w - 72.0F - value_width),
+                         rect.x + 24.0F, rect.y + 74.0F, 19.0F, row.enabled ? kSecondary : kMuted);
             if (!value.empty())
                 ui::text(overlay_, fonts_.regular, fit(fonts_.regular, value, 22.0F, value_width), rect.x + rect.w - 24.0F,
-                         rect.cy() + 8.0F, 22.0F, row.selected ? kAccent : kSecondary, gfx::Align::right);
+                         described ? rect.y + 52.0F : rect.cy() + 8.0F, 22.0F,
+                         row.modified || row.selected ? kAccent : row.enabled ? kSecondary : kMuted, gfx::Align::right);
             if (row.progress > 0.0F)
                 painter.progress({rect.x + 22.0F, rect.y + 60.0F, rect.w - 44.0F, 6.0F}, row.progress);
             focus_ring(overlay_, rect, amount);
-            y += 84.0F;
+            y += rect.h + 12.0F;
         }
     }
 
