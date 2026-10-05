@@ -138,6 +138,13 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
 // dxvk.conf for the game folder; empty when no DXVK option differs from DXVK's default.
 std::string RenderDxvkConfig(const EffectiveSettings& settings);
 
+// Writes what the next launch reads: <prospero_root>/profiles/<id>.profile (listed in
+// profiles.lst) and <install_root>/dxvk.conf. An empty config removes Playden's dxvk.conf.
+// A dxvk.conf Playden did not write (no Playden header) is never replaced or removed; the
+// call fails with a reason instead. Call only while the game is not running.
+bool ApplyGameSettings(const GameRecipe& recipe, const EffectiveSettings& settings, const ProfileTarget& target,
+                       const std::string& prospero_root, std::string* reason);
+
 // JSON data files: runtime/recipes/<id>.json and runtime/presets.json.
 bool ParseGameRecipe(std::string_view json, GameRecipe* recipe, std::string* reason);
 bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* presets, std::string* reason);

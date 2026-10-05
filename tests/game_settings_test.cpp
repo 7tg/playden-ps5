@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <unistd.h>
 
 #define CHECK(cond)                                                                     \
   do {                                                                                  \
@@ -185,6 +186,29 @@ int main(int argc, char** argv) {
   CHECK(LoadSettingsData((source / "runtime").string(), &loaded_presets, &loaded_recipes, &reason));
   CHECK(loaded_presets.size() == 4 && loaded_recipes.size() == 1 && loaded_recipes.front().app_id == 220);
   CHECK(!LoadSettingsData((source / "missing").string(), &loaded_presets, &loaded_recipes, &reason));
+
+  // ApplyGameSettings writes the profile and a Playden dxvk.conf, removes it when nothing is
+  // set, and refuses to touch a dxvk.conf that came with the game.
+  const auto root = std::filesystem::temp_directory_path() / ("playden-apply-" + std::to_string(::getpid()));
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "game");
+  const ProfileTarget apply_target{"playden-steam-220", (root / "game").string()};
+  const auto prospero = (root / "prospero").string();
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "30"}}, dxvk_kit, &settings, &error));
+  CHECK(ApplyGameSettings(hl2, settings, apply_target, prospero, &reason));
+  CHECK(ReadText(root / "game" / "dxvk.conf") == RenderDxvkConfig(settings));
+  CHECK(ReadText(root / "prospero" / "profiles" / "playden-steam-220.profile").find("[display]") != std::string::npos);
+  CHECK(ReadText(root / "prospero" / "profiles" / "profiles.lst") == "playden-steam-220.profile\n");
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {}, dxvk_kit, &settings, &error));
+  CHECK(ApplyGameSettings(hl2, settings, apply_target, prospero, &reason));
+  CHECK(!std::filesystem::exists(root / "game" / "dxvk.conf"));
+  std::ofstream(root / "game" / "dxvk.conf") << "d3d9.samplerAnisotropy = 16\n";
+  CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "60"}}, dxvk_kit, &settings, &error));
+  const auto profile_before = ReadText(root / "prospero" / "profiles" / "playden-steam-220.profile");
+  CHECK(!ApplyGameSettings(hl2, settings, apply_target, prospero, &reason) && reason.find("own dxvk.conf") != std::string::npos);
+  CHECK(ReadText(root / "game" / "dxvk.conf") == "d3d9.samplerAnisotropy = 16\n");
+  CHECK(ReadText(root / "prospero" / "profiles" / "playden-steam-220.profile") == profile_before);
+  std::filesystem::remove_all(root);
 
   std::puts("game settings tests passed");
 }
