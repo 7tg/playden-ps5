@@ -689,12 +689,49 @@ class Render::Impl
         scene_.rounded_rect({0.0F, 0.0F, kWidth, kHeight}, 0.0F, kBackground);
     }
 
-    void draw_top_navigation(ui::Canvas &canvas, Route route, bool reduced_motion)
+    // Tab icons drawn from primitives, after the SF Symbols the macOS tabs use.
+    void tab_icon(int tab, float x, float cy, gfx::Color ink)
     {
-        if (simulation_tabs_ != current_state_->simulation_mode) {
-            simulation_tabs_ = current_state_->simulation_mode;
-            tabs_.set_tabs({{"Home"}, {"Library"}, {"Downloads", simulation_tabs_ ? 1 : 0}, {"Settings"}});
+        constexpr float w = 1.8F;
+        switch (tab)
+        {
+        case 0: // house
+            scene_.line(x + 1.0F, cy - 1.0F, x + 13.0F, cy - 11.0F, w, ink);
+            scene_.line(x + 13.0F, cy - 11.0F, x + 25.0F, cy - 1.0F, w, ink);
+            scene_.line(x + 5.0F, cy - 4.0F, x + 5.0F, cy + 11.0F, w, ink);
+            scene_.line(x + 21.0F, cy - 4.0F, x + 21.0F, cy + 11.0F, w, ink);
+            scene_.line(x + 5.0F, cy + 11.0F, x + 21.0F, cy + 11.0F, w, ink);
+            scene_.line(x + 10.5F, cy + 11.0F, x + 10.5F, cy + 4.0F, w, ink);
+            scene_.line(x + 15.5F, cy + 11.0F, x + 15.5F, cy + 4.0F, w, ink);
+            scene_.line(x + 10.5F, cy + 4.0F, x + 15.5F, cy + 4.0F, w, ink);
+            break;
+        case 1: // grid
+            for (int index = 0; index < 4; ++index)
+                scene_.bordered_rect({x + 2.0F + (index % 2) * 13.0F, cy - 11.0F + (index / 2) * 13.0F, 10.0F, 10.0F},
+                                     2.5F, ink.with_alpha(0.0F), w, ink);
+            break;
+        case 2: // arrow down to a line
+            scene_.line(x + 13.0F, cy - 11.0F, x + 13.0F, cy + 5.0F, w, ink);
+            scene_.line(x + 6.0F, cy - 2.0F, x + 13.0F, cy + 5.0F, w, ink);
+            scene_.line(x + 20.0F, cy - 2.0F, x + 13.0F, cy + 5.0F, w, ink);
+            scene_.line(x + 3.0F, cy + 11.0F, x + 23.0F, cy + 11.0F, w, ink);
+            break;
+        default: // gear
+            for (int tooth = 0; tooth < 8; ++tooth)
+            {
+                const float angle = static_cast<float>(tooth) * 0.785398F;
+                scene_.line(x + 13.0F + std::sin(angle) * 8.0F, cy - std::cos(angle) * 8.0F,
+                            x + 13.0F + std::sin(angle) * 12.0F, cy - std::cos(angle) * 12.0F, 3.4F, ink);
+            }
+            scene_.ring(x + 13.0F, cy, 8.5F, w, ink);
+            scene_.ring(x + 13.0F, cy, 3.5F, w, ink);
+            break;
         }
+    }
+
+    // The macOS top bar: icon and label per tab; the current one sits in a quiet box.
+    void draw_top_navigation(ui::Canvas &, Route route, bool)
+    {
         int selected = 0;
         if (route == Route::Library)
             selected = 1;
@@ -702,11 +739,37 @@ class Render::Impl
             selected = 2;
         else if (route == Route::Settings)
             selected = 3;
-        tabs_.style.reduced_motion = reduced_motion;
-        tabs_.set_active(selected, true);
-        tabs_.set_focused(false);
-        tabs_.update(1.0F / 60.0F);
-        tabs_.draw(canvas);
+        std::size_t pending = 0;
+        if (current_state_->simulation_mode)
+            pending = 1;
+        else
+            pending = static_cast<std::size_t>(std::count_if(current_state_->jobs.begin(), current_state_->jobs.end(),
+                [](const Job &job) { return job.state != JobState::Cancelled && job.stage != JobStage::Uninstall; }));
+        static constexpr std::array<const char *, 4> names = {"Home", "Library", "Downloads", "Settings"};
+        float x = kSafeX;
+        constexpr float cy = 82.0F;
+        for (int tab = 0; tab < 4; ++tab)
+        {
+            const bool active = tab == selected;
+            const float label = fonts_.display.measure(names[static_cast<std::size_t>(tab)], 30.0F);
+            const std::string count = tab == 2 && pending > 0 ? std::to_string(pending) : std::string{};
+            const float badge = count.empty() ? 0.0F : fonts_.semibold.measure(count, 16.0F) + 26.0F;
+            const float width = 22.0F + 26.0F + 10.0F + label + badge + 22.0F;
+            const gfx::Rect box{x, cy - 26.0F, width, 52.0F};
+            if (active)
+                scene_.bordered_rect(box, 8.0F, kText.with_alpha(0.12F), 2.0F, kText.with_alpha(0.35F));
+            const gfx::Color ink = active ? kText : kSecondary;
+            tab_icon(tab, x + 22.0F, cy, ink);
+            ui::text(scene_, fonts_.display, names[static_cast<std::size_t>(tab)], x + 58.0F, cy + 11.0F, 30.0F, ink);
+            if (!count.empty())
+            {
+                const float badge_x = x + 58.0F + label + 10.0F;
+                scene_.rounded_rect({badge_x, cy - 14.0F, badge - 10.0F, 28.0F}, 14.0F, kAccent);
+                ui::text(scene_, fonts_.semibold, count, badge_x + (badge - 10.0F) * 0.5F, cy + 6.0F, 16.0F,
+                         kBackground, gfx::Align::center);
+            }
+            x += width + 8.0F;
+        }
 
         scene_.circle(1580.0F, 82.0F, 20.0F,
                       current_state_->account.display_name.empty() ? kMuted : kAccent);
@@ -740,19 +803,69 @@ class Render::Impl
                           kSecondary, 4);
     }
 
+    // The macOS focus treatment: an accent glow spilling out of the control (drawn before it,
+    // so the control covers the glow's middle) and a ring just outside it (drawn after).
+    void focus_glow(gfx::DrawList &list, const gfx::Rect &rect, float amount, bool compact = false)
+    {
+        if (amount <= 0.0F)
+            return;
+        list.glow(rect.inset(compact ? -5.0F : -7.0F), compact ? 12.0F : 13.0F, 22.0F,
+                  kAccent.with_alpha(0.5F * amount));
+    }
+
+    void focus_ring(gfx::DrawList &list, const gfx::Rect &rect, float amount, bool compact = false)
+    {
+        if (amount <= 0.0F)
+            return;
+        list.bordered_rect(rect.inset(compact ? -6.5F : -9.0F), compact ? 13.5F : 15.0F,
+                           kBackground.with_alpha(0.0F), compact ? 3.0F : 4.0F, kAccent.with_alpha(amount));
+    }
+
+    // The macOS `ActionButton`: primary is filled with the accent, the others are outlined;
+    // focus adds the ring and glow and lifts the button slightly.
+    void mac_button(gfx::DrawList &list, const gfx::Rect &rect, std::string_view label, bool primary,
+                    float amount, bool disabled = false, std::string_view detail = {}, bool large = false,
+                    gfx::Color backdrop = kBackground)
+    {
+        list.push_transform(1.0F + 0.04F * amount, rect.cx(), rect.cy(), 0.0F, 0.0F);
+        if (disabled)
+            list.push_opacity(0.45F);
+        focus_glow(list, rect, amount);
+        if (primary)
+            list.rounded_rect(rect, 8.0F, kAccent);
+        else
+            list.bordered_rect(rect, 8.0F, amount > 0.0F ? backdrop : backdrop.with_alpha(0.0F), 2.0F,
+                               kText.with_alpha(0.2F));
+        const float size = large ? 38.0F : 26.0F;
+        const gfx::Color ink = primary ? theme_.on_primary : kText;
+        const float detail_width = detail.empty() ? 0.0F : fonts_.semibold.measure(detail, 22.0F) + 18.0F;
+        const float label_width = fonts_.display.measure(label, size);
+        const float content = std::min(rect.w - 32.0F, label_width + detail_width);
+        const float x = rect.cx() - content * 0.5F;
+        const float baseline = rect.cy() + size * 0.36F;
+        ui::text(list, fonts_.display, fit(fonts_.display, label, size, rect.w - 32.0F - detail_width), x,
+                 baseline, size, ink);
+        if (!detail.empty())
+            ui::text(list, fonts_.semibold, detail, x + content, rect.cy() + 8.0F, 22.0F, ink.with_alpha(0.8F),
+                     gfx::Align::right);
+        focus_ring(list, rect, amount);
+        if (disabled)
+            list.pop_opacity();
+        list.pop_transform();
+    }
+
+    float control_focus(std::string_view key, bool focused)
+    {
+        return focus_motion_.amount(std::string("control-") + std::string(key), focused);
+    }
+
     void draw_action(const ViewRow &row, const gfx::Rect &rect, bool focused, bool primary = false)
     {
         if (focused && route_focus_)
             stats_.focused_control_key = row.key;
-        ui::Painter painter(scene_, fonts_, theme_, renderer_.glass_texture());
-        ui::Look look{focused && route_focus_ ? 1.0F : 0.0F, 0.0F, !row.enabled};
+        const float amount = control_focus(row.key, focused && route_focus_);
         const auto title = row.kind == RowKind::Toggle ? row.title + (row.selected ? " · On" : " · Off") : row.title;
-        painter.button(rect, fit(fonts_.display, title, primary ? 34.0F : 27.0F, rect.w - 36.0F),
-                       primary ? ui::ButtonKind::primary : ui::ButtonKind::secondary, look);
-        if (!row.value.empty())
-            ui::text(scene_, fonts_.regular, row.value, rect.x + rect.w - 20.0F, rect.cy() + 7.0F,
-                     21.0F, primary ? theme_.on_primary.with_alpha(0.8F) : kSecondary,
-                     gfx::Align::right);
+        mac_button(scene_, rect, title, primary && row.enabled, amount, !row.enabled, row.value, primary && rect.h >= 80.0F);
     }
 
     // Returns the y just below the last action drawn.
@@ -1124,14 +1237,15 @@ class Render::Impl
             const float y = 150.0F + visible * 66.0F;
             const bool focused = route_focus_ && state.navigation.library_rail_focused &&
                                  index == state.navigation.selected_index;
+            const gfx::Rect entry{96.0F, y, 300.0F, 60.0F};
+            const float amount = control_focus(entries[static_cast<std::size_t>(index)].key, focused);
+            focus_glow(scene_, entry, amount, true);
+            scene_.rounded_rect(entry, 8.0F, kBackground);
             if (entries[static_cast<std::size_t>(index)].selected || index == selected)
-                scene_.rounded_rect({96.0F, y, 300.0F, 60.0F}, 8.0F, kText.with_alpha(0.10F));
+                scene_.rounded_rect(entry, 8.0F, kText.with_alpha(0.10F));
+            focus_ring(scene_, entry, amount, true);
             if (focused)
-            {
-                scene_.bordered_rect({96.0F, y, 300.0F, 60.0F}, 8.0F,
-                                     kBackground.with_alpha(0.0F), 4.0F, kAccent);
                 stats_.focused_control_key = entries[static_cast<std::size_t>(index)].key;
-            }
             ui::text(scene_, fonts_.display,
                      fit(fonts_.display, entries[static_cast<std::size_t>(index)].title, 27.0F, 225.0F),
                      118.0F, y + 39.0F, 27.0F,
@@ -1894,12 +2008,9 @@ class Render::Impl
             }
             const gfx::Rect button{panel.x + 48.0F + index * (button_width + 16.0F), panel.y + 388.0F,
                                    button_width, 68.0F};
-            ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
-            painter.button(button, label,
-                           view.rows[index].dangerous ?
-                               ui::ButtonKind::primary : ui::ButtonKind::secondary,
-                           {static_cast<int>(index) == view.focused_row ? 1.0F : 0.0F, 0.0F,
-                            !view.rows[index].enabled});
+            mac_button(overlay_, button, label, view.rows[index].dangerous,
+                       control_focus("modal-" + view.rows[index].key, static_cast<int>(index) == view.focused_row),
+                       !view.rows[index].enabled, {}, false, kPanel);
         }
     }
 
@@ -2091,15 +2202,13 @@ class Render::Impl
                 actions.push_back(&row);
         if (!actions.empty())
         {
-            ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
             const float width = std::min(260.0F, (bounds.w - 48.0F) / actions.size() - 10.0F);
             for (std::size_t index = 0; index < actions.size(); ++index)
             {
                 const bool focused = state.navigation.focus_key == actions[index]->key;
-                painter.button({bounds.x + 24.0F + index * (width + 16.0F),
-                                bounds.y + bounds.h - 82.0F, width, 58.0F},
-                               overlay_label(*actions[index]), ui::ButtonKind::secondary,
-                               {focused ? 1.0F : 0.0F, 0.0F, !actions[index]->enabled});
+                mac_button(overlay_, {bounds.x + 24.0F + index * (width + 16.0F), bounds.y + bounds.h - 82.0F, width, 58.0F},
+                           overlay_label(*actions[index]), false, control_focus("log-" + actions[index]->key, focused),
+                           !actions[index]->enabled, {}, false, kBackground);
             }
         }
     }
