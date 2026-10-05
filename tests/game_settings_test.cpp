@@ -209,15 +209,18 @@ int main(int argc, char** argv) {
                                &settings, &error));
   auto registry = RenderRegistryValues(settings);
   CHECK(registry.size() == 2 && registry[0].key == "Software\\Wine\\AppDefaults\\hl2.exe" && registry[0].data == "\"win7\"");
-  CHECK(registry[1].key == "Software\\Wine\\Fonts" && registry[1].data == "dword:00000078");
+  CHECK(registry[1].key == "Control Panel\\Desktop" && registry[1].data == "dword:00000078");
   std::string user_reg =
       "WINE REGISTRY Version 2\n;; All keys relative to REGISTRY\\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n\n"
+      "[Control Panel\\\\Desktop] 1791211318\n#time=1dd54d7acc7d208\n\"CaretWidth\"=dword:00000001\n\"Other\"=\"x\"\n\n"
       "[Software\\\\Wine\\\\AppDefaults] 1791210546\n#time=1dd54d5e1bfad0c\n\n"
-      "[Software\\\\Wine\\\\Fonts] 1791229249\n#time=1dd54d7acc7d208\n\"LogPixels\"=dword:00000060\n\"Other\"=\"x\"\n\n"
+      "[Software\\\\Wine\\\\Fonts] 1791229249\n#time=1dd54d7acc7d208\n\"LogPixels\"=dword:00000060\n\n"
       "[Software\\\\Wine\\\\Fonts\\\\External Fonts] 1791211318\n\"A\"=\"b\"\n";
   const auto before_registry = user_reg;
   CHECK(ApplyRegistryValues(&user_reg, registry, 1791300000, &reason));
-  CHECK(user_reg.find("\"LogPixels\"=dword:00000078\n\"Other\"=\"x\"\n") != std::string::npos);
+  CHECK(user_reg.find("\"CaretWidth\"=dword:00000001\n\"Other\"=\"x\"\n\"LogPixels\"=dword:00000078\n\n[Software") != std::string::npos);
+  // Wine's font cache marker is left alone.
+  CHECK(user_reg.find("[Software\\\\Wine\\\\Fonts] 1791229249\n#time=1dd54d7acc7d208\n\"LogPixels\"=dword:00000060\n") != std::string::npos);
   CHECK(user_reg.find("\n[Software\\\\Wine\\\\AppDefaults\\\\hl2.exe] 1791300000\n\"Version\"=\"win7\"\n") != std::string::npos);
   CHECK(user_reg.find("[Software\\\\Wine\\\\Fonts\\\\External Fonts] 1791211318\n\"A\"=\"b\"\n") != std::string::npos);
   // Applying again changes nothing; Windows 10 and 100% remove or reset the values.
@@ -225,24 +228,25 @@ int main(int argc, char** argv) {
   CHECK(ApplyRegistryValues(&again, registry, 1791400000, &reason) && again == user_reg);
   CHECK(BuildEffectiveSettings(hl2, nullptr, {}, registry_kit, &settings, &error));
   CHECK(ApplyRegistryValues(&user_reg, RenderRegistryValues(settings), 1791400000, &reason));
-  CHECK(user_reg.find("\"Version\"") == std::string::npos && user_reg.find("\"LogPixels\"=dword:00000060\n") != std::string::npos);
+  CHECK(user_reg.find("\"Version\"") == std::string::npos && user_reg.find("dword:00000078") == std::string::npos);
+  CHECK(user_reg.find("\"LogPixels\"=dword:00000060\n") != std::string::npos);
   std::string not_registry = "hello";
   CHECK(!ApplyRegistryValues(&not_registry, registry, 1, &reason));
   // Wine section and value names are case-insensitive. Sections need no timestamp, and
   // CRLF plus an unterminated final assignment are both valid input forms.
   std::string crlf_registry =
-      "WINE REGISTRY Version 2\r\n\r\n[software\\\\wine\\\\fonts]\r\n\"logpixels\"=dword:00000060";
+      "WINE REGISTRY Version 2\r\n\r\n[control panel\\\\desktop]\r\n\"logpixels\"=dword:00000060";
   CHECK(ApplyRegistryValues(&crlf_registry, {registry[1]}, 1, &reason));
   CHECK(crlf_registry.find("\"logpixels\"=dword:00000078") != std::string::npos);
-  CHECK(crlf_registry.find("[Software\\\\Wine\\\\Fonts]") == std::string::npos);
+  CHECK(crlf_registry.find("[Control Panel\\\\Desktop]") == std::string::npos);
   std::string duplicate_sections =
-      "WINE REGISTRY Version 2\n\n[Software\\\\Wine\\\\Fonts]\n\"LogPixels\"=dword:00000060\n\n"
-      "[software\\\\wine\\\\fonts] 2\n\"Other\"=\"x\"\n";
+      "WINE REGISTRY Version 2\n\n[Control Panel\\\\Desktop]\n\"LogPixels\"=dword:00000060\n\n"
+      "[control panel\\\\desktop] 2\n\"Other\"=\"x\"\n";
   const auto duplicate_sections_before = duplicate_sections;
   CHECK(!ApplyRegistryValues(&duplicate_sections, {registry[1]}, 1, &reason));
   CHECK(duplicate_sections == duplicate_sections_before);
   std::string duplicate_assignments =
-      "WINE REGISTRY Version 2\n\n[Software\\\\Wine\\\\Fonts]\n"
+      "WINE REGISTRY Version 2\n\n[Control Panel\\\\Desktop]\n"
       "\"LogPixels\"=dword:00000060\n\"logpixels\"=dword:00000070\n";
   const auto duplicate_assignments_before = duplicate_assignments;
   CHECK(!ApplyRegistryValues(&duplicate_assignments, {registry[1]}, 1, &reason));

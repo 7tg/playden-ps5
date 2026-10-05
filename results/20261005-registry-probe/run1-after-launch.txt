@@ -1,0 +1,7 @@
+679:[Software\\Wine\\AppDefaults\\hl2.exe] 1791216000
+680-#time=1dd54e293344000
+681-"Version"="winxp"
+--
+702:"LogPixels"=dword:00000060
+703-
+704-[Software\\Wine\\Fonts\\External Fonts] 1791211318

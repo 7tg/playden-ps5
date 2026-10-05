@@ -1034,9 +1034,12 @@ std::vector<RegistryValue> RenderRegistryValues(const EffectiveSettings& setting
   }
   const auto& scale = settings.values.at("text_scale");
   if (scale.available) {
+    // Wine reads the DPI from Control Panel\Desktop (winecfg's slider writes it there);
+    // Software\Wine\Fonts LogPixels is only its font cache marker, rewritten at start.
+    // 96 is Wine's default, so 100% removes the value.
     char dword[16];
     std::snprintf(dword, sizeof(dword), "dword:%08lx", std::strtoul(scale.value.c_str(), nullptr, 10));
-    values.push_back({"Software\\Wine\\Fonts", "LogPixels", dword});
+    values.push_back({"Control Panel\\Desktop", "LogPixels", scale.value == "96" ? std::string() : dword});
   }
   return values;
 }
@@ -1143,6 +1146,13 @@ bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>
                    value.data.empty() ? std::string() : existing_prefix + value.data + terminator);
     } else if (!value.data.empty()) {
       const std::string newline = text.find("\r\n") == std::string::npos ? "\n" : "\r\n";
+      // After the section's last value, before the blank line that separates sections.
+      while (end > body && text[end - 1] == '\n') {
+        auto blank = end - 1;
+        if (blank > body && text[blank - 1] == '\r') --blank;
+        if (blank == body || text[blank - 1] != '\n') break;
+        end = blank;
+      }
       std::string insertion;
       if (end > body && text[end - 1] != '\n') insertion += newline;
       insertion += line_prefix + value.data + newline;
