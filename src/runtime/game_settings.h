@@ -205,6 +205,11 @@ struct CommunityPreset {
 };
 bool ParseProfileSidecar(std::string_view json, CommunityPreset* community, std::string* reason);
 
+// Whether the kit's runtime has every newer profile feature the sidecar declares in
+// requires.prospero_win (environment, input-tuning, input-wheel, audio-volume; see
+// prospero-win-profiles SIDECARS.md). Other entries (pull requests, versions) are not checked.
+bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit);
+
 // --- Integration contract (roadmap S4, integration Tasks 4-6 and 8) ---
 
 // Capability names a runtime kit manifest may list for settings ("capabilities", sorted).

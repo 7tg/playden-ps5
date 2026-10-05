@@ -1408,3 +1408,16 @@ bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& insta
 }
 
 }  // namespace playden::runtime
+
+namespace playden::runtime {
+
+bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit) {
+  for (const auto& feature : community.requires_prospero_win) {
+    if ((feature == "environment" && !kit.environment) || (feature == "input-tuning" && !kit.input_tuning) ||
+        (feature == "input-wheel" && !kit.input_wheel) || (feature == "audio-volume" && !kit.audio_volume))
+      return false;
+  }
+  return true;
+}
+
+}  // namespace playden::runtime

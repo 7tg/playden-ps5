@@ -317,6 +317,11 @@ int main(int argc, char** argv) {
   CHECK(community.preset.short_hint == "playable on 12.02, 2026-10-02");
   CHECK(community.preset.settings.size() == 2 && community.preset.settings.at("controller") == "keyboard");
   CHECK(community.requires_prospero_win.size() == 2);
+  CHECK(CommunityPresetSupported(community, KitCapabilities{}));       // pull request numbers are not features
+  auto needs_volume = community;
+  needs_volume.requires_prospero_win.push_back("audio-volume");
+  CHECK(!CommunityPresetSupported(needs_volume, KitCapabilities{}));
+  CHECK(CommunityPresetSupported(needs_volume, KitCapabilitiesFromManifest({kKitAudioVolume}, false)));
   CHECK(BuildEffectiveSettings(hl2, &community.preset, {}, KitCapabilities{}, &settings, &error));
   CHECK(settings.values.at("controller").value == "keyboard");
   CHECK(!ParseProfileSidecar(R"({"schema_version":2,"profile":"x","game":{"name":"X"},"checks":[{}]})", &community, &reason));
