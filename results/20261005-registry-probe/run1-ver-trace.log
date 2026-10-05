@@ -1,0 +1,13 @@
+REC seq=29 t=31182.674447074 WINE wine startup: dbg_init
+REC seq=30 t=31182.674456055 WINE wine startup: server_init_process
+REC seq=31 t=31182.678495636 WINESERVER wine-ps5: anonymous mappings in shared memory
+REC seq=32 t=31182.703213274 WINESERVER wine-ps5: server requests on client threads: on
+REC seq=33 t=31182.703308133 WINE wine startup: server connected
+REC seq=34 t=31182.705427033 WINE 0024:err:environ:run_wineboot failed to start wineboot c00000bb
+REC seq=35 t=31182.711347764 WINE 0024:trace:ver:version_init getting version from L"AppDefaults\\hl2.exe"
+REC seq=36 t=31182.711373904 WINE 0024:trace:ver:parse_win_version got win version L"winxp"
+REC seq=37 t=31182.711390182 WINE 0024:trace:ver:version_init got 5.1 platform 2 build a28 name L"Service Pack 3" service pack 3.0 product 1
+REC seq=38 t=31182.761242500 WINE 0024:trace:ver:version_init getting version from L"AppDefaults\\hl2.exe"
+REC seq=39 t=31182.761327978 WINE 0024:trace:ver:parse_win_version got win version L"winxp"
+REC seq=40 t=31182.761395334 WINE 0024:trace:ver:version_init got 5.1 platform 2 build a28 name L"Service Pack 3" service pack 3.0 product 1
+REC seq=41 t=31182.844165050 WINESERVER pw_wine_dl: cannot open /mnt/sandbox/PPSA99995_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.so, tried /mnt/sandbox/PPSA99995_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.prx /app0/sce_module/dnsapi.prx: not found

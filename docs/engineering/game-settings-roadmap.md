@@ -385,19 +385,25 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 - S10: `ParseProfileSidecar` turns a sidecar into a "Community" preset; fetching waits for U3.
 - U1 drafted locally (not pushed): prospero-win `feat/profile-environment` in
   `~/.chauffeur/worktrees/prospero-win-environment`, parser tests pass.
+- U4 first slice drafted locally (not pushed): prospero-win `feat/profile-input-tuning` in
+  `~/.chauffeur/worktrees/prospero-win-input-tuning`, `[input] stick_deadzone` (0-50%, round,
+  rescaled) and `rumble` (0-100%) for the XInput controller; parser and native tests pass.
+- S9 first rows: Stick dead zone and Rumble (`KitCapabilities::input_tuning`), hidden until a
+  runtime with U4 is in the kit; the checker accepts the keys only for such a runtime.
 - U3 drafted locally (not pushed): prospero-win-profiles `feat/recipe-sidecar` in
   `~/.chauffeur/worktrees/prospero-win-profiles-sidecar`, `SIDECARS.md` and checker.
 - S6: "Clear shader cache" deletes only `<exe>.dxvk-cache` (`ClearShaderCache`); the sheet's
   action is simulated until the install service exposes game folders (Task 8). Repair,
   backup and bottle reset stay with Task 8.
 - S7 (decision D2): `ApplyRegistrySettings` edits the stopped bottle's `user.reg` for Windows
-  version (`AppDefaults\<exe>`) and text scale (`Software\Wine\Fonts` `LogPixels`), keeping
-  every other line, after a `user.reg.playden-backup`. Format taken from the console bottle.
-  The rows stay disabled until Playden can reach the bottle (Play, Task 4); Wine reading the
-  edited file is not yet checked on the console.
+  version (`AppDefaults\<exe>`) and text scale (`Control Panel\Desktop` `LogPixels`), keeping
+  every other line, after a `user.reg.playden-backup`. Console check
+  (`results/20261005-registry-probe`): Wine reports the edited Windows version and runs at the
+  edited DPI. The rows stay disabled until the production path can reach the stopped bottle
+  (S4, integration-owned).
 - S5: `ApplyGameSettings` writes the profile and `dxvk.conf`. Still open: call it from
-  the real Play action (S4). VSync off was checked and has no effect (row disabled); latency
-  and VRAM could not be observed (rows disabled until checked).
+  the real Play action (S4). VSync off was checked and has no effect (row disabled); DXVK
+  applies frame latency and reported VRAM (D3D9 and DXGI options), so those rows are enabled.
 
 | Step | Work | Depends on | Done when |
 | --- | --- | --- | --- |
@@ -408,9 +414,9 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **S4** | Live wiring: settings entry in live mode, flush before handoff, Home and Playden produce the same profile | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 |
 | **S5** ◐ | `dxvk.conf` settings: frame limit, VSync, frame latency, reported VRAM/vendor, overlay detail (D1) | S0 passed, S2 | Console: cap, tearing and overlay measured; file kept by repair and verify |
 | **S6** ◐ | Maintenance actions: reset, repair, clear shader cache, back up saves, recreate bottle | Integration Task 8 | Task 8 acceptance |
-| **S7** ◐ | P3 registry rows | U2 or D2(b) | Fixture reports the version; reset restores it |
+| **S7** ◐ | P3 registry rows (console-checked; live wiring with S4) | U2 or D2(b) | Fixture reports the version; reset restores it |
 | **S8** ◐ | Environment variables row | U1 | Values reach the Wine process; reserved keys rejected |
-| **S9** | P4 rows, one at a time | U4 per feature | Per-feature console fixture |
+| **S9** ◐ | P4 rows, one at a time (dead zone, rumble done; triggers, wheel, audio open) | U4 per feature | Per-feature console fixture |
 | **S10** ◐ | Community recipes: fetch the pinned index, "Community recipe" banner, apply and revert | U3 | Apply and revert keep local overrides |
 
 ### Upstream track (prospero-win and prospero-win-profiles)
@@ -420,8 +426,64 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
 | **U1** ◐ | Typed `[environment]` section with an allowlist, `DXVK_CONFIG_FILE` forwarding, and a profile schema or minimum-runtime marker | S8; fallback for S5 if the S0 probe fails |
 | **U2** | Registry overlay tool: backup, both registry views, run while stopped (if D2 is (a)) | S7 |
 | **U3** ◐ | Sidecar JSON per recipe in prospero-win-profiles (identity, `min_runtime`, tested firmware, status, defaults) | S10 |
-| **U4** | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
+| **U4** ◐ | Native input transforms (deadzones, triggers, rumble gain, mouse wheel) and audio gain/mute | S9 |
 | **U5** | Scaling on the DXVK path; DXVK 120 Hz | Un-hides Scaling and 120 Hz for DXVK |
+
+### Integration contract for S4 and Task 8
+
+What the settings module gives the integration's production adapters (`src/runtime/game_settings.h`,
+`src/runtime/settings_publication.h`). The adapters keep ownership of stopped-title checks, the
+journaled profile/descriptor publication and the kit trust configuration.
+
+1. **Kit capabilities.** Add `SettingsKitCapabilityNames()` (`settings-dxvk-config`,
+   `settings-dxvk-present`, `settings-input-tuning`, `settings-profile-environment`) to the
+   kit trust config's `allowed_capabilities`. After `VerifyKitManifest`, call
+   `KitCapabilitiesFromManifest(result.capabilities, bottle_access)` and pass the result to the
+   settings sheet (`Simulation::SetKitCapabilities`) and to the launch plan. `bottle_access`
+   is true only when the adapter can reach the stopped bottle. A kit that lists none of these
+   keeps every gated row disabled, which is the safe default. Manifests list capabilities in
+   sorted order, so these names sort between `ps5-…` and `wine-…` entries. The released prospero-win kit
+   should list `settings-dxvk-config` (checked on the console); the other three need U5/U4/U1.
+2. **Launch plan.** `BuildSettingsLaunchPlan({recipe, preset, record, kit, {profile_id,
+   install_path}, runtime_dir})` returns the profile bytes, the input presets the profile
+   references (bundled in `runtime/input`), `dxvk.conf`, registry values and
+   `settings_revision` (the record's `revision`). A missing preset fails the plan; stale
+   player values are ignored, as in the sheet. The plan owns the selected entry and captures
+   app/recipe identity, so a recipe reload cannot change it. A named record preset must
+   match the supplied preset; an empty record accepts null or the empty `playden-default`.
+   The player can change Launch option, so the adapter should compare `plan.app_id`,
+   `plan.recipe_id`, `plan.recipe_version`, `plan.launch_entry_id` and the profile's `executable`/`working_directory` with the
+   `RuntimeInstall` record, and either update the record or refuse to publish.
+3. **Publication.** In `provide_publication`, call `FillProfilePublication(plan, &publication)`;
+   it sets captured recipe identity, `profile_id`, `profile_bytes`, `settings_revision`,
+   `required_input_presets` and `input_presets`. The adapter compares these with its install
+   record, fills the remaining identity fields, and sets `profile_references_validated`
+   only after its pinned parser validates the profile and each included input preset. Republish when `PackageStatus::profile_settings_revision` differs from
+   the record's revision. Home and Playden then read the same published profile.
+4. **Game folder and bottle.** After `NativeCoordinator::Activity` reports `kStopped`, call
+   `ApplySettingsFiles(plan, install_path, prefix_dir, now)`. It writes or removes Playden's
+   `dxvk.conf` in the launch working folder (never a game's own) and edits `user.reg` with a
+   backup. Validation refusals before mutation leave these files unchanged; I/O failures
+   after mutation require reconciliation. The helper preserves file modes, syncs writes
+   and directories, and attempts config rollback if the registry fails. Failed rollback
+   has a distinct diagnostic. This is not a crash-atomic cross-directory transaction:
+   the owner must journal the apply/publication and block readiness on failure or
+   interruption until reconciliation succeeds. Unknown or active state must not reach it.
+5. **Maintenance (Task 8).** Reset clears the record's overrides (the chosen preset stays) and bumps its
+   revision; `ClearShaderCache(launch, install_path)` removes only `<exe>.dxvk-cache`. Both
+   need the stopped-title check. The sheet's Clear shader cache stays simulated until wired.
+
+### Remaining roadmap (2026-10-05)
+
+| # | Work | Owner / blocked by | Done when |
+| --- | --- | --- | --- |
+| R1 | U4 rest: trigger threshold, mouse wheel on a stick, per-game volume and mute (`pw_audio_mix_set_gain`), then the matching S9 rows | Settings track; local prospero-win branch | prospero-win parser and native tests; Playden rows hidden until the kit has them |
+| R2 | prospero-win-profiles checker accepts the new `[input]` keys and `[environment]` | Settings track; local `feat/recipe-sidecar` | `check_profiles.py` tests pass |
+| R3 | U5: Scaling and 120 Hz on the DXVK path | prospero-win native display work | Console: fit, integer and stretch differ on HL2; 120 Hz reported |
+| R4 | S4 live wiring: profile, `dxvk.conf` and registry applied before Play | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 launched from Playden |
+| R5 | S6 maintenance: clear shader cache, repair, save backup, recreate bottle | Integration Task 8 | Task 8 acceptance |
+| R6 | Kit adoption: U1 and U4 land upstream (needs approval to push), then the kit sets `environment` and `input_tuning` | Owner approval; prospero-win maintainers | Console: an environment variable and the dead zone reach HL2 |
+| R7 | S10 community presets: fetch pinned sidecars, "Community" banner, apply and revert | U3 published (owner approval) | Apply and revert keep local overrides |
 
 Order: S0 and the U1–U3 proposals in the first week. Then S1 → S2 → S3, which do not
 need the console. S4 follows integration Task 6. S5 follows S0. S6–S10 follow their

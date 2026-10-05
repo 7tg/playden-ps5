@@ -47,3 +47,16 @@ stay disabled until a check proves an effect.
 
 Result: decision D1 (a) works. Playden writes the DXVK overlay into dxvk.conf and keeps
 `show_fps = false` for DXVK games when the kit reads dxvk.conf.
+
+## Frame latency and reported VRAM (23:05–23:07)
+
+- `dxvk-latency-vram.conf` (`d3d9.maxFrameLatency = 1`, `d3d9.maxAvailableMemory = 2048`) in
+  the same folder; there was no `dxvk.conf` before. DXVK's lines in the prospero-win session log
+  (`latency-vram-effective-config.log`): `Found config file: dxvk.conf`, then both options under
+  `Effective configuration`. The HL2 menu ran at 60 FPS.
+- The file was deleted afterwards and the folder listed to confirm. Claim released.
+
+Result: both options reach DXVK, so Frame latency and Reported video memory are enabled. HL2
+is Direct3D 9, which ignores `dxgi.maxDeviceMemory`; Reported video memory now also writes
+`d3d9.maxAvailableMemory`. Neither has a visible effect on the HL2 menu; they matter for games
+that check reported VRAM or for input delay in play.

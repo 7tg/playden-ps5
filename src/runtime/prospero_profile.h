@@ -71,9 +71,12 @@ bool IsProsperoEnvironmentEntry(std::string_view name, std::string_view value);
 
 // Applies the rules of prospero-win's profile parsers (and prospero-win-profiles'
 // tools/check_profiles.py): strict sections and keys, value vocabularies and limits.
-// environment_section: the target runtime accepts [environment] (prospero-win
-// feat/profile-environment); released runtimes refuse it.
-bool CheckProsperoProfile(std::string_view text, std::string* reason, bool environment_section = false);
+// Profile features newer than the released runtime; released runtimes refuse them.
+struct ProsperoProfileFeatures {
+  bool environment_section = false;  // [environment] (prospero-win feat/profile-environment)
+  bool input_tuning = false;         // [input] stick_deadzone and rumble (feat/profile-input-tuning)
+};
+bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoProfileFeatures features = {});
 
 std::string ProsperoProfileId(std::uint32_t app_id);
 

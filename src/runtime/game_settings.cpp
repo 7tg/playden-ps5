@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <limits>
+#include <optional>
 #include <set>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -111,6 +112,17 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"600", "600", ""}, {"900", "900", ""}, {"1200", "1200", ""}, {"1800", "1800", ""},
                          {"2400", "2400", ""}},
                         "1200"));
+  list.push_back(Choice("stick_deadzone", "Stick dead zone",
+                        "How far a stick moves before the game sees it. Raise it if the camera drifts.",
+                        "[input] stick_deadzone", T::kCompatibility,
+                        {{"0", "Off", "The game's own dead zone only."}, {"5", "5%", ""}, {"10", "10%", ""},
+                         {"15", "15%", ""}, {"20", "20%", ""}, {"30", "30%", "For a badly drifting stick."}},
+                        "0", 4));
+  list.push_back(Choice("rumble", "Rumble", "How strongly the controller vibrates.", "[input] rumble",
+                        T::kCompatibility,
+                        {{"100", "Full", ""}, {"75", "75%", ""}, {"50", "50%", ""}, {"25", "25%", ""},
+                         {"0", "Off", ""}},
+                        "100", 4));
   list.push_back(Choice("scaling", "Scaling", "How the game's screen fills the TV.", "[display] scaling",
                         T::kCompatibility,
                         {{"fit", "Fit", "Keeps the shape; black bars if needed."},
@@ -134,7 +146,7 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"game", "Game default", ""}, {"1", "1", "Lowest delay."}, {"2", "2", ""}, {"3", "3", ""}},
                         "game", 2));
   list.push_back(Choice("reported_vram", "Reported video memory", "How much VRAM the game is told it has. Does not add memory.",
-                        "dxgi.maxDeviceMemory", T::kCompatibility,
+                        "dxgi.maxDeviceMemory · d3d9.maxAvailableMemory", T::kCompatibility,
                         {{"game", "DXVK default", ""}, {"2048", "2 GB", ""}, {"4096", "4 GB", ""}}, "game", 2));
   list.push_back(Choice("windows_version", "Windows version", "Which Windows the game is told it runs on.",
                         "winver · registry", T::kCompatibility,
@@ -206,14 +218,18 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   if (id == "frame_limit" || id == "vsync" || id == "frame_latency" || id == "reported_vram") {
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
-    // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, VSync off
-    // does not change the 60 Hz pacing, latency and VRAM have no visible effect yet.
+    // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, DXVK applies
+    // latency and VRAM, VSync off does not change the 60 Hz pacing.
     if (id == "vsync" && !kit.dxvk_present) return "The PS5 display paces frames at 60 Hz; VSync cannot be turned off yet.";
-    if ((id == "frame_latency" || id == "reported_vram") && !kit.dxvk_unverified) return "Not checked on the console yet.";
   }
   if ((id == "windows_version" || id == "text_scale") && !kit.registry)
     return "Needs access to the game's bottle, which comes with the Play button.";
   if (id == "environment" && !kit.environment) return "Needs a prospero-win update that reads [environment].";
+  if (id == "stick_deadzone" || id == "rumble") {
+    if (!kit.input_tuning) return "Needs a prospero-win update with controller tuning.";
+    const auto controller = values.find("controller");
+    if (controller == values.end() || controller->second.value != "xinput") return "Only with the Xbox controller.";
+  }
   if (id == "performance_overlay" && graphics == "gdi") return "Only available with DXVK or OpenGL.";
   if (id == "overlay_detail") {
     if (!dxvk) return "Only available with DXVK.";
@@ -248,6 +264,15 @@ const SettingDefinition* FindSetting(std::string_view id) {
   for (const auto& definition : SettingsCatalogue())
     if (definition.id == id) return &definition;
   return nullptr;
+}
+
+bool SettingShown(const SettingDefinition& definition, const KitCapabilities& kit) {
+  if (definition.id.rfind("button.", 0) == 0) return false;
+  if (definition.id == "environment") return kit.environment;
+  if (definition.phase == 2) return kit.dxvk_config;
+  if (definition.phase == 3) return kit.registry;
+  if (definition.phase == 4) return kit.input_tuning;
+  return true;
 }
 
 bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::string_view value, std::string* reason) {
@@ -435,6 +460,11 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   text += "mode = " + value("controller") + "\n";
   text += "mouse = " + value("pointer_stick") + "\n";
   if (settings.values.at("pointer_speed").available) text += "mouse_speed = " + value("pointer_speed") + "\n";
+  // Written only when they differ from the runtime's defaults (no dead zone, full rumble).
+  const bool tuned_deadzone = settings.values.at("stick_deadzone").available && value("stick_deadzone") != "0";
+  const bool tuned_rumble = settings.values.at("rumble").available && value("rumble") != "100";
+  if (tuned_deadzone) text += "stick_deadzone = " + value("stick_deadzone") + "\n";
+  if (tuned_rumble) text += "rumble = " + value("rumble") + "\n";
   for (const auto& button : ProsperoButtons()) {
     const auto& binding = settings.values.at("button." + button).value;
     if (!binding.empty()) text += button + " = " + binding + "\n";
@@ -464,7 +494,10 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   }
 
   std::string why;
-  if (!CheckProsperoProfile(text, &why, environment_section)) return fail("generated profile is invalid: " + why);
+  ProsperoProfileFeatures features;
+  features.environment_section = environment_section;
+  features.input_tuning = tuned_deadzone || tuned_rumble;
+  if (!CheckProsperoProfile(text, &why, features)) return fail("generated profile is invalid: " + why);
   *profile = {target.id, std::move(text)};
   return true;
 }
@@ -492,7 +525,8 @@ std::string RenderDxvkConfig(const EffectiveSettings& settings) {
     text += std::string("dxvk.hud = ") + elements + "\n";
   }
   const auto& vram = option("reported_vram");
-  if (vram.available && vram.value != "game") text += "dxgi.maxDeviceMemory = " + vram.value + "\n";
+  if (vram.available && vram.value != "game")
+    text += "dxgi.maxDeviceMemory = " + vram.value + "\nd3d9.maxAvailableMemory = " + vram.value + "\n";
   if (text.empty()) return text;
   return std::string(kDxvkHeader) + " Changes here are replaced on the next launch.\n" + text;
 }
@@ -740,11 +774,13 @@ int OpenLaunchDirectory(const LaunchEntry& launch, const std::string& install_ro
 
 enum class RelativeRead { kMissing, kPresent, kError };
 
-RelativeRead ReadRegularAt(int directory, const char* name, std::size_t maximum, std::string* text) {
+RelativeRead ReadRegularAt(int directory, const char* name, std::size_t maximum, std::string* text,
+                           mode_t* mode = nullptr) {
   const int file = ::openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   if (file < 0) return errno == ENOENT ? RelativeRead::kMissing : RelativeRead::kError;
   struct stat status {};
   if (::fstat(file, &status) != 0 || !S_ISREG(status.st_mode)) { ::close(file); return RelativeRead::kError; }
+  if (mode) *mode = status.st_mode & 0777;
   text->clear();
   char buffer[4096];
   while (true) {
@@ -761,7 +797,17 @@ RelativeRead ReadRegularAt(int directory, const char* name, std::size_t maximum,
   return RelativeRead::kPresent;
 }
 
-bool WriteAtomicAt(int directory, const char* name, const std::string& text) {
+bool WriteAtomicAt(int directory, const char* name, const std::string& text,
+                   std::optional<mode_t> mode_override = std::nullopt) {
+  mode_t mode = mode_override.value_or(0644);
+  const int existing = ::openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  if (existing >= 0) {
+    struct stat status {};
+    const bool ordinary = ::fstat(existing, &status) == 0 && S_ISREG(status.st_mode);
+    const bool closed = ::close(existing) == 0;
+    if (!ordinary || !closed) return false;
+    if (!mode_override) mode = status.st_mode & 0777;
+  } else if (errno != ENOENT) return false;
   static std::atomic<std::uint64_t> sequence{0};
   const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
   std::string temporary;
@@ -770,23 +816,29 @@ bool WriteAtomicAt(int directory, const char* name, const std::string& text) {
     const auto serial = sequence.fetch_add(1, std::memory_order_relaxed);
     temporary = std::string(name) + ".playden-tmp-" + std::to_string(static_cast<long long>(::getpid())) + "-" +
                 std::to_string(static_cast<long long>(tick)) + "-" + std::to_string(serial);
-    file = ::openat(directory, temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0644);
+    file = ::openat(directory, temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
     if (file >= 0) break;
     if (errno != EEXIST) return false;
   }
   if (file < 0) return false;
+  if (::fchmod(file, mode) != 0) {
+    ::close(file);
+    ::unlinkat(directory, temporary.c_str(), 0);
+    return false;
+  }
   std::size_t written = 0;
   while (written < text.size()) {
     const auto count = ::write(file, text.data() + written, text.size() - written);
     if (count <= 0) break;
     written += static_cast<std::size_t>(count);
   }
+  const bool synced = written == text.size() && ::fsync(file) == 0;
   const bool closed = ::close(file) == 0;
-  if (written != text.size() || !closed || ::renameat(directory, temporary.c_str(), directory, name) != 0) {
+  if (!synced || !closed || ::renameat(directory, temporary.c_str(), directory, name) != 0) {
     ::unlinkat(directory, temporary.c_str(), 0);
     return false;
   }
-  return true;
+  return ::fsync(directory) == 0;
 }
 
 }  // namespace
@@ -1034,9 +1086,12 @@ std::vector<RegistryValue> RenderRegistryValues(const EffectiveSettings& setting
   }
   const auto& scale = settings.values.at("text_scale");
   if (scale.available) {
+    // Wine reads the DPI from Control Panel\Desktop (winecfg's slider writes it there);
+    // Software\Wine\Fonts LogPixels is only its font cache marker, rewritten at start.
+    // 96 is Wine's default, so 100% removes the value.
     char dword[16];
     std::snprintf(dword, sizeof(dword), "dword:%08lx", std::strtoul(scale.value.c_str(), nullptr, 10));
-    values.push_back({"Software\\Wine\\Fonts", "LogPixels", dword});
+    values.push_back({"Control Panel\\Desktop", "LogPixels", scale.value == "96" ? std::string() : dword});
   }
   return values;
 }
@@ -1143,6 +1198,13 @@ bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>
                    value.data.empty() ? std::string() : existing_prefix + value.data + terminator);
     } else if (!value.data.empty()) {
       const std::string newline = text.find("\r\n") == std::string::npos ? "\n" : "\r\n";
+      // After the section's last value, before the blank line that separates sections.
+      while (end > body && text[end - 1] == '\n') {
+        auto blank = end - 1;
+        if (blank > body && text[blank - 1] == '\r') --blank;
+        if (blank == body || text[blank - 1] != '\n') break;
+        end = blank;
+      }
       std::string insertion;
       if (end > body && text[end - 1] != '\n') insertion += newline;
       insertion += line_prefix + value.data + newline;
@@ -1153,32 +1215,160 @@ bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>
   return true;
 }
 
-bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string& prefix_dir, std::int64_t unix_time,
-                           std::string* reason) {
+static bool ApplyRegistryFileValues(const std::vector<RegistryValue>& values, const std::string& prefix_dir,
+                                    std::int64_t unix_time, std::string* reason) {
   const auto fail = [&](std::string why) {
     if (reason) *reason = std::move(why);
     return false;
   };
-  const auto values = RenderRegistryValues(settings);
   if (values.empty()) return true;
   const int directory = OpenSafeDirectoryPath(prefix_dir);
   if (directory < 0) return fail("cannot read the bottle's user.reg");
   std::string original;
   constexpr std::size_t kMaxRegistryBytes = 32u * 1024u * 1024u;
-  if (ReadRegularAt(directory, "user.reg", kMaxRegistryBytes, &original) != RelativeRead::kPresent) {
+  mode_t original_mode = 0600;
+  if (ReadRegularAt(directory, "user.reg", kMaxRegistryBytes, &original, &original_mode) != RelativeRead::kPresent) {
     ::close(directory);
     return fail("cannot read the bottle's user.reg");
   }
   std::string edited = original;
   if (!ApplyRegistryValues(&edited, values, unix_time, reason)) { ::close(directory); return false; }
   if (edited == original) { ::close(directory); return true; }
-  if (!WriteAtomicAt(directory, "user.reg.playden-backup", original)) {
+  if (!WriteAtomicAt(directory, "user.reg.playden-backup", original, original_mode)) {
     ::close(directory);
     return fail("cannot back up user.reg");
   }
   if (!WriteAtomicAt(directory, "user.reg", edited)) {
     ::close(directory);
     return fail("cannot write user.reg");
+  }
+  ::close(directory);
+  return true;
+}
+
+bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string& prefix_dir, std::int64_t unix_time,
+                           std::string* reason) {
+  return ApplyRegistryFileValues(RenderRegistryValues(settings), prefix_dir, unix_time, reason);
+}
+
+}  // namespace playden::runtime
+
+namespace playden::runtime {
+
+const std::vector<std::string>& SettingsKitCapabilityNames() {
+  static const std::vector<std::string> names = {kKitDxvkConfig, kKitDxvkPresent, kKitInputTuning, kKitEnvironment};
+  return names;
+}
+
+KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capabilities, bool bottle_access) {
+  const auto has = [&](const char* name) {
+    return std::find(capabilities.begin(), capabilities.end(), name) != capabilities.end();
+  };
+  KitCapabilities kit;
+  kit.dxvk_config = has(kKitDxvkConfig);
+  kit.dxvk_present = has(kKitDxvkPresent);
+  kit.environment = has(kKitEnvironment);
+  kit.input_tuning = has(kKitInputTuning);
+  kit.registry = bottle_access;
+  return kit;
+}
+
+bool BuildSettingsLaunchPlan(const SettingsLaunchInput& input, SettingsLaunchPlan* plan, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  if (!input.recipe || !plan) return fail("no recipe or plan output");
+  if (input.record.preset_id.empty()) {
+    if (input.preset && (input.preset->id != "playden-default" || !input.preset->settings.empty()))
+      return fail("default record does not match the supplied preset");
+  } else if (!input.preset || input.preset->id != input.record.preset_id) {
+    return fail("record preset is missing or does not match the supplied preset");
+  }
+  SettingsLaunchPlan out;
+  out.app_id = input.recipe->app_id;
+  out.recipe_id = input.recipe->id;
+  out.recipe_version = std::to_string(input.recipe->version);
+  EffectiveSettings settings;
+  SettingsError error;
+  if (!BuildEffectiveSettings(*input.recipe, input.preset, input.record.overrides, input.kit, &settings, &error))
+    return fail(error.setting_id.empty() ? error.message : error.setting_id + ": " + error.message);
+  ProsperoProfile profile;
+  if (!RenderProsperoProfile(*input.recipe, settings, input.target, &profile, reason)) return false;
+  out.profile_id = profile.id;
+  out.profile_bytes = std::move(profile.text);
+  out.settings_revision = input.record.revision;
+  if (!settings.launch) return fail("no launch option");
+  out.launch_entry = *settings.launch;
+  out.launch_entry_id = out.launch_entry.id;
+
+  // Every preset the profile names must ship with it, or the runtime refuses the profile.
+  const auto& preset = settings.values.at("controller_preset").value;
+  if (!preset.empty() && preset != "none") {
+    if (preset.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-_") != std::string::npos)
+      return fail("controller preset name is not valid");
+    const int directory = OpenSafeDirectoryPath(input.runtime_dir + "/input");
+    if (directory < 0) return fail("controller preset " + preset + " is not available");
+    std::string bytes;
+    const auto file = preset + ".input";
+    const auto read = ReadRegularAt(directory, file.c_str(), kProsperoMaxProfileBytes, &bytes);
+    ::close(directory);
+    if (read != RelativeRead::kPresent || bytes.find("[input]") == std::string::npos)
+      return fail("controller preset " + preset + " is not available");
+    out.input_presets.emplace_back(file, std::move(bytes));
+  }
+  out.dxvk_config = RenderDxvkConfig(settings);
+  out.registry = RenderRegistryValues(settings);
+  *plan = std::move(out);
+  return true;
+}
+
+bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& install_root, const std::string& prefix_dir,
+                        std::int64_t unix_time, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  if (plan.launch_entry.id.empty() || plan.launch_entry.id != plan.launch_entry_id)
+    return fail("no matching launch option");
+  const int directory = OpenLaunchDirectory(plan.launch_entry, install_root);
+  if (directory < 0) return fail("launch working folder is not a safe directory");
+  std::string existing;
+  mode_t existing_mode = 0644;
+  const auto read = ReadRegularAt(directory, "dxvk.conf", 256u * 1024u, &existing, &existing_mode);
+  const bool has_config = read == RelativeRead::kPresent;
+  const auto close_fail = [&](std::string why) {
+    ::close(directory);
+    return fail(std::move(why));
+  };
+  if (read == RelativeRead::kError) return close_fail("cannot read dxvk.conf");
+  if (has_config && existing.compare(0, std::char_traits<char>::length(kDxvkHeader), kDxvkHeader) != 0)
+    return close_fail("the game folder has its own dxvk.conf; Playden will not replace it");
+  // This is a stopped-title file operation, not a cross-directory transaction.
+  // Restore config bytes/mode on registry failure and surface failed rollback.
+  // The integration owner journals readiness and reconciles any interrupted apply.
+  bool changed = false;
+  if (plan.dxvk_config.empty()) {
+    if (has_config) {
+      if (::unlinkat(directory, "dxvk.conf", 0) != 0) return close_fail("cannot remove dxvk.conf");
+      if (::fsync(directory) != 0) return close_fail("cannot sync dxvk.conf removal; reconciliation required");
+      changed = true;
+    }
+  } else if (!has_config || existing != plan.dxvk_config) {
+    if (!WriteAtomicAt(directory, "dxvk.conf", plan.dxvk_config))
+      return close_fail("cannot commit dxvk.conf; reconciliation required");
+    changed = true;
+  }
+  if (!plan.registry.empty() && !ApplyRegistryFileValues(plan.registry, prefix_dir, unix_time, reason)) {
+    const auto registry_reason = reason ? *reason : std::string("registry apply failed");
+    if (changed) {
+      const bool restored = has_config
+          ? WriteAtomicAt(directory, "dxvk.conf", existing, existing_mode)
+          : (::unlinkat(directory, "dxvk.conf", 0) == 0 && ::fsync(directory) == 0);
+      if (!restored)
+        return close_fail("settings rollback failed; reconciliation required: " + registry_reason);
+    }
+    return close_fail("settings apply failed; reconciliation required: " + registry_reason);
   }
   ::close(directory);
   return true;

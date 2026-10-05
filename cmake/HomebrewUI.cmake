@@ -478,6 +478,14 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME prospero_profile COMMAND prospero_profile_test "${CMAKE_SOURCE_DIR}/fixtures/prospero-win-profiles")
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
+    # Inject failures only at the POSIX I/O boundary of this test's production
+    # compilation; the shipped settings implementation has ordinary syscalls.
+    add_executable(game_settings_io_test tests/game_settings_io_test.cpp src/runtime/game_settings.cpp)
+    target_link_libraries(game_settings_io_test PRIVATE playden_steam_cm_codec)
+    target_compile_features(game_settings_io_test PRIVATE cxx_std_20)
+    target_compile_definitions(game_settings_io_test PRIVATE
+        fsync=playden_test_fsync renameat=playden_test_renameat unlinkat=playden_test_unlinkat)
+    add_test(NAME game_settings_io COMMAND game_settings_io_test "${CMAKE_SOURCE_DIR}")
     add_executable(steam_depot_chunk_test "${CMAKE_SOURCE_DIR}/tests/steam_depot_chunk_test.cpp")
     target_link_libraries(steam_depot_chunk_test PRIVATE playden_depot_codec)
     target_compile_features(steam_depot_chunk_test PRIVATE cxx_std_20)

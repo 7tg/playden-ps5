@@ -42,3 +42,35 @@ Fresh verification of the restored destination checkout on 2026-10-05:
 
 The original stash is retained as a backup. Live settings and maintenance remain
 subject to the integration work and acceptance described above.
+
+## Final settings handoff review — 2026-10-05
+
+Reviewed the six follow-up commits through `8f81a3d` against integration
+`a84710d`. The independent review found preset identity, borrowed recipe
+lifetime, captured registry application, publication recipe identity,
+Environment capability gating, rollback diagnostics/mode preservation and
+missing durability barriers. Regressions reproduced these before correction.
+
+The launch plan now owns its selected entry and app/recipe identities. It
+requires the record's exact preset (empty records accept null or the canonical
+empty default), applies captured registry values and stamps captured recipe
+identity into publication. Environment uses its own capability gate. Atomic
+file replacements preserve modes and sync the file and directory; rollback
+covers delete/recreate and reports restore/remove failures distinctly.
+The bundled input presets now retain their upstream MIT notice.
+
+The settings helper is explicitly a stopped-title file operation, not a
+crash-atomic multi-file transaction. The integration owner must journal settings
+apply plus profile/descriptor publication, validate the generated profile and
+input presets with the pinned parser, and block readiness until failures or
+interruptions are reconciled. These production adapters remain open.
+
+Final combined host build and all 75 CTest tests pass, including syscall failure
+injection for file/directory sync and failed rollback rename/remove. The PS5 SDK
+package build passes; its eboot SHA-256 is
+`109e55a60d1e554104ba787421cce77ef2c153acc2379284cf5364af6d1552b1`.
+The package contains the input presets and their MIT notice. The re-review also
+caught private registry backup permissions; backups and temporary files now
+inherit the source mode before receiving data, with a first-backup regression.
+No console claim or deployment occurred during this merge review. The existing
+working preview remains installed.

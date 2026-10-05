@@ -1,0 +1,8 @@
+701c701
+< "LogPixels"=dword:00000060
+---
+> "LogPixels"=dword:00000090
+727a728,730
+>
+> [Software\\Wine\\AppDefaults\\hl2.exe] 1791216000
+> "Version"="winxp"

@@ -169,6 +169,11 @@ int main(int argc, char** argv) {
   CHECK(!CheckProsperoProfile(base + "[display]\ndesktop = 4096x2160\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[display]\nrefresh = 90\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[input]\nmouse_speed = 0\n", &reason));
+  CHECK(!CheckProsperoProfile(base + "[input]\nrumble = 50\n", &reason));                 // released runtimes refuse it
+  CHECK(CheckProsperoProfile(base + "[input]\nstick_deadzone = 50\nrumble = 0\n", &reason, {.input_tuning = true}));
+  CHECK(!CheckProsperoProfile(base + "[input]\nstick_deadzone = 51\n", &reason, {.input_tuning = true}));
+  CHECK(!CheckProsperoProfile(base + "[input]\nrumble = 101\n", &reason, {.input_tuning = true}));
+  CHECK(!CheckProsperoProfile(base + "[input]\nrumble = -1\n", &reason, {.input_tuning = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\ncross = f25\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[input]\ncross = vk:0x00\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[debug]\nwinedebug = +all relay\n", &reason));

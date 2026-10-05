@@ -1,0 +1,2 @@
+81:"LogPixels"=dword:00000078
+703:"LogPixels"=dword:00000078

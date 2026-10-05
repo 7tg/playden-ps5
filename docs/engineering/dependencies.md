@@ -46,6 +46,9 @@ not consumed yet:
 | prospero-win | `../ps5-homebrew/prospero-win` | `zcode/prospero-win-13.60` | `defd38b` |
 | prospero-win | `~/.chauffeur/worktrees/7449CB0F-…/feat-fw-v13-60-support` | `feat/fw-v13.60-support` | `a1f349e` |
 | prospero-win | `.worktrees/prospero-win-per-game` | `feat/playden-per-game-title` | `54caac1` |
+| prospero-win | `~/.chauffeur/worktrees/prospero-win-environment` | `feat/profile-environment` (U1, local) | `06e6399` |
+| prospero-win | `~/.chauffeur/worktrees/prospero-win-input-tuning` | `feat/profile-input-tuning` (U4, local) | `410ac1c` |
+| prospero-win-profiles | `~/.chauffeur/worktrees/prospero-win-profiles-sidecar` | `feat/recipe-sidecar` (U3, local) | `9325e0c` |
 | ps5-opengl | `~/.chauffeur/worktrees/ps5-opengl-legacy-varyings` | `fix/legacy-varying-linkage` | `e9c1104` |
 | PS5-Lapy-JB-Daemon | `../ps5-homebrew/PS5-Lapy-JB-Daemon` | `feat/playden-title-helper` | `e9f2cfc` |
 
@@ -61,3 +64,7 @@ These are not separate patched repositories:
   from the working directory, which the game settings roadmap uses.
 - **Vulkan driver (RADV/Mesa, ps5vk).** Linked from its SDK through
   `--ps5vk-sdk DIR` or `--radv DIR` in `build_wine_ps5.sh`.
+
+The bundled `runtime/input/{gamepad,mouse}.input` presets come from
+prospero-win-profiles `3d3be53`. Its MIT copyright and permission notice ships
+with them at `runtime/input/LICENSE`.
