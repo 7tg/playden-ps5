@@ -487,8 +487,8 @@ journaled profile/descriptor publication and the kit trust configuration.
 | # | Work | Owner / blocked by | Done when |
 | --- | --- | --- | --- |
 | R1 ◐ | U4 rest: trigger dead zone, mouse wheel on a stick, per-game volume and mute, then the matching S9 rows | Settings track; local prospero-win branch | Done in code and host tests; wheel's Wine patch unbuilt; console check needs a test title build |
-| R2 | prospero-win-profiles checker accepts the new `[input]` keys and `[environment]` | Settings track; local `feat/recipe-sidecar` | `check_profiles.py` tests pass |
-| R3 | U5: Scaling and 120 Hz on the DXVK path | prospero-win native display work | Console: fit, integer and stretch differ on HL2; 120 Hz reported |
+| R2 ✅ | prospero-win-profiles checker accepts the new `[input]` keys, `[environment]` and `[audio]` when the sidecar declares the feature | Settings track; local `feat/checker-runtime-features` (`646aac0`) | `check_profiles.py` tests pass |
+| R3 ◐ | U5: Scaling and 120 Hz on the DXVK path. Investigated in [dxvk-scaling-and-120hz.md](dxvk-scaling-and-120hz.md): needs Wine patches (scaling behavior after 0456, a 120 Hz mode near 0460) and RADV WSI work | Blocked on a Wine/RADV build environment (`PS5_PRX_FOUNDATION`, ps5vk sources) and a test title | Console: fit, integer and stretch differ on HL2; 120 Hz reported |
 | R4 | S4 live wiring: profile, `dxvk.conf` and registry applied before Play | Integration Tasks 4–6 | Console: each P1 row has a visible effect on HL2 launched from Playden |
 | R5 | S6 maintenance: clear shader cache, repair, save backup, recreate bottle | Integration Task 8 | Task 8 acceptance |
 | R6 | Kit adoption: U1 and U4 land upstream (needs approval to push), then the kit sets `environment` and `input_tuning` | Owner approval; prospero-win maintainers | Console: an environment variable and the dead zone reach HL2 |
