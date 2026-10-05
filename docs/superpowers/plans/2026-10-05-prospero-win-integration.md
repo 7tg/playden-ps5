@@ -233,6 +233,8 @@ installer/removal or production Play action is claimed from these diagnostics.
 
 **Files:** Modify `src/homebrew/simulation.{hpp,cpp}`, `src/homebrew/view.cpp`, runtime settings/install services and package installer; create `tests/runtime_maintenance_test.cpp`; extend graphical management/settings tests.
 
+**Settings spec:** tiers, phases and UI rules are in [game-settings-roadmap.md](../../engineering/game-settings-roadmap.md).
+
 **Interfaces:** `Repair(install_id)` revalidates assets/recipe without replacing saves; `Remove(install_id, remove_saves)` unregisters owned title/files while defaulting to save retention; updates stage a new pinned kit and retain the previous manifest for rollback.
 
 - [ ] Expose preset/reset, launch entry/arguments, validated resolution, controller preset and FPS overlay; put supported graphics/runtime/DLL/log choices in advanced settings. Hide unsupported frame-limit/VSync mappings, DXVK 120 Hz and unvalidated scaling options. The owner-verified HL2 input defaults remain recipe-scoped; validate them again with the new per-game title and fresh bottle.
