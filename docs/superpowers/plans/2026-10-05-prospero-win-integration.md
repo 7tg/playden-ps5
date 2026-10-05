@@ -27,7 +27,9 @@ uninstall lifecycle work remain part of this integration goal.
 The owner's worktree is
 `/Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-game-settings`.
 Its settings model and generated profiles were inspected at `e3cc160`; settings
-UI work is already present at `ff3ffa6`. These are coordination checkpoints,
+UI work is already present at `ff3ffa6`. A later inspection at `7937f02` includes
+settings persistence, environment-variable controls, community profile sidecars
+and shader-cache actions. These are coordination checkpoints,
 not approved dependency pins. Read the current branch before integration and
 preserve its in-progress work.
 

@@ -42,6 +42,23 @@ implementing registry overlays; do not silently follow master.
 
 ## Status, ownership and application rules
 
+`feat/game-settings` owns the Playden settings model, persistence, profile writer
+and settings UI, including its prospero-win/dependency patches. This catalogue
+is the shared requirements reference; the integration branch owns kit/bottle
+validation, installation, launch and lifecycle services. Use the owner's
+`BuildEffectiveSettings` and `RenderProsperoProfile` through the injected profile
+publisher rather than implementing another settings model. The
+[integration boundaries](../superpowers/plans/2026-10-05-prospero-win-integration.md)
+record revision-width, recipe-identity and capability requirements.
+
+The owner's branch also contains settings persistence, environment-variable UI,
+community profile sidecars and shader-cache actions (inspected at `7937f02`).
+Their presence in the UI does not establish support in the retained Wine kit.
+Reconcile each entry below against the combined parser/runtime implementation
+and its acceptance evidence before changing its support status. Dependency
+patches must join the per-title wrapper changes before the resulting source and
+kit are pinned.
+
 | Status | Meaning |
 | --- | --- |
 | Existing | Parser and wrapper consume the setting. Hardware support still depends on backend and kit. |
