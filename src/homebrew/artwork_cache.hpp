@@ -37,7 +37,10 @@ class LiveArtworkCache {
   LiveArtworkCache& operator=(const LiveArtworkCache&) = delete;
 
   void BeginFrame(std::uint64_t account_generation);
-  [[nodiscard]] std::uint32_t TextureFor(GameId, std::string_view source);
+  // A texture once loaded, else 0; `width`/`height`, when given, receive its image size.
+  [[nodiscard]] std::uint32_t TextureFor(GameId, std::string_view source,
+                                         std::uint32_t* width = nullptr,
+                                         std::uint32_t* height = nullptr);
   void EndFrame();
   [[nodiscard]] ArtworkCacheStats Stats() const noexcept;
 

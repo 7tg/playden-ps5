@@ -125,15 +125,15 @@ bool CheckedImageBytes(int width, int height, std::size_t& bytes) {
   return true;
 }
 
-std::string ExpectedSource(GameId game_id) {
-  return "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
-         std::to_string(game_id) + "/library_600x900.jpg";
-}
-
+// The game's own CDN art: its cover, its library hero and its logo, and nothing else.
 bool CanonicalKey(const ArtworkKey& key) {
-  return key.account_generation != 0 && key.game_id != 0 &&
-         key.source.size() <= kMaxArtworkSourceBytes &&
-         key.source == ExpectedSource(key.game_id);
+  if (key.account_generation == 0 || key.game_id == 0 ||
+      key.source.size() > kMaxArtworkSourceBytes) return false;
+  const std::string base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
+                           std::to_string(key.game_id) + "/";
+  for (const char* name : {"library_600x900.jpg", "library_hero.jpg", "logo.png"})
+    if (key.source == base + name) return true;
+  return false;
 }
 
 }  // namespace

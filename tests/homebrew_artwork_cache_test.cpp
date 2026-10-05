@@ -111,7 +111,10 @@ void DeduplicatesAndUploadsOnlyOnUiThread() {
   cache.BeginFrame(1);
   cache.EndFrame();
   cache.BeginFrame(1);
-  assert(cache.TextureFor(10, "a") == texture);
+  std::uint32_t width = 0;
+  std::uint32_t height = 0;
+  assert(cache.TextureFor(10, "a", &width, &height) == texture);
+  assert(width == 1 && height == 1);  // the size is reported so a logo can be fitted
   cache.EndFrame();
   assert(backend.calls == calls);
 }

@@ -29,6 +29,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <limits>
@@ -1685,26 +1686,101 @@ class Render::Impl
                  132.0F, 646.0F, 20.0F, kMuted);
     }
 
+    std::string steam_art(GameId id, std::string_view name) const
+    {
+        return "https://cdn.cloudflare.steamstatic.com/steam/apps/" + std::to_string(id) + "/" + std::string(name);
+    }
+
+    // A label over its value, as the macOS details metadata.
+    void detail_cell(std::string_view label, std::string_view value, float x, float y, float width)
+    {
+        ui::text(scene_, fonts_.display, ui::upper(label), x, y + 14.0F, 17.0F, kSecondary, gfx::Align::left, 1.7F);
+        const ui::FontRef &face = font_for(value, fonts_.semibold);
+        ui::text(scene_, face, face.font->fit(value, 26.0F, width), x, y + 50.0F, 26.0F, kText);
+    }
+
+    // The macOS game page: the game's hero across the top with its logo, a row of actions,
+    // then the description on the left and the facts on the right.
     void draw_details(ui::Canvas &, const ViewData &view, const State &state)
     {
         const GameId id = state.navigation.detail_id.value_or(state.navigation.selected_game_id);
         const Game *game = game_by_id(state, id);
-        if (state.simulation_mode && hero_ != 0)
-            scene_.image_gradient(hero_, {0.0F, 0.0F, 1920.0F, 620.0F}, gfx::kFullUv,
-                                  kText.with_alpha(0.72F), kBackground.with_alpha(1.0F));
+        const gfx::Rect hero{0.0F, 0.0F, kWidth, 620.0F};
+        const bool live_art = !state.simulation_mode && live_artwork_ && !state.account.id.empty() && id != 0;
+        const std::uint32_t hero_texture = state.simulation_mode ? hero_ :
+            live_art ? live_artwork_->TextureFor(id, steam_art(id, "library_hero.jpg")) : 0;
+        if (hero_texture != 0)
+            scene_.image(hero_texture, hero, gfx::kFullUv, kText);
         else
-            scene_.gradient_rect({0.0F, 0.0F, 1920.0F, 620.0F}, 0.0F, id_color(id), kBackground);
-        scene_.gradient_rect_h({0.0F, 0.0F, 1180.0F, 620.0F}, 0.0F, kBackground.with_alpha(0.90F),
-                               kBackground.with_alpha(0.0F));
-        section_label("Game details", 96.0F, 80.0F);
+            scene_.gradient_rect(hero, 0.0F, id_color(id), kBackground);
+        scene_.gradient_rect({0.0F, 0.0F, kWidth, 186.0F}, 0.0F, kBackground.with_alpha(0.4F), kBackground.with_alpha(0.0F));
+        scene_.gradient_rect({0.0F, 465.0F, kWidth, 156.0F}, 0.0F, kBackground.with_alpha(0.0F), kBackground);
+
+        // Where Circle returns, over the hero.
+        const Route origin = state.navigation.detail_origin;
+        const char *back = origin == Route::Home ? "Home" : origin == Route::Downloads ? "Downloads" :
+                           origin == Route::Settings ? "Settings" : "Library";
+        ui::draw_button(scene_, fonts_, ui::GlyphStyle::mono(kText, kBackground), ui::Button::circle, kSafeX, 74.0F, 36.0F);
+        ui::text(scene_, fonts_.semibold, back, kSafeX + 48.0F, 82.0F, 22.0F, kText);
+
         const std::string title = game == nullptr ? view.title : game->title;
-        const ui::FontRef &title_face = font_for(title, fonts_.display);
-        ui::paragraph(scene_, title_face, title, 96.0F, 320.0F, 68.0F, 800.0F, 72.0F, kText, 3);
-        const float actions_bottom = draw_actions(view, 96.0F, 638.0F, 390.0F, true);
+        std::uint32_t logo_width = 0;
+        std::uint32_t logo_height = 0;
+        const std::uint32_t logo = live_art ?
+            live_artwork_->TextureFor(id, steam_art(id, "logo.png"), &logo_width, &logo_height) : 0;
+        if (logo != 0 && logo_width > 0 && logo_height > 0)
+        {
+            const float fit_scale = std::min(460.0F / static_cast<float>(logo_width),
+                                             160.0F / static_cast<float>(logo_height));
+            const float w = static_cast<float>(logo_width) * fit_scale;
+            const float h = static_cast<float>(logo_height) * fit_scale;
+            const gfx::Rect box{kSafeX, 430.0F + (160.0F - h) * 0.5F, w, h};
+            scene_.shadow(box.inset(10.0F), 20.0F, 30.0F, gfx::Color::rgb(0x000000, 0.35F));
+            scene_.image(logo, box, gfx::kFullUv, kText);
+        }
+        else
+        {
+            // Without a logo the title stands in, as the macOS artwork fallback does.
+            const ui::FontRef &title_face = font_for(title, fonts_.display);
+            const bool long_title = title_face.font->measure(title, 72.0F) > 900.0F;
+            ui::paragraph(scene_, title_face, title, kSafeX, long_title ? 520.0F : 586.0F, 72.0F, 900.0F, 70.0F,
+                          kText, 2);
+        }
+
+        // Actions in a row; Install, Play or a running download is the primary one.
+        float x = kSafeX;
+        for (const ViewRow &row : view.rows)
+        {
+            if (row.kind != RowKind::Action && row.kind != RowKind::Toggle)
+                continue;
+            const bool primary = row.enabled && (row.key == "details-install" || row.key == "details-play" ||
+                                                 row.key == "details-download");
+            const bool favorite = row.key == "details-favorite";
+            const std::string label = favorite ? (row.selected ? "Favorited" : "Favorite") : row.title;
+            const std::string detail = row.key == "details-download" && row.progress > 0.0F ?
+                std::to_string(static_cast<int>(row.progress * 100.0F)) + "%" : row.value;
+            const float size = primary ? 38.0F : 26.0F;
+            const float width = fonts_.display.measure(label, size) +
+                                (detail.empty() ? 0.0F : fonts_.semibold.measure(detail, 22.0F) + 18.0F) +
+                                (primary ? 88.0F : 44.0F);
+            const float height = primary ? 84.0F : 60.0F;
+            const bool focused = view.focused_row >= 0 && static_cast<std::size_t>(view.focused_row) < view.rows.size() &&
+                                 view.rows[static_cast<std::size_t>(view.focused_row)].key == row.key;
+            if (focused && route_focus_)
+                stats_.focused_control_key = row.key;
+            const float amount = control_focus(row.key, focused && route_focus_);
+            mac_button(scene_, {x, 682.0F - height * 0.5F, width, height}, label, primary, amount, !row.enabled,
+                       detail, primary);
+            if (favorite && row.selected)
+                scene_.circle(x + width - 12.0F, 682.0F - height * 0.5F + 12.0F, 4.0F, kAccent);
+            x += width + 14.0F;
+        }
+
+        // Left column: install status, the description and genres.
+        float y = 774.0F;
         if (!state.simulation_mode)
         {
-            // Live status under the actions: install state, its drive, or where an install would go.
-            std::string note = "Launching games is not available yet.";
+            std::string note;
             gfx::Color tone = kSecondary;
             for (const ViewRow &row : view.rows)
             {
@@ -1725,15 +1801,23 @@ class Render::Impl
                     note = row.subtitle.rfind("To ", 0) == 0 ? "Installs to " + row.subtitle.substr(3) : row.subtitle;
                     break;
                 }
+                if (row.key == "details-download")
+                {
+                    note = "Download · " + row.value;
+                    break;
+                }
             }
-            ui::paragraph(scene_, fonts_.regular, note, 96.0F, std::max(836.0F, actions_bottom + 22.0F), 19.0F, 390.0F,
-                          26.0F, tone, 2);
+            if (!note.empty())
+            {
+                ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, note, 22.0F, 1128.0F), kSafeX, y + 4.0F, 22.0F,
+                         tone);
+                y += 42.0F;
+            }
         }
-
         const std::string description = game == nullptr || game->description.empty() ?
                                             "Description unavailable." : game->description;
         const auto detail_scroll = state.navigation.scroll_offsets.find("details-content");
-        constexpr std::size_t page_size = 420;
+        constexpr std::size_t page_size = 300;
         const int requested_page = detail_scroll == state.navigation.scroll_offsets.end() ? 0 :
                                        std::max(0, detail_scroll->second);
         const int max_page = description.empty() ? 0 :
@@ -1746,57 +1830,76 @@ class Render::Impl
             page_text.insert(0, "…");
         if (offset + page_size < description.size())
             page_text += "…";
-        ui::text(scene_, fonts_.display, "About", 550.0F, 674.0F, 25.0F, kText);
-        ui::paragraph(scene_, fonts_.regular, page_text, 550.0F, 706.0F, 19.0F, 520.0F, 26.0F,
-                      kSecondary, 8);
+        const ui::FontRef &body = font_for(page_text, fonts_.regular);
+        const float text_bottom = ui::paragraph(scene_, body, page_text, kSafeX, y + 20.0F, 26.0F, 1128.0F, 37.0F,
+                                                gfx::Color::rgb(0xD6D0C8), 3);
+        y = std::max(y + 20.0F + 37.0F, text_bottom) + 18.0F;
         if (description.size() > page_size)
-            ui::text(scene_, fonts_.regular, "L2/R2 Read more · page " +
-                         std::to_string(page + 1) + " of " + std::to_string(max_page + 1),
-                     550.0F, 934.0F, 17.0F, kMuted);
+        {
+            ui::text(scene_, fonts_.regular, "L2/R2 Read more · page " + std::to_string(page + 1) + " of " +
+                         std::to_string(max_page + 1), kSafeX, y + 6.0F, 18.0F, kMuted);
+            y += 30.0F;
+        }
         if (game != nullptr)
         {
-            scene_.rounded_rect({1112.0F, 638.0F, 712.0F, 300.0F}, 12.0F, kPanel);
-            const Installation *installation = nullptr;
-            const auto found_installation = std::find_if(
-                state.installations.begin(), state.installations.end(), [&game, &state](const Installation &item) {
-                    return item.game_id == game->id && (item.installed_bytes > 0 || !state.simulation_mode);
-                });
-            if (found_installation != state.installations.end())
-                installation = &*found_installation;
-            std::string location = state.simulation_mode ? "Not installed" : "Unknown";
-            if (installation != nullptr)
+            float tag_x = kSafeX;
+            for (std::size_t index = 0; index < game->genres.size() && index < 4; ++index)
             {
-                const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
-                                                 [installation](const Volume &item) {
-                                                     return item.id == installation->volume_id;
-                                                 });
-                location = volume == state.volumes.end() ? installation->volume_id : volume->label;
-                if (!installation->available || (volume != state.volumes.end() && !volume->available))
-                    location += " · Disconnected";
+                const std::string &genre = game->genres[index];
+                const float width = fonts_.semibold.measure(genre, 20.0F) + 32.0F;
+                if (tag_x + width > kSafeX + 1128.0F)
+                    break;
+                scene_.rounded_rect({tag_x, y, width, 42.0F}, 6.0F, kText.with_alpha(0.1F));
+                ui::text(scene_, fonts_.semibold, genre, tag_x + 16.0F, y + 28.0F, 20.0F, kText);
+                tag_x += width + 12.0F;
             }
-            const auto rating = state.library.ratings.find(game->id);
-            const Compatibility compatibility = rating == state.library.ratings.end() ?
-                                                    Compatibility::Untested : rating->second;
-            const std::string history = relative_time(game->last_played, state.clock_ticks) + " · " +
-                                        playtime_label(game->playtime_minutes);
-            detail_line("Genres", join_words(game->genres), 1144.0F, 682.0F, 632.0F);
-            detail_line("Source", game->source.empty() ? "Unknown" : game->source, 1144.0F, 714.0F,
-                        632.0F);
-            detail_line("Download size", byte_count(game->download_bytes), 1144.0F, 746.0F, 632.0F);
-            detail_line("Install size", byte_count(game->install_bytes), 1144.0F, 778.0F, 632.0F);
-            detail_line("Play history", history, 1144.0F, 810.0F, 632.0F);
-            detail_line("Compatibility", rating_label(compatibility), 1144.0F, 842.0F, 632.0F);
-            detail_line("Location", location, 1144.0F, 874.0F, 632.0F);
-            detail_line("Controller", game->controller_support.empty() ? "Unknown" : game->controller_support,
-                        1144.0F, 906.0F, 632.0F);
         }
-    }
 
-    void detail_line(std::string_view label, std::string_view value, float x, float y, float width)
-    {
-        ui::text(scene_, fonts_.regular, label, x, y, 20.0F, kMuted);
-        ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, value, 19.0F, width - 180.0F),
-                 x + width, y, 19.0F, kText, gfx::Align::right);
+        // Right column: the facts.
+        if (game == nullptr)
+            return;
+        const Installation *installation = nullptr;
+        const auto found_installation = std::find_if(
+            state.installations.begin(), state.installations.end(), [&game, &state](const Installation &item) {
+                return item.game_id == game->id && (item.installed_bytes > 0 || !state.simulation_mode);
+            });
+        if (found_installation != state.installations.end())
+            installation = &*found_installation;
+        std::string location = "Not installed";
+        if (installation != nullptr)
+        {
+            const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
+                                             [installation](const Volume &item) {
+                                                 return item.id == installation->volume_id;
+                                             });
+            location = volume == state.volumes.end() ? installation->volume_id : volume->label;
+            if (!installation->available || (volume != state.volumes.end() && !volume->available))
+                location += " · Disconnected";
+        }
+        const auto rating = state.library.ratings.find(game->id);
+        const Compatibility compatibility = rating == state.library.ratings.end() ?
+                                                Compatibility::Untested : rating->second;
+        const bool installed = installation != nullptr && installation->installed_bytes > 0;
+        const std::string size = installed ? short_size(installation->installed_bytes) :
+            game->download_bytes ? short_size(*game->download_bytes) : std::string("Unknown");
+        const std::string playtime = game->playtime_minutes && *game->playtime_minutes > 0 ?
+            playtime_label(game->playtime_minutes) : std::string("Never played");
+        std::string compat = rating_label(compatibility);
+        if (const auto dot = compat.find(" · "); dot != std::string::npos)
+            compat.resize(dot);
+        std::string controller = game->controller_support.empty() ? "Unknown" : game->controller_support;
+        controller.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(controller.front())));
+        constexpr float left = 1304.0F;
+        constexpr float right = 1584.0F;
+        detail_cell("Playtime", playtime, left, 754.0F, 240.0F);
+        detail_cell(installed ? "Size" : "Download", size, right, 754.0F, 240.0F);
+        detail_cell("Store", game->source.empty() ? "Steam" : game->source, left, 830.0F, 240.0F);
+        detail_cell("Location", location, right, 830.0F, 240.0F);
+        detail_cell("Compatibility", compat, left, 906.0F, 240.0F);
+        if (game->last_played)
+            detail_cell("Last played", relative_time(game->last_played, state.clock_ticks), right, 906.0F, 240.0F);
+        else
+            detail_cell("Controller", controller, right, 906.0F, 240.0F);
     }
 
     void draw_session(ui::Canvas &, const ViewData &view, const State &state)

@@ -18,9 +18,10 @@ namespace playden::homebrew {
 
 inline constexpr std::size_t kMaxArtworkSubscriptions = 64;
 inline constexpr std::size_t kMaxArtworkSourceBytes = 2048;
-inline constexpr std::size_t kMaxArtworkImageBytes = 4 * 1024 * 1024;
-inline constexpr std::size_t kMaxArtworkResultBytes = 16 * 1024 * 1024;
-inline constexpr std::uint32_t kMaxArtworkDimension = 1024;
+// Large enough for a Steam library hero (1920x620) beside the 600x900 covers.
+inline constexpr std::size_t kMaxArtworkImageBytes = 5 * 1024 * 1024;
+inline constexpr std::size_t kMaxArtworkResultBytes = 20 * 1024 * 1024;
+inline constexpr std::uint32_t kMaxArtworkDimension = 1920;
 // A failed load is retried while still subscribed, after a delay that doubles
 // per failure, so covers recover once the network comes up after boot.
 inline constexpr std::uint32_t kMaxArtworkAttempts = 3;

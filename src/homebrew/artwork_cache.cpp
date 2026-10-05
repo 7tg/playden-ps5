@@ -33,6 +33,8 @@ struct LiveArtworkCache::State {
     ArtworkKey key;
     std::uint32_t texture = 0;
     std::size_t bytes = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
     std::uint64_t last_seen_frame = 0;
     bool referenced = false;
     bool failed = false;
@@ -100,7 +102,7 @@ struct LiveArtworkCache::State {
       if (entry->texture == 0) entry->failed = true;
       return;
     }
-    entries.push_back({key, 0, 0, frame, true, true});
+    entries.push_back({key, 0, 0, 0, 0, frame, true, true});
   }
 };
 
@@ -126,7 +128,8 @@ void LiveArtworkCache::BeginFrame(std::uint64_t account_generation) {
   for (auto& entry : state.entries) entry.referenced = false;
 }
 
-std::uint32_t LiveArtworkCache::TextureFor(GameId game_id, std::string_view source) {
+std::uint32_t LiveArtworkCache::TextureFor(GameId game_id, std::string_view source,
+                                           std::uint32_t* width, std::uint32_t* height) {
   auto& state = *state_;
   if (state.generation == 0 || game_id == 0 || source.empty() ||
       source.size() > kMaxArtworkSourceBytes || source.find('\0') != std::string_view::npos)
@@ -140,6 +143,8 @@ std::uint32_t LiveArtworkCache::TextureFor(GameId game_id, std::string_view sour
   if (!entry || entry->texture == 0) return 0;
   entry->referenced = true;
   entry->last_seen_frame = state.frame;
+  if (width) *width = entry->width;
+  if (height) *height = entry->height;
   return entry->texture;
 }
 
@@ -189,11 +194,14 @@ void LiveArtworkCache::EndFrame() {
     if (auto* entry = state.Find(result.key)) {
       entry->texture = texture;
       entry->bytes = *bytes;
+      entry->width = result.image->width;
+      entry->height = result.image->height;
       entry->last_seen_frame = state.frame;
       entry->referenced = true;
       entry->failed = false;
     } else {
-      state.entries.push_back({result.key, texture, *bytes, state.frame, true, false});
+      state.entries.push_back({result.key, texture, *bytes, result.image->width, result.image->height,
+                               state.frame, true, false});
     }
     state.gpu_bytes += *bytes;
     return true;

@@ -166,7 +166,7 @@ void ResultBytesBackpressureBoundsCompletedImages() {
     std::optional<ArtworkImage> Load(
         const ArtworkKey&, const std::atomic<bool>&) override {
       ++calls;
-      return ArtworkImage{1024, 1024,
+      return ArtworkImage{1280, 1024,
                           std::vector<std::uint8_t>(kMaxArtworkImageBytes, 1)};
     }
   } backend;
