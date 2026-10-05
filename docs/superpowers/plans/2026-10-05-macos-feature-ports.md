@@ -4,6 +4,8 @@ Plan written 2026-10-05. Ports four features from the macOS Playden app (`../pla
 
 Other-store support (GOG/Epic, `StoresModel`, `WebLoginWindow`, publisher accounts) is explicitly out of scope, per the user.
 
+**Status (2026-10-05): all four features implemented.** Console results are in [results/20261005-macos-feature-ports](../../../results/20261005-macos-feature-ports/README.md). Deviations from this plan: the default drive is stored by `InstallService` in the primary drive's registry folder rather than in `Preferences` (install routing stays self-contained); the 1A spike found the title cannot see `/mnt/ext*`, so the picker ships working but offers one drive on the console; Cloud sync runs on demand from Details, and its launch/exit hooks wait for the prospero-win handoff; the baseline is trusted per Steam account rather than by save-folder inode/birthtime, and deletions found by the merge are always a player choice.
+
 ## Global constraints
 
 - Work on `main`, commit coherent increments, keep the selected ps5-homebrew-ui presentation; product behavior lives here, reusable renderer fixes go to ps5-homebrew-ui.
