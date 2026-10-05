@@ -1926,7 +1926,8 @@ class Render::Impl
                 return row.key == "logs-error";
             });
             const std::string_view message = error == view.rows.end() || error->subtitle.empty() ?
-                                                 std::string_view("The simulated log source failed.") :
+                                                 (state.simulation_mode ? std::string_view("The simulated log source failed.")
+                                                                        : std::string_view(state.log_context)) :
                                                  std::string_view(error->subtitle);
             dynamic_overlay_text(message, viewport.x + 24.0F, viewport.y + 96.0F, 20.0F,
                                  kSecondary, viewport.w - 48.0F);
@@ -1935,7 +1936,9 @@ class Render::Impl
         {
             ui::text(overlay_, fonts_.display, "No log entries", viewport.cx(),
                      viewport.y + viewport.h * 0.48F, 34.0F, kSecondary, gfx::Align::center);
-            ui::text(overlay_, fonts_.regular, "This fixture has no lines for the current context.",
+            ui::text(overlay_, fonts_.regular,
+                     state.simulation_mode ? "This fixture has no lines for the current context."
+                                           : "Nothing has been logged here yet.",
                      viewport.cx(), viewport.y + viewport.h * 0.48F + 38.0F, 19.0F, kMuted,
                      gfx::Align::center);
         }

@@ -16,16 +16,19 @@ class SteamInstallRunner final : public InstallRunner {
                  const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t)>& progress) override;
   bool Remove(const std::string& root) override { return RemoveManagedInstall(root); }
-  // Optional sanitized log: step, error category and a short detail; never tokens or IDs of accounts.
-  void SetLog(std::function<void(const char* step, const char* category, const char* detail)> log) {
+  // Optional sanitized log: the Steam app ID, step, error category and a short detail; never
+  // tokens or account identifiers. Called on the install worker.
+  using LogFn = std::function<void(GameId app, const char* step, const char* category, const char* detail)>;
+  void SetLog(LogFn log) {
     log_ = log;
-    installer_.SetTrace([log](const char* step) { if (log) log("trace", step, ""); });
+    installer_.SetTrace([this, log](const char* step) { if (log) log(current_app_.load(), "trace", step, ""); });
   }
 
  private:
   CmClient& cm_;
   DepotInstaller installer_;
-  std::function<void(const char*, const char*, const char*)> log_;
+  LogFn log_;
+  std::atomic<GameId> current_app_{0};
 };
 
 // User-facing text for an install failure category.

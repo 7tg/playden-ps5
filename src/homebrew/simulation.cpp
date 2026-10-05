@@ -5,12 +5,14 @@
 
 #include "homebrew/simulation.hpp"
 
+#include "app/diagnostic_log.h"
 #include "homebrew/browse.hpp"
 #include "homebrew/json.hpp"
 #include "homebrew/storage_sim.hpp"
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <map>
 #include <set>
@@ -262,6 +264,8 @@ std::string action_label(const std::string& key) {
         {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"favorite", "Favorite"},
         {"collection", "Collections"}, {"note", "Compatibility and note"}, {"verify", "Verify files"},
         {"uninstall", "Uninstall"}, {"logs", "Open logs"}, {"logs-back", "Back"},
+        {"logs-pick", "Logs"}, {"log-install", "Install log"}, {"log-auth", "Sign-in log"},
+        {"log-launch", "Launch log"}, {"logs-refresh", "Refresh"},
         {"install-confirm", "Install"}, {"storage-picker", "Change storage"},
         {"profile-picker", "Profile"}, {"resolution-picker", "Resolution"}, {"frame-picker", "Frame limit"},
         {"toggle-vsync", "VSync"}, {"edit-arguments", "Launch arguments"}, {"reset-settings", "Reset all overrides"},
@@ -1806,7 +1810,7 @@ void Simulation::rebuild_view() {
             view_.subtitle = state_.log_context;
             if (state_.log_state == LogState::Loading) row("logs-loading", RowKind::Status, "Loading fixture logs…", "").enabled = false;
             else if (state_.log_state == LogState::Failed) {
-                auto& status = row("logs-error", RowKind::Status, "Logs unavailable", ""); status.subtitle = "Simulated log service failure"; status.enabled = false;
+                auto& status = row("logs-error", RowKind::Status, "Logs unavailable", ""); status.subtitle = live() ? state_.log_context : "Simulated log service failure"; status.enabled = false;
             } else if (state_.log_lines.empty()) {
                 row("logs-empty", RowKind::Status, "No log entries", "").enabled = false;
             } else {
@@ -2067,8 +2071,12 @@ void Simulation::rebuild_view() {
             row("settings-scenarios", RowKind::Action, "Fixture scenarios", "scenario-picker");
         }
         row("settings-about", RowKind::Action, "About", "about");
-        auto& logs = row("settings-logs", live() ? RowKind::Status : RowKind::Action, "Logs", live() ? "" : "logs");
-        if (live()) { logs.subtitle = "No operation logs available"; logs.enabled = false; runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false; }
+        auto& logs = row("settings-logs", RowKind::Action, "Logs", live() ? "logs-pick" : "logs");
+        if (live()) {
+            logs.subtitle = "Install, sign-in and launch diagnostics";
+            if (log_directory_.empty()) { logs.kind = RowKind::Status; logs.action.clear(); logs.enabled = false; logs.subtitle = "No logs on this device"; }
+            runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
+        }
         if (!state_.notices.empty()) row("settings-notices", RowKind::Action, "Warnings", "notices").value = std::to_string(state_.notices.size());
         row("settings-reset", RowKind::Action, "Reset UI data", "reset-confirm").dangerous = true;
         if (state_.account.authentication != AuthState::SignedOut)
@@ -2126,6 +2134,57 @@ void Simulation::start_logs() {
     else if (state_.navigation.selected_game_id != 0)
         state_.log_context = "Game fixture · " + std::to_string(state_.navigation.selected_game_id);
     else state_.log_context = "Playden fixture diagnostics";
+}
+
+void Simulation::SetLogDirectory(std::filesystem::path directory) {
+    log_directory_ = std::move(directory);
+    rebuild_view();
+}
+
+void Simulation::open_live_log(const std::string& topic, GameId game_id) {
+    live_log_topic_ = topic;
+    live_log_game_ = game_id;
+    std::vector<std::string> actions;
+    if (game_id != 0)
+        if (const auto* job = find_job(state_, std::to_string(game_id)); job && job->state == JobState::Failed)
+            actions.push_back("job-retry-" + job->id);
+    actions.push_back("logs-refresh");
+    actions.push_back("logs-back");
+    const std::string title = topic == "auth" ? "Sign-in log" : topic == "launch" ? "Launch log" : "Install log";
+    load_live_log();
+    open_modal({"logs", title, state_.navigation.focus_key, std::move(actions), 0, false});
+}
+
+// Reads the newest lines of the chosen log; a game's view keeps only that game's install lines.
+void Simulation::load_live_log() {
+    state_.log_lines.clear();
+    state_.log_offset = 0;
+    if (log_directory_.empty() || live_log_topic_.empty()) {
+        state_.log_state = LogState::Failed;
+        state_.log_context = "Logs are not available on this device";
+        return;
+    }
+    const auto tail = playden::app::ReadLogTail((log_directory_ / (live_log_topic_ + ".log")).string());
+    if (tail.read_error) {
+        state_.log_state = LogState::Failed;
+        state_.log_context = "The log file could not be read";
+        return;
+    }
+    const std::string marker = "app=" + std::to_string(live_log_game_) + " ";
+    for (const auto& line : tail.lines)
+        if (live_log_game_ == 0 || line.find(marker) != std::string::npos) state_.log_lines.push_back(line);
+    state_.log_state = LogState::Ready;
+    std::string context;
+    if (live_log_game_ != 0) {
+        const auto* game = find_game(state_, live_log_game_);
+        context = (game ? game->title : "This game") + std::string(" · ");
+    }
+    context += state_.log_lines.empty() ? std::string("nothing logged yet")
+                                        : std::to_string(state_.log_lines.size()) + " lines, newest last";
+    if (tail.truncated) context += " · older lines omitted";
+    state_.log_context = std::move(context);
+    // Open at the newest lines.
+    state_.log_offset = std::max(0, static_cast<int>(state_.log_lines.size()) - 8);
 }
 
 void Simulation::finish_logs() {
@@ -2429,6 +2488,8 @@ void Simulation::activate() {
             const auto kind = action_name.rfind("job-pause-", 0) == 0 ? InstallRequestKind::Pause : InstallRequestKind::Resume;
             pending_install_requests_.push_back({kind, job->game_id});
         }
+        // Retry from a job's log dialog also leaves the job's actions behind it.
+        if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "logs") close_modal();
         close_modal();
     } else if (action_name.rfind("job-pause-", 0) == 0) { if (auto* job = find_job(state_, action_name.substr(10))) job->state = JobState::Pausing; close_modal(); }
     else if (action_name.rfind("job-resume-", 0) == 0) {
@@ -2658,6 +2719,20 @@ void Simulation::activate() {
     else if (action_name == "return-game") state_.session = SessionState::Running;
     else if (action_name == "force-stop") { pending_destructive_action_ = "force-stop"; open_modal({"confirmation", "Force stop simulated session?", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true}); }
     else if (action_name == "details-back") { state_.navigation.route = Route::Details; state_.navigation.detail_id = state_.session_game_id; }
+    else if (live() && action_name == "logs") {
+        // From a download's actions: that game's install log, with Retry when the download failed.
+        GameId game_id = 0;
+        if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "job-actions") {
+            const auto& opener = state_.navigation.modals.back().opener_focus_key;
+            if (opener.rfind("job-", 0) == 0) game_id = static_cast<GameId>(std::strtoul(opener.c_str() + 4, nullptr, 10));
+        }
+        open_live_log("install", game_id);
+    }
+    else if (live() && action_name == "logs-pick")
+        open_modal({"logs-pick", "Logs", state_.navigation.focus_key, {"log-install", "log-auth", "log-launch", "cancel"}, 0, false});
+    else if (live() && (action_name == "log-install" || action_name == "log-auth" || action_name == "log-launch"))
+        open_live_log(action_name.substr(4), 0);
+    else if (live() && action_name == "logs-refresh") load_live_log();
     else if (action_name == "logs") { start_logs(); open_modal({"logs", "Operation logs", state_.navigation.focus_key, {"logs-fixture-controls", "logs-back"}, 0, false}); }
     else if (action_name == "logs-retry") { start_logs(); state_.navigation.modals.back().action_keys = {"logs-fixture-controls", "logs-back"}; state_.navigation.modals.back().focused_action = 0; state_.navigation.focus_key = "logs-fixture-controls"; }
     else if (action_name == "logs-back") close_modal();

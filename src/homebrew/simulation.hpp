@@ -348,6 +348,8 @@ public:
     // Live mode: requests for the real install service, and its state for display.
     [[nodiscard]] std::vector<InstallRequest> TakeInstallRequests();
     void UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed);
+    // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
+    void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
     void UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id);
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
@@ -407,6 +409,9 @@ private:
     std::map<GameId, JobState> live_job_states_;
     std::set<GameId> live_installed_ids_;
     std::set<GameId> pending_uninstalls_;
+    std::filesystem::path log_directory_;
+    std::string live_log_topic_;
+    GameId live_log_game_ = 0;
 
     struct OrganizationJournalEntry {
         playden::OrganizationSnapshot before;
@@ -466,6 +471,8 @@ private:
     void update_persistence_notice();
     void apply_live_volume_usage();
     void push_notice(Notice notice);
+    void open_live_log(const std::string& topic, GameId game_id);
+    void load_live_log();
     [[nodiscard]] bool live_notices_visible() const noexcept;
     [[nodiscard]] bool live() const noexcept { return mode_ == ModelMode::Live; }
     [[nodiscard]] std::string next_job_id();

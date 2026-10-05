@@ -7,6 +7,7 @@
 #include "homebrew/simulation.hpp"
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
+#include "app/diagnostic_log.h"
 #include "homebrew/input_adapter.hpp"
 #include "homebrew/json.hpp"
 
@@ -436,6 +437,13 @@ int main(int argc, char** argv) {
         auth->SetCmRenewal([cm = auth_cm.get()](const playden::StoredSession& stored, const std::atomic<bool>& cancel) {
             return playden::steam::RenewThroughCm(*cm, stored, cancel);
         });
+        const std::string log_directory = (options->data_directory / "logs").string();
+        // Same sanitized logs as the console: never tokens or account identity.
+        auth->SetFailureReport([log_directory](const char* method, long http_status, int eresult) {
+            char line[160];
+            std::snprintf(line, sizeof(line), "auth_failure method=%s http=%ld eresult=%d", method, http_status, eresult);
+            playden::app::AppendLogLine(log_directory, "auth.log", line);
+        });
         sessions = std::make_unique<playden::LocalSessionRepository>(
             options->data_directory.string());
         owned_library = std::make_unique<playden::steam::LibraryClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
@@ -455,6 +463,11 @@ int main(int argc, char** argv) {
         install_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         install_cdn = std::make_unique<playden::steam::CdnClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
         install_runner = std::make_unique<playden::steam::SteamInstallRunner>(*install_cm, *install_cdn);
+        install_runner->SetLog([log_directory](playden::GameId app, const char* step, const char* category, const char* detail) {
+            char line[320];
+            std::snprintf(line, sizeof(line), "app=%u step=%s result=%s detail=%s", app, step, category, detail);
+            playden::app::AppendLogLine(log_directory, "install.log", line);
+        });
         install_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
         std::vector<playden::steam::VolumeCandidate> candidates = {
             {playden::steam::InstallService::kPrimaryVolumeId, "Mac storage", options->data_directory.string(),
@@ -466,6 +479,7 @@ int main(int argc, char** argv) {
         }
         installs = std::make_unique<playden::steam::InstallService>(*install_runner, *install_sessions,
                                                                     playden::steam::DiscoverInstallVolumes(candidates));
+        simulation.SetLogDirectory(options->data_directory / "logs");
         services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get());
     }
 

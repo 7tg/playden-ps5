@@ -25,8 +25,9 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
                                                   const std::atomic<bool>& cancel,
                                                   const std::function<void(std::uint64_t, std::uint64_t)>& progress) {
   Result result;
-  auto log = [this](const char* step, const char* category, const char* detail) {
-    if (log_) log_(step, category, detail);
+  current_app_.store(id);
+  auto log = [this, id](const char* step, const char* category, const char* detail) {
+    if (log_) log_(id, step, category, detail);
   };
   const auto info = cm_.FetchAppInfo(session, {id}, cancel);
   if (cancel.load()) {

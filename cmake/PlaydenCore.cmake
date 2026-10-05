@@ -48,6 +48,10 @@ target_include_directories(playden_library_service PUBLIC "${CMAKE_SOURCE_DIR}/s
 target_compile_features(playden_library_service PUBLIC cxx_std_17)
 target_link_libraries(playden_library_service PUBLIC playden_steam_core)
 
+add_library(playden_diagnostic_log STATIC "${CMAKE_SOURCE_DIR}/src/app/diagnostic_log.cpp")
+target_include_directories(playden_diagnostic_log PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_diagnostic_log PUBLIC cxx_std_17)
+
 add_library(playden_preferences STATIC "${CMAKE_SOURCE_DIR}/src/app/preferences.cpp")
 target_include_directories(playden_preferences PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_preferences PUBLIC cxx_std_17)
@@ -59,6 +63,9 @@ target_compile_features(playden_persistence_service PUBLIC cxx_std_17)
 target_link_libraries(playden_persistence_service PUBLIC playden_preferences playden_library Threads::Threads)
 
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(diagnostic_log_test "${CMAKE_SOURCE_DIR}/tests/diagnostic_log_test.cpp")
+    target_link_libraries(diagnostic_log_test PRIVATE playden_diagnostic_log)
+    add_test(NAME diagnostic_log COMMAND diagnostic_log_test)
     add_executable(preferences_test "${CMAKE_SOURCE_DIR}/tests/preferences_test.cpp")
     target_link_libraries(preferences_test PRIVATE playden_preferences)
     add_test(NAME preferences COMMAND preferences_test)

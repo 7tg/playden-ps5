@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 namespace {
 
@@ -403,6 +405,74 @@ void live_install_notifications() {
           "reconnecting clears the warning and says so briefly");
 }
 
+void live_log_viewer() {
+    using playden::homebrew::InstallRequestKind;
+    using playden::homebrew::JobState;
+    using playden::homebrew::LogState;
+    const auto directory = std::filesystem::temp_directory_path() / ("playden-model-logs-" + std::to_string(::getpid()));
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory / "launch.log");  // unreadable as a file
+    {
+        std::ofstream log(directory / "install.log");
+        for (int index = 0; index < 12; ++index)
+            log << "2026-10-05T07:00:" << (10 + index) << "Z app=" << (index % 2 ? 43 : 42) << " step=trace result=r" << index << " detail=\n";
+    }
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Fine"), game(43, "Broken")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({{43, JobState::Failed, 0, 100, "Download failed.", "internal"}}, {});
+
+    // Without a log folder the Settings entry is unavailable.
+    model.action("r1"); model.action("r1"); model.action("r1");
+    const auto* logs_row = find_row(model, "settings-logs");
+    check(logs_row && !logs_row->enabled, "no log folder: Logs is unavailable");
+    model.SetLogDirectory(directory);
+    logs_row = find_row(model, "settings-logs");
+    check(logs_row && logs_row->enabled, "with a log folder: Logs opens");
+
+    activate(model, "settings-logs");
+    check(has_row(model, "log-install") && has_row(model, "log-auth") && has_row(model, "log-launch"), "the log picker lists each log");
+    activate(model, "log-install");
+    check(model.state().log_state == LogState::Ready && model.state().log_lines.size() == 12, "the install log loads every line");
+    check(model.state().log_offset == 4 && has_row(model, "log-line-11") && !has_row(model, "log-line-3"),
+          "the log opens at its newest lines");
+    check(model.state().log_context.find("12 lines") != std::string::npos, "the log says how many lines it shows");
+    check(has_row(model, "logs-refresh") && !has_row(model, "job-retry-43"), "a general log offers Refresh, not Retry");
+    activate(model, "logs-back");
+
+    activate(model, "log-auth");
+    check(model.state().log_state == LogState::Ready && model.state().log_lines.empty() && has_row(model, "logs-empty"),
+          "a log that does not exist yet is empty, not an error");
+    activate(model, "logs-back");
+    activate(model, "log-launch");
+    check(model.state().log_state == LogState::Failed && has_row(model, "logs-error"), "an unreadable log reports a failure");
+    activate(model, "logs-back");
+    model.action("circle");
+
+    // From a failed download: that game's lines only, with Retry.
+    model.action("l1");
+    check(model.state().navigation.route == Route::Downloads, "Downloads open");
+    activate(model, "job-43");
+    activate(model, "logs");
+    check(model.state().log_lines.size() == 6, "a game's log keeps only that game's lines");
+    check(std::all_of(model.state().log_lines.begin(), model.state().log_lines.end(),
+                      [](const std::string& line) { return line.find("app=43 ") != std::string::npos; }), "only app 43 lines");
+    check(model.state().log_context.rfind("Broken · ", 0) == 0, "the game's log names the game");
+    check(has_row(model, "job-retry-43"), "a failed download's log offers Retry");
+    {
+        std::ofstream log(directory / "install.log", std::ios::app);
+        log << "2026-10-05T07:01:00Z app=43 step=install result=network detail=\n";
+    }
+    activate(model, "logs-refresh");
+    check(model.state().log_lines.size() == 7, "Refresh reads new lines");
+    activate(model, "job-retry-43");
+    const auto requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Resume && requests[0].game_id == 43,
+          "Retry from the log resumes the download");
+    check(model.state().navigation.modals.empty(), "Retry closes the log and the job's actions");
+    std::filesystem::remove_all(directory);
+}
+
 void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
@@ -480,6 +550,7 @@ int main() {
     live_install_requests_and_projection();
     live_install_volumes();
     live_install_notifications();
+    live_log_viewer();
     live_filters_only_use_available_facts();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();

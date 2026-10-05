@@ -6,6 +6,7 @@
 #include "homebrew/simulation.hpp"
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
+#include "app/diagnostic_log.h"
 #include "homebrew/input_adapter.hpp"
 #include "core/input.hpp"
 #include "steam/backend/auth_client.h"
@@ -94,16 +95,13 @@ void run_launch_request() {
     uint32_t user = 0;
     const int user_result = sceUserServiceGetForegroundUser(&user);
     PlaydenLncAppParam param{sizeof(PlaydenLncAppParam), user, 0, 0, 2};
-    mkdir("/app0/logs", 0777);
-    if (FILE* log = std::fopen("/app0/logs/launch.log", "a")) {
-        std::fprintf(log, "launch_request title=%s args=%zu user_result=%d\n", words[0].c_str(), words.size() - 1, user_result);
-        std::fclose(log);
-    }
+    char line_text[160];
+    std::snprintf(line_text, sizeof(line_text), "launch_request title=%s args=%zu user_result=%d", words[0].c_str(),
+                  words.size() - 1, user_result);
+    playden::app::AppendLogLine("/app0/logs", "launch.log", line_text);
     const uint32_t result = sceLncUtilLaunchApp(words[0].c_str(), argv.data(), &param);
-    if (FILE* log = std::fopen("/app0/logs/launch.log", "a")) {
-        std::fprintf(log, "launch_result title=%s result=0x%08x\n", words[0].c_str(), result);
-        std::fclose(log);
-    }
+    std::snprintf(line_text, sizeof(line_text), "launch_result title=%s result=0x%08x", words[0].c_str(), result);
+    playden::app::AppendLogLine("/app0/logs", "launch.log", line_text);
 }
 // Development aid for unattended console runs: /app0/dev/install-request.txt holding one Steam
 // app ID queues that install once. Nothing in the UI triggers it.
@@ -138,11 +136,9 @@ int main() {
         });
         // Sanitized: method, HTTP status and X-EResult number; never tokens or account identity.
         auth.SetFailureReport([](const char* method, long http_status, int eresult) {
-            mkdir("/app0/logs", 0777);
-            if (FILE* log = std::fopen("/app0/logs/auth.log", "a")) {
-                std::fprintf(log, "auth_failure method=%s http=%ld eresult=%d\n", method, http_status, eresult);
-                std::fclose(log);
-            }
+            char line[160];
+            std::snprintf(line, sizeof(line), "auth_failure method=%s http=%ld eresult=%d", method, http_status, eresult);
+            playden::app::AppendLogLine("/app0/logs", "auth.log", line);
         });
         playden::LocalSessionRepository sessions("/app0/playden-data");
         playden::steam::LibraryClient owned_library("/app0/trust/cacert.pem");
@@ -162,16 +158,15 @@ int main() {
         playden::steam::CmClient install_cm("/app0/trust/cacert.pem", library_storage);
         playden::steam::CdnClient install_cdn("/app0/trust/cacert.pem");
         playden::steam::SteamInstallRunner install_runner(install_cm, install_cdn);
-        install_runner.SetLog([](const char* step, const char* category, const char* detail) {
-            mkdir("/app0/logs", 0777);
-            if (FILE* log = std::fopen("/app0/logs/install.log", "a")) {
-                std::fprintf(log, "install step=%s result=%s detail=%s\n", step, category, detail);
-                std::fclose(log);
-            }
+        install_runner.SetLog([](playden::GameId app, const char* step, const char* category, const char* detail) {
+            char line[320];
+            std::snprintf(line, sizeof(line), "app=%u step=%s result=%s detail=%s", app, step, category, detail);
+            playden::app::AppendLogLine("/app0/logs", "install.log", line);
         });
         playden::LocalSessionRepository install_sessions("/app0/playden-data");
         playden::steam::InstallService installs(install_runner, install_sessions,
             playden::steam::DiscoverInstallVolumes(playden::steam::ConsoleVolumeCandidates()));
+        simulation.SetLogDirectory("/app0/logs");
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs);
 #endif
 #if PLAYDEN_UI_SIMULATION
