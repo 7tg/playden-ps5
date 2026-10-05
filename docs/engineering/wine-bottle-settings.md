@@ -52,6 +52,35 @@ implementing registry overlays; do not silently follow master.
 | Application | A game-specific option or argument; requires a recipe, not a universal Wine mapping. |
 | Managed | Installer/lifecycle owns the value. Display in diagnostics where useful; do not make it a free-form player setting. |
 
+### Required detail for unsupported and partial settings
+
+Keep unavailable settings in this document as implementation backlog entries.
+Every unsupported, conditional or unverified setting must state:
+
+1. **Reason:** the concrete missing parser field, wrapper mapping, preparation
+   operation, runtime dependency, driver capability or hardware evidence.
+2. **Implementation location:** prospero-win profile/parser/wrapper, Wine PS5
+   backend, graphics/input/audio backend, host bottle preparation, or Playden
+   settings/persistence/UI. A Playden control alone cannot enable a missing
+   runtime mechanism.
+3. **Work needed:** the configuration binding and backend/preparation changes
+   required, including architecture and version constraints where applicable.
+4. **Acceptance:** the fixture or PS5 behavior that proves the setting works,
+   including reset and persistence where relevant.
+
+The tables below provide these details in their reason, implementation and
+verification columns. Do not reduce an entry to an unexplained “unsupported,”
+remove it because it is unavailable, or treat lack of testing as proof that Wine
+cannot implement it. If capability is unknown in the retained artifacts, record
+that uncertainty and investigate the exact binary/source revision before choosing
+between exposing an existing mechanism and implementing a backend.
+
+For example, frame-rate limits need a prospero-win configuration-file mapping
+and Playden persistence/UI; DXVK high refresh needs graphics/display backend work
+as well; Windows-version selection needs offline registry overlays and a typed
+Playden setting. These remain separate implementation tasks even when all three
+are currently unavailable in the UI.
+
 All profile/environment/display/input changes take effect on the **next launch**
 unless an explicitly tested live-update mechanism is added. Registry, dependency,
 drive, bottle and runtime changes require the title to be confirmed stopped.

@@ -41,6 +41,7 @@ Use prebuilt, validated templates and recipe overlays prepared on Linux with mat
 
 - **Source/tooling:** The submodule supplies wrapper source, profile parsers, preparation validators and packaging tools. Compile the small portable C profile/argument parsers into a host-only contract-test target. Keep Wine/native PRXs out of the Playden executable; each game runs in its separate native title.
 - **Artifacts:** Consume a versioned kit containing the built wrapper/helper, Wine PE/native modules, initialized template and recipe dependencies. Store artifact IDs, source revisions, retrieval locations, SHA-256 hashes and capability/schema versions in `dependencies.lock.json`. The wrapper/helper and deployed Wine build can have distinct source revisions, as in the verified baseline; record each separately.
+- **Title variants:** A kit declares an explicit finite set of prebuilt title-specific wrapper/helper pairs. Allocate only a free title ID in the intersection of the managed namespace and the kit's available variants. The PS5 does not build SDK artifacts or rename another title's helper. When all supplied variants are occupied, report that additional variants are required; a new kit can extend the set without changing existing allocations.
 - **Build boundary:** Normal `scripts/build-homebrew.sh` and PS5 launcher builds compile Playden and its small contract tests. An explicit kit build command invokes upstream tools with the necessary Linux/native environments. Missing kit artifacts disable preparation with a clear message; they do not trigger an implicit Wine build or an unpinned download.
 - **Development:** Support an explicit `PLAYDEN_PROSPERO_SOURCE_DIR` override for local upstream work. Default to the submodule; reject mismatched revisions for release builds. Keep private console configuration and generated runtime files out of Git.
 - **Upgrades:** Land and test runtime changes upstream, produce and validate a new immutable kit, then update the submodule/lock in one reviewed Playden increment. Existing installs retain their recorded kit version until explicitly migrated; changing the submodule pointer never rewrites their bottles/runtime.
@@ -69,6 +70,13 @@ packaging; a rebuilt wrapper alone does not replace them. The Task 1 helper adds
 explicit FAKE-title CLI support committed as `e9f2cfc2c3913e42fdf83d74291e270b041ff0d9`
 on top of the patched Lapy base. Pin that extension before shipping kits for FAKE game titles; do not label a helper
 built from modified sources as an unmodified `611fa5f` artifact.
+
+Kit validation also requires an independently reviewed helper SHA-256 pin for
+each compiled title variant. Source revision strings supplied by the kit spec
+or helper manifest do not establish binary provenance. The current FAKE78001
+helper pin is `5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935`;
+additional title variants require reviewed builds and new pins before a kit can
+include them. This hash check does not replace per-title hardware acceptance.
 
 ### Installation identity and storage
 
@@ -314,6 +322,13 @@ its repository's test configuration when writing that task's tests. Use the
    title/helper identity, logs and rendered evidence; obtain review and commit.
 
 ### Task 3 execution: kit, recipe and submodule
+
+Kit manifest contract: `playden-prospero-kit/1`, with separate runtime artifact
+revision, template and recipe identity/version, source provenance, sorted per-file
+size/hash/mode inventory, and `variants[]` binding each supported title ID to its
+wrapper/helper assets. Validate every variant before admitting it to allocation.
+This resolves title-specific native compilation while keeping ordinary PS5
+installation offline and independent of a host SDK.
 
 - [ ] Step 1: Add `tests/test_playden_kit.py` upstream. Assert rejection of missing syswow64,
    wrong CPU/crypto registry views, missing 32-bit MMDeviceEnumerator/DirectInput8,
