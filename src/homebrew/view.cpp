@@ -187,6 +187,15 @@ std::string byte_count(std::optional<std::uint64_t> bytes)
     return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : "Unknown";
 }
 
+// Sizes as the macOS tiles show them: megabytes below a gigabyte.
+std::string short_size(std::uint64_t bytes)
+{
+    constexpr double mib = 1024.0 * 1024.0;
+    if (static_cast<double>(bytes) < 1024.0 * mib)
+        return std::to_string(std::max<std::uint64_t>(1, static_cast<std::uint64_t>(bytes / mib + 0.5))) + " MB";
+    return byte_count(bytes);
+}
+
 std::string transfer_rate(std::optional<std::uint64_t> bytes_per_second)
 {
     if (!bytes_per_second)
@@ -1011,9 +1020,8 @@ class Render::Impl
                                      item_index == focused_item;
                 if (focused)
                     stats_.focused_control_key = shelf.items[static_cast<std::size_t>(item_index)].key;
-                draw_poster(*game, art, focused,
-                            shelf.items[static_cast<std::size_t>(item_index)].badge,
-                            job_progress(game->id), false, "home-" + shelf.key + "-" + std::to_string(game->id));
+                draw_poster(*game, art, focused, job_progress(game->id), false,
+                            "home-" + shelf.key + "-" + std::to_string(game->id));
             }
         }
     }
@@ -1059,23 +1067,9 @@ class Render::Impl
                               float /*focus*/) {
             ++stats_.grid_drawn_cell_count;
             const Game &game = *visible_grid_games_[static_cast<std::size_t>(index)];
-            std::string badge;
-            const auto job = current_state_ == nullptr ? std::vector<Job>::const_iterator{} :
-                std::find_if(current_state_->jobs.begin(), current_state_->jobs.end(),
-                             [&game](const Job &candidate) {
-                                 return candidate.game_id == game.id && candidate.state != JobState::Cancelled;
-                             });
-            if (current_state_ != nullptr && job != current_state_->jobs.end())
-                badge = job_state_label(job->state);
-            else if (current_state_ != nullptr &&
-                     std::any_of(current_state_->installations.begin(), current_state_->installations.end(),
-                                 [&game](const Installation &installation) {
-                                     return installation.game_id == game.id && installation.installed_bytes > 0;
-                                 }))
-                badge = "Installed";
             const bool focused = route_focus_ && !current_state_->navigation.library_rail_focused &&
                                  game.id == stats_.grid_focused_game_id;
-            draw_poster(game, cell, focused, badge, job_progress(game.id), true,
+            draw_poster(game, cell, focused, job_progress(game.id), true,
                         "library-" + std::to_string(game.id));
         };
         grid_.accent = [this](int index) {
@@ -1103,14 +1097,15 @@ class Render::Impl
         };
         const std::size_t installed = std::count_if(
             state.installations.begin(), state.installations.end(),
-            [](const Installation &installation) { return installation.installed_bytes > 0; });
+            [&state](const Installation &installation) {
+                return installation.installed_bytes > 0 || !state.simulation_mode;
+            });
         std::vector<RailEntry> entries = {
             {"rail-installed", "Installed", std::to_string(installed), state.library.scope == "installed"},
             {"rail-all", "All", std::to_string(state.games.size()), state.library.scope == "all"},
             {"rail-favorites", "Favorites", std::to_string(state.library.favorites.size()),
              state.library.scope == "favorites"},
             {"rail-hidden", "Hidden", std::to_string(state.library.hidden.size()), state.library.scope == "hidden"}};
-        if(!state.simulation_mode) entries.erase(entries.begin());
         for (const Collection &collection : state.library.collections)
             entries.push_back({"rail-" + collection.id, collection.name,
                                std::to_string(collection.members.size()),
@@ -1168,10 +1163,93 @@ class Render::Impl
         return static_cast<float>(found->completed_bytes) / static_cast<float>(found->total_bytes);
     }
 
-    void draw_poster(const Game &game, const gfx::Rect &rect, bool focused, std::string_view badge,
-                     float progress, bool title_overlay = true, std::string_view motion_key = {})
+    // What a tile says about a game's install, as the macOS tiles do: a badge for a job or a
+    // missing drive, the size once installed, a download mark while it is not.
+    struct TileStatus
     {
-        const float scale = motion_key.empty() ? 1.0F : focus_motion_.focus(motion_key, focused);
+        const Job *job = nullptr;
+        const Installation *installation = nullptr;
+        bool installed = false;
+        bool disconnected = false;
+    };
+
+    TileStatus tile_status(GameId id) const
+    {
+        TileStatus status;
+        if (current_state_ == nullptr)
+            return status;
+        const State &state = *current_state_;
+        const auto job = std::find_if(state.jobs.begin(), state.jobs.end(), [id](const Job &item) {
+            return item.game_id == id && item.state != JobState::Cancelled && item.stage != JobStage::Uninstall;
+        });
+        if (job != state.jobs.end())
+            status.job = &*job;
+        const auto installation = std::find_if(state.installations.begin(), state.installations.end(),
+                                               [id, &state](const Installation &item) {
+                                                   return item.game_id == id &&
+                                                          (item.installed_bytes > 0 || !state.simulation_mode);
+                                               });
+        if (installation != state.installations.end())
+        {
+            status.installation = &*installation;
+            const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
+                                             [&installation](const Volume &item) {
+                                                 return item.id == installation->volume_id;
+                                             });
+            status.disconnected = !installation->available || (volume != state.volumes.end() && !volume->available);
+            status.installed = !status.disconnected;
+        }
+        return status;
+    }
+
+    std::string tile_subtitle(const Game &game, const TileStatus &status) const
+    {
+        if (status.job != nullptr)
+        {
+            if (status.job->state == JobState::Downloading && status.job->total_bytes > 0)
+                return std::to_string(static_cast<int>(100.0 * status.job->completed_bytes / status.job->total_bytes)) +
+                       "% · " + job_state_label(status.job->state);
+            return job_state_label(status.job->state);
+        }
+        if (status.disconnected)
+            return "Reconnect its drive";
+        if (status.installed)
+        {
+            const std::string size = status.installation->installed_bytes > 0 ?
+                short_size(status.installation->installed_bytes) + " · " : std::string{};
+            return size + (game.playtime_minutes && *game.playtime_minutes > 0 ?
+                               playtime_label(game.playtime_minutes) + " played" : std::string("Installed"));
+        }
+        return game.download_bytes ? "Not installed · " + short_size(*game.download_bytes) : "Not installed";
+    }
+
+    void tile_badge(const gfx::Rect &rect, std::string_view text, gfx::Color dot)
+    {
+        constexpr float size = 16.0F;
+        const float width = std::min(rect.w - 20.0F, fonts_.semibold.measure(text, size) + 44.0F);
+        scene_.rounded_rect({rect.x + 10.0F, rect.y + 10.0F, width, 32.0F}, 6.0F, kBackground.with_alpha(0.85F));
+        scene_.circle(rect.x + 26.0F, rect.y + 26.0F, 4.0F, dot);
+        ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, text, size, width - 44.0F), rect.x + 38.0F,
+                 rect.y + 32.0F, size, kText);
+    }
+
+    void download_mark(float cx, float cy, float opacity)
+    {
+        scene_.circle(cx, cy, 15.0F, kBackground.with_alpha(0.8F * opacity));
+        scene_.ring(cx, cy, 15.0F, 1.5F, kText.with_alpha(0.5F * opacity));
+        const gfx::Color ink = kText.with_alpha(opacity);
+        scene_.line(cx, cy - 7.0F, cx, cy + 3.0F, 1.8F, ink);
+        scene_.line(cx - 4.5F, cy - 1.5F, cx, cy + 3.0F, 1.8F, ink);
+        scene_.line(cx + 4.5F, cy - 1.5F, cx, cy + 3.0F, 1.8F, ink);
+        scene_.line(cx - 6.0F, cy + 7.0F, cx + 6.0F, cy + 7.0F, 1.8F, ink);
+    }
+
+    void draw_poster(const Game &game, const gfx::Rect &rect, bool focused, float progress,
+                     bool title_overlay = true, std::string_view motion_key = {})
+    {
+        // The focus amount eases in and out, so a focus change cross-fades the two cells.
+        const float amount = motion_key.empty() ? (focused ? 1.0F : 0.0F) : focus_motion_.amount(motion_key, focused);
+        const float scale = motion_key.empty() ? 1.0F : 1.0F + (FocusMotion::focused_scale - 1.0F) * amount;
         scene_.push_transform(scale, rect.cx(), rect.cy(), 0.0F, 0.0F);
         const std::size_t texture_index = game.id >= 900001 ? (game.id - 900001) % art_.size() :
                                                               game.id % art_.size();
@@ -1182,8 +1260,12 @@ class Render::Impl
                 ? live_artwork_->TextureFor(game.id,
                     "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
                     std::to_string(game.id) + "/library_600x900.jpg") : 0);
-        scene_.shadow(rect, 8.0F, focused ? 26.0F : 12.0F,
-                      gfx::Color::rgb(0x000000, focused ? 0.65F : 0.35F));
+        const TileStatus status = tile_status(game.id);
+        // Glow first: it is a filled soft shape, and the art must cover its middle so only the
+        // light outside the tile shows, as on macOS. The art itself is never tinted.
+        scene_.shadow(rect, 8.0F, 12.0F + 14.0F * amount, gfx::Color::rgb(0x000000, 0.35F + 0.3F * amount));
+        if (amount > 0.0F)
+            scene_.glow(rect.inset(-7.0F), 13.0F, 24.0F, kAccent.with_alpha(0.5F * amount));
         if (texture != 0)
             scene_.image(texture, rect, gfx::kFullUv, kText, 8.0F);
         else
@@ -1193,68 +1275,66 @@ class Render::Impl
             {
                 ui::text(scene_, fonts_.display, "Artwork loading", rect.cx(), rect.y + rect.h * 0.52F,
                          25.0F, kText, gfx::Align::center);
-                scene_.rounded_rect({rect.x + 12.0F, rect.y + 12.0F, rect.w - 24.0F, 30.0F}, 6.0F,
-                                    kBackground.with_alpha(0.82F));
-                ui::text(scene_, fonts_.semibold, "ARTWORK PENDING", rect.cx(), rect.y + 33.0F,
-                         14.0F, kSecondary, gfx::Align::center, 1.0F);
             }
             else
             {
+                // The focus overlay names a focused tile, so the placeholder need not repeat it.
+                const float placeholder = title_overlay ? 1.0F - amount : 1.0F;
                 const ui::FontRef &face = font_for(game.title, fonts_.display);
                 ui::paragraph(scene_, face, game.title, rect.cx(), rect.y + rect.h * 0.42F,
-                              28.0F, rect.w - 36.0F, 31.0F, kText, 4, gfx::Align::center);
+                              28.0F, rect.w - 36.0F, 31.0F, kText.with_alpha(placeholder), 4, gfx::Align::center);
             }
         }
-        if (focused && title_overlay && !game.art_pending)
+        const bool downloading = status.job != nullptr &&
+            (status.job->state == JobState::Downloading || status.job->state == JobState::Verifying ||
+             status.job->state == JobState::Pausing || status.job->state == JobState::Paused);
+        const bool show_download_mark = status.job == nullptr && status.installation == nullptr;
+        if (title_overlay && amount > 0.0F && !game.art_pending && !downloading)
         {
-            scene_.gradient_rect({rect.x, rect.y + rect.h - 98.0F, rect.w, 98.0F}, 8.0F,
-                                 kBackground.with_alpha(0.96F), kBackground);
-            dynamic_text(game.title, rect.x + 13.0F, rect.y + rect.h - 45.0F, 23.0F, kText,
-                         rect.w - 26.0F);
+            scene_.push_opacity(amount);
+            scene_.gradient_rect({rect.x, rect.y + rect.h - 105.0F, rect.w, 105.0F}, 8.0F,
+                                 kBackground.with_alpha(0.0F), kBackground.with_alpha(0.92F));
+            const float text_width = rect.w - 28.0F - (show_download_mark ? 36.0F : 0.0F);
+            dynamic_text(game.title, rect.x + 14.0F, rect.y + rect.h - 40.0F, 24.0F, kText, text_width);
+            ui::text(scene_, fonts_.regular, fit(fonts_.regular, tile_subtitle(game, status), 15.0F, text_width),
+                     rect.x + 14.0F, rect.y + rect.h - 17.0F, 15.0F, kSecondary);
+            scene_.pop_opacity();
         }
-        if (focused)
+        if (amount > 0.0F)
+            scene_.bordered_rect(rect.inset(-9.0F), 15.0F, kBackground.with_alpha(0.0F), 4.0F,
+                                 kAccent.with_alpha(amount));
+        if (status.job != nullptr && !downloading)
+            tile_badge(rect, job_state_label(status.job->state),
+                       status.job->state == JobState::Failed ? kAmber : kSecondary);
+        else if (status.disconnected)
+            tile_badge(rect, "Drive disconnected", kAmber);
+        if (show_download_mark)
+            download_mark(rect.x + rect.w - 25.0F, rect.y + rect.h - 25.0F, 1.0F);
+        else if (status.installed && status.installation->installed_bytes > 0 && amount < 1.0F && title_overlay)
         {
-            scene_.glow(rect.inset(-6.0F), 13.0F, 24.0F, kAccent.with_alpha(0.38F));
-            scene_.bordered_rect(rect.inset(-6.0F), 13.0F, kBackground.with_alpha(0.0F), 4.0F,
-                                 kAccent);
+            const std::string size = short_size(status.installation->installed_bytes);
+            const float width = fonts_.semibold.measure(size, 16.0F) + 20.0F;
+            scene_.push_opacity(1.0F - amount);
+            scene_.rounded_rect({rect.x + rect.w - 10.0F - width, rect.y + rect.h - 42.0F, width, 32.0F}, 6.0F,
+                                kBackground.with_alpha(0.85F));
+            ui::text(scene_, fonts_.semibold, size, rect.x + rect.w - 20.0F, rect.y + rect.h - 20.0F, 16.0F,
+                     kText, gfx::Align::right);
+            scene_.pop_opacity();
         }
-        if (!badge.empty())
+        if (downloading && progress >= 0.0F)
         {
-            scene_.rounded_rect({rect.x + 10.0F, rect.y + 10.0F, 112.0F, 32.0F}, 6.0F,
-                                kBackground.with_alpha(0.88F));
-            ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, badge, 16.0F, 90.0F),
-                     rect.x + 22.0F, rect.y + 33.0F, 16.0F, kText);
-        }
-        if (current_state_ != nullptr)
-        {
-            const auto installation = std::find_if(current_state_->installations.begin(),
-                                                    current_state_->installations.end(),
-                                                    [&game](const Installation &item) {
-                                                        return item.game_id == game.id && item.available;
-                                                    });
-            if (installation != current_state_->installations.end() && installation->volume_id != "internal")
-            {
-                scene_.rounded_rect({rect.x + rect.w - 86.0F, rect.y + 10.0F, 76.0F, 32.0F}, 6.0F,
-                                    kBackground.with_alpha(0.88F));
-                ui::text(scene_, fonts_.semibold, "DRIVE", rect.x + rect.w - 48.0F,
-                         rect.y + 33.0F, 14.0F, kText, gfx::Align::center, 1.0F);
-            }
-        }
-        if (progress >= 0.0F)
-        {
-            const auto job = current_state_ == nullptr ? std::vector<Job>::const_iterator{} :
-                std::find_if(current_state_->jobs.begin(), current_state_->jobs.end(),
-                             [&game](const Job &item) {
-                                 return item.game_id == game.id && item.state != JobState::Cancelled;
-                             });
-            if (current_state_ != nullptr && job != current_state_->jobs.end())
-                ui::text(scene_, fonts_.semibold, job_state_label(job->state), rect.x + rect.w - 12.0F,
-                         rect.y + rect.h - 24.0F, 14.0F, kText, gfx::Align::right);
-            scene_.rounded_rect({rect.x + 12.0F, rect.y + rect.h - 15.0F, rect.w - 24.0F, 6.0F},
+            const float value = std::clamp(progress, 0.0F, 1.0F);
+            scene_.gradient_rect({rect.x, rect.y + rect.h - 64.0F, rect.w, 64.0F}, 8.0F,
+                                 kBackground.with_alpha(0.0F), kBackground.with_alpha(0.9F));
+            ui::text(scene_, fonts_.semibold, job_state_label(status.job->state), rect.x + 12.0F,
+                     rect.y + rect.h - 30.0F, 16.0F, kText);
+            if (status.job->state == JobState::Downloading)
+                ui::text(scene_, fonts_.semibold, std::to_string(static_cast<int>(value * 100.0F)) + "%",
+                         rect.x + rect.w - 12.0F, rect.y + rect.h - 30.0F, 16.0F, kText, gfx::Align::right);
+            scene_.rounded_rect({rect.x + 12.0F, rect.y + rect.h - 18.0F, rect.w - 24.0F, 6.0F},
                                 3.0F, kText.with_alpha(0.20F));
-            scene_.rounded_rect({rect.x + 12.0F, rect.y + rect.h - 15.0F,
-                                 (rect.w - 24.0F) * std::clamp(progress, 0.0F, 1.0F), 6.0F},
-                                3.0F, kAccent);
+            scene_.rounded_rect({rect.x + 12.0F, rect.y + rect.h - 18.0F, (rect.w - 24.0F) * value, 6.0F},
+                                3.0F, status.job->state == JobState::Paused ? kAmber : kAccent);
         }
         scene_.pop_transform();
     }
@@ -1346,7 +1426,7 @@ class Render::Impl
         {
             const Game* game = game_by_id(state, primary->game_id);
             if (game != nullptr)
-                draw_poster(*game, {116.0F, 196.0F, 132.0F, 198.0F}, false, {}, -1.0F, false);
+                draw_poster(*game, {116.0F, 196.0F, 132.0F, 198.0F}, false, -1.0F, false);
             else
                 scene_.rounded_rect({116.0F, 196.0F, 132.0F, 198.0F}, 8.0F, kMuted.with_alpha(0.25F));
             const std::string title = game == nullptr ? "Unknown game" : game->title;

@@ -25,8 +25,10 @@ bool catalog_available(const State& state)
 bool installed(const State& state, GameId id)
 {
     return std::any_of(state.installations.begin(), state.installations.end(),
-                       [id](const Installation& value) {
-                           return value.game_id == id && value.installed_bytes > 0;
+                       [&state, id](const Installation& value) {
+                           // Live installs are known from the install service's records, even
+                           // when an old record carries no size.
+                           return value.game_id == id && (value.installed_bytes > 0 || !state.simulation_mode);
                        });
 }
 
@@ -251,8 +253,7 @@ ShelfWindow shelf_window(int item_count, int focused_item, int capacity) noexcep
 
 std::vector<std::string> library_rail_scopes(const State& state)
 {
-    std::vector<std::string> result{"all", "favorites", "hidden"};
-    if(state.simulation_mode) result.insert(result.begin(),"installed");
+    std::vector<std::string> result{"installed", "all", "favorites", "hidden"};
     for (const Collection& collection : state.library.collections)
         result.push_back(collection.id);
     result.push_back("new-collection");

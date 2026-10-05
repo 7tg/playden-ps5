@@ -268,7 +268,7 @@ void live_unicode_query() {
     State state;
     state.simulation_mode=false;
     const auto scopes=library_rail_scopes(state);
-    check(scopes.front()=="all" && std::find(scopes.begin(),scopes.end(),"installed")==scopes.end(),"live scopes omit unavailable installation facts");
+    check(scopes.front()=="installed" && scopes[1]=="all","live scopes offer Installed now that installs are real");
     state.account.authentication=AuthState::SignedIn;
     for(const auto& [id,title]:std::vector<std::pair<playden::GameId,std::string>>{
         {9,"Straße"},{8,"STRASSE"},{7,"CAFÉ: Beyond"},{6,"Αθήνα"},{5,"東京物語"},{4,std::string("bad\xff",4)}}) {
