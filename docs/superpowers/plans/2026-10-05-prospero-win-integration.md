@@ -333,6 +333,16 @@ its repository's test configuration when writing that task's tests. Use the
 
 ### Task 2 execution: wrapper and lifecycle
 
+Execution evidence (2026-10-05): the current per-game source worktree remains
+uncommitted. Its title-descriptor and title-session tests compile and pass with
+GCC and warnings treated as errors in an isolated x86_64 Linux container. The
+session test needed `_XOPEN_SOURCE` for glibc `realpath` and checked formatting
+for its temporary paths. Full upstream `make test` then stops at the existing
+`test_pw_x86_hostexec` low-address `mmap` assertion under Docker emulation; it
+has not passed the supported native Linux full-suite gate. The initial ARM macOS
+attempt also fails in x86 intrinsics. These limitations do not establish a
+wrapper regression or permit marking the full-suite/console gates complete.
+
 - [ ] Step 1: Add `test_pw_title_launch.c` and register it in upstream `Makefile`. Assert
    `HomeUsesDescriptorDefault`, `MissingDescriptorKeepsGenericMode`,
    `InvalidDescriptorNeverFallsBack`, `TitleMismatchRejected`,
