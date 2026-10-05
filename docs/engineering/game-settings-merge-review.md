@@ -76,3 +76,11 @@ No console claim or deployment occurred during this merge review. The existing
 working preview remains installed.
 
 The final settings handoff and review corrections are merged at `37fa032`.
+
+## Input/audio and navigation handoff — 2026-10-06
+
+Reviewed and merged `feat/game-settings` through `47db605` into the integration branch. This adds capability-gated trigger dead zone, mouse wheel and per-game volume, the settings-rail Quit action, and the bounded Continue playing shelf with a Library link. The retained Wine runtime does not advertise these new features: parser and UI support alone cannot enable them.
+
+Review reproduced an admission gap: unknown required runtime feature names were treated as supported. The corrected filter refuses unrecognized features/version requirements and malformed requirement arrays. Legacy numeric `#PR` references remain informational provenance. New regressions cover an unknown feature even with every known kit capability enabled and non-string/empty/non-array requirements.
+
+The combined tree passed all 76 host tests and the full PS5 SDK package build with NativeAccess enabled and the developer probe disabled. No deployment or hardware acceptance of the new navigation/settings changes occurred. The separate patched Wine input/audio runtime still needs a build, provenance review, and PS5 acceptance before its capabilities may be advertised. Production live settings/publication/Play adapters remain open.

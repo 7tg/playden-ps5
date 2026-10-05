@@ -1039,9 +1039,15 @@ bool ParseProfileSidecar(std::string_view text, CommunityPreset* community, std:
     out.steam_appid = static_cast<std::uint32_t>(parsed_app);
   }
   if (const auto* requires_field = root->get("requires")) {
-    if (const auto* prs = requires_field->get("prospero_win"); prs && prs->array())
-      for (const auto& item : *prs->array())
-        if (item.string()) out.requires_prospero_win.push_back(*item.string());
+    if (!requires_field->object()) return fail("requires must be an object");
+    if (const auto* prs = requires_field->get("prospero_win")) {
+      if (!prs->array()) return fail("requires.prospero_win must be an array");
+      for (const auto& item : *prs->array()) {
+        if (!item.string() || item.string()->empty())
+          return fail("requires.prospero_win must contain nonempty strings");
+        out.requires_prospero_win.push_back(*item.string());
+      }
+    }
   }
   const auto* checks = root->get("checks");
   if (!checks || !checks->array() || checks->array()->empty()) return fail("sidecar has no console check");
@@ -1413,9 +1419,15 @@ namespace playden::runtime {
 
 bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit) {
   for (const auto& feature : community.requires_prospero_win) {
-    if ((feature == "profile-environment" && !kit.environment) || (feature == "input-tuning" && !kit.input_tuning) ||
-        (feature == "input-wheel" && !kit.input_wheel) || (feature == "audio-volume" && !kit.audio_volume))
-      return false;
+    if (feature == "profile-environment") { if (!kit.environment) return false; }
+    else if (feature == "input-tuning") { if (!kit.input_tuning) return false; }
+    else if (feature == "input-wheel") { if (!kit.input_wheel) return false; }
+    else if (feature == "audio-volume") { if (!kit.audio_volume) return false; }
+    // Legacy PR references are informational sidecar provenance. Unknown feature
+    // names or version requirements need verified support before a preset is shown.
+    else if (feature.size() < 2 || feature.front() != '#' ||
+             !std::all_of(feature.begin() + 1, feature.end(),
+                          [](char byte) { return byte >= '0' && byte <= '9'; })) return false;
   }
   return true;
 }

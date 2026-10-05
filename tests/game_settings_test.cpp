@@ -318,6 +318,16 @@ int main(int argc, char** argv) {
   CHECK(community.preset.settings.size() == 2 && community.preset.settings.at("controller") == "keyboard");
   CHECK(community.requires_prospero_win.size() == 2);
   CHECK(CommunityPresetSupported(community, KitCapabilities{}));       // pull request numbers are not features
+  auto needs_unknown = community;
+  needs_unknown.requires_prospero_win.push_back("future-runtime-feature");
+  CHECK(!CommunityPresetSupported(needs_unknown,
+      KitCapabilitiesFromManifest(SettingsKitCapabilityNames(), true)));
+  for (const auto& requirements_json : {"{\"prospero_win\":[17]}", "{\"prospero_win\":[\"\"]}",
+                               "{\"prospero_win\":false}", "[]"}) {
+    const std::string malformed = std::string(R"({"schema_version":1,"profile":"half-life-2",
+      "game":{"name":"Half-Life 2"},"checks":[{}],"requires":)") + requirements_json + "}";
+    CHECK(!ParseProfileSidecar(malformed, &needs_unknown, &reason));
+  }
   auto needs_volume = community;
   needs_volume.requires_prospero_win.push_back("audio-volume");
   CHECK(!CommunityPresetSupported(needs_volume, KitCapabilities{}));
