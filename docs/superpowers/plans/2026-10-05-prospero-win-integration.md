@@ -355,6 +355,16 @@ its repository's test configuration when writing that task's tests. Use the
 
 ### Task 3 execution: kit, recipe and submodule
 
+Execution evidence (2026-10-05): the admission library and its existing regression
+test are now registered in `cmake/ProsperoRuntime.cmake`, included for both host
+and PS5 builds. The normal host suite passes 72/72; the PS5 build compiles the
+admission library and packages the launcher successfully. The upstream kit and
+bottle preparation tests pass 25/25 and 12/12 locally. These checks do not close
+Task 3: source gitlink, clean source provenance, release kit/lock, licenses and
+fresh-bottle console acceptance remain required. Hash callbacks and independent
+trust pins still need the production adapter; registering a validator is not
+evidence that an installed kit has been admitted.
+
 Kit manifest contract: `playden-prospero-kit/1`, with separate runtime artifact
 revision, template and recipe identity/version, source provenance, sorted per-file
 size/hash/mode inventory, and `variants[]` binding each supported title ID to its
