@@ -34,6 +34,8 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 | 3 | Runtime milestone: launch through prospero-win | **Blocked by prospero-win, not Playden.** Fixed the execute-bit packaging issue so PW starts; PW then stops at its own firmware-gated Lapy `/data` helper (`helper_errno=54`, firmware 12.02 only). Playden drafts a valid PW profile; the remaining prefix + LaunchApp handoff waits on a PW helper build that completes on this firmware |
 | — | Native 4K60 performance | Removed from the MVP by the user (2026-10-05); kept as a separate, unscheduled performance goal |
 
+Further macOS features still worth porting (install-volume picker, notifications, log viewer, then Steam Cloud saves) are planned in [macOS feature ports](docs/superpowers/plans/2026-10-05-macos-feature-ports.md); the first three are independent of the runtime blocker.
+
 Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 covers how downloaded games are packaged and installed for it.
 
 ## Working constraints
