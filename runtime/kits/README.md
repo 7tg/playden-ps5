@@ -41,6 +41,40 @@ kit-manifest hash is recorded yet. Keep generated runtime/template assets outsid
 Git. Record a verified immutable retrieval source and manifest hash in the lock
 only after producer/consumer admission and fresh-bottle console acceptance.
 
+Packaging now additionally requires `template.preparation`, identifying an
+independently pinned initialization export and the approved console template:
+
+```json
+{
+  "template": {
+    "path": "/path/to/approved-console-template",
+    "user": "prospero",
+    "preparation": {
+      "id": "hl2-fresh-v16",
+      "export": "/path/to/fresh-v16-export"
+    }
+  }
+}
+```
+
+Relative paths resolve against the spec directory. The Playden entry point
+requires the four initialization evidence files to match independent lock pins,
+checks source/loader/initialization digest links, rehashes all initialized prefix
+entries, and verifies the approved console template's file hashes, sizes, modes
+and directories. Missing evidence or drift fails before the upstream packager
+copies assets. Direct invocation of the upstream structural packager is not this
+Playden preparation-admission gate. Standalone kit validation still needs an
+independently reviewed final manifest pin before production consumption.
+
+Current local evidence is under `build/per-game-acceptance/fresh-v16-export`;
+the approved template is
+`build/per-game-acceptance/candidate-v16/acceptance-hl2/library/prefixes/game`.
+The initialization and console template are separate immutable inputs. The
+console derivation changes ten DXVK DLLs, adds the retained `wowprospero.dll`,
+converts the drive symlinks to a table and changes only the CPU/audio registry
+bindings. The lock certifies the reviewed host export/candidate identities;
+native installation/loading/gameplay and remote artifact distribution remain open.
+
 The experimental [Wine build](../../results/20261006-wine-build/README.md) is not a
 replacement runtime input: it lacks graphics driver inputs, a complete runtime
 inventory and native loading/gameplay acceptance. It does not enable additional

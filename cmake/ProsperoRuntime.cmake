@@ -18,6 +18,8 @@ endif()
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_test(NAME prospero_source_pin COMMAND "${Python3_EXECUTABLE}" -m unittest discover
         -s "${CMAKE_SOURCE_DIR}/tests" -p test_prospero_source.py)
+    add_test(NAME prospero_bottle_preparation_evidence COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+        -s "${CMAKE_SOURCE_DIR}/tests" -p test_bottle_preparation_evidence.py)
     foreach(contract title_launch title_session app_profile game_profile profile_catalog)
         set(contract_sources
             "${PLAYDEN_PROSPERO_SOURCE_DIR}/tests/test_pw_${contract}.c"

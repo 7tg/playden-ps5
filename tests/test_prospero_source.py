@@ -91,6 +91,16 @@ class KitEntryTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('not published', result.stderr)
 
+    def test_package_requires_reviewed_preparation_before_copying(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            spec = root / 'spec.json'
+            spec.write_text(json.dumps({'template': {'path': 'unprepared'}}))
+            result = self.run_entry('package', '--spec', str(spec), '--out', str(root / 'kit'))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('preparation', result.stderr)
+            self.assertFalse((root / 'kit').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

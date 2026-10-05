@@ -651,3 +651,14 @@ Changed payloads, extra files, a wrong manifest pin and a self-consistent helper
 replacement are refused. Synthetic fixture trust overrides are test-only.
 This closes the format-boundary test gap, while admission of the actual release
 runtime/template and its independently bound preparation provenance remains open.
+
+Task 3 preparation-binding follow-up: Playden's explicit packaging entry point
+now requires reviewed initialization evidence from the independent dependency
+lock. It verifies all four metadata pins and their source/loader/prefix digest
+chain, all 1833 entries of the retained v16 initialized export, and the exact
+approved console template inventory including modes and directories before
+copying. The reviewed console derivation is limited to DXVK, the retained CPU
+DLL, drive-table conversion and CPU/audio registry bindings. Tests reject prefix,
+template, permission, directory and metadata drift plus unprepared specs.
+This establishes the host preparation identity gate, not release-kit/runtime
+provenance, remote distribution, native directory operations or gameplay.

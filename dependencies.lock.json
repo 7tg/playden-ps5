@@ -196,5 +196,18 @@
     "published": false,
     "status": "development-source; release kit and native acceptance pending",
     "retained_runtime_artifact_revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9"
+  },
+  "prospero_bottle_preparation": {
+    "hl2-fresh-v16": {
+      "files": {
+        "source-binding.reviewed.json": "73a4d8e520d29f729f86c1c0bc40a4a4153621b57d33edaac310c21ad0087eea",
+        "loader-provenance.reviewed.json": "1ee41d59d09cbd83e40fe5a83d4d9311b173b8ead2876df7ffea19ea459a56b1",
+        "prefix.manifest": "7eb7083aa4393ac14d9018ab53bd65edfcff6a0227c6b382517d7c878589b67a",
+        "initialization-provenance.json": "a738900562e116d9e2de15a2fdc0c68f2d6860e92108fb5dee7c8c5bcbcacc81"
+      },
+      "wine_source_head": "490f6d5dcbb2a5047345b8af88d114bbcaad69a8",
+      "retained_runtime_commit": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+      "template_inventory_sha256": "ea9268c22c48f90aca28ca68b37f9c55bb038e7083c1fed18be571070aa39639"
+    }
   }
 }

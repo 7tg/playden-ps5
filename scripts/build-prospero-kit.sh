@@ -15,4 +15,4 @@ if [[ $# -eq 0 ]]; then
  exit 2
 fi
 "$python_bin" "$root/tools/prospero_source.py" "${source_args[@]}"
-exec "$python_bin" "$source_dir/tools/package_playden_kit.py" "$@"
+exec "$python_bin" "$root/tools/package_prospero_kit.py" --source "$source_dir" "$@"
