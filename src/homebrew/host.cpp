@@ -372,6 +372,19 @@ int main(int argc, char** argv) {
         options->simulation ? std::filesystem::path(PLAYDEN_HOMEBREW_FIXTURES_DIR)
                             : std::filesystem::path{},
         options->simulation ? options->profile : std::filesystem::path{}, mode);
+    {
+        std::vector<playden::runtime::SettingsPreset> presets;
+        std::vector<playden::runtime::GameRecipe> recipes;
+        std::string reason;
+        // The kit's DXVK reads dxvk.conf from the game folder (results/20261005-dxvk-conf-probe).
+        playden::runtime::KitCapabilities kit;
+        kit.dxvk_config = true;
+        simulation.SetKitCapabilities(kit);
+        if (playden::runtime::LoadSettingsData(std::string(PLAYDEN_HOMEBREW_ASSETS_DIR) + "/runtime", &presets, &recipes, &reason))
+            simulation.SetSettingsData(std::move(presets), std::move(recipes));
+        else
+            std::fprintf(stderr, "game settings data unavailable: %s\n", reason.c_str());
+    }
     std::unique_ptr<playden::Storage> auth_storage;
     std::unique_ptr<playden::steam::CmClient> auth_cm;
     std::unique_ptr<playden::steam::AuthClient> auth;
@@ -437,6 +450,7 @@ int main(int argc, char** argv) {
     hui::gfx::set_glsl_prefix("#version 410 core\n");
 
     if (!options->simulation) {
+        simulation.SetGameSettingsFile(options->data_directory / "game-settings.json");
         auth_storage = std::make_unique<playden::Storage>(options->data_directory.string());
         auth_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *auth_storage);
         auth = std::make_unique<playden::steam::AuthClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);

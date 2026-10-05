@@ -98,11 +98,12 @@ add_library(playden_steam_cm_codec STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/backend/binary_kv.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/vdf.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/app_info.cpp"
-    "${CMAKE_SOURCE_DIR}/src/runtime/prospero_profile.cpp")
+    "${CMAKE_SOURCE_DIR}/src/runtime/prospero_profile.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/game_settings.cpp")
 target_include_directories(playden_steam_cm_codec PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_include_directories(playden_steam_cm_codec PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
 target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
-target_link_libraries(playden_steam_cm_codec PUBLIC playden_game_paths)
+target_link_libraries(playden_steam_cm_codec PUBLIC playden_game_paths playden_steam_protocol)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
@@ -180,7 +181,7 @@ add_library(playden_homebrew_model STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/storage_sim.cpp"
     "${CMAKE_SOURCE_DIR}/src/homebrew/browse.cpp")
 target_compile_features(playden_homebrew_model PUBLIC cxx_std_20)
-target_link_libraries(playden_homebrew_model PUBLIC playden_library playden_diagnostic_log)
+target_link_libraries(playden_homebrew_model PUBLIC playden_library playden_diagnostic_log playden_steam_cm_codec)
 target_include_directories(playden_homebrew_model PUBLIC "${CMAKE_SOURCE_DIR}/src")
 
 foreach(qr_file qrcodegen.c qrcodegen.h LICENSE README.md)
@@ -362,6 +363,8 @@ add_custom_target(playden_homebrew_assets ALL
         "${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets" "${playden_homebrew_assets}"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${playden_homebrew_fonts}" "${playden_homebrew_assets}/fonts"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${CMAKE_SOURCE_DIR}/runtime" "${playden_homebrew_assets}/runtime"
     DEPENDS ${playden_barlow_outputs}
     VERBATIM)
 
@@ -465,12 +468,16 @@ if(BUILD_TESTING)
     target_include_directories(title_registry_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(title_registry_test PRIVATE cxx_std_17)
     add_test(NAME title_registry COMMAND title_registry_test)
-    foreach(test_name steam_gzip steam_binary_kv steam_vdf steam_app_info prospero_profile)
+    foreach(test_name steam_gzip steam_binary_kv steam_vdf steam_app_info prospero_profile game_settings)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_steam_cm_codec)
         target_compile_features(${test_name}_test PRIVATE cxx_std_20)
+    endforeach()
+    foreach(test_name steam_gzip steam_binary_kv steam_vdf steam_app_info)
         add_test(NAME ${test_name} COMMAND ${test_name}_test)
     endforeach()
+    add_test(NAME prospero_profile COMMAND prospero_profile_test "${CMAKE_SOURCE_DIR}/fixtures/prospero-win-profiles")
+    add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
     add_executable(steam_depot_chunk_test "${CMAKE_SOURCE_DIR}/tests/steam_depot_chunk_test.cpp")
     target_link_libraries(steam_depot_chunk_test PRIVATE playden_depot_codec)
     target_compile_features(steam_depot_chunk_test PRIVATE cxx_std_20)

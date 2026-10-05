@@ -38,7 +38,7 @@ Use these interfaces when joining the branches:
 | Boundary | Integration requirement |
 | --- | --- |
 | Settings to profile | Use the owner's `BuildEffectiveSettings` and `RenderProsperoProfile`, followed by the strict prospero parser check. The installation service calls an injected profile publisher; it does not define another settings model. |
-| Settings revision | Runtime records and the wrapper descriptor use exact `uint64_t`; the current owner's `GameSettingsRecord` uses `uint32_t`. Resolve this width difference before publication. Never truncate or wrap a revision, and make the record, generated profile metadata and descriptor agree. |
+| Settings revision | Runtime records and the wrapper descriptor use exact `uint64_t`; the reviewed settings integration now uses exact `uint64_t` for `GameSettingsRecord` and lexical JSON parsing. Revision exhaustion rejects changes. Never truncate or wrap a revision, and make the record, generated profile metadata and descriptor agree. |
 | Recipe identity | Convert the owner's positive integer recipe version to a canonical decimal string for the runtime record/descriptor. Keep the recipe ID and selected launch entry consistent across publication. |
 | Capabilities | Populate the owner's `KitCapabilities` only from the installed kit's verified parser/runtime capabilities. Defaults remain false for DXVK config, environment forwarding and registry overlays until their implementation and acceptance checks pass. |
 | Publication and retry | Publish the effective profile and matching descriptor while the game is stopped. Persist a journal before effects, reconcile interrupted publication on retry, and expose Ready only after ownership, artifact and settings-revision checks pass. Home and Playden must consume the same persisted profile. |
@@ -270,6 +270,8 @@ installer/removal or production Play action is claimed from these diagnostics.
 ### Task 8: Settings, repair, update and uninstall
 
 **Files:** Modify `src/homebrew/simulation.{hpp,cpp}`, `src/homebrew/view.cpp`, runtime settings/install services and package installer; create `tests/runtime_maintenance_test.cpp`; extend graphical management/settings tests.
+
+**Settings spec:** tiers, phases and UI rules are in [game-settings-roadmap.md](../../engineering/game-settings-roadmap.md).
 
 **Interfaces:** `Repair(install_id)` revalidates assets/recipe without replacing saves; `Remove(install_id, remove_saves)` unregisters owned title/files while defaulting to save retention; updates stage a new pinned kit and retain the previous manifest for rollback.
 

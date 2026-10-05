@@ -158,6 +158,22 @@ int main() {
             playden::homebrew::ModelMode::Simulation);
 #else
         playden::homebrew::Simulation simulation({}, {}, playden::homebrew::ModelMode::Live);
+#endif
+        {
+            std::vector<playden::runtime::SettingsPreset> presets;
+            std::vector<playden::runtime::GameRecipe> recipes;
+            std::string reason;
+            // The kit's DXVK reads dxvk.conf from the game folder (results/20261005-dxvk-conf-probe).
+            playden::runtime::KitCapabilities kit;
+            kit.dxvk_config = true;
+            simulation.SetKitCapabilities(kit);
+            if (playden::runtime::LoadSettingsData("/app0/runtime", &presets, &recipes, &reason))
+                simulation.SetSettingsData(std::move(presets), std::move(recipes));
+            else
+                playden::app::AppendLogLine("/app0/logs", "launch.log", "game settings data unavailable: " + reason);
+        }
+#if !PLAYDEN_UI_SIMULATION
+        simulation.SetGameSettingsFile("/app0/playden-data/game-settings.json");
         playden::Storage auth_storage("/app0/playden-data");
         playden::steam::CmClient auth_cm("/app0/trust/cacert.pem", auth_storage);
         playden::steam::AuthClient auth("/app0/trust/cacert.pem");

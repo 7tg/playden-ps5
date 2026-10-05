@@ -6,6 +6,7 @@
 #include "app/preferences.h"
 #include "library/organization.h"
 #include "library/model.h"
+#include "runtime/game_settings.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -200,18 +201,6 @@ struct Volume {
     std::uint64_t games_bytes = 0; // live: bytes of finished installs on this volume
 };
 
-struct Profile {
-    std::string id;
-    std::string name;
-    std::string summary;
-    std::string resolution = "1920x1080";
-    std::string frame_limit = "60";
-    bool vsync = true;
-    std::string launch_arguments;
-    bool is_default = false;
-    bool save_failed = false;
-};
-
 struct ModalEntry {
     std::string id;
     std::string title;
@@ -220,6 +209,7 @@ struct ModalEntry {
     int focused_action = 0;
     bool destructive = false;
     std::string body;  // explanatory text; empty uses the simulation's default wording
+    std::string setting_id;  // Game settings picker: the catalogue setting being chosen
 };
 
 struct Navigation {
@@ -287,12 +277,11 @@ struct State {
     std::vector<Volume> volumes;
     std::string default_volume_id;  // live: where new installs go
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
-    std::vector<Profile> profiles;
     Navigation navigation;
     EditorState editor;
     std::vector<Notice> notices;
-    std::map<GameId, std::string> selected_profiles;
-    std::map<GameId, Profile> custom_profiles;
+    // Per-game settings: preset and player overrides (see runtime/game_settings.h).
+    std::map<GameId, playden::runtime::GameSettingsRecord> game_settings;
     SessionState session = SessionState::Idle;
     RuntimeState runtime = RuntimeState::Unavailable;
     LogState log_state = LogState::Ready;
@@ -328,6 +317,7 @@ struct ViewRow {
     bool enabled = true;
     bool selected = false;
     bool dangerous = false;
+    bool modified = false;  // Game settings: the player changed this value
     std::string section;  // Settings: the rail section the row belongs to
 };
 
@@ -401,6 +391,15 @@ public:
     void PreferencesSaveResult(std::uint64_t revision, playden::StorageError error);
     bool TakePersistenceRetryRequest();
     [[nodiscard]] std::vector<ServiceAction> TakeServiceActions();
+    // Presets and recipes for the Game settings sheet (runtime/presets.json, runtime/recipes/).
+    void SetSettingsData(std::vector<playden::runtime::SettingsPreset> presets,
+                         std::vector<playden::runtime::GameRecipe> recipes);
+    void SetKitCapabilities(playden::runtime::KitCapabilities kit);
+    // Live mode: where per-game settings are kept (loaded now, saved on every change).
+    void SetGameSettingsFile(std::filesystem::path path);
+    // The recipe and effective settings the sheet shows for a game.
+    [[nodiscard]] const playden::runtime::GameRecipe& RecipeFor(GameId id) const;
+    [[nodiscard]] bool EffectiveSettingsFor(GameId id, playden::runtime::EffectiveSettings* settings) const;
 
     [[nodiscard]] const State& state() const noexcept { return state_; }
     [[nodiscard]] const ViewData& view() const noexcept { return view_; }
@@ -419,7 +418,17 @@ private:
     std::string last_error_;
     std::string pending_destructive_action_;
     std::string selected_volume_id_;
-    std::string selected_profile_id_;
+    std::vector<playden::runtime::SettingsPreset> settings_presets_;
+    std::map<std::uint32_t, playden::runtime::GameRecipe> recipes_;
+    mutable std::map<GameId, playden::runtime::GameRecipe> simulated_recipes_;
+    playden::runtime::KitCapabilities kit_;
+    std::set<std::string> expanded_settings_sections_;
+    std::string editing_setting_id_;
+    std::filesystem::path game_settings_file_;
+    std::map<GameId, playden::runtime::GameSettingsRecord> saved_game_settings_;
+    bool settings_save_failed_ = false;
+    bool settings_load_failed_ = false;
+    std::optional<playden::runtime::GameSettingsRecord> settings_opened_record_;  // for the close toast
     std::string editing_target_id_;
     std::uint64_t challenge_generation_ = 0;
     std::uint64_t cancelled_challenge_generation_ = 0;
@@ -488,6 +497,12 @@ private:
     void start_editor(std::string purpose, std::string value);
     void commit_editor();
     void advance_jobs();
+    [[nodiscard]] std::vector<std::string> game_settings_actions() const;
+    void refresh_game_settings();
+    bool can_change_game_settings();
+    void set_game_setting(const std::string& id, const std::string& value);
+    void announce_settings_saved();
+    [[nodiscard]] const playden::runtime::SettingsPreset* preset_for(GameId id) const;
     void start_logs();
     void finish_logs();
     void queue_service_action(ServiceAction action);
