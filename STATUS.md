@@ -29,9 +29,9 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 
 | Order | Work | Completion evidence |
 | --- | --- | --- |
-| 1 | v3: real Steam downloads and management | Depot download, job recovery, verification, managed uninstall |
-| 2 | prospero-win packaging and install design | Survey done: [investigation](docs/engineering/prospero-win-investigation.md). Next: resolve its open decisions with the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) before v3 install work |
-| 3 | Runtime milestone: launch through prospero-win | A runtime-validated game launches, exits and returns to Playden with useful diagnostics |
+| 1 | v3: real Steam downloads and management | Done on the console: real depot download, licensed-depot selection, journal resume after interruption, install record/file list, managed uninstall. app 140 installed (87 MB), app 220 (Half-Life 2) downloading with a verified pause/resume. [v3 evidence](results/20261005-first-real-install/README.md) |
+| 2 | prospero-win packaging and install design | Survey plus a console runtime attempt: [investigation](docs/engineering/prospero-win-investigation.md). Playden-side profile drafting implemented and tested (`src/runtime/prospero_profile.*`). Open decisions remain for the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) |
+| 3 | Runtime milestone: launch through prospero-win | **Blocked by prospero-win, not Playden.** Fixed the execute-bit packaging issue so PW starts; PW then stops at its own firmware-gated Lapy `/data` helper (`helper_errno=54`, firmware 12.02 only). Playden drafts a valid PW profile; the remaining prefix + LaunchApp handoff waits on a PW helper build that completes on this firmware |
 | — | Native 4K60 performance | Removed from the MVP by the user (2026-10-05); kept as a separate, unscheduled performance goal |
 
 Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 covers how downloaded games are packaged and installed for it.

@@ -2,6 +2,11 @@
 
 Deferred items found during console runs. Newest first. Remove an item when it is fixed.
 
+## Runtime (prospero-win)
+
+- A runtime image deployed to `/data/homebrew/<TITLE>` must have its `eboot.bin` and `sce_module/*.prx` marked executable; web-file-manager uploads land as `rw-` and the console then refuses the title with 0x80aa001a before any code runs. Playden's own deploy already does this — ensure any prospero-win/runtime image Playden ever stages is chmod'd on upload (`/api/chmod` recursive, or the loader's own mode).
+- prospero-win's `/data` Lapy helper is firmware-gated (12.02) and did not complete on this console even with elfldr on 9021 (`helper_errno=54`). Blocked on the prospero-win owner; revisit once a compatible helper/loader build exists before wiring the LaunchApp handoff.
+
 ## Downloads
 
 - Details size estimates sum every Windows/English depot (140: 610 MB estimated, 87 MB installed); use the licensed depots, as the installer does.

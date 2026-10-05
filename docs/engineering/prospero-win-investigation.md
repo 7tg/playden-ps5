@@ -35,6 +35,29 @@ Written 2026-10-05 (roadmap step 2). Read-only survey of `../ps5-homebrew/prospe
 
 Depot download to `/data`; app PICS launch entries (text VDF, deferred from the CM work); create a prefix without console `wineboot` (for example copy a PC-built template prefix); apply the `pw_prefix.py` conversions; write the `.profile` and `profiles.lst` entry; gbe_fork swap; and hand off to PW. SteamStub unpacking and redistributable installers cannot run on the console (child processes, .NET), so they need PC-side preparation or must be excluded.
 
+## Runtime attempt on the console (2026-10-05)
+
+Tried to start prospero-win (PW, PPSA99995) on the dev PS5 to validate the handoff. Two blockers were found; the first is solved, the second is PW's own and remains open.
+
+### 1. Execute bit on the application image (solved)
+
+Every launch of PW failed at the system level with `Can't start the game or app` (0x80aa001a), before any PW code ran. The cause was file permissions: files uploaded to `/data/homebrew/PPSA99995` over the web file manager land as `rw-` (no execute bit), while a working folder title (PPSA99050) has `rwx` files. Replacing PW's `eboot.bin` with Playden's own known-good eboot reproduced the same refusal, confirming it was not PW-specific. Setting the whole folder to `0777` (`/api/chmod ... recursive=1`) let PW start: it now reaches its own runtime and shows its launcher error UI instead of the system refusal.
+
+This is a packaging/deploy fact, not a code change: a title's `eboot.bin` (and `sce_module/*.prx`) must be executable on the console. Playden's own deploy path already sets this; a note was added so PW and any future runtime image are chmod'd on upload.
+
+### 2. Lapy data-mount helper does not complete (open, PW's own dependency)
+
+With the execute bit fixed, PW starts and then stops itself at its data-mount step:
+
+```
+PW_WINE64 data_mount data_before=0 helper_completed=0 helper_errno=54 ... root=unavailable
+PW_WINE64 startup blocked reason=data-helper-incomplete
+```
+
+PW streams a bundled one-shot ELF (`lapy.elf`) to an `elfldr` listener on `127.0.0.1:9021`, which must clone root credentials so PW can mount `/data`. On this console `elfldr` was not running; starting the standard `elfldr` v0.26 payload (checksum-verified against the payload-manager repository, port 9021 confirmed open) did not fix it — the helper still returns `errno=54` (ECONNRESET): the loader accepts the ELF and closes without the handshake completing. PW's helper (`PS5-Lapy-JB-Daemon`) is a firmware-specific privilege-elevation daemon gated to firmware 12.02 (`offsets_v940`, `kernel_get_fw_version() != 0x12020000` guards). This is PW's own infrastructure, not Playden's; per the project constraints PW is not modified here. Resolving it needs the PW owner (a helper/loader build that completes on this console's firmware), and is tracked as decision 5 below.
+
+Conclusion: PW cannot yet run a game on this console because of its own helper, independent of anything Playden produces. Playden's side of the handoff — drafting a valid PW profile from an installed game — is implemented and tested (`src/runtime/prospero_profile.{h,cpp}`, `tests/prospero_profile_test.cpp`): `DraftProsperoProfile` emits PW's strict `[application]` INI (Z: paths, Steam launch args, PE32/PE64 from the executable header, shared prefix) and `PublishProsperoProfile` writes it into `profiles/` and `profiles.lst` within PW's limits. When PW can mount `/data` on this firmware, the remaining work is a prefix and the LaunchApp handoff (decisions 1–2).
+
 ## Decisions needed (user and prospero-win owner)
 
 1. Handoff: LaunchApp with `profile=` arguments, or a request file/IPC added to PW? Return path to Playden and exit status?
