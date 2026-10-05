@@ -35,8 +35,9 @@ reads; nothing equivalent exists for Vulkan.
 
 ## Why this stops at a note
 
-- This Mac has no `PS5_PRX_FOUNDATION` checkout (see [dependencies.md](dependencies.md)), so
-  Wine cannot be rebuilt here, and the ps5vk/RADV sources are not checked out either.
+- Wine's Unix side does build here (see the R1 notes in the roadmap: ELF stage, patch 0895
+  needed), but the console's PRX modules need a foundation with module exports
+  (`exp/prx-module`), which this Mac lacks, and the ps5vk/RADV sources are not checked out.
 - Even a title-only change cannot be console-checked without installing a modified prospero-win
   title. The installed PPSA99995 runtime (`e16ec8f`) must stay intact, and a parallel test title
   belongs to the integration's packaging work.

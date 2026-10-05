@@ -395,8 +395,11 @@ Progress 2026-10-05 (branch `feat/game-settings`): ✅ done, ◐ partly done.
   `[audio] volume`, each hidden until the kit lists its capability. prospero-win side drafted
   locally on `feat/profile-input-audio` (`~/.chauffeur/worktrees/prospero-win-input-tuning`):
   parser, native and audio tests pass and the title sources compile with the PS5 toolchain. The
-  wheel also needs Wine patch 0745, which applies to the patched driver source but is not built
-  (no `PS5_PRX_FOUNDATION` on this Mac). None of it is checked on a console.
+  wheel also needs Wine patch 0745. A scratch build of Wine's Unix side (pinned 490f6d5, payload
+  SDK v0.42 from `playden-ps5/.deps/prospero-foundation`, host tools built from the same revision)
+  compiles it into `win32u.so` without warnings, once patch 0895 lists the PS5 sync headers that
+  configure could not find. Console modules (PRX) need a foundation with module exports
+  (`exp/prx-module`), which this Mac lacks. None of it is checked on a console.
 - U3 drafted locally (not pushed): prospero-win-profiles `feat/recipe-sidecar` in
   `~/.chauffeur/worktrees/prospero-win-profiles-sidecar`, `SIDECARS.md` and checker.
 - S6: "Clear shader cache" deletes only `<exe>.dxvk-cache` (`ClearShaderCache`); the sheet's
