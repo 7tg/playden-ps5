@@ -1,0 +1,12 @@
+PW_REPORT/1 build=b4fc5e5b5c8d9ed4bd5091668c0fbcea0a3e3586-dirty profile=launcher cycle=0 pid=145 time=1791210232
+REC seq=1 t=8651.402581070 PW_WINE64 hid preload libSceKeyboard id=0x106 status=0 handle=208
+REC seq=2 t=8651.404733487 PW_WINE64 hid preload libSceMouse id=0xa9 status=0 handle=209
+REC seq=3 t=8653.215108519 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/data/prospero-win
+REC seq=4 t=8653.215795788 PW_WINE64 library status=ok listed_by=2 scan_errno=0 entries=1 games=1 root=/data/prospero-win
+REC seq=5 t=8653.227364379 PW_WINE64 args argc=1 mode=launcher profile=- cycle=0 refused=0
+REC seq=6 t=8653.241099179 PW_WINE64 hid keyboard module=0xd0 init=0 open=0x1220800 user=300742841
+REC seq=7 t=8653.241193959 PW_WINE64 hid mouse module=0xd1 init=0 open=0x230800 merged=1 user=300742841
+REC seq=8 t=8653.241198690 PW_WINE64 launcher video=ok pad=ok hid=ok frame=1 apps=1 cycle=0 refused=0 script=0
+REC seq=9 t=8667.399115697 PW_WINE64 launcher chose=playden-steam-220
+REC seq=10 t=8667.405176993 PW_WINE64 restart to=playden-steam-220 cycle=0 reason=launcher eboot=/app0/eboot.bin
+REC seq=11 t=8667.405180441 PW_WINE64 session_end reason=launcher

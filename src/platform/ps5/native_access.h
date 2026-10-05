@@ -8,6 +8,7 @@ enum class NativePathKind {
   kMissing,
   kFile,
   kDirectory,
+  kOther,
 };
 
 enum class NativePathAccess {

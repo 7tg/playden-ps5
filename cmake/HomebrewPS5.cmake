@@ -75,29 +75,56 @@ function(playden_add_homebrew_ps5_title)
 		--wrap=glTexImage2D --wrap=glTexSubImage2D --wrap=glClear --wrap=sceSystemServiceHideSplashScreen)
 
 	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp src/platform/ps5/title_runtime.cpp
+        src/platform/ps5/native_startup.cpp
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/display_egl.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/pad.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/system.cpp")
     option(PLAYDEN_TITLE_CONTRACT_PROBE "Compile one-shot native provisioning diagnostic" OFF)
+    option(PLAYDEN_NATIVE_RUNTIME_ACCESS "Require the native runtime client and exact title helper" ON)
+    set(prospero_default_source "${CMAKE_SOURCE_DIR}/third_party/prospero-win")
+    if(PLAYDEN_TITLE_CONTRACT_PROBE AND NOT EXISTS "${prospero_default_source}/native/pw_data_mount.c")
+        set(prospero_default_source "${CMAKE_SOURCE_DIR}/../ps5-homebrew/prospero-win")
+    endif()
+    set(PLAYDEN_PROSPERO_SOURCE_DIR "${prospero_default_source}" CACHE PATH
+        "prospero-win source for the native helper client")
+    set(native_access_source OFF)
+    if(EXISTS "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.h")
+        file(READ "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.h" lapy_header)
+        if(PLAYDEN_NATIVE_RUNTIME_ACCESS AND lapy_header MATCHES "pw_lapy_elevation_request_at")
+            set(native_access_source ON)
+            target_sources(playden_ps5_app PRIVATE
+                "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"
+                "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/ps5log/ps5log_ps5_net.c")
+            target_include_directories(playden_ps5_app PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/native")
+        endif()
+    endif()
+    if(PLAYDEN_NATIVE_RUNTIME_ACCESS AND NOT native_access_source)
+        message(FATAL_ERROR "Native runtime access requires the patched prospero-win client; initialize the pinned source or supply PLAYDEN_PROSPERO_SOURCE_DIR. Launcher-only builds must explicitly set PLAYDEN_NATIVE_RUNTIME_ACCESS=OFF.")
+    endif()
     if(PLAYDEN_TITLE_CONTRACT_PROBE)
-        set(PLAYDEN_PROSPERO_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../ps5-homebrew/prospero-win" CACHE PATH
-            "Explicit upstream source used by the Task 1 diagnostic only")
+        if(NOT EXISTS "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_data_mount.c")
+            message(FATAL_ERROR "The native provisioning diagnostic requires an explicit usable prospero-win source")
+        endif()
         target_sources(playden_ps5_app PRIVATE src/platform/ps5/title_contract_probe.cpp src/platform/ps5/title_registry.cpp
-            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_data_mount.c"
-            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"
-            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/ps5log/ps5log_ps5_net.c")
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_data_mount.c")
+        if(NOT native_access_source)
+            target_sources(playden_ps5_app PRIVATE
+                "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"
+                "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/ps5log/ps5log_ps5_net.c")
+        endif()
         target_include_directories(playden_ps5_app PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/native")
     endif()
     target_include_directories(playden_ps5_app PRIVATE "${gl_sdk}/include" "${PLAYDEN_HUI_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src")
     target_compile_definitions(playden_ps5_app PRIVATE GL_GLEXT_PROTOTYPES=1
         PLAYDEN_PS5_TITLE_ID="${PLAYDEN_PS5_TITLE_ID}"
         PLAYDEN_TITLE_CONTRACT_PROBE=$<BOOL:${PLAYDEN_TITLE_CONTRACT_PROBE}>
+        PLAYDEN_NATIVE_ACCESS_SOURCE=$<BOOL:${native_access_source}>
         PLAYDEN_UI_SIMULATION=$<BOOL:${PLAYDEN_UI_SIMULATION}>)
     target_compile_options(playden_ps5_app PRIVATE -O2 -Wall -ffunction-sections -fdata-sections
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti>)
     target_compile_features(playden_ps5_app PRIVATE cxx_std_20)
     target_link_libraries(playden_ps5_app PRIVATE playden_hui playden_library playden_steam_auth
-        playden_homebrew_controller playden_local_session_repository playden_steam_library playden_steam_cm)
+        playden_homebrew_controller playden_local_session_repository playden_steam_library playden_steam_cm playden_native_access)
 
 	set(host_tool "${host}/ps5-native-tool")
 	set(libc_prx "${host}/libc.prx")
@@ -126,20 +153,20 @@ function(playden_add_homebrew_ps5_title)
 			$<TARGET_FILE:playden_steam_http> $<TARGET_FILE:playden_steam_protocol>
 			$<TARGET_FILE:playden_steam_auth>
 			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_diagnostic_log> $<TARGET_FILE:playden_storage>
-			$<TARGET_FILE:playden_library>
+			$<TARGET_FILE:playden_library> $<TARGET_FILE:playden_native_access>
 			${PLAYDEN_STEAM_LINK_ARCHIVES}
 			--end-group --as-needed ${link_stubs}
 		WORKING_DIRECTORY "${out}/link"
 		DEPENDS playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui playden_homebrew_model
 			playden_homebrew_qr playden_homebrew_controller playden_local_session_repository playden_auth_diagnostics
 			playden_homebrew_artwork_cache playden_homebrew_artwork playden_persistence_controller playden_persistence_service playden_preferences playden_library_controller playden_library_service playden_steam_library playden_steam_cm playden_steam_cm_codec playden_depot_codec
-			playden_library playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_diagnostic_log playden_storage
+			playden_library playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_diagnostic_log playden_storage playden_native_access
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
 			$<TARGET_OBJECTS:playden_ps5_app>
 			$<TARGET_FILE:playden_steam_http> $<TARGET_FILE:playden_steam_protocol>
 			$<TARGET_FILE:playden_steam_auth>
 			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_diagnostic_log> $<TARGET_FILE:playden_storage>
-			$<TARGET_FILE:playden_library>
+			$<TARGET_FILE:playden_library> $<TARGET_FILE:playden_native_access>
 			$<TARGET_FILE:playden_homebrew_qr> $<TARGET_FILE:playden_homebrew_controller>
 			$<TARGET_FILE:playden_homebrew_artwork_cache> $<TARGET_FILE:playden_homebrew_artwork> $<TARGET_FILE:playden_persistence_controller> $<TARGET_FILE:playden_persistence_service> $<TARGET_FILE:playden_preferences> $<TARGET_FILE:playden_library_controller> $<TARGET_FILE:playden_library_service> $<TARGET_FILE:playden_steam_library> $<TARGET_FILE:playden_steam_cm> $<TARGET_FILE:playden_steam_cm_codec> $<TARGET_FILE:playden_depot_codec>
 			$<TARGET_FILE:playden_local_session_repository> $<TARGET_FILE:playden_auth_diagnostics>
@@ -154,6 +181,43 @@ function(playden_add_homebrew_ps5_title)
 		"${CMAKE_SOURCE_DIR}/build/homebrew-fonts/*"
 		"${CMAKE_SOURCE_DIR}/runtime/*")
 	set(simulation_package_commands)
+	set(native_helper_package_commands)
+	set(PLAYDEN_LAPY_HELPER_ELF "" CACHE FILEPATH "Explicit locally built title-scoped Lapy helper")
+	set(PLAYDEN_LAPY_HELPER_MANIFEST "" CACHE FILEPATH "Manifest for the exact Lapy helper")
+	if((PLAYDEN_LAPY_HELPER_MANIFEST AND NOT PLAYDEN_LAPY_HELPER_ELF) OR
+		(PLAYDEN_LAPY_HELPER_ELF AND NOT PLAYDEN_LAPY_HELPER_MANIFEST) OR
+		(PLAYDEN_NATIVE_RUNTIME_ACCESS AND NOT PLAYDEN_LAPY_HELPER_ELF))
+		message(FATAL_ERROR "Native runtime packaging requires both the exact local Lapy helper and its manifest; launcher-only builds must explicitly set PLAYDEN_NATIVE_RUNTIME_ACCESS=OFF")
+	endif()
+	if(PLAYDEN_LAPY_HELPER_ELF)
+		if(NOT EXISTS "${PLAYDEN_LAPY_HELPER_MANIFEST}" OR IS_SYMLINK "${PLAYDEN_LAPY_HELPER_ELF}"
+			OR IS_DIRECTORY "${PLAYDEN_LAPY_HELPER_ELF}")
+			message(FATAL_ERROR "An explicit regular Lapy helper and manifest are required")
+		endif()
+		string(JSON expected_helper_sha ERROR_VARIABLE helper_pin_error GET "${dependency_lock}"
+			prospero_launcher_helper variants "${PLAYDEN_PS5_TITLE_ID}")
+		if(helper_pin_error)
+			message(FATAL_ERROR "No reviewed Lapy helper pin for ${PLAYDEN_PS5_TITLE_ID}")
+		endif()
+		file(SHA256 "${PLAYDEN_LAPY_HELPER_ELF}" actual_helper_sha)
+		file(READ "${PLAYDEN_LAPY_HELPER_MANIFEST}" helper_manifest)
+		string(JSON helper_title GET "${helper_manifest}" target_title)
+		string(JSON helper_manifest_sha GET "${helper_manifest}" elf_sha256)
+		string(JSON helper_protocol_sha GET "${helper_manifest}" protocol_sha256)
+		string(JSON expected_protocol_sha GET "${dependency_lock}" prospero_launcher_helper protocol_sha256)
+		if(NOT actual_helper_sha STREQUAL expected_helper_sha OR
+			NOT helper_manifest_sha STREQUAL expected_helper_sha OR
+			NOT helper_title STREQUAL PLAYDEN_PS5_TITLE_ID OR
+			NOT helper_protocol_sha STREQUAL expected_protocol_sha)
+			message(FATAL_ERROR "Lapy helper title, artifact or protocol pin mismatch")
+		endif()
+		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+			"${PLAYDEN_LAPY_HELPER_ELF}" "${PLAYDEN_LAPY_HELPER_MANIFEST}")
+		list(APPEND package_inputs "${PLAYDEN_LAPY_HELPER_ELF}" "${PLAYDEN_LAPY_HELPER_MANIFEST}")
+		set(native_helper_package_commands
+			COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PLAYDEN_LAPY_HELPER_ELF}" "${app}/lapy.elf"
+			COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PLAYDEN_LAPY_HELPER_MANIFEST}" "${app}/lapy-manifest.json")
+	endif()
 	set(playden_title_name "Playden")
 	if(PLAYDEN_UI_SIMULATION)
 		set(playden_title_name "Playden UI Simulation")
@@ -176,12 +240,16 @@ function(playden_add_homebrew_ps5_title)
 			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=${playden_title_name}" -P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
 		${simulation_package_commands}
 		COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/runtime" "${app}/runtime"
+		${native_helper_package_commands}
 		COMMAND "${CMAKE_COMMAND}" -E make_directory "${app}/trust"
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PLAYDEN_STEAM_CA_BUNDLE}" "${app}/trust/cacert.pem"
 		COMMAND "${host_tool}" self --sign --in "${out}/eboot.elf" --out "${app}/eboot.bin" --magic 0x1D3D154F
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${libc_prx}" "${app}/sce_module/libc.prx"
+		COMMAND "${CMAKE_COMMAND}" -DAPP_DIR=${app} -DTITLE_ID=${PLAYDEN_PS5_TITLE_ID}
+			-P "${CMAKE_SOURCE_DIR}/cmake/WriteNativePackageIdentity.cmake"
 		COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
 		DEPENDS "${pie}" "${host_tool}" "${libc_prx}" "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
+			"${CMAKE_SOURCE_DIR}/cmake/WriteNativePackageIdentity.cmake"
 			"${PLAYDEN_STEAM_CA_BUNDLE}" ${package_inputs}
 		VERBATIM)
 	add_custom_target(playden-homebrew-ps5-package ALL DEPENDS "${stamp}")

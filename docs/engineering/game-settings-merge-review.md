@@ -23,8 +23,22 @@ PS5 package eboot SHA256: `cd1e0b62148affa50114ea48dd7dd66e432099a39e4a4107067df
 
 The settings branch explicitly leaves S4 real Play/publication wiring open. Its settings sheet remains in simulation mode. The production adapter must use verified kit capabilities, stopped-title mutation checks and the journaled profile/descriptor publication contract before enabling live settings and maintenance. Registry consumption and the combined package still require PS5 acceptance.
 
-## Merge status
+## Merge and restoration status
 
-The destination branch has not been modified: the environment grants read-only access to its `.git` directory. `git merge --autostash --no-commit --no-ff ea3c983...` failed while creating `.git/ORIG_HEAD.lock`. A prepared merge tree, incoming-branch bundle and separate fixes patch contain the reviewed result; unrelated existing integration changes remain outside that merge. The resolved startup/packaging files are supplied separately for restoring the destination's current work after merging.
+The reviewed settings merge is committed at `249c82d` on
+`feat/prospero-win-integration`. The integration stash was applied afterward.
+Conflicts in PS5 startup and packaging were resolved by retaining both runtime
+settings assets and native helper packaging, and by using startup-resolved paths
+for settings, authentication and logs.
 
-Commit signing is also unavailable in this sandbox because the configured GPG agent cannot access `~/.gnupg`. No unsigned replacement commit was created.
+Fresh verification of the restored destination checkout on 2026-10-05:
+
+- Host build succeeds; all 71 registered host tests pass, including the HTTP and
+  graphical tests that the earlier sandbox could not run.
+- The standalone kit-manifest test passes. These draft files are not yet
+  registered as a production CMake target.
+- The PS5 package build succeeds using the explicit SDK environment and the
+  patched title-specific helper. No deployment or new console acceptance occurred.
+
+The original stash is retained as a backup. Live settings and maintenance remain
+subject to the integration work and acceptance described above.

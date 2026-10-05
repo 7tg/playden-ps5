@@ -18,6 +18,15 @@
     "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip",
     "sha256": "a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb"
   },
+  "prospero_launcher_helper": {
+    "base_revision": "611fa5f7ed46cdde7094b764168390ab5c4e89f8",
+    "owned_title_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
+    "foundation_revision": "9c0b994a048521af6fb84c73ded364504fe250e9",
+    "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869",
+    "variants": {
+      "FAKE77031": "33c42097d30af928011ac415daa04b3ad10e9fe8f1bf4586bb283a1d2ded4938"
+    }
+  },
   "ps5_opengl": {
     "version": "1.0.0",
     "source_revision": "dce74910af7f4274c48d05e0ae001b3038462588",

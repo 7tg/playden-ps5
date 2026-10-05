@@ -1,0 +1,9 @@
+PW_REPORT/1 build=b4fc5e5b5c8d9ed4bd5091668c0fbcea0a3e3586-dirty profile=launcher cycle=1 pid=158 time=1791210251
+REC seq=1 t=8670.722817826 PW_WINE64 hid preload libSceKeyboard id=0x106 status=0 handle=208
+REC seq=2 t=8670.724909382 PW_WINE64 hid preload libSceMouse id=0xa9 status=0 handle=209
+REC seq=3 t=8672.966292116 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/data/prospero-win
+REC seq=4 t=8672.966367811 PW_WINE64 library status=ok listed_by=2 scan_errno=0 entries=1 games=1 root=/data/prospero-win
+REC seq=5 t=8672.975143864 PW_WINE64 args argc=2 mode=launcher profile=- cycle=1 refused=0
+REC seq=6 t=8672.995014854 PW_WINE64 hid keyboard module=0xd0 init=0 open=0x12a0800 user=300742841
+REC seq=7 t=8672.995106586 PW_WINE64 hid mouse module=0xd1 init=0 open=0x2b0800 merged=1 user=300742841
+REC seq=8 t=8672.995110756 PW_WINE64 launcher video=ok pad=ok hid=ok frame=1 apps=1 cycle=1 refused=0 script=0
