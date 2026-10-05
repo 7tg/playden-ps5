@@ -1100,26 +1100,28 @@ class Render::Impl
     {
         const ViewData &view = simulation.route_view();
         const State &state = simulation.state();
-        section_label(view.title.empty() ? "Home" : view.title, 96.0F, 168.0F);
         if (view.shelves.empty())
         {
+            section_label(view.title.empty() ? "Home" : view.title, 96.0F, 168.0F);
             ViewData copy = view;
             draw_title(copy, 96.0F, 360.0F, 820.0F);
             draw_actions(copy, 96.0F, 560.0F, 520.0F);
             return;
         }
 
-        // As on macOS (`FocusViewport.reveal`): Home scrolls only when the focused shelf or tile
-        // would leave the screen, and eases there, so the highlight is what moves; each shelf
-        // keeps its own column and scroll position.
-        constexpr float shelf_pitch = 380.0F;
+        // As on macOS (`FocusViewport.reveal`): a shelf scrolls sideways only when the focused
+        // tile would leave the screen, and eases there, so the highlight is what moves; each
+        // shelf keeps its own column and scroll position.
+        // macOS spacing: room under each shelf for the focused game's title and status.
+        constexpr float shelf_pitch = 456.0F;
         constexpr float tile_pitch = 233.0F;
         constexpr float tile_width = 213.0F;
         const int active_shelf = std::clamp(state.navigation.home_shelf, 0,
                                             static_cast<int>(view.shelves.size()) - 1);
         const float shelves_height = static_cast<float>(view.shelves.size()) * shelf_pitch;
-        home_scroll_.target = reveal(home_scroll_.target, active_shelf * shelf_pitch,
-                                     active_shelf * shelf_pitch + shelf_pitch, 2.0F * shelf_pitch, shelves_height);
+        // The focused shelf sits at the top, whole, with the next one peeking below it.
+        home_scroll_.target = std::clamp(active_shelf * shelf_pitch, 0.0F,
+                                         std::max(0.0F, shelves_height - shelf_pitch));
         const float vertical = home_scroll_.step(frame_dt_, state.reduced_motion);
         scene_.push_clip({0.0F, 180.0F, kWidth, kFooterY - 180.0F});
         for (int shelf_index = 0; shelf_index < static_cast<int>(view.shelves.size()); ++shelf_index)
@@ -1150,8 +1152,17 @@ class Render::Impl
                                      item_index == focused_item;
                 if (focused)
                     stats_.focused_control_key = shelf.items[static_cast<std::size_t>(item_index)].key;
-                draw_poster(*game, art, focused, job_progress(game->id), false,
-                            "home-" + shelf.key + "-" + std::to_string(game->id));
+                const std::string key = "home-" + shelf.key + "-" + std::to_string(game->id);
+                draw_poster(*game, art, focused, job_progress(game->id), false, key);
+                const float amount = focus_motion_.amount(key, focused);
+                if (amount > 0.0F)
+                {
+                    scene_.push_opacity(amount);
+                    dynamic_text(game->title, art.x, art.y + art.h + 46.0F, 24.0F, kText, 420.0F);
+                    ui::text(scene_, fonts_.regular, fit(fonts_.regular, tile_subtitle(*game, tile_status(game->id)), 18.0F, 420.0F),
+                             art.x, art.y + art.h + 74.0F, 18.0F, kSecondary);
+                    scene_.pop_opacity();
+                }
             }
         }
         scene_.pop_clip();
