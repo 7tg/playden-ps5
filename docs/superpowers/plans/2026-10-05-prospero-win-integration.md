@@ -462,6 +462,14 @@ confirming saved state remains. The grant-enabled executable is not left on the
 console. See [grant evidence](../../../results/20261005-deferred-user-grant/README.md).
 All 74 host tests and the PS5 build pass; the PS5 is released.
 
+Saved-session follow-up: the optional repository diagnostic report proves its
+private write/read/remove preparation probe succeeds after elevation, but
+opening existing `session.v1` returns permission denied. Investigate saved-file
+ownership and granted credentials next; do not reset the account or weaken
+private-file checks. The known browsing preview was restored and verified.
+See [session access evidence](../../../results/20261005-session-access-diagnosis/README.md).
+
+
 
 
 - [ ] Step 1: Add `runtime_game_install`, `prospero_profile` extensions and `native_access`

@@ -203,7 +203,9 @@ int main() {
             std::snprintf(line, sizeof(line), "auth_failure method=%s http=%ld eresult=%d", method, http_status, eresult);
             playden::app::AppendLogLine(log_root, "auth.log", line);
         });
-        playden::LocalSessionRepository sessions(paths.steam_state_root);
+        playden::LocalSessionRepository sessions(paths.steam_state_root, [](const std::string& diagnostic) {
+            playden::app::AppendLogLine(log_root, "storage.log", diagnostic);
+        });
         playden::steam::LibraryClient owned_library(paths.trust_store);
         playden::LocalSessionRepository library_sessions(paths.steam_state_root);
         playden::Storage library_storage(paths.steam_state_root);

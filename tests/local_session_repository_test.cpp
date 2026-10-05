@@ -21,7 +21,10 @@ int main() {
   result=restarted.Load(); assert(result.ok() && result.value()->steam_id==123);
   assert(restarted.Clear().ok() && !repo.Load().value());
   const auto bad=base/"file"; std::ofstream(bad)<<"not a directory";
-  LocalSessionRepository unavailable(bad.string()); assert(!unavailable.Load().ok());
+  std::string diagnostic;
+  LocalSessionRepository unavailable(bad.string(), [&](const std::string& text) { diagnostic = text; });
+  assert(!unavailable.Load().ok());
+  assert(diagnostic.find("stat") != std::string::npos);
   assert(!unavailable.Save(session).ok());
   const auto missing=base/"missing"/"child";
   LocalSessionRepository absent(missing.string()); assert(!absent.Load().ok());
