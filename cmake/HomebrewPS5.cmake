@@ -107,7 +107,7 @@ function(playden_add_homebrew_ps5_title)
             message(FATAL_ERROR "The native provisioning diagnostic requires an explicit usable prospero-win source")
         endif()
         target_sources(playden_ps5_app PRIVATE src/platform/ps5/title_contract_probe.cpp src/platform/ps5/title_registry.cpp
-            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_data_mount.c")
+            src/platform/ps5/title_probe_contract.cpp)
         if(NOT native_access_source)
             target_sources(playden_ps5_app PRIVATE
                 "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"

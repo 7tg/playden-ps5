@@ -1,8 +1,8 @@
 #include "platform/ps5/title_contract_probe.h"
 #include "steam/backend/native_network.h"
 #include "platform/ps5/title_registry.h"
+#include "platform/ps5/title_probe_contract.h"
 extern "C" {
-#include "pw_data_mount.h"
 int sceKernelLoadStartModule(const char*, std::size_t, const void*, unsigned, void*, int*);
 int sceKernelDlsym(int, const char*, void**);
 int sceSysmoduleLoadModuleInternal(unsigned);
@@ -59,6 +59,45 @@ static bool copy_probe_file(const char* relative, unsigned mode) {
   std::fclose(in); if (std::fclose(out)) ok = false;
   return ok && chmod(dst.c_str(), mode) == 0;
 }
+static std::optional<std::string> read_probe_metadata(const char* path) {
+  const int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  if (fd < 0) return std::nullopt;
+  struct stat info{};
+  if (fstat(fd, &info) || !S_ISREG(info.st_mode) || info.st_size < 0 || info.st_size > 65536) {
+    close(fd); return std::nullopt;
+  }
+  std::string content; char buffer[4096];
+  for (;;) {
+    const auto count = read(fd, buffer, sizeof(buffer));
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0 || (count > 0 && content.size() + std::size_t(count) > 65536)) {
+      close(fd); return std::nullopt;
+    }
+    if (!count) break;
+    content.append(buffer, std::size_t(count));
+  }
+  if (close(fd)) return std::nullopt;
+  return content;
+}
+static void bootstrap_registration_probe(FILE* log) {
+  struct stat directory{};
+  for (const char* path : {"/data/homebrew", "/data/homebrew/FAKE78001", "/data/homebrew/FAKE78001/sce_sys"}) {
+    if (lstat(path, &directory) || !S_ISDIR(directory.st_mode)) {
+      std::fprintf(log, "bootstrap registration refused: source directory\n"); return;
+    }
+  }
+  const auto owner = read_probe_metadata("/data/homebrew/FAKE78001/playden-acceptance-owner.json");
+  const auto descriptor = read_probe_metadata("/data/homebrew/FAKE78001/game-launch.json");
+  const auto param = read_probe_metadata("/data/homebrew/FAKE78001/sce_sys/param.json");
+  if (!owner || !descriptor || !param || !ValidateBootstrapProbeSource(*owner, *descriptor, *param)) {
+    std::fprintf(log, "bootstrap registration refused: fixture identity\n"); return;
+  }
+  TitleRegistry registry([log](const auto& route, const auto& body) { return service_post(log, route, body); });
+  const auto result = registry.Register("FAKE78001");
+  std::fprintf(log, "bootstrap registration accepted=%d code=%u stage=%s\n", result.ok, result.code, result.stage.c_str());
+  const auto current = registry.Query("FAKE78001");
+  std::fprintf(log, "bootstrap registry state=%d path=%s\n", int(current.state), current.path.c_str());
+}
 static void registration_probe(FILE* log, const char* action) {
   TitleRegistry registry([log](const auto& route, const auto& body) { return service_post(log, route, body); });
   const auto current = registry.Query("FAKE78000");
@@ -112,27 +151,31 @@ static void registration_probe(FILE* log, const char* action) {
     std::fprintf(log, "unregister accepted=%d code=%u stage=%s\n", result.ok, result.code, result.stage.c_str());
   }
 }
-bool RunTitleContractProbe() {
-  FILE* request = std::fopen("/app0/dev/title-contract-request.txt", "r");
+bool RunTitleContractProbe(const NativeAccessResult& access) {
+  if (!access.runtime_ready || !access.granted || access.paths.title_root.empty()) return false;
+  const auto request_path = access.paths.title_root + "/dev/title-contract-request.txt";
+  FILE* request = std::fopen(request_path.c_str(), "r");
   if (!request) return false;
   char action[32]{};
   if (!std::fgets(action, sizeof(action), request)) action[0] = 0;
   for (char& ch : action) if (ch == '\n' || ch == '\r') ch = 0;
   std::fclose(request);
-  std::remove("/app0/dev/title-contract-request.txt");
-  mkdir("/app0/logs", 0755);
-  FILE* log = std::fopen("/app0/logs/title-contract.log", "a");
+  std::remove(request_path.c_str());
+  mkdir(access.paths.log_root.c_str(), 0755);
+  FILE* log = std::fopen((access.paths.log_root + "/title-contract.log").c_str(), "a");
   if (!log) return true;
   std::fprintf(log, "begin pid=%d\n", getpid()); std::fflush(log);
   if (!steam::internal::InitializeNativeNetwork()) {
     std::fprintf(log, "network unavailable\n"); std::fclose(log); return true;
   }
-  PwDataMountResult detail{};
   service_post(log, "/api/v1/version", "{}");
-  const auto result = pw_data_mount_request(&detail);
-  std::fprintf(log, "data result=%d before=%d helper=%d errno=%d after=%d\n", result,
-               detail.data_before, detail.helper_completed, detail.helper_errno, detail.data_after);
+  const int result = access.granted ? 0 : -1;
+  std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
+  if (std::string(action) == "register-bootstrap") {
+    bootstrap_registration_probe(log);
+    std::fprintf(log, "end\n"); std::fclose(log); return true;
+  }
   if (result == 0) {
     // A new folder outside Playden's title proves the granted view can provision state.
     const int made = mkdir("/data/playden", 0755);

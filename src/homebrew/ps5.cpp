@@ -150,11 +150,11 @@ std::uint32_t take_install_request() {
 }  // namespace
 
 int main() {
+    const auto native_access = playden::ps5::PrepareNativeStartup(PLAYDEN_PS5_TITLE_ID);
 #if PLAYDEN_TITLE_CONTRACT_PROBE
-    if (playden::ps5::RunTitleContractProbe()) hui::sys::park();
+    if (playden::ps5::RunTitleContractProbe(native_access)) hui::sys::park();
 #endif
     hui::ps5::Display display;
-    const auto native_access = playden::ps5::PrepareNativeStartup(PLAYDEN_PS5_TITLE_ID);
     if (display.width() <= 0 && !display.open(3840, 2160)) {
         hui::sys::log("Playden Hui display failed"); hui::sys::park();
     }

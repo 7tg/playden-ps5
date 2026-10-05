@@ -1,0 +1,58 @@
+begin pid=321
+end
+begin pid=328
+end
+begin pid=335
+end
+begin pid=340
+end
+begin pid=355
+smp route=/api/v1/manual/add curl=0 http=200 body={"status":0,"path":"\/data\/homebrew\/FAKE78000","present":true,"changed":true}
+smp route=/api/v1/scan curl=0 http=200 body={"status":0,"queued":true,"reset_attempts":false}
+end
+begin pid=372
+end
+begin pid=377
+end
+begin pid=394
+end
+begin pid=424
+end
+begin pid=430
+end
+begin pid=436
+begin pid=447
+begin pid=457
+begin pid=477
+begin pid=487
+end
+begin pid=497
+begin pid=914
+bootstrap grant=1 runtime_ready=1 euid=1
+smp route=/api/v1/manual/add curl=0 http=200 body={"status":0,"path":"\/data\/homebrew\/FAKE78001","present":true,"changed":true}
+smp route=/api/v1/scan curl=0 http=200 body={"status":0,"queued":true,"reset_attempts":false}
+bootstrap registration accepted=1 code=0 stage=shadowmount
+bootstrap registry state=1 path=
+end
+begin pid=926
+bootstrap grant=1 runtime_ready=1 euid=1
+begin pid=933
+bootstrap grant=1 runtime_ready=1 euid=1
+fixture credential switch starting original_euid=1
+fixture credential switch ok=1 euid=0
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library/profiles stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library/prefixes stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library/input stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16 stat=0 uid=0 mode=700
+fixture ownership starting path=/data/playden/games/acceptance-hl2-fresh-v16/library/profiles
+begin pid=940
+bootstrap grant=1 runtime_ready=1 euid=1
+fixture credential switch starting original_euid=1
+fixture credential switch ok=1 euid=0
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library/profiles stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library/prefixes stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library/input stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16/library stat=0 uid=0 mode=700
+fixture directory path=/data/playden/games/acceptance-hl2-fresh-v16 stat=0 uid=0 mode=700
+fixture ownership starting path=/data/playden/games/acceptance-hl2-fresh-v16/library/profiles
