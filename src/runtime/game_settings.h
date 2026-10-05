@@ -158,6 +158,18 @@ bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* pr
 bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, std::string* reason);
 std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
 
+// A prospero-win-profiles sidecar (sidecars/<id>.json, schema_version 1) as a preset for
+// the game it describes: "Community · <name>", its newest console check as the hint, and
+// only the settings this build knows and accepts. Returns false for other schema versions.
+struct CommunityPreset {
+  SettingsPreset preset;
+  std::uint32_t steam_appid = 0;  // 0 when the sidecar names none
+  std::string profile_id;
+  std::string rating;             // newest check: works, playable or broken
+  std::vector<std::string> requires_prospero_win;
+};
+bool ParseProfileSidecar(std::string_view json, CommunityPreset* community, std::string* reason);
+
 // Per-game records in one small JSON file ({"version":1,"games":{"<app id>":record}}).
 // A missing file loads as no records. Saving replaces the file atomically.
 bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameSettingsRecord>* records,

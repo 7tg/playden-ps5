@@ -175,6 +175,25 @@ int main(int argc, char** argv) {
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A=1;DXVK_A=2", &reason));
   CHECK(!ValidateSettingValue(hl2, "environment", "DXVK_A", &reason));
 
+  // A prospero-win-profiles sidecar becomes a community preset for its game.
+  CommunityPreset community;
+  CHECK(ParseProfileSidecar(R"({"schema_version":1,"profile":"half-life-2",
+      "game":{"name":"Half-Life 2","steam_appid":220,"executable":"hl2.exe"},
+      "requires":{"prospero_win":["#289","#296"]},
+      "checks":[{"date":"2026-09-30","firmware":"12.02","rating":"works"},
+                {"date":"2026-10-02","firmware":"12.02","rating":"playable","notes":"59.7 fps in the train station."}],
+      "settings":{"resolution":"1920x1080","controller":"keyboard","graphics":"gdi","future_setting":"x","vsync":"maybe"}})",
+                            &community, &reason));
+  CHECK(community.steam_appid == 220 && community.preset.id == "community-half-life-2");
+  CHECK(community.preset.name == "Community · Half-Life 2" && community.rating == "playable");
+  CHECK(community.preset.short_hint == "playable on 12.02, 2026-10-02");
+  CHECK(community.preset.settings.size() == 2 && community.preset.settings.at("controller") == "keyboard");
+  CHECK(community.requires_prospero_win.size() == 2);
+  CHECK(BuildEffectiveSettings(hl2, &community.preset, {}, KitCapabilities{}, &settings, &error));
+  CHECK(settings.values.at("controller").value == "keyboard");
+  CHECK(!ParseProfileSidecar(R"({"schema_version":2,"profile":"x","game":{"name":"X"},"checks":[{}]})", &community, &reason));
+  CHECK(!ParseProfileSidecar(R"({"schema_version":1,"profile":"x","game":{"name":"X"},"checks":[]})", &community, &reason));
+
   // Bad player values are rejected before saving; stale ones never block a launch.
   CHECK(!ValidateSettingValue(hl2, "resolution", "3840x2160", &reason));
   CHECK(!ValidateSettingValue(hl2, "extra_arguments", "-a \"b", &reason));

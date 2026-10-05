@@ -728,4 +728,50 @@ bool SaveGameSettingsFile(const std::string& path, const std::map<std::uint32_t,
   return true;
 }
 
+bool ParseProfileSidecar(std::string_view text, CommunityPreset* community, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  const auto root = json::parse(text);
+  const auto* version = root ? root->get("schema_version") : nullptr;
+  if (!root || !root->object() || !version || version->number() != 1.0) return fail("not a schema 1 sidecar");
+  CommunityPreset out;
+  const auto* game = root->get("game");
+  std::string name;
+  if (!StringField(*root, "profile", &out.profile_id) || !game || !StringField(*game, "name", &name))
+    return fail("sidecar needs profile and game.name");
+  if (const auto* app = game->get("steam_appid"); app && app->number() && *app->number() > 0)
+    out.steam_appid = static_cast<std::uint32_t>(*app->number());
+  if (const auto* requires_field = root->get("requires")) {
+    if (const auto* prs = requires_field->get("prospero_win"); prs && prs->array())
+      for (const auto& item : *prs->array())
+        if (item.string()) out.requires_prospero_win.push_back(*item.string());
+  }
+  const auto* checks = root->get("checks");
+  if (!checks || !checks->array() || checks->array()->empty()) return fail("sidecar has no console check");
+  const auto& newest = checks->array()->back();
+  std::string date, firmware, notes;
+  StringField(newest, "rating", &out.rating, false);
+  StringField(newest, "date", &date, false);
+  StringField(newest, "firmware", &firmware, false);
+  StringField(newest, "notes", &notes, false);
+  out.preset.id = "community-" + out.profile_id;
+  out.preset.name = "Community · " + name;
+  out.preset.try_when = notes;
+  out.preset.short_hint = out.rating + (firmware.empty() ? "" : " on " + firmware) + (date.empty() ? "" : ", " + date);
+  std::map<std::string, std::string> settings;
+  if (!StringMap(root->get("settings"), &settings)) return fail("settings must map ids to strings");
+  // Keep what a preset may set and this build accepts; skip the rest rather than refuse.
+  for (const auto& [id, value] : settings) {
+    const auto* definition = FindSetting(id);
+    const bool button = id.compare(0, 7, "button.") == 0;
+    if (!definition || id == "launch_option" || id == "graphics" || (definition->kind == SettingKind::kText && !button))
+      continue;
+    if (ValidateSettingValue(GameRecipe{}, id, value, nullptr)) out.preset.settings[id] = value;
+  }
+  *community = std::move(out);
+  return true;
+}
+
 }  // namespace playden::runtime
