@@ -77,18 +77,25 @@ std::string Parent(const std::string& path) {
   return slash == std::string::npos || slash == 0 ? std::string() : path.substr(0, slash);
 }
 
+// Worker threads on the console have small stacks: file buffers live on the heap.
+constexpr std::size_t kReadChunk = 64 * 1024;
+
 std::optional<std::vector<std::uint8_t>> ReadFile(const std::string& path, std::uint64_t limit) {
+  struct stat info {};
+  if (stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || static_cast<std::uint64_t>(info.st_size) > limit)
+    return std::nullopt;
   FILE* file = std::fopen(path.c_str(), "rb");
   if (!file) return std::nullopt;
   std::vector<std::uint8_t> data;
-  std::uint8_t buffer[64 * 1024];
+  data.reserve(static_cast<std::size_t>(info.st_size));
+  std::vector<std::uint8_t> buffer(kReadChunk);
   std::size_t read = 0;
-  while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) {
+  while ((read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0) {
     if (data.size() + read > limit) {
       std::fclose(file);
       return std::nullopt;
     }
-    data.insert(data.end(), buffer, buffer + read);
+    data.insert(data.end(), buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(read));
   }
   const bool failed = std::ferror(file) != 0;
   std::fclose(file);
@@ -132,16 +139,32 @@ std::string Absolute(const GameSaveLocation& location, const LocalSavePath& loca
   return RootFolder(location, local.root) + "/" + local.path;
 }
 
+// Size and SHA-1 of a file, hashed in chunks so large saves are never held in memory whole.
 std::optional<FileFact> Fingerprint(const std::string& path) {
   struct stat info {};
   if (stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode)) return std::nullopt;
   if (static_cast<std::uint64_t>(info.st_size) > kMaxRemoteFileBytes) return std::nullopt;
-  const auto data = ReadFile(path, kMaxRemoteFileBytes);
-  if (!data) return std::nullopt;
+  FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file) return std::nullopt;
+  mbedtls_sha1_context context;
+  mbedtls_sha1_init(&context);
+  mbedtls_sha1_starts(&context);
+  std::vector<std::uint8_t> buffer(kReadChunk);
+  std::uint64_t size = 0;
+  std::size_t read = 0;
+  while ((read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0) {
+    mbedtls_sha1_update(&context, buffer.data(), read);
+    size += read;
+  }
+  const bool failed = std::ferror(file) != 0 || size > kMaxRemoteFileBytes;
+  std::fclose(file);
   FileFact fact;
+  fact.sha1.resize(20);
+  mbedtls_sha1_finish(&context, fact.sha1.data());
+  mbedtls_sha1_free(&context);
+  if (failed) return std::nullopt;
   fact.present = true;
-  fact.sha1 = Sha1(*data);
-  fact.size = data->size();
+  fact.size = size;
   fact.time = static_cast<std::uint64_t>(info.st_mtime);
   return fact;
 }
@@ -187,9 +210,10 @@ Baseline LoadBaseline(const std::string& state_root) {
   Baseline baseline;
   FILE* file = std::fopen((state_root + "/" + kBaselineFile).c_str(), "r");
   if (!file) return baseline;
-  char line[8192];
-  bool header = std::fgets(line, sizeof(line), file) && std::strncmp(line, "version=1", 9) == 0;
-  while (header && std::fgets(line, sizeof(line), file)) {
+  std::vector<char> buffer(8192);
+  char* line = buffer.data();
+  bool header = std::fgets(line, static_cast<int>(buffer.size()), file) && std::strncmp(line, "version=1", 9) == 0;
+  while (header && std::fgets(line, static_cast<int>(buffer.size()), file)) {
     std::string text(line, std::strcspn(line, "\r\n"));
     if (text.rfind("account=", 0) == 0) baseline.account_key = text.substr(8);
     else if (text.rfind("change=", 0) == 0) baseline.change_number = std::strtoull(text.c_str() + 7, nullptr, 10);
@@ -316,6 +340,9 @@ CloudSync::CloudSync(CmClient& cm, HttpClient& http) {
 
 CloudSync::CloudSync(CloudHooks hooks) : hooks_(std::move(hooks)) {}
 
+#define PLAYDEN_CLOUD_TRACE(step) \
+  do { if (hooks_.trace) hooks_.trace(step); } while (false)
+
 CloudPlan CloudSync::Check(const StoredSession& session, const GameSaveLocation& location, const std::atomic<bool>& cancel) {
   CloudPlan plan;
   const auto fail = [&](PlanStatus status, std::string message) {
@@ -324,11 +351,13 @@ CloudPlan CloudSync::Check(const StoredSession& session, const GameSaveLocation&
     plan.decisions.clear();
     return plan;
   };
+  PLAYDEN_CLOUD_TRACE("app-info");
   CmError info_error = CmError::kNone;
   const auto info = hooks_.app_info(session, location.app_id, cancel, &info_error);
   if (info_error != CmError::kNone) return fail(PlanStatus::kFailed, "Steam is not reachable. Try again.");
   if (!info || !info->declared) return fail(PlanStatus::kUnsupported, "This game does not use Steam Cloud.");
 
+  PLAYDEN_CLOUD_TRACE("list");
   std::optional<RemoteFileList> remote;
   std::uint64_t steam_id = 0;
   const auto listed = hooks_.session(session, kSessionDeadlineMs, cancel,
@@ -344,6 +373,7 @@ CloudPlan CloudSync::Check(const StoredSession& session, const GameSaveLocation&
   if (listed == CmError::kRejected) return fail(PlanStatus::kFailed, "Steam refused the Cloud save list.");
   if (listed != CmError::kNone || !remote) return fail(PlanStatus::kFailed, "Steam did not return the Cloud save list. Try again.");
 
+  PLAYDEN_CLOUD_TRACE("mapping");
   const auto mapping = BuildSaveMapping(*info, location.app_id, steam_id);
   if (!mapping.usable()) return fail(PlanStatus::kUnsupported, mapping.unresolved.empty() ? "This game has no Cloud save locations."
                                                                                      : mapping.unresolved.front());
@@ -375,6 +405,7 @@ CloudPlan CloudSync::Check(const StoredSession& session, const GameSaveLocation&
       slot.action = Action::kUnavailable;
     }
   }
+  PLAYDEN_CLOUD_TRACE("scan");
   // Local files under every rule's folder, plus the known names (the console may not list folders).
   std::vector<LocalSavePath> candidates;
   for (const auto& rule : paths.rules()) {
@@ -385,6 +416,7 @@ CloudPlan CloudSync::Check(const StoredSession& session, const GameSaveLocation&
     for (const auto& path : found) candidates.push_back({rule.root, path});
   }
   for (const auto& [key, slot] : slots) candidates.push_back(slot.local);
+  PLAYDEN_CLOUD_TRACE("fingerprint");
   std::set<std::string> seen;
   std::uint64_t scanned_bytes = 0;
   for (const auto& candidate : candidates) {
@@ -402,6 +434,7 @@ CloudPlan CloudSync::Check(const StoredSession& session, const GameSaveLocation&
     slot.local_fact = *fact;
   }
 
+  PLAYDEN_CLOUD_TRACE("plan");
   for (auto& [key, slot] : slots) {
     const bool reupload = slot.action == Action::kUpload;
     if (slot.action == Action::kUnavailable) {
@@ -537,6 +570,7 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
     }
 
     for (const auto& decision : downloads) {
+      PLAYDEN_CLOUD_TRACE("download");
       reply.clear();
       if (call(kClientFileDownload, EncodeFileDownloadRequest(location.app_id, decision.remote_name), &reply, nullptr) !=
           CmError::kNone) {
@@ -606,6 +640,7 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
         }
         contents.push_back(std::move(*data));
       }
+      PLAYDEN_CLOUD_TRACE("upload-batch");
       std::vector<std::string> upload_names, delete_names;
       for (const auto& decision : uploads) upload_names.push_back(decision.remote_name);
       for (const auto& decision : remote_deletes) delete_names.push_back(decision.remote_name);
@@ -687,6 +722,7 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
         return CmError::kRejected;
       }
     }
+    PLAYDEN_CLOUD_TRACE("verify");
     final_list = list();
     if (!final_list) {
       failure = "Steam did not confirm the Cloud saves. Check again.";

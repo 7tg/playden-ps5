@@ -20,7 +20,7 @@ class SteamCloudRunner final : public CloudRunner {
                     bool confirm_account, const std::atomic<bool>& cancel) override;
 
   // Optional sanitized log: the Steam app ID, what happened, and a short user-facing message.
-  void SetLog(std::function<void(GameId app, const char* event, const std::string& message)> log) { log_ = std::move(log); }
+  void SetLog(std::function<void(GameId app, const char* event, const std::string& message)> log);
 
   static cloud::GameSaveLocation SaveLocation(const CloudLocation& location);
 
@@ -28,6 +28,7 @@ class SteamCloudRunner final : public CloudRunner {
   cloud::CloudSync sync_;
   std::map<GameId, cloud::CloudPlan> plans_;  // the last check per game, for Apply
   std::function<void(GameId, const char*, const std::string&)> log_;
+  GameId current_app_ = 0;  // the game being checked or synced, for traces
 };
 
 }  // namespace playden::steam

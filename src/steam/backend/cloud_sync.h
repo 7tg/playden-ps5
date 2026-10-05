@@ -25,6 +25,8 @@ struct CloudHooks {
   std::function<HttpResponse(const HttpRequest&, const std::atomic<bool>&)> http;
   // Unix time for baselines and backup folder names.
   std::function<std::int64_t()> now;
+  // Optional step markers for diagnosing failures on the console (no names or identifiers).
+  std::function<void(const char* step)> trace;
 };
 
 // Where one game's saves live on this device.
@@ -95,6 +97,7 @@ class CloudSync {
  public:
   CloudSync(CmClient& cm, HttpClient& http);
   explicit CloudSync(CloudHooks hooks);
+  void SetTrace(std::function<void(const char*)> trace) { hooks_.trace = std::move(trace); }
 
   CloudPlan Check(const StoredSession& session, const GameSaveLocation& location, const std::atomic<bool>& cancel);
   // Carries out a plan from Check. `resolution` settles conflicts; remote changes on a plan that

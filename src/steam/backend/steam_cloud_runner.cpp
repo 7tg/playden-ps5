@@ -43,6 +43,13 @@ const char* StateName(CloudState state) {
 
 SteamCloudRunner::SteamCloudRunner(CmClient& cm, HttpClient& http) : sync_(cm, http) {}
 
+void SteamCloudRunner::SetLog(std::function<void(GameId app, const char* event, const std::string& message)> log) {
+  log_ = std::move(log);
+  sync_.SetTrace([this](const char* step) {
+    if (log_) log_(current_app_, "trace", step);
+  });
+}
+
 SteamCloudRunner::SteamCloudRunner(cloud::CloudHooks hooks) : sync_(std::move(hooks)) {}
 
 cloud::GameSaveLocation SteamCloudRunner::SaveLocation(const CloudLocation& location) {
@@ -51,6 +58,7 @@ cloud::GameSaveLocation SteamCloudRunner::SaveLocation(const CloudLocation& loca
 
 CloudReport SteamCloudRunner::Check(const StoredSession& session, const CloudLocation& location,
                                     const std::atomic<bool>& cancel) {
+  current_app_ = location.id;
   auto plan = sync_.Check(session, SaveLocation(location), cancel);
   auto report = Report(plan);
   if (log_) log_(location.id, (std::string("check-") + StateName(report.state)).c_str(), report.message);
@@ -69,6 +77,7 @@ CloudReport SteamCloudRunner::Apply(const StoredSession& session, const CloudLoc
   const auto choice = resolution == CloudResolution::kUseLocal   ? cloud::Resolution::kUseLocal
                       : resolution == CloudResolution::kUseCloud ? cloud::Resolution::kUseCloud
                                                                  : cloud::Resolution::kAutomatic;
+  current_app_ = location.id;
   auto report = Report(found->second);
   const auto outcome = sync_.Apply(session, SaveLocation(location), found->second, choice, confirm_account, cancel);
   plans_.erase(found);  // a plan is used once; the next sync checks again
