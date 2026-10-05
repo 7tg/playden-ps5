@@ -45,7 +45,7 @@ not consumed yet:
 | --- | --- | --- | --- |
 | prospero-win | `../ps5-homebrew/prospero-win` | `zcode/prospero-win-13.60` | `defd38b` |
 | prospero-win | `~/.chauffeur/worktrees/7449CB0F-…/feat-fw-v13-60-support` | `feat/fw-v13.60-support` | `a1f349e` |
-| prospero-win | `.worktrees/prospero-win-per-game` | `feat/playden-per-game-title` (development; final pin pending) | `c1b81d3` |
+| prospero-win | `.worktrees/prospero-win-per-game` | `feat/playden-per-game-title` (development; final pin pending) | `3fa908c` |
 | prospero-win | `~/.chauffeur/worktrees/prospero-win-environment` | `feat/profile-environment` (U1, local) | `06e6399` |
 | prospero-win | `~/.chauffeur/worktrees/prospero-win-input-tuning` | `feat/profile-input-audio` (U4/R1, local; stacked on `feat/profile-input-tuning` `410ac1c`) | `eeac05b` |
 | prospero-win-profiles | `~/.chauffeur/worktrees/prospero-win-profiles-sidecar` | `feat/checker-runtime-features` (R2, local; stacked on `feat/recipe-sidecar` `9325e0c`) | `8fa9213` |

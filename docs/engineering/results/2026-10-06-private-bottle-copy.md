@@ -28,7 +28,7 @@ Next: resolve the native relative directory API contract; then connect the valid
 
 The upstream `feat/playden-per-game-title` worktree now creates session log directories as `0700`, session temporary records/reservations as `0600`, and verifies file ownership/type/mode before writing bytes. Existing public or foreign-owned session directories are refused rather than changed. Session phase updates also refuse a log directory that has become non-private. Host lifecycle assertions first reproduced the `0644` record and now pass, including a public-parent rejection and later mode drift without advancing the recorded phase.
 
-The patched wrapper rebuilt successfully with Lapy `611fa5f` and native foundation `9c0b994` (SDK v0.42). Developer artifact: `dist/FAKE78001-playden-private-session/eboot.bin` in that upstream worktree, SHA-256 `0dc9860a1a4634895963cfe077c7323c32df60a6d64dbbf0fdce884fafd17e76`. These wrapper changes remain uncommitted with the wider title-wrapper implementation. Console acceptance below verifies their privacy behavior; real runtime/gameplay/normal exits remain open.
+The patched wrapper rebuilt successfully with Lapy `611fa5f` and native foundation `9c0b994` (SDK v0.42). Developer artifact: `dist/FAKE78001-playden-private-session/eboot.bin` in that upstream worktree, SHA-256 `0dc9860a1a4634895963cfe077c7323c32df60a6d64dbbf0fdce884fafd17e76`. The per-game wrapper and private lifecycle are committed at upstream `3fa908c` after independent review. This remains a development source pin; final kit/runtime provenance and full acceptance are open. Console acceptance below verifies their privacy behavior; real runtime/gameplay/normal exits remain open.
 
 
 ## Console follow-up: privacy confirmed; relative API still unavailable
@@ -38,3 +38,10 @@ The developer diagnostic preserved the fixture's old app-owned `0755` logs as `l
 The additional read-only syscall comparison opened `/data` both through libc and directly through the validated syscall gateway. Both directory FDs were valid according to `fstat`, and every relative `openat` flag combination still returned `EINVAL`; absolute paths succeeded. This rules out the tested libc-versus-kernel FD-origin hypothesis. It does not prove why the console refuses relative paths, nor admit a generic path-based fallback.
 
 [Trimmed native and wrapper evidence](../../../results/20261006-private-session/README.md). After testing, the normal preview executable and identity were restored with exact readback, the diagnostic was closed, and the console was released. The isolated `FAKE78001` source retains the privacy-fixed developer wrapper. The launcher developer probe is disabled in the normal SDK build.
+
+
+## Next runtime build dependency prepared
+
+A separate foundation worktree, `.worktrees/prospero-foundation-prx` on `feat/playden-wine-prx`, starts from `30597512539e7edfde079cbcaf4a626bc0a948c5` (the module-export converter required by Wine). Its host `ps5-native-tool` compiled using LLVM18 and host zlib. The shared native-title foundation remains exactly `9c0b994`.
+
+An initial module test failed because its independent reader still queried hash buckets with encoded symbol IDs. The upstream `fffeab6` hardware-backed fix deliberately hashes library/module names while retaining encoded symbol strings. The isolated branch updates the reader and module documentation to that published contract; it does not change the converter behavior. All 9 module-writer checks now pass; the isolated test/documentation correction is committed at `182f1ea`. Host module checks do not establish FW13.60 loader acceptance. The settings peer also reported Wine patch `0895` (`7182441`) fixing the generated header inventory so the pinned Wine ELF stage can compile; its PRX output still needs reproduction and validation. Retained runtime `e16ec8f` and kit capability gates are unchanged.
