@@ -1,0 +1,3 @@
+mkdir -p build/sanitize
+gcc -O1 -g -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all tests/test_pw_lapy_elevation.c native/pw_lapy_elevation.c -DPW_LAPY_HELPER_PATH='"/tmp/pw_lapy_test_helper"' -o build/sanitize/test_pw_lapy_elevation
+lapy elevation: fragmented I/O, cooperative handshake, and fail-closed replies passed

@@ -91,7 +91,7 @@ function(playden_add_homebrew_ps5_title)
     set(native_access_source OFF)
     if(EXISTS "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.h")
         file(READ "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.h" lapy_header)
-        if(PLAYDEN_NATIVE_RUNTIME_ACCESS AND lapy_header MATCHES "pw_lapy_elevation_request_at")
+        if(PLAYDEN_NATIVE_RUNTIME_ACCESS AND lapy_header MATCHES "pw_lapy_elevation_request_at_detailed")
             set(native_access_source ON)
             target_sources(playden_ps5_app PRIVATE
                 "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"

@@ -412,6 +412,17 @@ All 73 host tests pass after the corrections. Native grant still fails with code
 permit connecting preparation/launch as ready. The console was released for the
 user to inspect the deployed preview.
 
+Local helper checkpoint (2026-10-05): upstream commit `4e5e2bc` adds
+stage/status/error diagnostics and rejects a terminal helper OK when the title's
+own credential clone failed. Regression cases cover fragmented I/O, wrong PID,
+failed socket options, disconnected transport, failed helper application and
+failed clone followed by terminal OK. The focused host test and native Linux
+ASan/UBSan run pass. The launcher builds with the detailed API and records it in
+startup logs; CMake requires that source capability. This diagnostic build is
+not deployed: the user's preview remains available, and the exact console
+failure stage is still unverified. Other per-game wrapper changes remain
+uncommitted, and `4e5e2bc` is not the final kit/source release pin.
+
 - [ ] Step 1: Add `runtime_game_install`, `prospero_profile` extensions and `native_access`
    tests. Assert `ReservationSurvivesRestart`, `ForeignNativeTitleCollision`,
    `LegacyDownloadAdoptsWithoutCopy`, `RecipeArgumentsPreserved`,

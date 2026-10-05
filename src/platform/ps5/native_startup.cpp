@@ -23,6 +23,7 @@ struct StartupContext {
   std::string title_id;
   NativeAccessPosixBackend* filesystem = nullptr;
   std::string source_identity;
+  std::string grant_diagnostic;
 };
 
 int InitializeUser(void* data) {
@@ -62,8 +63,14 @@ int RequestData(void* data) {
     }
   }
   if (helper.empty()) return ENOENT;
-  if (pw_lapy_elevation_request_at(static_cast<std::int32_t>(getpid()), helper.c_str()) != 0)
-    return errno ? errno : EIO;
+  struct pw_lapy_elevation_diagnostics diagnostic{};
+  const int grant = pw_lapy_elevation_request_at_detailed(
+      static_cast<std::int32_t>(getpid()), helper.c_str(), &diagnostic);
+  const int grant_error = diagnostic.error ? diagnostic.error : errno;
+  context.grant_diagnostic = "helper stage=" + std::string(diagnostic.stage ? diagnostic.stage : "unknown") +
+      " status=" + (diagnostic.helper_status_valid ? std::to_string(diagnostic.helper_status) : "unavailable") +
+      " error=" + std::to_string(diagnostic.error);
+  if (grant != 0) return grant_error ? grant_error : EIO;
   // The helper may still be settling the process after its cooperative reply.
   struct timespec delay{1, 0};
   while (nanosleep(&delay, &delay) != 0)
@@ -85,8 +92,12 @@ NativeAccessResult PrepareNativeStartup(hui::ps5::Display& display,
   NativeAccessOptions options;
   options.title_id = title_id;
   NativeAccessBootstrap bootstrap(filesystem.Ops(), options);
-  const auto result = bootstrap.Prepare();
+  auto result = bootstrap.Prepare();
+  if (!result.runtime_ready && !context.grant_diagnostic.empty())
+    result.error += "; " + context.grant_diagnostic;
   const std::string logs = result.launcher_ready ? result.paths.log_root : "/app0/logs";
+  if (!context.grant_diagnostic.empty())
+    app::AppendLogLine(logs, "native-startup.log", context.grant_diagnostic);
   app::AppendLogLine(logs, "native-startup.log",
       "bootstrap launcher_ready=" + std::to_string(result.launcher_ready) +
       " runtime_ready=" + std::to_string(result.runtime_ready) + " error=" + result.error);
