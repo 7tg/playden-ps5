@@ -50,7 +50,8 @@ ProsperoGame HalfLife() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  const std::filesystem::path fixtures = argc > 1 ? argv[1] : "fixtures/prospero-win-profiles";
   // PE headers.
   auto pe32 = PeImage(0x014c);
   auto pe64 = PeImage(0x8664);
@@ -140,6 +141,49 @@ int main() {
   CHECK(DraftProsperoProfile(other, &profile, &reason));
   CHECK(!PublishProsperoProfile(root.string(), profile, &reason) && reason == "prospero-win profile list is full");
   std::filesystem::remove_all(root);
+
+  // Every upstream profile passes the checker; Playden's own draft does too.
+  int checked = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(fixtures / "profiles")) {
+    if (entry.path().extension() != ".profile") continue;
+    if (!CheckProsperoProfile(ReadText(entry.path()), &reason)) {
+      std::fprintf(stderr, "%s: %s\n", entry.path().filename().c_str(), reason.c_str());
+      CHECK(false);
+    }
+    ++checked;
+  }
+  CHECK(checked >= 15);
+  CHECK(DraftProsperoProfile(HalfLife(), &profile, &reason));
+  CHECK(CheckProsperoProfile(profile.text, &reason));
+
+  // The checker refuses what prospero-win refuses.
+  const std::string base = "[application]\nid = a\nname = A\nexecutable = C:\\a.exe\nworking_directory = C:\\\n"
+                           "prefix = a\nruntime = wine-wow64\narchitecture = pe32\ngraphics = dxvk\n";
+  CHECK(CheckProsperoProfile(base, &reason));
+  CHECK(CheckProsperoProfile(base + "[display]\ndesktop = 1920x1080\nshow_fps = false\n[input]\nmode = xinput\noptions = escape\n"
+                             "cross = f12\nsquare = vk:0x41\n[debug]\nwinedebug = err+all,+loaddll\n", &reason));
+  CHECK(!CheckProsperoProfile("[display]\ndesktop = 1920x1080\n" + base, &reason));       // [application] first
+  CHECK(!CheckProsperoProfile(base + "[display]\nhdr = true\n", &reason));                 // unknown key
+  CHECK(!CheckProsperoProfile(base + "[audio]\n", &reason));                                // unknown section
+  CHECK(!CheckProsperoProfile(base + "graphics = gdi\n", &reason));                         // duplicate key
+  CHECK(!CheckProsperoProfile(base + "[display]\ndesktop = 4096x2160\n", &reason));
+  CHECK(!CheckProsperoProfile(base + "[display]\nrefresh = 90\n", &reason));
+  CHECK(!CheckProsperoProfile(base + "[input]\nmouse_speed = 0\n", &reason));
+  CHECK(!CheckProsperoProfile(base + "[input]\ncross = f25\n", &reason));
+  CHECK(!CheckProsperoProfile(base + "[input]\ncross = vk:0x00\n", &reason));
+  CHECK(!CheckProsperoProfile(base + "[debug]\nwinedebug = +all relay\n", &reason));
+  CHECK(!CheckProsperoProfile(base + "arguments = -a \"b\n", &reason));                   // unclosed quote
+  CHECK(!CheckProsperoProfile(base + "dll_overrides = d3d9=x\n", &reason));
+  CHECK(!CheckProsperoProfile(std::string(8193, ';'), &reason));
+
+  std::vector<std::string> words;
+  CHECK(SplitProsperoArguments("-game hl2  \"+exec my cfg\"\t-novid", &words));
+  CHECK((words == std::vector<std::string>{"-game", "hl2", "+exec my cfg", "-novid"}));
+  std::string many;
+  for (int index = 0; index < 33; ++index) many += "a ";
+  CHECK(!SplitProsperoArguments(many, &words));
+  CHECK(IsProsperoDllOverrides("d3d8,d3d9,d3d10core,d3d11,dxgi=n;winmm=n,b;nvapi="));
+  CHECK(!IsProsperoDllOverrides("=n") && !IsProsperoDllOverrides("d3d9") && !IsProsperoDllOverrides("a,,b=n"));
 
   std::puts("prospero profile tests passed");
 }

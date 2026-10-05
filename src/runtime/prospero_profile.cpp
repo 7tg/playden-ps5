@@ -3,7 +3,10 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <set>
 #include <vector>
 
 namespace playden::runtime {
@@ -74,7 +77,231 @@ std::string_view Trim(std::string_view text) {
   return text;
 }
 
+std::string Lower(std::string_view text) {
+  std::string out(text);
+  for (auto& value : out) value = static_cast<char>(std::tolower(static_cast<unsigned char>(value)));
+  return out;
+}
+
+bool IsDigits(std::string_view text, std::size_t max_digits) {
+  if (text.empty() || text.size() > max_digits) return false;
+  return std::all_of(text.begin(), text.end(), [](char value) { return value >= '0' && value <= '9'; });
+}
+
+bool OneOf(std::string_view value, std::initializer_list<std::string_view> allowed) {
+  const auto lower = Lower(value);
+  return std::find(allowed.begin(), allowed.end(), std::string_view(lower)) != allowed.end();
+}
+
+bool IsIdentifier(std::string_view text) {
+  if (text.empty() || text.size() > kProsperoMaxIdBytes) return false;
+  if (!std::isalnum(static_cast<unsigned char>(text.front()))) return false;
+  return text.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_-") == std::string_view::npos;
+}
+
+bool IsWindowsPath(std::string_view path) {
+  if (path.size() < 3 || !std::isalpha(static_cast<unsigned char>(path[0])) || path.substr(1, 2) != ":\\")
+    return false;
+  std::size_t start = 3;
+  while (start <= path.size()) {
+    const auto end = std::min(path.find('\\', start), path.size());
+    const auto segment = path.substr(start, end - start);
+    if (segment.find_first_of("/:") != std::string_view::npos || HasControl(segment) || segment == "..")
+      return false;
+    if (segment.empty() && end != path.size()) return false;
+    start = end + 1;
+  }
+  return true;
+}
+
+constexpr std::string_view kButtons[] = {"cross", "circle", "square", "triangle", "l1",  "r1",
+                                         "l2",    "r2",     "l3",     "r3",       "up",  "down",
+                                         "left",  "right",  "options", "create",  "touchpad"};
+
 }  // namespace
+
+std::optional<std::string> ProsperoWindowsPath(std::string_view host_path) { return HostToWindows(host_path); }
+
+bool SplitProsperoArguments(std::string_view arguments, std::vector<std::string>* words) {
+  std::vector<std::string> out;
+  std::size_t index = 0;
+  while (index < arguments.size()) {
+    while (index < arguments.size() && (arguments[index] == ' ' || arguments[index] == '\t')) ++index;
+    if (index >= arguments.size()) break;
+    std::string word;
+    bool quoted = false;
+    while (index < arguments.size() && (quoted || (arguments[index] != ' ' && arguments[index] != '\t'))) {
+      if (arguments[index] == '"') quoted = !quoted;
+      else word.push_back(arguments[index]);
+      ++index;
+    }
+    if (quoted) return false;
+    out.push_back(std::move(word));
+    if (out.size() > kProsperoMaxArgumentWords) return false;
+  }
+  if (words) *words = std::move(out);
+  return true;
+}
+
+bool IsProsperoBinding(std::string_view raw) {
+  static const std::set<std::string, std::less<>> keys = {
+      "space", "enter", "escape", "tab", "backspace", "shift", "ctrl", "alt", "pause", "pageup", "pagedown",
+      "end", "home", "left", "up", "right", "down", "insert", "delete", "semicolon", "equals", "comma",
+      "minus", "period", "slash", "backquote", "lbracket", "backslash", "rbracket", "quote",
+      "none", "mouse_left", "mouse_right", "mouse_middle"};
+  const auto value = Lower(raw);
+  if (keys.count(value)) return true;
+  if (value.size() == 1 && std::isalnum(static_cast<unsigned char>(value[0]))) return true;
+  if ((value.size() == 2 || value.size() == 3) && value[0] == 'f' && IsDigits(std::string_view(value).substr(1), 2)) {
+    const int number = std::atoi(value.c_str() + 1);
+    return number >= 1 && number <= 24;
+  }
+  if (value.size() == 7 && value.compare(0, 5, "vk:0x") == 0 && std::isxdigit(static_cast<unsigned char>(value[5])) &&
+      std::isxdigit(static_cast<unsigned char>(value[6])))
+    return std::strtol(value.c_str() + 5, nullptr, 16) != 0;
+  return false;
+}
+
+bool IsProsperoDllOverrides(std::string_view value) {
+  if (value.empty() || value.size() > kProsperoMaxDllOverrideBytes) return false;
+  std::size_t start = 0;
+  while (start <= value.size()) {
+    const auto end = std::min(value.find(';', start), value.size());
+    const auto entry = value.substr(start, end - start);
+    const auto equals = entry.find('=');
+    if (equals == std::string_view::npos || equals == 0) return false;
+    const auto names = entry.substr(0, equals);
+    const auto mode = entry.substr(equals + 1);
+    if (names.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,._*-") !=
+            std::string_view::npos ||
+        names.front() == ',' || names.back() == ',' || names.find(",,") != std::string_view::npos)
+      return false;
+    if (!(mode.empty() || mode == "n" || mode == "b" || mode == "d" || mode == "n,b" || mode == "b,n")) return false;
+    start = end + 1;
+  }
+  return true;
+}
+
+bool CheckProsperoProfile(std::string_view text, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  if (text.empty()) return fail("empty profile");
+  if (text.size() > kProsperoMaxProfileBytes) return fail("profile is larger than 8192 bytes");
+  std::vector<std::string> sections;
+  std::string section;
+  std::set<std::string> seen;
+  std::set<std::string> application;
+  std::string id, prefix, runtime, executable, working;
+  std::size_t start = 0;
+  while (start < text.size()) {
+    auto end = text.find_first_of("\r\n", start);
+    if (end == std::string_view::npos) end = text.size();
+    auto line = text.substr(start, end - start);
+    start = end + 1;
+    while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) line.remove_prefix(1);
+    while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) line.remove_suffix(1);
+    if (line.empty() || line.front() == ';' || line.front() == '#') continue;
+    if (line.front() == '[') {
+      if (line.size() < 3 || line.back() != ']') return fail("bad section line");
+      const auto name = Lower(line.substr(1, line.size() - 2));
+      if ((name != "application" && name != "display" && name != "input" && name != "debug") ||
+          std::find(sections.begin(), sections.end(), name) != sections.end())
+        return fail("section [" + name + "] unknown or repeated");
+      if (sections.empty() != (name == "application")) return fail("[application] must come first");
+      sections.push_back(name);
+      section = name;
+      seen.clear();
+      continue;
+    }
+    const auto equals = line.find('=');
+    if (equals == std::string_view::npos) return fail("line without '='");
+    auto key_view = line.substr(0, equals);
+    auto value = line.substr(equals + 1);
+    while (!key_view.empty() && (key_view.back() == ' ' || key_view.back() == '\t')) key_view.remove_suffix(1);
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) value.remove_prefix(1);
+    if (key_view.empty()) return fail("line without a key");
+    if (section.empty()) return fail("line before any section");
+    const auto key = Lower(key_view);
+    if (!seen.insert(key).second) return fail("duplicate " + key);
+    const auto bad = [&](const char* what) { return fail(key + ": " + what); };
+    if (section == "application") {
+      application.insert(key);
+      const auto text_field = [&](std::size_t limit, bool allow_empty) {
+        return (allow_empty || !value.empty()) && value.size() <= limit && !HasControl(value);
+      };
+      if (key == "id" || key == "prefix" || key == "runtime") {
+        if (!text_field(kProsperoMaxIdBytes, false) || !IsIdentifier(value)) return bad("not a lowercase identifier");
+        (key == "id" ? id : key == "prefix" ? prefix : runtime) = std::string(value);
+      } else if (key == "name") {
+        if (!text_field(kProsperoMaxNameBytes, false)) return bad("empty or too long");
+      } else if (key == "executable" || key == "working_directory") {
+        if (!text_field(kProsperoMaxPathBytes, false) || !IsWindowsPath(value)) return bad("not an absolute Windows path");
+        (key == "executable" ? executable : working) = std::string(value);
+      } else if (key == "arguments") {
+        if (!text_field(kProsperoMaxArgumentBytes, true) || !SplitProsperoArguments(value, nullptr))
+          return bad("too long, too many words or an unclosed quote");
+      } else if (key == "dll_overrides") {
+        if (HasControl(value) || !IsProsperoDllOverrides(value)) return bad("not a DLL override list");
+      } else if (key == "startup_command_id") {
+        if (!IsDigits(value, 5) || std::atoi(std::string(value).c_str()) > 0xFFFF) return bad("not a number up to 65535");
+      } else if (key == "architecture") {
+        if (!OneOf(value, {"pe32", "pe64"})) return bad("not pe32 or pe64");
+      } else if (key == "graphics") {
+        if (!OneOf(value, {"auto", "gdi", "dxvk", "opengl"})) return bad("unknown graphics mode");
+      } else {
+        return fail("unknown [application] key " + key);
+      }
+    } else if (section == "display") {
+      if (key == "desktop") {
+        const auto x = value.find('x');
+        if (x == std::string_view::npos || !IsDigits(value.substr(0, x), 9) || !IsDigits(value.substr(x + 1), 9))
+          return bad("not WIDTHxHEIGHT");
+        const long width = std::atol(std::string(value.substr(0, x)).c_str());
+        const long height = std::atol(std::string(value.substr(x + 1)).c_str());
+        if (width < 320 || width > 3840 || height < 200 || height > 2160) return bad("outside 320x200-3840x2160");
+      } else if (key == "scaling") {
+        if (!OneOf(value, {"fit", "integer", "stretch"})) return bad("unknown scaling");
+      } else if (key == "view") {
+        if (!OneOf(value, {"window", "desktop"})) return bad("unknown view");
+      } else if (key == "show_fps" || key == "opengl_thread") {
+        if (!OneOf(value, {"true", "false"})) return bad("not true or false");
+      } else if (key == "refresh") {
+        if (value != "60" && value != "120") return bad("not 60 or 120");
+      } else {
+        return fail("unknown [display] key " + key);
+      }
+    } else if (section == "input") {
+      if (key == "preset") {
+        if (!IsIdentifier(value)) return bad("not a preset name");
+      } else if (key == "mode") {
+        if (!OneOf(value, {"keyboard", "xinput"})) return bad("not keyboard or xinput");
+      } else if (key == "mouse") {
+        if (!OneOf(value, {"none", "left_stick", "right_stick"})) return bad("unknown pointer stick");
+      } else if (key == "mouse_speed") {
+        const long speed = IsDigits(value, 9) ? std::atol(std::string(value).c_str()) : 0;
+        if (speed < 1 || speed > 20000) return bad("not 1-20000");
+      } else if (std::find(std::begin(kButtons), std::end(kButtons), key) != std::end(kButtons)) {
+        if (!IsProsperoBinding(value)) return bad("not a key, mouse button or none");
+      } else {
+        return fail("unknown [input] key " + key);
+      }
+    } else {
+      if (key != "winedebug") return fail("unknown [debug] key " + key);
+      if (value.empty() || value.size() > kProsperoMaxWinedebugBytes ||
+          value.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+-,=.") !=
+              std::string_view::npos)
+        return bad("not a channel list");
+    }
+  }
+  if (sections.empty()) return fail("no [application] section");
+  for (const char* required : {"id", "name", "executable", "working_directory", "prefix", "runtime", "architecture", "graphics"})
+    if (!application.count(required)) return fail(std::string("missing ") + required);
+  if (Lower(executable).size() < 4 || Lower(executable).compare(Lower(executable).size() - 4, 4, ".exe") != 0)
+    return fail("executable does not end in .exe");
+  return true;
+}
 
 std::optional<PeArchitecture> ParsePeArchitecture(const std::uint8_t* bytes, std::size_t size) {
   if (!bytes || size < 0x40 || bytes[0] != 'M' || bytes[1] != 'Z') return std::nullopt;
