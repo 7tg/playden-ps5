@@ -33,9 +33,11 @@ document uses the terms below and nothing else.
 | **Input preset** | A prospero-win `.input` file referenced by `[input] preset`. | `input/<name>.input` |
 
 Resolution order for every setting:
-**kit capabilities → Playden default → preset → recipe requirements → overrides**.
-Recipe requirements (for example HL2's `d3d9=n` and `-game hl2`) are locked and
-cannot be removed by an override; the player can only add to them.
+**Playden default → recipe default → preset → overrides**, then kit capabilities
+decide whether the value applies. Presets list only the settings they change. A
+setting the recipe locks (graphics for HL2) keeps the recipe value. Recipe
+arguments and DLL overrides (for example HL2's `d3d9=n` and `-game hl2`) are
+always written first; the player can only add to them.
 A recipe can also declare **parameterised arguments** that a setting fills. For
 example, HL2 declares `resolution_args = "-w {w} -h {h}"`, and the Resolution
 setting writes both `[display] desktop` and those arguments. Those arguments are
