@@ -1,18 +1,4 @@
 {
-  "rmlfocus": {
-    "revision": "31d2d8fd39ca3e3bb3ba91a43f50561c04429d57",
-    "default_source": "../rmlfocus",
-    "override": "Set PLAYDEN_RMLFOCUS_SOURCE_DIR to another checkout at exactly this revision",
-    "renderer": "poc/rmlui-gl3/RmlUi_Renderer_GL3_rf.cpp"
-  },
-  "rmlui": {
-    "version": "6.3",
-    "revision": "ba95ffe8bfb6370efb2cdcca927eaad4710c5413"
-  },
-  "freetype": {
-    "version": "2.13.3",
-    "revision": "42608f77f20749dd6ddc9e0536788eaad70ea4b5"
-  },
   "ps5_payload_sdk": {
     "version": "v0.43",
     "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip",
@@ -37,7 +23,6 @@
   "ps5_native_app_boilerplate": {
     "revision": "f98de734b68b0b980d38ff03a330066afd6ae16d",
     "source": "third_party/ps5-native-app-boilerplate submodule (selected Hui PS5 build)",
-    "legacy_rmlfocus_revision": "4f531c4b517f80bcb6b1267135848168d2250047",
     "patch": "sce_module_writer.cpp heap size changed to 0x10000000 in a build-local copy",
     "libc_prx_sha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036"
   },
@@ -45,24 +30,13 @@
     "version": "18.1.8",
     "sha256": "61002d0f8fa316a09db9c97f47744cfa5866862e9dc3fdd554d7cf6fdc3c2566"
   },
-  "fonts": {
-    "source": "Pinned RmlFocus demo/assets/fonts directory",
-    "families": [
-      "Inter",
-      "Space Grotesk",
-      "Lato Latin",
-      "DM Serif Display"
-    ]
-  },
   "recorded_host_toolchain": {
     "platform": "macOS Apple Silicon",
     "apple_clang": "17.0.0",
     "cmake": "3.30.3",
     "ninja": "1.13.2",
     "sdl2_compat": "2.32.72",
-    "freetype": "2.14.3",
-    "libcurl": "8.7.1",
-    "note": "Host compiler, SDL2 compatibility, FreeType, OpenGL, and libcurl are system packages. CMake enforces the recorded SDL2, FreeType, and libcurl versions; OpenGL is provided by the pinned macOS SDK/toolchain environment."
+    "note": "Host compiler, SDL2 (2.x, through pkg-config) and OpenGL come from the system; libcurl for the host and PS5 is built from the pinned steam_network_probe sources."
   },
   "utf8proc": {
     "version": "2.11.3",
@@ -129,7 +103,7 @@
       "homebrew-ui-cff-sdf.patch": "5af8fe22fa96c9cb2f8f7402fbd9c17d38ac1cadf249bfff2dec42a2623bea1a"
     },
     "stb_image": {
-      "source": "Pinned sibling rmlfocus/third_party/stb/stb_image.h",
+      "source": "Vendored third_party/stb/stb_image.h (stb v2.30)",
       "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
     },
     "assets": {

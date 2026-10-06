@@ -9,7 +9,7 @@ set(PLAYDEN_HUI_SOURCE_DIR
 set(PLAYDEN_HOMEBREW_UI_SOURCE_DIR "${PLAYDEN_HUI_SOURCE_DIR}" CACHE PATH
     "Compatibility alias for PLAYDEN_HUI_SOURCE_DIR" FORCE)
 set(PLAYDEN_STB_IMAGE_INCLUDE_DIR
-    "/Users/leolobato/Documents/Projetos/Personal/GameNative/rmlfocus/third_party/stb" CACHE PATH
+    "${CMAKE_SOURCE_DIR}/third_party/stb" CACHE PATH
     "Directory containing the pinned header-only stb_image.h decoder")
 
 string(JSON expected_hui_revision GET "${playden_dependency_lock}" homebrew_ui revision)
