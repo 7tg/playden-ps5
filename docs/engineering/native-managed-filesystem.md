@@ -73,6 +73,16 @@ installer/hash tests remain required. Fixture temporary roots are canonicalized
 on macOS so `/var` aliases do not accidentally bypass or invalidate the policy;
 production supplied paths are not silently canonicalized through symlinks.
 
+The actual installer suite also runs with all four relative directory operations
+(`openat`, `mkdirat`, `fstatat`, `unlinkat`) replaced by `EINVAL`, using the PS5
+backend. Its partial stage-marker write test initially failed because legacy
+cleanup left an unidentifiable staging directory. Cleanup now validates the
+captured directory identity, lists only its initial marker, removes that owned
+0600 regular marker, syncs the child, rechecks the directory identity through
+its parent, removes the empty directory and syncs the parent. Both ordinary and
+native-policy suites pass. Native directory enumeration remains to be tested;
+this host regression does not close installer console acceptance.
+
 SDK compilation and default/probe-enabled final package linking are required.
 The probe-enabled link originally lacked the new managed archive; its unresolved
 symbol failure was reproduced and corrected in the explicit link/dependencies.

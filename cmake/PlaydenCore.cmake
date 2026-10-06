@@ -129,6 +129,15 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(runtime_package_installer_test "${CMAKE_SOURCE_DIR}/tests/runtime_package_installer_test.cpp")
     target_link_libraries(runtime_package_installer_test PRIVATE playden_runtime_package_installer)
     add_test(NAME runtime_package_installer COMMAND runtime_package_installer_test)
+    add_executable(runtime_package_installer_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_package_installer_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(runtime_package_installer_native_policy_test PRIVATE
+        PLAYDEN_PLATFORM_PS5=1 PLAYDEN_TEST_AT_UNAVAILABLE=1)
+    target_link_libraries(runtime_package_installer_native_policy_test PRIVATE playden_runtime_install_service)
+    add_test(NAME runtime_package_installer_native_policy COMMAND runtime_package_installer_native_policy_test)
     add_executable(runtime_install_service_test "${CMAKE_SOURCE_DIR}/tests/runtime_install_service_test.cpp")
     target_link_libraries(runtime_install_service_test PRIVATE playden_runtime_install_service)
     add_test(NAME runtime_install_service COMMAND runtime_install_service_test)

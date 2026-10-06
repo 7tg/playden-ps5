@@ -1,0 +1,58 @@
+{
+  "deployed": false,
+  "files": [
+    {
+      "mode": "0755",
+      "path": "eboot.bin",
+      "sha256": "bd8fe5967b4cc4cfa572798265a93f7ff63fc3835f7c19cbb25c4fa06c0b2854",
+      "size": 140601
+    },
+    {
+      "mode": "0644",
+      "path": "lapy-manifest.json",
+      "sha256": "cad7137d1d43dd82eae989769c98536632de447cd2528564b775c76f142eb5d1",
+      "size": 608
+    },
+    {
+      "mode": "0755",
+      "path": "lapy.elf",
+      "sha256": "5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935",
+      "size": 155248
+    },
+    {
+      "mode": "0644",
+      "path": "native-title-build.json",
+      "sha256": "025faef61a6f23072ebd4f4378f0dcdbe19d3c3b246363c36fdc39d123774ae9",
+      "size": 249
+    },
+    {
+      "mode": "0755",
+      "path": "sce_module/libc.prx",
+      "sha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036",
+      "size": 1284674
+    },
+    {
+      "mode": "0644",
+      "path": "sce_sys/icon0.png",
+      "sha256": "def1c924fcd9f74e4cb8dce2ae66ae2111f0f9c0be99973855d55bfdda1202d0",
+      "size": 3003
+    },
+    {
+      "mode": "0644",
+      "path": "sce_sys/param.json",
+      "sha256": "14bab8fc05b305d8da4abfd0b01d02f381ee5dade6fcb1a4ce6a6df27ebafd05",
+      "size": 819
+    }
+  ],
+  "helper_sha256": "5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935",
+  "kit_accepted": false,
+  "native_foundation_commit": "9c0b994a048521af6fb84c73ded364504fe250e9",
+  "sdk_version": "0.42",
+  "title_build": {
+    "eboot_sha256": "bd8fe5967b4cc4cfa572798265a93f7ff63fc3835f7c19cbb25c4fa06c0b2854",
+    "schema": "prospero-win-native-title/1",
+    "source_dirty": false,
+    "source_revision": "df261e9469b0faab7ef145441bb192f762472524",
+    "title_id": "FAKE78001"
+  }
+}

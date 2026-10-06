@@ -1,5 +1,6 @@
 #include "runtime/package_installer.h"
 #include "runtime/private_directories.h"
+#include "platform/managed_directory.h"
 
 #include "steam/backend/json.h"
 
@@ -197,33 +198,36 @@ bool WriteFile(const fs::path& path, const std::string& bytes, unsigned mode) {
 // Only the just-created directory and its initial marker may be removed here.
 // An interrupted initialization must not strand an unidentifiable staging tree.
 void CleanInitialStage(const fs::path& staging, const struct stat& created) {
-  const int fd = ::open(staging.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  if (fd < 0) return;
+  using platform::DirectoryPolicy;
+  using platform::ManagedDirectory;
+  auto directory = ManagedDirectory::Open(staging, DirectoryPolicy::kApprovedTree);
+  auto parent = ManagedDirectory::Open(staging.parent_path(), DirectoryPolicy::kApprovedTree);
+  if (!directory || !parent) return;
   struct stat current{};
-  if (::fstat(fd, &current) != 0 || current.st_dev != created.st_dev ||
-      current.st_ino != created.st_ino || current.st_uid != ::geteuid()) {
-    ::close(fd); return;
+  if (::fstat(directory->fd(), &current) != 0 || current.st_dev != created.st_dev ||
+      current.st_ino != created.st_ino || current.st_uid != ::geteuid()) return;
+  const int listing_fd = ::dup(directory->fd());
+  if (listing_fd < 0) return;
+  DIR* listing = ::fdopendir(listing_fd);
+  if (!listing) { ::close(listing_fd); return; }
+  bool safe = true;
+  errno = 0;
+  while (const auto* entry = ::readdir(listing)) {
+    const std::string name = entry->d_name;
+    if (name != "." && name != ".." && name != kStageOwner) safe = false;
   }
-  DIR* listing = ::fdopendir(::dup(fd));
-  bool safe = listing != nullptr;
-  if (listing) {
-    errno = 0;
-    while (const auto* entry = ::readdir(listing)) {
-      const std::string name = entry->d_name;
-      if (name != "." && name != ".." && name != kStageOwner) safe = false;
-    }
-    if (errno != 0) safe = false;
-    ::closedir(listing);
-  }
+  if (errno != 0) safe = false;
+  ::closedir(listing);
+  if (!safe || !directory->Validate()) return;
   struct stat marker{};
-  if (safe && ::fstatat(fd, kStageOwner, &marker, AT_SYMLINK_NOFOLLOW) == 0) {
-    safe = S_ISREG(marker.st_mode) && marker.st_uid == ::geteuid();
-    if (safe) safe = ::unlinkat(fd, kStageOwner, 0) == 0;
-  } else if (safe && errno != ENOENT) safe = false;
-  ::close(fd);
-  if (safe && ::lstat(staging.c_str(), &current) == 0 &&
-      current.st_dev == created.st_dev && current.st_ino == created.st_ino)
-    ::rmdir(staging.c_str());
+  if (directory->InspectChild(kStageOwner, &marker)) {
+    if (!S_ISREG(marker.st_mode) || marker.st_uid != ::geteuid() ||
+        (marker.st_mode & 07777) != 0600 || !directory->RemoveRegularFile(kStageOwner) ||
+        !directory->Sync()) return;
+  } else if (errno != ENOENT) return;
+  if (!directory->Validate() || !parent->InspectChild(staging.filename().string(), &current) ||
+      current.st_dev != created.st_dev || current.st_ino != created.st_ino) return;
+  if (parent->RemoveEmptyDirectory(staging.filename().string())) parent->Sync();
 }
 
 std::map<std::string, std::string> ParseMarker(const std::string& bytes) {

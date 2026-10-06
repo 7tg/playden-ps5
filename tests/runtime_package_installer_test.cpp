@@ -16,6 +16,14 @@
 #include <unistd.h>
 #include <vector>
 
+#ifdef PLAYDEN_TEST_AT_UNAVAILABLE
+#include <cerrno>
+extern "C" int openat(int, const char*, int, ...) { errno = EINVAL; return -1; }
+extern "C" int mkdirat(int, const char*, mode_t) { errno = EINVAL; return -1; }
+extern "C" int fstatat(int, const char*, struct stat*, int) { errno = EINVAL; return -1; }
+extern "C" int unlinkat(int, const char*, int) { errno = EINVAL; return -1; }
+#endif
+
 using namespace playden::runtime;
 
 #define CHECK(condition)                                                                  \
