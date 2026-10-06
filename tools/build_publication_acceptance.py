@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 
-REVISION = "1bdebc081f872789b4bc39f1656629ef2b03d523"
+REVISION = "eba69f87edd2b9468e0bb11d56da6768d9876e07"
 FOUNDATION = "9c0b994a048521af6fb84c73ded364504fe250e9"
 PROVIDER = "f14d5e3ecb31951e3cf5bfdc41972181a9be1d96ed0dc7cb3aeebb8e4aab844a"
 SDK_ARCHIVE = "8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da"
