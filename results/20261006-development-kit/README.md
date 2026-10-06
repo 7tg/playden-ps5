@@ -1,6 +1,8 @@
 # Development compatibility kit hl2-fw1360-dev1 — 2026-10-06
 
-Scope: host packaging and C++ admission only. Nothing was installed on the PS5.
+Scope: host packaging and C++ admission. The table shows the current respin,
+which is installed on the console and admitted there (see
+[prepare-ready](../20261006-prepare-ready/README.md)).
 This kit is **not releasable**.
 
 ## Result
@@ -8,10 +10,10 @@ This kit is **not releasable**.
 | Item | Value |
 | --- | --- |
 | Kit | `hl2-fw1360-dev1`, 3558 files, local path `build/kits/hl2-fw1360-dev1` (not in Git) |
-| Manifest SHA-256 | `b54c4b44592e25f70e0c525cd8af755ef6c0b88d3d8e210872e1a01679168cee` |
-| Files digest | `a89a11e79929c29e73675d5e642321429a71c0a0e1b6ed98d06077203dc09cdf` |
-| prospero-win source | `9f314314ae6973c12f47c99b546d13d6ec002598` (local, unpublished), clean |
-| FAKE78001 / FAKE78002 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `530ed4221524c57e0ddda1f1304319376caad4161ad18ee8d2ccebe8407d1578` / `30e5fb31edb5ee2efae4976ba51206be2a70deca72c44e21f5bbc9fb0b49b026`, `source_dirty: false` |
+| Manifest SHA-256 | `63e8111c305c6638c2ae561650efeec17a05fa36ec2069940f780267fb4e3c09` |
+| Files digest | `41886a2d009277fe057eb72808cbe12bffcbe593ee36a13e6bbf03ddfee7fa2e` |
+| prospero-win source | `1a8a0d5c0b056487aa0b35316cc0eef3d43dc684` (local, unpublished), clean |
+| FAKE78001 / FAKE78002 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `1f8d514e8f0ae2f12b44396adf292588fe09ef0a2db0e4ed50cf2cb31060adae` / `17f97d455b302e0c3e064bd0a6fc22ef5a3e1167d695b8d4bafee433a37c299f`, `source_dirty: false` |
 | Helpers / protocol | FAKE78001 `5608915…`, FAKE78002 `e2449875…` / `bb02c4aa…` (independent pins) |
 | Template | approved console template `candidate-v16`, preparation `hl2-fresh-v16` (lock-pinned evidence verified by `tools/package_prospero_kit.py`) |
 | Capabilities | `dxvk`, `offline_bottle`, `per_game_title`, `wow64_i386`; the publication-guard capability is not claimed or trusted |

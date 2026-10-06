@@ -186,7 +186,7 @@ static void joined(char *out, size_t capacity, const char *root, const char *tai
 }
 static void marker_bytes(char *out, size_t capacity) {
     struct stat a, b; CHECK(lstat(data_root, &a) == 0 && lstat(title_root, &b) == 0);
-    int n = snprintf(out, capacity, "PWPA1 %s eba69f87edd2b9468e0bb11d56da6768d9876e07 %llu %llu %llu %llu\n",
+    int n = snprintf(out, capacity, "PWPA1 %s 1a8a0d5c0b056487aa0b35316cc0eef3d43dc684 %llu %llu %llu %llu\n",
        nonce, (unsigned long long)a.st_dev, (unsigned long long)a.st_ino,
        (unsigned long long)b.st_dev, (unsigned long long)b.st_ino);
     CHECK(n > 0 && (size_t)n < capacity);

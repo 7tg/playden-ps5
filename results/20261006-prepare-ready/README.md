@@ -6,9 +6,10 @@ First hardware run of the composed runtime host in the normal Playden app
 title, `FAKE78002`, with a private bottle at
 `/data/playden/games/steam-220`. The game files were not moved.
 
-Scope: preparation, OWNER publication, native registration and Ready. The
-diagnostic Home launch reached Wine startup and stopped there (below). No
-gameplay, Cloud, save or settings-update acceptance is claimed.
+Scope: preparation, OWNER publication, native registration and Ready, then
+Home launches of the prepared title: gameplay, an in-game save loaded after a
+restart, and a clean quit (later sections). No Cloud, Play-from-Playden or
+settings-update acceptance is claimed.
 
 ## Result
 
@@ -92,9 +93,35 @@ from Home with no arguments:
   (1046391 bytes) into the recorded download root
   `/data/homebrew/FAKE77031/games/220`.
 
-Not verified: loading that save after a restart. Every launch after the
-session was force-closed fails with CE-108255-1 about two seconds after a
-successful grant. The session report stops after `data_mount`, before
-publication admission completes or a session starts. Investigation is open.
+## Relaunch, save load and clean quit
+
+The first relaunches after that session failed with CE-108255-1 about two
+seconds after a successful grant. Wine runs with the title's umask 0, so it
+rewrote the bottle's `user.reg` as `0666`, and the publication guard refuses a
+group- or world-writable registry (stage 7). Two fixes:
+
+- Playden repairs the bottle: Details offers Repair, which sets the
+  app-owned registry files back to `0600` and refreshes the title.
+- The wrapper sets a private umask after the grant (prospero-win `eba69f8`).
+  Before the grant the libkernel gateway is not resolvable. The session report
+  shows `umask private=1 previous=0 errno=0`. Files HL2 wrote afterwards are
+  `0600` (`half-life-002.sav`). Every later admission check reported
+  `result=ok` with no repair.
+
+After the repair, `FAKE78002` launched from Home. Load Game listed the save
+([dialog](hl2-load-dialog.jpg)), and it loaded at the locker where it was made
+([loaded](hl2-save-loaded-after-restart.jpg)).
+
+HL2's own Quit then showed CE-108255-1
+([session](fake78002-quit-session.log): `exit` and `session_end
+reason=wine64-exit`, no fault). The wrapper let Wine's `exit()` end the
+process. The system reports a title that ends its own process as a crash.
+prospero-win `1a8a0d5` closes a per-game title through
+`sceSystemServiceLoadExec("exit")`, as other titles do. With that kit
+installed through Playden's Update (`FAKE78002` eboot `17f97d45…` verified
+over FTP), the main menu's Quit returned to Home with no error
+([Home](hl2-quit-clean-home.jpg),
+[session](fake78002-clean-quit-session.log)).
+
 A separate hazard: launching a title while ShadowMount is still finalizing its
-previous instance also fails; wait for `runtime layers released`.
+previous instance also fails. Wait for `runtime layers released`.

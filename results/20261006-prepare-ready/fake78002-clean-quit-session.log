@@ -1,0 +1,668 @@
+== session-5.log
+PW_REPORT/1 build=1a8a0d5c0b056487aa0b35316cc0eef3d43dc684 profile=playden-steam-220 cycle=0 pid=1323 time=1791285920
+REC seq=1 t=84340.490502638 PW_WINE64 hid preload libSceKeyboard id=0x106 status=0 handle=208
+REC seq=2 t=84340.493208655 PW_WINE64 hid preload libSceMouse id=0xa9 status=0 handle=209
+REC seq=3 t=84342.074558729 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 credential_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/download0/prospero-win
+REC seq=4 t=84342.091344103 PW_WINE64 umask private=1 previous=0 errno=0
+REC seq=5 t=84342.114562914 PW_WINE64 session id=bb0e2bfe-10f8-437d-8b33-320c5a592f9e origin=home phase=starting
+REC seq=6 t=84342.114575423 PW_WINE64 library status=ok listed_by=0 scan_errno=0 entries=1 games=1 root=/data/playden/games/steam-220/library
+REC seq=7 t=84342.114579272 PW_WINE64 args argc=1 mode=game profile=playden-steam-220 cycle=0 refused=0
+REC seq=8 t=84342.114655449 PW_WINE64 profile id=playden-steam-220 prefix=/data/playden/games/steam-220/library/prefixes/game desktop=1920x1080 scaling=0 view=window show_fps=0 refresh=60 gl_thread=0 input=ok preset=- mode=xinput mouse=0 dll_overrides=d3d9=n
+REC seq=9 t=84342.114663226 PW_WINE64 cpus online=16
+REC seq=10 t=84342.118662635 PW_WINE64 prefix temp folders=2 last=users/prospero/AppData/Local/Temp
+REC seq=11 t=84342.118666484 PW_WINE64 arguments words=12 line=-game hl2 -steam -w 1920 -h 1080 -novid +exec 360controller.cfg +joystick 1
+REC seq=12 t=84342.118708661 PW_WINE64 runtime not at /app0/win/wine/lib/wine/x86_64-unix
+REC seq=13 t=84342.118743301 PW_WINE64 ntdll=/mnt/sandbox/FAKE78002_000/app0/win/wine/lib/wine/x86_64-unix/ntdll.prx prefix=/data/playden/games/steam-220/library/prefixes/game exe=Z:\data\homebrew\FAKE77031\games\220\hl2.exe
+REC seq=14 t=84342.122325264 PW_WINE64 load status=0 stage=6 module=0x20d2 segments=4 module_start=0 adopted=1 stats=1
+REC seq=15 t=84342.122347315 PW_WINE64 output_sink=1
+REC seq=16 t=84342.141848089 PW_WINE64 hid keyboard module=0xd0 init=0 open=0x11d0700 user=300742841
+REC seq=17 t=84342.141944472 PW_WINE64 hid mouse module=0xd1 init=0 open=0x1e0700 merged=1 user=300742841
+REC seq=18 t=84342.143731324 PW_WINE64 display present_sink=1 frames=1 post_input=1 xinput=1 video=ok pad=ok hid=ok
+REC seq=19 t=84342.143954480 PW_WINE64 audio sink=1 port=-1 status=state
+REC seq=20 t=84342.143961456 PW_WINE64 cwd=Z:\data\homebrew\FAKE77031\games\220 host=/data/homebrew/FAKE77031/games/220 status=0
+REC seq=21 t=84342.143974686 PW_WINE64 environment status=0
+REC seq=22 t=84342.145684720 PW_WINE64 run status=0
+REC seq=23 t=84342.145686886 PW_WINE64 thread entered, calling __wine_main
+REC seq=24 t=84342.145696187 WINE wine startup: init_paths
+REC seq=25 t=84342.146957263 WINE wine startup: virtual_init
+REC seq=26 t=84342.147270307 WINESERVER wine-ps5: direct memory in use for anonymous memory (region 10000, 1663 MiB)
+REC seq=27 t=84342.147450885 WINE wine startup: init_environment
+REC seq=28 t=84342.147940577 WINE wine startup: start_main_thread
+REC seq=29 t=84342.147943784 WINE wine startup: virtual_alloc_first_teb
+REC seq=30 t=84342.148324104 WINE wine startup: dbg_init
+REC seq=31 t=84342.148333085 WINE wine startup: server_init_process
+REC seq=32 t=84342.152369779 WINESERVER wine-ps5: anonymous mappings in shared memory
+REC seq=33 t=84342.198110911 WINESERVER wine-ps5: server requests on client threads: on
+REC seq=34 t=84342.198208015 WINE wine startup: server connected
+REC seq=35 t=84342.201293149 WINE 0024:trace:process:NtCreateUserProcess process creation is not supported on PS5
+REC seq=36 t=84342.201320573 WINE 0024:err:environ:run_wineboot failed to start wineboot c00000bb
+REC seq=37 t=84342.209413367 WINE 0024:trace:loaddll:build_ntdll_module Loaded L"C:\\windows\\system32\\ntdll.dll" at 00000013FFD40000: builtin
+REC seq=38 t=84342.211719980 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wow64.dll" at 00000013FFD10000: builtin
+REC seq=39 t=84342.211788218 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000001a,100021f290,0x00000008,0)
+REC seq=40 t=84342.214187206 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wowprospero.dll" at 00000013FFCF0000: builtin
+REC seq=41 t=84342.220420259 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 00000013FFC70000: builtin
+REC seq=42 t=84342.220460672 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wow64win.dll" at 00000013FFCB0000: builtin
+REC seq=43 t=84342.263080426 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000025,100021f210,0x00000040,0)
+REC seq=44 t=84342.263837697 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\hl2.exe" at 00400000: native
+REC seq=45 t=84342.263927024 WINE 0024:trace:loaddll:build_ntdll_module Loaded L"C:\\windows\\system32\\ntdll.dll" at 7BF20000: builtin
+REC seq=46 t=84342.271202728 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 7BD50000: builtin
+REC seq=47 t=84342.271399022 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 7BEA0000: builtin
+REC seq=48 t=84342.285624958 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 7BA40000: builtin
+REC seq=49 t=84342.291398309 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 7B900000: builtin
+REC seq=50 t=84342.291429581 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 7BA00000: builtin
+REC seq=51 t=84342.291474485 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 7BB10000: builtin
+REC seq=52 t=84342.296026290 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 7B810000: builtin
+REC seq=53 t=84342.296060289 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 7B860000: builtin
+REC seq=54 t=84342.296304774 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\USER32.dll" at 7BB70000: builtin
+REC seq=55 t=84342.296793906 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000001a,100021f210,0x00000008,0)
+REC seq=56 t=84342.297827736 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 0021F7B4 85)
+REC seq=57 t=84342.303047246 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4896" 00000000 0)
+REC seq=58 t=84342.303149883 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4896" 00252830 17)
+REC seq=59 t=84342.306110409 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4897" 00000000 0)
+REC seq=60 t=84342.306120512 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4897" 00252830 17)
+REC seq=61 t=84342.307834075 WINE 0024:trace:process:set_entry_point setting FT_Thunk at 7BEE8668 to 00000000
+REC seq=62 t=84342.334326135 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\imm32.dll" at 7B7D0000: builtin
+REC seq=63 t=84342.334599487 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000007,100021f210,0x00000008,0)
+REC seq=64 t=84342.337490572 WINE 0024:trace:process:SetEnvironmentVariableW (L"PATH" L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0")
+REC seq=65 t=84342.351200515 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 7ADF0000: builtin
+REC seq=66 t=84342.351248065 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 7AE20000: builtin
+REC seq=67 t=84342.351319029 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHELL32.dll" at 7AE80000: builtin
+REC seq=68 t=84342.361689811 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cryptbase.dll" at 7ABF0000: builtin
+REC seq=69 t=84342.361781382 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 7AC10000: builtin
+REC seq=70 t=84342.361819150 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 7ACB0000: builtin
+REC seq=71 t=84342.364607037 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 7ABC0000: builtin
+REC seq=72 t=84342.364695802 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 7AD20000: builtin
+REC seq=73 t=84342.370279914 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dnsapi.dll" at 7AB20000: builtin
+REC seq=74 t=84342.372365136 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\nsi.dll" at 7AB00000: builtin
+REC seq=75 t=84342.374710961 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 7AAC0000: builtin
+REC seq=76 t=84342.374737903 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\iphlpapi.dll" at 7AB50000: builtin
+REC seq=77 t=84342.374788661 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WSOCK32.dll" at 7AB90000: builtin
+REC seq=78 t=84342.377613032 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\steam_api.dll" at 7AA60000: native
+REC seq=79 t=84342.386659471 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msacm32.dll" at 7A970000: builtin
+REC seq=80 t=84342.386721855 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINMM.dll" at 7A9A0000: builtin
+REC seq=81 t=84342.386922639 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\tier0.dll" at 7AA00000: native
+REC seq=82 t=84342.388736834 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\vstdlib.dll" at 7A8C0000: native
+REC seq=83 t=84342.388904662 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\launcher.dll" at 7B780000: native
+REC seq=84 t=84342.389743803 WINESERVER pw_wine_dl: cannot open /mnt/sandbox/FAKE78002_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.so, tried /mnt/sandbox/FAKE78002_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.prx /app0/sce_module/dnsapi.prx: not found
+REC seq=85 t=84342.389817974 WINE 0024:err:dnsapi:DllMain No libresolv support, expect problems
+REC seq=86 t=84342.400606442 WINE 0024:fixme:heap:RtlSetHeapInformation HEAP_INFORMATION_CLASS 1 not implemented!
+REC seq=87 t=84342.404337870 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\psapi.dll" at 7A8A0000: builtin
+REC seq=88 t=84342.444551580 WINE 0024:trace:process:SetEnvironmentVariableW (L"=Z:" L"z:\\data\\homebrew\\fake77031\\games\\220")
+REC seq=89 t=84342.444899505 WINE 0024:fixme:ver:GetCurrentPackageId (0021E51C 00000000): stub
+REC seq=90 t=84342.453489208 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\filesystem_stdio.dll" at 7A7D0000: native
+REC seq=91 t=84342.458720905 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rsaenh.dll" 00000000 0)
+REC seq=92 t=84342.458740230 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rsaenh.dll" 00960FA8 31)
+REC seq=93 t=84342.466904309 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\bcrypt.dll" at 7A630000: builtin
+REC seq=94 t=84342.468876790 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ncrypt.dll" at 7A600000: builtin
+REC seq=95 t=84342.468924741 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\crypt32.dll" at 7A6B0000: builtin
+REC seq=96 t=84342.468969163 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rsaenh.dll" at 7A760000: builtin
+REC seq=97 t=84342.473160295 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\rsaenh.dll" : builtin
+REC seq=98 t=84342.476832386 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\crypt32.dll" : builtin
+REC seq=99 t=84342.477266190 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\ncrypt.dll" : builtin
+REC seq=100 t=84342.477337474 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\bcrypt.dll" : builtin
+REC seq=101 t=84342.482176264 WINE 0028:fixme:ver:GetCurrentPackageId (0B78FF30 00000000): stub
+REC seq=102 t=84342.486786204 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000015,100021f210,0x00000008,0)
+REC seq=103 t=84342.489549072 WINE 0024:fixme:ver:GetCurrentPackageId (0021E034 00000000): stub
+REC seq=104 t=84342.529867425 WINESERVER ac_compute_device_uuid's output is based on invalid pci bus info.
+REC seq=105 t=84342.530001575 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=106 t=84342.530093387 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=107 t=84342.550125469 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 7A780000: builtin
+REC seq=108 t=84342.588663064 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\mpr.dll" at 79FE0000: builtin
+REC seq=109 t=84342.588750867 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WININET.dll" at 7A010000: builtin
+REC seq=110 t=84342.589364205 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\engine.dll" at 7A090000: native
+REC seq=111 t=84342.590384083 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 0021C174 260)
+REC seq=112 t=84342.590732569 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21ca58,0x00000004,0)
+REC seq=113 t=84342.590907534 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21ca58,0x00000004,0)
+REC seq=114 t=84342.591441328 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 0021C174 260)
+REC seq=115 t=84342.591492807 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21ca58,0x00000004,0)
+REC seq=116 t=84342.591562889 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21ca58,0x00000004,0)
+REC seq=117 t=84342.591710110 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 0021C174 260)
+REC seq=118 t=84342.591766079 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21ca58,0x00000004,0)
+REC seq=119 t=84342.591845142 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21ca58,0x00000004,0)
+REC seq=120 t=84342.618760180 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\OLEAUT32.dll" at 79D50000: builtin
+REC seq=121 t=84342.624043999 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cfgmgr32.dll" at 79C90000: builtin
+REC seq=122 t=84342.624120977 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SETUPAPI.dll" at 79CD0000: builtin
+REC seq=123 t=84342.626539609 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\VERSION.dll" at 79C70000: builtin
+REC seq=124 t=84342.626575372 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\SDL2.dll" at 79E30000: native
+REC seq=125 t=84342.626948314 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\inputsystem.dll" at 79FA0000: native
+REC seq=126 t=84342.627031787 WINE 0024:trace:process:GetEnvironmentVariableW (L"oanocache" 00000000 0)
+REC seq=127 t=84342.635183678 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\materialsystem.dll" at 79B10000: native
+REC seq=128 t=84342.642799208 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\datacache.dll" at 79AB0000: native
+REC seq=129 t=84342.650080686 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\studiorender.dll" at 796A0000: native
+REC seq=130 t=84342.656480605 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vphysics.dll" at 795A0000: native
+REC seq=131 t=84342.662793924 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\video_services.dll" at 79570000: native
+REC seq=132 t=84342.690811271 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libharfbuzz-0.dll" at 78FD0000: native
+REC seq=133 t=84342.690847034 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libfreetype-6.dll" at 791B0000: native
+REC seq=134 t=84342.701559405 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libxml2-2.dll" at 78D90000: native
+REC seq=135 t=84342.701591399 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libfontconfig-1.dll" at 79310000: native
+REC seq=136 t=84342.702135537 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vguimatsurface.dll" at 793D0000: native
+REC seq=137 t=84342.702714877 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000024,21d44c,0x00000004,0)
+REC seq=138 t=84342.715194936 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vgui2.dll" at 78C80000: native
+REC seq=139 t=84342.746605169 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\d3d9.dll" at 78700000: native
+REC seq=140 t=84342.746997356 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\shaderapidx9.dll" at 78B60000: native
+REC seq=141 t=84342.755648962 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_NO_VR" 0C4BEA00 260)
+REC seq=142 t=84342.756160304 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_LOG_LEVEL" 0C4BEA00 260)
+REC seq=143 t=84342.810027507 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_LOG_PATH" 0C4EC4C8 260)
+REC seq=144 t=84342.810377676 WINE info:  Game: hl2.exe
+REC seq=145 t=84342.810539330 WINE info:  DXVK: v2.6.2
+REC seq=146 t=84342.810624407 WINE info:  Build: x86 gcc 15.1.0
+REC seq=147 t=84342.810647260 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_WSI_DRIVER" 0C4EC4C8 260)
+REC seq=148 t=84342.810869775 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_CONFIG_FILE" 0C4EC4C8 260)
+REC seq=149 t=84342.810881241 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_CONFIG" 0C4EC4C8 260)
+REC seq=150 t=84342.811524488 WINE 0024:trace:process:GetEnvironmentVariableW (L"SteamDeck" 0C4EC4C8 260)
+REC seq=151 t=84342.818297110 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winevulkan.dll" at 786A0000: builtin
+REC seq=152 t=84342.818581447 WINE info:  Vulkan: Found vkGetInstanceProcAddr in winevulkan.dll @ 0x786bc600
+REC seq=153 t=84342.818698838 WINE info:  Built-in extension providers:
+REC seq=154 t=84342.818769482 WINE info:    Platform WSI
+REC seq=155 t=84342.818796023 WINE info:    OpenVR
+REC seq=156 t=84342.818803480 WINE info:    OpenXR
+REC seq=157 t=84342.819028000 WINE info:  OpenVR: could not open registry key, status 2
+REC seq=158 t=84342.821462830 WINE info:  OpenVR: Failed to locate module
+REC seq=159 t=84342.823834795 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_DEBUG" 0C4EC4C8 260)
+REC seq=160 t=84342.828177637 WINE info:  Enabled instance extensions:
+REC seq=161 t=84342.828256379 WINE info:    VK_EXT_surface_maintenance1
+REC seq=162 t=84342.828271214 WINE info:    VK_KHR_get_surface_capabilities2
+REC seq=163 t=84342.828277708 WINE info:    VK_KHR_surface
+REC seq=164 t=84342.828283803 WINE info:    VK_KHR_win32_surface
+REC seq=165 t=84342.828726426 WINESERVER ac_compute_device_uuid's output is based on invalid pci bus info.
+REC seq=166 t=84342.828831630 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=167 t=84342.828920234 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=168 t=84342.829752960 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_FILTER_DEVICE_NAME" 0C4ECB08 260)
+REC seq=169 t=84342.829794416 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_FILTER_DEVICE_UUID" 0C4ECB08 260)
+REC seq=170 t=84342.834708740 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_SHADER_DUMP_PATH" 0C4EC7D0 260)
+REC seq=171 t=84342.834985620 WINE info:  D3D9: VK_FORMAT_D24_UNORM_S8_UINT -> VK_FORMAT_D32_SFLOAT_S8_UINT
+REC seq=172 t=84342.835158981 WINE info:  PS5:
+REC seq=173 t=84342.835165957 WINE info:    Driver : radv 26.2.0
+REC seq=174 t=84342.835225775 WINE info:    Memory Heap[0]: 
+REC seq=175 t=84342.835349742 WINE info:      Size: 4096 MiB
+REC seq=176 t=84342.835405792 WINE info:      Flags: 0x0
+REC seq=177 t=84342.835475312 WINE info:      Memory Type[2]: Property Flags = 0x6
+REC seq=178 t=84342.835489666 WINE info:      Memory Type[5]: Property Flags = 0xe
+REC seq=179 t=84342.835496161 WINE info:      Memory Type[6]: Property Flags = 0xe
+REC seq=180 t=84342.835502816 WINE info:      Memory Type[8]: Property Flags = 0xc6
+REC seq=181 t=84342.835509150 WINE info:      Memory Type[10]: Property Flags = 0xce
+REC seq=182 t=84342.835518131 WINE info:    Memory Heap[1]: 
+REC seq=183 t=84342.835524787 WINE info:      Size: 8192 MiB
+REC seq=184 t=84342.835530159 WINE info:      Flags: 0x1
+REC seq=185 t=84342.835536333 WINE info:      Memory Type[0]: Property Flags = 0x1
+REC seq=186 t=84342.835542508 WINE info:      Memory Type[1]: Property Flags = 0x1
+REC seq=187 t=84342.835548762 WINE info:      Memory Type[3]: Property Flags = 0x7
+REC seq=188 t=84342.835554776 WINE info:      Memory Type[4]: Property Flags = 0x7
+REC seq=189 t=84342.835560950 WINE info:      Memory Type[7]: Property Flags = 0xc1
+REC seq=190 t=84342.835567125 WINE info:      Memory Type[9]: Property Flags = 0xc7
+REC seq=191 t=84342.835678181 WINE info:  Process set as DPI aware
+REC seq=192 t=84342.839813424 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\video_quicktime.dll" at 78660000: native
+REC seq=193 t=84342.842907619 WINE 0024:fixme:ver:GetCurrentPackageId (0021E294 00000000): stub
+REC seq=194 t=84342.849441688 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\binkw32.dll" at 10000000: native
+REC seq=195 t=84342.849745110 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\video_bink.dll" at 78620000: native
+REC seq=196 t=84342.852567557 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21e6e8,0x00000004,0)
+REC seq=197 t=84342.855845537 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\DSOUND.DLL" at 785C0000: builtin
+REC seq=198 t=84342.856029963 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21e6e8,0x00000004,0)
+REC seq=199 t=84342.859342743 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\mmdevapi.dll" at 78580000: builtin
+REC seq=200 t=84342.862285308 WINE 0024:err:mmdevapi:init_driver No driver from L"ps5" could be initialized. Maybe check dependencies with WINEDEBUG=warn+module.
+REC seq=201 t=84342.864834643 WINE 0024:trace:process:SetEnvironmentVariableW (L"VProject" L"hl2")
+REC seq=202 t=84342.865428095 WINE 0024:trace:process:SetEnvironmentVariableW (L"path" L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0")
+REC seq=203 t=84342.869306504 WINESERVER Using breakpad crash handler
+REC seq=204 t=84342.870776382 WINE 0024:fixme:ver:GetCurrentPackageId (0021D658 00000000): stub
+REC seq=205 t=84342.881513451 WINESERVER Setting breakpad minidump AppID = 220
+REC seq=206 t=84342.881724900 WINESERVER Forcing breakpad minidump interfaces to load
+REC seq=207 t=84342.938180488 WINE 0024:fixme:keyboard:LoadKeyboardLayoutW name L"00000409", flags 0, semi-stub!
+REC seq=208 t=84342.944962651 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\hid.dll" at 78550000: builtin
+REC seq=209 t=84342.959846589 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\comctl32.dll" at 783C0000: builtin
+REC seq=210 t=84342.959932226 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dinput8.dll" at 784F0000: builtin
+REC seq=211 t=84342.963788183 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\XInput1_4.dll" at 78370000: builtin
+REC seq=212 t=84342.967395244 WINE 0030:err:service:device_notify_proc failed to open RPC handle, error 1722
+REC seq=213 t=84342.973486529 WINE 0024:fixme:xinput:XInputGetBatteryInformation index 0, type 0, battery 0021E6B2.
+REC seq=214 t=84343.026523011 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dbg.dll" at 78320000: native
+REC seq=215 t=84343.033716605 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx6.dll" at 782C0000: native
+REC seq=216 t=84343.040734754 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx7.dll" at 78270000: native
+REC seq=217 t=84343.047609050 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx8.dll" at 781F0000: native
+REC seq=218 t=84343.058318936 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx9.dll" at 78140000: native
+REC seq=219 t=84343.087879853 WINE 0024:trace:process:SetEnvironmentVariableW (L"FONTCONFIG_PATH" L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\platform\\platform_misc.vpk\\fontconfig")
+REC seq=220 t=84343.088095231 WINE 0024:trace:process:SetEnvironmentVariableW (L"PANGO_SYSCONFDIR" L"z:\\data\\homebrew\\fake77031\\games\\220")
+REC seq=221 t=84343.088118725 WINE 0024:trace:process:SetEnvironmentVariableW (L"PANGO_LIBDIR" L"z:\\data\\homebrew\\fake77031\\games\\220")
+REC seq=222 t=84343.090996740 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shfolder.dll" at 78120000: builtin
+REC seq=223 t=84343.092294381 WINESERVER Fontconfig error: Cannot load default config file: No such file: (null)
+REC seq=224 t=84343.095106243 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 0021C018 260)
+REC seq=225 t=84343.095180815 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21c8fc,0x00000004,0)
+REC seq=226 t=84343.095272387 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21c8fc,0x00000004,0)
+REC seq=227 t=84343.096649732 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUSERNAME" 0021C2F8 260)
+REC seq=228 t=84343.096706503 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21cbdc,0x00000004,0)
+REC seq=229 t=84343.096789174 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21cbdc,0x00000004,0)
+REC seq=230 t=84343.136469331 WINE 0024:fixme:ntdll:NtQuerySystemInformation info_class SYSTEM_PERFORMANCE_INFORMATION
+REC seq=231 t=84343.136482321 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,100021f210,0x00000060,0)
+REC seq=232 t=84343.139789809 PW_WINE64 alive tick=60 sink_calls=194 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=3320 audio=0 audible=0
+REC seq=233 t=84343.144099775 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\compstui.dll" at 78060000: builtin
+REC seq=234 t=84343.144164405 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winspool.drv" at 78090000: builtin
+REC seq=235 t=84343.144193673 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wbem\\wbemprox.dll" at 780D0000: builtin
+REC seq=236 t=84343.144464940 WINESERVER pw_wine_dl: cannot open /mnt/sandbox/FAKE78002_000/app0/win/wine/lib/wine/x86_64-unix/winspool.so, tried /mnt/sandbox/FAKE78002_000/app0/win/wine/lib/wine/x86_64-unix/winspool.prx /app0/sce_module/winspool.prx: not found
+REC seq=237 t=84343.146165833 WINE 0024:fixme:wbemprox:client_security_SetBlanket 780F2954, 0C4A45C8, 10, 0, (null), 3, 3, 00000000, 0
+REC seq=238 t=84343.146191733 WINE 0024:fixme:wbemprox:client_security_Release 780F2954
+REC seq=239 t=84343.168319622 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\unicode.dll" at 78030000: native
+REC seq=240 t=84343.172387107 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000025,100021f210,0x00000040,0)
+REC seq=241 t=84343.181991236 WINE info:  Device properties:
+REC seq=242 t=84343.182000217 WINE info:    Device : PS5
+REC seq=243 t=84343.182005829 WINE info:    Driver : radv 26.2.0
+REC seq=244 t=84343.182030607 WINE info:  Enabled device extensions:
+REC seq=245 t=84343.182101411 WINE info:    VK_AMD_memory_overallocation_behavior
+REC seq=246 t=84343.182116405 WINE info:    VK_AMD_shader_fragment_mask
+REC seq=247 t=84343.182124664 WINE info:    VK_EXT_attachment_feedback_loop_layout
+REC seq=248 t=84343.182130919 WINE info:    VK_EXT_conservative_rasterization
+REC seq=249 t=84343.182137173 WINE info:    VK_EXT_custom_border_color
+REC seq=250 t=84343.182143267 WINE info:    VK_EXT_depth_bias_control
+REC seq=251 t=84343.182149361 WINE info:    VK_EXT_depth_clip_enable
+REC seq=252 t=84343.182155455 WINE info:    VK_EXT_extended_dynamic_state3
+REC seq=253 t=84343.182161550 WINE info:    VK_EXT_fragment_shader_interlock
+REC seq=254 t=84343.182167884 WINE info:    VK_EXT_graphics_pipeline_library
+REC seq=255 t=84343.182174379 WINE info:    VK_EXT_hdr_metadata
+REC seq=256 t=84343.182180313 WINE info:    VK_EXT_line_rasterization
+REC seq=257 t=84343.182186327 WINE info:    VK_EXT_memory_priority
+REC seq=258 t=84343.182192341 WINE info:    VK_EXT_multi_draw
+REC seq=259 t=84343.182198435 WINE info:    VK_EXT_non_seamless_cube_map
+REC seq=260 t=84343.182204449 WINE info:    VK_EXT_robustness2
+REC seq=261 t=84343.182210703 WINE info:    VK_EXT_shader_module_identifier
+REC seq=262 t=84343.182216637 WINE info:    VK_EXT_shader_stencil_export
+REC seq=263 t=84343.182222731 WINE info:    VK_EXT_swapchain_maintenance1
+REC seq=264 t=84343.182229146 WINE info:    VK_EXT_transform_feedback
+REC seq=265 t=84343.182235801 WINE info:    VK_EXT_vertex_attribute_divisor
+REC seq=266 t=84343.182242136 WINE info:    VK_KHR_load_store_op_none
+REC seq=267 t=84343.182248471 WINE info:    VK_KHR_maintenance5
+REC seq=268 t=84343.182254324 WINE info:    VK_KHR_maintenance7
+REC seq=269 t=84343.182260178 WINE info:    VK_KHR_pipeline_library
+REC seq=270 t=84343.182266272 WINE info:    VK_KHR_present_id
+REC seq=271 t=84343.182272526 WINE info:    VK_KHR_present_wait
+REC seq=272 t=84343.182278620 WINE info:    VK_KHR_swapchain
+REC seq=273 t=84343.182284714 WINE info:    VK_KHR_swapchain_mutable_format
+REC seq=274 t=84343.183351982 WINE info:  Device features:
+REC seq=275 t=84343.183359600 WINE info:    robustBufferAccess                     : 1
+REC seq=276 t=84343.183364171 WINE info:    fullDrawIndexUint32                    : 1
+REC seq=277 t=84343.183368661 WINE info:    imageCubeArray                         : 1
+REC seq=278 t=84343.183373151 WINE info:    independentBlend                       : 1
+REC seq=279 t=84343.183377882 WINE info:    geometryShader                         : 1
+REC seq=280 t=84343.183382533 WINE info:    tessellationShader                     : 0
+REC seq=281 t=84343.183386863 WINE info:    sampleRateShading                      : 1
+REC seq=282 t=84343.183391514 WINE info:    dualSrcBlend                           : 0
+REC seq=283 t=84343.183396485 WINE info:    logicOp                                : 0
+REC seq=284 t=84343.183400815 WINE info:    multiDrawIndirect                      : 1
+REC seq=285 t=84343.183405225 WINE info:    drawIndirectFirstInstance              : 0
+REC seq=286 t=84343.183409556 WINE info:    depthClamp                             : 1
+REC seq=287 t=84343.183414046 WINE info:    depthBiasClamp                         : 1
+REC seq=288 t=84343.183418456 WINE info:    fillModeNonSolid                       : 1
+REC seq=289 t=84343.183422786 WINE info:    depthBounds                            : 1
+REC seq=290 t=84343.183427116 WINE info:    wideLines                              : 1
+REC seq=291 t=84343.183431446 WINE info:    multiViewport                          : 1
+REC seq=292 t=84343.183435776 WINE info:    samplerAnisotropy                      : 1
+REC seq=293 t=84343.183440186 WINE info:    textureCompressionBC                   : 1
+REC seq=294 t=84343.183444516 WINE info:    occlusionQueryPrecise                  : 1
+REC seq=295 t=84343.183448927 WINE info:    pipelineStatisticsQuery                : 1
+REC seq=296 t=84343.183453256 WINE info:    vertexPipelineStoresAndAtomics         : 1
+REC seq=297 t=84343.183457586 WINE info:    fragmentStoresAndAtomics               : 0
+REC seq=298 t=84343.183461917 WINE info:    shaderImageGatherExtended              : 0
+REC seq=299 t=84343.183466247 WINE info:    shaderClipDistance                     : 1
+REC seq=300 t=84343.183470657 WINE info:    shaderCullDistance                     : 1
+REC seq=301 t=84343.183475468 WINE info:    shaderFloat64                          : 0
+REC seq=302 t=84343.183480279 WINE info:    shaderInt64                            : 0
+REC seq=303 t=84343.183484769 WINE info:    variableMultisampleRate                : 1
+REC seq=304 t=84343.183489099 WINE info:    shaderResourceResidency                : 0
+REC seq=305 t=84343.183493429 WINE info:    shaderResourceMinLod                   : 0
+REC seq=306 t=84343.183497759 WINE info:    sparseBinding                          : 0
+REC seq=307 t=84343.183502250 WINE info:    sparseResidencyBuffer                  : 0
+REC seq=308 t=84343.183506580 WINE info:    sparseResidencyImage2D                 : 0
+REC seq=309 t=84343.183510990 WINE info:    sparseResidencyImage3D                 : 0
+REC seq=310 t=84343.183515320 WINE info:    sparseResidency2Samples                : 0
+REC seq=311 t=84343.183519650 WINE info:    sparseResidency4Samples                : 0
+REC seq=312 t=84343.183523980 WINE info:    sparseResidency8Samples                : 0
+REC seq=313 t=84343.183528390 WINE info:    sparseResidency16Samples               : 0
+REC seq=314 t=84343.183532720 WINE info:    sparseResidencyAliased                 : 0
+REC seq=315 t=84343.183537050 WINE info:  Vulkan 1.1
+REC seq=316 t=84343.183541861 WINE info:    shaderDrawParameters                   : 1
+REC seq=317 t=84343.183546192 WINE info:  Vulkan 1.2
+REC seq=318 t=84343.183550441 WINE info:    samplerMirrorClampToEdge               : 1
+REC seq=319 t=84343.183554851 WINE info:    drawIndirectCount                      : 1
+REC seq=320 t=84343.183559181 WINE info:    samplerFilterMinmax                    : 0
+REC seq=321 t=84343.183563512 WINE info:    hostQueryReset                         : 1
+REC seq=322 t=84343.183567842 WINE info:    timelineSemaphore                      : 1
+REC seq=323 t=84343.183572653 WINE info:    bufferDeviceAddress                    : 0
+REC seq=324 t=84343.183577384 WINE info:    shaderOutputViewportIndex              : 1
+REC seq=325 t=84343.183581794 WINE info:    shaderOutputLayer                      : 1
+REC seq=326 t=84343.183586124 WINE info:    vulkanMemoryModel                      : 1
+REC seq=327 t=84343.183590454 WINE info:  Vulkan 1.3
+REC seq=328 t=84343.183594704 WINE info:    robustImageAccess                      : 0
+REC seq=329 t=84343.183599274 WINE info:    pipelineCreationCacheControl           : 1
+REC seq=330 t=84343.183604326 WINE info:    shaderDemoteToHelperInvocation         : 1
+REC seq=331 t=84343.183609057 WINE info:    shaderZeroInitializeWorkgroupMemory    : 0
+REC seq=332 t=84343.183613387 WINE info:    synchronization2                       : 1
+REC seq=333 t=84343.183617717 WINE info:    dynamicRendering                       : 1
+REC seq=334 t=84343.183622127 WINE info:  VK_AMD_shader_fragment_mask
+REC seq=335 t=84343.183626457 WINE info:    extension supported                    : 1
+REC seq=336 t=84343.183630947 WINE info:  VK_EXT_attachment_feedback_loop_layout
+REC seq=337 t=84343.183635358 WINE info:    attachmentFeedbackLoopLayout           : 1
+REC seq=338 t=84343.183639688 WINE info:  VK_EXT_conservative_rasterization
+REC seq=339 t=84343.183644098 WINE info:    extension supported                    : 1
+REC seq=340 t=84343.183648508 WINE info:  VK_EXT_custom_border_color
+REC seq=341 t=84343.183652918 WINE info:    customBorderColors                     : 1
+REC seq=342 t=84343.183657248 WINE info:    customBorderColorWithoutFormat         : 1
+REC seq=343 t=84343.183661659 WINE info:  VK_EXT_depth_clip_enable
+REC seq=344 t=84343.183665988 WINE info:    depthClipEnable                        : 1
+REC seq=345 t=84343.183670399 WINE info:  VK_EXT_depth_bias_control
+REC seq=346 t=84343.183674809 WINE info:    depthBiasControl                       : 1
+REC seq=347 t=84343.183679540 WINE info:    leastRepresentableValueForceUnormRepresentation : 0
+REC seq=348 t=84343.183683950 WINE info:    floatRepresentation                    : 1
+REC seq=349 t=84343.183688280 WINE info:    depthBiasExact                         : 1
+REC seq=350 t=84343.183692690 WINE info:  VK_EXT_extended_dynamic_state3
+REC seq=351 t=84343.183697020 WINE info:    extDynamicState3AlphaToCoverageEnable  : 1
+REC seq=352 t=84343.183701350 WINE info:    extDynamicState3DepthClipEnable        : 1
+REC seq=353 t=84343.183705680 WINE info:    extDynamicState3RasterizationSamples   : 1
+REC seq=354 t=84343.183710010 WINE info:    extDynamicState3SampleMask             : 1
+REC seq=355 t=84343.183714421 WINE info:    extDynamicState3LineRasterizationMode  : 1
+REC seq=356 t=84343.183718911 WINE info:  VK_EXT_fragment_shader_interlock
+REC seq=357 t=84343.183723481 WINE info:    fragmentShaderSampleInterlock          : 0
+REC seq=358 t=84343.183728052 WINE info:    fragmentShaderPixelInterlock           : 0
+REC seq=359 t=84343.183732703 WINE info:  VK_EXT_full_screen_exclusive
+REC seq=360 t=84343.183737273 WINE info:    extension supported                    : 0
+REC seq=361 t=84343.183741603 WINE info:  VK_EXT_graphics_pipeline_library
+REC seq=362 t=84343.183745933 WINE info:    graphicsPipelineLibrary                : 1
+REC seq=363 t=84343.183750343 WINE info:  VK_EXT_line_rasterization
+REC seq=364 t=84343.183754673 WINE info:    rectangularLines                       : 1
+REC seq=365 t=84343.183759084 WINE info:    smoothLines                            : 1
+REC seq=366 t=84343.183766220 WINE info:  VK_EXT_memory_budget
+REC seq=367 t=84343.183771112 WINE info:    extension supported                    : 1
+REC seq=368 t=84343.183775762 WINE info:  VK_EXT_memory_priority
+REC seq=369 t=84343.183780413 WINE info:    memoryPriority                         : 1
+REC seq=370 t=84343.183784984 WINE info:  VK_EXT_multi_draw
+REC seq=371 t=84343.183789554 WINE info:    multiDraw                              : 1
+REC seq=372 t=84343.183793964 WINE info:  VK_EXT_non_seamless_cube_map
+REC seq=373 t=84343.183798294 WINE info:    nonSeamlessCubeMap                     : 1
+REC seq=374 t=84343.183802705 WINE info:  VK_EXT_pageable_device_local_memory
+REC seq=375 t=84343.183807195 WINE info:    pageableDeviceLocalMemory              : 0
+REC seq=376 t=84343.183811525 WINE info:  VK_EXT_robustness2
+REC seq=377 t=84343.183815775 WINE info:    robustBufferAccess2                    : 1
+REC seq=378 t=84343.183820185 WINE info:    robustImageAccess2                     : 1
+REC seq=379 t=84343.183824515 WINE info:    nullDescriptor                         : 1
+REC seq=380 t=84343.183828925 WINE info:  VK_EXT_shader_module_identifier
+REC seq=381 t=84343.183833255 WINE info:    shaderModuleIdentifier                 : 1
+REC seq=382 t=84343.183837746 WINE info:  VK_EXT_shader_stencil_export
+REC seq=383 t=84343.183842076 WINE info:    extension supported                    : 1
+REC seq=384 t=84343.183846406 WINE info:  VK_EXT_swapchain_colorspace
+REC seq=385 t=84343.183850736 WINE info:    extension supported                    : 0
+REC seq=386 t=84343.183855146 WINE info:  VK_EXT_swapchain_maintenance1
+REC seq=387 t=84343.183859476 WINE info:    swapchainMaintenance1                  : 1
+REC seq=388 t=84343.183863806 WINE info:  VK_EXT_hdr_metadata
+REC seq=389 t=84343.183868136 WINE info:    extension supported                    : 1
+REC seq=390 t=84343.183872466 WINE info:  VK_EXT_transform_feedback
+REC seq=391 t=84343.183876796 WINE info:    transformFeedback                      : 0
+REC seq=392 t=84343.183881126 WINE info:    geometryStreams                        : 0
+REC seq=393 t=84343.183885536 WINE info:  VK_EXT_vertex_attribute_divisor
+REC seq=394 t=84343.183889866 WINE info:    vertexAttributeInstanceRateDivisor     : 1
+REC seq=395 t=84343.183894196 WINE info:    vertexAttributeInstanceRateZeroDivisor : 1
+REC seq=396 t=84343.183898526 WINE info:  VK_KHR_external_memory_win32
+REC seq=397 t=84343.183902856 WINE info:    extension supported                    : 0
+REC seq=398 t=84343.183907587 WINE info:  VK_KHR_external_semaphore_win32
+REC seq=399 t=84343.183912398 WINE info:    extension supported                    : 0
+REC seq=400 t=84343.183916809 WINE info:  VK_KHR_load_store_op_none
+REC seq=401 t=84343.183921138 WINE info:    extension supported                    : 1
+REC seq=402 t=84343.183925468 WINE info:  VK_KHR_maintenance5
+REC seq=403 t=84343.183929718 WINE info:    maintenance5                           : 1
+REC seq=404 t=84343.183934048 WINE info:  VK_KHR_maintenance7
+REC seq=405 t=84343.183938298 WINE info:    maintenance7                           : 1
+REC seq=406 t=84343.183942708 WINE info:  VK_KHR_present_id
+REC seq=407 t=84343.183946958 WINE info:    presentId                              : 1
+REC seq=408 t=84343.183951208 WINE info:  VK_KHR_present_wait
+REC seq=409 t=84343.183955458 WINE info:    presentWait                            : 1
+REC seq=410 t=84343.183959868 WINE info:  VK_NV_descriptor_pool_overallocation
+REC seq=411 t=84343.183964198 WINE info:    descriptorPoolOverallocation           : 0
+REC seq=412 t=84343.183968528 WINE info:  VK_NV_low_latency2
+REC seq=413 t=84343.183972778 WINE info:    extension supported                    : 0
+REC seq=414 t=84343.183977108 WINE info:  VK_NV_raw_access_chains
+REC seq=415 t=84343.183981518 WINE info:    shaderRawAccessChains                  : 0
+REC seq=416 t=84343.183985768 WINE info:  VK_NVX_binary_import
+REC seq=417 t=84343.183990018 WINE info:    extension supported                    : 0
+REC seq=418 t=84343.183994348 WINE info:  VK_NVX_image_view_handle
+REC seq=419 t=84343.183998758 WINE info:    extension supported                    : 0
+REC seq=420 t=84343.184003008 WINE info:  VK_KHR_win32_keyed_mutex
+REC seq=421 t=84343.184007578 WINE info:    extension supported                    : 0
+REC seq=422 t=84343.184251262 WINE info:  Queue families:
+REC seq=423 t=84343.184256394 WINE info:    Graphics : 0
+REC seq=424 t=84343.184260563 WINE info:    Transfer : 1
+REC seq=425 t=84343.184264733 WINE info:    Sparse   : 0
+REC seq=426 t=84343.190173837 WINE info:  Memory type mask for buffer resources: 0x7ad, usage: 0x1ff
+REC seq=427 t=84343.190376466 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_STATE_CACHE" 0C6136A8 260)
+REC seq=428 t=84343.190421530 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_STATE_CACHE_PATH" 0C6136A8 260)
+REC seq=429 t=84343.192743700 WINE info:  DXVK: Read 15 valid state cache entries
+REC seq=430 t=84343.193001015 WINE info:  DXVK: Graphics pipeline libraries supported
+REC seq=431 t=84343.196850637 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_SHADER_DUMP_PATH" 0C613D10 260)
+REC seq=432 t=84343.221163658 WINE info:  D3D9DeviceEx::ResetSwapChain:
+REC seq=433 t=84343.221174724 WINE info:    Requested Presentation Parameters
+REC seq=434 t=84343.221179936 WINE info:      - Width:              1920
+REC seq=435 t=84343.221184506 WINE info:      - Height:             1080
+REC seq=436 t=84343.221189077 WINE info:      - Format:             D3D9Format::A8R8G8B8
+REC seq=437 t=84343.221193487 WINE info:      - Auto Depth Stencil: true
+REC seq=438 t=84343.221198057 WINE info:                  ^ Format: D3D9Format::D24S8
+REC seq=439 t=84343.221202468 WINE info:      - Windowed:           false
+REC seq=440 t=84343.221206878 WINE info:      - Swap effect:        1
+REC seq=441 t=84343.221369494 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_FORCE_WINDOWED" 0C614448 260)
+REC seq=442 t=84343.221535157 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_FRAME_RATE" 0C5C5060 260)
+REC seq=443 t=84343.224985857 PW_WINE64 display released to vulkan close=ok shown=0
+REC seq=444 t=84343.226657402 PW_WINE64 vulkan frames idle=1 show=1 buffer=1
+REC seq=445 t=84343.244542920 WINE 0024:trace:process:GetEnvironmentVariableW (L"DXVK_HUD" 0C5EC7D0 260)
+REC seq=446 t=84343.245761338 WINE info:  Setting display mode: 1920x1080@60
+REC seq=447 t=84343.245798784 WINE info:  Setting display mode: 1920x1080@60
+REC seq=448 t=84343.278459669 WINE info:  DXVK: Using 16 compiler threads
+REC seq=449 t=84344.169725272 PW_WINE64 alive tick=120 sink_calls=407 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=11 vk_busy=0 cpu_ms=3697 audio=0 audible=0
+REC seq=450 t=84345.001247364 WINE info:  Presenter: Actual swapchain properties:
+REC seq=451 t=84345.001257307 WINE info:    Format:       VK_FORMAT_B8G8R8A8_UNORM
+REC seq=452 t=84345.001262599 WINE info:    Color space:  VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+REC seq=453 t=84345.001273825 WINE info:    Present mode: VK_PRESENT_MODE_FIFO_KHR (dynamic: yes)
+REC seq=454 t=84345.001278476 WINE info:    Buffer size:  1920x1080
+REC seq=455 t=84345.001285372 WINE info:    Image count:  3
+REC seq=456 t=84345.028467107 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\hl2\\bin\\client.dll" at 77A80000: native
+REC seq=457 t=84345.075364753 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\hl2\\bin\\server.dll" at 77280000: native
+REC seq=458 t=84345.134195272 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\soundemittersystem.dll" at 77240000: native
+REC seq=459 t=84345.148769614 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\scenefilecache.dll" at 77210000: native
+REC seq=460 t=84345.170393537 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,100021f210,0x00000060,0)
+REC seq=461 t=84345.175000029 PW_WINE64 alive tick=180 sink_calls=418 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=21 vk_busy=0 cpu_ms=4865 audio=0 audible=0
+REC seq=462 t=84345.201476774 WINE 0024:fixme:thread:NtSetInformationThread ThreadIdealProcessor stub!
+REC seq=463 t=84345.201501471 WINE 0024:fixme:thread:NtSetInformationThread ThreadIdealProcessor stub!
+REC seq=464 t=84345.201514461 WINE 0024:fixme:thread:NtSetInformationThread ThreadIdealProcessor stub!
+REC seq=465 t=84345.201518230 WINE 0024:fixme:thread:NtSetInformationThread ThreadIdealProcessor stub!
+REC seq=466 t=84345.213718041 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000015,100021f210,0x00000008,0)
+REC seq=467 t=84345.682705407 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\GameUI.dll" at 76F80000: native
+REC seq=468 t=84345.685626803 WINE 0024:fixme:thread:get_thread_times not implemented on this platform
+REC seq=469 t=84346.187803316 PW_WINE64 alive tick=240 sink_calls=425 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=33 vk_busy=0 cpu_ms=6074 audio=0 audible=0
+REC seq=470 t=84346.437968117 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000001a,100021f210,0x00000008,0)
+REC seq=471 t=84347.201134382 PW_WINE64 alive tick=300 sink_calls=426 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=45 vk_busy=0 cpu_ms=7667 audio=0 audible=0
+REC seq=472 t=84347.201139995 PW_WINE64 mmap=3430 munmap=6 mprotect=2293 skipped=2817 faults=0 images=92
+REC seq=473 t=84347.201162447 PW_WINE64 memory flexible_free=205824K dmem=696432K dmem_peak=697504K runs=733 dmem_failures=0 heap=31728K heap_peak=31728K dmem_low=126960K dmem_low_peak=128032K
+REC seq=474 t=84347.208548567 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\haptics.dll" at 76F30000: native
+REC seq=475 t=84347.213608908 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\haptics.dll" : native
+REC seq=476 t=84347.356222769 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mss32.dll" at 76EB0000: native
+REC seq=477 t=84347.356507427 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vaudio_miles.dll" at 76F50000: native
+REC seq=478 t=84347.363458781 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=479 t=84347.365857288 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssmp3.asi" at 76E80000: native
+REC seq=480 t=84347.365994004 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=481 t=84347.366156459 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=482 t=84347.367586967 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssvoice.asi" at 76E40000: native
+REC seq=483 t=84347.367645262 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=484 t=84347.368453130 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=485 t=84347.370027411 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssdolby.flt" at 76E20000: native
+REC seq=486 t=84347.370083540 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=487 t=84347.370135420 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=488 t=84347.371760057 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssds3d.flt" at 76E00000: native
+REC seq=489 t=84347.371871595 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=490 t=84347.371946568 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=491 t=84347.373781852 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssdsp.flt" at 76DD0000: native
+REC seq=492 t=84347.373860274 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=493 t=84347.375005562 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=494 t=84347.376394374 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\msseax.flt" at 76DB0000: native
+REC seq=495 t=84347.376453230 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=496 t=84347.376968180 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=497 t=84347.378698341 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\msssrs.flt" at 76D90000: native
+REC seq=498 t=84347.378758881 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,21dfac,0x00000004,0)
+REC seq=499 t=84347.980932227 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,100021f210,0x00000060,0)
+REC seq=500 t=84347.981186254 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,100021f210,0x00000060,0)
+REC seq=501 t=84348.173190164 WINE 0024:trace:loaddll:build_module Loaded L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\serverbrowser.dll" at 76C90000: native
+REC seq=502 t=84348.213579721 PW_WINE64 alive tick=360 sink_calls=454 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=57 vk_busy=0 cpu_ms=8543 audio=0 audible=0
+REC seq=503 t=84349.217912139 PW_WINE64 alive tick=420 sink_calls=454 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=67 vk_busy=0 cpu_ms=9571 audio=0 audible=0
+REC seq=504 t=84350.232000958 PW_WINE64 alive tick=480 sink_calls=454 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=79 vk_busy=0 cpu_ms=12424 audio=0 audible=0
+REC seq=505 t=84351.246336909 PW_WINE64 alive tick=540 sink_calls=454 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=91 vk_busy=0 cpu_ms=15541 audio=0 audible=0
+REC seq=506 t=84352.261239850 PW_WINE64 alive tick=600 sink_calls=454 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=103 vk_busy=0 cpu_ms=18491 audio=0 audible=0
+REC seq=507 t=84352.261245944 PW_WINE64 mmap=11658 munmap=7 mprotect=3401 skipped=5520 faults=0 images=103
+REC seq=508 t=84352.261264307 PW_WINE64 memory flexible_free=203776K dmem=811856K dmem_peak=812880K runs=915 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=182928K dmem_low_peak=183952K
+REC seq=509 t=84353.273999035 PW_WINE64 alive tick=660 sink_calls=454 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=115 vk_busy=0 cpu_ms=20534 audio=0 audible=0
+REC seq=510 t=84353.638363271 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=511 t=84354.286592075 PW_WINE64 alive tick=720 sink_calls=455 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=127 vk_busy=0 cpu_ms=21786 audio=0 audible=0
+REC seq=512 t=84354.898434740 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=513 t=84355.298708332 PW_WINE64 alive tick=780 sink_calls=456 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=139 vk_busy=0 cpu_ms=23281 audio=0 audible=0
+REC seq=514 t=84355.921348285 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=515 t=84356.279802374 PW_WINE64 alive tick=840 sink_calls=457 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=25137 audio=0 audible=0
+REC seq=516 t=84356.571108951 PW_WINE64 loading done by=vulkan spinner_steps=155
+REC seq=517 t=84356.584672075 PW_WINE64 session id=bb0e2bfe-10f8-437d-8b33-320c5a592f9e phase=running evidence=graphics status=0
+REC seq=518 t=84356.921734538 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=519 t=84357.263948353 PW_WINE64 alive tick=900 sink_calls=458 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=26446 audio=0 audible=0
+REC seq=520 t=84357.263953966 PW_WINE64 mmap=15057 munmap=7 mprotect=3938 skipped=6607 faults=0 images=103
+REC seq=521 t=84357.263988286 PW_WINE64 memory flexible_free=203776K dmem=898096K dmem_peak=906256K runs=1055 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=263024K dmem_low_peak=271184K
+REC seq=522 t=84357.939100134 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=523 t=84358.234523832 PW_WINE64 alive tick=960 sink_calls=459 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=27736 audio=0 audible=0
+REC seq=524 t=84358.956712221 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=525 t=84359.204607854 PW_WINE64 alive tick=1020 sink_calls=460 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=29066 audio=0 audible=0
+REC seq=526 t=84359.974449236 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=527 t=84360.173944228 PW_WINE64 alive tick=1080 sink_calls=461 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=30369 audio=0 audible=0
+REC seq=528 t=84360.992092514 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=529 t=84361.144283561 PW_WINE64 alive tick=1140 sink_calls=462 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=31664 audio=0 audible=0
+REC seq=530 t=84362.009812450 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=531 t=84362.113572865 PW_WINE64 alive tick=1200 sink_calls=463 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=32960 audio=0 audible=0
+REC seq=532 t=84362.113578077 PW_WINE64 mmap=15057 munmap=7 mprotect=3938 skipped=6607 faults=0 images=103
+REC seq=533 t=84362.113600850 PW_WINE64 memory flexible_free=203776K dmem=898096K dmem_peak=906256K runs=1055 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=263024K dmem_low_peak=271184K
+REC seq=534 t=84363.010786542 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=535 t=84363.084441822 PW_WINE64 alive tick=1260 sink_calls=464 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=34242 audio=0 audible=0
+REC seq=536 t=84364.028452192 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=537 t=84364.054943771 PW_WINE64 alive tick=1320 sink_calls=465 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=35541 audio=0 audible=0
+REC seq=538 t=84365.023955634 PW_WINE64 alive tick=1380 sink_calls=465 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=36830 audio=0 audible=0
+REC seq=539 t=84365.046148553 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=540 t=84365.993549964 PW_WINE64 alive tick=1440 sink_calls=466 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=38138 audio=0 audible=0
+REC seq=541 t=84366.063809713 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=542 t=84366.962736150 PW_WINE64 alive tick=1500 sink_calls=467 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=39481 audio=0 audible=0
+REC seq=543 t=84366.962742004 PW_WINE64 mmap=15057 munmap=7 mprotect=3940 skipped=6607 faults=0 images=103
+REC seq=544 t=84366.962769187 PW_WINE64 memory flexible_free=203776K dmem=898160K dmem_peak=906256K runs=1057 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=263088K dmem_low_peak=271184K
+REC seq=545 t=84367.081501744 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=546 t=84367.933095610 PW_WINE64 alive tick=1560 sink_calls=468 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=40799 audio=0 audible=0
+REC seq=547 t=84368.099191850 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=548 t=84368.902944047 PW_WINE64 alive tick=1620 sink_calls=469 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=42169 audio=0 audible=0
+REC seq=549 t=84369.123418993 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=550 t=84369.873287229 PW_WINE64 alive tick=1680 sink_calls=470 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=43535 audio=0 audible=0
+REC seq=551 t=84370.136940661 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=552 t=84370.843798479 PW_WINE64 alive tick=1740 sink_calls=471 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=44894 audio=0 audible=0
+REC seq=553 t=84371.168910989 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=554 t=84371.814250231 PW_WINE64 alive tick=1800 sink_calls=472 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=46271 audio=0 audible=0
+REC seq=555 t=84371.814256085 PW_WINE64 mmap=15058 munmap=7 mprotect=3941 skipped=6607 faults=0 images=103
+REC seq=556 t=84371.814280141 PW_WINE64 memory flexible_free=203776K dmem=898160K dmem_peak=906256K runs=1057 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=263088K dmem_low_peak=271184K
+REC seq=557 t=84372.291537671 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=558 t=84372.784951361 PW_WINE64 alive tick=1860 sink_calls=473 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=47530 audio=0 audible=0
+REC seq=559 t=84373.295099668 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=560 t=84373.753998906 PW_WINE64 alive tick=1920 sink_calls=474 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=48881 audio=0 audible=0
+REC seq=561 t=84374.323901309 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=562 t=84374.724459479 PW_WINE64 alive tick=1980 sink_calls=475 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=50227 audio=0 audible=0
+REC seq=563 t=84375.333025928 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=564 t=84375.694792958 PW_WINE64 alive tick=2040 sink_calls=476 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=51575 audio=0 audible=0
+REC seq=565 t=84376.360838322 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=566 t=84376.664795432 PW_WINE64 alive tick=2100 sink_calls=477 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=52929 audio=0 audible=0
+REC seq=567 t=84376.664800965 PW_WINE64 mmap=15058 munmap=7 mprotect=3941 skipped=6607 faults=0 images=103
+REC seq=568 t=84376.664825903 PW_WINE64 memory flexible_free=203776K dmem=898160K dmem_peak=906256K runs=1057 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=263088K dmem_low_peak=271184K
+REC seq=569 t=84377.413596560 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=570 t=84377.634944084 PW_WINE64 alive tick=2160 sink_calls=478 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=54178 audio=0 audible=0
+REC seq=571 t=84378.422418881 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=572 t=84378.605146219 PW_WINE64 alive tick=2220 sink_calls=479 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=55530 audio=0 audible=0
+REC seq=573 t=84379.438324140 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=574 t=84379.575143561 PW_WINE64 alive tick=2280 sink_calls=480 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=56887 audio=0 audible=0
+REC seq=575 t=84380.466479647 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=576 t=84380.543943013 PW_WINE64 alive tick=2340 sink_calls=481 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=58247 audio=0 audible=0
+REC seq=577 t=84381.486838645 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=578 t=84381.512795949 PW_WINE64 alive tick=2400 sink_calls=482 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=59610 audio=0 audible=0
+REC seq=579 t=84381.512801722 PW_WINE64 mmap=15379 munmap=7 mprotect=3947 skipped=6713 faults=0 images=103
+REC seq=580 t=84381.512825136 PW_WINE64 memory flexible_free=203776K dmem=902576K dmem_peak=910832K runs=1062 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=267504K dmem_low_peak=275760K
+REC seq=581 t=84382.481996007 PW_WINE64 alive tick=2460 sink_calls=482 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=60961 audio=0 audible=0
+REC seq=582 t=84382.508414136 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=583 t=84383.451939384 PW_WINE64 alive tick=2520 sink_calls=483 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=62311 audio=0 audible=0
+REC seq=584 t=84383.522167138 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=585 t=84384.424139579 PW_WINE64 alive tick=2580 sink_calls=484 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=63682 audio=0 audible=0
+REC seq=586 t=84384.540317991 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=587 t=84385.394945511 PW_WINE64 alive tick=2640 sink_calls=485 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=65038 audio=0 audible=0
+REC seq=588 t=84385.560472516 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=589 t=84386.364802047 PW_WINE64 alive tick=2700 sink_calls=486 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=66379 audio=0 audible=0
+REC seq=590 t=84386.364807981 PW_WINE64 mmap=15379 munmap=7 mprotect=3947 skipped=6713 faults=0 images=103
+REC seq=591 t=84386.364835004 PW_WINE64 memory flexible_free=203776K dmem=902576K dmem_peak=910832K runs=1062 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=267504K dmem_low_peak=275760K
+REC seq=592 t=84386.582202925 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=593 t=84387.334147482 PW_WINE64 alive tick=2760 sink_calls=487 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=67743 audio=0 audible=0
+REC seq=594 t=84387.602093560 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=595 t=84388.304151319 PW_WINE64 alive tick=2820 sink_calls=488 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=69096 audio=0 audible=0
+REC seq=596 t=84388.620486171 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=597 t=84389.274664413 PW_WINE64 alive tick=2880 sink_calls=489 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=70456 audio=0 audible=0
+REC seq=598 t=84389.637424620 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=599 t=84390.245290489 PW_WINE64 alive tick=2940 sink_calls=490 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=71795 audio=0 audible=0
+REC seq=600 t=84390.638364874 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=601 t=84391.215950563 PW_WINE64 alive tick=3000 sink_calls=491 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=73095 audio=0 audible=0
+REC seq=602 t=84391.215955856 PW_WINE64 mmap=15379 munmap=7 mprotect=3947 skipped=6713 faults=0 images=103
+REC seq=603 t=84391.215985364 PW_WINE64 memory flexible_free=203776K dmem=902576K dmem_peak=910832K runs=1062 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=267504K dmem_low_peak=275760K
+REC seq=604 t=84391.656076310 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=605 t=84392.186293023 PW_WINE64 alive tick=3060 sink_calls=492 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=74415 audio=0 audible=0
+REC seq=606 t=84392.673793680 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=607 t=84393.156971059 PW_WINE64 alive tick=3120 sink_calls=493 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=75719 audio=0 audible=0
+REC seq=608 t=84393.691428218 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=609 t=84394.126997989 PW_WINE64 alive tick=3180 sink_calls=494 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=77015 audio=0 audible=0
+REC seq=610 t=84394.709115438 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=611 t=84395.096998859 PW_WINE64 alive tick=3240 sink_calls=495 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=78298 audio=0 audible=0
+REC seq=612 t=84395.710173324 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000004,21e3c8,0x00000020,0)
+REC seq=613 t=84396.067797494 PW_WINE64 alive tick=3300 sink_calls=496 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=142 vk_busy=0 cpu_ms=79604 audio=0 audible=0
+REC seq=614 t=84396.067803909 PW_WINE64 mmap=15445 munmap=7 mprotect=3948 skipped=6735 faults=0 images=103
+REC seq=615 t=84396.067829007 PW_WINE64 memory flexible_free=203776K dmem=902640K dmem_peak=910832K runs=1063 dmem_failures=0 heap=32304K heap_peak=32304K dmem_low=267568K dmem_low_peak=275760K
+REC seq=616 t=84396.568618312 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssmp3.asi" : native
+REC seq=617 t=84396.575790417 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssvoice.asi" : native
+REC seq=618 t=84396.579451683 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssdolby.flt" : native
+REC seq=619 t=84396.582884341 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssds3d.flt" : native
+REC seq=620 t=84396.586807413 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mssdsp.flt" : native
+REC seq=621 t=84396.590409181 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\msseax.flt" : native
+REC seq=622 t=84396.593846730 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\msssrs.flt" : native
+REC seq=623 t=84396.599248421 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vaudio_miles.dll" : native
+REC seq=624 t=84396.602338847 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\mss32.dll" : native
+REC seq=625 t=84396.674119232 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\serverbrowser.dll" : native
+REC seq=626 t=84396.681279550 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\GameUI.dll" : native
+REC seq=627 t=84396.819299026 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\hl2\\bin\\server.dll" : native
+REC seq=628 t=84396.824237887 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\scenefilecache.dll" : native
+REC seq=629 t=84396.828565975 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\soundemittersystem.dll" : native
+REC seq=630 t=84396.843014265 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\hl2\\bin\\client.dll" : native
+REC seq=631 t=84396.854588951 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\unicode.dll" : native
+REC seq=632 t=84396.886369400 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx9.dll" : native
+REC seq=633 t=84396.891598852 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx8.dll" : native
+REC seq=634 t=84396.895880513 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx7.dll" : native
+REC seq=635 t=84396.900548828 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dx6.dll" : native
+REC seq=636 t=84396.904697221 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\stdshader_dbg.dll" : native
+REC seq=637 t=84396.926447917 WINE info:  Restoring display mode: 1920x1080@60
+REC seq=638 t=84396.926594256 WINE info:  Setting display mode: 1920x1080@60
+REC seq=639 t=84397.045210063 PW_WINE64 alive tick=3360 sink_calls=519 frames_put=2 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=143 vk_busy=0 cpu_ms=80712 audio=0 audible=0
+REC seq=640 t=84397.080124719 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\XInput1_4.dll" : builtin
+REC seq=641 t=84397.085688625 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\video_bink.dll" : native
+REC seq=642 t=84397.088952252 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\binkw32.dll" : native
+REC seq=643 t=84397.090068353 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\video_quicktime.dll" : native
+REC seq=644 t=84397.094142013 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\winevulkan.dll" : builtin
+REC seq=645 t=84397.100406098 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\shaderapidx9.dll" : native
+REC seq=646 t=84397.104076987 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\d3d9.dll" : native
+REC seq=647 t=84397.106754618 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vgui2.dll" : native
+REC seq=648 t=84397.120242929 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vguimatsurface.dll" : native
+REC seq=649 t=84397.123691223 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libfontconfig-1.dll" : native
+REC seq=650 t=84397.123926166 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libxml2-2.dll" : native
+REC seq=651 t=84397.124078679 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libfreetype-6.dll" : native
+REC seq=652 t=84397.124187410 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\libharfbuzz-0.dll" : native
+REC seq=653 t=84397.125158536 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\video_services.dll" : native
+REC seq=654 t=84397.129734878 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\vphysics.dll" : native
+REC seq=655 t=84397.133967065 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\studiorender.dll" : native
+REC seq=656 t=84397.138563453 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\datacache.dll" : native
+REC seq=657 t=84397.144118058 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\materialsystem.dll" : native
+REC seq=658 t=84397.148649496 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\inputsystem.dll" : native
+REC seq=659 t=84397.151896605 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\SDL2.dll" : native
+REC seq=660 t=84397.161607300 WINE 0024:trace:loaddll:free_modref Unloaded module L"z:\\data\\homebrew\\fake77031\\games\\220\\bin\\engine.dll" : native
+REC seq=661 t=84397.165065296 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\WININET.dll" : builtin
+REC seq=662 t=84397.165260227 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\system32\\mpr.dll" : builtin
+REC seq=663 t=84397.177225175 WINE 0024:trace:loaddll:free_modref Unloaded module L"Z:\\data\\homebrew\\FAKE77031\\games\\220\\bin\\filesystem_stdio.dll" : native
+REC seq=664 t=84397.185200256 STDOUT Joystick 0 removed.
+REC seq=665 t=84397.188395485 PW_WINE64 exit sink_calls=543
+REC seq=666 t=84397.203045281 PW_WINE64 session_end reason=wine64-exit
