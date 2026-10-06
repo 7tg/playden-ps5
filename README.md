@@ -1,43 +1,38 @@
-# Playden PS5 Launcher
+# Playden for PS5
 
-A controller-first launcher for Windows games on a jailbroken PS5, adapting the macOS Playden experience to PS5 navigation.
+A controller-first launcher for Windows games on a jailbroken PS5, adapting the macOS Playden experience to PS5
+navigation.
 
-This repository owns the launcher and Steam connectivity. Wine development lives separately. Initial releases focus on a native 4K60 interface, direct Steam QR sign-in, library browsing, and game-management UI before real installation and runtime integration.
+Playden signs in to Steam with a QR code, shows your library, downloads games, and runs them with
+[prospero-win](https://github.com/mpereiraesaa/prospero-win) (Wine for PS5). Each supported game gets its own
+private Wine bottle and its own PS5 Home title, so it can start from Playden or from the Home screen. Steam Cloud
+saves are checked before a game starts and synced after it ends.
 
-The reference implementation is sibling `../playden`, branch `feature/launchers`, inspected at `de952b3d49167e635945ada88cd8533e07d40d44`. The earlier singular branch name was a naming discrepancy; the reference checkout is not modified.
+Half-Life 2 is the first supported game. Other games download and show their compatibility status.
 
-The [PRD and roadmap](docs/superpowers/specs/2026-10-04-playden-ps5-launcher-design.md) records the agreed direction and proposed acceptance criteria. Milestone 1 implements a graphical Mac/PS5 shell with Home, Library, Settings, controller navigation, atomic preferences, and frame diagnostics. The active scope is the connected-library v1 in the approved four-milestone plan. The Wine runtime will be `../ps5-homebrew/prospero-win`; how downloaded games are packaged and installed for it is the next investigation (see `STATUS.md`).
+## Status
 
-The selected presentation is **direct ps5-homebrew-ui**, merged into `main` in `3bc1e38`. Its [post-selection evidence](results/ui-comparison/homebrew-ui/fixes-2026-10-04/README.md) records the verified layout, font and focus fixes. The [comparison brief](docs/superpowers/specs/2026-10-04-ui-framework-comparison.md) remains the screen/navigation reference. Normal startup connects the existing screens to Steam QR authentication, private session storage, owned-library retrieval, account-scoped offline cache and personal organization, and global reduced-motion preferences. Explicit simulation mode retains the comparison journeys. Real-account retrieval and native acceptance remain pending. The old RmlFocus shell remains a historical regression path.
+See [STATUS.md](STATUS.md) for what works on the console, the remaining roadmap and the next steps.
 
-The [Foundation to Connected Library plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) breaks the first four milestones into tasks: launcher shell, native 4K60 validation, Steam connectivity, and the integrated MVP.
-
-Current work and unproven acceptance gates are tracked in the [v1 execution ledger](docs/engineering/v1-progress.md). See [current status and roadmap](STATUS.md) and [agent handoff](HANDOFF.md) for the latest working-tree snapshot and resume steps.
-
-## Build and run
-
-Build the selected presentation with the commands below. See its [build notes](results/ui-comparison/homebrew-ui/README.md) for prerequisites/overrides and the [execution plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) for remaining production integration. The [build instructions](docs/engineering/build.md) document the selected `homebrew-host` preset and the explicitly named `legacy-host` regression path.
-
-Fetch the pinned submodules first:
+## Build
 
 ```sh
-git submodule update --init
+git clone --recursive https://github.com/leolobato/playden-ps5.git
+cd playden-ps5
+scripts/fetch-deps.sh
+scripts/build-homebrew.sh && cmake --build --preset homebrew-host && ctest --preset homebrew-host
+scripts/build-lapy-helper.sh && scripts/build-homebrew-ps5.sh
 ```
 
-The ps5-homebrew-ui pin (`8a716f2`) is upstream `4bd9425` plus three local `feat/latin-glyphs` commits that are not pushed yet. Until they are, point that submodule at a local checkout containing the branch: `git config submodule.third_party/ps5-homebrew-ui.url <path>` before the update (add `-c protocol.file.allow=always`).
+[CONTRIBUTING.md](CONTRIBUTING.md) explains the requirements, the console setup, and how to change a dependency.
+The submodule forks are not published yet, so a fresh clone cannot fetch them until they are.
 
-```sh
-scripts/build-homebrew.sh
-cmake --build --preset homebrew-host
-ctest --preset homebrew-host --output-on-failure
-build/homebrew-host/playden-homebrew
-```
+## Documentation
 
-Selected PS5 packaging uses the allocated `FAKE77031` title ID and does not contact the console. Its native tooling and `libc.prx` runtime shim come from the pinned `third_party/ps5-native-app-boilerplate` submodule:
+- [Build notes](docs/engineering/build.md) and [dependencies](docs/engineering/dependencies.md)
+- [PRD and roadmap](docs/superpowers/specs/2026-10-04-playden-ps5-launcher-design.md)
+- [prospero-win integration plan](docs/superpowers/plans/2026-10-05-prospero-win-integration.md) and
+  [roadmap](docs/engineering/prospero-win-roadmap.md)
+- Console evidence for each feature is under [results/](results/)
 
-```sh
-scripts/build-homebrew-ps5.sh
-```
-
-`FAKE77031` is allocated to this launcher. Do not use it for another application.
-4K performance work is deferred by user direction. Native 3840 × 2160 at 60 Hz remains the eventual MVP requirement; shell builds and brief smoke tests do not establish the milestone 2 performance gate.
+The behaviour reference is the macOS Playden app, branch `feature/launchers`.

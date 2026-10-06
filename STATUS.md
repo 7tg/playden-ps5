@@ -16,7 +16,7 @@ Evidence for the runtime work: [release kit and audio](results/20261006-release-
 | Area | Implemented behavior | Evidence and limits |
 | --- | --- | --- |
 | Pinned dependencies | ps5-native-app-boilerplate (tooling, `libc.prx`) and ps5-homebrew-ui as submodules under `third_party/` | Boilerplate at upstream latest; Hui at upstream latest plus unpushed local `feat/latin-glyphs` commits (see README) |
-| Selected presentation and builds | Merged Home, Library, Details, account/settings, controller keyboard, focus/navigation, and management simulations; selected Mac/PS5 builds with pinned dependencies | Actual graphical host captures and local PS5 packages. Legacy RmlFocus remains a regression path, not the selected presentation |
+| Selected presentation and builds | Merged Home, Library, Details, account/settings, controller keyboard, focus/navigation, and management simulations; selected Mac/PS5 builds with pinned dependencies | Actual graphical host captures and local PS5 packages. The legacy RmlFocus presentation was removed on 2026-10-06 |
 | Native Steam transport | Native DNS, certificate-validated HTTPS/WSS, cancellation, timeout, and persistent transport probe | Earlier PS5 gate passed; [transport evidence](results/20261004-steam-network-ps5/README.md). This is not authenticated CM or real-account acceptance |
 | Authentication | QR Begin/Poll/Renew, bounded worker events, private session persistence, restore/cancel/retry/sign-out, real QR encoding in selected UI | Synthetic protocol/state tests and graphical QR decoder checks. PS5-issued QR approval and real session restart remain pending |
 | Owned library and offline cache | Authenticated GetOwnedGames client, bounded account-aware worker, existing-screen projection, account-scoped cache, cache-only startup after network-only renewal failure | Host service/controller tests and synthetic graphical journeys; no public profile or user API key required. Real-account retrieval on PS5 remains pending |
@@ -50,16 +50,34 @@ Saves/Cloud migration from earlier locations is **not needed**: nothing has been
 | 4 | M4: kit update rollback | In-place upgrade works; a failed update's rollback is not built or tested |
 | 5 | Interruption / power-loss qualification | Deferred by the user: cold restart mid-preparation and retry; settings reader lease against the publisher over a full title run |
 | 6 | Cloud and storage cases on the console | Account confirmation, USB-download adoption, unavailable media. The HL2 Cloud conflict is the player's choice (do not resolve it for them) |
-| 7 | Clean-checkout reproduction | prospero-win commits through `301246d` (branch `feat/playden-per-game-title` in `../ps5-homebrew/prospero-win`) and the kit exist only locally; publishing waits for the user |
+| 7 | Publish (when the user says so) | See the publish checklist below |
 | 8 | Still unported from the macOS app | First-run setup, reset-app-data UI, ambient backdrop, other stores; more games beyond the HL2 recipe (others show "Untested") |
 | 9 | Minor | `tools/console_kit_upload.py --replace` names the set-aside kit after the new kit's hash |
 
-### After moving the project folder
+### Repository layout (2026-10-06)
 
-- Submodules use relative git dirs and move cleanly. CMake build directories under `build/` cache absolute paths: reconfigure (or delete them) after the move.
-- The build still defaults to sibling checkouts by absolute path: `scripts/build-homebrew-ps5.sh` (`PLAYDEN_PS5_ENV`, `PLAYDEN_PS5_DEPS_DIR`, pointing at `../playden-ps5` and `../rmlfocus/.deps`) and `cmake/HomebrewUI.cmake` (stb from `../rmlfocus/third_party/stb`). Set the environment/cache variables or update the defaults if those siblings move or stay behind.
-- `.worktrees/prospero-win-per-game` and `.worktrees/prospero-foundation-prx` are worktrees of `../ps5-homebrew/prospero-win` and `../playden-ps5/.deps/prospero-foundation`. After the move run `git worktree repair <new path>` in each of those repositories.
-- The `feat/game-settings` worktree lives under `~/.chauffeur/worktrees/…`; after the move run `git worktree repair` from the new checkout.
+The checkout is `~/Documents/Projetos/Personal/playden/ps5/playden-ps5` (renamed from `playden-ps5-launcher`). It is
+self-contained: patched dependencies are submodules on their forks' `feat/playden-ps5` branch, prebuilt toolchain
+pieces come from `scripts/fetch-deps.sh` into `deps/`, and nothing in the build points outside the repository. Setup
+and the dependency workflow are in [CONTRIBUTING.md](CONTRIBUTING.md); the forks and our commits are listed in
+[docs/engineering/dependencies.md](docs/engineering/dependencies.md). A fresh clone (with the forks taken from the local
+submodule histories) builds byte-identical PS5 output.
+
+The original checkouts in `~/Documents/Projetos/Personal/GameNative/ps5-homebrew/` (`prospero-win`, `ps5-homebrew-ui`,
+`ps5-opengl`, `PS5-Lapy-JB-Daemon`) and `GameNative/playden-ps5/.deps/prospero-foundation` are no longer used by the
+build; every branch from them was copied into the submodules. Delete them when you are satisfied.
+
+### Publish checklist (not done; the user decides when)
+
+1. Create the forks under `github.com/leolobato` and push each `feat/playden-ps5` branch (plus any other branches worth
+   keeping): `prospero-win`, `ps5-homebrew-ui`, `ps5-opengl`, `PS5-Lapy-JB-Daemon` (a fork already exists from PR #49),
+   and `prospero-foundation`. GitHub allows one fork per repository network per account, and `prospero-foundation` is
+   in the `ps5-native-app-boilerplate` network, so create it as a repository named `prospero-foundation`.
+2. Attach the compatibility kit to a release, with the Wine and DXVK licenses and pointers to the exact sources.
+3. Add a `LICENSE` file (sources carry GPL-3.0-or-later SPDX headers; the repository has none).
+4. Push `playden-ps5` last, then check a plain `git clone --recursive` builds.
+5. Offer our patches upstream: prospero-win (per-game wrapper, runtime fixes), ps5-homebrew-ui (macOS 4.1, CFF SDF,
+   latin glyphs), ps5-opengl (`e9c1104`), Lapy (FAKE titles, location-independent builds).
 
 ### Console notes
 
@@ -70,6 +88,6 @@ Saves/Cloud migration from earlier locations is **not needed**: nothing has been
 
 ## Working constraints
 
-Work on a feature branch and merge to `main`; commit coherent increments and preserve the selected UI. Never push anywhere until the user says so. Do not rebuild the old RmlFocus presentation or restore its stashed WIP. Keep reusable selected-renderer fixes in ps5-homebrew-ui and product behavior here.
+Work on a feature branch and merge to `main`; commit coherent increments and preserve the selected UI. Never push anywhere until the user says so. Keep reusable selected-renderer fixes in ps5-homebrew-ui and product behavior here.
 
 The launcher title is **FAKE77031**. Coordinate with the runtime effort before using the shared PS5. The PS5 MCP is available: claim the console before use, refresh the claim during long waits, and release it when done. A successful build or upload is never console acceptance.
