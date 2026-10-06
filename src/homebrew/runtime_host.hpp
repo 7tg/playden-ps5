@@ -119,6 +119,10 @@ struct RuntimeSnapshot {
   std::map<std::uint32_t, std::string> refusals;
   std::optional<std::uint32_t> preparing_app;  // the game being prepared now
   std::optional<RuntimeLaunchView> launch;
+  // Play requests the worker has finished handling (accepted or refused).
+  std::uint64_t plays_handled = 0;
+  // Latest refused Play per Steam app, for presentation.
+  std::map<std::uint32_t, std::string> play_refusals;
   // A checked session waits for Handoff on the application thread.
   bool handoff_ready = false;
 };

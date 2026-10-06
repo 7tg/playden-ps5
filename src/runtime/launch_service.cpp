@@ -720,12 +720,27 @@ LaunchSnapshot LaunchService::Snapshot() {
   snapshot_.code.clear();
   snapshot_.message.clear();
   snapshot_.exit_code.reset();
+  const auto activity = [&] {
+    if (dependencies_.activity) return dependencies_.activity(*record);
+    return dependencies_.preflight ? dependencies_.preflight(*record).activity
+                                   : NativeActivity::kUnknown;
+  };
   switch (evidence.state) {
     case LaunchEvidenceState::kStarting:
-      snapshot_.state = LaunchState::kLaunching;
-      return snapshot_;
     case LaunchEvidenceState::kRunning:
-      snapshot_.state = LaunchState::kRunning;
+      // A title closed from the system menu, or one that crashed, never
+      // writes its exit. Once it is seen stopped repeatedly, the session ended.
+      if (activity() == NativeActivity::kStopped) ++stopped_polls_;
+      else stopped_polls_ = 0;
+      if (stopped_polls_ >= kStoppedPollsToEnd) {
+        snapshot_.state = LaunchState::kExited;
+        snapshot_.code = "title-ended-without-record";
+        snapshot_.message = "the game ended without reporting its exit";
+        return snapshot_;
+      }
+      snapshot_.state = evidence.state == LaunchEvidenceState::kRunning
+                            ? LaunchState::kRunning
+                            : LaunchState::kLaunching;
       return snapshot_;
     case LaunchEvidenceState::kFailed:
       PersistFailure(LaunchError::kNative,
@@ -741,13 +756,10 @@ LaunchSnapshot LaunchService::Snapshot() {
       break;
   }
 
-  const auto preflight = dependencies_.preflight
-                             ? dependencies_.preflight(*record)
-                             : LaunchPreflight{};
   const std::int64_t now = dependencies_.now_ms ? dependencies_.now_ms() : 0;
   const std::int64_t elapsed =
       now >= session_->handoff_ms ? now - session_->handoff_ms : 0;
-  if (preflight.activity == NativeActivity::kStopped &&
+  if (activity() == NativeActivity::kStopped &&
       elapsed >= std::max<std::int64_t>(0, dependencies_.evidence_wait_ms)) {
     PersistFailure(LaunchError::kNative, "launch-no-evidence",
                    "native launch returned without wrapper startup evidence");

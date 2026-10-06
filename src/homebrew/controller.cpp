@@ -139,6 +139,10 @@ void Controller::Tick() {
 bool Controller::SessionActive(GameId id) const {
   if (!runtime_) return false;
   const auto snapshot = runtime_->Snapshot();
+  // Until the runtime has started, a session pending from before a restart is
+  // not known yet: no game's saves move.
+  if (snapshot.status == RuntimeHostStatus::kStarting) return true;
+  if (play_queued_.count(id)) return true;
   if (!snapshot.launch || snapshot.launch->app_id != id) return false;
   using runtime::LaunchState;
   const auto state = snapshot.launch->state;
@@ -161,6 +165,8 @@ void Controller::TickCloud() {
     if (root == game_roots_.end() || saves_root_.empty()) continue;  // only installed games sync
     // Never transfer saves while the game's own title may be writing them.
     if (SessionActive(request.game_id)) continue;
+    // Busy from now on, before Cloud reports it, so Play cannot slip in.
+    cloud_busy_.insert(request.game_id);
     steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
     // A prepared game keeps its Windows-folder saves in its private bottle.
     if (runtime_)
@@ -209,9 +215,22 @@ void Controller::TickRuntime() {
     const auto root = game_roots_.find(id);
     if (root != game_roots_.end()) runtime_->Prepare({id, root->second, game_volumes_[id]});
   }
-  for (const auto id : model_.TakeRuntimePlayRequests()) runtime_->Play(id);
-  if (runtime_->Snapshot().handoff_ready) runtime_->Handoff();
+  for (const auto id : model_.TakeRuntimePlayRequests()) {
+    // Never start a game while its saves are moving.
+    if (cloud_busy_.count(id)) continue;
+    play_queued_.insert(id);
+    ++plays_requested_;
+    runtime_->Play(id);
+  }
+  {
+    const auto current = runtime_->Snapshot();
+    if (current.handoff_ready && current.launch && !cloud_busy_.count(current.launch->app_id))
+      runtime_->Handoff();
+  }
   const auto snapshot = runtime_->Snapshot();
+  // Queued Plays are settled once the worker has handled every request; their
+  // sessions or refusals are then visible.
+  if (snapshot.plays_handled >= plays_requested_) play_queued_.clear();
   if (snapshot.launch) {
     const std::pair<GameId, runtime::LaunchState> current{snapshot.launch->app_id, snapshot.launch->state};
     if (current.second == runtime::LaunchState::kExited && last_launch_ != current)
@@ -262,6 +281,8 @@ void Controller::TickRuntime() {
       game.can_prepare = usable;
     }
     if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
+    if (const auto refused = snapshot.play_refusals.find(id); refused != snapshot.play_refusals.end())
+      game.play_detail = "Could not start: " + refused->second;
     const bool launching = snapshot.launch && snapshot.launch->app_id == id;
     if (launching) {
       using runtime::LaunchState;
@@ -283,7 +304,8 @@ void Controller::TickRuntime() {
                                           snapshot.launch->state == runtime::LaunchState::kReadyToHandoff ||
                                           snapshot.launch->state == runtime::LaunchState::kLaunching ||
                                           snapshot.launch->state == runtime::LaunchState::kRunning);
-    game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id);
+    game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
+                    play_queued_.empty();
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
     games.push_back(std::move(game));
   }

@@ -60,6 +60,9 @@ class Controller {
   // folder is known; games syncing now cannot start.
   std::set<GameId> sync_after_session_;
   std::set<GameId> cloud_busy_;
+  // Play requested but not yet visible in the runtime's launch state.
+  std::set<GameId> play_queued_;
+  std::uint64_t plays_requested_ = 0;
   std::optional<std::pair<GameId, runtime::LaunchState>> last_launch_;
   // A game whose title may be running: Cloud must not touch its saves.
   bool SessionActive(GameId id) const;

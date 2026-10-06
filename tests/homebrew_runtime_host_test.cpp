@@ -504,6 +504,14 @@ void PlaysReadyTitleThroughHandoff() {
   CHECK(launches[0].second == std::vector<std::string>{"session=" + session});
   CHECK(!host.Handoff());
   CHECK(host.Snapshot().launch->state == LaunchState::kLaunching);
+  // A second Play while the session is undecided is refused and stays visible
+  // for that game; the pending session is untouched.
+  const auto handled = host.Snapshot().plays_handled;
+  host.Play(220);
+  const auto refused = WaitFor(host, [handled](const RuntimeSnapshot& s) { return s.plays_handled > handled; }, 30);
+  CHECK(refused.play_refusals.count(220) && refused.launch && refused.launch->state == LaunchState::kLaunching);
+  std::this_thread::sleep_for(std::chrono::milliseconds(2500));  // one more poll
+  CHECK(host.Snapshot().play_refusals.count(220) && launches.size() == 1);
 
   // The wrapper records the session in the private game data root.
   const auto sessions = fixture.root / "data/playden/games/steam-220/logs/sessions";
@@ -525,12 +533,30 @@ void PlaysReadyTitleThroughHandoff() {
   WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kRunning; }, 30);
   Write(sessions / (session + ".json"), record(session, "exited"), 0600);
   WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kExited; }, 30);
-  // The ended session no longer blocks Play.
+  // The ended session no longer blocks Play, and an accepted Play clears the
+  // earlier refusal.
   host.Play(220);
   WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
   CHECK(host.Handoff());
   CHECK(launches.size() == 2 && launches[1].second[0] != launches[0].second[0]);
+  CHECK(!host.Snapshot().play_refusals.count(220));
+  // The system closes Playden when the game starts. If the game is then closed
+  // from the system menu, its record still says running; the restarted host
+  // ends that session once the title is seen stopped, and Play works again.
+  const std::string third = "00000000-0000-4000-8000-000000000003";
+  CHECK(launches[1].second[0] == "session=" + third);
   host.Shutdown();
+  Write(sessions / (third + ".json"), record(third, "running"), 0600);
+  RuntimeHost restarted(config);
+  CHECK(restarted.Start());
+  const auto ended = WaitFor(restarted, [](const RuntimeSnapshot& s) {
+    return s.launch && s.launch->state == LaunchState::kExited;
+  }, 30);
+  CHECK(ended.launch->code == "title-ended-without-record");
+  restarted.Play(220);
+  WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(restarted.Handoff() && launches.size() == 3);
+  restarted.Shutdown();
 }
 
 int main(int argc, char** argv) {

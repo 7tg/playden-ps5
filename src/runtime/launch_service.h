@@ -194,6 +194,7 @@ using LaunchCloudHook =
     std::function<CloudLaunchCheck(const RuntimeInstall &, bool play_without_sync)>;
 using LaunchEvidenceQuery =
     std::function<LaunchEvidence(const RuntimeInstall &, const std::string &session_id)>;
+using LaunchActivityQuery = std::function<NativeActivity(const RuntimeInstall &)>;
 using LaunchBackend =
     std::function<ps5::TitleResult(const RuntimeInstall &, const std::string &session_id)>;
 
@@ -206,6 +207,9 @@ struct LaunchDependencies {
   LaunchPreflightQuery preflight;
   LaunchCloudHook cloud;
   LaunchEvidenceQuery evidence;
+  // Whether the title is running, for following a session after handoff. Empty
+  // uses the full preflight's activity.
+  LaunchActivityQuery activity;
   LaunchBackend backend;
   std::function<LaunchActionResult()> flush;
   std::function<std::string()> uuid;
@@ -217,6 +221,9 @@ struct LaunchDependencies {
 
 class LaunchService {
 public:
+  // A record that still says starting or running is ended after this many
+  // consecutive stopped observations (the title was closed or crashed).
+  static constexpr int kStoppedPollsToEnd = 3;
   LaunchService(InstallRecordStore &records, LaunchSessionJournal &journal,
                 LaunchDependencies dependencies);
 
@@ -251,6 +258,9 @@ private:
   CloudLaunchCheck cloud_check_;
   LaunchSnapshot snapshot_;
   bool recovered_pending_ = false;
+  // Consecutive observations of a stopped title while its record still says
+  // starting or running: the title ended without writing its exit.
+  int stopped_polls_ = 0;
   // A durable operation can fail after its rename/remove became visible. Freeze
   // this instance until a fresh journal load reconciles the on-disk state.
   bool persistence_uncertain_ = false;

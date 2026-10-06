@@ -230,11 +230,16 @@ bool RuntimeHost::Handoff() {
     install_id = before.install_id;
     result = launch_->Handoff();
     rt::LaunchSnapshot after;
-    after.install_id = install_id;
-    after.session_id = result.session_id;
-    after.state = result.accepted ? rt::LaunchState::kLaunching : rt::LaunchState::kFailed;
-    after.code = result.code;
-    after.message = result.message;
+    if (result.accepted) {
+      after.install_id = install_id;
+      after.session_id = result.session_id;
+      after.state = rt::LaunchState::kLaunching;
+    } else {
+      // A refused handoff leaves the service's own state: still prepared, a
+      // recorded failure, or launching when only the last write failed. None
+      // of these read wrapper evidence on this thread.
+      after = launch_->Snapshot();
+    }
     PublishLaunch(*launch_composition_, after);
   }
   Log("play handoff install=" + install_id + " accepted=" + std::to_string(result.accepted) + " session=" +
@@ -445,17 +450,18 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
     } else {
       result = c.launch->Request(record->install_id);
     }
-    snapshot = c.launch ? c.launch->Snapshot() : rt::LaunchSnapshot{};
-    if (!result.accepted) {
-      // A refused request leaves any pending session as it is; show the refusal
-      // for this game.
-      snapshot.state = rt::LaunchState::kFailed;
-      snapshot.install_id = record ? record->install_id : std::string{};
-      snapshot.code = result.code;
-      snapshot.message = result.message;
+    if (result.accepted) {
+      snapshot = c.launch->Snapshot();
+      PublishLaunch(c, snapshot);
     }
-    PublishLaunch(c, snapshot);
   }
+  // A refused request leaves any pending session as it is; the refusal is
+  // shown for this game only.
+  Publish([&](RuntimeSnapshot& s) {
+    ++s.plays_handled;
+    if (result.accepted) s.play_refusals.erase(app_id);
+    else s.play_refusals[app_id] = result.message.empty() ? "The game could not start." : result.message;
+  });
   Log("play request app=" + std::to_string(app_id) + " accepted=" + std::to_string(result.accepted) +
       " session=" + result.session_id + " code=" + result.code + " message=" + result.message);
   PublishInstalls(c);
@@ -722,6 +728,7 @@ void RuntimeHost::Run() {
       launch.evidence = [this, &c](const rt::RuntimeInstall& record, const std::string& session) {
         return Evidence(c, record, session);
       };
+      launch.activity = [&c](const rt::RuntimeInstall& record) { return c.coordinator->Activity(record.title_id); };
       launch.backend = [this](const rt::RuntimeInstall& record, const std::string& session) {
         return config_.launch_title(record.title_id, {"session=" + session});
       };
@@ -757,11 +764,15 @@ void RuntimeHost::Run() {
     bool poll = false;
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      const auto ready = [this] { return stopping_ || !prepare_requests_.empty() || !play_requests_.empty(); };
+      // Preparation changes install records that Handoff reads on the
+      // application thread, so it waits while a handoff is pending.
+      const auto ready = [this] {
+        return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty();
+      };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
       if (stopping_) break;
-      requests.swap(prepare_requests_);
+      if (!snapshot_.handoff_ready) requests.swap(prepare_requests_);
       plays.swap(play_requests_);
       poll = launch_poll_;
     }
@@ -771,11 +782,8 @@ void RuntimeHost::Run() {
         poll = true;
       } else {
         Publish([&](RuntimeSnapshot& s) {
-          RuntimeLaunchView view;
-          view.app_id = app;
-          view.state = rt::LaunchState::kFailed;
-          view.message = s.reason.empty() ? "The runtime services are unavailable." : s.reason;
-          s.launch = view;
+          s.play_refusals[app] = s.reason.empty() ? "The runtime services are unavailable." : s.reason;
+          ++s.plays_handled;
         });
       }
     }

@@ -449,6 +449,27 @@ void ExitRequiresValidatedTerminalEvidenceAndPreservesUnknownCode() {
   CHECK(exited.state == LaunchState::kExited && !exited.exit_code);
 }
 
+void RecordLeftRunningEndsAfterTitleStops() {
+  Fixture f;
+  auto service = f.Service();
+  f.RequestAndHandoff(service);
+  f.evidence = LaunchEvidence::Running(ReadyInstall(), kSession);
+  f.preflight.activity = NativeActivity::kActive;
+  CHECK(service.Snapshot().state == LaunchState::kRunning);
+  f.preflight.activity = NativeActivity::kStopped;
+  for (int i = 1; i < LaunchService::kStoppedPollsToEnd; ++i)
+    CHECK(service.Snapshot().state == LaunchState::kRunning);
+  // An active observation restarts the count.
+  f.preflight.activity = NativeActivity::kActive;
+  CHECK(service.Snapshot().state == LaunchState::kRunning);
+  f.preflight.activity = NativeActivity::kStopped;
+  for (int i = 1; i < LaunchService::kStoppedPollsToEnd; ++i)
+    CHECK(service.Snapshot().state == LaunchState::kRunning);
+  const auto ended = service.Snapshot();
+  CHECK(ended.state == LaunchState::kExited && ended.code == "title-ended-without-record" && !ended.exit_code);
+  CHECK(service.Finish().accepted && !f.journal.pending);
+}
+
 void FinishEndsOnlyDecidedSessions() {
   Fixture f;
   auto service = f.Service();
@@ -715,6 +736,7 @@ int main() {
   WrapperIdentityAndRevisionAreValidatedBeforeStateMapping();
   ExitRequiresValidatedTerminalEvidenceAndPreservesUnknownCode();
   FinishEndsOnlyDecidedSessions();
+  RecordLeftRunningEndsAfterTitleStops();
   CloudWaitCancelOfflineOptInAndAccountCoherence();
   ClockCannotCreateRunningEvidence();
   MissingFutureCloudHookAllowsTaskSixLaunch();
