@@ -165,3 +165,11 @@ development diagnostics, not native acceptance or a production feature.
 
 The current kstuff measurement and successful ShadowMount retry recovery are
 recorded in [service checks](../20261006-console-services/README.md).
+
+
+Native Playden-context follow-up: the exact guard admitted the committed fixture
+with the real Lapy grant, the production publisher lock acquired independently,
+and identity/inventory-checked cleanup succeeded. See
+[native-title evidence](../20261006-publication-native-title/README.md).
+The prior standalone failures remain valid. This result does not satisfy
+cross-process or actual SDK v0.42 Wine-wrapper lifetime acceptance.

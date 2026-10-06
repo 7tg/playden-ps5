@@ -29,9 +29,16 @@ typedef struct Fixture {
     char metadata[32768], receipt[8192];
 } Fixture;
 static Fixture fixture;
+#ifdef PWPA_NATIVE_TITLE
+static FILE *pwpa_output;
+#define printf(...) fprintf(pwpa_output, __VA_ARGS__)
+#define PWPA_OUTPUT pwpa_output
+#else
+#define PWPA_OUTPUT stdout
+#endif
 static void fail(unsigned line) {
     printf("PWPA1 run=%s mode=%s stage=result pid=%d pass=0 line=%u errno=%d\n",
-           nonce, mode, getpid(), line, errno); fflush(stdout); exit(1);
+           nonce, mode, getpid(), line, errno); fflush(PWPA_OUTPUT); exit(1);
 }
 #define CHECK(x) do { if (!(x)) fail(__LINE__); } while (0)
 static void replace_once(char *text, size_t capacity, const char *old, const char *replacement);
@@ -296,15 +303,26 @@ static void cleanup(void) {
     sync_directory("/data/playden/games"); sync_directory("/data/homebrew"); CHECK(close(lock) == 0);
 }
 static void hold(void) {
-    printf("PWPA1 run=%s mode=%s stage=ready pid=%d pass=1 rc=0\n", nonce, mode, getpid()); fflush(stdout);
+    printf("PWPA1 run=%s mode=%s stage=ready pid=%d pass=1 rc=0\n", nonce, mode, getpid()); fflush(PWPA_OUTPUT);
     struct pollfd p = {.fd = STDIN_FILENO, .events = POLLIN}; CHECK(poll(&p, 1, 30000) > 0 && (p.revents & POLLIN));
     char command[32]; CHECK(fgets(command, sizeof(command), stdin));
     size_t n = strlen(command); CHECK(n && command[n-1] == '\n'); command[n-1] = 0;
     CHECK(!strcmp(command, "return") || !strcmp(command, "_exit") || !strcmp(command, "kill"));
-    printf("PWPA1 run=%s mode=%s stage=terminating pid=%d command=%s\n", nonce, mode, getpid(), command); fflush(stdout);
+    printf("PWPA1 run=%s mode=%s stage=terminating pid=%d command=%s\n", nonce, mode, getpid(), command); fflush(PWPA_OUTPUT);
     if (!strcmp(command, "_exit")) _exit(0);
     if (!strcmp(command, "kill")) { kill(getpid(), SIGKILL); CHECK(0); }
 }
+#ifdef PWPA_NATIVE_TITLE
+/* Developer-only bridge. Existing nonce-owned fixtures only; no creation,
+ * registration, Wine or UID changes from the native title. */
+int playden_publication_native_probe(FILE *log, const char *run, const char *operation) {
+    if (!log || !run || strlen(run) != 16 || !operation ||
+        (strcmp(operation, "reader-try") && strcmp(operation, "reader-hold") &&
+         strcmp(operation, "writer-try") && strcmp(operation, "cleanup"))) return -1;
+    for (unsigned i = 0; i < 16; ++i)
+        if (!((run[i] >= '0' && run[i] <= '9') || (run[i] >= 'a' && run[i] <= 'f'))) return -1;
+    pwpa_output = log; strcpy(nonce, run); strcpy(mode, operation);
+#else
 int main(void) {
     setvbuf(stdin, NULL, _IONBF, 0); setvbuf(stdout, NULL, _IONBF, 0);
     char request[512], extra; CHECK(fgets(request, sizeof(request), stdin));
@@ -312,6 +330,7 @@ int main(void) {
     for (unsigned i = 0; i < 16; ++i) CHECK((nonce[i] >= '0' && nonce[i] <= '9') || (nonce[i] >= 'a' && nonce[i] <= 'f'));
     CHECK(!strcmp(mode, "init") || !strcmp(mode, "reader-hold") || !strcmp(mode, "writer-try") ||
           !strcmp(mode, "reader-try") || !strcmp(mode, "writer-pending-hold") || !strcmp(mode, "cleanup"));
+    #endif
     CHECK(getpid() > 0); uid_t initial = geteuid();
     /* Inventory is root-only; inspect absence before dropping the payload UID.
      * All fixture creation and admission still run as captured app owner UID1. */
@@ -319,7 +338,9 @@ int main(void) {
         struct stat native; errno = 0;
         CHECK(lstat("/user/app/FAKE78997", &native) == -1 && errno == ENOENT);
     }
+#ifndef PWPA_NATIVE_TITLE
     if (initial == 0) CHECK(seteuid(1) == 0);
+#endif
     owner = geteuid(); CHECK(owner == 1);
     printf("PWPA1 run=%s mode=%s stage=preflight pid=%d initial_euid=%u owner=%u\n", nonce, mode, getpid(), initial, owner);
     struct stat parent;
@@ -357,7 +378,18 @@ int main(void) {
            nonce, mode, getpid(), lookup, symbol != NULL);
     CHECK(load_descriptor() == PW_OK); PwTitlePublicationLease lease; char error[256];
     int rc = pw_title_publication_open(&fixture.before, &fixture.platform, &lease, error, sizeof(error));
-    if (!strcmp(mode, "reader-hold")) { CHECK(rc == 0); hold(); return 0; }
+    if (!strcmp(mode, "reader-hold")) {
+        CHECK(rc == 0);
+#ifdef PWPA_NATIVE_TITLE
+        /* Caller parks the title. Keep this production lease open until the
+         * process exits; no host/socket timeout or explicit close substitutes. */
+        printf("PWPA1 run=%s mode=%s stage=ready pid=%d pass=1 rc=0\n", nonce, mode, getpid());
+        fflush(PWPA_OUTPUT);
+#else
+        hold();
+#endif
+        return 0;
+    }
     int stage = -1; if (rc == -1) CHECK(sscanf(error, "publication admission refused at stage %d", &stage) == 1);
     CHECK(rc == 0 || rc == -2 || (rc == -1 && stage >= 0));
     printf("PWPA1 run=%s mode=%s stage=admission pid=%d rc=%d errstage=%d errno=%d\n",

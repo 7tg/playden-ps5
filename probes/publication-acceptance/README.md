@@ -51,6 +51,29 @@ wrapper acceptance before production trust can admit guarded runtime kits.
 The 6 October standalone attempt **did not pass**. It created an owned UID1
 fixture, but the fixed native-title libkernel handle does not resolve from this
 payload context; the production guard refuses startup with an unavailable
-provider. Native-title qualification and identity-checked cleanup remain pending.
+provider. Native Playden-context admission and identity-checked cleanup subsequently passed;
+actual Wine wrapper and concurrent-process qualification remain pending.
 Do not substitute a payload-only gateway and claim full wrapper acceptance.
 See [recorded evidence](../../results/20261006-managed-publication/README.md).
+
+
+## Native Playden bridge
+
+A `PLAYDEN_TITLE_CONTRACT_PROBE=ON` build links the same pinned guard and fixture
+implementation into the native Playden title, after its Lapy grant. The default
+production build excludes these diagnostic objects. The request file accepts:
+
+```text
+publication <16 lowercase hex nonce> reader-try
+publication <16 lowercase hex nonce> reader-hold
+publication <16 lowercase hex nonce> writer-try
+publication <16 lowercase hex nonce> cleanup
+```
+
+The bridge accepts existing, exact nonce-owned fixtures only. It does not create
+fixtures, change UID, register titles or start Wine. `reader-hold` deliberately
+leaves the acquired lease open while the caller parks the title; terminate that
+title to release it. Do not treat an uncontended check as cross-process proof.
+Back up the actual current eboot and package identity before temporary diagnostic
+deployment, restore those same bytes with independent readback, then release the
+console. See [native result](../../results/20261006-publication-native-title/README.md).

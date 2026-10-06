@@ -108,6 +108,28 @@ function(playden_add_homebrew_ps5_title)
         if(NOT EXISTS "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_data_mount.c")
             message(FATAL_ERROR "The native provisioning diagnostic requires an explicit usable prospero-win source")
         endif()
+        add_library(playden_publication_probe OBJECT
+            probes/publication-acceptance/main.c
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_title_publication_native.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_title_publication_ps5_lock.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_publication.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_launch.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_game_profile.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_profile_catalog.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_wine_launch.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_publication_sha256.c"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/library/sha256.c")
+        target_compile_definitions(playden_publication_probe PRIVATE
+            PWPA_NATIVE_TITLE=1 _DEFAULT_SOURCE MBEDTLS_CONFIG_FILE="pw_publication_config.h")
+        target_compile_options(playden_publication_probe PRIVATE
+            -O2 -Wall -Wextra -Werror -Wno-unused-function -ffunction-sections -fdata-sections)
+        target_compile_features(playden_publication_probe PRIVATE c_std_11)
+        target_include_directories(playden_publication_probe PRIVATE
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/native" "${PLAYDEN_PROSPERO_SOURCE_DIR}/src"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
+        set(publication_probe_objects $<TARGET_OBJECTS:playden_publication_probe>)
         target_sources(playden_ps5_app PRIVATE src/platform/ps5/title_contract_probe.cpp src/platform/ps5/title_registry.cpp
             src/platform/ps5/title_probe_contract.cpp src/platform/ps5/managed_filesystem_probe.cpp)
         if(NOT native_access_source)
@@ -146,7 +168,7 @@ function(playden_add_homebrew_ps5_title)
 			--version-script "${gl_source}/native-app/app-symbols.map" -e _start --gc-sections --build-id=sha1
 			-L "${out}/stubs" -L "${sdk}/target/lib" -u ps5_agc_gate2_run ${shim_wraps} -o "${pie}"
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
-			$<TARGET_OBJECTS:playden_ps5_app>
+			$<TARGET_OBJECTS:playden_ps5_app> ${publication_probe_objects}
 			--start-group "${gl_sdk}/lib/libPS5OpenGL.a" "${sdk}/target/lib/libunwind.a"
 			"${sdk}/target/lib/libc++abi.a" "${sdk}/target/lib/libc++.a"
 			"${sdk_deps}/compiler-rt/libclang_rt.builtins-x86_64.a" $<TARGET_FILE:playden_hui> $<TARGET_FILE:playden_homebrew_ui> $<TARGET_FILE:playden_homebrew_model>
@@ -165,7 +187,7 @@ function(playden_add_homebrew_ps5_title)
 			playden_homebrew_artwork_cache playden_homebrew_artwork playden_persistence_controller playden_persistence_service playden_preferences playden_library_controller playden_library_service playden_steam_library playden_steam_cm playden_steam_cm_codec playden_depot_codec
 			playden_library playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_diagnostic_log playden_storage playden_native_access playden_managed_directory playden_runtime_artifact_hash playden_runtime_settings_storage playden_runtime_private_directories playden_runtime_session_reconciler playden_runtime_launch_service playden_runtime_install_service playden_runtime_installs
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
-			$<TARGET_OBJECTS:playden_ps5_app>
+			$<TARGET_OBJECTS:playden_ps5_app> ${publication_probe_objects}
 			$<TARGET_FILE:playden_steam_http> $<TARGET_FILE:playden_steam_protocol>
 			$<TARGET_FILE:playden_steam_auth>
 			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_diagnostic_log> $<TARGET_FILE:playden_storage>

@@ -4,6 +4,7 @@
 #include "platform/ps5/title_probe_contract.h"
 #include "runtime/private_directories.h"
 extern "C" {
+int playden_publication_native_probe(FILE*, const char*, const char*);
 int playden_ps5_directory_api_ready(void);
 int playden_ps5_probe_kernel_directory(const char*);
 int sceKernelLoadStartModule(const char*, std::size_t, const void*, unsigned, void*, int*);
@@ -304,15 +305,25 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   const auto request_path = access.paths.title_root + "/dev/title-contract-request.txt";
   FILE* request = std::fopen(request_path.c_str(), "r");
   if (!request) return false;
-  char action[32]{};
-  if (!std::fgets(action, sizeof(action), request)) action[0] = 0;
-  for (char& ch : action) if (ch == '\n' || ch == '\r') ch = 0;
+  char action[128]{};
+  const auto action_size = std::fread(action, 1, sizeof(action), request);
+  bool request_valid = !std::ferror(request) && action_size > 0 && action_size < sizeof(action);
+  for (std::size_t i = 0; i < action_size; ++i)
+    if (!action[i]) request_valid = false;
+  auto trimmed_size = action_size;
+  while (trimmed_size && (action[trimmed_size - 1] == '\n' || action[trimmed_size - 1] == '\r')) --trimmed_size;
+  if (trimmed_size < sizeof(action)) action[trimmed_size] = 0;
+  for (std::size_t i = 0; i < trimmed_size; ++i)
+    if (action[i] == '\n' || action[i] == '\r') request_valid = false;
   std::fclose(request);
   std::remove(request_path.c_str());
   mkdir(access.paths.log_root.c_str(), 0755);
   FILE* log = std::fopen((access.paths.log_root + "/title-contract.log").c_str(), "a");
   if (!log) return true;
   std::fprintf(log, "begin pid=%d\n", getpid()); std::fflush(log);
+  if (!request_valid) {
+    std::fprintf(log, "request rejected\nend\n"); std::fclose(log); return true;
+  }
   if (!steam::internal::InitializeNativeNetwork()) {
     std::fprintf(log, "network unavailable\n"); std::fclose(log); return true;
   }
@@ -320,6 +331,13 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   const int result = access.granted ? 0 : -1;
   std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
+  if (std::string(action).starts_with("publication ")) {
+    char run[17]{}, operation[32]{}, extra{};
+    const bool valid = std::sscanf(action, "publication %16s %31s %c", run, operation, &extra) == 2;
+    const int rc = valid ? playden_publication_native_probe(log, run, operation) : -1;
+    std::fprintf(log, "publication bridge rc=%d\nend\n", rc);
+    std::fclose(log); return true;
+  }
   if (std::string(action) == "managed-filesystem") {
     RunManagedFilesystemProbe(log);
     std::fprintf(log, "end\n"); std::fclose(log); return true;

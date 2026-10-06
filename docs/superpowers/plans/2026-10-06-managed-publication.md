@@ -303,3 +303,16 @@ not replace those deliverables.
 Review focus: Home startup races, pre-receipt foreign collisions, partial
 registry/DXVK effects, uncertain receipt sync, child-process lease lifetime,
 snapshot drift and native provider absence all have explicit checks above.
+
+
+### Native-context diagnostic follow-up
+
+The developer-only Playden bridge (`PLAYDEN_TITLE_CONTRACT_PROBE=ON`) admitted
+the same committed nonce fixture using the exact pinned guard, the real Lapy
+grant and fixed native lock provider. Separate native invocations acquired the
+publisher lock and performed identity/inventory-checked cleanup. See
+[recorded result](../../../results/20261006-publication-native-title/README.md).
+The exact prior normal preview was restored and the PS5 released. This is
+Playden SDK v0.43 context evidence; Task B's SDK v0.42 actual Wine wrapper,
+concurrent-process contention/pending receipt and lifetime checks remain open.
+No production capability trust or runtime artifact was changed.
