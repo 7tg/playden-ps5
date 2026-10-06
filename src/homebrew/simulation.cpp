@@ -1369,6 +1369,7 @@ void Simulation::load_fixtures() {
             volume.reserved_bytes = uint_value(item.get("reserved_bytes"));
             volume.available = bool_value(item.get("available"), true);
             volume.writable = bool_value(item.get("writable"), true);
+            volume.capacity_known = bool_value(item.get("capacity_known"), true);
             volume.base_used_bytes = volume.used_bytes;
             volume.base_reserved_bytes = volume.reserved_bytes;
             state_.volumes.push_back(std::move(volume));

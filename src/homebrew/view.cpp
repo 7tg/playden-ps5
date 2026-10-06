@@ -1700,9 +1700,28 @@ class Render::Impl
 
         scene_.rounded_rect({1160.0F, 160.0F, 664.0F, 780.0F}, 12.0F, kPanel);
         ui::text(scene_, fonts_.display, "Storage", 1200.0F, 218.0F, 38.0F, kText);
+        // Every drive fits in the panel: rows shrink when the console lists many drives.
+        const bool any_unreported = std::any_of(state.volumes.begin(), state.volumes.end(),
+                                                [](const Volume &volume) { return !volume.capacity_known; });
+        const float list_bottom = any_unreported ? 880.0F : 920.0F;
+        float wanted = 0.0F;
+        for (const Volume &volume : state.volumes)
+            wanted += volume.capacity_known ? 192.0F : 100.0F;
+        // Shrink the spacing to fit; rows keep their minimum height, and drives past the end are counted.
+        const float scale = wanted <= list_bottom - 276.0F ? 1.0F :
+            std::max(0.72F, (list_bottom - 276.0F) / wanted);
         float y = 276.0F;
+        std::size_t drawn = 0;
         for (const Volume &volume : state.volumes)
         {
+            const float step = (volume.capacity_known ? 192.0F : 100.0F) * scale;
+            if (y + step - 40.0F > list_bottom)
+            {
+                ui::text(scene_, fonts_.regular, "+" + std::to_string(state.volumes.size() - drawn) + " more drives",
+                         1200.0F, y, 22.0F, kMuted);
+                break;
+            }
+            ++drawn;
             const std::uint64_t occupied = std::min(volume.capacity_bytes,
                                                      volume.used_bytes + volume.reserved_bytes);
             const std::uint64_t free = volume.capacity_bytes - occupied;
@@ -1721,12 +1740,10 @@ class Render::Impl
             {
                 // The console cannot report drive capacity to the title: show what Playden knows.
                 ui::text(scene_, fonts_.regular, "Used by games  " + byte_count(volume.games_bytes),
-                         1200.0F, y + 46.0F, 22.0F, kSecondary);
+                         1200.0F, y + 42.0F, 22.0F, kSecondary);
                 ui::text(scene_, fonts_.regular, "Reserved by queue  " + byte_count(volume.reserved_bytes),
-                         1200.0F, y + 76.0F, 22.0F, kSecondary);
-                ui::text(scene_, fonts_.regular, "Free space is not reported on this console",
-                         1200.0F, y + 106.0F, 22.0F, kMuted);
-                y += 192.0F;
+                         1784.0F, y + 42.0F, 22.0F, kSecondary, gfx::Align::right);
+                y += step;
                 continue;
             }
             const float bar_x = 1200.0F;
@@ -1747,8 +1764,11 @@ class Render::Impl
             ui::text(scene_, fonts_.semibold, "Free  " + byte_count(free),
                      1784.0F, y + 106.0F, 22.0F, volume.available ? kText : kMuted,
                      gfx::Align::right);
-            y += 192.0F;
+            y += step;
         }
+        if (any_unreported)
+            ui::text(scene_, fonts_.regular, "Free space is not reported on this console",
+                     1200.0F, 912.0F, 22.0F, kMuted);
     }
 
     // The macOS Settings screen: a rail of sections, then the focused section's rows, each
@@ -2161,29 +2181,6 @@ class Render::Impl
         ui::GlyphStyle glyphs = ui::GlyphStyle::mono(kText, kBackground);
         ui::draw_hints(scene_, fonts_, glyphs, hints.data(), static_cast<int>(hints.size()), 96.0F,
                        false, layout);
-        if (current_state_ != nullptr)
-        {
-            const auto job = std::find_if(current_state_->jobs.begin(), current_state_->jobs.end(),
-                                          [](const Job &value) {
-                                              return value.state == JobState::Downloading ||
-                                                     value.state == JobState::Verifying ||
-                                                     value.state == JobState::Paused;
-                                          });
-            if (job != current_state_->jobs.end())
-            {
-                const Game *game = game_by_id(*current_state_, job->game_id);
-                const float progress = job->total_bytes == 0 ? 0.0F :
-                    static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
-                const float x = 1480.0F;
-                scene_.rounded_rect({1464.0F, 986.0F, 168.0F, 40.0F}, 8.0F,
-                                    kBackground.with_alpha(0.86F));
-                dynamic_text(game == nullptr ? std::string_view("Transfer") : std::string_view(game->title),
-                             x, 1004.0F, 16.0F, kText, 136.0F, false);
-                scene_.rounded_rect({x, 1013.0F, 136.0F, 6.0F}, 3.0F, kText.with_alpha(0.18F));
-                scene_.rounded_rect({x, 1013.0F, 136.0F * std::clamp(progress, 0.0F, 1.0F), 6.0F},
-                                    3.0F, job->state == JobState::Paused ? kAmber : kAccent);
-            }
-        }
         if (view.show_simulation_label)
         {
             scene_.rounded_rect({1652.0F, 989.0F, 172.0F, 34.0F}, 17.0F, kText.with_alpha(0.08F));
