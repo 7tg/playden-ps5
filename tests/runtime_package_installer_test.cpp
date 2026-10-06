@@ -512,6 +512,23 @@ void CancelAndSpaceFailuresAreBounded() {
   CHECK(restarted.StageTitle(record).state == PackageActionState::kComplete);
 }
 
+// Where free space cannot be read, only an explicit unverifiable mode copies.
+void UnreadableFreeSpaceRequiresExplicitMode() {
+  for (const bool unverifiable : {false, true}) {
+    Fixture fixture;
+    auto record = Record();
+    auto operations = PackageInstallerOperations{};
+    operations.hash_file = TestHash; operations.hash_bytes = TestHashBytes;
+    operations.validate_bottle = [](const std::filesystem::path&) { return true; };
+    operations.free_bytes = [](const std::filesystem::path&) { return std::optional<std::uint64_t>{}; };
+    operations.free_space_unverifiable = unverifiable;
+    FilesystemPackageInstaller installer(fixture.view, fixture.paths, operations);
+    const auto staged = installer.StageTitle(record);
+    CHECK((staged.state == PackageActionState::kComplete) == unverifiable);
+    if (!unverifiable) CHECK(staged.code == "space-unavailable");
+  }
+}
+
 void SyncFailureNeverPublishesWatchedTitle() {
   Fixture fixture;
   fixture.fail_sync_call = 5;
@@ -825,6 +842,7 @@ int main() {
   LegacyDescriptorOnlyBindsHistoricalRoot();
   CompletePublicationAndFreshInspection();
   CancelAndSpaceFailuresAreBounded();
+  UnreadableFreeSpaceRequiresExplicitMode();
   SyncFailureNeverPublishesWatchedTitle();
   NativeFsyncFallbackPublishesAtomically();
   LateSyncFailureIsReestablishedOnRetry();

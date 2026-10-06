@@ -1,5 +1,6 @@
 #include "homebrew/runtime_host.hpp"
 #include "platform/storage.h"
+#include "runtime/artifact_hash.h"
 
 #include <chrono>
 #include <cstdio>
@@ -7,7 +8,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <sstream>
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
@@ -19,9 +19,22 @@ using namespace playden::ps5;
 
 namespace fs = std::filesystem;
 namespace {
+std::string g_runtime_dir;  // the repository's bundled runtime data (recipes, presets, input)
+
+void Write(const fs::path& path, const std::string& bytes, unsigned mode) {
+  fs::create_directories(path.parent_path());
+  std::ofstream(path, std::ios::binary | std::ios::trunc) << bytes;
+  CHECK(chmod(path.c_str(), mode) == 0);
+}
+std::string Read(const fs::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  return {std::istreambuf_iterator<char>(in), {}};
+}
+
 struct Fixture {
   fs::path root;
-  unsigned database_reads = 0, registry_posts = 0, registry_mutations = 0;
+  unsigned database_reads = 0, registry_mutations = 0;
+  bool registered = false;
   Fixture() {
     char name[] = "/tmp/playden-runtime-host-XXXXXX"; CHECK(mkdtemp(name));
     root = fs::canonical(name);
@@ -33,23 +46,32 @@ struct Fixture {
     config.boundary = root / "data";
     config.state_root = root / "data/runtime-state";
     config.homebrew_root = root / "data/homebrew";
-    config.native.database = [this](const std::string&) { ++database_reads; return TitleDatabaseObservation{TitleAvailability::kFree, {}}; };
+    config.native.database = [this](const std::string& title) {
+      ++database_reads;
+      if (!registered) return TitleDatabaseObservation{TitleAvailability::kFree, {}};
+      return TitleDatabaseObservation{TitleAvailability::kOccupied,
+          InstalledTitleIdentity{title, "UP9000-FAKE78001_00-PROSPEROWIN00001", "/user/app/FAKE78001/sce_sys"}};
+    };
     config.native.activity = [](const std::string&) { return NativeActivity::kStopped; };
+    // ShadowMount loopback API: registration makes the title appear installed.
     config.registry_transport = [this](const std::string& route, const std::string&) -> std::optional<std::string> {
-      ++registry_posts;
-      if (route != "/api/v1/games") ++registry_mutations;
-      return R"({"status":0,"games":[]})";
+      if (route != "/api/v1/games") { ++registry_mutations; registered = true; return R"({"status":0})"; }
+      if (!registered) return R"({"status":0,"games":[]})";
+      return R"({"status":0,"games":[{"title_id":"FAKE78001","installed":true,"managed":true,)"
+             R"("source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78001"}]})";
     };
-    config.make_installer = [](std::string* reason) -> std::unique_ptr<PackageInstaller> {
+    config.admit_kit = [](std::string* reason) -> std::optional<RuntimeKit> {
       *reason = "No verified compatibility kit is installed.";
-      return nullptr;
+      return std::nullopt;
     };
+    config.runtime_dir = g_runtime_dir;
     return config;
   }
 };
 
-RuntimeSnapshot WaitFor(const RuntimeHost& host, const std::function<bool(const RuntimeSnapshot&)>& done) {
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+RuntimeSnapshot WaitFor(const RuntimeHost& host, const std::function<bool(const RuntimeSnapshot&)>& done,
+                        int seconds = 10) {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
   for (;;) {
     auto snapshot = host.Snapshot();
     if (done(snapshot)) return snapshot;
@@ -59,18 +81,50 @@ RuntimeSnapshot WaitFor(const RuntimeHost& host, const std::function<bool(const 
 }
 bool Started(const RuntimeSnapshot& s) { return s.status != RuntimeHostStatus::kStarting; }
 
-std::string Read(const fs::path& path) {
-  std::ifstream in(path, std::ios::binary);
-  return {std::istreambuf_iterator<char>(in), {}};
-}
+RuntimePrepareRequest Hl2() { return {220, "/data/homebrew/FAKE77031/games/220", "internal"}; }
 
 RuntimeInstall Record() {
   RuntimeInstall record;
-  record.install_id = "install-220"; record.app_id = 220; record.default_profile_id = "playden-steam-220";
+  record.install_id = "steam-220"; record.app_id = 220; record.default_profile_id = "playden-steam-220";
   record.runtime_bundle_id = "wine-wow64"; record.recipe_id = "steam-220-hl2-v1"; record.recipe_version = "1";
-  record.launch_entry_id = "main"; record.launch_path = "hl2.exe";
+  record.launch_entry_id = "hl2"; record.launch_path = "hl2.exe";
   record.install_path = "/data/homebrew/FAKE77031/games/220"; record.volume_id = "internal";
   return record;
+}
+
+// A synthetic admitted kit with the production file layout, real SHA-256 and
+// the repository's HL2 recipe. It is not a runnable Wine runtime.
+RuntimeKit SyntheticKit(const fs::path& kit) {
+  Write(kit / "titles/variant/eboot.bin", "native", 0755);
+  Write(kit / "titles/variant/sce_sys/param.json",
+        R"({"titleId":"FAKE78001","contentId":"UP9000-FAKE78001_00-PROSPEROWIN00001"})", 0644);
+  Write(kit / "runtime/wine/rev/lib/core.prx", "runtime", 0755);
+  Write(kit / "template/bottle/system.reg", "WINE REGISTRY Version 2\n", 0644);
+  Write(kit / "template/bottle/user.reg", "WINE REGISTRY Version 2\n", 0644);
+  Write(kit / "template/bottle/drive_c/windows/win.ini", "", 0644);
+  Write(kit / "template/bottle/dosdevices/.pw-symlinks", "c:\t../drive_c\nz:\t/\n", 0644);
+  Write(kit / "recipes/hl2.json", Read(fs::path(g_runtime_dir) / "recipes/steam-220-hl2-v1.json"), 0644);
+  RuntimeKit admitted;
+  auto& view = admitted.view;
+  view.root = kit; view.kit_id = "kit-1"; view.files_sha256 = std::string(64, 'a');
+  view.runtime = {"wine-wow64", "rev", "runtime/wine/rev"};
+  view.template_path = "template/bottle";
+  view.template_drive_table = "template/bottle/dosdevices/.pw-symlinks";
+  view.recipe = {"steam-220-hl2-v1", "1", "recipes/hl2.json", *HashArtifactFile(kit / "recipes/hl2.json")};
+  view.variants.push_back({"variant", "FAKE78001", "titles/variant"});
+  for (const auto& [path, mode] : std::vector<std::pair<std::string, unsigned>>{
+           {"titles/variant/eboot.bin", 0755}, {"titles/variant/sce_sys/param.json", 0644},
+           {"runtime/wine/rev/lib/core.prx", 0755}, {"template/bottle/system.reg", 0644},
+           {"template/bottle/user.reg", 0644}, {"template/bottle/drive_c/windows/win.ini", 0644},
+           {"template/bottle/dosdevices/.pw-symlinks", 0644}, {"recipes/hl2.json", 0644}})
+    view.files.push_back({path, fs::file_size(kit / path), *HashArtifactFile(kit / path), mode});
+  view.artifacts = {
+      {"runtime", "rev", *HashArtifactFile(kit / "runtime/wine/rev/lib/core.prx"),
+       ImmutableArtifactLocation::kStagedTitle, "win/wine/lib/core.prx"},
+      {"recipe", "steam-220-hl2-v1-1", *HashArtifactFile(kit / "recipes/hl2.json"),
+       ImmutableArtifactLocation::kKit, "recipes/hl2.json"}};
+  admitted.capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
+  return admitted;
 }
 }  // namespace
 
@@ -86,7 +140,7 @@ void NoKitRefusesPreparationWithoutDurableEffects() {
   CHECK(started.installs.empty());
   struct stat info{};
   CHECK(stat((fixture.root / "data/runtime-state").c_str(), &info) == 0 && (info.st_mode & 0777) == 0700);
-  host.Prepare(220);
+  host.Prepare(Hl2());
   const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
   CHECK(refused.refusals.at(220) == "No verified compatibility kit is installed.");
   host.Shutdown();
@@ -146,7 +200,7 @@ void PublicStateRootIsUnavailable() {
   CHECK(host.Start());
   const auto started = WaitFor(host, Started);
   CHECK(started.status == RuntimeHostStatus::kUnavailable && !started.reason.empty());
-  host.Prepare(220);
+  host.Prepare(Hl2());
   const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
   CHECK(refused.refusals.at(220) == started.reason);
   host.Shutdown();
@@ -154,10 +208,74 @@ void PublicStateRootIsUnavailable() {
   CHECK(stat(config.state_root.c_str(), &info) == 0 && (info.st_mode & 0777) == 0755);
 }
 
-int main() {
+// An existing download is prepared in place: the host stages its own title,
+// copies a private bottle, publishes settings through OWNER, registers once and
+// commits Ready. Game files, DLLs and saves are preserved byte for byte.
+void PreparesExistingDownloadToReady() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  Write(game / "bin/steam_api.dll", "unchanged-original-dll", 0644);
+  Write(game / "hl2/save/quick.sav", "existing-player-save", 0644);
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(220) ||
+        (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220));
+  CHECK(done.installs.size() == 1);
+  const auto& ready = done.installs[0];
+  CHECK(ready.state == PreparationState::kReady && ready.title_id == "FAKE78001" && !ready.recovery_pending);
+  CHECK(fixture.registry_mutations == 2 && uuids == 1);
+  // Game files stay at the recorded download root and are untouched.
+  CHECK(Read(game / "hl2.exe") == "existing-game");
+  CHECK(Read(game / "bin/steam_api.dll") == "unchanged-original-dll");
+  CHECK(Read(game / "hl2/save/quick.sav") == "existing-player-save");
+  CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001/games"));
+  // The descriptor binds the existing root; the bottle is private.
+  const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
+  CHECK(descriptor.find(R"("schema_version":2)") != std::string::npos);
+  CHECK(descriptor.find(R"("game_root":"/data/homebrew/FAKE77031/games/220")") != std::string::npos);
+  struct stat info{};
+  CHECK(stat((fixture.root / "data/playden/games/steam-220/library/prefixes/game").c_str(), &info) == 0 &&
+        (info.st_mode & 0777) == 0700);
+  // A second request does not redo anything.
+  host.Prepare(Hl2());
+  const auto again = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
+  CHECK(again.refusals.at(220) == "This game is already prepared.");
+  CHECK(fixture.registry_mutations == 2);
+  host.Shutdown();
+}
+
+int main(int argc, char** argv) {
+  CHECK(argc == 2);
+  g_runtime_dir = argv[1];
   NoKitRefusesPreparationWithoutDurableEffects();
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
+  PreparesExistingDownloadToReady();
   std::puts("runtime host tests passed");
   return 0;
 }

@@ -106,6 +106,10 @@ struct PackageInstallerOperations {
   std::function<std::optional<std::string>(const std::filesystem::path&)> hash_file;
   std::function<std::optional<std::string>(std::string_view)> hash_bytes;
   std::function<std::optional<std::uint64_t>(const std::filesystem::path&)> free_bytes;
+  // The PS5 title cannot query free space (statfs terminates it). When set, an
+  // empty free_bytes result does not refuse the copy; a full volume then fails
+  // the copy itself with a write error. Never set where free space is readable.
+  bool free_space_unverifiable = false;
   std::function<bool()> canceled;
   // Optional test/platform seam. With no override, the implementation uses
   // open(2)+fsync(2). `directory` distinguishes directory durability barriers.

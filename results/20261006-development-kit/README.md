@@ -8,8 +8,8 @@ This kit is **not releasable**.
 | Item | Value |
 | --- | --- |
 | Kit | `hl2-fw1360-dev1`, 3548 files, local path `build/kits/hl2-fw1360-dev1` (not in Git) |
-| Manifest SHA-256 | `3530d07f10dd77d3a5f86f27ab43e12712d29c27ad882f85d418cfa353762772` |
-| Files digest | `85ac621df58426e03369f9ce49c75fc94453cadcf9ca8863a8998ddd3efc66e9` |
+| Manifest SHA-256 | `368fb24b6dc68bf503a0d410bf2ae4a2ead55091f9d257a3e72498e26fe8ceb6` |
+| Files digest | `bce3081187599a18cefe9fd65a2ecb443bc5aaac5fa39928d9c7fc33f7b2e6b9` |
 | prospero-win source | `672d905209d38c444f3c96f001a19ef4ccc2ea62` (local, unpublished), clean |
 | FAKE78001 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `60225c6d98443ab4e9fd4f96fbeca68e9485282611133f151febe3134a701053`, `source_dirty: false` |
 | Helper / protocol | `5608915…` / `bb02c4aa…` (independent pins) |
@@ -19,6 +19,9 @@ This kit is **not releasable**.
 `runtime_kit_trust` (host) checks that `src/runtime/kit_trust.cpp` matches the
 `prospero_kit` lock entry and that `VerifyInstalledKit` admits this kit with
 production SHA-256. It also refuses the kit for empty or `12.02` firmware.
+
+The runtime bundle id is `wine-wow64`, the value the HL2 profile's `runtime`
+key carries; OWNER validation requires the two to match.
 
 ## Runtime provenance
 

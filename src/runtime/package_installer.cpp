@@ -380,7 +380,8 @@ bool FilesystemPackageInstaller::ValidView() const {
       !IsSafeRelative(kit_.template_drive_table) || !IsSafeRelative(kit_.recipe.path) ||
       kit_.recipe.id.empty() || kit_.recipe.version.empty() ||
       !IsHexDigest(kit_.recipe.sha256) || kit_.files.empty() || kit_.variants.empty() ||
-      !operations_.hash_file || !operations_.hash_bytes || !operations_.free_bytes ||
+      !operations_.hash_file || !operations_.hash_bytes ||
+      (!operations_.free_bytes && !operations_.free_space_unverifiable) ||
       !operations_.validate_bottle || !paths_.host_data_root.is_absolute() ||
       paths_.host_data_root != paths_.host_data_root.lexically_normal() || paths_.host_data_root.filename() != "data")
     return false;
@@ -748,8 +749,9 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     return Failed("staging-unavailable", "owned staging root is unavailable");
   if (!SyncAncestors(staging.parent_path()))
     return Failed("sync-failed", "created staging ancestors were not durably synced");
-  const auto available = operations_.free_bytes(staging.parent_path());
-  if (!available || *available < required + overhead)
+  const auto available = operations_.free_bytes ? operations_.free_bytes(staging.parent_path())
+                                                : std::optional<std::uint64_t>{};
+  if (available ? *available < required + overhead : !operations_.free_space_unverifiable)
     return Failed("space-unavailable", "insufficient verified free space for package copy");
 
   const auto expected_stage = StageMarker(record, kit_, stage_kind);
@@ -767,12 +769,13 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     fs::remove_all(staging, error);
     if (error) return Failed("staging-cleanup", "owned incomplete staging could not be cleaned");
   }
-  if (stage_kind == "template") {
+  // Title and bottle trees use private directories owned by the app user: the
+  // native coordinator treats only a private title source (including sce_sys)
+  // as Playden-owned. Title files keep their kit modes.
+  {
     std::string detail;
     if (!EnsurePrivateDirectories(paths_.host_data_root, staging, staging, &detail))
       return Failed("private-directory", detail);
-  } else {
-    fs::create_directories(staging, error);
   }
   struct stat created_stage{};
   if (error || ::lstat(staging.c_str(), &created_stage) != 0)
@@ -793,12 +796,10 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     const auto destination = staging / mapping.destination_relative;
     if (!PathComponentsHaveNoSymlink(staging, mapping.destination_relative, false))
       return Failed("destination-invalid", "staging destination contains a symbolic link");
-    if (stage_kind == "template") {
+    {
       std::string detail;
       if (!EnsurePrivateDirectories(paths_.host_data_root, staging, destination.parent_path(), &detail))
         return Failed("private-directory", detail);
-    } else {
-      fs::create_directories(destination.parent_path(), error);
     }
     if (error) return Failed("copy-failed", "staging directory could not be created");
     std::ifstream input(source, std::ios::binary);

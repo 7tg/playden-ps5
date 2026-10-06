@@ -7,7 +7,7 @@
   "architecture": "x86_64+wow64-i386",
   "runtime": {
     "path": "build/kit-inputs/runtime/wine",
-    "bundle_id": "prospero-win-wine-ps5",
+    "bundle_id": "wine-wow64",
     "artifact_revision": "e16ec8f3-ps5-console-r1",
     "wine_revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
     "inventory_manifest": "build/kit-inputs/runtime-inventory.json",

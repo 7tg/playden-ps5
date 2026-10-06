@@ -270,7 +270,8 @@ add_library(playden_homebrew_runtime_host STATIC "${CMAKE_SOURCE_DIR}/src/homebr
 target_compile_features(playden_homebrew_runtime_host PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_runtime_host PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_homebrew_runtime_host PUBLIC playden_native_coordinator playden_runtime_settings_publication
-    playden_runtime_installs playden_runtime_install_service playden_runtime_private_directories playden_storage)
+    playden_runtime_installs playden_runtime_install_service playden_runtime_package_installer
+    playden_runtime_private_directories playden_storage playden_steam_cm_codec)
 
 add_library(playden_homebrew_artwork STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/artwork.cpp"
@@ -435,8 +436,8 @@ if(BUILD_TESTING)
     target_link_libraries(homebrew_storage_test PRIVATE playden_homebrew_model)
     add_test(NAME homebrew_storage COMMAND homebrew_storage_test)
     add_executable(homebrew_runtime_host_test "${CMAKE_SOURCE_DIR}/tests/homebrew_runtime_host_test.cpp")
-    target_link_libraries(homebrew_runtime_host_test PRIVATE playden_homebrew_runtime_host)
-    add_test(NAME homebrew_runtime_host COMMAND homebrew_runtime_host_test)
+    target_link_libraries(homebrew_runtime_host_test PRIVATE playden_homebrew_runtime_host playden_runtime_artifact_hash)
+    add_test(NAME homebrew_runtime_host COMMAND homebrew_runtime_host_test "${CMAKE_SOURCE_DIR}/runtime")
     add_executable(homebrew_controller_tour_test "${CMAKE_SOURCE_DIR}/tests/homebrew_controller_tour_test.cpp")
     target_compile_features(homebrew_controller_tour_test PRIVATE cxx_std_20)
     target_link_libraries(homebrew_controller_tour_test PRIVATE playden_homebrew_model)
