@@ -292,6 +292,16 @@ void live_install_requests_and_projection() {
     check(model.TakeRuntimePrepareRequests().size() == 1, "Prepare can be queued without a button press");
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
     check(model.action("details:42"), "details reopen");
+    check(find_row(model, "details-play")->progress == 0.0F && find_row(model, "details-runtime")->progress == 0.0F,
+          "a step without a known fraction shows no bar");
+    {
+        playden::homebrew::LiveRuntimeGame copying{42, "Preparing", "Copying the Windows environment", false, false};
+        copying.progress = 0.42F;
+        model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {copying});
+        check(find_row(model, "details-play")->progress == 0.42F && find_row(model, "details-runtime")->progress == 0.42F,
+              "a copy with a known fraction shows it on Play and the PS5 title");
+        model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
+    }
     check(model.state().installations.size() == 1 && !model.state().installations[0].runtime_ready, "preparing is not ready");
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Ready", "FAKE78001", false, true}});
     model.UpdateInstalls({}, {{42, 600'000'000}});

@@ -1963,6 +1963,14 @@ class Render::Impl
             const float amount = control_focus(row.key, focused && route_focus_);
             mac_button(scene_, {x, 682.0F - height * 0.5F, width, height}, label, primary, amount, !row.enabled,
                        detail);
+            // Preparing or removing with a known fraction: a bar along the bottom of Play.
+            if (row.key == "details-play" && row.progress > 0.0F)
+            {
+                const gfx::Rect track{x + 10.0F, 682.0F + height * 0.5F - 9.0F, width - 20.0F, 4.0F};
+                scene_.rounded_rect(track, 2.0F, kText.with_alpha(0.18F));
+                scene_.rounded_rect({track.x, track.y, track.w * std::clamp(row.progress, 0.0F, 1.0F), track.h}, 2.0F,
+                                    kText);
+            }
             if (favorite && row.selected)
                 scene_.circle(x + width - 12.0F, 682.0F - height * 0.5F + 12.0F, 4.0F, kAccent);
             x += width + 14.0F;
@@ -2024,7 +2032,9 @@ class Render::Impl
             {
                 if (row.key != "details-runtime" || row.subtitle.empty())
                     continue;
-                const std::string runtime_note = "PS5 title · " + row.value + " · " + row.subtitle;
+                std::string runtime_note = "PS5 title · " + row.value + " · " + row.subtitle;
+                if (row.progress > 0.0F)
+                    runtime_note += " · " + std::to_string(static_cast<int>(row.progress * 100.0F)) + "%";
                 ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, runtime_note, 22.0F, 1128.0F), kSafeX, y + 4.0F,
                          22.0F, kSecondary);
                 y += 42.0F;

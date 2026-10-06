@@ -73,6 +73,8 @@ struct LiveRuntimeGame {
     // Uninstall removes the game's PS5 title first; has_title says there is one.
     bool has_title = false;
     std::string uninstall_status;  // e.g. "Syncing saves…", "Removing PS5 title…"; empty when idle
+    // How far the current copy or deletion is (0–1); absent when it cannot be measured.
+    std::optional<float> progress;
 };
 // Saves and settings kept from an uninstalled game (its private bottle).
 struct LiveKeptBottle {

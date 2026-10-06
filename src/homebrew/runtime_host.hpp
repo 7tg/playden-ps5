@@ -148,6 +148,9 @@ struct RuntimeSnapshot {
   // Latest refused or failed request per Steam app, for presentation.
   std::map<std::uint32_t, std::string> refusals;
   std::optional<std::uint32_t> preparing_app;  // the game being prepared now
+  // How far the current copy (preparing_app) or deletion (removing_app) is, when
+  // that is measurable; absent for steps whose progress is unknown.
+  std::optional<float> work_progress;
   std::optional<RuntimeLaunchView> launch;
   // Settings requests no install record's journal names: left by an interrupted
   // preparation, a refused request or a finished publication. They grant nothing.
@@ -259,6 +262,9 @@ class RuntimeHost {
   std::size_t LeftoverRequests(Composition& composition, bool remove);
   bool Stopping() const;
   void Log(const std::string& line) const;
+  // Worker thread: publishes the work fraction when its whole percent changes; ClearWork removes it.
+  void ReportWork(std::uint64_t done, std::uint64_t total);
+  void ClearWork();
 
   RuntimeHostConfig config_;
   mutable std::mutex mutex_;
@@ -269,6 +275,7 @@ class RuntimeHost {
   std::vector<std::pair<std::uint32_t, bool>> remove_requests_;
   std::vector<std::uint32_t> kept_delete_requests_;
   std::vector<std::uint32_t> activity_requests_;
+  int work_percent_ = -1;  // worker thread only: the published work percent, -1 for none
   bool launch_poll_ = false;
   bool cleanup_requested_ = false;
   std::map<std::uint32_t, std::string> title_names_;  // guarded by mutex_

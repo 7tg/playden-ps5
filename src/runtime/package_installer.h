@@ -111,6 +111,9 @@ struct PackageInstallerOperations {
   // the copy itself with a write error. Never set where free space is readable.
   bool free_space_unverifiable = false;
   std::function<bool()> canceled;
+  // Optional: work done of the total while a package copy runs (each source is
+  // hashed, copied and hashed again, so the total is three times its bytes).
+  std::function<void(std::uint64_t done, std::uint64_t total)> progress;
   // Optional test/platform seam. With no override, the implementation uses
   // open(2)+fsync(2). `directory` distinguishes directory durability barriers.
   std::function<bool(const std::filesystem::path&, bool directory)> sync_path;

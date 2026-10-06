@@ -168,6 +168,7 @@ struct Fixture {
   bool canceled = false;
   int cancel_after_checks = -1;
   int cancel_checks = 0;
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> progress;  // (done, total) reports
   std::uint64_t free_bytes = 1ULL << 30;
   int writes = 0;
   int sync_calls = 0;
@@ -276,6 +277,7 @@ struct Fixture {
         return fail_sync_call < 0 || sync_calls != fail_sync_call;
       };
     }
+    operations.progress = [&](std::uint64_t done, std::uint64_t total) { progress.emplace_back(done, total); };
     operations.validate_bottle = [](const std::filesystem::path& bottle) {
       return std::filesystem::is_regular_file(bottle / "drive_c/windows/system.reg");
     };
@@ -311,6 +313,23 @@ void LegacyDescriptorOnlyBindsHistoricalRoot() {
     CHECK((installer.PublishProfile(record).state == PackageActionState::kComplete) == historical);
     CHECK(fixture.writes == (historical ? 1 : 0));
   }
+}
+
+void TemplateCopyReportsProgress() {
+  Fixture fixture; auto record = Record();
+  record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                      {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+  auto installer = fixture.Installer();
+  CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  fixture.progress.clear();
+  CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  // From nothing to all of it, never backwards, against one total: hash, copy and verify.
+  CHECK(fixture.progress.size() >= 3);
+  const auto total = fixture.progress.front().second;
+  CHECK(total > 0 && fixture.progress.front().first == 0);
+  for (std::size_t index = 1; index < fixture.progress.size(); ++index)
+    CHECK(fixture.progress[index].second == total && fixture.progress[index].first >= fixture.progress[index - 1].first);
+  CHECK(fixture.progress.back().first == total);
 }
 
 void CommittedReceiptIsRequired() {
@@ -807,6 +826,7 @@ void MissingReferencedInputAndSymlinkedManagedParentsAreRejected() {
 }  // namespace
 
 int main() {
+  TemplateCopyReportsProgress();
   {
     Fixture fixture;
     const auto game = fixture.host_data / "playden/games/install-hl2";

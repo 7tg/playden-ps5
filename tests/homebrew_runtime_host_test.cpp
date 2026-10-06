@@ -879,6 +879,7 @@ void RemovesTitleKeepingSaves() {
     // Prepared again, the game gets its saves back and the kept copy goes.
     const auto ready = prepare(host);
     CHECK(ready.kept_bottles.empty() && !fs::exists(kept));
+    CHECK(!ready.work_progress);  // the copy's progress ends with the preparation
     CHECK(Read(bottle / save) == "player-save");
     struct stat info{};
     CHECK(stat((bottle / "library/prefixes/game/drive_c/users/steamuser").c_str(), &info) == 0 &&
@@ -892,6 +893,7 @@ void RemovesTitleKeepingSaves() {
     removed = remove(host, true);
     CHECK(!removed.removal_failures.count(220) && removed.installs.empty());
     CHECK(!fs::exists(bottle) && !fs::exists(kept) && removed.kept_bottles.empty());
+    CHECK(!removed.work_progress);  // the deletion's progress ends with it
     CHECK(Read(outside / "keep.txt") == "not the bottle's");
 
     // A kept bottle can be deleted on its own.

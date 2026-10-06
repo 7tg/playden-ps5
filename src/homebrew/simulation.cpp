@@ -2301,6 +2301,8 @@ void Simulation::rebuild_view() {
                                       : prepares_first ? "The first start sets the game up and adds it to the PS5 Home screen"
                                                        : std::string{};
                         play.enabled = enabled && value.uninstall_status.empty();
+                        // A copy or deletion with a known fraction shows a bar; other steps only their words.
+                        if (value.progress) play.progress = std::max(*value.progress, 0.001F);
                     }
                     // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
                     const auto cloud = state_.cloud.find(game->id);
@@ -2335,6 +2337,7 @@ void Simulation::rebuild_view() {
                                       : value.status == "Needs repair" ? "Repair" : "Prepare";
                         runtime.subtitle = value.detail;
                         runtime.enabled = value.can_prepare;
+                        if (value.progress) runtime.progress = std::max(*value.progress, 0.001F);
                     }
                 }
             } else if (job) {

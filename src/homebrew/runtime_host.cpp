@@ -344,6 +344,21 @@ void RuntimeHost::Publish(const std::function<void(RuntimeSnapshot&)>& change) {
   ++snapshot_.revision;
 }
 
+void RuntimeHost::ReportWork(std::uint64_t done, std::uint64_t total) {
+  if (total == 0) return;
+  const int percent = static_cast<int>(std::min<std::uint64_t>(done, total) * 100 / total);
+  // Every publish rebuilds the UI's runtime state: only whole-percent changes go out.
+  if (percent == work_percent_) return;
+  work_percent_ = percent;
+  Publish([percent](RuntimeSnapshot& s) { s.work_progress = static_cast<float>(percent) / 100.0F; });
+}
+
+void RuntimeHost::ClearWork() {
+  if (work_percent_ < 0) return;
+  work_percent_ = -1;
+  Publish([](RuntimeSnapshot& s) { s.work_progress.reset(); });
+}
+
 void RuntimeHost::PublishInstalls(const Composition& composition) {
   std::vector<RuntimeInstallView> installs;
   for (const auto& record : composition.repository.Snapshot()) {
@@ -949,6 +964,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       return current->last_failure ? current->last_failure->message : "Preparation stopped.";
     const auto before = current->journal ? current->journal->step : std::string{};
     const auto step = c.service->Step(install_id);
+    ClearWork();  // a step's progress ends with it
     PublishInstalls(c);
     const auto after_step = c.records.Find(install_id);
     Log("prepare step app=" + std::to_string(request.app_id) + " from=" + before +
@@ -985,7 +1001,9 @@ bool SteamInstallId(const std::string& id) {
 // followed (Wine prefixes link z: to /). std::filesystem::remove_all crashed the
 // console title on a retired title folder, so it is not used here. A missing root
 // is not an error; the first failure is reported and the walk continues.
-void RemoveTreeNoFollow(const std::string& path, std::error_code& error) {
+// `removed`, when given, is called after each entry the walk deletes (or fails to).
+void RemoveTreeNoFollow(const std::string& path, std::error_code& error,
+                        const std::function<void()>* removed = nullptr) {
   struct stat info{};
   if (lstat(path.c_str(), &info) != 0) {
     if (errno != ENOENT && !error) error = std::error_code(errno, std::generic_category());
@@ -996,20 +1014,39 @@ void RemoveTreeNoFollow(const std::string& path, std::error_code& error) {
       while (const dirent* entry = readdir(directory)) {
         const std::string name = entry->d_name;
         if (name == "." || name == "..") continue;
-        RemoveTreeNoFollow(path + "/" + name, error);
+        RemoveTreeNoFollow(path + "/" + name, error, removed);
       }
       closedir(directory);
     } else if (!error) {
       error = std::error_code(errno, std::generic_category());
     }
     if (rmdir(path.c_str()) != 0 && !error) error = std::error_code(errno, std::generic_category());
+    if (removed) (*removed)();
     return;
   }
   if (unlink(path.c_str()) != 0 && !error) error = std::error_code(errno, std::generic_category());
+  if (removed) (*removed)();
 }
-void RemoveTreeNoFollow(const std::filesystem::path& path, std::error_code& error) {
+void RemoveTreeNoFollow(const std::filesystem::path& path, std::error_code& error,
+                        const std::function<void()>* removed = nullptr) {
   error.clear();
-  RemoveTreeNoFollow(path.string(), error);
+  RemoveTreeNoFollow(path.string(), error, removed);
+}
+
+// Entries under a tree, the root included, for deletion progress; links are not followed.
+std::uint64_t CountTreeNoFollow(const std::string& path) {
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0) return 0;
+  std::uint64_t count = 1;
+  if (S_ISDIR(info.st_mode))
+    if (DIR* directory = opendir(path.c_str())) {
+      while (const dirent* entry = readdir(directory)) {
+        const std::string name = entry->d_name;
+        if (name != "." && name != "..") count += CountTreeNoFollow(path + "/" + name);
+      }
+      closedir(directory);
+    }
+  return count;
 }
 
 // Bytes of the regular files under a tree; links are not followed.
@@ -1263,8 +1300,13 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
     struct stat info{};
     const bool present = lstat(bottle.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
     if (delete_saves) {
-      RemoveTreeNoFollow(kept, error);  // links are removed, never followed
-      if (!error && present) RemoveTreeNoFollow(bottle, error);
+      // Deleting a bottle takes a while: its progress is the entries removed of those counted.
+      const std::uint64_t total = CountTreeNoFollow(kept.string()) + (present ? CountTreeNoFollow(bottle.string()) : 0);
+      std::uint64_t done = 0;
+      const std::function<void()> removed = [&] { ReportWork(++done, total); };
+      RemoveTreeNoFollow(kept, error, &removed);  // links are removed, never followed
+      if (!error && present) RemoveTreeNoFollow(bottle, error, &removed);
+      ClearWork();
       if (error) return fail("bottle-delete", "The game's saves and settings could not be deleted: " + error.message());
     } else if (present) {
       const auto marker = "{\"schema\":1,\"install_id\":\"" + record.install_id + "\",\"app_id\":" +
@@ -1304,8 +1346,16 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
     PublishRecipes(c);
   }
   c.admission.erase(record.install_id);
-  std::error_code ignored;
-  RemoveTreeNoFollow(config_.state_root / "trash" / (record.title_id + "-" + record.journal->operation_id), ignored);
+  {
+    // The retired title folder: its progress is the entries removed of those counted.
+    const auto trash = config_.state_root / "trash" / (record.title_id + "-" + record.journal->operation_id);
+    const std::uint64_t total = CountTreeNoFollow(trash.string());
+    std::uint64_t done = 0;
+    const std::function<void()> removed = [&] { ReportWork(++done, total); };
+    std::error_code ignored;
+    RemoveTreeNoFollow(trash, ignored, &removed);
+    ClearWork();
+  }
   PublishInstalls(c);
   Log("remove complete install=" + record.install_id + " title=" + record.title_id);
   return {};
@@ -1375,6 +1425,7 @@ void RuntimeHost::Run() {
     if (c.kit) {
       auto operations = config_.package_operations;
       operations.canceled = [this] { return Stopping(); };
+      operations.progress = [this](std::uint64_t done, std::uint64_t total) { ReportWork(done, total); };
       c.installer = std::make_unique<rt::FilesystemPackageInstaller>(c.kit->view, config_.package_paths, operations);
     } else {
       if (kit_reason.empty()) kit_reason = "No verified compatibility kit is installed.";
@@ -1550,6 +1601,7 @@ void RuntimeHost::Run() {
         PublishKeptBottles(*composition);
       }
       Log("remove result app=" + std::to_string(app) + " " + (refusal.empty() ? "removed" : refusal));
+      ClearWork();
       Publish([&](RuntimeSnapshot& s) {
         s.removing_app.reset();
         if (refusal.empty()) s.removal_failures.erase(app);
@@ -1596,6 +1648,7 @@ void RuntimeHost::Run() {
         const auto leftovers = LeftoverRequests(*composition, false);
         Publish([&](RuntimeSnapshot& s) { s.leftover_requests = leftovers; });
       }
+      ClearWork();
       Publish([&](RuntimeSnapshot& s) {
         s.preparing_app.reset();
         if (refusal.empty()) s.refusals.erase(request.app_id);

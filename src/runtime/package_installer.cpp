@@ -906,6 +906,18 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     const std::string& stage_kind, const std::string& final_marker) {
   if (mappings.empty()) return Failed("kit-invalid", "kit mapping is empty or ambiguous");
   std::uint64_t required = 0;
+  for (const auto& mapping : mappings)
+    if (mapping.file && mapping.file->size <= std::numeric_limits<std::uint64_t>::max() / 4 - required)
+      required += mapping.file->size;
+  // Progress: each source is hashed, copied and hashed again.
+  const std::uint64_t work_total = required * 3;
+  std::uint64_t work_done = 0;
+  const auto report = [&](std::uint64_t amount) {
+    work_done += amount;
+    if (operations_.progress && work_total > 0) operations_.progress(std::min(work_done, work_total), work_total);
+  };
+  report(0);
+  required = 0;
   for (const auto& mapping : mappings) {
     if (!mapping.file || mapping.file->size > std::numeric_limits<std::uint64_t>::max() - required)
       return Failed("kit-invalid", "kit file sizes overflow");
@@ -922,6 +934,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     const auto hash = operations_.hash_file(source);
     if (!hash || *hash != mapping.file->sha256)
       return Failed("kit-source-invalid", "kit source hash does not match manifest");
+    report(mapping.file->size);
   }
   const auto overhead = std::max(kCopyOverheadFloor, required / 10);
   if (required > std::numeric_limits<std::uint64_t>::max() - overhead)
@@ -1026,6 +1039,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
         offset += written;
       }
       if (!wrote) break;
+      report(static_cast<std::uint64_t>(count));
       if (operations_.canceled && operations_.canceled()) {
         ::close(input); ::close(output);
         return Canceled();
@@ -1038,6 +1052,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     const auto hash = operations_.hash_file(destination);
     if (!hash || *hash != mapping.file->sha256)
       return Failed("copy-verification", "copied package file hash does not match");
+    report(mapping.file->size);
     if (!SyncPath(destination, false))
       return Failed("sync-failed", "copied package file was not durably synced");
     for (auto directory = destination.parent_path(); directory != staging.parent_path();

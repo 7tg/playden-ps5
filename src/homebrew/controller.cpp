@@ -532,6 +532,8 @@ void Controller::TickRuntime() {
       game.can_play = false; game.can_prepare = false;
     }
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
+    if (snapshot.work_progress && (snapshot.preparing_app == id || snapshot.removing_app == id))
+      game.progress = snapshot.work_progress;
     games.push_back(std::move(game));
   }
   model_.SetGeneratedRecipes(snapshot.generated_recipes);

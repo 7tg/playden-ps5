@@ -116,6 +116,12 @@ int main(int argc,char** argv) {
       ready.can_play=false; ready.play_status="Starting…";
       live.UpdateRuntime(RuntimeState::Ready, {ready});
       capture_live("details-play-disabled.png");
+      {
+        LiveRuntimeGame copying; copying.game_id=42; copying.status="Preparing"; copying.has_title=true;
+        copying.detail="Copying the Windows environment"; copying.progress=0.42F;
+        live.UpdateRuntime(RuntimeState::Ready, {copying});
+        capture_live("details-preparing-progress.png");
+      }
       ready.can_play=true; ready.play_status.clear();
       live.UpdateRuntime(RuntimeState::Ready, {ready});
       assert(live.action("focus:details-more") && live.action("cross"));
