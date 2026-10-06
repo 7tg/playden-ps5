@@ -2715,6 +2715,20 @@ void Simulation::activate() {
         save_profile();
         return;
     }
+    // Home opens the card under the focus ring, which is drawn from the focused
+    // shelf and its remembered position; the selection can lag behind it after a
+    // background profile update.
+    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty()) {
+        const auto projected = playden::homebrew::shelves(state_);
+        if (!projected.empty()) {
+            const auto& shelf = projected[static_cast<std::size_t>(
+                std::clamp(state_.navigation.home_shelf, 0, static_cast<int>(projected.size()) - 1))];
+            const auto remembered = state_.navigation.home_shelf_focus.find(shelf.key);
+            const int item = remembered == state_.navigation.home_shelf_focus.end() ? 0 : remembered->second;
+            if (item >= 0 && item < static_cast<int>(shelf.game_ids.size()))
+                state_.navigation.selected_game_id = shelf.game_ids[static_cast<std::size_t>(item)];
+        }
+    }
     if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id != 0) {
         if (live()) force_organization_selection_ = true;
         state_.navigation.detail_origin = Route::Home;
