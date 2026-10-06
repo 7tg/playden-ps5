@@ -17,6 +17,8 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <set>
+#include <string_view>
 #include <utility>
 
 namespace playden::homebrew {
@@ -217,6 +219,42 @@ void RuntimeHost::Play(std::uint32_t app_id) {
     play_requests_.push_back(app_id);
   }
   wake_.notify_all();
+}
+
+void RuntimeHost::CleanUpRequests() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    cleanup_requested_ = true;
+  }
+  wake_.notify_all();
+}
+
+std::size_t RuntimeHost::LeftoverRequests(Composition& c, bool remove) {
+  static constexpr std::string_view prefix = "settings-request-", suffix = ".v1";
+  std::set<std::string> referenced;
+  for (const auto& record : c.repository.Snapshot())
+    if (record.journal) referenced.insert(record.journal->operation_id);
+  const auto& directory = c.request_directory;
+  std::vector<std::string> leftovers;
+  std::error_code error;
+  for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
+    const auto name = it->path().filename().string();
+    if (name.size() <= prefix.size() + suffix.size() || name.compare(0, prefix.size(), prefix) != 0 ||
+        name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+      continue;
+    const auto transaction = name.substr(prefix.size(), name.size() - prefix.size() - suffix.size());
+    if (!referenced.count(transaction)) leftovers.push_back(name);
+  }
+  if (!remove) return leftovers.size();
+  playden::Storage storage(directory.string());
+  std::size_t kept = 0;
+  for (const auto& name : leftovers) {
+    const auto removed = storage.RemoveDurable(name);
+    Log("leftover request " + name + (removed.ok() ? " removed" : " kept: " + removed.message()));
+    if (!removed.ok()) ++kept;
+  }
+  return kept;
 }
 
 bool RuntimeHost::Handoff() {
@@ -748,6 +786,8 @@ void RuntimeHost::Run() {
         std::lock_guard<std::mutex> lock(mutex_);
         launch_poll_ = true;
       }
+      const auto leftovers = LeftoverRequests(c, false);
+      Publish([&](RuntimeSnapshot& s) { s.leftover_requests = leftovers; });
       const bool kit_available = c.kit.has_value();
       Log("runtime ready installs=" + std::to_string(c.repository.Snapshot().size()) + " kit=" +
           (kit_available ? c.kit->view.kit_id : "none (" + kit_reason + ")") +
@@ -762,12 +802,14 @@ void RuntimeHost::Run() {
     std::vector<RuntimePrepareRequest> requests;
     std::vector<std::uint32_t> plays;
     bool poll = false;
+    bool cleanup = false;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       // Preparation changes install records that Handoff reads on the
       // application thread, so it waits while a handoff is pending.
       const auto ready = [this] {
-        return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty();
+        return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty() ||
+               cleanup_requested_;
       };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
@@ -775,6 +817,14 @@ void RuntimeHost::Run() {
       if (!snapshot_.handoff_ready) requests.swap(prepare_requests_);
       plays.swap(play_requests_);
       poll = launch_poll_;
+      cleanup = cleanup_requested_;
+      cleanup_requested_ = false;
+    }
+    if (cleanup && composition) {
+      const auto kept = LeftoverRequests(*composition, true);
+      const auto left = LeftoverRequests(*composition, false);
+      Log("leftover requests cleanup kept=" + std::to_string(kept) + " remaining=" + std::to_string(left));
+      Publish([&](RuntimeSnapshot& s) { s.leftover_requests = left; });
     }
     for (const auto app : plays) {
       if (composition) {
@@ -802,6 +852,10 @@ void RuntimeHost::Run() {
         refusal = RunPrepare(*composition, request);
       }
       Log("prepare result app=" + std::to_string(request.app_id) + " " + (refusal.empty() ? "ready" : refusal));
+      if (composition) {
+        const auto leftovers = LeftoverRequests(*composition, false);
+        Publish([&](RuntimeSnapshot& s) { s.leftover_requests = leftovers; });
+      }
       Publish([&](RuntimeSnapshot& s) {
         s.preparing_app.reset();
         if (refusal.empty()) s.refusals.erase(request.app_id);

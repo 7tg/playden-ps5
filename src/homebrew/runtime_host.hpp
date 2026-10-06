@@ -119,6 +119,9 @@ struct RuntimeSnapshot {
   std::map<std::uint32_t, std::string> refusals;
   std::optional<std::uint32_t> preparing_app;  // the game being prepared now
   std::optional<RuntimeLaunchView> launch;
+  // Settings requests no install record's journal names: left by an interrupted
+  // preparation, a refused request or a finished publication. They grant nothing.
+  std::size_t leftover_requests = 0;
   // Play requests the worker has finished handling (accepted or refused).
   std::uint64_t plays_handled = 0;
   // Latest refused Play per Steam app, for presentation.
@@ -151,6 +154,8 @@ class RuntimeHost {
   RuntimeSnapshot Snapshot() const;
   // Queues preparation of a downloaded game, or a retry of a failed one.
   void Prepare(RuntimePrepareRequest request);
+  // Queues removal of the leftover settings requests (rechecked on the worker).
+  void CleanUpRequests();
   // Queues Play of a Ready game.
   void Play(std::uint32_t app_id);
   // Application thread only: starts the title of a prepared launch session.
@@ -173,6 +178,8 @@ class RuntimeHost {
   // Returns true while a session is still undecided.
   bool PollLaunch(Composition& composition);
   void PublishLaunch(Composition& composition, const runtime::LaunchSnapshot& launch);
+  // Settings request files that no record's journal names; with remove, deletes them.
+  std::size_t LeftoverRequests(Composition& composition, bool remove);
   bool Stopping() const;
   void Log(const std::string& line) const;
 
@@ -183,6 +190,7 @@ class RuntimeHost {
   std::vector<RuntimePrepareRequest> prepare_requests_;
   std::vector<std::uint32_t> play_requests_;
   bool launch_poll_ = false;
+  bool cleanup_requested_ = false;
   // Guards the worker's launch service and preflight cache for Handoff.
   std::mutex launch_mutex_;
   runtime::LaunchService* launch_ = nullptr;

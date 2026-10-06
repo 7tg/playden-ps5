@@ -290,6 +290,7 @@ struct State {
     std::string default_volume_id;  // live: where new installs go
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
     std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
+    std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
     Navigation navigation;
     EditorState editor;
     std::vector<Notice> notices;
@@ -379,6 +380,8 @@ public:
     // Live mode: games to prepare (bottle + PS5 title), and the runtime state for display.
     [[nodiscard]] std::vector<GameId> TakeRuntimePrepareRequests();
     [[nodiscard]] std::vector<GameId> TakeRuntimePlayRequests();
+    [[nodiscard]] bool TakeRuntimeCleanupRequest();
+    void SetRuntimeLeftovers(std::size_t count);
     void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
@@ -456,6 +459,7 @@ private:
     std::vector<InstallRequest> pending_install_requests_;
     std::vector<GameId> pending_runtime_prepare_requests_;
     std::vector<GameId> pending_runtime_play_requests_;
+    bool pending_runtime_cleanup_ = false;
     bool library_catalog_received_ = false;
     // Live install events become notifications; the first snapshot is restored history, not an event.
     bool live_installs_seen_ = false;

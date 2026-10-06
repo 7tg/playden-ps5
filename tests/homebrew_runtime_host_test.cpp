@@ -269,6 +269,14 @@ void PreparesExistingDownloadToReady() {
   struct stat info{};
   CHECK(stat((fixture.root / "data/playden/games/steam-220/library/prefixes/game").c_str(), &info) == 0 &&
         (info.st_mode & 0777) == 0700);
+  // The finished publication's request is no longer named by any journal: an
+  // explicit cleanup removes it.
+  const auto request = fixture.root / "data/runtime-state/requests/settings-request-00000000-0000-4000-8000-000000000001.v1";
+  CHECK(fs::is_regular_file(request));
+  CHECK(WaitFor(host, [](const RuntimeSnapshot& s) { return s.leftover_requests == 1; }).leftover_requests == 1);
+  host.CleanUpRequests();
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.leftover_requests == 0; });
+  CHECK(!fs::exists(request));
   // A second request does not redo anything.
   host.Prepare(Hl2());
   const auto again = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
@@ -310,6 +318,11 @@ void ResumesInterruptedCaptureFromSavedRequest(bool tamper_backup = false) {
   const auto failed = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); }, 60);
   CHECK(failed.installs.size() == 1 && failed.installs[0].state != PreparationState::kReady);
   CHECK(failed.installs[0].recovery_pending);
+  // The saved request the journal names is in use: never leftover, never removed.
+  CHECK(failed.leftover_requests == 0);
+  host.CleanUpRequests();
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK(fs::is_regular_file(fixture.root / "data/runtime-state/requests/settings-request-00000000-0000-4000-8000-000000000001.v1"));
   const auto backup = fixture.root / "data/playden/games/steam-220/.playden-control" /
                       "registry-backup-00000000-0000-4000-8000-000000000001.v1";
   CHECK(fs::is_regular_file(backup));

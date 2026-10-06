@@ -247,6 +247,7 @@ void Controller::TickRuntime() {
     const auto root = game_roots_.find(id);
     if (root != game_roots_.end()) runtime_->Prepare({id, root->second, game_volumes_[id]});
   }
+  if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   auto plays = model_.TakeRuntimePlayRequests();
   for (const auto id : plays) {
     if (sync_before_play_.count(id)) continue;
@@ -370,6 +371,7 @@ void Controller::TickRuntime() {
     games.push_back(std::move(game));
   }
   model_.UpdateRuntime(state, games);
+  model_.SetRuntimeLeftovers(snapshot.leftover_requests);
 }
 void Controller::TickInstalls() {
   if (!installs_) return;

@@ -525,6 +525,18 @@ std::vector<GameId> Simulation::TakeRuntimePlayRequests() {
     return requests;
 }
 
+bool Simulation::TakeRuntimeCleanupRequest() {
+    const bool requested = pending_runtime_cleanup_;
+    pending_runtime_cleanup_ = false;
+    return requested;
+}
+
+void Simulation::SetRuntimeLeftovers(std::size_t count) {
+    if (!live() || state_.runtime_leftover_requests == count) return;
+    state_.runtime_leftover_requests = count;
+    rebuild_view();
+}
+
 void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games) {
     if (!live()) return;
     state_.runtime = runtime;
@@ -2280,6 +2292,12 @@ void Simulation::rebuild_view() {
         auto& runtime = add("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
         runtime.value = state_.runtime == RuntimeState::Ready ? (live() ? "Ready" : "Ready — simulated") : state_.runtime == RuntimeState::Checking ? (live() ? "Checking" : "Checking — simulated") : state_.runtime == RuntimeState::Failed ? (live() ? "Failed" : "Failed — simulated") : (live() ? "Unavailable" : "Unavailable — simulated");
         if (live()) { runtime.subtitle = "Games run through prospero-win"; runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false; }
+        if (live() && state_.runtime_leftover_requests > 0) {
+            // Explicit recovery: settings requests no game is using any more.
+            auto& leftovers = add("settings-runtime-cleanup", RowKind::Action, "Unused game settings data", "runtime-cleanup");
+            leftovers.value = std::to_string(state_.runtime_leftover_requests);
+            leftovers.subtitle = "Left by interrupted or finished preparations. Clean up removes only what no game is using.";
+        }
         section = "Display";
         auto& motion = add("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion");
         motion.selected = state_.reduced_motion;
@@ -2840,6 +2858,8 @@ void Simulation::activate() {
     } else if (live() && action_name == "runtime-prepare") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+    } else if (live() && action_name == "runtime-cleanup") {
+        pending_runtime_cleanup_ = true;
     } else if (live() && action_name == "runtime-play") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_runtime_play_requests_.push_back(id);
