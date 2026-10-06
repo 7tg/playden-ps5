@@ -60,6 +60,8 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
         "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
         "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
     add_test(NAME prospero_title_publication_native_contract COMMAND prospero_title_publication_native_contract)
+    add_test(NAME publication_acceptance_tools COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+        -s "${CMAKE_SOURCE_DIR}/tests" -p test_publication_acceptance_tools.py)
     add_test(NAME prospero_source_pin COMMAND "${Python3_EXECUTABLE}" -m unittest discover
         -s "${CMAKE_SOURCE_DIR}/tests" -p test_prospero_source.py)
     add_test(NAME prospero_bottle_preparation_evidence COMMAND "${Python3_EXECUTABLE}" -m unittest discover

@@ -1,0 +1,19 @@
+{
+  "cleanup": null,
+  "elf_sha256": "c8fdb11195a40808f1c45a3600178438c08bf3cc968a726bf4b48fa9018b158c",
+  "failure": "Exclusive canonical fixture initialization failed",
+  "foundation_revision": "9c0b994a048521af6fb84c73ded364504fe250e9",
+  "manifest_sha256": "e52465731bd6c04b27a2e71e7a15f22778fb613fd8069befdd5647382fe2ea8a",
+  "pass": false,
+  "process_ids": [
+    1098
+  ],
+  "prospero_revision": "bde4b394a8db20cc243e8dc32945adb0dccfe2a7",
+  "publication_provider_sha256": "f14d5e3ecb31951e3cf5bfdc41972181a9be1d96ed0dc7cb3aeebb8e4aab844a",
+  "run": "343a1c81f1267c83",
+  "scenarios": [],
+  "schema": "playden-publication-acceptance-result/1",
+  "scope": "standalone-payload; granted wrapper/Wine lifetime remains untested",
+  "sdk_inputs_sha256": "d6f17c4709ea6d2a771d72443157967cba68e91748a3264a616d9a0f880f2aa2",
+  "transcript_sha256": "e072fa79c36933f5f7d9149ed68222902459937def8ec54e3fdc0bc7602808c2"
+}

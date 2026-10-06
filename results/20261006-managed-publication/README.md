@@ -130,3 +130,38 @@ change and remains byte-identical to the restored preview:
 `d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa`.
 The guarded wrapper is a separate development artifact and has not been deployed
 by this increment. The console remains released.
+
+
+Standalone console diagnostic attempts are recorded in
+[attempt 1](../20261006-native-publication-attempt-1/acceptance.json),
+[attempt 2](../20261006-native-publication-attempt-2/acceptance.json), and
+[attempt 3](../20261006-native-publication-attempt-3/acceptance.json).
+None passed. The first two stopped before fixture creation: the probe's shared
+parent-mode assumption was too strict, then its post-UID-drop inventory read was
+denied. Corrected probes match native root policy and inspect root-only title
+inventory before dropping to owner UID1.
+
+The third created a fresh private fixture, then guard admission refused at
+stage 0. A separate exact-source replay with explicit libkernel linkage confirmed
+that `sceKernelDlsym(0x2001, "getpid")` fails in this standalone payload context;
+the production provider reports ENOSYS (78). See the
+[context transcript](../20261006-native-publication-attempt-3/provider-context.log)
+and its frozen manifest/result. No provider fallback or production trust change
+was added. Native-title context acceptance is still required.
+
+The isolated fixture `pw-accept-bde4-7489667744b2d7b8` and unregistered `FAKE78997`
+source remain as diagnostic evidence. No reader lease was admitted, and no Wine
+was started. Cleanup intentionally requires the qualified publisher provider;
+use the native title diagnostic context to perform verified cleanup rather than
+removing the stable lock through FTP. Existing HL2 data and normal Playden preview
+were not modified by these probes. The console is released.
+
+Host verification: **102/102 passed**, including ten focused runner tests. The
+runner refuses stale/ambiguous/explicitly failed results, noncanonical PIDs,
+wrong refusal stages and changed source/SDK/manifest bytes. Failure cleanup needs
+independent writer acquisition; unavailable acquisition preserves the fixture.
+Builds use a recorded allowlisted environment and fresh output paths. These are
+development diagnostics, not native acceptance or a production feature.
+
+The current kstuff measurement and successful ShadowMount retry recovery are
+recorded in [service checks](../20261006-console-services/README.md).

@@ -1,0 +1,8 @@
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=preflight pid=1101 initial_euid=0 owner=1
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=parent0 pid=1101 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=parent1 pid=1101 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=parent2 pid=1101 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=parent3 pid=1101 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=provider pid=1101 lookup_rc=-2147352573 symbol_present=0
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=admission pid=1101 rc=-1 errstage=0 errno=78
+PWPA1 run=7489667744b2d7b8 mode=reader-try stage=result pid=1101 pass=1 rc=-1 errstage=0

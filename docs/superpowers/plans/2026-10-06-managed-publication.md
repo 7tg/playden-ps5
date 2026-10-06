@@ -225,6 +225,33 @@ Durable recovery loading distinguishes absent, valid, corrupt and unavailable;
 do not conflate these states through an optional snapshot. Large registry backups
 use private transaction-specific files bound by digest.
 
+The first independently testable increment is the immutable operation codec and
+private backup store, before live publisher effects. Use explicit recovery states
+(`absent`, `valid`, `corrupt`, `unavailable`) and an exclusive operation file.
+Store shared profile/input bytes only once in the complete launch plan; rebuild
+`ProfilePublication` from the frozen identities and those validated bytes. Never
+serialize and later trust `profile_references_validated`. Preserve composed
+profile arguments separately from the install/adoption record's launch arguments;
+they legitimately differ and are both frozen.
+
+Bound the canonical length-prefixed operation at 2 MiB, with lengths/counts
+checked before allocation and exact EOF. A 1 MiB limit is insufficient for
+64 input files plus both prior/desired DXVK contents and metadata/receipts.
+Keep registry backups outside the operation, at most 32 MiB, in exact-owned-0600
+transaction-named files beneath the existing control directory; bind their size,
+original mode, filename and digest in the frozen operation. Avoid an unjournaled
+backup child-directory lifecycle. Write/sync the exclusive backup before the
+exclusive operation journal, then the pending receipt, then live effects. A
+pre-journal orphan grants no ownership or readiness.
+
+Cross-validate the frozen record/plan, pinned profile/input/descriptor parsers,
+shared schema-2 metadata and both receipt phases on creation and recovery. A
+canonical freeze digest can cover intended bytes and before-state/backup bindings,
+excluding the two receipts and digest field to avoid circular hashing. Receipts
+bind that digest and the committed receipt also binds exact metadata bytes. A
+missing or altered referenced backup prevents valid recovery. Exact 0600 policy
+must be established independently of Storage's legacy 0644 allowance.
+
 Acquire publisher ownership, persist the operation journal, then sync pending
 receipt before creating profile/input directories or invoking `ApplySettingsFiles`.
 Retain typed snapshots and backups needed to verify/reconcile registry/DXVK

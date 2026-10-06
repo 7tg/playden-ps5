@@ -1,0 +1,6 @@
+PWPA1 run=7489667744b2d7b8 mode=init stage=preflight pid=1100 initial_euid=0 owner=1
+PWPA1 run=7489667744b2d7b8 mode=init stage=parent0 pid=1100 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=init stage=parent1 pid=1100 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=init stage=parent2 pid=1100 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=init stage=parent3 pid=1100 uid=0 permissions=777
+PWPA1 run=7489667744b2d7b8 mode=init stage=result pid=1100 pass=0 line=359 errno=78
