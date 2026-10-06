@@ -602,7 +602,8 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
   SettingsPublicationOperation o; o.install = r; o.plan = plan; o.kit_id = kit_id;
   o.transaction_id = transaction; o.registry_unix_time = unix_time;
   o.catalog_bytes = plan.profile_id + ".profile\n";
-  o.descriptor_bytes = "{\"schema_version\":1,\"app_id\":" + std::to_string(r.app_id) +
+  // Schema 2 binds the recorded download root, which is independent of the native title.
+  o.descriptor_bytes = "{\"schema_version\":2,\"app_id\":" + std::to_string(r.app_id) +
       ",\"settings_revision\":" + std::to_string(plan.settings_revision);
   auto field = [&](const char* name, const std::string& value) {
     o.descriptor_bytes += ",\""; o.descriptor_bytes += name; o.descriptor_bytes += "\":\"";
@@ -615,7 +616,8 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
   };
   if (!field("title_id", r.title_id) || !field("install_id", r.install_id) || !field("data_root", r.data_root) ||
       !field("default_profile_id", plan.profile_id) || !field("runtime_bundle_id", r.runtime_bundle_id) ||
-      !field("recipe_id", plan.recipe_id) || !field("recipe_version", plan.recipe_version) || !field("exit_policy", r.exit_policy))
+      !field("recipe_id", plan.recipe_id) || !field("recipe_version", plan.recipe_version) || !field("exit_policy", r.exit_policy) ||
+      !field("game_root", r.install_path))
     return fail("Descriptor identities cannot be represented safely.");
   o.descriptor_bytes += "}\n";
   PwGameProfile profile{}; char working[1024]{};

@@ -188,6 +188,26 @@ foreign paths and unavailable inventory. ShadowMount inventory is not a complete
 console ID allocator: also inspect the install database and source paths before
 reservation. Durable allocation/reinstall bookkeeping belongs to Task 4.
 
+## Game root in the launch descriptor
+
+The native title (`/data/homebrew/<title_id>`) and the game files are independent.
+Game files stay at the recorded Steam download root, for example an existing
+launcher download at `/data/homebrew/FAKE77031/games/220` or a selected volume at
+`/mnt/usb0/playden/games/220`. Playden does not move or download them again to
+match a new title ID.
+
+`game-launch.json` schema 2 (prospero-win `439ae06`) records this root in
+`game_root`. The value must be canonical and under `/data/` or `/mnt/`. Roots in
+Playden's private `/data/playden` tree are refused. Native publication admission
+checks the profile executable and working directory against `game_root` from the
+descriptor bytes it reads again from disk. Playden emits schema 2 with
+`game_root = install_path`. The frozen OWNER operation and the package installer
+refuse a descriptor whose root differs from the record.
+
+Schema 1 has no `game_root`. It still infers `/data/homebrew/<title_id>/games/<app_id>`
+and refuses an extra `game_root` field. Playden accepts schema 1 only when the
+record uses that historical root.
+
 ## Current validation
 
 Selected host suite: 64/64 passed after adding launch sequencing/provider and

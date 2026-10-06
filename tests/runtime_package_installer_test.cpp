@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "runtime/package_installer.h"
 #include "runtime/private_directories.h"
 #include "runtime/publication_contract.h"
@@ -108,7 +109,8 @@ PackageActionResult WriteCompleteFixture(const std::filesystem::path& host_data,
   }
   if (!std::filesystem::exists(control / "publication.lock")) Write(control / "publication.lock", "", 0600);
   Write(game / "library/prefixes/game/user.reg", "WINE REGISTRY Version 2\n", 0600);
-  std::filesystem::create_directories(host_data / "homebrew/FAKE78001/games/220");
+  // The game root is the recorded download path, mapped into the same host namespace as /data.
+  std::filesystem::create_directories(host_data.parent_path() / std::filesystem::path(record.install_path).relative_path());
   Write(output.profile, value.profile_bytes, public_profile ? 0644 : 0600);
   const auto catalog = value.profile_id + ".profile\n"; Write(output.catalog, catalog, 0600);
   for (const auto& preset : value.input_presets) Write(output.input_directory / preset.filename, preset.bytes, 0600);
@@ -123,7 +125,7 @@ PackageActionResult WriteCompleteFixture(const std::filesystem::path& host_data,
   for (std::size_t i = 0; i < value.input_presets.size(); ++i) {
     Copy(metadata.inputs[i].name, value.input_presets[i].filename); Copy(metadata.inputs[i].sha256, RealHashBytes(value.input_presets[i].bytes));
   }
-  Copy(metadata.dxvk_path, "/data/homebrew/FAKE78001/games/220/dxvk.conf"); metadata.registry_count = 2;
+  Copy(metadata.dxvk_path, record.install_path + "/dxvk.conf"); metadata.registry_count = 2;
   Copy(metadata.registry[0].key, "Software\\Wine\\AppDefaults\\hl2.exe"); Copy(metadata.registry[0].name, "Version");
   Copy(metadata.registry[1].key, "Control Panel\\Desktop"); Copy(metadata.registry[1].name, "LogPixels");
   metadata.registry[0].kind = metadata.registry[1].kind = PW_TITLE_PUBLICATION_REGISTRY_ABSENT;
@@ -174,6 +176,7 @@ struct Fixture {
   bool fail_bottle_post_rename_once = false;
   bool publish_public_profile = false;
   bool fail_publication = false;
+  bool legacy_descriptor = false;
 
   Fixture() {
     Write(kit / "titles/variant/eboot.bin", "native", 0755);
@@ -223,20 +226,22 @@ struct Fixture {
     publication.recipe_id = record.recipe_id;
     publication.recipe_version = record.recipe_version;
     publication.settings_revision = record.settings_revision;
+    std::string windows_root = "Z:" + record.install_path;
+    std::replace(windows_root.begin(), windows_root.end(), '/', '\\');
     publication.profile_bytes = "[application]\nid = game\nname = Half-Life 2\nprefix = game\n"
-        "executable = Z:\\data\\homebrew\\FAKE78001\\games\\220\\hl2.exe\n"
-        "working_directory = Z:\\data\\homebrew\\FAKE78001\\games\\220\n"
+        "executable = " + windows_root + "\\hl2.exe\n"
+        "working_directory = " + windows_root + "\n"
         "runtime = wine-wow64\narchitecture = pe64\ngraphics = dxvk\n";
     publication.profile_references_validated = true;
     publication.descriptor_bytes =
-        "{\"schema_version\":1,\"install_id\":\"install-hl2\","
+        "{\"schema_version\":2,\"install_id\":\"install-hl2\","
         "\"title_id\":\"FAKE78001\",\"app_id\":220,"
         "\"data_root\":\"/data/playden/games/install-hl2\","
         "\"default_profile_id\":\"game\","
         "\"settings_revision\":18446744073709551615,"
         "\"runtime_bundle_id\":\"wine-wow64\","
         "\"recipe_id\":\"steam-220-hl2-v1\",\"recipe_version\":\"1\","
-        "\"exit_policy\":\"exit-title\"}";
+        "\"exit_policy\":\"exit-title\",\"game_root\":\"" + record.install_path + "\"}";
     return publication;
   }
 
@@ -275,7 +280,13 @@ struct Fixture {
       return std::filesystem::is_regular_file(bottle / "drive_c/windows/system.reg");
     };
     operations.provide_publication = [&](const RuntimeInstall& record) {
-      return std::optional<ProfilePublication>(Publication(record));
+      auto publication = Publication(record);
+      if (legacy_descriptor) {  // Schema 1: no explicit root, historical per-title root inferred.
+        auto& bytes = publication.descriptor_bytes;
+        bytes.replace(bytes.find("\"schema_version\":2"), 18, "\"schema_version\":1");
+        bytes.erase(bytes.find(",\"game_root\""), std::string::npos); bytes += "}";
+      }
+      return std::optional<ProfilePublication>(publication);
     };
     operations.publish_owned = [&](const RuntimeInstall& record, const PublicationPaths& output,
                                    const ProfilePublication& publication) {
@@ -286,6 +297,21 @@ struct Fixture {
     return FilesystemPackageInstaller(view, paths, std::move(operations));
   }
 };
+
+void LegacyDescriptorOnlyBindsHistoricalRoot() {
+  for (const auto* root : {"/mnt/games/220", "/data/homebrew/FAKE78001/games/220"}) {
+    Fixture fixture; auto record = Record(); record.install_path = root;
+    record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                        {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+    fixture.legacy_descriptor = true;
+    auto installer = fixture.Installer();
+    CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+    CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+    const bool historical = std::string(root) == "/data/homebrew/FAKE78001/games/220";
+    CHECK((installer.PublishProfile(record).state == PackageActionState::kComplete) == historical);
+    CHECK(fixture.writes == (historical ? 1 : 0));
+  }
+}
 
 void CommittedReceiptIsRequired() {
   Fixture fixture; auto record = Record();
@@ -330,7 +356,7 @@ void CompleteInspectorRefusesMixedSettingsAndBusyPublisher() {
     if (damage == 0) { receipt.phase = PW_TITLE_PUBLICATION_PENDING; receipt.publication_sha256[0] = 0; }
     if (damage == 1) Write(state_path, "corrupt", 0600);
     if (damage == 2) Write(game / "library/prefixes/game/user.reg", "WINE REGISTRY Version 2\n\n[Control Panel\\\\Desktop] 0\n\"LogPixels\"=dword:00000078\n", 0600);
-    if (damage == 3) Write(fixture.host_data / "homebrew/FAKE78001/games/220/dxvk.conf", "foreign", 0644);
+    if (damage == 3) Write(fixture.host_data.parent_path() / std::filesystem::path(record.install_path).relative_path() / "dxvk.conf", "foreign", 0644);
     if (damage == 4) { const auto metadata = Read(metadata_path); auto legacy = metadata; CHECK(legacy.find("schema=2") == 0); legacy[7] = '1'; Write(metadata_path, legacy, 0600); Copy(receipt.publication_sha256, RealHashBytes(legacy)); }
     if (damage == 5) {
       const auto bytes = Read(metadata_path); PwTitlePublicationMetadata metadata{};
@@ -796,6 +822,7 @@ int main() {
   FailedDriverCreatesNoPublicationDirectories();
   CompleteInspectorRefusesMixedSettingsAndBusyPublisher();
   CommittedReceiptIsRequired();
+  LegacyDescriptorOnlyBindsHistoricalRoot();
   CompletePublicationAndFreshInspection();
   CancelAndSpaceFailuresAreBounded();
   SyncFailureNeverPublishesWatchedTitle();

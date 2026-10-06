@@ -286,9 +286,23 @@ bool DescriptorMatches(const RuntimeInstall& record, std::string_view bytes) {
   if (bytes.empty() || bytes.size() > kMaxPublicationBytes) return false;
   auto parsed = playden::steam::json::Parse(
       bytes, {kMaxPublicationBytes, 4, 32, kMaxPublicationBytes});
-  if (!parsed || !parsed->is_object() || parsed->object().size() != 11) return false;
+  if (!parsed || !parsed->is_object()) return false;
   using Type = playden::steam::json::Value::Type;
   const auto* schema = Required(*parsed, "schema_version", Type::kNumber);
+  // Schema 1 infers the historical per-title root; schema 2 records the actual
+  // download root, which may be an existing launcher path or a selected volume.
+  if (!schema) return false;
+  const auto version = schema->AsUint64();
+  if (version == 1) {
+    if (parsed->object().size() != 11 ||
+        record.install_path != "/data/homebrew/" + record.title_id + "/games/" + std::to_string(record.app_id))
+      return false;
+  } else if (version == 2) {
+    const auto* game_root = Required(*parsed, "game_root", Type::kString);
+    if (parsed->object().size() != 12 || !game_root || game_root->text() != record.install_path) return false;
+  } else {
+    return false;
+  }
   const auto* install = Required(*parsed, "install_id", Type::kString);
   const auto* title = Required(*parsed, "title_id", Type::kString);
   const auto* app = Required(*parsed, "app_id", Type::kNumber);
@@ -299,7 +313,7 @@ bool DescriptorMatches(const RuntimeInstall& record, std::string_view bytes) {
   const auto* recipe = Required(*parsed, "recipe_id", Type::kString);
   const auto* recipe_version = Required(*parsed, "recipe_version", Type::kString);
   const auto* exit_policy = Required(*parsed, "exit_policy", Type::kString);
-  return schema && schema->AsUint64() == 1 && install && install->text() == record.install_id &&
+  return install && install->text() == record.install_id &&
          title && title->text() == record.title_id && app && app->AsUint64() == record.app_id &&
          root && root->text() == record.data_root && profile &&
          profile->text() == record.default_profile_id && revision &&

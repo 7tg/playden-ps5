@@ -9,7 +9,7 @@ import re
 import socket
 import time
 
-REVISION = "79cf85c065e49ae57679ff5babb88bd290b9e9e9"
+REVISION = "439ae06f46462959fac23fedb0424403ebf78c62"
 FOUNDATION = "9c0b994a048521af6fb84c73ded364504fe250e9"
 PROVIDER = "f14d5e3ecb31951e3cf5bfdc41972181a9be1d96ed0dc7cb3aeebb8e4aab844a"
 

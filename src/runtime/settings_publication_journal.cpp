@@ -154,8 +154,7 @@ bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
       p.profile_id != r.default_profile_id || p.settings_revision != r.settings_revision ||
       o.previous_revision > p.settings_revision || p.launch_entry_id != r.launch_entry_id ||
       p.launch_entry.id != r.launch_entry_id || NormalRelative(p.launch_entry.executable) != NormalRelative(r.launch_path) ||
-      NormalRelative(p.launch_entry.working_directory) != NormalRelative(r.launch_working_directory) ||
-      r.install_path != "/data/homebrew/" + r.title_id + "/games/" + std::to_string(r.app_id))
+      NormalRelative(p.launch_entry.working_directory) != NormalRelative(r.launch_working_directory))
     return Reject(reason, "Frozen OWNER record and launch plan disagree.");
   if (!PayloadBytes(o)) return Reject(reason, "Frozen operation exceeds field or total bounds.");
   const bool has_previous = !o.previous_receipt_bytes.empty();
@@ -183,7 +182,7 @@ bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
       launch.app_id != r.app_id || launch.settings_revision != p.settings_revision || launch.install_id != r.install_id ||
       launch.data_root != r.data_root || launch.default_profile_id != p.profile_id ||
       launch.runtime_bundle_id != r.runtime_bundle_id || launch.recipe_id != p.recipe_id || launch.recipe_version != p.recipe_version ||
-      launch.exit_policy != r.exit_policy)
+      launch.exit_policy != r.exit_policy || launch.game_root != r.install_path)
     return Reject(reason, "Frozen descriptor does not match the OWNER record.");
   PwGameProfile profile{};
   if (pw_game_profile_parse(reinterpret_cast<const uint8_t*>(p.profile_bytes.data()), p.profile_bytes.size(), &profile) != PW_OK ||

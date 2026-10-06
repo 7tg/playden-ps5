@@ -9,10 +9,11 @@ template<std::size_t N> inline void Copy(char (&target)[N], const std::string& v
 }
 inline void Refresh(SettingsPublicationOperation& o) {
   const auto& r = o.install; const auto& p = o.plan;
-  o.descriptor_bytes = "{\"schema_version\":1,\"app_id\":220,\"settings_revision\":" + std::to_string(p.settings_revision) +
+  o.descriptor_bytes = "{\"schema_version\":2,\"app_id\":220,\"settings_revision\":" + std::to_string(p.settings_revision) +
       ",\"title_id\":\"FAKE78001\",\"install_id\":\"install-220\",\"data_root\":\"/data/playden/games/install-220\","
       "\"default_profile_id\":\"playden-steam-220\",\"runtime_bundle_id\":\"wine-wow64\","
-      "\"recipe_id\":\"steam-220-hl2-v1\",\"recipe_version\":\"1\",\"exit_policy\":\"exit-title\"}\n";
+      "\"recipe_id\":\"steam-220-hl2-v1\",\"recipe_version\":\"1\",\"exit_policy\":\"exit-title\","
+      "\"game_root\":\"" + r.install_path + "\"}\n";
   o.catalog_bytes = p.profile_id + ".profile\n";
   PwTitlePublicationMetadata m{}; m.schema_version = 2;
   Copy(m.install_id, r.install_id); Copy(m.title_id, r.title_id); Copy(m.data_root, r.data_root);

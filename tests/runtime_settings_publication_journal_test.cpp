@@ -1,6 +1,7 @@
 #include "runtime/settings_publication_journal.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/publication_contract.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,6 +15,18 @@
 #include <unistd.h>
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%d: %s\n", __LINE__, #x); std::exit(1); } } while (0)
 #include "settings_publication_fixture.h"
+// Rewrites a schema-2 fixture descriptor as legacy schema 1, with consistent metadata hashes.
+SettingsPublicationOperation Legacy(SettingsPublicationOperation o) {
+  auto& bytes = o.descriptor_bytes;
+  bytes.replace(bytes.find("\"schema_version\":2"), 18, "\"schema_version\":1");
+  bytes.erase(bytes.find(",\"game_root\"")); bytes += "}\n";
+  PwTitlePublicationMetadata m{};
+  CHECK(pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.metadata_bytes.data()),
+        o.metadata_bytes.size(), &m) == PW_OK);
+  Copy(m.descriptor_sha256, *HashArtifactBytes(bytes));
+  auto metadata = SerializePublicationMetadata(m); CHECK(metadata); o.metadata_bytes = *metadata;
+  return o;
+}
 int main() {
   std::string reason;
   CHECK(!FreezeSettingsPublicationOperation({}, &reason));
@@ -54,6 +67,29 @@ int main() {
   CHECK(decoded->install.launch_arguments.empty() && decoded->plan.profile_bytes.find("arguments = -steam") != std::string::npos);
   CHECK(decoded->install.artifacts[0].identity == "e16ec8f" && decoded->install.last_failure->message == "prior message");
   CHECK(decoded->install.journal->step == "profile");
+  // Native title ownership is independent of the recorded Steam download root.
+  // Adoption must preserve existing launcher downloads and selected volumes.
+  for (const auto* download_root : {"/data/homebrew/FAKE77031/games/220", "/mnt/usb0/playden/games/220"}) {
+    auto adopted = Fixture(); adopted.install.install_path = download_root;
+    auto replace = [&](std::string from, std::string to) {
+      auto& profile = adopted.plan.profile_bytes;
+      for (std::size_t pos = 0; (pos = profile.find(from, pos)) != std::string::npos; pos += to.size()) profile.replace(pos, from.size(), to);
+    };
+    std::string windows = download_root; std::replace(windows.begin(), windows.end(), '/', '\\');
+    replace("Z:\\data\\homebrew\\FAKE78001\\games\\220", "Z:" + windows);
+    Refresh(adopted);
+    auto adopted_frozen = FreezeSettingsPublicationOperation(adopted, &reason);
+    CHECK(adopted_frozen);
+    auto adopted_bytes = EncodeSettingsPublicationOperation(*adopted_frozen, &reason); CHECK(adopted_bytes);
+    auto adopted_roundtrip = DecodeSettingsPublicationOperation(*adopted_bytes, &reason); CHECK(adopted_roundtrip);
+    CHECK(adopted_roundtrip->install.install_path == download_root);
+    auto wrong_root = adopted; wrong_root.install.install_path = "/data/homebrew/FAKE78001/games/220";
+    CHECK(!FreezeSettingsPublicationOperation(wrong_root, &reason)); // Still bind the exact recorded root.
+    // Schema 1 cannot express an adopted root; it infers the per-title root.
+    CHECK(!FreezeSettingsPublicationOperation(Legacy(adopted), &reason));
+  }
+  // Legacy schema-1 descriptors still bind the historical per-title root.
+  CHECK(FreezeSettingsPublicationOperation(Legacy(Fixture()), &reason));
   auto changed = *frozen; ++changed.install.settings_revision;
   CHECK(!EncodeSettingsPublicationOperation(changed, &reason));
   changed = *frozen; changed.plan.profile_bytes += "\n";
