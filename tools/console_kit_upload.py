@@ -46,6 +46,8 @@ def main():
     parser.add_argument("--host", default="10.0.1.68")
     parser.add_argument("--port", type=int, default=2120)
     parser.add_argument("--remote-parent", default="/data/playden/kits")
+    parser.add_argument("--replace", action="store_true",
+                        help="after verification, move an existing kit aside instead of refusing")
     args = parser.parse_args()
     manifest = json.loads((args.kit / "manifest.json").read_text())
     kit_id = manifest["kit_id"]
@@ -55,8 +57,8 @@ def main():
     ftp.connect(args.host, args.port, timeout=60)
     ftp.login()
     parent = listing(ftp, args.remote_parent)
-    if kit_id in parent:
-        print(f"refusing: {final} already exists", file=sys.stderr)
+    if kit_id in parent and not args.replace:
+        print(f"refusing: {final} already exists (use --replace)", file=sys.stderr)
         return 1
     if f".{kit_id}.upload" in parent:
         print(f"refusing: stale {staging} exists; inspect it first", file=sys.stderr)
@@ -105,6 +107,13 @@ def main():
         for problem in problems[:50]:
             print("  " + problem, file=sys.stderr)
         return 2
+    if kit_id in parent:
+        retired = f"{args.remote_parent}/.{kit_id}.retired-{manifest['files_sha256'][:12]}"
+        if f".{kit_id}.retired-{manifest['files_sha256'][:12]}" in listing(ftp, args.remote_parent):
+            print(f"refusing: {retired} exists", file=sys.stderr)
+            return 1
+        ftp.rename(final, retired)
+        print(f"moved previous kit aside to {retired}")
     ftp.rename(staging, final)
     print(f"verified {len(files)} files and {len(directories)} directories; installed {final}")
     ftp.quit()
