@@ -165,3 +165,14 @@ PS5 PID1089 exercised this production adapter's multiple-reader exclusion,
 last-reader release, exclusive-reader exclusion and missing-file refusal. Host
 process-exit release passed; cross-process PS5 wrapper/Wine lifetime acceptance
 remains pending. See the production-lock native log in the evidence directory.
+
+The pinned prospero source `0ac92b3` provides bounded receipt/schema-2 metadata
+parsers and a source-pinned scalar SHA-256 provider. Playden's
+`publication_contract` writer accepts the same C types and returns bytes only
+when those exact C parsers accept them. Canonical metadata binds catalog/input
+hashes, the explicit DXVK presence/digest target and typed semantic registry
+expectations; output is not an ownership grant. Current installer schema-1
+metadata and its callback still await replacement by the journaled transaction.
+The new formats are independently tested, but are not yet used to admit Wine or
+expose real Play. See the managed-publication continuation plan for native guard,
+interruption recovery and controller acceptance.

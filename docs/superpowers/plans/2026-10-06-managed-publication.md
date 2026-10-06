@@ -86,7 +86,8 @@ digests bind intended edits and owned DXVK bytes.
 ## Task A: Stable lifecycle lock and shared receipt contract
 
 **Files:** new `src/platform/managed_file_lock.{h,cpp}` and
-`tests/managed_file_lock_test.cpp`; extend `src/platform/ps5/file_shims.c` and
+`tests/managed_file_lock_test.cpp`, `src/runtime/publication_contract.{h,cpp}`
+and `tests/runtime_publication_contract_test.cpp`; extend `src/platform/ps5/file_shims.c` and
 `cmake/PlaydenCore.cmake`. In the owned prospero worktree, add portable
 `src/pw_title_publication.{h,c}` and `tests/test_pw_title_publication.c`.
 
@@ -103,17 +104,30 @@ the exact receipt parser used by native wrapper admission.
 `pw_title_publication_metadata_parse(const uint8_t*, size_t,
 PwTitlePublicationMetadata*)` supplies the shared schema-2 metadata parser. Playden consumes that
 pinned parser through a small adapter instead of inventing another permissive
-interpretation.
+interpretation. `SerializePublicationReceipt(const PwTitlePublication&)` and
+`SerializePublicationMetadata(const PwTitlePublicationMetadata&)` return optional
+bytes only after that shared parser accepts them. Writers bound C fields before
+reading them and emit exact integer/hex forms without locale-dependent streams.
 
-- [ ] Add RED tests for competing readers/publisher, close-release, symlink,
+- [x] Add RED tests for competing readers/publisher, close-release, symlink,
   permission/identity replacement, malformed receipts and exact uint64 extrema.
-- [ ] RED: schema-1 metadata refusal, count/string/total bounds, canonical empty
+- [x] RED: schema-1 metadata refusal, count/string/total bounds, canonical empty
   fields and identical interpretations through C and C++ adapters.
-- [ ] Implement the lock/parser and register portable/host contract tests.
-- [ ] Run `ctest --preset homebrew-host -R
+- [x] Implement the lock/parser and register portable/host contract tests.
+- [x] Run `ctest --preset homebrew-host -R
   '^(managed_file_lock|prospero_title_publication_contract)$'`; expect all pass.
-- [ ] Review and commit this independently testable boundary. Native cross-process
+- [x] Review and commit this independently testable boundary. Native cross-process
   behavior is verified with the wrapper in Task B, not inferred from host tests.
+
+Parent lock boundary implemented in `416b1c0`: normal/native-policy fault suites,
+full 97-test host suite and actual PS5 production-adapter fixture passed. Shared parser and scalar SHA provider are committed upstream at
+`0ac92b3c010fb3d992f9e75322ef53cc97284a7b` (including provider commit `6571f64`).
+Playden pins that clean development source with `published=false`. Its C++ writer
+uses the shared C parser before returning bytes; the resulting host suite has
+100 passing tests. This completes the portable boundary, not the native guard
+or OWNER transaction. The crypto provider passed vectors/C++ ABI and actual
+SDK v0.42 object/relocatable-link checks; the native wrapper build and admission
+remain Task B acceptance.
 
 ## Task B: Wrapper admission and lifetime ownership
 
@@ -145,7 +159,12 @@ one-entry catalog, completion metadata digest, semantic registry values, owned
 DXVK presence/digest and matching settings revision
 before `pw_wine_library_load`. Hold the lease until actual title exit; audit all
 startup failure and exit paths and Wine child lifetime rather than releasing it
-when only the primary executable returns.
+when only the primary executable returns. The retained source's
+`wine/patches/0550-ntdll-ps5-no-process-creation.patch` explicitly returns
+`STATUS_NOT_SUPPORTED` for `NtCreateUserProcess`/`__wine_unix_spawnvp` on PS5.
+Qualify that refusal on the retained runtime rather than claim working child
+processes. A future runtime that enables children must add child-lifetime lease
+acceptance before admitting that capability.
 
 - [ ] RED: missing descriptor never falls back for a managed variant; pending or
   altered commit/profile/input/descriptor never reaches Wine; an intervening

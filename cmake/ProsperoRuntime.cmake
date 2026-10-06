@@ -15,12 +15,35 @@ if(NOT prospero_source_check_result STREQUAL "0")
     message(FATAL_ERROR "${prospero_source_check_error}\nInitialize third_party/prospero-win or select a clean checkout at the locked revision.")
 endif()
 
+add_library(playden_runtime_publication_contract STATIC
+    "${CMAKE_SOURCE_DIR}/src/runtime/publication_contract.cpp"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_publication.c")
+target_include_directories(playden_runtime_publication_contract PUBLIC
+    "${CMAKE_SOURCE_DIR}/src" "${PLAYDEN_PROSPERO_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_publication_contract PUBLIC cxx_std_17 PRIVATE c_std_11)
+
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(runtime_publication_contract_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_publication_contract_test.cpp")
+    target_link_libraries(runtime_publication_contract_test PRIVATE playden_runtime_publication_contract)
+    add_test(NAME runtime_publication_contract COMMAND runtime_publication_contract_test)
+    add_executable(prospero_publication_sha256_contract
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/tests/test_pw_publication_sha256.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_publication_sha256.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/library/sha256.c")
+    target_compile_features(prospero_publication_sha256_contract PRIVATE c_std_11)
+    target_compile_options(prospero_publication_sha256_contract PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    target_compile_definitions(prospero_publication_sha256_contract PRIVATE
+        MBEDTLS_CONFIG_FILE="pw_publication_config.h")
+    target_include_directories(prospero_publication_sha256_contract PRIVATE
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
+    add_test(NAME prospero_publication_sha256_contract COMMAND prospero_publication_sha256_contract)
     add_test(NAME prospero_source_pin COMMAND "${Python3_EXECUTABLE}" -m unittest discover
         -s "${CMAKE_SOURCE_DIR}/tests" -p test_prospero_source.py)
     add_test(NAME prospero_bottle_preparation_evidence COMMAND "${Python3_EXECUTABLE}" -m unittest discover
         -s "${CMAKE_SOURCE_DIR}/tests" -p test_bottle_preparation_evidence.py)
-    foreach(contract title_launch title_session app_profile game_profile profile_catalog)
+    foreach(contract title_launch title_publication title_session app_profile game_profile profile_catalog)
         set(contract_sources
             "${PLAYDEN_PROSPERO_SOURCE_DIR}/tests/test_pw_${contract}.c"
             "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_${contract}.c")
