@@ -82,6 +82,7 @@ int sceSysmoduleLoadModuleInternal(uint32_t id);
 int sceSysmoduleGetModuleHandleInternal(uint32_t id, int32_t* handle);
 int sceKernelDlsym(int32_t handle, const char* name, void** address);
 int sceUserServiceGetForegroundUser(uint32_t* user_id);
+int sceUserServiceGetInitialUser(int* user_id);
 }
 
 namespace {
@@ -344,6 +345,18 @@ int main() {
 #endif
         hui::ps5::Pad pad;
         pad.open();
+        {
+            // The controller Playden reads belongs to the initial user; log both
+            // users so a controller that does nothing can be explained.
+            int initial = -1;
+            uint32_t foreground = 0;
+            const int initial_rc = sceUserServiceGetInitialUser(&initial);
+            const int foreground_rc = sceUserServiceGetForegroundUser(&foreground);
+            char line[160];
+            std::snprintf(line, sizeof(line), "pad users initial=%d rc=0x%08x foreground=%u rc=0x%08x", initial,
+                          unsigned(initial_rc), unsigned(foreground), unsigned(foreground_rc));
+            playden::app::AppendLogLine(log_root, "launch.log", line);
+        }
         hui::InputTracker tracker;
         std::array<hui::PadSample, 64> samples{};
         bool presented = false;
