@@ -461,3 +461,9 @@ and SDK v0.43 coordinator/verifier archives compile. See
 Production file mutation, OWNER/registration wiring, next-operation retirement,
 installer/UI boundaries, final native link/acceptance and independent Task C
 review remain pending. No full task checkbox is completed by this increment.
+
+Host process-death follow-up: all seven coordinator boundary tests now also
+terminate a forked publisher with `_exit`, bypassing RAII, and recover in the
+parent through the released kernel lease and persisted operation. Committed
+recovery applies no files. The focused coordinator test passes. PS5 process
+death and production file durability remain separate open acceptance gates.

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%d: %s\n", __LINE__, #x); std::exit(1); } } while (0)
 #include "settings_publication_fixture.h"
 namespace fs = std::filesystem;
@@ -103,6 +104,26 @@ int main() {
     CHECK(Read(t.control / "publication-state.v1") == t.operation.committed_receipt_bytes);
     CHECK(LoadSettingsPublicationOperation(t.control).state == PublicationRecoveryState::kValid);
     if (committed) CHECK(t.applies == before); // Ready/commit retry never reapplies settings.
+  }
+  // Abrupt process exit bypasses RAII and leaves only the durable filesystem
+  // evidence. A different process must acquire the released kernel lease and
+  // reconstruct the operation before completing it.
+  for (unsigned failure = 0; failure < 7; ++failure) {
+    Test t;
+    const auto child = fork(); CHECK(child >= 0);
+    if (child == 0) {
+      t.deps.after_step = [failure](PublicationStep step) {
+        if (static_cast<unsigned>(step) == failure) _exit(77);
+        return true;
+      };
+      t.Run(); _exit(78);
+    }
+    int status = 0; CHECK(waitpid(child, &status, 0) == child);
+    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 77);
+    const bool committed = Read(t.control / "publication-state.v1") == t.operation.committed_receipt_bytes;
+    CHECK(t.Run().state == PackageActionState::kComplete && t.ready);
+    CHECK(t.applies == (committed ? 0u : 1u));
+    CHECK(Read(t.control / "publication-state.v1") == t.operation.committed_receipt_bytes);
   }
   {
     Test t; t.deps.block_owner = [](const auto&) { return Fail(); };
