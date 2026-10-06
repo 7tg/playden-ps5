@@ -136,12 +136,37 @@ void Controller::Tick() {
   TickCloud();
   TickRuntime();
 }
+bool Controller::SessionActive(GameId id) const {
+  if (!runtime_) return false;
+  const auto snapshot = runtime_->Snapshot();
+  if (!snapshot.launch || snapshot.launch->app_id != id) return false;
+  using runtime::LaunchState;
+  const auto state = snapshot.launch->state;
+  return state == LaunchState::kReadyToHandoff || state == LaunchState::kLaunching || state == LaunchState::kRunning;
+}
 void Controller::TickCloud() {
   if (!cloud_) return;
-  for (const auto& request : model_.TakeCloudRequests()) {
+  auto requests = model_.TakeCloudRequests();
+  // A session that just ended syncs its saves, as Steam does after play.
+  for (auto it = sync_after_session_.begin(); it != sync_after_session_.end();) {
+    if (game_roots_.count(*it) && !saves_root_.empty()) {
+      requests.push_back({CloudRequestKind::Sync, *it});
+      it = sync_after_session_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (const auto& request : requests) {
     const auto root = game_roots_.find(request.game_id);
     if (root == game_roots_.end() || saves_root_.empty()) continue;  // only installed games sync
-    const steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
+    // Never transfer saves while the game's own title may be writing them.
+    if (SessionActive(request.game_id)) continue;
+    steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
+    // A prepared game keeps its Windows-folder saves in its private bottle.
+    if (runtime_)
+      for (const auto& view : runtime_->Snapshot().installs)
+        if (view.app_id == request.game_id && view.state == runtime::PreparationState::kReady)
+          location.prefix_root = view.prefix_root;
     switch (request.kind) {
       case CloudRequestKind::Sync: cloud_->Sync(location); break;
       case CloudRequestKind::UseLocal: cloud_->Resolve(location, steam::CloudResolution::kUseLocal, true); break;
@@ -167,6 +192,8 @@ void Controller::TickCloud() {
       case steam::CloudState::kFailed: status = CloudStatus::Failed; break;
     }
     const auto& report = game.report;
+    if (status == CloudStatus::Checking || status == CloudStatus::Syncing) cloud_busy_.insert(game.id);
+    else cloud_busy_.erase(game.id);
     games.push_back({game.id, status, report.message, report.local_files, report.remote_files, report.local_bytes,
                      report.remote_bytes, static_cast<std::int64_t>(report.local_latest),
                      static_cast<std::int64_t>(report.remote_latest)});
@@ -185,9 +212,17 @@ void Controller::TickRuntime() {
   for (const auto id : model_.TakeRuntimePlayRequests()) runtime_->Play(id);
   if (runtime_->Snapshot().handoff_ready) runtime_->Handoff();
   const auto snapshot = runtime_->Snapshot();
-  if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_) return;
+  if (snapshot.launch) {
+    const std::pair<GameId, runtime::LaunchState> current{snapshot.launch->app_id, snapshot.launch->state};
+    if (current.second == runtime::LaunchState::kExited && last_launch_ != current)
+      sync_after_session_.insert(current.first);
+    last_launch_ = current;
+  }
+  if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
+      cloud_revision_ == runtime_cloud_revision_) return;
   runtime_revision_ = snapshot.revision;
   runtime_install_revision_ = install_revision_;
+  runtime_cloud_revision_ = cloud_revision_;
   const bool usable = snapshot.status == RuntimeHostStatus::kReady && snapshot.kit_available;
   const auto state = snapshot.status == RuntimeHostStatus::kStarting ? RuntimeState::Checking
                    : snapshot.status == RuntimeHostStatus::kUnavailable ? RuntimeState::Failed
@@ -248,7 +283,8 @@ void Controller::TickRuntime() {
                                           snapshot.launch->state == runtime::LaunchState::kReadyToHandoff ||
                                           snapshot.launch->state == runtime::LaunchState::kLaunching ||
                                           snapshot.launch->state == runtime::LaunchState::kRunning);
-    game.can_play = game.ready && !busy && snapshot.preparing_app != id;
+    game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id);
+    if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
     games.push_back(std::move(game));
   }
   model_.UpdateRuntime(state, games);

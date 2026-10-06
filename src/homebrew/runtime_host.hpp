@@ -79,6 +79,9 @@ struct RuntimeInstallView {
   std::string install_id;
   std::uint32_t app_id = 0;
   std::string title_id;
+  // The game's private bottle (console path); Cloud saves under Windows
+  // folders live here.
+  std::string prefix_root;
   runtime::PreparationState state = runtime::PreparationState::kDownloaded;
   std::string step;     // current journal step, if any
   std::string failure;

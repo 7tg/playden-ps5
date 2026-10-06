@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 namespace playden::homebrew {
 // Main-thread bridge. The backend/repository outlive this object. IO stays on service
@@ -53,7 +54,15 @@ class Controller {
   RuntimeHost* runtime_ = nullptr;
   std::uint64_t runtime_revision_ = 0;
   std::uint64_t runtime_install_revision_ = 0;
+  std::uint64_t runtime_cloud_revision_ = 0;
   std::string saves_root_;                    // per-game save state folders, on the primary drive
+  // Save lifecycle around Play: games whose session just ended sync once their
+  // folder is known; games syncing now cannot start.
+  std::set<GameId> sync_after_session_;
+  std::set<GameId> cloud_busy_;
+  std::optional<std::pair<GameId, runtime::LaunchState>> last_launch_;
+  // A game whose title may be running: Cloud must not touch its saves.
+  bool SessionActive(GameId id) const;
   std::chrono::steady_clock::time_point volume_refreshed_at_{};
   std::optional<GameId> requested_detail_;
   std::uint64_t requested_generation_ = 0;

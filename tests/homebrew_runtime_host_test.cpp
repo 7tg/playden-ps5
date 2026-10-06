@@ -490,6 +490,8 @@ void PlaysReadyTitleThroughHandoff() {
   host.Play(220);
   const auto prepared = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
   CHECK(prepared.launch && prepared.launch->app_id == 220 && prepared.launch->title_id == "FAKE78001");
+  // Cloud saves under Windows folders use this game's private bottle.
+  CHECK(prepared.installs[0].prefix_root == "/data/playden/games/steam-220/library/prefixes/game");
   CHECK(launches.empty());
   // Another thread cannot start the title.
   std::thread other([&host] { CHECK(host.Handoff()); });

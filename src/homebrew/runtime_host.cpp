@@ -263,6 +263,7 @@ void RuntimeHost::PublishInstalls(const Composition& composition) {
   for (const auto& record : composition.repository.Snapshot()) {
     RuntimeInstallView view;
     view.install_id = record.install_id; view.app_id = record.app_id; view.title_id = record.title_id;
+    if (!record.data_root.empty()) view.prefix_root = record.data_root + "/library/prefixes/game";
     view.state = record.state;
     if (record.journal) view.step = record.journal->step;
     view.recovery_pending = record.journal.has_value();
