@@ -3,10 +3,13 @@
 The continuation plan is
 [2026-10-06-managed-publication.md](../../docs/superpowers/plans/2026-10-06-managed-publication.md).
 
-Current pinned development source: `bde4b394a8db20cc243e8dc32945adb0dccfe2a7`.
+Current pinned development source: `79cf85c065e49ae57679ff5babb88bd290b9e9e9`.
+The locked publisher verifier follow-up is recorded in
+[its evidence](../20261006-locked-publication-verifier/README.md); earlier native
+console evidence below applies to `bde4b394` only.
 The earlier portable-boundary baseline was
 `0ac92b3c010fb3d992f9e75322ef53cc97284a7b`, including scalar crypto provider
-commit `6571f64`. Both the owned prospero worktree and pinned submodule are clean.
+commit `6571f64`. That portable baseline was recorded with clean checkouts.
 The sections below record that baseline followed by guard review and correction.
 No push or published release is claimed; the retained tested Wine runtime remains
 `e16ec8f`. Native cross-process and wrapper lifetime acceptance remain pending.

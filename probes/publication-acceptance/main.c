@@ -186,7 +186,7 @@ static void joined(char *out, size_t capacity, const char *root, const char *tai
 }
 static void marker_bytes(char *out, size_t capacity) {
     struct stat a, b; CHECK(lstat(data_root, &a) == 0 && lstat(title_root, &b) == 0);
-    int n = snprintf(out, capacity, "PWPA1 %s bde4b394a8db20cc243e8dc32945adb0dccfe2a7 %llu %llu %llu %llu\n",
+    int n = snprintf(out, capacity, "PWPA1 %s 79cf85c065e49ae57679ff5babb88bd290b9e9e9 %llu %llu %llu %llu\n",
        nonce, (unsigned long long)a.st_dev, (unsigned long long)a.st_ino,
        (unsigned long long)b.st_dev, (unsigned long long)b.st_ino);
     CHECK(n > 0 && (size_t)n < capacity);
@@ -354,7 +354,7 @@ int main(void) {
     /* Shared /data parents are legacy scaffolding. Match native guard policy:
      * real canonical ancestors; newly created game/control trees are private.
      * Never adopt, chmod or chown a shared parent. */
-    snprintf(install_id, sizeof(install_id), "pw-accept-bde4-%s", nonce);
+    snprintf(install_id, sizeof(install_id), "pw-accept-79cf-%s", nonce);
     snprintf(data_root, sizeof(data_root), "/data/playden/games/%s", install_id);
     fixture.platform = (PwTitlePublicationPlatform){.host_root = NULL, .owner_uid = owner,
         .try_lock_shared = pw_title_publication_ps5_lock};

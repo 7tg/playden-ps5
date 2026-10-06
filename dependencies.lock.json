@@ -190,7 +190,7 @@
     }
   },
   "prospero_win": {
-    "revision": "bde4b394a8db20cc243e8dc32945adb0dccfe2a7",
+    "revision": "79cf85c065e49ae57679ff5babb88bd290b9e9e9",
     "url": "https://github.com/mpereiraesaa/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,

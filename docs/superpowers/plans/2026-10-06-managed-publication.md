@@ -378,3 +378,23 @@ The 104-test host suite, warning checks and SDK v0.43 archive compilation pass.
 See [operation evidence](../../../results/20261006-settings-operation/README.md).
 Live publisher sequencing, interruption after each live effect, final native
 link/acceptance and final independent Task C review remain pending.
+
+
+### Task C shared locked semantic verification
+
+Prospero now provides `pw_title_publication_verify_locked` at clean development
+pin `79cf85c065e49ae57679ff5babb88bd290b9e9e9`. It shares the startup admission's
+complete file/registry/DXVK semantics, verifies exact frozen pending/committed
+receipt bytes and metadata digest, and leaves the caller's borrowed exclusive
+lock descriptor untouched. It returns contents without a Wine startup lease.
+Reader admission continues to require committed state and its own shared lock.
+The live publisher must hold its qualified exclusive lease throughout and prove
+stopped-title activity independently; this API verifies neither of those duties.
+
+Optimized/UBSan contracts, the existing reader refusal suite and all 104 parent
+host tests pass. A clean exact-title SDK v0.42/foundation9c0b994 wrapper builds
+with the required descriptor/provider markers and unchanged plain imports and
+module set. See [verifier evidence](../../../results/20261006-locked-publication-verifier/README.md).
+The runtime artifact and production capability trust are unchanged. New-source
+native verification, publisher sequencing/retry, final Task C review and actual
+Wine lifetime/gameplay acceptance remain open.
