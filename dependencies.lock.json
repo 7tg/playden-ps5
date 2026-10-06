@@ -19,6 +19,11 @@
     },
     "source": "third_party/PS5-Lapy-JB-Daemon submodule, fork branch feat/playden-ps5 at owned_title_revision; build with scripts/build-lapy-helper.sh"
   },
+  "title_remover": {
+    "sha256": "94164e335825c655f5e04cdb49d35b26b4b1313b88b17bec1fbf6bf7880cadbb",
+    "payload_sdk": "ps5_payload_sdk",
+    "source": "tools/title-remover/main.c; build with scripts/build-title-remover.sh (reproducible; sent by Playden to the payload loader on 127.0.0.1:9021)"
+  },
   "ps5_opengl": {
     "version": "1.0.0",
     "source_revision": "e9c1104e83e9466637b7f79c350ee164bf772459",
