@@ -173,6 +173,10 @@ int main() {
     const auto& paths = native_access.paths;
     title_root = paths.title_root;
     log_root = paths.log_root;
+    // Startup checkpoints: a launch that never shows its first frame can be told
+    // apart from one that never opened the display.
+    playden::app::AppendLogLine(log_root, "launch.log", "display open width=" + std::to_string(display.width()) +
+                                                        " height=" + std::to_string(display.height()));
     if (!native_access.runtime_ready)
         hui::sys::log("Playden native runtime unavailable: %s", native_access.error.c_str());
     {
@@ -367,6 +371,7 @@ int main() {
             if (!presented) {
                 hui::sys::hide_splash_screen();
                 presented = true;
+                playden::app::AppendLogLine(log_root, "launch.log", "first frame presented");
 #if PLAYDEN_TITLE_CONTRACT_PROBE
                 run_launch_request();
 #endif
