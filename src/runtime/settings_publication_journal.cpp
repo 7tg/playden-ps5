@@ -424,20 +424,23 @@ Result<void> CreateSettingsPublicationOperation(const std::filesystem::path& con
 Result<void> CreatePreparedSettingsPublicationOperation(const std::filesystem::path& control, const SettingsPublicationOperation& operation) {
   return CreateOperationFile(control, operation, "settings-intent-" + operation.transaction_id + ".v1");
 }
-PublicationOperationLoad LoadPreparedSettingsPublicationOperation(const std::filesystem::path& control, const std::string& transaction) {
+bool IsSettingsPublicationTransactionId(const std::string& transaction) {
   bool nonzero = false;
-  if (transaction.size() != 36) return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");
+  if (transaction.size() != 36) return false;
   for (std::size_t i = 0; i < transaction.size(); ++i) {
     const char c = transaction[i];
     if (i == 8 || i == 13 || i == 18 || i == 23) {
-      if (c != '-') return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");
+      if (c != '-') return false;
     } else {
-      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
-        return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
       nonzero |= c != '0';
     }
   }
-  if (!nonzero) return LoadFailure(PublicationRecoveryState::kCorrupt, "Nil prepared-intent transaction is invalid.");
+  return nonzero;
+}
+PublicationOperationLoad LoadPreparedSettingsPublicationOperation(const std::filesystem::path& control, const std::string& transaction) {
+  if (!IsSettingsPublicationTransactionId(transaction))
+    return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");
   auto loaded = LoadOperationFile(control, "settings-intent-" + transaction + ".v1");
   if (loaded.operation && loaded.operation->transaction_id != transaction)
     return LoadFailure(PublicationRecoveryState::kCorrupt, "Prepared-intent filename does not bind its transaction.");

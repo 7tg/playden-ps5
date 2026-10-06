@@ -1,5 +1,7 @@
 #include "runtime/settings_publication_owner.h"
 #include "platform/managed_file_lock.h"
+#include <cerrno>
+#include <unistd.h>
 namespace playden::runtime {
 namespace {
 PackageActionResult Failure(const char* code, const char* message) {
@@ -30,6 +32,93 @@ bool MatchingJournal(const RuntimeInstall& r, const SettingsPublicationOperation
 }
 SettingsPublicationOwner::SettingsPublicationOwner(InstallRecordStore& records, PackageInstaller& package,
     NativeCoordinator& native) : records_(records), package_(package), native_(native) {}
+PackageActionResult SettingsPublicationOwner::InitializeControl(const RuntimeInstall& record, const std::string& transaction,
+    const std::filesystem::path& prefix, const std::function<bool(PublicationControlStep)>& after_step) {
+  if (!IsSettingsPublicationTransactionId(transaction) ||
+      (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())))
+    return Failure("publication-control-invalid", "Invalid control initialization identity/namespace.");
+  auto current = records_.Find(record.install_id);
+  if (!current || !SameOwner(*current, record) || current->settings_revision != record.settings_revision ||
+      current->state == PreparationState::kRemoving || current->state == PreparationState::kReady ||
+      current->state == PreparationState::kRegistering || native_.Activity(record.title_id) != NativeActivity::kStopped ||
+      !OwnedPackage(package_.Inspect(record)))
+    return Failure("publication-control-owner", "Initial control setup requires reserved stopped OWNER/package provenance.");
+  const bool recovering = current->journal && current->journal->operation == "settings-control";
+  if (recovering && (current->journal->operation_id != transaction || current->state != PreparationState::kPreparing ||
+      (current->journal->step != "initialize-control" && current->journal->step != "control-ready")))
+    return Failure("publication-control-conflict", "A different control initialization intent must be reconciled first.");
+  if (!recovering && current->journal && current->journal->operation != "prepare")
+    return Failure("publication-control-conflict", "An existing OWNER operation cannot be replaced by control initialization.");
+  const auto canonical = std::filesystem::path(record.data_root);
+  const auto data_path = prefix.empty() ? canonical : prefix / canonical.relative_path();
+  auto data = platform::ManagedDirectory::Open(data_path, platform::DirectoryPolicy::kPrivate);
+  if (!data) return Failure("publication-control-data", "Existing owned private bottle data root is unavailable.");
+  struct stat info{};
+  const bool exists = data->InspectChild(".playden-control", &info);
+  if (!exists && errno != ENOENT)
+    return Failure("publication-control-collision", "Control path is foreign or unavailable.");
+  if (!recovering) {
+    if (exists || !data->Sync())
+      return Failure("publication-control-collision", "Control initialization cannot adopt a preexisting path.");
+    // The reserved OWNER intent is durable before mkdir or exclusive lock
+    // creation. ManagedDirectory requires coordinated namespace writers; this
+    // journal is not a boundary against hostile concurrent ancestor replacement.
+    current->state = PreparationState::kPreparing;
+    current->journal = PreparationJournal{transaction, "settings-control", "initialize-control"};
+    current->last_failure.reset();
+    auto saved = Persist(*current); if (saved.state != PackageActionState::kComplete) return saved;
+  }
+  const bool prepared = current->journal->step == "control-ready";
+  auto checkpoint = [&](PublicationControlStep step) {
+    return !after_step || after_step(step);
+  };
+  if (!checkpoint(PublicationControlStep::kOwnerArmed))
+    return Failure("publication-control-interrupted", "Control setup interrupted after durable OWNER intent.");
+  if (!data->Validate() || native_.Activity(record.title_id) != NativeActivity::kStopped ||
+      !OwnedPackage(package_.Inspect(record)))
+    return Failure("publication-control-owner", "Control ownership/activity changed after durable intent.");
+  // Recheck absence after persistence; a prepared setup never recreates a
+  // missing directory or lock, because replacement would change lease identity.
+  const bool now_exists = data->InspectChild(".playden-control", &info);
+  if ((!now_exists && errno != ENOENT) || (!now_exists && prepared) || (!recovering && now_exists))
+    return Failure("publication-control-collision", "Control path changed after admission; retain the OWNER intent.");
+  auto control = data->OpenChild(".playden-control", platform::DirectoryPolicy::kPrivate, !prepared);
+  if (!control || !control->Sync() || !data->Sync())
+    return Failure("publication-control-directory", "Private control creation/sync failed; recover from durable OWNER intent.");
+  if (!checkpoint(PublicationControlStep::kDirectorySynced))
+    return Failure("publication-control-interrupted", "Control setup interrupted after directory sync.");
+  if (!control->Validate() || native_.Activity(record.title_id) != NativeActivity::kStopped ||
+      !OwnedPackage(package_.Inspect(record)))
+    return Failure("publication-control-owner", "Control ownership/activity changed before lock creation.");
+  const bool lock_exists = control->InspectChild("publication.lock", &info);
+  if (!lock_exists && (errno != ENOENT || prepared))
+    return Failure("publication-control-lock", "Stable publication lock is missing or foreign.");
+  int fd = lock_exists ? control->OpenRegularFile("publication.lock", true, 0600) :
+      control->CreateExclusiveFile("publication.lock", 0600);
+  if (fd < 0) return Failure("publication-control-lock", "Stable publication lock creation/admission failed.");
+  const bool lock_valid = fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_uid == geteuid() &&
+      (info.st_mode & 07777) == 0600 && info.st_nlink == 1 && info.st_size == 0 && fsync(fd) == 0;
+  const bool closed = close(fd) == 0;
+  if (!lock_valid || !closed || !control->Sync())
+    return Failure("publication-control-lock", "Stable empty private lock failed durable validation; preserve it.");
+  auto lease = platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher);
+  if (!lease || !checkpoint(PublicationControlStep::kLockSynced))
+    return Failure("publication-control-lock", "Control setup lock is busy or interrupted after sync.");
+  auto observed = records_.Find(record.install_id);
+  if (!observed || !SameOwner(*observed, *current) || observed->settings_revision != current->settings_revision ||
+      observed->state != PreparationState::kPreparing || !observed->journal ||
+      observed->journal->operation != "settings-control" || observed->journal->operation_id != transaction ||
+      observed->journal->step != current->journal->step || !lease->Validate(*control, "publication.lock") ||
+      native_.Activity(record.title_id) != NativeActivity::kStopped || !OwnedPackage(package_.Inspect(record)))
+    return Failure("publication-control-owner", "OWNER/control/activity changed before setup completion.");
+  if (!prepared) {
+    current->journal->step = "control-ready";
+    auto saved = Persist(*current); if (saved.state != PackageActionState::kComplete) return saved;
+  }
+  if (!checkpoint(PublicationControlStep::kOwnerPrepared))
+    return Failure("publication-control-interrupted", "Control setup interrupted after durable completion intent.");
+  return {PackageActionState::kComplete, {}, {}};
+}
 Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const RuntimeInstall& record,
     const SettingsLaunchPlan& plan, const std::string& kit, const std::string& transaction, std::int64_t time,
     const std::filesystem::path& prefix) {
@@ -41,6 +130,20 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
     return fail("Reserved stopped OWNER/package provenance does not authorize operation capture.");
   const auto canonical = std::filesystem::path(record.data_root + "/.playden-control");
   const auto control_path = prefix.empty() ? canonical : prefix / canonical.relative_path();
+  // Initial callers need no FTP-created control paths. A matching setup intent
+  // also revalidates the stable inode on interrupted preparation.
+  struct stat control_info{};
+  const bool control_missing = lstat(control_path.c_str(), &control_info) != 0 && errno == ENOENT;
+  if (!control_missing && current->state != PreparationState::kReady &&
+      (!current->journal || (current->journal->operation != "settings-control" &&
+                            current->journal->operation != "settings-publication")))
+    return fail("Initial preparation cannot adopt a preexisting control path without durable creation intent.");
+  if (control_missing || (current->journal && current->journal->operation == "settings-control")) {
+    auto initialized = InitializeControl(record, transaction, prefix);
+    if (initialized.state != PackageActionState::kComplete) return fail(initialized.message);
+    current = records_.Find(record.install_id);
+    if (!current || !SameOwner(*current, record)) return fail("OWNER changed after control initialization.");
+  }
   auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
   auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher) : std::nullopt;
   if (!lease || native_.Activity(record.title_id) != NativeActivity::kStopped)

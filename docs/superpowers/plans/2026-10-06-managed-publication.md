@@ -641,3 +641,34 @@ The caller must still supply the requested transaction ID; startup job identity
 discovery/routing remains to be wired. Control initialization, orphan OWNER
 recovery without a valid intent, explicit uncertain registration recovery,
 installer/UI integration, final link/review and PS5 acceptance remain open.
+
+
+### Task C private control initialization
+
+OWNER now durably records a same-transaction control creation intent before
+creating the private directory and stable empty lock inside the already owned
+staged bottle data root. Matching interrupted setup resumes, while foreign
+initial paths, damaged locks, changed transactions and missing completed setup
+paths refuse. Setup requires stopped activity/provenance before effects and an
+exclusive lease before durable completion; it never grants Ready. Prepare now
+uses it for fresh bottles and retains setup intent until publication takes over.
+
+Real process-exit/repository reload tests cover all four durability boundaries
+and complete production publication callbacks afterward. Initial/complete OWNER
+write refusal, busy readers, damaged locks, activity change between effects,
+foreign path adoption and retry inode preservation pass. Creation, foreign
+adoption and activity-change tests were observed RED, then GREEN. All 105 host
+tests, warning/diff checks and SDK v0.43 archive compilation pass. See
+[control evidence](../../../results/20261006-publication-control/README.md).
+
+Ruling: initializer resumes only its matching durable creation intent in an
+approved coordinated namespace; it does not adopt arbitrary preexisting private
+control paths or recreate missing completed locks. Existing Ready updates retain
+the complete prior publication authority. If wrong, an old unqualified bottle
+requires explicit ownership migration instead of automatic adoption.
+
+Startup transaction discovery/service routing, orphan OWNER recovery without a
+valid prepared intent, explicit uncertain native-registration recovery,
+installer/UI integration, final native application link/review and PS5/Wine
+acceptance remain unfinished. This closes host control initialization only;
+no production guard capability is enabled and no console build is replaced.

@@ -1,0 +1,32 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-control-host-test.log"
+  },
+  "sdk": {
+    "target": "playden_runtime_settings_publication",
+    "version": "v0.43",
+    "log": "build/publication-control-sdk-build.log"
+  },
+  "red_cases": [
+    "missing initializer",
+    "Prepare adopts initial foreign private control path",
+    "lock created after activity changes"
+  ],
+  "process_exit_boundaries": [
+    "OWNER arm",
+    "directory sync",
+    "lock sync",
+    "OWNER completion"
+  ],
+  "production_ui_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/settings_publication_owner.cpp": "b7427d30d20dd180dd8d27917f0e41a4763c3cdb900a48787bc045369239f025",
+    "src/runtime/settings_publication_owner.h": "340b209c46be092b31266a75549c6a2af897dc41ad58ca9736643503168a8189",
+    "src/runtime/settings_publication_journal.cpp": "65c043590facc4a36bedbf477bcedad16384bb1916bf7e252fec8f17b9e3012f",
+    "src/runtime/settings_publication_journal.h": "796c832e710f6b0705b32e2339a3d51d63cf58428c7d2c2062d06f2a6a7d01fe",
+    "tests/runtime_settings_publication_test.cpp": "c6807666f281a272a8f1e1058c0776322498cacc1aa002187f1bc78797d4ba2d"
+  }
+}

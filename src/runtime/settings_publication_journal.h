@@ -69,6 +69,7 @@ Result<void> ArchiveSettingsPublicationOperation(const std::filesystem::path& co
 // and transaction-to-filename binding. Intent alone never grants readiness.
 Result<void> CreatePreparedSettingsPublicationOperation(const std::filesystem::path& control_directory,
     const SettingsPublicationOperation& operation);
+bool IsSettingsPublicationTransactionId(const std::string& transaction_id);
 PublicationOperationLoad LoadPreparedSettingsPublicationOperation(const std::filesystem::path& control_directory,
     const std::string& transaction_id);
 }  // namespace playden::runtime

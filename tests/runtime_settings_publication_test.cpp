@@ -120,23 +120,34 @@ struct OwnerNative final : NativeCoordinator {
   }
 };
 struct RejectReadyStore final : InstallRecordStore {
-  InstallRecordStore& store; bool reject = false;
+  InstallRecordStore& store; bool reject = false; std::string reject_control_step;
   explicit RejectReadyStore(InstallRecordStore& s) : store(s) {}
   std::optional<RuntimeInstall> Find(const std::string& id) const override { return store.Find(id); }
   std::vector<RuntimeInstall> Snapshot() const override { return store.Snapshot(); }
   RecordUpdateResult Update(const RuntimeInstall& record) override {
+    if (record.journal && record.journal->operation == "settings-control" && record.journal->step == reject_control_step)
+      return {false, "control-write", "injected control intent persistence refusal"};
     if (reject && record.state == PreparationState::kReady) return {false, "ready-write", "injected Ready persistence refusal"};
     return store.Update(record);
   }
 };
-void SeedOwner(RuntimeInstallRepository& repository, const RuntimeInstall& r) {
+void SeedOwner(RuntimeInstallRepository& repository, const RuntimeInstall& r, bool fixture_control_initialized = true) {
   CHECK(repository.Load().ok()); ReserveRequest request;
   request.install_id = r.install_id; request.app_id = r.app_id; request.default_profile_id = r.default_profile_id;
   request.runtime_bundle_id = r.runtime_bundle_id; request.recipe_id = r.recipe_id; request.recipe_version = r.recipe_version;
   request.settings_revision = r.settings_revision; request.launch_entry_id = r.launch_entry_id; request.launch_path = r.launch_path;
   request.launch_arguments = r.launch_arguments; request.launch_working_directory = r.launch_working_directory;
   request.install_path = r.install_path; request.volume_id = r.volume_id; request.kit_title_variants = {r.title_id};
-  CHECK(repository.Reserve(request).ok()); CHECK(repository.Update(r).ok());
+  CHECK(repository.Reserve(request).ok());
+  auto owned = r;
+  // Most publication fixtures created their control/lock before seeding OWNER.
+  // Record that test-only authorized setup; initializer tests opt out and prove
+  // the actual production creation and durable intent themselves.
+  if (fixture_control_initialized) {
+    owned.state = PreparationState::kPreparing;
+    owned.journal = PreparationJournal{Fixture().transaction_id, "settings-control", "control-ready"};
+  }
+  CHECK(repository.Update(owned).ok());
 }
 int main() {
   {
@@ -656,6 +667,157 @@ int main() {
     CHECK(Read(t.DxvkPath()) == plan.dxvk_config);
     auto backup = LoadPublicationRegistryBackup(t.control, t.operation.transaction_id, *t.operation.registry_backup);
     CHECK(backup.state == PublicationRecoveryState::kValid && backup.bytes == original);
+  }
+  // Initial control setup recovers from real process exit at each durability
+  // boundary, with a fresh repository and no manually recreated lock/directory.
+  for (unsigned boundary = 0; boundary < 4; ++boundary) {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records;
+    SettingsPublicationOwner owner(records, package, native);
+    const auto child = fork(); CHECK(child >= 0);
+    if (child == 0) {
+      owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root, [boundary](PublicationControlStep step) {
+        if (static_cast<unsigned>(step) == boundary) _exit(77);
+        return true;
+      });
+      _exit(78);
+    }
+    int status = 0; CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 77);
+    RuntimeInstallRepository restarted(storage, "installs.json", availability); CHECK(restarted.Load().ok());
+    RepositoryInstallRecordStore resumed_records(restarted); native.records = &resumed_records;
+    SettingsPublicationOwner resumed(resumed_records, package, native);
+    auto durable = resumed_records.Find(t.operation.install.install_id); CHECK(durable && durable->journal);
+    CHECK(durable->state == PreparationState::kPreparing && durable->journal->operation == "settings-control");
+    CHECK(durable->journal->operation_id == t.operation.transaction_id);
+    CHECK(resumed.InitializeControl(t.operation.install, "22222222-2222-4222-8222-222222222222", t.root).state == PackageActionState::kFailed);
+    CHECK(resumed.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kComplete);
+    struct stat original{}, after{}; CHECK(lstat((t.control / "publication.lock").c_str(), &original) == 0);
+    CHECK(original.st_uid == geteuid() && (original.st_mode & 07777) == 0600 && original.st_size == 0 && original.st_nlink == 1);
+    CHECK(resumed.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kComplete);
+    CHECK(lstat((t.control / "publication.lock").c_str(), &after) == 0 && original.st_ino == after.st_ino);
+    auto captured = resumed.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root);
+    CHECK(captured.ok()); t.operation = captured.value(); t.deps = resumed.Dependencies(t.root);
+    CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1 && package.mutations == 0);
+  }
+  // A preexisting control path, even an empty private directory, cannot be
+  // adopted without the durable creation intent. Failed admission changes no OWNER.
+  for (unsigned collision = 0; collision < 6; ++collision) {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native;
+    SettingsPublicationOwner owner(records, package, native);
+    if (collision == 0) { fs::create_directory(t.control); CHECK(chmod(t.control.c_str(), 0700) == 0); }
+    if (collision == 1) CHECK(symlink(t.paths.descriptor.parent_path().c_str(), t.control.c_str()) == 0);
+    if (collision == 2) native.activity = NativeActivity::kUnknown;
+    if (collision == 3) package.status.artifacts_valid = false;
+    if (collision == 4) CHECK(chmod(t.control.parent_path().c_str(), 0755) == 0);
+    const auto before = Read(owner_root / "installs.json");
+    const auto txn = collision == 5 ? "../invalid" : t.operation.transaction_id;
+    CHECK(owner.InitializeControl(t.operation.install, txn, t.root).state == PackageActionState::kFailed);
+    CHECK(Read(owner_root / "installs.json") == before && native.registrations == 0 && package.mutations == 0);
+    if (collision > 1) CHECK(!fs::exists(t.control));
+  }
+  // No filesystem setup precedes durable OWNER admission; failed completion
+  // persistence leaves its original arm and the same lock for explicit retry.
+  for (const auto* rejected_step : {"initialize-control", "control-ready"}) {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore base(repository); RejectReadyStore records(base); records.reject_control_step = rejected_step;
+    OwnerPackage package; OwnerNative native; SettingsPublicationOwner owner(records, package, native);
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kFailed);
+    const bool armed = std::string(rejected_step) == "control-ready";
+    CHECK(fs::exists(t.control / "publication.lock") == armed && fs::exists(t.control) == armed);
+    auto observed = records.Find(t.operation.install.install_id); CHECK(observed && observed->journal);
+    CHECK(observed->journal->operation == (armed ? "settings-control" : "prepare"));
+    records.reject_control_step.clear();
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kComplete);
+  }
+  // Matching creation intent does not permit malformed/replaced lock adoption.
+  for (unsigned damage = 0; damage < 7; ++damage) {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native;
+    SettingsPublicationOwner owner(records, package, native);
+    // Stop before lock creation, or after completion for missing-inode cases.
+    const auto boundary = damage < 5 ? PublicationControlStep::kDirectorySynced : PublicationControlStep::kOwnerPrepared;
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root,
+        [boundary](PublicationControlStep step) { return step != boundary; }).state == PackageActionState::kFailed);
+    const auto lock_path = t.control / "publication.lock";
+    if (damage < 4) { std::ofstream(lock_path) << (damage == 1 ? "foreign" : ""); CHECK(chmod(lock_path.c_str(), 0600) == 0); }
+    if (damage == 0) CHECK(chmod(lock_path.c_str(), 0644) == 0);
+    if (damage == 2) CHECK(link(lock_path.c_str(), (t.root / "foreign-link").c_str()) == 0);
+    if (damage == 3 && geteuid() == 0) CHECK(chown(lock_path.c_str(), 1, -1) == 0);
+    if (damage == 3 && geteuid() != 0) CHECK(chmod(lock_path.c_str(), 0400) == 0);
+    if (damage == 4) CHECK(symlink((t.root / "absent").c_str(), lock_path.c_str()) == 0);
+    if (damage == 5) CHECK(unlink(lock_path.c_str()) == 0);
+    if (damage == 6) fs::remove_all(t.control);
+    const auto before = Read(owner_root / "installs.json");
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kFailed);
+    CHECK(Read(owner_root / "installs.json") == before && package.mutations == 0 && native.registrations == 0);
+    if (damage > 4) CHECK(!fs::exists(lock_path));
+  }
+  // Activity changes between directory and lock creation stop further effects.
+  {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native;
+    SettingsPublicationOwner owner(records, package, native);
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root, [&](PublicationControlStep step) {
+      if (step == PublicationControlStep::kDirectorySynced) native.activity = NativeActivity::kActive;
+      return true;
+    }).state == PackageActionState::kFailed);
+    CHECK(fs::is_directory(t.control) && !fs::exists(t.control / "publication.lock"));
+    native.activity = NativeActivity::kStopped;
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kComplete);
+    auto control = playden::platform::ManagedDirectory::Open(t.control, playden::platform::DirectoryPolicy::kPrivate); CHECK(control);
+    auto reader = playden::platform::ManagedFileLock::Acquire(*control, "publication.lock", playden::platform::LockMode::kReader); CHECK(reader);
+    const auto before = Read(owner_root / "installs.json");
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kFailed);
+    CHECK(!owner.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root).ok());
+    CHECK(Read(owner_root / "installs.json") == before && !fs::exists(t.control / "publication-state.v1"));
+  }
+  // Prepare cannot silently adopt the foreign private control path either.
+  {
+    Test t;
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native;
+    SettingsPublicationOwner owner(records, package, native);
+    const auto before = Read(owner_root / "installs.json");
+    CHECK(!owner.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root).ok());
+    CHECK(Read(owner_root / "installs.json") == before && !fs::exists(t.control / ("settings-intent-" + t.operation.transaction_id + ".v1")));
+  }
+  // Prepare itself initializes a missing control path in a fresh owned bottle.
+  {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records;
+    SettingsPublicationOwner owner(records, package, native);
+    auto prepared = owner.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root);
+    CHECK(prepared.ok() && fs::exists(t.control / "publication.lock") && !fs::exists(t.control / "publication-state.v1"));
+    t.operation = prepared.value(); t.deps = owner.Dependencies(t.root);
+    CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1);
   }
   std::puts("settings publication coordinator tests passed");
 }
