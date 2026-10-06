@@ -404,6 +404,51 @@ void RefreshesInstalledTitleToRespunKit() {
   host.Shutdown();
 }
 
+// A game run that leaves the bottle registry wider than admission accepts
+// (Wine saving with umask 0) is reported at startup, and Prepare repairs it.
+void RepairsBottleRegistryModes() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  config.uuid = []() -> std::optional<std::string> { return std::string("00000000-0000-4000-8000-000000000001"); };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    host.Prepare(Hl2());
+    WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+    }, 60);
+    host.Shutdown();
+  }
+  const auto user_reg = fixture.root / "data/playden/games/steam-220/library/prefixes/game/user.reg";
+  CHECK(chmod(user_reg.c_str(), 0666) == 0);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(started.installs[0].admission.find("stage 7") != std::string::npos);
+  host.Prepare(Hl2());
+  const auto repaired = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].admission == "ok";
+  }, 60);
+  CHECK(!repaired.refusals.count(220));
+  struct stat info{};
+  CHECK(stat(user_reg.c_str(), &info) == 0 && (info.st_mode & 07777) == 0600);
+  CHECK(fixture.registry_mutations == 2);
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -414,6 +459,7 @@ int main(int argc, char** argv) {
   ResumesInterruptedCaptureFromSavedRequest();
   ResumesInterruptedCaptureFromSavedRequest(true);
   RefreshesInstalledTitleToRespunKit();
+  RepairsBottleRegistryModes();
   std::puts("runtime host tests passed");
   return 0;
 }

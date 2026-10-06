@@ -2188,7 +2188,8 @@ void Simulation::rebuild_view() {
                         runtime.value = !value.can_prepare ? value.status
                                       : value.status == "Needs recovery" ? "Resume"
                                       : value.status == "Failed" ? "Retry"
-                                      : value.status == "Update available" ? "Update" : "Prepare";
+                                      : value.status == "Update available" ? "Update"
+                                      : value.status == "Needs repair" ? "Repair" : "Prepare";
                         runtime.subtitle = value.detail;
                         runtime.enabled = value.can_prepare;
                     }

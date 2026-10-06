@@ -67,6 +67,14 @@ public:
   virtual PackageActionResult
   ValidateArtifacts(const RuntimeInstall &record) = 0;
   virtual PackageActionResult PublishProfile(const RuntimeInstall &record) = 0;
+  // Runs the wrapper's publication admission over the installed title and
+  // returns "ok" or its refusal text (diagnostics only).
+  virtual std::string AdmissionDiagnostic(const RuntimeInstall &) { return "unsupported"; }
+  // Restores modes of app-owned bottle registry files that a game run left
+  // wider than publication admission accepts (diagnostics-driven repair).
+  virtual PackageActionResult RepairBottle(const RuntimeInstall &) {
+    return {PackageActionState::kFailed, "repair-unsupported", "this package layer cannot repair bottles"};
+  }
   // Whether a staged title was made from the admitted kit (cheap marker check).
   virtual bool TitleCurrent(const RuntimeInstall &) { return true; }
   // Updates an installed title's immutable files to the admitted kit when only

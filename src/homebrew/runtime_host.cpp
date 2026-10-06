@@ -10,7 +10,6 @@
 #include "runtime/settings_publication_owner.h"
 
 #include <chrono>
-#include <fstream>
 #include <cstdio>
 #include <ctime>
 #include <fcntl.h>
@@ -124,6 +123,7 @@ struct RuntimeHost::Composition {
   std::unique_ptr<rt::SettingsPublicationOwner> owner;
   std::unique_ptr<rt::RuntimeInstallService> service;
   std::filesystem::path request_directory;
+  std::map<std::string, std::string> admission;  // install id -> last admission diagnostic
   std::vector<rt::GameRecipe> recipes;
   std::vector<rt::SettingsPreset> presets;
   std::string settings_data_reason;
@@ -216,6 +216,8 @@ void RuntimeHost::PublishInstalls(const Composition& composition) {
     if (record.last_failure) view.failure = record.last_failure->message;
     if (record.state == rt::PreparationState::kReady && composition.kit)
       view.title_current = composition.installer->TitleCurrent(record);
+    if (const auto found = composition.admission.find(record.install_id); found != composition.admission.end())
+      view.admission = found->second;
     installs.push_back(std::move(view));
   }
   Publish([&](RuntimeSnapshot& s) { s.installs = std::move(installs); });
@@ -309,16 +311,35 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   }
   if (existing) {
     if (existing->state == rt::PreparationState::kReady) {
-      if (c.installer->TitleCurrent(*existing)) return "This game is already prepared.";
-      // Same kit id, runtime and recipe; only title files changed (for example
-      // a new wrapper build). The registration and publication stay as they are.
       if (c.coordinator->Activity(existing->title_id) != rt::NativeActivity::kStopped)
-        return "Close the game before updating its PS5 title.";
-      const auto refreshed = c.installer->RefreshTitle(*existing);
-      Log("title refresh app=" + std::to_string(request.app_id) + " state=" +
-          std::to_string(static_cast<int>(refreshed.state)) + " code=" + refreshed.code + " message=" + refreshed.message);
+        return "Close the game before updating or repairing its PS5 title.";
+      bool changed = false;
+      if (!c.installer->TitleCurrent(*existing)) {
+        // Same kit id, runtime and recipe; only title files changed (for example
+        // a new wrapper build). The registration and publication stay as they are.
+        const auto refreshed = c.installer->RefreshTitle(*existing);
+        Log("title refresh app=" + std::to_string(request.app_id) + " state=" +
+            std::to_string(static_cast<int>(refreshed.state)) + " code=" + refreshed.code + " message=" + refreshed.message);
+        PublishInstalls(c);
+        if (refreshed.state != rt::PackageActionState::kComplete) return refreshed.message;
+        changed = true;
+      }
+      auto admission = c.installer->AdmissionDiagnostic(*existing);
+      if (admission != "ok") {
+        const auto repaired = c.installer->RepairBottle(*existing);
+        admission = c.installer->AdmissionDiagnostic(*existing);
+        Log("bottle repair app=" + std::to_string(request.app_id) + " state=" +
+            std::to_string(static_cast<int>(repaired.state)) + " code=" + repaired.code + " admission=" + admission);
+        if (repaired.state != rt::PackageActionState::kComplete) {
+          c.admission[existing->install_id] = admission; PublishInstalls(c);
+          return repaired.message;
+        }
+        changed = true;
+      }
+      c.admission[existing->install_id] = admission;
       PublishInstalls(c);
-      return refreshed.state == rt::PackageActionState::kComplete ? std::string{} : refreshed.message;
+      if (admission != "ok") return "The PS5 title still fails its start check: " + admission;
+      return changed ? std::string{} : "This game is already prepared.";
     }
     if (existing->install_path != request.install_path)
       return "The game's files moved since preparation started; recovery is not connected yet.";
@@ -464,12 +485,31 @@ void RuntimeHost::Run() {
       // Startup only reads durable state. Records with a journal wait for an
       // explicit recovery action; nothing resumes, registers or rebuilds here.
       PublishInstalls(c);
+      if (c.kit)
+        for (const auto& record : c.repository.Snapshot())
+          if (record.state == rt::PreparationState::kReady) {
+            Log("admission check title=" + record.title_id + " verifying");
+            c.admission[record.install_id] = c.installer->AdmissionDiagnostic(record);
+            Log("admission check title=" + record.title_id + " result=" + c.admission[record.install_id]);
+          }
+      PublishInstalls(c);
       if (config_.title_log)
         for (const auto& record : c.repository.Snapshot()) {
           const auto root = config_.host_namespace_prefix.empty()
               ? std::filesystem::path(record.data_root)
               : config_.host_namespace_prefix / std::filesystem::path(record.data_root).relative_path();
           if (const auto text = NewestSessionLog(root)) config_.title_log(record.title_id, *text);
+          // Development diagnostics: the bottle registry the wrapper's guard parses.
+          std::string bytes;
+          const auto registry = root / "library/prefixes/game/user.reg";
+          const int fd = open(registry.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+          if (fd >= 0) {
+            char chunk[4096];
+            for (ssize_t count; (count = read(fd, chunk, sizeof(chunk))) > 0 && bytes.size() < 4 * 1024 * 1024;)
+              bytes.append(chunk, static_cast<std::size_t>(count));
+            close(fd);
+          }
+          if (!bytes.empty()) config_.title_log(record.title_id + ".user.reg", bytes);
         }
       const bool kit_available = c.kit.has_value();
       Log("runtime ready installs=" + std::to_string(c.repository.Snapshot().size()) + " kit=" +

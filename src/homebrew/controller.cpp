@@ -205,6 +205,10 @@ void Controller::TickRuntime() {
                !record->title_current) {
       game.status = "Update available"; game.can_prepare = usable;
       game.detail = record->title_id + " was made from an earlier kit";
+    } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
+               record->admission != "ok") {
+      game.status = "Needs repair"; game.can_prepare = usable;
+      game.detail = record->title_id + " would refuse to start: " + record->admission;
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending) {
       game.status = "Ready"; game.detail = record->title_id; game.ready = true;
     } else if (record && record->recovery_pending) {

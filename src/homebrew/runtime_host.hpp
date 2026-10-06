@@ -76,6 +76,9 @@ struct RuntimeInstallView {
   bool recovery_pending = false;
   // False when a Ready title was made from an earlier kit; Prepare updates it.
   bool title_current = true;
+  // Publication admission result for Ready titles ("ok" or the refusal); a
+  // refusal means the next start would be refused, and Prepare repairs it.
+  std::string admission = "ok";
 };
 
 enum class RuntimeHostStatus { kStarting, kUnavailable, kReady, kStopped };

@@ -556,6 +556,48 @@ bool FilesystemPackageInstaller::ArtifactsMatch(
   return matched.size() == kit_.artifacts.size();
 }
 
+std::string FilesystemPackageInstaller::AdmissionDiagnostic(const RuntimeInstall& record) {
+  const auto prefix = paths_.host_data_root == fs::path("/data") ? std::string{} : paths_.host_data_root.parent_path().string();
+  PwTitlePublicationPlatform platform{};
+  platform.host_root = prefix.empty() ? nullptr : prefix.c_str(); platform.owner_uid = ::geteuid();
+  platform.try_lock_shared = [](void*, int descriptor) {
+#if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
+    return playden_ps5_file_lock(descriptor, LOCK_SH | LOCK_NB);
+#else
+    return ::flock(descriptor, LOCK_SH | LOCK_NB);
+#endif
+  };
+  const auto canonical = "/data/homebrew/" + record.title_id + "/game-launch.json";
+  PwTitlePublicationDescriptor descriptor{}; char error[256]{};
+  if (pw_title_publication_read_descriptor(canonical.c_str(), record.title_id.c_str(), &platform,
+      &descriptor, error, sizeof(error)) != PW_OK) return std::string("descriptor: ") + error;
+  PwTitlePublicationLease lease{}; pw_title_publication_lease_init(&lease);
+  const int status = pw_title_publication_open(&descriptor, &platform, &lease, error, sizeof(error));
+  if (status != PW_OK) return "admission status=" + std::to_string(status) + ": " + error;
+  pw_title_publication_close(&lease);
+  return "ok";
+}
+
+PackageActionResult FilesystemPackageInstaller::RepairBottle(const RuntimeInstall& record) {
+  const auto paths = Resolve(record);
+  if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
+  if (!IsPrivateDirectoryTree(paths->game, paths->bottle))
+    return Failed("repair-ownership", "the bottle is not this install's private directory");
+  // Wine saves registry hives with the process umask; earlier per-game titles
+  // ran with umask 0 and left them 0666. Only app-owned regular files change.
+  for (const char* name : {"user.reg", "system.reg", "userdef.reg"}) {
+    const auto path = paths->bottle / name;
+    struct stat info{};
+    if (::lstat(path.c_str(), &info) != 0) continue;
+    if (!S_ISREG(info.st_mode) || info.st_uid != ::geteuid() || info.st_nlink != 1)
+      return Failed("repair-ownership", std::string(name) + " is not an app-owned regular file");
+    const auto mode = info.st_mode & 07777;
+    if (mode != 0600 && (::chmod(path.c_str(), 0600) != 0 || !SyncPath(path, false)))
+      return Failed("repair-mode", std::string(name) + " permissions could not be restored");
+  }
+  return Complete();
+}
+
 bool FilesystemPackageInstaller::PublicationMatches(
     const RuntimeInstall& record, const ResolvedPaths& paths,
     std::uint64_t* revision) const {
