@@ -196,9 +196,15 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
   };
   if (!record.journal) return failed("publication-journal", "No preparation journal to publish.");
   const auto& prefix = config_.host_namespace_prefix;
-  if (record.journal->operation == "settings-request")
-    return c.owner->ResumeRequested(record, c.request_directory, prefix);
-  if (record.journal->operation != "prepare") return c.owner->Resume(record, prefix);
+  // Saved request, control setup and frozen publication journals all resume
+  // through the persisted request; ResumeRequested hands a frozen publication
+  // to Resume itself.
+  if (record.journal->operation != "prepare") {
+    const auto resumed = c.owner->ResumeRequested(record, c.request_directory, prefix);
+    Log("publication resume journal=" + record.journal->operation + "/" + record.journal->step + " state=" +
+        std::to_string(static_cast<int>(resumed.state)) + " code=" + resumed.code + " message=" + resumed.message);
+    return resumed;
+  }
   if (!c.kit) return failed("kit-unavailable", "No verified compatibility kit is installed.");
 
   const rt::GameRecipe* recipe = nullptr;

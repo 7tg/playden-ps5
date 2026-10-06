@@ -731,10 +731,20 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
   auto frozen = FreezeSettingsPublicationOperation(o, &reason);
   if (!frozen || !held()) return fail(frozen ? "Publisher ownership changed during capture." : reason);
   if (o.registry_backup) {
-    auto backup = CreatePublicationRegistryBackup(control->path(), transaction, registry->bytes, registry->mode);
-    if (!backup.ok() || backup.value().filename != o.registry_backup->filename || backup.value().sha256 != o.registry_backup->sha256 ||
-        backup.value().size != o.registry_backup->size || backup.value().source_mode != o.registry_backup->source_mode || !held())
-      return fail("Exclusive registry backup preparation failed; preserve orphan evidence.");
+    // Preflight reads this backup. A backup left by an earlier capture of this
+    // same transaction (for example one refused by preflight) is accepted
+    // only when it verifies against this binding and equals the live original
+    // captured now, i.e. exactly what this capture would write. Any other file
+    // remains orphan evidence and refuses capture.
+    const auto existing = LoadPublicationRegistryBackup(control->path(), transaction, *o.registry_backup);
+    const bool identical = existing.state == PublicationRecoveryState::kValid && existing.bytes == registry->bytes;
+    if (!identical) {
+      auto backup = CreatePublicationRegistryBackup(control->path(), transaction, registry->bytes, registry->mode);
+      if (!backup.ok() || backup.value().filename != o.registry_backup->filename || backup.value().sha256 != o.registry_backup->sha256 ||
+          backup.value().size != o.registry_backup->size || backup.value().source_mode != o.registry_backup->source_mode)
+        return fail("Exclusive registry backup preparation failed; preserve orphan evidence.");
+    }
+    if (!held()) return fail("Publisher ownership changed during capture.");
   }
   const auto profiles = r.data_root + "/library/profiles/";
   PublicationPaths paths{Map(prefix, profiles + plan.profile_id + ".profile"), Map(prefix, profiles + "profiles.lst"),

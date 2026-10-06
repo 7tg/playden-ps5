@@ -272,6 +272,65 @@ void PreparesExistingDownloadToReady() {
   host.Shutdown();
 }
 
+// A capture refused after control setup (the console's world-writable game
+// folder) leaves a settings-control journal. An explicit Prepare resumes the
+// saved request and reaches Ready with one registration.
+void ResumesInterruptedCaptureFromSavedRequest(bool tamper_backup = false) {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  unsigned uuids = 0;
+  // Called just before capture: the first attempt sees a world-writable folder.
+  config.uuid = [&uuids, game]() -> std::optional<std::string> {
+    if (++uuids == 1) CHECK(chmod(game.c_str(), 0777) == 0);
+    return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  Write(game / "hl2.exe", "existing-game", 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  const auto failed = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); }, 60);
+  CHECK(failed.installs.size() == 1 && failed.installs[0].state != PreparationState::kReady);
+  CHECK(failed.installs[0].recovery_pending);
+  const auto backup = fixture.root / "data/playden/games/steam-220/.playden-control" /
+                      "registry-backup-00000000-0000-4000-8000-000000000001.v1";
+  CHECK(fs::is_regular_file(backup));
+  if (tamper_backup) {  // Same size, different bytes: not this capture's backup.
+    auto bytes = Read(backup); bytes[0] = bytes[0] == 'X' ? 'Y' : 'X';
+    Write(backup, bytes, 0600);
+  }
+  const auto before = host.Snapshot().revision;
+  host.Prepare(Hl2());
+  WaitFor(host, [before](const RuntimeSnapshot& s) { return s.revision > before && !s.refusals.count(220); });
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() &&
+        (s.installs[0].state == PreparationState::kReady || s.refusals.count(220));
+  }, 60);
+  if (tamper_backup) {
+    CHECK(done.refusals.count(220) && done.refusals.at(220).find("orphan") != std::string::npos);
+    CHECK(done.installs[0].state != PreparationState::kReady && fixture.registry_mutations == 0);
+    host.Shutdown();
+    return;
+  }
+  if (done.refusals.count(220)) std::fprintf(stderr, "Resume refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(done.installs[0].state == PreparationState::kReady && !done.installs[0].recovery_pending);
+  CHECK(fixture.registry_mutations == 2 && uuids == 1);
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -279,6 +338,8 @@ int main(int argc, char** argv) {
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
+  ResumesInterruptedCaptureFromSavedRequest();
+  ResumesInterruptedCaptureFromSavedRequest(true);
   std::puts("runtime host tests passed");
   return 0;
 }
