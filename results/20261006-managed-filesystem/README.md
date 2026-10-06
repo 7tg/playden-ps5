@@ -53,3 +53,17 @@ The full combined host suite passed 90/90 after adding setup coverage and fixing
 the live-model fixture's private-directory precondition. Review identified host
 CLI relative/public-root regressions; shared setup resolves those without
 relaxing low-level policy or chmodding general storage.
+
+## Normal preview deployment after settings integration
+
+The normal package (`PLAYDEN_TITLE_CONTRACT_PROBE=OFF`) was installed after
+commit `73a4f0b` and both deployed files were independently read back over FTP:
+
+- `eboot.bin`: `d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa`
+- `playden-package.identity`: `c7593741974bfd517df3335f9ecfe6b41a17fafd4f3c0f0432ca548a6921fb40`
+
+Native startup logged `2026-10-06T00:40:46Z game settings storage initialized`
+and rendered Playden Home with the existing account and cached library. The app
+was closed after verification and console ownership released. The normal package
+remains installed. This does not establish game launch or gameplay acceptance;
+artwork/icon work remains deferred by user request.
