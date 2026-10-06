@@ -139,6 +139,12 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   PackageActionResult CopyTemplate(const RuntimeInstall& record) override;
   PackageActionResult ValidateArtifacts(const RuntimeInstall& record) override;
   PackageActionResult PublishProfile(const RuntimeInstall& record) override;
+  bool TitleCurrent(const RuntimeInstall& record) override;
+  // Replaces changed title files (temp, fsync, rename) and rewrites the title
+  // and bottle owner markers. Refuses unless each existing marker equals the
+  // new one except for the kit's files_sha256, and the record's artifacts are
+  // the kit's. The bottle's contents and the publication are not touched.
+  PackageActionResult RefreshTitle(const RuntimeInstall& record) override;
 
  private:
   struct Mapping;

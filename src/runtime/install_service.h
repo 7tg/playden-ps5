@@ -67,6 +67,13 @@ public:
   virtual PackageActionResult
   ValidateArtifacts(const RuntimeInstall &record) = 0;
   virtual PackageActionResult PublishProfile(const RuntimeInstall &record) = 0;
+  // Whether a staged title was made from the admitted kit (cheap marker check).
+  virtual bool TitleCurrent(const RuntimeInstall &) { return true; }
+  // Updates an installed title's immutable files to the admitted kit when only
+  // the kit's file inventory changed (same kit id, variant, runtime, recipe).
+  virtual PackageActionResult RefreshTitle(const RuntimeInstall &) {
+    return {PackageActionState::kFailed, "refresh-unsupported", "this package layer cannot refresh titles"};
+  }
 };
 
 enum class NativeActivity { kStopped, kActive, kUnknown };

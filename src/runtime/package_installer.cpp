@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <set>
@@ -943,6 +944,109 @@ PackageActionResult FilesystemPackageInstaller::StageTitle(
   return PublishTitleDirectories(paths->title) && SyncTree(paths->title)
              ? copied
              : Failed("title-modes", "owned native title directories could not be made readable to registration");
+}
+
+namespace {
+// Marker text with its files_sha256 line replaced, for comparing two kits that
+// differ only in their file inventory.
+std::optional<std::string> WithFilesDigest(const std::string& marker, const std::string& digest) {
+  const auto at = marker.find("\nfiles_sha256=");
+  if (at == std::string::npos) return std::nullopt;
+  const auto end = marker.find('\n', at + 1);
+  if (end == std::string::npos) return std::nullopt;
+  return marker.substr(0, at) + "\nfiles_sha256=" + digest + marker.substr(end);
+}
+}  // namespace
+
+bool FilesystemPackageInstaller::TitleCurrent(const RuntimeInstall& record) {
+  const auto paths = Resolve(record);
+  return paths && MarkerEquals(paths->title / kTitleOwner, OwnerMarker(record, kit_, "title")) &&
+         MarkerEquals(paths->bottle / kTemplateOwner, OwnerMarker(record, kit_, "template"));
+}
+
+PackageActionResult FilesystemPackageInstaller::RefreshTitle(const RuntimeInstall& record) {
+  const auto paths = Resolve(record);
+  if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
+  if (record.artifacts.size() != kit_.artifacts.size())
+    return Failed("refresh-artifacts", "runtime or recipe artifacts differ; a full upgrade is required");
+  for (const auto& artifact : kit_.artifacts) {
+    bool found = false;
+    for (const auto& bound : record.artifacts)
+      found |= bound.artifact_id == artifact.artifact_id && bound.identity == artifact.identity &&
+               bound.sha256 == artifact.sha256;
+    if (!found) return Failed("refresh-artifacts", "runtime or recipe artifacts differ; a full upgrade is required");
+  }
+  const auto title_marker = ReadBounded(paths->title / kTitleOwner, 4096);
+  const auto bottle_marker = ReadBounded(paths->bottle / kTemplateOwner, 4096);
+  const auto new_title = OwnerMarker(record, kit_, "title");
+  const auto new_bottle = OwnerMarker(record, kit_, "template");
+  auto old_digest = [](const std::optional<std::string>& marker) -> std::string {
+    if (!marker) return {};
+    const auto at = marker->find("\nfiles_sha256=");
+    if (at == std::string::npos) return {};
+    const auto start = at + std::strlen("\nfiles_sha256=");
+    return marker->substr(start, marker->find('\n', start) - start);
+  };
+  const auto title_digest = old_digest(title_marker);
+  if (!IsDirectoryNoSymlink(paths->title) || !IsPrivateDirectoryTree(paths->game, paths->bottle) ||
+      !title_marker || !bottle_marker || !IsHexDigest(title_digest) || old_digest(bottle_marker) != title_digest ||
+      WithFilesDigest(new_title, title_digest) != *title_marker ||
+      WithFilesDigest(new_bottle, title_digest) != *bottle_marker)
+    return Failed("refresh-ownership", "installed title and bottle are not this install's from a compatible kit");
+  if (title_digest == kit_.files_sha256 && TitleMatches(record, *paths)) return Complete();
+  std::vector<char> buffer(64 * 1024);  // heap: console worker stacks are small
+  for (const auto& mapping : TitleMappings(record)) {
+    if (operations_.canceled && operations_.canceled()) return Canceled();
+    const auto destination = paths->title / mapping.destination_relative;
+    bool mode_ok = false;
+    std::error_code size_error;
+    if (IsRegularNoSymlink(destination) && fs::file_size(destination, size_error) == mapping.file->size &&
+        !size_error && FileMode(destination, &mode_ok) == mapping.file->mode && mode_ok) {
+      const auto digest = operations_.hash_file(destination);
+      if (digest && *digest == mapping.file->sha256) continue;
+    }
+    if (!PathComponentsHaveNoSymlink(paths->title, mapping.destination_relative, false))
+      return Failed("destination-invalid", "title destination contains a symbolic link");
+    std::string detail;
+    if (!IsDirectoryNoSymlink(destination.parent_path()))
+      return Failed("refresh-layout", "title directory layout changed; a full upgrade is required");
+    const auto temporary = destination.parent_path() / ("." + destination.filename().string() + ".refresh");
+    ::unlink(temporary.c_str());
+    const auto source = kit_.root / mapping.source_relative;
+    const int input = ::open(source.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    const int output = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    bool ok = input >= 0 && output >= 0 && ::fchmod(output, mapping.file->mode) == 0;
+    while (ok) {
+      const auto count = ::read(input, buffer.data(), buffer.size());
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) { ok = count == 0; break; }
+      for (ssize_t offset = 0; ok && offset < count;) {
+        const auto written = ::write(output, buffer.data() + offset, static_cast<std::size_t>(count - offset));
+        if (written < 0 && errno == EINTR) continue;
+        ok = written > 0; offset += written > 0 ? written : 0;
+      }
+    }
+    ok = ok && ::fsync(output) == 0;
+    if (input >= 0) ::close(input);
+    if (output >= 0) ok = ::close(output) == 0 && ok;
+    const auto copied = ok ? operations_.hash_file(temporary) : std::nullopt;
+    if (!copied || *copied != mapping.file->sha256 || ::rename(temporary.c_str(), destination.c_str()) != 0) {
+      ::unlink(temporary.c_str());
+      return Failed("refresh-copy", "a title file could not be replaced");
+    }
+  }
+  // Markers last: until they are rewritten the title is not considered current.
+  for (const auto& [path, text] : {std::pair{paths->title / kTitleOwner, new_title},
+                                   std::pair{paths->bottle / kTemplateOwner, new_bottle}}) {
+    const auto temporary = path.parent_path() / (path.filename().string() + ".refresh");
+    ::unlink(temporary.c_str());
+    if (!WriteFile(temporary, text, 0600) || !SyncPath(temporary, false) ||
+        ::rename(temporary.c_str(), path.c_str()) != 0 || !SyncPath(path.parent_path(), true))
+      return Failed("refresh-marker", "an owner marker could not be rewritten");
+  }
+  if (!PublishTitleDirectories(paths->title) || !SyncTree(paths->title) || !TitleMatches(record, *paths))
+    return Failed("refresh-verify", "the refreshed title does not match the kit");
+  return Complete();
 }
 
 PackageActionResult FilesystemPackageInstaller::CopyTemplate(

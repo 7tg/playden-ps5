@@ -214,6 +214,8 @@ void RuntimeHost::PublishInstalls(const Composition& composition) {
     if (record.journal) view.step = record.journal->step;
     view.recovery_pending = record.journal.has_value();
     if (record.last_failure) view.failure = record.last_failure->message;
+    if (record.state == rt::PreparationState::kReady && composition.kit)
+      view.title_current = composition.installer->TitleCurrent(record);
     installs.push_back(std::move(view));
   }
   Publish([&](RuntimeSnapshot& s) { s.installs = std::move(installs); });
@@ -306,7 +308,18 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     }
   }
   if (existing) {
-    if (existing->state == rt::PreparationState::kReady) return "This game is already prepared.";
+    if (existing->state == rt::PreparationState::kReady) {
+      if (c.installer->TitleCurrent(*existing)) return "This game is already prepared.";
+      // Same kit id, runtime and recipe; only title files changed (for example
+      // a new wrapper build). The registration and publication stay as they are.
+      if (c.coordinator->Activity(existing->title_id) != rt::NativeActivity::kStopped)
+        return "Close the game before updating its PS5 title.";
+      const auto refreshed = c.installer->RefreshTitle(*existing);
+      Log("title refresh app=" + std::to_string(request.app_id) + " state=" +
+          std::to_string(static_cast<int>(refreshed.state)) + " code=" + refreshed.code + " message=" + refreshed.message);
+      PublishInstalls(c);
+      return refreshed.state == rt::PackageActionState::kComplete ? std::string{} : refreshed.message;
+    }
     if (existing->install_path != request.install_path)
       return "The game's files moved since preparation started; recovery is not connected yet.";
     if (existing->state == rt::PreparationState::kFailed || existing->state == rt::PreparationState::kUnavailable)

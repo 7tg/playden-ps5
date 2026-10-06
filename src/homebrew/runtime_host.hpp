@@ -74,6 +74,8 @@ struct RuntimeInstallView {
   // A durable journal is present while no preparation runs. Recovery is
   // explicit; startup never resumes it.
   bool recovery_pending = false;
+  // False when a Ready title was made from an earlier kit; Prepare updates it.
+  bool title_current = true;
 };
 
 enum class RuntimeHostStatus { kStarting, kUnavailable, kReady, kStopped };

@@ -201,6 +201,10 @@ void Controller::TickRuntime() {
       game.status = "Unavailable"; game.detail = snapshot.reason;
     } else if (snapshot.preparing_app == id) {
       game.status = "Preparing"; game.detail = record ? record->step : std::string{};
+    } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
+               !record->title_current) {
+      game.status = "Update available"; game.can_prepare = usable;
+      game.detail = record->title_id + " was made from an earlier kit";
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending) {
       game.status = "Ready"; game.detail = record->title_id; game.ready = true;
     } else if (record && record->recovery_pending) {

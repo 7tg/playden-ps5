@@ -94,8 +94,9 @@ RuntimeInstall Record() {
 
 // A synthetic admitted kit with the production file layout, real SHA-256 and
 // the repository's HL2 recipe. It is not a runnable Wine runtime.
-RuntimeKit SyntheticKit(const fs::path& kit) {
-  Write(kit / "titles/variant/eboot.bin", "native", 0755);
+RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native",
+                        const std::string& kit_id = "kit-1", char files_digest = 'a') {
+  Write(kit / "titles/variant/eboot.bin", eboot, 0755);
   Write(kit / "titles/variant/sce_sys/param.json",
         R"({"titleId":"FAKE78001","contentId":"UP9000-FAKE78001_00-PROSPEROWIN00001"})", 0644);
   Write(kit / "runtime/wine/rev/lib/core.prx", "runtime", 0755);
@@ -106,7 +107,7 @@ RuntimeKit SyntheticKit(const fs::path& kit) {
   Write(kit / "recipes/hl2.json", Read(fs::path(g_runtime_dir) / "recipes/steam-220-hl2-v1.json"), 0644);
   RuntimeKit admitted;
   auto& view = admitted.view;
-  view.root = kit; view.kit_id = "kit-1"; view.files_sha256 = std::string(64, 'a');
+  view.root = kit; view.kit_id = kit_id; view.files_sha256 = std::string(64, files_digest);
   view.runtime = {"wine-wow64", "rev", "runtime/wine/rev"};
   view.template_path = "template/bottle";
   view.template_drive_table = "template/bottle/dosdevices/.pw-symlinks";
@@ -335,6 +336,74 @@ void ResumesInterruptedCaptureFromSavedRequest(bool tamper_backup = false) {
   host.Shutdown();
 }
 
+// A respun kit with the same id, runtime and recipe (for example a new wrapper
+// build) updates the installed title in place: changed files and owner markers
+// only, no new registration, publication or bottle changes. A different kit id
+// is refused.
+void RefreshesInstalledTitleToRespunKit() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  config.uuid = []() -> std::optional<std::string> { return std::string("00000000-0000-4000-8000-000000000001"); };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  {
+    const auto kit = SyntheticKit(fixture.root / "kit");
+    auto first = config;
+    first.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+    RuntimeHost host(first);
+    CHECK(host.Start());
+    host.Prepare(Hl2());
+    const auto ready = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+    }, 60);
+    CHECK(ready.installs[0].title_current);
+    host.Shutdown();
+  }
+  const auto bottle_reg = fixture.root / "data/playden/games/steam-220/library/prefixes/game/user.reg";
+  const auto registry_before = Read(bottle_reg);
+  const auto installs_before = Read(fixture.root / "data/runtime-state/installs.json");
+  CHECK(fixture.registry_mutations == 2);
+  {  // A different kit id is not a respin; it needs republication.
+    const auto other = SyntheticKit(fixture.root / "kit-other", "native", "kit-2", 'b');
+    auto second = config;
+    second.admit_kit = [other](std::string*) { return std::optional<RuntimeKit>(other); };
+    RuntimeHost host(second);
+    CHECK(host.Start());
+    CHECK(!WaitFor(host, Started).installs[0].title_current);
+    host.Prepare(Hl2());
+    const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); });
+    CHECK(refused.refusals.at(220).find("compatible kit") != std::string::npos);
+    host.Shutdown();
+  }
+  const auto respun = SyntheticKit(fixture.root / "kit-respun", "native-2", "kit-1", 'c');
+  auto third = config;
+  third.admit_kit = [respun](std::string*) { return std::optional<RuntimeKit>(respun); };
+  RuntimeHost host(third);
+  CHECK(host.Start());
+  CHECK(!WaitFor(host, Started).installs[0].title_current);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && (s.installs[0].title_current || s.refusals.count(220));
+  }, 60);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Refresh refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+  CHECK(Read(fixture.root / "data/homebrew/FAKE78001/eboot.bin") == "native-2");
+  CHECK(Read(bottle_reg) == registry_before);
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json") == installs_before);
+  CHECK(fixture.registry_mutations == 2);
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -344,6 +413,7 @@ int main(int argc, char** argv) {
   PreparesExistingDownloadToReady();
   ResumesInterruptedCaptureFromSavedRequest();
   ResumesInterruptedCaptureFromSavedRequest(true);
+  RefreshesInstalledTitleToRespunKit();
   std::puts("runtime host tests passed");
   return 0;
 }
