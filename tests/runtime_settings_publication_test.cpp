@@ -1,4 +1,5 @@
 #include "runtime/settings_publication.h"
+#include "runtime/settings_publication_owner.h"
 #include "platform/managed_file_lock.h"
 #include <cstdio>
 #include <cstdlib>
@@ -95,6 +96,48 @@ struct Test {
   }
   PackageActionResult Run() { return PublishSettingsOperation(operation, paths, deps); }
 };
+struct OwnerPackage final : PackageInstaller {
+  PackageStatus status{true, true, true, true, true, true, true, false, 0};
+  unsigned mutations = 0;
+  PackageStatus Inspect(const RuntimeInstall&) override { return status; }
+  PackageActionResult StageTitle(const RuntimeInstall&) override { ++mutations; return Fail(); }
+  PackageActionResult CopyTemplate(const RuntimeInstall&) override { ++mutations; return Fail(); }
+  PackageActionResult ValidateArtifacts(const RuntimeInstall&) override { ++mutations; return Fail(); }
+  PackageActionResult PublishProfile(const RuntimeInstall&) override { ++mutations; return Fail(); }
+};
+struct OwnerNative final : NativeCoordinator {
+  NativeActivity activity = NativeActivity::kStopped;
+  NativeStatus status{true, false, true, true, false, false};
+  unsigned registrations = 0; bool queue = false, fail = false; InstallRecordStore* records = nullptr;
+  NativeActivity Activity(const std::string&) override { return activity; }
+  NativeStatus Query(const RuntimeInstall&) override { return status; }
+  RegistrationResult Register(const RuntimeInstall& record) override {
+    auto stored = records->Find(record.install_id); CHECK(stored && stored->journal && stored->journal->step == "register");
+    CHECK(stored->state == PreparationState::kRegistering); ++registrations;
+    if (fail) return {RegistrationResultState::kFailed, "submit-failed", "injected native submission failure"};
+    if (queue) status.scan_pending = true; else status.installed = true;
+    return {queue ? RegistrationResultState::kScanQueued : RegistrationResultState::kAccepted, {}, {}};
+  }
+};
+struct RejectReadyStore final : InstallRecordStore {
+  InstallRecordStore& store; bool reject = false;
+  explicit RejectReadyStore(InstallRecordStore& s) : store(s) {}
+  std::optional<RuntimeInstall> Find(const std::string& id) const override { return store.Find(id); }
+  std::vector<RuntimeInstall> Snapshot() const override { return store.Snapshot(); }
+  RecordUpdateResult Update(const RuntimeInstall& record) override {
+    if (reject && record.state == PreparationState::kReady) return {false, "ready-write", "injected Ready persistence refusal"};
+    return store.Update(record);
+  }
+};
+void SeedOwner(RuntimeInstallRepository& repository, const RuntimeInstall& r) {
+  CHECK(repository.Load().ok()); ReserveRequest request;
+  request.install_id = r.install_id; request.app_id = r.app_id; request.default_profile_id = r.default_profile_id;
+  request.runtime_bundle_id = r.runtime_bundle_id; request.recipe_id = r.recipe_id; request.recipe_version = r.recipe_version;
+  request.settings_revision = r.settings_revision; request.launch_entry_id = r.launch_entry_id; request.launch_path = r.launch_path;
+  request.launch_arguments = r.launch_arguments; request.launch_working_directory = r.launch_working_directory;
+  request.install_path = r.install_path; request.volume_id = r.volume_id; request.kit_title_variants = {r.title_id};
+  CHECK(repository.Reserve(request).ok()); CHECK(repository.Update(r).ok());
+}
 int main() {
   {
     Test t; auto missing = t.deps; missing.verify_files = {};
@@ -467,6 +510,80 @@ int main() {
     CHECK(PreflightSettingsPublication(*frozen, t.paths, lease->fd(), t.root).code == "publication-preflight-collision");
     CHECK(Read(extra) == source.plan.input_presets.back().second);
     CHECK(Read(t.control / "publication-state.v1") == t.operation.committed_receipt_bytes);
+  }
+  for (const bool queued : {false, true}) {
+    Test t; const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install);
+    RepositoryInstallRecordStore base(repository); RejectReadyStore records(base); OwnerPackage package; OwnerNative native;
+    native.records = &records; native.queue = queued; records.reject = !queued;
+    SettingsPublicationOwner owner(records, package, native); t.deps = owner.Dependencies(t.root);
+    unsigned applies = 0; auto apply = t.deps.apply_files;
+    t.deps.apply_files = [&](const auto& o, const auto& paths, int fd) { ++applies; return apply(o, paths, fd); };
+    CHECK(t.Run().state == PackageActionState::kFailed && native.registrations == 1 && applies == 1);
+    CHECK(Read(t.control / "publication-state.v1") == t.operation.committed_receipt_bytes);
+    RuntimeInstallRepository reload(storage, "installs.json", availability); CHECK(reload.Load().ok());
+    auto blocked = reload.Find(t.operation.install.install_id); CHECK(blocked && blocked->state == PreparationState::kRegistering);
+    CHECK(blocked->journal && blocked->journal->operation_id == t.operation.transaction_id && blocked->journal->step == "await-native");
+    RepositoryInstallRecordStore resumed_base(reload); RejectReadyStore resumed_records(resumed_base);
+    native.records = &resumed_records;
+    SettingsPublicationOwner resumed_owner(resumed_records, package, native); t.deps = resumed_owner.Dependencies(t.root);
+    t.deps.apply_files = [&](const auto& o, const auto& paths, int fd) { ++applies; return apply(o, paths, fd); };
+    if (queued) {
+      CHECK(t.Run().code == "publication-registration-pending" && native.registrations == 1 && applies == 1);
+      native.status.installed = true; native.status.scan_pending = false;
+    }
+    CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1 && applies == 1 && package.mutations == 0);
+    CHECK(reload.Load().ok()); auto ready = reload.Find(t.operation.install.install_id);
+    CHECK(ready && ready->state == PreparationState::kReady && !ready->journal && !ready->last_failure);
+    CHECK(ready->settings_revision == t.operation.plan.settings_revision);
+    if (!queued) {
+      auto source = Fixture(); source.transaction_id = "00000000-0000-7000-8000-000000000003";
+      source.previous_revision = t.operation.plan.settings_revision;
+      source.previous_receipt_bytes = t.operation.committed_receipt_bytes; source.previous_metadata_bytes = t.operation.metadata_bytes;
+      source.install.settings_revision = source.plan.settings_revision = 8; Refresh(source);
+      std::string reason; auto frozen = FreezeSettingsPublicationOperation(source, &reason); CHECK(frozen);
+      // Test-only next-operation setup; production retirement remains pending.
+      playden::Storage control(t.control.string()); CHECK(control.RemoveDurable("settings-operation.v1").ok());
+      t.operation = *frozen; native.status.installed = false;
+      CHECK(t.Run().code == "publication-native-incoherent" && native.registrations == 1 && applies == 2);
+      CHECK(resumed_records.Find(t.operation.install.install_id)->state != PreparationState::kReady);
+      native.status.installed = true;
+      CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1 && applies == 2);
+      CHECK(reload.Load().ok()); CHECK(reload.Find(t.operation.install.install_id)->settings_revision == 8);
+    }
+  }
+  for (unsigned fault = 0; fault < 5; ++fault) {
+    Test t; const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records;
+    if (fault == 0) { auto changed = t.operation.install; changed.launch_arguments = "drift"; CHECK(repository.Update(changed).ok()); }
+    if (fault == 1) package.status.artifacts_valid = false;
+    if (fault == 2) native.activity = NativeActivity::kUnknown;
+    if (fault == 3) native.fail = true;
+    if (fault == 4) native.status.scan_pending = true;
+    SettingsPublicationOwner owner(records, package, native); t.deps = owner.Dependencies(t.root);
+    CHECK(t.Run().state == PackageActionState::kFailed && package.mutations == 0);
+    CHECK(repository.Find(t.operation.install.install_id)->state != PreparationState::kReady);
+    if (fault < 3) {
+      CHECK(native.registrations == 0 && !fs::exists(t.control / "settings-operation.v1") && !fs::exists(t.control / "publication-state.v1"));
+    } else if (fault == 4) {
+      auto blocked = repository.Find(t.operation.install.install_id);
+      CHECK(blocked->state == PreparationState::kRegistering && blocked->journal && blocked->journal->step == "await-native");
+      native.status.scan_pending = false;
+      CHECK(t.Run().code == "publication-registration-pending" && native.registrations == 0);
+      native.status.installed = true;
+      CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 0);
+    } else {
+      CHECK(native.registrations == 1);
+      auto blocked = repository.Find(t.operation.install.install_id); CHECK(blocked->journal && blocked->journal->step == "register");
+      CHECK(t.Run().code == "publication-registration-pending" && native.registrations == 1);
+      native.status.installed = true; native.fail = false;
+      CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1);
+    }
   }
   std::puts("settings publication coordinator tests passed");
 }

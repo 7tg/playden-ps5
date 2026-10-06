@@ -547,3 +547,27 @@ See [preflight evidence](../../../results/20261006-publication-preflight/README.
 OWNER reservation/approved provenance/stopped activity and registration remain
 independent producer duties. Production operation creation, journal retirement,
 installer/UI wiring, final native link/review and PS5 acceptance remain open.
+
+
+### Task C durable OWNER/registration callback adapter
+
+Added `SettingsPublicationOwner` to bind the coordinator to reserved OWNER
+identities, immutable package/bottle/artifact checks, durable blocking and final
+Ready persistence. It supplies all real file/preflight/verifier callbacks and
+never invokes package staging/copy/publish mutation methods. Initial registration
+is durably armed before submission; accepted/queued and observed background
+scan states persist await-native. Armed requests survive Block/retry unchanged.
+Committed reconciliation checks coherent native ownership; updates verify the
+existing registration without replacement. Failed Ready writes retain the
+committed operation and recover without file edits or registration resubmission.
+
+Tests use real durable repository files and recreate callbacks from a freshly
+loaded repository after Ready refusal/queued submission. Negative identity,
+artifact/activity, failed-submit and background-scan gates pass. A next-operation
+fixture verifies update registration without repeat submission, with explicit
+test-only retirement. All 105 host tests, warning/diff checks and SDK v0.43 archive
+compilation pass. See [OWNER evidence](../../../results/20261006-publication-owner/README.md).
+Real native/package service acceptance, producer/frozen operation creation,
+orphan OWNER intent recovery before journal creation, completed-journal
+retirement, explicit uncertain-registration recovery, installer/UI routing,
+final link/review and PS5 fault acceptance remain unfinished.

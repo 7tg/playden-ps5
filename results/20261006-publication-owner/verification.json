@@ -1,0 +1,23 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-owner-host-test.log"
+  },
+  "sdk": "v0.43 settings-publication archive including OWNER object",
+  "owner_store": "real RuntimeInstallRepository; fresh reload and callbacks on retry",
+  "native_package_collaborators": "controlled test implementations",
+  "ready_retry": {
+    "file_applications": 0,
+    "repeat_registration": 0
+  },
+  "update_registration_missing": "refused, never resubmitted",
+  "production_ui_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/settings_publication_owner.cpp": "be5bed04bb6f21f354655acc29c4e42acbf0736c6ad0e3ce2698cbfa752965bc",
+    "src/runtime/settings_publication_owner.h": "4074ef8b589cfb7a4ac47036326f85f60ce8b8d391ff5709f3446dc90f70aa3a",
+    "cmake/HomebrewUI.cmake": "b2c1e8c945a433e6b9e633319584f27ed9a6ce358c257947aaecd91127ec63d8",
+    "tests/runtime_settings_publication_test.cpp": "42d1c3bf3ddc4ce8366c9e6c918b3d338ec1a653ea920d8138d5b2ebef9ae206"
+  }
+}
