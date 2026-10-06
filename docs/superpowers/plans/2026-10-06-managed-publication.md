@@ -467,3 +467,23 @@ terminate a forked publisher with `_exit`, bypassing RAII, and recover in the
 parent through the released kernel lease and persisted operation. Committed
 recovery applies no files. The focused coordinator test passes. PS5 process
 death and production file durability remain separate open acceptance gates.
+
+
+### Task C registry effect adapter
+
+Added the real pending registry effect, regenerated from the immutable backup
+and frozen timestamp. It verifies the exact journal/pending receipt and canonical
+borrowed lock identity, admits only original-or-intended bytes/modes, uses durable
+file/parent publication, and verifies readback. Failures retain evidence; it does
+not use a fixed backup or rollback. Captured unrelated registry entries survive.
+Pending recovery refuses changed live registry bytes; committed native admission
+continues semantic owned-value verification, allowing unrelated Wine rewrites.
+
+Actual host process death after registry publication before profile creation and
+RLIMIT_FSIZE failure during registry writing recover successfully. All 105 host
+tests pass; the focused coordinator passes after adding unrelated-entry coverage.
+Warning/diff checks and SDK v0.43 archive compilation pass. See
+[registry evidence](../../../results/20261006-publication-registry/README.md).
+This supplies the registry part of the production apply callback. DXVK and
+remaining file effects, OWNER/registration, journal retirement, installer/UI
+wiring, final review and native acceptance remain open.

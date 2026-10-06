@@ -65,4 +65,10 @@ PackageActionResult PublishSettingsOperation(const SettingsPublicationOperation&
 PackageActionResult VerifySettingsPublicationFiles(const SettingsPublicationOperation& operation,
     const PublicationPaths& paths, int borrowed_publisher_fd, bool committed,
     const std::filesystem::path& host_namespace_prefix = {});
+// Registry effect for the production apply adapter. Requires this exact durable
+// journal/pending receipt and the caller's exclusive publisher lease. Edits are
+// regenerated from the immutable backup and frozen timestamp. Before-or-intended
+// bytes only; collision/failure preserves evidence, with no immediate rollback.
+PackageActionResult ApplyPendingPublicationRegistry(const SettingsPublicationOperation& operation,
+    int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {});
 }  // namespace playden::runtime

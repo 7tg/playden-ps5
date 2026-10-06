@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
+#include <csignal>
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%d: %s\n", __LINE__, #x); std::exit(1); } } while (0)
 #include "settings_publication_fixture.h"
 namespace fs = std::filesystem;
@@ -44,6 +46,8 @@ struct Test {
     deps.apply_files = [&](const auto& o, const auto&, int borrowed) {
       CHECK(borrowed >= 0); CheckLease(); CHECK(!ready && Read(control / "publication-state.v1") == o.pending_receipt_bytes);
       ++applies;
+      auto registry = ApplyPendingPublicationRegistry(o, borrowed, root);
+      if (registry.state != PackageActionState::kComplete) return registry;
       for (const auto& directory : {paths.profile.parent_path(), paths.input_directory}) {
         fs::create_directories(directory); CHECK(chmod(directory.c_str(), 0700) == 0);
       }
@@ -70,6 +74,17 @@ struct Test {
   void CheckLease() {
     auto directory = playden::platform::ManagedDirectory::Open(control, playden::platform::DirectoryPolicy::kPrivate); CHECK(directory);
     CHECK(!playden::platform::ManagedFileLock::Acquire(*directory, "publication.lock", playden::platform::LockMode::kReader));
+  }
+  std::string Registry() { return Read(root / "data/playden/games/install-220/library/prefixes/game/user.reg"); }
+  void ConfigureRegistry() {
+    const auto file = root / "data/playden/games/install-220/library/prefixes/game/user.reg";
+    std::ofstream(file) << "WINE REGISTRY Version 2\n\n[Software\\\\Unrelated] 42\n\"Keep\"=\"value\"\n";
+    auto source = Fixture();
+    source.plan.registry = {{"Software\\Wine\\AppDefaults\\probe.exe", "Version", "\"win7\""}};
+    source.registry_unix_time = 1760000000;
+    auto backup = CreatePublicationRegistryBackup(control, source.transaction_id, Registry(), 0644);
+    CHECK(backup.ok()); source.registry_backup = backup.value(); Refresh(source);
+    std::string reason; auto frozen = FreezeSettingsPublicationOperation(source, &reason); CHECK(frozen); operation = *frozen;
   }
   PackageActionResult Run() { return PublishSettingsOperation(operation, paths, deps); }
 };
@@ -190,6 +205,64 @@ int main() {
     Test t; std::ofstream(t.control / "settings-operation.v1") << "corrupt";
     CHECK(chmod((t.control / "settings-operation.v1").c_str(), 0600) == 0);
     CHECK(t.Run().code == "publication-journal" && t.applies == 0 && !t.ready);
+  }
+  {
+    Test t; t.ConfigureRegistry();
+    const auto original = t.Registry(); std::string intended = original, reason;
+    CHECK(ApplyRegistryValues(&intended, t.operation.plan.registry, t.operation.registry_unix_time, &reason));
+    CHECK(t.Run().state == PackageActionState::kComplete && t.ready && t.Registry() == intended);
+    auto backup = LoadPublicationRegistryBackup(t.control, t.operation.transaction_id, *t.operation.registry_backup);
+    CHECK(backup.state == PublicationRecoveryState::kValid && backup.bytes == original);
+    auto directory = playden::platform::ManagedDirectory::Open(t.control, playden::platform::DirectoryPolicy::kPrivate); CHECK(directory);
+    auto lease = playden::platform::ManagedFileLock::Acquire(*directory, "publication.lock", playden::platform::LockMode::kPublisher); CHECK(lease);
+    CHECK(ApplyPendingPublicationRegistry(t.operation, lease->fd(), t.root).code == "publication-registry-ownership");
+    CHECK(t.Registry() == intended); // committed state never grants mutation permission
+  }
+  {
+    Test t; t.ConfigureRegistry();
+    CHECK(ApplyPendingPublicationRegistry(t.operation, -1, t.root).code == "publication-lock");
+    const auto file = t.root / "data/playden/games/install-220/library/prefixes/game/user.reg";
+    std::ofstream(file) << "WINE REGISTRY Version 2\n; changed after snapshot\n";
+    const auto foreign = t.Registry();
+    CHECK(t.Run().code == "publication-registry-collision" && !t.ready && t.Registry() == foreign);
+    CHECK(Read(t.control / "publication-state.v1") == t.operation.pending_receipt_bytes);
+  }
+  {
+    Test t; t.ConfigureRegistry();
+    const auto child = fork(); CHECK(child >= 0);
+    if (child == 0) {
+      t.deps.apply_files = [&](const auto& operation, const auto&, int borrowed) {
+        CHECK(ApplyPendingPublicationRegistry(operation, borrowed, t.root).state == PackageActionState::kComplete);
+        _exit(77); return Fail();
+      };
+      t.Run(); _exit(78);
+    }
+    int status = 0; CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 77);
+    CHECK(Read(t.control / "publication-state.v1") == t.operation.pending_receipt_bytes);
+    CHECK(!fs::exists(t.paths.profile)); // registry was durably published before later files
+    const auto applied = t.Registry(); CHECK(applied.find("1760000000") != std::string::npos);
+    CHECK(t.Run().state == PackageActionState::kComplete && t.ready && t.Registry() == applied);
+  }
+  {
+    Test t; t.ConfigureRegistry(); const auto original = t.Registry();
+    const auto child = fork(); CHECK(child >= 0);
+    if (child == 0) {
+      t.deps.after_step = [](PublicationStep step) {
+        if (step == PublicationStep::kPendingDurable) {
+          CHECK(std::signal(SIGXFSZ, SIG_IGN) != SIG_ERR);
+          struct rlimit limit{32, 32}; CHECK(setrlimit(RLIMIT_FSIZE, &limit) == 0);
+        }
+        return true;
+      };
+      const auto result = t.Run();
+      _exit(result.code == "publication-registry-write" ? 77 : 78);
+    }
+    int status = 0; CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 77);
+    CHECK(t.Registry() == original && Read(t.control / "publication-state.v1") == t.operation.pending_receipt_bytes);
+    CHECK(!fs::exists(t.paths.profile));
+    CHECK(t.Run().state == PackageActionState::kComplete && t.ready);
+    auto backup = LoadPublicationRegistryBackup(t.control, t.operation.transaction_id, *t.operation.registry_backup);
+    CHECK(backup.state == PublicationRecoveryState::kValid && backup.bytes == original);
   }
   std::puts("settings publication coordinator tests passed");
 }

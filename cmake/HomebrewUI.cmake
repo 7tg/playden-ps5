@@ -129,7 +129,7 @@ target_compile_features(playden_runtime_publication_verifier PRIVATE c_std_11)
 add_library(playden_runtime_settings_publication STATIC "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication.cpp")
 target_include_directories(playden_runtime_settings_publication PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_settings_publication PUBLIC cxx_std_17)
-target_link_libraries(playden_runtime_settings_publication PUBLIC playden_runtime_settings_publication_journal playden_runtime_publication_verifier)
+target_link_libraries(playden_runtime_settings_publication PUBLIC playden_runtime_settings_publication_journal playden_runtime_publication_verifier playden_steam_cm_codec)
 
 add_library(playden_runtime_settings_publication_journal STATIC
     "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication_journal.cpp"

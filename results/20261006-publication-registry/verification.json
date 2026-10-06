@@ -1,0 +1,19 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-registry-host-test.log"
+  },
+  "focused_coordinator": "passed after unrelated-entry fixture extension",
+  "sdk": "v0.43 settings publication static archive",
+  "actual_write_fault": "RLIMIT_FSIZE in forked publisher after pending receipt",
+  "actual_process_exit": "after registry durability before profile creation",
+  "console_acceptance": false,
+  "production_ui_wired": false,
+  "files": {
+    "src/runtime/settings_publication.cpp": "f7db429b5b68f7d9905d7c51aa9edd6e2f4812c82e68833eb00d0e4956684797",
+    "src/runtime/settings_publication.h": "ea2674dda52971982233324399870fa91abf012686c89dcbe4343160ae376184",
+    "tests/runtime_settings_publication_test.cpp": "8e74e2fa1b1b2cdbad3ee7f0a3e12fa8e53a93bf1a2a0f768b352c2e11884883",
+    "cmake/HomebrewUI.cmake": "934dca5e132e2df10a9e06fb0b89664f1e94941ab7ae5784c986633b58296007"
+  }
+}

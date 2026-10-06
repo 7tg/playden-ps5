@@ -161,4 +161,72 @@ PackageActionResult VerifySettingsPublicationFiles(const SettingsPublicationOper
     return {PackageActionState::kFailed, "publication-verification", error};
   return {PackageActionState::kComplete, {}, {}};
 }
+PackageActionResult ApplyPendingPublicationRegistry(const SettingsPublicationOperation& o,
+    int borrowed, const std::filesystem::path& prefix) {
+  std::string reason;
+  auto encoded = EncodeSettingsPublicationOperation(o, &reason);
+  if (!encoded || (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())))
+    return Failure("publication-invalid", "Frozen registry operation or namespace is invalid.");
+  const auto control = Map(prefix, o.install.data_root + "/.playden-control");
+  auto directory = ManagedDirectory::Open(control, DirectoryPolicy::kPrivate);
+  struct stat opened{}, named{};
+  auto held = [&] {
+    return directory && borrowed >= 0 && directory->Validate() &&
+        fstat(borrowed, &opened) == 0 && directory->InspectChild("publication.lock", &named) &&
+        S_ISREG(opened.st_mode) && S_ISREG(named.st_mode) && opened.st_uid == geteuid() &&
+        named.st_uid == geteuid() && opened.st_nlink == 1 && named.st_nlink == 1 &&
+        (opened.st_mode & 07777) == 0600 && (named.st_mode & 07777) == 0600 &&
+        opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
+  };
+  if (!held()) return Failure("publication-lock", "Registry publisher descriptor is unavailable or changed.");
+  auto journal = LoadSettingsPublicationOperation(control);
+  auto recovered = journal.operation ? EncodeSettingsPublicationOperation(*journal.operation, &reason) : std::nullopt;
+  auto receipt = ReadReceipt(control, *directory);
+  if (journal.state != PublicationRecoveryState::kValid || !recovered || *recovered != *encoded ||
+      !receipt.ok || receipt.absent || receipt.bytes != o.pending_receipt_bytes || !held())
+    return Failure("publication-registry-ownership", "Registry effects require the exact durable pending operation.");
+  if (o.plan.registry.empty()) return {PackageActionState::kComplete, {}, {}};
+  if (!o.registry_backup) return Failure("publication-registry-backup", "Registry snapshot binding is missing.");
+  auto backup = LoadPublicationRegistryBackup(control, o.transaction_id, *o.registry_backup);
+  if (backup.state != PublicationRecoveryState::kValid)
+    return Failure("publication-registry-backup", "Immutable registry backup is unavailable.");
+  auto intended = backup.bytes;
+  if (!ApplyRegistryValues(&intended, o.plan.registry, o.registry_unix_time, &reason) ||
+      intended.size() > kMaxPublicationRegistryBackupBytes)
+    return Failure("publication-registry-render", "Frozen registry edits cannot be safely rendered.");
+  const auto prefix_path = Map(prefix, o.install.data_root + "/library/prefixes/game");
+  auto bottle = ManagedDirectory::Open(prefix_path, DirectoryPolicy::kPrivate);
+  if (!bottle) return Failure("publication-registry-directory", "Private bottle directory is unavailable.");
+  Storage storage(prefix_path.string());
+  auto read = [&](std::string* bytes, unsigned* mode) {
+    struct stat before{}, after{};
+    if (!bottle->InspectChild("user.reg", &before) || !S_ISREG(before.st_mode) ||
+        before.st_uid != geteuid() || before.st_nlink != 1 || before.st_size < 0 ||
+        static_cast<std::uint64_t>(before.st_size) > kMaxPublicationRegistryBackupBytes ||
+        ((before.st_mode & 07777) != 0600 && (before.st_mode & 07777) != 0644)) return false;
+    auto observed = storage.ReadDurable("user.reg", kMaxPublicationRegistryBackupBytes);
+    if (!observed.ok() || !bottle->InspectChild("user.reg", &after) ||
+        before.st_dev != after.st_dev || before.st_ino != after.st_ino || before.st_mode != after.st_mode ||
+        before.st_uid != after.st_uid || before.st_nlink != after.st_nlink || before.st_size != after.st_size ||
+        before.st_mtime != after.st_mtime || before.st_ctime != after.st_ctime ||
+        observed.value().size() != static_cast<std::uint64_t>(before.st_size)) return false;
+    bytes->assign(observed.value().begin(), observed.value().end()); *mode = before.st_mode & 07777;
+    return true;
+  };
+  std::string current; unsigned mode = 0;
+  if (!read(&current, &mode) || !held())
+    return Failure("publication-registry-read", "Registry identity or durability could not be verified.");
+  const bool original = current == backup.bytes && mode == o.registry_backup->source_mode;
+  const bool applied = current == intended && mode == 0600;
+  if (!original && !applied)
+    return Failure("publication-registry-collision", "Live registry matches neither frozen original nor intended bytes.");
+  if (!applied) {
+    Bytes bytes(intended.begin(), intended.end());
+    if (!storage.WriteDurable("user.reg", bytes).ok())
+      return Failure("publication-registry-write", "Registry publication failed; pending evidence must be recovered.");
+  }
+  if (!held() || !read(&current, &mode) || current != intended || mode != 0600 || !held())
+    return Failure("publication-registry-verify", "Published registry could not be verified durably.");
+  return {PackageActionState::kComplete, {}, {}};
+}
 }  // namespace playden::runtime
