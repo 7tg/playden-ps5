@@ -152,6 +152,11 @@ void Controller::TickCloud() {
   if (!cloud_) return;
   auto requests = model_.TakeCloudRequests();
   // A session that just ended syncs its saves, as Steam does after play.
+  for (auto& [id, issued] : sync_before_play_)
+    if (!issued) {
+      requests.push_back({CloudRequestKind::Sync, id});
+      issued = true;
+    }
   for (auto it = sync_after_session_.begin(); it != sync_after_session_.end();) {
     if (game_roots_.count(*it) && !saves_root_.empty()) {
       requests.push_back({CloudRequestKind::Sync, *it});
@@ -183,6 +188,31 @@ void Controller::TickCloud() {
   const auto snapshot = cloud_->Snapshot();
   if (snapshot.revision == cloud_revision_) return;
   cloud_revision_ = snapshot.revision;
+  // Settle Play requests whose Cloud check has finished. Sync marks a game as
+  // checking at once, so a finished state seen here is the check's own result.
+  const auto settle = [this](GameId id, CloudStatus status) {
+    const auto pending = sync_before_play_.find(id);
+    if (pending == sync_before_play_.end() || !pending->second) return;
+    if (status == CloudStatus::Checking || status == CloudStatus::Syncing) return;
+    sync_before_play_.erase(pending);
+    ++play_notes_revision_;
+    switch (status) {
+      case CloudStatus::Synced:
+      case CloudStatus::UpToDate:
+      case CloudStatus::Unsupported:
+        play_notes_.erase(id);
+        plays_ready_.push_back(id);
+        break;
+      case CloudStatus::Conflict:
+      case CloudStatus::NeedsAccount:
+        play_notes_[id] = "Choose which Cloud saves to keep, then press Play.";
+        break;
+      default:
+        play_notes_[id] = "Cloud saves could not be checked. Press Play again to start without syncing.";
+        play_without_sync_.insert(id);
+        break;
+    }
+  };
   std::vector<LiveCloudGame> games;
   for (const auto& game : snapshot.games) {
     CloudStatus status = CloudStatus::None;
@@ -200,6 +230,8 @@ void Controller::TickCloud() {
     const auto& report = game.report;
     if (status == CloudStatus::Checking || status == CloudStatus::Syncing) cloud_busy_.insert(game.id);
     else cloud_busy_.erase(game.id);
+    cloud_status_[game.id] = status;
+    settle(game.id, status);
     games.push_back({game.id, status, report.message, report.local_files, report.remote_files, report.local_bytes,
                      report.remote_bytes, static_cast<std::int64_t>(report.local_latest),
                      static_cast<std::int64_t>(report.remote_latest)});
@@ -215,13 +247,30 @@ void Controller::TickRuntime() {
     const auto root = game_roots_.find(id);
     if (root != game_roots_.end()) runtime_->Prepare({id, root->second, game_volumes_[id]});
   }
-  for (const auto id : model_.TakeRuntimePlayRequests()) {
+  auto plays = model_.TakeRuntimePlayRequests();
+  for (const auto id : plays) {
+    if (sync_before_play_.count(id)) continue;
+    // Play checks Cloud saves first, as Steam does before a game starts; the
+    // game starts once its saves are in step.
+    const bool cloud_known = cloud_ && game_roots_.count(id) && !saves_root_.empty();
+    if (cloud_known && !play_without_sync_.erase(id)) {
+      sync_before_play_[id] = false;
+      play_notes_[id] = "Checking Cloud saves before starting…";
+      ++play_notes_revision_;
+      continue;
+    }
+    play_notes_.erase(id);
+    ++play_notes_revision_;
+    plays_ready_.push_back(id);
+  }
+  for (const auto id : plays_ready_) {
     // Never start a game while its saves are moving.
     if (cloud_busy_.count(id)) continue;
     play_queued_.insert(id);
     ++plays_requested_;
     runtime_->Play(id);
   }
+  plays_ready_.clear();
   {
     const auto current = runtime_->Snapshot();
     if (current.handoff_ready && current.launch && !cloud_busy_.count(current.launch->app_id))
@@ -238,7 +287,8 @@ void Controller::TickRuntime() {
     last_launch_ = current;
   }
   if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
-      cloud_revision_ == runtime_cloud_revision_) return;
+      cloud_revision_ == runtime_cloud_revision_ && play_notes_revision_ == runtime_notes_revision_) return;
+  runtime_notes_revision_ = play_notes_revision_;
   runtime_revision_ = snapshot.revision;
   runtime_install_revision_ = install_revision_;
   runtime_cloud_revision_ = cloud_revision_;
@@ -305,7 +355,9 @@ void Controller::TickRuntime() {
                                           snapshot.launch->state == runtime::LaunchState::kLaunching ||
                                           snapshot.launch->state == runtime::LaunchState::kRunning);
     game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
-                    play_queued_.empty();
+                    play_queued_.empty() && !sync_before_play_.count(id);
+    if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
+    if (sync_before_play_.count(id)) game.play_status = "Checking saves…";
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
     games.push_back(std::move(game));
   }

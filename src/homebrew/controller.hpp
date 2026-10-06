@@ -63,6 +63,16 @@ class Controller {
   // Play requested but not yet visible in the runtime's launch state.
   std::set<GameId> play_queued_;
   std::uint64_t plays_requested_ = 0;
+  // Play checks Cloud saves first: games waiting for that check (true once the
+  // sync was issued), games whose check passed and can start, games the player
+  // may start without syncing after a failed check, and what Play shows meanwhile.
+  std::map<GameId, bool> sync_before_play_;
+  std::vector<GameId> plays_ready_;
+  std::set<GameId> play_without_sync_;
+  std::map<GameId, std::string> play_notes_;
+  std::uint64_t play_notes_revision_ = 0;
+  std::uint64_t runtime_notes_revision_ = 0;
+  std::map<GameId, CloudStatus> cloud_status_;
   std::optional<std::pair<GameId, runtime::LaunchState>> last_launch_;
   // A game whose title may be running: Cloud must not touch its saves.
   bool SessionActive(GameId id) const;
