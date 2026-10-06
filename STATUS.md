@@ -51,7 +51,8 @@ Saves/Cloud migration from earlier locations is **not needed**: nothing has been
 | 5 | Interruption / power-loss qualification | Deferred by the user: cold restart mid-preparation and retry; settings reader lease against the publisher over a full title run |
 | 6 | Cloud and storage cases on the console | Account confirmation, USB-download adoption, unavailable media. The HL2 Cloud conflict is the player's choice (do not resolve it for them) |
 | 7 | Publish (when the user says so) | See the publish checklist below |
-| 8 | Still unported from the macOS app | First-run setup, reset-app-data UI, ambient backdrop, other stores; more games beyond the HL2 recipe (others show "Untested") |
+| 8 | Still unported from the macOS app | First-run setup, reset-app-data UI, ambient backdrop, other stores |
+| 8a | Other games on the console | Since 2026-10-06 any Steam game is prepared from its Windows launch options (`steam-<app>-auto`, PE architecture, automatic graphics); Play prepares first and finished downloads prepare themselves. Host-tested only: no game besides HL2 has been prepared or played on the console. Preparing one leaves a PS5 title and bottle that cannot be removed until M4 exists |
 | 9 | Minor | `tools/console_kit_upload.py --replace` names the set-aside kit after the new kit's hash |
 
 ### Repository layout (2026-10-06)
