@@ -1026,6 +1026,14 @@ std::uint64_t TreeBytes(const std::filesystem::path& root) {
   return total;
 }
 
+// The game's own name: a PS5 title name may carry the store, "Half-Life 2 (Steam)".
+std::string WithoutStoreSuffix(std::string name) {
+  static const std::string suffix = " (Steam)";
+  if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
+    name.resize(name.size() - suffix.size());
+  return name;
+}
+
 std::optional<KeptBottleView> ReadKeptMarker(const std::filesystem::path& kept, const std::string& install_id) {
   const int fd = open((kept / kKeptMarker).c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
   if (fd < 0) return std::nullopt;
@@ -1045,7 +1053,7 @@ std::optional<KeptBottleView> ReadKeptMarker(const std::filesystem::path& kept, 
   KeptBottleView view;
   view.install_id = install_id;
   view.app_id = static_cast<std::uint32_t>(std::strtoul(app->text().c_str(), nullptr, 10));
-  if (name && name->is_string()) view.name = name->text();
+  if (name && name->is_string()) view.name = WithoutStoreSuffix(name->text());  // markers written before the name was stripped
   if (kept_at && kept_at->is_number()) view.kept_at = std::strtoll(kept_at->text().c_str(), nullptr, 10);
   if (size && size->is_number()) view.bytes = std::strtoull(size->text().c_str(), nullptr, 10);
   if (view.app_id == 0 || "steam-" + std::to_string(view.app_id) != install_id) return std::nullopt;
@@ -1165,6 +1173,7 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
     if (const auto named = title_names_.find(app); named != title_names_.end()) game_name = named->second;
   }
   if (game_name.empty()) game_name = InstalledTitleName(record).value_or(std::string{});
+  game_name = WithoutStoreSuffix(std::move(game_name));
   auto save = [&](const char* where) -> std::string {
     const auto updated = c.repository.Update(record);
     PublishInstalls(c);

@@ -855,7 +855,8 @@ void RemovesTitleKeepingSaves() {
     CHECK(started.installs.size() == 1 && started.installs[0].state == PreparationState::kRemoving);
     CHECK(started.installs[0].failure.find("has not confirmed") != std::string::npos);
     CHECK(!fs::exists(fixture.root / "data/runtime-state/trash/FAKE78001-00000000-0000-4000-8000-000000000002"));
-    host.SetTitleNames({{220, "Half-Life 2"}});
+    // The PS5 title carries the store name; the kept saves are named for the game.
+    host.SetTitleNames({{220, "Half-Life 2 (Steam)"}});
     // A read-only games folder stops the bottle step; the next attempt continues there.
     const auto games = fixture.root / "data/playden/games";
     CHECK(chmod(games.c_str(), 0500) == 0);
