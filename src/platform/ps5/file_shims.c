@@ -64,6 +64,14 @@ int playden_ps5_probe_kernel_directory(const char* path)
     if (result.failed) { errno = (int)result.value; return -1; }
     return (int)result.value;
 }
+
+// Qualification only: do not expose publication locking until the actual
+// native descriptor/kernel contract passes the fresh-file diagnostic.
+int playden_ps5_probe_flock(int descriptor, int operation)
+{
+    return directory_call(SYS_flock, descriptor,
+                          (const char*)(uintptr_t)operation, 0, 0);
+}
 #endif
 
 int __wrap_openat(int directory, const char* path, int flags, ...)

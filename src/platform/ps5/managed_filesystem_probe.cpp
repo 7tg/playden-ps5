@@ -5,14 +5,19 @@
 #include "runtime/game_settings.h"
 #include "runtime/settings_storage.h"
 #include "runtime/session_storage.h"
+#include "runtime/launch_service.h"
 
 #include <cerrno>
 #include <cstdio>
 #include <ctime>
 #include <dirent.h>
+#include <fcntl.h>
+#include <limits>
 #include <filesystem>
 #include <sys/stat.h>
 #include <unistd.h>
+
+extern "C" int playden_ps5_probe_flock(int descriptor, int operation);
 
 namespace playden::ps5 {
 
@@ -178,6 +183,73 @@ void RunManagedFilesystemProbe(FILE* log) {
              restored.entry->operation_id == entry.operation_id, "session-journal-reopen")) return;
   if (!check(write_fixture("logs/sessions/pending.lock", "fixture pending evidence\n") &&
              !session_source.Enumerate(install, 8).ok, "session-pending-evidence-refusal")) return;
+  const auto launch_root = root / "launch-journal";
+  if (!check(runtime::EnsurePrivateDirectories(root, launch_root, launch_root, &error),
+             "launch-journal-private-root")) return;
+  Storage launch_storage(launch_root.string());
+  runtime::StorageLaunchSessionJournal launch_journal(launch_storage);
+  runtime::LaunchSession launch_session;
+  launch_session.session_id = "d9428888-122b-4b1e-8d5d-fd3b5f4b9b2c";
+  launch_session.install_id = install.install_id;
+  launch_session.title_id = install.title_id;
+  launch_session.runtime_bundle_id = install.runtime_bundle_id;
+  launch_session.settings_revision = std::numeric_limits<std::uint64_t>::max();
+  launch_session.account_token = "fixture-account-revision";
+  if (!check(launch_journal.CreateHistory(launch_session).ok &&
+             !launch_journal.CreateHistory(launch_session).ok &&
+             launch_journal.PersistPending(launch_session).ok,
+             "launch-journal-history-exclusive-pending")) return;
+  runtime::StorageLaunchSessionJournal launch_reopened(launch_storage);
+  const auto pending_launch = launch_reopened.LoadPending();
+  if (!check(pending_launch.ok && pending_launch.session &&
+             pending_launch.session->session_id == launch_session.session_id &&
+             pending_launch.session->settings_revision == launch_session.settings_revision,
+             "launch-journal-reopen")) return;
+  if (!check(launch_reopened.ClearPending().ok &&
+             launch_reopened.ClearPending().ok, "launch-journal-clear-and-missing-sync")) return;
+  const auto cleared_launch = launch_journal.LoadPending();
+  if (!check(cleared_launch.ok && !cleared_launch.session, "launch-journal-absence-recovery")) return;
+
+  // Independent open descriptions must conflict and closing the game reader
+  // must release its lock. All requests are nonblocking; no existing file is used.
+  const int lock_output = parent->CreateExclusiveFile("publication.lock", 0600);
+  if (!check(lock_output >= 0, "publication-lock-private-fixture")) return;
+  const bool lock_synced = fsync(lock_output) == 0;
+  const bool lock_output_closed = close(lock_output) == 0;
+  if (!check(lock_synced && lock_output_closed && parent->Sync(),
+             "publication-lock-fixture-sync")) return;
+  int reader = parent->OpenRegularFile("publication.lock", true, 0600);
+  int writer = parent->OpenRegularFile("publication.lock", true, 0600);
+  const auto close_locks = [&] {
+    if (reader >= 0) close(reader);
+    if (writer >= 0) close(writer);
+  };
+  if (!check(reader >= 0 && writer >= 0, "publication-lock-independent-open")) {
+    close_locks(); return;
+  }
+  if (!check(playden_ps5_probe_flock(reader, LOCK_SH | LOCK_NB) == 0 &&
+             playden_ps5_probe_flock(writer, LOCK_SH | LOCK_NB) == 0 &&
+             playden_ps5_probe_flock(writer, LOCK_UN) == 0,
+             "publication-lock-shared-readers")) { close_locks(); return; }
+  errno = 0;
+  const bool blocked_writer = playden_ps5_probe_flock(writer, LOCK_EX | LOCK_NB) < 0 &&
+                              (errno == EWOULDBLOCK || errno == EAGAIN);
+  if (!check(blocked_writer, "publication-lock-reader-blocks-writer")) { close_locks(); return; }
+  const bool reader_closed = close(reader) == 0;
+  reader = -1;
+  if (!check(reader_closed && playden_ps5_probe_flock(writer, LOCK_EX | LOCK_NB) == 0,
+             "publication-lock-reader-close-release")) { close_locks(); return; }
+  reader = parent->OpenRegularFile("publication.lock", true, 0600);
+  errno = 0;
+  const bool blocked_reader = reader >= 0 &&
+      playden_ps5_probe_flock(reader, LOCK_SH | LOCK_NB) < 0 &&
+      (errno == EWOULDBLOCK || errno == EAGAIN);
+  if (!check(blocked_reader, "publication-lock-writer-blocks-reader")) { close_locks(); return; }
+  const bool writer_closed = close(writer) == 0;
+  writer = -1;
+  if (!check(writer_closed && playden_ps5_probe_flock(reader, LOCK_SH | LOCK_NB) == 0,
+             "publication-lock-writer-close-release")) { close_locks(); return; }
+  close_locks();
   std::fprintf(log, "managed-filesystem complete euid=%u sha256=%s\n", unsigned(geteuid()), digest->c_str());
   std::fflush(log);
 }

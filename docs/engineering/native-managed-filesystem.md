@@ -57,6 +57,16 @@ storage roots are unsupported by these narrow methods. Temporary files left by
 failed writes need explicit future reconciliation/cleanup; they are never
 reused or followed. General Steam storage callers retain their existing APIs.
 
+`WriteDurableExclusive` preserves immutable launch history under the documented
+serialized-writer contract, checking destination absence before creating its
+private temporary and again before rename. `RemoveDurable` removes only an owned
+regular record and syncs the parent, including when the record is already absent.
+A failed directory sync after rename/unlink is reported as uncertain evidence.
+Launch history/pending/clear now use these narrow APIs. An uncertain handoff write
+freezes the service instance before any repeated backend effects; reconstruction
+reads and syncs the actual visible pending state. The 14-line format is retained
+with bounded stream-free conversion and strict parse-before-write validation.
+
 Settings persistence, registry overlays, DXVK publication, input reads and named
 cache removal now use the same managed context. Private settings reads admit
 owned legacy `0644`, while replacement and rollback write `0600`; game/DXVK
@@ -135,3 +145,10 @@ in `results/20261006-managed-filesystem/{settings-native,shared-settings-native}
 Full installer retry, settings reset through the live UI, registry
 backup/rollback and targeted cache removal still require native acceptance. Native readiness and full installation/gameplay acceptance remain
 open.
+
+The native launch journal and isolated `SYS_flock` (131) qualification passed;
+see `results/20261006-managed-filesystem/launch-lock-native.log`. Independent open
+descriptions obey shared/exclusive nonblocking exclusion and close releases locks.
+A production wrapper/publisher guard still needs the stable-inode protocol,
+pending ownership receipt, interruption tests and cross-process native acceptance.
+Do not infer that Home/settings races are solved from this primitive check.

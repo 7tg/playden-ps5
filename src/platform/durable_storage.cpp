@@ -72,11 +72,27 @@ Result<Bytes> Storage::ReadDurable(const std::string& relative_path,
 
 Result<void> Storage::WriteDurable(const std::string& relative_path,
                                    const Bytes& bytes) const {
+  return WriteDurableImpl(relative_path, bytes, true);
+}
+
+Result<void> Storage::WriteDurableExclusive(const std::string& relative_path,
+                                            const Bytes& bytes) const {
+  return WriteDurableImpl(relative_path, bytes, false);
+}
+
+Result<void> Storage::WriteDurableImpl(const std::string& relative_path,
+                                       const Bytes& bytes,
+                                       bool replace_existing) const {
   const auto resolved = Resolve(relative_path);
   if (!resolved.ok()) return Failure(resolved.error(), "Invalid journal path.");
   auto parent = Parent(root_, relative_path);
   if (!parent) return Failure(StorageError::kOpenFailed, "Private journal directory is unavailable.");
   const auto name = std::filesystem::path(relative_path).filename().string();
+  if (!replace_existing) {
+    struct stat existing{};
+    if (parent->InspectChild(name, &existing) || errno != ENOENT)
+      return Failure(StorageError::kOpenFailed, "Immutable journal destination exists or is unsafe.");
+  }
   static std::atomic<unsigned long> sequence{0};
   std::string temporary;
   int fd = -1;
@@ -100,10 +116,28 @@ Result<void> Storage::WriteDurable(const std::string& relative_path,
   // an old .tmp or clean through a possibly replaced context.
   if (!valid || !synced || !closed)
     return Failure(StorageError::kWriteFailed, "Journal write, file sync or close failed; temporary file may remain.");
-  if (!parent->RenameChild(temporary, *parent, name))
+  if (!parent->RenameChild(temporary, *parent, name, replace_existing))
     return Failure(StorageError::kRenameFailed, "Journal publication failed; effects require reconciliation.");
   if (!parent->Sync())
     return Failure(StorageError::kWriteFailed, "Journal directory sync failed; new journal may already be visible.");
+  return Result<void>::Success();
+}
+
+Result<void> Storage::RemoveDurable(const std::string& relative_path) const {
+  const auto resolved = Resolve(relative_path);
+  if (!resolved.ok()) return Failure(resolved.error(), "Invalid journal removal path.");
+  auto parent = Parent(root_, relative_path);
+  if (!parent) return Failure(StorageError::kOpenFailed, "Private journal directory is unavailable.");
+  const auto name = std::filesystem::path(relative_path).filename().string();
+  struct stat existing{};
+  if (!parent->InspectChild(name, &existing)) {
+    if (errno != ENOENT)
+      return Failure(StorageError::kRemoveFailed, "Journal removal destination is unsafe or unavailable.");
+  } else if (!parent->RemoveRegularFile(name)) {
+    return Failure(StorageError::kRemoveFailed, "Owned journal removal failed; effects require reconciliation.");
+  }
+  if (!parent->Sync())
+    return Failure(StorageError::kSyncFailed, "Journal removal sync failed; absence requires reconciliation.");
   return Result<void>::Success();
 }
 }  // namespace playden

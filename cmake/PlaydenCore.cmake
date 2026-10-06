@@ -116,6 +116,16 @@ target_include_directories(playden_native_access PUBLIC "${CMAKE_SOURCE_DIR}/src
 target_compile_features(playden_native_access PUBLIC cxx_std_17)
 
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(durable_storage_test "${CMAKE_SOURCE_DIR}/tests/durable_storage_test.cpp")
+    target_link_libraries(durable_storage_test PRIVATE playden_storage ${CMAKE_DL_LIBS})
+    add_test(NAME durable_storage COMMAND durable_storage_test)
+    add_executable(durable_storage_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/durable_storage_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(durable_storage_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_link_libraries(durable_storage_native_policy_test PRIVATE playden_storage ${CMAKE_DL_LIBS})
+    add_test(NAME durable_storage_native_policy COMMAND durable_storage_native_policy_test)
     add_executable(managed_directory_test "${CMAKE_SOURCE_DIR}/tests/managed_directory_test.cpp")
     target_link_libraries(managed_directory_test PRIVATE playden_managed_directory)
     add_test(NAME managed_directory COMMAND managed_directory_test)
@@ -142,8 +152,17 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     target_link_libraries(runtime_session_storage_native_policy_test PRIVATE playden_runtime_session_reconciler playden_steam_protocol)
     add_test(NAME runtime_session_storage_native_policy COMMAND runtime_session_storage_native_policy_test)
     add_executable(runtime_launch_service_test "${CMAKE_SOURCE_DIR}/tests/runtime_launch_service_test.cpp")
-    target_link_libraries(runtime_launch_service_test PRIVATE playden_runtime_launch_service)
+    target_link_libraries(runtime_launch_service_test PRIVATE playden_runtime_launch_service ${CMAKE_DL_LIBS})
     add_test(NAME runtime_launch_service COMMAND runtime_launch_service_test)
+    add_executable(runtime_launch_service_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_launch_service_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/launch_service.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(runtime_launch_service_native_policy_test PRIVATE
+        PLAYDEN_PLATFORM_PS5=1 PLAYDEN_TEST_DURABLE_FAULTS=1 fsync=playden_test_fsync)
+    target_link_libraries(runtime_launch_service_native_policy_test PRIVATE playden_runtime_launch_service ${CMAKE_DL_LIBS})
+    add_test(NAME runtime_launch_service_native_policy COMMAND runtime_launch_service_native_policy_test)
     add_executable(runtime_package_installer_test "${CMAKE_SOURCE_DIR}/tests/runtime_package_installer_test.cpp")
     target_link_libraries(runtime_package_installer_test PRIVATE playden_runtime_package_installer)
     add_test(NAME runtime_package_installer COMMAND runtime_package_installer_test)

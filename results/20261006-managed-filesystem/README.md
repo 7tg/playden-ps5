@@ -89,3 +89,31 @@ The prior normal preview and identity were restored and read back independently
 with the exact hashes documented above. Console ownership was released. Full
 session lifecycle, Cloud/controller wiring and crash/power-loss recovery remain
 open. The private diagnostic fixtures and pending evidence were left intact.
+
+## Durable launch journal and locking qualification
+
+[Launch/lock diagnostic](launch-lock-native.log), probe executable SHA-256
+`056e5c15b1213ee9d7f6cc1d480d4236c3a98b9d8560972bb8ea2d9eb6f0fa13`,
+passed at EUID 1 in fresh private fixture trees. It invoked the actual
+`StorageLaunchSessionJournal` for exclusive history, UUID collision refusal,
+pending publication, restart readback with max uint64 revision, durable clear,
+repeat absent clear and recovered absence. No native game handoff occurred.
+
+A fresh owned `0600` regular file with independent open descriptions verified
+`SYS_flock` (131) through the previously checked kernel gateway: simultaneous
+shared readers, a blocked nonblocking exclusive writer, release on reader close,
+a blocked shared reader while exclusive ownership is held, and release on writer
+close. This qualifies that primitive in this native filesystem environment. It
+is not cross-process wrapper/publisher acceptance or proof of a complete guard.
+The fixture lock inode was never renamed or replaced.
+
+The first executable upload timed out and independent readback showed the prior
+normal binary remained, so that launch was excluded from acceptance. Direct FTP
+upload/readback then verified the exact probe hash and `0755` permissions before
+the diagnostic launch. The normal executable/identity were restored and verified
+against the hashes above, and console ownership released.
+
+The combined host suite passed 95/95. Durable storage/launch focused tests also
+passed 4/4 under independent review, covering real file/directory sync errors,
+private root/symlink refusal, immutable history and stopped retry behavior after
+uncertain publication. New APIs preserve the general Steam storage behavior.

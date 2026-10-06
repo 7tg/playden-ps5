@@ -707,3 +707,19 @@ The [native log](../../../results/20261006-managed-filesystem/session-native.log
 is API fixture evidence, not a real wrapper session/Cloud lifecycle acceptance.
 Normal preview hashes were independently verified after restoration, and the
 console was released.
+
+Task 6 durability increment: launch history/pending/clear now use the narrow
+private durable storage APIs. Immutable history rejects UUID reuse, recovery
+syncs observed evidence, and uncertain handoff persistence prevents stale retry
+from reaching the backend. Strict stream-free encoding retains the existing
+14-line format. Host suite 95/95 and independent focused review passed. Actual
+PS5 launch journal operations and isolated reader/writer lock qualification
+passed under EUID 1; [evidence](../../../results/20261006-managed-filesystem/launch-lock-native.log).
+No real handoff/Cloud gameplay acceptance is claimed. Normal preview restored,
+hashes independently read back, console released.
+
+Tasks 4–6 production publication need the
+[publication guard continuation](2026-10-06-managed-publication.md): existing
+metadata-last callback is insufficient for concurrent Home startup and first-copy
+retry. This fills the approved journal/retry/persisted-profile requirements;
+it does not replace or narrow the original milestones.

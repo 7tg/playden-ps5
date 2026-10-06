@@ -111,6 +111,14 @@ class Storage {
   Result<void> WriteDurable(const std::string& relative_path, const Bytes& bytes) const;
   Result<Bytes> ReadDurable(const std::string& relative_path,
                             std::size_t max_bytes = kMaxReadBytes) const;
+  // Same durability/private-root contract, with checked absent destination.
+  // Cooperating writers must be serialized; this is not a kernel atomic
+  // no-replace primitive against an adversarial concurrent writer.
+  Result<void> WriteDurableExclusive(const std::string& relative_path,
+                                      const Bytes& bytes) const;
+  // Removes only an owned regular file and syncs its parent. Missing also syncs
+  // the parent. A sync failure may follow removal and requires reconciliation.
+  Result<void> RemoveDurable(const std::string& relative_path) const;
 
   // Missing files are already removed and therefore succeed.
   Result<void> Remove(const std::string& relative_path) const;
@@ -119,6 +127,9 @@ class Storage {
   Result<std::string> Resolve(const std::string& relative_path) const;
   Result<void> WriteAtomicImpl(const std::string& relative_path,
                                const Bytes& bytes, bool private_file) const;
+
+  Result<void> WriteDurableImpl(const std::string& relative_path,
+                                 const Bytes& bytes, bool replace_existing) const;
 
   std::string root_;
 };
