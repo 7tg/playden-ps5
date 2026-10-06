@@ -1988,6 +1988,16 @@ class Render::Impl
                          tone);
                 y += 42.0F;
             }
+            // The game's PS5 title state, under the install note.
+            for (const ViewRow &row : view.rows)
+            {
+                if (row.key != "details-runtime" || row.subtitle.empty())
+                    continue;
+                const std::string runtime_note = "PS5 title · " + row.value + " · " + row.subtitle;
+                ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, runtime_note, 22.0F, 1128.0F), kSafeX, y + 4.0F,
+                         22.0F, kSecondary);
+                y += 42.0F;
+            }
         }
         const std::string description = game == nullptr || game->description.empty() ?
                                             "Description unavailable." : game->description;

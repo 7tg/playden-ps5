@@ -2182,11 +2182,13 @@ void Simulation::rebuild_view() {
                     const auto runtime_game = state_.runtime_games.find(game->id);
                     if (runtime_game != state_.runtime_games.end()) {
                         const auto& value = runtime_game->second;
-                        auto& runtime = row("details-runtime", value.can_prepare ? RowKind::Action : RowKind::Status,
-                                            "PS5 title", value.can_prepare ? "runtime-prepare" : "");
-                        runtime.value = value.can_prepare ? "Prepare" : value.status;
-                        runtime.subtitle = value.can_prepare ? value.status + (value.detail.empty() ? "" : " · " + value.detail)
-                                                             : value.detail;
+                        // Always a button so its state stays visible; disabled while nothing can be done.
+                        auto& runtime = row("details-runtime", RowKind::Action, "PS5 title",
+                                            value.can_prepare ? "runtime-prepare" : "");
+                        runtime.value = !value.can_prepare ? value.status
+                                      : value.status == "Needs recovery" ? "Resume"
+                                      : value.status == "Failed" ? "Retry" : "Prepare";
+                        runtime.subtitle = value.detail;
                         runtime.enabled = value.can_prepare;
                     }
                 }

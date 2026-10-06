@@ -205,7 +205,8 @@ void Controller::TickRuntime() {
       game.status = "Ready"; game.detail = record->title_id; game.ready = true;
     } else if (record && record->recovery_pending) {
       game.status = "Needs recovery";
-      game.detail = record->failure.empty() ? "An interrupted preparation needs recovery." : record->failure;
+      game.detail = record->failure.empty() ? "Resume continues the saved preparation." : record->failure;
+      game.can_prepare = usable;
     } else if (record && (record->state == runtime::PreparationState::kFailed ||
                           record->state == runtime::PreparationState::kUnavailable)) {
       game.status = "Failed"; game.detail = record->failure; game.can_prepare = usable;

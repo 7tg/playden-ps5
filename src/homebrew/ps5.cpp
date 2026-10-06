@@ -267,7 +267,8 @@ int main() {
             config.registry_transport = playden::ps5::ShadowMountPost;
             config.admit_kit = [](std::string* reason) -> std::optional<playden::homebrew::RuntimeKit> {
                 const auto firmware = playden::ps5::ConsoleFirmwareVersion();
-                playden::app::AppendLogLine(log_root, "runtime.log", "console_firmware=" + firmware.value_or("unknown"));
+                playden::app::AppendLogLine(log_root, "runtime.log", "console_firmware=" + firmware.value_or("unknown") + " " +
+                    playden::ps5::ConsoleFirmwareDiagnostics());
                 if (!firmware) { *reason = "The console firmware version is unknown."; return std::nullopt; }
                 auto admitted = rt::VerifyInstalledKit(rt::kDevelopmentKitRoot, rt::DevelopmentKitTrust(*firmware));
                 playden::app::AppendLogLine(log_root, "runtime.log", std::string("kit_admission root=") +

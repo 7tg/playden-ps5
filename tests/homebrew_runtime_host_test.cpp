@@ -234,6 +234,7 @@ void PreparesExistingDownloadToReady() {
   Write(game / "hl2.exe", "existing-game", 0644);
   Write(game / "bin/steam_api.dll", "unchanged-original-dll", 0644);
   Write(game / "hl2/save/quick.sav", "existing-player-save", 0644);
+  CHECK(chmod(game.c_str(), 0777) == 0);  // console downloads are world-writable
 
   RuntimeHost host(config);
   CHECK(host.Start());
@@ -254,6 +255,8 @@ void PreparesExistingDownloadToReady() {
   CHECK(Read(game / "bin/steam_api.dll") == "unchanged-original-dll");
   CHECK(Read(game / "hl2/save/quick.sav") == "existing-player-save");
   CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001/games"));
+  struct stat game_info{};
+  CHECK(stat(game.c_str(), &game_info) == 0 && (game_info.st_mode & 07777) == 0755);
   // The descriptor binds the existing root; the bottle is private.
   const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
   CHECK(descriptor.find(R"("schema_version":2)") != std::string::npos);

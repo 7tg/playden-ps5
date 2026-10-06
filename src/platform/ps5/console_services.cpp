@@ -11,6 +11,7 @@
 #include <mutex>
 
 extern "C" int sceKernelGetSystemSwVersion(void* version);
+extern "C" int sysctlbyname(const char* name, void* old, std::size_t* old_size, const void* value, std::size_t value_size);
 
 namespace playden::ps5 {
 namespace {
@@ -29,12 +30,27 @@ std::size_t Receive(char* data, std::size_t size, std::size_t count, void* desti
 }
 }  // namespace
 
-std::optional<std::string> ConsoleFirmwareVersion() {
+std::string ConsoleFirmwareDiagnostics() {
   SwVersion version{};
   version.size = sizeof(version);
-  if (sceKernelGetSystemSwVersion(&version) != 0 || version.version == 0) return std::nullopt;
+  const int sw = sceKernelGetSystemSwVersion(&version);
+  std::uint32_t sdk = 0; std::size_t size = sizeof(sdk);
+  const int sysctl = sysctlbyname("kern.sdk_version", &sdk, &size, nullptr, 0);
+  char text[200];
+  std::snprintf(text, sizeof(text), "sw_rc=%d sw_text=%.28s sw_version=0x%08x sdk_rc=%d sdk_version=0x%08x",
+                sw, version.text, version.version, sysctl, sdk);
+  return text;
+}
+
+std::optional<std::string> ConsoleFirmwareVersion() {
+  // The kernel version (kern.sdk_version, 0xMMmm0000-style BCD) is what helper
+  // offsets and kit qualification depend on. sceKernelGetSystemSwVersion can
+  // report a different user-facing value (13.59 on the FW 13.60 test console).
+  std::uint32_t version = 0; std::size_t size = sizeof(version);
+  if (sysctlbyname("kern.sdk_version", &version, &size, nullptr, 0) != 0 || size != sizeof(version) || version == 0)
+    return std::nullopt;
   char text[8];
-  std::snprintf(text, sizeof(text), "%x.%02x", unsigned(version.version >> 24), unsigned((version.version >> 16) & 0xff));
+  std::snprintf(text, sizeof(text), "%x.%02x", unsigned(version >> 24), unsigned((version >> 16) & 0xff));
   return std::string(text);
 }
 

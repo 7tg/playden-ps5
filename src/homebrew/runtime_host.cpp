@@ -14,6 +14,7 @@
 #include <ctime>
 #include <fcntl.h>
 #include <pthread.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <utility>
 
@@ -247,6 +248,24 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   for (const auto& record : c.repository.Snapshot())
     if (record.app_id == request.app_id) existing = record;
   rt::InstallServiceResult started = rt::InstallServiceResult::Success();
+  // Settings publication writes dxvk.conf into the game folder and requires that
+  // folder to belong to the app user without group/other write access. Console
+  // downloads are created world-writable; tighten an owned root to 0755. A root
+  // owned by anyone else is refused, never taken over.
+  {
+    const auto root = config_.host_namespace_prefix.empty()
+        ? std::filesystem::path(request.install_path)
+        : config_.host_namespace_prefix / std::filesystem::path(request.install_path).relative_path();
+    struct stat info{};
+    if (lstat(root.c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
+      return "The game's folder is unavailable.";
+    if (info.st_uid != geteuid()) return "The game's folder belongs to another user.";
+    if ((info.st_mode & 07777) != 0700 && (info.st_mode & 07777) != 0755) {
+      if (chmod(root.c_str(), 0755) != 0) return "The game's folder permissions could not be tightened.";
+      char mode[8]; std::snprintf(mode, sizeof(mode), "%04o", unsigned(info.st_mode & 07777));
+      Log("game root mode " + std::string(mode) + " -> 0755 path=" + request.install_path);
+    }
+  }
   if (existing) {
     if (existing->state == rt::PreparationState::kReady) return "This game is already prepared.";
     if (existing->install_path != request.install_path)
@@ -255,8 +274,11 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       started = c.service->Retry(existing->install_id);
     else if (existing->state == rt::PreparationState::kDownloaded)
       started = c.service->Prepare(existing->install_id);
-    else
-      return "An interrupted preparation needs recovery, which is not connected yet.";
+    else if (!existing->journal)
+      return "The preparation record has no journal to continue.";
+    // Otherwise this is an explicit resume of the saved journal: the service
+    // routes it to the saved request or frozen operation, never a new plan, and
+    // never resubmits an uncertain registration.
   } else {
     const rt::GameRecipe* recipe = nullptr;
     for (const auto& candidate : c.recipes) if (candidate.app_id == request.app_id) recipe = &candidate;
