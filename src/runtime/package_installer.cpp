@@ -499,11 +499,20 @@ FilesystemPackageInstaller::TemplateMappings() const {
   return mappings;
 }
 
+namespace {
+bool TitleDirectoriesPublished(const fs::path& title);
+}  // namespace
+
 bool FilesystemPackageInstaller::TitleMatches(
     const RuntimeInstall& record, const ResolvedPaths& paths) const {
-  if (!IsDirectoryNoSymlink(paths.title) ||
-      !MarkerEquals(paths.title / kTitleOwner, OwnerMarker(record, kit_, "title")))
-    return false;
+  return IsDirectoryNoSymlink(paths.title) &&
+         MarkerEquals(paths.title / kTitleOwner, OwnerMarker(record, kit_, "title")) &&
+         TitleFilesMatch(record, paths) && TitleDirectoriesPublished(paths.title);
+}
+
+bool FilesystemPackageInstaller::TitleFilesMatch(
+    const RuntimeInstall& record, const ResolvedPaths& paths) const {
+  if (!IsDirectoryNoSymlink(paths.title)) return false;
   const auto mappings = TitleMappings(record);
   if (mappings.empty()) return false;
   for (const auto& mapping : mappings) {
@@ -946,6 +955,26 @@ namespace {
 // 0700 folder owned by the app user. Owned title directories are therefore
 // 0755 (still not writable by others). Only directories owned by this user
 // are changed; links and foreign entries refuse.
+// Every folder of the title is an owned 0755 directory (what registration reads).
+bool TitleDirectoriesPublished(const fs::path& title) {
+  std::vector<fs::path> pending{title};
+  while (!pending.empty()) {
+    const auto directory = pending.back(); pending.pop_back();
+    struct stat info{};
+    if (::lstat(directory.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::geteuid() ||
+        (info.st_mode & 07777) != 0755)
+      return false;
+    std::error_code error;
+    for (fs::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
+      struct stat child{};
+      if (::lstat(it->path().c_str(), &child) != 0 || S_ISLNK(child.st_mode)) return false;
+      if (S_ISDIR(child.st_mode)) pending.push_back(it->path());
+    }
+    if (error) return false;
+  }
+  return true;
+}
+
 bool PublishTitleDirectories(const fs::path& title) {
   struct stat info{};
   if (::lstat(title.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::geteuid()) return false;
@@ -970,7 +999,11 @@ PackageActionResult FilesystemPackageInstaller::StageTitle(
     const RuntimeInstall& record) {
   const auto paths = Resolve(record);
   if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
-  if (TitleMatches(record, *paths))
+  // An owned title with the right files is (re)published: a stop between the
+  // move into place and publishing can leave its folders private.
+  if (IsDirectoryNoSymlink(paths->title) &&
+      MarkerEquals(paths->title / kTitleOwner, OwnerMarker(record, kit_, "title")) &&
+      TitleFilesMatch(record, *paths))
     return PublishTitleDirectories(paths->title) && SyncTree(paths->title) &&
                    SyncAncestors(paths->title.parent_path())
                ? Complete()
@@ -1077,7 +1110,11 @@ PackageActionResult FilesystemPackageInstaller::RefreshTitle(const RuntimeInstal
       return Failed("refresh-copy", "a title file could not be replaced");
     }
   }
-  // Markers last: until they are rewritten the title is not considered current.
+  // The replaced files are durable, published and verified before the markers
+  // change: until then the title is not considered current, and a stop anywhere
+  // before this point leaves a refresh that runs again.
+  if (!PublishTitleDirectories(paths->title) || !SyncTree(paths->title) || !TitleFilesMatch(record, *paths))
+    return Failed("refresh-verify", "the refreshed title does not match the kit");
   for (const auto& [path, text] : {std::pair{paths->title / kTitleOwner, new_title},
                                    std::pair{paths->bottle / kTemplateOwner, new_bottle}}) {
     const auto temporary = path.parent_path() / (path.filename().string() + ".refresh");

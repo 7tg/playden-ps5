@@ -155,7 +155,10 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   std::optional<ResolvedPaths> Resolve(const RuntimeInstall& record) const;
   const KitTitleVariant* Variant(const RuntimeInstall& record) const;
   bool ValidView() const;
+  // Owner marker, exact file contents and modes, and published (0755) folders.
   bool TitleMatches(const RuntimeInstall& record, const ResolvedPaths& paths) const;
+  // Exact file contents and modes only, whatever the marker and folder modes say.
+  bool TitleFilesMatch(const RuntimeInstall& record, const ResolvedPaths& paths) const;
   bool BottleOwned(const RuntimeInstall& record, const ResolvedPaths& paths) const;
   bool ArtifactsMatch(const RuntimeInstall& record, const ResolvedPaths& paths) const;
   bool PublicationMatches(const RuntimeInstall& record, const ResolvedPaths& paths,

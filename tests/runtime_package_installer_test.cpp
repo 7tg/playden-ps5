@@ -551,6 +551,22 @@ void NativeFsyncFallbackPublishesAtomically() {
   CHECK(installer.CopyTemplate(Record()).state == PackageActionState::kComplete);
 }
 
+// A stop between moving the title into place and publishing its folders leaves
+// them private. Inspection reports the title unmatched and staging republishes it
+// instead of refusing it as a collision.
+void PrivateTitleFoldersAreRepublished() {
+  Fixture fixture;
+  auto installer = fixture.Installer();
+  CHECK(installer.StageTitle(Record()).state == PackageActionState::kComplete);
+  const auto title = fixture.host_data / "homebrew/FAKE78001";
+  CHECK(::chmod(title.c_str(), 0700) == 0);
+  CHECK(!installer.Inspect(Record()).manifest_matches);
+  CHECK(installer.StageTitle(Record()).state == PackageActionState::kComplete);
+  struct stat info{};
+  CHECK(::stat(title.c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
+  CHECK(installer.Inspect(Record()).manifest_matches);
+}
+
 void LateSyncFailureIsReestablishedOnRetry() {
   Fixture fixture;
   fixture.fail_title_post_rename_once = true;
@@ -846,6 +862,7 @@ int main() {
   SyncFailureNeverPublishesWatchedTitle();
   NativeFsyncFallbackPublishesAtomically();
   LateSyncFailureIsReestablishedOnRetry();
+  PrivateTitleFoldersAreRepublished();
   CollisionsTraversalSymlinksAndModesFailClosed();
   RestartDoesNotRecopyOrDestroyMutableFiles();
   CorruptPublicationAndInvalidDriveTableAreRejected();
