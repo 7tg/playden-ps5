@@ -68,6 +68,7 @@ struct FakePackage final : PackageInstaller {
   std::string fail_step;
   int stage_calls = 0, copy_calls = 0, validate_calls = 0, profile_calls = 0;
   std::vector<std::string> observed_journals;
+  std::function<void(const RuntimeInstall&)> profile_commit;
   PackageStatus Inspect(const RuntimeInstall &) override { return status; }
   PackageActionResult Action(const RuntimeInstall &record, const char *expected,
                              int &calls,
@@ -102,6 +103,7 @@ struct FakePackage final : PackageInstaller {
     return Action(r, "publish-profile", profile_calls, [&] {
       status.profile_published = true;
       status.profile_settings_revision = r.settings_revision;
+      if (profile_commit) profile_commit(r);
     });
   }
 };
@@ -593,6 +595,25 @@ void ManagedJournalsNeverFallThroughToLegacyRegistrationOrRetry() {
     CHECK(!service.Step("install-hl2").ok() && f.native.register_calls == 0);
   }
 }
+void PackageCallbackCannotOverwriteNewerOwnerJournal() {
+  for (const bool ready : {false, true}) {
+    Fixture f; MakePackageCoherent(f.package); f.package.status.profile_published = false;
+    auto& initial = f.store.records["install-hl2"]; initial.state = PreparationState::kPreparing;
+    initial.journal = PreparationJournal{"prepare-install-hl2", "prepare", "publish-profile"};
+    f.package.profile_commit = [&](const RuntimeInstall& record) {
+      auto latest = record; latest.state = ready ? PreparationState::kReady : PreparationState::kRegistering;
+      latest.journal = PreparationJournal{"11111111-1111-4111-8111-111111111111", "settings-publication", "await-native"};
+      if (ready) latest.journal.reset();
+      CHECK(f.store.Update(latest).ok);
+    };
+    auto service = f.Service(); const auto result = service.Step("install-hl2");
+    CHECK(f.store.updates == 1 && f.native.register_calls == 0 && result.ok() == ready);
+    auto observed = f.store.Find("install-hl2"); CHECK(!observed->last_failure);
+    if (!ready) CHECK(observed->state == PreparationState::kRegistering && observed->journal->operation == "settings-publication" && observed->journal->step == "await-native");
+    else CHECK(observed->state == PreparationState::kReady && !observed->journal);
+  }
+}
+
 void ManagedDriverCannotClaimCompleteBeforeReady() {
   Fixture f; MakePackageCoherent(f.package);
   auto& initial = f.store.records["install-hl2"];
@@ -617,6 +638,7 @@ void ManagedDriverCannotClaimCompleteBeforeReady() {
 } // namespace
 
 int main() {
+  PackageCallbackCannotOverwriteNewerOwnerJournal();
   PublicationDriverOwnsLatestRecordAndRecoveryJournal();
   ManagedJournalsNeverFallThroughToLegacyRegistrationOrRetry();
   ManagedDriverCannotClaimCompleteBeforeReady();

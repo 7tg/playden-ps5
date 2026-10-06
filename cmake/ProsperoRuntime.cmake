@@ -15,6 +15,39 @@ if(NOT prospero_source_check_result STREQUAL "0")
     message(FATAL_ERROR "${prospero_source_check_error}\nInitialize third_party/prospero-win or select a clean checkout at the locked revision.")
 endif()
 
+add_library(playden_runtime_publication_verifier STATIC
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_title_publication_native.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_publication.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_launch.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_game_profile.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_profile_catalog.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_wine_launch.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_publication_sha256.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/library/sha256.c"
+)
+target_include_directories(playden_runtime_publication_verifier PUBLIC "${PLAYDEN_PROSPERO_SOURCE_DIR}/native"
+    PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src" "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
+target_compile_definitions(playden_runtime_publication_verifier PRIVATE
+    _DEFAULT_SOURCE MBEDTLS_CONFIG_FILE="pw_publication_config.h")
+target_compile_features(playden_runtime_publication_verifier PRIVATE c_std_11)
+
+# Immutable package staging and complete publication inspection are available to
+# every launcher presentation, without compiling Wine or enabling guard trust.
+target_link_libraries(playden_runtime_package_installer PUBLIC playden_runtime_publication_verifier)
+target_include_directories(playden_runtime_package_installer PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src")
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    target_link_libraries(runtime_package_installer_native_policy_test PRIVATE playden_runtime_publication_verifier)
+    foreach(package_test runtime_package_installer_test runtime_package_installer_native_policy_test)
+        target_link_libraries(${package_test} PRIVATE playden_runtime_publication_contract)
+        target_include_directories(${package_test} PRIVATE
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
+            "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
+        target_compile_definitions(${package_test} PRIVATE MBEDTLS_CONFIG_FILE="pw_publication_config.h")
+    endforeach()
+endif()
+
 add_library(playden_runtime_publication_contract STATIC
     "${CMAKE_SOURCE_DIR}/src/runtime/publication_contract.cpp"
     "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_publication.c")

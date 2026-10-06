@@ -10,6 +10,14 @@ bool ManagedPublication(const RuntimeInstall& record) {
                             record.journal->operation == "settings-publication");
 }
 
+bool SamePreparationState(const RuntimeInstall& a, const RuntimeInstall& b) {
+  return a.state == b.state && a.settings_revision == b.settings_revision &&
+      a.journal.has_value() == b.journal.has_value() && a.last_failure.has_value() == b.last_failure.has_value() &&
+      (!a.journal || (a.journal->operation_id == b.journal->operation_id && a.journal->operation == b.journal->operation &&
+                     a.journal->step == b.journal->step)) &&
+      (!a.last_failure || (a.last_failure->code == b.last_failure->code && a.last_failure->message == b.last_failure->message));
+}
+
 bool IsNativeStep(const std::string &step) {
   return step == "query-native" || step == "register" || step == "await-native";
 }
@@ -204,6 +212,21 @@ InstallServiceResult
 RuntimeInstallService::HandlePackageAction(RuntimeInstall record,
                                            const std::string &next_step,
                                            PackageActionResult result) {
+  auto latest = records_.Find(record.install_id);
+  if (!latest || !SameRuntimeInstallIdentity(*latest, record))
+    return InstallServiceResult::Failure(InstallServiceError::kOwnershipConflict, "OWNER identity changed during package action; retain current state");
+  if (!SamePreparationState(*latest, record)) {
+    // Publication callbacks may perform the complete OWNER protocol themselves.
+    // Other concurrent transitions likewise make this copied record stale.
+    if (result.state == PackageActionState::kComplete && next_step == "query-native" &&
+        latest->state == PreparationState::kReady && !latest->journal && !latest->last_failure &&
+        latest->settings_revision >= record.settings_revision)
+      return InstallServiceResult::Success();
+    const auto error = result.state == PackageActionState::kCanceled ? InstallServiceError::kCanceled :
+        ManagedPublication(*latest) && latest->journal->step == "await-native" ? InstallServiceError::kRegistrationPending :
+        InstallServiceError::kPersistence;
+    return InstallServiceResult::Failure(error, ErrorMessage(result.message, "OWNER advanced during package action; continue its current recovery journal"));
+  }
   if (result.state == PackageActionState::kCanceled) {
     return Fail(std::move(record), InstallServiceError::kCanceled,
                 ErrorCode(result.code, "canceled"),
@@ -233,9 +256,7 @@ InstallServiceResult RuntimeInstallService::StepPublication(const RuntimeInstall
     return InstallServiceResult::Failure(error, ErrorMessage(result.message, "complete publication remains unfinished"));
   }
   auto observed = records_.Find(record.install_id);
-  if (!observed || !ValidateRuntimeInstallRecord(*observed) || observed->title_id != record.title_id ||
-      observed->app_id != record.app_id || observed->data_root != record.data_root ||
-      observed->runtime_bundle_id != record.runtime_bundle_id || observed->state != PreparationState::kReady ||
+  if (!observed || !SameRuntimeInstallIdentity(*observed, record) || observed->state != PreparationState::kReady ||
       observed->journal || observed->last_failure || observed->settings_revision < record.settings_revision)
     return InstallServiceResult::Failure(InstallServiceError::kPersistence,
         "publication completion has no matching durable Ready OWNER readback");

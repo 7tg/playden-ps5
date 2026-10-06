@@ -1,6 +1,8 @@
 #include "runtime/package_installer.h"
 #include "runtime/private_directories.h"
 #include "platform/managed_directory.h"
+#include "pw_title_publication_native.h"
+#include "pw_title_publication.h"
 
 #include "steam/backend/json.h"
 
@@ -16,6 +18,11 @@
 #include <utility>
 
 #include <sys/stat.h>
+#include <sys/file.h>
+
+#if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
+extern "C" int playden_ps5_file_lock(int descriptor, int operation);
+#endif
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -169,12 +176,6 @@ std::optional<std::string> ReadBounded(const fs::path& path, std::size_t limit) 
   stream.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
   if (!stream && !bytes.empty()) return std::nullopt;
   return bytes;
-}
-
-bool IsPrivateFile(const fs::path& path) {
-  struct stat info{};
-  return ::lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
-         info.st_uid == ::geteuid() && (info.st_mode & 07777) == 0600;
 }
 
 bool WriteFile(const fs::path& path, const std::string& bytes, unsigned mode) {
@@ -340,19 +341,6 @@ bool PublicationIdentityMatches(const RuntimeInstall& record,
   return names == required;
 }
 
-std::optional<std::uint64_t> DecimalRevision(const std::string& value) {
-  if (value.empty()) return std::nullopt;
-  std::uint64_t result = 0;
-  for (const unsigned char byte : value) {
-    if (byte < '0' || byte > '9') return std::nullopt;
-    const auto digit = static_cast<std::uint64_t>(byte - '0');
-    if (result > (std::numeric_limits<std::uint64_t>::max() - digit) / 10)
-      return std::nullopt;
-    result = result * 10 + digit;
-  }
-  return result;
-}
-
 }  // namespace
 
 FilesystemPackageInstaller::FilesystemPackageInstaller(
@@ -379,8 +367,8 @@ bool FilesystemPackageInstaller::ValidView() const {
       kit_.recipe.id.empty() || kit_.recipe.version.empty() ||
       !IsHexDigest(kit_.recipe.sha256) || kit_.files.empty() || kit_.variants.empty() ||
       !operations_.hash_file || !operations_.hash_bytes || !operations_.free_bytes ||
-      !operations_.validate_bottle || !operations_.provide_publication ||
-      !operations_.publish_owned)
+      !operations_.validate_bottle || !paths_.host_data_root.is_absolute() ||
+      paths_.host_data_root != paths_.host_data_root.lexically_normal() || paths_.host_data_root.filename() != "data")
     return false;
   std::error_code root_error;
   const auto root_status = fs::symlink_status(kit_.root, root_error);
@@ -552,65 +540,63 @@ bool FilesystemPackageInstaller::ArtifactsMatch(
 bool FilesystemPackageInstaller::PublicationMatches(
     const RuntimeInstall& record, const ResolvedPaths& paths,
     std::uint64_t* revision) const {
-  if (!IsPrivateDirectoryTree(paths.game, paths.publication.profile.parent_path()) ||
-      !IsPrivateDirectoryTree(paths.game, paths.publication.input_directory) ||
-      !IsPrivateFile(paths.publication.profile) || !IsPrivateFile(paths.publication.catalog) ||
-      !IsPrivateFile(paths.publication.metadata)) return false;
-  const auto profile = ReadBounded(paths.publication.profile, kMaxPublicationBytes);
-  const auto descriptor = ReadBounded(paths.publication.descriptor, kMaxPublicationBytes);
-  const auto catalog = ReadBounded(paths.publication.catalog, 256);
-  const auto metadata = ReadBounded(paths.publication.metadata, 4096);
-  if (!profile || !descriptor || !catalog || !metadata ||
-      *catalog != record.default_profile_id + ".profile\n" ||
-      !DescriptorMatches(record, *descriptor))
-    return false;
-  const auto values = ParseMarker(*metadata);
-  const auto profile_hash = operations_.hash_file(paths.publication.profile);
-  const auto descriptor_hash = operations_.hash_file(paths.publication.descriptor);
-  if (!profile_hash || !descriptor_hash ||
-      values.find("schema") == values.end() || values.at("schema") != "1" ||
-      values.find("install_id") == values.end() ||
-      values.at("install_id") != record.install_id ||
-      values.find("title_id") == values.end() || values.at("title_id") != record.title_id ||
-      values.find("data_root") == values.end() || values.at("data_root") != record.data_root ||
-      values.find("profile_id") == values.end() ||
-      values.at("profile_id") != record.default_profile_id ||
-      values.find("runtime_bundle_id") == values.end() ||
-      values.at("runtime_bundle_id") != record.runtime_bundle_id ||
-      values.find("recipe_id") == values.end() || values.at("recipe_id") != record.recipe_id ||
-      values.find("recipe_version") == values.end() ||
-      values.at("recipe_version") != record.recipe_version ||
-      values.find("settings_revision") == values.end() ||
-      values.find("profile_sha256") == values.end() ||
-      values.at("profile_sha256") != *profile_hash ||
-      values.find("descriptor_sha256") == values.end() ||
-      values.at("descriptor_sha256") != *descriptor_hash ||
-      values.find("kit_id") == values.end() || values.at("kit_id") != kit_.kit_id ||
-      values.find("input_count") == values.end())
-    return false;
-  const auto input_count = DecimalRevision(values.at("input_count"));
-  if (!input_count || *input_count > 64 || values.size() != 13 + *input_count * 2)
-    return false;
-  for (std::uint64_t index = 0; index < *input_count; ++index) {
-    const auto prefix = "input." + std::to_string(index);
-    const auto name = values.find(prefix + ".name");
-    const auto expected_hash = values.find(prefix + ".sha256");
-    if (name == values.end() || expected_hash == values.end() ||
-        !IsSafeRelative(name->second) ||
-        fs::path(name->second).parent_path() != fs::path{} ||
-        fs::path(name->second).extension() != ".input")
-      return false;
-    const auto preset_path = paths.publication.input_directory / name->second;
-    if (!PathComponentsHaveNoSymlink(paths.library,
-                                     fs::path("input") / name->second, true) ||
-        !IsPrivateFile(preset_path))
-      return false;
-    const auto actual_hash = operations_.hash_file(preset_path);
-    if (!actual_hash || *actual_hash != expected_hash->second) return false;
+  const auto prefix = paths_.host_data_root == fs::path("/data") ? std::string{} : paths_.host_data_root.parent_path().string();
+  PwTitlePublicationPlatform platform{};
+  platform.host_root = prefix.empty() ? nullptr : prefix.c_str(); platform.owner_uid = ::geteuid();
+  platform.try_lock_shared = [](void*, int descriptor) {
+#if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
+    return playden_ps5_file_lock(descriptor, LOCK_SH | LOCK_NB);
+#else
+    return ::flock(descriptor, LOCK_SH | LOCK_NB);
+#endif
+  };
+  const auto canonical = "/data/homebrew/" + record.title_id + "/game-launch.json";
+  PwTitlePublicationDescriptor descriptor{}; char error[256]{};
+  if (pw_title_publication_read_descriptor(canonical.c_str(), record.title_id.c_str(), &platform,
+      &descriptor, error, sizeof(error)) != PW_OK) return false;
+  const auto& launch = descriptor.launch;
+  if (launch.install_id != record.install_id || launch.title_id != record.title_id || launch.app_id != record.app_id ||
+      launch.data_root != record.data_root || launch.default_profile_id != record.default_profile_id ||
+      launch.runtime_bundle_id != record.runtime_bundle_id || launch.recipe_id != record.recipe_id ||
+      launch.recipe_version != record.recipe_version || launch.settings_revision != record.settings_revision ||
+      launch.exit_policy != record.exit_policy) return false;
+  // Same canonical file semantics and qualified shared lease as Wine admission.
+  // Inspector retains the lease through the independent current-kit binding.
+  PwTitlePublicationLease lease{}; pw_title_publication_lease_init(&lease);
+  if (pw_title_publication_open(&descriptor, &platform, &lease, error, sizeof(error)) != PW_OK) return false;
+  struct LeaseScope {
+    PwTitlePublicationLease* lease;
+    ~LeaseScope() { pw_title_publication_close(lease); }
+  } held{&lease};
+  auto control = platform::ManagedDirectory::Open(paths.game / ".playden-control", platform::DirectoryPolicy::kPrivate);
+  if (!control) return false;
+  const int fd = control->OpenRegularFile("publication-state.v1", true, 0600);
+  if (fd < 0) return false;
+  struct stat before{}, after{}, named{};
+  bool valid = ::fstat(fd, &before) == 0 && before.st_nlink == 1 && before.st_size > 0 &&
+      before.st_size <= PW_TITLE_PUBLICATION_MAX_BYTES;
+  std::string bytes(valid ? static_cast<std::size_t>(before.st_size) : 0, '\0');
+  std::size_t offset = 0;
+  while (valid && offset < bytes.size()) {
+    const auto count = ::read(fd, bytes.data() + offset, bytes.size() - offset);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) { valid = false; break; }
+    offset += static_cast<std::size_t>(count);
   }
-  const auto parsed_revision = DecimalRevision(values.at("settings_revision"));
-  if (!parsed_revision || *parsed_revision != record.settings_revision) return false;
-  if (revision) *revision = *parsed_revision;
+  valid = valid && ::fstat(fd, &after) == 0 && control->InspectChild("publication-state.v1", &named) &&
+      before.st_dev == after.st_dev && before.st_ino == after.st_ino && before.st_size == after.st_size &&
+      before.st_mode == after.st_mode && before.st_uid == after.st_uid && after.st_nlink == 1 &&
+      after.st_dev == named.st_dev && after.st_ino == named.st_ino && after.st_size == named.st_size &&
+      after.st_mode == named.st_mode && after.st_uid == named.st_uid && named.st_nlink == 1;
+  const bool closed = ::close(fd) == 0;
+  PwTitlePublication receipt{};
+  if (!valid || !closed || pw_title_publication_parse(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size(), &receipt) != PW_OK ||
+      receipt.phase != PW_TITLE_PUBLICATION_COMMITTED || receipt.kit_id != kit_.kit_id ||
+      receipt.install_id != record.install_id || receipt.title_id != record.title_id ||
+      receipt.runtime_bundle_id != record.runtime_bundle_id || receipt.recipe_id != record.recipe_id ||
+      receipt.recipe_version != record.recipe_version || receipt.settings_revision != record.settings_revision)
+    return false;
+  if (revision) *revision = receipt.settings_revision;
   return true;
 }
 
@@ -685,21 +671,6 @@ bool FilesystemPackageInstaller::PublicationPathsSafe(
         !PathComponentsHaveNoSymlink(paths_.host_data_root, relative, true))
       return false;
   }
-  return true;
-}
-
-bool FilesystemPackageInstaller::SyncPublication(
-    const ProfilePublication& publication, const PublicationPaths& paths) const {
-  if (!PublicationPathsSafe(publication, paths) ||
-      !SyncPath(paths.profile, false) || !SyncPath(paths.catalog, false) ||
-      !SyncPath(paths.descriptor, false) || !SyncPath(paths.metadata, false))
-    return false;
-  for (const auto& preset : publication.input_presets)
-    if (!SyncPath(paths.input_directory / preset.filename, false)) return false;
-  if (!SyncAncestors(paths.profile.parent_path()) ||
-      (!publication.input_presets.empty() && !SyncAncestors(paths.input_directory)) ||
-      !SyncAncestors(paths.descriptor.parent_path()))
-    return false;
   return true;
 }
 
@@ -955,97 +926,26 @@ PackageActionResult FilesystemPackageInstaller::ValidateArtifacts(
   return Complete();
 }
 
-PackageActionResult FilesystemPackageInstaller::PublishProfile(
-    const RuntimeInstall& record) {
+PackageActionResult FilesystemPackageInstaller::PublishProfile(const RuntimeInstall& record) {
   const auto paths = Resolve(record);
   if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
-  if (!TitleMatches(record, *paths) || !BottleOwned(record, *paths) ||
-      !ArtifactsMatch(record, *paths))
-    return Failed("publication-prerequisite",
-                  "immutable title, artifacts, and bottle ownership must validate first");
-  const auto current_publication = operations_.provide_publication(record);
-  if (!current_publication || !PublicationIdentityMatches(record, *current_publication))
+  if (!TitleMatches(record, *paths) || !BottleOwned(record, *paths) || !ArtifactsMatch(record, *paths))
+    return Failed("publication-prerequisite", "immutable title, artifacts, and bottle ownership must validate first");
+  if (!operations_.provide_publication || !operations_.publish_owned)
+    return Failed("publication-unavailable", "complete OWNER publication driver is unavailable");
+  const auto publication = operations_.provide_publication(record);
+  if (!publication || !PublicationIdentityMatches(record, *publication))
     return Failed("publication-invalid", "owner publication bytes do not match install identity");
-  const auto callback_paths = Resolve(record);
-  if (!callback_paths ||
-      !PublicationPathsSafe(*current_publication, callback_paths->publication))
-    return Failed("managed-path-invalid",
-                  "managed publication path changed or contains a symbolic link");
-  if (PublicationMatches(record, *callback_paths, nullptr))
-    return SyncPublication(*current_publication, callback_paths->publication)
-               ? Complete()
-               : Failed("sync-failed", "published profile set was not durably synced");
-  bool profile_known = false, catalog_known = false, descriptor_known = false;
-  bool metadata_known = false, input_known = false;
-  const bool profile_exists = ExistsNoThrow(callback_paths->publication.profile, &profile_known);
-  const bool catalog_exists = ExistsNoThrow(callback_paths->publication.catalog, &catalog_known);
-  const bool descriptor_exists = ExistsNoThrow(callback_paths->publication.descriptor, &descriptor_known);
-  const bool metadata_exists = ExistsNoThrow(callback_paths->publication.metadata, &metadata_known);
-  const bool input_exists = ExistsNoThrow(callback_paths->publication.input_directory, &input_known);
-  const bool any_existing = profile_exists || catalog_exists || descriptor_exists ||
-                            metadata_exists || input_exists;
-  if (!profile_known || !catalog_known || !descriptor_known || !metadata_known || !input_known)
-    return Failed("publication-unavailable", "publication filesystem state is unavailable");
-  if (any_existing) {
-    const auto metadata = ReadBounded(callback_paths->publication.metadata, 4096);
-    const auto values = metadata ? ParseMarker(*metadata)
-                                 : std::map<std::string, std::string>{};
-    const auto owned = [&](const char* key, const std::string& expected) {
-      const auto found = values.find(key);
-      return found != values.end() && found->second == expected;
-    };
-    if (!owned("schema", "1") || !owned("install_id", record.install_id) ||
-        !owned("title_id", record.title_id) || !owned("data_root", record.data_root) ||
-        !owned("profile_id", record.default_profile_id) ||
-        !owned("runtime_bundle_id", record.runtime_bundle_id) ||
-        !owned("recipe_id", record.recipe_id) ||
-        !owned("recipe_version", record.recipe_version) || !owned("kit_id", kit_.kit_id))
-      return Failed("publication-collision",
-                    "existing profile or descriptor has no matching ownership metadata");
-  }
-  const auto& publication = *current_publication;
-  const auto profile_hash = operations_.hash_bytes(publication.profile_bytes);
-  const auto descriptor_hash = operations_.hash_bytes(publication.descriptor_bytes);
-  if (!profile_hash || !descriptor_hash || !IsHexDigest(*profile_hash) ||
-      !IsHexDigest(*descriptor_hash))
-    return Failed("hash-unavailable", "publication hash operation is unavailable");
-  std::ostringstream metadata;
-  metadata << "schema=1\ninstall_id=" << record.install_id << "\ntitle_id="
-           << record.title_id << "\ndata_root=" << record.data_root << "\nprofile_id="
-           << record.default_profile_id << "\nruntime_bundle_id="
-           << record.runtime_bundle_id << "\nrecipe_id=" << record.recipe_id
-           << "\nrecipe_version=" << record.recipe_version << "\nsettings_revision="
-           << record.settings_revision << "\nprofile_sha256=" << *profile_hash
-           << "\ndescriptor_sha256=" << *descriptor_hash << "\nkit_id=" << kit_.kit_id
-           << "\ninput_count=" << publication.input_presets.size() << "\n";
-  for (std::size_t index = 0; index < publication.input_presets.size(); ++index) {
-    const auto hash = operations_.hash_bytes(publication.input_presets[index].bytes);
-    if (!hash || !IsHexDigest(*hash))
-      return Failed("hash-unavailable", "input preset hash operation is unavailable");
-    metadata << "input." << index << ".name=" << publication.input_presets[index].filename
-             << "\ninput." << index << ".sha256=" << *hash << "\n";
-  }
-  const auto final_paths = Resolve(record);
-  if (!final_paths || !PublicationPathsSafe(publication, final_paths->publication))
-    return Failed("managed-path-invalid",
-                  "managed publication path changed or contains a symbolic link");
-  std::string private_error;
-  if (!EnsurePrivateDirectories(paths_.host_data_root, final_paths->game,
-                                final_paths->publication.profile.parent_path(), &private_error) ||
-      !EnsurePrivateDirectories(paths_.host_data_root, final_paths->game,
-                                final_paths->publication.input_directory, &private_error))
-    return Failed("private-directory", private_error);
-  auto result = operations_.publish_owned(final_paths->publication, publication, metadata.str());
+  if (!PublicationPathsSafe(*publication, paths->publication))
+    return Failed("managed-path-invalid", "managed publication path changed or contains a symbolic link");
+  // Always hand off to the full driver, including committed retries: a receipt
+  // alone cannot bypass durable OWNER/native reconciliation. No directory or
+  // live settings effects may precede the driver's pending receipt protocol.
+  const auto result = operations_.publish_owned(record, paths->publication, *publication);
   if (result.state != PackageActionState::kComplete) return result;
-  const auto published_paths = Resolve(record);
-  if (!published_paths || !PublicationPathsSafe(publication, published_paths->publication))
-    return Failed("managed-path-invalid",
-                  "owner publication created a symbolic-link path");
-  if (!SyncPublication(publication, published_paths->publication))
-    return Failed("sync-failed", "published profile set was not durably synced");
-  std::uint64_t revision = 0;
-  if (!PublicationMatches(record, *published_paths, &revision))
-    return Failed("publication-verification", "published bytes or metadata do not match");
+  const auto observed = Resolve(record);
+  if (!observed || !PublicationMatches(record, *observed, nullptr))
+    return Failed("publication-verification", "complete committed settings publication failed independent admission");
   return Complete();
 }
 

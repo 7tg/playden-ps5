@@ -77,6 +77,9 @@ struct RuntimeInstall {
 
 // Shared OWNER record validation; this grants no filesystem ownership or readiness.
 bool ValidateRuntimeInstallRecord(const RuntimeInstall& record);
+// Exact immutable reserved OWNER identity/artifacts. State, revision, journal and
+// failure are transition fields checked separately; this grants no ownership.
+bool SameRuntimeInstallIdentity(const RuntimeInstall& first, const RuntimeInstall& second);
 
 struct ReserveRequest {
   std::string install_id;

@@ -707,3 +707,42 @@ still need integration; no guarded capability is enabled. Startup discovery is
 implemented for persisted managed UUIDs only. Prepared updates while OWNER is
 still Ready, setup before frozen capture, explicit uncertain registration
 recovery, final native link/review and PS5/Wine/gameplay gates remain open.
+
+
+### Task C complete installer inspection and driver handoff
+
+FilesystemPackageInstaller replaces schema-1/profile-only inspection with the
+pinned native committed reader admission and independent reserved identity/kit
+binding under a shared lease. The 32768-byte metadata limit and complete
+catalog/input/registry/DXVK/file policy now match Wine. PublishProfile delegates
+all effects to the complete OWNER callback; pre-pending directory creation,
+legacy metadata generation, profile-only success and redundant sync shortcuts
+are removed. Immutable staging/inspection remains usable without a publication
+callback; absent publication adapters refuse at the publication step. The common
+verifier archive is available to both launcher presentations.
+
+The service detects package callbacks that advanced OWNER and preserves their
+latest state instead of overwriting a copied journal. Immutable identity/artifact
+comparison is shared with OWNER, with transition fields separately gated.
+Missing-receipt and overwritten-OWNER tests were observed RED. Replaying the old
+pre-callback directory effects fails the new failed-driver test; restoration
+passes. Both filesystem backends cover mixed settings/policy/lock failures,
+unrelated registry rewrites and valid metadata above 4096 bytes with 64 inputs.
+A real filesystem installer/service/OWNER test reserves, stages, interrupts at
+pending, reloads and completes without repeating publication or changing saves.
+
+All 105 host tests, the independent non-Hui core installer 2/2 and actual SDK
+v0.43 package/publication archives pass. Host linkage reports a nonfatal duplicate
+steam_protocol archive warning; no SDK compile error or final application link
+is inferred. See [inspection evidence](../../../results/20261006-publication-inspection/README.md).
+
+Ruling: a valid committed receipt may authorize read-only publication inspection
+only through the shared complete semantics and current kit/record binding. It
+never replaces OWNER/native reconciliation or bypasses the full driver on retry.
+If wrong, a previously profile-only bottle is refused until an explicit qualified
+publication/migration produces the complete receipt.
+
+Application/kit/UI driver wiring, startup jobs before frozen capture or during
+Ready prepared-update handoff, orphan OWNER intent and explicit uncertain native
+registration recovery, final independent review/link and actual PS5/Wine/gameplay
+acceptance remain open. No installed console build or guard capability changed.

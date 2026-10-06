@@ -1,5 +1,15 @@
 #include "runtime/package_installer.h"
 #include "runtime/private_directories.h"
+#include "runtime/publication_contract.h"
+#include "pw_publication_sha256.h"
+#include <array>
+#include <cstring>
+#include <sys/file.h>
+#include <fcntl.h>
+#ifdef PLAYDEN_TEST_SETTINGS_OWNER_INTEGRATION
+#include "runtime/settings_publication_owner.h"
+#include <memory>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -17,6 +27,7 @@
 #include <vector>
 
 #ifdef PLAYDEN_TEST_AT_UNAVAILABLE
+extern "C" int playden_ps5_file_lock(int fd, int operation) { return ::flock(fd, operation); }
 #include <cerrno>
 extern "C" int openat(int, const char*, int, ...) { errno = EINVAL; return -1; }
 extern "C" int mkdirat(int, const char*, mode_t) { errno = EINVAL; return -1; }
@@ -66,31 +77,65 @@ std::string Read(const std::filesystem::path& path) {
   return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
 }
 
-// Deterministic test digest. Production supplies the existing cryptographic hash operation.
-std::optional<std::string> TestHash(const std::filesystem::path& path) {
-  std::ifstream stream(path, std::ios::binary);
-  if (!stream) return std::nullopt;
-  std::uint64_t hash = 1469598103934665603ULL;
-  for (char byte; stream.get(byte);) {
-    hash ^= static_cast<unsigned char>(byte);
-    hash *= 1099511628211ULL;
-  }
-  std::ostringstream out;
-  out << std::hex << std::setfill('0');
-  for (int i = 0; i < 4; ++i) out << std::setw(16) << (hash + i);
-  return out.str();
+std::string RealHashBytes(const std::string& bytes) {
+  std::array<uint8_t, 32> digest{}; CHECK(pw_publication_sha256_bytes(bytes.data(), bytes.size(), digest.data()) == 0);
+  constexpr char hex[] = "0123456789abcdef"; std::string result(64, '0');
+  for (std::size_t i = 0; i < digest.size(); ++i) { result[2 * i] = hex[digest[i] >> 4]; result[2 * i + 1] = hex[digest[i] & 15]; }
+  return result;
 }
+// Both immutable kit fixtures and completion metadata use the pinned real SHA.
+std::optional<std::string> TestHash(const std::filesystem::path& path) {
+  std::ifstream file(path, std::ios::binary); if (!file) return std::nullopt;
+  const std::string bytes{std::istreambuf_iterator<char>(file), {}}; return RealHashBytes(bytes);
+}
+std::optional<std::string> TestHashBytes(std::string_view bytes) { return RealHashBytes(std::string(bytes)); }
 
-std::optional<std::string> TestHashBytes(std::string_view bytes) {
-  std::uint64_t hash = 1469598103934665603ULL;
-  for (const unsigned char byte : bytes) {
-    hash ^= byte;
-    hash *= 1099511628211ULL;
+template<std::size_t N> void Copy(char (&out)[N], const std::string& value) {
+  CHECK(value.size() < N); std::memcpy(out, value.c_str(), value.size() + 1);
+}
+// Test-only complete publication fixture, not a production transaction driver.
+// Real pending/durable/OWNER interruption coverage lives in the coordinator suite.
+PackageActionResult WriteCompleteFixture(const std::filesystem::path& host_data, const std::string& kit_id,
+    const RuntimeInstall& record, const PublicationPaths& output, const ProfilePublication& value, bool public_profile = false) {
+  const auto game = host_data / std::filesystem::path(record.data_root).lexically_relative("/data");
+  const auto control = game / ".playden-control";
+  if (std::filesystem::exists(output.descriptor) && !std::filesystem::exists(output.metadata))
+    return {PackageActionState::kFailed, "publication-collision", "foreign fixture descriptor"};
+  for (const auto& directory : {output.profile.parent_path(), output.input_directory, control}) {
+    if (std::filesystem::exists(directory) && !IsPrivateDirectory(directory))
+      return {PackageActionState::kFailed, "private-directory", "foreign fixture publication directory"};
+    std::filesystem::create_directories(directory); CHECK(chmod(directory.c_str(), 0700) == 0);
   }
-  std::ostringstream out;
-  out << std::hex << std::setfill('0');
-  for (int i = 0; i < 4; ++i) out << std::setw(16) << (hash + i);
-  return out.str();
+  if (!std::filesystem::exists(control / "publication.lock")) Write(control / "publication.lock", "", 0600);
+  Write(game / "library/prefixes/game/user.reg", "WINE REGISTRY Version 2\n", 0600);
+  std::filesystem::create_directories(host_data / "homebrew/FAKE78001/games/220");
+  Write(output.profile, value.profile_bytes, public_profile ? 0644 : 0600);
+  const auto catalog = value.profile_id + ".profile\n"; Write(output.catalog, catalog, 0600);
+  for (const auto& preset : value.input_presets) Write(output.input_directory / preset.filename, preset.bytes, 0600);
+  Write(output.descriptor, value.descriptor_bytes, 0600);
+  PwTitlePublicationMetadata metadata{}; metadata.schema_version = 2;
+  Copy(metadata.install_id, record.install_id); Copy(metadata.title_id, record.title_id); Copy(metadata.data_root, record.data_root);
+  Copy(metadata.profile_id, value.profile_id); Copy(metadata.runtime_bundle_id, record.runtime_bundle_id);
+  Copy(metadata.recipe_id, record.recipe_id); Copy(metadata.recipe_version, record.recipe_version); Copy(metadata.kit_id, kit_id);
+  metadata.settings_revision = record.settings_revision;
+  Copy(metadata.profile_sha256, RealHashBytes(value.profile_bytes)); Copy(metadata.descriptor_sha256, RealHashBytes(value.descriptor_bytes));
+  Copy(metadata.catalog_sha256, RealHashBytes(catalog)); metadata.input_count = value.input_presets.size();
+  for (std::size_t i = 0; i < value.input_presets.size(); ++i) {
+    Copy(metadata.inputs[i].name, value.input_presets[i].filename); Copy(metadata.inputs[i].sha256, RealHashBytes(value.input_presets[i].bytes));
+  }
+  Copy(metadata.dxvk_path, "/data/homebrew/FAKE78001/games/220/dxvk.conf"); metadata.registry_count = 2;
+  Copy(metadata.registry[0].key, "Software\\Wine\\AppDefaults\\hl2.exe"); Copy(metadata.registry[0].name, "Version");
+  Copy(metadata.registry[1].key, "Control Panel\\Desktop"); Copy(metadata.registry[1].name, "LogPixels");
+  metadata.registry[0].kind = metadata.registry[1].kind = PW_TITLE_PUBLICATION_REGISTRY_ABSENT;
+  auto bytes = SerializePublicationMetadata(metadata); CHECK(bytes); Write(output.metadata, *bytes, 0600);
+  PwTitlePublication receipt{}; receipt.schema_version = 1; receipt.phase = PW_TITLE_PUBLICATION_COMMITTED;
+  Copy(receipt.transaction_id, "00000000-0000-7000-8000-000000000001"); Copy(receipt.install_id, record.install_id);
+  Copy(receipt.title_id, record.title_id); Copy(receipt.kit_id, kit_id); Copy(receipt.runtime_bundle_id, record.runtime_bundle_id);
+  Copy(receipt.recipe_id, record.recipe_id); Copy(receipt.recipe_version, record.recipe_version);
+  receipt.settings_revision = record.settings_revision; Copy(receipt.plan_sha256, std::string(64, 'c'));
+  Copy(receipt.publication_sha256, RealHashBytes(*bytes)); auto state = SerializePublicationReceipt(receipt); CHECK(state);
+  Write(control / "publication-state.v1", *state, 0600);
+  return {PackageActionState::kComplete, {}, {}};
 }
 
 RuntimeInstall Record() {
@@ -128,6 +173,7 @@ struct Fixture {
   bool fail_title_post_rename_once = false;
   bool fail_bottle_post_rename_once = false;
   bool publish_public_profile = false;
+  bool fail_publication = false;
 
   Fixture() {
     Write(kit / "titles/variant/eboot.bin", "native", 0755);
@@ -177,7 +223,10 @@ struct Fixture {
     publication.recipe_id = record.recipe_id;
     publication.recipe_version = record.recipe_version;
     publication.settings_revision = record.settings_revision;
-    publication.profile_bytes = "[application]\nid = game\nprefix = game\n";
+    publication.profile_bytes = "[application]\nid = game\nname = Half-Life 2\nprefix = game\n"
+        "executable = Z:\\data\\homebrew\\FAKE78001\\games\\220\\hl2.exe\n"
+        "working_directory = Z:\\data\\homebrew\\FAKE78001\\games\\220\n"
+        "runtime = wine-wow64\narchitecture = pe64\ngraphics = dxvk\n";
     publication.profile_references_validated = true;
     publication.descriptor_bytes =
         "{\"schema_version\":1,\"install_id\":\"install-hl2\","
@@ -228,21 +277,152 @@ struct Fixture {
     operations.provide_publication = [&](const RuntimeInstall& record) {
       return std::optional<ProfilePublication>(Publication(record));
     };
-    operations.publish_owned = [&](const PublicationPaths& output,
-                                   const ProfilePublication& publication,
-                                   const std::string& metadata) {
+    operations.publish_owned = [&](const RuntimeInstall& record, const PublicationPaths& output,
+                                   const ProfilePublication& publication) {
       ++writes;
-      Write(output.profile, publication.profile_bytes, publish_public_profile ? 0644 : 0600);
-      Write(output.catalog, publication.profile_id + ".profile\n", 0600);
-      for (const auto& preset : publication.input_presets)
-        Write(output.input_directory / preset.filename, preset.bytes, 0600);
-      Write(output.descriptor, publication.descriptor_bytes);
-      Write(output.metadata, metadata, 0600);
-      return PackageActionResult{PackageActionState::kComplete, {}, {}};
+      if (fail_publication) return PackageActionResult{PackageActionState::kFailed, "publisher-fault", "injected driver failure"};
+      return WriteCompleteFixture(host_data, view.kit_id, record, output, publication, publish_public_profile);
     };
     return FilesystemPackageInstaller(view, paths, std::move(operations));
   }
 };
+
+void CommittedReceiptIsRequired() {
+  Fixture fixture; auto record = Record();
+  record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                      {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+  auto installer = fixture.Installer();
+  CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  CHECK(installer.PublishProfile(record).state == PackageActionState::kComplete);
+  std::filesystem::remove(fixture.host_data / "playden/games/install-hl2/.playden-control/publication-state.v1");
+  CHECK(!installer.Inspect(record).profile_published);
+}
+
+void FailedDriverCreatesNoPublicationDirectories() {
+  Fixture fixture; auto record = Record();
+  record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                      {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+  auto installer = fixture.Installer();
+  CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  fixture.fail_publication = true;
+  CHECK(installer.PublishProfile(record).code == "publisher-fault" && fixture.writes == 1);
+  const auto library = fixture.host_data / "playden/games/install-hl2/library";
+  CHECK(!std::filesystem::exists(library / "profiles") && !std::filesystem::exists(library / "input"));
+  CHECK(!std::filesystem::exists(fixture.host_data / "homebrew/FAKE78001/game-launch.json"));
+  CHECK(!std::filesystem::exists(library.parent_path() / ".playden-control"));
+}
+void CompleteInspectorRefusesMixedSettingsAndBusyPublisher() {
+  for (unsigned damage = 0; damage < 9; ++damage) {
+    Fixture fixture; auto record = Record();
+    record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                        {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+    auto installer = fixture.Installer();
+    CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+    CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+    CHECK(installer.PublishProfile(record).state == PackageActionState::kComplete && installer.Inspect(record).profile_published);
+    const auto game = fixture.host_data / "playden/games/install-hl2";
+    const auto control = game / ".playden-control"; const auto state_path = control / "publication-state.v1";
+    const auto metadata_path = game / "library/profiles/.playden-publication";
+    const auto receipt_bytes = Read(state_path); PwTitlePublication receipt{};
+    CHECK(pw_title_publication_parse(reinterpret_cast<const uint8_t*>(receipt_bytes.data()), receipt_bytes.size(), &receipt) == PW_OK);
+    if (damage == 0) { receipt.phase = PW_TITLE_PUBLICATION_PENDING; receipt.publication_sha256[0] = 0; }
+    if (damage == 1) Write(state_path, "corrupt", 0600);
+    if (damage == 2) Write(game / "library/prefixes/game/user.reg", "WINE REGISTRY Version 2\n\n[Control Panel\\\\Desktop] 0\n\"LogPixels\"=dword:00000078\n", 0600);
+    if (damage == 3) Write(fixture.host_data / "homebrew/FAKE78001/games/220/dxvk.conf", "foreign", 0644);
+    if (damage == 4) { const auto metadata = Read(metadata_path); auto legacy = metadata; CHECK(legacy.find("schema=2") == 0); legacy[7] = '1'; Write(metadata_path, legacy, 0600); Copy(receipt.publication_sha256, RealHashBytes(legacy)); }
+    if (damage == 5) {
+      const auto bytes = Read(metadata_path); PwTitlePublicationMetadata metadata{};
+      CHECK(pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size(), &metadata) == PW_OK);
+      Copy(metadata.kit_id, "foreign-kit"); Copy(receipt.kit_id, "foreign-kit");
+      auto changed = SerializePublicationMetadata(metadata); CHECK(changed); Write(metadata_path, *changed, 0600); Copy(receipt.publication_sha256, RealHashBytes(*changed));
+    }
+    if (damage == 6) CHECK(chmod((control / "publication.lock").c_str(), 0644) == 0);
+    if (damage == 7) CHECK(link(state_path.c_str(), (fixture.temporary.path / "foreign-link").c_str()) == 0);
+    if (damage == 8) Write(game / "library/profiles/profiles.lst", "game.profile\nforeign.profile\n", 0600);
+    if (damage == 0 || damage == 4 || damage == 5) { auto changed = SerializePublicationReceipt(receipt); CHECK(changed); Write(state_path, *changed, 0600); }
+    CHECK(!installer.Inspect(record).profile_published);
+  }
+  Fixture fixture; auto record = Record();
+  record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                      {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+  auto installer = fixture.Installer(); CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  CHECK(installer.PublishProfile(record).state == PackageActionState::kComplete);
+  const auto game = fixture.host_data / "playden/games/install-hl2";
+  // Unrelated Wine registry rewrites are accepted by semantic admission.
+  Write(game / "library/prefixes/game/user.reg", "WINE REGISTRY Version 2\n\n[Software\\\\Unrelated] 42\n\"Keep\"=\"value\"\n", 0600);
+  CHECK(installer.Inspect(record).profile_published);
+  const int fd = open((game / ".playden-control/publication.lock").c_str(), O_RDONLY); CHECK(fd >= 0);
+  CHECK(flock(fd, LOCK_EX | LOCK_NB) == 0); CHECK(!installer.Inspect(record).profile_published);
+  CHECK(flock(fd, LOCK_SH | LOCK_NB) == 0); CHECK(installer.Inspect(record).profile_published);
+  CHECK(close(fd) == 0 && installer.Inspect(record).profile_published);
+}
+
+#ifdef PLAYDEN_TEST_SETTINGS_OWNER_INTEGRATION
+void RealFilesystemInstallerAndOwnerRecoverPendingPublication() {
+  Fixture fixture; auto record = Record(); record.install_path = "/data/homebrew/FAKE78001/games/220";
+  record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                      {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+  const auto owner_root = fixture.temporary.path / "owner"; std::filesystem::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+  playden::Storage storage(owner_root.string());
+  auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+  RuntimeInstallRepository repository(storage, "installs.json", availability); CHECK(repository.Load().ok());
+  ReserveRequest request; request.install_id = record.install_id; request.app_id = record.app_id;
+  request.default_profile_id = record.default_profile_id; request.runtime_bundle_id = record.runtime_bundle_id;
+  request.recipe_id = record.recipe_id; request.recipe_version = record.recipe_version; request.settings_revision = record.settings_revision;
+  request.launch_entry_id = record.launch_entry_id; request.launch_path = record.launch_path;
+  request.install_path = record.install_path; request.volume_id = record.volume_id; request.kit_title_variants = {record.title_id};
+  CHECK(repository.Reserve(request).ok() && repository.Update(record).ok()); RepositoryInstallRecordStore records(repository);
+  struct Native final : NativeCoordinator {
+    bool installed = false; unsigned submissions = 0;
+    NativeActivity Activity(const std::string&) override { return NativeActivity::kStopped; }
+    NativeStatus Query(const RuntimeInstall&) override { return {true, installed, true, true, false, false}; }
+    RegistrationResult Register(const RuntimeInstall&) override { installed = true; ++submissions; return {RegistrationResultState::kAccepted, {}, {}}; }
+  } native;
+  std::unique_ptr<SettingsPublicationOwner> owner; unsigned publications = 0;
+  PackageInstallerOperations operations; operations.hash_file = TestHash; operations.hash_bytes = TestHashBytes;
+  operations.free_bytes = [](const std::filesystem::path&) { return std::optional<std::uint64_t>(1ULL << 30); };
+  operations.validate_bottle = [](const std::filesystem::path& bottle) { return std::filesystem::is_regular_file(bottle / "drive_c/windows/system.reg"); };
+  operations.provide_publication = [&](const RuntimeInstall& r) { return std::optional<ProfilePublication>(fixture.Publication(r)); };
+  operations.publish_owned = [&](const RuntimeInstall& r, const PublicationPaths& paths, const ProfilePublication& publication) {
+    ++publications;
+    CHECK(!std::filesystem::exists(paths.profile.parent_path()) && !std::filesystem::exists(paths.input_directory));
+    SettingsLaunchPlan plan; plan.app_id = r.app_id; plan.recipe_id = r.recipe_id; plan.recipe_version = r.recipe_version;
+    plan.profile_id = r.default_profile_id; plan.profile_bytes = publication.profile_bytes; plan.settings_revision = r.settings_revision;
+    plan.launch_entry_id = r.launch_entry_id; plan.launch_entry = {r.launch_entry_id, "Play", r.launch_path, r.launch_arguments};
+    auto prepared = owner->Prepare(r, plan, fixture.view.kit_id, "00000000-0000-7000-8000-000000000001", 1760000000, fixture.temporary.path);
+    if (!prepared.ok()) std::fprintf(stderr, "Filesystem Prepare: %s\n", prepared.message().c_str()); CHECK(prepared.ok());
+    auto dependencies = owner->Dependencies(fixture.temporary.path);
+    dependencies.after_step = [](PublicationStep step) { return step != PublicationStep::kPendingDurable; };
+    return PublishSettingsOperation(prepared.value(), paths, dependencies);
+  };
+  FilesystemPackageInstaller installer(fixture.view, fixture.paths, std::move(operations));
+  owner = std::make_unique<SettingsPublicationOwner>(records, installer, native);
+  RuntimeInstallService service(records, installer, native, [](const RuntimeInstall&) { return CompatibilityResult{true, {}}; }, {},
+      [&](const RuntimeInstall& r) { return r.journal->operation == "prepare" ? installer.PublishProfile(r) : owner->Resume(r, fixture.temporary.path); });
+  CHECK(service.Prepare(record.install_id).ok()); CHECK(service.Step(record.install_id).ok());
+  // Downloaded game data follows completed title staging and precedes settings.
+  std::filesystem::create_directories(fixture.host_data / "homebrew/FAKE78001/games/220");
+  CHECK(service.Step(record.install_id).ok()); CHECK(service.Step(record.install_id).ok());
+  const auto bottle = fixture.host_data / "playden/games/install-hl2/library/prefixes/game";
+  Write(bottle / "user.reg", "WINE REGISTRY Version 2\n", 0600); Write(bottle / "drive_c/save.dat", "player-save", 0600);
+  CHECK(!service.Step(record.install_id).ok() && publications == 1 && native.submissions == 0);
+  auto blocked = records.Find(record.install_id); CHECK(blocked && blocked->journal && blocked->journal->operation == "settings-publication");
+  CHECK(!installer.Inspect(*blocked).profile_published);
+  // Cold repository/OWNER/service recovery uses the same real filesystem
+  // installer and shared admission; it does not call PublishProfile again.
+  RuntimeInstallRepository restart(storage, "installs.json", availability); CHECK(restart.Load().ok());
+  RepositoryInstallRecordStore restarted_records(restart); SettingsPublicationOwner resumed(restarted_records, installer, native);
+  RuntimeInstallService restarted(restarted_records, installer, native, {}, {},
+      [&](const RuntimeInstall& r) { return resumed.Resume(r, fixture.temporary.path); });
+  CHECK(restarted.Step(record.install_id).ok() && publications == 1 && native.submissions == 1);
+  auto ready = restarted_records.Find(record.install_id);
+  CHECK(ready && ready->state == PreparationState::kReady && !ready->journal && installer.Inspect(*ready).profile_published);
+  CHECK(Read(bottle / "drive_c/save.dat") == "player-save" && Read(bottle / "user.reg") == "WINE REGISTRY Version 2\n");
+}
+#endif
 
 void CompletePublicationAndFreshInspection() {
   Fixture fixture;
@@ -452,6 +632,10 @@ void InputPresetsAreOwnerPublishedAndHashVerified() {
   auto publication = fixture.Publication(record);
   publication.input_presets.push_back({"controller.input", "[input]\nmode=xinput\n"});
   publication.required_input_presets.push_back("controller.input");
+  for (unsigned i = 0; i < 63; ++i) {
+    const auto name = "extra-controller-" + std::to_string(i) + ".input";
+    publication.input_presets.push_back({name, "[input]\nmode=keyboard\n"}); publication.required_input_presets.push_back(name);
+  }
   PackageInstallerOperations operations;
   operations.hash_file = TestHash;
   operations.hash_bytes = TestHashBytes;
@@ -466,16 +650,8 @@ void InputPresetsAreOwnerPublishedAndHashVerified() {
   operations.provide_publication = [&](const RuntimeInstall&) {
     return std::optional<ProfilePublication>(publication);
   };
-  operations.publish_owned = [](const PublicationPaths& output,
-                                const ProfilePublication& value,
-                                const std::string& metadata) {
-    Write(output.profile, value.profile_bytes, 0600);
-    Write(output.catalog, value.profile_id + ".profile\n", 0600);
-    for (const auto& preset : value.input_presets)
-      Write(output.input_directory / preset.filename, preset.bytes, 0600);
-    Write(output.descriptor, value.descriptor_bytes);
-    Write(output.metadata, metadata, 0600);
-    return PackageActionResult{PackageActionState::kComplete, {}, {}};
+  operations.publish_owned = [&](const RuntimeInstall& r, const PublicationPaths& output, const ProfilePublication& value) {
+    return WriteCompleteFixture(fixture.host_data, fixture.view.kit_id, r, output, value);
   };
   FilesystemPackageInstaller installer(fixture.view, fixture.paths, std::move(operations));
   CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
@@ -485,6 +661,7 @@ void InputPresetsAreOwnerPublishedAndHashVerified() {
                       "playden/games/install-hl2/library/input/controller.input";
   CHECK(Read(preset) == "[input]\nmode=xinput\n");
   CHECK(installer.Inspect(record).profile_published);
+  CHECK(Read(fixture.host_data / "playden/games/install-hl2/library/profiles/.playden-publication").size() > 4096);
   Write(preset, "corrupt");
   CHECK(!installer.Inspect(record).profile_published);
 }
@@ -512,8 +689,7 @@ void MissingReferencedInputAndSymlinkedManagedParentsAreRejected() {
     operations.provide_publication = [&](const RuntimeInstall&) {
       return std::optional<ProfilePublication>(publication);
     };
-    operations.publish_owned = [](const PublicationPaths&, const ProfilePublication&,
-                                  const std::string&) {
+    operations.publish_owned = [](const RuntimeInstall&, const PublicationPaths&, const ProfilePublication&) {
       return PackageActionResult{PackageActionState::kComplete, {}, {}};
     };
     FilesystemPackageInstaller installer(fixture.view, fixture.paths, std::move(operations));
@@ -614,6 +790,12 @@ int main() {
     CHECK(!installer.Inspect(record).profile_published);
     CHECK(installer.PublishProfile(record).code == "private-directory");
   }
+#ifdef PLAYDEN_TEST_SETTINGS_OWNER_INTEGRATION
+  RealFilesystemInstallerAndOwnerRecoverPendingPublication();
+#endif
+  FailedDriverCreatesNoPublicationDirectories();
+  CompleteInspectorRefusesMixedSettingsAndBusyPublisher();
+  CommittedReceiptIsRequired();
   CompletePublicationAndFreshInspection();
   CancelAndSpaceFailuresAreBounded();
   SyncFailureNeverPublishesWatchedTitle();

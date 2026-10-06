@@ -7,19 +7,6 @@ namespace {
 PackageActionResult Failure(const char* code, const char* message) {
   return {PackageActionState::kFailed, code, message};
 }
-bool SameOwner(const RuntimeInstall& a, const RuntimeInstall& b) {
-  if (!ValidateRuntimeInstallRecord(a) || !ValidateRuntimeInstallRecord(b) ||
-      a.schema_version != b.schema_version || a.install_id != b.install_id || a.title_id != b.title_id ||
-      a.app_id != b.app_id || a.data_root != b.data_root || a.default_profile_id != b.default_profile_id ||
-      a.runtime_bundle_id != b.runtime_bundle_id || a.recipe_id != b.recipe_id || a.recipe_version != b.recipe_version ||
-      a.exit_policy != b.exit_policy || a.launch_entry_id != b.launch_entry_id || a.launch_path != b.launch_path ||
-      a.launch_arguments != b.launch_arguments || a.launch_working_directory != b.launch_working_directory ||
-      a.install_path != b.install_path || a.volume_id != b.volume_id || a.artifacts.size() != b.artifacts.size()) return false;
-  for (std::size_t i = 0; i < a.artifacts.size(); ++i)
-    if (a.artifacts[i].artifact_id != b.artifacts[i].artifact_id || a.artifacts[i].identity != b.artifacts[i].identity ||
-        a.artifacts[i].sha256 != b.artifacts[i].sha256) return false;
-  return true;
-}
 bool OwnedPackage(const PackageStatus& s) {
   // Complete publication is checked separately by the coordinator's shared
   // semantic verifier; the legacy profile-only status cannot authorize Ready.
@@ -38,7 +25,7 @@ PackageActionResult SettingsPublicationOwner::InitializeControl(const RuntimeIns
       (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())))
     return Failure("publication-control-invalid", "Invalid control initialization identity/namespace.");
   auto current = records_.Find(record.install_id);
-  if (!current || !SameOwner(*current, record) || current->settings_revision != record.settings_revision ||
+  if (!current || !SameRuntimeInstallIdentity(*current, record) || current->settings_revision != record.settings_revision ||
       current->state == PreparationState::kRemoving || current->state == PreparationState::kReady ||
       current->state == PreparationState::kRegistering || native_.Activity(record.title_id) != NativeActivity::kStopped ||
       !OwnedPackage(package_.Inspect(record)))
@@ -105,7 +92,7 @@ PackageActionResult SettingsPublicationOwner::InitializeControl(const RuntimeIns
   if (!lease || !checkpoint(PublicationControlStep::kLockSynced))
     return Failure("publication-control-lock", "Control setup lock is busy or interrupted after sync.");
   auto observed = records_.Find(record.install_id);
-  if (!observed || !SameOwner(*observed, *current) || observed->settings_revision != current->settings_revision ||
+  if (!observed || !SameRuntimeInstallIdentity(*observed, *current) || observed->settings_revision != current->settings_revision ||
       observed->state != PreparationState::kPreparing || !observed->journal ||
       observed->journal->operation != "settings-control" || observed->journal->operation_id != transaction ||
       observed->journal->step != current->journal->step || !lease->Validate(*control, "publication.lock") ||
@@ -125,7 +112,7 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   auto fail = [](const std::string& reason) { return Result<SettingsPublicationOperation>::Failure(StorageError::kInvalidData, reason); };
   if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())) return fail("Invalid canonical namespace.");
   auto current = records_.Find(record.install_id);
-  if (!current || !SameOwner(*current, record) || current->state == PreparationState::kRemoving ||
+  if (!current || !SameRuntimeInstallIdentity(*current, record) || current->state == PreparationState::kRemoving ||
       native_.Activity(record.title_id) != NativeActivity::kStopped || !OwnedPackage(package_.Inspect(record)))
     return fail("Reserved stopped OWNER/package provenance does not authorize operation capture.");
   const auto canonical = std::filesystem::path(record.data_root + "/.playden-control");
@@ -142,7 +129,7 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
     auto initialized = InitializeControl(record, transaction, prefix);
     if (initialized.state != PackageActionState::kComplete) return fail(initialized.message);
     current = records_.Find(record.install_id);
-    if (!current || !SameOwner(*current, record)) return fail("OWNER changed after control initialization.");
+    if (!current || !SameRuntimeInstallIdentity(*current, record)) return fail("OWNER changed after control initialization.");
   }
   auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
   auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher) : std::nullopt;
@@ -169,7 +156,7 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   }
   if (recovered.operation && recovered.operation->transaction_id == transaction) {
     const auto& frozen = *recovered.operation;
-    if (!SameOwner(frozen.install, record) || record.settings_revision != frozen.plan.settings_revision)
+    if (!SameRuntimeInstallIdentity(frozen.install, record) || record.settings_revision != frozen.plan.settings_revision)
       return fail("Recovery OWNER intent changed.");
     auto candidate = frozen; candidate.plan = plan; candidate.kit_id = kit; std::string reason;
     auto checked = FreezeSettingsPublicationOperation(candidate, &reason);
@@ -200,7 +187,7 @@ PackageActionResult SettingsPublicationOwner::Resume(const RuntimeInstall& recor
   if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal()))
     return Failure("publication-recovery-invalid", "Invalid recovery namespace.");
   auto current = records_.Find(record.install_id);
-  if (!current || !SameOwner(*current, record) || current->settings_revision != record.settings_revision ||
+  if (!current || !SameRuntimeInstallIdentity(*current, record) || current->settings_revision != record.settings_revision ||
       (current->state != PreparationState::kPreparing && current->state != PreparationState::kRegistering) ||
       !current->journal || !record.journal || current->journal->operation != record.journal->operation ||
       current->journal->operation_id != record.journal->operation_id ||
@@ -213,7 +200,7 @@ PackageActionResult SettingsPublicationOwner::Resume(const RuntimeInstall& recor
     auto initialized = InitializeControl(*current, transaction, prefix);
     if (initialized.state != PackageActionState::kComplete) return initialized;
     current = records_.Find(record.install_id);
-    if (!current || !SameOwner(*current, record) || current->settings_revision != record.settings_revision ||
+    if (!current || !SameRuntimeInstallIdentity(*current, record) || current->settings_revision != record.settings_revision ||
         current->state != PreparationState::kPreparing || !current->journal || current->journal->operation != "settings-control" ||
         current->journal->operation_id != transaction || current->journal->step != "control-ready")
       return Failure("publication-recovery-owner", "OWNER changed after setup recovery.");
@@ -244,9 +231,9 @@ PackageActionResult SettingsPublicationOwner::Resume(const RuntimeInstall& recor
     if (!operation)
       return Failure("publication-recovery-intent-missing", "OWNER setup has no valid frozen operation; capture remains unfinished.");
     auto observed = records_.Find(record.install_id);
-    if (!SameOwner(operation->install, *current) ||
+    if (!SameRuntimeInstallIdentity(operation->install, *current) ||
         (current->settings_revision != operation->previous_revision && current->settings_revision != operation->plan.settings_revision) ||
-        !observed || !SameOwner(*observed, *current) || observed->settings_revision != current->settings_revision ||
+        !observed || !SameRuntimeInstallIdentity(*observed, *current) || observed->settings_revision != current->settings_revision ||
         observed->state != current->state || !observed->journal || observed->journal->operation != current->journal->operation ||
         observed->journal->operation_id != transaction || observed->journal->step != current->journal->step ||
         !lease->Validate(*control, "publication.lock") || native_.Activity(current->title_id) != NativeActivity::kStopped)
@@ -267,7 +254,7 @@ PackageActionResult SettingsPublicationOwner::Persist(const RuntimeInstall& reco
   if (!result.ok) return {PackageActionState::kFailed, result.code.empty() ? "publication-owner-persistence" : result.code,
       result.message.empty() ? "OWNER persistence failed; recover from durable state." : result.message};
   auto observed = records_.Find(record.install_id);
-  if (!observed || !SameOwner(*observed, record) || observed->state != record.state ||
+  if (!observed || !SameRuntimeInstallIdentity(*observed, record) || observed->state != record.state ||
       observed->settings_revision != record.settings_revision || observed->last_failure.has_value() != record.last_failure.has_value() ||
       (record.last_failure && (observed->last_failure->code != record.last_failure->code ||
       observed->last_failure->message != record.last_failure->message)) || observed->journal.has_value() != record.journal.has_value() ||
@@ -280,7 +267,7 @@ PackageActionResult SettingsPublicationOwner::Block(const SettingsPublicationOpe
   std::string reason;
   if (!EncodeSettingsPublicationOperation(o, &reason)) return Failure("publication-invalid", "Frozen OWNER operation is invalid.");
   auto record = records_.Find(o.install.install_id);
-  if (!record || !SameOwner(*record, o.install) || record->state == PreparationState::kRemoving ||
+  if (!record || !SameRuntimeInstallIdentity(*record, o.install) || record->state == PreparationState::kRemoving ||
       (record->settings_revision != o.previous_revision && record->settings_revision != o.plan.settings_revision))
     return Failure("publication-owner-conflict", "Reserved OWNER identity/revision disagrees with the frozen operation.");
   if (record->journal && record->journal->operation == "settings-publication" && !MatchingJournal(*record, o))
@@ -298,7 +285,7 @@ PackageActionResult SettingsPublicationOwner::Block(const SettingsPublicationOpe
 }
 PackageActionResult SettingsPublicationOwner::Reconcile(const SettingsPublicationOperation& o) {
   auto record = records_.Find(o.install.install_id);
-  if (!record || !SameOwner(*record, o.install) || !MatchingJournal(*record, o) ||
+  if (!record || !SameRuntimeInstallIdentity(*record, o.install) || !MatchingJournal(*record, o) ||
       (record->settings_revision != o.previous_revision && record->settings_revision != o.plan.settings_revision))
     return Failure("publication-owner-conflict", "Committed operation has no matching blocked OWNER record.");
   if (!OwnedPackage(package_.Inspect(o.install)))
@@ -344,7 +331,7 @@ PackageActionResult SettingsPublicationOwner::Reconcile(const SettingsPublicatio
 PackageActionResult SettingsPublicationOwner::AuthorizeRetirement(const SettingsPublicationOperation& previous,
     const SettingsPublicationOperation& next) {
   auto record = records_.Find(previous.install.install_id);
-  if (!record || !SameOwner(*record, previous.install) || !SameOwner(*record, next.install) ||
+  if (!record || !SameRuntimeInstallIdentity(*record, previous.install) || !SameRuntimeInstallIdentity(*record, next.install) ||
       record->state != PreparationState::kReady || record->journal || record->last_failure ||
       record->settings_revision != previous.plan.settings_revision ||
       native_.Activity(record->title_id) != NativeActivity::kStopped ||

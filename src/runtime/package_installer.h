@@ -115,11 +115,12 @@ struct PackageInstallerOperations {
   std::function<bool(const std::filesystem::path&)> validate_bottle;
   std::function<std::optional<ProfilePublication>(const RuntimeInstall&)>
       provide_publication;
-  // The OWNER callback atomically publishes profile, descriptor and metadata.
-  std::function<PackageActionResult(const PublicationPaths&,
-                                    const ProfilePublication&,
-                                    const std::string& metadata)>
-      publish_owned;
+  // Complete OWNER driver: owns control setup, pending receipt, frozen operation,
+  // registry/DXVK effects and individually durable file publication. This
+  // installer never creates publication directories or writes completion
+  // metadata. Success is independently checked through committed admission.
+  std::function<PackageActionResult(const RuntimeInstall&, const PublicationPaths&,
+                                    const ProfilePublication&)> publish_owned;
 };
 
 class FilesystemPackageInstaller final : public PackageInstaller {
@@ -150,8 +151,6 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   bool SyncPath(const std::filesystem::path& path, bool directory) const;
   bool SyncTree(const std::filesystem::path& root) const;
   bool SyncAncestors(const std::filesystem::path& directory) const;
-  bool SyncPublication(const ProfilePublication& publication,
-                       const PublicationPaths& paths) const;
   bool PublicationPathsSafe(const ProfilePublication& publication,
                             const PublicationPaths& paths) const;
   std::vector<Mapping> TitleMappings(const RuntimeInstall& record) const;

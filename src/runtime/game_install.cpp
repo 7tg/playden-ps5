@@ -286,6 +286,20 @@ void WriteRecord(std::ostringstream& output, const RuntimeInstall& record) {
 
 bool ValidateRuntimeInstallRecord(const RuntimeInstall& record) { return ValidRecord(record); }
 
+bool SameRuntimeInstallIdentity(const RuntimeInstall& a, const RuntimeInstall& b) {
+  if (!ValidateRuntimeInstallRecord(a) || !ValidateRuntimeInstallRecord(b) ||
+      a.schema_version != b.schema_version || a.install_id != b.install_id || a.title_id != b.title_id ||
+      a.app_id != b.app_id || a.data_root != b.data_root || a.default_profile_id != b.default_profile_id ||
+      a.runtime_bundle_id != b.runtime_bundle_id || a.recipe_id != b.recipe_id || a.recipe_version != b.recipe_version ||
+      a.exit_policy != b.exit_policy || a.launch_entry_id != b.launch_entry_id || a.launch_path != b.launch_path ||
+      a.launch_arguments != b.launch_arguments || a.launch_working_directory != b.launch_working_directory ||
+      a.install_path != b.install_path || a.volume_id != b.volume_id || a.artifacts.size() != b.artifacts.size()) return false;
+  for (std::size_t i = 0; i < a.artifacts.size(); ++i)
+    if (a.artifacts[i].artifact_id != b.artifacts[i].artifact_id || a.artifacts[i].identity != b.artifacts[i].identity ||
+        a.artifacts[i].sha256 != b.artifacts[i].sha256) return false;
+  return true;
+}
+
 RuntimeInstallRepository::RuntimeInstallRepository(Storage& storage, std::string relative_path,
                                                    NativeAvailabilityQuery native_availability)
     : storage_(storage), relative_path_(std::move(relative_path)),

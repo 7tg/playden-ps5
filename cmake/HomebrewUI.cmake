@@ -108,29 +108,17 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
 
-add_library(playden_runtime_publication_verifier STATIC
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_title_publication_native.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_publication.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_launch.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_game_profile.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_profile_catalog.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_wine_launch.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_publication_sha256.c"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/library/sha256.c"
-)
-target_include_directories(playden_runtime_publication_verifier PUBLIC "${PLAYDEN_PROSPERO_SOURCE_DIR}/native"
-    PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src" "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
-    "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
-target_compile_definitions(playden_runtime_publication_verifier PRIVATE
-    _DEFAULT_SOURCE MBEDTLS_CONFIG_FILE="pw_publication_config.h")
-target_compile_features(playden_runtime_publication_verifier PRIVATE c_std_11)
-
 add_library(playden_runtime_settings_publication STATIC "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication.cpp"
     "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication_owner.cpp")
 target_include_directories(playden_runtime_settings_publication PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_settings_publication PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_settings_publication PUBLIC playden_runtime_settings_publication_journal playden_runtime_publication_verifier playden_steam_cm_codec playden_runtime_install_service)
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    foreach(package_test runtime_package_installer_test runtime_package_installer_native_policy_test)
+        target_compile_definitions(${package_test} PRIVATE PLAYDEN_TEST_SETTINGS_OWNER_INTEGRATION=1)
+        target_link_libraries(${package_test} PRIVATE playden_runtime_settings_publication)
+    endforeach()
+endif()
 
 add_library(playden_runtime_settings_publication_journal STATIC
     "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication_journal.cpp"

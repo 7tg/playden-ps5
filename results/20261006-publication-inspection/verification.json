@@ -1,0 +1,43 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-inspection-host-test.log"
+  },
+  "non_hui_core_tests": {
+    "passed": 2,
+    "failed": 0,
+    "log": "build/publication-inspection-core-test.log"
+  },
+  "sdk": {
+    "version": "v0.43",
+    "targets": [
+      "playden_runtime_settings_publication",
+      "playden_runtime_package_installer"
+    ],
+    "log": "build/publication-inspection-sdk-build.log"
+  },
+  "red_cases": [
+    "missing committed receipt",
+    "package callback OWNER overwrite",
+    "directory-creation regression replay"
+  ],
+  "real_filesystem_owner_integration": true,
+  "largest_fixture_inputs": 64,
+  "metadata_fixture_exceeds_4096_bytes": true,
+  "host_link_warning": "nonfatal duplicate playden_steam_protocol archive",
+  "application_driver_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "cmake/HomebrewUI.cmake": "2ca53c764a6c52a9ab22d39b7ad68cc43a4562253a6eece450b79b76ee7a4353",
+    "cmake/ProsperoRuntime.cmake": "a99e401b5948ae8aed6d1e2cdf2796e0c39a398b6e9d17769d59027c474f6beb",
+    "src/runtime/game_install.cpp": "0d864e7e153b4075c88ab7a01233703626ec25618a2d15e7ac8a2af017e93650",
+    "src/runtime/game_install.h": "052e98937746a8a157e62067a10bc4b6891264073079713401498dcfd9060fbb",
+    "src/runtime/install_service.cpp": "d72bf44daa8a7de47b4820f4caa022321026a443a99ee47f584ceabc5675b3ab",
+    "src/runtime/package_installer.cpp": "4d048ccff4d759f96c0cec17b1dead8b838a61bc7314deec245084292a0d1d17",
+    "src/runtime/package_installer.h": "93f773178a4374b6564bccf55bdc3bac7eef08b8d25e11581c42d231d0732d6b",
+    "src/runtime/settings_publication_owner.cpp": "50559b9dfd7afe10daeec3238bc4a6b3b6138a2ac968462d3e06a9d64093a342",
+    "tests/runtime_install_service_test.cpp": "5211990f89f7d80098f7f56be894a78dd777f3374ef53d43ab574702e642987e",
+    "tests/runtime_package_installer_test.cpp": "46a85a468f9ace08d5162aee16f76cf20fc9f170462cb639d56605364f7e0b13"
+  }
+}
