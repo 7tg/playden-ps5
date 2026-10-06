@@ -376,6 +376,9 @@ struct ViewData {
     bool show_simulation_label = true;
 };
 
+// Characters a Details description page holds: live pages have status lines above it.
+inline std::size_t DetailsDescriptionPage(bool simulation_mode) { return simulation_mode ? 300 : 200; }
+
 // Player words for a preparation journal step ("copy-template" → "Copying the Windows environment").
 std::string PreparationStepWords(const std::string& step);
 

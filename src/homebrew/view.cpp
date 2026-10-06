@@ -2056,7 +2056,11 @@ class Render::Impl
         const std::string description = game == nullptr || game->description.empty() ?
                                             "Description unavailable." : game->description;
         const auto detail_scroll = state.navigation.scroll_offsets.find("details-content");
-        constexpr std::size_t page_size = 300;
+        // The left column ends above the footer hints. Live pages carry status lines above the
+        // description, so it shows two lines a page (the model pages by the same size).
+        constexpr float column_bottom = 975.0F;
+        const int description_lines = state.simulation_mode ? 3 : 2;
+        const std::size_t page_size = DetailsDescriptionPage(state.simulation_mode);
         const int requested_page = detail_scroll == state.navigation.scroll_offsets.end() ? 0 :
                                        std::max(0, detail_scroll->second);
         const int max_page = description.empty() ? 0 :
@@ -2071,7 +2075,7 @@ class Render::Impl
             page_text += "…";
         const ui::FontRef &body = font_for(page_text, fonts_.regular);
         const float text_bottom = ui::paragraph(scene_, body, page_text, kSafeX, y + 20.0F, 26.0F, 1128.0F, 37.0F,
-                                                gfx::Color::rgb(0xD6D0C8), 3);
+                                                gfx::Color::rgb(0xD6D0C8), description_lines);
         y = std::max(y + 20.0F + 37.0F, text_bottom) + 18.0F;
         if (description.size() > page_size)
         {
@@ -2079,7 +2083,7 @@ class Render::Impl
                          std::to_string(max_page + 1), kSafeX, y + 6.0F, 18.0F, kMuted);
             y += 30.0F;
         }
-        if (game != nullptr)
+        if (game != nullptr && y + 42.0F <= column_bottom)
         {
             float tag_x = kSafeX;
             for (std::size_t index = 0; index < game->genres.size() && index < 4; ++index)

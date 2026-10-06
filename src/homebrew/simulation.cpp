@@ -3790,7 +3790,8 @@ bool Simulation::action(const std::string& logical_action) {
         && (logical_action == "l2" || logical_action == "r2")) {
         auto& offset = state_.navigation.scroll_offsets["details-content"];
         const auto* game = find_game(state_, state_.navigation.detail_id.value_or(state_.navigation.selected_game_id));
-        const int last_page = game ? std::max(0, static_cast<int>((game->description.size() + 299) / 300) - 1) : 0;
+        const auto page = DetailsDescriptionPage(state_.simulation_mode);
+        const int last_page = game ? std::max(0, static_cast<int>((game->description.size() + page - 1) / page) - 1) : 0;
         offset = std::clamp(offset + (logical_action == "l2" ? -1 : 1), 0, last_page);
         rebuild_view(); return true;
     }
