@@ -76,21 +76,22 @@ function(playden_add_homebrew_ps5_title)
         --wrap=openat --wrap=mkdirat)
 
 	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp src/platform/ps5/title_runtime.cpp
-        src/platform/ps5/native_startup.cpp
+        src/platform/ps5/native_startup.cpp src/platform/ps5/console_services.cpp
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/display_egl.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/pad.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/system.cpp")
     option(PLAYDEN_TITLE_CONTRACT_PROBE "Compile one-shot native provisioning diagnostic" OFF)
+    # The runtime host (per-game bottles and titles) is part of the normal app.
+    # prospero-lld receives archives explicitly; CMake PUBLIC links do not reach it.
+    set(title_database_targets playden_homebrew_runtime_host playden_native_coordinator playden_publication_transaction
+        playden_title_database playden_sqlite_reader playden_title_activity
+        playden_runtime_settings_publication playden_runtime_settings_publication_journal playden_runtime_publication_backup
+        playden_runtime_publication_contract playden_runtime_publication_verifier playden_runtime_package_installer
+        playden_runtime_kit_trust playden_runtime_kit_admission playden_runtime_kit_manifest)
     set(title_database_archives)
-    set(title_database_targets)
-    if(PLAYDEN_TITLE_CONTRACT_PROBE)
-        set(title_database_archives $<TARGET_FILE:playden_native_coordinator> $<TARGET_FILE:playden_publication_transaction>
-            $<TARGET_FILE:playden_title_database> $<TARGET_FILE:playden_sqlite_reader>
-            $<TARGET_FILE:playden_runtime_settings_publication_journal> $<TARGET_FILE:playden_runtime_publication_backup>
-            $<TARGET_FILE:playden_runtime_publication_contract>)
-        set(title_database_targets playden_native_coordinator playden_publication_transaction playden_title_database playden_sqlite_reader
-            playden_runtime_settings_publication_journal playden_runtime_publication_backup playden_runtime_publication_contract)
-    endif()
+    foreach(target IN LISTS title_database_targets)
+        list(APPEND title_database_archives $<TARGET_FILE:${target}>)
+    endforeach()
     target_compile_definitions(playden_ps5_shims PRIVATE
         PLAYDEN_TITLE_CONTRACT_PROBE=$<BOOL:${PLAYDEN_TITLE_CONTRACT_PROBE}>)
     option(PLAYDEN_NATIVE_RUNTIME_ACCESS "Require the native runtime client and exact title helper" ON)

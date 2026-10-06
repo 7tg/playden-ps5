@@ -9,11 +9,10 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
-#include <fstream>
 #include <limits>
 #include <map>
 #include <set>
-#include <sstream>
+#include <vector>
 #include <system_error>
 #include <utility>
 
@@ -170,11 +169,18 @@ std::optional<std::string> ReadBounded(const fs::path& path, std::size_t limit) 
   std::error_code error;
   const auto size = fs::file_size(path, error);
   if (error || size > limit) return std::nullopt;
-  std::ifstream stream(path, std::ios::binary);
-  if (!stream) return std::nullopt;
+  // POSIX reads: the console's libc lacks the locale support iostreams need.
+  const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return std::nullopt;
   std::string bytes(static_cast<std::size_t>(size), '\0');
-  stream.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-  if (!stream && !bytes.empty()) return std::nullopt;
+  std::size_t done = 0;
+  while (done < bytes.size()) {
+    const auto count = ::read(fd, bytes.data() + done, bytes.size() - done);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) { ::close(fd); return std::nullopt; }
+    done += static_cast<std::size_t>(count);
+  }
+  ::close(fd);
   return bytes;
 }
 
@@ -252,17 +258,14 @@ std::string OwnerMarker(const RuntimeInstall& record, const VerifiedKitView& kit
   std::string variant_id;
   for (const auto& variant : kit.variants)
     if (variant.title_id == record.title_id) variant_id = variant.id;
-  std::ostringstream output;
-  output << "schema=1\nkind=" << kind << "\ninstall_id=" << record.install_id
-         << "\ntitle_id=" << record.title_id << "\nkit_id=" << kit.kit_id
-         << "\nfiles_sha256=" << kit.files_sha256
-         << "\nruntime_bundle_id=" << kit.runtime.bundle_id
-         << "\nruntime_revision=" << kit.runtime.artifact_revision
-         << "\nruntime_path=" << kit.runtime.path << "\nvariant_id=" << variant_id
-         << "\ntemplate_path=" << kit.template_path
-         << "\nrecipe_id=" << kit.recipe.id << "\nrecipe_version=" << kit.recipe.version
-         << "\n";
-  return output.str();
+  return std::string("schema=1\nkind=") + kind + "\ninstall_id=" + record.install_id +
+         "\ntitle_id=" + record.title_id + "\nkit_id=" + kit.kit_id +
+         "\nfiles_sha256=" + kit.files_sha256 +
+         "\nruntime_bundle_id=" + kit.runtime.bundle_id +
+         "\nruntime_revision=" + kit.runtime.artifact_revision +
+         "\nruntime_path=" + kit.runtime.path + "\nvariant_id=" + variant_id +
+         "\ntemplate_path=" + kit.template_path +
+         "\nrecipe_id=" + kit.recipe.id + "\nrecipe_version=" + kit.recipe.version + "\n";
 }
 
 std::string StageMarker(const RuntimeInstall& record, const VerifiedKitView& kit,
@@ -788,7 +791,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     return Failed("sync-failed", "owned staging identity was not durably synced");
   if (operations_.canceled && operations_.canceled()) return Canceled();
 
-  std::array<char, 64 * 1024> buffer{};
+  std::vector<char> buffer(64 * 1024);  // heap: console worker stacks are small
   std::set<fs::path> copied_directories;
   for (const auto& mapping : mappings) {
     if (operations_.canceled && operations_.canceled()) return Canceled();
@@ -802,10 +805,11 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
         return Failed("private-directory", detail);
     }
     if (error) return Failed("copy-failed", "staging directory could not be created");
-    std::ifstream input(source, std::ios::binary);
+    const int input = ::open(source.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     const unsigned mode = stage_kind == "template" ? (0600 | (mapping.file->mode & 0100)) : mapping.file->mode;
     const int output = ::open(destination.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
-    if (!input || output < 0) {
+    if (input < 0 || output < 0) {
+      if (input >= 0) ::close(input);
       if (output >= 0) ::close(output);
       return Failed("copy-failed", "package file could not be opened exclusively");
     }
@@ -813,13 +817,15 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     if (::fchmod(output, mode) != 0 || ::fstat(output, &destination_info) != 0 ||
         !S_ISREG(destination_info.st_mode) || destination_info.st_uid != ::geteuid() ||
         (destination_info.st_mode & 07777) != mode) {
-      ::close(output); return Failed("copy-failed", "package file mode could not be set before copying");
+      ::close(input); ::close(output); return Failed("copy-failed", "package file mode could not be set before copying");
     }
-    bool wrote = true;
-    while (input) {
-      input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-      const auto count = input.gcount();
-      std::streamsize offset = 0;
+    bool wrote = true, read_ok = true;
+    for (;;) {
+      const auto count = ::read(input, buffer.data(), buffer.size());
+      if (count < 0 && errno == EINTR) continue;
+      if (count < 0) { read_ok = false; break; }
+      if (count == 0) break;
+      ssize_t offset = 0;
       while (offset < count) {
         const auto written = ::write(output, buffer.data() + offset, static_cast<std::size_t>(count - offset));
         if (written < 0 && errno == EINTR) continue;
@@ -828,12 +834,13 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
       }
       if (!wrote) break;
       if (operations_.canceled && operations_.canceled()) {
-        ::close(output);
+        ::close(input); ::close(output);
         return Canceled();
       }
     }
+    ::close(input);
     const bool closed = ::close(output) == 0;
-    if (!input.eof() || !wrote || !closed)
+    if (!read_ok || !wrote || !closed)
       return Failed("copy-failed", "package file copy or mode publication failed");
     const auto hash = operations_.hash_file(destination);
     if (!hash || *hash != mapping.file->sha256)

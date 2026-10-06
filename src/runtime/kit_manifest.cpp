@@ -4,9 +4,11 @@
 
 #include <algorithm>
 #include <cctype>
-#include <fstream>
+#include <cerrno>
+#include <fcntl.h>
 #include <set>
-#include <sstream>
+#include <string>
+#include <unistd.h>
 #include <system_error>
 
 namespace playden::runtime {
@@ -74,10 +76,18 @@ std::optional<std::string> Read(const fs::path& path, std::size_t limit) {
   if (error || !fs::is_regular_file(status) || fs::is_symlink(status)) return std::nullopt;
   const auto size = fs::file_size(path, error);
   if (error || size > limit) return std::nullopt;
-  std::ifstream input(path, std::ios::binary);
-  if (!input) return std::nullopt;
+  // POSIX reads: the console's libc lacks the locale support iostreams need.
+  const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return std::nullopt;
   std::string result(static_cast<std::size_t>(size), '\0');
-  if (size && !input.read(result.data(), static_cast<std::streamsize>(size))) return std::nullopt;
+  std::size_t done = 0;
+  while (done < result.size()) {
+    const auto count = ::read(fd, result.data() + done, result.size() - done);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) { ::close(fd); return std::nullopt; }
+    done += static_cast<std::size_t>(count);
+  }
+  ::close(fd);
   return result;
 }
 
@@ -158,11 +168,13 @@ std::optional<std::string> RegistryStringValue(const std::string& registry,
   const auto body = registry.find('\n', begin + header.size());
   if (body == std::string::npos) return std::nullopt;
   const auto end = registry.find("\n[", body);
-  std::istringstream lines(registry.substr(body + 1, end == std::string::npos ? end : end - body - 1));
+  const std::string lines_text = registry.substr(body + 1, end == std::string::npos ? end : end - body - 1);
   const std::string assignment = "\"" + key + "\"=";
   std::optional<std::string> value;
-  std::string line;
-  while (std::getline(lines, line)) {
+  for (std::size_t start = 0; start < lines_text.size();) {
+    const auto stop = lines_text.find('\n', start);
+    std::string line = lines_text.substr(start, stop == std::string::npos ? std::string::npos : stop - start);
+    start = stop == std::string::npos ? lines_text.size() : stop + 1;
     if (!line.empty() && line.back() == '\r') line.pop_back();
     if (line.compare(0, assignment.size(), assignment) != 0) continue;
     if (value || line.size() < assignment.size() + 2 ||
@@ -299,7 +311,7 @@ class Verifier {
     if (!files || files->array().empty() || files->array().size() > kMaxFiles || !aggregate || !Digest(aggregate->text()))
       return Failure(KitManifestStatus::kMalformed, "file inventory is malformed or out of bounds");
     std::set<std::string> declared;
-    std::ostringstream canonical;
+    std::string canonical;
     std::string previous;
     for (const auto& entry : files->array()) {
       if (!HasOnlyKeys(entry, {"path", "size", "sha256", "mode"}))
@@ -325,7 +337,7 @@ class Verifier {
       const auto actual_hash = trusted_.hash_file(actual);
       if (error || actual_size != *parsed_size || permissions != expected_mode || !actual_hash || *actual_hash != sha->text())
         return Failure(KitManifestStatus::kIntegrityFailure, "declared file bytes, size, or mode differ: " + path->text());
-      canonical << path->text() << '\t' << *parsed_size << '\t' << sha->text() << '\t' << mode->text() << '\n';
+      canonical += path->text() + '\t' + std::to_string(*parsed_size) + '\t' + sha->text() + '\t' + mode->text() + '\n';
       view_.files.push_back({path->text(), *parsed_size, sha->text(), expected_mode});
     }
     std::set<std::string> actual;
@@ -340,7 +352,7 @@ class Verifier {
     }
     if (walk_error || actual != declared)
       return Failure(KitManifestStatus::kIntegrityFailure, "kit file set differs from the exact manifest inventory");
-    const auto computed = trusted_.hash_bytes(canonical.str());
+    const auto computed = trusted_.hash_bytes(canonical);
     if (!computed || *computed != aggregate->text())
       return Failure(KitManifestStatus::kIntegrityFailure, "aggregate file digest does not match canonical inventory");
     view_.files_sha256 = aggregate->text();

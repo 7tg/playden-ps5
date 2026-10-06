@@ -58,6 +58,14 @@ struct LiveVolume {
     std::optional<std::uint64_t> total_bytes;
     std::optional<std::uint64_t> free_bytes;
 };
+// Live per-game runtime (private bottle and PS5 title) state, projected from the runtime host.
+struct LiveRuntimeGame {
+    GameId game_id = 0;
+    std::string status;   // short value, e.g. "Not prepared", "Preparing", "Ready"
+    std::string detail;   // why, or what happens next
+    bool can_prepare = false;
+    bool ready = false;
+};
 // Live Steam Cloud save state for one game, projected from the cloud service.
 enum class CloudStatus { None, Checking, Syncing, Synced, UpToDate, Conflict, NeedsAccount, Unsupported, Failed };
 struct LiveCloudGame {
@@ -277,6 +285,7 @@ struct State {
     std::vector<Volume> volumes;
     std::string default_volume_id;  // live: where new installs go
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
+    std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
     Navigation navigation;
     EditorState editor;
     std::vector<Notice> notices;
@@ -363,6 +372,9 @@ public:
     // Live mode: Steam Cloud save requests for the cloud service, and its state for display.
     [[nodiscard]] std::vector<CloudRequest> TakeCloudRequests();
     void UpdateCloud(const std::vector<LiveCloudGame>& games);
+    // Live mode: games to prepare (bottle + PS5 title), and the runtime state for display.
+    [[nodiscard]] std::vector<GameId> TakeRuntimePrepareRequests();
+    void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
@@ -437,6 +449,7 @@ private:
     std::uint64_t next_job_serial_ = 1;
     std::vector<ServiceAction> pending_service_actions_;
     std::vector<InstallRequest> pending_install_requests_;
+    std::vector<GameId> pending_runtime_prepare_requests_;
     bool library_catalog_received_ = false;
     // Live install events become notifications; the first snapshot is restored history, not an event.
     bool live_installs_seen_ = false;

@@ -6,6 +6,7 @@
 #include "steam/app_details_service.h"
 #include "steam/install_service.h"
 #include "steam/cloud_service.h"
+#include "homebrew/runtime_host.hpp"
 #include <chrono>
 #include <map>
 #include <memory>
@@ -19,7 +20,7 @@ class Controller {
   Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
              LibraryService* library_service = nullptr, app::PersistenceService* persistence_service = nullptr,
              steam::AppDetailsService* app_details = nullptr, steam::InstallService* installs = nullptr,
-             steam::CloudService* cloud = nullptr);
+             steam::CloudService* cloud = nullptr, RuntimeHost* runtime = nullptr);
   ~Controller();
   void Tick();
   void Shutdown();
@@ -39,6 +40,7 @@ class Controller {
   void TickAppDetails();
   void TickInstalls();
   void TickCloud();
+  void TickRuntime();
   Simulation& model_;
   steam::AppDetailsService* app_details_ = nullptr;
   steam::InstallService* installs_ = nullptr;
@@ -47,6 +49,10 @@ class Controller {
   steam::CloudService* cloud_ = nullptr;
   std::uint64_t cloud_revision_ = 0;
   std::map<GameId, std::string> game_roots_;  // installed games' folders, for Steam Cloud
+  std::map<GameId, std::string> game_volumes_;  // installed games' volume ids
+  RuntimeHost* runtime_ = nullptr;
+  std::uint64_t runtime_revision_ = 0;
+  std::uint64_t runtime_install_revision_ = 0;
   std::string saves_root_;                    // per-game save state folders, on the primary drive
   std::chrono::steady_clock::time_point volume_refreshed_at_{};
   std::optional<GameId> requested_detail_;

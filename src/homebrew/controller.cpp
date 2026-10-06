@@ -7,8 +7,9 @@ namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
                        LibraryService* library_service, app::PersistenceService* persistence_service,
                        steam::AppDetailsService* app_details, steam::InstallService* installs,
-                       steam::CloudService* cloud)
-    : model_(model), app_details_(app_details), installs_(installs), cloud_(cloud), library_service_(library_service) {
+                       steam::CloudService* cloud, RuntimeHost* runtime)
+    : model_(model), app_details_(app_details), installs_(installs), cloud_(cloud), runtime_(runtime),
+      library_service_(library_service) {
   if (model_.state().simulation_mode) return;
   if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
   service_ = std::make_unique<steam::SteamService>(backend,repository);
@@ -34,6 +35,7 @@ void Controller::Shutdown() {
   if(app_details_) app_details_->Shutdown();
   if(installs_) installs_->Shutdown();
   if(cloud_) cloud_->Shutdown();
+  if(runtime_) runtime_->Shutdown();
   service_.reset();
   persistence_.reset();
   library_.reset();
@@ -132,6 +134,7 @@ void Controller::Tick() {
   TickAppDetails();
   TickInstalls();
   TickCloud();
+  TickRuntime();
 }
 void Controller::TickCloud() {
   if (!cloud_) return;
@@ -170,6 +173,52 @@ void Controller::TickCloud() {
   }
   model_.UpdateCloud(games);
 }
+// Per-game runtime: queue Prepare with the Steam install's location and project
+// the runtime host's state for installed games. Play is not connected yet.
+void Controller::TickRuntime() {
+  if (!runtime_) return;
+  for (const auto id : model_.TakeRuntimePrepareRequests()) {
+    const auto root = game_roots_.find(id);
+    if (root != game_roots_.end()) runtime_->Prepare({id, root->second, game_volumes_[id]});
+  }
+  const auto snapshot = runtime_->Snapshot();
+  if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_) return;
+  runtime_revision_ = snapshot.revision;
+  runtime_install_revision_ = install_revision_;
+  const bool usable = snapshot.status == RuntimeHostStatus::kReady && snapshot.kit_available;
+  const auto state = snapshot.status == RuntimeHostStatus::kStarting ? RuntimeState::Checking
+                   : snapshot.status == RuntimeHostStatus::kUnavailable ? RuntimeState::Failed
+                   : usable ? RuntimeState::Ready : RuntimeState::Unavailable;
+  std::vector<LiveRuntimeGame> games;
+  for (const auto& [id, root] : game_roots_) {
+    LiveRuntimeGame game; game.game_id = id;
+    const RuntimeInstallView* record = nullptr;
+    for (const auto& view : snapshot.installs) if (view.app_id == id) record = &view;
+    const auto refusal = snapshot.refusals.find(id);
+    if (snapshot.status == RuntimeHostStatus::kStarting) {
+      game.status = "Checking";
+    } else if (snapshot.status != RuntimeHostStatus::kReady) {
+      game.status = "Unavailable"; game.detail = snapshot.reason;
+    } else if (snapshot.preparing_app == id) {
+      game.status = "Preparing"; game.detail = record ? record->step : std::string{};
+    } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending) {
+      game.status = "Ready"; game.detail = record->title_id; game.ready = true;
+    } else if (record && record->recovery_pending) {
+      game.status = "Needs recovery";
+      game.detail = record->failure.empty() ? "An interrupted preparation needs recovery." : record->failure;
+    } else if (record && (record->state == runtime::PreparationState::kFailed ||
+                          record->state == runtime::PreparationState::kUnavailable)) {
+      game.status = "Failed"; game.detail = record->failure; game.can_prepare = usable;
+    } else {
+      game.status = "Not prepared";
+      game.detail = usable ? "Creates a private bottle and the game's own PS5 title" : snapshot.kit_reason;
+      game.can_prepare = usable;
+    }
+    if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
+    games.push_back(std::move(game));
+  }
+  model_.UpdateRuntime(state, games);
+}
 void Controller::TickInstalls() {
   if (!installs_) return;
   for (const auto& request : model_.TakeInstallRequests()) {
@@ -184,8 +233,9 @@ void Controller::TickInstalls() {
   }
   const auto snapshot = installs_->Snapshot();
   game_roots_.clear();
+  game_volumes_.clear();
   for (const auto& game : snapshot.installed)
-    if (game.available) game_roots_[game.id] = game.root;
+    if (game.available) { game_roots_[game.id] = game.root; game_volumes_[game.id] = game.volume_id; }
   if (!snapshot.volumes.empty()) saves_root_ = snapshot.volumes.front().games_root + "/.playden-saves";
   // Free space changes outside Playden too, so volumes refresh every few seconds as well.
   const auto now = std::chrono::steady_clock::now();

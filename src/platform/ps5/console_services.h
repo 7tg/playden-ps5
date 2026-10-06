@@ -1,0 +1,15 @@
+#pragma once
+// console_services.h - Small PS5 console adapters for the runtime host.
+// Copyright (c) 2026 Playden contributors
+// SPDX-License-Identifier: MIT
+#include <optional>
+#include <string>
+
+namespace playden::ps5 {
+// Running system software version as "MM.mm" (for example "13.60"), or nothing.
+std::optional<std::string> ConsoleFirmwareVersion();
+// POSTs JSON to the console-local ShadowMountPlus API (127.0.0.1:10101). Returns
+// the response body, including error bodies, or nothing on transport failure.
+// Worker-only: it blocks for at most five seconds.
+std::optional<std::string> ShadowMountPost(const std::string& route, const std::string& body);
+}  // namespace playden::ps5

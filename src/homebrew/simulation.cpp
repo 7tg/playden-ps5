@@ -513,6 +513,25 @@ std::vector<CloudRequest> Simulation::TakeCloudRequests() {
     return requests;
 }
 
+std::vector<GameId> Simulation::TakeRuntimePrepareRequests() {
+    auto requests = std::move(pending_runtime_prepare_requests_);
+    pending_runtime_prepare_requests_.clear();
+    return requests;
+}
+
+void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games) {
+    if (!live()) return;
+    state_.runtime = runtime;
+    std::map<GameId, LiveRuntimeGame> next;
+    for (const auto& game : games) next[game.game_id] = game;
+    state_.runtime_games = std::move(next);
+    for (auto& installation : state_.installations) {
+        const auto found = state_.runtime_games.find(installation.game_id);
+        installation.runtime_ready = found != state_.runtime_games.end() && found->second.ready;
+    }
+    rebuild_view();
+}
+
 void Simulation::UpdateCloud(const std::vector<LiveCloudGame>& games) {
     if (!live()) return;
     for (const auto& game : games) {
@@ -581,7 +600,8 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
     }
     std::vector<Installation> installations;
     for (const auto& game : installed)
-        installations.push_back({game.game_id, game.volume_id, game.install_bytes, game.available, false, false});
+        installations.push_back({game.game_id, game.volume_id, game.install_bytes, game.available,
+                                 state_.runtime_games.count(game.game_id) && state_.runtime_games.at(game.game_id).ready, false});
     state_.jobs = std::move(projected);
     state_.installations = std::move(installations);
     apply_live_volume_usage();
@@ -2158,6 +2178,17 @@ void Simulation::rebuild_view() {
                                                                           : "Synced";
                     if (cloud != state_.cloud.end()) saves.subtitle = cloud->second.message;
                     saves.enabled = !busy;
+                    // Per-game runtime: a private bottle and the game's own PS5 title.
+                    const auto runtime_game = state_.runtime_games.find(game->id);
+                    if (runtime_game != state_.runtime_games.end()) {
+                        const auto& value = runtime_game->second;
+                        auto& runtime = row("details-runtime", value.can_prepare ? RowKind::Action : RowKind::Status,
+                                            "PS5 title", value.can_prepare ? "runtime-prepare" : "");
+                        runtime.value = value.can_prepare ? "Prepare" : value.status;
+                        runtime.subtitle = value.can_prepare ? value.status + (value.detail.empty() ? "" : " · " + value.detail)
+                                                             : value.detail;
+                        runtime.enabled = value.can_prepare;
+                    }
                 }
             } else if (job) {
                 auto& status = row("details-download", RowKind::Action, "Download", "open-downloads");
@@ -2785,6 +2816,9 @@ void Simulation::activate() {
                                                              : CloudRequestKind::ConfirmAccount;
         if (id != 0) pending_cloud_requests_.push_back({kind, id});
         close_modal();
+    } else if (live() && action_name == "runtime-prepare") {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        if (id != 0) pending_runtime_prepare_requests_.push_back(id);
     } else if (live() && action_name == "live-install") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id});

@@ -6,11 +6,22 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
-#include <sstream>
+#include <string>
 #include <unordered_set>
 
 namespace playden::runtime {
 namespace {
+// Text builder with the stream operators this file uses. iostreams need locale
+// support that the console's libc does not provide.
+struct TextOutput {
+  std::string text;
+  TextOutput& operator<<(char value) { text += value; return *this; }
+  TextOutput& operator<<(const char* value) { text += value; return *this; }
+  TextOutput& operator<<(const std::string& value) { text += value; return *this; }
+  TextOutput& operator<<(std::uint32_t value) { text += std::to_string(value); return *this; }
+  TextOutput& operator<<(std::uint64_t value) { text += std::to_string(value); return *this; }
+  const std::string& str() const { return text; }
+};
 
 using JsonValue = steam::json::Value;
 
@@ -143,7 +154,7 @@ std::string Escape(const std::string& value) {
   return output;
 }
 
-void StringField(std::ostringstream& output, const char* name, const std::string& value,
+void StringField(TextOutput& output, const char* name, const std::string& value,
                  bool comma = true) {
   output << '\"' << name << "\":\"" << Escape(value) << '\"';
   if (comma) output << ',';
@@ -249,7 +260,7 @@ std::optional<RuntimeInstall> ParseRecord(const JsonValue& value, RepositoryErro
   return record;
 }
 
-void WriteRecord(std::ostringstream& output, const RuntimeInstall& record) {
+void WriteRecord(TextOutput& output, const RuntimeInstall& record) {
   output << '{' << "\"schema_version\":1,";
   StringField(output, "install_id", record.install_id); StringField(output, "title_id", record.title_id);
   output << "\"app_id\":" << record.app_id << ','; StringField(output, "data_root", record.data_root);
@@ -372,7 +383,7 @@ RepositoryResult<void> RuntimeInstallRepository::Persist() {
   titles.reserve(reservations_.size());
   for (const auto& entry : reservations_) titles.push_back(entry.first);
   std::sort(titles.begin(), titles.end());
-  std::ostringstream output;
+  TextOutput output;
   output << "{\"schema_version\":1,\"reservations\":[";
   for (std::size_t i = 0; i < titles.size(); ++i) {
     if (i) output << ',';

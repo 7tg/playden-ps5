@@ -10,6 +10,11 @@
 #include "platform/ps5/title_runtime.h"
 #include "platform/ps5/native_startup.h"
 #include "runtime/settings_storage.h"
+#include "homebrew/runtime_host.hpp"
+#include "platform/ps5/console_services.h"
+#include "runtime/artifact_hash.h"
+#include "runtime/kit_admission.h"
+#include "runtime/kit_trust.h"
 #if PLAYDEN_TITLE_CONTRACT_PROBE
 #include "platform/ps5/title_contract_probe.h"
 #endif
@@ -34,7 +39,9 @@
 #include <string>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <memory>
+#include <optional>
 #include <sys/stat.h>
 
 extern "C" void playden_release_splash(void);
@@ -248,7 +255,51 @@ int main() {
         playden::LocalSessionRepository cloud_sessions(paths.steam_state_root);
         playden::steam::CloudService cloud(cloud_runner, cloud_sessions);
         simulation.SetLogDirectory(paths.log_root);
-        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud);
+        // Per-game runtime: private bottles and PS5 titles from the admitted kit.
+        // Its worker owns OWNER records, native inventory and publication.
+        std::unique_ptr<playden::homebrew::RuntimeHost> runtime_host;
+        if (native_access.runtime_ready && !paths.runtime_data_root.empty()) {
+            namespace rt = playden::runtime;
+            playden::homebrew::RuntimeHostConfig config;
+            config.boundary = "/data";
+            config.state_root = std::filesystem::path(paths.runtime_data_root) / "runtime-state";
+            config.homebrew_root = "/data/homebrew";
+            config.registry_transport = playden::ps5::ShadowMountPost;
+            config.admit_kit = [](std::string* reason) -> std::optional<playden::homebrew::RuntimeKit> {
+                const auto firmware = playden::ps5::ConsoleFirmwareVersion();
+                playden::app::AppendLogLine(log_root, "runtime.log", "console_firmware=" + firmware.value_or("unknown"));
+                if (!firmware) { *reason = "The console firmware version is unknown."; return std::nullopt; }
+                auto admitted = rt::VerifyInstalledKit(rt::kDevelopmentKitRoot, rt::DevelopmentKitTrust(*firmware));
+                playden::app::AppendLogLine(log_root, "runtime.log", std::string("kit_admission root=") +
+                    rt::kDevelopmentKitRoot + " status=" + std::to_string(static_cast<int>(admitted.status)) + " reason=" + admitted.reason);
+                if (admitted.status != rt::KitManifestStatus::kVerified || !admitted.view) {
+                    *reason = "The compatibility kit is missing or could not be verified.";
+                    return std::nullopt;
+                }
+                return playden::homebrew::RuntimeKit{*admitted.view, admitted.capabilities};
+            };
+            config.package_operations.hash_file = rt::HashArtifactFile;
+            config.package_operations.hash_bytes = rt::HashArtifactBytes;
+            config.package_operations.free_space_unverifiable = true;  // statfs terminates the title
+            config.package_operations.validate_bottle = [](const std::filesystem::path& bottle) {
+                std::error_code error;
+                for (const char* name : {"system.reg", "user.reg", "userdef.reg"})
+                    if (!std::filesystem::is_regular_file(bottle / name, error)) return false;
+                return true;
+            };
+            config.runtime_dir = paths.title_root + "/runtime";
+            config.settings_record = [file = settings_file](std::uint32_t app) -> std::optional<rt::GameSettingsRecord> {
+                std::map<std::uint32_t, rt::GameSettingsRecord> records; std::string reason;
+                if (!file || !rt::LoadGameSettingsFile(file->string(), &records, &reason)) return std::nullopt;
+                const auto found = records.find(app);
+                return found == records.end() ? std::nullopt : std::optional<rt::GameSettingsRecord>(found->second);
+            };
+            runtime_host = std::make_unique<playden::homebrew::RuntimeHost>(std::move(config));
+            if (!runtime_host->Start())
+                playden::app::AppendLogLine(paths.log_root, "runtime.log", "runtime worker could not start");
+        }
+        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud,
+                                               runtime_host.get());
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer(paths.assets_root);
