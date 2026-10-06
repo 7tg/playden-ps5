@@ -12,6 +12,7 @@ file(COPY "${CMAKE_CURRENT_LIST_DIR}/../sce_sys/icon0.png"
 	"${BOILERPLATE}/sce_sys/snd0.at9" DESTINATION "${APP_DIR}/sce_sys")
 file(COPY "${ASSETS_DIR}/" DESTINATION "${APP_DIR}/assets")
 file(COPY "${FONTS_DIR}/" DESTINATION "${APP_DIR}/assets/fonts")
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/../assets/branding/generic-title-icon.png" DESTINATION "${APP_DIR}/assets")
 
 file(READ "${PARAM_SOURCE}" param)
 string(JSON param SET "${param}" titleId "\"${TITLE_ID}\"")
