@@ -8,6 +8,8 @@ namespace playden {
 
 struct Preferences {
   bool reduce_motion = false;
+  // PS5 titles made for games are named "<game> (<store>)", e.g. "Half-Life 2 (Steam)".
+  bool title_store_suffix = false;
 };
 
 enum class PreferencesLoadStatus {

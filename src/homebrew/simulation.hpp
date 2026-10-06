@@ -305,6 +305,7 @@ struct State {
     GameId session_game_id = 0;
     std::string session_error;
     bool reduced_motion = false;
+    bool title_store_suffix = false;  // PS5 titles named "<game> (Steam)"
     bool controller_connected = true;
     ControllerState controller;
     bool persistence_available = true;

@@ -283,11 +283,21 @@ void Controller::TickCloud() {
 // Play request; this thread, the application thread, then starts the title.
 void Controller::TickRuntime() {
   if (!runtime_) return;
+  {
+    // The name each installed game's PS5 title should carry.
+    std::map<std::uint32_t, std::string> names;
+    for (const auto& [id, root] : game_roots_)
+      for (const auto& game : model_.state().games)
+        if (game.id == id && !game.title.empty())
+          names[id] = model_.state().title_store_suffix ? game.title + " (Steam)" : game.title;
+    runtime_->SetTitleNames(std::move(names));
+  }
   for (const auto id : model_.TakeRuntimePrepareRequests()) {
     const auto root = game_roots_.find(id);
     if (root == game_roots_.end()) continue;
     std::string name;
     for (const auto& game : model_.state().games) if (game.id == id) name = game.title;
+    if (model_.state().title_store_suffix && !name.empty()) name += " (Steam)";
     runtime_->Prepare({id, root->second, game_volumes_[id], name});
   }
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
@@ -356,7 +366,7 @@ void Controller::TickRuntime() {
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                !record->title_current) {
       game.status = "Update available"; game.can_prepare = usable;
-      game.detail = record->title_id + " was made from an earlier kit";
+      game.detail = "Update gives " + record->title_id + " the current runtime, name and icon";
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                record->admission != "ok") {
       game.status = "Needs repair"; game.can_prepare = usable;

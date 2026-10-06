@@ -167,6 +167,9 @@ class RuntimeHost {
   void CheckActivity(std::uint32_t app_id);
   // Queues removal of the leftover settings requests (rechecked on the worker).
   void CleanUpRequests();
+  // The names each game's PS5 title should carry. A Ready title whose installed
+  // name differs reports an update, and Prepare applies the new name.
+  void SetTitleNames(std::map<std::uint32_t, std::string> names);
   // Queues Play of a Ready game.
   void Play(std::uint32_t app_id);
   // Application thread only: starts the title of a prepared launch session.
@@ -185,6 +188,8 @@ class RuntimeHost {
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);
   void RunPlay(Composition& composition, std::uint32_t app_id);
+  std::optional<std::string> InstalledTitleName(const runtime::RuntimeInstall& record) const;
+  bool TitleNameCurrent(const runtime::RuntimeInstall& record) const;
   // Writes the game's own title name (and icon) for its PS5 title.
   runtime::PackageActionResult WriteTitleMetadata(Composition& composition, const runtime::RuntimeInstall& record,
                                                   const std::string& title_name);
@@ -206,6 +211,8 @@ class RuntimeHost {
   std::vector<std::uint32_t> activity_requests_;
   bool launch_poll_ = false;
   bool cleanup_requested_ = false;
+  std::map<std::uint32_t, std::string> title_names_;  // guarded by mutex_
+  bool title_names_changed_ = false;
   // Guards the worker's launch service and preflight cache for Handoff.
   std::mutex launch_mutex_;
   runtime::LaunchService* launch_ = nullptr;

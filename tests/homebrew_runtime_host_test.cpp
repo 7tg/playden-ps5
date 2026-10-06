@@ -499,6 +499,18 @@ void RepairsBottleRegistryModes() {
   CHECK(Read(title_param).find("Half-Life") != std::string::npos);
   CHECK(Read(fixture.root / "data/homebrew/FAKE78001/sce_sys/icon0.png") == "game-icon-png");
   CHECK(fixture.registry_mutations == 2);
+  // Asking for the store name in titles makes the title out of date; Update
+  // renames it, still without registering again.
+  upgraded.SetTitleNames({{220, "Half-Life \"2\" (Steam)"}});
+  WaitFor(upgraded, [](const RuntimeSnapshot& s) { return !s.installs.empty() && !s.installs[0].title_current; }, 10);
+  auto suffixed = Hl2();
+  suffixed.title_name = "Half-Life \"2\" (Steam)";
+  upgraded.Prepare(suffixed);
+  WaitFor(upgraded, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].title_current;
+  }, 60);
+  CHECK(Read(title_param).find(R"(Half-Life \"2\" (Steam))") != std::string::npos);
+  CHECK(fixture.registry_mutations == 2);
   upgraded.Shutdown();
 }
 

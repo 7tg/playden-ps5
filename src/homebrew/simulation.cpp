@@ -943,7 +943,7 @@ playden::OrganizationSnapshot Simulation::ExportOrganization() const {
 }
 
 playden::Preferences Simulation::ExportPreferences() const {
-    return {state_.reduced_motion};
+    return {state_.reduced_motion, state_.title_store_suffix};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -1165,6 +1165,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
                                loaded.status == playden::PreferencesLoadStatus::kDefaultReadError;
     if (preferences_load_may_apply_ && preferences_revision_ == token.baseline_revision) {
         state_.reduced_motion = loaded.preferences.reduce_motion;
+        state_.title_store_suffix = loaded.preferences.title_store_suffix;
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
     }
@@ -1238,7 +1239,8 @@ bool Simulation::record_live_persistence() {
     const bool organization_changed = force_organization_reset_ || force_organization_selection_ ||
                                       !(after_organization == captured_organization_);
     const bool preferences_changed = force_preferences_reset_ ||
-                                     after_preferences.reduce_motion != captured_preferences_.reduce_motion;
+                                     (after_preferences.reduce_motion != captured_preferences_.reduce_motion ||
+                                      after_preferences.title_store_suffix != captured_preferences_.title_store_suffix);
 
     if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
         apply_organization_snapshot(captured_organization_);
@@ -1256,6 +1258,7 @@ bool Simulation::record_live_persistence() {
                 bytes > kOrganizationJournalBytes - std::min(organization_journal_bytes_, kOrganizationJournalBytes)) {
                 apply_organization_snapshot(captured_organization_);
                 state_.reduced_motion = captured_preferences_.reduce_motion;
+                state_.title_store_suffix = captured_preferences_.title_store_suffix;
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
                 force_organization_selection_ = false;
@@ -2292,6 +2295,11 @@ void Simulation::rebuild_view() {
         auto& runtime = add("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
         runtime.value = state_.runtime == RuntimeState::Ready ? (live() ? "Ready" : "Ready — simulated") : state_.runtime == RuntimeState::Checking ? (live() ? "Checking" : "Checking — simulated") : state_.runtime == RuntimeState::Failed ? (live() ? "Failed" : "Failed — simulated") : (live() ? "Unavailable" : "Unavailable — simulated");
         if (live()) { runtime.subtitle = "Games run through prospero-win"; runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false; }
+        if (live()) {
+            auto& suffix = add("settings-title-store", RowKind::Toggle, "Store name in PS5 titles", "toggle-title-store");
+            suffix.selected = state_.title_store_suffix;
+            suffix.subtitle = "Name game titles like \"Half-Life 2 (Steam)\". Prepared games change with their next Update.";
+        }
         if (live() && state_.runtime_leftover_requests > 0) {
             // Explicit recovery: settings requests no game is using any more.
             auto& leftovers = add("settings-runtime-cleanup", RowKind::Action, "Unused game settings data", "runtime-cleanup");
@@ -3157,6 +3165,7 @@ void Simulation::activate() {
         open_modal({"confirmation", "Delete collection? Games stay in your library.", action_name, {"cancel", "confirm-destructive"}, 0, true});
     }
     else if (action_name == "toggle-motion") { state_.reduced_motion = !state_.reduced_motion; save_profile(); }
+    else if (action_name == "toggle-title-store") { state_.title_store_suffix = !state_.title_store_suffix; save_profile(); }
     else if (action_name == "launch") { state_.session_game_id = state_.navigation.selected_game_id; state_.session = SessionState::Preparing; state_.navigation.route = Route::Session; state_.navigation.focus_key = "session-return"; }
     else if (action_name == "runtime-status") open_modal({"runtime", "Runtime unavailable", "details-play", {"runtime-retry", "cancel"}, 0, false});
     else if (action_name == "return-game") state_.session = SessionState::Running;

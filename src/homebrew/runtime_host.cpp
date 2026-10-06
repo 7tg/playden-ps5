@@ -221,6 +221,16 @@ void RuntimeHost::Play(std::uint32_t app_id) {
   wake_.notify_all();
 }
 
+void RuntimeHost::SetTitleNames(std::map<std::uint32_t, std::string> names) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_ || names == title_names_) return;
+    title_names_ = std::move(names);
+    title_names_changed_ = true;
+  }
+  wake_.notify_all();
+}
+
 void RuntimeHost::CheckActivity(std::uint32_t app_id) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -322,7 +332,7 @@ void RuntimeHost::PublishInstalls(const Composition& composition) {
     if (record.last_failure) view.failure = record.last_failure->message;
     if (record.state == rt::PreparationState::kReady && composition.kit)
       view.title_current = composition.installer->TitleCurrent(record) &&
-                           composition.installer->TitleMetadataCurrent(record);
+                           composition.installer->TitleMetadataCurrent(record) && TitleNameCurrent(record);
     if (const auto found = composition.admission.find(record.install_id); found != composition.admission.end())
       view.admission = found->second;
     installs.push_back(std::move(view));
@@ -562,6 +572,54 @@ std::string JsonEscaped(const std::string& text) {
 }
 }  // namespace
 
+namespace {
+// The "titleName" value of a param.json, or nothing.
+std::optional<std::string> TitleNameOf(const std::string& param) {
+  static constexpr std::string_view key = "\"titleName\"";
+  const auto at = param.find(key);
+  if (at == std::string::npos) return std::nullopt;
+  auto cursor = param.find_first_not_of(" \t\r\n", at + key.size());
+  if (cursor == std::string::npos || param[cursor] != ':') return std::nullopt;
+  cursor = param.find_first_not_of(" \t\r\n", cursor + 1);
+  if (cursor == std::string::npos || param[cursor] != '"') return std::nullopt;
+  std::string value;
+  for (auto i = cursor + 1; i < param.size(); ++i) {
+    if (param[i] == '"') return value;
+    if (param[i] == '\\' && i + 1 < param.size()) ++i;
+    value += param[i];
+  }
+  return std::nullopt;
+}
+}  // namespace
+
+std::optional<std::string> RuntimeHost::InstalledTitleName(const rt::RuntimeInstall& record) const {
+  if (record.data_root.empty()) return std::nullopt;
+  const auto root = config_.host_namespace_prefix.empty()
+      ? std::filesystem::path(record.data_root)
+      : config_.host_namespace_prefix / std::filesystem::path(record.data_root).relative_path();
+  const auto path = root / "title-metadata/sce_sys/param.json";
+  const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return std::nullopt;
+  std::string bytes;
+  char chunk[4096];
+  for (ssize_t count; (count = read(fd, chunk, sizeof(chunk))) > 0 && bytes.size() < 64 * 1024;)
+    bytes.append(chunk, static_cast<std::size_t>(count));
+  close(fd);
+  return TitleNameOf(bytes);
+}
+
+bool RuntimeHost::TitleNameCurrent(const rt::RuntimeInstall& record) const {
+  std::string wanted;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = title_names_.find(record.app_id);
+    if (found == title_names_.end() || found->second.empty()) return true;  // nothing asked for
+    wanted = found->second;
+  }
+  const auto installed = InstalledTitleName(record);
+  return installed && *installed == wanted;
+}
+
 rt::PackageActionResult RuntimeHost::WriteTitleMetadata(Composition& c, const rt::RuntimeInstall& record,
                                                        const std::string& title_name) {
   const auto failed = [](std::string message) {
@@ -641,7 +699,8 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         return "Close the game before updating or repairing its PS5 title.";
       bool changed = false;
       // Older titles carry the kit's generic name and icon: give them the game's.
-      const bool metadata_current = c.installer->TitleMetadataCurrent(*existing);
+      const bool metadata_current = c.installer->TitleMetadataCurrent(*existing) &&
+                                    (request.title_name.empty() || InstalledTitleName(*existing) == request.title_name);
       if (!metadata_current) {
         const auto written = WriteTitleMetadata(c, *existing, request.title_name);
         if (written.state != rt::PackageActionState::kComplete) return written.message;
@@ -883,13 +942,14 @@ void RuntimeHost::Run() {
     bool poll = false;
     bool cleanup = false;
     std::vector<std::uint32_t> checks;
+    bool names_changed = false;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       // Preparation changes install records that Handoff reads on the
       // application thread, so it waits while a handoff is pending.
       const auto ready = [this] {
         return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty() ||
-               cleanup_requested_ || !activity_requests_.empty();
+               cleanup_requested_ || !activity_requests_.empty() || title_names_changed_;
       };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
@@ -900,7 +960,10 @@ void RuntimeHost::Run() {
       cleanup = cleanup_requested_;
       cleanup_requested_ = false;
       checks.swap(activity_requests_);
+      names_changed = title_names_changed_;
+      title_names_changed_ = false;
     }
+    if (names_changed && composition) PublishInstalls(*composition);
     for (const auto app : checks) {
       // Unknown unless the console says otherwise; no runtime means unknown too.
       auto activity = rt::NativeActivity::kUnknown;
