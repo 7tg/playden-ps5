@@ -128,19 +128,42 @@ PackageActionResult PublishSettingsOperation(const SettingsPublicationOperation&
   auto stopped = [&] { return held() && deps.activity(o.install) == NativeActivity::kStopped; };
   auto checkpoint = [&](PublicationStep step) { return (!deps.after_step || deps.after_step(step)) && held(); };
   if (!stopped()) return Failure("publication-not-stopped", "Native activity changed before publisher effects.");
-  auto result = deps.block_owner(o);
-  if (!Complete(result)) return result;
-  if (!checkpoint(PublicationStep::kOwnerBlocked))
-    return Failure("publication-interrupted", "OWNER persistence requires fresh recovery.");
   auto journal = LoadSettingsPublicationOperation(control);
-  const bool fresh = journal.state == PublicationRecoveryState::kAbsent;
+  bool fresh = journal.state == PublicationRecoveryState::kAbsent;
+  PackageActionResult result;
   if (!fresh) {
     if (journal.state != PublicationRecoveryState::kValid || !journal.operation)
       return Failure("publication-journal", "Operation recovery is corrupt or unavailable.");
     auto recovered = EncodeSettingsPublicationOperation(*journal.operation, &reason);
-    if (!recovered || *recovered != *encoded)
-      return Failure("publication-drift", "A different frozen operation must be reconciled first.");
+    if (!recovered) return Failure("publication-journal", "Operation recovery is invalid.");
+    if (*recovered != *encoded) {
+      const auto& previous = *journal.operation;
+      if (!deps.authorize_retirement || o.previous_receipt_bytes != previous.committed_receipt_bytes ||
+          o.previous_metadata_bytes != previous.metadata_bytes || o.previous_revision != previous.plan.settings_revision ||
+          o.transaction_id == previous.transaction_id)
+        return Failure("publication-drift", "A different frozen operation must be reconciled first.");
+      result = deps.authorize_retirement(previous, o); if (!Complete(result)) return result;
+      const auto profile_root = previous.install.data_root + "/library/profiles/";
+      PublicationPaths previous_paths{
+        Map(deps.host_namespace_prefix, profile_root + previous.plan.profile_id + ".profile"),
+        Map(deps.host_namespace_prefix, profile_root + "profiles.lst"),
+        Map(deps.host_namespace_prefix, previous.install.data_root + "/library/input"),
+        Map(deps.host_namespace_prefix, "/data/homebrew/" + previous.install.title_id + "/game-launch.json"),
+        Map(deps.host_namespace_prefix, profile_root + ".playden-publication")};
+      result = deps.verify_files(previous, previous_paths, lease->fd(), true); if (!Complete(result)) return result;
+      result = deps.authorize_retirement(previous, o); if (!Complete(result)) return result;
+      if (!stopped()) return Failure("publication-not-stopped", "Native activity changed before journal archival.");
+      if (!ArchiveSettingsPublicationOperation(control, previous).ok() || !held())
+        return Failure("publication-archive", "Previous journal archival requires fresh recovery.");
+      fresh = true;
+      if (!checkpoint(PublicationStep::kPreviousArchived))
+        return Failure("publication-interrupted", "Previous journal archival requires fresh recovery.");
+    }
   }
+  result = deps.block_owner(o);
+  if (!Complete(result)) return result;
+  if (!checkpoint(PublicationStep::kOwnerBlocked))
+    return Failure("publication-interrupted", "OWNER persistence requires fresh recovery.");
   auto receipt = ReadReceipt(control, *directory);
   if (!receipt.ok) return Failure("publication-receipt", "Publication receipt is corrupt or unavailable.");
   bool committed = !receipt.absent && receipt.bytes == o.committed_receipt_bytes;

@@ -108,6 +108,20 @@ PackageActionResult SettingsPublicationOwner::Reconcile(const SettingsPublicatio
   record->journal.reset(); record->last_failure.reset();
   return Persist(*record);
 }
+PackageActionResult SettingsPublicationOwner::AuthorizeRetirement(const SettingsPublicationOperation& previous,
+    const SettingsPublicationOperation& next) {
+  auto record = records_.Find(previous.install.install_id);
+  if (!record || !SameOwner(*record, previous.install) || !SameOwner(*record, next.install) ||
+      record->state != PreparationState::kReady || record->journal || record->last_failure ||
+      record->settings_revision != previous.plan.settings_revision ||
+      native_.Activity(record->title_id) != NativeActivity::kStopped ||
+      !OwnedPackage(package_.Inspect(previous.install)) || !OwnedPackage(package_.Inspect(next.install)))
+    return Failure("publication-retirement-owner", "Previous operation lacks a coherent durable Ready OWNER record.");
+  auto status = native_.Query(previous.install);
+  if (!status.available || !status.installed || status.collision || !status.source_available || !status.owned_manifest_matches)
+    return Failure("publication-retirement-owner", "Previous operation lacks the existing coherent native registration.");
+  return {PackageActionState::kComplete, {}, {}};
+}
 PublicationDependencies SettingsPublicationOwner::Dependencies(const std::filesystem::path& prefix) {
   PublicationDependencies deps; deps.host_namespace_prefix = prefix;
   deps.activity = [this](const RuntimeInstall& r) { return native_.Activity(r.title_id); };
@@ -118,6 +132,7 @@ PublicationDependencies SettingsPublicationOwner::Dependencies(const std::filesy
     return VerifySettingsPublicationFiles(o, paths, fd, committed, prefix);
   };
   deps.reconcile_committed = [this](const auto& o) { return Reconcile(o); };
+  deps.authorize_retirement = [this](const auto& previous, const auto& next) { return AuthorizeRetirement(previous, next); };
   return deps;
 }
 }  // namespace playden::runtime

@@ -571,3 +571,29 @@ Real native/package service acceptance, producer/frozen operation creation,
 orphan OWNER intent recovery before journal creation, completed-journal
 retirement, explicit uncertain-registration recovery, installer/UI routing,
 final link/review and PS5 fault acceptance remain unfinished.
+
+
+### Task C completed-journal retirement
+
+A new operation can now archive the active completed journal after exact prior
+receipt/metadata/revision linkage, shared native verification and durable Ready,
+immutable ownership and native registration authorization under the publisher
+lease. Archival is exclusive, individually durable, exact-readback verified and
+retains backups. It precedes blocking the next OWNER intent, so interruption at
+that boundary preserves the previous Ready state. Foreign/corrupt destinations
+are refused; process exit after rename recovers through the exact archive.
+
+The real OWNER next-operation test no longer manually removes its old journal.
+It covers missing registration, unfinished Ready refusal, archival interruption
+and successful subsequent revision. Storage tests cover collision, permission,
+corruption and process death before directory sync. All 105 host tests, a focused
+2/2 repeat, warning/diff checks and SDK v0.43 archive compilation pass. See
+[retirement evidence](../../../results/20261006-publication-retirement/README.md).
+
+Ruling: archives/backups remain retained historical evidence; a fresh legitimate
+update without an active old journal is authorized by the durable OWNER and
+verified previous complete receipt/metadata, rather than by historical archives.
+No history garbage collection or alternate readiness authority is added.
+Production operation creation/orphan intent recovery, explicit uncertain native
+registration recovery, installer/UI routing, final link/review and PS5 acceptance
+remain unfinished.

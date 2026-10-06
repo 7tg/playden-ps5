@@ -28,7 +28,7 @@ inline void FillProfilePublication(const SettingsLaunchPlan& plan, ProfilePublic
 
 enum class PublicationStep {
   kOwnerBlocked, kJournalDurable, kPendingDurable, kFilesApplied,
-  kPendingVerified, kCommitDurable, kCommitVerified,
+  kPendingVerified, kCommitDurable, kCommitVerified, kPreviousArchived,
 };
 using PublicationFileAction = std::function<PackageActionResult(
     const SettingsPublicationOperation&, const PublicationPaths&, int borrowed_publisher_fd)>;
@@ -50,6 +50,10 @@ struct PublicationDependencies {
   // Reconciles publication with OWNER persistence/registration gates. Initial
   // install still needs registration; no callback may restage the bottle/title.
   std::function<PackageActionResult(const SettingsPublicationOperation&)> reconcile_committed;
+  // Read-only durable Ready/registration authorization for advancing from a
+  // different completed journal. Missing callback refuses retirement.
+  std::function<PackageActionResult(const SettingsPublicationOperation& previous,
+                                   const SettingsPublicationOperation& next)> authorize_retirement;
   // Optional diagnostic fault seam after durable effects. False stops the call;
   // caller must reconstruct/reload. Production leaves this empty.
   std::function<bool(PublicationStep)> after_step;

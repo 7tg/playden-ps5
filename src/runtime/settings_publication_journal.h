@@ -56,4 +56,11 @@ struct PublicationOperationLoad {
 Result<void> CreateSettingsPublicationOperation(
     const std::filesystem::path& control_directory, const SettingsPublicationOperation& operation);
 PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem::path& control_directory);
+// Caller must first verify committed semantics and durable Ready OWNER state
+// under its exclusive lease. Moves the exact journal to a transaction-specific
+// immutable archive without replacing a destination; preserves backups. Retry
+// admits only the exact archived bytes if the active name is already absent.
+// after_rename is a test-only crash seam; production leaves it empty.
+Result<void> ArchiveSettingsPublicationOperation(const std::filesystem::path& control_directory,
+    const SettingsPublicationOperation& operation, const std::function<bool()>& after_rename = {});
 }  // namespace playden::runtime

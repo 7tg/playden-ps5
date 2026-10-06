@@ -348,11 +348,11 @@ PublicationOperationLoad CheckBackup(const std::filesystem::path& control, Setti
   return {PublicationRecoveryState::kValid, std::move(operation), {}};
 }
 }
-PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem::path& control) {
+static PublicationOperationLoad LoadOperationFile(const std::filesystem::path& control, const std::string& filename) {
   auto directory = platform::ManagedDirectory::Open(control, platform::DirectoryPolicy::kPrivate);
   if (!directory) return LoadFailure(PublicationRecoveryState::kUnavailable, "Private operation control directory is unavailable.");
   struct stat before{}, after{};
-  if (!directory->InspectChild(kOperationName, &before)) {
+  if (!directory->InspectChild(filename, &before)) {
     const int error = errno;
     return LoadFailure(error == ENOENT ? PublicationRecoveryState::kAbsent :
         error == EINVAL || error == ELOOP ? PublicationRecoveryState::kCorrupt : PublicationRecoveryState::kUnavailable,
@@ -362,14 +362,46 @@ PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem:
       (before.st_mode & 07777) != 0600 || before.st_size <= 0 ||
       static_cast<std::uint64_t>(before.st_size) > kMaxSettingsPublicationOperationBytes)
     return LoadFailure(PublicationRecoveryState::kCorrupt, "Operation journal is not an exact private bounded file.");
-  Storage storage(control.string()); auto bytes = storage.ReadDurable(kOperationName, kMaxSettingsPublicationOperationBytes);
+  Storage storage(control.string()); auto bytes = storage.ReadDurable(filename, kMaxSettingsPublicationOperationBytes);
   if (!bytes.ok()) return LoadFailure(PublicationRecoveryState::kUnavailable, bytes.message());
-  if (!directory->InspectChild(kOperationName, &after) || before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
+  if (!directory->InspectChild(filename, &after) || before.st_dev != after.st_dev || before.st_ino != after.st_ino ||
       before.st_mode != after.st_mode || before.st_uid != after.st_uid || before.st_nlink != after.st_nlink || before.st_size != after.st_size)
     return LoadFailure(PublicationRecoveryState::kUnavailable, "Operation identity or permissions changed while loading.");
   std::string reason; auto operation = DecodeSettingsPublicationOperation(bytes.value(), &reason);
   if (!operation) return LoadFailure(PublicationRecoveryState::kCorrupt, std::move(reason));
   return CheckBackup(control, std::move(*operation));
+}
+PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem::path& control) {
+  return LoadOperationFile(control, kOperationName);
+}
+Result<void> ArchiveSettingsPublicationOperation(const std::filesystem::path& control,
+    const SettingsPublicationOperation& operation, const std::function<bool()>& after_rename) {
+  std::string reason; auto expected = EncodeSettingsPublicationOperation(operation, &reason);
+  if (!expected) return Result<void>::Failure(StorageError::kInvalidData, reason);
+  const auto name = "settings-operation-" + operation.transaction_id + ".v1";
+  auto directory = platform::ManagedDirectory::Open(control, platform::DirectoryPolicy::kPrivate);
+  if (!directory) return Result<void>::Failure(StorageError::kOpenFailed, "Private archive directory is unavailable.");
+  auto exact = [&](const PublicationOperationLoad& load) {
+    auto bytes = load.operation ? EncodeSettingsPublicationOperation(*load.operation, &reason) : std::nullopt;
+    return load.state == PublicationRecoveryState::kValid && bytes && *bytes == *expected;
+  };
+  auto active = LoadSettingsPublicationOperation(control);
+  if (active.state == PublicationRecoveryState::kAbsent) {
+    if (!exact(LoadOperationFile(control, name)) || !directory->Sync())
+      return Result<void>::Failure(StorageError::kInvalidData, "Missing active journal has no exact durable archive.");
+    return Result<void>::Success();
+  }
+  if (!exact(active)) return Result<void>::Failure(StorageError::kInvalidData, "Active journal is corrupt, unavailable or belongs to another operation.");
+  struct stat existing{};
+  if (directory->InspectChild(name, &existing) || errno != ENOENT)
+    return Result<void>::Failure(StorageError::kOpenFailed, "Archive destination already exists or is unsafe.");
+  if (!directory->RenameChild(kOperationName, *directory, name, false))
+    return Result<void>::Failure(StorageError::kRenameFailed, "Journal archival failed; effects require fresh recovery.");
+  if ((after_rename && !after_rename()) || !directory->Sync() || !exact(LoadOperationFile(control, name)))
+    return Result<void>::Failure(StorageError::kSyncFailed, "Journal archival durability requires fresh recovery.");
+  if (LoadSettingsPublicationOperation(control).state != PublicationRecoveryState::kAbsent || !directory->Sync())
+    return Result<void>::Failure(StorageError::kInvalidData, "Active journal absence could not be verified after archival.");
+  return Result<void>::Success();
 }
 Result<void> CreateSettingsPublicationOperation(const std::filesystem::path& control, const SettingsPublicationOperation& operation) {
   std::string reason; auto encoded = EncodeSettingsPublicationOperation(operation, &reason);

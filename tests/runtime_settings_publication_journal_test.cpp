@@ -162,6 +162,35 @@ int main() {
     CHECK(lstat(entry.path().c_str(), &info) == 0 && S_ISREG(info.st_mode) && (info.st_mode & 07777) == 0600);
   }
   CHECK(partial);
+  // Storage primitive only: commit/Ready authorization is independently tested
+  // by the coordinator/OWNER suite. Never overwrite an archive destination.
+  for (unsigned scenario = 0; scenario < 3; ++scenario) {
+    const auto archive_root = root / ("archive-case-" + std::to_string(scenario));
+    fs::create_directory(archive_root); CHECK(chmod(archive_root.c_str(), 0700) == 0);
+    CHECK(CreateSettingsPublicationOperation(archive_root, *frozen).ok());
+    const auto archive = archive_root / ("settings-operation-" + frozen->transaction_id + ".v1");
+    if (scenario == 0) {
+      std::ofstream(archive) << "foreign"; CHECK(chmod(archive.c_str(), 0600) == 0);
+      CHECK(!ArchiveSettingsPublicationOperation(archive_root, *frozen).ok());
+      CHECK(LoadSettingsPublicationOperation(archive_root).state == PublicationRecoveryState::kValid);
+      std::ifstream file(archive); std::string bytes{std::istreambuf_iterator<char>(file), {}}; CHECK(bytes == "foreign");
+    } else {
+      if (scenario == 1) {
+        const auto publisher = fork(); CHECK(publisher >= 0);
+        if (publisher == 0) {
+          ArchiveSettingsPublicationOperation(archive_root, *frozen, [] { _exit(77); return false; }); _exit(78);
+        }
+        int exit_status = 0; CHECK(waitpid(publisher, &exit_status, 0) == publisher && WIFEXITED(exit_status) && WEXITSTATUS(exit_status) == 77);
+      }
+      CHECK(ArchiveSettingsPublicationOperation(archive_root, *frozen).ok());
+      CHECK(ArchiveSettingsPublicationOperation(archive_root, *frozen).ok());
+      CHECK(LoadSettingsPublicationOperation(archive_root).state == PublicationRecoveryState::kAbsent);
+      struct stat info{}; CHECK(lstat(archive.c_str(), &info) == 0 && info.st_nlink == 1 && (info.st_mode & 07777) == 0600);
+      CHECK(chmod(archive.c_str(), 0644) == 0); CHECK(!ArchiveSettingsPublicationOperation(archive_root, *frozen).ok());
+      CHECK(chmod(archive.c_str(), 0600) == 0);
+      std::ofstream(archive, std::ios::binary) << "corrupt"; CHECK(!ArchiveSettingsPublicationOperation(archive_root, *frozen).ok());
+    }
+  }
   fs::remove_all(root);
   std::puts("settings publication operation tests passed");
 }

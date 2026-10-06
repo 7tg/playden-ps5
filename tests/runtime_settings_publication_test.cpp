@@ -526,6 +526,13 @@ int main() {
     RuntimeInstallRepository reload(storage, "installs.json", availability); CHECK(reload.Load().ok());
     auto blocked = reload.Find(t.operation.install.install_id); CHECK(blocked && blocked->state == PreparationState::kRegistering);
     CHECK(blocked->journal && blocked->journal->operation_id == t.operation.transaction_id && blocked->journal->step == "await-native");
+    auto premature = Fixture(); premature.transaction_id = "00000000-0000-7000-8000-000000000003";
+    premature.previous_revision = 7; premature.install.settings_revision = premature.plan.settings_revision = 8;
+    premature.previous_receipt_bytes = t.operation.committed_receipt_bytes; premature.previous_metadata_bytes = t.operation.metadata_bytes;
+    Refresh(premature); std::string premature_reason; auto premature_frozen = FreezeSettingsPublicationOperation(premature, &premature_reason); CHECK(premature_frozen);
+    CHECK(PublishSettingsOperation(*premature_frozen, t.paths, t.deps).code == "publication-retirement-owner");
+    CHECK(applies == 1 && native.registrations == 1);
+    CHECK(LoadSettingsPublicationOperation(t.control).operation->transaction_id == t.operation.transaction_id);
     RepositoryInstallRecordStore resumed_base(reload); RejectReadyStore resumed_records(resumed_base);
     native.records = &resumed_records;
     SettingsPublicationOwner resumed_owner(resumed_records, package, native); t.deps = resumed_owner.Dependencies(t.root);
@@ -544,9 +551,16 @@ int main() {
       source.previous_receipt_bytes = t.operation.committed_receipt_bytes; source.previous_metadata_bytes = t.operation.metadata_bytes;
       source.install.settings_revision = source.plan.settings_revision = 8; Refresh(source);
       std::string reason; auto frozen = FreezeSettingsPublicationOperation(source, &reason); CHECK(frozen);
-      // Test-only next-operation setup; production retirement remains pending.
-      playden::Storage control(t.control.string()); CHECK(control.RemoveDurable("settings-operation.v1").ok());
+      const auto archive = t.control / ("settings-operation-" + t.operation.transaction_id + ".v1");
       t.operation = *frozen; native.status.installed = false;
+      // Missing existing registration blocks retirement before any new effects.
+      CHECK(t.Run().code == "publication-retirement-owner" && native.registrations == 1 && applies == 1);
+      CHECK(!fs::exists(archive)); native.status.installed = true;
+      t.deps.after_step = [](PublicationStep step) { return step != PublicationStep::kPreviousArchived; };
+      CHECK(t.Run().state == PackageActionState::kFailed && fs::exists(archive) && !fs::exists(t.control / "settings-operation.v1"));
+      CHECK(resumed_records.Find(t.operation.install.install_id)->state == PreparationState::kReady);
+      t.deps.after_step = {};
+      native.status.installed = false;
       CHECK(t.Run().code == "publication-native-incoherent" && native.registrations == 1 && applies == 2);
       CHECK(resumed_records.Find(t.operation.install.install_id)->state != PreparationState::kReady);
       native.status.installed = true;

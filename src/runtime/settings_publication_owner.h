@@ -12,6 +12,8 @@ class SettingsPublicationOwner {
  private:
   PackageActionResult Block(const SettingsPublicationOperation& operation);
   PackageActionResult Reconcile(const SettingsPublicationOperation& operation);
+  PackageActionResult AuthorizeRetirement(const SettingsPublicationOperation& previous,
+                                         const SettingsPublicationOperation& next);
   PackageActionResult Persist(const RuntimeInstall& record);
   InstallRecordStore& records_;
   PackageInstaller& package_;
