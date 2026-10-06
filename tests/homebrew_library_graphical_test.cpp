@@ -96,6 +96,34 @@ int main(int argc,char** argv) {
     if(model.state().navigation.library_rail_focused) assert(model.action("right"));
     assert(model.action("cross") && model.state().navigation.route==Route::Details);
     capture("details.png");
+    {
+      // An installed, prepared game: Play is the same height as the other actions,
+      // in either state, and the uninstall dialog's choice fits its button.
+      Simulation live({}, {}, ModelMode::Live);
+      live.SetWallClock(1700000000);
+      live.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
+      assert(live.UpdateLibrary({backend.games,false,{},false,false,{}}));
+      live.UpdateAppDetails(42, 300'000'000, 600'000'000, true);
+      live.UpdateInstalls({}, {{42, 600'000'000}});
+      LiveRuntimeGame ready; ready.game_id=42; ready.status="Ready"; ready.ready=true; ready.can_play=true; ready.has_title=true;
+      live.UpdateRuntime(RuntimeState::Ready, {ready});
+      assert(live.action("details:42"));
+      auto capture_live=[&](const char* name) {
+        for(int i=0;i<16;++i) renderer.draw(live,1920,1080);
+        assert(renderer.capture_png(output/name,1920,1080));
+      };
+      capture_live("details-play.png");
+      ready.can_play=false; ready.play_status="Starting…";
+      live.UpdateRuntime(RuntimeState::Ready, {ready});
+      capture_live("details-play-disabled.png");
+      ready.can_play=true; ready.play_status.clear();
+      live.UpdateRuntime(RuntimeState::Ready, {ready});
+      assert(live.action("focus:details-more") && live.action("cross"));
+      assert(live.action("focus:uninstall") && live.action("cross"));
+      capture_live("uninstall-dialog.png");
+      assert(live.action("focus:uninstall-delete-saves") && live.action("cross"));
+      capture_live("uninstall-dialog-delete-saves.png");
+    }
     model.UpdateAccount({AuthState::Offline,"123","Synthetic account",{},{},true});
     controller.Activate(123,true);settle();
     assert(model.state().games.size()==3 && model.state().library_offline);

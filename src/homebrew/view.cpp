@@ -1940,30 +1940,29 @@ class Render::Impl
                           kText, 2);
         }
 
-        // Actions in a row; Install, Play or a running download is the primary one.
+        // Actions in a row, all one size; Install, Play or a running download is the primary
+        // one, filled with the accent whatever its state.
         float x = kSafeX;
         for (const ViewRow &row : view.rows)
         {
             if (row.kind != RowKind::Action && row.kind != RowKind::Toggle)
                 continue;
-            const bool primary = row.enabled && (row.key == "details-install" || row.key == "details-play" ||
-                                                 row.key == "details-download");
+            const bool primary = row.key == "details-install" || row.key == "details-play" ||
+                                 row.key == "details-download";
             const bool favorite = row.key == "details-favorite";
             const std::string label = favorite ? (row.selected ? "Favorited" : "Favorite") : row.title;
             const std::string detail = row.key == "details-download" && row.progress > 0.0F ?
                 std::to_string(static_cast<int>(row.progress * 100.0F)) + "%" : row.value;
-            const float size = primary ? 38.0F : 26.0F;
-            const float width = fonts_.display.measure(label, size) +
-                                (detail.empty() ? 0.0F : fonts_.semibold.measure(detail, 22.0F) + 18.0F) +
-                                (primary ? 88.0F : 44.0F);
-            const float height = primary ? 84.0F : 60.0F;
+            const float width = fonts_.display.measure(label, 26.0F) +
+                                (detail.empty() ? 0.0F : fonts_.semibold.measure(detail, 22.0F) + 18.0F) + 56.0F;
+            const float height = 60.0F;
             const bool focused = view.focused_row >= 0 && static_cast<std::size_t>(view.focused_row) < view.rows.size() &&
                                  view.rows[static_cast<std::size_t>(view.focused_row)].key == row.key;
             if (focused && route_focus_)
                 stats_.focused_control_key = row.key;
             const float amount = control_focus(row.key, focused && route_focus_);
             mac_button(scene_, {x, 682.0F - height * 0.5F, width, height}, label, primary, amount, !row.enabled,
-                       detail, primary);
+                       detail);
             if (favorite && row.selected)
                 scene_.circle(x + width - 12.0F, 682.0F - height * 0.5F + 12.0F, 4.0F, kAccent);
             x += width + 14.0F;
@@ -2263,7 +2262,8 @@ class Render::Impl
     void draw_modal_overlay(const ModalEntry &modal, const ViewData &view)
     {
         overlay_.rounded_rect({0.0F, 0.0F, kWidth, kHeight}, 0.0F, gfx::Color::rgb(0x000000, 0.72F));
-        const float width = modal.destructive ? 820.0F : 960.0F;
+        // Three buttons need the wide panel or their labels are cut.
+        const float width = modal.destructive && view.rows.size() < 3 ? 820.0F : 960.0F;
         const gfx::Rect panel{(kWidth - width) * 0.5F, 254.0F, width, 500.0F};
         overlay_.shadow(panel, 16.0F, 40.0F, gfx::Color::rgb(0x000000, 0.65F));
         overlay_.rounded_rect(panel, 16.0F, kPanel);
@@ -2291,9 +2291,12 @@ class Render::Impl
             }
             const gfx::Rect button{panel.x + 48.0F + index * (button_width + 16.0F), panel.y + 388.0F,
                                    button_width, 68.0F};
+            // A choice in the dialog (Delete saves too) says whether it is on.
+            const bool toggle = view.rows[index].kind == RowKind::Toggle;
             mac_button(overlay_, button, label, view.rows[index].dangerous,
                        control_focus("modal-" + view.rows[index].key, static_cast<int>(index) == view.focused_row),
-                       !view.rows[index].enabled, {}, false, kPanel);
+                       !view.rows[index].enabled, toggle ? (view.rows[index].selected ? "On" : "Off") : "", false,
+                       kPanel);
         }
     }
 
