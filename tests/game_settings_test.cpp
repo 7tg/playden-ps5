@@ -398,6 +398,7 @@ int main(int argc, char** argv) {
                     ("playden-apply-" + std::to_string(::getpid()));
   std::filesystem::remove_all(root);
   std::filesystem::create_directories(root / "game");
+  std::filesystem::permissions(root, std::filesystem::perms::owner_all);
   const ProfileTarget apply_target{"playden-steam-220", (root / "game").string()};
   const auto prospero = (root / "prospero").string();
   CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "30"}}, dxvk_kit, &settings, &error));
@@ -452,6 +453,7 @@ int main(int argc, char** argv) {
   // An oversized registry file is rejected before backup or replacement.
   const auto prefix = root / "prefix";
   std::filesystem::create_directory(prefix);
+  std::filesystem::permissions(prefix, std::filesystem::perms::owner_all);
   std::string oversized_registry = "WINE REGISTRY Version 2\n#";
   oversized_registry.resize(32u * 1024 * 1024 + 1, 'x');
   std::ofstream(prefix / "user.reg", std::ios::binary) << oversized_registry;
@@ -514,6 +516,7 @@ int main(int argc, char** argv) {
   std::filesystem::remove_all(plan_root);
   std::filesystem::create_directories(plan_root / "game");
   std::filesystem::create_directories(plan_root / "prefix");
+  std::filesystem::permissions(plan_root / "prefix", std::filesystem::perms::owner_all);
   { std::ofstream(plan_root / "game" / "hl2.exe") << "MZ"; }
   const std::string bottle_reg = "WINE REGISTRY Version 2\n\n[Control Panel\\\\Desktop] 1\n\"CaretWidth\"=dword:00000001\n";
   { std::ofstream(plan_root / "prefix" / "user.reg") << bottle_reg; }
@@ -565,13 +568,15 @@ int main(int argc, char** argv) {
   // ApplySettingsFiles writes dxvk.conf and, with bottle access, the registry with a backup.
   launch_input.kit = KitCapabilitiesFromManifest({kKitDxvkConfig}, true);
   CHECK(BuildSettingsLaunchPlan(launch_input, &plan, &reason) && plan.registry.size() == 2);  // version, and 100% text scale (removes)
-  CHECK(::chmod((plan_root / "prefix/user.reg").c_str(), 0600) == 0);
+  CHECK(::chmod((plan_root / "prefix/user.reg").c_str(), 0644) == 0);  // legacy owned file
   CHECK(ApplySettingsFiles(plan, (plan_root / "game").string(), (plan_root / "prefix").string(), 1791300000, &reason));
   CHECK(ReadText(plan_root / "game" / "dxvk.conf") == plan.dxvk_config);
   CHECK(ReadText(plan_root / "prefix" / "user.reg").find("[Software\\\\Wine\\\\AppDefaults\\\\hl2.exe] 1791300000\n\"Version\"=\"win7\"\n") !=
         std::string::npos);
   CHECK(ReadText(plan_root / "prefix" / "user.reg.playden-backup") == bottle_reg);
-  struct stat registry_backup_mode {};
+  struct stat registry_mode {}, registry_backup_mode {};
+  CHECK(::stat((plan_root / "prefix/user.reg").c_str(), &registry_mode) == 0);
+  CHECK((registry_mode.st_mode & 0777) == 0600);
   CHECK(::stat((plan_root / "prefix/user.reg.playden-backup").c_str(), &registry_backup_mode) == 0);
   CHECK((registry_backup_mode.st_mode & 0777) == 0600);
   // The apply consumes a value snapshot, even after recipes reload/change.

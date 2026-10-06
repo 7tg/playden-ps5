@@ -1,6 +1,7 @@
 #include "runtime/game_settings.h"
 
 #include "homebrew/json.hpp"
+#include "platform/managed_directory.h"
 #include "steam/backend/app_info.h"
 #include "steam/backend/json.h"
 
@@ -25,6 +26,8 @@ namespace {
 
 namespace json = homebrew::json;
 namespace storage_json = steam::json;
+using platform::DirectoryPolicy;
+using platform::ManagedDirectory;
 
 SettingDefinition Choice(std::string id, std::string label, std::string effect, std::string also_called,
                          SettingTier tier, std::vector<SettingChoice> choices, std::string playden_default,
@@ -735,66 +738,64 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record) {
 namespace {
 
 bool ReadSmallFile(const std::string& path, std::string* text) {
-  FILE* file = std::fopen(path.c_str(), "rb");
-  if (!file) return false;
+  const std::filesystem::path value(path);
+  auto directory = ManagedDirectory::Open(value.parent_path(), DirectoryPolicy::kApprovedTree);
+  if (!directory) return false;
+  const int file = directory->OpenRegularFile(value.filename().string());
+  if (file < 0) return false;
+  struct stat before {}, after {};
+  if (::fstat(file, &before) != 0) { ::close(file); return false; }
   text->clear();
   char buffer[4096];
-  std::size_t read = 0;
-  while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0 && text->size() < 256 * 1024) text->append(buffer, read);
-  std::fclose(file);
-  return true;
-}
-
-int OpenSafeDirectoryPath(const std::string& path) {
-  if (path.empty()) return -1;
-  const bool absolute = path.front() == '/';
-  int directory = ::open(absolute ? "/" : ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  if (directory < 0) return -1;
-  for (std::size_t start = absolute ? 1 : 0; start < path.size();) {
-    const auto slash = path.find('/', start);
-    const auto component = path.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
-    if (!component.empty()) {
-      if (component == "." || component == "..") { ::close(directory); return -1; }
-      const int next = ::openat(directory, component.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-      ::close(directory);
-      if (next < 0) return -1;
-      directory = next;
+  bool valid = true;
+  while (valid) {
+    const auto count = ::read(file, buffer, sizeof(buffer));
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0 || text->size() + static_cast<std::size_t>(count) > 256u * 1024u) {
+      valid = false;
+      break;
     }
-    if (slash == std::string::npos) break;
-    start = slash + 1;
+    if (!count) break;
+    text->append(buffer, static_cast<std::size_t>(count));
   }
-  return directory;
+  const bool unchanged = ::fstat(file, &after) == 0 &&
+      before.st_dev == after.st_dev && before.st_ino == after.st_ino &&
+      before.st_uid == after.st_uid && before.st_mode == after.st_mode &&
+      before.st_size == after.st_size && before.st_mtime == after.st_mtime &&
+      before.st_ctime == after.st_ctime;
+  return ::close(file) == 0 && valid && unchanged && directory->Validate();
 }
 
-int OpenSafeParent(const std::string& path, std::string* name) {
-  const auto slash = path.rfind('/');
-  *name = slash == std::string::npos ? path : path.substr(slash + 1);
-  if (name->empty() || *name == "." || *name == "..") { errno = EINVAL; return -1; }
-  if (slash == std::string::npos) return ::open(".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  return OpenSafeDirectoryPath(slash == 0 ? "/" : path.substr(0, slash));
+std::optional<ManagedDirectory> OpenSafeParent(const std::string& path,
+                                               DirectoryPolicy policy,
+                                               std::string* name) {
+  const std::filesystem::path value(path);
+  *name = value.filename().string();
+  if (name->empty()) { errno = EINVAL; return std::nullopt; }
+  return ManagedDirectory::Open(value.parent_path(), policy);
 }
 
-int OpenLaunchDirectory(const LaunchEntry& launch, const std::string& install_root) {
+std::optional<ManagedDirectory> OpenLaunchDirectory(const LaunchEntry& launch,
+                                                     const std::string& install_root) {
   const auto executable = steam::RelativeGamePath(launch.executable);
-  if (!executable) return -1;
+  if (!executable) return std::nullopt;
   std::string working;
   if (launch.working_directory.empty()) {
     const auto slash = executable->rfind('/');
     working = slash == std::string::npos ? std::string() : executable->substr(0, slash);
   } else {
     const auto relative = steam::RelativeGamePath(launch.working_directory, true);
-    if (!relative) return -1;
+    if (!relative) return std::nullopt;
     working = *relative;
   }
-  int directory = OpenSafeDirectoryPath(install_root);
-  if (directory < 0) return -1;
+  auto directory = ManagedDirectory::Open(install_root, DirectoryPolicy::kApprovedTree);
+  if (!directory) return std::nullopt;
   for (std::size_t start = 0; start < working.size();) {
     const auto slash = working.find('/', start);
     const auto component = working.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
-    const int next = ::openat(directory, component.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-    ::close(directory);
-    if (next < 0) return -1;
-    directory = next;
+    auto next = directory->OpenChild(component, DirectoryPolicy::kApprovedTree);
+    if (!next) return std::nullopt;
+    directory = std::move(next);
     if (slash == std::string::npos) break;
     start = slash + 1;
   }
@@ -803,12 +804,17 @@ int OpenLaunchDirectory(const LaunchEntry& launch, const std::string& install_ro
 
 enum class RelativeRead { kMissing, kPresent, kError };
 
-RelativeRead ReadRegularAt(int directory, const char* name, std::size_t maximum, std::string* text,
-                           mode_t* mode = nullptr) {
-  const int file = ::openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+RelativeRead ReadRegularAt(const ManagedDirectory& directory, const char* name,
+                           std::size_t maximum, std::string* text,
+                           mode_t* mode = nullptr, bool private_file = false) {
+  const int file = directory.OpenRegularFile(name, private_file);
   if (file < 0) return errno == ENOENT ? RelativeRead::kMissing : RelativeRead::kError;
-  struct stat status {};
-  if (::fstat(file, &status) != 0 || !S_ISREG(status.st_mode)) { ::close(file); return RelativeRead::kError; }
+  struct stat status {}, after {};
+  if (::fstat(file, &status) != 0 || !S_ISREG(status.st_mode) ||
+      (private_file && (status.st_mode & 07777) != 0600 &&
+       (status.st_mode & 07777) != 0644)) {
+    ::close(file); return RelativeRead::kError;
+  }
   if (mode) *mode = status.st_mode & 0777;
   text->clear();
   char buffer[4096];
@@ -822,20 +828,31 @@ RelativeRead ReadRegularAt(int directory, const char* name, std::size_t maximum,
     }
     text->append(buffer, static_cast<std::size_t>(count));
   }
-  if (::close(file) != 0) return RelativeRead::kError;
+  const bool unchanged = ::fstat(file, &after) == 0 &&
+      status.st_dev == after.st_dev && status.st_ino == after.st_ino &&
+      status.st_uid == after.st_uid && status.st_mode == after.st_mode &&
+      status.st_size == after.st_size && status.st_mtime == after.st_mtime &&
+      status.st_ctime == after.st_ctime;
+  if (::close(file) != 0 || !unchanged || !directory.Validate())
+    return RelativeRead::kError;
   return RelativeRead::kPresent;
 }
 
-bool WriteAtomicAt(int directory, const char* name, const std::string& text,
-                   std::optional<mode_t> mode_override = std::nullopt) {
-  mode_t mode = mode_override.value_or(0644);
-  const int existing = ::openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
-  if (existing >= 0) {
-    struct stat status {};
-    const bool ordinary = ::fstat(existing, &status) == 0 && S_ISREG(status.st_mode);
-    const bool closed = ::close(existing) == 0;
-    if (!ordinary || !closed) return false;
-    if (!mode_override) mode = status.st_mode & 0777;
+bool WriteAtomicAt(const ManagedDirectory& directory, const char* name,
+                   const std::string& text, mode_t new_mode,
+                   bool preserve_existing_mode = false,
+                   bool private_file = false,
+                   bool replace_existing = true) {
+  mode_t mode = new_mode;
+  struct stat status {};
+  if (directory.InspectChild(name, &status)) {
+    if (!S_ISREG(status.st_mode)) return false;
+    if (private_file && (status.st_uid != ::geteuid() ||
+        ((status.st_mode & 07777) != 0600 && (status.st_mode & 07777) != 0644))) {
+      errno = EACCES;
+      return false;
+    }
+    if (preserve_existing_mode) mode = status.st_mode & 0777;
   } else if (errno != ENOENT) return false;
   static std::atomic<std::uint64_t> sequence{0};
   const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -845,14 +862,14 @@ bool WriteAtomicAt(int directory, const char* name, const std::string& text,
     const auto serial = sequence.fetch_add(1, std::memory_order_relaxed);
     temporary = std::string(name) + ".playden-tmp-" + std::to_string(static_cast<long long>(::getpid())) + "-" +
                 std::to_string(static_cast<long long>(tick)) + "-" + std::to_string(serial);
-    file = ::openat(directory, temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
+    file = directory.CreateExclusiveFile(temporary, mode);
     if (file >= 0) break;
     if (errno != EEXIST) return false;
   }
   if (file < 0) return false;
   if (::fchmod(file, mode) != 0) {
     ::close(file);
-    ::unlinkat(directory, temporary.c_str(), 0);
+    directory.RemoveRegularFile(temporary);
     return false;
   }
   std::size_t written = 0;
@@ -863,11 +880,45 @@ bool WriteAtomicAt(int directory, const char* name, const std::string& text,
   }
   const bool synced = written == text.size() && ::fsync(file) == 0;
   const bool closed = ::close(file) == 0;
-  if (!synced || !closed || ::renameat(directory, temporary.c_str(), directory, name) != 0) {
-    ::unlinkat(directory, temporary.c_str(), 0);
+  if (!synced || !closed ||
+      !directory.RenameChild(temporary, directory, name, replace_existing)) {
+    directory.RemoveRegularFile(temporary);
     return false;
   }
-  return ::fsync(directory) == 0;
+  return directory.Sync();
+}
+
+bool ParseSettingsFile(std::string_view text,
+                       std::map<std::uint32_t, GameSettingsRecord>* records) {
+  const auto root = storage_json::Parse(text);
+  const auto* version = root ? root->Find("version") : nullptr;
+  const auto* games = root ? root->Find("games") : nullptr;
+  if (!root || !root->is_object() || !version || version->AsUint64() != 1 ||
+      !games || !games->is_object()) return false;
+  records->clear();
+  for (const auto& [key, value] : games->object()) {
+    std::uint32_t app_id = 0;
+    const auto parsed = std::from_chars(key.data(), key.data() + key.size(), app_id);
+    GameSettingsRecord record;
+    if (key.empty() || parsed.ec != std::errc{} ||
+        parsed.ptr != key.data() + key.size() || app_id == 0 ||
+        !RecordFromValue(value, &record)) continue;
+    (*records)[app_id] = std::move(record);
+  }
+  return true;
+}
+
+std::string SerializeSettingsFile(
+    const std::map<std::uint32_t, GameSettingsRecord>& records) {
+  std::string text = "{\"version\":1,\"games\":{";
+  bool first = true;
+  for (const auto& [app_id, record] : records) {
+    if (record.preset_id.empty() && record.overrides.empty() && record.revision == 0) continue;
+    if (!first) text += ",";
+    first = false;
+    text += "\"" + std::to_string(app_id) + "\":" + SerializeGameSettingsRecord(record);
+  }
+  return text + "}}\n";
 }
 
 }  // namespace
@@ -912,34 +963,30 @@ bool ApplyGameSettings(const GameRecipe& recipe, const EffectiveSettings& settin
   if (!settings.launch) return fail("no launch option");
 
   // Check the launch working folder before writing anything, so a refusal leaves both files as they were.
-  const int config_directory = OpenLaunchDirectory(*settings.launch, target.install_root);
-  if (config_directory < 0) return fail("launch working folder is not a safe directory");
+  auto config_directory = OpenLaunchDirectory(*settings.launch, target.install_root);
+  if (!config_directory) return fail("launch working folder is not a safe directory");
   std::string existing;
-  const auto read_config = ReadRegularAt(config_directory, "dxvk.conf", 256u * 1024u, &existing);
+  const auto read_config = ReadRegularAt(*config_directory, "dxvk.conf", 256u * 1024u, &existing);
   if (read_config == RelativeRead::kError) {
-    ::close(config_directory);
     return fail("cannot read dxvk.conf");
   }
   const bool has_config = read_config == RelativeRead::kPresent;
   if (has_config && existing.compare(0, std::char_traits<char>::length(kDxvkHeader), kDxvkHeader) != 0)
   {
-    ::close(config_directory);
     return fail("the game folder has its own dxvk.conf; Playden will not replace it");
   }
 
-  if (!PublishProsperoProfile(prospero_root, profile, reason)) { ::close(config_directory); return false; }
+  if (!PublishProsperoProfile(prospero_root, profile, reason)) return false;
   const auto config = RenderDxvkConfig(settings);
   if (config.empty()) {
-    if (has_config && ::unlinkat(config_directory, "dxvk.conf", 0) != 0) {
-      ::close(config_directory);
+    if (has_config && (!config_directory->RemoveRegularFile("dxvk.conf") ||
+                       !config_directory->Sync())) {
       return fail("cannot remove dxvk.conf");
     }
-    ::close(config_directory);
     return true;
   }
-  if (has_config && existing == config) { ::close(config_directory); return true; }
-  const bool written = WriteAtomicAt(config_directory, "dxvk.conf", config);
-  ::close(config_directory);
+  if (has_config && existing == config) return true;
+  const bool written = WriteAtomicAt(*config_directory, "dxvk.conf", config, 0644, true);
   if (!written) return fail("cannot write dxvk.conf");
   return true;
 }
@@ -949,73 +996,90 @@ bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameS
   records->clear();
   std::string text;
   std::string name;
-  const int directory = OpenSafeParent(path, &name);
-  if (directory < 0) {
+  auto directory = OpenSafeParent(path, DirectoryPolicy::kPrivate, &name);
+  if (!directory) {
     if (errno == ENOENT) return true;
     if (reason) *reason = "cannot read game settings";
     return false;
   }
-  const auto read = ReadRegularAt(directory, name.c_str(), storage_json::Limits{}.max_bytes, &text);
-  ::close(directory);
+  const auto read = ReadRegularAt(*directory, name.c_str(), storage_json::Limits{}.max_bytes,
+                                  &text, nullptr, true);
   if (read == RelativeRead::kMissing) return true;
   if (read == RelativeRead::kError) {
     if (reason) *reason = "cannot read game settings";
     return false;
   }
-  const auto root = storage_json::Parse(text);
-  const auto* version = root ? root->Find("version") : nullptr;
-  const auto* games = root ? root->Find("games") : nullptr;
-  if (!root || !root->is_object() || !version || version->AsUint64() != 1 || !games || !games->is_object()) {
+  if (!ParseSettingsFile(text, records)) {
     if (reason) *reason = "game settings file is malformed";
     return false;
-  }
-  for (const auto& [key, value] : games->object()) {
-    std::uint32_t app_id = 0;
-    const auto parsed = std::from_chars(key.data(), key.data() + key.size(), app_id);
-    GameSettingsRecord record;
-    if (key.empty() || parsed.ec != std::errc{} || parsed.ptr != key.data() + key.size() || app_id == 0 ||
-        !RecordFromValue(value, &record))
-      continue;
-    (*records)[app_id] = std::move(record);
   }
   return true;
 }
 
 bool SaveGameSettingsFile(const std::string& path, const std::map<std::uint32_t, GameSettingsRecord>& records,
                           std::string* reason) {
-  std::string text = "{\"version\":1,\"games\":{";
-  bool first = true;
-  for (const auto& [app_id, record] : records) {
-    if (record.preset_id.empty() && record.overrides.empty() && record.revision == 0) continue;
-    if (!first) text += ",";
-    first = false;
-    text += "\"" + std::to_string(app_id) + "\":" + SerializeGameSettingsRecord(record);
-  }
-  text += "}}\n";
+  const auto text = SerializeSettingsFile(records);
   std::string name;
-  const int directory = OpenSafeParent(path, &name);
-  if (directory < 0) {
+  auto directory = OpenSafeParent(path, DirectoryPolicy::kPrivate, &name);
+  if (!directory) {
     if (reason) *reason = "cannot write game settings";
     return false;
   }
   struct stat status {};
-  const int inspected = ::fstatat(directory, name.c_str(), &status, AT_SYMLINK_NOFOLLOW);
-  if (inspected == 0 && !S_ISREG(status.st_mode)) {
-    ::close(directory);
+  const bool inspected = directory->InspectChild(name, &status);
+  if (inspected && (!S_ISREG(status.st_mode) || status.st_uid != ::geteuid() ||
+                    ((status.st_mode & 07777) != 0600 && (status.st_mode & 07777) != 0644))) {
     if (reason) *reason = "cannot write game settings";
     return false;
   }
-  if (inspected != 0 && errno != ENOENT) {
-    ::close(directory);
+  if (!inspected && errno != ENOENT) {
     if (reason) *reason = "cannot write game settings";
     return false;
   }
-  const bool written = WriteAtomicAt(directory, name.c_str(), text);
-  ::close(directory);
+  const bool written = WriteAtomicAt(*directory, name.c_str(), text, 0600, false, true);
   if (!written) {
     if (reason) *reason = "cannot write game settings";
     return false;
   }
+  return true;
+}
+
+bool MigrateLegacyGameSettingsFile(const std::string& legacy_path,
+                                   const std::string& private_path,
+                                   std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  std::string destination_name;
+  auto destination = OpenSafeParent(
+      private_path, DirectoryPolicy::kPrivate, &destination_name);
+  if (!destination) return fail("private game settings folder is unavailable");
+  struct stat destination_status {};
+  if (destination->InspectChild(destination_name, &destination_status))
+    return fail("private game settings already exist");
+  if (errno != ENOENT) return fail("cannot inspect private game settings");
+
+  std::string source_name;
+  auto source = OpenSafeParent(
+      legacy_path, DirectoryPolicy::kApprovedTree, &source_name);
+  if (!source) {
+    if (errno == ENOENT) return true;
+    return fail("legacy game settings folder is unsafe");
+  }
+  std::string text;
+  const auto read = ReadRegularAt(*source, source_name.c_str(),
+                                  storage_json::Limits{}.max_bytes,
+                                  &text, nullptr, true);
+  if (read == RelativeRead::kMissing) return true;
+  if (read != RelativeRead::kPresent)
+    return fail("legacy game settings are unsafe or unreadable");
+  std::map<std::uint32_t, GameSettingsRecord> records;
+  if (!ParseSettingsFile(text, &records))
+    return fail("legacy game settings file is malformed");
+  if (!WriteAtomicAt(*destination, destination_name.c_str(),
+                     SerializeSettingsFile(records), 0600, false, true, false))
+    return fail("cannot publish migrated game settings");
   return true;
 }
 
@@ -1087,22 +1151,19 @@ bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root
   if (stem.size() > 4 && lower(stem[stem.size() - 4]) == '.' && lower(stem[stem.size() - 3]) == 'e' &&
       lower(stem[stem.size() - 2]) == 'x' && lower(stem[stem.size() - 1]) == 'e')
     stem.resize(stem.size() - 4);
-  const int directory = OpenLaunchDirectory(launch, install_root);
-  if (directory < 0) return fail("launch working folder is not a safe directory");
+  auto directory = OpenLaunchDirectory(launch, install_root);
+  if (!directory) return fail("launch working folder is not a safe directory");
   const auto name = stem + ".dxvk-cache";
   struct stat status {};
-  if (::fstatat(directory, name.c_str(), &status, AT_SYMLINK_NOFOLLOW) != 0) {
+  if (!directory->InspectChild(name, &status)) {
     const int error = errno;
-    ::close(directory);
     if (error == ENOENT) return true;
     return fail("cannot inspect the shader cache");
   }
   if (!S_ISREG(status.st_mode)) {
-    ::close(directory);
     return fail("shader cache is not a regular file");
   }
-  const bool removed = ::unlinkat(directory, name.c_str(), 0) == 0;
-  ::close(directory);
+  const bool removed = directory->RemoveRegularFile(name) && directory->Sync();
   if (!removed) return fail("cannot delete the shader cache");
   return true;
 }
@@ -1257,27 +1318,25 @@ static bool ApplyRegistryFileValues(const std::vector<RegistryValue>& values, co
     return false;
   };
   if (values.empty()) return true;
-  const int directory = OpenSafeDirectoryPath(prefix_dir);
-  if (directory < 0) return fail("cannot read the bottle's user.reg");
+  auto directory = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kPrivate);
+  if (!directory) return fail("cannot read the bottle's user.reg");
   std::string original;
   constexpr std::size_t kMaxRegistryBytes = 32u * 1024u * 1024u;
   mode_t original_mode = 0600;
-  if (ReadRegularAt(directory, "user.reg", kMaxRegistryBytes, &original, &original_mode) != RelativeRead::kPresent) {
-    ::close(directory);
+  if (ReadRegularAt(*directory, "user.reg", kMaxRegistryBytes, &original,
+                    &original_mode, true) != RelativeRead::kPresent) {
     return fail("cannot read the bottle's user.reg");
   }
   std::string edited = original;
-  if (!ApplyRegistryValues(&edited, values, unix_time, reason)) { ::close(directory); return false; }
-  if (edited == original) { ::close(directory); return true; }
-  if (!WriteAtomicAt(directory, "user.reg.playden-backup", original, original_mode)) {
-    ::close(directory);
+  if (!ApplyRegistryValues(&edited, values, unix_time, reason)) return false;
+  if (edited == original) return true;
+  if (!WriteAtomicAt(*directory, "user.reg.playden-backup", original, 0600,
+                     false, true)) {
     return fail("cannot back up user.reg");
   }
-  if (!WriteAtomicAt(directory, "user.reg", edited)) {
-    ::close(directory);
+  if (!WriteAtomicAt(*directory, "user.reg", edited, 0600, false, true)) {
     return fail("cannot write user.reg");
   }
-  ::close(directory);
   return true;
 }
 
@@ -1346,12 +1405,12 @@ bool BuildSettingsLaunchPlan(const SettingsLaunchInput& input, SettingsLaunchPla
   if (!preset.empty() && preset != "none") {
     if (preset.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-_") != std::string::npos)
       return fail("controller preset name is not valid");
-    const int directory = OpenSafeDirectoryPath(input.runtime_dir + "/input");
-    if (directory < 0) return fail("controller preset " + preset + " is not available");
+    auto directory = ManagedDirectory::Open(input.runtime_dir + "/input",
+                                            DirectoryPolicy::kApprovedTree);
+    if (!directory) return fail("controller preset " + preset + " is not available");
     std::string bytes;
     const auto file = preset + ".input";
-    const auto read = ReadRegularAt(directory, file.c_str(), kProsperoMaxProfileBytes, &bytes);
-    ::close(directory);
+    const auto read = ReadRegularAt(*directory, file.c_str(), kProsperoMaxProfileBytes, &bytes);
     if (read != RelativeRead::kPresent || bytes.find("[input]") == std::string::npos)
       return fail("controller preset " + preset + " is not available");
     out.input_presets.emplace_back(file, std::move(bytes));
@@ -1370,16 +1429,13 @@ bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& insta
   };
   if (plan.launch_entry.id.empty() || plan.launch_entry.id != plan.launch_entry_id)
     return fail("no matching launch option");
-  const int directory = OpenLaunchDirectory(plan.launch_entry, install_root);
-  if (directory < 0) return fail("launch working folder is not a safe directory");
+  auto directory = OpenLaunchDirectory(plan.launch_entry, install_root);
+  if (!directory) return fail("launch working folder is not a safe directory");
   std::string existing;
   mode_t existing_mode = 0644;
-  const auto read = ReadRegularAt(directory, "dxvk.conf", 256u * 1024u, &existing, &existing_mode);
+  const auto read = ReadRegularAt(*directory, "dxvk.conf", 256u * 1024u, &existing, &existing_mode);
   const bool has_config = read == RelativeRead::kPresent;
-  const auto close_fail = [&](std::string why) {
-    ::close(directory);
-    return fail(std::move(why));
-  };
+  const auto close_fail = [&](std::string why) { return fail(std::move(why)); };
   if (read == RelativeRead::kError) return close_fail("cannot read dxvk.conf");
   if (has_config && existing.compare(0, std::char_traits<char>::length(kDxvkHeader), kDxvkHeader) != 0)
     return close_fail("the game folder has its own dxvk.conf; Playden will not replace it");
@@ -1389,12 +1445,12 @@ bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& insta
   bool changed = false;
   if (plan.dxvk_config.empty()) {
     if (has_config) {
-      if (::unlinkat(directory, "dxvk.conf", 0) != 0) return close_fail("cannot remove dxvk.conf");
-      if (::fsync(directory) != 0) return close_fail("cannot sync dxvk.conf removal; reconciliation required");
+      if (!directory->RemoveRegularFile("dxvk.conf")) return close_fail("cannot remove dxvk.conf");
+      if (!directory->Sync()) return close_fail("cannot sync dxvk.conf removal; reconciliation required");
       changed = true;
     }
   } else if (!has_config || existing != plan.dxvk_config) {
-    if (!WriteAtomicAt(directory, "dxvk.conf", plan.dxvk_config))
+    if (!WriteAtomicAt(*directory, "dxvk.conf", plan.dxvk_config, 0644, true))
       return close_fail("cannot commit dxvk.conf; reconciliation required");
     changed = true;
   }
@@ -1402,14 +1458,13 @@ bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& insta
     const auto registry_reason = reason ? *reason : std::string("registry apply failed");
     if (changed) {
       const bool restored = has_config
-          ? WriteAtomicAt(directory, "dxvk.conf", existing, existing_mode)
-          : (::unlinkat(directory, "dxvk.conf", 0) == 0 && ::fsync(directory) == 0);
+          ? WriteAtomicAt(*directory, "dxvk.conf", existing, existing_mode)
+          : (directory->RemoveRegularFile("dxvk.conf") && directory->Sync());
       if (!restored)
         return close_fail("settings rollback failed; reconciliation required: " + registry_reason);
     }
     return close_fail("settings apply failed; reconciliation required: " + registry_reason);
   }
-  ::close(directory);
   return true;
 }
 

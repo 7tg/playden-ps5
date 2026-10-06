@@ -274,6 +274,12 @@ bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameS
                           std::string* reason);
 bool SaveGameSettingsFile(const std::string& path, const std::map<std::uint32_t, GameSettingsRecord>& records,
                           std::string* reason);
+// One-time import from the legacy approved state tree into an already-created
+// private settings root. The owned legacy file must be 0600/0644; the private
+// destination must be absent and is published as 0600. The source is preserved.
+bool MigrateLegacyGameSettingsFile(const std::string& legacy_path,
+                                   const std::string& private_path,
+                                   std::string* reason);
 
 // Loads <runtime_dir>/presets.json and the recipes listed in <runtime_dir>/recipes/recipes.lst.
 // The console title cannot list folders, so recipes are found through the list file.
