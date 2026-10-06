@@ -221,6 +221,15 @@ void RuntimeHost::Play(std::uint32_t app_id) {
   wake_.notify_all();
 }
 
+void RuntimeHost::CheckActivity(std::uint32_t app_id) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    activity_requests_.push_back(app_id);
+  }
+  wake_.notify_all();
+}
+
 void RuntimeHost::CleanUpRequests() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -808,13 +817,14 @@ void RuntimeHost::Run() {
     std::vector<std::uint32_t> plays;
     bool poll = false;
     bool cleanup = false;
+    std::vector<std::uint32_t> checks;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       // Preparation changes install records that Handoff reads on the
       // application thread, so it waits while a handoff is pending.
       const auto ready = [this] {
         return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty() ||
-               cleanup_requested_;
+               cleanup_requested_ || !activity_requests_.empty();
       };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
@@ -824,6 +834,17 @@ void RuntimeHost::Run() {
       poll = launch_poll_;
       cleanup = cleanup_requested_;
       cleanup_requested_ = false;
+      checks.swap(activity_requests_);
+    }
+    for (const auto app : checks) {
+      // Unknown unless the console says otherwise; no runtime means unknown too.
+      auto activity = rt::NativeActivity::kUnknown;
+      if (composition) {
+        activity = rt::NativeActivity::kStopped;
+        for (const auto& record : composition->repository.Snapshot())
+          if (record.app_id == app && !record.title_id.empty()) activity = composition->coordinator->Activity(record.title_id);
+      }
+      Publish([&](RuntimeSnapshot& s) { s.activity[app] = {activity, ++s.activity_serial}; });
     }
     if (cleanup && composition) {
       const auto kept = LeftoverRequests(*composition, true);

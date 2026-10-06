@@ -165,11 +165,51 @@ void Controller::TickCloud() {
       ++it;
     }
   }
-  for (const auto& request : requests) {
+  for (const auto& request : requests) cloud_held_.push_back({request, false, 0});
+  // Saves move only once the console confirms the game's own title is stopped,
+  // whoever started it (Playden or the PS5 Home screen). Unknown counts as running.
+  std::vector<CloudRequest> confirmed;
+  if (!runtime_) {
+    for (const auto& held : cloud_held_) confirmed.push_back(held.request);
+    cloud_held_.clear();
+  } else {
+    const auto runtime = runtime_->Snapshot();
+    std::vector<HeldCloudRequest> waiting;
+    for (auto& held : cloud_held_) {
+      const auto id = held.request.game_id;
+      if (runtime.status == RuntimeHostStatus::kStarting) { waiting.push_back(held); continue; }
+      if (!held.asked) {
+        held.asked = true;
+        held.after = runtime.activity_serial;
+        runtime_->CheckActivity(id);
+        waiting.push_back(held);
+        continue;
+      }
+      const auto answer = runtime.activity.find(id);
+      if (answer == runtime.activity.end() || answer->second.second <= held.after) { waiting.push_back(held); continue; }
+      if (answer->second.first == runtime::NativeActivity::kStopped && !SessionActive(id)) {
+        confirmed.push_back(held.request);
+        continue;
+      }
+      // Refused: the title runs, or its state is unknown.
+      if (sync_before_play_.erase(id)) {
+        play_notes_[id] = "The game's PS5 title may still be running. Close it, then press Play.";
+        ++play_notes_revision_;
+      }
+    }
+    cloud_held_ = std::move(waiting);
+  }
+  for (const auto& request : confirmed) {
     const auto root = game_roots_.find(request.game_id);
-    if (root == game_roots_.end() || saves_root_.empty()) continue;  // only installed games sync
-    // Never transfer saves while the game's own title may be writing them.
-    if (SessionActive(request.game_id)) continue;
+    if (root == game_roots_.end() || saves_root_.empty()) {
+      // A pre-play check that cannot run must not leave Play waiting.
+      if (sync_before_play_.erase(request.game_id)) {
+        play_notes_.erase(request.game_id);
+        ++play_notes_revision_;
+        plays_ready_.push_back(request.game_id);
+      }
+      continue;
+    }
     // Busy from now on, before Cloud reports it, so Play cannot slip in.
     cloud_busy_.insert(request.game_id);
     steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
@@ -264,14 +304,15 @@ void Controller::TickRuntime() {
     ++play_notes_revision_;
     plays_ready_.push_back(id);
   }
+  std::vector<GameId> later;
   for (const auto id : plays_ready_) {
-    // Never start a game while its saves are moving.
-    if (cloud_busy_.count(id)) continue;
+    // Never start a game while its saves are moving; it starts once they stop.
+    if (cloud_busy_.count(id)) { later.push_back(id); continue; }
     play_queued_.insert(id);
     ++plays_requested_;
     runtime_->Play(id);
   }
-  plays_ready_.clear();
+  plays_ready_ = std::move(later);
   {
     const auto current = runtime_->Snapshot();
     if (current.handoff_ready && current.launch && !cloud_busy_.count(current.launch->app_id))

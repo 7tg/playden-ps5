@@ -73,6 +73,14 @@ class Controller {
   std::uint64_t play_notes_revision_ = 0;
   std::uint64_t runtime_notes_revision_ = 0;
   std::map<GameId, CloudStatus> cloud_status_;
+  // Cloud requests wait for the console to confirm the game's title is stopped:
+  // asked once the activity check is queued, answered by a newer serial.
+  struct HeldCloudRequest {
+    CloudRequest request;
+    bool asked = false;
+    std::uint64_t after = 0;
+  };
+  std::vector<HeldCloudRequest> cloud_held_;
   std::optional<std::pair<GameId, runtime::LaunchState>> last_launch_;
   // A game whose title may be running: Cloud must not touch its saves.
   bool SessionActive(GameId id) const;

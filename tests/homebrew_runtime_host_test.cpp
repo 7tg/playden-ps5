@@ -581,6 +581,15 @@ void PlaysReadyTitleThroughHandoff() {
   const std::string fourth = "00000000-0000-4000-8000-000000000004";
   CHECK(launches[2].second[0] == "session=" + fourth);
   fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+  // Cloud asks the console through the worker: a running title answers active,
+  // and every answer carries a newer serial.
+  const auto serial = restarted.Snapshot().activity_serial;
+  restarted.CheckActivity(220);
+  const auto checked = WaitFor(restarted, [serial](const RuntimeSnapshot& s) { return s.activity_serial > serial; }, 10);
+  CHECK(checked.activity.at(220).first == NativeActivity::kActive && checked.activity.at(220).second > serial);
+  restarted.CheckActivity(999);  // no prepared title: nothing of it can run
+  const auto unprepared = WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.activity.count(999) != 0; }, 10);
+  CHECK(unprepared.activity.at(999).first == NativeActivity::kStopped);
   auto foreign = record(fourth, "running");
   foreign.replace(foreign.find("\"playden\""), 9, "\"home\"");
   Write(sessions / (fourth + ".json"), foreign, 0600);
