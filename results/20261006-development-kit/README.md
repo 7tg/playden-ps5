@@ -8,10 +8,10 @@ This kit is **not releasable**.
 | Item | Value |
 | --- | --- |
 | Kit | `hl2-fw1360-dev1`, 3548 files, local path `build/kits/hl2-fw1360-dev1` (not in Git) |
-| Manifest SHA-256 | `419df773ccd625a4cabc26a3bfff9ea0d04269ad255ab7c85759e77ec03ff36f` |
-| Files digest | `ad30468e60e9f71b5d5acca9ffdc4b5f8d6cd3faf76ae230b7ebbbdffd8b9ea9` |
-| prospero-win source | `467ba571166186aa395e2edc36680b00a7ab63e8` (local, unpublished), clean |
-| FAKE78001 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `ab0dbaa859a7049ea95b3b0999afda6f98e360b2cda8b227fd63cf954d4babbe`, `source_dirty: false` |
+| Manifest SHA-256 | `3530d07f10dd77d3a5f86f27ab43e12712d29c27ad882f85d418cfa353762772` |
+| Files digest | `85ac621df58426e03369f9ce49c75fc94453cadcf9ca8863a8998ddd3efc66e9` |
+| prospero-win source | `672d905209d38c444f3c96f001a19ef4ccc2ea62` (local, unpublished), clean |
+| FAKE78001 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `60225c6d98443ab4e9fd4f96fbeca68e9485282611133f151febe3134a701053`, `source_dirty: false` |
 | Helper / protocol | `5608915…` / `bb02c4aa…` (independent pins) |
 | Template | approved console template `candidate-v16`, preparation `hl2-fresh-v16` (lock-pinned evidence verified by `tools/package_prospero_kit.py`) |
 | Capabilities | `dxvk`, `offline_bottle`, `per_game_title`, `wow64_i386`; the publication-guard capability is not claimed or trusted |
@@ -49,3 +49,17 @@ A releasable kit needs a runtime rebuilt with path remapping and requalified.
 - `3219c89`: manifest entries now use byte order of the full path. Component
   ordering produced manifests that the validator and C++ consumer refuse.
 - `467ba57`: console-form templates keep their `.pw-symlinks` drive table.
+- `672d905`: removes `<stdio.h>`/`snprintf` from the portable title-launch core
+  (a `439ae06` regression found by the x86 Linux run below) and makes the
+  native publication fixture portable to Linux.
+
+## Upstream verification on x86_64 Linux
+
+A delegated Codex worker ran the full upstream suite on the Linux build VM
+(`~/build/codex-upstream-verify`, report `REPORT.txt`). At `439ae06`,
+`7d1cccd` and `467ba57`: 97/101 make-test targets pass when run individually.
+`test_native_contract` regressed at `439ae06` (fixed in `672d905`). The
+other three failures exist at the parent `79cf85c`: the `/private/tmp`
+native fixture (fixed in `672d905`), `test_title_identity` expectations and
+`test_test_reachability`. `test_playden_kit` passes 39/0. GCC 15 and Clang 21
+compile gates fail on pre-existing test code; LLVM 18 builds everything.

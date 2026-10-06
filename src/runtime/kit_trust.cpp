@@ -4,10 +4,10 @@ namespace playden::runtime {
 
 KitManifestTrustedConfig DevelopmentKitTrust(const std::string& current_firmware) {
   KitManifestTrustedConfig trust;
-  trust.manifest_sha256 = "419df773ccd625a4cabc26a3bfff9ea0d04269ad255ab7c85759e77ec03ff36f";
+  trust.manifest_sha256 = "3530d07f10dd77d3a5f86f27ab43e12712d29c27ad882f85d418cfa353762772";
   trust.current_firmware = current_firmware;
   trust.sources = {
-      {"wrapper", {{"revision", "467ba571166186aa395e2edc36680b00a7ab63e8"},
+      {"wrapper", {{"revision", "672d905209d38c444f3c96f001a19ef4ccc2ea62"},
                    {"baseline_revision", "54caac176e86c60c7c407972583b491f67838ed9"}}},
       {"wine", {{"revision", "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9"}}},
       {"helper", {{"revision", "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9"},

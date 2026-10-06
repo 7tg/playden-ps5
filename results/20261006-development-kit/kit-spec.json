@@ -30,12 +30,12 @@
     {
       "id": "hl2-fake78001-v1",
       "title_id": "FAKE78001",
-      "path": "third_party/prospero-win/dist/FAKE78001-publication-publisher-467ba57",
-      "wrapper_revision": "467ba571166186aa395e2edc36680b00a7ab63e8",
+      "path": "third_party/prospero-win/dist/FAKE78001-publication-publisher-672d905",
+      "wrapper_revision": "672d905209d38c444f3c96f001a19ef4ccc2ea62",
       "helper_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
-      "helper_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-467ba57/lapy-manifest.json",
+      "helper_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-672d905/lapy-manifest.json",
       "helper_protocol": "../ps5-homebrew/PS5-Lapy-JB-Daemon/source/lapy_elevation_protocol.h",
-      "native_build_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-467ba57/native-title-build.json"
+      "native_build_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-672d905/native-title-build.json"
     }
   ],
   "dxvk": {
@@ -59,7 +59,7 @@
   },
   "sources": {
     "wrapper": {
-      "revision": "467ba571166186aa395e2edc36680b00a7ab63e8",
+      "revision": "672d905209d38c444f3c96f001a19ef4ccc2ea62",
       "baseline_revision": "54caac176e86c60c7c407972583b491f67838ed9",
       "url": "https://github.com/mpereiraesaa/prospero-win.git"
     },

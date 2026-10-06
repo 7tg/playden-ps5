@@ -190,7 +190,7 @@
     }
   },
   "prospero_win": {
-    "revision": "467ba571166186aa395e2edc36680b00a7ab63e8",
+    "revision": "672d905209d38c444f3c96f001a19ef4ccc2ea62",
     "url": "https://github.com/mpereiraesaa/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
@@ -225,8 +225,8 @@
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
     "status": "development kit; not releasable (1044 compiled Wine modules embed host build paths); native acceptance pending",
-    "manifest_sha256": "419df773ccd625a4cabc26a3bfff9ea0d04269ad255ab7c85759e77ec03ff36f",
-    "files_sha256": "ad30468e60e9f71b5d5acca9ffdc4b5f8d6cd3faf76ae230b7ebbbdffd8b9ea9",
+    "manifest_sha256": "3530d07f10dd77d3a5f86f27ab43e12712d29c27ad882f85d418cfa353762772",
+    "files_sha256": "85ac621df58426e03369f9ce49c75fc94453cadcf9ca8863a8998ddd3efc66e9",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",
     "firmware": [
       "13.60"
@@ -237,7 +237,7 @@
       "per_game_title",
       "wow64_i386"
     ],
-    "wrapper_revision": "467ba571166186aa395e2edc36680b00a7ab63e8",
+    "wrapper_revision": "672d905209d38c444f3c96f001a19ef4ccc2ea62",
     "runtime_artifact_revision": "e16ec8f3-ps5-console-r1",
     "runtime_inventory_source": "SHA-256 of all 1703 files read over FTP from the gameplay-proven /data/homebrew/PPSA99995/win on 2026-10-06",
     "template_preparation": "hl2-fresh-v16",
