@@ -756,6 +756,154 @@ void PreparesGameWithoutShippedRecipe() {
   restarted.Shutdown();
 }
 
+// Uninstall removes the game's PS5 title: the title folder leaves ShadowMount's
+// scan root, the title is unregistered through the remover, the bottle is kept
+// (or deleted on request) and the record goes once the console no longer lists
+// the title. Every step is journaled and continues after a failure or restart.
+void RemovesTitleKeepingSaves() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-0000000000") + (uuids < 10 ? "0" : "") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.removal_confirm_polls = 3;
+  config.removal_poll_interval = std::chrono::milliseconds(1);
+  // The remover: silent at first (the console never drops the title), then working.
+  auto remover_works = std::make_shared<std::atomic<bool>>(false);
+  auto remover_calls = std::make_shared<std::atomic<int>>(0);
+  config.unregister_title = [&fixture, remover_works, remover_calls](const std::string& title, const std::string& nonce) {
+    ++*remover_calls;
+    CHECK(title == "FAKE78001" && nonce.size() == 36);
+    if (!*remover_works) return TitleRemoverResult{true, std::nullopt, "no answer"};
+    fixture.registered = false;
+    return TitleRemoverResult{true, 0, "answered"};
+  };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  const auto bottle = fixture.root / "data/playden/games/steam-220";
+  const auto kept = fixture.root / "data/playden/games/steam-220.kept";
+  const auto save = fs::path("library/prefixes/game/drive_c/users/steamuser/AppData/Roaming/Game/save.dat");
+  const auto prepare = [](RuntimeHost& host) {
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) ||
+          (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+    CHECK(!done.refusals.count(220) && done.installs.size() == 1);
+    return done;
+  };
+  const auto remove = [](RuntimeHost& host, bool delete_saves) {
+    const auto before = host.Snapshot().removals_handled;
+    host.Remove(220, delete_saves);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.removals_handled > before; }, 30);
+  };
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    prepare(host);
+    host.SetTitleNames({{220, "Half-Life 2"}});
+    Write(bottle / save, "player-save", 0600);
+    for (const auto* part : {"library/prefixes/game/drive_c/users", "library/prefixes/game/drive_c/users/steamuser",
+                             "library/prefixes/game/drive_c/users/steamuser/AppData",
+                             "library/prefixes/game/drive_c/users/steamuser/AppData/Roaming",
+                             "library/prefixes/game/drive_c/users/steamuser/AppData/Roaming/Game"})
+      CHECK(chmod((bottle / part).c_str(), 0700) == 0);
+
+    // A running title is never removed.
+    fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+    auto removed = remove(host, false);
+    CHECK(removed.removal_failures.at(220) == "Close the game before uninstalling it.");
+    CHECK(removed.installs[0].state == PreparationState::kReady && *remover_calls == 0);
+    fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+
+    // The remover is silent: the folder already left the scan root, nothing is
+    // recorded as failed by the console, and the record waits at "unregister".
+    removed = remove(host, false);
+    CHECK(removed.removal_failures.at(220).find("has not confirmed") != std::string::npos);
+    CHECK(removed.installs.size() == 1 && removed.installs[0].state == PreparationState::kRemoving);
+    CHECK(removed.installs[0].step == "unregister");
+    CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001"));
+    CHECK(fs::is_directory(fixture.root / "data/runtime-state/trash/FAKE78001-00000000-0000-4000-8000-000000000002"));
+    CHECK(*remover_calls == 1);
+    // Preparation waits for the removal to finish.
+    host.Prepare(Hl2());
+    const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
+    CHECK(refused.refusals.at(220).find("still being removed") != std::string::npos);
+    host.Shutdown();
+  }
+  {
+    // After a restart the removal is reported, not resumed, until asked. Asked again,
+    // it continues with the first choice (keep saves) even when asked to delete them.
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    const auto started = WaitFor(host, Started);
+    CHECK(started.installs.size() == 1 && started.installs[0].state == PreparationState::kRemoving);
+    CHECK(started.installs[0].failure.find("has not confirmed") != std::string::npos);
+    CHECK(!fs::exists(fixture.root / "data/runtime-state/trash/FAKE78001-00000000-0000-4000-8000-000000000002"));
+    host.SetTitleNames({{220, "Half-Life 2"}});
+    // A read-only games folder stops the bottle step; the next attempt continues there.
+    const auto games = fixture.root / "data/playden/games";
+    CHECK(chmod(games.c_str(), 0500) == 0);
+    *remover_works = true;
+    auto removed = remove(host, true);
+    CHECK(chmod(games.c_str(), 0700) == 0);
+    CHECK(removed.installs.size() == 1 && removed.installs[0].step == "bottle");
+    CHECK(removed.removal_failures.at(220).find("could not be kept") != std::string::npos);
+    CHECK(!fixture.registered && *remover_calls == 2);
+    removed = remove(host, true);
+    CHECK(!removed.removal_failures.count(220) && removed.installs.empty());
+    CHECK(*remover_calls == 2);  // the console no longer listed the title: never sent again
+    CHECK(!fs::exists(bottle) && Read(kept / save) == "player-save");
+    CHECK(removed.kept_bottles.size() == 1 && removed.kept_bottles[0].app_id == 220);
+    CHECK(removed.kept_bottles[0].name == "Half-Life 2" && removed.kept_bottles[0].kept_at == 1760000000);
+    CHECK(removed.kept_bottles[0].bytes > 0);
+    CHECK(Read(kept / "playden-kept.json").find("\"install_id\":\"steam-220\"") != std::string::npos);
+    CHECK(Read(game / "hl2.exe") == "existing-game");  // the download is the controller's to remove
+
+    // Prepared again, the game gets its saves back and the kept copy goes.
+    const auto ready = prepare(host);
+    CHECK(ready.kept_bottles.empty() && !fs::exists(kept));
+    CHECK(Read(bottle / save) == "player-save");
+    struct stat info{};
+    CHECK(stat((bottle / "library/prefixes/game/drive_c/users/steamuser").c_str(), &info) == 0 &&
+          (info.st_mode & 0777) == 0700);
+
+    // Deleting saves removes the bottle without following its links.
+    const auto outside = fixture.root / "outside";
+    Write(outside / "keep.txt", "not the bottle's", 0644);
+    fs::create_directories(bottle / "library/prefixes/game/dosdevices");
+    fs::create_directory_symlink(outside, bottle / "library/prefixes/game/dosdevices/z:");
+    removed = remove(host, true);
+    CHECK(!removed.removal_failures.count(220) && removed.installs.empty());
+    CHECK(!fs::exists(bottle) && !fs::exists(kept) && removed.kept_bottles.empty());
+    CHECK(Read(outside / "keep.txt") == "not the bottle's");
+
+    // A kept bottle can be deleted on its own.
+    prepare(host);
+    removed = remove(host, false);
+    CHECK(removed.kept_bottles.size() == 1);
+    host.DeleteKeptBottle(220);
+    WaitFor(host, [](const RuntimeSnapshot& s) { return s.kept_bottles.empty(); });
+    CHECK(!fs::exists(kept));
+    host.Shutdown();
+  }
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -769,6 +917,7 @@ int main(int argc, char** argv) {
   RefreshesInstalledTitleToRespunKit();
   RepairsBottleRegistryModes();
   PlaysReadyTitleThroughHandoff();
+  RemovesTitleKeepingSaves();
   std::puts("runtime host tests passed");
   return 0;
 }

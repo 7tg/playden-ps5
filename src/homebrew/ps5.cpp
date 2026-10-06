@@ -7,6 +7,7 @@
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
 #include "app/diagnostic_log.h"
+#include "platform/ps5/title_remover.h"
 #include "platform/ps5/title_runtime.h"
 #include "platform/ps5/native_startup.h"
 #include "runtime/settings_storage.h"
@@ -338,6 +339,15 @@ int main() {
                               title.c_str(), result.stage.c_str(), result.ok, unsigned(result.code));
                 playden::app::AppendLogLine(log_root, "runtime.log", line);
                 return result;
+            };
+            // Uninstall removes the game's PS5 title through Playden's one-shot title
+            // remover payload, which the payload loader runs outside this title.
+            config.unregister_title = [title_root = paths.title_root](const std::string& title, const std::string& nonce) {
+                playden::ps5::TitleRemoverConfig remover;
+                remover.payload = title_root + "/title-remover.elf";
+                remover.send = playden::ps5::SendToPayloadLoader;
+                const auto outcome = playden::ps5::RunTitleRemover(remover, title, nonce);
+                return playden::homebrew::TitleRemoverResult{outcome.sent, outcome.code, outcome.detail};
             };
             runtime_host = std::make_unique<playden::homebrew::RuntimeHost>(std::move(config));
             if (!runtime_host->Start())

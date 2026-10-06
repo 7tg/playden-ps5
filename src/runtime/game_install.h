@@ -190,6 +190,11 @@ class RuntimeInstallRepository {
   RepositoryResult<RuntimeInstall> Adopt(const LegacyInstall& legacy);
   RepositoryResult<void> Update(const RuntimeInstall& record);
   RepositoryResult<void> EraseAfterUnregister(const std::string& install_id);
+  // Same, with the caller's fresh observation instead of the availability query:
+  // removal confirms with the console inventory and the source folder while
+  // ShadowMount's cache is stale. Both must be free; nothing else is relaxed.
+  RepositoryResult<void> EraseAfterUnregister(const std::string& install_id,
+                                              const NativeTitleAvailability& confirmed);
 
  private:
   RepositoryResult<void> Persist();

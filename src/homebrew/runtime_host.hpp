@@ -11,6 +11,7 @@
 #include "runtime/launch_service.h"
 #include "runtime/package_installer.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
@@ -29,6 +30,24 @@ namespace playden::homebrew {
 struct RuntimeKit {
   runtime::VerifiedKitView view;
   std::vector<std::string> capabilities;
+};
+
+// A game's private bottle kept after its PS5 title was removed: its saves and
+// settings, until the game is prepared again or the player deletes it.
+struct KeptBottleView {
+  std::string install_id;
+  std::uint32_t app_id = 0;
+  std::string name;          // the game's name when it was kept
+  std::int64_t kept_at = 0;  // Unix time
+  std::uint64_t bytes = 0;   // size when it was kept
+};
+
+// What the one-shot title remover reported: whether it was sent, its result code
+// when it answered, and a diagnostic.
+struct TitleRemoverResult {
+  bool sent = false;
+  std::optional<int> code;
+  std::string detail;
 };
 
 struct RuntimeHostConfig {
@@ -68,6 +87,13 @@ struct RuntimeHostConfig {
   // Native start of a prepared title with its arguments ("session=<UUID>").
   // Called only on the application thread, from Handoff. Empty disables Play.
   std::function<ps5::TitleResult(const std::string& title_id, const std::vector<std::string>& arguments)> launch_title;
+  // Unregisters a game's PS5 title through the one-shot title remover (worker
+  // only; bounded). The nonce ties its answer to this request. Empty disables
+  // removal of PS5 titles.
+  std::function<TitleRemoverResult(const std::string& title_id, const std::string& nonce)> unregister_title;
+  // How long removal waits for the console to drop an unregistered title.
+  int removal_confirm_polls = 30;
+  std::chrono::milliseconds removal_poll_interval{1000};
   // Canonical /data as this process sees it, for the wrapper's session records.
   std::filesystem::path session_data_root = "/data";
   std::function<std::int64_t()> now_ms;
@@ -111,6 +137,7 @@ struct RuntimeLaunchView {
 
 enum class RuntimeHostStatus { kStarting, kUnavailable, kReady, kStopped };
 
+
 struct RuntimeSnapshot {
   std::uint64_t revision = 0;
   RuntimeHostStatus status = RuntimeHostStatus::kStarting;
@@ -137,6 +164,13 @@ struct RuntimeSnapshot {
   bool handoff_ready = false;
   // Recipes Playden generated from Steam launch options, for the settings sheet.
   std::vector<runtime::GameRecipe> generated_recipes;
+  // Removal: the game whose PS5 title is being removed now, the latest refusal or
+  // failure per Steam app, and how many removal requests the worker has finished.
+  std::optional<std::uint32_t> removing_app;
+  std::map<std::uint32_t, std::string> removal_failures;
+  std::uint64_t removals_handled = 0;
+  // Game data kept when a game was uninstalled (bottles with no install record).
+  std::vector<KeptBottleView> kept_bottles;
 };
 
 // A downloaded game to prepare. The game files stay at install_path.
@@ -178,6 +212,11 @@ class RuntimeHost {
   void SetTitleNames(std::map<std::uint32_t, std::string> names);
   // Queues Play of a Ready game.
   void Play(std::uint32_t app_id);
+  // Queues removal of a game's PS5 title. Its bottle (saves and settings) is kept
+  // unless delete_saves; an interrupted removal continues with its first choice.
+  void Remove(std::uint32_t app_id, bool delete_saves);
+  // Queues deletion of a game's kept bottle.
+  void DeleteKeptBottle(std::uint32_t app_id);
   // Application thread only: starts the title of a prepared launch session.
   // Returns false when no session is waiting.
   bool Handoff();
@@ -198,6 +237,15 @@ class RuntimeHost {
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);
   void RunPlay(Composition& composition, std::uint32_t app_id);
+  // Removes a game's PS5 title; empty when it has none left, otherwise why not.
+  std::string RunRemove(Composition& composition, std::uint32_t app_id, bool delete_saves);
+  // Whether the console still lists the title (app.db or /user/app); unknown counts as listed.
+  bool TitleListed(Composition& composition, const std::string& title_id);
+  // Moves the saves of a kept bottle into the game's new bottle and drops the kept copy.
+  std::string RestoreKeptSaves(Composition& composition, std::uint32_t app_id);
+  std::string DeleteKept(Composition& composition, std::uint32_t app_id);
+  void PublishKeptBottles(const Composition& composition);
+  std::filesystem::path HostPath(const std::string& console_path) const;
   std::optional<std::string> InstalledTitleName(const runtime::RuntimeInstall& record) const;
   bool TitleNameCurrent(const runtime::RuntimeInstall& record) const;
   // Writes the game's own title name (and icon) for its PS5 title.
@@ -218,6 +266,8 @@ class RuntimeHost {
   RuntimeSnapshot snapshot_;
   std::vector<RuntimePrepareRequest> prepare_requests_;
   std::vector<std::uint32_t> play_requests_;
+  std::vector<std::pair<std::uint32_t, bool>> remove_requests_;
+  std::vector<std::uint32_t> kept_delete_requests_;
   std::vector<std::uint32_t> activity_requests_;
   bool launch_poll_ = false;
   bool cleanup_requested_ = false;

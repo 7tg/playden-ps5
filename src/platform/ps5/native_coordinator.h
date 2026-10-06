@@ -24,6 +24,9 @@ class Ps5NativeCoordinator final : public runtime::NativeCoordinator {
       TitleRegistry& registry, std::filesystem::path homebrew_root = "/data/homebrew",
       NativeCoordinatorOperations operations = {});
   runtime::NativeTitleAvailability Availability(const std::string& title_id);
+  // The console's own inventory (app.db) only: ShadowMount's cache is left out
+  // because it does not refresh while any title, Playden included, runs.
+  runtime::TitleAvailability Inventory(const std::string& title_id);
   runtime::NativeActivity Activity(const std::string& title_id) override;
   runtime::NativeStatus Query(const runtime::RuntimeInstall& record) override;
   // Caller owns the complete publication lease/receipt gate and a durably armed

@@ -9,10 +9,14 @@
 #include "runtime/settings_publication_journal.h"
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
+#include "steam/backend/json.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <pthread.h>
@@ -218,6 +222,24 @@ void RuntimeHost::Play(std::uint32_t app_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
     play_requests_.push_back(app_id);
+  }
+  wake_.notify_all();
+}
+
+void RuntimeHost::Remove(std::uint32_t app_id, bool delete_saves) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    remove_requests_.emplace_back(app_id, delete_saves);
+  }
+  wake_.notify_all();
+}
+
+void RuntimeHost::DeleteKeptBottle(std::uint32_t app_id) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    kept_delete_requests_.push_back(app_id);
   }
   wake_.notify_all();
 }
@@ -743,6 +765,8 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   std::optional<rt::RuntimeInstall> existing;
   for (const auto& record : c.repository.Snapshot())
     if (record.app_id == request.app_id) existing = record;
+  if (existing && existing->state == rt::PreparationState::kRemoving)
+    return "This game's PS5 title is still being removed. Uninstall the game again to finish.";
   rt::InstallServiceResult started = rt::InstallServiceResult::Success();
   // Settings publication writes dxvk.conf into the game folder and requires that
   // folder to belong to the app user without group/other write access. Console
@@ -946,6 +970,344 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   return Stopping() ? "Preparation was interrupted." : "Preparation did not finish.";
 }
 
+namespace {
+// Kept bottles: <games>/<install id>.kept, identified by this marker inside.
+constexpr char kKeptMarker[] = "playden-kept.json";
+constexpr char kKeptSuffix[] = ".kept";
+
+bool SteamInstallId(const std::string& id) {
+  if (id.rfind("steam-", 0) != 0 || id.size() <= 6 || id.size() > 16) return false;
+  return id.find_first_not_of("0123456789", 6) == std::string::npos;
+}
+
+// Bytes of the regular files under a tree; links are not followed.
+std::uint64_t TreeBytes(const std::filesystem::path& root) {
+  std::uint64_t total = 0;
+  std::error_code error;
+  std::size_t entries = 0;
+  for (std::filesystem::recursive_directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, error), end;
+       !error && it != end && ++entries < 500000; it.increment(error)) {
+    std::error_code ignored;
+    if (it->is_symlink(ignored)) { it.disable_recursion_pending(); continue; }
+    if (it->is_regular_file(ignored)) total += it->file_size(ignored);
+  }
+  return total;
+}
+
+std::optional<KeptBottleView> ReadKeptMarker(const std::filesystem::path& kept, const std::string& install_id) {
+  const int fd = open((kept / kKeptMarker).c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return std::nullopt;
+  std::string bytes(4096, '\0');
+  const auto count = read(fd, bytes.data(), bytes.size());
+  close(fd);
+  if (count <= 0) return std::nullopt;
+  bytes.resize(static_cast<std::size_t>(count));
+  const auto json = playden::steam::json::Parse(bytes, {4096, 4, 64, 4096});
+  if (!json) return std::nullopt;
+  const auto* app = json->Find("app_id");
+  const auto* name = json->Find("name");
+  const auto* kept_at = json->Find("kept_at");
+  const auto* size = json->Find("bytes");
+  const auto* install = json->Find("install_id");
+  if (!app || !app->is_number() || !install || !install->is_string() || install->text() != install_id) return std::nullopt;
+  KeptBottleView view;
+  view.install_id = install_id;
+  view.app_id = static_cast<std::uint32_t>(std::strtoul(app->text().c_str(), nullptr, 10));
+  if (name && name->is_string()) view.name = name->text();
+  if (kept_at && kept_at->is_number()) view.kept_at = std::strtoll(kept_at->text().c_str(), nullptr, 10);
+  if (size && size->is_number()) view.bytes = std::strtoull(size->text().c_str(), nullptr, 10);
+  if (view.app_id == 0 || "steam-" + std::to_string(view.app_id) != install_id) return std::nullopt;
+  return view;
+}
+
+// Copies a saves tree into a private bottle: directories 0700, files keep their
+// owner bits, links are skipped (Wine links point outside the bottle).
+bool CopySavesTree(const std::filesystem::path& from, const std::filesystem::path& to, std::string* error) {
+  struct stat info{};
+  if (lstat(to.c_str(), &info) != 0) {
+    if (mkdir(to.c_str(), 0700) != 0) { *error = "cannot create " + to.filename().string(); return false; }
+  } else if (!S_ISDIR(info.st_mode)) {
+    *error = to.filename().string() + " is not a folder"; return false;
+  }
+  std::error_code iteration;
+  for (std::filesystem::directory_iterator it(from, iteration), end; !iteration && it != end; it.increment(iteration)) {
+    const auto source = it->path();
+    const auto target = to / source.filename();
+    if (lstat(source.c_str(), &info) != 0) continue;
+    if (S_ISLNK(info.st_mode)) continue;
+    if (S_ISDIR(info.st_mode)) {
+      if (!CopySavesTree(source, target, error)) return false;
+      continue;
+    }
+    if (!S_ISREG(info.st_mode)) continue;
+    const auto temporary = target.parent_path() / ("." + target.filename().string() + ".restore");
+    unlink(temporary.c_str());
+    const int input = open(source.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    const int output = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                            (info.st_mode & 0700) | 0600);
+    bool ok = input >= 0 && output >= 0;
+    std::vector<char> buffer(64 * 1024);  // heap: console worker stacks are small
+    while (ok) {
+      const auto count = read(input, buffer.data(), buffer.size());
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) { ok = count == 0; break; }
+      for (ssize_t offset = 0; ok && offset < count;) {
+        const auto written = write(output, buffer.data() + offset, static_cast<std::size_t>(count - offset));
+        if (written < 0 && errno == EINTR) continue;
+        ok = written > 0; offset += written > 0 ? written : 0;
+      }
+    }
+    ok = ok && fsync(output) == 0;
+    if (input >= 0) close(input);
+    if (output >= 0) ok = close(output) == 0 && ok;
+    if (!ok || rename(temporary.c_str(), target.c_str()) != 0) {
+      unlink(temporary.c_str());
+      *error = "cannot copy " + source.filename().string();
+      return false;
+    }
+  }
+  if (iteration) { *error = "cannot list " + from.filename().string(); return false; }
+  return true;
+}
+}  // namespace
+
+std::filesystem::path RuntimeHost::HostPath(const std::string& console_path) const {
+  return config_.host_namespace_prefix.empty()
+      ? std::filesystem::path(console_path)
+      : config_.host_namespace_prefix / std::filesystem::path(console_path).relative_path();
+}
+
+bool RuntimeHost::TitleListed(Composition& c, const std::string& title_id) {
+  if (c.coordinator->Inventory(title_id) != rt::TitleAvailability::kFree) return true;
+  struct stat info{};
+  return lstat(HostPath("/user/app/" + title_id).c_str(), &info) == 0;
+}
+
+void RuntimeHost::PublishKeptBottles(const Composition& c) {
+  std::set<std::string> recorded;
+  for (const auto& record : c.repository.Snapshot()) recorded.insert(record.install_id);
+  std::vector<KeptBottleView> kept;
+  const auto games = HostPath(config_.package_paths.console_data_root + "/playden/games");
+  std::error_code error;
+  for (std::filesystem::directory_iterator it(games, error), end; !error && it != end; it.increment(error)) {
+    const auto name = it->path().filename().string();
+    const std::size_t suffix = std::strlen(kKeptSuffix);
+    if (name.size() <= suffix || name.compare(name.size() - suffix, suffix, kKeptSuffix) != 0) continue;
+    const auto install_id = name.substr(0, name.size() - suffix);
+    if (!SteamInstallId(install_id) || recorded.count(install_id)) continue;
+    std::error_code ignored;
+    if (it->is_symlink(ignored) || !it->is_directory(ignored)) continue;
+    if (auto view = ReadKeptMarker(it->path(), install_id)) kept.push_back(std::move(*view));
+  }
+  std::sort(kept.begin(), kept.end(), [](const auto& a, const auto& b) { return a.kept_at > b.kept_at; });
+  Publish([&](RuntimeSnapshot& s) { s.kept_bottles = std::move(kept); });
+}
+
+// Removal of a game's PS5 title, journaled in its install record so an interrupted
+// removal continues where it stopped: retire the title folder out of ShadowMount's
+// scan root, unregister the title through the one-shot remover, keep or delete the
+// bottle, then drop the record once the console no longer lists the title.
+std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delete_saves) {
+  std::optional<rt::RuntimeInstall> found;
+  for (const auto& record : c.repository.Snapshot())
+    if (record.app_id == app) found = record;
+  if (!found) return {};  // no PS5 title: nothing to remove
+  auto record = *found;
+  if (!config_.unregister_title) return "Removing PS5 titles is not available in this build.";
+  if (c.launch_journal) {
+    const auto pending = c.launch_journal->LoadPending();
+    if (!pending.ok) return "The launch record cannot be read; restart Playden before uninstalling.";
+    if (pending.session && pending.session->install_id == record.install_id)
+      return "Close the game before uninstalling it.";
+  }
+  const auto activity = c.coordinator->Activity(record.title_id);
+  if (activity == rt::NativeActivity::kActive) return "Close the game before uninstalling it.";
+  if (activity != rt::NativeActivity::kStopped)
+    return "Playden cannot tell whether the game is running. Close it and try again.";
+  const bool resuming = record.state == rt::PreparationState::kRemoving && record.journal &&
+                        record.journal->operation.rfind("remove", 0) == 0;
+  // The game's name for the kept bottle, read before its title folder goes.
+  std::string game_name;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (const auto named = title_names_.find(app); named != title_names_.end()) game_name = named->second;
+  }
+  if (game_name.empty()) game_name = InstalledTitleName(record).value_or(std::string{});
+  auto save = [&](const char* where) -> std::string {
+    const auto updated = c.repository.Update(record);
+    PublishInstalls(c);
+    if (!updated.ok()) {
+      Log(std::string("remove record update failed at ") + where + ": " + updated.message());
+      return "The removal could not be recorded: " + updated.message();
+    }
+    return {};
+  };
+  if (!resuming) {
+    const auto operation = config_.uuid();
+    if (!operation) return "No secure random source for the removal.";
+    record.state = rt::PreparationState::kRemoving;
+    record.journal = rt::PreparationJournal{*operation, delete_saves ? "remove-saves" : "remove", "retire"};
+    record.last_failure.reset();
+    if (auto failed = save("start"); !failed.empty()) return failed;
+  }
+  delete_saves = record.journal->operation == "remove-saves";
+  const auto fail = [&](const std::string& code, const std::string& message) {
+    record.last_failure = rt::RuntimeFailure{code, message};
+    save("failure");
+    Log("remove failed install=" + record.install_id + " step=" + record.journal->step + " code=" + code);
+    return message;
+  };
+  const auto advance = [&](const char* step) {
+    record.journal->step = step;
+    record.last_failure.reset();
+    return save(step);
+  };
+  Log("remove install=" + record.install_id + " title=" + record.title_id + " step=" + record.journal->step +
+      " delete_saves=" + std::to_string(delete_saves));
+  const auto source = config_.homebrew_root / record.title_id;
+  if (record.journal->step == "retire") {
+    // ShadowMount registers any folder under its scan root, so the folder leaves
+    // it in one move before the title is unregistered.
+    const auto manual = c.registry.RemoveManualSource(record.title_id);
+    Log("remove manual source title=" + record.title_id + " ok=" + std::to_string(manual.ok) + " stage=" + manual.stage);
+    struct stat info{};
+    if (lstat(source.c_str(), &info) == 0) {
+      if (!S_ISDIR(info.st_mode) || info.st_uid != geteuid())
+        return fail("source-foreign", "The PS5 title's folder is not Playden's; it was left as it is.");
+      std::string reason;
+      const auto trash = config_.state_root / "trash";
+      if (!rt::EnsurePrivateDirectories(config_.boundary, config_.state_root, trash, &reason))
+        return fail("trash-unavailable", "Playden could not prepare its private trash: " + reason);
+      const auto retired = trash / (record.title_id + "-" + record.journal->operation_id);
+      if (rename(source.c_str(), retired.c_str()) != 0)
+        return fail("retire-failed", "The PS5 title's folder could not be moved away (error " +
+                                     std::to_string(errno) + ").");
+    } else if (errno != ENOENT) {
+      return fail("source-unavailable", "The PS5 title's folder cannot be checked.");
+    }
+    if (auto failed = advance("unregister"); !failed.empty()) return failed;
+  }
+  if (record.journal->step == "unregister") {
+    // Inventory first: a title the console no longer lists is never sent again.
+    bool listed = TitleListed(c, record.title_id);
+    TitleRemoverResult result;
+    if (listed) {
+      result = config_.unregister_title(record.title_id, record.journal->operation_id);
+      Log("remove unregister title=" + record.title_id + " sent=" + std::to_string(result.sent) + " code=" +
+          (result.code ? std::to_string(*result.code) : std::string("none")) + " detail=" + result.detail);
+      for (int poll = 0; listed && poll < config_.removal_confirm_polls && !Stopping(); ++poll) {
+        listed = TitleListed(c, record.title_id);
+        if (!listed) break;
+        std::unique_lock<std::mutex> lock(mutex_);
+        wake_.wait_for(lock, config_.removal_poll_interval, [this] { return stopping_; });
+      }
+      if (listed) listed = TitleListed(c, record.title_id);
+    }
+    if (listed) {
+      if (!result.sent)
+        return fail("remover-unavailable", "Playden could not start its title remover. Retry to try again.");
+      if (result.code && *result.code != 0) {
+        char code[16]; std::snprintf(code, sizeof(code), "0x%08x", static_cast<unsigned>(*result.code));
+        return fail("unregister-refused", std::string("The console refused to remove the PS5 title (") + code + ").");
+      }
+      // No answer is not a failure of the console: the next attempt checks again.
+      return fail("unregister-unconfirmed", "The console has not confirmed that the PS5 title is gone. Retry checks again.");
+    }
+    if (auto failed = advance("bottle"); !failed.empty()) return failed;
+  }
+  if (record.journal->step == "bottle") {
+    const auto bottle = HostPath(record.data_root);
+    const auto kept = bottle.parent_path() / (record.install_id + kKeptSuffix);
+    std::error_code error;
+    struct stat info{};
+    const bool present = lstat(bottle.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+    if (delete_saves) {
+      std::filesystem::remove_all(kept, error);  // links are removed, never followed
+      if (!error && present) std::filesystem::remove_all(bottle, error);
+      if (error) return fail("bottle-delete", "The game's saves and settings could not be deleted: " + error.message());
+    } else if (present) {
+      const auto marker = "{\"schema\":1,\"install_id\":\"" + record.install_id + "\",\"app_id\":" +
+                          std::to_string(record.app_id) + ",\"name\":\"" + JsonEscaped(game_name) +
+                          "\",\"kept_at\":" + std::to_string(config_.unix_time ? config_.unix_time() : std::int64_t(time(nullptr))) +
+                          ",\"bytes\":" + std::to_string(TreeBytes(bottle)) + "}\n";
+      const int fd = open((bottle / kKeptMarker).c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+      const bool written = fd >= 0 && write(fd, marker.data(), marker.size()) == static_cast<ssize_t>(marker.size()) &&
+                           fsync(fd) == 0;
+      if (fd >= 0) close(fd);
+      if (!written) return fail("bottle-keep", "The game's saves could not be marked as kept.");
+      if (lstat(kept.c_str(), &info) == 0) {
+        // An older kept copy was never brought back; the newer bottle replaces it.
+        Log("remove replaces older kept bottle install=" + record.install_id);
+        std::filesystem::remove_all(kept, error);
+        if (error) return fail("bottle-keep", "An older copy of the game's saves could not be replaced.");
+      }
+      if (rename(bottle.c_str(), kept.c_str()) != 0)
+        return fail("bottle-keep", "The game's saves could not be kept (error " + std::to_string(errno) + ").");
+    }
+    if (auto failed = advance("erase"); !failed.empty()) return failed;
+  }
+  // Erase: both the console inventory and the title folder must be gone.
+  rt::NativeTitleAvailability confirmed;
+  confirmed.inventory = TitleListed(c, record.title_id) ? rt::TitleAvailability::kOccupied : rt::TitleAvailability::kFree;
+  struct stat info{};
+  confirmed.source_path = lstat(source.c_str(), &info) != 0 && errno == ENOENT ? rt::TitleAvailability::kFree
+                                                                               : rt::TitleAvailability::kOccupied;
+  const auto erased = c.repository.EraseAfterUnregister(record.install_id, confirmed);
+  if (!erased.ok()) return fail("erase", "The removal could not be completed: " + erased.message());
+  // A generated recipe is made again from Steam's launch options on the next prepare.
+  if (rt::IsGeneratedRecipeId(record.recipe_id)) {
+    c.storage.Remove(GeneratedRecipeFile(record.recipe_id));
+    c.recipes.erase(std::remove_if(c.recipes.begin(), c.recipes.end(),
+                                   [&](const rt::GameRecipe& recipe) { return recipe.id == record.recipe_id; }),
+                    c.recipes.end());
+    PublishRecipes(c);
+  }
+  c.admission.erase(record.install_id);
+  std::error_code ignored;
+  std::filesystem::remove_all(config_.state_root / "trash" / (record.title_id + "-" + record.journal->operation_id), ignored);
+  PublishInstalls(c);
+  Log("remove complete install=" + record.install_id + " title=" + record.title_id);
+  return {};
+}
+
+std::string RuntimeHost::RestoreKeptSaves(Composition& c, std::uint32_t app) {
+  std::optional<rt::RuntimeInstall> record;
+  for (const auto& candidate : c.repository.Snapshot())
+    if (candidate.app_id == app && candidate.state == rt::PreparationState::kReady) record = candidate;
+  if (!record) return {};
+  const auto bottle = HostPath(record->data_root);
+  const auto kept = bottle.parent_path() / (record->install_id + kKeptSuffix);
+  struct stat info{};
+  if (lstat(kept.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) return {};
+  const auto from = kept / "library/prefixes/game/drive_c/users";
+  const auto to = bottle / "library/prefixes/game/drive_c/users";
+  std::string reason;
+  if (lstat(from.c_str(), &info) == 0 && S_ISDIR(info.st_mode)) {
+    if (lstat(to.parent_path().c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
+      return "The game's new bottle has no drive C for its kept saves.";
+    if (!CopySavesTree(from, to, &reason)) {
+      Log("restore kept saves failed app=" + std::to_string(app) + " " + reason);
+      return "The saves kept from the previous install could not be brought back: " + reason;
+    }
+  }
+  std::error_code error;
+  std::filesystem::remove_all(kept, error);
+  Log("restore kept saves app=" + std::to_string(app) + " kept_removed=" + std::to_string(!error));
+  PublishKeptBottles(c);
+  return {};
+}
+
+std::string RuntimeHost::DeleteKept(Composition& c, std::uint32_t app) {
+  const auto install_id = "steam-" + std::to_string(app);
+  const auto kept = HostPath(config_.package_paths.console_data_root + "/playden/games") / (install_id + kKeptSuffix);
+  struct stat info{};
+  if (lstat(kept.c_str(), &info) != 0) return {};
+  if (!S_ISDIR(info.st_mode) || !ReadKeptMarker(kept, install_id)) return "This folder is not kept game data.";
+  std::error_code error;
+  std::filesystem::remove_all(kept, error);  // links are removed, never followed
+  return error ? "The kept saves could not be deleted: " + error.message() : std::string{};
+}
+
 void RuntimeHost::Run() {
   auto unavailable = [this](std::string reason) {
     Publish([&](RuntimeSnapshot& s) { s.status = RuntimeHostStatus::kUnavailable; s.reason = std::move(reason); });
@@ -1001,6 +1363,17 @@ void RuntimeHost::Run() {
       // explicit recovery action; nothing resumes, registers or rebuilds here.
       LoadGeneratedRecipes(c);
       PublishInstalls(c);
+      PublishKeptBottles(c);
+      // Retired title folders left by an earlier removal are outside the scan
+      // root already; deleting them is only housekeeping.
+      {
+        std::error_code error;
+        for (std::filesystem::directory_iterator it(config_.state_root / "trash", error), end; !error && it != end;
+             it.increment(error)) {
+          std::error_code ignored;
+          std::filesystem::remove_all(it->path(), ignored);  // never follows links
+        }
+      }
       if (c.kit)
         for (const auto& record : c.repository.Snapshot())
           if (record.state == rt::PreparationState::kReady) {
@@ -1061,6 +1434,8 @@ void RuntimeHost::Run() {
   for (;;) {
     std::vector<RuntimePrepareRequest> requests;
     std::vector<std::uint32_t> plays;
+    std::vector<std::pair<std::uint32_t, bool>> removals;
+    std::vector<std::uint32_t> kept_deletes;
     bool poll = false;
     bool cleanup = false;
     std::vector<std::uint32_t> checks;
@@ -1071,13 +1446,17 @@ void RuntimeHost::Run() {
       // application thread, so it waits while a handoff is pending.
       const auto ready = [this] {
         return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty() ||
-               cleanup_requested_ || !activity_requests_.empty() || title_names_changed_;
+               cleanup_requested_ || !activity_requests_.empty() || title_names_changed_ ||
+               (!remove_requests_.empty() && !snapshot_.handoff_ready) || !kept_delete_requests_.empty();
       };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
       if (stopping_) break;
       if (!snapshot_.handoff_ready) requests.swap(prepare_requests_);
       plays.swap(play_requests_);
+      // Removal changes install records that Handoff reads, like preparation.
+      if (!snapshot_.handoff_ready) removals.swap(remove_requests_);
+      kept_deletes.swap(kept_delete_requests_);
       poll = launch_poll_;
       cleanup = cleanup_requested_;
       cleanup_requested_ = false;
@@ -1113,6 +1492,31 @@ void RuntimeHost::Run() {
         });
       }
     }
+    for (const auto& [app, delete_saves] : removals) {
+      std::string refusal;
+      if (!composition) {
+        const auto current = Snapshot();
+        refusal = current.reason.empty() ? "The runtime services are unavailable." : current.reason;
+      } else {
+        Publish([&](RuntimeSnapshot& s) { s.removing_app = app; s.removal_failures.erase(app); });
+        refusal = RunRemove(*composition, app, delete_saves);
+        PublishKeptBottles(*composition);
+      }
+      Log("remove result app=" + std::to_string(app) + " " + (refusal.empty() ? "removed" : refusal));
+      Publish([&](RuntimeSnapshot& s) {
+        s.removing_app.reset();
+        if (refusal.empty()) s.removal_failures.erase(app);
+        else s.removal_failures[app] = refusal;
+        ++s.removals_handled;
+      });
+    }
+    for (const auto app : kept_deletes) {
+      if (!composition) continue;
+      const auto refusal = DeleteKept(*composition, app);
+      Log("kept bottle delete app=" + std::to_string(app) + " " + (refusal.empty() ? "deleted" : refusal));
+      PublishKeptBottles(*composition);
+      if (!refusal.empty()) Publish([&](RuntimeSnapshot& s) { s.removal_failures[app] = refusal; });
+    }
     if (poll && composition) {
       const bool again = PollLaunch(*composition);
       std::lock_guard<std::mutex> lock(mutex_);
@@ -1137,6 +1541,8 @@ void RuntimeHost::Run() {
       } else {
         Publish([&](RuntimeSnapshot& s) { s.preparing_app = request.app_id; s.refusals.erase(request.app_id); });
         refusal = RunPrepare(*composition, request);
+        // A game prepared again gets back the saves it kept when it was uninstalled.
+        if (refusal.empty()) refusal = RestoreKeptSaves(*composition, request.app_id);
       }
       Log("prepare result app=" + std::to_string(request.app_id) + " " + (refusal.empty() ? "ready" : refusal));
       if (composition) {

@@ -507,10 +507,17 @@ RepositoryResult<void> RuntimeInstallRepository::EraseAfterUnregister(const std:
   if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
   const auto found = installs_.find(install_id);
   if (found == installs_.end()) return Failure(RepositoryError::kNotFound, "runtime install does not exist");
+  return EraseAfterUnregister(install_id, native_availability_ ? native_availability_(found->second.title_id)
+                                                               : NativeTitleAvailability{});
+}
+
+RepositoryResult<void> RuntimeInstallRepository::EraseAfterUnregister(const std::string& install_id,
+                                                                      const NativeTitleAvailability& availability) {
+  if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
+  const auto found = installs_.find(install_id);
+  if (found == installs_.end()) return Failure(RepositoryError::kNotFound, "runtime install does not exist");
   if (found->second.state != PreparationState::kRemoving)
     return Failure(RepositoryError::kRemovalIncomplete, "runtime install is not awaiting removal");
-  const auto availability = native_availability_ ? native_availability_(found->second.title_id)
-                                                 : NativeTitleAvailability{};
   if (availability.inventory != TitleAvailability::kFree ||
       availability.source_path != TitleAvailability::kFree)
     return Failure(RepositoryError::kRemovalIncomplete, "native unregister or source cleanup is incomplete");

@@ -73,6 +73,9 @@ runtime::NativeTitleAvailability Ps5NativeCoordinator::Availability(const std::s
   if (activity == runtime::NativeActivity::kUnknown) database.inventory = TitleAvailability::kUnknown;
   return {database.inventory, source.availability};
 }
+runtime::TitleAvailability Ps5NativeCoordinator::Inventory(const std::string& title) {
+  return IsPlaydenGameTitle(title) ? operations_.database(title).inventory : TitleAvailability::kUnknown;
+}
 runtime::NativeActivity Ps5NativeCoordinator::Activity(const std::string& title) {
   return IsPlaydenGameTitle(title) ? operations_.activity(title) : runtime::NativeActivity::kUnknown;
 }

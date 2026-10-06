@@ -259,7 +259,7 @@ add_library(playden_publication_transaction STATIC "${CMAKE_SOURCE_DIR}/src/runt
 target_include_directories(playden_publication_transaction PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_publication_transaction PUBLIC cxx_std_17)
 add_library(playden_native_coordinator STATIC "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_coordinator.cpp"
-    "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_registry.cpp")
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_registry.cpp" "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_remover.cpp")
 target_include_directories(playden_native_coordinator PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_native_coordinator PUBLIC cxx_std_17)
 target_link_libraries(playden_native_coordinator PUBLIC playden_runtime_install_service playden_title_database
@@ -268,4 +268,7 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(native_coordinator_test "${CMAKE_SOURCE_DIR}/tests/native_coordinator_test.cpp")
     target_link_libraries(native_coordinator_test PRIVATE playden_native_coordinator)
     add_test(NAME native_coordinator COMMAND native_coordinator_test)
+    add_executable(title_remover_test "${CMAKE_SOURCE_DIR}/tests/title_remover_test.cpp")
+    target_link_libraries(title_remover_test PRIVATE playden_native_coordinator)
+    add_test(NAME title_remover COMMAND title_remover_test)
 endif()
