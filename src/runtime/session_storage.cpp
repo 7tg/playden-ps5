@@ -13,7 +13,6 @@
 #include <limits>
 #include <map>
 #include <set>
-#include <sstream>
 #include <string_view>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -394,22 +393,21 @@ std::optional<std::string> SerializeJournal(const ReconcileEntry &entry) {
   const auto *origin = OriginName(entry.session.origin);
   const auto *reconcile_phase = ReconcilePhaseName(entry.phase);
   if (!session_phase || !origin || !reconcile_phase) return std::nullopt;
-  std::ostringstream output;
-  output << "{\"schema_version\":1,\"session\":{\"schema_version\":1,"
-         << "\"session_id\":\"" << Escape(entry.session.session_id)
-         << "\",\"install_id\":\"" << Escape(entry.session.install_id)
-         << "\",\"title_id\":\"" << Escape(entry.session.title_id)
-         << "\",\"origin\":\"" << origin
-         << "\",\"settings_revision\":" << entry.session.settings_revision
-         << ",\"runtime_bundle_id\":\"" << Escape(entry.session.runtime_bundle_id)
-         << "\",\"phase\":\"" << session_phase << "\"";
-  if (entry.session.exit_code) output << ",\"exit_code\":" << *entry.session.exit_code;
-  output << "},\"account_token\":\"" << Escape(entry.account_token)
-         << "\",\"phase\":\"" << reconcile_phase
-         << "\",\"operation_id\":\"" << Escape(entry.operation_id)
-         << "\",\"code\":\"" << Escape(entry.code)
-         << "\",\"message\":\"" << Escape(entry.message) << "\"}\n";
-  auto bytes = output.str();
+  std::string bytes = "{\"schema_version\":1,\"session\":{\"schema_version\":1,";
+  bytes += "\"session_id\":\"" + Escape(entry.session.session_id);
+  bytes += "\",\"install_id\":\"" + Escape(entry.session.install_id);
+  bytes += "\",\"title_id\":\"" + Escape(entry.session.title_id);
+  bytes += "\",\"origin\":\"" + std::string(origin);
+  bytes += "\",\"settings_revision\":" + std::to_string(entry.session.settings_revision);
+  bytes += ",\"runtime_bundle_id\":\"" + Escape(entry.session.runtime_bundle_id);
+  bytes += "\",\"phase\":\"" + std::string(session_phase) + "\"";
+  if (entry.session.exit_code)
+    bytes += ",\"exit_code\":" + std::to_string(*entry.session.exit_code);
+  bytes += "},\"account_token\":\"" + Escape(entry.account_token);
+  bytes += "\",\"phase\":\"" + std::string(reconcile_phase);
+  bytes += "\",\"operation_id\":\"" + Escape(entry.operation_id);
+  bytes += "\",\"code\":\"" + Escape(entry.code);
+  bytes += "\",\"message\":\"" + Escape(entry.message) + "\"}\n";
   if (bytes.size() > DurableReconcileJournal::kMaxJournalBytes)
     return std::nullopt;
   return bytes;
@@ -431,7 +429,7 @@ std::optional<ReconcileEntry> ParseJournal(std::string_view bytes,
   if (!schema || schema->AsUint64() != 1 || !session_value || !account ||
       !phase || !operation || !code || !message)
     return std::nullopt;
-  std::ostringstream session_bytes;
+  std::string session_bytes;
   // Parse the nested object directly by rebuilding only its strict known schema.
   const auto *session_schema = Required(*session_value, "schema_version", Type::kNumber);
   const auto *session_id = Required(*session_value, "session_id", Type::kString);
@@ -446,21 +444,20 @@ std::optional<ReconcileEntry> ParseJournal(std::string_view bytes,
       !session_schema || session_schema->AsUint64() != 1 || !session_id ||
       !install || !title || !origin || !revision || !runtime || !session_phase)
     return std::nullopt;
-  session_bytes << "{\"schema_version\":1,\"session_id\":\""
-                << Escape(session_id->text()) << "\",\"install_id\":\""
-                << Escape(install->text()) << "\",\"title_id\":\""
-                << Escape(title->text()) << "\",\"origin\":\""
-                << Escape(origin->text()) << "\",\"settings_revision\":"
-                << revision->text() << ",\"runtime_bundle_id\":\""
-                << Escape(runtime->text()) << "\",\"phase\":\""
-                << Escape(session_phase->text()) << "\"";
+  session_bytes = "{\"schema_version\":1,\"session_id\":\"" + Escape(session_id->text());
+  session_bytes += "\",\"install_id\":\"" + Escape(install->text());
+  session_bytes += "\",\"title_id\":\"" + Escape(title->text());
+  session_bytes += "\",\"origin\":\"" + Escape(origin->text());
+  session_bytes += "\",\"settings_revision\":" + revision->text();
+  session_bytes += ",\"runtime_bundle_id\":\"" + Escape(runtime->text());
+  session_bytes += "\",\"phase\":\"" + Escape(session_phase->text()) + "\"";
   if (has_exit) {
     const auto *exit = Required(*session_value, "exit_code", Type::kNumber);
     if (!exit) return std::nullopt;
-    session_bytes << ",\"exit_code\":" << exit->text();
+    session_bytes += ",\"exit_code\":" + exit->text();
   }
-  session_bytes << '}';
-  auto session = ParseSession(session_bytes.str(), expected_id);
+  session_bytes += '}';
+  auto session = ParseSession(session_bytes, expected_id);
   auto parsed_phase = ParseReconcilePhase(phase->text());
   if (!session || !parsed_phase || session->session_id != expected_id)
     return std::nullopt;

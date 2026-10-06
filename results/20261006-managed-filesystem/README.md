@@ -67,3 +67,25 @@ and rendered Playden Home with the existing account and cached library. The app
 was closed after verification and console ownership released. The normal package
 remains installed. This does not establish game launch or gameplay acceptance;
 artwork/icon work remains deferred by user request.
+
+## Native session storage increment
+
+[Session diagnostic](session-native.log), probe executable SHA-256
+`ed9945b2f4417a720d939501ac7d02cc9cf15e723d9ce469f0e4092b9b75bf46`,
+passed under EUID 1: fresh private canonical game tree, complete marker and
+synthetic wrapper JSON publication, actual production session enumeration,
+separate private reconciliation journal save/reopen, and refusal of retained
+pending lock evidence. Existing managed filesystem/settings checks also passed.
+The fixture records are synthetic; actual pinned C writer compatibility is
+covered on the host. No game registration/launch or Cloud operation occurred.
+
+The first final native link failed because `std::ostringstream` pulled unsupported
+libc++ locale functions into the session adapter. Escaped string construction and
+integer `std::to_string` preserve the JSON contract without those imports. The
+final probe package linked and the focused host suites passed 3/3 after this fix.
+SDK archive compilation alone had not exposed the missing imports.
+
+The prior normal preview and identity were restored and read back independently
+with the exact hashes documented above. Console ownership was released. Full
+session lifecycle, Cloud/controller wiring and crash/power-loss recovery remain
+open. The private diagnostic fixtures and pending evidence were left intact.

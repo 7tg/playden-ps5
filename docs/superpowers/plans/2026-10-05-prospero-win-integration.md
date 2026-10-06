@@ -697,3 +697,13 @@ Console ownership was released. The separately reported Linux RADV runtime build
 is [development evidence](../../../results/20261006-linux-wine-build/README.md),
 with a title-unavailable `mkstemp` import and remaining admission/native gates;
 it does not replace the retained tested runtime or change capability claims.
+
+Task 7 native storage API increment: fresh synthetic canonical session records
+passed the production source's owned marker/file enumeration and the separate
+private journal's save/reopen on PS5 under EUID 1. Pending lock evidence refused
+reconciliation. The final native link caught unsupported stream locale imports;
+string-based JSON serialization resolved them, with host regression suites passing.
+The [native log](../../../results/20261006-managed-filesystem/session-native.log)
+is API fixture evidence, not a real wrapper session/Cloud lifecycle acceptance.
+Normal preview hashes were independently verified after restoration, and the
+console was released.

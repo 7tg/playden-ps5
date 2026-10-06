@@ -4,6 +4,7 @@
 #include "runtime/private_directories.h"
 #include "runtime/game_settings.h"
 #include "runtime/settings_storage.h"
+#include "runtime/session_storage.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -115,6 +116,68 @@ void RunManagedFilesystemProbe(FILE* log) {
   const auto recovered = journal.ReadDurable("journal.json");
   if (!check(recovered.ok() && recovered.value() == record, "durable-journal-recovery")) return;
   if (!check(runtime::HashArtifactFile(root / "journal.json") == digest, "durable-journal-hash")) return;
+  // Fresh synthetic wrapper records exercise the production native source and
+  // journal. The host contract test separately consumes the actual C writer.
+  runtime::RuntimeInstall install;
+  install.install_id = "probe-session-" + std::to_string(getpid()) + "-" +
+                       std::to_string(std::time(nullptr));
+  install.title_id = "FAKE78001";
+  install.app_id = 220;
+  install.data_root = "/data/playden/games/" + install.install_id;
+  install.install_path = "/games/220";
+  install.runtime_bundle_id = "fixture-runtime";
+  install.recipe_id = "hl2";
+  install.recipe_version = "1";
+  install.settings_revision = 1;
+  const std::filesystem::path session_root(install.data_root);
+  const auto session_bottle = session_root / "library/prefixes/game";
+  const auto sessions_path = session_root / "logs/sessions";
+  if (!check(lstat(session_root.c_str(), &info) != 0 && errno == ENOENT,
+             "session-fresh-root")) return;
+  if (!check(runtime::EnsurePrivateDirectories("/data", session_root, session_bottle, &error) &&
+             runtime::EnsurePrivateDirectories("/data", session_root, sessions_path, &error),
+             "session-private-directories")) return;
+  Storage session_files(session_root.string());
+  const auto write_fixture = [&](const char* path, const std::string& content) {
+    return session_files.WriteDurable(path, Bytes(content.begin(), content.end())).ok();
+  };
+  const std::string marker = "schema=1\nkind=template\ninstall_id=" + install.install_id +
+      "\ntitle_id=FAKE78001\nkit_id=fixture-kit\nfiles_sha256=" + std::string(64, 'a') +
+      "\nruntime_bundle_id=fixture-runtime\nruntime_revision=fixture\nruntime_path=runtime\n"
+      "variant_id=hl2\ntemplate_path=template\nrecipe_id=hl2\nrecipe_version=1\n";
+  constexpr const char* session_id = "123e4567-e89b-72d3-c456-426614174000";
+  const std::string session_json = "{\"schema_version\":1,\"session_id\":\"" +
+      std::string(session_id) + "\",\"install_id\":\"" + install.install_id +
+      "\",\"title_id\":\"FAKE78001\",\"origin\":\"home\",\"settings_revision\":1,"
+      "\"runtime_bundle_id\":\"fixture-runtime\",\"phase\":\"exited\",\"exit_code\":0}\n";
+  const auto filename = std::string("logs/sessions/") + session_id + ".json";
+  if (!check(write_fixture("library/prefixes/game/.playden-template-owner", marker) &&
+             write_fixture(filename.c_str(), session_json), "session-fixture-publication")) return;
+  runtime::FilesystemReconcileSessionSource session_source;
+  const auto enumerated = session_source.Enumerate(install, 8);
+  if (!check(enumerated.ok && enumerated.sessions.size() == 1 &&
+             enumerated.sessions[0].session_id == session_id &&
+             enumerated.sessions[0].origin == runtime::SessionOrigin::kHome &&
+             enumerated.sessions[0].exit_code == 0, "session-native-enumeration")) return;
+  const auto reconcile_root = root / "session-journal";
+  if (!check(runtime::EnsurePrivateDirectories(root, reconcile_root, reconcile_root, &error),
+             "session-journal-private-root")) return;
+  Storage reconcile_storage(reconcile_root.string());
+  runtime::DurableReconcileJournal reconcile_journal(reconcile_storage);
+  runtime::ReconcileEntry entry;
+  entry.session = enumerated.sessions[0];
+  entry.account_token = "fixture-account-revision";
+  entry.phase = runtime::ReconcilePhase::kCompletionPending;
+  entry.operation_id = "fixture-completed-operation";
+  if (!check(reconcile_journal.Save(entry).ok, "session-journal-publication")) return;
+  runtime::DurableReconcileJournal reopened_journal(reconcile_storage);
+  const auto restored = reopened_journal.Load(session_id);
+  if (!check(restored.ok && restored.entry &&
+             restored.entry->session.install_id == install.install_id &&
+             restored.entry->phase == entry.phase &&
+             restored.entry->operation_id == entry.operation_id, "session-journal-reopen")) return;
+  if (!check(write_fixture("logs/sessions/pending.lock", "fixture pending evidence\n") &&
+             !session_source.Enumerate(install, 8).ok, "session-pending-evidence-refusal")) return;
   std::fprintf(log, "managed-filesystem complete euid=%u sha256=%s\n", unsigned(geteuid()), digest->c_str());
   std::fflush(log);
 }

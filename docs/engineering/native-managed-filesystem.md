@@ -84,8 +84,12 @@ reconciler; missing IDs are rejected on load and save. Provision its private roo
 separately from wrapper logs. Source/journal tests consume the actual pinned C
 writer, verify restart/readback, identity drift, corruption and ownership refusal,
 and exercise the explicit PS5 backend on the host. This supplies storage adapters;
-Cloud/controller wiring, evidence archival and native session acceptance remain
-open.
+Cloud/controller wiring, evidence archival and full native session lifecycle
+acceptance remain open. Fresh synthetic native records passed the actual source
+and journal save/reopen/pending-evidence checks under EUID 1; see
+`results/20261006-managed-filesystem/session-native.log`. The final native link
+exposed unsupported locale imports from string streams, so serialization now
+uses escaped strings and locale-independent integer conversion.
 
 ## Evidence and remaining acceptance
 
