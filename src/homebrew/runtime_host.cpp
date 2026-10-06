@@ -45,9 +45,6 @@ class UnavailablePackageInstaller final : public rt::PackageInstaller {
   std::string reason_;
 };
 
-// Bounded wait while ShadowMount registers a submitted title.
-constexpr int kNativeAwaitPolls = 30;
-constexpr auto kNativeAwaitInterval = std::chrono::seconds(2);
 constexpr int kMaxPreparationSteps = 64;
 // A pending launch is polled at this interval, and Handoff trusts a preflight
 // the worker made at most this long ago.
@@ -55,6 +52,14 @@ constexpr auto kLaunchPollInterval = std::chrono::seconds(2);
 constexpr std::int64_t kPreflightFreshMs = 5000;
 
 std::string InstallId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id); }
+
+// Staged, its registration submitted, and only waiting for ShadowMountPlus, which
+// registers titles once no title runs: the game is ready to play from Home. A
+// registration the console refused (a stale hook, a failed submission) is not.
+bool AwaitingRegistration(const rt::RuntimeInstall& record) {
+  return record.journal && (record.journal->step == "register" || record.journal->step == "await-native") &&
+         (!record.last_failure || record.last_failure->code == "registration-uncertain");
+}
 }  // namespace
 
 // Newest wrapper session log under <data root>/library/logs, last 128 KiB.
@@ -368,6 +373,7 @@ void RuntimeHost::PublishInstalls(const Composition& composition) {
     view.state = record.state;
     if (record.journal) view.step = record.journal->step;
     view.recovery_pending = record.journal.has_value();
+    view.awaiting_registration = AwaitingRegistration(record);
     if (record.last_failure) view.failure = record.last_failure->message;
     if (record.state == rt::PreparationState::kReady && composition.kit)
       view.title_current = composition.installer->TitleCurrent(record) &&
@@ -769,7 +775,7 @@ void RuntimeHost::PublishRecipes(const Composition& c) {
   Publish([&](RuntimeSnapshot& s) { s.generated_recipes = std::move(generated); });
 }
 
-std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request) {
+std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request, bool* awaiting) {
   if (!c.kit) return Snapshot().kit_reason;
   // A game being started or played keeps its title and bottle as they are.
   if (c.launch_journal) {
@@ -955,7 +961,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       " ok=" + std::to_string(started.ok()) + " message=" + started.message);
   if (!started.ok()) return started.message;
   const auto install_id = existing ? existing->install_id : InstallId(request.app_id);
-  int awaits = 0;
+  bool checked_after_submit = false;
   for (int steps = 0; steps < kMaxPreparationSteps && !Stopping(); ++steps) {
     const auto current = c.records.Find(install_id);
     if (!current) return "The preparation record disappeared.";
@@ -972,16 +978,20 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         " state=" + (after_step ? std::to_string(static_cast<int>(after_step->state)) : std::string("-")) +
         " to=" + (after_step && after_step->journal ? after_step->journal->step : std::string{}) +
         " message=" + step.message);
-    // Pending registration is polled: later steps only query the console and
-    // never resubmit an armed registration.
+    // A submitted registration is not polled: ShadowMountPlus registers titles only
+    // while no title runs, Playden included. The console is asked once more right
+    // away (a title may already be registered); otherwise preparation ends here and
+    // the game is ready to play once the player leaves Playden. Later checks only
+    // query the console and never resubmit an armed registration.
     const bool pending = !step.ok() && step.error() == rt::InstallServiceError::kRegistrationPending;
     if (!step.ok() && !pending) return step.message;
     const auto after = c.records.Find(install_id);
     if (pending || (after && after->journal && after->journal->step == "await-native")) {
-      if (++awaits > kNativeAwaitPolls)
-        return "The console has not finished registering the title; retry later.";
-      std::unique_lock<std::mutex> lock(mutex_);
-      wake_.wait_for(lock, kNativeAwaitInterval, [this] { return stopping_; });
+      if (pending || checked_after_submit) {
+        if (awaiting) *awaiting = true;
+        return {};
+      }
+      checked_after_submit = true;
     }
   }
   return Stopping() ? "Preparation was interrupted." : "Preparation did not finish.";
@@ -1364,7 +1374,8 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
 std::string RuntimeHost::RestoreKeptSaves(Composition& c, std::uint32_t app) {
   std::optional<rt::RuntimeInstall> record;
   for (const auto& candidate : c.repository.Snapshot())
-    if (candidate.app_id == app && candidate.state == rt::PreparationState::kReady) record = candidate;
+    if (candidate.app_id == app && (candidate.state == rt::PreparationState::kReady || AwaitingRegistration(candidate)))
+      record = candidate;
   if (!record) return {};
   const auto bottle = HostPath(record->data_root);
   const auto kept = bottle.parent_path() / (record->install_id + kKeptSuffix);
@@ -1634,16 +1645,19 @@ void RuntimeHost::Run() {
         }
       }
       std::string refusal;
+      bool awaiting = false;
       if (!composition) {
         const auto current = Snapshot();
         refusal = current.reason.empty() ? "The runtime services are unavailable." : current.reason;
       } else {
         Publish([&](RuntimeSnapshot& s) { s.preparing_app = request.app_id; s.refusals.erase(request.app_id); });
-        refusal = RunPrepare(*composition, request);
-        // A game prepared again gets back the saves it kept when it was uninstalled.
+        refusal = RunPrepare(*composition, request, &awaiting);
+        // A game prepared again gets back the saves it kept when it was uninstalled,
+        // before it can first be started (from Home, while it waits for registration).
         if (refusal.empty()) refusal = RestoreKeptSaves(*composition, request.app_id);
       }
-      Log("prepare result app=" + std::to_string(request.app_id) + " " + (refusal.empty() ? "ready" : refusal));
+      Log("prepare result app=" + std::to_string(request.app_id) + " " +
+          (!refusal.empty() ? refusal : awaiting ? "awaiting registration" : "ready"));
       if (composition) {
         const auto leftovers = LeftoverRequests(*composition, false);
         Publish([&](RuntimeSnapshot& s) { s.leftover_requests = leftovers; });

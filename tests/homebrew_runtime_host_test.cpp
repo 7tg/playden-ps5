@@ -37,6 +37,9 @@ struct Fixture {
   fs::path root;
   unsigned database_reads = 0, registry_mutations = 0;
   bool registered = false;
+  // ShadowMountPlus postpones scans while a title runs: with registers false a
+  // submission is accepted and listed, but not installed until registered is set.
+  bool registers = true, submitted = false;
   std::shared_ptr<std::atomic<int>> activity = std::make_shared<std::atomic<int>>(static_cast<int>(NativeActivity::kStopped));
   Fixture() {
     char name[] = "/tmp/playden-runtime-host-XXXXXX"; CHECK(mkdtemp(name));
@@ -58,7 +61,10 @@ struct Fixture {
     config.native.activity = [activity = activity](const std::string&) { return static_cast<NativeActivity>(activity->load()); };
     // ShadowMount loopback API: registration makes the title appear installed.
     config.registry_transport = [this](const std::string& route, const std::string&) -> std::optional<std::string> {
-      if (route != "/api/v1/games") { ++registry_mutations; registered = true; return R"({"status":0})"; }
+      if (route != "/api/v1/games") { ++registry_mutations; submitted = true; registered = registers; return R"({"status":0})"; }
+      if (!registered && submitted)
+        return R"({"status":0,"games":[{"title_id":"FAKE78001","installed":false,"managed":true,)"
+               R"("source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78001"}]})";
       if (!registered) return R"({"status":0,"games":[]})";
       return R"({"status":0,"games":[{"title_id":"FAKE78001","installed":true,"managed":true,)"
              R"("source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78001"}]})";
@@ -214,6 +220,66 @@ void PublicStateRootIsUnavailable() {
   host.Shutdown();
   struct stat info{};
   CHECK(stat(config.state_root.c_str(), &info) == 0 && (info.st_mode & 0777) == 0755);
+}
+
+// ShadowMountPlus registers a submitted title only once no title runs (Playden
+// included): preparation ends as soon as the registration is submitted, with the
+// game waiting for the console and no refusal. A later check only asks the console:
+// once the title is registered it becomes Ready, never submitted again.
+void PreparationEndsAwaitingRegistration() {
+  Fixture fixture;
+  fixture.registers = false;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  const auto began = std::chrono::steady_clock::now();
+  host.Prepare(Hl2());
+  const auto waiting = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && (s.refusals.count(220) || s.installs[0].awaiting_registration);
+  }, 60);
+  if (waiting.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", waiting.refusals.at(220).c_str());
+  CHECK(!waiting.refusals.count(220) && waiting.installs[0].awaiting_registration);
+  CHECK(waiting.installs[0].state != PreparationState::kReady && waiting.installs[0].recovery_pending);
+  CHECK(std::chrono::steady_clock::now() - began < std::chrono::seconds(20));  // no polling for the console
+  const auto submissions = fixture.registry_mutations;
+  CHECK(submissions > 0 && fixture.submitted && !fixture.registered);
+
+  // Asked again while the console still has not registered it: still waiting, nothing resubmitted.
+  host.Prepare(Hl2());
+  auto again = WaitFor(host, [](const RuntimeSnapshot& s) { return s.preparing_app.has_value(); });
+  again = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app; }, 30);
+  CHECK(!again.refusals.count(220) && again.installs[0].awaiting_registration);
+  CHECK(fixture.registry_mutations == submissions);
+
+  // The player left Playden and ShadowMountPlus registered it: the check finds it Ready.
+  fixture.registered = true;
+  host.Prepare(Hl2());
+  const auto ready = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(220) ||
+        (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 30);
+  CHECK(!ready.refusals.count(220) && ready.installs[0].state == PreparationState::kReady);
+  CHECK(!ready.installs[0].awaiting_registration && !ready.installs[0].recovery_pending);
+  CHECK(fixture.registry_mutations == submissions);
+  host.Shutdown();
 }
 
 // An existing download is prepared in place: the host stages its own title,
@@ -788,7 +854,7 @@ void RemovesTitleKeepingSaves() {
     ++*remover_calls;
     CHECK(title == "FAKE78001" && nonce.size() == 36);
     if (!*remover_works) return TitleRemoverResult{true, std::nullopt, "no answer"};
-    fixture.registered = false;
+    fixture.registered = false; fixture.submitted = false;
     return TitleRemoverResult{true, 0, "answered"};
   };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
@@ -914,6 +980,7 @@ int main(int argc, char** argv) {
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
+  PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();
   ResumesInterruptedCaptureFromSavedRequest();
   ResumesInterruptedCaptureFromSavedRequest(true);

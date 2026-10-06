@@ -117,6 +117,9 @@ struct RuntimeInstallView {
   // A durable journal is present while no preparation runs. Recovery is
   // explicit; startup never resumes it.
   bool recovery_pending = false;
+  // Staged and its registration submitted: ShadowMountPlus registers it once no
+  // title runs, so the game is ready to play from the PS5 Home screen.
+  bool awaiting_registration = false;
   // False when a Ready title was made from an earlier kit; Prepare updates it.
   bool title_current = true;
   // Publication admission result for Ready titles ("ok" or the refusal); a
@@ -230,7 +233,9 @@ class RuntimeHost {
   void Run();
   void Publish(const std::function<void(RuntimeSnapshot&)>& change);
   void PublishInstalls(const Composition& composition);
-  std::string RunPrepare(Composition& composition, const RuntimePrepareRequest& request);
+  // Empty when the title is Ready or, with *awaiting set, staged and waiting for the
+  // console to register it; otherwise why not.
+  std::string RunPrepare(Composition& composition, const RuntimePrepareRequest& request, bool* awaiting = nullptr);
   const runtime::GameRecipe* RecipeForPrepare(Composition& composition, const RuntimePrepareRequest& request,
                                               std::string* reason);
   void LoadGeneratedRecipes(Composition& composition);
