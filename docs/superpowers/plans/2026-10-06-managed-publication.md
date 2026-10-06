@@ -336,3 +336,45 @@ The actual SDK v0.43 archive compiles. The immutable operation codec, binding
 cross-validation, journal/receipt sequencing, semantic verifier, live publisher
 and native interruption/retry acceptance are still required; this store alone
 completes none of Task C's final acceptance checkboxes.
+
+
+### Task C frozen operation increment
+
+`settings_publication_journal.{h,cpp}` now freezes the full OWNER record and
+settings launch plan, descriptor/catalog/schema-2 metadata, prior DXVK snapshot
+and optional external registry backup binding. It uses bounded little-endian
+length-prefixed fields, checks counts/lengths before decoder allocation and
+requires exact EOF. Profile/input bytes occur once in the operation payload.
+The full OWNER record preserves its independent adoption launch arguments; the
+pinned profile parser and splitter validate the effective composed arguments.
+The install snapshot carries the desired settings revision, and the separately
+frozen previous revision must not exceed it.
+
+Creation/recovery cross-validates the shared receipt/metadata and pinned
+profile/input/descriptor parsers, canonical game launch paths, input hashes and
+aliases, one-entry catalog, DXVK state/digest/header, executable-owned registry
+policy and required backup bindings. Receipts bind a hash of the complete
+canonical payload; their own bytes and digest field are excluded to avoid a
+cycle. Committed receipt binds exact metadata bytes. Publication reconstruction
+re-runs validation and derives the profile-validation flag rather than trusting
+serialized state.
+
+The existing private control directory stores an immutable exclusive
+`settings-operation.v1`. Create confirms every referenced backup before journal
+publication; load distinguishes absent/valid/corrupt/unavailable, independently
+requires exact owned-0600 files and rejects missing/altered referenced backups.
+Failed writes retain private temporary evidence and require fresh recovery.
+No operation file or backup by itself grants ownership or readiness. The caller
+must retain the publisher lease; no live settings effects are connected yet.
+
+Tests cover every truncation and single-byte bit mutation of a valid operation,
+field/total bounds, a valid operation exceeding 1 MiB with 64 full-sized inputs
+and both DXVK snapshots, uint64 revision extrema, frozen-record drift,
+independent launch arguments, receipt substitution, unsupported profile/input
+aliases, immutable journal collisions, missing backups, private-file policy and
+actual write-failure recovery. Tests also reproduced and corrected nil backup
+UUID acceptance and a present empty DXVK snapshot with no ownership header.
+The 104-test host suite, warning checks and SDK v0.43 archive compilation pass.
+See [operation evidence](../../../results/20261006-settings-operation/README.md).
+Live publisher sequencing, interruption after each live effect, final native
+link/acceptance and final independent Task C review remain pending.

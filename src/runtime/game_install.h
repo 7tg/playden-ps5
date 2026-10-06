@@ -75,6 +75,9 @@ struct RuntimeInstall {
   std::optional<PreparationJournal> journal;
 };
 
+// Shared OWNER record validation; this grants no filesystem ownership or readiness.
+bool ValidateRuntimeInstallRecord(const RuntimeInstall& record);
+
 struct ReserveRequest {
   std::string install_id;
   std::uint32_t app_id = 0;

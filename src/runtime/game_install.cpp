@@ -284,6 +284,8 @@ void WriteRecord(std::ostringstream& output, const RuntimeInstall& record) {
 
 }  // namespace
 
+bool ValidateRuntimeInstallRecord(const RuntimeInstall& record) { return ValidRecord(record); }
+
 RuntimeInstallRepository::RuntimeInstallRepository(Storage& storage, std::string relative_path,
                                                    NativeAvailabilityQuery native_availability)
     : storage_(storage), relative_path_(std::move(relative_path)),

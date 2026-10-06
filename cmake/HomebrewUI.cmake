@@ -108,6 +108,18 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
 
+add_library(playden_runtime_settings_publication_journal STATIC
+    "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication_journal.cpp"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_launch.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_game_profile.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_wine_launch.c")
+target_include_directories(playden_runtime_settings_publication_journal PUBLIC "${CMAKE_SOURCE_DIR}/src"
+    PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_settings_publication_journal PUBLIC cxx_std_17 PRIVATE c_std_11)
+target_link_libraries(playden_runtime_settings_publication_journal PUBLIC
+    playden_runtime_installs playden_runtime_artifact_hash playden_runtime_publication_contract playden_runtime_publication_backup)
+
 add_library(playden_runtime_publication_backup STATIC "${CMAKE_SOURCE_DIR}/src/runtime/publication_backup.cpp")
 target_include_directories(playden_runtime_publication_backup PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_publication_backup PUBLIC cxx_std_17)
@@ -494,6 +506,9 @@ if(BUILD_TESTING)
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
     # Inject failures only at the POSIX I/O boundary of this test's production
     # compilation; the shipped settings implementation has ordinary syscalls.
+    add_executable(runtime_settings_publication_journal_test tests/runtime_settings_publication_journal_test.cpp)
+    target_link_libraries(runtime_settings_publication_journal_test PRIVATE playden_runtime_settings_publication_journal)
+    add_test(NAME runtime_settings_publication_journal COMMAND runtime_settings_publication_journal_test)
     add_executable(runtime_publication_backup_test tests/runtime_publication_backup_test.cpp)
     target_link_libraries(runtime_publication_backup_test PRIVATE playden_runtime_publication_backup)
     add_test(NAME runtime_publication_backup COMMAND runtime_publication_backup_test)

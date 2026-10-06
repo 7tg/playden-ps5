@@ -43,6 +43,7 @@ int main() {
   CHECK(LoadPublicationRegistryBackup(root, transaction, altered).state == PublicationRecoveryState::kCorrupt);
   altered = binding; altered.sha256[0] = 'A';
   CHECK(LoadPublicationRegistryBackup(root, transaction, altered).state == PublicationRecoveryState::kCorrupt);
+  CHECK(!CreatePublicationRegistryBackup(root, "00000000-0000-0000-0000-000000000000", bytes, 0600).ok());
   CHECK(!CreatePublicationRegistryBackup(root, "../escape", bytes, 0600).ok());
   CHECK(!CreatePublicationRegistryBackup(root, "12345678-1234-1234-1234-123456789abC", bytes, 0600).ok());
   CHECK(!CreatePublicationRegistryBackup(root, transaction, bytes, 0666).ok());

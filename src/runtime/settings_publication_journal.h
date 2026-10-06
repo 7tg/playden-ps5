@@ -1,0 +1,53 @@
+#pragma once
+#include "runtime/game_settings.h"
+#include "runtime/game_install.h"
+#include "runtime/publication_backup.h"
+#include "runtime/package_installer.h"
+#include <optional>
+
+namespace playden::runtime {
+inline constexpr std::size_t kMaxSettingsPublicationOperationBytes = 2 * 1024 * 1024;
+struct FrozenFileSnapshot {
+  bool present = false;
+  unsigned mode = 0;
+  std::uint64_t size = 0;
+  std::string sha256;
+  std::string bytes;
+};
+struct SettingsPublicationOperation {
+  unsigned schema = 1;
+  std::string transaction_id, kit_id;
+  std::uint64_t previous_revision = 0;
+  RuntimeInstall install;
+  SettingsLaunchPlan plan;
+  std::string descriptor_bytes, catalog_bytes, metadata_bytes;
+  FrozenFileSnapshot dxvk_before;
+  std::optional<RegistryBackupBinding> registry_backup;
+  std::string plan_sha256, pending_receipt_bytes, committed_receipt_bytes;
+};
+// Pure frozen-byte contract. No recipe reload, filesystem mutation or ownership
+// grant. Profile/input bytes live only in plan. Receipts and the digest are
+// generated from the validated canonical payload, avoiding a hash cycle.
+std::optional<SettingsPublicationOperation> FreezeSettingsPublicationOperation(
+    SettingsPublicationOperation operation, std::string* reason);
+std::optional<Bytes> EncodeSettingsPublicationOperation(
+    const SettingsPublicationOperation& operation, std::string* reason);
+std::optional<SettingsPublicationOperation> DecodeSettingsPublicationOperation(
+    const Bytes& bytes, std::string* reason);
+// Rebuilds the publication from validated frozen identities/profile/input bytes.
+// The parser-validation flag is derived here; it is never serialized or trusted.
+std::optional<ProfilePublication> RebuildFrozenProfilePublication(
+    const SettingsPublicationOperation& operation, std::string* reason);
+struct PublicationOperationLoad {
+  PublicationRecoveryState state = PublicationRecoveryState::kUnavailable;
+  std::optional<SettingsPublicationOperation> operation;
+  std::string message;
+};
+// Existing private control directory only; caller holds the publisher lease.
+// The immutable settings-operation.v1 is created exclusively after validating
+// every referenced backup. Failures may leave files and require fresh recovery.
+// Missing referenced backups are corruption, never optional ownership proof.
+Result<void> CreateSettingsPublicationOperation(
+    const std::filesystem::path& control_directory, const SettingsPublicationOperation& operation);
+PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem::path& control_directory);
+}  // namespace playden::runtime

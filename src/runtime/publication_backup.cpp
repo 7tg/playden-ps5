@@ -16,11 +16,12 @@ bool Hex(std::string_view text) {
 }
 bool Transaction(const std::string& text) {
   if (text.size() != 36) return false;
+  bool nonzero = false;
   for (std::size_t i = 0; i < text.size(); ++i) {
     if (i == 8 || i == 13 || i == 18 || i == 23) { if (text[i] != '-') return false; }
-    else if (!Hex(std::string_view(text).substr(i, 1))) return false;
+    else { if (!Hex(std::string_view(text).substr(i, 1))) return false; nonzero |= text[i] != '0'; }
   }
-  return true;
+  return nonzero;
 }
 std::string Filename(const std::string& transaction) { return "registry-backup-" + transaction + ".v1"; }
 bool PrivateFile(const struct stat& value) {
