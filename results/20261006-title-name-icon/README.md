@@ -18,5 +18,8 @@ Builds `e42a984` and `6fa03f1` on FW 13.60, title `FAKE78002`.
 
 Limits: Playden cannot re-register a title itself (ShadowMount refuses while any app, Playden included, runs), so a
 renamed prepared title shows its new name on the PS5 only after a re-registration outside Playden. New titles get the
-right name and icon from their first registration. Observed bug: after leaving Settings with L1, the Home focus ring was on
-Half-Life 2 but Cross opened another game until the focus was moved.
+right name and icon from their first registration.
+
+Bug found while testing and fixed (`198380b`): after a setting changed and Playden saved its profile, the Home focus ring
+was on Half-Life 2 but Cross opened Castle Crashers. Re-tested on the console: the same sequence now opens Half-Life 2.
+The setting also survived a Playden restart.
