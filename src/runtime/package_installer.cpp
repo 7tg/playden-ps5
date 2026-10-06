@@ -300,7 +300,7 @@ std::string OwnerMarker(const RuntimeInstall& record, const VerifiedKitView& kit
          "\nruntime_revision=" + kit.runtime.artifact_revision +
          "\nruntime_path=" + kit.runtime.path + "\nvariant_id=" + variant_id +
          "\ntemplate_path=" + kit.template_path +
-         "\nrecipe_id=" + kit.recipe.id + "\nrecipe_version=" + kit.recipe.version + "\n";
+         "\nrecipe_id=" + record.recipe_id + "\nrecipe_version=" + record.recipe_version + "\n";
 }
 
 std::string StageMarker(const RuntimeInstall& record, const VerifiedKitView& kit,
@@ -1180,7 +1180,14 @@ PackageActionResult FilesystemPackageInstaller::StageTitle(
 namespace {
 // Marker text without the lines a respin of the same kit may change (its file
 // inventory and a rebuilt runtime's revision and path), for comparing identity.
+// A generated recipe ("steam-<app id>-auto") is made again by newer Playden versions, so its
+// version may change on Update; its ID and everything else may not.
 std::string RespinIdentity(const std::string& marker) {
+  const auto at = marker.find("\nrecipe_id=");
+  const auto from = at == std::string::npos ? at : at + std::strlen("\nrecipe_id=");
+  const auto recipe = from == std::string::npos ? std::string() : marker.substr(from, marker.find('\n', from) - from);
+  const bool generated = recipe.size() > 11 && recipe.rfind("steam-", 0) == 0 &&
+                         recipe.compare(recipe.size() - 5, 5, "-auto") == 0;
   std::string kept;
   std::size_t start = 0;
   while (start < marker.size()) {
@@ -1188,7 +1195,7 @@ std::string RespinIdentity(const std::string& marker) {
     if (end == std::string::npos) end = marker.size();
     const auto line = marker.substr(start, end - start);
     if (line.rfind("files_sha256=", 0) != 0 && line.rfind("runtime_revision=", 0) != 0 &&
-        line.rfind("runtime_path=", 0) != 0)
+        line.rfind("runtime_path=", 0) != 0 && !(generated && line.rfind("recipe_version=", 0) == 0))
       kept += line + "\n";
     start = end + 1;
   }

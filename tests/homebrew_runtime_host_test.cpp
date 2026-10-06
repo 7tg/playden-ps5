@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -775,6 +776,12 @@ void PreparesGameWithoutShippedRecipe() {
     ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
   };
   config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  std::vector<std::pair<std::string, std::vector<std::string>>> launches;
+  config.launch_title = [&launches](const std::string& title, const std::vector<std::string>& arguments) {
+    launches.emplace_back(title, arguments);
+    return TitleResult{true, 0, "launch"};
+  };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/4242";
   // A 64-bit PE header is all the generator reads.
   std::string pe(0x80 + 26, '\0');
@@ -809,6 +816,29 @@ void PreparesGameWithoutShippedRecipe() {
   CHECK(fs::is_regular_file(fixture.root / "data/runtime-state/recipe-steam-4242-auto.json"));
   const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
   CHECK(descriptor.find("steam-4242-auto") != std::string::npos);
+  // The bottle's owner marker names the generated recipe, so the game's sessions are read.
+  const auto marker = Read(fixture.root / "data/playden/games/steam-4242/library/prefixes/game/.playden-template-owner");
+  CHECK(marker.find("\nrecipe_id=steam-4242-auto\n") != std::string::npos);
+  host.Play(4242);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(host.Handoff() && launches.size() == 1 && launches[0].first == "FAKE78001");
+  const auto session = launches[0].second[0].substr(std::strlen("session="));
+  const auto sessions = fixture.root / "data/playden/games/steam-4242/logs/sessions";
+  fs::create_directories(sessions);
+  CHECK(chmod((fixture.root / "data/playden/games/steam-4242/logs").c_str(), 0700) == 0);
+  CHECK(chmod(sessions.c_str(), 0700) == 0);
+  const auto record = [&](const std::string& phase) {
+    return R"({"schema_version":1,"session_id":")" + session +
+           R"(","install_id":"steam-4242","title_id":"FAKE78001","origin":"playden","settings_revision":0,)"
+           R"("runtime_bundle_id":"wine-wow64","phase":")" + phase + "\"}\n";
+  };
+  Write(sessions / (session + ".json"), record("running"), 0600);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kRunning; }, 30);
+  Write(sessions / (session + ".json"), record("exited"), 0600);
+  const auto ended = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return s.launch && s.launch->state != LaunchState::kRunning && s.launch->state != LaunchState::kLaunching;
+  }, 30);
+  CHECK(ended.launch->state == LaunchState::kExited);
   host.Shutdown();
 
   // After a restart the saved recipe is found without Steam.
