@@ -33,7 +33,9 @@ tar -xjf "$downloads/mbedtls-$mbedtls_version.tar.bz2" -C "$deps/src"
 tar -xJf "$downloads/curl-$curl_version.tar.xz" -C "$deps/src"
 
 # Relative source paths keep local paths out of the objects (see prepare-ps5-deps.sh).
-prefix_map="-ffile-prefix-map=$deps/src/="
+physical_src=$(cd "$deps/src" && pwd -P)
+# CMake may spell the tree through a symlink (macOS /tmp is /private/tmp); map every spelling.
+prefix_map="-ffile-prefix-map=$deps/src/= -ffile-prefix-map=$physical_src/= -ffile-prefix-map=${physical_src#/private}/="
 cmake -S "$deps/src/mbedtls-$mbedtls_version" -B "$deps/build/mbedtls-host" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_C_FLAGS="$prefix_map" \
     -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF

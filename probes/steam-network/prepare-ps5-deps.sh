@@ -48,7 +48,9 @@ tar -xJf "$downloads/curl-$curl_version.tar.xz" -C "$deps/src"
 patch --fuzz=0 -d "$deps/src/curl-$curl_version" -p1 < "$curl_patch"
 # Record source paths relative to the extracted tree: the archives are then identical in every
 # checkout and no local path reaches the PS5 title.
-prefix_map="-ffile-prefix-map=$deps/src/="
+physical_src=$(cd "$deps/src" && pwd -P)
+# CMake may spell the tree through a symlink (macOS /tmp is /private/tmp); map every spelling.
+prefix_map="-ffile-prefix-map=$deps/src/= -ffile-prefix-map=$physical_src/= -ffile-prefix-map=${physical_src#/private}/="
 
 bash "$with_env" cmake -S "$deps/src/mbedtls-$mbedtls_version" \
     -B "$deps/build/mbedtls-ps5" -G Ninja -DCMAKE_BUILD_TYPE=Release \
