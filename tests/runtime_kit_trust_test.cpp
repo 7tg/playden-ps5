@@ -34,9 +34,11 @@ int main(int argc, char** argv) {
   CHECK(field("manifest_sha256") == trust.manifest_sha256);
   CHECK(field("wrapper_revision") == trust.sources.at("wrapper").at("revision"));
   CHECK(Get(Get(*lock, "prospero_win"), "revision").text() == field("wrapper_revision"));
-  const auto& pin = Get(Get(kit, "title_pins"), "FAKE78001");
-  CHECK(Get(pin, "helper_sha256").text() == trust.title_pins.at("FAKE78001").helper_sha256);
-  CHECK(Get(pin, "protocol_sha256").text() == trust.title_pins.at("FAKE78001").protocol_sha256);
+  for (const char* title : {"FAKE78001", "FAKE78002"}) {
+    const auto& pin = Get(Get(kit, "title_pins"), title);
+    CHECK(Get(pin, "helper_sha256").text() == trust.title_pins.at(title).helper_sha256);
+    CHECK(Get(pin, "protocol_sha256").text() == trust.title_pins.at(title).protocol_sha256);
+  }
   std::vector<std::string> capabilities;
   for (const auto& item : Get(kit, "capabilities").array()) capabilities.push_back(item.text());
   CHECK(capabilities == trust.allowed_capabilities);
@@ -50,7 +52,7 @@ int main(int argc, char** argv) {
   if (admitted.status != KitManifestStatus::kVerified) std::fprintf(stderr, "admission: %s\n", admitted.reason.c_str());
   CHECK(admitted.status == KitManifestStatus::kVerified && admitted.view);
   CHECK(admitted.view->kit_id == kDevelopmentKitId);
-  CHECK(admitted.available_variant_ids == std::vector<std::string>{"hl2-fake78001-v1"});
+  CHECK((admitted.available_variant_ids == std::vector<std::string>{"hl2-fake78001-v1", "hl2-fake78002-v1"}));
   // Unknown or other firmware is refused.
   CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitTrust("")).status != KitManifestStatus::kVerified);
   CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitTrust("12.02")).status != KitManifestStatus::kVerified);

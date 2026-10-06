@@ -8,11 +8,11 @@ This kit is **not releasable**.
 | Item | Value |
 | --- | --- |
 | Kit | `hl2-fw1360-dev1`, 3548 files, local path `build/kits/hl2-fw1360-dev1` (not in Git) |
-| Manifest SHA-256 | `368fb24b6dc68bf503a0d410bf2ae4a2ead55091f9d257a3e72498e26fe8ceb6` |
-| Files digest | `bce3081187599a18cefe9fd65a2ecb443bc5aaac5fa39928d9c7fc33f7b2e6b9` |
-| prospero-win source | `672d905209d38c444f3c96f001a19ef4ccc2ea62` (local, unpublished), clean |
-| FAKE78001 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `60225c6d98443ab4e9fd4f96fbeca68e9485282611133f151febe3134a701053`, `source_dirty: false` |
-| Helper / protocol | `5608915…` / `bb02c4aa…` (independent pins) |
+| Manifest SHA-256 | `d1fbddf3450e94f9f2109849bd95443bd2ee4611a26bb9f06e1ee0d71c219d3d` |
+| Files digest | `0dfbaed995af74f8bf64457f673665acd1c4855fbae2b1559b40c9aa8d3ee6a2` |
+| prospero-win source | `5f1d8deaf953eadef38df99e0ecc6c8cd6af5ae0` (local, unpublished), clean |
+| FAKE78001 / FAKE78002 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `5a2afd5b93bee14ff8a9b637ab8ec5a180fe3b80d231a6b1d47820cb4062744a` / `acb5b6bf4ea2a7a47a7637f488614537bd2faee983c681795567d8c8b54a69db`, `source_dirty: false` |
+| Helpers / protocol | FAKE78001 `5608915…`, FAKE78002 `e2449875…` / `bb02c4aa…` (independent pins) |
 | Template | approved console template `candidate-v16`, preparation `hl2-fresh-v16` (lock-pinned evidence verified by `tools/package_prospero_kit.py`) |
 | Capabilities | `dxvk`, `offline_bottle`, `per_game_title`, `wow64_i386`; the publication-guard capability is not claimed or trusted |
 
@@ -22,6 +22,16 @@ production SHA-256. It also refuses the kit for empty or `12.02` firmware.
 
 The runtime bundle id is `wine-wow64`, the value the HL2 profile's `runtime`
 key carries; OWNER validation requires the two to match.
+
+## FAKE78002 helper review
+
+`FAKE78001` stays occupied on the console by the earlier bootstrap fixture, so
+the kit adds a second variant. The FAKE78002 helper was built from the same
+clean Lapy `e9f2cfc` source, SDK v0.42 toolchain and `build_owned_daemon.py`
+procedure. Only `TARGET_TITLE` and its derived owned ID differ. Rebuilding
+FAKE78001 with the same procedure reproduced the pinned `5608915…` byte for
+byte (the logging-client include path is embedded, so the original path was
+used). Upstream pin: `5f1d8de`.
 
 ## Runtime provenance
 

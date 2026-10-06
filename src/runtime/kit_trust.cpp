@@ -4,10 +4,10 @@ namespace playden::runtime {
 
 KitManifestTrustedConfig DevelopmentKitTrust(const std::string& current_firmware) {
   KitManifestTrustedConfig trust;
-  trust.manifest_sha256 = "368fb24b6dc68bf503a0d410bf2ae4a2ead55091f9d257a3e72498e26fe8ceb6";
+  trust.manifest_sha256 = "d1fbddf3450e94f9f2109849bd95443bd2ee4611a26bb9f06e1ee0d71c219d3d";
   trust.current_firmware = current_firmware;
   trust.sources = {
-      {"wrapper", {{"revision", "672d905209d38c444f3c96f001a19ef4ccc2ea62"},
+      {"wrapper", {{"revision", "5f1d8deaf953eadef38df99e0ecc6c8cd6af5ae0"},
                    {"baseline_revision", "54caac176e86c60c7c407972583b491f67838ed9"}}},
       {"wine", {{"revision", "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9"}}},
       {"helper", {{"revision", "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9"},
@@ -17,6 +17,8 @@ KitManifestTrustedConfig DevelopmentKitTrust(const std::string& current_firmware
       {"dxvk", {{"version", "2.6.2"},
                 {"archive_sha256", "17761876556afd55736cb895d184f5a1c55d43350f1b1e3b129f8d28706d7992"}}}};
   trust.title_pins["FAKE78001"] = {"5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935",
+                                   "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"};
+  trust.title_pins["FAKE78002"] = {"e2449875f8b22a8c595a0d40c02a57c706e0661054986a4d96076c763deaafb2",
                                    "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"};
   // The publication guard capability stays untrusted until native qualification.
   trust.allowed_capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
