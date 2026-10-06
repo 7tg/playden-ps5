@@ -44,7 +44,6 @@ Saves/Cloud migration from earlier locations is **not needed**: nothing has been
 
 | Order | Work | Notes |
 | --- | --- | --- |
-| 0 | Console smoke test of the moved repo | First thing next session. The package built from this layout differs from the installed one in two files: `eboot.bin` (Mbed TLS now built with relative source paths) and the Lapy helper (location-independent build, `8595a835…`). Deploy with `tools/console_title_deploy.py`, then check Playden starts, the kit is admitted, and HL2 starts and quits. The PS5 was off when the move finished |
 | 1 | 20+ minute HL2 gameplay run on the current build | Only an older build had a 20-minute session. Capture pacing evidence, save, restart and reload. Console time only |
 | 2 | Fresh independent review of the whole integration | Earlier reviews covered slices; the final composition has not had one |
 | 3 | M4: remove a prepared game | Uninstall removes only the Steam download, not the PS5 title or bottle. Native unregister returned EBUSY while Playden was open: first find a supported after-exit path, otherwise write a separate reviewed design for a narrow helper. Keep saves by default |
@@ -62,7 +61,10 @@ self-contained: patched dependencies are submodules on their forks' `feat/playde
 pieces come from `scripts/fetch-deps.sh` into `deps/`, and nothing in the build points outside the repository. Setup
 and the dependency workflow are in [CONTRIBUTING.md](CONTRIBUTING.md); the forks and our commits are listed in
 [docs/engineering/dependencies.md](docs/engineering/dependencies.md). A fresh clone (with the forks taken from the local
-submodule histories) builds byte-identical PS5 output.
+submodule histories) builds byte-identical PS5 output, including under a symlinked path. Console smoke test of
+this build on 2026-10-06: deploy changed only `eboot.bin`, the Lapy helper and their identity files; Playden started,
+the `/data` helper completed, kit `caeeae69…` was admitted with HL2 `result=ok`, Play's Cloud check stopped at the
+player's conflict as before, and HL2 started from Home to its menu and quit cleanly.
 
 The original checkouts in `~/Documents/Projetos/Personal/GameNative/ps5-homebrew/` (`prospero-win`, `ps5-homebrew-ui`,
 `ps5-opengl`, `PS5-Lapy-JB-Daemon`) and `GameNative/playden-ps5/.deps/prospero-foundation` are no longer used by the
