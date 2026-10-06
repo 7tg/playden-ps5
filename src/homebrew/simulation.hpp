@@ -371,6 +371,9 @@ struct ViewData {
     bool show_simulation_label = true;
 };
 
+// Player words for a preparation journal step ("copy-template" → "Copying the Windows environment").
+std::string PreparationStepWords(const std::string& step);
+
 class Simulation {
 public:
     Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path,

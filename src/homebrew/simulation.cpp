@@ -4071,4 +4071,16 @@ void Simulation::set_game_setting(const std::string& id, const std::string& valu
     ++record.revision;
 }
 
+// Player words for a preparation journal step; never the step's identifier.
+std::string PreparationStepWords(const std::string& step) {
+    if (step == "stage-title") return "Setting up the game";
+    if (step == "copy-template") return "Copying the Windows environment";
+    if (step == "validate-artifacts") return "Checking the game's files";
+    if (step == "publish-profile" || step == "capture-settings" || step == "capture-update" ||
+        step == "initialize-control" || step == "control-ready")
+        return "Applying settings";
+    if (step == "query-native" || step == "register" || step == "await-native") return "Waiting for the PS5";
+    return step.empty() ? std::string{} : "Preparing";
+}
+
 } // namespace playden::homebrew

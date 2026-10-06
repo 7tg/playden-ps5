@@ -711,9 +711,22 @@ void live_uninstall_removes_title_and_keeps_saves() {
     check(has_row(model, "settings-kept-none"), "nothing kept says so");
 }
 
+void preparation_steps_read_as_player_words() {
+    using playden::homebrew::PreparationStepWords;
+    for (const char* step : {"stage-title", "copy-template", "validate-artifacts", "publish-profile", "query-native",
+                             "register", "await-native", "capture-settings", "something-new"}) {
+        const auto words = PreparationStepWords(step);
+        check(!words.empty() && words.find('-') == std::string::npos, "every step reads as words, never its identifier");
+    }
+    check(PreparationStepWords("copy-template") == "Copying the Windows environment", "the template copy is named");
+    check(PreparationStepWords("await-native") == "Waiting for the PS5", "registration waits for the PS5");
+    check(PreparationStepWords("").empty(), "no step, no words");
+}
+
 } // namespace
 
 int main() {
+    preparation_steps_read_as_player_words();
     live_install_requests_and_projection();
     live_install_volumes();
     live_uninstall_removes_title_and_keeps_saves();

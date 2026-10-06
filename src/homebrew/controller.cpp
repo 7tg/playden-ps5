@@ -464,7 +464,7 @@ void Controller::TickRuntime() {
       game.detail = record->failure.empty() ? "Retry finishes removing the PS5 title, then uninstalls the game."
                                             : record->failure;
     } else if (snapshot.preparing_app == id) {
-      game.status = "Preparing"; game.detail = record ? record->step : std::string{};
+      game.status = "Preparing"; game.detail = record ? PreparationStepWords(record->step) : std::string{};
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                !record->title_current) {
       game.status = "Update available"; game.can_prepare = usable;
