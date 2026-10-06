@@ -123,6 +123,14 @@ int main(int argc,char** argv) {
       capture_live("uninstall-dialog.png");
       assert(live.action("focus:uninstall-delete-saves") && live.action("cross"));
       capture_live("uninstall-dialog-delete-saves.png");
+      // Uninstalled with its saves kept, on a console with two drives: Details says so beside Install.
+      while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
+      live.UpdateVolumes({{"internal","Internal",true,{},{}},{"usb0","USB drive",true,{},{}}}, "usb0");
+      live.UpdateInstalls({}, {});
+      live.UpdateRuntime(RuntimeState::Ready, {});
+      live.UpdateKeptBottles({{42, "Synthetic library title", 1700000000, 450'000'000}});
+      assert(live.action("details:42"));
+      capture_live("details-kept.png");
     }
     model.UpdateAccount({AuthState::Offline,"123","Synthetic account",{},{},true});
     controller.Activate(123,true);settle();

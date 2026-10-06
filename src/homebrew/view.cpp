@@ -1976,7 +1976,7 @@ class Render::Impl
             gfx::Color tone = kSecondary;
             for (const ViewRow &row : view.rows)
             {
-                if (row.key.rfind("details-", 0) != 0)
+                if (row.key.rfind("details-", 0) != 0 || row.key == "details-kept")
                     continue;
                 if (row.kind == RowKind::Status)
                 {
@@ -2003,6 +2003,20 @@ class Render::Impl
             {
                 ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, note, 22.0F, 1128.0F), kSafeX, y + 4.0F, 22.0F,
                          tone);
+                y += 42.0F;
+            }
+            // Saves kept from a previous install, under the install note.
+            for (const ViewRow &row : view.rows)
+            {
+                if (row.key != "details-kept")
+                    continue;
+                std::string kept_note = row.title;
+                if (!row.value.empty())
+                    kept_note += " · " + row.value;
+                if (!row.subtitle.empty())
+                    kept_note += " · " + row.subtitle;
+                ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, kept_note, 22.0F, 1128.0F), kSafeX, y + 4.0F,
+                         22.0F, kSecondary);
                 y += 42.0F;
             }
             // The game's PS5 title state, under the install note.
