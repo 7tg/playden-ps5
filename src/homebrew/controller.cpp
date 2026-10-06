@@ -318,6 +318,14 @@ void Controller::TickRuntime() {
       game.detail = record->title_id + " would refuse to start: " + record->admission;
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending) {
       game.status = "Ready"; game.detail = record->title_id; game.ready = true;
+    } else if (record && record->recovery_pending &&
+               (record->step == "register" || record->step == "await-native" || record->step == "query-native")) {
+      // The registration was submitted but not confirmed. Checking only asks the
+      // console; an uncertain registration is never submitted again.
+      game.status = "Registration pending";
+      game.detail = "The console has not confirmed " + record->title_id +
+                    " yet. Check again only asks the console; Playden never registers a title twice.";
+      game.can_prepare = usable;
     } else if (record && record->recovery_pending) {
       game.status = "Needs recovery";
       game.detail = record->failure.empty() ? "Resume continues the saved preparation." : record->failure;

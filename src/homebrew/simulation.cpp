@@ -2203,6 +2203,7 @@ void Simulation::rebuild_view() {
                                             value.can_prepare ? "runtime-prepare" : "");
                         runtime.value = !value.can_prepare ? value.status
                                       : value.status == "Needs recovery" ? "Resume"
+                                      : value.status == "Registration pending" ? "Check again"
                                       : value.status == "Failed" ? "Retry"
                                       : value.status == "Update available" ? "Update"
                                       : value.status == "Needs repair" ? "Repair" : "Prepare";
