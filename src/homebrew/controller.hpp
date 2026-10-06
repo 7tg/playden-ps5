@@ -1,5 +1,6 @@
 #pragma once
 #include "homebrew/simulation.hpp"
+#include "homebrew/uninstall_flow.hpp"
 #include "steam/service.h"
 #include "app/library_controller.h"
 #include "app/persistence_controller.h"
@@ -88,6 +89,13 @@ class Controller {
     std::chrono::steady_clock::time_point queued_at{};
   };
   std::map<GameId, PlayAfterPrepare> play_after_prepare_;
+  // Uninstall order: Cloud saves, then the PS5 title, then the download.
+  UninstallFlow uninstalls_;
+  void BeginUninstall(GameId id, bool delete_saves);
+  void StopUninstall(GameId id, const std::string& reason);
+  void TickUninstalls();
+  std::uint64_t kept_revision_ = 0;
+  std::vector<LiveKeptBottle> kept_projected_;
   std::map<GameId, std::string> play_notes_;
   std::uint64_t play_notes_revision_ = 0;
   std::uint64_t runtime_notes_revision_ = 0;

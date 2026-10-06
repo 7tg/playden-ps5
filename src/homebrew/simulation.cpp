@@ -271,7 +271,7 @@ std::string action_label(const std::string& key) {
     static const std::map<std::string, std::string> labels = {
         {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"favorite", "Favorite"},
         {"collection", "Collections"}, {"note", "Compatibility and note"}, {"verify", "Verify files"},
-        {"uninstall", "Uninstall"}, {"logs", "Open logs"}, {"logs-back", "Back"},
+        {"uninstall", "Uninstall"}, {"uninstall-delete-saves", "Also delete saves and settings"}, {"logs", "Open logs"}, {"logs-back", "Back"},
         {"logs-pick", "Logs"}, {"log-install", "Install log"}, {"log-auth", "Sign-in log"},
         {"log-launch", "Launch log"}, {"log-cloud", "Cloud saves log"}, {"logs-refresh", "Refresh"},
         {"cloud-sync", "Cloud saves"}, {"cloud-choose", "Cloud saves"}, {"cloud-use-cloud", "Use Cloud saves"},
@@ -517,6 +517,25 @@ std::vector<GameId> Simulation::TakeRuntimePrepareRequests() {
     auto requests = std::move(pending_runtime_prepare_requests_);
     pending_runtime_prepare_requests_.clear();
     return requests;
+}
+
+void Simulation::UpdateKeptBottles(std::vector<LiveKeptBottle> kept) {
+    state_.kept_bottles = std::move(kept);
+    rebuild_view();
+}
+
+std::vector<GameId> Simulation::TakeKeptDeleteRequests() {
+    auto requests = std::move(pending_kept_delete_requests_);
+    pending_kept_delete_requests_.clear();
+    return requests;
+}
+
+void Simulation::NotifyUninstallStopped(GameId id, const std::string& reason) {
+    const auto* game = find_game(state_, id);
+    push_notice({"uninstall-" + std::to_string(id), "Uninstall stopped", "", false, kLiveNoticeSeconds * 2, true,
+                 (game ? game->title : std::string("A game")) + " · " + reason});
+    pending_uninstalls_.erase(id);
+    rebuild_view();
 }
 
 void Simulation::RequestRuntimePrepare(GameId id) {
@@ -2030,6 +2049,12 @@ void Simulation::rebuild_view() {
                     item.selected = volume->id == selected_volume_id_;
                 }
             }
+            else if (action_key == "uninstall-delete-saves") {
+                item.kind = RowKind::Toggle;
+                item.dangerous = false;
+                item.selected = uninstall_delete_saves_;
+                item.subtitle = "Deletes the game's private Windows folder instead of keeping it. Saves in Steam Cloud stay there.";
+            }
             else if (action_key == "verify" || action_key == "uninstall") {
                 if (!is_installed(state_, state_.navigation.selected_game_id)) { item.enabled = false; item.subtitle = "Game is not installed"; }
             } else if (action_key == "hide") item.title = state_.library.hidden.contains(state_.navigation.selected_game_id) ? "Unhide" : "Hide";
@@ -2200,10 +2225,15 @@ void Simulation::rebuild_view() {
                         // Otherwise Play names what holds it (Preparing, Update available…); the PS5 title row says why.
                         play.value = !value.play_status.empty() || value.ready || prepares_first ? value.play_status
                                                                                                  : value.status;
+                        if (!value.uninstall_status.empty()) {
+                            play.value = value.uninstall_status;
+                            play.action.clear();
+                            play.enabled = false;
+                        }
                         play.subtitle = !value.play_detail.empty() ? value.play_detail
                                       : prepares_first ? "The first start sets the game up and adds it to the PS5 Home screen"
                                                        : std::string{};
-                        play.enabled = enabled;
+                        play.enabled = enabled && value.uninstall_status.empty();
                     }
                     // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
                     const auto cloud = state_.cloud.find(game->id);
@@ -2225,9 +2255,12 @@ void Simulation::rebuild_view() {
                     if (runtime_game != state_.runtime_games.end()) {
                         const auto& value = runtime_game->second;
                         // Always a button so its state stays visible; disabled while nothing can be done.
+                        // An interrupted removal continues through Uninstall, then removes the download.
+                        const bool removal = value.status == "Removal incomplete";
                         auto& runtime = row("details-runtime", RowKind::Action, "PS5 title",
-                                            value.can_prepare ? "runtime-prepare" : "");
+                                            !value.can_prepare ? "" : removal ? "runtime-remove-retry" : "runtime-prepare");
                         runtime.value = !value.can_prepare ? value.status
+                                      : removal ? "Retry"
                                       : value.status == "Needs recovery" ? "Resume"
                                       : value.status == "Registration pending" ? "Check again"
                                       : value.status == "Failed" ? "Retry"
@@ -2251,6 +2284,16 @@ void Simulation::rebuild_view() {
             } else {
                 row("details-checking", RowKind::Status, "Checking Steam…", "").enabled = false;
             }
+            // Saves kept when the game was uninstalled: Install brings them back.
+            if (!installed)
+                for (const auto& kept : state_.kept_bottles) {
+                    if (kept.game_id != game->id) continue;
+                    auto& saves = row("details-kept", RowKind::Status, "Saves from a previous install", "");
+                    saves.value = format_bytes(kept.bytes);
+                    saves.subtitle = "Installing the game again brings them back.";
+                    saves.enabled = false;
+                    row("details-kept-delete", RowKind::Action, "Delete saves", "kept-delete-" + std::to_string(game->id)).dangerous = true;
+                }
         }
         row("details-favorite", RowKind::Toggle, "Favorite", "favorite").selected = game && state_.library.favorites.contains(game->id);
         if (!live()) {
@@ -2310,6 +2353,26 @@ void Simulation::rebuild_view() {
             auto& suffix = add("settings-title-store", RowKind::Toggle, "Store name in PS5 titles", "toggle-title-store");
             suffix.selected = state_.title_store_suffix;
             suffix.subtitle = "Name game titles like \"Half-Life 2 (Steam)\". Prepared games change with their next Update.";
+        }
+        if (live()) {
+            // Saves and settings kept from uninstalled games: the way to reclaim their space.
+            if (state_.kept_bottles.empty()) {
+                auto& none = add("settings-kept-none", RowKind::Status, "Kept game data", "");
+                none.value = "None";
+                none.subtitle = "Saves and settings kept when a game is uninstalled";
+                none.enabled = false;
+            }
+            for (const auto& kept : state_.kept_bottles) {
+                std::string name = kept.name;
+                if (name.empty()) if (const auto* game = find_game(state_, kept.game_id)) name = game->title;
+                if (name.empty()) name = "Steam app " + std::to_string(kept.game_id);
+                auto& entry = add("settings-kept-" + std::to_string(kept.game_id), RowKind::Action, "Kept: " + name,
+                                  "kept-delete-" + std::to_string(kept.game_id));
+                entry.value = format_bytes(kept.bytes);
+                // The console has no gmtime_r: the date is the log timestamp's day.
+                const auto date = kept.kept_at > 0 ? playden::app::FormatLogTimestamp(kept.kept_at).substr(0, 10) : std::string{};
+                entry.subtitle = (date.empty() ? std::string{} : "Kept " + date + " · ") + "Delete to free its space";
+            }
         }
         if (live() && state_.runtime_leftover_requests > 0) {
             // Explicit recovery: settings requests no game is using any more.
@@ -2891,6 +2954,13 @@ void Simulation::activate() {
     } else if (live() && action_name == "runtime-prepare") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+    } else if (live() && action_name == "runtime-remove-retry") {
+        // Continues the saved removal (with its first choice about saves), then removes the download.
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        if (id != 0) {
+            pending_install_requests_.push_back({InstallRequestKind::Uninstall, id, {}, false});
+            pending_uninstalls_.insert(id);
+        }
     } else if (live() && action_name == "runtime-cleanup") {
         pending_runtime_cleanup_ = true;
     } else if (live() && action_name == "runtime-play") {
@@ -2977,18 +3047,52 @@ void Simulation::activate() {
             } else if (action_name == "reset-confirm") {
                 body = "Favorites, collections, notes and display preferences return to their defaults.";
             } else if (action_name == "uninstall") {
+                const auto id = state_.navigation.selected_game_id;
+                const auto runtime_game = state_.runtime_games.find(id);
+                const bool has_title = runtime_game != state_.runtime_games.end() && runtime_game->second.has_title;
+                const auto cloud = state_.cloud.find(id);
+                const bool no_cloud = cloud != state_.cloud.end() && cloud->second.status == CloudStatus::Unsupported;
                 title = "Uninstall this game?";
-                body = "The game's files are removed from this console. You can install it again from Steam.";
+                body = has_title ? "The game's files and its PS5 title are removed from this console. Its saves and settings are kept, "
+                                   "and installing the game again brings them back."
+                                 : "The game's files are removed from this console. You can install it again from Steam.";
+                body += no_cloud ? " This game has no Steam Cloud saves: its saves exist only on this console."
+                                 : " Steam Cloud saves are synced first; if that fails, Playden asks before going on.";
             }
         }
-        ModalEntry confirmation{"confirmation", std::move(title), state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
+        std::vector<std::string> actions{"cancel", "confirm-destructive"};
+        if (live() && action_name == "uninstall") {
+            uninstall_delete_saves_ = false;
+            const auto runtime_game = state_.runtime_games.find(state_.navigation.selected_game_id);
+            if (runtime_game != state_.runtime_games.end() && runtime_game->second.has_title)
+                actions = {"cancel", "uninstall-delete-saves", "confirm-destructive"};
+        }
+        ModalEntry confirmation{"confirmation", std::move(title), state_.navigation.focus_key, std::move(actions), 0, true};
         confirmation.body = std::move(body);
         open_modal(std::move(confirmation));
+    } else if (action_name == "uninstall-delete-saves") {
+        uninstall_delete_saves_ = !uninstall_delete_saves_;
+    } else if (live() && action_name.rfind("kept-delete-", 0) == 0) {
+        pending_destructive_action_ = action_name;
+        const auto id = static_cast<GameId>(std::strtoull(action_name.c_str() + 12, nullptr, 10));
+        std::string name;
+        for (const auto& kept : state_.kept_bottles) if (kept.game_id == id) name = kept.name;
+        if (name.empty()) if (const auto* game = find_game(state_, id)) name = game->title;
+        ModalEntry confirmation{"confirmation", "Delete kept saves?", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
+        confirmation.body = "The saves and settings kept from " + (name.empty() ? std::string("this game") : name) +
+                            " are deleted from this console. Saves in Steam Cloud stay in Steam Cloud.";
+        open_modal(std::move(confirmation));
+    } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_.rfind("kept-delete-", 0) == 0) {
+        pending_kept_delete_requests_.push_back(static_cast<GameId>(std::strtoull(pending_destructive_action_.c_str() + 12, nullptr, 10)));
+        pending_destructive_action_.clear();
+        state_.navigation.modals.clear();
     } else if (action_name == "confirm-destructive" && live() &&
                (pending_destructive_action_.rfind("job-cancel-", 0) == 0 || pending_destructive_action_ == "uninstall")) {
         if (pending_destructive_action_ == "uninstall") {
-            pending_install_requests_.push_back({InstallRequestKind::Uninstall, state_.navigation.selected_game_id});
+            pending_install_requests_.push_back({InstallRequestKind::Uninstall, state_.navigation.selected_game_id, {},
+                                                 uninstall_delete_saves_});
             pending_uninstalls_.insert(state_.navigation.selected_game_id);
+            uninstall_delete_saves_ = false;
         } else if (const auto* job = find_job(state_, pending_destructive_action_.substr(11))) {
             pending_install_requests_.push_back({InstallRequestKind::Cancel, job->game_id});
         }

@@ -227,7 +227,7 @@ target_include_directories(playden_persistence_controller PUBLIC "${CMAKE_SOURCE
 target_link_libraries(playden_persistence_controller PUBLIC playden_homebrew_model playden_persistence_service)
 
 add_library(playden_homebrew_controller STATIC
-    "${CMAKE_SOURCE_DIR}/src/homebrew/controller.cpp")
+    "${CMAKE_SOURCE_DIR}/src/homebrew/controller.cpp" "${CMAKE_SOURCE_DIR}/src/homebrew/uninstall_flow.cpp")
 target_compile_features(playden_homebrew_controller PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_controller PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_homebrew_controller PUBLIC
@@ -456,6 +456,11 @@ if(BUILD_TESTING)
     target_compile_features(homebrew_library_model_test PRIVATE cxx_std_20)
     target_link_libraries(homebrew_library_model_test PRIVATE playden_homebrew_model)
     add_test(NAME homebrew_library_model COMMAND homebrew_library_model_test)
+    add_executable(homebrew_uninstall_flow_test "${CMAKE_SOURCE_DIR}/tests/homebrew_uninstall_flow_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/homebrew/uninstall_flow.cpp")
+    target_compile_features(homebrew_uninstall_flow_test PRIVATE cxx_std_20)
+    target_link_libraries(homebrew_uninstall_flow_test PRIVATE playden_homebrew_model)
+    add_test(NAME homebrew_uninstall_flow COMMAND homebrew_uninstall_flow_test)
 
     add_executable(homebrew_library_graphical_test
         "${CMAKE_SOURCE_DIR}/tests/homebrew_library_graphical_test.cpp")

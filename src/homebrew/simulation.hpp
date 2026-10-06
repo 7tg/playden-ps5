@@ -34,6 +34,7 @@ struct InstallRequest {
     InstallRequestKind kind = InstallRequestKind::Install;
     GameId game_id = 0;
     std::string volume_id;  // SetDefaultVolume only
+    bool delete_saves = false;  // Uninstall only: also delete the game's kept saves and settings
 };
 // Live install state projected from the real install service.
 struct LiveInstallJob {
@@ -69,6 +70,17 @@ struct LiveRuntimeGame {
     bool can_play = false;
     std::string play_status;  // e.g. "Starting…", "Playing"; empty when idle
     std::string play_detail;  // the last launch's outcome or refusal
+    // Uninstall removes the game's PS5 title first; has_title says there is one.
+    bool has_title = false;
+    std::string uninstall_status;  // e.g. "Syncing saves…", "Removing PS5 title…"; empty when idle
+};
+// Saves and settings kept from an uninstalled game (its private bottle).
+struct LiveKeptBottle {
+    GameId game_id = 0;
+    std::string name;
+    std::int64_t kept_at = 0;
+    std::uint64_t bytes = 0;
+    bool operator==(const LiveKeptBottle&) const = default;
 };
 // Live Steam Cloud save state for one game, projected from the cloud service.
 enum class CloudStatus { None, Checking, Syncing, Synced, UpToDate, Conflict, NeedsAccount, Unsupported, Failed };
@@ -291,6 +303,7 @@ struct State {
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
     std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
     std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
+    std::vector<LiveKeptBottle> kept_bottles;           // live: saves kept from uninstalled games
     Navigation navigation;
     EditorState editor;
     std::vector<Notice> notices;
@@ -384,6 +397,10 @@ public:
     void RequestRuntimePrepare(GameId id);
     [[nodiscard]] std::vector<GameId> TakeRuntimePlayRequests();
     [[nodiscard]] bool TakeRuntimeCleanupRequest();
+    // Live mode: kept game data, deletions the player confirmed, and why an uninstall stopped.
+    void UpdateKeptBottles(std::vector<LiveKeptBottle> kept);
+    [[nodiscard]] std::vector<GameId> TakeKeptDeleteRequests();
+    void NotifyUninstallStopped(GameId id, const std::string& reason);
     void SetRuntimeLeftovers(std::size_t count);
     void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
@@ -472,6 +489,8 @@ private:
     std::map<GameId, JobState> live_job_states_;
     std::set<GameId> live_installed_ids_;
     std::set<GameId> pending_uninstalls_;
+    std::vector<GameId> pending_kept_delete_requests_;
+    bool uninstall_delete_saves_ = false;  // the uninstall dialog's choice
     std::filesystem::path log_directory_;
     std::vector<CloudRequest> pending_cloud_requests_;
     std::string live_log_topic_;

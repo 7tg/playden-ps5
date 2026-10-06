@@ -625,11 +625,98 @@ void live_filters_only_use_available_facts() {
           "newest acquisition first, undated last");
 }
 
+void live_uninstall_removes_title_and_keeps_saves() {
+    using playden::homebrew::InstallRequestKind;
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RowKind;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Synthetic"), game(43, "No title")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(42, 300, 600, true);
+    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    LiveRuntimeGame ready;
+    ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true; ready.has_title = true;
+    LiveRuntimeGame plain;
+    plain.game_id = 43; plain.status = "Not prepared"; plain.can_prepare = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {ready, plain});
+
+    // A prepared game: the dialog says the PS5 title goes too and offers deleting saves, off by default.
+    check(model.action("details:42") && model.action("focus:details-more") && model.action("cross"), "context opens");
+    activate(model, "uninstall");
+    const auto& modal = model.state().navigation.modals.back();
+    check(modal.body.find("PS5 title are removed") != std::string::npos, "the dialog names the PS5 title");
+    check(modal.body.find("Steam Cloud saves are synced first") != std::string::npos, "Cloud is synced first");
+    const auto* toggle = find_row(model, "uninstall-delete-saves");
+    check(toggle && toggle->kind == RowKind::Toggle && !toggle->selected, "deleting saves is a choice, off by default");
+    activate(model, "uninstall-delete-saves");
+    toggle = find_row(model, "uninstall-delete-saves");
+    check(toggle && toggle->selected && !model.state().navigation.modals.empty(), "the choice toggles in the open dialog");
+    activate(model, "confirm-destructive");
+    auto requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && requests[0].game_id == 42 &&
+              requests[0].delete_saves, "Uninstall carries the saves choice");
+
+    // While it runs, Play waits; an interrupted removal offers Retry on the PS5 title row.
+    ready.uninstall_status = "Removing PS5 title…"; ready.can_play = false;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {ready, plain});
+    check(model.action("details:42"), "details reopen");
+    const auto* play = find_row(model, "details-play");
+    check(play && !play->enabled && play->value == "Removing PS5 title…", "Play shows the uninstall in progress");
+    LiveRuntimeGame stuck;
+    stuck.game_id = 42; stuck.status = "Removal incomplete"; stuck.can_prepare = true; stuck.has_title = true;
+    stuck.detail = "The console has not confirmed that the PS5 title is gone. Retry checks again.";
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {stuck, plain});
+    check(model.action("details:42"), "details reopen");
+    const auto* runtime = find_row(model, "details-runtime");
+    check(runtime && runtime->action == "runtime-remove-retry" && runtime->value == "Retry", "an unfinished removal offers Retry");
+    activate(model, "details-runtime");
+    requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && !requests[0].delete_saves,
+          "Retry continues the uninstall with the saved choice");
+    model.NotifyUninstallStopped(42, "The PS5 title could not be removed.");
+    check(!model.state().notices.empty() && model.state().notices.back().message == "Uninstall stopped", "a stopped uninstall says why");
+
+    // A game without a PS5 title and without Cloud: no saves choice; its saves exist only here.
+    model.UpdateCloud({{43, playden::homebrew::CloudStatus::Unsupported, "No Steam Cloud saves"}});
+    check(model.action("details:43") && model.action("focus:details-more") && model.action("cross"), "context opens");
+    activate(model, "uninstall");
+    check(!has_row(model, "uninstall-delete-saves"), "no saves choice without a PS5 title");
+    check(model.state().navigation.modals.back().body.find("exist only on this console") != std::string::npos,
+          "without Cloud the dialog says the saves exist only here");
+    activate(model, "cancel");
+    while (!model.state().navigation.modals.empty()) model.action("circle");
+
+    // An uninstalled game with kept saves: Details shows them and can delete them.
+    model.UpdateInstalls({}, {{43, 100}});
+    model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}});
+    check(model.action("details:42"), "details open");
+    const auto* kept = find_row(model, "details-kept");
+    check(kept && kept->title == "Saves from a previous install" && !kept->value.empty(), "kept saves are shown with their size");
+    check(has_row(model, "details-install"), "Install brings them back");
+    activate(model, "details-kept-delete");
+    check(model.state().navigation.modals.back().title == "Delete kept saves?", "deleting asks first");
+    activate(model, "confirm-destructive");
+    auto deletes = model.TakeKeptDeleteRequests();
+    check(deletes.size() == 1 && deletes[0] == 42, "the confirmed deletion goes to the runtime");
+
+    // Settings lists kept game data with its date and deletes per entry.
+    model.action("r1"); model.action("r1"); model.action("r1");
+    const auto* entry = find_row(model, "settings-kept-42");
+    check(entry && entry->title == "Kept: Synthetic" && entry->subtitle.find("Kept 2025-10-09") == 0, "Settings lists kept game data");
+    activate(model, "settings-kept-42");
+    activate(model, "confirm-destructive");
+    deletes = model.TakeKeptDeleteRequests();
+    check(deletes.size() == 1 && deletes[0] == 42, "Settings deletes kept game data after confirming");
+    model.UpdateKeptBottles({});
+    check(has_row(model, "settings-kept-none"), "nothing kept says so");
+}
+
 } // namespace
 
 int main() {
     live_install_requests_and_projection();
     live_install_volumes();
+    live_uninstall_removes_title_and_keeps_saves();
     live_install_notifications();
     live_log_viewer();
     live_cloud_saves();

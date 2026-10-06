@@ -135,6 +135,7 @@ void Controller::Tick() {
   TickInstalls();
   TickCloud();
   TickRuntime();
+  TickUninstalls();
 }
 bool Controller::SessionActive(GameId id) const {
   if (!runtime_) return false;
@@ -157,6 +158,7 @@ void Controller::TickCloud() {
       requests.push_back({CloudRequestKind::Sync, id});
       issued = true;
     }
+  for (const auto id : uninstalls_.TakeSyncRequests()) requests.push_back({CloudRequestKind::Sync, id});
   for (auto it = sync_after_session_.begin(); it != sync_after_session_.end();) {
     if (game_roots_.count(*it) && !saves_root_.empty()) {
       requests.push_back({CloudRequestKind::Sync, *it});
@@ -192,6 +194,8 @@ void Controller::TickCloud() {
         continue;
       }
       // Refused: the title runs, or its state is unknown.
+      if (const auto stopped = uninstalls_.CloudRefused(id); stopped.kind == UninstallAction::Kind::kStop)
+        StopUninstall(id, stopped.reason);
       if (sync_before_play_.erase(id)) {
         play_notes_[id] = "The game's PS5 title may still be running. Close it, then press Play.";
         ++play_notes_revision_;
@@ -202,6 +206,8 @@ void Controller::TickCloud() {
   for (const auto& request : confirmed) {
     const auto root = game_roots_.find(request.game_id);
     if (root == game_roots_.end() || saves_root_.empty()) {
+      // A pre-uninstall check that cannot run goes straight on: nothing is there to sync.
+      uninstalls_.CloudSkipped(request.game_id);
       // A pre-play check that cannot run must not leave Play waiting.
       if (sync_before_play_.erase(request.game_id)) {
         play_notes_.erase(request.game_id);
@@ -212,6 +218,7 @@ void Controller::TickCloud() {
     }
     // Busy from now on, before Cloud reports it, so Play cannot slip in.
     cloud_busy_.insert(request.game_id);
+    if (request.kind == CloudRequestKind::Sync) uninstalls_.SyncDispatched(request.game_id);
     steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
     // A prepared game keeps its Windows-folder saves in its private bottle.
     if (runtime_)
@@ -230,7 +237,14 @@ void Controller::TickCloud() {
   cloud_revision_ = snapshot.revision;
   // Settle Play requests whose Cloud check has finished. Sync marks a game as
   // checking at once, so a finished state seen here is the check's own result.
-  const auto settle = [this](GameId id, CloudStatus status) {
+  const auto settle_uninstall = [this](GameId id, CloudStatus status) {
+    const bool waiting = uninstalls_.WaitingForCloud(id);
+    const auto action = uninstalls_.CloudSettled(id, status);
+    if (action.kind == UninstallAction::Kind::kStop) StopUninstall(id, action.reason);
+    else if (waiting && !uninstalls_.WaitingForCloud(id)) ++play_notes_revision_;
+  };
+  const auto settle = [this, &settle_uninstall](GameId id, CloudStatus status) {
+    settle_uninstall(id, status);
     const auto pending = sync_before_play_.find(id);
     if (pending == sync_before_play_.end() || !pending->second) return;
     if (status == CloudStatus::Checking || status == CloudStatus::Syncing) return;
@@ -304,6 +318,16 @@ void Controller::TickRuntime() {
     SubmitPrepare(id);
   }
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
+  for (const auto id : model_.TakeKeptDeleteRequests()) runtime_->DeleteKeptBottle(id);
+  {
+    const auto current = runtime_->Snapshot();
+    if (current.revision != kept_revision_) {
+      kept_revision_ = current.revision;
+      std::vector<LiveKeptBottle> kept;
+      for (const auto& bottle : current.kept_bottles) kept.push_back({bottle.app_id, bottle.name, bottle.kept_at, bottle.bytes});
+      if (kept != kept_projected_) { kept_projected_ = kept; model_.UpdateKeptBottles(std::move(kept)); }
+    }
+  }
   auto plays = model_.TakeRuntimePlayRequests();
   {
     const auto prepared = runtime_->Snapshot();
@@ -428,10 +452,17 @@ void Controller::TickRuntime() {
     const RuntimeInstallView* record = nullptr;
     for (const auto& view : snapshot.installs) if (view.app_id == id) record = &view;
     const auto refusal = snapshot.refusals.find(id);
+    game.has_title = record != nullptr;
     if (snapshot.status == RuntimeHostStatus::kStarting) {
       game.status = "Checking";
     } else if (snapshot.status != RuntimeHostStatus::kReady) {
       game.status = "Unavailable"; game.detail = snapshot.reason;
+    } else if (snapshot.removing_app == id) {
+      game.status = "Removing"; game.detail = "Removing the game's PS5 title";
+    } else if (record && record->state == runtime::PreparationState::kRemoving) {
+      game.status = "Removal incomplete"; game.can_prepare = true;
+      game.detail = record->failure.empty() ? "Retry finishes removing the PS5 title, then uninstalls the game."
+                                            : record->failure;
     } else if (snapshot.preparing_app == id) {
       game.status = "Preparing"; game.detail = record ? record->step : std::string{};
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
@@ -495,12 +526,52 @@ void Controller::TickRuntime() {
     if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
     if (sync_before_play_.count(id)) game.play_status = "Checking saves…";
     if (play_after_prepare_.count(id)) { game.play_status = "Preparing…"; game.can_prepare = false; }
+    if (const auto step = uninstalls_.Step(id)) {
+      game.uninstall_status = *step == UninstallStep::kSync ? "Syncing saves…"
+                            : *step == UninstallStep::kRemoveTitle ? "Removing PS5 title…" : "Uninstalling…";
+      game.can_play = false; game.can_prepare = false;
+    }
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
     games.push_back(std::move(game));
   }
   model_.SetGeneratedRecipes(snapshot.generated_recipes);
   model_.UpdateRuntime(state, games);
   model_.SetRuntimeLeftovers(snapshot.leftover_requests);
+}
+void Controller::BeginUninstall(GameId id, bool delete_saves) {
+  // Without the runtime there is no PS5 title to remove: the download goes as before.
+  if (!runtime_) { if (installs_) installs_->Uninstall(id); return; }
+  if (uninstalls_.Begin(id, delete_saves, cloud_ && game_roots_.count(id) && !saves_root_.empty())) ++play_notes_revision_;
+}
+void Controller::StopUninstall(GameId id, const std::string& reason) {
+  ++play_notes_revision_;
+  model_.NotifyUninstallStopped(id, reason);
+}
+void Controller::TickUninstalls() {
+  if (!runtime_) return;
+  const auto ids = uninstalls_.Active();
+  if (ids.empty()) return;
+  const auto snapshot = runtime_->Snapshot();
+  if (snapshot.status == RuntimeHostStatus::kStarting) return;
+  for (const auto id : ids) {
+    UninstallFacts facts;
+    facts.has_title = std::any_of(snapshot.installs.begin(), snapshot.installs.end(),
+                                  [id](const RuntimeInstallView& view) { return view.app_id == id; });
+    facts.removing = snapshot.removing_app == id;
+    facts.removals_handled = snapshot.removals_handled;
+    if (const auto failure = snapshot.removal_failures.find(id); failure != snapshot.removal_failures.end())
+      facts.removal_failure = failure->second;
+    facts.saves_moving = cloud_busy_.count(id) != 0;
+    facts.session_active = SessionActive(id);
+    const auto action = uninstalls_.Advance(id, facts);
+    switch (action.kind) {
+      case UninstallAction::Kind::kNone: break;
+      case UninstallAction::Kind::kRemoveTitle: runtime_->Remove(id, action.delete_saves); ++play_notes_revision_; break;
+      // The title is gone, so no title points at the files about to be deleted.
+      case UninstallAction::Kind::kRemoveDownload: if (installs_) installs_->Uninstall(id); ++play_notes_revision_; break;
+      case UninstallAction::Kind::kStop: StopUninstall(id, action.reason); break;
+    }
+  }
 }
 void Controller::TickInstalls() {
   if (!installs_) return;
@@ -510,7 +581,7 @@ void Controller::TickInstalls() {
       case InstallRequestKind::Pause: installs_->Pause(request.game_id); break;
       case InstallRequestKind::Resume: installs_->Resume(request.game_id); break;
       case InstallRequestKind::Cancel: installs_->Cancel(request.game_id); break;
-      case InstallRequestKind::Uninstall: installs_->Uninstall(request.game_id); break;
+      case InstallRequestKind::Uninstall: BeginUninstall(request.game_id, request.delete_saves); break;
       case InstallRequestKind::SetDefaultVolume: installs_->SetDefaultVolume(request.volume_id); break;
     }
   }
