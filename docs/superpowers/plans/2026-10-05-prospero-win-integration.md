@@ -674,3 +674,26 @@ location guard's regression failed when the guard was temporarily removed.
 Controller runtime-record wiring, backed-up legacy save migration/conflict
 resolution, persisted next-open session reconciliation and console acceptance
 remain open. Do not enable managed sync before those production gates are met.
+
+Task 7 storage increment: production `FilesystemReconcileSessionSource` and
+`DurableReconcileJournal` now supply bounded private filesystem enumeration and
+durable per-session journals. The source binds canonical game roots and the
+complete bottle owner marker, preserves historical runtime/revision records for
+individual reconciliation, and refuses ambiguous temporary/lock or excess evidence.
+The parser matches the pinned C writer's UUID grammar; an actual-writer regression
+caught and fixed a narrower UUID check. Host and explicit PS5-policy tests are
+registered in CMake. Full host suite passed 92/92; the production session storage
+archive compiled with the PS5 SDK. Independent review also identified impossible
+Cloud completion records without operation IDs; load/save now reject them, and
+focused regression tests passed 3/3 after the fix. Review found no remaining
+actionable defects. This does not complete Task 7: native session
+acceptance, Cloud/account/controller callbacks, backed-up save migration and evidence
+archival/recovery remain open. See [filesystem contract](../../engineering/native-managed-filesystem.md).
+
+The normal preview following private settings setup was deployed and verified by
+file readback and native Home startup; see
+[deployment evidence](../../../results/20261006-managed-filesystem/README.md).
+Console ownership was released. The separately reported Linux RADV runtime build
+is [development evidence](../../../results/20261006-linux-wine-build/README.md),
+with a title-unavailable `mkstemp` import and remaining admission/native gates;
+it does not replace the retained tested runtime or change capability claims.

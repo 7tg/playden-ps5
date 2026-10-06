@@ -78,9 +78,9 @@ bool CanonicalUuid(std::string_view value) {
     if (!((byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'f')))
       return false;
   }
-  return (value[14] == '1' || value[14] == '4') &&
-         (value[19] == '8' || value[19] == '9' || value[19] == 'a' ||
-          value[19] == 'b');
+  // Match pw_title_session_id_valid: callers may supply any canonical
+  // lowercase dashed hex ID; generation alone chooses RFC v4 bits.
+  return true;
 }
 
 std::optional<std::string> ReadFile(const ManagedDirectory &directory,
@@ -379,7 +379,9 @@ bool ValidJournalEntry(const ReconcileEntry &entry) {
          entry.operation_id.size() <= kMaxIdentityBytes &&
          entry.code.size() <= kMaxIdentityBytes &&
          entry.message.size() <= kMaxMessageBytes &&
-         (entry.phase != ReconcilePhase::kCloudRunning ||
+         ((entry.phase != ReconcilePhase::kCloudRunning &&
+           entry.phase != ReconcilePhase::kCompletionPending &&
+           entry.phase != ReconcilePhase::kCompleted) ||
           !entry.operation_id.empty()) &&
          !((entry.session.phase == WrapperSessionPhase::kStarting ||
             entry.session.phase == WrapperSessionPhase::kRunning) &&

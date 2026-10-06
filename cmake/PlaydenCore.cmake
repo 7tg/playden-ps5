@@ -101,10 +101,13 @@ target_include_directories(playden_runtime_launch_service PUBLIC "${CMAKE_SOURCE
 target_compile_features(playden_runtime_launch_service PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_launch_service PUBLIC playden_runtime_install_service)
 
-add_library(playden_runtime_session_reconciler STATIC "${CMAKE_SOURCE_DIR}/src/runtime/session_reconciler.cpp")
+add_library(playden_runtime_session_reconciler STATIC
+    "${CMAKE_SOURCE_DIR}/src/runtime/session_reconciler.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/session_storage.cpp")
 target_include_directories(playden_runtime_session_reconciler PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_session_reconciler PUBLIC cxx_std_17)
-target_link_libraries(playden_runtime_session_reconciler PUBLIC playden_runtime_install_service)
+target_link_libraries(playden_runtime_session_reconciler PUBLIC playden_runtime_install_service playden_storage
+    PRIVATE playden_steam_protocol)
 
 add_library(playden_native_access STATIC
     "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_access.cpp"
@@ -127,6 +130,17 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(runtime_session_reconciler_test "${CMAKE_SOURCE_DIR}/tests/runtime_session_reconciler_test.cpp")
     target_link_libraries(runtime_session_reconciler_test PRIVATE playden_runtime_session_reconciler)
     add_test(NAME runtime_session_reconciler COMMAND runtime_session_reconciler_test)
+    add_executable(runtime_session_storage_test "${CMAKE_SOURCE_DIR}/tests/runtime_session_storage_test.cpp")
+    target_link_libraries(runtime_session_storage_test PRIVATE playden_runtime_session_reconciler)
+    add_test(NAME runtime_session_storage COMMAND runtime_session_storage_test)
+    add_executable(runtime_session_storage_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_session_storage_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/session_storage.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp")
+    target_compile_definitions(runtime_session_storage_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_link_libraries(runtime_session_storage_native_policy_test PRIVATE playden_runtime_session_reconciler playden_steam_protocol)
+    add_test(NAME runtime_session_storage_native_policy COMMAND runtime_session_storage_native_policy_test)
     add_executable(runtime_launch_service_test "${CMAKE_SOURCE_DIR}/tests/runtime_launch_service_test.cpp")
     target_link_libraries(runtime_launch_service_test PRIVATE playden_runtime_launch_service)
     add_test(NAME runtime_launch_service COMMAND runtime_launch_service_test)

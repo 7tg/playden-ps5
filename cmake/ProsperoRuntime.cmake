@@ -44,6 +44,11 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     target_sources(runtime_session_reconciler_test PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_session.c")
     target_include_directories(runtime_session_reconciler_test PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src")
     target_link_libraries(runtime_session_reconciler_test PRIVATE Threads::Threads)
+    foreach(session_storage_test runtime_session_storage_test runtime_session_storage_native_policy_test)
+        target_sources(${session_storage_test} PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_session.c")
+        target_include_directories(${session_storage_test} PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src")
+        target_link_libraries(${session_storage_test} PRIVATE Threads::Threads)
+    endforeach()
 endif()
 
 add_library(playden_runtime_kit_manifest STATIC

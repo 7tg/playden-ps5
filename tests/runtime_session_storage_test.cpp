@@ -141,11 +141,13 @@ void ActualWriterFixtureIsAdmittedThroughCanonicalDataMapping() {
   produce("session=123e4567-e89b-42d3-a456-426614174000", -7);
   produce("session=123e4567-e89b-12d3-a456-426614174000", 0);
 
+  produce("session=123e4567-e89b-72d3-c456-426614174000", 0);
+
   FilesystemReconcileSessionSource source(
       HostDataRootForTests{temporary.path});
   const auto result = source.Enumerate(record, 8);
-  CHECK(result.ok && result.sessions.size() == 2);
-  const auto &session = result.sessions.back();
+  CHECK(result.ok && result.sessions.size() == 3);
+  const auto &session = result.sessions[1];
   CHECK(session.schema_version == 1 && session.session_id == kSession);
   CHECK(session.install_id == record.install_id &&
         session.title_id == record.title_id);
@@ -416,7 +418,6 @@ void DurableJournalRoundTripsAcrossRestartAndOverwritesOneSession() {
         loaded.entry->message == "retry after restart");
 
   entry.phase = ReconcilePhase::kCompleted;
-  entry.operation_id.clear();
   entry.code.clear();
   entry.message.clear();
   CHECK(restarted.Save(entry).ok);
@@ -427,6 +428,40 @@ void DurableJournalRoundTripsAcrossRestartAndOverwritesOneSession() {
   for (const auto &item : fs::directory_iterator(temporary.path))
     if (item.is_regular_file()) ++regular;
   CHECK(regular == 1);
+}
+
+void DurableJournalRequiresOperationForRecordedCloudCompletion() {
+  TemporaryDirectory temporary;
+  Storage storage(temporary.path.string());
+  DurableReconcileJournal journal(storage);
+  for (const auto phase : {ReconcilePhase::kCloudRunning, ReconcilePhase::kCompletionPending, ReconcilePhase::kCompleted}) {
+    auto entry = Entry();
+    entry.phase = phase;
+    CHECK(journal.Save(entry).ok);
+    const auto path = temporary.path / (std::string(kSession) + ".json");
+    std::ifstream input(path, std::ios::binary);
+    std::string bytes{std::istreambuf_iterator<char>(input), {}};
+    CHECK(input.good() || input.eof());
+    const auto operation = bytes.find("operation-9");
+    CHECK(operation != std::string::npos);
+    bytes.erase(operation, std::strlen("operation-9"));
+    Write(path, bytes);
+    CHECK(!journal.Load(kSession).ok);
+    entry.operation_id.clear();
+    CHECK(!journal.Save(entry).ok);
+  }
+}
+
+void DurableJournalAcceptsPinnedProducerIdGrammar() {
+  TemporaryDirectory temporary;
+  Storage storage(temporary.path.string());
+  DurableReconcileJournal journal(storage);
+  auto entry = Entry();
+  entry.session.session_id = "123e4567-e89b-72d3-c456-426614174000";
+  CHECK(journal.Save(entry).ok);
+  const auto loaded = journal.Load(entry.session.session_id);
+  CHECK(loaded.ok && loaded.entry &&
+        loaded.entry->session.session_id == entry.session.session_id);
 }
 
 void DurableJournalRejectsWrongIdentitySchemaCorruptionAndPrivatePathProblems() {
@@ -490,6 +525,8 @@ int main() {
   SourceBoundsEnumerationAndRejectsNonCanonicalRecordRoots();
   HistoricalRuntimeIdentityRemainsVisibleBesideCurrentEvidence();
   DurableJournalRoundTripsAcrossRestartAndOverwritesOneSession();
+  DurableJournalAcceptsPinnedProducerIdGrammar();
+  DurableJournalRequiresOperationForRecordedCloudCompletion();
   DurableJournalRejectsWrongIdentitySchemaCorruptionAndPrivatePathProblems();
   return 0;
 }

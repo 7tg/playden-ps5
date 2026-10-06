@@ -69,6 +69,24 @@ private record never falls back to stale legacy bytes. Host CLI destinations
 are explicitly resolved before selecting the managed root; native/bottle paths
 retain strict component validation.
 
+The production session source maps only canonical `/data/playden/games/<install>`
+roots, admits the bottle's complete owned template marker, and reads bounded
+owned `0600` records from private `logs/sessions`. UUID syntax matches the pinned
+wrapper's lowercase dashed hexadecimal contract, including caller-supplied IDs.
+Historical runtime/settings records remain visible for individual rejection by
+reconciliation. Unknown files, temporary/lock evidence and exceeded limits leave
+recovery pending; no evidence is silently dropped or deleted.
+
+`DurableReconcileJournal` uses the narrow durable storage API with one validated
+session ID per filename and a strict bounded schema. Cloud-running, completion-
+pending and completed records require the operation ID retained by the actual
+reconciler; missing IDs are rejected on load and save. Provision its private root
+separately from wrapper logs. Source/journal tests consume the actual pinned C
+writer, verify restart/readback, identity drift, corruption and ownership refusal,
+and exercise the explicit PS5 backend on the host. This supplies storage adapters;
+Cloud/controller wiring, evidence archival and native session acceptance remain
+open.
+
 ## Evidence and remaining acceptance
 
 Host tests exercise both backends, private policy inheritance, static symlinks,
@@ -87,8 +105,8 @@ cleanup left an unidentifiable staging directory. Cleanup now validates the
 captured directory identity, lists only its initial marker, removes that owned
 0600 regular marker, syncs the child, rechecks the directory identity through
 its parent, removes the empty directory and syncs the parent. Both ordinary and
-native-policy suites pass. Native directory enumeration remains to be tested;
-this host regression does not close installer console acceptance.
+native-policy suites pass. Native directory enumeration is separately verified
+below; this host regression does not close installer console acceptance.
 
 SDK compilation and default/probe-enabled final package linking are required.
 The probe-enabled link originally lacked the new managed archive; its unresolved
