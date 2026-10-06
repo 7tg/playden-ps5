@@ -383,7 +383,7 @@ rt::LaunchEvidence RuntimeHost::Evidence(Composition& c, const rt::RuntimeInstal
                                          const std::string& session_id) {
   rt::LaunchEvidence evidence;
   evidence.state = rt::LaunchEvidenceState::kNone;
-  const auto listed = c.sessions->Enumerate(record, rt::SessionReconciler::kMaxSessionsPerInstall);
+  const auto listed = c.sessions->Read(record, session_id);
   if (!listed.ok) {
     Log("play evidence install=" + record.install_id + " unavailable code=" + listed.code + " message=" + listed.message);
     return evidence;

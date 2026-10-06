@@ -481,38 +481,63 @@ FilesystemReconcileSessionSource::FilesystemReconcileSessionSource(
     HostDataRootForTests mapping)
     : host_data_root_(std::move(mapping.path)) {}
 
-SessionEnumeration FilesystemReconcileSessionSource::Enumerate(
-    const RuntimeInstall &record, std::size_t limit) {
+std::optional<ManagedDirectory> FilesystemReconcileSessionSource::OpenSessions(
+    const RuntimeInstall &record, SessionEnumeration *failure) {
   if (!Identifier(record.install_id) || record.title_id.size() != 9 ||
       !Identifier(record.title_id, 9) ||
       !Identifier(record.runtime_bundle_id) || !Identifier(record.recipe_id) ||
       !Identifier(record.recipe_version))
-    return SourceFailure("session-record-invalid",
+    {
+    *failure = SourceFailure("session-record-invalid",
                          "runtime install identity is invalid");
+    return std::nullopt;
+  }
   const fs::path expected = fs::path(kCanonicalDataRoot) / "playden/games" /
                             record.install_id;
   if (record.data_root != expected.generic_string() ||
       host_data_root_.empty() || !host_data_root_.is_absolute())
-    return SourceFailure("session-root-invalid",
+    {
+    *failure = SourceFailure("session-root-invalid",
                          "session root is not the canonical managed game root");
+    return std::nullopt;
+  }
   const auto mapped = host_data_root_ / "playden/games" / record.install_id;
   auto game = ManagedDirectory::Open(mapped, DirectoryPolicy::kPrivate);
   if (!game)
-    return SourceFailure("session-root-unavailable",
+    {
+    *failure = SourceFailure("session-root-unavailable",
                          "managed game root is unavailable or unsafe");
+    return std::nullopt;
+  }
   auto marker_root = ManagedDirectory::Open(mapped, DirectoryPolicy::kPrivate);
   if (!marker_root)
-    return SourceFailure("session-root-unavailable",
+    {
+    *failure = SourceFailure("session-root-unavailable",
                          "managed game root changed during ownership admission");
+    return std::nullopt;
+  }
   auto bottle = Child(std::move(*marker_root),
                       {"library", "prefixes", "game"});
   if (!bottle || !MarkerMatches(*bottle, record))
-    return SourceFailure("session-owner-invalid",
+    {
+    *failure = SourceFailure("session-owner-invalid",
                          "managed bottle ownership marker is invalid");
+    return std::nullopt;
+  }
   auto sessions = Child(std::move(*game), {"logs", "sessions"});
-  if (!sessions)
-    return SourceFailure("session-evidence-unavailable",
+  if (!sessions) {
+    *failure = SourceFailure("session-evidence-unavailable",
                          "wrapper session evidence is unavailable or unsafe");
+    return std::nullopt;
+  }
+  return sessions;
+}
+
+SessionEnumeration FilesystemReconcileSessionSource::Enumerate(
+    const RuntimeInstall &record, std::size_t limit) {
+  SessionEnumeration failure;
+  auto sessions = OpenSessions(record, &failure);
+  if (!sessions) return failure;
   const auto names = ListSessionFiles(*sessions, limit);
   if (!names)
     return SourceFailure(
@@ -533,6 +558,23 @@ SessionEnumeration FilesystemReconcileSessionSource::Enumerate(
     result.push_back(std::move(*session));
   }
   return SessionEnumeration::Success(std::move(result));
+}
+
+SessionEnumeration FilesystemReconcileSessionSource::Read(
+    const RuntimeInstall &record, const std::string &session_id) {
+  if (!CanonicalUuid(session_id))
+    return SourceFailure("session-id-invalid", "wrapper session id is invalid");
+  SessionEnumeration failure;
+  auto sessions = OpenSessions(record, &failure);
+  if (!sessions) return failure;
+  // An absent or unreadable record is not evidence yet.
+  const auto bytes = ReadFile(*sessions, session_id + ".json", kMaxSessionBytes);
+  if (!bytes) return SessionEnumeration::Success({});
+  auto session = ParseSession(*bytes, session_id);
+  if (!session || !BoundToRecord(*session, record))
+    return SourceFailure("session-identity-invalid",
+                         "wrapper session syntax or persisted identity is invalid");
+  return SessionEnumeration::Success({std::move(*session)});
 }
 
 DurableReconcileJournal::DurableReconcileJournal(Storage &storage)

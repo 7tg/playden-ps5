@@ -1,10 +1,13 @@
 #pragma once
 
 #include "platform/storage.h"
+#include "platform/managed_directory.h"
 #include "runtime/session_reconciler.h"
 
 #include <cstddef>
 #include <filesystem>
+#include <optional>
+#include <string>
 
 namespace playden::runtime {
 
@@ -25,6 +28,10 @@ public:
 
   SessionEnumeration Enumerate(const RuntimeInstall &record,
                                std::size_t limit) override;
+  // One session record by id, with the same ownership checks and no bound on
+  // how many other records exist. A record not written yet is an empty result.
+  SessionEnumeration Read(const RuntimeInstall &record,
+                          const std::string &session_id);
 
   // Historical runtime/revision identities are returned unchanged so the
   // reconciler can reject each one without hiding later records. This adapter
@@ -32,6 +39,8 @@ public:
   // evidence leaves the whole install pending for explicit recovery.
 
 private:
+  std::optional<platform::ManagedDirectory> OpenSessions(const RuntimeInstall &record,
+                                               SessionEnumeration *failure);
   std::filesystem::path host_data_root_;
 };
 

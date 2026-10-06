@@ -515,6 +515,12 @@ void PlaysReadyTitleThroughHandoff() {
            R"(","install_id":"steam-220","title_id":"FAKE78001","origin":"playden","settings_revision":0,)"
            R"("runtime_bundle_id":"wine-wow64","phase":")" + phase + "\"}\n";
   };
+  // Many earlier Home sessions do not hide this one.
+  for (int i = 0; i < 300; ++i) {
+    char id[37];
+    std::snprintf(id, sizeof(id), "11111111-1111-4111-8111-%012d", i);
+    Write(sessions / (std::string(id) + ".json"), record(id, "exited"), 0600);
+  }
   Write(sessions / (session + ".json"), record(session, "running"), 0600);
   WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kRunning; }, 30);
   Write(sessions / (session + ".json"), record(session, "exited"), 0600);
