@@ -24,8 +24,14 @@ family; package backups under `build/console-backups/20261006-runtime-host-18`).
    "Saves here and in Steam Cloud both changed" ([toast](reopened-cloud-choice.jpg), `cloud.log`). Which copy to keep is
    left to the player.
 
+## Cloud check before Play (`916cc65`, same day)
+
+Play now syncs Cloud saves first. With HL2's conflict still open, Play showed "Checking saves…" and was disabled
+([checking](play-checking-saves.jpg)), then stopped at the conflict with Cloud saves offering "Choose"
+([stopped](play-stopped-at-conflict.jpg)). `runtime.log` shows no Play request: the game was not started.
+
 ## Not covered
 
-- Uploading the new saves: the conflict choice was not made.
-- Cloud sync before Play (Play does not wait for a check first).
+- Uploading the new saves: the conflict choice was not made (left to the player).
+- Play starting after a clean check (needs the conflict resolved first).
 - A session ended from the system menu instead of the game's Quit (handled by the stopped-title rule, host-tested only).
