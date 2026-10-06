@@ -208,6 +208,19 @@
       "wine_source_head": "490f6d5dcbb2a5047345b8af88d114bbcaad69a8",
       "retained_runtime_commit": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
       "template_inventory_sha256": "ea9268c22c48f90aca28ca68b37f9c55bb038e7083c1fed18be571070aa39639"
+    },
+    "hl2-fresh-v16-neutral": {
+      "files": {
+        "source-binding.reviewed.json": "73a4d8e520d29f729f86c1c0bc40a4a4153621b57d33edaac310c21ad0087eea",
+        "loader-provenance.reviewed.json": "1ee41d59d09cbd83e40fe5a83d4d9311b173b8ead2876df7ffea19ea459a56b1",
+        "prefix.manifest": "7eb7083aa4393ac14d9018ab53bd65edfcff6a0227c6b382517d7c878589b67a",
+        "initialization-provenance.json": "a738900562e116d9e2de15a2fdc0c68f2d6860e92108fb5dee7c8c5bcbcacc81"
+      },
+      "wine_source_head": "490f6d5dcbb2a5047345b8af88d114bbcaad69a8",
+      "retained_runtime_commit": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+      "template_inventory_sha256": "6ae89cdb3cbfc4dc4c00ac404a46a05169ad17a9a3ca73cde56ce7fb72b3ef54",
+      "derived_from": "hl2-fresh-v16",
+      "derivation": "Same initialized export; every template file that embedded a host build path is replaced by the path-neutral runtime build of the same Wine module (results/20261006-release-kit/template-substitutions.json)."
     }
   },
   "sqlite3": {
@@ -224,9 +237,9 @@
   "prospero_kit": {
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
-    "status": "development kit; not releasable (1044 compiled Wine modules embed host build paths); native acceptance pending",
-    "manifest_sha256": "63e8111c305c6638c2ae561650efeec17a05fa36ec2069940f780267fb4e3c09",
-    "files_sha256": "41886a2d009277fe057eb72808cbe12bffcbe593ee36a13e6bbf03ddfee7fa2e",
+    "status": "release-clean kit: no host build paths (privacy scan without exemptions); console acceptance of this kit pending",
+    "manifest_sha256": "1e255dfbffbdb1eb78e77e749e233622a8987f7e8cd20b795742489c5d905f4d",
+    "files_sha256": "5807db5fc55d85ac6344aa7ae1c86c6845fee6db198df84a545d5f9166245889",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",
     "firmware": [
       "13.60"
@@ -238,9 +251,9 @@
       "wow64_i386"
     ],
     "wrapper_revision": "1a8a0d5c0b056487aa0b35316cc0eef3d43dc684",
-    "runtime_artifact_revision": "e16ec8f3-ps5-console-r1",
-    "runtime_inventory_source": "SHA-256 of all 1703 files read over FTP from the gameplay-proven /data/homebrew/PPSA99995/win on 2026-10-06",
-    "template_preparation": "hl2-fresh-v16",
+    "runtime_artifact_revision": "e16ec8f3-ps5-console-r1-neutral",
+    "runtime_inventory_source": "Path-neutral rebuild of the console runtime recipe (e16ec8f3 + a4c3856 sink, 4234987 patch 0663, e9c1104 PSBC); results/20261006-release-kit",
+    "template_preparation": "hl2-fresh-v16-neutral",
     "title_pins": {
       "FAKE78001": {
         "helper_sha256": "5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935",

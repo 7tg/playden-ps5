@@ -98,13 +98,14 @@ RuntimeInstall Record() {
 // A synthetic admitted kit with the production file layout, real SHA-256 and
 // the repository's HL2 recipe. It is not a runnable Wine runtime.
 RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native",
-                        const std::string& kit_id = "kit-1", char files_digest = 'a') {
+                        const std::string& kit_id = "kit-1", char files_digest = 'a',
+                        const std::string& runtime = "runtime") {
   Write(kit / "titles/variant/eboot.bin", eboot, 0755);
   Write(kit / "titles/variant/sce_sys/param.json",
         "{\n  \"contentId\": \"UP9000-FAKE78001_00-PROSPEROWIN00001\",\n  \"localizedParameters\": {\n"
         "    \"en-US\": {\n      \"titleName\": \"Prospero Win\"\n    }\n  },\n  \"titleId\": \"FAKE78001\"\n}\n", 0644);
   Write(kit / "titles/variant/sce_sys/icon0.png", "kit-icon", 0644);
-  Write(kit / "runtime/wine/rev/lib/core.prx", "runtime", 0755);
+  Write(kit / "runtime/wine/rev/lib/core.prx", runtime, 0755);
   Write(kit / "template/bottle/system.reg", "WINE REGISTRY Version 2\n", 0644);
   Write(kit / "template/bottle/user.reg", "WINE REGISTRY Version 2\n", 0644);
   Write(kit / "template/bottle/drive_c/windows/win.ini", "", 0644);
@@ -432,6 +433,34 @@ void RefreshesInstalledTitleToRespunKit() {
   CHECK(Read(fixture.root / "data/runtime-state/installs.json") == installs_before);
   CHECK(fixture.registry_mutations == 2);
   host.Shutdown();
+
+  // A rebuilt runtime (same artifacts, new bytes) upgrades the title in place:
+  // the new runtime reaches the title, the record keeps the new hashes, the
+  // registration and bottle registry stay.
+  const auto rebuilt = SyntheticKit(fixture.root / "kit-rebuilt", "native-2", "kit-1", 'd', "runtime-neutral");
+  auto fourth = config;
+  fourth.admit_kit = [rebuilt](std::string*) { return std::optional<RuntimeKit>(rebuilt); };
+  RuntimeHost upgraded(fourth);
+  CHECK(upgraded.Start());
+  CHECK(!WaitFor(upgraded, Started).installs[0].title_current);
+  upgraded.Prepare(Hl2());
+  const auto up = WaitFor(upgraded, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && (s.installs[0].title_current || s.refusals.count(220));
+  }, 60);
+  if (up.refusals.count(220)) std::fprintf(stderr, "Upgrade refused: %s\n", up.refusals.at(220).c_str());
+  CHECK(!up.refusals.count(220) && up.installs[0].state == PreparationState::kReady);
+  CHECK(Read(fixture.root / "data/homebrew/FAKE78001/win/wine/lib/core.prx") == "runtime-neutral");
+  const auto upgraded_installs = Read(fixture.root / "data/runtime-state/installs.json");
+  CHECK(upgraded_installs != installs_before &&
+        upgraded_installs.find(*HashArtifactBytes("runtime-neutral")) != std::string::npos);
+  CHECK(Read(bottle_reg) == registry_before);
+  CHECK(fixture.registry_mutations == 2);
+  upgraded.Shutdown();
+  // A restart keeps the upgraded title current.
+  RuntimeHost again(fourth);
+  CHECK(again.Start());
+  CHECK(WaitFor(again, Started).installs[0].title_current);
+  again.Shutdown();
 }
 
 // A game run that leaves the bottle registry wider than admission accepts

@@ -706,9 +706,48 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         if (written.state != rt::PackageActionState::kComplete) return written.message;
       }
       if (!c.installer->TitleCurrent(*existing) || !metadata_current) {
-        // Same kit id, runtime and recipe; only title files changed (for example
-        // a new wrapper build). The registration and publication stay as they are.
-        const auto refreshed = c.installer->RefreshTitle(*existing);
+        // Same kit id and recipe; title files changed (a new wrapper build) or
+        // the runtime was rebuilt (same artifacts, new bytes). The registration
+        // and publication stay as they are. A rebuilt runtime is copied into the
+        // title first and its new artifact hashes recorded only after that.
+        auto target = *existing;
+        bool runtime_upgrade = false;
+        if (target.artifacts.size() == c.kit->view.artifacts.size()) {
+          std::vector<rt::RuntimeArtifactIdentity> upgraded;
+          bool same_set = true;
+          for (const auto& artifact : c.kit->view.artifacts) {
+            bool found = false;
+            for (const auto& bound : target.artifacts)
+              if (bound.artifact_id == artifact.artifact_id) {
+                found = true;
+                // The recipe must be the one this install was prepared from.
+                if (artifact.artifact_id != "runtime" && bound.sha256 != artifact.sha256) same_set = false;
+              }
+            same_set = same_set && found;
+            upgraded.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
+          }
+          const auto differs = [&] {
+            for (const auto& wanted : upgraded) {
+              bool equal = false;
+              for (const auto& bound : target.artifacts)
+                equal |= bound.artifact_id == wanted.artifact_id && bound.identity == wanted.identity &&
+                         bound.sha256 == wanted.sha256;
+              if (!equal) return true;
+            }
+            return false;
+          };
+          if (same_set && differs()) {
+            target.artifacts = std::move(upgraded);
+            runtime_upgrade = true;
+          }
+        }
+        const auto refreshed = c.installer->RefreshTitle(target);
+        if (runtime_upgrade && refreshed.state == rt::PackageActionState::kComplete) {
+          const auto recorded = c.repository.Update(target);
+          Log("runtime upgrade app=" + std::to_string(request.app_id) + " recorded=" + std::to_string(recorded.ok()));
+          if (!recorded.ok()) return "The runtime was updated but could not be recorded; press Update again.";
+          *existing = target;
+        }
         Log("title refresh app=" + std::to_string(request.app_id) + " state=" +
             std::to_string(static_cast<int>(refreshed.state)) + " code=" + refreshed.code + " message=" + refreshed.message);
         PublishInstalls(c);
