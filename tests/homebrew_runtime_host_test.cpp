@@ -449,6 +449,82 @@ void RepairsBottleRegistryModes() {
   host.Shutdown();
 }
 
+// Play from Playden: the worker checks the Ready title and prepares a session;
+// only Handoff on the application thread starts it, once, with the session
+// argument. The wrapper's exit record ends the session and allows the next Play.
+void PlaysReadyTitleThroughHandoff() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.session_data_root = fixture.root / "data";
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  std::vector<std::pair<std::string, std::vector<std::string>>> launches;
+  config.launch_title = [&launches](const std::string& title, const std::vector<std::string>& arguments) {
+    launches.emplace_back(title, arguments);
+    return TitleResult{true, 0, "launch"};
+  };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  CHECK(!host.Handoff());  // nothing prepared
+  host.Prepare(Hl2());
+  WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+  }, 60);
+
+  host.Play(220);
+  const auto prepared = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(prepared.launch && prepared.launch->app_id == 220 && prepared.launch->title_id == "FAKE78001");
+  CHECK(launches.empty());
+  // Another thread cannot start the title.
+  std::thread other([&host] { CHECK(host.Handoff()); });
+  other.join();
+  CHECK(launches.empty());
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(host.Handoff());
+  CHECK(launches.size() == 1 && launches[0].first == "FAKE78001");
+  const std::string session = "00000000-0000-4000-8000-000000000002";
+  CHECK(launches[0].second == std::vector<std::string>{"session=" + session});
+  CHECK(!host.Handoff());
+  CHECK(host.Snapshot().launch->state == LaunchState::kLaunching);
+
+  // The wrapper records the session in the private game data root.
+  const auto sessions = fixture.root / "data/playden/games/steam-220/logs/sessions";
+  fs::create_directories(sessions);
+  CHECK(chmod((fixture.root / "data/playden/games/steam-220/logs").c_str(), 0700) == 0);
+  CHECK(chmod(sessions.c_str(), 0700) == 0);
+  const auto record = [&](const std::string& id, const std::string& phase) {
+    return R"({"schema_version":1,"session_id":")" + id +
+           R"(","install_id":"steam-220","title_id":"FAKE78001","origin":"playden","settings_revision":0,)"
+           R"("runtime_bundle_id":"wine-wow64","phase":")" + phase + "\"}\n";
+  };
+  Write(sessions / (session + ".json"), record(session, "running"), 0600);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kRunning; }, 30);
+  Write(sessions / (session + ".json"), record(session, "exited"), 0600);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kExited; }, 30);
+  // The ended session no longer blocks Play.
+  host.Play(220);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(host.Handoff());
+  CHECK(launches.size() == 2 && launches[1].second[0] != launches[0].second[0]);
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -460,6 +536,7 @@ int main(int argc, char** argv) {
   ResumesInterruptedCaptureFromSavedRequest(true);
   RefreshesInstalledTitleToRespunKit();
   RepairsBottleRegistryModes();
+  PlaysReadyTitleThroughHandoff();
   std::puts("runtime host tests passed");
   return 0;
 }

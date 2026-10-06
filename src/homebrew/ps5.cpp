@@ -303,6 +303,27 @@ int main() {
                     std::fclose(file);
                 }
             };
+            // Play: start a prepared title with its session argument. LncUtil is
+            // resolved through the system service module (its static imports are null).
+            config.launch_title = [](const std::string& title, const std::vector<std::string>& arguments) {
+                static auto api = [] {
+                    auto resolved = playden::ps5::ResolveTitleApi(
+                        {sceSysmoduleLoadModuleInternal, sceSysmoduleGetModuleHandleInternal, sceKernelDlsym},
+                        sceUserServiceGetForegroundUser);
+                    if (!resolved.launch && !resolved.public_launch) {
+                        resolved.public_launch = sceSystemServiceLaunchApp;
+                        resolved.foreground_user = sceUserServiceGetForegroundUser;
+                    }
+                    return resolved;
+                }();
+                static playden::ps5::TitleBackend backend(api);
+                const auto result = backend.Launch(title, arguments);
+                char line[160];
+                std::snprintf(line, sizeof(line), "launch_title title=%s stage=%s accepted=%d result=0x%08x",
+                              title.c_str(), result.stage.c_str(), result.ok, unsigned(result.code));
+                playden::app::AppendLogLine(log_root, "runtime.log", line);
+                return result;
+            };
             runtime_host = std::make_unique<playden::homebrew::RuntimeHost>(std::move(config));
             if (!runtime_host->Start())
                 playden::app::AppendLogLine(paths.log_root, "runtime.log", "runtime worker could not start");

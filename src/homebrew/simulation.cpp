@@ -519,6 +519,12 @@ std::vector<GameId> Simulation::TakeRuntimePrepareRequests() {
     return requests;
 }
 
+std::vector<GameId> Simulation::TakeRuntimePlayRequests() {
+    auto requests = std::move(pending_runtime_play_requests_);
+    pending_runtime_play_requests_.clear();
+    return requests;
+}
+
 void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games) {
     if (!live()) return;
     state_.runtime = runtime;
@@ -2163,6 +2169,16 @@ void Simulation::rebuild_view() {
                 status.value = installation->installed_bytes > 0 ? format_bytes(installation->installed_bytes) : "";
                 status.subtitle = installation->available ? "On " + label : "Connect " + label + " to use this game";
                 if (installation->available) {
+                    // Play the game's own PS5 title once it is Ready.
+                    const auto play_game = state_.runtime_games.find(game->id);
+                    if (play_game != state_.runtime_games.end() &&
+                        (play_game->second.ready || !play_game->second.play_status.empty())) {
+                        const auto& value = play_game->second;
+                        auto& play = row("details-play", RowKind::Action, "Play", value.can_play ? "runtime-play" : "");
+                        play.value = value.play_status;
+                        play.subtitle = value.play_detail;
+                        play.enabled = value.can_play;
+                    }
                     // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
                     const auto cloud = state_.cloud.find(game->id);
                     const auto cloud_status = cloud == state_.cloud.end() ? CloudStatus::None : cloud->second.status;
@@ -2823,6 +2839,9 @@ void Simulation::activate() {
     } else if (live() && action_name == "runtime-prepare") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+    } else if (live() && action_name == "runtime-play") {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        if (id != 0) pending_runtime_play_requests_.push_back(id);
     } else if (live() && action_name == "live-install") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id});

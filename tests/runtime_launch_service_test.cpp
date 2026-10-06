@@ -449,6 +449,48 @@ void ExitRequiresValidatedTerminalEvidenceAndPreservesUnknownCode() {
   CHECK(exited.state == LaunchState::kExited && !exited.exit_code);
 }
 
+void FinishEndsOnlyDecidedSessions() {
+  Fixture f;
+  auto service = f.Service();
+  CHECK(!service.Finish().accepted);
+  f.RequestAndHandoff(service);
+  f.evidence = LaunchEvidence::Running(ReadyInstall(), kSession);
+  const auto running = service.Finish();
+  CHECK(!running.accepted && running.code == "launch-undecided" && f.journal.pending);
+  f.evidence = LaunchEvidence::Exited(ReadyInstall(), kSession, 0);
+  CHECK(service.Finish().accepted && !f.journal.pending);
+  CHECK(service.Snapshot().state == LaunchState::kExited);
+  CHECK(f.journal.history.count(kSession) == 1);
+  // The next launch starts with a new session and calls the backend again.
+  f.uuid = "0f0e2d6c-3a52-4d7e-9d0b-6c51b1f1d2a3";
+  f.evidence = {};
+  CHECK(service.Request("install-hl2").accepted && service.Handoff().accepted);
+  CHECK(f.backend_calls == 2);
+
+  Fixture failed;
+  auto failed_service = failed.Service();
+  failed.RequestAndHandoff(failed_service);
+  failed.now_ms += 6000;
+  CHECK(failed_service.Snapshot().state == LaunchState::kFailed);
+  CHECK(failed_service.Finish().accepted && !failed.journal.pending);
+
+  // A session prepared before a restart never reached the backend.
+  Fixture prepared;
+  auto first = prepared.Service();
+  CHECK(first.Request("install-hl2").accepted);
+  auto restarted = prepared.Service();
+  CHECK(restarted.Snapshot().state == LaunchState::kFailed);
+  CHECK(restarted.Finish().accepted && !prepared.journal.pending);
+  CHECK(prepared.backend_calls == 0);
+
+  // A recovered handoff stays pending while the title may still be starting.
+  Fixture recovered;
+  auto before = recovered.Service();
+  recovered.RequestAndHandoff(before);
+  auto after = recovered.Service();
+  CHECK(!after.Finish().accepted && recovered.journal.pending);
+}
+
 void CloudWaitCancelOfflineOptInAndAccountCoherence() {
   Fixture waiting;
   waiting.cloud = {CloudLaunchState::kWaiting, "account-a", false,
@@ -672,6 +714,7 @@ int main() {
   FailedHandoffPublicationCannotRetryBackend();
   WrapperIdentityAndRevisionAreValidatedBeforeStateMapping();
   ExitRequiresValidatedTerminalEvidenceAndPreservesUnknownCode();
+  FinishEndsOnlyDecidedSessions();
   CloudWaitCancelOfflineOptInAndAccountCoherence();
   ClockCannotCreateRunningEvidence();
   MissingFutureCloudHookAllowsTaskSixLaunch();

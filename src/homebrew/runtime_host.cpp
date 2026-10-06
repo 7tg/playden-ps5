@@ -8,6 +8,7 @@
 #include "runtime/prospero_profile.h"
 #include "runtime/settings_publication_journal.h"
 #include "runtime/settings_publication_owner.h"
+#include "runtime/session_storage.h"
 
 #include <chrono>
 #include <cstdio>
@@ -40,6 +41,10 @@ class UnavailablePackageInstaller final : public rt::PackageInstaller {
 constexpr int kNativeAwaitPolls = 30;
 constexpr auto kNativeAwaitInterval = std::chrono::seconds(2);
 constexpr int kMaxPreparationSteps = 64;
+// A pending launch is polled at this interval, and Handoff trusts a preflight
+// the worker made at most this long ago.
+constexpr auto kLaunchPollInterval = std::chrono::seconds(2);
+constexpr std::int64_t kPreflightFreshMs = 5000;
 
 std::string InstallId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id); }
 }  // namespace
@@ -127,11 +132,22 @@ struct RuntimeHost::Composition {
   std::vector<rt::GameRecipe> recipes;
   std::vector<rt::SettingsPreset> presets;
   std::string settings_data_reason;
+  std::unique_ptr<rt::StorageLaunchSessionJournal> launch_journal;
+  std::unique_ptr<rt::FilesystemReconcileSessionSource> sessions;
+  std::unique_ptr<rt::LaunchService> launch;
+  // Last worker preflight per install, with its time, for Handoff.
+  std::map<std::string, std::pair<rt::LaunchPreflight, std::int64_t>> preflights;
 };
 
 RuntimeHost::RuntimeHost(RuntimeHostConfig config) : config_(std::move(config)) {
   if (!config_.uuid) config_.uuid = RandomUuid;
   if (!config_.unix_time) config_.unix_time = [] { return static_cast<std::int64_t>(std::time(nullptr)); };
+  if (!config_.now_ms)
+    config_.now_ms = [] {
+      return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count());
+    };
+  application_thread_ = pthread_self();
 }
 RuntimeHost::~RuntimeHost() { Shutdown(); }
 
@@ -192,6 +208,43 @@ void RuntimeHost::Prepare(RuntimePrepareRequest request) {
     prepare_requests_.push_back(std::move(request));
   }
   wake_.notify_all();
+}
+
+void RuntimeHost::Play(std::uint32_t app_id) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    play_requests_.push_back(app_id);
+  }
+  wake_.notify_all();
+}
+
+bool RuntimeHost::Handoff() {
+  rt::LaunchResult result;
+  std::string install_id;
+  {
+    std::lock_guard<std::mutex> lock(launch_mutex_);
+    if (!launch_ || !launch_composition_) return false;
+    const auto before = launch_->Snapshot();
+    if (before.state != rt::LaunchState::kReadyToHandoff) return false;
+    install_id = before.install_id;
+    result = launch_->Handoff();
+    rt::LaunchSnapshot after;
+    after.install_id = install_id;
+    after.session_id = result.session_id;
+    after.state = result.accepted ? rt::LaunchState::kLaunching : rt::LaunchState::kFailed;
+    after.code = result.code;
+    after.message = result.message;
+    PublishLaunch(*launch_composition_, after);
+  }
+  Log("play handoff install=" + install_id + " accepted=" + std::to_string(result.accepted) + " session=" +
+      result.session_id + " code=" + result.code + " message=" + result.message);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    launch_poll_ = true;
+  }
+  wake_.notify_all();
+  return true;
 }
 
 void* RuntimeHost::Entry(void* self) {
@@ -283,6 +336,153 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
   Log("publication resume state=" + std::to_string(static_cast<int>(resumed.state)) + " code=" + resumed.code +
       " message=" + resumed.message);
   return resumed;
+}
+
+// Fresh facts for one launch, from the package layer, the bottle's start check
+// and the console's inventory and activity. Runs on the worker; the application
+// thread reuses the worker's latest result while it is fresh.
+rt::LaunchPreflight RuntimeHost::Preflight(Composition& c, const rt::RuntimeInstall& record) {
+  if (!pthread_equal(pthread_self(), application_thread_)) {
+    rt::LaunchPreflight p;
+    p.capability_available = c.kit.has_value() && static_cast<bool>(config_.launch_title);
+    const auto root = config_.host_namespace_prefix.empty()
+        ? std::filesystem::path(record.install_path)
+        : config_.host_namespace_prefix / std::filesystem::path(record.install_path).relative_path();
+    struct stat info{};
+    p.volume_mounted = lstat(root.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+    const auto package = c.installer->Inspect(record);
+    const auto admission = c.installer->AdmissionDiagnostic(record);
+    c.admission[record.install_id] = admission;
+    p.bottle_present = package.mutable_bottle_present && package.mutable_bottle_owned && admission == "ok";
+    p.runtime_present = package.artifacts_valid;
+    p.helper_valid = package.title_staged && package.manifest_matches && c.installer->TitleCurrent(record);
+    p.profile_present = package.profile_published;
+    p.settings_revision = package.profile_settings_revision;
+    const auto native = c.coordinator->Query(record);
+    p.title_owned = native.installed && native.owned_manifest_matches && !native.collision;
+    p.inventory_confirmed = native.available && !native.scan_pending;
+    p.activity = c.coordinator->Activity(record.title_id);
+    c.preflights[record.install_id] = {p, config_.now_ms()};
+    Log("play preflight install=" + record.install_id + " capability=" + std::to_string(p.capability_available) +
+        " volume=" + std::to_string(p.volume_mounted) + " bottle=" + std::to_string(p.bottle_present) +
+        " admission=" + admission + " runtime=" + std::to_string(p.runtime_present) +
+        " helper=" + std::to_string(p.helper_valid) + " profile=" + std::to_string(p.profile_present) +
+        " title=" + std::to_string(p.title_owned) + " inventory=" + std::to_string(p.inventory_confirmed) +
+        " activity=" + std::to_string(static_cast<int>(p.activity)) + " revision=" + std::to_string(p.settings_revision));
+    return p;
+  }
+  const auto cached = c.preflights.find(record.install_id);
+  if (cached == c.preflights.end() || config_.now_ms() - cached->second.second > kPreflightFreshMs ||
+      config_.now_ms() < cached->second.second)
+    return {};
+  return cached->second.first;
+}
+
+rt::LaunchEvidence RuntimeHost::Evidence(Composition& c, const rt::RuntimeInstall& record,
+                                         const std::string& session_id) {
+  rt::LaunchEvidence evidence;
+  evidence.state = rt::LaunchEvidenceState::kNone;
+  const auto listed = c.sessions->Enumerate(record, rt::SessionReconciler::kMaxSessionsPerInstall);
+  if (!listed.ok) {
+    Log("play evidence install=" + record.install_id + " unavailable code=" + listed.code + " message=" + listed.message);
+    return evidence;
+  }
+  for (const auto& session : listed.sessions) {
+    if (session.session_id != session_id) continue;
+    evidence.session_id = session.session_id;
+    evidence.install_id = session.install_id;
+    evidence.title_id = session.title_id;
+    evidence.runtime_bundle_id = session.runtime_bundle_id;
+    evidence.settings_revision = session.settings_revision;
+    evidence.exit_code = session.exit_code;
+    // A Playden handoff must come back as a Playden session.
+    evidence.valid = session.origin == rt::SessionOrigin::kPlayden;
+    switch (session.phase) {
+      case rt::WrapperSessionPhase::kStarting: evidence.state = rt::LaunchEvidenceState::kStarting; break;
+      case rt::WrapperSessionPhase::kRunning: evidence.state = rt::LaunchEvidenceState::kRunning; break;
+      case rt::WrapperSessionPhase::kExited: evidence.state = rt::LaunchEvidenceState::kExited; break;
+      case rt::WrapperSessionPhase::kFailed:
+        evidence.state = rt::LaunchEvidenceState::kFailed;
+        evidence.code = "wrapper-start-failed";
+        evidence.message = "The game did not start.";
+        break;
+    }
+  }
+  return evidence;
+}
+
+void RuntimeHost::PublishLaunch(Composition& c, const rt::LaunchSnapshot& launch) {
+  RuntimeLaunchView view;
+  view.install_id = launch.install_id;
+  view.state = launch.state;
+  view.code = launch.code;
+  view.message = launch.message;
+  view.exit_code = launch.exit_code;
+  if (const auto record = c.records.Find(launch.install_id)) {
+    view.app_id = record->app_id;
+    view.title_id = record->title_id;
+  }
+  Publish([&](RuntimeSnapshot& s) {
+    s.handoff_ready = launch.state == rt::LaunchState::kReadyToHandoff;
+    if (launch.state == rt::LaunchState::kIdle && launch.install_id.empty()) s.launch.reset();
+    else s.launch = view;
+  });
+}
+
+void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
+  std::optional<rt::RuntimeInstall> record;
+  for (const auto& candidate : c.repository.Snapshot())
+    if (candidate.app_id == app_id) record = candidate;
+  rt::LaunchResult result;
+  rt::LaunchSnapshot snapshot;
+  {
+    std::lock_guard<std::mutex> lock(launch_mutex_);
+    if (!c.launch) {
+      result = rt::LaunchResult::Failure(rt::LaunchError::kPersistence, "Play is unavailable.");
+    } else if (!record) {
+      result = rt::LaunchResult::Failure(rt::LaunchError::kNotFound, "This game has no PS5 title yet.");
+    } else {
+      result = c.launch->Request(record->install_id);
+    }
+    snapshot = c.launch ? c.launch->Snapshot() : rt::LaunchSnapshot{};
+    if (!result.accepted) {
+      // A refused request leaves any pending session as it is; show the refusal
+      // for this game.
+      snapshot.state = rt::LaunchState::kFailed;
+      snapshot.install_id = record ? record->install_id : std::string{};
+      snapshot.code = result.code;
+      snapshot.message = result.message;
+    }
+    PublishLaunch(c, snapshot);
+  }
+  Log("play request app=" + std::to_string(app_id) + " accepted=" + std::to_string(result.accepted) +
+      " session=" + result.session_id + " code=" + result.code + " message=" + result.message);
+  PublishInstalls(c);
+}
+
+bool RuntimeHost::PollLaunch(Composition& c) {
+  std::lock_guard<std::mutex> lock(launch_mutex_);
+  if (!c.launch) return false;
+  auto snapshot = c.launch->Snapshot();
+  if (snapshot.state == rt::LaunchState::kReadyToHandoff) {
+    PublishLaunch(c, snapshot);
+    return true;
+  }
+  const bool pending = c.launch_journal && [&] {
+    const auto loaded = c.launch_journal->LoadPending();
+    return loaded.ok && loaded.session.has_value();
+  }();
+  if (pending && (snapshot.state == rt::LaunchState::kExited || snapshot.state == rt::LaunchState::kFailed)) {
+    const auto finished = c.launch->Finish();
+    Log("play finished install=" + snapshot.install_id + " session=" + snapshot.session_id + " state=" +
+        std::to_string(static_cast<int>(snapshot.state)) + " code=" + snapshot.code + " exit=" +
+        (snapshot.exit_code ? std::to_string(*snapshot.exit_code) : std::string("unknown")) +
+        " cleared=" + std::to_string(finished.accepted) + " " + finished.code);
+    PublishLaunch(c, snapshot);
+    return !finished.accepted;
+  }
+  PublishLaunch(c, snapshot);
+  return pending;
 }
 
 std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request) {
@@ -511,6 +711,35 @@ void RuntimeHost::Run() {
           }
           if (!bytes.empty()) config_.title_log(record.title_id + ".user.reg", bytes);
         }
+      // Play: the launch journal sits beside the install records. A session
+      // pending from before a restart is polled, never handed off again.
+      c.launch_journal = std::make_unique<rt::StorageLaunchSessionJournal>(c.storage);
+      c.sessions = std::make_unique<rt::FilesystemReconcileSessionSource>(
+          rt::HostDataRootForTests{config_.session_data_root});
+      rt::LaunchDependencies launch;
+      launch.preflight = [this, &c](const rt::RuntimeInstall& record) { return Preflight(c, record); };
+      launch.evidence = [this, &c](const rt::RuntimeInstall& record, const std::string& session) {
+        return Evidence(c, record, session);
+      };
+      launch.backend = [this](const rt::RuntimeInstall& record, const std::string& session) {
+        return config_.launch_title(record.title_id, {"session=" + session});
+      };
+      // Playden's own state is already durable; nothing waits to be written.
+      launch.flush = [] { return rt::LaunchActionResult::Success(); };
+      launch.uuid = [this] { return config_.uuid().value_or(std::string{}); };
+      launch.now_ms = config_.now_ms;
+      launch.is_application_thread = [this] { return pthread_equal(pthread_self(), application_thread_) != 0; };
+      launch.evidence_wait_ms = config_.launch_evidence_wait_ms;
+      {
+        std::lock_guard<std::mutex> lock(launch_mutex_);
+        c.launch = std::make_unique<rt::LaunchService>(c.records, *c.launch_journal, std::move(launch));
+        launch_ = c.launch.get();
+        launch_composition_ = &c;
+      }
+      if (PollLaunch(c)) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        launch_poll_ = true;
+      }
       const bool kit_available = c.kit.has_value();
       Log("runtime ready installs=" + std::to_string(c.repository.Snapshot().size()) + " kit=" +
           (kit_available ? c.kit->view.kit_id : "none (" + kit_reason + ")") +
@@ -523,11 +752,36 @@ void RuntimeHost::Run() {
   }
   for (;;) {
     std::vector<RuntimePrepareRequest> requests;
+    std::vector<std::uint32_t> plays;
+    bool poll = false;
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      wake_.wait(lock, [this] { return stopping_ || !prepare_requests_.empty(); });
+      const auto ready = [this] { return stopping_ || !prepare_requests_.empty() || !play_requests_.empty(); };
+      if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
+      else wake_.wait(lock, [&] { return ready() || launch_poll_; });
       if (stopping_) break;
       requests.swap(prepare_requests_);
+      plays.swap(play_requests_);
+      poll = launch_poll_;
+    }
+    for (const auto app : plays) {
+      if (composition) {
+        RunPlay(*composition, app);
+        poll = true;
+      } else {
+        Publish([&](RuntimeSnapshot& s) {
+          RuntimeLaunchView view;
+          view.app_id = app;
+          view.state = rt::LaunchState::kFailed;
+          view.message = s.reason.empty() ? "The runtime services are unavailable." : s.reason;
+          s.launch = view;
+        });
+      }
+    }
+    if (poll && composition) {
+      const bool again = PollLaunch(*composition);
+      std::lock_guard<std::mutex> lock(mutex_);
+      launch_poll_ = again;
     }
     for (const auto& request : requests) {
       std::string refusal;
@@ -545,6 +799,11 @@ void RuntimeHost::Run() {
         else s.refusals[request.app_id] = refusal;
       });
     }
+  }
+  {
+    std::lock_guard<std::mutex> lock(launch_mutex_);
+    launch_ = nullptr;
+    launch_composition_ = nullptr;
   }
   composition.reset();
   Publish([](RuntimeSnapshot& s) { s.status = RuntimeHostStatus::kStopped; });

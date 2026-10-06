@@ -653,6 +653,35 @@ LaunchResult LaunchService::Handoff() {
   return LaunchResult::Accepted(session_->session_id);
 }
 
+LaunchResult LaunchService::Finish() {
+  if (persistence_uncertain_)
+    return Reject(LaunchError::kPersistence, "launch-recovery-required",
+                  "launch journal requires reconciliation");
+  if (!session_)
+    return Reject(LaunchError::kInvalidSession, "launch-not-pending",
+                  "no launch session is pending");
+  const bool never_handed_off =
+      session_->phase == LaunchSessionPhase::kPrepared && recovered_pending_;
+  const auto current = never_handed_off ? snapshot_ : Snapshot();
+  if (persistence_uncertain_)
+    return Reject(LaunchError::kPersistence, "launch-recovery-required",
+                  "launch journal requires reconciliation");
+  if (!never_handed_off && current.state != LaunchState::kExited &&
+      current.state != LaunchState::kFailed)
+    return Reject(LaunchError::kDuplicate, "launch-undecided",
+                  "the launch session has not ended");
+  const auto cleared = journal_.ClearPending();
+  if (!cleared.ok) {
+    persistence_uncertain_ = true;
+    return Reject(LaunchError::kPersistence, cleared.code, cleared.message);
+  }
+  const std::string session_id = session_->session_id;
+  session_.reset();
+  recovered_pending_ = false;
+  snapshot_ = current;
+  return LaunchResult::Accepted(session_id);
+}
+
 LaunchSnapshot LaunchService::Snapshot() {
   if (cloud_record_ || !session_) return snapshot_;
   if (persistence_uncertain_) return snapshot_;

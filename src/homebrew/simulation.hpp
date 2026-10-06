@@ -65,6 +65,10 @@ struct LiveRuntimeGame {
     std::string detail;   // why, or what happens next
     bool can_prepare = false;
     bool ready = false;
+    // Play: whether it can start now, and the current or last launch.
+    bool can_play = false;
+    std::string play_status;  // e.g. "Starting…", "Playing"; empty when idle
+    std::string play_detail;  // the last launch's outcome or refusal
 };
 // Live Steam Cloud save state for one game, projected from the cloud service.
 enum class CloudStatus { None, Checking, Syncing, Synced, UpToDate, Conflict, NeedsAccount, Unsupported, Failed };
@@ -374,6 +378,7 @@ public:
     void UpdateCloud(const std::vector<LiveCloudGame>& games);
     // Live mode: games to prepare (bottle + PS5 title), and the runtime state for display.
     [[nodiscard]] std::vector<GameId> TakeRuntimePrepareRequests();
+    [[nodiscard]] std::vector<GameId> TakeRuntimePlayRequests();
     void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
@@ -450,6 +455,7 @@ private:
     std::vector<ServiceAction> pending_service_actions_;
     std::vector<InstallRequest> pending_install_requests_;
     std::vector<GameId> pending_runtime_prepare_requests_;
+    std::vector<GameId> pending_runtime_play_requests_;
     bool library_catalog_received_ = false;
     // Live install events become notifications; the first snapshot is restored history, not an event.
     bool live_installs_seen_ = false;

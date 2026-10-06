@@ -4,9 +4,11 @@
 // SPDX-License-Identifier: MIT
 #include "platform/ps5/native_coordinator.h"
 #include "platform/ps5/title_registry.h"
+#include "platform/ps5/title_runtime.h"
 #include "runtime/game_install.h"
 #include "runtime/game_settings.h"
 #include "runtime/install_service.h"
+#include "runtime/launch_service.h"
 #include "runtime/package_installer.h"
 
 #include <condition_variable>
@@ -17,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <pthread.h>
 #include <string>
 #include <vector>
 
@@ -59,6 +62,14 @@ struct RuntimeHostConfig {
   // startup. The wrapper writes it inside the private bottle tree, which only
   // the app user can read.
   std::function<void(const std::string& title_id, const std::string& text)> title_log;
+  // Native start of a prepared title with its arguments ("session=<UUID>").
+  // Called only on the application thread, from Handoff. Empty disables Play.
+  std::function<ps5::TitleResult(const std::string& title_id, const std::vector<std::string>& arguments)> launch_title;
+  // Canonical /data as this process sees it, for the wrapper's session records.
+  std::filesystem::path session_data_root = "/data";
+  std::function<std::int64_t()> now_ms;
+  // How long a started title may take to report its session before Play gives up.
+  std::int64_t launch_evidence_wait_ms = 60000;
   // SQLite and the native readers run on this worker. PS5 std::thread stacks are
   // too small for them, so the worker uses an explicit stack size.
   std::size_t stack_bytes = 1024 * 1024;
@@ -81,6 +92,17 @@ struct RuntimeInstallView {
   std::string admission = "ok";
 };
 
+// Play: the launch in progress, or how the last one ended.
+struct RuntimeLaunchView {
+  std::string install_id;
+  std::uint32_t app_id = 0;
+  std::string title_id;
+  runtime::LaunchState state = runtime::LaunchState::kIdle;
+  std::string code;
+  std::string message;
+  std::optional<int> exit_code;
+};
+
 enum class RuntimeHostStatus { kStarting, kUnavailable, kReady, kStopped };
 
 struct RuntimeSnapshot {
@@ -93,6 +115,9 @@ struct RuntimeSnapshot {
   // Latest refused or failed request per Steam app, for presentation.
   std::map<std::uint32_t, std::string> refusals;
   std::optional<std::uint32_t> preparing_app;  // the game being prepared now
+  std::optional<RuntimeLaunchView> launch;
+  // A checked session waits for Handoff on the application thread.
+  bool handoff_ready = false;
 };
 
 // A downloaded game to prepare. The game files stay at install_path.
@@ -104,7 +129,9 @@ struct RuntimePrepareRequest {
 
 // The worker constructs and owns every runtime collaborator, so durable work and
 // native inventory never run on the main thread. The main thread reads snapshots
-// and queues requests. Native launch handoff is not part of this object.
+// and queues requests. Play is split the same way: the worker checks the game
+// and prepares the launch session, and only Handoff, on the application thread
+// that constructed this object, starts the title.
 class RuntimeHost {
  public:
   explicit RuntimeHost(RuntimeHostConfig config);
@@ -117,6 +144,11 @@ class RuntimeHost {
   RuntimeSnapshot Snapshot() const;
   // Queues preparation of a downloaded game, or a retry of a failed one.
   void Prepare(RuntimePrepareRequest request);
+  // Queues Play of a Ready game.
+  void Play(std::uint32_t app_id);
+  // Application thread only: starts the title of a prepared launch session.
+  // Returns false when no session is waiting.
+  bool Handoff();
 
  private:
   struct Composition;
@@ -126,6 +158,14 @@ class RuntimeHost {
   void PublishInstalls(const Composition& composition);
   std::string RunPrepare(Composition& composition, const RuntimePrepareRequest& request);
   runtime::PackageActionResult DrivePublication(Composition& composition, const runtime::RuntimeInstall& record);
+  runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
+  runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
+                                   const std::string& session_id);
+  void RunPlay(Composition& composition, std::uint32_t app_id);
+  // Polls a pending launch session and ends it once its outcome is final.
+  // Returns true while a session is still undecided.
+  bool PollLaunch(Composition& composition);
+  void PublishLaunch(Composition& composition, const runtime::LaunchSnapshot& launch);
   bool Stopping() const;
   void Log(const std::string& line) const;
 
@@ -134,6 +174,13 @@ class RuntimeHost {
   std::condition_variable wake_;
   RuntimeSnapshot snapshot_;
   std::vector<RuntimePrepareRequest> prepare_requests_;
+  std::vector<std::uint32_t> play_requests_;
+  bool launch_poll_ = false;
+  // Guards the worker's launch service and preflight cache for Handoff.
+  std::mutex launch_mutex_;
+  runtime::LaunchService* launch_ = nullptr;
+  Composition* launch_composition_ = nullptr;
+  pthread_t application_thread_{};
   bool stopping_ = false;
   bool started_ = false;
   void* thread_ = nullptr;  // pthread_t storage, owned by the implementation

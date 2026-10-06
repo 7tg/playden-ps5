@@ -173,14 +173,17 @@ void Controller::TickCloud() {
   }
   model_.UpdateCloud(games);
 }
-// Per-game runtime: queue Prepare with the Steam install's location and project
-// the runtime host's state for installed games. Play is not connected yet.
+// Per-game runtime: queue Prepare with the Steam install's location, queue Play,
+// and project the runtime host's state for installed games. The worker checks a
+// Play request; this thread, the application thread, then starts the title.
 void Controller::TickRuntime() {
   if (!runtime_) return;
   for (const auto id : model_.TakeRuntimePrepareRequests()) {
     const auto root = game_roots_.find(id);
     if (root != game_roots_.end()) runtime_->Prepare({id, root->second, game_volumes_[id]});
   }
+  for (const auto id : model_.TakeRuntimePlayRequests()) runtime_->Play(id);
+  if (runtime_->Snapshot().handoff_ready) runtime_->Handoff();
   const auto snapshot = runtime_->Snapshot();
   if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_) return;
   runtime_revision_ = snapshot.revision;
@@ -224,6 +227,28 @@ void Controller::TickRuntime() {
       game.can_prepare = usable;
     }
     if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
+    const bool launching = snapshot.launch && snapshot.launch->app_id == id;
+    if (launching) {
+      using runtime::LaunchState;
+      switch (snapshot.launch->state) {
+        case LaunchState::kWaitingForCloud: game.play_status = "Waiting for Cloud"; break;
+        case LaunchState::kReadyToHandoff:
+        case LaunchState::kLaunching: game.play_status = "Starting…"; break;
+        case LaunchState::kRunning: game.play_status = "Playing"; break;
+        case LaunchState::kExited: game.play_detail = "The last session ended."; break;
+        case LaunchState::kFailed:
+          game.play_detail = snapshot.launch->message.empty() ? "The game could not start."
+                                                              : "Could not start: " + snapshot.launch->message;
+          break;
+        case LaunchState::kIdle: break;
+      }
+    }
+    // One launch at a time: Play waits while any session is undecided.
+    const bool busy = snapshot.launch && (snapshot.launch->state == runtime::LaunchState::kWaitingForCloud ||
+                                          snapshot.launch->state == runtime::LaunchState::kReadyToHandoff ||
+                                          snapshot.launch->state == runtime::LaunchState::kLaunching ||
+                                          snapshot.launch->state == runtime::LaunchState::kRunning);
+    game.can_play = game.ready && !busy && snapshot.preparing_app != id;
     games.push_back(std::move(game));
   }
   model_.UpdateRuntime(state, games);

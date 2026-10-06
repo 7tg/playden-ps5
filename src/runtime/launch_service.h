@@ -228,6 +228,11 @@ public:
   // thread predicate is enforced immediately before all handoff effects.
   LaunchResult Handoff();
   LaunchSnapshot Snapshot();
+  // Ends the pending session once its outcome is final: the wrapper reported
+  // exit or failure, the handoff failed, or a session recovered after restart
+  // never began its handoff. The pending record is removed so a new launch can
+  // start; the immutable history stays. An undecided session is refused.
+  LaunchResult Finish();
 
 private:
   LaunchResult Begin(const RuntimeInstall &record,
