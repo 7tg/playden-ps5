@@ -354,9 +354,9 @@ static PublicationOperationLoad LoadOperationFile(const std::filesystem::path& c
   struct stat before{}, after{};
   if (!directory->InspectChild(filename, &before)) {
     const int error = errno;
-    return LoadFailure(error == ENOENT ? PublicationRecoveryState::kAbsent :
+    return LoadFailure(error == ENOENT && directory->Sync() ? PublicationRecoveryState::kAbsent :
         error == EINVAL || error == ELOOP ? PublicationRecoveryState::kCorrupt : PublicationRecoveryState::kUnavailable,
-        "Operation journal could not be inspected.");
+        "Operation journal could not be inspected or its absence synced.");
   }
   if (!S_ISREG(before.st_mode) || before.st_uid != geteuid() || before.st_nlink != 1 ||
       (before.st_mode & 07777) != 0600 || before.st_size <= 0 ||
@@ -403,19 +403,44 @@ Result<void> ArchiveSettingsPublicationOperation(const std::filesystem::path& co
     return Result<void>::Failure(StorageError::kInvalidData, "Active journal absence could not be verified after archival.");
   return Result<void>::Success();
 }
-Result<void> CreateSettingsPublicationOperation(const std::filesystem::path& control, const SettingsPublicationOperation& operation) {
+static Result<void> CreateOperationFile(const std::filesystem::path& control, const SettingsPublicationOperation& operation, const std::string& name) {
   std::string reason; auto encoded = EncodeSettingsPublicationOperation(operation, &reason);
   if (!encoded) return Result<void>::Failure(StorageError::kInvalidData, std::move(reason));
   auto backup = CheckBackup(control, operation);
   if (backup.state != PublicationRecoveryState::kValid) return Result<void>::Failure(StorageError::kInvalidData, backup.message);
-  Storage storage(control.string()); auto written = storage.WriteDurableExclusive(kOperationName, *encoded);
+  Storage storage(control.string()); auto written = storage.WriteDurableExclusive(name, *encoded);
   if (!written.ok()) return written;
-  auto loaded = LoadSettingsPublicationOperation(control);
+  auto loaded = LoadOperationFile(control, name);
   if (loaded.state != PublicationRecoveryState::kValid || !loaded.operation)
     return Result<void>::Failure(StorageError::kInvalidData, "Operation durable readback failed; reconcile before further effects.");
   auto roundtrip = EncodeSettingsPublicationOperation(*loaded.operation, &reason);
   if (!roundtrip || *roundtrip != *encoded)
     return Result<void>::Failure(StorageError::kInvalidData, "Operation changed during readback; reconcile before further effects.");
   return Result<void>::Success();
+}
+Result<void> CreateSettingsPublicationOperation(const std::filesystem::path& control, const SettingsPublicationOperation& operation) {
+  return CreateOperationFile(control, operation, kOperationName);
+}
+Result<void> CreatePreparedSettingsPublicationOperation(const std::filesystem::path& control, const SettingsPublicationOperation& operation) {
+  return CreateOperationFile(control, operation, "settings-intent-" + operation.transaction_id + ".v1");
+}
+PublicationOperationLoad LoadPreparedSettingsPublicationOperation(const std::filesystem::path& control, const std::string& transaction) {
+  bool nonzero = false;
+  if (transaction.size() != 36) return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");
+  for (std::size_t i = 0; i < transaction.size(); ++i) {
+    const char c = transaction[i];
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (c != '-') return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");
+    } else {
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+        return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");
+      nonzero |= c != '0';
+    }
+  }
+  if (!nonzero) return LoadFailure(PublicationRecoveryState::kCorrupt, "Nil prepared-intent transaction is invalid.");
+  auto loaded = LoadOperationFile(control, "settings-intent-" + transaction + ".v1");
+  if (loaded.operation && loaded.operation->transaction_id != transaction)
+    return LoadFailure(PublicationRecoveryState::kCorrupt, "Prepared-intent filename does not bind its transaction.");
+  return loaded;
 }
 }  // namespace playden::runtime

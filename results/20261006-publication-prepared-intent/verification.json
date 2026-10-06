@@ -1,0 +1,30 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-intent-host-test.log"
+  },
+  "sdk": "v0.43 publication/OWNER static archive",
+  "process_exit": "after capture before active journal; recovery uses fresh repository/OWNER objects",
+  "intent_recovery_after_archival": true,
+  "unsafe_intent_refusals": [
+    "mode",
+    "hardlink",
+    "symlink",
+    "nil name",
+    "path name",
+    "transaction mismatch",
+    "corruption"
+  ],
+  "write_fault": "RLIMIT_FSIZE in intent creation",
+  "startup_transaction_discovery_wired": false,
+  "production_ui_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/settings_publication_journal.cpp": "61a44f5819d80883fb0364e3231892c839e99654b40ad822d6920c0affb7dd81",
+    "src/runtime/settings_publication_journal.h": "9423b5ac7a7d6e03513d1e9c8bdcac0c95a2728be40b5e003cd8346a0438b57b",
+    "src/runtime/settings_publication_owner.cpp": "eba91af066045db02097162ad5c011ea5270aac0e5defbd1a04ea18835dda6ff",
+    "tests/runtime_settings_publication_journal_test.cpp": "6cfaed3d5067af3cf34ce7f60a46385caabe888f0621b8197b1e6655cb4e6c2a",
+    "tests/runtime_settings_publication_test.cpp": "4926ddaf58c44bbffa8d57f95bd096af5d6e9fc33a32a68718479bd366bee0d4"
+  }
+}

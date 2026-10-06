@@ -621,3 +621,23 @@ handoff remains required, especially before archival/OWNER blocking. Control
 initialization, orphan OWNER intent recovery and explicit uncertain-registration
 recovery are also unfinished. Installer/UI routing, final native link/review and
 PS5 acceptance remain open; this increment enables no production guard trust.
+
+
+### Task C durable prepared-intent handoff
+
+Prepare now returns only after an exclusive private transaction-specific prepared
+intent has passed the full codec/backup policy, durable storage and exact readback.
+Requested-transaction recovery retains the complete frozen snapshot/timestamp
+before active journal creation or after previous-journal retirement. Corrupt,
+unsafe, mismatched or changed intents are refused; they never grant readiness.
+Backup orphans with no valid prepared intent remain unadopted evidence.
+
+A process-exit test recreates repository/OWNER objects and recovers generated
+registry/DXVK intent before publication. Next-operation archival recovery and
+storage collision/policy/name/link/actual write-failure cases pass. All 105 host
+tests, warning/diff checks and SDK v0.43 archive compilation pass. See
+[prepared-intent evidence](../../../results/20261006-publication-prepared-intent/README.md).
+The caller must still supply the requested transaction ID; startup job identity
+discovery/routing remains to be wired. Control initialization, orphan OWNER
+recovery without a valid intent, explicit uncertain registration recovery,
+installer/UI integration, final link/review and PS5 acceptance remain open.

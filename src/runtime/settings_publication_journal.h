@@ -63,4 +63,12 @@ PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem:
 // after_rename is a test-only crash seam; production leaves it empty.
 Result<void> ArchiveSettingsPublicationOperation(const std::filesystem::path& control_directory,
     const SettingsPublicationOperation& operation, const std::function<bool()>& after_rename = {});
+// Durable capture handoff: immutable transaction-specific intent, separate from
+// the active publication journal. Caller holds the qualified publisher lease.
+// Creation is exclusive; recovery requires exact private policy/codec/backups
+// and transaction-to-filename binding. Intent alone never grants readiness.
+Result<void> CreatePreparedSettingsPublicationOperation(const std::filesystem::path& control_directory,
+    const SettingsPublicationOperation& operation);
+PublicationOperationLoad LoadPreparedSettingsPublicationOperation(const std::filesystem::path& control_directory,
+    const std::string& transaction_id);
 }  // namespace playden::runtime

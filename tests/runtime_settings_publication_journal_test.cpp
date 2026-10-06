@@ -191,6 +191,37 @@ int main() {
       std::ofstream(archive, std::ios::binary) << "corrupt"; CHECK(!ArchiveSettingsPublicationOperation(archive_root, *frozen).ok());
     }
   }
+  const auto intent_root = root / "intent"; fs::create_directory(intent_root); CHECK(chmod(intent_root.c_str(), 0700) == 0);
+  CHECK(LoadPreparedSettingsPublicationOperation(intent_root, frozen->transaction_id).state == PublicationRecoveryState::kAbsent);
+  CHECK(CreatePreparedSettingsPublicationOperation(intent_root, *frozen).ok());
+  CHECK(!CreatePreparedSettingsPublicationOperation(intent_root, *frozen).ok());
+  auto intent = LoadPreparedSettingsPublicationOperation(intent_root, frozen->transaction_id);
+  CHECK(intent.state == PublicationRecoveryState::kValid && EncodeSettingsPublicationOperation(*intent.operation, &reason) == encoded);
+  CHECK(LoadPreparedSettingsPublicationOperation(intent_root, "../invalid").state == PublicationRecoveryState::kCorrupt);
+  CHECK(LoadPreparedSettingsPublicationOperation(intent_root, "00000000-0000-0000-0000-000000000000").state == PublicationRecoveryState::kCorrupt);
+  const auto intent_name = intent_root / ("settings-intent-" + frozen->transaction_id + ".v1");
+  CHECK(chmod(intent_name.c_str(), 0644) == 0);
+  CHECK(LoadPreparedSettingsPublicationOperation(intent_root, frozen->transaction_id).state == PublicationRecoveryState::kCorrupt);
+  CHECK(chmod(intent_name.c_str(), 0600) == 0);
+  fs::create_hard_link(intent_name, intent_root / "alias");
+  CHECK(LoadPreparedSettingsPublicationOperation(intent_root, frozen->transaction_id).state == PublicationRecoveryState::kCorrupt);
+  fs::remove(intent_root / "alias");
+  fs::rename(intent_name, intent_root / "retained");
+  fs::create_symlink("retained", intent_name);
+  CHECK(LoadPreparedSettingsPublicationOperation(intent_root, frozen->transaction_id).state == PublicationRecoveryState::kCorrupt);
+  fs::remove(intent_name); fs::rename(intent_root / "retained", intent_name);
+  const auto other_intent = "00000000-0000-7000-8000-000000000004";
+  fs::rename(intent_name, intent_root / (std::string("settings-intent-") + other_intent + ".v1"));
+  CHECK(LoadPreparedSettingsPublicationOperation(intent_root, other_intent).state == PublicationRecoveryState::kCorrupt);
+  const auto fault_root = root / "intent-write-fault"; fs::create_directory(fault_root); CHECK(chmod(fault_root.c_str(), 0700) == 0);
+  const auto intent_writer = fork(); CHECK(intent_writer >= 0);
+  if (!intent_writer) {
+    struct rlimit limit{16, 16}; CHECK(setrlimit(RLIMIT_FSIZE, &limit) == 0); std::signal(SIGXFSZ, SIG_IGN);
+    _exit(CreatePreparedSettingsPublicationOperation(fault_root, *frozen).ok() ? 78 : 77);
+  }
+  int intent_status = 0; CHECK(waitpid(intent_writer, &intent_status, 0) == intent_writer && WIFEXITED(intent_status) && WEXITSTATUS(intent_status) == 77);
+  CHECK(LoadPreparedSettingsPublicationOperation(fault_root, frozen->transaction_id).state == PublicationRecoveryState::kAbsent);
+  CHECK(CreatePreparedSettingsPublicationOperation(fault_root, *frozen).ok());
   fs::remove_all(root);
   std::puts("settings publication operation tests passed");
 }

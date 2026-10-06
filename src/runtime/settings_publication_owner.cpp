@@ -48,6 +48,22 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   auto recovered = LoadSettingsPublicationOperation(control_path);
   if (recovered.state == PublicationRecoveryState::kCorrupt || recovered.state == PublicationRecoveryState::kUnavailable)
     return fail("Existing frozen operation is corrupt or unavailable.");
+  auto intent = LoadPreparedSettingsPublicationOperation(control_path, transaction);
+  if (intent.state == PublicationRecoveryState::kCorrupt || intent.state == PublicationRecoveryState::kUnavailable)
+    return fail("Prepared intent is corrupt or unavailable; preserve its evidence.");
+  if (intent.operation) {
+    if (recovered.operation && recovered.operation->transaction_id == transaction) {
+      std::string reason;
+      if (EncodeSettingsPublicationOperation(*recovered.operation, &reason) != EncodeSettingsPublicationOperation(*intent.operation, &reason))
+        return fail("Active journal and prepared intent disagree.");
+    }
+    if (current->journal && current->journal->operation == "settings-publication" && current->journal->operation_id != transaction)
+      return fail("A different blocked OWNER operation must first be reconciled.");
+    if (recovered.operation && recovered.operation->transaction_id != transaction &&
+        (current->state != PreparationState::kReady || current->journal || current->last_failure))
+      return fail("Previous active operation must first reconcile to durable Ready.");
+    recovered = intent;
+  }
   if (recovered.operation && recovered.operation->transaction_id == transaction) {
     const auto& frozen = *recovered.operation;
     if (!SameOwner(frozen.install, record) || record.settings_revision != frozen.plan.settings_revision)
@@ -67,7 +83,15 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   if (!lease->Validate(*control, "publication.lock") || native_.Activity(record.title_id) != NativeActivity::kStopped)
     return fail("Publisher ownership/activity changed before capture.");
   auto snapshot = *current; snapshot.settings_revision = record.settings_revision;
-  return CaptureSettingsPublicationOperation(snapshot, plan, kit, transaction, time, lease->fd(), prefix);
+  auto captured = CaptureSettingsPublicationOperation(snapshot, plan, kit, transaction, time, lease->fd(), prefix);
+  if (!captured.ok()) return captured;
+  if (!lease->Validate(*control, "publication.lock") || native_.Activity(record.title_id) != NativeActivity::kStopped)
+    return fail("Publisher ownership/activity changed before durable capture handoff.");
+  auto saved = CreatePreparedSettingsPublicationOperation(control_path, captured.value());
+  if (!saved.ok()) return fail("Durable prepared intent failed; reload before any publication effects.");
+  if (!lease->Validate(*control, "publication.lock") || native_.Activity(record.title_id) != NativeActivity::kStopped)
+    return fail("Publisher ownership/activity changed after durable capture handoff.");
+  return captured;
 }
 PackageActionResult SettingsPublicationOwner::Persist(const RuntimeInstall& record) {
   auto result = records_.Update(record);
