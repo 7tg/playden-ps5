@@ -129,7 +129,7 @@ add_library(playden_runtime_settings_publication_journal STATIC
 target_include_directories(playden_runtime_settings_publication_journal PUBLIC "${CMAKE_SOURCE_DIR}/src"
     PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_settings_publication_journal PUBLIC cxx_std_17 PRIVATE c_std_11)
-target_link_libraries(playden_runtime_settings_publication_journal PUBLIC
+target_link_libraries(playden_runtime_settings_publication_journal PUBLIC playden_publication_transaction
     playden_runtime_installs playden_runtime_artifact_hash playden_runtime_publication_contract playden_runtime_publication_backup)
 
 add_library(playden_runtime_publication_backup STATIC "${CMAKE_SOURCE_DIR}/src/runtime/publication_backup.cpp")
@@ -499,6 +499,7 @@ if(BUILD_TESTING)
     target_compile_features(title_runtime_test PRIVATE cxx_std_17)
     add_test(NAME title_runtime COMMAND title_runtime_test)
     add_executable(title_registry_test tests/title_registry_test.cpp src/platform/ps5/title_registry.cpp src/platform/ps5/title_runtime.cpp)
+    target_link_libraries(title_registry_test PRIVATE playden_steam_protocol)
     target_include_directories(title_registry_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(title_registry_test PRIVATE cxx_std_17)
     add_test(NAME title_registry COMMAND title_registry_test)

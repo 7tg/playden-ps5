@@ -3,6 +3,7 @@
 #include "platform/ps5/title_registry.h"
 #include "platform/ps5/title_activity.h"
 #include "platform/ps5/title_database.h"
+#include "platform/ps5/native_coordinator.h"
 #include "platform/ps5/title_probe_contract.h"
 #include "runtime/private_directories.h"
 extern "C" {
@@ -334,6 +335,19 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   const int result = access.granted ? 0 : -1;
   std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
+  if (std::string(action) == "title-source") {
+    TitleRegistry registry([log](const std::string& route, const std::string& body) { return service_post(log, route, body); });
+    for (const char* title : {"FAKE77031", "FAKE78001", "FAKE78998"}) {
+      const auto source = ReadTitleSource("/data/homebrew", title);
+      std::fprintf(log, "title_source title=%s availability=%d free=%d occupied=%d unknown=%d directory=%d private=%d\n",
+          title, static_cast<int>(source.availability), static_cast<int>(runtime::TitleAvailability::kFree),
+          static_cast<int>(runtime::TitleAvailability::kOccupied), static_cast<int>(runtime::TitleAvailability::kUnknown),
+          source.directory, source.private_directory);
+      const auto cached = registry.Query(title);
+      std::fprintf(log, "title_source_cache title=%s state=%d path=%s\n", title, static_cast<int>(cached.state), cached.path.c_str());
+    }
+    std::fprintf(log, "end\n"); std::fclose(log); return true;
+  }
   if (std::string(action) == "title-inventory") {
     const char* path = "/system_data/priv/mms/app.db";
     const int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);

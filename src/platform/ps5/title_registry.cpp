@@ -1,23 +1,22 @@
 #include "platform/ps5/title_registry.h"
-#include "homebrew/json.hpp"
+#include "steam/backend/json.h"
 #include <cerrno>
-#include <cmath>
 #include <limits>
 
 namespace playden::ps5 {
 namespace {
-namespace json = homebrew::json;
-bool Flag(const json::Value& v, const char* key) {
-  const auto* value = v.get(key);
-  return value && value->boolean().value_or(false);
+namespace json = steam::json;
+std::optional<bool> Flag(const json::Value& v, const char* key) {
+  const auto* value = v.Find(key);
+  return value && value->is_bool() ? std::optional<bool>(value->boolean()) : std::nullopt;
 }
 std::string Text(const json::Value& v, const char* key) {
-  const auto* value = v.get(key);
-  return value && value->string() ? *value->string() : std::string();
+  const auto* value = v.Find(key);
+  return value && value->is_string() ? value->text() : std::string();
 }
 bool Success(const json::Value& v) {
-  const auto* status = v.get("status");
-  return status && status->number() == 0;
+  const auto* status = v.Find("status");
+  return status && status->AsUint64() == 0;
 }
 std::string SourceBody(const std::string& title) { return "{\"path\":\"/data/homebrew/" + title + "\"}"; }
 }
@@ -28,28 +27,41 @@ TitleRegistration TitleRegistry::Query(const std::string& title) {
   if (!ValidTitleId(title) || !transport_) return {};
   const auto bytes = transport_("/api/v1/games", "{}");
   if (!bytes || bytes->size() > 1024*1024) return {};
-  const auto v = json::Parser(*bytes).parse();
+  const auto v = json::Parse(*bytes, {1024*1024, 16, 65536, 4096});
   if (!v || !Success(*v)) return {};
-  const auto* games = v->get("games");
-  if (!games || !games->array()) return {};
-  for (const auto& game : *games->array()) {
-    if (Text(game, "title_id") != title) continue;
+  const auto* games = v->Find("games");
+  if (!games || !games->is_array()) return {};
+  TitleRegistration result{RegistrationState::kAbsent, {}};
+  unsigned matches = 0;
+  for (const auto& game : games->array()) {
+    const auto id = Text(game, "title_id");
+    if (!ValidTitleId(id)) return {}; // Incomplete inventory cannot imply absence.
+    if (id != title) continue;
     const auto path = Text(game, "path");
-    if (path != "/data/homebrew/" + title || !Flag(game, "managed"))
-      return {RegistrationState::kCollision, path};
-    return {Flag(game, "installed") && Flag(game, "source_available") && Text(game, "source_type") == "folder"
-                ? RegistrationState::kReady : RegistrationState::kPending, path};
+    if (++matches > 1) return {RegistrationState::kCollision, path};
+    if (path.empty()) return {};
+    const auto managed = Flag(game, "managed");
+    if (!managed) return {};
+    if (path != "/data/homebrew/" + title || !*managed)
+      result = {RegistrationState::kCollision, path};
+    else {
+      const auto installed = Flag(game, "installed"), available = Flag(game, "source_available");
+      const auto type = Text(game, "source_type");
+      if (!installed || !available || type.empty()) return {};
+      result = {*installed && *available && type == "folder" ? RegistrationState::kReady : RegistrationState::kPending, path};
+    }
   }
-  return {RegistrationState::kAbsent, {}};
+  return result;
 }
+
 TitleResult TitleRegistry::Post(const std::string& route, const std::string& body) {
   if (!transport_) return {false, ENOSYS, "shadowmount"};
   const auto bytes = transport_(route, body);
   if (!bytes || bytes->size() > 1024*1024) return {false, EIO, "shadowmount"};
-  const auto v = json::Parser(*bytes).parse();
-  const auto* status = v ? v->get("status") : nullptr;
-  const auto code = status ? status->number() : std::nullopt;
-  if (!code || *code < 0 || *code > std::numeric_limits<std::uint32_t>::max() || std::floor(*code) != *code)
+  const auto v = json::Parse(*bytes, {1024*1024, 16, 65536, 4096});
+  const auto* status = v ? v->Find("status") : nullptr;
+  const auto code = status ? status->AsUint64() : std::nullopt;
+  if (!code || *code > std::numeric_limits<std::uint32_t>::max())
     return {false, EPROTO, "shadowmount"};
   return {*code == 0, static_cast<std::uint32_t>(*code), "shadowmount"};
 }

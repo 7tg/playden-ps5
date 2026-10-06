@@ -424,20 +424,6 @@ Result<void> CreateSettingsPublicationOperation(const std::filesystem::path& con
 Result<void> CreatePreparedSettingsPublicationOperation(const std::filesystem::path& control, const SettingsPublicationOperation& operation) {
   return CreateOperationFile(control, operation, "settings-intent-" + operation.transaction_id + ".v1");
 }
-bool IsSettingsPublicationTransactionId(const std::string& transaction) {
-  bool nonzero = false;
-  if (transaction.size() != 36) return false;
-  for (std::size_t i = 0; i < transaction.size(); ++i) {
-    const char c = transaction[i];
-    if (i == 8 || i == 13 || i == 18 || i == 23) {
-      if (c != '-') return false;
-    } else {
-      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
-      nonzero |= c != '0';
-    }
-  }
-  return nonzero;
-}
 PublicationOperationLoad LoadPreparedSettingsPublicationOperation(const std::filesystem::path& control, const std::string& transaction) {
   if (!IsSettingsPublicationTransactionId(transaction))
     return LoadFailure(PublicationRecoveryState::kCorrupt, "Invalid prepared-intent transaction name.");

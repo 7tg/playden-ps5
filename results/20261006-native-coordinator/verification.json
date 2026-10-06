@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-06",
+  "native_pid": 1163,
+  "sdk": "v0.43",
+  "firmware": "13.60",
+  "probe": "read-only title-source and ShadowMount cache",
+  "observations": {
+    "FAKE77031": {
+      "source": "occupied",
+      "private": false,
+      "cache": "ready"
+    },
+    "FAKE78001": {
+      "source": "occupied",
+      "private": false,
+      "cache": "ready"
+    },
+    "FAKE78998": {
+      "source": "free",
+      "private": false,
+      "cache": "absent"
+    }
+  },
+  "host_tests": {
+    "passed": 108,
+    "failed": 0,
+    "seconds": 27.8
+  },
+  "core_focused_tests": {
+    "passed": 3,
+    "failed": 0,
+    "seconds": 1.64
+  },
+  "native_package_sha256": "1956f5413ff3be3717f29be95eb2c353c4acf051bf21db4a4f435b33e90ec087",
+  "native_log_sha256": "87fb4eb9a524f86aef09af9e6fe1e96a4d7002d3cd73a620231f515d63da6f08",
+  "restoration": {
+    "restored": {
+      "eboot.bin": "d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa",
+      "playden-package.identity": "c7593741974bfd517df3335f9ecfe6b41a17fafd4f3c0f0432ca548a6921fb40"
+    },
+    "restored_modes": {
+      "eboot.bin": "0755",
+      "playden-package.identity": "0644"
+    },
+    "stopped_diagnostic_pid": 1163
+  },
+  "console_released": true,
+  "native_owned_registration_tested": false,
+  "production_composition_complete": false
+}

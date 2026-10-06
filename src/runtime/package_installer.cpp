@@ -679,6 +679,7 @@ PackageStatus FilesystemPackageInstaller::Inspect(const RuntimeInstall& record) 
   try {
     const auto paths = Resolve(record);
     if (!paths) return status;
+    status.title_source_path = paths->title.string();
     bool title_known = false;
     bool bottle_known = false;
     status.title_staged = ExistsNoThrow(paths->title, &title_known);

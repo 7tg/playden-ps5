@@ -46,6 +46,9 @@ struct PackageStatus {
   bool artifacts_valid = false;
   bool profile_published = false;
   std::uint64_t profile_settings_revision = 0;
+  // Physical staged source inspected by the immutable package adapter. Native
+  // coordination must bind these ownership facts to its same mapped namespace.
+  std::string title_source_path;
 };
 
 enum class PackageActionState { kComplete, kCanceled, kFailed };

@@ -84,8 +84,9 @@ function(playden_add_homebrew_ps5_title)
     set(title_database_archives)
     set(title_database_targets)
     if(PLAYDEN_TITLE_CONTRACT_PROBE)
-        set(title_database_archives $<TARGET_FILE:playden_title_database> $<TARGET_FILE:playden_sqlite_reader>)
-        set(title_database_targets playden_title_database playden_sqlite_reader)
+        set(title_database_archives $<TARGET_FILE:playden_native_coordinator> $<TARGET_FILE:playden_publication_transaction>
+            $<TARGET_FILE:playden_title_database> $<TARGET_FILE:playden_sqlite_reader>)
+        set(title_database_targets playden_native_coordinator playden_publication_transaction playden_title_database playden_sqlite_reader)
     endif()
     target_compile_definitions(playden_ps5_shims PRIVATE
         PLAYDEN_TITLE_CONTRACT_PROBE=$<BOOL:${PLAYDEN_TITLE_CONTRACT_PROBE}>)

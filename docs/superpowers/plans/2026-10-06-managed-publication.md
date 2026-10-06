@@ -804,3 +804,23 @@ Ready refuse until stronger native/source/OWNER evidence is obtained.
 Production native coordinator/source-path checks, kit/application/UI composition,
 startup/orphan/uncertain registration recovery and full publication/Wine/gameplay
 acceptance remain open. Production publication trust is still disabled.
+
+### Task C native coordinator and source ownership prerequisite
+
+Added a worker-side Ps5NativeCoordinator combining independent native database,
+source directory, OWNER/package identity and strict ShadowMount cache reads.
+Reservation requires known free observations. Registration requires the current
+durable arm and stopped activity; pending/native-installed observations never
+resubmit. Package inspection now reports its physical source path for exact
+binding. The publication UUID validator is shared with the core adapter.
+
+RED-to-GREEN coverage includes duplicate cache collisions, unarmed/stale arms,
+invalid managed UUIDs and wrong physical source paths. Full host 108/108 and core
+focused 3/3 pass; the actual SDK v0.43 developer package links. Native PID 1163
+verified actual occupied/public source directories, an absent source and strict
+ShadowMount cache parsing. See results/20261006-native-coordinator. Preview hashes
+and modes were restored and independently verified; the console was released.
+
+This increment does not close Task C acceptance: production app/kit composition,
+full native owned registration/publication and final independent review remain
+required. The diagnostic performs no registration or bottle mutation.

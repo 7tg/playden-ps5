@@ -254,3 +254,18 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     target_link_libraries(title_database_test PRIVATE playden_title_database playden_sqlite_reader)
     add_test(NAME title_database COMMAND title_database_test)
 endif()
+
+add_library(playden_publication_transaction STATIC "${CMAKE_SOURCE_DIR}/src/runtime/publication_transaction.cpp")
+target_include_directories(playden_publication_transaction PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_publication_transaction PUBLIC cxx_std_17)
+add_library(playden_native_coordinator STATIC "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_coordinator.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_registry.cpp")
+target_include_directories(playden_native_coordinator PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_native_coordinator PUBLIC cxx_std_17)
+target_link_libraries(playden_native_coordinator PUBLIC playden_runtime_install_service playden_title_database
+    playden_title_activity playden_managed_directory playden_steam_protocol playden_publication_transaction)
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(native_coordinator_test "${CMAKE_SOURCE_DIR}/tests/native_coordinator_test.cpp")
+    target_link_libraries(native_coordinator_test PRIVATE playden_native_coordinator)
+    add_test(NAME native_coordinator COMMAND native_coordinator_test)
+endif()
