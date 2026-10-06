@@ -4,3 +4,5 @@
 .DS_Store
 /.env
 /output/imagegen/
+__pycache__/
+*.pyc
