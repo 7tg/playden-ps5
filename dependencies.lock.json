@@ -89,22 +89,15 @@
       "curl/urlapi.h": "d888326d5bdebb84b5fe133d7ef7703d4e88732757ce4d6b0476f0c668d38a6e",
       "curl/websockets.h": "05b70dbce5274aa6e360703bb17d67a0390fea18bf4437745a25b08b55d6962b"
     },
-    "host_archives": {
-      "libcurl.a": "0615adf3968ad866c611ca271a42b8b111d0dae91fad05f28eacc80b4481bf99",
-      "libeverest.a": "2d53e341a74369badac02b5f24b95b135f86c786ebcbb55918c4cb6e0a04bc0e",
-      "libmbedcrypto.a": "9bf5a58d7b16ac2259def66308aed0502b328d17905cb3757b9436680e5e52bf",
-      "libmbedtls.a": "91e0a41ceb4f81eddd7ef10482dbeed88523f29739c29b1427d94710c4e8b177",
-      "libmbedx509.a": "90076847ce9754f49fb6090923261f43fc4bcf261eb16a6387bc26fc211b943f",
-      "libp256m.a": "be40621d7f1a7fc88bd0ee980a90cde38ec7fffcacdf6fe7b28720f206255ace"
-    },
     "ps5_archives": {
       "libcurl.a": "4d3a53c0fb710931a6c1c99a8b540d2a4298d491a17813f889d5e0ae9c60cb37",
       "libeverest.a": "beb61a9fb21e7a9cc016f0ad7fc9027cc09da674a3f2c743bfa8d1bfe06de00c",
       "libmbedcrypto.a": "ac7d5c54ed457d4e4948dfecd80f9f2157c4b164b4770ab706218238d74557a0",
-      "libmbedtls.a": "ef06e96fcb4967b3e9b7e85570e0e1503dfb608e01e868a9f05a7372635e54b4",
+      "libmbedtls.a": "a760fcc1b4a0cd9c954f838b06ae9cf81353166430c4a9fba6a4b1e404a2ffb1",
       "libmbedx509.a": "cf958baa32e5d20631b8d873365eb81589487e4fbb800faab86a6bed68426e65",
       "libp256m.a": "412e12a472d4b2a3377760ccea57c87609831197c9183736ccd848d23b27da02"
-    }
+    },
+    "ps5_build_flags": "-ffile-prefix-map=<source root>/= (relative source paths; byte-reproducible with SDK v0.43 and LLVM 18.1.8)"
   },
   "homebrew_ui": {
     "revision": "f3a3695f9c761b013e62e457e0c5301c3cb7bfea",

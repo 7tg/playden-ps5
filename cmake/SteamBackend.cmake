@@ -70,11 +70,17 @@ set(playden_steam_archives)
 foreach(archive libcurl.a libeverest.a libmbedcrypto.a libmbedtls.a
                 libmbedx509.a libp256m.a)
     set(archive_path "${PLAYDEN_STEAM_PREFIX}/lib/${archive}")
-    string(JSON expected_hash GET "${playden_dependency_lock}"
-        steam_network_probe "${playden_steam_dependency_platform}_archives" "${archive}")
-    file(SHA256 "${archive_path}" actual_hash)
-    if(NOT actual_hash STREQUAL expected_hash)
-        message(FATAL_ERROR "Pinned ${playden_steam_dependency_platform} archive hash mismatch: ${archive}")
+    # PS5 archives come from the pinned SDK and LLVM 18 with relative source paths, so they are
+    # byte-reproducible and pinned. Host archives depend on the local Xcode toolchain; their
+    # pinned sources are checked when prepare-host-deps.sh builds them.
+    if(PLAYDEN_PLATFORM_PS5)
+        string(JSON expected_hash GET "${playden_dependency_lock}"
+            steam_network_probe ps5_archives "${archive}")
+        file(SHA256 "${archive_path}" actual_hash)
+        if(NOT actual_hash STREQUAL expected_hash)
+            message(FATAL_ERROR "Pinned ps5 archive hash mismatch: ${archive}. "
+                "Rebuild with probes/steam-network/prepare-ps5-deps.sh")
+        endif()
     endif()
     list(APPEND playden_steam_archives "${archive_path}")
 endforeach()

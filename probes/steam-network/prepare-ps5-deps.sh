@@ -46,19 +46,22 @@ mkdir -p "$prefix"
 tar -xjf "$downloads/mbedtls-$mbedtls_version.tar.bz2" -C "$deps/src"
 tar -xJf "$downloads/curl-$curl_version.tar.xz" -C "$deps/src"
 patch --fuzz=0 -d "$deps/src/curl-$curl_version" -p1 < "$curl_patch"
+# Record source paths relative to the extracted tree: the archives are then identical in every
+# checkout and no local path reaches the PS5 title.
+prefix_map="-ffile-prefix-map=$deps/src/="
 
 bash "$with_env" cmake -S "$deps/src/mbedtls-$mbedtls_version" \
     -B "$deps/build/mbedtls-ps5" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
-    -DCMAKE_INSTALL_PREFIX="$prefix" -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF \
-    -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
+    -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_C_FLAGS="$prefix_map" \
+    -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
 bash "$with_env" cmake --build "$deps/build/mbedtls-ps5" --parallel "$jobs"
 bash "$with_env" cmake --install "$deps/build/mbedtls-ps5"
 
 bash "$with_env" cmake -S "$deps/src/curl-$curl_version" \
     -B "$deps/build/curl-ps5" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
-    -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_C_FLAGS=-DPLAYDEN_PS5_NATIVE_NONBLOCK=1 \
+    -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_C_FLAGS="-DPLAYDEN_PS5_NATIVE_NONBLOCK=1 $prefix_map" \
     -DBUILD_CURL_EXE=OFF -DBUILD_EXAMPLES=OFF \
     -DBUILD_LIBCURL_DOCS=OFF -DBUILD_MISC_DOCS=OFF -DBUILD_SHARED_LIBS=OFF \
     -DHTTP_ONLY=OFF -DCURL_USE_MBEDTLS=ON -DCURL_USE_CMAKECONFIG=ON \
@@ -91,7 +94,7 @@ compiler_binary="$($llvm_config --bindir)/clang"
 compiler_version=$(bash "$with_env" "$compiler_launcher" --version | head -n 1)
 sdk_archive_sha256=$(cat "$sdk/.playden-source-sha256" 2>/dev/null || echo unknown)
 {
-    printf 'format=playden-steam-network-ps5-deps-v1\n'
+    printf 'format=playden-steam-network-ps5-deps-v2\n'
     printf 'curl_version=%s\n' "$curl_version"
     printf 'curl_source_sha256=%s\n' "$curl_sha256"
     printf 'curl_ps5_native_nonblock_patch_sha256=%s\n' "$curl_patch_sha256"
@@ -107,8 +110,8 @@ sdk_archive_sha256=$(cat "$sdk/.playden-source-sha256" 2>/dev/null || echo unkno
         "$(shasum -a 256 "$compiler_binary" | awk '{print $1}')"
     printf 'ps5_compiler_version=%s\n' "$compiler_version"
     printf '%s\n' \
-        'mbedtls_flags=CMAKE_BUILD_TYPE=Release;ENABLE_PROGRAMS=OFF;ENABLE_TESTING=OFF;USE_SHARED_MBEDTLS_LIBRARY=OFF' \
-        'curl_flags=CMAKE_BUILD_TYPE=Release;CMAKE_C_FLAGS=-DPLAYDEN_PS5_NATIVE_NONBLOCK=1;BUILD_CURL_EXE=OFF;BUILD_EXAMPLES=OFF;BUILD_LIBCURL_DOCS=OFF;BUILD_MISC_DOCS=OFF;BUILD_SHARED_LIBS=OFF;HTTP_ONLY=OFF;CURL_USE_MBEDTLS=ON;CURL_USE_CMAKECONFIG=ON;CURL_DISABLE_WEBSOCKETS=OFF;ENABLE_IPV6=OFF;ENABLE_THREADED_RESOLVER=OFF;CURL_DISABLE_SOCKETPAIR=ON;CURL_USE_LIBPSL=OFF;CURL_USE_LIBSSH2=OFF;CURL_ZLIB=OFF;CURL_DISABLE_NETRC=ON;HAVE_GETPWUID_R=0;HAVE_GMTIME_R=0;HAVE_IF_NAMETOINDEX=0;HAVE_PIPE2=0;HAVE_FCNTL_O_NONBLOCK=0;CURL_BROTLI=OFF;CURL_ZSTD=OFF;USE_NGHTTP2=OFF;USE_LIBIDN2=OFF;CURL_DISABLE_DICT=ON;CURL_DISABLE_FILE=ON;CURL_DISABLE_FTP=ON;CURL_DISABLE_GOPHER=ON;CURL_DISABLE_IMAP=ON;CURL_DISABLE_LDAP=ON;CURL_DISABLE_LDAPS=ON;CURL_DISABLE_MQTT=ON;CURL_DISABLE_POP3=ON;CURL_DISABLE_RTSP=ON;CURL_ENABLE_SMB=OFF;CURL_DISABLE_SMTP=ON;CURL_DISABLE_TELNET=ON;CURL_DISABLE_TFTP=ON'
+        'mbedtls_flags=CMAKE_BUILD_TYPE=Release;CMAKE_C_FLAGS=-ffile-prefix-map=<src>/=;ENABLE_PROGRAMS=OFF;ENABLE_TESTING=OFF;USE_SHARED_MBEDTLS_LIBRARY=OFF' \
+        'curl_flags=CMAKE_BUILD_TYPE=Release;CMAKE_C_FLAGS=-DPLAYDEN_PS5_NATIVE_NONBLOCK=1 -ffile-prefix-map=<src>/=;BUILD_CURL_EXE=OFF;BUILD_EXAMPLES=OFF;BUILD_LIBCURL_DOCS=OFF;BUILD_MISC_DOCS=OFF;BUILD_SHARED_LIBS=OFF;HTTP_ONLY=OFF;CURL_USE_MBEDTLS=ON;CURL_USE_CMAKECONFIG=ON;CURL_DISABLE_WEBSOCKETS=OFF;ENABLE_IPV6=OFF;ENABLE_THREADED_RESOLVER=OFF;CURL_DISABLE_SOCKETPAIR=ON;CURL_USE_LIBPSL=OFF;CURL_USE_LIBSSH2=OFF;CURL_ZLIB=OFF;CURL_DISABLE_NETRC=ON;HAVE_GETPWUID_R=0;HAVE_GMTIME_R=0;HAVE_IF_NAMETOINDEX=0;HAVE_PIPE2=0;HAVE_FCNTL_O_NONBLOCK=0;CURL_BROTLI=OFF;CURL_ZSTD=OFF;USE_NGHTTP2=OFF;USE_LIBIDN2=OFF;CURL_DISABLE_DICT=ON;CURL_DISABLE_FILE=ON;CURL_DISABLE_FTP=ON;CURL_DISABLE_GOPHER=ON;CURL_DISABLE_IMAP=ON;CURL_DISABLE_LDAP=ON;CURL_DISABLE_LDAPS=ON;CURL_DISABLE_MQTT=ON;CURL_DISABLE_POP3=ON;CURL_DISABLE_RTSP=ON;CURL_ENABLE_SMB=OFF;CURL_DISABLE_SMTP=ON;CURL_DISABLE_TELNET=ON;CURL_DISABLE_TFTP=ON'
     for archive in libcurl.a libmbedtls.a libmbedx509.a libmbedcrypto.a libeverest.a libp256m.a; do
         printf 'output_%s_sha256=%s\n' "$archive" \
             "$(shasum -a 256 "$prefix/lib/$archive" | awk '{print $1}')"

@@ -32,14 +32,16 @@ mkdir -p "$prefix"
 tar -xjf "$downloads/mbedtls-$mbedtls_version.tar.bz2" -C "$deps/src"
 tar -xJf "$downloads/curl-$curl_version.tar.xz" -C "$deps/src"
 
+# Relative source paths keep local paths out of the objects (see prepare-ps5-deps.sh).
+prefix_map="-ffile-prefix-map=$deps/src/="
 cmake -S "$deps/src/mbedtls-$mbedtls_version" -B "$deps/build/mbedtls-host" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_C_FLAGS="$prefix_map" \
     -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
 cmake --build "$deps/build/mbedtls-host" --parallel "$jobs"
 cmake --install "$deps/build/mbedtls-host"
 
 cmake -S "$deps/src/curl-$curl_version" -B "$deps/build/curl-host" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_C_FLAGS="$prefix_map" \
     -DBUILD_CURL_EXE=OFF -DBUILD_EXAMPLES=OFF -DBUILD_LIBCURL_DOCS=OFF -DBUILD_MISC_DOCS=OFF \
     -DBUILD_SHARED_LIBS=OFF -DHTTP_ONLY=OFF -DCURL_USE_MBEDTLS=ON \
     -DCURL_DISABLE_WEBSOCKETS=OFF -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF \
