@@ -746,3 +746,33 @@ Application/kit/UI driver wiring, startup jobs before frozen capture or during
 Ready prepared-update handoff, orphan OWNER intent and explicit uncertain native
 registration recovery, final independent review/link and actual PS5/Wine/gameplay
 acceptance remain open. No installed console build or guard capability changed.
+
+
+### Task C native activity prerequisite
+
+Added a bounded native process/AppInfo activity adapter. Positive matches are
+active; stopped requires complete successful identities twice enclosed by three
+identical inventories. Failed/unavailable API calls, invalid/partial/duplicate
+records, malformed identities and process/title changes return unknown. Host
+calls return unknown. FW13.60's successful PID1 AppInfo has app ID zero and a
+valid system title; accepting valid titles regardless of app ID corrects the
+native unknown result without interpreting API failures as absence. The regression
+was observed RED then GREEN, and all 106 host tests pass.
+
+The actual SDK v0.43 developer package on the PS5 reports self Playden active and
+Wine `FAKE78001` stopped; see [activity evidence](../../../results/20261006-title-activity/README.md).
+Native inventory is 89 bounded 1096-byte records with the independently known
+self PID. The developer diagnostic was stopped, normal preview bytes and modes
+were independently restored/verified, and the console released. Fresh kstuff
+hooks and ShadowMount scans/launch mounting also passed; no SMP restart needed.
+
+Ruling: a successful valid title identity authorizes an active result even with
+app ID zero; a failed call remains unknown. A stopped observation does not lock
+out a future independent launch. The publication lease and Wine lifetime gates
+remain mandatory. If wrong, missing/changing native information refuses edits
+instead of being inferred stopped.
+
+Application/kit/UI composition, independent installed-title/source ownership,
+startup/orphan/uncertain registration recovery, final review and PS5/Wine/
+gameplay acceptance remain open. This adds the activity prerequisite only;
+production publication capability is still disabled.

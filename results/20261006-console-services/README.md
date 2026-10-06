@@ -18,3 +18,13 @@ Elfldr v0.26 was started from the existing local updater artifact, SHA-256
 Its listener is port 9021. Port 9305 is the controller payload and must not be
 used for raw ELF injection. The normal Playden preview was not replaced.
 The console was released after each action/test session.
+
+## Later live check
+
+The fresh read-only probe in `current-output.jsonl` again reports kstuff loaded
+and the expected native/PS4 hooks. Payload Manager lists kstuff PID 92 and
+ShadowMountPlus PID 1095. ShadowMount continues its 15-second scans and mounted
+Playden successfully at 08:38:23 console time. No restart was needed.
+The developer diagnostic was stopped, the normal Playden executable and identity
+were restored and independently re-read/hash-verified, and the console was
+released. `current-check.json` records the restored hashes.

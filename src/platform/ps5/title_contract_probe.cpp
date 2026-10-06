@@ -1,6 +1,7 @@
 #include "platform/ps5/title_contract_probe.h"
 #include "steam/backend/native_network.h"
 #include "platform/ps5/title_registry.h"
+#include "platform/ps5/title_activity.h"
 #include "platform/ps5/title_probe_contract.h"
 #include "runtime/private_directories.h"
 extern "C" {
@@ -331,6 +332,17 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   const int result = access.granted ? 0 : -1;
   std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
+  if (std::string(action) == "title-activity") {
+    const auto self_title = std::filesystem::path(access.paths.title_root).filename().string();
+    const TitleActivityTrace trace = [log](const std::string& event) { std::fprintf(log, "title_activity_trace %s\n", event.c_str()); };
+    const auto self = ReadTitleActivity(self_title, trace);
+    const auto wine = ReadTitleActivity("FAKE78001", trace);
+    std::fprintf(log, "title_activity self_title=%s self=%d wine=%d unknown=%d stopped=%d active=%d\nend\n",
+        self_title.c_str(), static_cast<int>(self), static_cast<int>(wine),
+        static_cast<int>(runtime::NativeActivity::kUnknown), static_cast<int>(runtime::NativeActivity::kStopped),
+        static_cast<int>(runtime::NativeActivity::kActive));
+    std::fclose(log); return true;
+  }
   if (std::string(action).starts_with("publication ")) {
     char run[17]{}, operation[32]{}, extra{};
     const bool valid = std::sscanf(action, "publication %16s %31s %c", run, operation, &extra) == 2;

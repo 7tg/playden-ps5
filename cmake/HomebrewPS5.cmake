@@ -131,7 +131,8 @@ function(playden_add_homebrew_ps5_title)
             "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
         set(publication_probe_objects $<TARGET_OBJECTS:playden_publication_probe>)
         target_sources(playden_ps5_app PRIVATE src/platform/ps5/title_contract_probe.cpp src/platform/ps5/title_registry.cpp
-            src/platform/ps5/title_probe_contract.cpp src/platform/ps5/managed_filesystem_probe.cpp)
+            src/platform/ps5/title_probe_contract.cpp src/platform/ps5/managed_filesystem_probe.cpp
+            src/platform/ps5/title_activity.cpp)
         if(NOT native_access_source)
             target_sources(playden_ps5_app PRIVATE
                 "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_lapy_elevation.c"

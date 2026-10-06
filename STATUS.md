@@ -38,6 +38,13 @@ At `d237176`, the selected host suite passed **38/38**, legacy regression suite 
 | 3 | Runtime milestone: launch through prospero-win | Attempted with Half-Life 2 on 2026-10-05: the installed PW helper now completes, the Playden-generated profile loads, and a direct PW launch reaches Wine. It exits because `/data/prospero-win/prefixes/playden` is missing. Playden’s title-launch probe separately crashes before handoff. No gameplay established. [Baseline evidence](results/20261005-hl2-runtime-baseline/README.md) |
 | — | Native 4K60 performance | Removed from the MVP by the user (2026-10-05); kept as a separate, unscheduled performance goal |
 
+On `feat/prospero-win-integration`, the read-only native title activity prerequisite
+now passes on FW13.60: Playden active, Wine stopped, with incomplete observations
+refused. [Activity evidence](results/20261006-title-activity/README.md). Complete
+publication host infrastructure is implemented, while installed-title ownership,
+application composition and actual Wine/publication/gameplay acceptance remain
+open; production publication trust remains disabled.
+
 The [macOS feature ports](docs/superpowers/plans/2026-10-05-macos-feature-ports.md) (games storage, notifications, log viewer, Steam Cloud saves) are implemented; Cloud sync around a game launch waits for the runtime handoff. Still unported: runtime-dependent per-game settings, profiles, display and input; first-run setup; reset-app-data UI; ambient backdrop; other stores.
 
 Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 covers how downloaded games are packaged and installed for it.

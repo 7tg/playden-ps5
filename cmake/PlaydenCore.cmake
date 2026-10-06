@@ -220,3 +220,13 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
         add_test(NAME ${test_name} COMMAND ${test_name}_test)
     endforeach()
 endif()
+
+add_library(playden_title_activity STATIC "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_activity.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_runtime.cpp")
+target_include_directories(playden_title_activity PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_title_activity PUBLIC cxx_std_17)
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(title_activity_test "${CMAKE_SOURCE_DIR}/tests/title_activity_test.cpp")
+    target_link_libraries(title_activity_test PRIVATE playden_title_activity)
+    add_test(NAME title_activity COMMAND title_activity_test)
+endif()
