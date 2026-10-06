@@ -122,6 +122,17 @@ int main(int argc,char** argv) {
         live.UpdateRuntime(RuntimeState::Ready, {copying});
         capture_live("details-preparing-progress.png");
       }
+      {
+        // Prepared and waiting for the PS5: Play reads Ready to play, and the prompt offers it.
+        LiveRuntimeGame waiting; waiting.game_id=42; waiting.status="Waiting for the PS5"; waiting.has_title=true;
+        waiting.awaiting_registration=true; waiting.can_prepare=true;
+        waiting.detail="Waiting for the PS5, which adds the game to Home when Playden quits";
+        live.UpdateRuntime(RuntimeState::Ready, {waiting});
+        capture_live("details-ready-to-play.png");
+        live.NotifyReadyToPlay(42);
+        capture_live("ready-to-play-prompt.png");
+        assert(live.action("focus:ready-later") && live.action("cross"));
+      }
       ready.can_play=true; ready.play_status.clear();
       live.UpdateRuntime(RuntimeState::Ready, {ready});
       assert(live.action("focus:details-more") && live.action("cross"));

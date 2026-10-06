@@ -280,7 +280,7 @@ std::string kept_count(std::size_t count) {
 
 std::string action_label(const std::string& key) {
     static const std::map<std::string, std::string> labels = {
-        {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"favorite", "Favorite"},
+        {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"ready-later", "Later"}, {"quit-to-home", "Play"}, {"favorite", "Favorite"},
         {"collection", "Collections"}, {"note", "Compatibility and note"}, {"verify", "Verify files"},
         {"uninstall", "Uninstall"}, {"uninstall-delete-saves", "Delete saves too"}, {"logs", "Open logs"}, {"logs-back", "Back"},
         {"logs-pick", "Logs"}, {"log-install", "Install log"}, {"log-auth", "Sign-in log"},
@@ -609,7 +609,37 @@ void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRunti
         const auto found = state_.runtime_games.find(installation.game_id);
         installation.runtime_ready = found != state_.runtime_games.end() && found->second.ready;
     }
+    show_ready_prompt();
     rebuild_view();
+}
+
+void Simulation::NotifyReadyToPlay(GameId id) {
+    if (!live()) return;
+    if (std::find(ready_prompts_.begin(), ready_prompts_.end(), id) == ready_prompts_.end()) ready_prompts_.push_back(id);
+    show_ready_prompt();
+    rebuild_view();
+}
+
+// "<game> is ready to play": a dialog, because notifications take no input. It waits
+// until no other dialog, sheet or keyboard is open, and is dropped once the game no
+// longer waits for the PS5. Play quits to the Home screen without asking again.
+void Simulation::show_ready_prompt() {
+    if (!live() || ready_prompts_.empty()) return;
+    std::erase_if(ready_prompts_, [this](GameId id) {
+        const auto found = state_.runtime_games.find(id);
+        return found == state_.runtime_games.end() || !found->second.awaiting_registration;
+    });
+    const auto route = state_.navigation.route;
+    if (ready_prompts_.empty() || !state_.navigation.modals.empty() || state_.editor.active ||
+        route == Route::Startup || route == Route::SignIn || route == Route::Session)
+        return;
+    const auto id = ready_prompts_.front();
+    ready_prompts_.erase(ready_prompts_.begin());
+    const auto* game = find_game(state_, id);
+    ModalEntry prompt{"confirmation", (game ? game->title : std::string("Your game")) + " is ready to play",
+                      state_.navigation.focus_key, {"ready-later", "quit-to-home"}, 1, false};
+    prompt.body = "Play quits Playden to the PS5 Home screen, where the game appears. Start it from there.";
+    open_modal(std::move(prompt));
 }
 
 void Simulation::UpdateCloud(const std::vector<LiveCloudGame>& games) {
@@ -2091,6 +2121,7 @@ void Simulation::rebuild_view() {
                     item.selected = volume->id == selected_volume_id_;
                 }
             }
+            else if (action_key == "quit-to-home") item.dangerous = true;  // the dialog's primary action
             else if (action_key == "kept-select-all") {
                 const bool all = !state_.kept_bottles.empty() && kept_selected_.size() == state_.kept_bottles.size();
                 item.title = all ? "Clear selection" : "Select all";
@@ -2287,8 +2318,9 @@ void Simulation::rebuild_view() {
                     if (play_game != state_.runtime_games.end()) {
                         const auto& value = play_game->second;
                         const bool prepares_first = !value.ready && value.can_prepare && value.status == "Not prepared";
-                        const bool enabled = value.can_play || prepares_first;
-                        auto& play = row("details-play", RowKind::Action, "Play", enabled ? "runtime-play" : "");
+                        const bool enabled = value.can_play || prepares_first || value.awaiting_registration;
+                        auto& play = row("details-play", RowKind::Action, "Play",
+                                         value.awaiting_registration ? "quit-to-home" : enabled ? "runtime-play" : "");
                         // Otherwise Play names what holds it (Preparing, Update available…); the PS5 title row says why.
                         play.value = !value.play_status.empty() || value.ready || prepares_first ? value.play_status
                                                                                                  : value.status;
@@ -2300,6 +2332,10 @@ void Simulation::rebuild_view() {
                         play.subtitle = !value.play_detail.empty() ? value.play_detail
                                       : prepares_first ? "The first start sets the game up and adds it to the PS5 Home screen"
                                                        : std::string{};
+                        if (value.awaiting_registration) {
+                            play.value = "Ready to play";
+                            play.subtitle = "Play quits to the PS5 Home screen, where the game appears";
+                        }
                         play.enabled = enabled && value.uninstall_status.empty();
                         // A copy or deletion with a known fraction shows a bar; other steps only their words.
                         if (value.progress) play.progress = std::max(*value.progress, 0.001F);
@@ -2331,7 +2367,7 @@ void Simulation::rebuild_view() {
                         runtime.value = !value.can_prepare ? value.status
                                       : removal ? "Retry"
                                       : value.status == "Needs recovery" ? "Resume"
-                                      : value.status == "Registration pending" ? "Check again"
+                                      : value.status == "Registration pending" || value.awaiting_registration ? "Check again"
                                       : value.status == "Failed" ? "Retry"
                                       : value.status == "Update available" ? "Update"
                                       : value.status == "Needs repair" ? "Repair" : "Prepare";
@@ -3169,6 +3205,13 @@ void Simulation::activate() {
         open_modal(std::move(confirmation));
     } else if (action_name == "uninstall-delete-saves") {
         uninstall_delete_saves_ = !uninstall_delete_saves_;
+    } else if (live() && action_name == "quit-to-home") {
+        // Ready to play: ShadowMountPlus registers the title once Playden quits, and the
+        // game appears on the Home screen. The dialog or Details already said so.
+        state_.navigation.modals.clear();
+        state_.quit_requested = true;
+    } else if (action_name == "ready-later") {
+        close_modal();
     } else if (live() && action_name == "kept-manage") {
         if (state_.kept_bottles.empty()) return;
         kept_selected_.clear();
@@ -3864,6 +3907,7 @@ bool Simulation::action(const std::string& logical_action) {
         rebuild_view(); return true;
     }
     else { last_error_ = "Unknown action: " + logical_action; return false; }
+    show_ready_prompt();  // a ready-to-play prompt waits for the player to close what was open
     rebuild_view();
     if (live() || state_.persistence_available) save_profile();
     return true;

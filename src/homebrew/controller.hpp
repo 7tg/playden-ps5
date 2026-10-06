@@ -57,7 +57,9 @@ class Controller {
   std::map<GameId, std::vector<steam::LaunchOption>> launch_options_;
   std::map<GameId, std::string> launch_options_reason_;
   std::set<GameId> prepare_after_details_;
-  void SubmitPrepare(GameId id);
+  // announce: tell the player when this preparation leaves the game ready to play
+  // (waiting for the PS5 to register it); the startup check does not.
+  void SubmitPrepare(GameId id, bool announce = true);
   RuntimeHost* runtime_ = nullptr;
   std::uint64_t runtime_revision_ = 0;
   std::uint64_t runtime_install_revision_ = 0;
@@ -89,6 +91,16 @@ class Controller {
     std::chrono::steady_clock::time_point queued_at{};
   };
   std::map<GameId, PlayAfterPrepare> play_after_prepare_;
+  // Preparations the player started (Play, Prepare, a finished download): when one
+  // ends waiting for the PS5, the model asks whether to quit to Home to play it.
+  struct ReadyWatch {
+    bool seen_preparing = false;
+    std::chrono::steady_clock::time_point submitted_at{};
+  };
+  std::map<GameId, ReadyWatch> ready_watch_;
+  // Titles waiting for the PS5 when Playden started are checked once (query only).
+  bool startup_awaiting_known_ = false;
+  std::set<GameId> startup_awaiting_;
   // Uninstall order: Cloud saves, then the PS5 title, then the download.
   UninstallFlow uninstalls_;
   void BeginUninstall(GameId id, bool delete_saves);

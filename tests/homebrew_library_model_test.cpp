@@ -814,9 +814,68 @@ void live_details_focus_moves_to_play_once_enabled() {
     check(model.state().navigation.focus_key == chosen, "focus stays where the player moved it");
 }
 
+void live_ready_to_play_quits_to_home() {
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RuntimeState;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(42, 300, 600, true);
+    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    LiveRuntimeGame waiting; waiting.game_id = 42; waiting.status = "Waiting for the PS5"; waiting.awaiting_registration = true;
+    waiting.can_prepare = true; waiting.has_title = true;
+    waiting.detail = "Waiting for the PS5, which adds the game to Home when Playden quits";
+    model.UpdateRuntime(RuntimeState::Ready, {waiting});
+
+    // Details: Play is ready and quits to Home without asking; the PS5 title row checks again.
+    check(model.action("details:42"), "details open");
+    const auto* play = find_row(model, "details-play");
+    check(play && play->enabled && play->action == "quit-to-home" && play->value == "Ready to play", "Play reads Ready to play");
+    check(find_row(model, "details-runtime")->value == "Check again", "the PS5 title can be checked again");
+    check(model.state().navigation.focus_key == "details-play", "focus rests on Play");
+    activate(model, "details-play");
+    check(model.state().quit_requested && model.state().navigation.modals.empty(), "Play quits to Home without a dialog");
+
+    // The prompt: shown when nothing else is open, once per game, Play quits, Later closes.
+    auto prompted = make_live();
+    prompted.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(prompted.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    prompted.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    LiveRuntimeGame other = waiting; other.game_id = 43;
+    prompted.UpdateRuntime(RuntimeState::Ready, {waiting, other});
+    prompted.action("r1"); prompted.action("r1"); prompted.action("r1");
+    activate(prompted, "settings-about");  // a sheet is open: the prompt waits
+    const auto open_before = prompted.state().navigation.modals.size();
+    prompted.NotifyReadyToPlay(42);
+    prompted.NotifyReadyToPlay(42);
+    check(prompted.state().navigation.modals.size() == open_before, "the prompt waits for the open sheet");
+    check(prompted.action("circle"), "the sheet closes");
+    check(!prompted.state().navigation.modals.empty(), "then the prompt shows");
+    const auto& prompt = prompted.state().navigation.modals.back();
+    check(prompt.title == "Synthetic is ready to play" && prompt.action_keys[static_cast<std::size_t>(prompt.focused_action)] == "quit-to-home",
+          "the prompt names the game and focuses Play");
+    check(find_row(prompted, "quit-to-home")->title == "Play" && find_row(prompted, "ready-later")->title == "Later", "Play or Later");
+    activate(prompted, "ready-later");
+    check(prompted.state().navigation.modals.empty() && !prompted.state().quit_requested, "Later closes it, once per game");
+    // A game that stopped waiting (the check found it registered) is not announced.
+    prompted.NotifyReadyToPlay(43);
+    check(!prompted.state().navigation.modals.empty(), "another game is announced");
+    activate(prompted, "quit-to-home");
+    check(prompted.state().quit_requested, "Play in the prompt quits to Home");
+    auto dropped = make_live();
+    dropped.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(dropped.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    dropped.UpdateInstalls({}, {{42, 600'000'000}});
+    LiveRuntimeGame ready; ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true;
+    dropped.UpdateRuntime(RuntimeState::Ready, {ready});
+    dropped.NotifyReadyToPlay(42);
+    check(dropped.state().navigation.modals.empty(), "a Ready game needs no prompt");
+}
+
 } // namespace
 
 int main() {
+    live_ready_to_play_quits_to_home();
     live_details_focus_moves_to_play_once_enabled();
     live_settings_focus_stays_near_a_removed_row();
     preparation_steps_read_as_player_words();

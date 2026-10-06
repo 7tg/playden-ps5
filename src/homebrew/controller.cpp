@@ -366,6 +366,34 @@ void Controller::TickRuntime() {
         auto_prepare_.erase(it);
         break;
       }
+    // A title still waiting for the PS5 when Playden started is checked once: the
+    // player left Playden since, so ShadowMountPlus has usually registered it. The
+    // check only asks the console.
+    if (usable && !startup_awaiting_known_) {
+      startup_awaiting_known_ = true;
+      for (const auto& view : prepared.installs)
+        if (view.awaiting_registration) startup_awaiting_.insert(view.app_id);
+    }
+    for (auto it = startup_awaiting_.begin(); it != startup_awaiting_.end();) {
+      if (prepared.preparing_app) break;
+      if (!game_roots_.count(*it)) { ++it; continue; }
+      const auto* record = record_of(*it);
+      if (record && record->awaiting_registration) SubmitPrepare(*it, false);
+      it = startup_awaiting_.erase(it);
+      break;  // one at a time, after the worker takes it
+    }
+    // A preparation the player started that ends waiting for the PS5: the game is
+    // ready to play once Playden quits to Home, so the model offers that.
+    for (auto it = ready_watch_.begin(); it != ready_watch_.end();) {
+      const auto id = it->first;
+      if (prepared.preparing_app == id) { it->second.seen_preparing = true; ++it; continue; }
+      const bool unseen_too_long = !it->second.seen_preparing &&
+          std::chrono::steady_clock::now() - it->second.submitted_at > std::chrono::seconds(15);
+      if (!it->second.seen_preparing && !unseen_too_long) { ++it; continue; }
+      const auto* record = record_of(id);
+      if (it->second.seen_preparing && record && record->awaiting_registration) model_.NotifyReadyToPlay(id);
+      it = ready_watch_.erase(it);
+    }
     for (auto it = play_after_prepare_.begin(); it != play_after_prepare_.end();) {
       const auto id = it->first;
       auto& pending = it->second;
@@ -475,6 +503,12 @@ void Controller::TickRuntime() {
       game.detail = record->title_id + " would refuse to start: " + record->admission;
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending) {
       game.status = "Ready"; game.detail = record->title_id; game.ready = true;
+    } else if (record && record->awaiting_registration) {
+      // Staged and submitted: ShadowMountPlus registers it as soon as Playden quits,
+      // so the game is ready to play from Home. Checking only asks the console.
+      game.status = "Waiting for the PS5"; game.awaiting_registration = true;
+      game.detail = "Waiting for the PS5, which adds the game to Home when Playden quits";
+      game.can_prepare = usable;
     } else if (record && record->recovery_pending &&
                (record->step == "register" || record->step == "await-native" || record->step == "query-native")) {
       // The registration was submitted but not confirmed. Checking only asks the
@@ -669,9 +703,11 @@ void Controller::TickAppDetails() {
     if (prepare_after_details_.erase(details.id) && runtime_) SubmitPrepare(details.id);
   }
 }
-void Controller::SubmitPrepare(GameId id) {
+void Controller::SubmitPrepare(GameId id, bool announce) {
   const auto root = game_roots_.find(id);
   if (!runtime_ || root == game_roots_.end()) return;
+  if (announce) ready_watch_[id] = {false, std::chrono::steady_clock::now()};
+  else ready_watch_.erase(id);
   RuntimePrepareRequest request{id, root->second, game_volumes_[id], {}};
   for (const auto& game : model_.state().games) if (game.id == id) request.title_name = game.title;
   if (model_.state().title_store_suffix && !request.title_name.empty()) request.title_name += " (Steam)";

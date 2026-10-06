@@ -75,6 +75,9 @@ struct LiveRuntimeGame {
     std::string uninstall_status;  // e.g. "Syncing saves…", "Removing PS5 title…"; empty when idle
     // How far the current copy or deletion is (0–1); absent when it cannot be measured.
     std::optional<float> progress;
+    // Prepared and waiting for the PS5 to register its title, which it does once Playden
+    // quits: the game is ready to play from Home, and Play quits there.
+    bool awaiting_registration = false;
 };
 // Saves and settings kept from an uninstalled game (its private bottle).
 struct LiveKeptBottle {
@@ -406,6 +409,9 @@ public:
     void UpdateKeptBottles(std::vector<LiveKeptBottle> kept);
     [[nodiscard]] std::vector<GameId> TakeKeptDeleteRequests();
     void NotifyUninstallStopped(GameId id, const std::string& reason);
+    // A preparation the player started left the game waiting for the PS5: ask, when
+    // nothing else is open, whether to quit to the PS5 Home screen to play it.
+    void NotifyReadyToPlay(GameId id);
     void SetRuntimeLeftovers(std::size_t count);
     void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
@@ -497,6 +503,7 @@ private:
     std::vector<GameId> pending_kept_delete_requests_;
     bool uninstall_delete_saves_ = false;  // the uninstall dialog's choice
     std::set<GameId> kept_selected_;  // the kept game data manager's checked games
+    std::vector<GameId> ready_prompts_;  // games to announce as ready to play, oldest first
     std::filesystem::path log_directory_;
     std::vector<CloudRequest> pending_cloud_requests_;
     std::string live_log_topic_;
@@ -572,6 +579,7 @@ private:
     void update_persistence_notice();
     void apply_live_volume_usage();
     void push_notice(Notice notice);
+    void show_ready_prompt();
     void open_live_log(const std::string& topic, GameId game_id);
     void load_live_log();
     [[nodiscard]] bool live_notices_visible() const noexcept;
