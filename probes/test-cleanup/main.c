@@ -5,7 +5,7 @@
 // Reads absolute paths (one per line) from /data/uninstall-probe/cleanup.lst and
 // deletes each tree. Only these leftovers are accepted: /data/homebrew/FAKE99xxx,
 // /data/playden/games/acceptance-hl2-fresh-v16[.ftp-staging] and
-// /data/playden/games/probe-session-*. Symbolic links are removed as links and never
+// /data/playden/games/probe-session-* and the scratchpad probe folders under /data/playden. Symbolic links are removed as links and never
 // followed (Wine prefixes link z: to /). Logs to /data/uninstall-probe/cleanup.log.
 #include <ps5/kernel.h>
 
@@ -31,6 +31,14 @@ static int allowed(const char *path) {
   if (!strcmp(path, "/data/playden/games/acceptance-hl2-fresh-v16") ||
       !strcmp(path, "/data/playden/games/acceptance-hl2-fresh-v16.ftp-staging"))
     return 1;
+  // Leftovers of the earlier scratchpad probes directly under /data/playden.
+  static const char *const leftovers[] = {"/data/playden/logs", "/data/playden/wine", "/data/playden/development",
+                                          "/data/playden/probe", "/data/playden/request-probe-1168"};
+  for (unsigned i = 0; i < sizeof leftovers / sizeof leftovers[0]; ++i)
+    if (!strcmp(path, leftovers[i])) return 1;
+  const char *managed = "/data/playden/managed-fs-";
+  if (strncmp(path, managed, strlen(managed)) == 0 && !strchr(path + strlen(managed), '/') && !strstr(path, ".."))
+    return strlen(path) > strlen(managed);
   const char *session = "/data/playden/games/probe-session-";
   return strncmp(path, session, strlen(session)) == 0 && !strchr(path + strlen(session), '/') &&
          !strstr(path, "..") && strlen(path) > strlen(session);

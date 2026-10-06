@@ -1,0 +1,15 @@
+start time=1791326051 uid=1
+root=0 uid=0 caps=0
+tree /data/playden/managed-fs-1046-1791245713 removed=5 failed=0
+tree /data/playden/managed-fs-1051-1791245946 removed=6 failed=0
+tree /data/playden/managed-fs-1056-1791246727 removed=9 failed=0
+tree /data/playden/managed-fs-1061-1791247139 removed=11 failed=0
+tree /data/playden/managed-fs-1073-1791247973 removed=13 failed=0
+tree /data/playden/managed-fs-1084-1791248687 removed=16 failed=0
+tree /data/playden/managed-fs-1089-1791249449 removed=16 failed=0
+tree /data/playden/logs removed=2746 failed=0
+tree /data/playden/wine removed=114 failed=0
+tree /data/playden/development removed=4 failed=0
+tree /data/playden/probe removed=3 failed=0
+tree /data/playden/request-probe-1168 removed=2 failed=0
+end removed=2945 failed=0 time=1791326068

@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <dirent.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/stat.h>
@@ -980,6 +981,37 @@ bool SteamInstallId(const std::string& id) {
   return id.find_first_not_of("0123456789", 6) == std::string::npos;
 }
 
+// Deletes a tree with lstat/unlink/rmdir: links are removed as links and never
+// followed (Wine prefixes link z: to /). std::filesystem::remove_all crashed the
+// console title on a retired title folder, so it is not used here. A missing root
+// is not an error; the first failure is reported and the walk continues.
+void RemoveTreeNoFollow(const std::string& path, std::error_code& error) {
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0) {
+    if (errno != ENOENT && !error) error = std::error_code(errno, std::generic_category());
+    return;
+  }
+  if (S_ISDIR(info.st_mode)) {
+    if (DIR* directory = opendir(path.c_str())) {
+      while (const dirent* entry = readdir(directory)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        RemoveTreeNoFollow(path + "/" + name, error);
+      }
+      closedir(directory);
+    } else if (!error) {
+      error = std::error_code(errno, std::generic_category());
+    }
+    if (rmdir(path.c_str()) != 0 && !error) error = std::error_code(errno, std::generic_category());
+    return;
+  }
+  if (unlink(path.c_str()) != 0 && !error) error = std::error_code(errno, std::generic_category());
+}
+void RemoveTreeNoFollow(const std::filesystem::path& path, std::error_code& error) {
+  error.clear();
+  RemoveTreeNoFollow(path.string(), error);
+}
+
 // Bytes of the regular files under a tree; links are not followed.
 std::uint64_t TreeBytes(const std::filesystem::path& root) {
   std::uint64_t total = 0;
@@ -1222,8 +1254,8 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
     struct stat info{};
     const bool present = lstat(bottle.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
     if (delete_saves) {
-      std::filesystem::remove_all(kept, error);  // links are removed, never followed
-      if (!error && present) std::filesystem::remove_all(bottle, error);
+      RemoveTreeNoFollow(kept, error);  // links are removed, never followed
+      if (!error && present) RemoveTreeNoFollow(bottle, error);
       if (error) return fail("bottle-delete", "The game's saves and settings could not be deleted: " + error.message());
     } else if (present) {
       const auto marker = "{\"schema\":1,\"install_id\":\"" + record.install_id + "\",\"app_id\":" +
@@ -1238,7 +1270,7 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
       if (lstat(kept.c_str(), &info) == 0) {
         // An older kept copy was never brought back; the newer bottle replaces it.
         Log("remove replaces older kept bottle install=" + record.install_id);
-        std::filesystem::remove_all(kept, error);
+        RemoveTreeNoFollow(kept, error);
         if (error) return fail("bottle-keep", "An older copy of the game's saves could not be replaced.");
       }
       if (rename(bottle.c_str(), kept.c_str()) != 0)
@@ -1264,7 +1296,7 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
   }
   c.admission.erase(record.install_id);
   std::error_code ignored;
-  std::filesystem::remove_all(config_.state_root / "trash" / (record.title_id + "-" + record.journal->operation_id), ignored);
+  RemoveTreeNoFollow(config_.state_root / "trash" / (record.title_id + "-" + record.journal->operation_id), ignored);
   PublishInstalls(c);
   Log("remove complete install=" + record.install_id + " title=" + record.title_id);
   return {};
@@ -1291,7 +1323,7 @@ std::string RuntimeHost::RestoreKeptSaves(Composition& c, std::uint32_t app) {
     }
   }
   std::error_code error;
-  std::filesystem::remove_all(kept, error);
+  RemoveTreeNoFollow(kept, error);
   Log("restore kept saves app=" + std::to_string(app) + " kept_removed=" + std::to_string(!error));
   PublishKeptBottles(c);
   return {};
@@ -1304,7 +1336,7 @@ std::string RuntimeHost::DeleteKept(Composition& c, std::uint32_t app) {
   if (lstat(kept.c_str(), &info) != 0) return {};
   if (!S_ISDIR(info.st_mode) || !ReadKeptMarker(kept, install_id)) return "This folder is not kept game data.";
   std::error_code error;
-  std::filesystem::remove_all(kept, error);  // links are removed, never followed
+  RemoveTreeNoFollow(kept, error);  // links are removed, never followed
   return error ? "The kept saves could not be deleted: " + error.message() : std::string{};
 }
 
@@ -1353,6 +1385,7 @@ void RuntimeHost::Run() {
         },
         [this] { return Stopping(); },
         [this, &c](const rt::RuntimeInstall& record) { return DrivePublication(c, record); });
+    Log("startup loading records");
     const auto loaded = c.repository.Load();
     if (!loaded.ok()) {
       Log("runtime records unavailable: " + loaded.message());
@@ -1361,9 +1394,13 @@ void RuntimeHost::Run() {
     } else {
       // Startup only reads durable state. Records with a journal wait for an
       // explicit recovery action; nothing resumes, registers or rebuilds here.
+      Log("startup records loaded installs=" + std::to_string(c.repository.Snapshot().size()));
       LoadGeneratedRecipes(c);
+      Log("startup generated recipes loaded");
       PublishInstalls(c);
+      Log("startup installs published");
       PublishKeptBottles(c);
+      Log("startup kept bottles published");
       // Retired title folders left by an earlier removal are outside the scan
       // root already; deleting them is only housekeeping.
       {
@@ -1371,9 +1408,10 @@ void RuntimeHost::Run() {
         for (std::filesystem::directory_iterator it(config_.state_root / "trash", error), end; !error && it != end;
              it.increment(error)) {
           std::error_code ignored;
-          std::filesystem::remove_all(it->path(), ignored);  // never follows links
+          RemoveTreeNoFollow(it->path(), ignored);  // never follows links
         }
       }
+      Log("startup trash emptied");
       if (c.kit)
         for (const auto& record : c.repository.Snapshot())
           if (record.state == rt::PreparationState::kReady) {

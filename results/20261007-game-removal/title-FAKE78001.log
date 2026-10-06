@@ -1,0 +1,96 @@
+== session-0.log
+PW_REPORT/1 build=301246dcb56afa90443761ffd5ad38b587342e32 profile=playden-steam-2062430 cycle=0 pid=215 time=1791326631
+REC seq=1 t=24909.068072598 PW_WINE64 hid preload libSceKeyboard id=0x106 status=0 handle=208
+REC seq=2 t=24909.072301978 PW_WINE64 hid preload libSceMouse id=0xa9 status=0 handle=209
+REC seq=3 t=24911.123679343 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 credential_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/download0/prospero-win
+REC seq=4 t=24911.138718118 PW_WINE64 umask private=1 previous=0 errno=0
+REC seq=5 t=24911.165412326 PW_WINE64 session id=6ad34c05-ef3a-4750-9b0c-c624b2520ddd origin=playden phase=starting
+REC seq=6 t=24911.165424594 PW_WINE64 library status=ok listed_by=0 scan_errno=0 entries=1 games=1 root=/data/playden/games/steam-2062430/library
+REC seq=7 t=24911.165428203 PW_WINE64 args argc=2 mode=game profile=playden-steam-2062430 cycle=0 refused=0
+REC seq=8 t=24911.165502374 PW_WINE64 profile id=playden-steam-2062430 prefix=/data/playden/games/steam-2062430/library/prefixes/game desktop=1920x1080 scaling=0 view=window show_fps=0 refresh=60 gl_thread=0 input=ok preset=- mode=xinput mouse=0 dll_overrides=-
+REC seq=9 t=24911.165510072 PW_WINE64 cpus online=16
+REC seq=10 t=24911.205988554 PW_WINE64 prefix temp folders=2 last=users/prospero/AppData/Local/Temp
+REC seq=11 t=24911.206036986 PW_WINE64 runtime not at /app0/win/wine/lib/wine/x86_64-unix
+REC seq=12 t=24911.206075876 PW_WINE64 ntdll=/mnt/sandbox/FAKE78001_000/app0/win/wine/lib/wine/x86_64-unix/ntdll.prx prefix=/data/playden/games/steam-2062430/library/prefixes/game exe=Z:\data\homebrew\FAKE77031\games\2062430\Balls.exe
+REC seq=13 t=24911.209538203 PW_WINE64 load status=0 stage=6 module=0x20d2 segments=4 module_start=0 adopted=1 stats=1
+REC seq=14 t=24911.209557928 PW_WINE64 output_sink=1
+REC seq=15 t=24911.222935823 PW_WINE64 hid keyboard module=0xd0 init=0 open=0x12b0800 user=300742841
+REC seq=16 t=24911.223029079 PW_WINE64 hid mouse module=0xd1 init=0 open=0x2c0800 merged=1 user=300742841
+REC seq=17 t=24911.224841430 PW_WINE64 display present_sink=1 frames=1 post_input=1 xinput=1 video=ok pad=ok hid=ok
+REC seq=18 t=24911.226464222 PW_WINE64 audio sink=1 port=536870912 status=ok
+REC seq=19 t=24911.226469996 PW_WINE64 cwd=Z:\data\homebrew\FAKE77031\games\2062430 host=/data/homebrew/FAKE77031/games/2062430 status=0
+REC seq=20 t=24911.226483307 PW_WINE64 environment status=0
+REC seq=21 t=24911.228204647 PW_WINE64 thread entered, calling __wine_main
+REC seq=22 t=24911.228206812 PW_WINE64 run status=0
+REC seq=23 t=24911.228214510 WINE wine startup: init_paths
+REC seq=24 t=24911.229754872 WINE wine startup: virtual_init
+REC seq=25 t=24911.230072406 WINESERVER wine-ps5: direct memory in use for anonymous memory (region 10000, 1663 MiB)
+REC seq=26 t=24911.230256111 WINE wine startup: init_environment
+REC seq=27 t=24911.230746525 WINE wine startup: start_main_thread
+REC seq=28 t=24911.230749572 WINE wine startup: virtual_alloc_first_teb
+REC seq=29 t=24911.231132538 WINE wine startup: dbg_init
+REC seq=30 t=24911.231140315 WINE wine startup: server_init_process
+REC seq=31 t=24911.249586089 WINESERVER wine-ps5: anonymous mappings in shared memory
+REC seq=32 t=24911.295201410 WINESERVER wine-ps5: server requests on client threads: on
+REC seq=33 t=24911.295297713 WINE wine startup: server connected
+REC seq=34 t=24911.299162811 WINE 0024:trace:process:NtCreateUserProcess process creation is not supported on PS5
+REC seq=35 t=24911.299190635 WINE 0024:err:environ:run_wineboot failed to start wineboot c00000bb
+REC seq=36 t=24911.310542164 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000025,100021fa30,0x00000040,0)
+REC seq=37 t=24911.310576403 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2062430\\Balls.exe" at 0000000140000000: native
+REC seq=38 t=24911.310584823 WINE 0024:trace:loaddll:build_ntdll_module Loaded L"C:\\windows\\system32\\ntdll.dll" at 00000013FFD40000: builtin
+REC seq=39 t=24911.317663512 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 00000013FFBA0000: builtin
+REC seq=40 t=24911.317728462 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 00000013FFCE0000: builtin
+REC seq=41 t=24911.355716706 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 00000013FD7E0000: builtin
+REC seq=42 t=24911.361985522 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 00000013FD6E0000: builtin
+REC seq=43 t=24911.362008776 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 00000013FD7B0000: builtin
+REC seq=44 t=24911.362028902 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 00000013FD880000: builtin
+REC seq=45 t=24911.367954845 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 00000013FD620000: builtin
+REC seq=46 t=24911.367980585 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 00000013FD660000: builtin
+REC seq=47 t=24911.368054436 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\USER32.dll" at 00000013FD8D0000: builtin
+REC seq=48 t=24911.370491271 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\VERSION.dll" at 00000013FD610000: builtin
+REC seq=49 t=24911.382574331 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cryptbase.dll" at 00000013FD450000: builtin
+REC seq=50 t=24911.382617391 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 00000013FD460000: builtin
+REC seq=51 t=24911.382648423 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 00000013FD4F0000: builtin
+REC seq=52 t=24911.385503184 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 00000013FD430000: builtin
+REC seq=53 t=24911.385574790 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 00000013FD550000: builtin
+REC seq=54 t=24911.391444362 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 00000013FD3C0000: builtin
+REC seq=55 t=24911.391478441 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHLWAPI.dll" at 00000013FD3E0000: builtin
+REC seq=56 t=24911.397225250 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cfgmgr32.dll" at 00000013FD320000: builtin
+REC seq=57 t=24911.397279776 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SETUPAPI.dll" at 00000013FD350000: builtin
+REC seq=58 t=24911.403636957 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHELL32.dll" at 00000013FCA40000: builtin
+REC seq=59 t=24911.409743959 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\OPENGL32.dll" at 000000007B960000: builtin
+REC seq=60 t=24911.414900603 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msacm32.dll" at 00000013FC9D0000: builtin
+REC seq=61 t=24911.414950478 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINMM.dll" at 00000013FC9F0000: builtin
+REC seq=62 t=24911.419050519 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\OLEAUT32.dll" at 00000013FC8F0000: builtin
+REC seq=63 t=24911.422139582 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\IMM32.dll" at 00000013FC8C0000: builtin
+REC seq=64 t=24911.426232968 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dnsapi.dll" at 00000013FC870000: builtin
+REC seq=65 t=24911.428149479 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\nsi.dll" at 00000013FC860000: builtin
+REC seq=66 t=24911.430664896 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ws2_32.dll" at 00000013FC830000: builtin
+REC seq=67 t=24911.430685103 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\IPHLPAPI.DLL" at 00000013FC890000: builtin
+REC seq=68 t=24911.436149098 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\jsproxy.dll" at 00000013FC7C0000: builtin
+REC seq=69 t=24911.436206350 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINHTTP.dll" at 00000013FC7E0000: builtin
+REC seq=70 t=24911.439176418 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\bcrypt.dll" at 00000013FC750000: builtin
+REC seq=71 t=24911.441099024 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\HID.DLL" at 00000013FC730000: builtin
+REC seq=72 t=24911.451021248 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wined3d.dll" at 00000013FC350000: builtin
+REC seq=73 t=24911.451054285 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dxgi.dll" at 00000013FC680000: builtin
+REC seq=74 t=24911.451099429 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\d3d11.dll" at 00000013FC6C0000: builtin
+REC seq=75 t=24911.456643449 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ncrypt.dll" at 00000013FC290000: builtin
+REC seq=76 t=24911.456679292 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\CRYPT32.dll" at 00000013FC2B0000: builtin
+REC seq=77 t=24911.458604624 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dwmapi.dll" at 00000013FC280000: builtin
+REC seq=78 t=24911.458683446 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2062430\\UnityPlayer.dll" at 00000013FDA90000: native
+REC seq=79 t=24911.458856406 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000001a,100021f5a8,0x00000008,0)
+REC seq=80 t=24911.459498050 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000100021F340 85)
+REC seq=81 t=24911.464005112 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4896" 0000000000000000 0)
+REC seq=82 t=24911.464010164 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4896" 000000100024C670 17)
+REC seq=83 t=24911.465646347 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4897" 0000000000000000 0)
+REC seq=84 t=24911.465651399 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4897" 000000100024C6A0 17)
+REC seq=85 t=24911.535194851 WINE 0024:trace:process:GetEnvironmentVariableW (L"oanocache" 0000000000000000 0)
+REC seq=86 t=24911.535370056 WINE 0024:err:dnsapi:DllMain No libresolv support, expect problems
+REC seq=87 t=24911.535370217 WINESERVER pw_wine_dl: cannot open /mnt/sandbox/FAKE78001_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.so, tried /mnt/sandbox/FAKE78001_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.prx /app0/sce_module/dnsapi.prx: not found
+REC seq=88 t=24911.570999325 WINESERVER ac_compute_device_uuid's output is based on invalid pci bus info.
+REC seq=89 t=24911.571095548 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=90 t=24911.571179662 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=91 t=24911.589731281 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 00000013FC240000: builtin
+REC seq=92 t=24911.759072626 WINE 0024:trace:process:SetEnvironmentVariableW (L"VKD3D_DEBUG" L"fixme")
+REC seq=93 t=24911.759093314 WINE 0024:trace:process:SetEnvironmentVariableW (L"VKD3D_SHADER_DEBUG" L"fixme")
+REC seq=94 t=24911.761745366 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000007,100021f9e0,0x00000008,0)

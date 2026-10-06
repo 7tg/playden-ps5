@@ -9,8 +9,9 @@
 //
 //   request   "title=FAKE78002\nnonce=<16..64 of [0-9a-f-]>\n"
 //
-// The directory and the request must be owned by the owner of
-// /data/homebrew/FAKE77031 (Playden's user), must not be links, and must not be
+// The directory and the request must be owned by Playden's user (the owner of
+// its private 0700 state folder /data/playden/runtime-state; the title folder
+// itself belongs to whoever deployed it), must not be links, and must not be
 // writable by others. The result goes next to the request, written as that user:
 //
 //   result    "nonce=<nonce>\ncode=<8 hex digits>\n"   (code 0 = accepted)
@@ -28,7 +29,7 @@
 #include <unistd.h>
 
 #define REQUEST_DIR "/data/playden/title-remover"
-#define PLAYDEN_TITLE "/data/homebrew/FAKE77031"
+#define PLAYDEN_STATE "/data/playden/runtime-state"
 #define AUTHID_INSTALLER 0x4800000000000006ull  // ShadowMountPlus main.c:54
 
 int sceAppInstUtilInitialize(void);
@@ -90,7 +91,7 @@ static void write_result(uid_t owner, const char *nonce, unsigned code) {
 
 int main(void) {
   struct stat playden;
-  if (lstat(PLAYDEN_TITLE, &playden) != 0 || !S_ISDIR(playden.st_mode)) return 1;
+  if (lstat(PLAYDEN_STATE, &playden) != 0 || !S_ISDIR(playden.st_mode) || (playden.st_mode & 0777) != 0700) return 1;
   const uid_t owner = playden.st_uid;
   if (!private_entry(REQUEST_DIR, owner, 1) || !private_entry(REQUEST_DIR "/request", owner, 0)) return 2;
   char text[256] = {0};
