@@ -74,6 +74,38 @@ struct Fixture {
   const std::string foundation = std::string(40, 'e');
   const std::string dxvk_archive = std::string(64, 'f');
   KitManifestTrustedConfig trust;
+  bool publication_guard = false;
+  std::string additional_variants;
+
+  void SetPublicationMarkers(const std::string& fields,
+                             const std::string& variant = "variant") {
+    const auto path = root / "titles" / variant / "native-title-build.json";
+    std::ifstream input(path);
+    std::string text(std::istreambuf_iterator<char>(input), {});
+    assert(!text.empty() && text.back() == '}');
+    text.insert(text.size() - 1, fields);
+    Write(path, text);
+  }
+
+  void AddSecondVariant() {
+    fs::copy(root / "titles/variant", root / "titles/second", fs::copy_options::recursive);
+    for (const char* file : {"lapy-manifest.json", "native-title-build.json", "sce_sys/param.json"}) {
+      const auto path = root / "titles/second" / file;
+      std::ifstream input(path);
+      std::string text(std::istreambuf_iterator<char>(input), {});
+      const auto at = text.find("FAKE78001");
+      assert(at != std::string::npos);
+      text.replace(at, 9, "FAKE78002");
+      Write(path, text);
+    }
+    trust.title_pins["FAKE78002"] = trust.title_pins.at("FAKE78001");
+    additional_variants =
+        ",{\"id\":\"second\",\"title_id\":\"FAKE78002\",\"path\":\"titles/second\","
+        "\"wrapper_revision\":" + Quote(wrapper) + ",\"helper_revision\":" + Quote(helper_revision) +
+        ",\"helper_manifest\":\"titles/second/lapy-manifest.json\","
+        "\"helper_protocol\":\"titles/second/lapy_elevation_protocol.h\","
+        "\"native_build_manifest\":\"titles/second/native-title-build.json\"}";
+  }
 
   Fixture() {
     fs::remove_all(root);
@@ -234,7 +266,8 @@ struct Fixture {
       source("dxvk", "\"version\":\"2.6.2\",\"archive_sha256\":" + Quote(dxvk_archive)) + "}";
     const std::string manifest =
       "{\"schema\":\"playden-prospero-kit/1\",\"kit_id\":\"kit-1\",\"firmware\":[" + Quote(firmware) +
-      "],\"architecture\":\"x86_64+wow64-i386\",\"capabilities\":[\"ps5-audio\",\"wine-wow64\"],"
+      "],\"architecture\":\"x86_64+wow64-i386\",\"capabilities\":[" +
+      (publication_guard ? "\"playden-publication-guard-v1\"," : "") + "\"ps5-audio\",\"wine-wow64\"],"
       "\"sources\":" + sources + ",\"runtime\":{\"bundle_id\":\"wine-wow64\",\"artifact_revision\":\"artifact-e16\","
       "\"wine_revision\":" + Quote(wine) + ",\"path\":" + Quote(runtime_path) +
       ",\"inventory_manifest\":\"runtime/wine-wow64/artifact-e16/runtime-inventory.json\","
@@ -244,7 +277,7 @@ struct Fixture {
       Quote(*HashFile(root / "recipes/steam-220-hl2-v1.json")) + "},\"variants\":[{\"id\":\"variant\",\"title_id\":\"FAKE78001\","
       "\"path\":\"titles/variant\",\"wrapper_revision\":" + Quote(wrapper) + ",\"helper_revision\":" + Quote(helper_revision) +
       ",\"helper_manifest\":\"titles/variant/lapy-manifest.json\",\"helper_protocol\":\"titles/variant/lapy_elevation_protocol.h\","
-      "\"native_build_manifest\":\"titles/variant/native-title-build.json\"}],\"dxvk\":" + dxvk.str() +
+      "\"native_build_manifest\":\"titles/variant/native-title-build.json\"}" + additional_variants + "],\"dxvk\":" + dxvk.str() +
       ",\"files\":" + files.str() + ",\"files_sha256\":" + Quote(HashBytes(lines.str())) + "}";
     Write(root / "manifest.json", manifest);
     trust.manifest_sha256 = *HashFile(root / "manifest.json");
@@ -268,6 +301,66 @@ void CheckRejected(const KitManifestResult& result, KitManifestStatus status) {
 }  // namespace
 
 int main() {
+  const std::string guard = "playden-publication-guard-v1";
+  // Independent reviewed source-provider provenance digest, not read from the kit.
+  const std::string provider = "f14d5e3ecb31951e3cf5bfdc41972181a9be1d96ed0dc7cb3aeebb8e4aab844a";
+  const std::string valid_guard_fields =
+      ",\"managed_publication_guard\":" + Quote(guard) +
+      ",\"managed_descriptor_required\":true,\"publication_provider_sha256\":" + Quote(provider);
+  {
+    Fixture fixture;
+    fixture.trust.allowed_capabilities.push_back(guard);
+    // Incomplete opt-in trust configuration must fail even for a legacy kit.
+    CheckRejected(fixture.Verify(), KitManifestStatus::kUnsupportedKit);
+    fixture.trust.publication_provider_sha256 = std::string(64, 'A');
+    CheckRejected(fixture.Verify(), KitManifestStatus::kUnsupportedKit);
+    fixture.trust.publication_provider_sha256 = provider;
+    assert(fixture.Verify().status == KitManifestStatus::kVerified);
+  }
+  {
+    Fixture fixture;
+    fixture.publication_guard = true;
+    fixture.SetPublicationMarkers(valid_guard_fields);
+    fixture.RewriteManifest();
+    fixture.trust.publication_provider_sha256 = provider;
+    // Supplying a digest does not opt the capability into the allowlist.
+    CheckRejected(fixture.Verify(), KitManifestStatus::kUnsupportedKit);
+  }
+  const std::vector<std::string> invalid_guard_fields = {
+      "",
+      ",\"managed_publication_guard\":true,\"managed_descriptor_required\":true,\"publication_provider_sha256\":" + Quote(provider),
+      ",\"managed_publication_guard\":\"other\",\"managed_descriptor_required\":true,\"publication_provider_sha256\":" + Quote(provider),
+      ",\"managed_publication_guard\":" + Quote(guard) + ",\"publication_provider_sha256\":" + Quote(provider),
+      ",\"managed_publication_guard\":" + Quote(guard) + ",\"managed_descriptor_required\":false,\"publication_provider_sha256\":" + Quote(provider),
+      ",\"managed_publication_guard\":" + Quote(guard) + ",\"managed_descriptor_required\":\"true\",\"publication_provider_sha256\":" + Quote(provider),
+      ",\"managed_publication_guard\":" + Quote(guard) + ",\"managed_descriptor_required\":true",
+      ",\"managed_publication_guard\":" + Quote(guard) + ",\"managed_descriptor_required\":true,\"publication_provider_sha256\":true",
+      ",\"managed_publication_guard\":" + Quote(guard) + ",\"managed_descriptor_required\":true,\"publication_provider_sha256\":" + Quote(std::string(64, 'a')),
+  };
+  for (const auto& fields : invalid_guard_fields) {
+    Fixture fixture;
+    fixture.publication_guard = true;
+    fixture.trust.allowed_capabilities.push_back(guard);
+    fixture.trust.publication_provider_sha256 = provider;
+    fixture.SetPublicationMarkers(fields);
+    fixture.RewriteManifest();
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    Fixture fixture;
+    fixture.publication_guard = true;
+    fixture.trust.allowed_capabilities.push_back(guard);
+    fixture.trust.publication_provider_sha256 = provider;
+    fixture.AddSecondVariant(); // First and second are legacy native-build manifests.
+    fixture.SetPublicationMarkers(valid_guard_fields);
+    fixture.RewriteManifest();
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+    fixture.SetPublicationMarkers(valid_guard_fields, "second");
+    fixture.RewriteManifest();
+    const auto result = fixture.Verify();
+    assert(result.status == KitManifestStatus::kVerified);
+    assert(result.available_variant_ids == std::vector<std::string>({"variant", "second"}));
+  }
   {
     Fixture fixture;
     const auto result = fixture.Verify();

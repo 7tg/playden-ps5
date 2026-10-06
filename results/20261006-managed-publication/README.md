@@ -46,3 +46,18 @@ Playden SDK production contract archive and default diagnostic-OFF package build
 passed. The package remains exactly the restored `d76d1a...` preview: the new
 contract library is not yet called by the production UI or linked admission path.
 The C++ serializer object also compiled directly with the actual SDK compiler.
+
+Guard capability admission was reviewed separately. Playden now requires an
+explicit capability allowlist and independent lowercase SHA-256 provider pin;
+every advertised guarded variant must have matching typed native build markers.
+Default consumer trust remains unchanged. Producer packaging and standalone
+validation likewise reject legacy/malformed variants claiming the guard before
+packaging creates output. The reviewed provider provenance digest is
+`f14d5e3ecb31951e3cf5bfdc41972181a9be1d96ed0dc7cb3aeebb8e4aab844a`.
+
+Observed RED: an unguarded native variant advertising the guard was accepted.
+GREEN: 34 Python packager tests, 8 producer/consumer integration tests, focused
+consumer manifest and real-crypto admission tests, and a freshly rebuilt
+50-test host-fixtures suite passed. Independent read-only review found no
+actionable issues. These gates verify declared provenance against owner trust;
+they do not qualify native admission or enable the capability in production.

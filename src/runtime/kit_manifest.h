@@ -29,6 +29,10 @@ struct KitManifestTrustedConfig {
   std::vector<std::string> allowed_capabilities;
   std::function<std::optional<std::string>(const std::filesystem::path&)> hash_file;
   std::function<std::optional<std::string>(std::string_view)> hash_bytes;
+  // Independent digest of the reviewed publication-provider provenance JSON.
+  // Required when the owner allows playden-publication-guard-v1; never derived
+  // from the kit's own claim or a runtime source checkout.
+  std::optional<std::string> publication_provider_sha256;
 };
 
 enum class KitManifestStatus {

@@ -19,6 +19,7 @@ constexpr std::size_t kMaxManifestBytes = 8 * 1024 * 1024;
 constexpr std::size_t kMaxFiles = 32768;
 constexpr std::size_t kMaxVariants = 1000;
 constexpr const char* kSchema = "playden-prospero-kit/1";
+constexpr const char* kPublicationGuard = "playden-publication-guard-v1";
 constexpr const char* kCoreDlls[] = {"ntdll.dll", "kernel32.dll", "kernelbase.dll",
                                      "mmdevapi.dll", "dinput8.dll", "rsaenh.dll"};
 constexpr const char* kNativePrxs[] = {"ntdll.prx", "wineserver.prx", "win32u.prx",
@@ -207,6 +208,11 @@ class Verifier {
   KitManifestResult Run() {
     if (!trusted_.hash_file || !trusted_.hash_bytes || !Digest(trusted_.manifest_sha256))
       return Failure(KitManifestStatus::kUnsupportedKit, "trusted kit digest and cryptographic hash callbacks are required");
+    if (std::find(trusted_.allowed_capabilities.begin(), trusted_.allowed_capabilities.end(),
+                  kPublicationGuard) != trusted_.allowed_capabilities.end() &&
+        (!trusted_.publication_provider_sha256 || !Digest(*trusted_.publication_provider_sha256)))
+      return Failure(KitManifestStatus::kUnsupportedKit,
+                     "publication guard trust requires an independent provider provenance digest");
     std::error_code error;
     const auto root_status = fs::symlink_status(root_, error);
     if (error || !fs::is_directory(root_status) || fs::is_symlink(root_status))
@@ -547,6 +553,17 @@ class Verifier {
           !build_revision || build_revision->text() != wrapper->second.at("revision") || !dirty || dirty->boolean() ||
           !eboot || !eboot_hash || eboot->text() != *eboot_hash)
         return Failure(KitManifestStatus::kIntegrityFailure, "native build manifest is dirty or lacks matching source/artifact provenance");
+      if (std::find(result_.capabilities.begin(), result_.capabilities.end(),
+                    kPublicationGuard) != result_.capabilities.end()) {
+        const auto* guard = Field(*build, "managed_publication_guard", Json::Type::kString);
+        const auto* descriptor = Field(*build, "managed_descriptor_required", Json::Type::kBool);
+        const auto* provider = Field(*build, "publication_provider_sha256", Json::Type::kString);
+        if (!guard || guard->text() != kPublicationGuard || !descriptor || !descriptor->boolean() ||
+            !provider || !trusted_.publication_provider_sha256 ||
+            provider->text() != *trusted_.publication_provider_sha256)
+          return Failure(KitManifestStatus::kIntegrityFailure,
+                         "native title does not match the trusted publication guard/provider contract");
+      }
       result_.available_variant_ids.push_back(id->text());
       view_.variants.push_back({id->text(), title->text(), path->text()});
     }
