@@ -10,6 +10,7 @@
 #include "runtime/settings_publication_owner.h"
 
 #include <chrono>
+#include <fstream>
 #include <cstdio>
 #include <ctime>
 #include <fcntl.h>
@@ -43,6 +44,38 @@ constexpr int kMaxPreparationSteps = 64;
 
 std::string InstallId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id); }
 }  // namespace
+
+// Newest wrapper session log under <data root>/library/logs, last 128 KiB.
+std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_root) {
+  namespace fs = std::filesystem;
+  std::error_code error;
+  fs::path newest; fs::file_time_type newest_time{};
+  for (fs::directory_iterator it(data_root / "library/logs", error), end; !error && it != end; it.increment(error)) {
+    const auto name = it->path().filename().string();
+    if (name.rfind("session-", 0) != 0 || !it->is_regular_file(error)) continue;
+    const auto when = it->last_write_time(error);
+    if (!error && (newest.empty() || when > newest_time)) { newest = it->path(); newest_time = when; }
+  }
+  if (newest.empty()) return std::nullopt;
+  const int fd = open(newest.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return std::nullopt;
+  struct stat info{};
+  constexpr off_t kTail = 128 * 1024;
+  std::string bytes;
+  if (fstat(fd, &info) == 0 && S_ISREG(info.st_mode)) {
+    const off_t start = info.st_size > kTail ? info.st_size - kTail : 0;
+    bytes.resize(static_cast<std::size_t>(info.st_size - start));
+    std::size_t done = 0;
+    while (done < bytes.size()) {
+      const auto count = pread(fd, bytes.data() + done, bytes.size() - done, start + static_cast<off_t>(done));
+      if (count <= 0) break;
+      done += static_cast<std::size_t>(count);
+    }
+    bytes.resize(done);
+  }
+  close(fd);
+  return "== " + newest.filename().string() + "\n" + bytes;
+}
 
 std::optional<std::string> RandomUuid() {
   unsigned char bytes[16];
@@ -418,6 +451,13 @@ void RuntimeHost::Run() {
       // Startup only reads durable state. Records with a journal wait for an
       // explicit recovery action; nothing resumes, registers or rebuilds here.
       PublishInstalls(c);
+      if (config_.title_log)
+        for (const auto& record : c.repository.Snapshot()) {
+          const auto root = config_.host_namespace_prefix.empty()
+              ? std::filesystem::path(record.data_root)
+              : config_.host_namespace_prefix / std::filesystem::path(record.data_root).relative_path();
+          if (const auto text = NewestSessionLog(root)) config_.title_log(record.title_id, *text);
+        }
       const bool kit_available = c.kit.has_value();
       Log("runtime ready installs=" + std::to_string(c.repository.Snapshot().size()) + " kit=" +
           (kit_available ? c.kit->view.kit_id : "none (" + kit_reason + ")") +

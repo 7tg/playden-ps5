@@ -55,6 +55,10 @@ struct RuntimeHostConfig {
   std::function<std::int64_t()> unix_time;
   // Diagnostic lines (no credentials): startup, each preparation step and refusals.
   std::function<void(const std::string&)> log;
+  // Receives each prepared title's newest wrapper session log (bounded tail) at
+  // startup. The wrapper writes it inside the private bottle tree, which only
+  // the app user can read.
+  std::function<void(const std::string& title_id, const std::string& text)> title_log;
   // SQLite and the native readers run on this worker. PS5 std::thread stacks are
   // too small for them, so the worker uses an explicit stack size.
   std::size_t stack_bytes = 1024 * 1024;

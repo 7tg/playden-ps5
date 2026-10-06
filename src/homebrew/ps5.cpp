@@ -296,6 +296,13 @@ int main() {
                 return found == records.end() ? std::nullopt : std::optional<rt::GameSettingsRecord>(found->second);
             };
             config.log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "runtime.log", line); };
+            config.title_log = [](const std::string& title, const std::string& text) {
+                const auto path = log_root + "/title-" + title + ".log";
+                if (FILE* file = std::fopen(path.c_str(), "wb")) {
+                    std::fwrite(text.data(), 1, text.size(), file);
+                    std::fclose(file);
+                }
+            };
             runtime_host = std::make_unique<playden::homebrew::RuntimeHost>(std::move(config));
             if (!runtime_host->Start())
                 playden::app::AppendLogLine(paths.log_root, "runtime.log", "runtime worker could not start");
