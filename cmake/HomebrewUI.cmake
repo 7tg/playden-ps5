@@ -103,10 +103,15 @@ add_library(playden_steam_cm_codec STATIC
 target_include_directories(playden_steam_cm_codec PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_include_directories(playden_steam_cm_codec PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
 target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
-target_link_libraries(playden_steam_cm_codec PUBLIC playden_game_paths playden_steam_protocol)
+target_link_libraries(playden_steam_cm_codec PUBLIC playden_game_paths playden_steam_protocol playden_managed_directory)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
+
+add_library(playden_runtime_settings_storage STATIC "${CMAKE_SOURCE_DIR}/src/runtime/settings_storage.cpp")
+target_include_directories(playden_runtime_settings_storage PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_settings_storage PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_settings_storage PUBLIC playden_steam_cm_codec playden_runtime_private_directories)
 
 set(PLAYDEN_ZSTD_DIR "${CMAKE_SOURCE_DIR}/third_party/zstd")
 add_library(playden_depot_codec STATIC
@@ -229,7 +234,7 @@ add_library(playden_homebrew_controller STATIC
 target_compile_features(playden_homebrew_controller PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_controller PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_homebrew_controller PUBLIC
-    playden_homebrew_model playden_steam_core playden_auth_diagnostics playden_library_controller playden_persistence_controller)
+    playden_homebrew_model playden_steam_core playden_auth_diagnostics playden_library_controller playden_persistence_controller playden_runtime_settings_storage)
 
 add_library(playden_homebrew_artwork STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/artwork.cpp"
@@ -484,11 +489,16 @@ if(BUILD_TESTING)
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
     # Inject failures only at the POSIX I/O boundary of this test's production
     # compilation; the shipped settings implementation has ordinary syscalls.
-    add_executable(game_settings_io_test tests/game_settings_io_test.cpp src/runtime/game_settings.cpp)
+    add_executable(runtime_settings_storage_test tests/runtime_settings_storage_test.cpp)
+    target_link_libraries(runtime_settings_storage_test PRIVATE playden_runtime_settings_storage)
+    add_test(NAME runtime_settings_storage COMMAND runtime_settings_storage_test)
+    add_executable(game_settings_io_test tests/game_settings_io_test.cpp src/runtime/game_settings.cpp src/platform/managed_directory.cpp)
     target_link_libraries(game_settings_io_test PRIVATE playden_steam_cm_codec)
     target_compile_features(game_settings_io_test PRIVATE cxx_std_20)
     target_compile_definitions(game_settings_io_test PRIVATE
-        fsync=playden_test_fsync renameat=playden_test_renameat unlinkat=playden_test_unlinkat)
+        PLAYDEN_PLATFORM_PS5=1 openat=playden_test_openat
+        fsync=playden_test_fsync rename=playden_test_rename unlink=playden_test_unlink
+        renameat=playden_test_renameat unlinkat=playden_test_unlinkat)
     add_test(NAME game_settings_io COMMAND game_settings_io_test "${CMAKE_SOURCE_DIR}")
     add_executable(steam_depot_chunk_test "${CMAKE_SOURCE_DIR}/tests/steam_depot_chunk_test.cpp")
     target_link_libraries(steam_depot_chunk_test PRIVATE playden_depot_codec)

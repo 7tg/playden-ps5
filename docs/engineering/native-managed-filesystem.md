@@ -57,10 +57,17 @@ storage roots are unsupported by these narrow methods. Temporary files left by
 failed writes need explicit future reconciliation/cleanup; they are never
 reused or followed. General Steam storage callers retain their existing APIs.
 
-Settings currently use their older relative walk and `0644` default outputs;
-their policy migration must retain serializer/publication fault injection.
-Private settings reads may admit owned legacy `0644`, while replacement and
-rollback write `0600`; game/DXVK inputs use approved-tree policy.
+Settings persistence, registry overlays, DXVK publication, input reads and named
+cache removal now use the same managed context. Private settings reads admit
+owned legacy `0644`, while replacement and rollback write `0600`; game/DXVK
+inputs use approved-tree policy. Serializer and publication/rollback fault
+injection remain exercised. `PrepareGameSettingsStorage` provisions a dedicated
+`game-settings-private` child beneath general state, imports the legacy file
+without deletion or overwrite, and validates the chosen private record before
+enabling writes. Public general state is not chmodded. Corruption of an existing
+private record never falls back to stale legacy bytes. Host CLI destinations
+are explicitly resolved before selecting the managed root; native/bottle paths
+retain strict component validation.
 
 ## Evidence and remaining acceptance
 
@@ -97,7 +104,12 @@ context, named removal and preservation of the proof file. Evidence is in
 proof file; native readback and the production hash are the evidence. This is
 successful syscall/readback evidence, not a power-loss recovery test.
 
-Installer retry, settings save/reopen/reset, registry backup/rollback and
-targeted cache removal still require native acceptance after their consumers
-are migrated. Native readiness and full installation/gameplay acceptance remain
+Native settings migration/save/reopen/no-overwrite and legacy preservation
+passed using the actual production writer/parser. Shared settings setup also
+passed natively, including selecting the existing private record. Directory
+enumeration (`fdopendir`/`readdir`) passed with context validation. Evidence is
+in `results/20261006-managed-filesystem/{settings-native,shared-settings-native}.log`.
+
+Full installer retry, settings reset through the live UI, registry
+backup/rollback and targeted cache removal still require native acceptance. Native readiness and full installation/gameplay acceptance remain
 open.

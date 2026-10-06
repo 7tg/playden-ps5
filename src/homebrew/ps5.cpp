@@ -9,6 +9,7 @@
 #include "app/diagnostic_log.h"
 #include "platform/ps5/title_runtime.h"
 #include "platform/ps5/native_startup.h"
+#include "runtime/settings_storage.h"
 #if PLAYDEN_TITLE_CONTRACT_PROBE
 #include "platform/ps5/title_contract_probe.h"
 #endif
@@ -190,7 +191,14 @@ int main() {
                 playden::app::AppendLogLine(paths.log_root, "launch.log", "game settings data unavailable: " + reason);
         }
 #if !PLAYDEN_UI_SIMULATION
-        simulation.SetGameSettingsFile(paths.steam_state_root + "/game-settings.json");
+        std::string settings_reason;
+        const auto settings_file = playden::runtime::PrepareGameSettingsStorage(paths.steam_state_root, &settings_reason);
+        if (!settings_file)
+            playden::app::AppendLogLine(paths.log_root, "launch.log",
+                "private game settings unavailable: " + settings_reason);
+        else playden::app::AppendLogLine(paths.log_root, "launch.log", "game settings storage initialized");
+        // An empty path disables live writes and surfaces a settings load error.
+        simulation.SetGameSettingsFile(settings_file.value_or(std::filesystem::path{}));
         playden::Storage auth_storage(paths.steam_state_root);
         playden::steam::CmClient auth_cm(paths.trust_store, auth_storage);
         playden::steam::AuthClient auth(paths.trust_store);

@@ -2,10 +2,13 @@
 #include "platform/storage.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/private_directories.h"
+#include "runtime/game_settings.h"
+#include "runtime/settings_storage.h"
 
 #include <cerrno>
 #include <cstdio>
 #include <ctime>
+#include <dirent.h>
 #include <filesystem>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -68,6 +71,44 @@ void RunManagedFilesystemProbe(FILE* log) {
   if (!check(prefix->RemoveRegularFile("delete-me") && prefix->Sync(), "remove-owned-file")) return;
   if (!check(!prefix->InspectChild("delete-me", &info) && errno == ENOENT &&
              runtime::HashArtifactFile(bottle / "proof.txt") == digest, "sentinel-preserved")) return;
+  const int listing_fd = dup(prefix->fd());
+  if (!check(listing_fd >= 0, "directory-listing-dup")) return;
+  DIR* listing = fdopendir(listing_fd);
+  if (!listing) { close(listing_fd); check(false, "directory-listing-open"); return; }
+  bool listed_proof = false;
+  bool only_proof = true;
+  errno = 0;
+  while (const auto* entry = readdir(listing)) {
+    const std::string name = entry->d_name;
+    if (name == "proof.txt") listed_proof = true;
+    else if (name != "." && name != "..") only_proof = false;
+  }
+  const bool listed_ok = errno == 0;
+  const bool listing_closed = closedir(listing) == 0;
+  if (!check(listed_ok && listing_closed && listed_proof && only_proof && prefix->Validate(), "directory-listing")) return;
+  const auto legacy = root / "game-settings.json";
+  const auto settings_root = root / "settings";
+  const auto settings = settings_root / "game-settings.json";
+  const std::map<std::uint32_t, runtime::GameSettingsRecord> original{{220, {"", {}, 1}}};
+  std::map<std::uint32_t, runtime::GameSettingsRecord> loaded;
+  if (!check(runtime::SaveGameSettingsFile(legacy.string(), original, &error) &&
+             chmod(legacy.c_str(), 0644) == 0, "legacy-settings-fixture")) return;
+  if (!check(runtime::EnsurePrivateDirectories(root, settings_root, settings_root, &error) &&
+             runtime::MigrateLegacyGameSettingsFile(legacy.string(), settings.string(), &error), "private-settings-migration")) return;
+  if (!check(runtime::LoadGameSettingsFile(settings.string(), &loaded, &error) && loaded == original &&
+             !runtime::MigrateLegacyGameSettingsFile(legacy.string(), settings.string(), &error), "settings-reopen-no-overwrite")) return;
+  const std::map<std::uint32_t, runtime::GameSettingsRecord> updated{{220, {"", {}, 2}}};
+  if (!check(runtime::SaveGameSettingsFile(settings.string(), updated, &error) &&
+             runtime::LoadGameSettingsFile(settings.string(), &loaded, &error) && loaded == updated &&
+             lstat(settings.c_str(), &info) == 0 && info.st_uid == geteuid() &&
+             (info.st_mode & 07777) == 0600, "private-settings-save-reopen")) return;
+  if (!check(runtime::LoadGameSettingsFile(legacy.string(), &loaded, &error) && loaded == original, "legacy-settings-preserved")) return;
+  const auto selected_settings = runtime::PrepareGameSettingsStorage(root, &error);
+  if (!check(selected_settings &&
+             runtime::LoadGameSettingsFile(selected_settings->string(), &loaded, &error) && loaded == original &&
+             runtime::PrepareGameSettingsStorage(root, &error) == selected_settings &&
+             lstat(selected_settings->c_str(), &info) == 0 && info.st_uid == geteuid() &&
+             (info.st_mode & 07777) == 0600, "shared-settings-storage-setup")) return;
   Storage journal(root.string());
   const Bytes record{'a', 'b', 'c'};
   if (!check(journal.WriteDurable("journal.json", record).ok(), "durable-journal-publication")) return;

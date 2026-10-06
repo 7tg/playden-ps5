@@ -33,3 +33,23 @@ sentinel behind the legacy `.tmp` path. The original file-sync test failed
 against the old writer before migration. Full host suite: 88/88 passed.
 Independent review found no actionable defect; native installer provisioning of
 a dedicated private journal root and full lifecycle wiring remain open.
+
+## Settings and directory enumeration increments
+
+[Settings diagnostic](settings-native.log), executable SHA-256
+`406f512ad15eaa497c910733033ebfceab61b76e5e3eb02b7b173d0e8d421856`,
+passed owned legacy `0644` → private `0600` migration, no destination overwrite,
+save/reopen with changed revision, legacy source preservation and directory
+listing under restored UID 1. The private directories were `0700`.
+
+[Shared setup diagnostic](shared-settings-native.log), executable SHA-256
+`f4c8c850947525ff3742267f36f3c870b8c58b80ea647b748c719065f9624473`,
+additionally passed the actual shared settings setup helper and repeat selection
+of its existing private record. Both runs retained the original preview backup,
+restored it afterward and released the console. These are production API checks
+in fresh native fixture trees, not full live game settings/launch acceptance.
+
+The full combined host suite passed 90/90 after adding setup coverage and fixing
+the live-model fixture's private-directory precondition. Review identified host
+CLI relative/public-root regressions; shared setup resolves those without
+relaxing low-level policy or chmodding general storage.

@@ -166,6 +166,7 @@ void account_commands_dispatch_refresh_and_switch_barriers(const std::filesystem
 
 void settings_survive_account_restore_and_cache_action_is_honest(const std::filesystem::path& base) {
     std::filesystem::create_directories(base);
+    std::filesystem::permissions(base, std::filesystem::perms::owner_all);
     const auto file = base / "game-settings.json";
     playden::runtime::GameSettingsRecord stored;
     stored.revision = 3;

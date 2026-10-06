@@ -86,11 +86,15 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_definitions(playden_managed_directory PRIVATE PLAYDEN_PLATFORM_PS5=1)
 endif()
 
-add_library(playden_runtime_package_installer STATIC "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp")
+add_library(playden_runtime_private_directories STATIC "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp")
+target_include_directories(playden_runtime_private_directories PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_private_directories PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_private_directories PUBLIC playden_managed_directory)
+
+add_library(playden_runtime_package_installer STATIC "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp")
 target_include_directories(playden_runtime_package_installer PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_package_installer PUBLIC cxx_std_17)
-target_link_libraries(playden_runtime_package_installer PUBLIC playden_runtime_install_service playden_managed_directory)
+target_link_libraries(playden_runtime_package_installer PUBLIC playden_runtime_install_service playden_runtime_private_directories)
 
 add_library(playden_runtime_launch_service STATIC "${CMAKE_SOURCE_DIR}/src/runtime/launch_service.cpp")
 target_include_directories(playden_runtime_launch_service PUBLIC "${CMAKE_SOURCE_DIR}/src")

@@ -71,26 +71,23 @@ kit are pinned.
 
 ### Native persistence gate (2026-10-06)
 
-The merged settings model and UI do not yet establish native persistence. On the
-tested FW13.60 console, relative `openat` returns `EINVAL` with both libc-created
-and directly kernel-created directory FDs. Absolute paths succeed. The tested
-`/dev/fd` and proc descriptor aliases all return `ENOENT`; they cannot currently
-provide a directory-FD anchor. See [native evidence](../../results/20261006-private-session/native-directory-alias.log).
+The settings core now uses the explicit checked absolute-path PS5 backend.
+FW13.60 relative `openat` returned `EINVAL`, and tested descriptor aliases
+returned `ENOENT`; see [the directory investigation](../../results/20261006-private-session/native-directory-alias.log).
+The replacement's private-directory, publication, readback, hashing, named
+removal and enumeration primitives passed on PS5 under the restored app UID.
+Game settings migration and save/reopen also passed natively. These checks do
+not establish a complete native game launch or a cross-directory transaction.
 
-| Affected operation | Reason unavailable on PS5 | Implementation needed | Acceptance |
+| Operation | Current implementation / remaining reason | Implementation needed | Acceptance |
 | --- | --- | --- | --- |
-| Load/save game settings | `LoadGameSettingsFile` and `SaveGameSettingsFile` use the descriptor-relative safe-directory walk. Native relative opens fail before reading or publishing settings. | A measured PS5 directory-operation contract used by the settings persistence adapter; retain ownership, symlink refusal, exclusive temporary writes and durable publication. | Save, close, reopen, reset and read back settings on PS5; reject public/foreign parents and symlinks without changing existing settings. |
-| Apply profile/registry/DXVK configuration | `ApplyGameSettings` and `ApplySettingsFiles` use the same safe walk to publish profile overlays, `user.reg` and `dxvk.conf`. Host tests cannot establish native success. | Route publication through the validated platform contract and OWNER journal while the game is confirmed stopped. | Apply/reset on PS5, inspect exact generated files and effective game behavior, and verify interrupted publication recovery. |
-| Clear shader cache | `ClearShaderCache` uses safe directory opens and relative deletion. Native directory admission currently fails; relative deletion support is not established by these open tests. | Validate the platform's deletion operations separately, retaining owned cache-root boundaries and stopped-title checks. | Clear only the selected game's cache on PS5; refuse symlink/foreign/running-title fixtures and preserve saves and other games. |
-| Prepare private bottle | Private-directory creation now uses the explicit managed absolute-path backend on PS5. Host tests reproduce unavailable relative operations and pass, but the production native lifecycle remains unverified. | Complete native managed-filesystem acceptance, durable OWNER journal and installer wiring before connecting readiness to the live application. | Fresh app-owned `0700` bottle tree and `0600` files, durable validated copy, retry/recovery and foreign-tree refusal on PS5. |
+| Load/save game settings | Migrated to the measured backend. Owned legacy 0644 reads are admitted; replacements are `0600` under private `0700` parents. Native migration/save/reopen/no-overwrite/source-preservation passed. | Host and PS5 callers provision a private settings child and import legacy records explicitly; existing malformed private records block writes. | Validate the live application path as well as API fixture evidence; retain corruption, symlink and foreign/public-parent refusal. |
+| Apply profile/registry/DXVK configuration | Filesystem calls now use the managed backend; host tests cover registry backup, mode migration and DXVK rollback. Native combined application/publication remains untested. | Connect the existing model/writers to the OWNER install journal while the title is stopped, then publish matching profile/descriptor/revision. | Apply/reopen/reset on PS5; interrupt publication and reconcile without partial readiness. |
+| Clear shader cache | Named deletion now uses the managed backend; host tests retain scope and symlink checks. Native targeted cache lifecycle remains untested. | Connect confirmed stopped-title checks and owned cache roots to the live maintenance action. | Clear only the selected game's cache on PS5; preserve saves and other games and refuse unknown/running activity. |
+| Prepare private bottle | Actual private-directory creation and hashing passed natively. The installer cleanup suite also passes with relative operations unavailable; full native kit copy/retry is still open. | Provision the durable OWNER repository's dedicated private root and wire installer/registration to independently admitted kit inputs. | Fresh app-owned `0700` bottle and `0600` files, validated copy, retry/recovery and foreign-tree refusal on PS5. |
 
-A userspace wrapper that joins a remembered directory path with a child name is
-not equivalent to a kernel directory-FD operation when that path is renamed or
-replaced. Do not silently substitute it under the current contract. An absolute
-path policy, if selected, needs explicit invariants and race/replacement tests
-before these operations become available. Existing runtime capability gates
-remain independent: solving persistence does not add input/audio patches to the
-retained Wine artifacts.
+See [managed filesystem contract](native-managed-filesystem.md) and
+[native diagnostic evidence](../../results/20261006-managed-filesystem/README.md).
 
 ### Required detail for unsupported and partial settings
 

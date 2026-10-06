@@ -46,6 +46,11 @@ int main(int argc, char** argv) {
         const auto data = parse_options(3, data_argv);
         require(data && !data->simulation && data->data_directory == data_path,
                 "live data directory is independent from fixture profiles");
+        char relative_data_path[] = "relative-playden-data";
+        char* relative_data_argv[] = {program, data_flag, relative_data_path};
+        const auto relative_data = parse_options(3, relative_data_argv);
+        require(relative_data && relative_data->data_directory.is_absolute(),
+                "relative live CLI directory is resolved before strict settings storage");
     }
 
     const auto profile = std::filesystem::temp_directory_path() / ("playden-hui-host-input-test-" + std::to_string(getpid()) + ".json");
