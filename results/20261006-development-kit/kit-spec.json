@@ -30,22 +30,22 @@
     {
       "id": "hl2-fake78001-v1",
       "title_id": "FAKE78001",
-      "path": "third_party/prospero-win/dist/FAKE78001-publication-publisher-5f1d8de",
-      "wrapper_revision": "5f1d8deaf953eadef38df99e0ecc6c8cd6af5ae0",
+      "path": "third_party/prospero-win/dist/FAKE78001-publication-publisher-9f31431",
+      "wrapper_revision": "9f314314ae6973c12f47c99b546d13d6ec002598",
       "helper_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
-      "helper_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-5f1d8de/lapy-manifest.json",
+      "helper_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-9f31431/lapy-manifest.json",
       "helper_protocol": "../ps5-homebrew/PS5-Lapy-JB-Daemon/source/lapy_elevation_protocol.h",
-      "native_build_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-5f1d8de/native-title-build.json"
+      "native_build_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-9f31431/native-title-build.json"
     },
     {
       "id": "hl2-fake78002-v1",
       "title_id": "FAKE78002",
-      "path": "third_party/prospero-win/dist/FAKE78002-publication-publisher-5f1d8de",
-      "wrapper_revision": "5f1d8deaf953eadef38df99e0ecc6c8cd6af5ae0",
+      "path": "third_party/prospero-win/dist/FAKE78002-publication-publisher-9f31431",
+      "wrapper_revision": "9f314314ae6973c12f47c99b546d13d6ec002598",
       "helper_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
-      "helper_manifest": "third_party/prospero-win/dist/FAKE78002-publication-publisher-5f1d8de/lapy-manifest.json",
+      "helper_manifest": "third_party/prospero-win/dist/FAKE78002-publication-publisher-9f31431/lapy-manifest.json",
       "helper_protocol": "../ps5-homebrew/PS5-Lapy-JB-Daemon/source/lapy_elevation_protocol.h",
-      "native_build_manifest": "third_party/prospero-win/dist/FAKE78002-publication-publisher-5f1d8de/native-title-build.json"
+      "native_build_manifest": "third_party/prospero-win/dist/FAKE78002-publication-publisher-9f31431/native-title-build.json"
     }
   ],
   "dxvk": {
@@ -69,7 +69,7 @@
   },
   "sources": {
     "wrapper": {
-      "revision": "5f1d8deaf953eadef38df99e0ecc6c8cd6af5ae0",
+      "revision": "9f314314ae6973c12f47c99b546d13d6ec002598",
       "baseline_revision": "54caac176e86c60c7c407972583b491f67838ed9",
       "url": "https://github.com/mpereiraesaa/prospero-win.git"
     },

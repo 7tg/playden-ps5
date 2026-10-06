@@ -7,11 +7,11 @@ This kit is **not releasable**.
 
 | Item | Value |
 | --- | --- |
-| Kit | `hl2-fw1360-dev1`, 3548 files, local path `build/kits/hl2-fw1360-dev1` (not in Git) |
-| Manifest SHA-256 | `d1fbddf3450e94f9f2109849bd95443bd2ee4611a26bb9f06e1ee0d71c219d3d` |
-| Files digest | `0dfbaed995af74f8bf64457f673665acd1c4855fbae2b1559b40c9aa8d3ee6a2` |
-| prospero-win source | `5f1d8deaf953eadef38df99e0ecc6c8cd6af5ae0` (local, unpublished), clean |
-| FAKE78001 / FAKE78002 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `5a2afd5b93bee14ff8a9b637ab8ec5a180fe3b80d231a6b1d47820cb4062744a` / `acb5b6bf4ea2a7a47a7637f488614537bd2faee983c681795567d8c8b54a69db`, `source_dirty: false` |
+| Kit | `hl2-fw1360-dev1`, 3558 files, local path `build/kits/hl2-fw1360-dev1` (not in Git) |
+| Manifest SHA-256 | `b54c4b44592e25f70e0c525cd8af755ef6c0b88d3d8e210872e1a01679168cee` |
+| Files digest | `a89a11e79929c29e73675d5e642321429a71c0a0e1b6ed98d06077203dc09cdf` |
+| prospero-win source | `9f314314ae6973c12f47c99b546d13d6ec002598` (local, unpublished), clean |
+| FAKE78001 / FAKE78002 wrapper eboot (SDK v0.42, foundation `9c0b994`) | `530ed4221524c57e0ddda1f1304319376caad4161ad18ee8d2ccebe8407d1578` / `30e5fb31edb5ee2efae4976ba51206be2a70deca72c44e21f5bbc9fb0b49b026`, `source_dirty: false` |
 | Helpers / protocol | FAKE78001 `5608915…`, FAKE78002 `e2449875…` / `bb02c4aa…` (independent pins) |
 | Template | approved console template `candidate-v16`, preparation `hl2-fresh-v16` (lock-pinned evidence verified by `tools/package_prospero_kit.py`) |
 | Capabilities | `dxvk`, `offline_bottle`, `per_game_title`, `wow64_i386`; the publication-guard capability is not claimed or trusted |
@@ -82,3 +82,14 @@ now runs on Linux and passes all five contract groups, including the explicit
 game-root admission cases. `test_native_contract` passes 6/6. Individual sweep:
 99/101 make-test targets, kit 39/0. The remaining failures
 (`test_title_identity`, `test_test_reachability`) predate `439ae06`.
+
+## Respin for the real-UID restore (`9f31431`)
+
+The kit was respun under the same id with wrappers from `9f31431`, which return
+the real UID to the app user after the data grant (`7446508`, `06bc6b6`,
+`9f31431`). On the console the new kit replaced the old one after verification;
+the previous kit is kept aside under `/data/playden/kits/` (its folder name
+uses the new digest prefix). The installed FAKE78002 title was updated in
+place by Playden's title refresh. A PPSA99995 generic-mode wrapper rebuilt
+from this branch would also restore the real UID, which would conflict with
+its root-owned FTP-created bottle; that title is not rebuilt here.
