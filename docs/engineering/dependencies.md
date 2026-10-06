@@ -37,7 +37,7 @@ not consumed yet:
 | ps5-opengl | SDK `1.0.0`, source `dce7491` | No. `e9c1104` is on an unreleased branch |
 | ps5-native-app-boilerplate | `f98de73` | Not applicable |
 | ps5-homebrew-ui | `8a716f2` | Not applicable |
-| prospero-win | `3d05a57` source submodule (local development commit, not published); release kit pending | Includes native startup and per-game wrapper changes; retained runtime remains `e16ec8f` |
+| prospero-win | `df261e9` source submodule (local development commit, not published); release kit pending | Includes native startup, per-game wrapper and Playden recipe identity support; retained runtime remains `e16ec8f` |
 
 ## Branch checkouts in use
 
@@ -45,7 +45,7 @@ not consumed yet:
 | --- | --- | --- | --- |
 | prospero-win | `../ps5-homebrew/prospero-win` | `zcode/prospero-win-13.60` | `defd38b` |
 | prospero-win | `~/.chauffeur/worktrees/7449CB0F-…/feat-fw-v13-60-support` | `feat/fw-v13.60-support` | `a1f349e` |
-| prospero-win | `.worktrees/prospero-win-per-game` | `feat/playden-per-game-title` (development; final pin pending) | `3d05a57` |
+| prospero-win | `.worktrees/prospero-win-per-game` | `feat/playden-per-game-title` (development; final pin pending) | `df261e9` |
 | prospero-win | `~/.chauffeur/worktrees/prospero-win-environment` | `feat/profile-environment` (U1, local) | `06e6399` |
 | prospero-win | `~/.chauffeur/worktrees/prospero-win-input-tuning` | `feat/profile-input-audio` (U4/R1, local; stacked on `feat/profile-input-tuning` `410ac1c`) | `eeac05b` |
 | prospero-win-profiles | `~/.chauffeur/worktrees/prospero-win-profiles-sidecar` | `feat/checker-runtime-features` (R2, local; stacked on `feat/recipe-sidecar` `9325e0c`) | `8fa9213` |

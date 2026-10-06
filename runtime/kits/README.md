@@ -41,6 +41,13 @@ kit-manifest hash is recorded yet. Keep generated runtime/template assets outsid
 Git. Record a verified immutable retrieval source and manifest hash in the lock
 only after producer/consumer admission and fresh-bottle console acceptance.
 
+Use Playden's existing `runtime/recipes/steam-220-hl2-v1.json` as the recipe
+input. Its document identity is `recipe_id`/`recipe_version`; the packaging
+spec and kit manifest retain `recipe.id`/`recipe.version`. Both producer and
+consumer accept legacy document `id`/`version`, but reject incomplete or
+conflicting identity pairs. HL2 explicitly requires `requirements.audio=ps5`,
+so a template without the PS5 audio registry default is refused.
+
 Packaging now additionally requires `template.preparation`, identifying an
 independently pinned initialization export and the approved console template:
 

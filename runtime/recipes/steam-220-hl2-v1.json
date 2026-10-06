@@ -13,6 +13,7 @@
   "runtime": "wine-wow64",
   "prefix": "game",
   "graphics": "dxvk",
+  "requirements": {"audio": "ps5"},
   "defaults": {
     "resolution": "1920x1080",
     "controller": "xinput",

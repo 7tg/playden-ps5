@@ -421,17 +421,32 @@ class Verifier {
     const auto document = ParseFile(root_ / recipe_path->text());
     if (!actual || *actual != sha->text() || !document || !document->is_object())
       return Failure(KitManifestStatus::kIntegrityFailure, "recipe bytes do not match identity");
-    const auto* recipe_id = Field(*document, "id", Json::Type::kString);
-    const auto* recipe_version = document->Find("version");
-    const bool version_match = recipe_version && ((recipe_version->is_string() && recipe_version->text() == version->text()) ||
-                                (recipe_version->is_number() && recipe_version->text() == version->text()));
-    if (!recipe_id || recipe_id->text() != id->text() || !version_match)
-      return Failure(KitManifestStatus::kIntegrityFailure, "recipe document does not match declared identity");
+    bool found_identity = false;
+    for (const auto& keys : {std::pair{"recipe_id", "recipe_version"}, std::pair{"id", "version"}}) {
+      if (!document->Find(keys.first) && !document->Find(keys.second)) continue;
+      const auto* recipe_id = Field(*document, keys.first, Json::Type::kString);
+      const auto* recipe_version = document->Find(keys.second);
+      const bool version_match = recipe_version &&
+          (recipe_version->is_string() || (recipe_version->is_number() &&
+           recipe_version->text().find_first_not_of("-0123456789") == std::string::npos)) &&
+          recipe_version->text() == version->text();
+      if (!recipe_id || recipe_id->text() != id->text() || !version_match)
+        return Failure(KitManifestStatus::kIntegrityFailure, "recipe document does not match declared identity");
+      found_identity = true;
+    }
+    if (!found_identity)
+      return Failure(KitManifestStatus::kIntegrityFailure, "recipe document has no identity");
     bool audio = false;
     if (const auto* requirements = Field(*document, "requirements", Json::Type::kObject)) {
       const auto* selected = Field(*requirements, "audio", Json::Type::kString);
       audio = selected && selected->text() == "ps5";
     }
+    if (const auto* prospero = Field(*document, "prospero", Json::Type::kObject)) {
+      const auto* selected = Field(*prospero, "audio", Json::Type::kString);
+      audio = audio || (selected && selected->text() == "ps5");
+    }
+    if (const auto* selected = Field(*document, "audio", Json::Type::kString))
+      audio = audio || selected->text() == "ps5";
     const auto* template_path = Field(bottle, "path", Json::Type::kString);
     const auto* user = Field(bottle, "user", Json::Type::kString);
     if (!template_path || template_path->text() != "template/bottle" || !user || user->text() != "prospero")
