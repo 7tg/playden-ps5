@@ -62,6 +62,9 @@ struct RuntimeHostConfig {
   // startup. The wrapper writes it inside the private bottle tree, which only
   // the app user can read.
   std::function<void(const std::string& title_id, const std::string& text)> title_log;
+  // The game's PS5 title icon: a 512x512 PNG made from its store artwork, or
+  // nothing (the kit's icon stays). Runs on the worker; may use the network.
+  std::function<std::optional<std::string>(std::uint32_t app_id)> title_icon;
   // Native start of a prepared title with its arguments ("session=<UUID>").
   // Called only on the application thread, from Handoff. Empty disables Play.
   std::function<ps5::TitleResult(const std::string& title_id, const std::vector<std::string>& arguments)> launch_title;
@@ -139,6 +142,7 @@ struct RuntimePrepareRequest {
   std::uint32_t app_id = 0;
   std::string install_path;  // console path of the Steam install
   std::string volume_id;
+  std::string title_name;    // the game's name, shown for its PS5 title
 };
 
 // The worker constructs and owns every runtime collaborator, so durable work and
@@ -181,6 +185,9 @@ class RuntimeHost {
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);
   void RunPlay(Composition& composition, std::uint32_t app_id);
+  // Writes the game's own title name (and icon) for its PS5 title.
+  runtime::PackageActionResult WriteTitleMetadata(Composition& composition, const runtime::RuntimeInstall& record,
+                                                  const std::string& title_name);
   // Polls a pending launch session and ends it once its outcome is final.
   // Returns true while a session is still undecided.
   bool PollLaunch(Composition& composition);

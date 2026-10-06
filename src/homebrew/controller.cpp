@@ -285,7 +285,10 @@ void Controller::TickRuntime() {
   if (!runtime_) return;
   for (const auto id : model_.TakeRuntimePrepareRequests()) {
     const auto root = game_roots_.find(id);
-    if (root != game_roots_.end()) runtime_->Prepare({id, root->second, game_volumes_[id]});
+    if (root == game_roots_.end()) continue;
+    std::string name;
+    for (const auto& game : model_.state().games) if (game.id == id) name = game.title;
+    runtime_->Prepare({id, root->second, game_volumes_[id], name});
   }
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   auto plays = model_.TakeRuntimePlayRequests();

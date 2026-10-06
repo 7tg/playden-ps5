@@ -321,7 +321,8 @@ void RuntimeHost::PublishInstalls(const Composition& composition) {
     view.recovery_pending = record.journal.has_value();
     if (record.last_failure) view.failure = record.last_failure->message;
     if (record.state == rt::PreparationState::kReady && composition.kit)
-      view.title_current = composition.installer->TitleCurrent(record);
+      view.title_current = composition.installer->TitleCurrent(record) &&
+                           composition.installer->TitleMetadataCurrent(record);
     if (const auto found = composition.admission.find(record.install_id); found != composition.admission.end())
       view.admission = found->second;
     installs.push_back(std::move(view));
@@ -548,6 +549,61 @@ bool RuntimeHost::PollLaunch(Composition& c) {
   return pending;
 }
 
+namespace {
+// JSON string body for a title name: quotes, backslashes and control characters escaped.
+std::string JsonEscaped(const std::string& text) {
+  std::string out;
+  for (const unsigned char ch : text) {
+    if (ch == '"' || ch == '\\') { out += '\\'; out += static_cast<char>(ch); }
+    else if (ch < 0x20) { char code[8]; std::snprintf(code, sizeof(code), "\\u%04x", ch); out += code; }
+    else out += static_cast<char>(ch);
+  }
+  return out;
+}
+}  // namespace
+
+rt::PackageActionResult RuntimeHost::WriteTitleMetadata(Composition& c, const rt::RuntimeInstall& record,
+                                                       const std::string& title_name) {
+  const auto failed = [](std::string message) {
+    return rt::PackageActionResult{rt::PackageActionState::kFailed, "title-metadata", std::move(message)};
+  };
+  if (!c.kit) return failed("No verified compatibility kit is installed.");
+  const rt::KitTitleVariant* variant = nullptr;
+  for (const auto& candidate : c.kit->view.variants)
+    if (candidate.title_id == record.title_id) variant = &candidate;
+  if (!variant) return failed("The kit has no title for this game.");
+  // The kit's param.json with the game's name in place of the kit's.
+  std::string param;
+  {
+    const auto path = c.kit->view.root / variant->path / "sce_sys/param.json";
+    const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return failed("The kit's title parameters are unreadable.");
+    char chunk[4096];
+    for (ssize_t count; (count = read(fd, chunk, sizeof(chunk))) > 0 && param.size() < 64 * 1024;)
+      param.append(chunk, static_cast<std::size_t>(count));
+    close(fd);
+  }
+  // The single "titleName": "<value>" entry; any other layout keeps the kit's name.
+  const std::string name = title_name.empty() ? "Steam game " + std::to_string(record.app_id) : title_name;
+  static constexpr std::string_view key = "\"titleName\"";
+  const auto at = param.find(key);
+  std::size_t start = std::string::npos, end = std::string::npos;
+  if (at != std::string::npos && param.find(key, at + key.size()) == std::string::npos) {
+    auto cursor = param.find_first_not_of(" \t\r\n", at + key.size());
+    if (cursor != std::string::npos && param[cursor] == ':') cursor = param.find_first_not_of(" \t\r\n", cursor + 1);
+    if (cursor != std::string::npos && param[cursor] == '"') {
+      start = cursor + 1;
+      end = param.find('"', start);
+    }
+  }
+  if (end != std::string::npos) param.replace(start, end - start, JsonEscaped(name));
+  else Log("title metadata app=" + std::to_string(record.app_id) + " keeps the kit's name: unexpected layout");
+  const auto icon = config_.title_icon ? config_.title_icon(record.app_id) : std::nullopt;
+  Log("title metadata app=" + std::to_string(record.app_id) + " name=" + name + " icon=" +
+      (icon ? std::to_string(icon->size()) + "B" : std::string("kit")));
+  return c.installer->WriteTitleMetadata(record, param, icon);
+}
+
 std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request) {
   if (!c.kit) return Snapshot().kit_reason;
   // A game being started or played keeps its title and bottle as they are.
@@ -584,7 +640,13 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       if (c.coordinator->Activity(existing->title_id) != rt::NativeActivity::kStopped)
         return "Close the game before updating or repairing its PS5 title.";
       bool changed = false;
-      if (!c.installer->TitleCurrent(*existing)) {
+      // Older titles carry the kit's generic name and icon: give them the game's.
+      const bool metadata_current = c.installer->TitleMetadataCurrent(*existing);
+      if (!metadata_current) {
+        const auto written = WriteTitleMetadata(c, *existing, request.title_name);
+        if (written.state != rt::PackageActionState::kComplete) return written.message;
+      }
+      if (!c.installer->TitleCurrent(*existing) || !metadata_current) {
         // Same kit id, runtime and recipe; only title files changed (for example
         // a new wrapper build). The registration and publication stay as they are.
         const auto refreshed = c.installer->RefreshTitle(*existing);
@@ -662,6 +724,9 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       record.artifacts.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
     const auto bound = c.repository.Update(record);
     if (!bound.ok()) return "The kit artifacts could not be recorded: " + bound.message();
+    if (const auto written = WriteTitleMetadata(c, record, request.title_name);
+        written.state != rt::PackageActionState::kComplete)
+      return written.message;
     PublishInstalls(c);
     started = c.service->Prepare(record.install_id);
   }

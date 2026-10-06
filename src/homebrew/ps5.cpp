@@ -11,6 +11,7 @@
 #include "platform/ps5/native_startup.h"
 #include "runtime/settings_storage.h"
 #include "homebrew/runtime_host.hpp"
+#include "homebrew/title_icon.hpp"
 #include "platform/ps5/console_services.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/kit_admission.h"
@@ -33,6 +34,7 @@
 #include "platform/ps5/system.hpp"
 
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -307,6 +309,14 @@ int main() {
                     std::fwrite(text.data(), 1, text.size(), file);
                     std::fclose(file);
                 }
+            };
+            // The game's PS5 title icon, from its Steam cover.
+            config.title_icon = [trust = paths.trust_store](std::uint32_t app) -> std::optional<std::string> {
+                playden::homebrew::HttpArtworkBackend backend(trust);
+                const std::atomic<bool> cancel{false};
+                const auto cover = backend.Load({1, app, "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
+                                                 std::to_string(app) + "/library_600x900.jpg"}, cancel);
+                return cover ? playden::homebrew::MakeTitleIcon(*cover) : std::nullopt;
             };
             // Play: start a prepared title with its session argument. LncUtil is
             // resolved through the system service module (its static imports are null).

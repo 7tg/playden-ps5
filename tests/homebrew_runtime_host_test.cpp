@@ -84,7 +84,7 @@ RuntimeSnapshot WaitFor(const RuntimeHost& host, const std::function<bool(const 
 }
 bool Started(const RuntimeSnapshot& s) { return s.status != RuntimeHostStatus::kStarting; }
 
-RuntimePrepareRequest Hl2() { return {220, "/data/homebrew/FAKE77031/games/220", "internal"}; }
+RuntimePrepareRequest Hl2() { return {220, "/data/homebrew/FAKE77031/games/220", "internal", "Half-Life \"2\""}; }
 
 RuntimeInstall Record() {
   RuntimeInstall record;
@@ -101,7 +101,9 @@ RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native"
                         const std::string& kit_id = "kit-1", char files_digest = 'a') {
   Write(kit / "titles/variant/eboot.bin", eboot, 0755);
   Write(kit / "titles/variant/sce_sys/param.json",
-        R"({"titleId":"FAKE78001","contentId":"UP9000-FAKE78001_00-PROSPEROWIN00001"})", 0644);
+        "{\n  \"contentId\": \"UP9000-FAKE78001_00-PROSPEROWIN00001\",\n  \"localizedParameters\": {\n"
+        "    \"en-US\": {\n      \"titleName\": \"Prospero Win\"\n    }\n  },\n  \"titleId\": \"FAKE78001\"\n}\n", 0644);
+  Write(kit / "titles/variant/sce_sys/icon0.png", "kit-icon", 0644);
   Write(kit / "runtime/wine/rev/lib/core.prx", "runtime", 0755);
   Write(kit / "template/bottle/system.reg", "WINE REGISTRY Version 2\n", 0644);
   Write(kit / "template/bottle/user.reg", "WINE REGISTRY Version 2\n", 0644);
@@ -118,6 +120,7 @@ RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native"
   view.variants.push_back({"variant", "FAKE78001", "titles/variant"});
   for (const auto& [path, mode] : std::vector<std::pair<std::string, unsigned>>{
            {"titles/variant/eboot.bin", 0755}, {"titles/variant/sce_sys/param.json", 0644},
+           {"titles/variant/sce_sys/icon0.png", 0644},
            {"runtime/wine/rev/lib/core.prx", 0755}, {"template/bottle/system.reg", 0644},
            {"template/bottle/user.reg", 0644}, {"template/bottle/drive_c/windows/win.ini", 0644},
            {"template/bottle/dosdevices/.pw-symlinks", 0644}, {"recipes/hl2.json", 0644}})
@@ -234,6 +237,9 @@ void PreparesExistingDownloadToReady() {
     ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
   };
   config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.title_icon = [](std::uint32_t app) -> std::optional<std::string> {
+    return app == 220 ? std::optional<std::string>("game-icon-png") : std::nullopt;
+  };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
   Write(game / "hl2.exe", "existing-game", 0644);
   Write(game / "bin/steam_api.dll", "unchanged-original-dll", 0644);
@@ -265,6 +271,14 @@ void PreparesExistingDownloadToReady() {
   struct stat title_info{};
   for (const auto* relative : {"data/homebrew/FAKE78001", "data/homebrew/FAKE78001/sce_sys"})
     CHECK(stat((fixture.root / relative).c_str(), &title_info) == 0 && (title_info.st_mode & 07777) == 0755);
+  // The PS5 title shows the game's own name and icon, not the kit's.
+  const auto param = Read(fixture.root / "data/homebrew/FAKE78001/sce_sys/param.json");
+  CHECK(param.find(R"("titleName": "Half-Life \"2\"")") != std::string::npos);
+  CHECK(param.find("Prospero Win") == std::string::npos && param.find("FAKE78001") != std::string::npos);
+  CHECK(Read(fixture.root / "data/homebrew/FAKE78001/sce_sys/icon0.png") == "game-icon-png");
+  CHECK(stat((fixture.root / "data/homebrew/FAKE78001/sce_sys/icon0.png").c_str(), &title_info) == 0 &&
+        (title_info.st_mode & 07777) == 0644);
+  CHECK(done.installs[0].title_current);
   // The descriptor binds the existing root; the bottle is private.
   const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
   CHECK(descriptor.find(R"("schema_version":2)") != std::string::npos);
@@ -463,6 +477,29 @@ void RepairsBottleRegistryModes() {
   CHECK(stat(user_reg.c_str(), &info) == 0 && (info.st_mode & 07777) == 0600);
   CHECK(fixture.registry_mutations == 2);
   host.Shutdown();
+
+  // A title prepared before per-game names keeps the kit's name and icon: it
+  // reports an update, and Update gives it the game's own without registering
+  // again.
+  std::error_code ignored;
+  fs::remove_all(fixture.root / "data/playden/games/steam-220/title-metadata", ignored);
+  const auto title_param = fixture.root / "data/homebrew/FAKE78001/sce_sys/param.json";
+  CHECK(chmod(title_param.c_str(), 0644) == 0);
+  Write(title_param, Read(fixture.root / "kit/titles/variant/sce_sys/param.json"), 0644);
+  auto named = config;
+  named.title_icon = [](std::uint32_t) -> std::optional<std::string> { return std::string("game-icon-png"); };
+  RuntimeHost upgraded(named);
+  CHECK(upgraded.Start());
+  CHECK(!WaitFor(upgraded, Started).installs[0].title_current);
+  upgraded.Prepare(Hl2());
+  const auto renamed = WaitFor(upgraded, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].title_current;
+  }, 60);
+  CHECK(!renamed.refusals.count(220));
+  CHECK(Read(title_param).find("Half-Life") != std::string::npos);
+  CHECK(Read(fixture.root / "data/homebrew/FAKE78001/sce_sys/icon0.png") == "game-icon-png");
+  CHECK(fixture.registry_mutations == 2);
+  upgraded.Shutdown();
 }
 
 // Play from Playden: the worker checks the Ready title and prepares a session;

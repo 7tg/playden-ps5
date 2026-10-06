@@ -135,6 +135,13 @@ class FilesystemPackageInstaller final : public PackageInstaller {
                              PackageInstallerOperations operations);
 
   PackageStatus Inspect(const RuntimeInstall& record) override;
+  // The game's own title name and icon, kept private beside its bottle. Staging
+  // and refresh copy them over the kit's param.json and icon0.png; no icon keeps
+  // the kit's.
+  PackageActionResult WriteTitleMetadata(const RuntimeInstall& record, const std::string& param_json,
+                                         const std::optional<std::string>& icon_png) override;
+  // The metadata was generated and the installed title carries it.
+  bool TitleMetadataCurrent(const RuntimeInstall& record) override;
   PackageActionResult StageTitle(const RuntimeInstall& record) override;
   PackageActionResult CopyTemplate(const RuntimeInstall& record) override;
   PackageActionResult ValidateArtifacts(const RuntimeInstall& record) override;
@@ -157,6 +164,7 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   bool ValidView() const;
   // Owner marker, exact file contents and modes, and published (0755) folders.
   bool TitleMatches(const RuntimeInstall& record, const ResolvedPaths& paths) const;
+  std::filesystem::path TitleMetadataPath(const RuntimeInstall& record, const std::string& relative) const;
   // Exact file contents and modes only, whatever the marker and folder modes say.
   bool TitleFilesMatch(const RuntimeInstall& record, const ResolvedPaths& paths) const;
   bool BottleOwned(const RuntimeInstall& record, const ResolvedPaths& paths) const;

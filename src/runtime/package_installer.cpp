@@ -26,6 +26,7 @@ extern "C" int playden_ps5_file_lock(int descriptor, int operation);
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <memory>
 
 namespace playden::runtime {
 namespace fs = std::filesystem;
@@ -34,7 +35,19 @@ struct FilesystemPackageInstaller::Mapping {
   const KitFile* file = nullptr;
   std::string source_relative;
   std::string destination_relative;
+  // Absolute source. Kit files come from the verified kit; a game's own title
+  // metadata (name and icon) comes from its private title-metadata folder, and
+  // then owned describes it with the kit file's destination mode.
+  fs::path source;
+  std::shared_ptr<const KitFile> owned;
 };
+
+namespace {
+// The title files a game replaces with its own metadata, and the marker that
+// says its metadata was generated.
+constexpr const char* kTitleMetadataFiles[] = {"sce_sys/param.json", "sce_sys/icon0.png"};
+constexpr const char* kTitleMetadataMarker = ".generated";
+}  // namespace
 
 struct FilesystemPackageInstaller::ResolvedPaths {
   fs::path title;
@@ -483,9 +496,72 @@ FilesystemPackageInstaller::TitleMappings(const RuntimeInstall& record) const {
     if (!IsSafeRelative(relative) || !IsSafeRelative(destination) ||
         !destinations.insert(destination).second)
       return {};
-    mappings.push_back({&file, file.path, destination});
+    Mapping mapping{&file, file.path, destination, kit_.root / file.path, nullptr};
+    for (const auto* metadata : kTitleMetadataFiles) {
+      if (destination != metadata) continue;
+      const auto own = TitleMetadataPath(record, destination);
+      std::error_code error;
+      if (own.empty() || !IsRegularNoSymlink(own)) continue;
+      const auto size = fs::file_size(own, error);
+      const auto digest = operations_.hash_file(own);
+      if (error || !digest) return {};
+      auto described = std::make_shared<KitFile>(KitFile{own.string(), size, *digest, file.mode});
+      mapping.file = described.get();
+      mapping.owned = std::move(described);
+      mapping.source = own;
+    }
+    mappings.push_back(std::move(mapping));
   }
   return mappings;
+}
+
+std::filesystem::path FilesystemPackageInstaller::TitleMetadataPath(const RuntimeInstall& record,
+                                                                    const std::string& relative) const {
+  const auto paths = Resolve(record);
+  if (!paths) return {};
+  return relative.empty() ? paths->game / "title-metadata" : paths->game / "title-metadata" / relative;
+}
+
+bool FilesystemPackageInstaller::TitleMetadataCurrent(const RuntimeInstall& record) {
+  const auto paths = Resolve(record);
+  if (!paths || !IsRegularNoSymlink(TitleMetadataPath(record, kTitleMetadataMarker))) return false;
+  for (const auto& mapping : TitleMappings(record)) {
+    if (!mapping.owned) continue;
+    const auto installed = paths->title / mapping.destination_relative;
+    const auto digest = IsRegularNoSymlink(installed) ? operations_.hash_file(installed) : std::nullopt;
+    if (!digest || *digest != mapping.file->sha256) return false;
+  }
+  return true;
+}
+
+PackageActionResult FilesystemPackageInstaller::WriteTitleMetadata(const RuntimeInstall& record,
+                                                                   const std::string& param_json,
+                                                                   const std::optional<std::string>& icon_png) {
+  const auto paths = Resolve(record);
+  if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
+  const auto root = TitleMetadataPath(record, {});
+  std::string detail;
+  if (!EnsurePrivateDirectories(paths_.host_data_root, paths->game, root / "sce_sys", &detail))
+    return Failed("private-directory", detail);
+  // Each file is written beside its final name, synced, then moved over it.
+  const auto replace = [&](const fs::path& path, const std::string& bytes) {
+    const auto temporary = path.parent_path() / ("." + path.filename().string() + ".new");
+    ::unlink(temporary.c_str());
+    if (!WriteFile(temporary, bytes, 0600) || !SyncPath(temporary, false) ||
+        ::rename(temporary.c_str(), path.c_str()) != 0 || !SyncPath(path.parent_path(), true)) {
+      ::unlink(temporary.c_str());
+      return false;
+    }
+    return true;
+  };
+  if (!replace(root / kTitleMetadataFiles[0], param_json))
+    return Failed("title-metadata", "the game's title name could not be written");
+  const auto icon = root / kTitleMetadataFiles[1];
+  if (icon_png ? !replace(icon, *icon_png) : (::unlink(icon.c_str()) != 0 && errno != ENOENT))
+    return Failed("title-metadata", "the game's title icon could not be written");
+  if (!replace(root / kTitleMetadataMarker, "1\n"))
+    return Failed("title-metadata", "the game's title metadata could not be recorded");
+  return Complete();
 }
 
 std::vector<FilesystemPackageInstaller::Mapping>
@@ -494,7 +570,7 @@ FilesystemPackageInstaller::TemplateMappings() const {
   for (const auto& file : kit_.files) {
     std::string relative;
     if (HasPrefix(file.path, kit_.template_path, &relative) && IsSafeRelative(relative))
-      mappings.push_back({&file, file.path, relative});
+      mappings.push_back({&file, file.path, relative, kit_.root / file.path, nullptr});
   }
   return mappings;
 }
@@ -804,12 +880,13 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     if (!mapping.file || mapping.file->size > std::numeric_limits<std::uint64_t>::max() - required)
       return Failed("kit-invalid", "kit file sizes overflow");
     required += mapping.file->size;
-    const auto source = kit_.root / mapping.source_relative;
+    const auto& source = mapping.source;
     bool mode_ok = false;
     std::error_code error;
-    if (!PathComponentsHaveNoSymlink(kit_.root, mapping.source_relative, true) ||
-        !IsRegularNoSymlink(source) || fs::file_size(source, error) != mapping.file->size ||
-        error || FileMode(source, &mode_ok) != mapping.file->mode || !mode_ok) {
+    // A game's own metadata file is private (0600); the title copy takes the kit mode.
+    if ((mapping.owned ? false : !PathComponentsHaveNoSymlink(kit_.root, mapping.source_relative, true)) ||
+        !IsRegularNoSymlink(source) || fs::file_size(source, error) != mapping.file->size || error ||
+        (!mapping.owned && (FileMode(source, &mode_ok) != mapping.file->mode || !mode_ok))) {
       return Failed("kit-source-invalid", "kit source is missing, linked, or has wrong mode");
     }
     const auto hash = operations_.hash_file(source);
@@ -881,7 +958,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   std::set<fs::path> copied_directories;
   for (const auto& mapping : mappings) {
     if (operations_.canceled && operations_.canceled()) return Canceled();
-    const auto source = kit_.root / mapping.source_relative;
+    const auto& source = mapping.source;
     const auto destination = staging / mapping.destination_relative;
     if (!PathComponentsHaveNoSymlink(staging, mapping.destination_relative, false))
       return Failed("destination-invalid", "staging destination contains a symbolic link");
@@ -1121,7 +1198,7 @@ PackageActionResult FilesystemPackageInstaller::RefreshTitle(const RuntimeInstal
       return Failed("refresh-layout", "title directory layout changed; a full upgrade is required");
     const auto temporary = destination.parent_path() / ("." + destination.filename().string() + ".refresh");
     ::unlink(temporary.c_str());
-    const auto source = kit_.root / mapping.source_relative;
+    const auto& source = mapping.source;
     const int input = ::open(source.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     const int output = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     bool ok = input >= 0 && output >= 0 && ::fchmod(output, mapping.file->mode) == 0;

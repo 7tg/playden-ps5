@@ -277,10 +277,11 @@ target_link_libraries(playden_homebrew_runtime_host PUBLIC playden_native_coordi
 
 add_library(playden_homebrew_artwork STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/artwork.cpp"
-    "${CMAKE_SOURCE_DIR}/src/homebrew/artwork_backend.cpp")
+    "${CMAKE_SOURCE_DIR}/src/homebrew/artwork_backend.cpp"
+    "${CMAKE_SOURCE_DIR}/src/homebrew/title_icon.cpp")
 target_compile_features(playden_homebrew_artwork PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_artwork PUBLIC "${CMAKE_SOURCE_DIR}/src"
-    PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
+    PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}" "${CMAKE_SOURCE_DIR}/third_party/ps5-homebrew-ui/third_party/stb")
 target_link_libraries(playden_homebrew_artwork PUBLIC playden_steam_http)
 
 add_library(playden_homebrew_artwork_cache STATIC "${CMAKE_SOURCE_DIR}/src/homebrew/artwork_cache.cpp")
@@ -440,6 +441,11 @@ if(BUILD_TESTING)
     add_executable(homebrew_runtime_host_test "${CMAKE_SOURCE_DIR}/tests/homebrew_runtime_host_test.cpp")
     target_link_libraries(homebrew_runtime_host_test PRIVATE playden_homebrew_runtime_host playden_runtime_artifact_hash)
     add_test(NAME homebrew_runtime_host COMMAND homebrew_runtime_host_test "${CMAKE_SOURCE_DIR}/runtime")
+    add_executable(homebrew_title_icon_test "${CMAKE_SOURCE_DIR}/tests/homebrew_title_icon_test.cpp")
+    target_compile_features(homebrew_title_icon_test PRIVATE cxx_std_20)
+    target_include_directories(homebrew_title_icon_test PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
+    target_link_libraries(homebrew_title_icon_test PRIVATE playden_homebrew_artwork)
+    add_test(NAME homebrew_title_icon COMMAND homebrew_title_icon_test)
     add_executable(homebrew_controller_tour_test "${CMAKE_SOURCE_DIR}/tests/homebrew_controller_tour_test.cpp")
     target_compile_features(homebrew_controller_tour_test PRIVATE cxx_std_20)
     target_link_libraries(homebrew_controller_tour_test PRIVATE playden_homebrew_model)

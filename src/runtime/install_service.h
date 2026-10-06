@@ -77,6 +77,11 @@ public:
   }
   // Whether a staged title was made from the admitted kit (cheap marker check).
   virtual bool TitleCurrent(const RuntimeInstall &) { return true; }
+  virtual PackageActionResult WriteTitleMetadata(const RuntimeInstall &, const std::string &,
+                                                 const std::optional<std::string> &) {
+    return {PackageActionState::kFailed, "unsupported", "title metadata is unsupported"};
+  }
+  virtual bool TitleMetadataCurrent(const RuntimeInstall &) { return true; }
   // Updates an installed title's immutable files to the admitted kit when only
   // the kit's file inventory changed (same kit id, variant, runtime, recipe).
   virtual PackageActionResult RefreshTitle(const RuntimeInstall &) {
