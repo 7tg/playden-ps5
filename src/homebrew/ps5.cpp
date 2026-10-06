@@ -312,13 +312,26 @@ int main() {
                     std::fclose(file);
                 }
             };
-            // The game's PS5 title icon, from its Steam cover.
-            config.title_icon = [trust = paths.trust_store](std::uint32_t app) -> std::optional<std::string> {
+            // The game's PS5 title icon, from its Steam cover; without one, the packaged
+            // generic icon. Only a missing generic icon leaves the kit's.
+            std::optional<std::string> generic_icon;
+            if (FILE* file = std::fopen((paths.assets_root + "/generic-title-icon.png").c_str(), "rb")) {
+                std::string bytes;
+                char chunk[4096];
+                for (std::size_t count; (count = std::fread(chunk, 1, sizeof(chunk), file)) > 0;)
+                    bytes.append(chunk, count);
+                std::fclose(file);
+                if (!bytes.empty()) generic_icon = std::move(bytes);
+            }
+            config.title_icon = [trust = paths.trust_store, generic_icon](std::uint32_t app) -> std::optional<std::string> {
                 playden::homebrew::HttpArtworkBackend backend(trust);
                 const std::atomic<bool> cancel{false};
                 const auto cover = backend.Load({1, app, "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
                                                  std::to_string(app) + "/library_600x900.jpg"}, cancel);
-                return cover ? playden::homebrew::MakeTitleIcon(*cover) : std::nullopt;
+                if (auto icon = cover ? playden::homebrew::MakeTitleIcon(*cover) : std::nullopt) return icon;
+                playden::app::AppendLogLine(log_root, "runtime.log", "title icon app=" + std::to_string(app) +
+                                            (generic_icon ? " uses the generic icon: no cover" : " has no cover or generic icon"));
+                return generic_icon;
             };
             // Play: start a prepared title with its session argument. LncUtil is
             // resolved through the system service module (its static imports are null).

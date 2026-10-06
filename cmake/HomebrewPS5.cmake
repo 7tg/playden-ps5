@@ -303,7 +303,7 @@ function(playden_add_homebrew_ps5_title)
 		COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
 		DEPENDS "${pie}" "${host_tool}" "${libc_prx}" "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
 			"${CMAKE_SOURCE_DIR}/cmake/WriteNativePackageIdentity.cmake"
-			"${CMAKE_SOURCE_DIR}/sce_sys/icon0.png"
+			"${CMAKE_SOURCE_DIR}/sce_sys/icon0.png" "${CMAKE_SOURCE_DIR}/assets/branding/generic-title-icon.png"
 			"${CMAKE_SOURCE_DIR}/sce_sys/pic0.dds" "${CMAKE_SOURCE_DIR}/sce_sys/pic1.dds"
 			"${PLAYDEN_STEAM_CA_BUNDLE}" ${package_inputs}
 		VERBATIM)
