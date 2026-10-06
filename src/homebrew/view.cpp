@@ -1961,16 +1961,29 @@ class Render::Impl
             if (focused && route_focus_)
                 stats_.focused_control_key = row.key;
             const float amount = control_focus(row.key, focused && route_focus_);
-            mac_button(scene_, {x, 682.0F - height * 0.5F, width, height}, label, primary, amount, !row.enabled,
-                       detail);
-            // Preparing or removing with a known fraction: a bar along the bottom of Play.
+            const gfx::Rect button{x, 682.0F - height * 0.5F, width, height};
             if (row.key == "details-play" && row.progress > 0.0F)
             {
-                const gfx::Rect track{x + 10.0F, 682.0F + height * 0.5F - 9.0F, width - 20.0F, 4.0F};
-                scene_.rounded_rect(track, 2.0F, kText.with_alpha(0.18F));
-                scene_.rounded_rect({track.x, track.y, track.w * std::clamp(row.progress, 0.0F, 1.0F), track.h}, 2.0F,
-                                    kText);
+                // Preparing or removing with a known fraction: Play is not dimmed; it is an
+                // outlined button that the accent fills from the left as the work advances.
+                scene_.push_transform(1.0F + 0.04F * amount, button.cx(), button.cy(), 0.0F, 0.0F);
+                focus_glow(scene_, button, amount);
+                scene_.rounded_rect(button, 8.0F, kAccent.with_alpha(0.14F));
+                scene_.rounded_rect({button.x, button.y, button.w * std::clamp(row.progress, 0.0F, 1.0F), button.h}, 8.0F,
+                                    kAccent.with_alpha(0.55F));
+                scene_.bordered_rect(button, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kAccent.with_alpha(0.7F));
+                const float detail_width = detail.empty() ? 0.0F : fonts_.semibold.measure(detail, 22.0F) + 18.0F;
+                const float content = std::min(button.w - 32.0F, fonts_.display.measure(label, 26.0F) + detail_width);
+                const float text_x = button.cx() - content * 0.5F;
+                ui::text(scene_, fonts_.display, label, text_x, button.cy() + 26.0F * 0.36F, 26.0F, kText);
+                if (!detail.empty())
+                    ui::text(scene_, fonts_.semibold, detail, text_x + content, button.cy() + 8.0F, 22.0F,
+                             kText.with_alpha(0.8F), gfx::Align::right);
+                focus_ring(scene_, button, amount);
+                scene_.pop_transform();
             }
+            else
+                mac_button(scene_, button, label, primary, amount, !row.enabled, detail);
             if (favorite && row.selected)
                 scene_.circle(x + width - 12.0F, 682.0F - height * 0.5F + 12.0F, 4.0F, kAccent);
             x += width + 14.0F;
