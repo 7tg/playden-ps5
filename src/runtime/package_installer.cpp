@@ -501,6 +501,31 @@ FilesystemPackageInstaller::TemplateMappings() const {
 
 namespace {
 bool TitleDirectoriesPublished(const fs::path& title);
+
+// Creates the missing folders of path with an explicit mode: console titles run
+// with umask 0, so the default would leave them writable by everyone. Existing
+// folders are left as they are.
+void CreateDirectoriesWithMode(const fs::path& path, mode_t mode, std::error_code& error) {
+  error.clear();
+  std::vector<fs::path> missing;
+  for (auto current = path; !current.empty() && current != current.root_path(); current = current.parent_path()) {
+    struct stat info{};
+    if (::lstat(current.c_str(), &info) == 0) {
+      if (!S_ISDIR(info.st_mode)) { error = std::make_error_code(std::errc::not_a_directory); return; }
+      break;
+    }
+    missing.push_back(current);
+  }
+  for (auto it = missing.rbegin(); it != missing.rend(); ++it) {
+    if (::mkdir(it->c_str(), mode) != 0 && errno != EEXIST) { error = std::error_code(errno, std::generic_category()); return; }
+    struct stat info{};
+    if (::lstat(it->c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::geteuid() ||
+        ((info.st_mode & 07777) != mode && ::chmod(it->c_str(), mode) != 0)) {
+      error = std::make_error_code(std::errc::permission_denied);
+      return;
+    }
+  }
+}
 }  // namespace
 
 bool FilesystemPackageInstaller::TitleMatches(
@@ -799,7 +824,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   if (staging_parent_relative.empty() ||
       !PathComponentsHaveNoSymlink(paths_.host_data_root, staging_parent_relative, true))
     return Failed("staging-unavailable", "owned staging root is unavailable");
-  fs::create_directories(staging.parent_path(), error);
+  CreateDirectoriesWithMode(staging.parent_path(), 0755, error);
   if (error)
     return Failed("staging-unavailable", "owned staging root is unavailable");
   if (!SyncAncestors(staging.parent_path()))
@@ -932,7 +957,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     if (!EnsurePrivateDirectories(paths_.host_data_root, game, final.parent_path(), &detail))
       return Failed("private-directory", detail);
   } else {
-    fs::create_directories(final.parent_path(), error);
+    CreateDirectoriesWithMode(final.parent_path(), 0755, error);
   }
   bool final_known = false;
   const bool final_exists = ExistsNoThrow(final, &final_known);

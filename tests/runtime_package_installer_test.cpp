@@ -567,6 +567,18 @@ void PrivateTitleFoldersAreRepublished() {
   CHECK(installer.Inspect(Record()).manifest_matches);
 }
 
+// Console titles run with umask 0: folders the installer creates still get an
+// explicit mode that others cannot write.
+void CreatedFoldersIgnoreUmask() {
+  const auto previous = ::umask(0);
+  Fixture fixture;
+  auto installer = fixture.Installer();
+  CHECK(installer.StageTitle(Record()).state == PackageActionState::kComplete);
+  ::umask(previous);
+  struct stat info{};
+  CHECK(::stat((fixture.host_data / "playden/staging").c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
+}
+
 void LateSyncFailureIsReestablishedOnRetry() {
   Fixture fixture;
   fixture.fail_title_post_rename_once = true;
@@ -863,6 +875,7 @@ int main() {
   NativeFsyncFallbackPublishesAtomically();
   LateSyncFailureIsReestablishedOnRetry();
   PrivateTitleFoldersAreRepublished();
+  CreatedFoldersIgnoreUmask();
   CollisionsTraversalSymlinksAndModesFailClosed();
   RestartDoesNotRecopyOrDestroyMutableFiles();
   CorruptPublicationAndInvalidDriveTableAreRejected();
