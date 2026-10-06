@@ -530,3 +530,20 @@ All 105 host tests, warning/diff checks and SDK v0.43 archive compilation pass.
 See [complete writer evidence](../../../results/20261006-publication-files/README.md).
 Production preflight/OWNER/registration, journal retirement, installer/UI wiring,
 final native link/acceptance and independent Task C review remain incomplete.
+
+
+### Task C read-only initial/update preflight
+
+Added the production read-only preflight for private-tree/lock/receipt policy,
+initial destination absence, exact prior shared-native complete-set verification,
+new profile/input collision refusal and frozen DXVK/registry before snapshots.
+Registry edits render before pending creation. Initial ownership-looking DXVK
+and identical desired bytes in new input paths grant no ownership. Default
+coordinator tests now use this adapter; isolated old-DXVK effect fixtures retain
+explicit test-only snapshot authorization, not initial production admission.
+
+All 105 host tests, warning/diff checks and SDK v0.43 archive compilation pass.
+See [preflight evidence](../../../results/20261006-publication-preflight/README.md).
+OWNER reservation/approved provenance/stopped activity and registration remain
+independent producer duties. Production operation creation, journal retirement,
+installer/UI wiring, final native link/review and PS5 acceptance remain open.

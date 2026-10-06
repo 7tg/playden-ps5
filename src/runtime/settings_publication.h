@@ -83,4 +83,11 @@ PackageActionResult ApplyPendingPublicationFiles(const SettingsPublicationOperat
     const PublicationPaths& paths, int borrowed_publisher_fd,
     const std::filesystem::path& host_namespace_prefix = {},
     const std::function<bool(const std::filesystem::path&)>& after_effect = {});
+// Read-only publication ownership preflight under the caller's exclusive lease.
+// Initial profile/input trees must be absent. Updates verify the exact prior
+// committed complete set. OWNER reservation/staging authorization remains the
+// producer's separate duty; this function never creates/adopts publication files.
+PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperation& operation,
+    const PublicationPaths& paths, int borrowed_publisher_fd,
+    const std::filesystem::path& host_namespace_prefix = {});
 }  // namespace playden::runtime

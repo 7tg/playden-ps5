@@ -471,4 +471,97 @@ PackageActionResult ApplyPendingPublicationFiles(const SettingsPublicationOperat
   }
   return publish(*profiles, paths.metadata, o.metadata_bytes, previous_digest);
 }
+PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperation& o,
+    const PublicationPaths& paths, int borrowed, const std::filesystem::path& prefix) {
+  std::string reason;
+  if (!EncodeSettingsPublicationOperation(o, &reason) || !PathsMatch(o, paths, prefix))
+    return Failure("publication-invalid", "Frozen preflight operation or canonical paths are invalid.");
+  auto data = ManagedDirectory::Open(Map(prefix, o.install.data_root), DirectoryPolicy::kPrivate);
+  auto control = data ? data->OpenChild(".playden-control", DirectoryPolicy::kPrivate) : std::nullopt;
+  auto held = [&] {
+    struct stat opened{}, named{};
+    return control && control->Validate() && borrowed >= 0 && fstat(borrowed, &opened) == 0 &&
+        control->InspectChild("publication.lock", &named) && S_ISREG(opened.st_mode) && S_ISREG(named.st_mode) &&
+        opened.st_uid == geteuid() && named.st_uid == geteuid() && opened.st_nlink == 1 && named.st_nlink == 1 &&
+        (opened.st_mode & 07777) == 0600 && (named.st_mode & 07777) == 0600 &&
+        opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
+  };
+  if (!held()) return Failure("publication-lock", "Preflight publisher descriptor is unavailable or changed.");
+  auto receipt = ReadReceipt(control->path(), *control);
+  const bool initial = o.previous_receipt_bytes.empty();
+  if (!receipt.ok || (initial ? !receipt.absent : receipt.absent || receipt.bytes != o.previous_receipt_bytes))
+    return Failure("publication-preflight-receipt", "Preflight requires the exact previous receipt or initial absence.");
+  auto library = data->OpenChild("library", DirectoryPolicy::kPrivate);
+  auto title = ManagedDirectory::Open(paths.descriptor.parent_path(), DirectoryPolicy::kApprovedTree);
+  struct stat title_info{};
+  if (!library || !title || lstat(title->path().c_str(), &title_info) || title_info.st_uid != geteuid() ||
+      ((title_info.st_mode & 07777) != 0700 && (title_info.st_mode & 07777) != 0755))
+    return Failure("publication-preflight-directory", "Owned library or staged title directory is unavailable.");
+  auto absent = [](const ManagedDirectory& directory, const std::string& name) {
+    struct stat value{};
+    return !directory.InspectChild(name, &value) && errno == ENOENT && directory.Sync();
+  };
+  PwTitlePublicationMetadata previous{}, desired{};
+  if (pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.metadata_bytes.data()),
+      o.metadata_bytes.size(), &desired) != PW_OK)
+    return Failure("publication-invalid", "Frozen preflight metadata is invalid.");
+  if (initial) {
+    if (!absent(*library, "profiles") || !absent(*library, "input") || !absent(*title, "game-launch.json"))
+      return Failure("publication-preflight-collision", "Initial publication destinations are already present or unsafe.");
+  } else {
+    const auto host = prefix.string(); PwTitlePublicationPlatform platform{};
+    platform.host_root = host.empty() ? nullptr : host.c_str(); platform.owner_uid = geteuid();
+    PwTitlePublicationDescriptor descriptor{}; PwTitlePublicationContents contents{}; char error[256]{};
+    auto hash = HashArtifactBytes(o.previous_metadata_bytes);
+    if (!hash || pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.previous_metadata_bytes.data()),
+        o.previous_metadata_bytes.size(), &previous) != PW_OK ||
+        pw_title_publication_read_descriptor(("/data/homebrew/" + o.install.title_id + "/game-launch.json").c_str(),
+        o.install.title_id.c_str(), &platform, &descriptor, error, sizeof(error)) != PW_OK ||
+        descriptor.launch.app_id != o.install.app_id ||
+        pw_title_publication_verify_locked(&descriptor, &platform, borrowed,
+        reinterpret_cast<const uint8_t*>(o.previous_receipt_bytes.data()), o.previous_receipt_bytes.size(),
+        hash->c_str(), &contents, error, sizeof(error)) != PW_OK)
+      return {PackageActionState::kFailed, "publication-preflight-previous", error[0] ? error : "Previous complete publication is invalid."};
+    auto profiles = library->OpenChild("profiles", DirectoryPolicy::kPrivate);
+    auto inputs = library->OpenChild("input", DirectoryPolicy::kPrivate);
+    if (!profiles || !inputs) return Failure("publication-preflight-directory", "Prior private publication directories are unavailable.");
+    if (previous.profile_id != o.plan.profile_id && !absent(*profiles, paths.profile.filename().string()))
+      return Failure("publication-preflight-collision", "New profile destination already exists without prior ownership.");
+    for (const auto& input : o.plan.input_presets) {
+      bool owned = false;
+      for (std::size_t i = 0; i < previous.input_count; ++i) if (input.first == previous.inputs[i].name) owned = true;
+      if (!owned && !absent(*inputs, input.first))
+        return Failure("publication-preflight-collision", "New input destination already exists without prior ownership.");
+    }
+  }
+  const auto dxvk = Map(prefix, desired.dxvk_path);
+  auto game = ManagedDirectory::Open(dxvk.parent_path(), DirectoryPolicy::kApprovedTree);
+  struct stat game_info{};
+  if (!game || lstat(game->path().c_str(), &game_info) || game_info.st_uid != geteuid() ||
+      ((game_info.st_mode & 07777) != 0700 && (game_info.st_mode & 07777) != 0755))
+    return Failure("publication-preflight-directory", "Owned game working directory is unavailable.");
+  auto before = ReadPublicationFile(*game, "dxvk.conf", 256 * 1024);
+  if (!before || before->present != o.dxvk_before.present || (before->present &&
+      (before->bytes != o.dxvk_before.bytes || before->mode != o.dxvk_before.mode)))
+    return Failure("publication-preflight-snapshot", "Live DXVK disagrees with the frozen before snapshot.");
+  if (before->present && (initial || std::string(previous.dxvk_path) != desired.dxvk_path || !previous.dxvk_present))
+    return Failure("publication-preflight-collision", "Existing DXVK lacks prior committed ownership.");
+  auto prefixes = library->OpenChild("prefixes", DirectoryPolicy::kPrivate);
+  auto bottle = prefixes ? prefixes->OpenChild("game", DirectoryPolicy::kPrivate) : std::nullopt;
+  auto registry = bottle ? ReadPublicationFile(*bottle, "user.reg", kMaxPublicationRegistryBackupBytes) : std::nullopt;
+  if (!registry || !registry->present)
+    return Failure("publication-preflight-registry", "Owned bottle registry is unavailable.");
+  if (o.registry_backup) {
+    auto backup = LoadPublicationRegistryBackup(control->path(), o.transaction_id, *o.registry_backup);
+    if (backup.state != PublicationRecoveryState::kValid || registry->bytes != backup.bytes ||
+        registry->mode != o.registry_backup->source_mode)
+      return Failure("publication-preflight-snapshot", "Live registry disagrees with its immutable before backup.");
+  }
+  auto rendered = registry->bytes;
+  if (!ApplyRegistryValues(&rendered, o.plan.registry, o.registry_unix_time, &reason) ||
+      rendered.size() > kMaxPublicationRegistryBackupBytes)
+    return Failure("publication-preflight-registry", "Frozen registry edits cannot be rendered against the original registry.");
+  if (!held()) return Failure("publication-lock", "Publisher ownership changed during preflight.");
+  return {PackageActionState::kComplete, {}, {}};
+}
 }  // namespace playden::runtime

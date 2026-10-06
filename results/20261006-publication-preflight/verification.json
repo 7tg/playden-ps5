@@ -1,0 +1,18 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-preflight-host-test.log"
+  },
+  "sdk": "v0.43 settings-publication static archive",
+  "preflight_default": "production implementation in coordinator tests",
+  "isolated_dxvk_effect_fixtures": "explicit test-only snapshot authorization seam",
+  "prior_set_verifier": "pinned pw_title_publication_verify_locked",
+  "production_owner_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/settings_publication.cpp": "6fdb4b92463e3a0b16ca821439c4c02ce45279cf2873252bf412ef6ad03b1736",
+    "src/runtime/settings_publication.h": "e6ac1acb07fb43873920f79140240e49e806515d9cdc2af589a12f0b0c4fd6c5",
+    "tests/runtime_settings_publication_test.cpp": "517cac68c829db46e0b655fc5ef21642cc80799ff07a76110d62a0083fbd62c0"
+  }
+}
