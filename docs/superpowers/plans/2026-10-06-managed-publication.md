@@ -135,8 +135,11 @@ remain Task B acceptance.
 `native/wine64_main.c`, `tools/build_native.sh`, `Makefile`, and kit packaging
 capability/provenance validation; Playden `cmake/ProsperoRuntime.cmake` and lock.
 
-**Interfaces:** native `pw_title_publication_open(const PwTitleLaunch*,
-PwTitlePublicationLease*, char*, size_t)` acquires the reader lock, reads and validates
+**Interfaces:** native `pw_title_publication_descriptor_parse` caches the bounded
+pre-grant `/app0` bytes and parsed launch identity. Post-grant
+`pw_title_publication_open(const PwTitlePublicationDescriptor*,
+const PwTitlePublicationPlatform*, PwTitlePublicationLease*, char*, size_t)`
+acquires the reader lock, reads and validates
 the committed receipt, and verifies its identity and completion metadata.
 The lease holds its descriptor through native title termination, including all
 Wine execution. Failure never starts Wine or silently selects another profile.
@@ -166,6 +169,19 @@ Qualify that refusal on the retained runtime rather than claim working child
 processes. A future runtime that enables children must add child-lifetime lease
 acceptance before admitting that capability.
 
+The guarded path uses the admitted cached profile and raw preset; overlay the
+profile input and apply its default mode without reopening those files. The
+platform supplies captured owner UID and qualified nonblocking reader-lock
+callback; production passes no host namespace prefix. Init/failed/closed leases
+have descriptor `-1`, including early startup exits.
+
+Capability admission is committed in Playden `9744698` and producer `1b87551`.
+The owner must explicitly allow the guard and supply an independent provider
+provenance digest; every variant needs exact guard, descriptor-required and
+provider markers. Default production trust is unchanged. Packaging tests,
+independent producer/consumer review, and the 100-test host suite pass. Wrapper
+wiring compiles with SDK v0.42; full native guard and PS5 acceptance are pending.
+
 - [ ] RED: missing descriptor never falls back for a managed variant; pending or
   altered commit/profile/input/descriptor never reaches Wine; an intervening
   commit cannot mix the pre-elevation descriptor with new profile bytes.
@@ -187,12 +203,17 @@ acceptance before admitting that capability.
 `src/runtime/settings_publication.h`, `package_installer.{h,cpp}` and relevant
 CMake targets.
 
-**Interfaces:** `PublishSettingsOperation(const RuntimeInstall&, const
-SettingsLaunchPlan&, const PublicationPaths&, PublicationDependencies&)` returns
+**Interfaces:** `PublishSettingsOperation(const SettingsPublicationOperation&,
+const PublicationPaths&, PublicationDependencies&)` returns
 `PackageActionResult`. Dependencies provide durable operation storage, the shared
 lock/receipt adapter, positively stopped native activity, actual hash operations
 and existing OWNER parsers. Freeze the supplied plan and record; a changed recipe
 or revision requires a new operation, never changes a recovering transaction.
+The operation contains the install record, complete settings launch plan,
+profile/input/descriptor publication bytes, transaction ID and previous revision.
+Durable recovery loading distinguishes absent, valid, corrupt and unavailable;
+do not conflate these states through an optional snapshot. Large registry backups
+use private transaction-specific files bound by digest.
 
 Acquire publisher ownership, persist the operation journal, then sync pending
 receipt before creating profile/input directories or invoking `ApplySettingsFiles`.
@@ -203,6 +224,23 @@ receipt last, then reconcile the OWNER record. Any failure keeps readiness
 blocked and preserves recovery evidence; a failed rollback does not clear pending.
 Initial retry accepts only its matching receipt/operation snapshot or verified
 committed metadata. Unknown files or changed identities remain collisions.
+
+Read-only preparation audit confirmed these changes are necessary: the installer
+currently writes/checks schema 1 and a profile-only success shortcut, creates
+publication directories before the callback, and uses final metadata as initial
+retry ownership proof. Replace that shortcut with complete committed receipt and
+semantic settings verification. Generate schema 2 through the shared serializer,
+including catalog/input/DXVK/registry expectations and its 32768-byte bound.
+Validate exact `0600` control files separately from durable Storage's legacy
+`0644` read allowance. The existing settings helper's immediate rollback and
+fixed backup name do not supply durable transaction recovery.
+
+Keep the publisher lease through committed receipt verification. Initial install
+still needs native registration before Ready; registered-title settings updates
+verify that registration without restaging the bottle/title. A failed Ready write
+reconciles the committed operation without reallocation, repeated registration or
+settings application. Positive stopped-activity checking remains a caller duty,
+separate from file locking.
 
 - [ ] RED: fail after each mkdir, registry/DXVK edit, file rename, metadata commit
   and receipt commit; reconstruct and retry without overwriting downloads/saves.

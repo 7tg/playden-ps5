@@ -58,6 +58,16 @@ packaging creates output. The reviewed provider provenance digest is
 Observed RED: an unguarded native variant advertising the guard was accepted.
 GREEN: 34 Python packager tests, 8 producer/consumer integration tests, focused
 consumer manifest and real-crypto admission tests, and a freshly rebuilt
-50-test host-fixtures suite passed. Independent read-only review found no
+50-test host-fixtures suite and full 100-test homebrew-host suite passed.
+Independent read-only review found no
 actionable issues. These gates verify declared provenance against owner trust;
 they do not qualify native admission or enable the capability in production.
+
+Wrapper wiring and its nonblocking PS5 lock adapter compiled with the actual
+SDK v0.42/foundation `9c0b994` compiler under `-Wall -Wextra -Werror`. Independent
+source review covered descriptor timing, admission before session/Wine startup,
+cached input/profile use, exit ordering and provider/build-marker consistency.
+The build's pinned-provider check accepted the reviewed inventory and refused
+mutated provenance/configuration in an isolated fixture before helper/network or
+build actions. Scalar provider Makefile target passed. Complete wrapper build,
+native guard qualification and cross-process console acceptance remain pending.
