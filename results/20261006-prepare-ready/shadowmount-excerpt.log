@@ -1,0 +1,98 @@
+[11:37:08]   [MANUAL] API added source: /data/homebrew/FAKE78002
+[11:43:58]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:43:58]   [MANUAL] scanned 2 manual source(s)
+[11:43:58]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:43:58]   [MANUAL] scanned 2 manual source(s)
+[11:44:13]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:44:13]   [MANUAL] scanned 2 manual source(s)
+[11:44:28]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:44:28]   [MANUAL] scanned 2 manual source(s)
+[11:44:43]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:44:43]   [MANUAL] scanned 2 manual source(s)
+[11:44:58]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:44:58]   [MANUAL] scanned 2 manual source(s)
+[11:45:13]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:45:13]   [MANUAL] scanned 2 manual source(s)
+[11:45:28]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:45:28]   [MANUAL] scanned 2 manual source(s)
+[11:45:43]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:45:43]   [MANUAL] scanned 2 manual source(s)
+[11:45:58]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:45:58]   [MANUAL] scanned 2 manual source(s)
+[11:46:13]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:46:13]   [MANUAL] scanned 2 manual source(s)
+[11:46:28]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:46:28]   [MANUAL] scanned 2 manual source(s)
+[11:46:43]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:46:43]   [MANUAL] scanned 2 manual source(s)
+[11:46:58]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:46:58]   [MANUAL] scanned 2 manual source(s)
+[11:47:13]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:47:13]   [MANUAL] scanned 2 manual source(s)
+[11:47:28]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:47:28]   [MANUAL] scanned 2 manual source(s)
+[11:47:43]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:47:43]   [MANUAL] scanned 2 manual source(s)
+[11:47:59]   [MANUAL] expected game directory or image file: /data/homebrew/FAKE78002
+[11:47:59]   [MANUAL] scanned 2 manual source(s)
+[11:48:04]   [MDBG] tracking crash-candidate state: FAKE77031 pid=1199 app_id=0x00002018
+[11:48:04]   [MDBG] log monitor ready: FAKE77031 buffer_size=0x20018
+[11:49:05]   [MANUAL] scanned 2 manual source(s)
+[11:49:05]   [ACTION] Installing: Prospero Win (FAKE78002)
+[11:49:05] NOTIFY: Installing: Prospero Win (FAKE78002)...
+[11:49:05]   [LINK] nullfs mounted: /data/homebrew/FAKE78002 -> /system_ex/app/FAKE78002
+[11:49:05]   [LINK] mount.lnk created: /user/app/FAKE78002/mount.lnk -> /data/homebrew/FAKE78002
+[11:49:06]   [SHELLCORE] AppInstallAll bridge consumed: FAKE78002 result=0x00000000
+[11:49:06]   [REG] Installed NEW!
+[11:49:06] NOTIFY: installed game FAKE78002
+[11:49:06]   [MANUAL] installed status recorded: Prospero Win (FAKE78002) from /data/homebrew/FAKE78002
+[11:49:06]   [LINK] runtime layers released: FAKE78002
+[11:49:12]   [MDBG] tracking crash-candidate state: FAKE77031 pid=1205 app_id=0x00004018
+[11:49:12]   [MDBG] log monitor ready: FAKE77031 buffer_size=0x20018
+[11:52:22]   [SHELLCORE] game switch prepared: outgoing=FAKE77031 incoming=FAKE78002
+[11:52:22]   [LINK] nullfs mounted: /data/homebrew/FAKE78002 -> /system_ex/app/FAKE78002
+[11:52:22]   [SHELLCORE] launch mount ready: FAKE78002
+[11:52:22]   [SHELLCORE] sandbox ready handled: FAKE78002
+[11:52:22]   [GAME] started: FAKE78002 pid=1210 app_id=0x00006018
+[11:52:22]   [KSTUFF] handoff tracked game pid=1205 (FAKE77031) -> pid=1210 (FAKE78002)
+[11:52:22]   [MDBG] tracking crash-candidate state: FAKE78002 pid=1210 app_id=0x00006018
+[11:52:22]   [MDBG] log monitor ready: FAKE78002 buffer_size=0x20018
+[11:52:22]   [KSTUFF] tracking game launch: FAKE78002 pid=1210 app_id=0x00006018 source=direct pause_delay=15s
+[11:52:25]   [MDBG] crash-candidate: FAKE78002 pid=1210 flags=0x0008c102
+[11:52:25]   [MDBG] FAKE78002 crashed before kstuff auto-pause: crash-candidate
+[11:52:25] NOTIFY: FAKE78002 crashed before KStuff was paused. KStuff is not the cause.
+[11:52:26]   [GAME] process exited, awaiting same-app handoff: FAKE78002 pid=1210 app_id=0x00006018
+[11:52:27]   [GAME] finalizing stopped application: FAKE78002 pid=1210
+[11:52:27]   [KSTUFF] game stopped: FAKE78002 pid=1210
+[11:52:27]   [SHELLCORE] runtime release awaiting sandbox removal: FAKE78002
+[11:52:27]   [DB] snd0info normalized after game exit rows=0 title=FAKE78002
+[11:52:27]   [SHELLCORE] title sandbox gone; releasing runtime: FAKE78002
+[11:52:27]   [SHELLCORE] runtime release start: FAKE78002
+[11:52:27]   [LINK] runtime layers released: FAKE78002
+[11:52:43]   [MANUAL] scanned 2 manual source(s)
+[11:52:58]   [MANUAL] scanned 2 manual source(s)
+[11:53:13]   [MANUAL] scanned 2 manual source(s)
+[11:53:28]   [MANUAL] scanned 2 manual source(s)
+[11:53:36]   [LINK] nullfs mounted: /data/homebrew/FAKE78002 -> /system_ex/app/FAKE78002
+[11:53:36]   [SHELLCORE] launch mount ready: FAKE78002
+[11:53:36]   [SHELLCORE] sandbox ready handled: FAKE78002
+[11:53:36]   [GAME] started: FAKE78002 pid=1217 app_id=0x00008018
+[11:53:36]   [MDBG] tracking crash-candidate state: FAKE78002 pid=1217 app_id=0x00008018
+[11:53:36]   [MDBG] log monitor ready: FAKE78002 buffer_size=0x20018
+[11:53:36]   [KSTUFF] tracking game launch: FAKE78002 pid=1217 app_id=0x00008018 source=direct pause_delay=15s
+[11:53:39]   [MDBG] crash-candidate: FAKE78002 pid=1217 flags=0x0008c102
+[11:53:39]   [MDBG] FAKE78002 crashed before kstuff auto-pause: crash-candidate
+[11:53:39] NOTIFY: FAKE78002 crashed before KStuff was paused. KStuff is not the cause.
+[11:53:41]   [GAME] process exited, awaiting same-app handoff: FAKE78002 pid=1217 app_id=0x00008018
+[11:53:42]   [GAME] finalizing stopped application: FAKE78002 pid=1217
+[11:53:42]   [KSTUFF] game stopped: FAKE78002 pid=1217
+[11:53:42]   [SHELLCORE] runtime release awaiting sandbox removal: FAKE78002
+[11:53:42]   [DB] snd0info normalized after game exit rows=0 title=FAKE78002
+[11:53:42]   [SHELLCORE] title sandbox gone; releasing runtime: FAKE78002
+[11:53:42]   [SHELLCORE] runtime release start: FAKE78002
+[11:53:42]   [LINK] runtime layers released: FAKE78002
+[11:53:57]   [MANUAL] scanned 2 manual source(s)
+[11:54:12]   [MANUAL] scanned 2 manual source(s)
+[11:54:27]   [MANUAL] scanned 2 manual source(s)
+[11:54:38]   [MDBG] tracking crash-candidate state: FAKE77031 pid=1224 app_id=0x0000A018
+[11:54:38]   [MDBG] log monitor ready: FAKE77031 buffer_size=0x20018

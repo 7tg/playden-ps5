@@ -1,0 +1,35 @@
+== session-1.log
+PW_REPORT/1 build=5f1d8deaf953eadef38df99e0ecc6c8cd6af5ae0 profile=playden-steam-220 cycle=0 pid=1217 time=1791280418
+REC seq=1 t=78838.172551251 PW_WINE64 hid preload libSceKeyboard id=0x106 status=0 handle=208
+REC seq=2 t=78838.174687150 PW_WINE64 hid preload libSceMouse id=0xa9 status=0 handle=209
+REC seq=3 t=78839.833806819 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 credential_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/download0/prospero-win
+REC seq=4 t=78839.851745259 PW_WINE64 session id=da0b676e-fe40-45dd-83d7-77dd987213d2 origin=home phase=starting
+REC seq=5 t=78839.851757528 PW_WINE64 library status=ok listed_by=0 scan_errno=0 entries=1 games=1 root=/data/playden/games/steam-220/library
+REC seq=6 t=78839.864632099 PW_WINE64 args argc=1 mode=game profile=playden-steam-220 cycle=0 refused=0
+REC seq=7 t=78839.864713888 PW_WINE64 profile id=playden-steam-220 prefix=/data/playden/games/steam-220/library/prefixes/game desktop=1920x1080 scaling=0 view=window show_fps=0 refresh=60 gl_thread=0 input=ok preset=- mode=xinput mouse=0 dll_overrides=d3d9=n
+REC seq=8 t=78839.864721506 PW_WINE64 cpus online=16
+REC seq=9 t=78839.867909598 PW_WINE64 prefix temp folders=2 last=users/prospero/AppData/Local/Temp
+REC seq=10 t=78839.867913206 PW_WINE64 arguments words=12 line=-game hl2 -steam -w 1920 -h 1080 -novid +exec 360controller.cfg +joystick 1
+REC seq=11 t=78839.867954822 PW_WINE64 runtime not at /app0/win/wine/lib/wine/x86_64-unix
+REC seq=12 t=78839.867991387 PW_WINE64 ntdll=/mnt/sandbox/FAKE78002_000/app0/win/wine/lib/wine/x86_64-unix/ntdll.prx prefix=/data/playden/games/steam-220/library/prefixes/game exe=Z:\data\homebrew\FAKE77031\games\220\hl2.exe
+REC seq=13 t=78839.871472878 PW_WINE64 load status=0 stage=6 module=0x20d2 segments=4 module_start=0 adopted=1 stats=1
+REC seq=14 t=78839.871492202 PW_WINE64 output_sink=1
+REC seq=15 t=78839.876190908 PW_WINE64 hid keyboard module=0xd0 init=0 open=0x1050700 user=<redacted>
+REC seq=16 t=78839.876283361 PW_WINE64 hid mouse module=0xd1 init=0 open=0x60700 merged=1 user=<redacted>
+REC seq=17 t=78839.878089378 PW_WINE64 display present_sink=1 frames=1 post_input=1 xinput=1 video=ok pad=ok hid=ok
+REC seq=18 t=78839.878926032 PW_WINE64 audio sink=1 port=536870912 status=ok
+REC seq=19 t=78839.878931725 PW_WINE64 cwd=Z:\data\homebrew\FAKE77031\games\220 host=/data/homebrew/FAKE77031/games/220 status=0
+REC seq=20 t=78839.878944635 PW_WINE64 environment status=0
+REC seq=21 t=78839.880655151 PW_WINE64 run status=0
+REC seq=22 t=78839.880657236 PW_WINE64 thread entered, calling __wine_main
+REC seq=23 t=78839.880667098 WINE wine startup: init_paths
+REC seq=24 t=78839.881862503 WINE wine startup: virtual_init
+REC seq=25 t=78839.882180919 WINESERVER wine-ps5: direct memory in use for anonymous memory (region 10000, 1663 MiB)
+REC seq=26 t=78839.882360614 WINE wine startup: init_environment
+REC seq=27 t=78839.882819436 WINE wine startup: start_main_thread
+REC seq=28 t=78839.882822803 WINE wine startup: virtual_alloc_first_teb
+REC seq=29 t=78839.883208094 WINE wine startup: dbg_init
+REC seq=30 t=78839.883215632 WINE wine startup: server_init_process
+REC seq=31 t=78839.886992365 PW_WINE64 exit sink_calls=7
+REC seq=32 t=78839.886994770 WINESERVER wineserver: /data/playden/games/steam-220/library/prefixes/game is not owned by you
+REC seq=33 t=78839.906896631 PW_WINE64 session_end reason=wine64-exit

@@ -1,0 +1,52 @@
+
+=== connection ('10.0.1.68', 63644) 11:52:59 ===
+HELLO ps5log/1 title=LAPYOWN app=lapy-owned-root-daemon boot=0x47b3fa85cc73 tag=fw1360-input
+1	78838328278154	MARK	daemon_start build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c firmware=13600007 title=FAKE78002 service=0 require_client_result=0 max_requests=0
+2	78838328369566	MARK	self_directory build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c private_fd=1 root_system=1 jail_null=1 cwd_root=1 cred_refs=25 threads=1
+3	78838328452958	MARK	self_credential_state build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c native_clone=1 private_cred=1 cred_refs=2
+4	78838328460656	MARK	self_credential build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c native_clone=1 refs=2
+5	78838328473486	MARK	group_layout build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c valid=1 error=0
+6	78838329228913	MARK	thread_credential_slot build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c offset=320
+7	78838329254091	MARK	root_sample build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c phase=layout_before hold=65 use=64
+8	78838379753826	MARK	root_sample build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c phase=layout_donor hold=67 use=66
+9	78838429975319	MARK	root_sample build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c phase=layout_released hold=65 use=64
+10	78838430001619	MARK	root_layout_probe build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c attempt=1 valid=1 error=0 retryable=0 before_hold=65 before_use=64 donor_hold=67 donor_use=66 released_hold=65 released_use=64
+11	78838430013006	MARK	root_layout build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c valid=1 error=0 attempts=1
+12	78838430147317	MARK	root_sample build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c phase=helper_before hold=65 use=64
+13	78838430295098	MARK	target_state build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c pid=1217 fd_refs=1 cred_refs=2 threads=1 suspended=0 root_old=1 jail_old=1 prison0=1
+14	78838430420107	MARK	target_preflight build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c pid=1217 private_fd=1 private_cred=1 threads=1 root_jail_alias=1 cwd_old=1
+15	78838530879369	MARK	target_stopped build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c pid=1217 threads=1 private_fd=1 private_cred=1
+16	78838531076706	MARK	credentials_applied build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c private_cred=1 uid_zero=1 sony_full=1
+17	78838732707677	MARK	root_sample build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c phase=donors_ready hold=69 use=68
+18	78838733242353	MARK	roots_committed build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c pid=1217 two_native_refs=1 old_roots_received=1
+19	78838833509090	MARK	root_sample build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c phase=donors_reaped hold=67 use=66
+20	78838833534429	MARK	donor_balance build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c expected_two=1
+21	78838833589837	MARK	request_result build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c stage=complete error=0 pid=1217 roots_moved=1 cred_changed=1 detached=1 donors_reaped=1
+22	78838833625760	MARK	daemon_result build=3a4cd2b7fef22396a658249c73aaf81cecf6ec234d3719b7bb3a21877c555b5c stage=helper_request error=0 pid=-1 acknowledged=0 root_balanced=1
+BYE seq=22 reason=daemon-complete
+
+=== connection ('10.0.1.68', 54950) 11:54:01 ===
+HELLO ps5log/1 title=LAPYOWN app=lapy-owned-root-daemon boot=0x47c26750f16e tag=fw1360-input
+1	78900283077071	MARK	daemon_start build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 firmware=13600007 title=FAKE77031 service=0 require_client_result=0 max_requests=0
+2	78900283190694	MARK	self_directory build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 private_fd=1 root_system=1 jail_null=1 cwd_root=1 cred_refs=25 threads=1
+3	78900283292209	MARK	self_credential_state build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 native_clone=1 private_cred=1 cred_refs=2
+4	78900283302552	MARK	self_credential build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 native_clone=1 refs=2
+5	78900283326207	MARK	group_layout build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 valid=1 error=0
+6	78900284367174	MARK	thread_credential_slot build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 offset=320
+7	78900284394918	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=layout_before hold=65 use=64
+8	78900334998334	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=layout_donor hold=67 use=66
+9	78900385228245	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=layout_released hold=65 use=64
+10	78900385255108	MARK	root_layout_probe build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 attempt=1 valid=1 error=0 retryable=0 before_hold=65 before_use=64 donor_hold=67 donor_use=66 released_hold=65 released_use=64
+11	78900385262324	MARK	root_layout build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 valid=1 error=0 attempts=1
+12	78900385359188	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=helper_before hold=65 use=64
+13	78900385467840	MARK	target_state build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 pid=1224 fd_refs=1 cred_refs=2 threads=1 suspended=0 root_old=1 jail_old=1 prison0=1
+14	78900385599344	MARK	target_preflight build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 pid=1224 private_fd=1 private_cred=1 threads=1 root_jail_alias=1 cwd_old=1
+15	78900486176719	MARK	target_stopped build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 pid=1224 threads=1 private_fd=1 private_cred=1
+16	78900488100848	MARK	credentials_applied build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 private_cred=1 uid_zero=1 sony_full=1
+17	78900690222073	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=donors_ready hold=69 use=68
+18	78900690682899	MARK	roots_committed build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 pid=1224 two_native_refs=1 old_roots_received=1
+19	78901143217179	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=donors_reaped hold=67 use=66
+20	78901143235301	MARK	donor_balance build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 expected_two=1
+21	78901143289266	MARK	request_result build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 stage=complete error=0 pid=1224 roots_moved=1 cred_changed=1 detached=1 donors_reaped=1
+22	78901143306666	MARK	daemon_result build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 stage=helper_request error=0 pid=-1 acknowledged=0 root_balanced=1
+BYE seq=22 reason=daemon-complete
