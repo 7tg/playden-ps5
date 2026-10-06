@@ -1,4 +1,5 @@
 #include "platform/managed_directory.h"
+#include "platform/managed_file_lock.h"
 #include "platform/storage.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/private_directories.h"
@@ -250,6 +251,25 @@ void RunManagedFilesystemProbe(FILE* log) {
   if (!check(writer_closed && playden_ps5_probe_flock(reader, LOCK_SH | LOCK_NB) == 0,
              "publication-lock-writer-close-release")) { close_locks(); return; }
   close_locks();
+  using platform::ManagedFileLock;
+  using platform::LockMode;
+  auto lease_reader = ManagedFileLock::Acquire(*parent, "publication.lock", LockMode::kReader);
+  auto second_reader = ManagedFileLock::Acquire(*parent, "publication.lock", LockMode::kReader);
+  if (!check(lease_reader && second_reader &&
+             !ManagedFileLock::Acquire(*parent, "publication.lock", LockMode::kPublisher),
+             "publication-production-shared-excludes-writer")) return;
+  lease_reader.reset();
+  if (!check(!ManagedFileLock::Acquire(*parent, "publication.lock", LockMode::kPublisher),
+             "publication-production-last-reader-required")) return;
+  second_reader.reset();
+  auto lease_writer = ManagedFileLock::Acquire(*parent, "publication.lock", LockMode::kPublisher);
+  if (!check(lease_writer &&
+             !ManagedFileLock::Acquire(*parent, "publication.lock", LockMode::kReader),
+             "publication-production-exclusive-excludes-reader")) return;
+  lease_writer.reset();
+  if (!check(bool(ManagedFileLock::Acquire(*parent, "publication.lock", LockMode::kReader)) &&
+             !ManagedFileLock::Acquire(*parent, "missing.lock", LockMode::kPublisher),
+             "publication-production-release-no-create")) return;
   std::fprintf(log, "managed-filesystem complete euid=%u sha256=%s\n", unsigned(geteuid()), digest->c_str());
   std::fflush(log);
 }

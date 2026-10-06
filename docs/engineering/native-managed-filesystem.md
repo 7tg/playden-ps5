@@ -152,3 +152,16 @@ descriptions obey shared/exclusive nonblocking exclusion and close releases lock
 A production wrapper/publisher guard still needs the stable-inode protocol,
 pending ownership receipt, interruption tests and cross-process native acceptance.
 Do not infer that Home/settings races are solved from this primitive check.
+
+`ManagedFileLock` admits a preexisting private `0600`, current-EUID-owned,
+regular single-link inode through `ManagedDirectory`. It takes a nonblocking
+shared reader or exclusive publisher lease and rechecks directory, named-file
+and held-descriptor identities. Failed admission closes/releases the descriptor;
+move/destruction release only the held lease. Callers create and sync the stable
+file before use and never replace it. This remains a cooperating-writer contract.
+Hosts use `flock`; PS5 uses the qualified `SYS_flock` gateway, with an unavailable
+provider refusing acquisition. No acquisition creates or edits a file. Actual
+PS5 PID1089 exercised this production adapter's multiple-reader exclusion,
+last-reader release, exclusive-reader exclusion and missing-file refusal. Host
+process-exit release passed; cross-process PS5 wrapper/Wine lifetime acceptance
+remains pending. See the production-lock native log in the evidence directory.

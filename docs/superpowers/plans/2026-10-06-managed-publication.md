@@ -49,13 +49,17 @@ UUID), `install_id`, `title_id`, `kit_id`, `runtime_bundle_id`, `recipe_id`,
 `plan_sha256`, and `publication_sha256`. The last digest is empty while pending;
 when committed it binds the exact schema-2 completion metadata. Reject unknown
 fields, duplicate fields, unsupported versions, malformed digests and identity
-drift. Initial `previous_revision` is zero; a pending receipt preserves the
+drift. `previous_revision` must not exceed `settings_revision`;
+initial `previous_revision` is zero; a pending receipt preserves the
 previous committed revision and never implies it is safe to launch.
 
 Completion metadata schema 2 retains the strict flat LF marker format and the
-existing bounded identity/revision/profile/descriptor/input fields. It adds
+existing bounded identity/revision/profile/descriptor/input fields, replacing
+`input.N.name` with hex-encoded `input.N.name_hex`. Input names are unique under
+case-insensitive comparison, single safe filenames ending in `.input`. It adds
 `catalog_sha256`, `dxvk.path_hex`, `dxvk.present` (exactly `0` or `1`),
-`dxvk.sha256` (empty when absent), and `registry_count`. Every registry entry
+`dxvk.sha256` (empty when absent), and `registry_count`. The canonical DXVK path
+is required even when absent, so the absence expectation has an explicit target. Every registry entry
 requires `registry.N.key_hex`, `.name_hex`, `.kind` (`absent`, `string`, `dword`),
 `.string_hex`, and `.dword` (eight lowercase hex digits for a DWORD). Fields that
 do not apply must be empty. Reject unknown/duplicate fields, missing indices,

@@ -78,7 +78,9 @@ target_include_directories(playden_runtime_install_service PUBLIC "${CMAKE_SOURC
 target_compile_features(playden_runtime_install_service PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_install_service PUBLIC playden_runtime_installs)
 
-add_library(playden_managed_directory STATIC "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+add_library(playden_managed_directory STATIC
+    "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/managed_file_lock.cpp")
 target_include_directories(playden_managed_directory PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_managed_directory PUBLIC cxx_std_17)
 target_link_libraries(playden_storage PUBLIC playden_managed_directory)
@@ -116,6 +118,19 @@ target_include_directories(playden_native_access PUBLIC "${CMAKE_SOURCE_DIR}/src
 target_compile_features(playden_native_access PUBLIC cxx_std_17)
 
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(managed_file_lock_test
+        "${CMAKE_SOURCE_DIR}/tests/managed_file_lock_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_file_lock.cpp")
+    target_compile_definitions(managed_file_lock_test PRIVATE flock=playden_test_flock)
+    target_link_libraries(managed_file_lock_test PRIVATE playden_managed_directory)
+    add_test(NAME managed_file_lock COMMAND managed_file_lock_test)
+    add_executable(managed_file_lock_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/managed_file_lock_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_file_lock.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(managed_file_lock_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_link_libraries(managed_file_lock_native_policy_test PRIVATE playden_managed_directory)
+    add_test(NAME managed_file_lock_native_policy COMMAND managed_file_lock_native_policy_test)
     add_executable(durable_storage_test "${CMAKE_SOURCE_DIR}/tests/durable_storage_test.cpp")
     target_link_libraries(durable_storage_test PRIVATE playden_storage ${CMAKE_DL_LIBS})
     add_test(NAME durable_storage COMMAND durable_storage_test)

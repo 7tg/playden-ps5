@@ -117,3 +117,24 @@ The combined host suite passed 95/95. Durable storage/launch focused tests also
 passed 4/4 under independent review, covering real file/directory sync errors,
 private root/symlink refusal, immutable history and stopped retry behavior after
 uncertain publication. New APIs preserve the general Steam storage behavior.
+
+## Production lock adapter
+
+[production-lock-native.log](production-lock-native.log) records fresh PID1089,
+EUID1, root `/data/playden/managed-fs-1089-1791249449`. Probe binary SHA-256:
+`86d58f5f6fcfa6598beae1150264fee5f056f68c70165d4c76c34c6c0598c9a3`;
+package identity SHA-256:
+`94ba6dcb7fa2de593918893525befa3e824cd8fb393beafb886e7bea76eaf12d`.
+Direct FTP upload, executable mode `0755`, and independent byte readback were
+verified before launch. The production `ManagedFileLock` adapter passed shared
+reader/exclusive publisher contention, last-reader release, publisher release,
+and missing-file no-create refusal through the checked native syscall gateway.
+All previous filesystem, settings, session and launch storage checks also passed.
+
+This fixture uses independent descriptions in one native process. It proves the
+production primitive, not cross-process Home/Wine publication or child lifetime.
+Host normal/native-policy suites cover refusal after identity/mode replacement,
+symlinks, hard-link aliases, moves, unavailable native provider and process exit.
+Full host suite: 97/97 passed. Independent source/link review found no issues.
+The existing `d76d1a...` preview and `c75937...` identity were restored with full
+SHA-256 readback; the application was closed and the console released.

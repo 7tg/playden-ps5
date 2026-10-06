@@ -53,6 +53,14 @@ static int directory_call(long number, int directory, const char* path, long thi
     return (int)result.value;
 }
 
+// Qualified nonblocking cooperative lock primitive. ManagedFileLock admits the
+// private stable inode; receipt/lifecycle gates are enforced by its caller.
+int playden_ps5_file_lock(int descriptor, int operation)
+{
+    return directory_call(SYS_flock, descriptor,
+                          (const char*)(uintptr_t)operation, 0, 0);
+}
+
 #if PLAYDEN_TITLE_CONTRACT_PROBE
 // Read-only diagnostic: compare a syscall-created directory FD with libc's FD.
 int playden_ps5_probe_kernel_directory(const char* path)
@@ -65,12 +73,10 @@ int playden_ps5_probe_kernel_directory(const char* path)
     return (int)result.value;
 }
 
-// Qualification only: do not expose publication locking until the actual
-// native descriptor/kernel contract passes the fresh-file diagnostic.
+// Diagnostic uses exactly the same checked gateway as production acquisition.
 int playden_ps5_probe_flock(int descriptor, int operation)
 {
-    return directory_call(SYS_flock, descriptor,
-                          (const char*)(uintptr_t)operation, 0, 0);
+    return playden_ps5_file_lock(descriptor, operation);
 }
 #endif
 
