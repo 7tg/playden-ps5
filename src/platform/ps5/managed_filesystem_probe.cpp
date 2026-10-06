@@ -1,4 +1,5 @@
 #include "platform/managed_directory.h"
+#include "platform/storage.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/private_directories.h"
 
@@ -67,6 +68,12 @@ void RunManagedFilesystemProbe(FILE* log) {
   if (!check(prefix->RemoveRegularFile("delete-me") && prefix->Sync(), "remove-owned-file")) return;
   if (!check(!prefix->InspectChild("delete-me", &info) && errno == ENOENT &&
              runtime::HashArtifactFile(bottle / "proof.txt") == digest, "sentinel-preserved")) return;
+  Storage journal(root.string());
+  const Bytes record{'a', 'b', 'c'};
+  if (!check(journal.WriteDurable("journal.json", record).ok(), "durable-journal-publication")) return;
+  const auto recovered = journal.ReadDurable("journal.json");
+  if (!check(recovered.ok() && recovered.value() == record, "durable-journal-recovery")) return;
+  if (!check(runtime::HashArtifactFile(root / "journal.json") == digest, "durable-journal-hash")) return;
   std::fprintf(log, "managed-filesystem complete euid=%u sha256=%s\n", unsigned(geteuid()), digest->c_str());
   std::fflush(log);
 }

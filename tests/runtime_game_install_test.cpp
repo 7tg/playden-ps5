@@ -3,6 +3,9 @@
 #include "platform/storage.h"
 
 #include <cstdio>
+#include <cerrno>
+#include <dlfcn.h>
+#include <sys/stat.h>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -23,6 +26,23 @@ using namespace playden::runtime;
   } while (false)
 
 namespace {
+enum class SyncFault { kNone, kFile, kDirectory };
+SyncFault sync_fault = SyncFault::kNone;
+}
+extern "C" int fsync(int fd) {
+  struct stat info{};
+  if (fstat(fd, &info) == 0 &&
+      ((sync_fault == SyncFault::kFile && S_ISREG(info.st_mode)) ||
+       (sync_fault == SyncFault::kDirectory && S_ISDIR(info.st_mode)))) {
+    errno = EIO;
+    return -1;
+  }
+  static const auto actual = reinterpret_cast<int (*)(int)>(dlsym(RTLD_NEXT, "fsync"));
+  if (!actual) { errno = ENOSYS; return -1; }
+  return actual(fd);
+}
+
+namespace {
 
 struct TemporaryDirectory {
   TemporaryDirectory() {
@@ -32,7 +52,7 @@ struct TemporaryDirectory {
     writable.push_back('\0');
     const char* made = ::mkdtemp(writable.data());
     CHECK(made != nullptr);
-    path = made;
+    path = std::filesystem::canonical(made).string();
   }
   ~TemporaryDirectory() { std::filesystem::remove_all(path); }
   std::string path;
@@ -311,9 +331,89 @@ void LaunchPathsUseTheSharedSteamPathContract() {
   CHECK(restarted.Find("install-hl2")->launch_path == "bin/Game.exe");
 }
 
+void JournalSyncFailureRequiresReloadBeforeFurtherEffects() {
+  for (const auto fault : {SyncFault::kFile, SyncFault::kDirectory}) {
+    TemporaryDirectory directory;
+    playden::Storage storage(directory.path);
+    RuntimeInstallRepository repository(storage, "runtime-installs.json", Free);
+    CHECK(repository.Load().ok());
+    sync_fault = fault;
+    CHECK(repository.Reserve(Request()).error() == RepositoryError::kIo);
+    CHECK(!repository.Find("install-hl2"));
+    CHECK(repository.Save().error() == RepositoryError::kNotLoaded);
+    sync_fault = SyncFault::kNone;
+    CHECK(repository.Load().ok());
+    // Rename may already have published the new record before directory sync.
+    CHECK(bool(repository.Find("install-hl2")) == (fault == SyncFault::kDirectory));
+    CHECK(repository.Reserve(Request()).ok());
+    struct stat info{};
+    CHECK(lstat((directory.path + "/runtime-installs.json").c_str(), &info) == 0);
+    CHECK(S_ISREG(info.st_mode) && info.st_uid == geteuid() && (info.st_mode & 07777) == 0600);
+  }
+}
+
+void JournalUpdateSyncFailureReconcilesPublishedState() {
+  for (const auto fault : {SyncFault::kFile, SyncFault::kDirectory}) {
+    TemporaryDirectory directory;
+    playden::Storage storage(directory.path);
+    RuntimeInstallRepository repository(storage, "runtime-installs.json", Free);
+    CHECK(repository.Load().ok());
+    auto reserved = repository.Reserve(Request());
+    CHECK(reserved.ok());
+    auto changed = reserved.value();
+    ++changed.settings_revision;
+    sync_fault = fault;
+    CHECK(repository.Update(changed).error() == RepositoryError::kIo);
+    CHECK(repository.Load().error() == RepositoryError::kIo);
+    CHECK(repository.Save().error() == RepositoryError::kNotLoaded);
+    sync_fault = SyncFault::kNone;
+    CHECK(repository.Load().ok());
+    CHECK(repository.Find(changed.install_id)->settings_revision ==
+          (fault == SyncFault::kDirectory ? changed.settings_revision : reserved.value().settings_revision));
+  }
+}
+
+void RegistryPublicationRejectsSymlinkDestination() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path);
+  RuntimeInstallRepository repository(storage, "runtime-installs.json", Free);
+  CHECK(repository.Load().ok());
+  std::ofstream(directory.path + "/outside") << "sentinel";
+  CHECK(symlink("outside", (directory.path + "/runtime-installs.json").c_str()) == 0);
+  CHECK(repository.Reserve(Request()).error() == RepositoryError::kIo);
+  CHECK(repository.Save().error() == RepositoryError::kNotLoaded);
+  std::ifstream sentinel(directory.path + "/outside");
+  std::string text; sentinel >> text;
+  CHECK(text == "sentinel");
+  CHECK(symlink(directory.path.c_str(), (directory.path + "/alias").c_str()) == 0);
+  playden::Storage alias(directory.path + "/alias");
+  RuntimeInstallRepository linked_root(alias, "runtime-installs.json", Free);
+  CHECK(linked_root.Load().error() == RepositoryError::kIo);
+}
+
+void RegistryRejectsSymlinksAndDoesNotTouchOldTemporaryFiles() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path);
+  RuntimeInstallRepository repository(storage, "runtime-installs.json", Free);
+  CHECK(repository.Load().ok());
+  std::ofstream(directory.path + "/outside") << "sentinel";
+  CHECK(symlink("outside", (directory.path + "/runtime-installs.json.tmp").c_str()) == 0);
+  CHECK(repository.Reserve(Request()).ok());
+  std::ifstream sentinel(directory.path + "/outside");
+  std::string text; sentinel >> text;
+  CHECK(text == "sentinel");
+  CHECK(unlink((directory.path + "/runtime-installs.json").c_str()) == 0);
+  CHECK(symlink("outside", (directory.path + "/runtime-installs.json").c_str()) == 0);
+  CHECK(repository.Load().error() == RepositoryError::kIo);
+}
+
 }  // namespace
 
 int main() {
+  JournalSyncFailureRequiresReloadBeforeFurtherEffects();
+  JournalUpdateSyncFailureReconcilesPublishedState();
+  RegistryRejectsSymlinksAndDoesNotTouchOldTemporaryFiles();
+  RegistryPublicationRejectsSymlinkDestination();
   ReservationSurvivesRestartAndReinstallReusesIdentity();
   NativeInventoryAndSourceCollisionsAreNeverAllocated();
   LegacyDownloadAdoptsWithoutCopyAndRemainsDownloaded();

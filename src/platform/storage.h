@@ -22,6 +22,7 @@ enum class StorageError {
   kInvalidData,
   kPermissionFailed,
   kRemoveFailed,
+  kSyncFailed,
 };
 
 template <typename T>
@@ -100,6 +101,16 @@ class Storage {
   // bytes. Platforms without a supported permission primitive report failure.
   Result<void> WriteAtomicPrivate(const std::string& relative_path,
                                   const Bytes& bytes) const;
+
+  // Narrow journal operations: existing root/parents must be owned 0700 and
+  // have no symlink components. Write creates an exclusive 0600 file, syncs it,
+  // closes, renames, then syncs the directory. Failure can follow publication;
+  // callers must stop and reload/reconcile before further effects. Failed
+  // temporary files are retained. Read accepts owned legacy 0644 or new 0600
+  // regular files and syncs the file/directory before accepting recovery.
+  Result<void> WriteDurable(const std::string& relative_path, const Bytes& bytes) const;
+  Result<Bytes> ReadDurable(const std::string& relative_path,
+                            std::size_t max_bytes = kMaxReadBytes) const;
 
   // Missing files are already removed and therefore succeed.
   Result<void> Remove(const std::string& relative_path) const;

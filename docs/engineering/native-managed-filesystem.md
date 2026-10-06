@@ -41,11 +41,26 @@ preparation advances. Cross-parent publication must sync both parents.
 The hash still validates opened-file size, mode and timestamps before/after
 streaming bytes and checks independent expected content identities at admission.
 
-The OWNER install registry still uses `Storage::WriteAtomic`, which has no file
-or directory fsync. A narrow durable repository write is required before native
-journal-before-effects acceptance. Settings currently use their older relative
-walk and `0644` default outputs; they need a deliberate policy migration,
-retaining serializer/publication fault injection and private ownership rules.
+The OWNER install registry now uses narrow `Storage::WriteDurable` and
+`ReadDurable` operations. An existing absolute, owned `0700` root and each
+relative parent are required. Writes create a unique exclusive `0600` temporary,
+sync/close the file, publish through the checked context and sync the parent.
+Failures retain temporary evidence and invalidate the loaded repository even
+when rename already took effect. No further reservation/update is allowed until
+reload reconciles the visible journal and syncs its file/parent. Owned legacy
+`0644` journals are read for migration; new publication uses `0600`.
+
+Provision a dedicated private journal root before wiring the native installer.
+Do not point it at packaged/public `/app0/playden-data`, rely on the permissive
+legacy `EnsureRootDirectory`, or silently chmod an existing shared tree. Relative
+storage roots are unsupported by these narrow methods. Temporary files left by
+failed writes need explicit future reconciliation/cleanup; they are never
+reused or followed. General Steam storage callers retain their existing APIs.
+
+Settings currently use their older relative walk and `0644` default outputs;
+their policy migration must retain serializer/publication fault injection.
+Private settings reads may admit owned legacy `0644`, while replacement and
+rollback write `0600`; game/DXVK inputs use approved-tree policy.
 
 ## Evidence and remaining acceptance
 

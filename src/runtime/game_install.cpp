@@ -290,7 +290,7 @@ RuntimeInstallRepository::RuntimeInstallRepository(Storage& storage, std::string
       native_availability_(std::move(native_availability)) {}
 
 RepositoryResult<void> RuntimeInstallRepository::Load() {
-  const auto read = storage_.Read(relative_path_, kMaxFileBytes);
+  const auto read = storage_.ReadDurable(relative_path_, kMaxFileBytes);
   if (!read.ok()) {
     if (read.error() == StorageError::kNotFound) {
       installs_.clear(); reservations_.clear(); loaded_ = true;
@@ -345,7 +345,7 @@ RepositoryResult<void> RuntimeInstallRepository::Load() {
   return RepositoryResult<void>::Success();
 }
 
-RepositoryResult<void> RuntimeInstallRepository::Persist() const {
+RepositoryResult<void> RuntimeInstallRepository::Persist() {
   if (installs_.size() > kMaxRecords || reservations_.size() > kMaxRecords)
     return Failure(RepositoryError::kBounds, "runtime install registry exceeds its record limit");
   std::vector<std::string> install_ids;
@@ -370,7 +370,8 @@ RepositoryResult<void> RuntimeInstallRepository::Persist() const {
   output << "]}";
   const std::string text = output.str();
   if (text.size() > kMaxFileBytes) return Failure(RepositoryError::kBounds, "runtime install registry exceeds its size limit");
-  const auto written = storage_.WriteAtomic(relative_path_, Bytes(text.begin(), text.end()));
+  const auto written = storage_.WriteDurable(relative_path_, Bytes(text.begin(), text.end()));
+  if (!written.ok()) loaded_ = false;
   return written.ok() ? RepositoryResult<void>::Success()
                       : Failure(RepositoryError::kIo, "runtime install registry could not be written");
 }

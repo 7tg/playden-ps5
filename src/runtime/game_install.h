@@ -186,7 +186,7 @@ class RuntimeInstallRepository {
   RepositoryResult<void> EraseAfterUnregister(const std::string& install_id);
 
  private:
-  RepositoryResult<void> Persist() const;
+  RepositoryResult<void> Persist();
 
   Storage& storage_;
   std::string relative_path_;

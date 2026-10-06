@@ -14,3 +14,22 @@ before the probe and restored afterward. Restored executable SHA-256:
 `74d299ebb3a5d8222128f12822d355faf4aa4be0e263bb9f9a7ede7000ce8cb2`.
 The default package was rebuilt with `PLAYDEN_TITLE_CONTRACT_PROBE=OFF` and
 matched that executable hash. Console ownership was released.
+
+## Durable journal increment
+
+A second diagnostic invoked the actual `Storage::WriteDurable` and
+`ReadDurable` operations in a fresh private tree. Publication, recovery sync,
+readback and production SHA-256 all passed under EUID 1. See
+[journal native log](journal-native.log). Probe executable SHA-256:
+`832a450e20ce0692ae8c3cc6c050de46c4b412b6229346d37111caee214a3863`.
+This validates normal successful native syscalls, not power-loss recovery.
+The same normal preview was restored and the console released afterward.
+
+Host repository tests inject file and directory fsync errors in reservation and
+update, confirm no further effects/access until reload, and distinguish the old
+journal from the new one already published by rename. They verify recovery sync
+failure, 0600 output, symlink destination/root refusal and preservation of a
+sentinel behind the legacy `.tmp` path. The original file-sync test failed
+against the old writer before migration. Full host suite: 88/88 passed.
+Independent review found no actionable defect; native installer provisioning of
+a dedicated private journal root and full lifecycle wiring remain open.
