@@ -36,7 +36,9 @@ struct TemporaryDirectory {
     writable.push_back('\0');
     const char* made = ::mkdtemp(writable.data());
     CHECK(made != nullptr);
-    path = made;
+    // macOS temp_directory_path may use the /var symlink alias. The managed
+    // contract rejects every supplied symlink component; use the real fixture.
+    path = std::filesystem::canonical(made);
   }
   ~TemporaryDirectory() { std::filesystem::remove_all(path); }
   std::filesystem::path path;

@@ -1,47 +1,35 @@
 #include "runtime/private_directories.h"
+#include "platform/managed_directory.h"
 #include <cerrno>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
 namespace playden::runtime {
 namespace fs = std::filesystem;
 namespace {
+using platform::DirectoryPolicy;
+using platform::ManagedDirectory;
 bool SafeRelative(const fs::path& path) {
   if (path.empty() || path.is_absolute()) return false;
   for (const auto& part : path)
     if (part.empty() || part == "." || part == "..") return false;
   return true;
 }
-bool Private(const struct stat& info) {
-  return S_ISDIR(info.st_mode) && info.st_uid == geteuid() &&
-      (info.st_mode & 07777) == 0700;
-}
 }
 bool IsPrivateDirectory(const fs::path& directory) {
-  const int fd = open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  if (fd < 0) return false;
-  struct stat info{};
-  const bool ok = fstat(fd, &info) == 0 && Private(info);
-  close(fd); return ok;
+  return ManagedDirectory::Open(directory, DirectoryPolicy::kPrivate).has_value();
 }
 bool IsPrivateDirectoryTree(const fs::path& private_root, const fs::path& directory) {
   const auto relative = directory.lexically_relative(private_root);
   if (directory != private_root && !SafeRelative(relative)) return false;
-  int fd = open(private_root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  if (fd < 0) return false;
-  struct stat info{};
-  bool ok = fstat(fd, &info) == 0 && Private(info);
+  auto current = ManagedDirectory::Open(private_root, DirectoryPolicy::kPrivate);
+  if (!current) return false;
   if (directory != private_root) {
     for (const auto& part : relative) {
-      if (!ok) break;
-      const int next = openat(fd, part.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-      close(fd); fd = next;
-      ok = fd >= 0 && fstat(fd, &info) == 0 && Private(info);
+      auto next = current->OpenChild(part.string(), DirectoryPolicy::kPrivate);
+      if (!next) return false;
+      current = std::move(next);
     }
   }
-  if (fd >= 0) close(fd);
-  return ok;
+  return current->Validate();
 }
 bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_root,
                               const fs::path& directory, std::string* error) {
@@ -56,32 +44,23 @@ bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_
   if (!SafeRelative(relative) || !SafeRelative(private_relative) ||
       (directory != private_root && !SafeRelative(within)))
     return fail("private directory is outside its trusted boundary");
-  int fd = open(boundary.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-  if (fd < 0) return fail("cannot open directory boundary: " + std::string(strerror(errno)));
-  fs::path current = boundary;
+  auto current = ManagedDirectory::Open(boundary, DirectoryPolicy::kApprovedTree);
+  if (!current) return fail("cannot open directory boundary: " + std::string(strerror(errno)));
+  fs::path path = boundary;
   bool in_private = false;
   for (const auto& part : relative) {
-    current /= part;
-    if (current == private_root) in_private = true;
-    int next = openat(fd, part.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-    if (next < 0 && errno == ENOENT) {
-      if (mkdirat(fd, part.c_str(), 0700) != 0) {
-        const int saved = errno; close(fd);
-        return fail("cannot create " + current.string() + ": " + strerror(saved));
-      }
-      next = openat(fd, part.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-    }
-    if (next < 0) {
-      const int saved = errno; close(fd);
-      return fail("cannot open " + current.string() + ": " + strerror(saved));
-    }
-    struct stat info{};
-    if (fstat(next, &info) != 0 || (in_private && !Private(info))) {
-      close(next); close(fd);
-      return fail("private directory has wrong owner or permissions: " + current.string());
-    }
-    close(fd); fd = next;
+    path /= part;
+    if (path == private_root) in_private = true;
+    auto next = current->OpenChild(part.string(), in_private ? DirectoryPolicy::kPrivate
+                                                           : DirectoryPolicy::kApprovedTree, true);
+    if (!next)
+      return fail("cannot open/create private directory (wrong owner or permissions): " + path.string() + ": " + strerror(errno));
+    // Flush the directory and its parent entry before journaled preparation.
+    // Failure may follow creation; callers retain their retry/recovery record.
+    if (!next->Sync() || !current->Sync())
+      return fail("cannot sync private directory: " + path.string() + ": " + strerror(errno));
+    current = std::move(next);
   }
-  close(fd); return true;
+  return current->Validate();
 }
 }

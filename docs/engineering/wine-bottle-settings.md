@@ -82,7 +82,7 @@ provide a directory-FD anchor. See [native evidence](../../results/20261006-priv
 | Load/save game settings | `LoadGameSettingsFile` and `SaveGameSettingsFile` use the descriptor-relative safe-directory walk. Native relative opens fail before reading or publishing settings. | A measured PS5 directory-operation contract used by the settings persistence adapter; retain ownership, symlink refusal, exclusive temporary writes and durable publication. | Save, close, reopen, reset and read back settings on PS5; reject public/foreign parents and symlinks without changing existing settings. |
 | Apply profile/registry/DXVK configuration | `ApplyGameSettings` and `ApplySettingsFiles` use the same safe walk to publish profile overlays, `user.reg` and `dxvk.conf`. Host tests cannot establish native success. | Route publication through the validated platform contract and OWNER journal while the game is confirmed stopped. | Apply/reset on PS5, inspect exact generated files and effective game behavior, and verify interrupted publication recovery. |
 | Clear shader cache | `ClearShaderCache` uses safe directory opens and relative deletion. Native directory admission currently fails; relative deletion support is not established by these open tests. | Validate the platform's deletion operations separately, retaining owned cache-root boundaries and stopped-title checks. | Clear only the selected game's cache on PS5; refuse symlink/foreign/running-title fixtures and preserve saves and other games. |
-| Prepare private bottle | The installer's descriptor-relative private-directory walk encounters the same relative-open failure. The fixed developer fixture's absolute-path copy is not production installer acceptance. | Resolve the shared native directory contract before connecting installer readiness to the live application. | Fresh app-owned `0700` bottle tree and `0600` files, durable validated copy, retry/recovery and foreign-tree refusal on PS5. |
+| Prepare private bottle | Private-directory creation now uses the explicit managed absolute-path backend on PS5. Host tests reproduce unavailable relative operations and pass, but the production native lifecycle remains unverified. | Complete native managed-filesystem acceptance, durable OWNER journal and installer wiring before connecting readiness to the live application. | Fresh app-owned `0700` bottle tree and `0600` files, durable validated copy, retry/recovery and foreign-tree refusal on PS5. |
 
 A userspace wrapper that joins a remembered directory path with a child name is
 not equivalent to a kernel directory-FD operation when that path is renamed or
@@ -430,3 +430,13 @@ This settings backlog supplements the existing integration milestones; it does
 not make every feature a prerequisite for the first HL2 per-game title. Update
 support status only when both the mapping and its required acceptance evidence
 exist for the recorded kit.
+
+### Selected managed filesystem contract
+
+The shared `ManagedDirectory` backend now selects checked absolute paths on PS5
+and descriptor-relative operations on hosts. Private bottle directory creation
+and artifact hashing use it; settings persistence/publication/cache deletion
+still need migration. See [the contract and acceptance gates](native-managed-filesystem.md).
+This is an explicit stable-namespace policy, with static symlink and replacement
+checks; it does not claim protection against a hostile concurrent same-UID/root
+writer. Do not enable unsupported settings or readiness from host tests alone.

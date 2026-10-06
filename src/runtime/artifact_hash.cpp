@@ -1,4 +1,5 @@
 #include "runtime/artifact_hash.h"
+#include "platform/managed_directory.h"
 
 #include <mbedtls/sha256.h>
 
@@ -50,22 +51,13 @@ class Hash {
 int OpenFile(const std::filesystem::path& path) {
   if (path.empty() || path.native().find('\0') != std::string::npos ||
       path.filename().empty()) return -1;
-  Descriptor directory(open(path.is_absolute() ? "/" : ".",
-                            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
-  if (directory.get() < 0) return -1;
-  const auto relative = path.relative_path();
-  for (auto it = relative.begin(); it != relative.end(); ++it) {
-    if (it->empty() || *it == "." || *it == "..") return -1;
-    auto next = it;
-    ++next;
-    if (next == relative.end())
-      return openat(directory.get(), it->c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
-    const int child = openat(directory.get(), it->c_str(),
-                             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-    if (child < 0) return -1;
-    directory.reset(child);
-  }
-  return -1;
+  std::error_code error;
+  const auto absolute = path.is_absolute() ? path : std::filesystem::absolute(path, error);
+  if (error) return -1;
+  auto directory = platform::ManagedDirectory::Open(
+      absolute.parent_path(), platform::DirectoryPolicy::kApprovedTree);
+  if (!directory) return -1;
+  return directory->OpenRegularFile(absolute.filename().string());
 }
 
 }  // namespace

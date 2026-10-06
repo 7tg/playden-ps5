@@ -6,6 +6,11 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <cerrno>
+
+#ifdef PLAYDEN_TEST_AT_UNAVAILABLE
+extern "C" int openat(int, const char*, int, ...) { errno = EINVAL; return -1; }
+#endif
 
 int main() {
   namespace fs = std::filesystem;
