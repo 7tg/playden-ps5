@@ -267,6 +267,27 @@ std::map<std::string, std::string> ParseMarker(const std::string& bytes) {
   return values;
 }
 
+// Deletes a tree with lstat/unlink/rmdir, never following links.
+// std::filesystem::remove_all crashed the console title on a title folder
+// (results/20261007-game-removal), so staging cleanup does not use it.
+bool RemoveTreeNoFollow(const std::string& path) {
+  struct stat info{};
+  if (::lstat(path.c_str(), &info) != 0) return errno == ENOENT;
+  if (!S_ISDIR(info.st_mode)) return ::unlink(path.c_str()) == 0;
+  bool ok = true;
+  if (DIR* directory = ::opendir(path.c_str())) {
+    while (const dirent* entry = ::readdir(directory)) {
+      const std::string name = entry->d_name;
+      if (name == "." || name == "..") continue;
+      ok = RemoveTreeNoFollow(path + "/" + name) && ok;
+    }
+    ::closedir(directory);
+  } else {
+    ok = false;
+  }
+  return ::rmdir(path.c_str()) == 0 && ok;
+}
+
 std::string OwnerMarker(const RuntimeInstall& record, const VerifiedKitView& kit,
                         const char* kind) {
   std::string variant_id;
@@ -941,8 +962,8 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
       return Failed("staging-collision", "staging path is not owned by this install");
     // RuntimeInstallService has already established stopped activity. Only our
     // identity-marked incomplete staging directory is eligible for cleanup.
-    fs::remove_all(staging, error);
-    if (error) return Failed("staging-cleanup", "owned incomplete staging could not be cleaned");
+    if (!RemoveTreeNoFollow(staging.string()))
+      return Failed("staging-cleanup", "owned incomplete staging could not be cleaned");
   }
   // Staging trees are private to the app user. A published title's directories
   // become 0755 afterwards so ShadowMount can read them; title files keep their
