@@ -100,6 +100,9 @@ def main():
             continue
         data = local.read_bytes()
         mode = f"{local.stat().st_mode & 0o777:o}"
+        # Executables must be 0755 on the console whatever the local build left.
+        if local.name == "eboot.bin" or local.suffix in (".prx", ".elf"):
+            mode = "755"
         remote = f"{TITLE}/{relative}"
         head, _, name = remote.rpartition("/")
         entries = listing(ftp, head)
