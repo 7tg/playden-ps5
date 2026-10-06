@@ -53,6 +53,8 @@ struct RuntimeHostConfig {
   // secure random source is available. Empty uses /dev/urandom.
   std::function<std::optional<std::string>()> uuid;
   std::function<std::int64_t()> unix_time;
+  // Diagnostic lines (no credentials): startup, each preparation step and refusals.
+  std::function<void(const std::string&)> log;
   // SQLite and the native readers run on this worker. PS5 std::thread stacks are
   // too small for them, so the worker uses an explicit stack size.
   std::size_t stack_bytes = 1024 * 1024;
@@ -116,6 +118,7 @@ class RuntimeHost {
   std::string RunPrepare(Composition& composition, const RuntimePrepareRequest& request);
   runtime::PackageActionResult DrivePublication(Composition& composition, const runtime::RuntimeInstall& record);
   bool Stopping() const;
+  void Log(const std::string& line) const;
 
   RuntimeHostConfig config_;
   mutable std::mutex mutex_;

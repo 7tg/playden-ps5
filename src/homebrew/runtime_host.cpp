@@ -142,6 +142,10 @@ RuntimeSnapshot RuntimeHost::Snapshot() const {
   return snapshot_;
 }
 
+void RuntimeHost::Log(const std::string& line) const {
+  if (config_.log) config_.log(line);
+}
+
 bool RuntimeHost::Stopping() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return stopping_;
@@ -213,7 +217,10 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
   std::string reason;
   if (input.record.revision != record.settings_revision)
     return failed("settings-changed", "The game's settings changed during preparation; prepare it again.");
-  if (!rt::BuildSettingsLaunchPlan(input, &plan, &reason)) return failed("settings-plan", reason);
+  if (!rt::BuildSettingsLaunchPlan(input, &plan, &reason)) {
+    Log("publication plan refused: " + reason);
+    return failed("settings-plan", reason);
+  }
   const auto transaction = config_.uuid();
   if (!transaction) return failed("random-unavailable", "No secure random source for the publication transaction.");
   rt::SettingsPublicationRequest request;
@@ -223,10 +230,15 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
   request.plan = std::move(plan);
   request.registry_unix_time = config_.unix_time();
   const auto requested = c.owner->Request(request, c.request_directory);
+  Log("publication request transaction=" + request.transaction_id + " state=" +
+      std::to_string(static_cast<int>(requested.state)) + " code=" + requested.code + " message=" + requested.message);
   if (requested.state != rt::PackageActionState::kComplete) return requested;
   const auto armed = c.records.Find(record.install_id);
   if (!armed) return failed("publication-owner", "The armed OWNER record is missing.");
-  return c.owner->ResumeRequested(*armed, c.request_directory, prefix);
+  const auto resumed = c.owner->ResumeRequested(*armed, c.request_directory, prefix);
+  Log("publication resume state=" + std::to_string(static_cast<int>(resumed.state)) + " code=" + resumed.code +
+      " message=" + resumed.message);
+  return resumed;
 }
 
 std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request) {
@@ -282,6 +294,8 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     started = c.service->Prepare(record.install_id);
   }
   PublishInstalls(c);
+  Log("prepare start app=" + std::to_string(request.app_id) + " root=" + request.install_path +
+      " ok=" + std::to_string(started.ok()) + " message=" + started.message);
   if (!started.ok()) return started.message;
   const auto install_id = existing ? existing->install_id : InstallId(request.app_id);
   int awaits = 0;
@@ -291,8 +305,15 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     if (current->state == rt::PreparationState::kReady) return {};
     if (current->state != rt::PreparationState::kPreparing && current->state != rt::PreparationState::kRegistering)
       return current->last_failure ? current->last_failure->message : "Preparation stopped.";
+    const auto before = current->journal ? current->journal->step : std::string{};
     const auto step = c.service->Step(install_id);
     PublishInstalls(c);
+    const auto after_step = c.records.Find(install_id);
+    Log("prepare step app=" + std::to_string(request.app_id) + " from=" + before +
+        " ok=" + std::to_string(step.ok()) + " error=" + std::to_string(static_cast<int>(step.error())) +
+        " state=" + (after_step ? std::to_string(static_cast<int>(after_step->state)) : std::string("-")) +
+        " to=" + (after_step && after_step->journal ? after_step->journal->step : std::string{}) +
+        " message=" + step.message);
     if (!step.ok()) return step.message;
     const auto after = c.records.Find(install_id);
     if (after && after->journal && after->journal->step == "await-native") {
@@ -314,7 +335,10 @@ void RuntimeHost::Run() {
   const bool private_ready =
       rt::EnsurePrivateDirectories(config_.boundary, config_.state_root, config_.state_root, &reason) &&
       rt::EnsurePrivateDirectories(config_.boundary, config_.state_root, request_directory, &reason);
-  if (!private_ready) unavailable("Private runtime state is unavailable: " + reason);
+  if (!private_ready) {
+    Log("runtime unavailable: " + reason);
+    unavailable("Private runtime state is unavailable: " + reason);
+  }
   std::unique_ptr<Composition> composition;
   if (private_ready) {
     composition = std::make_unique<Composition>(config_);
@@ -349,6 +373,7 @@ void RuntimeHost::Run() {
         [this, &c](const rt::RuntimeInstall& record) { return DrivePublication(c, record); });
     const auto loaded = c.repository.Load();
     if (!loaded.ok()) {
+      Log("runtime records unavailable: " + loaded.message());
       unavailable("Runtime install records are unavailable: " + loaded.message());
       composition.reset();
     } else {
@@ -356,6 +381,9 @@ void RuntimeHost::Run() {
       // explicit recovery action; nothing resumes, registers or rebuilds here.
       PublishInstalls(c);
       const bool kit_available = c.kit.has_value();
+      Log("runtime ready installs=" + std::to_string(c.repository.Snapshot().size()) + " kit=" +
+          (kit_available ? c.kit->view.kit_id : "none (" + kit_reason + ")") +
+          (c.settings_data_reason.empty() ? std::string{} : " settings_data=" + c.settings_data_reason));
       Publish([&](RuntimeSnapshot& s) {
         s.status = RuntimeHostStatus::kReady; s.reason.clear();
         s.kit_available = kit_available; s.kit_reason = kit_available ? std::string{} : kit_reason;
@@ -379,6 +407,7 @@ void RuntimeHost::Run() {
         Publish([&](RuntimeSnapshot& s) { s.preparing_app = request.app_id; s.refusals.erase(request.app_id); });
         refusal = RunPrepare(*composition, request);
       }
+      Log("prepare result app=" + std::to_string(request.app_id) + " " + (refusal.empty() ? "ready" : refusal));
       Publish([&](RuntimeSnapshot& s) {
         s.preparing_app.reset();
         if (refusal.empty()) s.refusals.erase(request.app_id);
