@@ -108,6 +108,11 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
 
+add_library(playden_runtime_publication_backup STATIC "${CMAKE_SOURCE_DIR}/src/runtime/publication_backup.cpp")
+target_include_directories(playden_runtime_publication_backup PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_publication_backup PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_publication_backup PUBLIC playden_runtime_artifact_hash playden_storage)
+
 add_library(playden_runtime_settings_storage STATIC "${CMAKE_SOURCE_DIR}/src/runtime/settings_storage.cpp")
 target_include_directories(playden_runtime_settings_storage PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_settings_storage PUBLIC cxx_std_17)
@@ -489,6 +494,9 @@ if(BUILD_TESTING)
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
     # Inject failures only at the POSIX I/O boundary of this test's production
     # compilation; the shipped settings implementation has ordinary syscalls.
+    add_executable(runtime_publication_backup_test tests/runtime_publication_backup_test.cpp)
+    target_link_libraries(runtime_publication_backup_test PRIVATE playden_runtime_publication_backup)
+    add_test(NAME runtime_publication_backup COMMAND runtime_publication_backup_test)
     add_executable(runtime_settings_storage_test tests/runtime_settings_storage_test.cpp)
     target_link_libraries(runtime_settings_storage_test PRIVATE playden_runtime_settings_storage)
     add_test(NAME runtime_settings_storage COMMAND runtime_settings_storage_test)

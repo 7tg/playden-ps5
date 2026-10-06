@@ -316,3 +316,23 @@ The exact prior normal preview was restored and the PS5 released. This is
 Playden SDK v0.43 context evidence; Task B's SDK v0.42 actual Wine wrapper,
 concurrent-process contention/pending receipt and lifetime checks remain open.
 No production capability trust or runtime artifact was changed.
+
+
+### Task C backup-store increment
+
+`publication_backup.{h,cpp}` implements the private immutable registry backup
+boundary, with transaction-named flat files in an existing owned control directory,
+exact 0600 backups, original 0600/0644 mode binding, 32 MiB bounds, SHA-256 readback,
+file/parent durability barriers and explicit absent/valid/corrupt/unavailable
+recovery states. It neither creates directories nor grants ownership/readiness.
+Callers must hold the publisher lease. Failed creation retains any partial file;
+an existing file is never adopted or overwritten. A missing referenced backup
+must be rejected by the future operation loader, not interpreted as optional.
+
+Host tests cover actual forced write failure with partial-file retention,
+collision preservation, altered contents/digest/size/binding, unsafe modes,
+hard/symbolic links, missing/private-root failures and the exact 32 MiB bound.
+The actual SDK v0.43 archive compiles. The immutable operation codec, binding
+cross-validation, journal/receipt sequencing, semantic verifier, live publisher
+and native interruption/retry acceptance are still required; this store alone
+completes none of Task C's final acceptance checkboxes.
