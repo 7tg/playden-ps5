@@ -11,9 +11,16 @@ using runtime::TitleAvailability;
 bool RootValid(const std::filesystem::path& root) {
   return root.is_absolute() && root == root.lexically_normal() && root.filename() == "homebrew" && root.parent_path().filename() == "data";
 }
+// Playden owns a title directory it created: owned by this user and not
+// writable by others. ShadowMount must read it, so 0755 as well as 0700.
+bool OwnedDirectoryMode(const struct stat& info) {
+  return S_ISDIR(info.st_mode) && info.st_uid == geteuid() &&
+      ((info.st_mode & 07777) == 0700 || (info.st_mode & 07777) == 0755);
+}
 std::optional<std::string> ContentId(const std::filesystem::path& root, const std::string& title) {
-  auto directory = platform::ManagedDirectory::Open(root / title / "sce_sys", platform::DirectoryPolicy::kPrivate);
-  if (!directory) return {};
+  auto directory = platform::ManagedDirectory::Open(root / title / "sce_sys", platform::DirectoryPolicy::kApprovedTree);
+  struct stat sce_sys{};
+  if (!directory || lstat((root / title / "sce_sys").c_str(), &sce_sys) || !OwnedDirectoryMode(sce_sys)) return {};
   const int fd = directory->OpenRegularFile("param.json", true);
   if (fd < 0) return {};
   struct stat before{}, after{}; std::string bytes; char buffer[4096]; bool ok = true;
@@ -46,8 +53,7 @@ TitleSourceObservation ReadTitleSource(const std::filesystem::path& root, const 
     if (error == ENOENT && parent->Validate()) return {TitleAvailability::kFree, false, false};
     return {};
   }
-  return {TitleAvailability::kOccupied, S_ISDIR(info.st_mode),
-      S_ISDIR(info.st_mode) && info.st_uid == geteuid() && (info.st_mode & 07777) == 0700};
+  return {TitleAvailability::kOccupied, S_ISDIR(info.st_mode), OwnedDirectoryMode(info)};
 }
 Ps5NativeCoordinator::Ps5NativeCoordinator(runtime::InstallRecordStore& records, runtime::PackageInstaller& package,
     TitleRegistry& registry, std::filesystem::path root, NativeCoordinatorOperations operations)
@@ -87,8 +93,8 @@ runtime::NativeStatus Ps5NativeCoordinator::Query(const runtime::RuntimeInstall&
   }
   const auto package = package_.Inspect(record);
   if (!package.known) return {};
-  const auto content = source.private_directory ? ContentId(root_, record.title_id) : std::nullopt;
-  status.owned_manifest_matches = source.private_directory && package.title_staged && package.manifest_matches && package.artifacts_valid &&
+  const auto content = source.owned_directory ? ContentId(root_, record.title_id) : std::nullopt;
+  status.owned_manifest_matches = source.owned_directory && package.title_staged && package.manifest_matches && package.artifacts_valid &&
       package.title_source_path == (root_ / record.title_id).string() && content.has_value();
   if (!status.owned_manifest_matches) { status.collision = true; return status; }
   if (database.inventory == TitleAvailability::kOccupied) {

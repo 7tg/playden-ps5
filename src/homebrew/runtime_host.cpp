@@ -282,6 +282,13 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       started = c.service->Prepare(existing->install_id);
     else if (!existing->journal)
       return "The preparation record has no journal to continue.";
+    // Re-ensure the staged title (idempotent for a matching title; it also
+    // repairs directory modes from earlier builds) before resuming.
+    if (existing->state == rt::PreparationState::kPreparing || existing->state == rt::PreparationState::kRegistering) {
+      const auto staged = c.installer->StageTitle(*existing);
+      Log("resume title check state=" + std::to_string(static_cast<int>(staged.state)) + " code=" + staged.code +
+          " message=" + staged.message);
+    }
     // Otherwise this is an explicit resume of the saved journal: the service
     // routes it to the saved request or frozen operation, never a new plan, and
     // never resubmits an uncertain registration.
@@ -342,9 +349,12 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         " state=" + (after_step ? std::to_string(static_cast<int>(after_step->state)) : std::string("-")) +
         " to=" + (after_step && after_step->journal ? after_step->journal->step : std::string{}) +
         " message=" + step.message);
-    if (!step.ok()) return step.message;
+    // Pending registration is polled: later steps only query the console and
+    // never resubmit an armed registration.
+    const bool pending = !step.ok() && step.error() == rt::InstallServiceError::kRegistrationPending;
+    if (!step.ok() && !pending) return step.message;
     const auto after = c.records.Find(install_id);
-    if (after && after->journal && after->journal->step == "await-native") {
+    if (pending || (after && after->journal && after->journal->step == "await-native")) {
       if (++awaits > kNativeAwaitPolls)
         return "The console has not finished registering the title; retry later.";
       std::unique_lock<std::mutex> lock(mutex_);

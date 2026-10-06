@@ -772,9 +772,9 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     fs::remove_all(staging, error);
     if (error) return Failed("staging-cleanup", "owned incomplete staging could not be cleaned");
   }
-  // Title and bottle trees use private directories owned by the app user: the
-  // native coordinator treats only a private title source (including sce_sys)
-  // as Playden-owned. Title files keep their kit modes.
+  // Staging trees are private to the app user. A published title's directories
+  // become 0755 afterwards so ShadowMount can read them; title files keep their
+  // kit modes.
   {
     std::string detail;
     if (!EnsurePrivateDirectories(paths_.host_data_root, staging, staging, &detail))
@@ -898,12 +898,38 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   return Complete();
 }
 
+namespace {
+// ShadowMount registers a title by reading its folder, and it cannot read a
+// 0700 folder owned by the app user. Owned title directories are therefore
+// 0755 (still not writable by others). Only directories owned by this user
+// are changed; links and foreign entries refuse.
+bool PublishTitleDirectories(const fs::path& title) {
+  struct stat info{};
+  if (::lstat(title.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::geteuid()) return false;
+  std::vector<fs::path> pending{title};
+  while (!pending.empty()) {
+    const auto directory = pending.back(); pending.pop_back();
+    if (::lstat(directory.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::geteuid()) return false;
+    if ((info.st_mode & 07777) != 0755 && ::chmod(directory.c_str(), 0755) != 0) return false;
+    std::error_code error;
+    for (fs::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
+      struct stat child{};
+      if (::lstat(it->path().c_str(), &child) != 0 || S_ISLNK(child.st_mode)) return false;
+      if (S_ISDIR(child.st_mode)) pending.push_back(it->path());
+    }
+    if (error) return false;
+  }
+  return true;
+}
+}  // namespace
+
 PackageActionResult FilesystemPackageInstaller::StageTitle(
     const RuntimeInstall& record) {
   const auto paths = Resolve(record);
   if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
   if (TitleMatches(record, *paths))
-    return SyncTree(paths->title) && SyncAncestors(paths->title.parent_path())
+    return PublishTitleDirectories(paths->title) && SyncTree(paths->title) &&
+                   SyncAncestors(paths->title.parent_path())
                ? Complete()
                : Failed("sync-failed", "owned native title durability could not be established");
   bool title_known = false;
@@ -911,8 +937,12 @@ PackageActionResult FilesystemPackageInstaller::StageTitle(
   if (!title_known) return Failed("title-unavailable", "native title state is unavailable");
   if (title_exists)
     return Failed("title-collision", "native title source already exists and is not owned");
-  return CopyMappings(record, TitleMappings(record), paths->title_staging, paths->title,
-                      "title", kTitleOwner);
+  const auto copied = CopyMappings(record, TitleMappings(record), paths->title_staging, paths->title,
+                                  "title", kTitleOwner);
+  if (copied.state != PackageActionState::kComplete) return copied;
+  return PublishTitleDirectories(paths->title) && SyncTree(paths->title)
+             ? copied
+             : Failed("title-modes", "owned native title directories could not be made readable to registration");
 }
 
 PackageActionResult FilesystemPackageInstaller::CopyTemplate(

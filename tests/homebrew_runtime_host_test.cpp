@@ -257,6 +257,10 @@ void PreparesExistingDownloadToReady() {
   CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001/games"));
   struct stat game_info{};
   CHECK(stat(game.c_str(), &game_info) == 0 && (game_info.st_mode & 07777) == 0755);
+  // The staged title is readable by ShadowMount but not writable by others.
+  struct stat title_info{};
+  for (const auto* relative : {"data/homebrew/FAKE78001", "data/homebrew/FAKE78001/sce_sys"})
+    CHECK(stat((fixture.root / relative).c_str(), &title_info) == 0 && (title_info.st_mode & 07777) == 0755);
   // The descriptor binds the existing root; the bottle is private.
   const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
   CHECK(descriptor.find(R"("schema_version":2)") != std::string::npos);

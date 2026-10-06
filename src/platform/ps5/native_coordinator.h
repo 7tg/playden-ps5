@@ -8,7 +8,8 @@ namespace playden::ps5 {
 struct TitleSourceObservation {
   runtime::TitleAvailability availability = runtime::TitleAvailability::kUnknown;
   bool directory = false;
-  bool private_directory = false;
+  // Owned by this user and not writable by others (0700 or 0755).
+  bool owned_directory = false;
 };
 // Read-only point observation in a controlled, stable /data/homebrew namespace.
 // Missing/inaccessible parents and rejected symlinks never imply a free slot.

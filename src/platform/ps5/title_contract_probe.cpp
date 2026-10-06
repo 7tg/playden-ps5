@@ -343,7 +343,7 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
       std::fprintf(log, "title_source title=%s availability=%d free=%d occupied=%d unknown=%d directory=%d private=%d\n",
           title, static_cast<int>(source.availability), static_cast<int>(runtime::TitleAvailability::kFree),
           static_cast<int>(runtime::TitleAvailability::kOccupied), static_cast<int>(runtime::TitleAvailability::kUnknown),
-          source.directory, source.private_directory);
+          source.directory, source.owned_directory);
       const auto cached = registry.Query(title);
       std::fprintf(log, "title_source_cache title=%s state=%d path=%s\n", title, static_cast<int>(cached.state), cached.path.c_str());
     }
