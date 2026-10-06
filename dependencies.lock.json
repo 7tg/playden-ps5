@@ -190,7 +190,7 @@
     }
   },
   "prospero_win": {
-    "revision": "1a8a0d5c0b056487aa0b35316cc0eef3d43dc684",
+    "revision": "301246dcb56afa90443761ffd5ad38b587342e32",
     "url": "https://github.com/mpereiraesaa/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
@@ -238,8 +238,8 @@
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
     "status": "release-clean kit: no host build paths (privacy scan without exemptions); console acceptance of this kit pending",
-    "manifest_sha256": "1e255dfbffbdb1eb78e77e749e233622a8987f7e8cd20b795742489c5d905f4d",
-    "files_sha256": "5807db5fc55d85ac6344aa7ae1c86c6845fee6db198df84a545d5f9166245889",
+    "manifest_sha256": "8f49f733143c482ed31e4018306c7ec8d9f93d54445246aad4380a7f55a7681d",
+    "files_sha256": "caeeae697fddd4af52ae533af8bb1d7305a345a50dd02eb90a275662fd1a09cf",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",
     "firmware": [
       "13.60"
@@ -250,7 +250,7 @@
       "per_game_title",
       "wow64_i386"
     ],
-    "wrapper_revision": "1a8a0d5c0b056487aa0b35316cc0eef3d43dc684",
+    "wrapper_revision": "301246dcb56afa90443761ffd5ad38b587342e32",
     "runtime_artifact_revision": "e16ec8f3-ps5-console-r1-neutral",
     "runtime_inventory_source": "Path-neutral rebuild of the console runtime recipe (e16ec8f3 + a4c3856 sink, 4234987 patch 0663, e9c1104 PSBC); results/20261006-release-kit",
     "template_preparation": "hl2-fresh-v16-neutral",
