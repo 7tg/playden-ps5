@@ -1,6 +1,6 @@
 # Ready to play: register new titles by quitting to Home — plan
 
-Agreed with the user on 2026-10-07. Not implemented yet.
+Agreed with the user on 2026-10-07. Built on 2026-10-07; see [As built](#as-built).
 
 ## Problem
 
@@ -50,3 +50,16 @@ Let SMP register the title when the player leaves Playden. No helper, no timeout
 ShadowMountPlus not registering (stale "TitleDir bridge unavailable" hook, SMP not loaded): handled later. Options to
 weigh then: detect it (title still absent on the next start), tell the player, offer "Restart ShadowMountPlus" from
 inside Playden, or a native registration fallback. Tracked in [STATUS](../../../STATUS.md).
+
+## As built
+
+- `RunPrepare` stops after the registration is submitted and one immediate check finds it unregistered; the record is
+  `awaiting_registration` (journal at `register`/`await-native`, failure absent or `registration-uncertain`). Kept saves
+  are restored at that point, so a game started from Home already has them.
+- The notification is a small dialog ("<game> is ready to play", Later / Play), because Playden's notifications take no
+  input. It opens once no other dialog, sheet or keyboard is open, once per game, only for preparations the player
+  started (Play, Prepare, a finished download). Play there and Play in Details (`quit-to-home`) quit without asking.
+- On start, titles awaiting registration are checked once, one at a time (`SubmitPrepare(id, false)`); the
+  ShadowMountPlus registration cache reports a submitted title as pending, so nothing is submitted twice. `query-native`
+  records (never submitted) are not awaiting and are not checked automatically.
+- Console run: [results](../../../results/20261007-ready-to-play/README.md).
