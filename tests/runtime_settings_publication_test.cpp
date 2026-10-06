@@ -518,7 +518,11 @@ int main() {
     RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install);
     RepositoryInstallRecordStore base(repository); RejectReadyStore records(base); OwnerPackage package; OwnerNative native;
     native.records = &records; native.queue = queued; records.reject = !queued;
-    SettingsPublicationOwner owner(records, package, native); t.deps = owner.Dependencies(t.root);
+    SettingsPublicationOwner owner(records, package, native);
+    auto prepared = owner.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root);
+    if (!prepared.ok()) std::fprintf(stderr, "Prepare: %s\n", prepared.message().c_str());
+    CHECK(prepared.ok()); t.operation = prepared.value(); t.deps = owner.Dependencies(t.root);
+    CHECK(!fs::exists(t.control / "settings-operation.v1") && !fs::exists(t.paths.profile));
     unsigned applies = 0; auto apply = t.deps.apply_files;
     t.deps.apply_files = [&](const auto& o, const auto& paths, int fd) { ++applies; return apply(o, paths, fd); };
     CHECK(t.Run().state == PackageActionState::kFailed && native.registrations == 1 && applies == 1);
@@ -535,7 +539,14 @@ int main() {
     CHECK(LoadSettingsPublicationOperation(t.control).operation->transaction_id == t.operation.transaction_id);
     RepositoryInstallRecordStore resumed_base(reload); RejectReadyStore resumed_records(resumed_base);
     native.records = &resumed_records;
-    SettingsPublicationOwner resumed_owner(resumed_records, package, native); t.deps = resumed_owner.Dependencies(t.root);
+    SettingsPublicationOwner resumed_owner(resumed_records, package, native);
+    auto recovered_intent = resumed_owner.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id,
+        t.operation.transaction_id, 1900000000, t.root);
+    CHECK(recovered_intent.ok() && recovered_intent.value().registry_unix_time == 1760000000);
+    CHECK(recovered_intent.value().plan_sha256 == t.operation.plan_sha256);
+    auto changed_plan = t.operation.plan; changed_plan.profile_bytes += "# changed\n";
+    CHECK(!resumed_owner.Prepare(t.operation.install, changed_plan, t.operation.kit_id, t.operation.transaction_id, 1900000000, t.root).ok());
+    t.deps = resumed_owner.Dependencies(t.root);
     t.deps.apply_files = [&](const auto& o, const auto& paths, int fd) { ++applies; return apply(o, paths, fd); };
     if (queued) {
       CHECK(t.Run().code == "publication-registration-pending" && native.registrations == 1 && applies == 1);
@@ -549,8 +560,12 @@ int main() {
       auto source = Fixture(); source.transaction_id = "00000000-0000-7000-8000-000000000003";
       source.previous_revision = t.operation.plan.settings_revision;
       source.previous_receipt_bytes = t.operation.committed_receipt_bytes; source.previous_metadata_bytes = t.operation.metadata_bytes;
-      source.install.settings_revision = source.plan.settings_revision = 8; Refresh(source);
-      std::string reason; auto frozen = FreezeSettingsPublicationOperation(source, &reason); CHECK(frozen);
+      source.install.settings_revision = source.plan.settings_revision = 8;
+      auto next = resumed_owner.Prepare(source.install, source.plan, source.kit_id, source.transaction_id, 1760000100, t.root);
+      if (!next.ok()) std::fprintf(stderr, "Prepare next: %s\n", next.message().c_str()); CHECK(next.ok());
+      auto frozen = std::optional<SettingsPublicationOperation>(next.value());
+      CHECK(frozen->previous_revision == 7 && frozen->previous_receipt_bytes == t.operation.committed_receipt_bytes);
+      CHECK(frozen->install.state == PreparationState::kReady && !frozen->install.journal);
       const auto archive = t.control / ("settings-operation-" + t.operation.transaction_id + ".v1");
       t.operation = *frozen; native.status.installed = false;
       // Missing existing registration blocks retirement before any new effects.
@@ -598,6 +613,32 @@ int main() {
       native.status.installed = true; native.fail = false;
       CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1);
     }
+  }
+  {
+    Test t; const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records;
+    SettingsPublicationOwner owner(records, package, native);
+    auto plan = t.operation.plan;
+    plan.registry = {{"Software\\Wine\\AppDefaults\\probe.exe", "Version", "\"win10\""},
+                     {"Control Panel\\Desktop", "LogPixels", "dword:000000a8"}};
+    plan.dxvk_config = "# Generated by Playden from this game's settings. Changes here are replaced on the next launch.\ndxgi.maxFrameRate = 30\n";
+    const auto original = t.Registry();
+    auto prepared = owner.Prepare(t.operation.install, plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root);
+    if (!prepared.ok()) std::fprintf(stderr, "Prepare registry: %s\n", prepared.message().c_str()); CHECK(prepared.ok());
+    CHECK(prepared.value().registry_backup && t.Registry() == original && !fs::exists(t.DxvkPath()));
+    CHECK(!fs::exists(t.control / "settings-operation.v1") && !fs::exists(t.control / "publication-state.v1"));
+    // A pre-journal backup is never adopted on another capture, even exact bytes.
+    CHECK(!owner.Prepare(t.operation.install, plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root).ok());
+    t.operation = prepared.value(); t.deps = owner.Dependencies(t.root);
+    CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1);
+    CHECK(t.Registry().find("\"Version\"=\"win10\"") != std::string::npos);
+    CHECK(t.Registry().find("\"LogPixels\"=dword:000000a8") != std::string::npos);
+    CHECK(Read(t.DxvkPath()) == plan.dxvk_config);
+    auto backup = LoadPublicationRegistryBackup(t.control, t.operation.transaction_id, *t.operation.registry_backup);
+    CHECK(backup.state == PublicationRecoveryState::kValid && backup.bytes == original);
   }
   std::puts("settings publication coordinator tests passed");
 }

@@ -94,4 +94,12 @@ PackageActionResult ApplyPendingPublicationFiles(const SettingsPublicationOperat
 PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperation& operation,
     const PublicationPaths& paths, int borrowed_publisher_fd,
     const std::filesystem::path& host_namespace_prefix = {});
+// Builds and freezes one operation from the exact supplied plan and live before
+// snapshots. Caller independently approves reserved OWNER/package provenance,
+// positively stopped activity and the borrowed exclusive lease. Control/lock
+// already exist. Only immutable backup preparation may write; no live edits.
+Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(
+    const RuntimeInstall& record, const SettingsLaunchPlan& plan, const std::string& kit_id,
+    const std::string& transaction_id, std::int64_t registry_unix_time,
+    int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {});
 }  // namespace playden::runtime

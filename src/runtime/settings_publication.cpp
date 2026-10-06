@@ -3,10 +3,13 @@
 #include "runtime/artifact_hash.h"
 extern "C" {
 #include "pw_title_publication_native.h"
+#include "pw_wine_launch.h"
 }
 #include "platform/managed_file_lock.h"
 #include <cerrno>
 #include <atomic>
+#include <charconv>
+#include <cstring>
 #include <unistd.h>
 
 namespace playden::runtime {
@@ -586,5 +589,157 @@ PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperat
     return Failure("publication-preflight-registry", "Frozen registry edits cannot be rendered against the original registry.");
   if (!held()) return Failure("publication-lock", "Publisher ownership changed during preflight.");
   return {PackageActionState::kComplete, {}, {}};
+}
+Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const RuntimeInstall& r,
+    const SettingsLaunchPlan& plan, const std::string& kit_id, const std::string& transaction,
+    std::int64_t unix_time, int borrowed, const std::filesystem::path& prefix) {
+  auto fail = [](const std::string& message) {
+    return Result<SettingsPublicationOperation>::Failure(StorageError::kInvalidData, message);
+  };
+  if (!ValidateRuntimeInstallRecord(r) || unix_time < 0 ||
+      (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())))
+    return fail("Invalid record, timestamp or canonical namespace.");
+  SettingsPublicationOperation o; o.install = r; o.plan = plan; o.kit_id = kit_id;
+  o.transaction_id = transaction; o.registry_unix_time = unix_time;
+  o.catalog_bytes = plan.profile_id + ".profile\n";
+  o.descriptor_bytes = "{\"schema_version\":1,\"app_id\":" + std::to_string(r.app_id) +
+      ",\"settings_revision\":" + std::to_string(plan.settings_revision);
+  auto field = [&](const char* name, const std::string& value) {
+    o.descriptor_bytes += ",\""; o.descriptor_bytes += name; o.descriptor_bytes += "\":\"";
+    for (unsigned char c : value) {
+      if (c < 32 || c > 126) return false;
+      if (c == '"' || c == '\\') o.descriptor_bytes += '\\';
+      o.descriptor_bytes += static_cast<char>(c);
+    }
+    o.descriptor_bytes += '"'; return true;
+  };
+  if (!field("title_id", r.title_id) || !field("install_id", r.install_id) || !field("data_root", r.data_root) ||
+      !field("default_profile_id", plan.profile_id) || !field("runtime_bundle_id", r.runtime_bundle_id) ||
+      !field("recipe_id", plan.recipe_id) || !field("recipe_version", plan.recipe_version) || !field("exit_policy", r.exit_policy))
+    return fail("Descriptor identities cannot be represented safely.");
+  o.descriptor_bytes += "}\n";
+  PwGameProfile profile{}; char working[1024]{};
+  const auto bottle_path = r.data_root + "/library/prefixes/game";
+  if (pw_game_profile_parse(reinterpret_cast<const uint8_t*>(plan.profile_bytes.data()), plan.profile_bytes.size(), &profile) != PW_OK ||
+      pw_wine_launch_host_dir(bottle_path.c_str(), profile.app.working_directory, working, sizeof(working)))
+    return fail("Frozen profile cannot produce its canonical working directory.");
+  auto bind = [](auto& target, const std::string& value) {
+    if (value.size() >= sizeof(target)) return false;
+    std::memcpy(target, value.c_str(), value.size() + 1); return true;
+  };
+  auto hash = [&](auto& target, const std::string& bytes) {
+    auto digest = HashArtifactBytes(bytes); return digest && bind(target, *digest);
+  };
+  PwTitlePublicationMetadata m{}; m.schema_version = 2; m.settings_revision = plan.settings_revision;
+  if (!bind(m.install_id, r.install_id) || !bind(m.title_id, r.title_id) || !bind(m.data_root, r.data_root) ||
+      !bind(m.profile_id, plan.profile_id) || !bind(m.runtime_bundle_id, r.runtime_bundle_id) ||
+      !bind(m.recipe_id, plan.recipe_id) || !bind(m.recipe_version, plan.recipe_version) || !bind(m.kit_id, kit_id) ||
+      !hash(m.profile_sha256, plan.profile_bytes) || !hash(m.descriptor_sha256, o.descriptor_bytes) ||
+      !hash(m.catalog_sha256, o.catalog_bytes) || plan.input_presets.size() > 64 ||
+      !bind(m.dxvk_path, std::string(working) + "/dxvk.conf")) return fail("Publication identities or hashes exceed the contract.");
+  m.input_count = plan.input_presets.size();
+  for (std::size_t i = 0; i < plan.input_presets.size(); ++i)
+    if (!bind(m.inputs[i].name, plan.input_presets[i].first) || !hash(m.inputs[i].sha256, plan.input_presets[i].second))
+      return fail("Input preset cannot be bound to completion metadata.");
+  m.dxvk_present = !plan.dxvk_config.empty();
+  if (m.dxvk_present && !hash(m.dxvk_sha256, plan.dxvk_config)) return fail("DXVK hashing failed.");
+  const std::string executable = profile.app.executable;
+  const auto basename = executable.substr(executable.find_last_of('\\') + 1);
+  m.registry_count = 2;
+  m.registry[0].kind = m.registry[1].kind = PW_TITLE_PUBLICATION_REGISTRY_ABSENT;
+  if (!bind(m.registry[0].key, "Software\\Wine\\AppDefaults\\" + basename) ||
+      !bind(m.registry[0].name, "Version") || !bind(m.registry[1].key, "Control Panel\\Desktop") ||
+      !bind(m.registry[1].name, "LogPixels")) return fail("Owned registry identities exceed the contract.");
+  auto equal = [](const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+      auto lower = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+      if (lower(a[i]) != lower(b[i])) return false;
+    }
+    return true;
+  };
+  unsigned seen = 0;
+  for (const auto& value : plan.registry) {
+    int index = -1;
+    for (int i = 0; i < 2; ++i) if (equal(value.key, m.registry[i].key) && equal(value.name, m.registry[i].name)) index = i;
+    if (index < 0 || (seen & (1u << index))) return fail("Registry plan contains an unsupported or duplicate owned target.");
+    seen |= 1u << index;
+    auto& target = m.registry[index];
+    if (value.data.empty()) continue;
+    if (index == 0 && value.data.size() >= 2 && value.data.front() == '"' && value.data.back() == '"') {
+      target.kind = PW_TITLE_PUBLICATION_REGISTRY_STRING;
+      if (!bind(target.string_value, value.data.substr(1, value.data.size() - 2))) return fail("Registry string exceeds its bound.");
+    } else if (index == 1 && value.data.size() == 14 && value.data.compare(0, 6, "dword:") == 0) {
+      target.kind = PW_TITLE_PUBLICATION_REGISTRY_DWORD;
+      auto parsed = std::from_chars(value.data.data() + 6, value.data.data() + 14, target.dword, 16);
+      if (parsed.ec != std::errc{} || parsed.ptr != value.data.data() + 14) return fail("Registry DWORD is not canonical.");
+    } else return fail("Registry plan has an unsupported value type.");
+  }
+  auto metadata = SerializePublicationMetadata(m);
+  if (!metadata) return fail("Completion metadata is invalid."); o.metadata_bytes = *metadata;
+  auto data = ManagedDirectory::Open(Map(prefix, r.data_root), DirectoryPolicy::kPrivate);
+  auto control = data ? data->OpenChild(".playden-control", DirectoryPolicy::kPrivate) : std::nullopt;
+  auto held = [&] {
+    struct stat opened{}, named{};
+    return control && control->Validate() && borrowed >= 0 && fstat(borrowed, &opened) == 0 &&
+        control->InspectChild("publication.lock", &named) && S_ISREG(opened.st_mode) && S_ISREG(named.st_mode) &&
+        opened.st_uid == geteuid() && named.st_uid == geteuid() && opened.st_nlink == 1 && named.st_nlink == 1 &&
+        (opened.st_mode & 07777) == 0600 && (named.st_mode & 07777) == 0600 &&
+        opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
+  };
+  if (!held()) return fail("Qualified publisher descriptor/private tree is unavailable.");
+  auto receipt = ReadReceipt(control->path(), *control);
+  if (!receipt.ok) return fail("Before receipt is corrupt or unavailable.");
+  auto library = data->OpenChild("library", DirectoryPolicy::kPrivate);
+  if (!library) return fail("Private library is unavailable.");
+  if (!receipt.absent) {
+    PwTitlePublication parsed{}; PwTitlePublicationDescriptor descriptor{}; PwTitlePublicationContents contents{};
+    const auto host = prefix.string(); PwTitlePublicationPlatform platform{};
+    platform.host_root = host.empty() ? nullptr : host.c_str(); platform.owner_uid = geteuid(); char error[256]{};
+    auto profiles = library->OpenChild("profiles", DirectoryPolicy::kPrivate);
+    auto prior = profiles ? ReadPublicationFile(*profiles, ".playden-publication", 32768) : std::nullopt;
+    if (pw_title_publication_parse(reinterpret_cast<const uint8_t*>(receipt.bytes.data()), receipt.bytes.size(), &parsed) != PW_OK ||
+        parsed.phase != PW_TITLE_PUBLICATION_COMMITTED || !prior || !prior->present ||
+        pw_title_publication_read_descriptor(("/data/homebrew/" + r.title_id + "/game-launch.json").c_str(), r.title_id.c_str(),
+        &platform, &descriptor, error, sizeof(error)) != PW_OK || descriptor.launch.app_id != r.app_id ||
+        pw_title_publication_verify_locked(&descriptor, &platform, borrowed,
+        reinterpret_cast<const uint8_t*>(receipt.bytes.data()), receipt.bytes.size(), parsed.publication_sha256,
+        &contents, error, sizeof(error)) != PW_OK)
+      return fail("Before state is not a verified committed complete publication.");
+    o.previous_revision = parsed.settings_revision; o.previous_receipt_bytes = receipt.bytes; o.previous_metadata_bytes = prior->bytes;
+  }
+  auto game = ManagedDirectory::Open(Map(prefix, working), DirectoryPolicy::kApprovedTree);
+  auto dxvk = game ? ReadPublicationFile(*game, "dxvk.conf", 256 * 1024) : std::nullopt;
+  if (!dxvk) return fail("Before DXVK snapshot cannot be verified.");
+  o.dxvk_before = *dxvk;
+  if (dxvk->present) {
+    auto digest = HashArtifactBytes(dxvk->bytes); if (!digest) return fail("Before DXVK hashing failed."); o.dxvk_before.sha256 = *digest;
+  }
+  auto prefixes = library->OpenChild("prefixes", DirectoryPolicy::kPrivate);
+  auto bottle = prefixes ? prefixes->OpenChild("game", DirectoryPolicy::kPrivate) : std::nullopt;
+  auto registry = bottle ? ReadPublicationFile(*bottle, "user.reg", kMaxPublicationRegistryBackupBytes) : std::nullopt;
+  if (!registry || !registry->present) return fail("Before registry cannot be verified.");
+  auto intended_registry = registry->bytes; std::string reason;
+  if (!ApplyRegistryValues(&intended_registry, plan.registry, unix_time, &reason) || intended_registry.size() > kMaxPublicationRegistryBackupBytes)
+    return fail("Registry plan cannot be applied to its captured original.");
+  if (!plan.registry.empty()) {
+    auto digest = HashArtifactBytes(registry->bytes); if (!digest) return fail("Before registry hashing failed.");
+    o.registry_backup = RegistryBackupBinding{"registry-backup-" + transaction + ".v1", registry->mode, registry->size, *digest};
+  }
+  auto frozen = FreezeSettingsPublicationOperation(o, &reason);
+  if (!frozen || !held()) return fail(frozen ? "Publisher ownership changed during capture." : reason);
+  if (o.registry_backup) {
+    auto backup = CreatePublicationRegistryBackup(control->path(), transaction, registry->bytes, registry->mode);
+    if (!backup.ok() || backup.value().filename != o.registry_backup->filename || backup.value().sha256 != o.registry_backup->sha256 ||
+        backup.value().size != o.registry_backup->size || backup.value().source_mode != o.registry_backup->source_mode || !held())
+      return fail("Exclusive registry backup preparation failed; preserve orphan evidence.");
+  }
+  const auto profiles = r.data_root + "/library/profiles/";
+  PublicationPaths paths{Map(prefix, profiles + plan.profile_id + ".profile"), Map(prefix, profiles + "profiles.lst"),
+      Map(prefix, r.data_root + "/library/input"), Map(prefix, "/data/homebrew/" + r.title_id + "/game-launch.json"),
+      Map(prefix, profiles + ".playden-publication")};
+  auto preflight = PreflightSettingsPublication(*frozen, paths, borrowed, prefix);
+  if (!Complete(preflight) || !held()) return fail(preflight.message.empty() ? "Captured operation preflight failed." : preflight.message);
+  return Result<SettingsPublicationOperation>::Success(std::move(*frozen));
 }
 }  // namespace playden::runtime

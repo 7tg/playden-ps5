@@ -1,0 +1,24 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-producer-host-test.log"
+  },
+  "sdk": "v0.43 publication/producer static archive",
+  "generated_registry": {
+    "Version": "win10",
+    "LogPixels": "000000a8"
+  },
+  "existing_journal_recovery": "original timestamp/digest retained; changed plan refused",
+  "prejournal_backup_adoption": "refused",
+  "fresh_capture_handoff_durable": false,
+  "production_ui_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/settings_publication.cpp": "6afa2f15289344a78d88d52f16997b3b7f23228db588da85e4c4b105972b1c21",
+    "src/runtime/settings_publication.h": "efde6688688ec357881c0f0c4dbe9030e516641266707a00d691a13bd1d37e19",
+    "src/runtime/settings_publication_owner.cpp": "75376b3e6d143b422ba4feb88862ee3258f757ccebd8d65d521a6f58172e35c1",
+    "src/runtime/settings_publication_owner.h": "63d1a62504534fecc53610cfd6deff864c94884b6f65c1479a4fb44b9ddf5bfe",
+    "tests/runtime_settings_publication_test.cpp": "e9c597248af00a7c0ee2e3dd372805d121c0f1af69c4210e2880f0e379ee6a70"
+  }
+}

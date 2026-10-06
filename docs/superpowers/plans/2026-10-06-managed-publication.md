@@ -597,3 +597,27 @@ No history garbage collection or alternate readiness authority is added.
 Production operation creation/orphan intent recovery, explicit uncertain native
 registration recovery, installer/UI routing, final link/review and PS5 acceptance
 remain unfinished.
+
+
+### Task C operation producer and snapshot capture
+
+The OWNER Prepare API now verifies reserved provenance/activity and captures
+under the existing publisher lease, using the actual persisted OWNER snapshot
+with the desired revision. It generates descriptor/catalog/schema-2 metadata
+from the exact plan, verifies actual prior committed semantics, captures DXVK
+and registry originals, validates the frozen operation, creates an exclusive
+immutable backup for edits and performs read-only preflight. Existing active
+operations recover their frozen timestamp/bytes and refuse changed intent.
+
+Real OWNER tests use this producer for initial and next-revision publication.
+Generated string/DWORD metadata, renderer-header DXVK, original backup retention
+and pre-journal orphan refusal pass. Tests corrected absent-kind initialization
+against the shared contract. All 105 host tests, warning/diff checks and SDK v0.43
+archive compilation pass. See
+[producer evidence](../../../results/20261006-publication-producer/README.md).
+
+Fresh capture returns an in-memory operation; durable capture-to-coordinator
+handoff remains required, especially before archival/OWNER blocking. Control
+initialization, orphan OWNER intent recovery and explicit uncertain-registration
+recovery are also unfinished. Installer/UI routing, final native link/review and
+PS5 acceptance remain open; this increment enables no production guard trust.

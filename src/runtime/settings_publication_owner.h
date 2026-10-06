@@ -8,6 +8,9 @@ namespace playden::runtime {
 class SettingsPublicationOwner {
  public:
   SettingsPublicationOwner(InstallRecordStore& records, PackageInstaller& package, NativeCoordinator& native);
+  Result<SettingsPublicationOperation> Prepare(const RuntimeInstall& record, const SettingsLaunchPlan& plan,
+      const std::string& kit_id, const std::string& transaction_id, std::int64_t registry_unix_time,
+      const std::filesystem::path& host_namespace_prefix = {});
   PublicationDependencies Dependencies(const std::filesystem::path& host_namespace_prefix = {});
  private:
   PackageActionResult Block(const SettingsPublicationOperation& operation);

@@ -1,4 +1,5 @@
 #include "runtime/settings_publication_owner.h"
+#include "platform/managed_file_lock.h"
 namespace playden::runtime {
 namespace {
 PackageActionResult Failure(const char* code, const char* message) {
@@ -29,6 +30,45 @@ bool MatchingJournal(const RuntimeInstall& r, const SettingsPublicationOperation
 }
 SettingsPublicationOwner::SettingsPublicationOwner(InstallRecordStore& records, PackageInstaller& package,
     NativeCoordinator& native) : records_(records), package_(package), native_(native) {}
+Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const RuntimeInstall& record,
+    const SettingsLaunchPlan& plan, const std::string& kit, const std::string& transaction, std::int64_t time,
+    const std::filesystem::path& prefix) {
+  auto fail = [](const std::string& reason) { return Result<SettingsPublicationOperation>::Failure(StorageError::kInvalidData, reason); };
+  if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())) return fail("Invalid canonical namespace.");
+  auto current = records_.Find(record.install_id);
+  if (!current || !SameOwner(*current, record) || current->state == PreparationState::kRemoving ||
+      native_.Activity(record.title_id) != NativeActivity::kStopped || !OwnedPackage(package_.Inspect(record)))
+    return fail("Reserved stopped OWNER/package provenance does not authorize operation capture.");
+  const auto canonical = std::filesystem::path(record.data_root + "/.playden-control");
+  const auto control_path = prefix.empty() ? canonical : prefix / canonical.relative_path();
+  auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
+  auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher) : std::nullopt;
+  if (!lease || native_.Activity(record.title_id) != NativeActivity::kStopped)
+    return fail("Existing publication control/lease or stopped native activity is unavailable.");
+  auto recovered = LoadSettingsPublicationOperation(control_path);
+  if (recovered.state == PublicationRecoveryState::kCorrupt || recovered.state == PublicationRecoveryState::kUnavailable)
+    return fail("Existing frozen operation is corrupt or unavailable.");
+  if (recovered.operation && recovered.operation->transaction_id == transaction) {
+    const auto& frozen = *recovered.operation;
+    if (!SameOwner(frozen.install, record) || record.settings_revision != frozen.plan.settings_revision)
+      return fail("Recovery OWNER intent changed.");
+    auto candidate = frozen; candidate.plan = plan; candidate.kit_id = kit; std::string reason;
+    auto checked = FreezeSettingsPublicationOperation(candidate, &reason);
+    if (!checked || checked->plan_sha256 != frozen.plan_sha256 || !lease->Validate(*control, "publication.lock") ||
+        native_.Activity(record.title_id) != NativeActivity::kStopped)
+      return fail("Recovery settings intent changed; retain the original frozen operation.");
+    return Result<SettingsPublicationOperation>::Success(frozen);
+  }
+  if (current->journal && current->journal->operation == "settings-publication")
+    return fail("Unreconciled OWNER intent requires explicit recovery before another operation capture.");
+  if (recovered.operation && (current->state != PreparationState::kReady || current->journal || current->last_failure ||
+      current->settings_revision != recovered.operation->plan.settings_revision))
+    return fail("Previous frozen operation must first reconcile to durable Ready.");
+  if (!lease->Validate(*control, "publication.lock") || native_.Activity(record.title_id) != NativeActivity::kStopped)
+    return fail("Publisher ownership/activity changed before capture.");
+  auto snapshot = *current; snapshot.settings_revision = record.settings_revision;
+  return CaptureSettingsPublicationOperation(snapshot, plan, kit, transaction, time, lease->fd(), prefix);
+}
 PackageActionResult SettingsPublicationOwner::Persist(const RuntimeInstall& record) {
   auto result = records_.Update(record);
   if (!result.ok) return {PackageActionState::kFailed, result.code.empty() ? "publication-owner-persistence" : result.code,
