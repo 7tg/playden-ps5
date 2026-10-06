@@ -39,6 +39,27 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
         "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
         "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
     add_test(NAME prospero_publication_sha256_contract COMMAND prospero_publication_sha256_contract)
+    # Exercise the exact pinned wrapper admission implementation with real files
+    # and the host lock callback; PS5 lock qualification remains a native check.
+    add_executable(prospero_title_publication_native_contract
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/tests/test_pw_title_publication_native.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_title_publication_native.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_publication.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_launch.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_game_profile.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_profile_catalog.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_wine_launch.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_publication_sha256.c"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/library/sha256.c")
+    target_compile_features(prospero_title_publication_native_contract PRIVATE c_std_11)
+    target_compile_options(prospero_title_publication_native_contract PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+    target_compile_definitions(prospero_title_publication_native_contract PRIVATE
+        _DEFAULT_SOURCE MBEDTLS_CONFIG_FILE="pw_publication_config.h")
+    target_include_directories(prospero_title_publication_native_contract PRIVATE
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
+        "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
+    add_test(NAME prospero_title_publication_native_contract COMMAND prospero_title_publication_native_contract)
     add_test(NAME prospero_source_pin COMMAND "${Python3_EXECUTABLE}" -m unittest discover
         -s "${CMAKE_SOURCE_DIR}/tests" -p test_prospero_source.py)
     add_test(NAME prospero_bottle_preparation_evidence COMMAND "${Python3_EXECUTABLE}" -m unittest discover

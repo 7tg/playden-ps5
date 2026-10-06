@@ -187,14 +187,24 @@ wiring compiles with SDK v0.42; full native guard and PS5 acceptance are pending
   commit cannot mix the pre-elevation descriptor with new profile bytes.
 - [ ] RED: wrong DXVK presence/digest, wrong registry type/value or unexpected
   presence refuse; unrelated legitimate registry rewrites remain accepted.
-- [ ] Implement native admission and build/package capability gates.
-- [ ] Run portable parser/hash contracts and build a clean exact-title wrapper
+- [x] Implement native admission and build/package capability gates.
+- [x] Run portable parser/hash contracts and build a clean exact-title wrapper
   with patched Lapy/foundation pins. Verify SDK imports and source provenance.
 - [ ] On PS5, use isolated publisher/reader processes: reader wins → no settings
   writes; publisher wins → no Wine startup. Confirm lock release on process exit
   and guard remains pending after publisher death. Restore preview and release.
 - [ ] Review, commit upstream, then update Playden's clean source pin and kit
   trust in one reviewed increment. Do not push without separate authorization.
+
+Guard implementation is committed upstream at
+`bde4b394a8db20cc243e8dc32945adb0dccfe2a7`; Playden pins that clean development
+source. Host filesystem admission and retained-Wine compatibility tests passed,
+and the rebuilt Playden suite passes 101 tests. A clean SDK v0.42 exact-title
+wrapper with required descriptor and provider markers was built. See the
+[guard evidence](../../../results/20261006-managed-publication/README.md).
+Cross-process console admission and full wrapper lease lifetime remain pending;
+production kit trust is deliberately unchanged until those checks pass. The
+combined final review/pin/trust checkbox above remains open for native acceptance.
 
 ## Task C: Journaled OWNER publication and recoverable first retry
 
