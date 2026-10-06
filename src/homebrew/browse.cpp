@@ -196,7 +196,14 @@ std::vector<Shelf> shelves(const State& state)
         return optional_descending(left->last_played, right->last_played);
     });
     for (const Game* game : played)
+    {
+        if (continued.game_ids.size() == kShelfLimit)
+        {
+            continued.more = static_cast<int>(played.size() - kShelfLimit);
+            break;
+        }
         continued.game_ids.push_back(game->id);
+    }
     append_shelf(result, std::move(continued));
 
     Shelf downloading{"downloading", "Downloading", {}};
@@ -270,24 +277,31 @@ bool move_browser(State& state, int delta_x, int delta_y)
         int shelf_index = std::clamp(state.navigation.home_shelf, 0,
                                      static_cast<int>(projected.size()) - 1);
         int child = std::clamp(state.navigation.home_shelf_focus[projected[static_cast<std::size_t>(shelf_index)].key],
-                               0, static_cast<int>(projected[static_cast<std::size_t>(shelf_index)].game_ids.size()) - 1);
+                               0, shelf_cells(projected[static_cast<std::size_t>(shelf_index)]) - 1);
         if (delta_y != 0)
         {
             state.navigation.home_shelf_focus[projected[static_cast<std::size_t>(shelf_index)].key] = child;
             shelf_index = std::clamp(shelf_index + delta_y, 0, static_cast<int>(projected.size()) - 1);
             const Shelf& shelf = projected[static_cast<std::size_t>(shelf_index)];
-            child = std::clamp(state.navigation.home_shelf_focus[shelf.key], 0,
-                               static_cast<int>(shelf.game_ids.size()) - 1);
+            child = std::clamp(state.navigation.home_shelf_focus[shelf.key], 0, shelf_cells(shelf) - 1);
         }
         if (delta_x != 0)
         {
             const Shelf& shelf = projected[static_cast<std::size_t>(shelf_index)];
-            child = std::clamp(child + delta_x, 0, static_cast<int>(shelf.game_ids.size()) - 1);
+            child = std::clamp(child + delta_x, 0, shelf_cells(shelf) - 1);
         }
         const Shelf& shelf = projected[static_cast<std::size_t>(shelf_index)];
         state.navigation.home_shelf = shelf_index;
         state.navigation.home_shelf_focus[shelf.key] = child;
-        select_game(state, shelf.game_ids[static_cast<std::size_t>(child)], child);
+        if (child == static_cast<int>(shelf.game_ids.size()))
+        {
+            // The "More" cell: no game is selected there.
+            state.navigation.selected_game_id = 0;
+            state.navigation.selected_index = child;
+            state.navigation.focus_key = shelf_more_key(shelf);
+        }
+        else
+            select_game(state, shelf.game_ids[static_cast<std::size_t>(child)], child);
         state.navigation.scroll_offsets["home"] = shelf_index;
         return true;
     }

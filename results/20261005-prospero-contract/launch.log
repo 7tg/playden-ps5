@@ -1,0 +1,59 @@
+2026-10-05T14:23:06Z launch_request title=PPSA99995 args=1 user_result=0
+2026-10-05T15:36:52Z launch_request title=PPSA99995 args=1
+2026-10-05T15:36:52Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T15:39:46Z launch_request title=PPSA99995 args=1
+2026-10-05T15:39:46Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T15:40:45Z launch_request title=PPSA99995 args=1
+2026-10-05T15:40:45Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T15:40:45Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T16:01:21Z launch_request title=PPSA99995 args=1
+2026-10-05T16:01:21Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T16:01:21Z launch_resolved initialize=0 launch=0
+2026-10-05T16:01:21Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T16:04:31Z launch_request title=PPSA99995 args=1
+2026-10-05T16:04:31Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T16:04:31Z module_load id=80000010 result=00000000
+2026-10-05T16:04:31Z module_handle id=80000010 result=00000000 handle=187
+2026-10-05T16:04:31Z module_resolve name=sceLncUtilInitialize result=80020003 address=0
+2026-10-05T16:04:31Z launch_resolved initialize=0 launch=0
+2026-10-05T16:04:31Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T16:06:11Z launch_request title=PPSA99995 args=1
+2026-10-05T16:06:11Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T16:06:11Z module_load id=80000010 result=00000000
+2026-10-05T16:06:11Z module_handle id=80000010 result=00000000 handle=187
+2026-10-05T16:06:11Z module_resolve name=sceLncUtilInitialize result=80020003 address=0
+2026-10-05T16:06:11Z module_resolve nid=f-Q8Nd33FBc result=80020003 address=0
+2026-10-05T16:06:11Z launch_resolved initialize=0 launch=0
+2026-10-05T16:06:11Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T16:14:56Z launch_request title=PPSA99995 args=1
+2026-10-05T16:14:56Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T16:14:56Z module_load id=80000010 result=00000000
+2026-10-05T16:14:56Z module_handle id=80000010 result=00000000 handle=187
+2026-10-05T16:14:56Z module_resolve name=sceLncUtilInitialize result=80020003 address=0
+2026-10-05T16:14:56Z module_resolve name=sceSystemServiceLaunchApp result=80020003 address=0
+2026-10-05T16:14:56Z launch_resolved initialize=0 launch=0 public=0
+2026-10-05T16:14:56Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T16:22:13Z launch_request title=PPSA99995 args=1
+2026-10-05T16:22:13Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T16:22:13Z module_load id=800000ab result=805a1000
+2026-10-05T16:22:13Z module_handle id=800000ab result=805a1000 handle=-1
+2026-10-05T16:22:13Z launch_resolved initialize=0 launch=0 public=800dd8d80
+2026-10-05T16:22:13Z launch_result title=PPSA99995 stage=system-service accepted=0 result=0x80940005
+2026-10-05T16:27:25Z launch_request title=PPSA99995 args=1
+2026-10-05T16:27:25Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T16:27:25Z module_load id=80000010 result=00000000
+2026-10-05T16:27:25Z module_handle id=80000010 result=00000000 handle=187
+2026-10-05T16:27:25Z module_resolve name=sceLncUtilInitialize result=80020003 address=0
+2026-10-05T16:27:25Z module_resolve name=sceSystemServiceLaunchApp result=80020003 address=0
+2026-10-05T16:27:25Z launch_resolved initialize=0 launch=0 public=800dd8d80
+2026-10-05T16:27:25Z launch_result title=PPSA99995 stage=provider accepted=0 result=0x0000004e
+2026-10-05T16:44:26Z launch_request title=PPSA99995 args=1
+2026-10-05T16:44:26Z launch_provider initialize=0 foreground=800e2b130 launch=0
+2026-10-05T16:44:26Z module_load id=80000010 result=00000000
+2026-10-05T16:44:26Z module_handle id=80000010 result=00000000 handle=187
+2026-10-05T16:44:26Z module_resolve name=sceLncUtilInitialize result=80020003 address=0
+2026-10-05T16:44:26Z module_resolve name=sceSystemServiceLaunchApp result=80020003 address=0
+2026-10-05T16:44:26Z launch_resolved initialize=0 launch=0 public=800dd8d80
+2026-10-05T16:44:26Z launch_result title=PPSA99995 stage=system-service accepted=0 result=0x8094000f
+2026-10-05T17:05:43Z launch_request title=PPSA99995 args=1 user_result=0
+2026-10-05T17:12:40Z launch_request title=PPSA99995 args=1 user_result=0

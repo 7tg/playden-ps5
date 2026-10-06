@@ -1,0 +1,13 @@
+{
+  "prospero_revision": "bde4b394a8db20cc243e8dc32945adb0dccfe2a7",
+  "manifest_sha256": "84346ebb562986b2de4d710ea352e2875988653bfa217a9694880b0b17908780",
+  "elf_sha256": "56c087ce866615858bf15530cddc3c67dfcad07169ec1de4fb9046bda90b606b",
+  "nonce": "7489667744b2d7b8",
+  "pid": 1101,
+  "admission_rc": -1,
+  "errstage": 0,
+  "errno": 78,
+  "lookup_rc": -2147352573,
+  "accepted": false,
+  "scope": "standalone payload; fixed native-title libkernel handle did not resolve"
+}

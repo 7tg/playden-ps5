@@ -1,0 +1,29 @@
+begin pid=1051
+smp route=/api/v1/version curl=0 http=200 body={"status":0,"api_version":1,"shadowmount_version":"1.7beta2","capabilities":["web_ui","storage_space","list_images","list_games","game_info","game_icon","mount_game","unmount_game","uninstall_game","move_game_source","copy_game_source","delete_game_source","unpack_game_image","storage_job_status","storage_job_cancel","list_manual_sources","add_manual_source","remove_manual_source","manage_settings","read_debug_log","read_kernel_log","rescan"]}
+bootstrap grant=1 runtime_ready=1 euid=1
+managed-filesystem begin euid=1 root=/data/playden/managed-fs-1051-1791245946
+managed-filesystem step=fresh-root ok=1 errno=0
+managed-filesystem step=private-directories ok=1 errno=0
+managed-filesystem step=private-tree-readback ok=1 errno=0
+managed-filesystem step=open-contexts ok=1 errno=0
+managed-filesystem step=exclusive-create ok=1 errno=0
+managed-filesystem output uid=1 mode=600
+managed-filesystem step=private-write-file-sync ok=1 errno=0
+managed-filesystem step=publish-file ok=1 errno=0
+managed-filesystem step=read-open ok=1 errno=0
+managed-filesystem step=readback ok=1 errno=0
+managed-filesystem step=production-hash ok=1 errno=0
+managed-filesystem step=create-staging ok=1 errno=0
+managed-filesystem step=publish-directory ok=1 errno=0
+managed-filesystem step=published-directory-readback ok=1 errno=0
+managed-filesystem step=stale-context-refusal ok=1 errno=0
+managed-filesystem step=remove-owned-directory ok=1 errno=0
+managed-filesystem step=create-removal-fixture ok=1 errno=0
+managed-filesystem step=removal-fixture-sync ok=1 errno=0
+managed-filesystem step=remove-owned-file ok=1 errno=0
+managed-filesystem step=sentinel-preserved ok=1 errno=0
+managed-filesystem step=durable-journal-publication ok=1 errno=0
+managed-filesystem step=durable-journal-recovery ok=1 errno=0
+managed-filesystem step=durable-journal-hash ok=1 errno=0
+managed-filesystem complete euid=1 sha256=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+end

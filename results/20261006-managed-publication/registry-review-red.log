@@ -1,0 +1,16 @@
+Independent review reproductions against the first frozen native guard.
+Return 0 means admission; each case below must refuse.
+
+review owned-link admission=0
+review ancestor-link admission=0
+review invalid-header admission=0
+review decoded-NUL-name admission=0
+review invalid-UTF8-owned-absence admission=0
+test_pw_title_publication_native: passed
+
+Retained Wine source: 490f6d5dcbb2a5047345b8af88d114bbcaad69a8.
+Registry/header/key-link and explicit-name-length behavior checked against
+server/registry.c; UTF-8/escape behavior against server/unicode.c.
+The original focused suite passed despite these admission errors.
+The valid no-preset path also copied an uninitialized preset into the lease.
+Corrections and independent re-review are required before source pinning.

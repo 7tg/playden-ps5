@@ -1,0 +1,7 @@
+2026-10-05T21:11:41Z user service initialization starting
+2026-10-05T21:11:41Z user service result=0
+2026-10-05T21:11:41Z graphics entry point probe starting
+2026-10-05T21:11:41Z graphics entry point result=0
+2026-10-05T21:11:41Z data grant starting
+2026-10-05T21:11:41Z helper stage=helper-result status=7 error=13
+2026-10-05T21:11:41Z bootstrap launcher_ready=1 runtime_ready=0 error=native data grant failed (code 13); helper stage=helper-result status=7 error=13

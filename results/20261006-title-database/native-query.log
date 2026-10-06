@@ -1,0 +1,8 @@
+begin pid=1147
+smp route=/api/v1/version curl=0 http=200 body={"status":0,"api_version":1,"shadowmount_version":"1.7beta2","capabilities":["web_ui","storage_space","list_images","list_games","game_info","game_icon","mount_game","unmount_game","uninstall_game","move_game_source","copy_game_source","delete_game_source","unpack_game_image","storage_job_status","storage_job_cancel","list_manual_sources","add_manual_source","remove_manual_source","manage_settings","read_debug_log","read_kernel_log","rescan"]}
+bootstrap grant=1 runtime_ready=1 euid=1
+title_inventory_file path=/system_data/priv/mms/app.db open=1 open_errno=0 stat=0 regular=1 uid=0 mode=644 size=2772992 header_bytes=16 sqlite_header=1 close=0
+title_inventory_query title=FAKE77031 state=1 free=0 occupied=1 unknown=2 identity=1 content=UP9000-FAKE77031_00-PLAYDENLAUNCHER1 metadata=/user/app/FAKE77031/sce_sys
+title_inventory_query title=FAKE78001 state=1 free=0 occupied=1 unknown=2 identity=1 content=UP9000-FAKE78001_00-PROSPEROWIN00001 metadata=/user/app/FAKE78001/sce_sys
+title_inventory_query title=FAKE78998 state=0 free=0 occupied=1 unknown=2 identity=0 content= metadata=
+end

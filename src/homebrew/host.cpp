@@ -8,6 +8,7 @@
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
 #include "app/diagnostic_log.h"
+#include "runtime/settings_storage.h"
 #include "homebrew/input_adapter.hpp"
 #include "homebrew/json.hpp"
 
@@ -135,6 +136,11 @@ std::optional<Options> parse_options(int argc, char** argv) {
         std::fprintf(stderr, "capture, snapshot, recording, and headless options require --simulation\n");
         usage(argv[0]);
         return std::nullopt;
+    }
+    if (!options.simulation) {
+        std::error_code error;
+        options.data_directory = std::filesystem::absolute(options.data_directory, error).lexically_normal();
+        if (error) return std::nullopt;
     }
     return options;
 }
@@ -363,8 +369,16 @@ bool write_render_snapshot(const playden::homebrew::Render& renderer,
 }
 
 int main(int argc, char** argv) {
-    const auto options = parse_options(argc, argv);
+    auto options = parse_options(argc, argv);
     if (!options) return 2;
+    if (!options->simulation) {
+        // The host CLI explicitly selects this trusted destination. Resolve its
+        // existing aliases before choosing the managed root; bottle/JSON paths
+        // still use strict no-symlink validation.
+        std::error_code error;
+        options->data_directory = std::filesystem::weakly_canonical(options->data_directory, error);
+        if (error) { std::fprintf(stderr, "live data directory is unavailable\n"); return 2; }
+    }
 
     const auto mode = options->simulation ? playden::homebrew::ModelMode::Simulation
                                           : playden::homebrew::ModelMode::Live;
@@ -372,6 +386,19 @@ int main(int argc, char** argv) {
         options->simulation ? std::filesystem::path(PLAYDEN_HOMEBREW_FIXTURES_DIR)
                             : std::filesystem::path{},
         options->simulation ? options->profile : std::filesystem::path{}, mode);
+    {
+        std::vector<playden::runtime::SettingsPreset> presets;
+        std::vector<playden::runtime::GameRecipe> recipes;
+        std::string reason;
+        // The kit's DXVK reads dxvk.conf from the game folder (results/20261005-dxvk-conf-probe).
+        playden::runtime::KitCapabilities kit;
+        kit.dxvk_config = true;
+        simulation.SetKitCapabilities(kit);
+        if (playden::runtime::LoadSettingsData(std::string(PLAYDEN_HOMEBREW_ASSETS_DIR) + "/runtime", &presets, &recipes, &reason))
+            simulation.SetSettingsData(std::move(presets), std::move(recipes));
+        else
+            std::fprintf(stderr, "game settings data unavailable: %s\n", reason.c_str());
+    }
     std::unique_ptr<playden::Storage> auth_storage;
     std::unique_ptr<playden::steam::CmClient> auth_cm;
     std::unique_ptr<playden::steam::AuthClient> auth;
@@ -437,6 +464,10 @@ int main(int argc, char** argv) {
     hui::gfx::set_glsl_prefix("#version 410 core\n");
 
     if (!options->simulation) {
+        std::string settings_reason;
+        const auto settings_file = playden::runtime::PrepareGameSettingsStorage(options->data_directory, &settings_reason);
+        if (!settings_file) std::fprintf(stderr, "private game settings unavailable: %s\n", settings_reason.c_str());
+        simulation.SetGameSettingsFile(settings_file.value_or(std::filesystem::path{}));
         auth_storage = std::make_unique<playden::Storage>(options->data_directory.string());
         auth_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *auth_storage);
         auth = std::make_unique<playden::steam::AuthClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);

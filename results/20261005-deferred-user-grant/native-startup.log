@@ -1,0 +1,7 @@
+2026-10-05T21:15:36Z graphics entry point probe starting
+2026-10-05T21:15:36Z graphics entry point result=0
+2026-10-05T21:15:36Z data grant starting
+2026-10-05T21:15:38Z user service initialization starting
+2026-10-05T21:15:38Z user service result=0
+2026-10-05T21:15:38Z helper stage=complete status=0 error=0
+2026-10-05T21:15:38Z bootstrap launcher_ready=1 runtime_ready=1 error=

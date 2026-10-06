@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "console": "10.0.1.68",
+  "read_only": true,
+  "command": [
+    "bash",
+    "scripts/with-env.sh",
+    "/Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5/.deps/ps5-payload-sdk/bin/prospero-clang",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-O0",
+    "/Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5/probes/kstuff-state/main.c",
+    "-o",
+    "/Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5/build/kstuff-state-readonly.elf"
+  ],
+  "elf_sha256": "19a0a7feb3fc6624f8d873d5d2cf8e031bb64b310b35a62d3ade43d5cc66aaf0"
+}

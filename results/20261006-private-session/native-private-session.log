@@ -1,0 +1,21 @@
+directory contract kernel_fd=0 root_fd=14 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=0 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=0 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=100 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=20000 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=20000 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=20100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=20100 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 root_fd=14 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=0 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=0 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=100 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=20000 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=20000 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=20100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=20100 fd=15 errno=0 stat=0 mode=40777
+session preparation app_root=1 old_logs=1 prior_failed=1 free_destination=1 preserved=1 errno=0
+private sessions directory_private=1 readable=1
+private session readable=1 owned=1 uid=1 mode=600 record={"schema_version":1,"session_id":"084963e7-2dea-486e-9104-e679c1d70904","install_id":"acceptance-hl2-fresh-v16","title_id":"FAKE78001","origin":"home","settings_revision":1,"runtime_bundle_id":"wine-e16ec8f","phase":"failed"}

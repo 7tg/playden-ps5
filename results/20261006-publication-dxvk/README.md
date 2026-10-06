@@ -1,0 +1,11 @@
+# Pending DXVK effect evidence
+
+`ApplyPendingPublicationDxvk` supplies the production DXVK effect under the caller's exclusive publisher lease and exact durable pending operation. It derives the target from validated frozen schema-2 metadata (already cross-checked with the pinned profile working directory), requires an existing owned working directory, and never creates game directories. Before pending publication, the producer's mandatory read-only preflight must establish snapshot ownership/absence under the lease; frozen header bytes alone do not grant ownership.
+
+Pending recovery admits only the captured original presence/bytes/mode or intended result. Replacement uses an exclusive owned temporary file, file fsync, checked rename, parent fsync and readback. Removal verifies the owned file then unlinks, syncs the parent and verifies absence. Existing 0600/0644 modes survive; a new file uses 0644. Failures retain pending evidence and temporary files; no rollback or cleanup through a changed context occurs.
+
+Host tests cover creation, mode-preserving replacement, removal, changed-content refusal, hardlink/symlink/mode refusal, process exit after replacement/removal before profile publication, and actual RLIMIT_FSIZE failure followed by recovery with the original file preserved before rename. The initial test linked against the unimplemented DXVK entry point and failed as expected, then passed with implementation.
+
+An additional real-renderer test reproduced a codec defect: `RenderDxvkConfig` emits an explanatory sentence on the ownership header line, while the draft frozen codec required a newline immediately after the short header. Validation now accepts exactly the current rendered line and the previous short line, and rejects arbitrary trailing text. The real renderer passes frozen publication and native complete-set verification after the fix.
+
+All 105 host tests pass; warning and diff checks pass; SDK v0.43 builds the settings-publication archive. This is not a final application link or PS5 durability acceptance. Profile/catalog/input/descriptor/metadata production effects, complete preflight/OWNER/registration wiring, journal retirement, installer/UI integration, independent final review and native acceptance remain open. No console title or runtime was changed.

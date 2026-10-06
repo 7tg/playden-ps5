@@ -1,0 +1,105 @@
+{
+  "schema": "playden-prospero-kit-spec/1",
+  "kit_id": "hl2-fw1360-dev1",
+  "firmware": [
+    "13.60"
+  ],
+  "architecture": "x86_64+wow64-i386",
+  "runtime": {
+    "path": "build/kit-inputs/runtime/wine",
+    "bundle_id": "wine-wow64",
+    "artifact_revision": "e16ec8f3-ps5-console-r1",
+    "wine_revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+    "inventory_manifest": "build/kit-inputs/runtime-inventory.json",
+    "inventory_prefix": "wine/"
+  },
+  "template": {
+    "path": "build/per-game-acceptance/candidate-v16/acceptance-hl2/library/prefixes/game",
+    "user": "prospero",
+    "preparation": {
+      "id": "hl2-fresh-v16",
+      "export": "build/per-game-acceptance/fresh-v16-export"
+    }
+  },
+  "recipe": {
+    "id": "steam-220-hl2-v1",
+    "version": "1",
+    "path": "runtime/recipes/steam-220-hl2-v1.json"
+  },
+  "variants": [
+    {
+      "id": "hl2-fake78001-v1",
+      "title_id": "FAKE78001",
+      "path": "third_party/prospero-win/dist/FAKE78001-publication-publisher-9f31431",
+      "wrapper_revision": "9f314314ae6973c12f47c99b546d13d6ec002598",
+      "helper_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
+      "helper_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-9f31431/lapy-manifest.json",
+      "helper_protocol": "../ps5-homebrew/PS5-Lapy-JB-Daemon/source/lapy_elevation_protocol.h",
+      "native_build_manifest": "third_party/prospero-win/dist/FAKE78001-publication-publisher-9f31431/native-title-build.json"
+    },
+    {
+      "id": "hl2-fake78002-v1",
+      "title_id": "FAKE78002",
+      "path": "third_party/prospero-win/dist/FAKE78002-publication-publisher-9f31431",
+      "wrapper_revision": "9f314314ae6973c12f47c99b546d13d6ec002598",
+      "helper_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
+      "helper_manifest": "third_party/prospero-win/dist/FAKE78002-publication-publisher-9f31431/lapy-manifest.json",
+      "helper_protocol": "../ps5-homebrew/PS5-Lapy-JB-Daemon/source/lapy_elevation_protocol.h",
+      "native_build_manifest": "third_party/prospero-win/dist/FAKE78002-publication-publisher-9f31431/native-title-build.json"
+    }
+  ],
+  "dxvk": {
+    "version": "2.6.2",
+    "files": {
+      "x32": {
+        "d3d8.dll": "617459c8d1239f98687f8157bdaec85738ee4699885ed7d1ff13deb32609c759",
+        "d3d9.dll": "00bc142e98ddad1e334a4d88fa630038e092b0758b3d79e295172b181a4c772d",
+        "d3d10core.dll": "b34b479fa0bce29eba6dcff5b1f8584c2ae699d53a123668590f8a2b84e84094",
+        "d3d11.dll": "858d1a848dd5023191cb16cd986e0f00008faf5df8a87b5c835b56cf4b646910",
+        "dxgi.dll": "67d7ca4a4f8f66baabd381c73b52a8e85870083e868ed474a4bc58b7da486883"
+      },
+      "x64": {
+        "d3d8.dll": "dfd837c3467eeb15f69a773e18bbc0550cb69c9e33d5d57b4ea42c5f63bfdc4b",
+        "d3d9.dll": "01e7ae2b0544b6031fe695fd16fbc76786ded57fdbe3f6bd11eee7c98d2c370d",
+        "d3d10core.dll": "565154a0763c6460843fe47e5aaec62e609163d9995a922d5e19e85027fe2f88",
+        "d3d11.dll": "5b63515a432d19302f7dc81dd2ee5bf40043683b5064a2bce03a2b6d27dcce5d",
+        "dxgi.dll": "074616e1af172edf175f3fc6ed7ca30f6c685a70875eed3af10797a10840ed39"
+      }
+    }
+  },
+  "sources": {
+    "wrapper": {
+      "revision": "9f314314ae6973c12f47c99b546d13d6ec002598",
+      "baseline_revision": "54caac176e86c60c7c407972583b491f67838ed9",
+      "url": "https://github.com/mpereiraesaa/prospero-win.git"
+    },
+    "wine": {
+      "revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+      "url": "https://github.com/mpereiraesaa/prospero-win.git"
+    },
+    "helper": {
+      "revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
+      "base_revision": "611fa5f7ed46cdde7094b764168390ab5c4e89f8",
+      "url": "https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon.git"
+    },
+    "foundation": {
+      "revision": "9c0b994a048521af6fb84c73ded364504fe250e9",
+      "url": "https://github.com/mpereiraesaa/ps5-native-app-boilerplate.git"
+    },
+    "sdk": {
+      "version": "0.42",
+      "url": "https://github.com/ps5-payload-dev/sdk/releases/tag/v0.42"
+    },
+    "dxvk": {
+      "version": "2.6.2",
+      "url": "https://github.com/doitsujin/dxvk/releases/tag/v2.6.2",
+      "archive_sha256": "17761876556afd55736cb895d184f5a1c55d43350f1b1e3b129f8d28706d7992"
+    }
+  },
+  "capabilities": [
+    "per_game_title",
+    "offline_bottle",
+    "wow64_i386",
+    "dxvk"
+  ]
+}

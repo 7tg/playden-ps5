@@ -1,0 +1,11 @@
+# Settings publication coordinator evidence
+
+The coordinator now holds the actual stable exclusive ManagedFileLock across OWNER blocking, immutable operation storage, exact pending receipt persistence, file application, shared native semantic verification, committed receipt persistence, committed verification and OWNER reconciliation. The verifier adapter calls the pinned prospero-win `pw_title_publication_verify_locked` with the borrowed descriptor, exact frozen receipt and independent metadata digest.
+
+Tests use real private journal/receipt files and real native complete-set verification, with fixture callbacks for OWNER persistence, registration and file application. Those fixture callbacks do not establish production file durability. Recovery after each of seven coordinator boundaries reloads the immutable operation; committed retries never apply files again. Tests also refuse active/unknown titles, reader contention, changed lock identity, foreign receipts, corrupt/drifted operations, identical unowned profile files and changed input bytes. Apply/verification/reconciliation failures retain their durable evidence and block readiness.
+
+The full host suite passes 105/105. A focused repeat passes 4/4 (both lock-policy tests, coordinator and journal). SDK v0.43 successfully builds the coordinator and shared verifier archives. Warning checks and `git diff --check` pass. The SDK archive build is not a final application link or console acceptance.
+
+Production file mutation with per-file durability and prior-or-intended collision admission, real OWNER/registration callbacks, completed-operation journal retirement, installer/UI wiring, final Task C review and native interruption/retry acceptance remain open. The existing production guard trust remains disabled. No PS5 application was replaced or deployed for this increment.
+
+A follow-up host test forks the publisher and calls `_exit(77)` after each of the seven boundaries, bypassing destructors. The parent then acquires the kernel-released lease and recovers from persisted files. All seven cases pass; already committed cases perform zero file applications in the recovering process. This establishes host process-death recovery for the coordinator, not PS5 process-death acceptance or production mutator durability.

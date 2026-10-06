@@ -17,6 +17,7 @@ include(CTest)
 include(cmake/PlaydenCore.cmake)
 include(cmake/SteamBackend.cmake)
 playden_register_steam_backend_tests()
+include(cmake/ProsperoRuntime.cmake)
 
 if(PLAYDEN_HOMEBREW_UI)
  include(cmake/HomebrewUI.cmake)

@@ -56,12 +56,12 @@ int main(int argc, char** argv) {
     press(simulation, "cross");
     const auto game = simulation.state().navigation.selected_game_id;
     choose(simulation, "details-settings");
-    choose(simulation, "edit-arguments");
+    choose(simulation, "setting-extra_arguments");
     simulation.text("é星ر");
     press(simulation, "square");
     require(simulation.state().editor.value == "é星", "controller backspace preserves complete UTF-8 codepoints");
     press(simulation, "circle");
-    require(simulation.state().navigation.focus_key == "edit-arguments", "keyboard Cancel restores exact modal opener");
+    require(simulation.state().navigation.focus_key == "setting-extra_arguments", "keyboard Cancel restores exact modal opener");
     press(simulation, "circle");
     choose(simulation, "details-more");
     choose(simulation, "note");

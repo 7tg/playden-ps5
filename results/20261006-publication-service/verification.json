@@ -1,0 +1,39 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-service-host-test.log"
+  },
+  "sdk": {
+    "version": "v0.43",
+    "targets": [
+      "playden_runtime_settings_publication",
+      "playden_runtime_install_service"
+    ],
+    "log": "build/publication-service-sdk-build.log"
+  },
+  "red_cases": [
+    "driver routing before profile shortcut",
+    "Resume discovers frozen operation from OWNER"
+  ],
+  "real_owner_recovery": [
+    "before initial active journal",
+    "queued registration",
+    "pending next revision"
+  ],
+  "controlled_collaborators": [
+    "immutable package inventory",
+    "native registration inventory"
+  ],
+  "legacy_installer_replaced": false,
+  "application_driver_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/install_service.cpp": "c3ed61b933de02b795d2145b19cdbc7d105271cc82a6d44bdbe859a0452e0d2c",
+    "src/runtime/install_service.h": "7f0b034df6ee6aa21169ea0b28ac820d5123f0b454c5783314ff76840741bd06",
+    "src/runtime/settings_publication_owner.cpp": "ed20810f90156a93112f61d9af7b66ce601a849a1bcbf1cf176487eebac75d90",
+    "src/runtime/settings_publication_owner.h": "eb527588e47eef7b4f3cb9160066eddbe416fee45d9e854c94d1f2c1936058ad",
+    "tests/runtime_install_service_test.cpp": "c49d222152f2a5cf74087040ae4b33add07b4cdd48518ec3eb3bd29944093bbd",
+    "tests/runtime_settings_publication_test.cpp": "abc77ddc39c05ef39c6cb68c626f650a4dcdc0247c64f65a0a036c2fcd2d28c3"
+  }
+}

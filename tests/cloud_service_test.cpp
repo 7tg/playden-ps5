@@ -39,10 +39,12 @@ class Runner final : public CloudRunner {
   CloudResolution last_resolution = CloudResolution::kAutomatic;
   bool last_confirm = false;
   std::string last_root;
+  std::string last_prefix;
   CloudReport Check(const StoredSession&, const CloudLocation& location, const std::atomic<bool>&) override {
     std::lock_guard<std::mutex> lock(mutex);
     ++checks;
     last_root = location.game_root;
+    last_prefix = location.prefix_root;
     CloudReport report;
     report.state = next_check;
     report.message = "checked";
@@ -84,7 +86,8 @@ int main() {
   Sessions sessions;
   Runner runner;
   CloudService service(runner, sessions);
-  const CloudLocation game{42, "/games/42", "/games/.playden-saves/42"};
+  const CloudLocation game{42, "/games/42", "/games/.playden-saves/42",
+                           "/data/playden/games/install-42/library/prefixes/game"};
 
   // Transfers that need no choice run straight after the check.
   service.Sync(game);
@@ -96,6 +99,7 @@ int main() {
     std::lock_guard<std::mutex> lock(runner.mutex);
     CHECK(runner.checks == 1 && runner.applies == 1 && runner.last_resolution == CloudResolution::kAutomatic);
     CHECK(runner.last_root == "/games/42");
+    CHECK(runner.last_prefix == game.prefix_root);
   }
 
   // A conflict waits for the player, then applies their choice.

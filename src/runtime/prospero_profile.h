@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace playden::runtime {
 
@@ -42,6 +43,42 @@ constexpr std::size_t kProsperoMaxNameBytes = 96;
 constexpr std::size_t kProsperoMaxPathBytes = 259;
 constexpr std::size_t kProsperoMaxArgumentBytes = 512;
 constexpr std::size_t kProsperoMaxCatalogEntries = 16;
+constexpr std::size_t kProsperoMaxDllOverrideBytes = 256;
+constexpr std::size_t kProsperoMaxArgumentWords = 32;
+constexpr std::size_t kProsperoMaxWinedebugBytes = 127;
+
+// "/data/x/games/220" -> "Z:\data\x\games\220"; prospero-win maps Z: to the console root.
+std::optional<std::string> ProsperoWindowsPath(std::string_view host_path);
+
+// Splits arguments the way prospero-win's launcher does: spaces and tabs separate words,
+// double quotes group a word and are removed, there is no escape syntax. Fails on an
+// unclosed quote or more than kProsperoMaxArgumentWords words.
+bool SplitProsperoArguments(std::string_view arguments, std::vector<std::string>* words);
+
+// A button binding prospero-win accepts: a named key, a letter or digit, F1-F24,
+// vk:0xNN, mouse_left/right/middle or none.
+bool IsProsperoBinding(std::string_view value);
+
+// Wine DLL override syntax limited to what prospero-win accepts: name[,name]=mode entries
+// separated by ';', mode one of n, b, d, n,b, b,n or empty.
+bool IsProsperoDllOverrides(std::string_view value);
+
+// One [environment] entry a runtime with that section accepts: an upper-case name from the
+// DXVK_, MESA_, RADV_ or SDL_ families or WINE_CPU_TOPOLOGY (not DXVK_HUD or
+// SDL_JOYSTICK_RAWINPUT, which the title sets), and a printable value without quotes.
+constexpr std::size_t kProsperoMaxEnvironmentEntries = 8;
+bool IsProsperoEnvironmentEntry(std::string_view name, std::string_view value);
+
+// Applies the rules of prospero-win's profile parsers (and prospero-win-profiles'
+// tools/check_profiles.py): strict sections and keys, value vocabularies and limits.
+// Profile features newer than the released runtime; released runtimes refuse them.
+struct ProsperoProfileFeatures {
+  bool environment_section = false;  // [environment] (prospero-win feat/profile-environment)
+  bool input_tuning = false;         // [input] stick_deadzone, rumble, trigger_deadzone
+  bool input_wheel = false;          // [input] wheel
+  bool audio_section = false;        // [audio] volume
+};
+bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoProfileFeatures features = {});
 
 std::string ProsperoProfileId(std::uint32_t app_id);
 

@@ -6,17 +6,11 @@ namespace playden {
 namespace {
 
 constexpr char kPreferencesPath[] = "preferences.conf";
-constexpr char kReduceMotionEnabled[] = "version=1\nreduce_motion=1\n";
-constexpr char kReduceMotionDisabled[] = "version=1\nreduce_motion=0\n";
 
 std::string ToString(const Bytes& bytes) {
   return std::string(bytes.begin(), bytes.end());
 }
 
-Bytes ToBytes(const char* text) {
-  const std::string value(text);
-  return Bytes(value.begin(), value.end());
-}
 
 }  // namespace
 
@@ -38,15 +32,21 @@ PreferencesLoadResult PreferencesStore::Load() const {
   }
 
   const std::string serialized = ToString(read.value());
-  if (serialized == kReduceMotionEnabled) {
-    Preferences preferences;
-    preferences.reduce_motion = true;
-    return PreferencesLoadResult{preferences, PreferencesLoadStatus::kLoaded,
-                                 std::string()};
-  }
-  if (serialized == kReduceMotionDisabled) {
-    return PreferencesLoadResult{Preferences{}, PreferencesLoadStatus::kLoaded,
-                                 std::string()};
+  // Version 1 holds only reduce_motion; version 2 adds title_store_suffix.
+  for (const int motion : {0, 1}) {
+    if (serialized == std::string("version=1\nreduce_motion=") + char('0' + motion) + "\n") {
+      Preferences preferences;
+      preferences.reduce_motion = motion == 1;
+      return PreferencesLoadResult{preferences, PreferencesLoadStatus::kLoaded, std::string()};
+    }
+    for (const int suffix : {0, 1})
+      if (serialized == std::string("version=2\nreduce_motion=") + char('0' + motion) +
+                            "\ntitle_store_suffix=" + char('0' + suffix) + "\n") {
+        Preferences preferences;
+        preferences.reduce_motion = motion == 1;
+        preferences.title_store_suffix = suffix == 1;
+        return PreferencesLoadResult{preferences, PreferencesLoadStatus::kLoaded, std::string()};
+      }
   }
   return PreferencesLoadResult{
       Preferences{}, PreferencesLoadStatus::kDefaultCorrupt,
@@ -56,10 +56,9 @@ PreferencesLoadResult PreferencesStore::Load() const {
 Result<void> PreferencesStore::Save(const Preferences& preferences) const {
   const auto ready=storage_.EnsureRootDirectory();
   if(!ready.ok()) return ready;
-  return storage_.WriteAtomic(
-      kPreferencesPath,
-      ToBytes(preferences.reduce_motion ? kReduceMotionEnabled
-                                        : kReduceMotionDisabled));
+  const std::string text = std::string("version=2\nreduce_motion=") + (preferences.reduce_motion ? "1" : "0") +
+                           "\ntitle_store_suffix=" + (preferences.title_store_suffix ? "1" : "0") + "\n";
+  return storage_.WriteAtomic(kPreferencesPath, Bytes(text.begin(), text.end()));
 }
 
 }  // namespace playden

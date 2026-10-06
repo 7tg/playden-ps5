@@ -1,0 +1,13 @@
+{
+  "restored": {
+    "eboot.bin": "d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa",
+    "playden-package.identity": "c7593741974bfd517df3335f9ecfe6b41a17fafd4f3c0f0432ca548a6921fb40"
+  },
+  "stopped_diagnostic_pid": 1120,
+  "kstuff_pid": 92,
+  "shadowmountplus_pid": 1095,
+  "kstuff_read_only_probe": "pass",
+  "shadowmountplus_restart": false,
+  "shadowmountplus_observation": "15-second scans; Playden launch mounted successfully at 08:38:23 console time",
+  "console_released": true
+}

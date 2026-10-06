@@ -18,6 +18,15 @@
     "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip",
     "sha256": "a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb"
   },
+  "prospero_launcher_helper": {
+    "base_revision": "611fa5f7ed46cdde7094b764168390ab5c4e89f8",
+    "owned_title_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
+    "foundation_revision": "9c0b994a048521af6fb84c73ded364504fe250e9",
+    "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869",
+    "variants": {
+      "FAKE77031": "33c42097d30af928011ac415daa04b3ad10e9fe8f1bf4586bb283a1d2ded4938"
+    }
+  },
   "ps5_opengl": {
     "version": "1.0.0",
     "source_revision": "dce74910af7f4274c48d05e0ae001b3038462588",
@@ -28,8 +37,8 @@
   "ps5_native_app_boilerplate": {
     "revision": "f98de734b68b0b980d38ff03a330066afd6ae16d",
     "source": "third_party/ps5-native-app-boilerplate submodule (selected Hui PS5 build)",
-  "legacy_rmlfocus_revision": "4f531c4b517f80bcb6b1267135848168d2250047",
-  "patch": "sce_module_writer.cpp heap size changed to 0x10000000 in a build-local copy",
+    "legacy_rmlfocus_revision": "4f531c4b517f80bcb6b1267135848168d2250047",
+    "patch": "sce_module_writer.cpp heap size changed to 0x10000000 in a build-local copy",
     "libc_prx_sha256": "e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036"
   },
   "compiler_rt_builtins": {
@@ -178,6 +187,82 @@
       "version": "1.5.6",
       "url": "https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz",
       "sha256": "8c29e06cf42aacc1eafc4077ae2ec6c6fcb96a626157e0593d5e82a34fd403c1"
+    }
+  },
+  "prospero_win": {
+    "revision": "301246dcb56afa90443761ffd5ad38b587342e32",
+    "url": "https://github.com/mpereiraesaa/prospero-win.git",
+    "default_source": "third_party/prospero-win",
+    "published": false,
+    "status": "development-source; release kit and native acceptance pending",
+    "retained_runtime_artifact_revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9"
+  },
+  "prospero_bottle_preparation": {
+    "hl2-fresh-v16": {
+      "files": {
+        "source-binding.reviewed.json": "73a4d8e520d29f729f86c1c0bc40a4a4153621b57d33edaac310c21ad0087eea",
+        "loader-provenance.reviewed.json": "1ee41d59d09cbd83e40fe5a83d4d9311b173b8ead2876df7ffea19ea459a56b1",
+        "prefix.manifest": "7eb7083aa4393ac14d9018ab53bd65edfcff6a0227c6b382517d7c878589b67a",
+        "initialization-provenance.json": "a738900562e116d9e2de15a2fdc0c68f2d6860e92108fb5dee7c8c5bcbcacc81"
+      },
+      "wine_source_head": "490f6d5dcbb2a5047345b8af88d114bbcaad69a8",
+      "retained_runtime_commit": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+      "template_inventory_sha256": "ea9268c22c48f90aca28ca68b37f9c55bb038e7083c1fed18be571070aa39639"
+    },
+    "hl2-fresh-v16-neutral": {
+      "files": {
+        "source-binding.reviewed.json": "73a4d8e520d29f729f86c1c0bc40a4a4153621b57d33edaac310c21ad0087eea",
+        "loader-provenance.reviewed.json": "1ee41d59d09cbd83e40fe5a83d4d9311b173b8ead2876df7ffea19ea459a56b1",
+        "prefix.manifest": "7eb7083aa4393ac14d9018ab53bd65edfcff6a0227c6b382517d7c878589b67a",
+        "initialization-provenance.json": "a738900562e116d9e2de15a2fdc0c68f2d6860e92108fb5dee7c8c5bcbcacc81"
+      },
+      "wine_source_head": "490f6d5dcbb2a5047345b8af88d114bbcaad69a8",
+      "retained_runtime_commit": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+      "template_inventory_sha256": "6ae89cdb3cbfc4dc4c00ac404a46a05169ad17a9a3ca73cde56ce7fb72b3ef54",
+      "derived_from": "hl2-fresh-v16",
+      "derivation": "Same initialized export; every template file that embedded a host build path is replaced by the path-neutral runtime build of the same Wine module (results/20261006-release-kit/template-substitutions.json)."
+    }
+  },
+  "sqlite3": {
+    "version": "3.53.1",
+    "source_id": "c88b22011a54b4f6fbd149e9f8e4de77658c",
+    "local_source_repository": "../ps5-homebrew/CheatRunner",
+    "local_source_revision": "59dcb9efaba71af00dc29d6cfe35da7d1ea43651",
+    "files": {
+      "sqlite3.c": "9ac97192c93a6d9671d2ea667ba14e3c8fe3719a171afc5827c9d86d0278fc14",
+      "sqlite3.h": "16d6e2f265fb13ece42329da39a865d4c540045b444d16b4bf9f7e1a7e39408f"
+    },
+    "purpose": "Read-only native installed-title inventory; no native database writes"
+  },
+  "prospero_kit": {
+    "kit_id": "hl2-fw1360-dev1",
+    "published": false,
+    "status": "release-clean kit: no host build paths (privacy scan without exemptions); console acceptance of this kit pending",
+    "manifest_sha256": "8f49f733143c482ed31e4018306c7ec8d9f93d54445246aad4380a7f55a7681d",
+    "files_sha256": "caeeae697fddd4af52ae533af8bb1d7305a345a50dd02eb90a275662fd1a09cf",
+    "console_root": "/data/playden/kits/hl2-fw1360-dev1",
+    "firmware": [
+      "13.60"
+    ],
+    "capabilities": [
+      "dxvk",
+      "offline_bottle",
+      "per_game_title",
+      "wow64_i386"
+    ],
+    "wrapper_revision": "301246dcb56afa90443761ffd5ad38b587342e32",
+    "runtime_artifact_revision": "e16ec8f3-ps5-console-r1-neutral",
+    "runtime_inventory_source": "Path-neutral rebuild of the console runtime recipe (e16ec8f3 + a4c3856 sink, 4234987 patch 0663, e9c1104 PSBC); results/20261006-release-kit",
+    "template_preparation": "hl2-fresh-v16-neutral",
+    "title_pins": {
+      "FAKE78001": {
+        "helper_sha256": "5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935",
+        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
+      },
+      "FAKE78002": {
+        "helper_sha256": "e2449875f8b22a8c595a0d40c02a57c706e0661054986a4d96076c763deaafb2",
+        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
+      }
     }
   }
 }

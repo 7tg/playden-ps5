@@ -1,0 +1,32 @@
+{
+  "title_id": "FAKE77031",
+  "source_head": "310b3f2",
+  "files": [
+    {
+      "path": "eboot.bin",
+      "bytes": 24978621,
+      "sha256": "74d299ebb3a5d8222128f12822d355faf4aa4be0e263bb9f9a7ede7000ce8cb2"
+    },
+    {
+      "path": "playden-package.identity",
+      "bytes": 92,
+      "sha256": "0134b4250759920d43b3f1144d44c1b292683769d221b982a7c5157b6ac9bcda"
+    },
+    {
+      "path": "sce_sys/icon0.png",
+      "bytes": 191305,
+      "sha256": "3d497fea4a67c48ace8588be9a7c21e6e923acb189ced772ed656af0662aa513"
+    },
+    {
+      "path": "sce_sys/pic0.dds",
+      "bytes": 8294548,
+      "sha256": "44c1cfed4143d50ec7d6a99095cfb59ea4d27d4dfc2c42441c82d37111f78a75"
+    },
+    {
+      "path": "sce_sys/pic1.dds",
+      "bytes": 8294548,
+      "sha256": "44c1cfed4143d50ec7d6a99095cfb59ea4d27d4dfc2c42441c82d37111f78a75"
+    }
+  ],
+  "verification": "remote bytes match current local package; console launch checked separately"
+}

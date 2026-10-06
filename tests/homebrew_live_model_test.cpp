@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <unistd.h>
@@ -163,14 +164,57 @@ void account_commands_dispatch_refresh_and_switch_barriers(const std::filesystem
           "confirmed account switch dispatches a barrier without prematurely clearing identity");
 }
 
+void settings_survive_account_restore_and_cache_action_is_honest(const std::filesystem::path& base) {
+    std::filesystem::create_directories(base);
+    std::filesystem::permissions(base, std::filesystem::perms::owner_all);
+    const auto file = base / "game-settings.json";
+    playden::runtime::GameSettingsRecord stored;
+    stored.revision = 3;
+    stored.overrides["resolution"] = "1280x720";
+    std::string reason;
+    check(playden::runtime::SaveGameSettingsFile(file.string(), {{220, stored}}, &reason), "seed live settings");
+    auto model = make_live(base);
+    model.SetGameSettingsFile(file);
+    model.UpdateAccount({AuthState::Restoring, {}, {}, {}, {}, true});
+    check(model.state().game_settings.count(220) && model.state().game_settings.at(220) == stored,
+          "initial account restore retains device game settings");
+    model.UpdateAccount({AuthState::SignedOut, {}, {}, {}, {}, true});
+    model.SetWallClock(100);
+    std::map<std::uint32_t, playden::runtime::GameSettingsRecord> loaded;
+    check(playden::runtime::LoadGameSettingsFile(file.string(), &loaded, &reason) && loaded.at(220) == stored,
+          "sign-out does not erase settings from disk");
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    playden::GameSummary game;
+    game.id = 220;
+    game.title = "Half-Life 2";
+    check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "settings game library delivered");
+    {
+        std::ofstream corrupt(file);
+        corrupt << "malformed settings";
+    }
+    model.SetGameSettingsFile(file);
+    check(model.state().game_settings.count(220) && model.state().game_settings.at(220) == stored,
+          "failed settings reload preserves the current records");
+    model.action("r1");
+    std::ifstream unchanged(file);
+    std::string contents;
+    std::getline(unchanged, contents);
+    check(contents == "malformed settings", "load failure blocks destructive automatic save");
+    check(model.action("details:220"), "open settings game details");
+    check(std::none_of(model.view().rows.begin(), model.view().rows.end(),
+                       [](const auto& row) { return row.key == "details-settings"; }),
+          "live settings wait for the real launch and maintenance bridge");
+}
+
 } // namespace
 
 int main() {
-    const auto base = std::filesystem::temp_directory_path()
+    const auto base = std::filesystem::canonical(std::filesystem::temp_directory_path())
         / ("playden-homebrew-live-model-test-" + std::to_string(getpid()));
     std::error_code error;
     std::filesystem::remove_all(base, error);
 
+    settings_survive_account_restore_and_cache_action_is_honest(base);
     live_starts_clean_and_never_reads_or_writes_fixtures(base);
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);

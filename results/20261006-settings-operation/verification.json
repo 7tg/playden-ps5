@@ -1,0 +1,20 @@
+{
+  "host_command": "cmake --build build/homebrew-host -j4; ctest --test-dir build/homebrew-host --output-on-failure -j4",
+  "host_tests_failed": 0,
+  "host_tests_passed": 104,
+  "inputs": {
+    "cmake/HomebrewUI.cmake": "68eb67a81fc38251383a68f9c3ef061a5297700c1f7eccf98825dfc3e298d784",
+    "src/runtime/game_install.cpp": "0f2d620664b8bec7eaf449ea40344a3f2c9b212b62b6d0b35349c728753c2d92",
+    "src/runtime/game_install.h": "93ec2cec5cfb20719504500de774a032e3db8cb0ddd98cda7d26dc3691c066dc",
+    "src/runtime/publication_backup.cpp": "0c36637f3854ce62b8c8185a46d55c944b7533e30c9b0d131f7da103ee588c44",
+    "src/runtime/settings_publication_journal.cpp": "28547544f7655cc3730d9252ef6432659ab056faf04a167948eeee063b95c7e2",
+    "src/runtime/settings_publication_journal.h": "a0108de395abefc04edecca419f9c488adabb8ac6b9e1bd72881ed3adc52b446",
+    "tests/runtime_publication_backup_test.cpp": "17fdb304004801982ca79776c9bd72947b5943a9b997f141004e8add6525ab47",
+    "tests/runtime_settings_publication_journal_test.cpp": "1dec8a5292dc6263752bdc2ad7d0071f8df6a9498aa43b8820383b53c5371e60"
+  },
+  "parent_base": "faf66c0868dbb379b873af377e6a9e3c78b1b447",
+  "prospero_revision": "bde4b394a8db20cc243e8dc32945adb0dccfe2a7",
+  "sdk_command": "bash ../playden-ps5/scripts/with-env.sh cmake --build build/homebrew-ps5 --target playden_runtime_settings_publication_journal -j4",
+  "sdk_scope": "SDK v0.43 static archive; no production final link or console acceptance",
+  "warnings_command": "c++ -std=c++17 -Wall -Wextra -Werror -Isrc -Ithird_party/prospero-win/src -fsyntax-only src/runtime/settings_publication_journal.cpp src/runtime/publication_backup.cpp"
+}

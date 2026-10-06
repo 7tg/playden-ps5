@@ -1,0 +1,153 @@
+[18:37:09] ShadowMount+ v1.7beta2 exFAT/UFS/PFS/LVD/MD. FW: 13.60. Build: 2026-09-21T21:19:45Z. Thx to VoidWhisper/Gezine/Earthonion/EchoStretch/Drakmor
+[18:37:09] [RESTART] Previous instance stopped, continuing startup
+[18:37:09]   [CFG] loaded: api_enabled=1 debug=1 quiet=0 language=auto ro=1 force=0 persistent_image_mounts=0 app_install_all=0 auto_remove_missing_games=0 auto_remove_games_with_dlc=0 auto_remove_missing_delay_s=300 api=127.0.0.1:10101 scan_depth=1 legacy_recursive_scan_forced=0 backport_fakelib=1 global_fakelib=1 global_fakelib_priority=game global_fakelib_path=/data/shadowmount/fakelib global_fakelib_exclude=0 update_emulators=1 emulators_path=/data/shadowmount/emus auto_update_ampr=0 ampr_update_url=https://github.com/drakmor/ampr_emu/releases/latest/download/libSceAmpr.sprx kstuff_game_auto_toggle=1 kstuff_crash_detection=1 fan_target_temperature=0 (0=system) kstuff_pause_delay_image_s=25 kstuff_pause_delay_direct_s=15 exfat_backend=LVD ufs_backend=LVD nested_pfs_index_cache=0 lvd_sec(exfat=512 ufs=4096 pfs=4096) md_sec(exfat=512 ufs=4096) scan_interval_s=15 stability_wait_s=10 scan_paths=34 image_rules=0 kstuff_no_pause=0 kstuff_delay_rules=0
+[18:37:09]   [KSTUFF] runtime control ready (image_delay=25 direct_delay=15)
+[18:37:09]   [SHELLCORE] resolved fw=13.60 pid=58 base=0x2efc8000
+[18:37:09]   [SHELLCORE] hooks installed: fw=13.60 pid=58 cave=0x3092a700+0x2e8 launch=1 sandbox=1 trampoline=0x3092a940 install=1
+[18:37:09]   [SHELLICON] already installed: FAKE10101
+[18:37:09]   [GAME] lifecycle watcher started
+[18:37:09]   [SHELLFLAG] opened SceShellCoreUtilAppFocus handle=0x0000000000002045
+[18:37:09]   [SHELLFLAG] known SceShellCoreUtilAppFocus masks: APP_ID
+[18:37:09]   [SHELLFLAG] opened SceSystemStateMgrInfo handle=0x0000000000000046
+[18:37:09]   [SHELLFLAG] known SceSystemStateMgrInfo masks: CURRENT_STATE=bits[0..15]|TRIGGER_CODE=bits[32..47]|REBOOT_CAUSE=bits[48..63]|STATE_INVALID=0|STATE_INITIALIZING=10|STATE_SHUTDOWN_ON_GOING=100|STATE_POWER_SAVING=200|STATE_SUSPEND_ON_GOING=300|STATE_MAIN_ON_STANDBY=500|STATE_WORKING=1000|REBOOT_CAUSE_NONE=0|REBOOT_CAUSE_CFF=1|INITIAL=0x10000000A
+[18:37:09]   [SHELLFLAG] opened SceLncUtilSystemStatus handle=0x0000000000000047
+[18:37:09]   [SHELLFLAG] known SceLncUtilSystemStatus masks: EXTRA_AUDIO_CPU_BUDGET_AVAILABLE=0x1|SHELLUI_FG_GAME_BG_CPU_MODE=0x2
+[18:37:09]   [SHELLFLAG] opened SceSystemStateMgrStatus handle=0x0000000000000048
+[18:37:09]   [SHELLFLAG] known SceSystemStateMgrStatus masks: CEC_ONE_TOUCH_PLAY_COMMAND=0x1|MEDIA_PLAYBACK_MODE=0x2|BD_DRIVE_READY=0x4|TICK_MUSIC_PLAYBACK=0x8|TICK_VIDEO_PLAYBACK=0x10|TICK_0x20=0x20|TICK_PARTY_CHAT=0x40|TURN_OFF_REQUEST=0x100|REBOOT_REQUEST=0x200|ENTER_STANDBY_REQUEST=0x400|START_SHUTDOWN_TIMER=0x10000|START_REBOOT_TIMER=0x20000|START_STANDBY_TIMER=0x40000|EXTEND_SHUTDOWN_TIMER=0x80000|CANCEL_SHUTDOWN_TIMER=0x100000|SHELLUI_SHUTDOWN_IN_PROGRESS=0x200000|EXTEND_SHUTDOWN_TIMER_POST_AUTOUPDATE=0x400000|BIGAPP_LAUNCH_READY=0x1000000|VSH_AUTO_UPDATE_VERIFY_DONE=0x4000000|START_REBOOT_TIMER_FAST=0x8000000
+[18:37:09]   [SHELLFLAG] SceShellCoreUtilAppFocus initial=0x0000000000000007 low32=0x00000007 high32=0x00000000 decoded=APP_ID=0x00000007
+[18:37:09]   [SHELLFLAG] SceSystemStateMgrInfo initial=0x00000001000003E8 low32=0x000003E8 high32=0x00000001 decoded=STATE=WORKING(0x03E8)|TRIGGER=0x0001|REBOOT_CAUSE=NONE(0x0000)
+[18:37:09]   [SHELLFLAG] SceLncUtilSystemStatus initial=0x0000000000000002 low32=0x00000002 high32=0x00000000 decoded=SHELLUI_FG_GAME_BG_CPU_MODE
+[18:37:09]   [SHELLFLAG] SceSystemStateMgrStatus initial=0x0000000004000004 low32=0x04000004 high32=0x00000000 decoded=BD_DRIVE_READY|VSH_AUTO_UPDATE_VERIFY_DONE
+[18:37:09]   [SHELLFLAG] monitor started (4/4 flags opened)
+[18:37:09]   [L10N] language=auto active=1 country=us lang=en locale=en-US
+[18:37:09] NOTIFY: ShadowMount+ v1.7beta2
+© Drakmor and Community
+Control: http://127.0.0.1:10101
+[18:37:09]   [SCAN] FS stats: path=/data/homebrew type=nullfs bsize=65536 iosize=65536 blocks=10282367 bfree=2736550 bavail=1897894 files=19333 ffree=485860864 flags=0x1000 total=673865203712B free=179342540800B avail=124380381184B
+[18:37:09]   [SCAN] FS stats: path=/mnt/ext1/homebrew type=bfs bsize=65536 iosize=65536 blocks=15261605 bfree=2367579 bavail=2367579 files=748 ffree=606100224 flags=0x1000 total=1000184545280B free=155161657344B avail=155161657344B
+[18:37:09]   [SCAN] FS stats: path=/mnt/ext1 type=bfs bsize=65536 iosize=65536 blocks=15261605 bfree=2367579 bavail=2367579 files=748 ffree=606100224 flags=0x1000 total=1000184545280B free=155161657344B avail=155161657344B
+[18:37:09] [STARTUP] cleanup_staged_mount_links begin
+[18:37:09] [STARTUP] cleanup_duplicate_title_mounts begin
+[18:37:09]   [DB] snd0info startup maintenance done rows=0 pending=0
+[18:37:09] [STARTUP] scanner startup sync begin
+[18:37:09]   [DB] loaded app.db title list: 80 entries
+[18:37:09]   [DB] loaded blocked PPSA uninstall list: 0 entries
+[18:37:09]   [MANUAL] scanned 1 manual source(s)
+[18:37:09] NOTIFY: Found 1 new games. Processing...
+[18:37:09]   [ACTION] Installing: Playden Contract Probe (FAKE78000)
+[18:37:09] NOTIFY: Installing: Playden Contract Probe (FAKE78000)...
+[18:37:09]   [LINK] mount stack already active: /data/homebrew/FAKE78000 -> /system_ex/app/FAKE78000
+[18:37:09]   [LINK] mount.lnk created: /user/app/FAKE78000/mount.lnk -> /data/homebrew/FAKE78000
+[18:37:09]   [SHELLCORE] AppInstallAll bridge consumed: FAKE78000 result=0x00000000
+[18:37:09]   [REG] Installed NEW!
+[18:37:09] NOTIFY: installed game FAKE78000
+[18:37:09]   [MANUAL] installed status recorded: Playden Contract Probe (FAKE78000) from /data/homebrew/FAKE78000
+[18:37:09]   [LINK] runtime layers released: PPSA34547
+[18:37:09]   [LINK] runtime layers released: PPSA03671
+[18:37:09]   [LINK] runtime layers released: PPSA99000
+[18:37:09]   [LINK] runtime layers released: PPSA99764
+[18:37:09]   [LINK] runtime layers released: FAKE78000
+[18:37:09]   [LINK] runtime layers released: PPSA99050
+[18:37:09]   [LINK] runtime layers released: FAKE77031
+[18:37:09]   [LINK] runtime layers released: PPSA99995
+[18:37:09]   [LINK] runtime layers released: PPSA99005
+[18:37:09] NOTIFY: Library synchronized.
+Found 9 games.
+[18:37:09] [STARTUP] scanner startup sync done
+[18:37:09]   [API] HTTP/JSON ready: http://127.0.0.1:10101/api/v1 (v1, workers=8, limit=32)
+[18:37:24]   [DB] loaded app.db title list: 81 entries
+[18:37:24]   [DB] loaded blocked PPSA uninstall list: 0 entries
+[18:37:24]   [MANUAL] scanned 1 manual source(s)
+[18:37:30]   [LINK] nullfs mounted: /data/homebrew/FAKE78000 -> /system_ex/app/FAKE78000
+[18:37:30]   [SHELLCORE] launch mount ready: FAKE78000
+[18:37:31]   [SHELLCORE] sandbox ready handled: FAKE78000
+[18:37:31]   [SHELLFLAG] SceLncUtilSystemStatus poll rc=0x80020010
+[18:37:31]   [GAME] started: FAKE78000 pid=423 app_id=0x00002018
+[18:37:31]   [MDBG] tracking crash-candidate state: FAKE78000 pid=423 app_id=0x00002018
+[18:37:31]   [MDBG] coredump privileges enabled
+[18:37:31]   [MDBG] log monitor ready: FAKE78000 buffer_size=0x20018
+[18:37:31]   [KSTUFF] tracking game launch: FAKE78000 pid=423 app_id=0x00002018 source=direct pause_delay=15s
+[18:37:31]   [MDBG] fatal error for FAKE78000:
+0xa0020102 (PRX_SCE_MODULE_LOAD_ERROR)
+thread name: eboot.bin
+[18:37:31]   [MDBG] FAKE78000 crashed before kstuff auto-pause: 0xa0020102 (PRX_SCE_MODULE_LOAD_ERROR)
+thread name: eboot.bin
+[18:37:31] NOTIFY: FAKE78000 crashed before KStuff pause:
+0xa0020102 (PRX_SCE_MODULE_LOAD_ERROR)
+thread name: eboot.bin
+[18:37:31]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000002018 delta=0x000000000000201F low32=0x00002018 high32=0x00000000 decoded=APP_ID=0x00002018
+[18:37:31]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000000007 delta=0x000000000000201F low32=0x00000007 high32=0x00000000 decoded=APP_ID=0x00000007
+[18:37:31]   [SHELLFLAG] SceLncUtilSystemStatus value=0x0000000000000002 delta=0x0000000000000000 low32=0x00000002 high32=0x00000000 decoded=SHELLUI_FG_GAME_BG_CPU_MODE
+[18:37:51]   [SHELLCORE] game switch prepared: outgoing=FAKE78000 incoming=FAKE77031
+[18:37:51]   [LINK] nullfs mounted: /data/homebrew/FAKE77031 -> /system_ex/app/FAKE77031
+[18:37:51]   [SHELLCORE] launch mount ready: FAKE77031
+[18:37:51]   [LINK] runtime layers released: FAKE77031
+[18:37:51]   [SHELLCORE] launch retry prepared during game switch: FAKE77031
+[18:37:54]   [GAME] process exited, awaiting same-app handoff: FAKE78000 pid=423 app_id=0x00002018
+[18:37:54]   [LINK] nullfs mounted: /data/homebrew/FAKE77031 -> /system_ex/app/FAKE77031
+[18:37:54]   [SHELLCORE] launch mount ready: FAKE77031
+[18:37:54]   [SHELLCORE] sandbox ready handled: FAKE77031
+[18:37:54]   [SHELLFLAG] SceLncUtilSystemStatus poll rc=0x80020010
+[18:37:54]   [GAME] started: FAKE77031 pid=424 app_id=0x00004018
+[18:37:54]   [KSTUFF] handoff tracked game pid=423 (FAKE78000) -> pid=424 (FAKE77031)
+[18:37:54]   [MDBG] tracking crash-candidate state: FAKE77031 pid=424 app_id=0x00004018
+[18:37:54]   [MDBG] log monitor ready: FAKE77031 buffer_size=0x20018
+[18:37:54]   [KSTUFF] tracking game launch: FAKE77031 pid=424 app_id=0x00004018 source=direct pause_delay=15s
+[18:37:54]   [GAME] finalizing stopped application: FAKE78000 pid=423
+[18:37:54]   [SHELLCORE] runtime release awaiting sandbox removal: FAKE78000
+[18:37:54]   [DB] snd0info normalized after game exit rows=0 title=FAKE78000
+[18:37:54]   [SHELLCORE] title sandbox gone; releasing runtime: FAKE78000
+[18:37:54]   [SHELLCORE] runtime release start: FAKE78000
+[18:37:54]   [LINK] runtime layers released: FAKE78000
+[18:37:54]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000004018 delta=0x000000000000401F low32=0x00004018 high32=0x00000000 decoded=APP_ID=0x00004018
+[18:37:58]   [GAME] process exited, awaiting same-app handoff: FAKE77031 pid=424 app_id=0x00004018
+[18:37:58]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000000007 delta=0x000000000000401F low32=0x00000007 high32=0x00000000 decoded=APP_ID=0x00000007
+[18:37:58]   [SHELLFLAG] SceLncUtilSystemStatus value=0x0000000000000002 delta=0x0000000000000000 low32=0x00000002 high32=0x00000000 decoded=SHELLUI_FG_GAME_BG_CPU_MODE
+[18:37:59]   [SHELLCORE] launch mount ready: FAKE77031
+[18:37:59]   [SHELLCORE] sandbox ready handled: FAKE77031
+[18:37:59]   [SHELLFLAG] SceLncUtilSystemStatus poll rc=0x80020010
+[18:37:59]   [GAME] started: FAKE77031 pid=429 app_id=0x00006018
+[18:37:59]   [KSTUFF] handoff tracked game pid=424 (FAKE77031) -> pid=429 (FAKE77031)
+[18:37:59]   [MDBG] tracking crash-candidate state: FAKE77031 pid=429 app_id=0x00006018
+[18:37:59]   [MDBG] log monitor ready: FAKE77031 buffer_size=0x20018
+[18:37:59]   [KSTUFF] tracking game launch: FAKE77031 pid=429 app_id=0x00006018 source=direct pause_delay=15s
+[18:37:59]   [GAME] finalizing stopped application: FAKE77031 pid=424
+[18:37:59]   [DB] snd0info normalized after game exit rows=1 title=FAKE77031
+[18:37:59]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000006018 delta=0x000000000000601F low32=0x00006018 high32=0x00000000 decoded=APP_ID=0x00006018
+[18:38:10]   [GAME] process exited, awaiting same-app handoff: FAKE77031 pid=429 app_id=0x00006018
+[18:38:10]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000000007 delta=0x000000000000601F low32=0x00000007 high32=0x00000000 decoded=APP_ID=0x00000007
+[18:38:10]   [SHELLFLAG] SceLncUtilSystemStatus value=0x0000000000000002 delta=0x0000000000000000 low32=0x00000002 high32=0x00000000 decoded=SHELLUI_FG_GAME_BG_CPU_MODE
+[18:38:10]   [SHELLCORE] launch mount ready: FAKE77031
+[18:38:11]   [SHELLCORE] sandbox ready handled: FAKE77031
+[18:38:11]   [SHELLFLAG] SceLncUtilSystemStatus poll rc=0x80020010
+[18:38:11]   [GAME] started: FAKE77031 pid=430 app_id=0x00008018
+[18:38:11]   [KSTUFF] handoff tracked game pid=429 (FAKE77031) -> pid=430 (FAKE77031)
+[18:38:11]   [MDBG] tracking crash-candidate state: FAKE77031 pid=430 app_id=0x00008018
+[18:38:11]   [MDBG] log monitor ready: FAKE77031 buffer_size=0x20018
+[18:38:11]   [KSTUFF] tracking game launch: FAKE77031 pid=430 app_id=0x00008018 source=direct pause_delay=15s
+[18:38:11]   [GAME] finalizing stopped application: FAKE77031 pid=429
+[18:38:11]   [DB] snd0info normalized after game exit rows=1 title=FAKE77031
+[18:38:11]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000008018 delta=0x000000000000801F low32=0x00008018 high32=0x00000000 decoded=APP_ID=0x00008018
+[18:38:13]   [MANUAL] API removed source: /data/homebrew/FAKE78000
+[18:38:13] [SCAN] immediate scan requested by HTTP API manual source removed
+[18:38:24]   [GAME] process exited, awaiting same-app handoff: FAKE77031 pid=430 app_id=0x00008018
+[18:38:24]   [SHELLFLAG] SceShellCoreUtilAppFocus value=0x0000000000000007 delta=0x000000000000801F low32=0x00000007 high32=0x00000000 decoded=APP_ID=0x00000007
+[18:38:24]   [SHELLFLAG] SceLncUtilSystemStatus value=0x0000000000000002 delta=0x0000000000000000 low32=0x00000002 high32=0x00000000 decoded=SHELLUI_FG_GAME_BG_CPU_MODE
+[18:38:25]   [GAME] finalizing stopped application: FAKE77031 pid=430
+[18:38:25]   [KSTUFF] game stopped: FAKE77031 pid=430
+[18:38:25]   [SHELLCORE] runtime release awaiting sandbox removal: FAKE77031
+[18:38:25]   [DB] snd0info normalized after game exit rows=1 title=FAKE77031
+[18:38:25]   [SHELLCORE] title sandbox gone; releasing runtime: FAKE77031
+[18:38:25]   [SHELLCORE] runtime release start: FAKE77031
+[18:38:25]   [LINK] runtime layers released: FAKE77031
+[18:38:25] [SCAN] running immediate full scan (HTTP API manual source removed)
+[18:38:25]   [CACHE] source removed: FAKE78000 (/data/homebrew/FAKE78000)
+[18:38:25]   [LINK] removed stale mount link: /user/app/FAKE78000/mount.lnk
+[18:38:25]   [DB] loaded app.db title list: 81 entries
+[18:38:25]   [DB] loaded blocked PPSA uninstall list: 0 entries
+[18:38:25] [SCAN] running immediate full scan (manual.lst changed)
+[18:38:25]   [DB] loaded app.db title list: 81 entries
+[18:38:25]   [DB] loaded blocked PPSA uninstall list: 0 entries
+[18:38:40]   [DB] loaded app.db title list: 80 entries
+[18:38:40]   [DB] loaded blocked PPSA uninstall list: 0 entries
+[18:38:40]   [MANUAL] title removed from app.db, disabling manual entry: Playden Contract Probe (FAKE78000)

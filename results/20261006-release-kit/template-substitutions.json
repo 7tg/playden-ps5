@@ -1,0 +1,3103 @@
+{
+ "schema": "playden-template-substitution/1",
+ "base_preparation": "hl2-fresh-v16",
+ "count": 516,
+ "files": [
+  {
+   "template_path": "drive_c/windows/explorer.exe",
+   "runtime_source": "lib/wine/x86_64-windows/explorer.exe",
+   "before_sha256": "ab98e1a054af205b5223f6a1bd5245e657a68f8a25563c4f679517cfb15707ad",
+   "after_sha256": "fa8eb5ead7afc112c3f2e0410bacb1bfdc26d922e6a96559d88c1571508f21da"
+  },
+  {
+   "template_path": "drive_c/windows/notepad.exe",
+   "runtime_source": "lib/wine/x86_64-windows/notepad.exe",
+   "before_sha256": "414ad4694e801256263ca751fcbd340fdde43964b8b63497cf6da849e5ae4254",
+   "after_sha256": "fdda9c90e5f54ca655a7133202d9b3890054c7a9cbb091fa19f53b83c3aafe05"
+  },
+  {
+   "template_path": "drive_c/windows/regedit.exe",
+   "runtime_source": "lib/wine/x86_64-windows/regedit.exe",
+   "before_sha256": "429b5ee0364e3a71939d3c6447168a0622013ca71c35e6ac1ee0ff9fdc30652c",
+   "after_sha256": "c3b2748704a820082863457a9aaf5ed5d44a7b8452368022dd31d8d961d9aed6"
+  },
+  {
+   "template_path": "drive_c/windows/system32/Speech/Common/sapi.dll",
+   "runtime_source": "lib/wine/x86_64-windows/sapi.dll",
+   "before_sha256": "7b4db6cff75da71de1c02e93978152681e38c86f3c679bc44fe0977ae65b6525",
+   "after_sha256": "58ce843b84a6cf6a6b599a4405ccfb6bdf8326b01b203f7912d1d8504192dbdc"
+  },
+  {
+   "template_path": "drive_c/windows/system32/amstream.dll",
+   "runtime_source": "lib/wine/x86_64-windows/amstream.dll",
+   "before_sha256": "6f38830b3f94b7f12f0d29c49d2fb0b2a4be014c6ea9bae55a1b26de66dbd330",
+   "after_sha256": "a65d838bc16b5334396b9cf7bdf6ecf733645851f0a38f7fa3aa91b2f8f842a3"
+  },
+  {
+   "template_path": "drive_c/windows/system32/atlthunk.dll",
+   "runtime_source": "lib/wine/x86_64-windows/atlthunk.dll",
+   "before_sha256": "a6abffd88e7311ac66ed21cb865937cd410bc9c6d47651cc07b6928b936f66d5",
+   "after_sha256": "49be215189513e457973e0e3f6899d240a0af57838147b05b4c20cb53b16d675"
+  },
+  {
+   "template_path": "drive_c/windows/system32/avifil32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/avifil32.dll",
+   "before_sha256": "b0fa2ac1e3017e6ada202f1a1cbfd86b59a7510992fa95ec09f53e9e2fe54ea4",
+   "after_sha256": "268cd3ca5cc58b1f2e0ced0fc7df45af3271f7cfa8e97da4acbf739f2a2fa1bb"
+  },
+  {
+   "template_path": "drive_c/windows/system32/browseui.dll",
+   "runtime_source": "lib/wine/x86_64-windows/browseui.dll",
+   "before_sha256": "146c6a36db87db4beb892e4a1244c1faf3d3500d586be259fc16bc3c22a34055",
+   "after_sha256": "bcd417c78293bd34afcf0b1cc2c26870e780b6cb3010c0c677829d35beb66fb6"
+  },
+  {
+   "template_path": "drive_c/windows/system32/cabinet.dll",
+   "runtime_source": "lib/wine/x86_64-windows/cabinet.dll",
+   "before_sha256": "e8beec23488937168f438d5f35fbd62c2bd134d09fe9a807cadfcb9fc3f28741",
+   "after_sha256": "bbbfefae73136896a53aa0143f3ae516eb95eb949b9917af80fd4a40d1534a14"
+  },
+  {
+   "template_path": "drive_c/windows/system32/cfgmgr32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/cfgmgr32.dll",
+   "before_sha256": "538ec66518ce490cccbac148f16b31340e21fb69177a68d5051981ac3404f16e",
+   "after_sha256": "7d9f6c96b9acc15c205dc4dcfd53886dfdd99a2d25f9af99ea2743f973126160"
+  },
+  {
+   "template_path": "drive_c/windows/system32/colorcnv.dll",
+   "runtime_source": "lib/wine/x86_64-windows/colorcnv.dll",
+   "before_sha256": "3fc9e7abc1f589a31ca5ccf90de30c58321beb9354216fd100395d375fde40b7",
+   "after_sha256": "61cd2f0bea622e16950a37d5b2e154130d5f72fd278cbaef83fbf51ceb65803f"
+  },
+  {
+   "template_path": "drive_c/windows/system32/combase.dll",
+   "runtime_source": "lib/wine/x86_64-windows/combase.dll",
+   "before_sha256": "618670bcbaf292a59680a59c38cc0b8c8984c5fc46d458e73f065d5afa40cc31",
+   "after_sha256": "b3886bd5ce51048cd6be0cf3b74f6656e29e155356d05306482b5d99dc919af0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/comctl32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/comctl32.dll",
+   "before_sha256": "ca2ae92c574dc36ccc11dd093a9d6b6ac508112a1257a290549dbab81eb87895",
+   "after_sha256": "d847848d9c54992950b4a436c45c08ec9354c570885282b496341b204dd6a6f5"
+  },
+  {
+   "template_path": "drive_c/windows/system32/compstui.dll",
+   "runtime_source": "lib/wine/x86_64-windows/compstui.dll",
+   "before_sha256": "07f35f81d21304c81222ee1807b5e3c74cd20682ac34943e484c05113fd320a9",
+   "after_sha256": "a5df5e2a86dc7151d6499137edb15321467c5e0a9afc20974ae74c08c7f09725"
+  },
+  {
+   "template_path": "drive_c/windows/system32/concrt140.dll",
+   "runtime_source": "lib/wine/x86_64-windows/concrt140.dll",
+   "before_sha256": "584614b7d27998746fdc1255196b063591403207d70b13734b7c6890c97b2767",
+   "after_sha256": "c5ea0248eff99209272ab9e499936639e33456d5a33b5cb25a4aa5b8342d22d5"
+  },
+  {
+   "template_path": "drive_c/windows/system32/conhost.exe",
+   "runtime_source": "lib/wine/x86_64-windows/conhost.exe",
+   "before_sha256": "fb71bb5a519ad052d3a2bd48cef2ecdc42d8d9d6845824fc84a3a742a217ba86",
+   "after_sha256": "c3c37266b4dd3ab21baa66fbbf7938ec2cacc8543edfb7e0daaac204a50e85cf"
+  },
+  {
+   "template_path": "drive_c/windows/system32/coremessaging.dll",
+   "runtime_source": "lib/wine/x86_64-windows/coremessaging.dll",
+   "before_sha256": "e08d02ddcc9034d11a5c2162167840c1524b32b44118b00fc0164f00e675816f",
+   "after_sha256": "c9a4c6ca9252d455376fd46213c22bf9b395618ab8325f05494fbcade3744aec"
+  },
+  {
+   "template_path": "drive_c/windows/system32/credui.dll",
+   "runtime_source": "lib/wine/x86_64-windows/credui.dll",
+   "before_sha256": "5c5dd2c389fa7e8dfbb2a3497a6315e4e283b0671f85de452b9650016f084a7c",
+   "after_sha256": "f11ae518ef689816e6e8ecaef7068650cfc1d6561a8b7d9786e0aab86b21e3bf"
+  },
+  {
+   "template_path": "drive_c/windows/system32/crtdll.dll",
+   "runtime_source": "lib/wine/x86_64-windows/crtdll.dll",
+   "before_sha256": "1ca6c628bcdf33817f206e25e115ad9626bc4fdafdc5693c69f0b2f6f7193beb",
+   "after_sha256": "a5a03f9e82184423032d6c778211f1b608e7f1bba580dd137abe86c20fc1fb3e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/crypt32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/crypt32.dll",
+   "before_sha256": "bd9281af62c1cf4b48ae84568f87742defac41e4b70627ea2ea965a4961c56f3",
+   "after_sha256": "3db2bf4c3971d7635ad3b58f07ad708afc63e734ba9a762c45cc28316445a49e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/cryptbase.dll",
+   "runtime_source": "lib/wine/x86_64-windows/cryptbase.dll",
+   "before_sha256": "5a01a8fdf8d968343d447823787ca3c03b47946a829d80c427697e21f14e3132",
+   "after_sha256": "065b73703139e58d721596e7e4f73c7eacdc6393ef2434d3377f6fa00ca948f4"
+  },
+  {
+   "template_path": "drive_c/windows/system32/cryptowinrt.dll",
+   "runtime_source": "lib/wine/x86_64-windows/cryptowinrt.dll",
+   "before_sha256": "f36e476a2bc80144712caca5e5822894d4af5c85420200b407afcecf99ddc6a9",
+   "after_sha256": "b82bd83990f16fa11e359bb647fffe9574d845bfab0254ec10414473d3489d97"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d2d1.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d2d1.dll",
+   "before_sha256": "6280f5d61a1b19e8e35fbb443e3ed2abce0110cef46112a9f0a25431bef3cef3",
+   "after_sha256": "79bd38202e7a30b2afdc0f83af0ce7e708913ce374e35a7195871759d03b5c29"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_33.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_33.dll",
+   "before_sha256": "2bfd5d9b3515fc09bf95c93de166b2f7044eb96692c880a931c7c892b2c2dc34",
+   "after_sha256": "dd5f7637831836ec109ebcb7a4d11343406f7e842f831f3fd9430adbc72df367"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_34.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_34.dll",
+   "before_sha256": "1cf8d03635a16894b118b6a5a8811fbf875d3d70ed433dd6660de74fd6d6c9f0",
+   "after_sha256": "27da7967ea0d0da8534a180a5971261dd0a7a0f183155688e71460db7745f630"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_35.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_35.dll",
+   "before_sha256": "3ec67cda18117898fc707432044ed951ce6bff9c31c7d58fe28753ab998d6cee",
+   "after_sha256": "c572eef12c9d91639492496dcb714cd69aba3c9cbb2240703b3ff477bb2b9eba"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_36.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_36.dll",
+   "before_sha256": "6f0f03e689cc18e4adfc32f17368932a8d29e50bff5d8da8db942eb043a9e168",
+   "after_sha256": "d583dc5e67f69dcde22ca7486fd031bd38669cf227e07b1a154d539285d2bbbd"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_37.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_37.dll",
+   "before_sha256": "5abbad06b1ba45b0e7254793817445f17e9806f86164269e20c495ff212f20ab",
+   "after_sha256": "7755fe471c00f97a1b02ce85a097640d146c1491d5c2cf53f06662df03d1fc44"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_38.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_38.dll",
+   "before_sha256": "296356bfab4c424c8ee9f7cd8413d07344894f06fe6bbf0f57e73a449dfc719e",
+   "after_sha256": "aae01dca945b6d26e9f608b4096cc7bbf3b1e5effaa8c8128d65f6a92c8a9cec"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_39.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_39.dll",
+   "before_sha256": "a53908cb7a2d84fd4df7ab14015ec4a1062fd4f922b99acc6e16f9a66c83be61",
+   "after_sha256": "dc3f4138559273bede376346627a0e9e423ee49a986ad06314c215478e1f4562"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_40.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_40.dll",
+   "before_sha256": "53a2cdd20f8576a486786b75bb74ea2d78721ed5e2a60c263655889927069573",
+   "after_sha256": "8336374030537aab352a318cfb981e8d9230e32cf304e2c42cba7aed8931a2d4"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_41.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_41.dll",
+   "before_sha256": "7134da49d6047ea0511e70fbe76802defbc965421be3deee95eb20ac8e29a716",
+   "after_sha256": "a21bbe3ac89fb80279075cc7146f5ce756aec1fea5be2cb1e9411302a650e8e7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_42.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_42.dll",
+   "before_sha256": "fb2f7e229bb7a732d197756975787854ca0d8117004afddcac4122526f44b468",
+   "after_sha256": "0276c218e0efb7ad49ebc8714bbf714a6150e1df29eec9d83cbe7ddcaef905ce"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_43.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_43.dll",
+   "before_sha256": "e3f96384cb20e5f16547963d5446057af859cc32393b950501096cd4397a5761",
+   "after_sha256": "0078241a4a33eb40d4bb0722f564da93495089129ef5480ff99c27244b07a6e1"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_46.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_46.dll",
+   "before_sha256": "2c632536f181ab475459490ce15d21947f2e71acafeb09cdf89d00712a1a7b2d",
+   "after_sha256": "0a18a9b0de32fa27954b712d5a41fd4fce2289551bef83c7a59f53a6e0d432fe"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dcompiler_47.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dcompiler_47.dll",
+   "before_sha256": "fb8fbe4a4f843b78cbe94489cc079e719ec26aa19a7540604c1365570f5e8b2a",
+   "after_sha256": "af0df7340fd9595f06cf3920b6526de5eb48136b1abd07096e9dde580ae84232"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3drm.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3drm.dll",
+   "before_sha256": "a8f192182c70fb66b6af6aeaa8b9b2a49677f04dcb17dcb554a795dd42f2d50f",
+   "after_sha256": "652555ef00bd1949c3da42989dfdc188812237e339499c8c6e6f6412407f6037"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx10_43.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx10_43.dll",
+   "before_sha256": "26bb7360f48f1f367f973c8a6fa8fffff634ac284adf4fea7318bd96998b5418",
+   "after_sha256": "3a2e697975ffc684fa08b7e16e02f48eab58ce3b55fcafcbdab795630a3136a0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx11_43.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx11_43.dll",
+   "before_sha256": "255a5427648626cdfea29243ce0c86be6dd3a044594422a1ed1eca6d81890bb1",
+   "after_sha256": "4ed9b27ff34508970bf3ef77a95a5c49f9f4fc08dc262e3ecaadf76ec1026f76"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_24.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_24.dll",
+   "before_sha256": "c203529df7993b46aaf2ea3f99d8511f528e0c1c8c0371fdfb093692446ee875",
+   "after_sha256": "98ece807358d0508363e93a66be008f2be10f72bad3a2f8e182f481898eb7ed9"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_25.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_25.dll",
+   "before_sha256": "9381b6f646633117f337ea7b3c8d60b646ab765ea443e68184429afdd15b29fa",
+   "after_sha256": "8450354db7bb7db9036cdd170be9002155232effd2c76b61b2fc1d137dfa5c98"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_26.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_26.dll",
+   "before_sha256": "2414aa707e74fb4a13d2eb5a6c6a63602e46c34fcf4d35200f88505747238c17",
+   "after_sha256": "3caac187f55d27d9ec64ed749b0ee572ec43f0fccf00e9cf5c6e61539dd4bea7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_27.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_27.dll",
+   "before_sha256": "5890aef2745461fe3e581a704d4659141c1502ba2846b228669fea49e66827a7",
+   "after_sha256": "4794acec1e0a8e8edd7ab1ab0c1eb39a8f927c44dec9538cc444ca21581a6124"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_28.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_28.dll",
+   "before_sha256": "70dfbbbeb94fb0982c8416091c17a0a551127e1e4be570dc27186f117ebf4525",
+   "after_sha256": "bd719b58a9169ed5f854bb3c75239228de1a98dadd8eb1c5a0a6fea92925cb37"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_29.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_29.dll",
+   "before_sha256": "275530293ef0eb414abb325530cec639227926d90c962e61ceae56348f5d4808",
+   "after_sha256": "59616296d96941c5bd98a3f9cf226be9fa765cbda08fda5e6d711a8d95c4f889"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_30.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_30.dll",
+   "before_sha256": "78c9c4e216c90c0b8477385481896c6dd6662b243c756d7510d17dffd1e566e3",
+   "after_sha256": "520fab60df37ad7c85c3c5c453e1280faba403357c07f6020636d36e6ec2c0b5"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_31.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_31.dll",
+   "before_sha256": "e90eedec730761b84e464bf104f050bbf76379451e380a25e14161475940967d",
+   "after_sha256": "ab75fc1bdccc1caefcffcbf4089c51d111159a814afba465eb04453d8f92e91b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_32.dll",
+   "before_sha256": "26870e720ffadab33a223440d182f2e87396f79aea668e3f84fd6fd192640e0c",
+   "after_sha256": "a7db453cae8b885c5e2375d17f44df78ebe10195c17d5fa5149271a9e240eb35"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_33.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_33.dll",
+   "before_sha256": "b3ede7eb24aa9fa58b0a2180f469cef87b92ed9703f768e8a94c5de94884faf2",
+   "after_sha256": "a98e4baedd2e5951ff6a134644243b7306d2c4b6f0089468623e7453b6b86a9e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_34.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_34.dll",
+   "before_sha256": "077316702ce7149dcebb9e5d1a3d2daa24f2beadca2d8e8d9001ac37be31785e",
+   "after_sha256": "20c8a19ae7b5cbba00ab2a58d399f08aef15ebc3c6f87f869bddb15c151f32b0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_35.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_35.dll",
+   "before_sha256": "7d8638bff95375d86d05130c1ef6d54aee9fde0f2660413d4aba1e2b8bbbbef9",
+   "after_sha256": "fcddec7b6872941d8a3ba06332e799e349a34f058941295c7f3e83ae063e00bc"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_36.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_36.dll",
+   "before_sha256": "49ecd92caf2d95188ee430e547ff49bdc33b4ca4434d8e075ed9148a40ff3a0f",
+   "after_sha256": "20e45743fd9c6c4f39dbab38056a003c274363a6d6e50fb41f1b310d746a9842"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_37.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_37.dll",
+   "before_sha256": "a16ae90dcd63a6361d573e7c5a5d5583d4ddc1b16682d6b3ba9528c87fe7236e",
+   "after_sha256": "132e3aa5391f003c06d546dbd39a6490fe95440d970f474c132e7707697ed9f5"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_38.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_38.dll",
+   "before_sha256": "346e280eb466697e368b5aff0d01ffd0517176d0778f8f86eda33e66c27f31cf",
+   "after_sha256": "b54559e4c791b4d864d66ba7b025fafc7ff3f1ab82f646acecc78c2a0c4de92c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_39.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_39.dll",
+   "before_sha256": "38d672bb0b848f36a26688b0e8984cc888a0a8ee487643c2fd45319521b8b9fa",
+   "after_sha256": "c1f966afcd2c3fb2d1da435b6bf9e20d50c320fb1734b95f57b63c08f6b8588c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_40.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_40.dll",
+   "before_sha256": "0bd9a84b2dc819e236090102e9df5caf70a4f7992db1752a912cf16a01f9852c",
+   "after_sha256": "58dd85e4b5f4effd555cfdf61c08efaee93e416e2ede75e8dd03ccd4ad45e5bb"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_41.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_41.dll",
+   "before_sha256": "9777f9031a3d088791d37f7b7c0348dd555905ce4e653af3d416d7cda51a7bd5",
+   "after_sha256": "a69f73c237d28db77dd44140ed2e16430013039f30164e316f12b1395d17e7cb"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_42.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_42.dll",
+   "before_sha256": "42bd6c0c998f72f4e87890084f97069a90710137b1e4c150cd6331c4b59efc73",
+   "after_sha256": "44c5af53cf8600271574e131ab613cbc30ddc5bdf6509a4d59fe6e37e71ad5d2"
+  },
+  {
+   "template_path": "drive_c/windows/system32/d3dx9_43.dll",
+   "runtime_source": "lib/wine/x86_64-windows/d3dx9_43.dll",
+   "before_sha256": "4157a086eb27431bdf1a206d747ccc82bfd8d246662be1a474178620f7369e5a",
+   "after_sha256": "38cb655d64ecd7cc82d69a66c53330c2cf0f0a875d856a05828e7304fd64e758"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dbghelp.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dbghelp.dll",
+   "before_sha256": "1726d273624f58350517c2efec1a08fbff626ddb0856eb206bce7bdb94e92ee7",
+   "after_sha256": "dc4a6246650b15669664154182bcd3e37ae9b8696db1345a38ed2706ed8b952f"
+  },
+  {
+   "template_path": "drive_c/windows/system32/ddraw.dll",
+   "runtime_source": "lib/wine/x86_64-windows/ddraw.dll",
+   "before_sha256": "2bd024f9d7ca881faca1379664dc0213626f8f83c7bc54eb67e5018a5a26e1c3",
+   "after_sha256": "7d4fd6584b197f66a47a9a1b228946a47388cbca756e9a1eb46fc17cb814d263"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dinput.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dinput.dll",
+   "before_sha256": "6c9019612423f00b3be35e6ca206c3f09bf769dd2de6c7494d85d740f53d46ac",
+   "after_sha256": "a02a898976d732b56bf38b06065629092074d252e95a147e17b790f957dfed9b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dinput8.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dinput8.dll",
+   "before_sha256": "3c8236aea475fd2bfddc20244721ac85cf808e30af26c4bfb9873b8ab89408b8",
+   "after_sha256": "81cca4aeb303c27e91d6433ed041f6cf4229ab9e69d607f3f1acaec8bb971874"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmband.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmband.dll",
+   "before_sha256": "d6da0aaadb10101b4d0f3738655030241f92f165fa78fceac097200ff76d231f",
+   "after_sha256": "c05ec2b72c29d7a6367cf4e5dfc78d94f10821ec6d4f1db71bad234c408284a9"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmcompos.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmcompos.dll",
+   "before_sha256": "1e6da40bd392f892af9b8971573f1ca956b59f81494777118ae30b9fac9d2f03",
+   "after_sha256": "a98807606ddb711de35ded31a8f2c8f4a424443005cedd6c717fc8c1c21cff94"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmime.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmime.dll",
+   "before_sha256": "0463a059096fc5b0f5bd0f5028aeaf3e9cf8ca104a2cdb6b5c6f7c5bf12abd54",
+   "after_sha256": "3e7305183483b4932baaa8994a28c6a82efa45385d6be95cc3a787f5f994df36"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmloader.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmloader.dll",
+   "before_sha256": "9e1c6ceac3bb407fd7a7b7e8ecca82ca4c924ac51476370a5ec56ba3d8cde9d7",
+   "after_sha256": "8ba5387e82f0f909cc5c23e3e67cbdbc969a4fc01c4ab2ba4a39a89878e75096"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmscript.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmscript.dll",
+   "before_sha256": "86bf87da4a3caae2e815552098d9be5a9150ee1d6646d754112ecd934ad44a59",
+   "after_sha256": "92527e29aea9a6da66fa82c90af01b12a24d376374b4d3f841abafeb86d56d79"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmstyle.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmstyle.dll",
+   "before_sha256": "166a3f597f57d76064a5c5562ddb4b5343d5d242a21042f31785f082c777f329",
+   "after_sha256": "c17fac545fb7b9d5b5780520ec98ab323453f36cef7d77440d8d70dabbe9f170"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmsynth.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmsynth.dll",
+   "before_sha256": "5038911b0245280beb7f0034eb8f792ffa8cc1dfec0a454083d5742fcd0250a3",
+   "after_sha256": "7e802c1268b0f82184623669e233228314a480e2d2d898749490f861415dce91"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dmusic.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dmusic.dll",
+   "before_sha256": "6d5a8f9ed835f7f01457be514c843263476fb0bb438bf3524e1a94b1984bedd0",
+   "after_sha256": "fe5124574945573a2c5cf151423e40df33bd46596c7f6f0ab5a769c1b45d1d12"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dplayx.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dplayx.dll",
+   "before_sha256": "a400ae5818d37499ee25773cd070800889b65afa9031dbd77cfa4b9f2fde0e14",
+   "after_sha256": "a44398cbb0ed49f36c3234e08973e7439236b1494aa39ddba61ba54dd35a87a7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/drivers/http.sys",
+   "runtime_source": "lib/wine/x86_64-windows/http.sys",
+   "before_sha256": "0a6a1f9085ba3c422c26a16f7abb03d952a770133fefd4f48c5fe7c6aea2debb",
+   "after_sha256": "989bb269a323b93d7c752d061bb1b6113bd9fe570879026045139b350839bbc5"
+  },
+  {
+   "template_path": "drive_c/windows/system32/drivers/mountmgr.sys",
+   "runtime_source": "lib/wine/x86_64-windows/mountmgr.sys",
+   "before_sha256": "a8b7b28f3dde661eb066a7256a47520edc4c3adc2fd0509c61d1892746f6ed89",
+   "after_sha256": "f9ef115b406862f24e17a4310eaa669e50de04ade588a49fcd0f48feb9898606"
+  },
+  {
+   "template_path": "drive_c/windows/system32/drivers/nsiproxy.sys",
+   "runtime_source": "lib/wine/x86_64-windows/nsiproxy.sys",
+   "before_sha256": "3e242bc6e23665d609f2fe9390461423e9c1a83a5aecad67356d71494e5066c0",
+   "after_sha256": "c5bf263b7d66a4636cf4ba4d837d082dbf1b3c4896ca7948415342006df5906b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/drivers/winebth.sys",
+   "runtime_source": "lib/wine/x86_64-windows/winebth.sys",
+   "before_sha256": "2d46db969c3008da096f9c7e262c761d7e8dda24c12327a068acc717280f1dfb",
+   "after_sha256": "20e44038a211592b0199f9d40204d3acb33a7a089add880ab89c5730d1a8aefa"
+  },
+  {
+   "template_path": "drive_c/windows/system32/drivers/winebus.sys",
+   "runtime_source": "lib/wine/x86_64-windows/winebus.sys",
+   "before_sha256": "d5219221304698b2927d6a412cd6ed184f5f5c20c1bb468d70c6c164fc2d09c0",
+   "after_sha256": "f5c7a09282cb5e9be16cb6d9db58b79e620d9f69ae01eefc19f3edfdbd80e073"
+  },
+  {
+   "template_path": "drive_c/windows/system32/drivers/winexinput.sys",
+   "runtime_source": "lib/wine/x86_64-windows/winexinput.sys",
+   "before_sha256": "5f7817dee334f1f48737063c21fffd48de4d17cc831581e777744b9dfbc275f1",
+   "after_sha256": "ba35affc345f431c3eaf8c97053ddb2bef5ead20bde664cd31bd5751d6460337"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dsdmo.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dsdmo.dll",
+   "before_sha256": "12eb3187ebc9826a091c890265e0de0101b8ba8a49e4a4da6d10760c2558c40e",
+   "after_sha256": "433e5978664a6c53f5f7154947c55b364034d86d2ab740a73f7809c6a388d27c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dsound.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dsound.dll",
+   "before_sha256": "ec66d72adccd8cb3beac2b090032e0fcf4ed479465727111add13136693bc797",
+   "after_sha256": "6e11ca3034329aa266b2d1e358fc2a3e609efea621e408f4025c99cef81bed73"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dswave.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dswave.dll",
+   "before_sha256": "babf2bb4981da55aa59d54207b9495b0423f154c361aca79e310fddb5dbdf89a",
+   "after_sha256": "93f069394f9581ebdd7675fa2fc8543cbacf59737db571cba064130d74b21343"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dwrite.dll",
+   "runtime_source": "lib/wine/x86_64-windows/dwrite.dll",
+   "before_sha256": "2ef61133494c6c31b3ff1819111389ace1d696aa86ea02437c9347ea5f457321",
+   "after_sha256": "399e50b0b2891db25c0e969d8960385433f67abda70ed9c4f7b9add49d9ab72b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/dxdiag.exe",
+   "runtime_source": "lib/wine/x86_64-windows/dxdiag.exe",
+   "before_sha256": "cd49ba693b71c303d9adb5fc311325acce2dfc89f5bbbd48d3f5b19fd5062faa",
+   "after_sha256": "d74039c7a5d56b052c0f2376181ba2688f7389a2eb33b5a97063d1a5589ea7ac"
+  },
+  {
+   "template_path": "drive_c/windows/system32/evr.dll",
+   "runtime_source": "lib/wine/x86_64-windows/evr.dll",
+   "before_sha256": "35f8458236930d7b5365e0949b07648d5f56280afa329b88ad33b4f162afb786",
+   "after_sha256": "63768b3ca01f609eb0c11108c402698110506628007b37363fa4044f0d950720"
+  },
+  {
+   "template_path": "drive_c/windows/system32/explorer.exe",
+   "runtime_source": "lib/wine/x86_64-windows/explorer.exe",
+   "before_sha256": "ab98e1a054af205b5223f6a1bd5245e657a68f8a25563c4f679517cfb15707ad",
+   "after_sha256": "fa8eb5ead7afc112c3f2e0410bacb1bfdc26d922e6a96559d88c1571508f21da"
+  },
+  {
+   "template_path": "drive_c/windows/system32/gdi32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/gdi32.dll",
+   "before_sha256": "c6eff911f23e0744f182bb8c172feaca2f086d745486e3354f9f556591d2f0e3",
+   "after_sha256": "506bc7d3799634f232b7688b4d02df5991ed8e7de7f7339b15d6949d55445e8a"
+  },
+  {
+   "template_path": "drive_c/windows/system32/gdiplus.dll",
+   "runtime_source": "lib/wine/x86_64-windows/gdiplus.dll",
+   "before_sha256": "bd1ca57e443ec3f54349a3f7c6ba3890423d9d6d18648acd1dfbf1c95b0132b1",
+   "after_sha256": "1c841c5b3e7bbc82d4e1bc45bcada858d2dc483a384b7a76529efe99952fe501"
+  },
+  {
+   "template_path": "drive_c/windows/system32/glu32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/glu32.dll",
+   "before_sha256": "4de6b33f3b5aa3aca411e74a21a4419cfeda29091bdded65444ceef2d4fdb444",
+   "after_sha256": "b26f10812a9869b255408cd19af64b62a6266b81ef1af20a181898cf3b4f3676"
+  },
+  {
+   "template_path": "drive_c/windows/system32/hnetcfg.dll",
+   "runtime_source": "lib/wine/x86_64-windows/hnetcfg.dll",
+   "before_sha256": "69f5692ea625c77a9529f202c66ed36e73691f97da67d78cf187f17af1276a59",
+   "after_sha256": "e694a72e61a5fa267c9dc53c33540a3a4c064ce579263dac4c428ae4ad432573"
+  },
+  {
+   "template_path": "drive_c/windows/system32/icu.dll",
+   "runtime_source": "lib/wine/x86_64-windows/icu.dll",
+   "before_sha256": "ab05670b5232f8771915b0f48001ae5809cb355724366c4a98bccd43a1b27440",
+   "after_sha256": "a5014aa9e70c04912c9e752794e25c9137bbaacdcdd0dd49f214e2f7af6159cd"
+  },
+  {
+   "template_path": "drive_c/windows/system32/ieframe.dll",
+   "runtime_source": "lib/wine/x86_64-windows/ieframe.dll",
+   "before_sha256": "22ca0a60faf941323c05b48cf9b58cb82d2db34e1e5e42169c17af5a90004854",
+   "after_sha256": "8c5f5c6b40f7c97eef9f917b0aed6ed365017452e069610fa0e4de3655b98f81"
+  },
+  {
+   "template_path": "drive_c/windows/system32/imaadp32.acm",
+   "runtime_source": "lib/wine/x86_64-windows/imaadp32.acm",
+   "before_sha256": "3a3952cb9dd23bfa02eb1fa0172593271a26d6f6524889719933a4333990f3bf",
+   "after_sha256": "e128a90caa7cb3b292c658d378f778af249e68ed5ceaa4c3ef3997098cd67ec3"
+  },
+  {
+   "template_path": "drive_c/windows/system32/imm32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/imm32.dll",
+   "before_sha256": "6dd68ac41993168bd8ef789487953b9bba38ad00ddf382c010cf4799b32176ef",
+   "after_sha256": "d07a75a563b560f463bf08daa66e723c498ba4a898d55079c131c9c7b0e4c756"
+  },
+  {
+   "template_path": "drive_c/windows/system32/inetcomm.dll",
+   "runtime_source": "lib/wine/x86_64-windows/inetcomm.dll",
+   "before_sha256": "67bfe31f26bb98cbe44f5b3ba68086302dcb2ae27630c558ad55a1b5e523f59c",
+   "after_sha256": "eb5475bd280c3044dac76ac81f3c3ab615388fae14c0cdb7a5fcd50cf0390e4f"
+  },
+  {
+   "template_path": "drive_c/windows/system32/inetmib1.dll",
+   "runtime_source": "lib/wine/x86_64-windows/inetmib1.dll",
+   "before_sha256": "460660e6f84e44e84b517abe8c9f9cc00c8dff71efde03cc17679274a385e896",
+   "after_sha256": "208075f994a407ff850b3d7287d9e69af44203e1c8552148dbab75f787bbe774"
+  },
+  {
+   "template_path": "drive_c/windows/system32/itss.dll",
+   "runtime_source": "lib/wine/x86_64-windows/itss.dll",
+   "before_sha256": "7a19ecf064ae0a197a9c7ae18b94598e7fa1c35f8507cf060232569b33f0ccb1",
+   "after_sha256": "9f1621b6ab81908c5201c86094799b4593bdaf0ffbf486bb9caa33221b31ed02"
+  },
+  {
+   "template_path": "drive_c/windows/system32/iyuv_32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/iyuv_32.dll",
+   "before_sha256": "5b311b9c1824e4915620e992c9f0ab54a77b922185024ad581656f4ca9670884",
+   "after_sha256": "5d7f585721f05638e9da3d3be73b14f9c2d73cff597cf6a57748d39fa1eb94c1"
+  },
+  {
+   "template_path": "drive_c/windows/system32/joy.cpl",
+   "runtime_source": "lib/wine/x86_64-windows/joy.cpl",
+   "before_sha256": "d7bd844f3a6728b26bde4538fdd28dab236abd6e109b7a25f11b7866a1636ba1",
+   "after_sha256": "4fb6a1f66525c22ef80f2e33b0ad56cbee6b3bcfc54d22d50806e97270fa4e37"
+  },
+  {
+   "template_path": "drive_c/windows/system32/jscript.dll",
+   "runtime_source": "lib/wine/x86_64-windows/jscript.dll",
+   "before_sha256": "56c32f1c6d01303de282ab0e6be3e913444f30b9d87c9ba00368655411e3be40",
+   "after_sha256": "ee7ec0346c1748bcdac7beac12b02e131dce4fc77bd7b37db048f474e92106db"
+  },
+  {
+   "template_path": "drive_c/windows/system32/jsproxy.dll",
+   "runtime_source": "lib/wine/x86_64-windows/jsproxy.dll",
+   "before_sha256": "0477c2bbd4b73ea364f9d10d304e184bb114b4781921f68a0c80f9e1b44e8d13",
+   "after_sha256": "ad81202a109f646839f577406975800162450c0be0485d853840819ed6d215d0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/kerberos.dll",
+   "runtime_source": "lib/wine/x86_64-windows/kerberos.dll",
+   "before_sha256": "b68894dff3cf4f7e94fb5c5b501739ac8869ace9c8f00804fe343ae9de64e320",
+   "after_sha256": "824b2a038c6fd8619b627bb4d1fea8d82111346a956599661620959c2e29d72f"
+  },
+  {
+   "template_path": "drive_c/windows/system32/kernel32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/kernel32.dll",
+   "before_sha256": "2d39bb5136f052e2cd352cab69e2c241ff0c621cc985e756544408dbf4cb60b9",
+   "after_sha256": "ada6d9f7fd70565ee987d20a959db6edf6db8ef6c22e5f69691c25d3c8ba07ff"
+  },
+  {
+   "template_path": "drive_c/windows/system32/kernelbase.dll",
+   "runtime_source": "lib/wine/x86_64-windows/kernelbase.dll",
+   "before_sha256": "07ef3d6aa5a7f08abf072e54267073f2abb7a3e919bc26833fa0a5f76e7b9dff",
+   "after_sha256": "5490a119dda9df950c6c7f296b65bb0dd2591d0eebd443187b2dfeaa68f932e4"
+  },
+  {
+   "template_path": "drive_c/windows/system32/l3codeca.acm",
+   "runtime_source": "lib/wine/x86_64-windows/l3codeca.acm",
+   "before_sha256": "7654cdc0a491b1db06e3dc6fded9dbbbee67f922469ec28fda1ed74fe14d626c",
+   "after_sha256": "3c475909766d6d6798d51fc2b700cfe4bf188500287640a6a587c71a7c592dda"
+  },
+  {
+   "template_path": "drive_c/windows/system32/localspl.dll",
+   "runtime_source": "lib/wine/x86_64-windows/localspl.dll",
+   "before_sha256": "970005043219d6e4315a45483be128c3950756d93a480f481a117fb21a55191c",
+   "after_sha256": "7bef32671f5f68b3230f3fcb4ae9517964a3fabebccfa79248544fa98d0849a2"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mapi32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mapi32.dll",
+   "before_sha256": "5f9f251523dd10c88451e28e4b73784b7840ce654fec89ca4e8c1bcc1f7deb56",
+   "after_sha256": "0b210c28d92dd112e196b8831f3443a25f613d0f342bb6eedc4f9d5761e83343"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mciavi32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mciavi32.dll",
+   "before_sha256": "2830f4a806825a1a23c8805c050c90c2710e3769895361c19443be7e1875977a",
+   "after_sha256": "8febcae8bf5e5a1cd278bbc491a505fc7452419fbdfe6f28ea5d086b77cfd133"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mcicda.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mcicda.dll",
+   "before_sha256": "31fa4d8a7319b7f606aa88903bc1d4b105da502bf5f115657ab5ba21abd73b27",
+   "after_sha256": "78ac59badb2675da85c3b266679666483881f2a16cc356843d7aa22ba7e45807"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mciwave.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mciwave.dll",
+   "before_sha256": "075615fe89a8a98fe2c24bf5b9e65c5e8f62cc94a31831b6e575b42137091e8a",
+   "after_sha256": "8801c9cbe929bcc585572be9a0cc6e3e13961e71dbb946c169ddb90d892c8819"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mf.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mf.dll",
+   "before_sha256": "5931b18fa65fb9c7249047b7b6f80266fb7a95edd77fe1ec18dc9d26ab415257",
+   "after_sha256": "a01559a002bababb364be55a974d9b0d46123c4d6ebf439c3377df46ed3db33b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mfasfsrcsnk.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mfasfsrcsnk.dll",
+   "before_sha256": "cc377bc9acd02af71f277d46067537b7c817af8e7daa4e973a8fd1f4d4a9dd16",
+   "after_sha256": "da04ef28d11637317e7acb4a7e767595806ad5264de409d9c63b5541dd586373"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mfmp4srcsnk.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mfmp4srcsnk.dll",
+   "before_sha256": "a52b7b51ad510735472f9b1c0507863214cf11d825d57fe0a3c03de4485b553f",
+   "after_sha256": "1f63b0a690cc2c2e7b6c31ea4eb6382cd0b504553fe52c78844780ea48e7ad60"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mfplay.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mfplay.dll",
+   "before_sha256": "48be835437aca964a70f2e82b24b275be9c15b4ea3ebd436f16d6518f416ee37",
+   "after_sha256": "5434239d1b8758d5ccfc648feef491e687b122fca12ecb3a0b5f50c5b330a9a9"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mfreadwrite.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mfreadwrite.dll",
+   "before_sha256": "60a6869e6e3a355a95e129adb045dd611a0bbf176d1d5f0867be86de8c19869d",
+   "after_sha256": "dbd317097c9dafeb2fb1cc2246764c8b636bcd479d89585308d58467e150ca81"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mfsrcsnk.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mfsrcsnk.dll",
+   "before_sha256": "750d2ae24796ddad16d37d99926cee0970c77c7c2718b304168e0200255d88ca",
+   "after_sha256": "01f4754d99938a880dda0098218cf83149b1f9ff137a6205761b1d165dd38ad8"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mlang.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mlang.dll",
+   "before_sha256": "a0782b45ed258841c4223f2daaa92687333d1633a57386a16104068a514dae15",
+   "after_sha256": "12a12b47ca546c740818323c2eb5f3f54dca2bf802088d3a899f138186a3ada3"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mmdevapi.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mmdevapi.dll",
+   "before_sha256": "dc3b702d8bf11d188ce06ee743bad311c3567bdba75609eda3d71a82cf53c252",
+   "after_sha256": "a2bfbe531b5a8c6ad856f71a6edfe368db861b2bbc3a0ba0eb8f3fc39807b560"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mp3dmod.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mp3dmod.dll",
+   "before_sha256": "2ae4e43f39f7b9d68aac1abd65fb83e252cfa8e1fe1572743a9aee3708869000",
+   "after_sha256": "06127aaa332dfb59efb5d95aaef12a9a3f5f144e9557e7bd2504ee5139c903ad"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msacm32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msacm32.dll",
+   "before_sha256": "bd19fc17d51cabc2848f22ac6f264578f5ec1533e897156d0f8a3287fbce7633",
+   "after_sha256": "d3e05ecf75e9b00a5a8352f724f869468b76fad55d1db1697a99cf1304766ded"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msadp32.acm",
+   "runtime_source": "lib/wine/x86_64-windows/msadp32.acm",
+   "before_sha256": "f329dc7f6d23eb343fc21a6cdc08100377cfa3a16e1a49a88c6406a937592b81",
+   "after_sha256": "c55092da9aea28b2f78b31727da002f667e74774bc0578f08b68aa73151ad7a4"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mscms.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mscms.dll",
+   "before_sha256": "f98bea27c0b75d7a0140e503d79ca9414402089a5f94f396feac223edc2cce1c",
+   "after_sha256": "7fbcc06b007ada0dfa960f0246fac47bc1d4ecd579bdedadca729248aeb1795f"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mscoree.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mscoree.dll",
+   "before_sha256": "9bb7bc30ec4bc3c688ccc61b14eeb05f6bcb3c93dbf2a33b26c9246a606a36a2",
+   "after_sha256": "37b7eac3c6be811b603564f777e0a7bff9b73d401e60f6438495e9fac1d43dc7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msg711.acm",
+   "runtime_source": "lib/wine/x86_64-windows/msg711.acm",
+   "before_sha256": "246aa37c40e605236fd06a07670e2b6cc8543666d71569e618116ee2d1bfb26f",
+   "after_sha256": "e97d48472ff8962479f954f6f6f896167bf3e5fa8e9cb1bd135084a5bd183094"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msgsm32.acm",
+   "runtime_source": "lib/wine/x86_64-windows/msgsm32.acm",
+   "before_sha256": "a19ff7f52fbcef5cfb11c769845f3fd3b1591ca64ea3bd5ed2999a26f8bee846",
+   "after_sha256": "da040033e7ef81f596f5217bcd939970ceeee4c3306885d6f31e118a9fda1da1"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mshtml.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mshtml.dll",
+   "before_sha256": "be6d1abf2196597287a9b56fe4909da89e791344355fca9c444487c72d77db45",
+   "after_sha256": "010ab49a60175e68a1d13ecbd400a0677d61a012581c406e9446ffe962e78b28"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msi.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msi.dll",
+   "before_sha256": "7ab593f4cb0237bc4dd2d1012c26bdb7c3f1cc6be1a4445c90b6a8d1d8d767e7",
+   "after_sha256": "cc314923f3cdb234d800ba3d5d9e1a0591d09cf4fa5790ee75fba7964e6d422c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/mspatcha.dll",
+   "runtime_source": "lib/wine/x86_64-windows/mspatcha.dll",
+   "before_sha256": "12696074ce666f3f1b6882d725dcc6a5dbfcd7969571b2e7353578920f6b1165",
+   "after_sha256": "24527494e40f936fa067132dabc5d9ca2aa5921fdb90e598917190917e806c14"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msrle32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msrle32.dll",
+   "before_sha256": "f32ff8a7b02c6b5e13d20f8724320d4646d8d250ef9b39b332b89545648cc070",
+   "after_sha256": "a0d8b21c050f3d74b13f202a773292d7610f23ab235702d70096b042c20e0ad3"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msv1_0.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msv1_0.dll",
+   "before_sha256": "d208d0291e029e4efe1c299d6cf0d7b7229b4d8d58ba27f6f2c851a28af48567",
+   "after_sha256": "3097ab6fd7daec3bc25e9acdac4e64866cd207ef3aee5f7148e1953601c0a107"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcirt.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcirt.dll",
+   "before_sha256": "17c18188021f408b09e1ed8c64ecc4509f8d16747d8b56ef2b3805d10a626ca4",
+   "after_sha256": "120407ac8cb7046d396b2e15e6b33fc984b77b54ba0d5e82eb321ad302c83174"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp100.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp100.dll",
+   "before_sha256": "b83b21d97b786c8d1449ad30a1b61519cc68f843c13794e74a128285b7ffa0d9",
+   "after_sha256": "fa06e3c83022a522b2ca014c7e0bb86533507d7ccf2fd37633abb68e48472ff2"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp110.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp110.dll",
+   "before_sha256": "664a7ffaefcd6a8d881517c44539f1efea92510a7ea710a62454408225237571",
+   "after_sha256": "33b90f84111cb12ec29f2676588a279448dea591687de10b3f4a7c9af269229c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp120.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp120.dll",
+   "before_sha256": "65b0a206ae465a73f4dcecb1b004867ddcf3754b638b84ee2cd813e8073be3bd",
+   "after_sha256": "eab1503969c0aac04d6b22de7593d7b588198015f064809b7c7e62386622e8ed"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp140.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp140.dll",
+   "before_sha256": "41e77761e6356eb9db3afc1fd358cfc3fe6e9d8691577c269532924d6750b243",
+   "after_sha256": "20f80163115ff7e58c4a811c628b53d471fb851b86b48d6a7d76c53800b36e81"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp140_atomic_wait.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp140_atomic_wait.dll",
+   "before_sha256": "938b7d3bdb03cb7581b4c15f17f7dbe8fc9d3bfc43aaed85a9860a3e377be098",
+   "after_sha256": "13176ae53995c83276930db7930f5e3a225eba5214a32f8636fd12823869b1bd"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp60.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp60.dll",
+   "before_sha256": "102e8fdf5451d0f5aacd22e0d41174af2b19b92e5f1d36de756abc3faefce9c8",
+   "after_sha256": "120d772846321480e5cdde088c1a54d531197b386d06576d2449a60ef5d61382"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp70.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp70.dll",
+   "before_sha256": "21a43536e7e6f0bff75c84236955c467c27ef358dd633a0a40e6eef171a6f170",
+   "after_sha256": "7d5a6030b87d549ff59a2cc04fe90fb450f165f126ca9c01580e1f3b7cab6e5a"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp71.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp71.dll",
+   "before_sha256": "73364f59061a8ce6d2ccb9707f3d0a99c10adcbea687c6dc1fc2a3d4e3b63ab7",
+   "after_sha256": "dadc99a337346dec8818e4cff329bab34690bb42cb927eeff166cdc5c081a546"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp80.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp80.dll",
+   "before_sha256": "6b150e0c4b857cbfc71ebe8b493afb4b471583c45dc6e5c96b9bbbf77cb73801",
+   "after_sha256": "4f16b0069c8a37a5560b284bca273c112c009dd03c7a8357ddb0c25932229fd1"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcp90.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp90.dll",
+   "before_sha256": "a5a0e57b58fa39f5bea0c00fe77047da98e6145429c821015391dfdefcde9601",
+   "after_sha256": "8fdbad0f686bc60eba9344d136da13a40e27d059841542e713009fc6e7b61d68"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcr100.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr100.dll",
+   "before_sha256": "01f42cad0296395fa5c71da21dab0eb7103fb4e57de3a1b08179f76e266e8bdc",
+   "after_sha256": "d7bbae88722730f2950378719e4f28c1a9070ec99f7ce785feb85deecb693cb4"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcr110.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr110.dll",
+   "before_sha256": "3a1c7be351fb49b0c17066f45df73e22be9c39a0d7e37320c8d2f50d50b2ac06",
+   "after_sha256": "f034001f873b663bb9546442f71951c1407b6e477c8d314587c64a21c6c66cd0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcr120.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr120.dll",
+   "before_sha256": "0bb0fbd5dbeafe1ac67667b7f5654b076282ce6012bfd3e920396f32650ff1aa",
+   "after_sha256": "6a50a283b306529491cfbeef6ff03b25836151bb066a116eec2e7159e0464211"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcr70.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr70.dll",
+   "before_sha256": "1aad3044320637bc19434c876863d7947da5e9ec0b39ac31892bd28ba8494d31",
+   "after_sha256": "c8006b9e27b351683acb8e8f0246ab7bf60a385917d8636e5f816ec10365c778"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcr71.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr71.dll",
+   "before_sha256": "f1c7cb8ebbddef8091652b17880bfb4f92de4f2488f880f4168d871d1dab40c7",
+   "after_sha256": "6b425e2521174bd3391edac6eec16a7ce95540ea4b301cacec0307fe2940d593"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcr80.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr80.dll",
+   "before_sha256": "092dd453210c9fc131c0342879fd74dc28cada0d961057ddec69be1384946646",
+   "after_sha256": "1b0b85a197b5e7fcc08de2a7633bf5794189a9afa9f6160068f23fa04aefa0ba"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcr90.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr90.dll",
+   "before_sha256": "3f72422b7cbb1b14dfd4aa7dd1d707f482bb77ba9968f41a9b16b413d8492bfb",
+   "after_sha256": "8e0b80fac07897f6b97233c1590e75f177151f8a2f3bdc2f2e1e0d4082046ac2"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcrt.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcrt.dll",
+   "before_sha256": "0d45e01e57f3b25a21a5e469119906b7215b4bb40fab25f1f16dcc1da8cab76e",
+   "after_sha256": "1efb3a4c7e1cb9450fbdcc8a3fe8ad57886e3034d1c3c7b733fe69ac430ed536"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvcrtd.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcrtd.dll",
+   "before_sha256": "148d168a20315239282c6c6455c1845e847dd9237e41c0a61fcdd389983ba488",
+   "after_sha256": "dd6269137d6c91d71cbfa2a348d13b6b6254365ff76db12d454fbe56de21aaad"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msvproc.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvproc.dll",
+   "before_sha256": "e6cb6b2e59ce9d4fd51c15a1959b71dc5b15447387236c554c430ffe2c9288a0",
+   "after_sha256": "902f911836ad3c2a2ae49c4ea8d8d560e7c99434827a3fdea6eb00e929af2f99"
+  },
+  {
+   "template_path": "drive_c/windows/system32/msxml3.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msxml3.dll",
+   "before_sha256": "0eff9f1fb8fd962b7092a3c1d01bde2d6502d2ef2c78cba6fc6e223809859515",
+   "after_sha256": "fccdb6198134a812f15d96e8f8d4bc4ff47926b866b5435fca35079b14710583"
+  },
+  {
+   "template_path": "drive_c/windows/system32/netapi32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/netapi32.dll",
+   "before_sha256": "39b9287ec798027efdb5c13064ef18d7e870a8b35e3aaf1e0fdfdf4a4b5da294",
+   "after_sha256": "d48ffdeaac3792c4b35e197ef3f66ad8d7e6b8cee9be1ab3c1fb28338fc6946f"
+  },
+  {
+   "template_path": "drive_c/windows/system32/notepad.exe",
+   "runtime_source": "lib/wine/x86_64-windows/notepad.exe",
+   "before_sha256": "414ad4694e801256263ca751fcbd340fdde43964b8b63497cf6da849e5ae4254",
+   "after_sha256": "fdda9c90e5f54ca655a7133202d9b3890054c7a9cbb091fa19f53b83c3aafe05"
+  },
+  {
+   "template_path": "drive_c/windows/system32/ntdll.dll",
+   "runtime_source": "lib/wine/x86_64-windows/ntdll.dll",
+   "before_sha256": "3414407412fc969aed9f426a72c2711929407da6fae1444cfb7a1910a65a37cf",
+   "after_sha256": "b5a1eb0553d6fc40b702925bbf93cf8ca80a9367a6ddd8933640ba941f83c959"
+  },
+  {
+   "template_path": "drive_c/windows/system32/ntoskrnl.exe",
+   "runtime_source": "lib/wine/x86_64-windows/ntoskrnl.exe",
+   "before_sha256": "d47207c9dbbae9db2643a5ffd887fba379f7df984a7462fdf867031be8d094eb",
+   "after_sha256": "61ff851828a89f6b2e6d1f7d4baeaf977c2e45212184f2167f018cdac13db2b6"
+  },
+  {
+   "template_path": "drive_c/windows/system32/odbc32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/odbc32.dll",
+   "before_sha256": "378fe2893c5ffc6a9df7472e299f3e4e2f22bce732d06ed0f456935d809fe682",
+   "after_sha256": "2af16a99f689b386293aad63d3e159bf166a990b5f93bcd7ac909044486a442a"
+  },
+  {
+   "template_path": "drive_c/windows/system32/odbccp32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/odbccp32.dll",
+   "before_sha256": "ecd625c0a040192c9077800d065fb4838aec20082bc4eea0592299073f902b54",
+   "after_sha256": "a478c2202cd9189ca8bf4bdab65b0753a300e570a2581c3144f61c9f5dbbab61"
+  },
+  {
+   "template_path": "drive_c/windows/system32/ole32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/ole32.dll",
+   "before_sha256": "cd10b56be255327e25c138da2a7c5755dbd027697a9b5eb319f52c7afc74007c",
+   "after_sha256": "8bf07de3e28c0d5e3903e3bff9b1dc70022edde6c05ee23cc7b7cade8e22d7f3"
+  },
+  {
+   "template_path": "drive_c/windows/system32/oleacc.dll",
+   "runtime_source": "lib/wine/x86_64-windows/oleacc.dll",
+   "before_sha256": "25dc1637dd16699bfc051f282b3c910e840a4af926a26518ef4a1cdb7891a6e9",
+   "after_sha256": "1cd64c173d334efb00936919e933ec92ebfa212c07157c6d47b9be7aee84dae0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/oleaut32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/oleaut32.dll",
+   "before_sha256": "8f6dcaf9146c7afc14890889b06d7970d367e3d56718f62f931bfbd7401a58f3",
+   "after_sha256": "cc0e8d866bb0c49a6c6475b12b2548a01ee2d2f36ef0b391dd1f6bd3ec269acc"
+  },
+  {
+   "template_path": "drive_c/windows/system32/opengl32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/opengl32.dll",
+   "before_sha256": "249b14ca1692a7e99b231c2ed45cc61ddc9e11a42d354951f5cd73b0c0c6b402",
+   "after_sha256": "f5919cd28a03ea942ac9a65a6ec6176a42beff5ad21f683d8904de08cf2e7694"
+  },
+  {
+   "template_path": "drive_c/windows/system32/pdh.dll",
+   "runtime_source": "lib/wine/x86_64-windows/pdh.dll",
+   "before_sha256": "56b4e8f164ee21fbaa2f9d1939fdb6a6a37b4641825372f2ae1ce9294df60977",
+   "after_sha256": "341aaa92b4f4fba5f60879a18d55b43cbe0b8c04b6df63e7827c09611d49755f"
+  },
+  {
+   "template_path": "drive_c/windows/system32/plugplay.exe",
+   "runtime_source": "lib/wine/x86_64-windows/plugplay.exe",
+   "before_sha256": "7bbc9e816eab36cb6605f20b20da5d147829499e83c8df8fff14d44ac1623c60",
+   "after_sha256": "8d4f855f835ea64c32bafa94fb61a297107204119a01ac7a95e2e7c5f858efeb"
+  },
+  {
+   "template_path": "drive_c/windows/system32/propsys.dll",
+   "runtime_source": "lib/wine/x86_64-windows/propsys.dll",
+   "before_sha256": "6f50425c28a9b049377971fb9b1e8db6f05590565c7df9f877997054b421cbcd",
+   "after_sha256": "297846b6ce3dc7f4c136be29546a5c1796e4707b9ff05870a0e51e075d4725b7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/qasf.dll",
+   "runtime_source": "lib/wine/x86_64-windows/qasf.dll",
+   "before_sha256": "6137bec0ea0f9271d3066dc80ff83cf947b8c09522f2dae51b8ce8b7c930c9d2",
+   "after_sha256": "974120deea63758cb4396e10ec88b00b5e5f115a880f639018b057a1d00225c1"
+  },
+  {
+   "template_path": "drive_c/windows/system32/qcap.dll",
+   "runtime_source": "lib/wine/x86_64-windows/qcap.dll",
+   "before_sha256": "a1a5edc6bcbf520f630c8d0fd905002ccd6b4c7efa9086e2cf178e0753aa8d59",
+   "after_sha256": "a1f7a7dd09fb6750249524ae9b03bda2da2eeeb39368da8b3d37ee49a8e5594e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/qdvd.dll",
+   "runtime_source": "lib/wine/x86_64-windows/qdvd.dll",
+   "before_sha256": "6e4e8ef2fc354564eefa47b5e2b8919fea0497a05ca54545bb0ba5ba58776f81",
+   "after_sha256": "416205cbfee12bbd93467ce594db38fca57493b9ed9e686a5cb06e01e5b5db31"
+  },
+  {
+   "template_path": "drive_c/windows/system32/qedit.dll",
+   "runtime_source": "lib/wine/x86_64-windows/qedit.dll",
+   "before_sha256": "cdeaf9d511bb8d1a36bae94bf873fb9a40a9dd4d58f76d6bde73ced4276c2968",
+   "after_sha256": "2effbd921ea35358ad38e1776d378677f1c3435b03013838c6f2110db3c4783e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/qmgr.dll",
+   "runtime_source": "lib/wine/x86_64-windows/qmgr.dll",
+   "before_sha256": "aea1d403bfbfa7b3db4767e556b5bbff0401eb62127604fa86b6b83ff031337f",
+   "after_sha256": "f2444b838122e19efe54b387af1062fa42fb7dc0c70894f34116ac324e7935d4"
+  },
+  {
+   "template_path": "drive_c/windows/system32/quartz.dll",
+   "runtime_source": "lib/wine/x86_64-windows/quartz.dll",
+   "before_sha256": "7f3c0ad171c21a6e8961d5a429def1cac7268d7b9458272573fd84a9f41092cb",
+   "after_sha256": "04ff619faf81b86d5bf5eac008d5710a49f4879a5d134111cd4129a1a3cf1f88"
+  },
+  {
+   "template_path": "drive_c/windows/system32/resampledmo.dll",
+   "runtime_source": "lib/wine/x86_64-windows/resampledmo.dll",
+   "before_sha256": "cfa7ace2fb0d359fd408bf124a551dd2b87ce6c08c74593e5eaef3c6c6436f68",
+   "after_sha256": "2780d3f33d083bfb0ae352f7ce4e62e71d6ee3188e5a1bb3bccd0971b51c16ef"
+  },
+  {
+   "template_path": "drive_c/windows/system32/riched20.dll",
+   "runtime_source": "lib/wine/x86_64-windows/riched20.dll",
+   "before_sha256": "bb18a5c97d9ab44df9898a78a6edfcd1a043b04b277ab4722b36ed68e1923b32",
+   "after_sha256": "190bb6276f2c40efe58c702da4aa48b5f13c025db7a9c859bc74687184e14539"
+  },
+  {
+   "template_path": "drive_c/windows/system32/rometadata.dll",
+   "runtime_source": "lib/wine/x86_64-windows/rometadata.dll",
+   "before_sha256": "ef7f33953a7ca9c0bad6445adcb12837e4aa1e3705e2cb6de5da0e0d349320c2",
+   "after_sha256": "721cc5ce78d6600b14b20c76a6bd9c7dd6e5eeb9d457a506608f584b5c0af3a6"
+  },
+  {
+   "template_path": "drive_c/windows/system32/rpcrt4.dll",
+   "runtime_source": "lib/wine/x86_64-windows/rpcrt4.dll",
+   "before_sha256": "71b3b5d9ec8f074b63ca5c713d6ec0f9d4f6a68a61d185ea30ef715480d06b02",
+   "after_sha256": "ccab330c35279aa78ee2ea8b8aa447359dc6ef4fd76aa265a791b1623af0252b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/rpcss.exe",
+   "runtime_source": "lib/wine/x86_64-windows/rpcss.exe",
+   "before_sha256": "5399ffea717724ecb42e51b3b6b8d8644952d629d2329ec2863f7c12b5fd3a4e",
+   "after_sha256": "c622af2ecc229ffe7e4a4a1d0fe9b4ca9636606ed0a3e0aaaa34d3f8baed4135"
+  },
+  {
+   "template_path": "drive_c/windows/system32/rsaenh.dll",
+   "runtime_source": "lib/wine/x86_64-windows/rsaenh.dll",
+   "before_sha256": "824e534991f476b3be8a6f3a94b2a03b5708c9f406c8666631224cd9d710a89f",
+   "after_sha256": "f2f407420f1140ef1cb3b5fd19fb9ce4c2721b7f60e8ad2ab73aa737c6e7be8c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/rtworkq.dll",
+   "runtime_source": "lib/wine/x86_64-windows/rtworkq.dll",
+   "before_sha256": "661978187c964e1cbb766e434db5178d88142ec77fe5de8370cb2ab6f0e2427c",
+   "after_sha256": "7d2add607f0c2fdb52197a4c65440d012a25927c20d075c27c9b3b1796ba5bff"
+  },
+  {
+   "template_path": "drive_c/windows/system32/schedsvc.dll",
+   "runtime_source": "lib/wine/x86_64-windows/schedsvc.dll",
+   "before_sha256": "cf0ac3ed78fb103d09fa061dc7802c590c6c80000bfcfbe626ff6091fabc785b",
+   "after_sha256": "e754dd9c0e041611da3a7635d2e33bd4a2afc32ddbac963565d299df9cf3369a"
+  },
+  {
+   "template_path": "drive_c/windows/system32/scrrun.dll",
+   "runtime_source": "lib/wine/x86_64-windows/scrrun.dll",
+   "before_sha256": "a404127b0216c7a1105da253307f61504fb04cddc429c7b03b40e09850bb8ebb",
+   "after_sha256": "5e92d5d49bb2d08375a72b0a0e396fb0db58265c6c6f6e1c18f1bc941bae1072"
+  },
+  {
+   "template_path": "drive_c/windows/system32/sechost.dll",
+   "runtime_source": "lib/wine/x86_64-windows/sechost.dll",
+   "before_sha256": "0bce3ad25a06fbe5b5b3cba90f5a4d219671f2f6dd21cbf379e40b0502bb1302",
+   "after_sha256": "e41b50b023d1573e30cc658fb5ccd192a725e7bfa230977ac3aedfb314a7380a"
+  },
+  {
+   "template_path": "drive_c/windows/system32/secur32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/secur32.dll",
+   "before_sha256": "5a802fb190097b7f76ddca0b3f34327e31c828fb2a59ef1716b33f4453e97408",
+   "after_sha256": "54b9ff725b0ff5507bf3ad068c32d474e5e56f46ff511b3a64cfa094c0330ce9"
+  },
+  {
+   "template_path": "drive_c/windows/system32/services.exe",
+   "runtime_source": "lib/wine/x86_64-windows/services.exe",
+   "before_sha256": "144673b873e6e0add558210d184c29fc3b122f1815c3a58e17ceec89bf4acab0",
+   "after_sha256": "6319cbdd95bee3fce29f1d857f67ac5e987e6a61897a822d9bc99f7fede8dbc0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/setupapi.dll",
+   "runtime_source": "lib/wine/x86_64-windows/setupapi.dll",
+   "before_sha256": "07769d8b30d415182fdf3b65605a0cbcf9dff9b4f6c6e6ca09f5b1a1f784bb4c",
+   "after_sha256": "b45e044adb77766c103e9067609e4037fd2b1c0da7f058a4700227cee49d66ef"
+  },
+  {
+   "template_path": "drive_c/windows/system32/shell32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/shell32.dll",
+   "before_sha256": "d121f415ca281dc54c4ac7dbf4d77ff545a2f497928ebc6709e9687459b224cc",
+   "after_sha256": "9f68b47beebf6162c54942db7cdf8a5cead20740c17a87c436f4d86eaf35b5f3"
+  },
+  {
+   "template_path": "drive_c/windows/system32/spool/drivers/w32x86/3/wineps.drv",
+   "runtime_source": "lib/wine/i386-windows/wineps.drv",
+   "before_sha256": "f53f0bfee1f9656d9f93a34e6e95abdc7d5c8e151f5ce70c0c0428851651b5a8",
+   "after_sha256": "f4960b7031e8063c5ce808031dac0f236441e782bfa554b5376f64eaa0bc6b5e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/spool/drivers/x64/3/wineps.drv",
+   "runtime_source": "lib/wine/x86_64-windows/wineps.drv",
+   "before_sha256": "a3040845e47ffdef2dddb56e8e836e73a9f71ac5ad2a676ccc668337cc9f551f",
+   "after_sha256": "178d0b54d65a5892562b82a4c8987a171aa3d1f919a65b4967f68f1e0f87b65b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/spool/prtprocs/w32x86/wineps.drv",
+   "runtime_source": "lib/wine/i386-windows/wineps.drv",
+   "before_sha256": "f53f0bfee1f9656d9f93a34e6e95abdc7d5c8e151f5ce70c0c0428851651b5a8",
+   "after_sha256": "f4960b7031e8063c5ce808031dac0f236441e782bfa554b5376f64eaa0bc6b5e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/spool/prtprocs/x64/wineps.drv",
+   "runtime_source": "lib/wine/x86_64-windows/wineps.drv",
+   "before_sha256": "a3040845e47ffdef2dddb56e8e836e73a9f71ac5ad2a676ccc668337cc9f551f",
+   "after_sha256": "178d0b54d65a5892562b82a4c8987a171aa3d1f919a65b4967f68f1e0f87b65b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/spoolss.dll",
+   "runtime_source": "lib/wine/x86_64-windows/spoolss.dll",
+   "before_sha256": "78e1fe485c4360d02fd7f96a5a03819963d55996d83c0bc55454f1d41f5ab817",
+   "after_sha256": "e2f303afd527122b2f4033771f738f7b2908db6208da3268ddce448a2a50c2e8"
+  },
+  {
+   "template_path": "drive_c/windows/system32/ucrtbase.dll",
+   "runtime_source": "lib/wine/x86_64-windows/ucrtbase.dll",
+   "before_sha256": "e72c3726c9b702888fbc2f0b294afbbc3213db6557dfae9d14ae26e16d29de74",
+   "after_sha256": "3ff48f7b44bf04c999458bdb79ad7faf57b637f864684e4fd1de16ef3d8517e2"
+  },
+  {
+   "template_path": "drive_c/windows/system32/uiautomationcore.dll",
+   "runtime_source": "lib/wine/x86_64-windows/uiautomationcore.dll",
+   "before_sha256": "56d959808bfae4e2d601534aa1aca10c07a39231d8536940bc708803dd917d35",
+   "after_sha256": "e00846a84676986a7542d3286ffe224cd075e491edc1ab32777ebe542dff0fb0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/urlmon.dll",
+   "runtime_source": "lib/wine/x86_64-windows/urlmon.dll",
+   "before_sha256": "c9787aae860f8e33c85880f3ac1572e27fcf26ee992bee770dd2033cef8b9954",
+   "after_sha256": "551bc586a574766a6225762aecf7106edd816cc6724578f084eadefcfcce0d86"
+  },
+  {
+   "template_path": "drive_c/windows/system32/user32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/user32.dll",
+   "before_sha256": "9859fe7db6edf17f72a42d6c5cbaa91aa176669421074f66792c02df98363eb1",
+   "after_sha256": "9d3276a30939ecdc9c9ede31c16cfbfd658cc455257857cbdacb5be8adcfb13e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/vbscript.dll",
+   "runtime_source": "lib/wine/x86_64-windows/vbscript.dll",
+   "before_sha256": "e0e1b0a561f88799020c9fb2a1292b4957116f878cdfc1aac3b0d694ee4b8a55",
+   "after_sha256": "d9ba3f5ef3db6ae0837deb037434bbef75803303b86708e6b1ca72df7a3dd963"
+  },
+  {
+   "template_path": "drive_c/windows/system32/vcomp.dll",
+   "runtime_source": "lib/wine/x86_64-windows/vcomp.dll",
+   "before_sha256": "a762e4a73e3ae0f2893c1b32fab55ff4c280e072de7314af95f1311ad2158b81",
+   "after_sha256": "a54c8e06fbebb59f61dcfe41a1a737ebaaa05b6785e909ef728c8b93396c3f7e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/vcomp100.dll",
+   "runtime_source": "lib/wine/x86_64-windows/vcomp100.dll",
+   "before_sha256": "cff7136e77131f434836d9756012a968d65040fb7b8f01f880b74a0766ad3c26",
+   "after_sha256": "152c4c672b0e10f78861adbd6d25e29eeb0590d1160e4ca804ebc7b86ac6aa3d"
+  },
+  {
+   "template_path": "drive_c/windows/system32/vcomp110.dll",
+   "runtime_source": "lib/wine/x86_64-windows/vcomp110.dll",
+   "before_sha256": "4afeced7bf3a6a58ebef08c004076556a47a0689745a6c98619bcd59199a265d",
+   "after_sha256": "06b0d1ac62ccbf3bc90a100ffea19002cea34673a4017373c4d98e0d6ca4ec72"
+  },
+  {
+   "template_path": "drive_c/windows/system32/vcomp120.dll",
+   "runtime_source": "lib/wine/x86_64-windows/vcomp120.dll",
+   "before_sha256": "3423ae3294c06536382567283d982878d006bdbddef6ae9539711b499562f29d",
+   "after_sha256": "cc76a6da5d9cb0b392da425e9fd5d691293f29e4a037084646c95cac39774324"
+  },
+  {
+   "template_path": "drive_c/windows/system32/vcomp140.dll",
+   "runtime_source": "lib/wine/x86_64-windows/vcomp140.dll",
+   "before_sha256": "81e02cd8610a9e7bd9d4fef9b105230bfea79035c629535e7408624ec9642bcf",
+   "after_sha256": "dd43c7dc3223011c33892df44f25395679c98074b7d9779384197d15e7c760c6"
+  },
+  {
+   "template_path": "drive_c/windows/system32/vidreszr.dll",
+   "runtime_source": "lib/wine/x86_64-windows/vidreszr.dll",
+   "before_sha256": "0a856feaeb3d505b6068e7be13bc74930997225400a355d617a42a2435a1ad58",
+   "after_sha256": "3b20a5835261ace30de38fc2b91c8ba92eb590753d6ccf95e22d7e790358bc72"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wbem/wbemprox.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wbemprox.dll",
+   "before_sha256": "e785ad36bbffc24796e84d026f53b4685f4d979adcd8afcd149645d8438aff40",
+   "after_sha256": "c1238c17eacb69b410dae22a224759d5d04fd80c5e834254887a38bc1ccab503"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wbem/wmiutils.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wmiutils.dll",
+   "before_sha256": "6ecda18919b2688b6e72e2ce37100752bd49f68237a69f2d83dd554f02eb87b0",
+   "after_sha256": "740896c68434bafbfc8bed5b6d5b96f555f1566ce895a16f3815c2c4afaaa4c0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/webservices.dll",
+   "runtime_source": "lib/wine/x86_64-windows/webservices.dll",
+   "before_sha256": "4e52c850afebedb2a49e528c0e6171b12ea9a7dba0d0e8152041cf843493a0dc",
+   "after_sha256": "872e85bc817f6f80b7af6201c8290d2298b8c0527043fdf32fefe68f99b251f7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wer.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wer.dll",
+   "before_sha256": "200c6c8946f2bf139316fed183ddfef7aefb96251729af46c47d8fe129ed69da",
+   "after_sha256": "843dc7382c89d6fe70ff184a4e68c9e3084c35f5dcf6a9650b16e52442017048"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.devices.bluetooth.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.devices.bluetooth.dll",
+   "before_sha256": "c0f0582210fd7fa0a0dd0cf2b5ebe8b33fc172d400fe812ce67312aca10fc128",
+   "after_sha256": "e8bd464ad9072acd7ff786ed672305739b0e32c215c6ae5991366bd3a64cc140"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.devices.enumeration.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.devices.enumeration.dll",
+   "before_sha256": "9087f54fc0b50d68d4d5a22f9508a837c996a91ee29cf80ddbdb5305e8e6f914",
+   "after_sha256": "a1bf8dd2bf82080e1594ed99c319ea7b5689866778596668def6648696eecc16"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.devices.radios.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.devices.radios.dll",
+   "before_sha256": "a4786378effb5b24d92dca598b1b1a019125a0cf454b78a6d79a3885793d0664",
+   "after_sha256": "6138d22b50014b0788f251b93e076bd7a13aae8d61ac3461760b43b54dc40c0e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.gaming.input.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.gaming.input.dll",
+   "before_sha256": "0c7930c275d87c4f7dc49a92783419a1a1de3e5a453762a8ffee32948c22d9cc",
+   "after_sha256": "d41c2a2dec7d3831d166a4d811f8ada697453ab1fa2967c418407dc58e4690e0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.media.playback.backgroundmediaplayer.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.media.playback.backgroundmediaplayer.dll",
+   "before_sha256": "37e66bc215c18038825df52714a1b832185ef0fa92f8bc14b973b0ebb83e2f5a",
+   "after_sha256": "8d3a7cc7b9d399b01ce49f8a2a12f1a75e5fe29005dafabc84775d93fb9bb7dd"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.media.speech.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.media.speech.dll",
+   "before_sha256": "229cb04cf0d270fc8af5ca13ca0c9fb80d43493a31c0c232676ab596036eeea1",
+   "after_sha256": "76861541f58fae2c31f40a2053a996b4fe36567310da169409d16ed0e9ba1ff5"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.perception.stub.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.perception.stub.dll",
+   "before_sha256": "e7395bbca624ae958dc24ec9f8d9d4258f25ca42b78f8f58f67025df918d4525",
+   "after_sha256": "311b04bd83a54ffacd6e705e0a2f239a4c8af8a52f36ab31c6def59283970816"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.security.credentials.ui.userconsentverifier.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.security.credentials.ui.userconsentverifier.dll",
+   "before_sha256": "3169b15c48468d5b5814c3c0efcabbb3fe6c211671ebf79c20fc9f82242bf3ad",
+   "after_sha256": "1eae2e98fffe460ca3e6b65dfe5a7bdd851760335fb695ad24c602958d061102"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windows.storage.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windows.storage.dll",
+   "before_sha256": "ea46ec0c952a550d4e70ee465f728ab45c49dfae16b45751cf2849ffebe1260d",
+   "after_sha256": "790cfab67dcb752e8d056c9d22ee0daa1ee6434cd80824ebc1a05b2de7fcc499"
+  },
+  {
+   "template_path": "drive_c/windows/system32/windowscodecs.dll",
+   "runtime_source": "lib/wine/x86_64-windows/windowscodecs.dll",
+   "before_sha256": "550ea0ce7515ffda414a2d715ca611f52fab7607adff90239e1306f65c75ff79",
+   "after_sha256": "38550abb4e991f4ae8c1af139d48f40d793cef872d445f3e09dd2c06541a9f45"
+  },
+  {
+   "template_path": "drive_c/windows/system32/winecfg.exe",
+   "runtime_source": "lib/wine/x86_64-windows/winecfg.exe",
+   "before_sha256": "107bde47e13719b4ba9517a57246aba9a0336590d8c77c2a9345e9fd886dc5dc",
+   "after_sha256": "5fd72d4c8bcd8d18eb479d029c455dfda6f8015aba9a6a1a95604f566b471f68"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wined3d.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wined3d.dll",
+   "before_sha256": "0be098f8324a2d18df016875107e4473ec52d3627b6ce37683c90ac1114a38e6",
+   "after_sha256": "a5528d2c1b3a61df78625182f98bfd392e6344d960e699ea26b25fa9f36876f0"
+  },
+  {
+   "template_path": "drive_c/windows/system32/winedbg.exe",
+   "runtime_source": "lib/wine/x86_64-windows/winedbg.exe",
+   "before_sha256": "73f7d71dd1ade2f9cad2f5eff917f773a095d26eed3ae87ba5d3eadfbcb35897",
+   "after_sha256": "613382b93e71d7bfe708885e8301cacc360ca3ba54406264ce4f79abbacd34ba"
+  },
+  {
+   "template_path": "drive_c/windows/system32/winefile.exe",
+   "runtime_source": "lib/wine/x86_64-windows/winefile.exe",
+   "before_sha256": "3a5bc9f9af3055c9edc3abbeeea120f7fdf1bcea258e0648a1bf877e0e36f77e",
+   "after_sha256": "c58f816b18f4f14d33697453cb6c9cc3ae7b86f997424cf6986db138fb524232"
+  },
+  {
+   "template_path": "drive_c/windows/system32/winhlp32.exe",
+   "runtime_source": "lib/wine/x86_64-windows/winhlp32.exe",
+   "before_sha256": "9cc7fb12d542dac2fe5baaa50020bd4511c2644821e40c3ed1b1c54b8a55fed7",
+   "after_sha256": "1e6aedbbb40e2ddf0d6a68403a94554c3319fee8e509e6b612a56d7863e3d248"
+  },
+  {
+   "template_path": "drive_c/windows/system32/winhttp.dll",
+   "runtime_source": "lib/wine/x86_64-windows/winhttp.dll",
+   "before_sha256": "bec7b053594215ee457fed267f054a9712c3bbeb7dcd37bd766a8bb1217043d7",
+   "after_sha256": "d6b10d40ee43115d9ce1c83b90ab104278f71af0f2b370bc62a9c5b94e18a859"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wininet.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wininet.dll",
+   "before_sha256": "3d0793cc97a7c641fe66e7001d3473b1da6e7f82ac4c40ced02b98cfde9bdeb2",
+   "after_sha256": "ee88b44663fea63ac401d47388f24feba0d487f5f60d23df2629f2d35a1827cf"
+  },
+  {
+   "template_path": "drive_c/windows/system32/winmm.dll",
+   "runtime_source": "lib/wine/x86_64-windows/winmm.dll",
+   "before_sha256": "48946ed2ba7ed1923741ddf2d6f764674c2359db1be3241b5df07167deb28745",
+   "after_sha256": "4c2a66ad1ff759297729816a8d121e8af56363577e88eb5537b3be3c530da70a"
+  },
+  {
+   "template_path": "drive_c/windows/system32/winspool.drv",
+   "runtime_source": "lib/wine/x86_64-windows/winspool.drv",
+   "before_sha256": "05e8b1df5c36042af4509ea1601da2ad9238dd6645c4bae2e3cdbfae5263b4ac",
+   "after_sha256": "96595386d4c2ac0a856fad2f352f9c020bd9ebee94c1acd6bf89948d7fd76b13"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wintab32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wintab32.dll",
+   "before_sha256": "088f5929c75d16b5604953970e294a1c836437fac942e8616693d885cd647cae",
+   "after_sha256": "bc60045985519db81b6378967f3ce03fde3f149c7b7834d85471214bb2ef35dc"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wintrust.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wintrust.dll",
+   "before_sha256": "4579dcc4a709884ec4f77930fbd438a4b4e18f0f8eb4fad4d73c0ab72a3d53e6",
+   "after_sha256": "abdd7039c696cbb3b6e5428bd0651586dd0dc5c262cdd08e84edeeb3acf0d8c7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wldap32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wldap32.dll",
+   "before_sha256": "1d722a005525f79959eee16b505c752d65835ec8401490c81da345aad5626dec",
+   "after_sha256": "e25e42b06681e857238bed86642c00e6d4ab5d9cf3d4725f1d003b8c0bdb2786"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wmphoto.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wmphoto.dll",
+   "before_sha256": "821fc599faf54b08487ea38267189027b9755fbcca9d255a46c99f1a3ced205e",
+   "after_sha256": "88f3e24767a4599da9785196b30cbcdcec6096c6557faf84336875cb84c61a3d"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wmvcore.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wmvcore.dll",
+   "before_sha256": "d3854627455e2a44104e76e3e8b1dacf2684257c5c72b4293eadf4cfb43c7c70",
+   "after_sha256": "dd6ec39b1de1835eb05c7322d1c1d7606b2e0ccd9eb3ee6f783b304266a8de9e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/wowprospero.dll",
+   "runtime_source": "lib/wine/x86_64-windows/wowprospero.dll",
+   "before_sha256": "6cdb632c1f05ecca8c3b84b012011d2f9a515686eb7cdca2a19bc0657094d7b8",
+   "after_sha256": "c2afd449be67bd2c395862047d683af4959becedceab5df94f4d03086e8d7bbf"
+  },
+  {
+   "template_path": "drive_c/windows/system32/ws2_32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/ws2_32.dll",
+   "before_sha256": "413ce366bdb385a36d0432fa712531e96b4cff541564c08e1ad30670ec13c3ba",
+   "after_sha256": "2a4b3d515ed394c4fead5f8d1e049b32768ef7dc3b646d2b10c625a5c8625390"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine2_0.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine2_0.dll",
+   "before_sha256": "fc1e2738848de7017b61f34726e0a186e4be2b72efbd7736812b59133344f4ab",
+   "after_sha256": "b89326d26c57fe094e60d8627e8ab912eb5d5b6849ab4169d39cf0b847968427"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine2_4.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine2_4.dll",
+   "before_sha256": "b52dc6abe720a1c15fe517fbc5e95e6e111f190929b65bd159443595a4552cd6",
+   "after_sha256": "4ef9ffb08dafae520eb44c9fd3e5800c4eee4692e8486b8eae7de85fc7007c11"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine2_7.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine2_7.dll",
+   "before_sha256": "31c48736592aa8ec0cc2edd33f085e2f1d6f1ce19668197402852cb5e077ccd1",
+   "after_sha256": "0b4a3142358d86d26ffbd24825e76576823bfc8008af494daa6854cf394d4c4c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine2_9.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine2_9.dll",
+   "before_sha256": "121e05ff853e9b418f9bf94ff00656aeb897940d9b55ff28b099c547b7bd88a2",
+   "after_sha256": "ee942adebe8060ec4c065dcbb55d599154c88732655ef024f3f942cb1952c7bd"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_0.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_0.dll",
+   "before_sha256": "fe144da11eb98fdbe86a6a70bdde58cc77ef911371ab8e30bc0667e15aca8a28",
+   "after_sha256": "fd063b0c446a260bc0d8aacb88ccb6aa4e2cb8b085530808b4456d763ef2d46e"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_1.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_1.dll",
+   "before_sha256": "880febad68b64de8e6c19c9ddf79b9f369e28a7f6474b9302d177ecb68566b36",
+   "after_sha256": "04e7a8a0971adc3aa798e8d539f6dd9111d0223bc0c057058fabd3fb97c47fb9"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_2.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_2.dll",
+   "before_sha256": "a0c1482d74a9c8696c5a451b2f56841479ceab3911e039162b4a30218ddb33fc",
+   "after_sha256": "55827990770ca56f038ec70b026326192e03c0ea82b00913677210e1d7b82fb5"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_3.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_3.dll",
+   "before_sha256": "db6b5f62cd1ea33bdbcd33b30ea7da55b56b94e61a5a1cc0c5a06a810e15bcac",
+   "after_sha256": "807e139cd26cf74f5174be3751abb45d63b4e8bd12b881b60c2f5783c8a991f7"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_4.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_4.dll",
+   "before_sha256": "4ff8fb56bfc3eab268b7499202ce657a0ff670d748fc1e4abe0616bee211d0bc",
+   "after_sha256": "b1ecacce708e5baba4ceb021e20e754a74cbd741b86a3e4175418327845654bf"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_5.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_5.dll",
+   "before_sha256": "8f476b9418050b04a152104c70f21aa59c47b3dabb63f911674aea4aa51228d4",
+   "after_sha256": "56ea8c753ee452895493b893e8706e7920e6460b896c5f3b9142baa215fe3956"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_6.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_6.dll",
+   "before_sha256": "5213c8e6523abea8e2e6909bff0331d606421906cdf8f3ec4b29e34f58b2311e",
+   "after_sha256": "a4b60c229ce9a55d0cf93d46942e722d87fb73fca1b745bde9cf040076493eec"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xactengine3_7.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xactengine3_7.dll",
+   "before_sha256": "05e27734e0b85031f72b3884c8183e5edf94823d0415cdd7f30301e4d2101f01",
+   "after_sha256": "3a5b0b42e01eb6b756a6ab6fd4e9aa82b87d172f8e43843ca10e1d81341dff93"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_0.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_0.dll",
+   "before_sha256": "d3015b1fd9cdd024da089627facc7c7cfa34c27e084fab5e4b2b35d027cf6d7d",
+   "after_sha256": "4d2b88965e4eba361f24074fda991e5f9bc7b40c250aee65c8d61cd0d7ab9787"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_1.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_1.dll",
+   "before_sha256": "370a7aa7dfa4162f522ea3de1b01f71cddc2c654d008ca2a78ee80981e5c6dca",
+   "after_sha256": "da50d3acd2dba1900619385df1c627cb8da58f9a71353e77bd9e3c9751db261c"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_2.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_2.dll",
+   "before_sha256": "e7aaba7cede06f79f62648c15d84b6591150368e2e518207783459840cfdef07",
+   "after_sha256": "95ac5db3c35333379e0d21aafb6281b92b7af5b2c4326b7de5af72b42f0c7333"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_3.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_3.dll",
+   "before_sha256": "57d9e1b25654cc1840f5f55bbec14174ed988543455c2fe389f26500ac39d9b8",
+   "after_sha256": "e2769df4f10fda4dae1766a0aa68c957a06ea081b5d65fe35326a393f0984e48"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_4.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_4.dll",
+   "before_sha256": "3b5054216c74c805077b625a211d88386b4c8a162e564368eff469b4b5b07ecc",
+   "after_sha256": "9378eb5b02e534d1ad0c98c853d20308e50f95a807b6c4b9b48f5767e8018958"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_5.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_5.dll",
+   "before_sha256": "864179eeab8044e002d262ec48d5d632a6533d5155d8de5bbd79f13da0de04a7",
+   "after_sha256": "ed016204876d1e5ff7564b90a22e9af0bab4556581896d57e27185ebf16ff4c9"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_6.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_6.dll",
+   "before_sha256": "92262eeee5ea15e595b096d78e4541e0e538ce8b0db357fe71db94fb983a14a1",
+   "after_sha256": "72e211f9b21fb2c2f1c150bfa4cac46750dabefeada8e2317076214547ef25f9"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_7.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_7.dll",
+   "before_sha256": "a3d684fdc9bd1ef81aee1ba1dd4dbc7a45b3cbf0171c8f8f86b71af8ad0d7c0b",
+   "after_sha256": "d26d15b747cfb042a8152191ff40c1e59c94905a6dbdad98a76c0da14f4e3839"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_8.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_8.dll",
+   "before_sha256": "b9f2b5eada73821eef7a5c97d61f3a919f2139699d7607b8790925c3bb11f532",
+   "after_sha256": "e3f5d9099e1d271278ae38409bad0a5dc9829473b3ced0504ab24da62e713c13"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xaudio2_9.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xaudio2_9.dll",
+   "before_sha256": "ff9945ae9a032e8e357dde6ae4008c73989ab4a653e4a848b3e715aeaa5ee9f3",
+   "after_sha256": "01262c8bd56cecfadd4e22193c95b5a751493804318819986a9322ee098fad1d"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xinput1_1.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xinput1_1.dll",
+   "before_sha256": "44d99d822a366f7dc8a70b1d52614288327b2eb3e8af8d61717bb2bbaf8d8568",
+   "after_sha256": "171a69051004f6d60952636f4a5fbd98a6d4460c74ec55139ea674d6835566eb"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xinput1_2.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xinput1_2.dll",
+   "before_sha256": "53f1c9e35b6940e7a24534658a1c830f53d7f4afd19e96471e4acb61e27daf8c",
+   "after_sha256": "3834e5cda589606242cfb6ffb71b7c560045056aed9da1003f62cc9896089ba4"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xinput1_3.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xinput1_3.dll",
+   "before_sha256": "1cd9d60af3b4932fa32a7bacaae062f28a52fcf3bde717707d1961ac373dde9f",
+   "after_sha256": "423fcb8f2b25fa0df442e32a29188ad3b0b39b299c720abdf0dac36acd15e70a"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xinput1_4.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xinput1_4.dll",
+   "before_sha256": "ea47d018e14248e1e37201a59cd1f2728ef3ad213f6d6ae30f6b2693abef7e05",
+   "after_sha256": "efd1b6edc54c41618ba46ace7890956438ab10b5477a19dd6bc8a33586660d3b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xinputuap.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xinputuap.dll",
+   "before_sha256": "bc64947f806ba6246852f49d26de649b686c997e7754f5e51045959e48fa53fb",
+   "after_sha256": "132f51005f7c1378dbe672c13d1a0376399ecf36e23565e5fd5e998c1009196b"
+  },
+  {
+   "template_path": "drive_c/windows/system32/xmllite.dll",
+   "runtime_source": "lib/wine/x86_64-windows/xmllite.dll",
+   "before_sha256": "f58cb4776fc59904d61d6a045e7e5d6f5b4a9f0e1cd32113e553159f2e6054bd",
+   "after_sha256": "027289b2c50bd47da84aafb98ba0b1a7b04c40c7c267f166bce8e802a048bfa2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/Speech/Common/sapi.dll",
+   "runtime_source": "lib/wine/i386-windows/sapi.dll",
+   "before_sha256": "a196db413ddb58c0618f5fe04392d21d05d50dcba90b1155e0fa5686ec64027e",
+   "after_sha256": "8cbfa1c54f32ef7e472a30d245f00903bb6bee4bfad0c813e3d8fe37a3278848"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/amstream.dll",
+   "runtime_source": "lib/wine/i386-windows/amstream.dll",
+   "before_sha256": "7252ff8a195c37bd048db687c284f1b2331a35635cf1861352bbcf2e342fee83",
+   "after_sha256": "a3b64ad28a9995dc4fcf41f03e78dcd66cf6d786015dba74337f1b4665902b74"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/atlthunk.dll",
+   "runtime_source": "lib/wine/i386-windows/atlthunk.dll",
+   "before_sha256": "ae017340af3f587ca03fb46f26a69aa8bbb9bc8ba9496102c4492b092752104d",
+   "after_sha256": "c3b50adf55a4b883943b38b78ced87cf22deb267fbf73209759e5915bb9d2284"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/avifil32.dll",
+   "runtime_source": "lib/wine/i386-windows/avifil32.dll",
+   "before_sha256": "6e18102cc49119eccb03603d46b8a3dc4178be1f996d6c5bbf97d800b2ff7b1f",
+   "after_sha256": "edb7734c3a37271a98a9534f35d2153766fedc9eaa50387a9c920bf65dcbc7d2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/browseui.dll",
+   "runtime_source": "lib/wine/i386-windows/browseui.dll",
+   "before_sha256": "6f3dd14e93b4ef7c4d82476d1fa6d84032b1b6d133b255d5ffac21e8d0942328",
+   "after_sha256": "cbcc2e6992bed3b3de005af392ffa208ccde780e633f3c01510dde222c87b7ec"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/cabinet.dll",
+   "runtime_source": "lib/wine/i386-windows/cabinet.dll",
+   "before_sha256": "cb9634435a35dea7322cc573cc8079a89afada97666b9d5589fe54cf5e2d8a26",
+   "after_sha256": "7a61b762d4c93553e2dc7fb28a544542a932da3e7a9411ccf5ce0338e106bc0a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/cfgmgr32.dll",
+   "runtime_source": "lib/wine/i386-windows/cfgmgr32.dll",
+   "before_sha256": "6738d189807df581b06d189b73531247e36556f6917ae8e73a22e599abbe811d",
+   "after_sha256": "f8ad0b4a0e69facadefa10c9f9df073d2d5377a321e10506faf4d469888ba268"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/colorcnv.dll",
+   "runtime_source": "lib/wine/i386-windows/colorcnv.dll",
+   "before_sha256": "d5e62d3c0bd03bc7a0ee9f3ed8eb8e2c75ebd3750e31eaf837bc2b6761a2edfe",
+   "after_sha256": "f35c532c4c985698e955d804da98d9f720e3fff6f97ebd472a757ec44ac219f0"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/combase.dll",
+   "runtime_source": "lib/wine/i386-windows/combase.dll",
+   "before_sha256": "fc4dd9656a95854b37b2f02ef016f653d66371fe1f3550a2e00a386c91cf3811",
+   "after_sha256": "ef2b49947c7a8b67e20c20fd403db81d8042cb6d1561bc858c932e33379e935f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/comctl32.dll",
+   "runtime_source": "lib/wine/i386-windows/comctl32.dll",
+   "before_sha256": "d14b3f6dfb3069ded262294a2dac6303eab10dabc6d045c850fc2736cf070a6f",
+   "after_sha256": "4a5e95fc41df16e90fa9aa474cfbb47e7383d33690782d055dfa282bfd1e0bbc"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/compstui.dll",
+   "runtime_source": "lib/wine/i386-windows/compstui.dll",
+   "before_sha256": "6470c2bb9bbddf9a7179cba3045fd96ff4cd2c97fed448979859fd1964a817ef",
+   "after_sha256": "e43c36cb0f2e7e16a0aae50d3de11a0af3210aa8b2a3098a236264802533cf0e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/concrt140.dll",
+   "runtime_source": "lib/wine/i386-windows/concrt140.dll",
+   "before_sha256": "f1c749ee89d74949c4039e2c13edba8d42160daeb3b0b38ea0e066f6930c35b2",
+   "after_sha256": "45e42cb6067f9a92677b2c6dbe380f3e1149075ef5af4076f5d0423440f9f69f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/coremessaging.dll",
+   "runtime_source": "lib/wine/i386-windows/coremessaging.dll",
+   "before_sha256": "a3a84e2ec0bb8b7577b0b845b56ec96751228f6331c5064f625faf0c4d244de4",
+   "after_sha256": "c5af6f21756dafe6e2914d07230bbf2acfefe796d6c680c46e2673ae65813d2a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/credui.dll",
+   "runtime_source": "lib/wine/i386-windows/credui.dll",
+   "before_sha256": "143ad6feb28e24bfb340e77d82084874ac25daa57d93b343bb7e9a28ff40f11f",
+   "after_sha256": "29d2f574aa56391922c2fc78e430806d35684ba2bc05a96a76d3d0d96b577727"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/crtdll.dll",
+   "runtime_source": "lib/wine/i386-windows/crtdll.dll",
+   "before_sha256": "23577d6f115adc27f97858ff154e67e12c3c8396537338ebea6c9b60efdcab0f",
+   "after_sha256": "797974e55e75609b2ffe377d95879ba7a65f736f24940fef6b7fdc8106e68e99"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/crypt32.dll",
+   "runtime_source": "lib/wine/i386-windows/crypt32.dll",
+   "before_sha256": "8e31e6543a4a816ccc87d071210c8d3b921309f13205511245f8a9d9b6c5c4bb",
+   "after_sha256": "7b2fc43d0ac1a90c7411f87ce3296c63678f3ec60d80810e080436423054463f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/cryptbase.dll",
+   "runtime_source": "lib/wine/i386-windows/cryptbase.dll",
+   "before_sha256": "aa8999921ea011e938018d1447348577700c00eba7ae5748d4fe6401c1a7e305",
+   "after_sha256": "6d30f5329e23c783d3815578df7a0a6fe277455b0b822d1614aaad8fe84391a0"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/cryptowinrt.dll",
+   "runtime_source": "lib/wine/i386-windows/cryptowinrt.dll",
+   "before_sha256": "0d3885426bce0f3682290564268ca4986043c6c409e795b81b41742cfbe68af4",
+   "after_sha256": "c89e3181f14495530e9f4416052cb36c8f844c70451d953b77cffbad9ab841a5"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d2d1.dll",
+   "runtime_source": "lib/wine/i386-windows/d2d1.dll",
+   "before_sha256": "99008c7c9d6861916b03505a3a672c044077a0e6fc898972a26ffc1c98483cc4",
+   "after_sha256": "8edb992d36f04e36b4a944349532b077306a6c6b07ea11bde34abe0fd46c848e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_33.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_33.dll",
+   "before_sha256": "d0985acaae378c13410bc632be25e4f4c90f12d81a9461b3c6f44907687d0f01",
+   "after_sha256": "35c582c232e0ec6a951521388223d31f7293e2e1e23dd8805c5906dbf244b5a0"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_34.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_34.dll",
+   "before_sha256": "db55802ac1aeb7f488d2b391d1ccc91be4775816ea1c59db75f8049e64599d25",
+   "after_sha256": "1eac6b8ab300ba8a302c4475aa18769d8abac30b94775d5bd3139fea5d59b270"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_35.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_35.dll",
+   "before_sha256": "b4683f238e0950249075a22fc7fa503bbba0fbe63d37e08cde2566ab98f8bf70",
+   "after_sha256": "7550e9f16779c2d719ffbc1eae0d1973aa50a236ee7f130f0dc10d0df29d1990"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_36.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_36.dll",
+   "before_sha256": "09cf4c3e1323ea93decf18fc0f2668258fb6b948259961aaee4b53cd9f0271f3",
+   "after_sha256": "6bd0e58e401dcef90d48822a8494c167743028680d5779be02ddcab668f8df46"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_37.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_37.dll",
+   "before_sha256": "b03bc2eb608c594e15a451627e0a5cf70863c249056a4390b94c28c81961eacf",
+   "after_sha256": "ef8d5503e2539b37078fe0f58e489126f446dfb7c1a5052bc671421b77a773b6"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_38.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_38.dll",
+   "before_sha256": "b1d08d4cd3c861ff0a0ab216b15114759e15dbceef3f6ad9fcf34fec274029b3",
+   "after_sha256": "f4c7408220bf411a468c4b62a73b4997fdcb7795be5ab53eb56a02e31a03b118"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_39.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_39.dll",
+   "before_sha256": "e84ae48c6b2603ad61a9fee16f71ed3f21492e57c3ec19ea2e767957c6a37420",
+   "after_sha256": "93796eb5a839e07eac4ccdb5ab5928b576aa221e458988893c796ce049561648"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_40.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_40.dll",
+   "before_sha256": "de2055091904d265f46db67fd9c5d99f5706d89d4e9f16de8215960d8b33245c",
+   "after_sha256": "dcea81fed6544a37b02e05c03d30b0242af1e7657f2802a7d266d9c967ef9f95"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_41.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_41.dll",
+   "before_sha256": "7c5595041c7556cb7cc6a196bfbcef3e7872be1d0059afd1d7d51182c5ecf700",
+   "after_sha256": "fb00bab68b2e84c22ddfd078eb2c8a3e692b8a982c392cf66cade66d37cda45e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_42.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_42.dll",
+   "before_sha256": "fcabba8924307ab00af9c86d820020756be697d343fa9d2985cc054af7559eff",
+   "after_sha256": "e17fe9fab9b5bd569391f482521553986b104b08053b513636936b33b553bd05"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_43.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_43.dll",
+   "before_sha256": "3912a81e69e72cf3347296cfdc7fb87acc5d2f05d2ae5725456177554d110bb9",
+   "after_sha256": "962cc0794c9503dfe839cfde027e4fbf09c52a6f88aba76433df0011fe359c3b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_46.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_46.dll",
+   "before_sha256": "fe5bc8b8e331f10793bb1e036e34754c7cba960c018cf8b79e5748bff2723c63",
+   "after_sha256": "c94668c117328dc8cd62da81a9b2103c95a61e011b6e07d2532ae01f86a24fae"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dcompiler_47.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dcompiler_47.dll",
+   "before_sha256": "f315cba817f560e989b9cc6db98db42fb3076b700bd70dd390999bb3e450fdec",
+   "after_sha256": "236de33d7f47821c84857bf5eb3c3d3c57a34c5db5600fe34de4244f426cdeff"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3drm.dll",
+   "runtime_source": "lib/wine/i386-windows/d3drm.dll",
+   "before_sha256": "7e6617b7d7b77044e851f35d6d3d7a6a9c95bf956dda361d7cfe9e522fc1d222",
+   "after_sha256": "a5e23f60bcd4166090a67f6a86ecf4a20bd11d7dac9314e2555528ef16976a87"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx10_43.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx10_43.dll",
+   "before_sha256": "a6b51c52e2bf5e43fb57c7cbb76ea8df4bc272b098037d19e97acfd71828eb99",
+   "after_sha256": "5289232fa098f9a809566d6664af8d3438f897dde57b56d05b997e2abd6c176e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx11_43.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx11_43.dll",
+   "before_sha256": "4a72cceee6433932468a71528b3d6d2cbbe3f85e826071789115aa1ef62db3b1",
+   "after_sha256": "35fc178e00ea06270ac0c6c0f85d106b93cc03b37e122b3b69e5fbdffda44702"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_24.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_24.dll",
+   "before_sha256": "b5833e907d4f5a7910e22ca532895e934955bd90350764617fdf2aa4a7106129",
+   "after_sha256": "65b7fc9e66abd79cd0b1a706a1c968bea3b894ef9166f4d4ff702a46612f0429"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_25.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_25.dll",
+   "before_sha256": "116de6f307afe56a3c9376f92edca9f93a29bb3af9e5c3fc99a1ee44144044b3",
+   "after_sha256": "730ba71e50e9f5dabf783394a4ed6dded9da7f386a63ec823cdeda1b0b495f94"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_26.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_26.dll",
+   "before_sha256": "ae0401ab4f3625563ecb5ce5c86fa904aec4a7c42329e54724cfe63a679f0074",
+   "after_sha256": "44a5865e122cb0996cc6374404314a8d775db0581107834b08a5470d0575e998"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_27.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_27.dll",
+   "before_sha256": "0e3642911c4b26449310220031eb53a14d2e6f638836cb4ff91182f0e209e689",
+   "after_sha256": "b503e883ef23e8328b3c28b682aad86b658d31ab50ab6b90710a6035ea703f0e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_28.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_28.dll",
+   "before_sha256": "0d189711fcab0b84d6f5269bef71a4e9e797fd1e4b08a13696b8c97adc5c3680",
+   "after_sha256": "9dc880c6eae19cd5c6a1dbad197d01fda7d213afd9238478b4d260125321743e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_29.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_29.dll",
+   "before_sha256": "dfd02e54ed90be417b1a069f4016f050354f7765b1a0f02989ab5e8663161b01",
+   "after_sha256": "85ffd795671ca6b95f8ec6a649e586241b6158eeb0e1d5317325c66fcb2d1a63"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_30.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_30.dll",
+   "before_sha256": "b2f087be4889279218cd0266769db55435de7c5682bdf0149195223d3744d240",
+   "after_sha256": "366ae08ce875e116392e26f56d0b5695bcf02ddde0b66aa6953543280441c74e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_31.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_31.dll",
+   "before_sha256": "e286bda68d66c01774583f009874db683f76768091c482eaa8a9a9834695bdba",
+   "after_sha256": "a1eb1046eaa3933339fdef5439492acaecbb005eedc66235abdd94a9768be909"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_32.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_32.dll",
+   "before_sha256": "7f886dcc7f624ec22da29ed9a2799d7e0a2aee05e61c9ad355dad1e7f350ee0f",
+   "after_sha256": "15d6e8f90404db1e0818fc70b009397805683b51d9c327b389490157de8e6fbb"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_33.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_33.dll",
+   "before_sha256": "85b20f3c19a6c448dff25706877b23976c4f9032e23ab37d425f2dcd0cb1a23b",
+   "after_sha256": "5721e9f4c318e114881438028af78e3d01621993830f5fb700536bebc36afa41"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_34.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_34.dll",
+   "before_sha256": "949ef3b7bd6f5a177e7813fde7b1fcd0f1d4c6923eeb16289692959c4362a470",
+   "after_sha256": "cc9a5789ffc598b1fa872d98b471a6724697772facbe193aa091be455232438c"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_35.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_35.dll",
+   "before_sha256": "6677bf3f0c683f7c9976327d3669531187c5cedfb5abb58df9a61f63b769d67a",
+   "after_sha256": "bbc3836a8134b1015067e1a7f6e5576e6948b4a2fbe9a96dd8453a12d0497d22"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_36.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_36.dll",
+   "before_sha256": "47a9c43816501da5f10a9ce1d7850a974b860fff8ed0813c6610631aa505385d",
+   "after_sha256": "207b3e2399c9a1bda0975ba4f9c676205226a5468efbb18e43ff378f48d34d32"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_37.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_37.dll",
+   "before_sha256": "72e0db7cf78d285e1ae2532c7e3aeb7a5f9f918a89c06010e8d0e788d950e994",
+   "after_sha256": "d8c2f96948f59ebbd8785109ac49e270c4bda4152a241e6f3fa37ae1cc40a77f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_38.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_38.dll",
+   "before_sha256": "24b90b03ae8c5c1f0a0c3251a87cf423fb3159a0f5ff48f5158fee9af6c083e8",
+   "after_sha256": "129b28707d86ebf60eaae7ac53c774865750cfb7be42c3f5d00a3a76f2375b8a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_39.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_39.dll",
+   "before_sha256": "84f516d3c2a10fefd48067c5ab48297948f39a737231cbf39a619654918996d5",
+   "after_sha256": "06a228b826937456a32bafbe866fdd42405bc4bee6f8406e1d9366b8f36d1f34"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_40.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_40.dll",
+   "before_sha256": "4322e2f9928c94a3185bf62780e7dc0e44713ed0c001217d2629ad6e71ed4279",
+   "after_sha256": "739a93bd43a7259cbcf7ca972945d4f5d31b81d9297af0c86ef0ced07270ea4d"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_41.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_41.dll",
+   "before_sha256": "fbf09c36e389edccb2981c1a0e37acde453fe25739d193994b028272a106293b",
+   "after_sha256": "e30906ac00370bc79cca8c699c3ad510802b2f84c21bcf3cbc398baf10a83441"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_42.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_42.dll",
+   "before_sha256": "0bd07ae5f07951aca989ce53ddd367a83ac93415a97e28dd229024437fa7bc6d",
+   "after_sha256": "2e9542dffe80a96564cede512f5ea6f1cd4a32e992aa204b59e1d8c6bf73e966"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/d3dx9_43.dll",
+   "runtime_source": "lib/wine/i386-windows/d3dx9_43.dll",
+   "before_sha256": "8e547b1d51cb5f26cdb1ec7bf54ecee45cd390e5006e243758ff0f34c5e409dd",
+   "after_sha256": "82e2234a2806083814896dddb811f79aa2be10e3b0e578b6125ff8cf3997d8e2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dbghelp.dll",
+   "runtime_source": "lib/wine/i386-windows/dbghelp.dll",
+   "before_sha256": "7cf3b1e29774ee8325161ca757d3c64ee238925ac36155a03f35138fa97a7ee2",
+   "after_sha256": "193f043cba5ef29d26066662de7538108372c4610a25450ef8203d1b13bf9d4a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/ddraw.dll",
+   "runtime_source": "lib/wine/i386-windows/ddraw.dll",
+   "before_sha256": "ba1cac99e9ccfbd0b85e54d2ff2143075b39c66494b180fef7208f0473749dce",
+   "after_sha256": "1769c79accfdcad109cd6fe349c203e29ac996c4e3dfb2f087b2ceaee8f56a3d"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dinput.dll",
+   "runtime_source": "lib/wine/i386-windows/dinput.dll",
+   "before_sha256": "881a0033143d4ad345bb3d124de97564e9971914ff483832cdf122120b2548ae",
+   "after_sha256": "1e09893c181d49e8b81785a5a1b54c8268179553703f1b113f3cf9d0757e8d88"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dinput8.dll",
+   "runtime_source": "lib/wine/i386-windows/dinput8.dll",
+   "before_sha256": "9bbc1c9f220c10bb9308668e0d340008b90b8b63b3158da7c62731242dbab720",
+   "after_sha256": "cd1f6bea8b7becae73786c077426baff3dd8f7a91c50582c6a422e7b594efa3f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmband.dll",
+   "runtime_source": "lib/wine/i386-windows/dmband.dll",
+   "before_sha256": "6dd924e90c872c1b9d4b493249da5d84bfab50388f264d9147e6f5f7d30e64d5",
+   "after_sha256": "2dfe7dfde5b11d97866cc8b98a5729e5646b8337e1197cb1e52060c1a7303c49"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmcompos.dll",
+   "runtime_source": "lib/wine/i386-windows/dmcompos.dll",
+   "before_sha256": "31038a02a17c87fce6db0ff0595c41c29320e74bee3094a8418639a659077a13",
+   "after_sha256": "ec71c27fac01d4753d339019048a15193d75f54b6898ce0a3888c229401e9f78"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmime.dll",
+   "runtime_source": "lib/wine/i386-windows/dmime.dll",
+   "before_sha256": "e8975f40f61e577f992c37b84b979979a538beb8946ec84a9ff7e27ee2f15a85",
+   "after_sha256": "dcb68589a340159060b4f4d7397f7d8e9607ebdeb3b191de5f7879013a93e8bc"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmloader.dll",
+   "runtime_source": "lib/wine/i386-windows/dmloader.dll",
+   "before_sha256": "d16ecbab8e55e53cf3401039954d10fde09cba8bbbad3d54be21964571685f9b",
+   "after_sha256": "080db186d7f392e592a5e84672d75ef498573c592b8d8b4f5d305d8e0938abdd"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmscript.dll",
+   "runtime_source": "lib/wine/i386-windows/dmscript.dll",
+   "before_sha256": "8ac66bab21375443dd324902a29ad26d506b532cc749a6dce1a09cc32578060b",
+   "after_sha256": "cfdbf99bb6bff06e6e856e63df6bc2a5377910d36c7ed9f1817b6b7a0b8db0ca"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmstyle.dll",
+   "runtime_source": "lib/wine/i386-windows/dmstyle.dll",
+   "before_sha256": "e9d7e2ad86f0f7e40e55f748e979453c200295d07c216a9287aecbbed5829cb3",
+   "after_sha256": "e2dbb5a6dd251592b660b5542dcd288d6faa1e6f4d659ddab8d8bdfcff789014"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmsynth.dll",
+   "runtime_source": "lib/wine/i386-windows/dmsynth.dll",
+   "before_sha256": "46c693eaede12fcb4a78ff9631769692f167071eb398fd5a47fe4155aca59918",
+   "after_sha256": "b22320b91b328325d9e355317ebedd206f04afacd62a04b5a774e9b7bedec78f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dmusic.dll",
+   "runtime_source": "lib/wine/i386-windows/dmusic.dll",
+   "before_sha256": "3156253b63915fc51abccff4a87ea2ddfa74148b56860f49dcd3b48b18671b24",
+   "after_sha256": "31131ea4084186585b1c4fb0474d6f12cdd67ca9409d482a8cdae27d576cae52"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dplayx.dll",
+   "runtime_source": "lib/wine/i386-windows/dplayx.dll",
+   "before_sha256": "29f96c0f9bc4a54f90f9b04e2c334667f69fff221fdf6c625e82b8c4179ad4de",
+   "after_sha256": "d950bdf730bf464be00df826827746f7af4ab083a57112c7b42cb7a764c8ab86"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dsdmo.dll",
+   "runtime_source": "lib/wine/i386-windows/dsdmo.dll",
+   "before_sha256": "2bba90d7efa68341cdcad5f03b649d5984ac7cd77d2c0e21ca80fa1cc0a6836a",
+   "after_sha256": "f438eedf15a75c3c9677db8e45f97614b3ce18fccae73e7e081823bb1cfb08dc"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dsound.dll",
+   "runtime_source": "lib/wine/i386-windows/dsound.dll",
+   "before_sha256": "fcd675e96200eb8af47744d4024cfe7d96b0a387349fa693fe8c8a1fa739e72a",
+   "after_sha256": "38a7ac74d77a22b3ecea403e3b310dd7301c6ced36108837c7a833f2fd449c09"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dswave.dll",
+   "runtime_source": "lib/wine/i386-windows/dswave.dll",
+   "before_sha256": "229b3bd21249b0d946177e8dc7050b2b5cbcf1cc589b76b64146a4fe53f749eb",
+   "after_sha256": "a0328e9a5d8b97fba94f2d2f2037c199957dd0b369e774cd1f59e102d1cffba2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dwrite.dll",
+   "runtime_source": "lib/wine/i386-windows/dwrite.dll",
+   "before_sha256": "9dc1f0d6dca4724a08c1a9b196501fdf16c3c7e7ca2d04331505c58bdbf2ea22",
+   "after_sha256": "96b375a060e1293ebe5f9c0edd839f917ba7232435d5a899f7aacadcee60b8b3"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/dxdiag.exe",
+   "runtime_source": "lib/wine/i386-windows/dxdiag.exe",
+   "before_sha256": "440d738023ce743208ebe15e6cbd55cc82c99320678369519063a149bb89a3ea",
+   "after_sha256": "a143a095f72d21fcd68841072facf37aa480e37b3156d4f4a0cb4127c89973af"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/evr.dll",
+   "runtime_source": "lib/wine/i386-windows/evr.dll",
+   "before_sha256": "c70dadb78ae68fea816f7e3ef5587a66d505ea5dac6ee591cf648b1fcfb0a299",
+   "after_sha256": "28bbc456254d9893382c8a43d60da282cbc47d760fec3320e0666a50638ce545"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/explorer.exe",
+   "runtime_source": "lib/wine/i386-windows/explorer.exe",
+   "before_sha256": "b8d5a1a1c69673189e3c4dd8a2251160523685bd09cccab2e65931659d54d7f6",
+   "after_sha256": "157bbcac472c869bee0943d15adc2d8e1aa18275bcb896afa1320b8e94079d65"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/gdi32.dll",
+   "runtime_source": "lib/wine/i386-windows/gdi32.dll",
+   "before_sha256": "99fd4b81247bb6a2eeb65d0e12fd63b43090b5b05e58081e502a450245b0a94f",
+   "after_sha256": "54b7bf2b462b23ff0f64e5c8894d114fdbc9007fd35e89c2b7f6d4a605fe4f3e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/gdiplus.dll",
+   "runtime_source": "lib/wine/i386-windows/gdiplus.dll",
+   "before_sha256": "3b2612e43069ace6061d81516be9ae83ae62b085096d94137261f18e0430a592",
+   "after_sha256": "36f250646cb7d03a35bd9e12d336f22aa1f56c7016dba01f97f17c81553af9b7"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/glu32.dll",
+   "runtime_source": "lib/wine/i386-windows/glu32.dll",
+   "before_sha256": "84d16b3c44b551209657f59d8e82c184eb6752bb0ec6eef8703fd617fd2948df",
+   "after_sha256": "5160f18be135571662cfa5c082c93a8f1dd640a55e5a6be537c62de3779c9bf7"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/hnetcfg.dll",
+   "runtime_source": "lib/wine/i386-windows/hnetcfg.dll",
+   "before_sha256": "cee3b2715799921ff9e530687b6a72e9f523407c40f31b900d5a3d997477c78b",
+   "after_sha256": "3795501515c1f66f8d9c6b8d00cae97d02e6bfb875f25d4011f42ed3f85746c0"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/icu.dll",
+   "runtime_source": "lib/wine/i386-windows/icu.dll",
+   "before_sha256": "5431d9c787ddc5e527d701c738314e62626e6bc520942cdc65d2edddb0ca9b34",
+   "after_sha256": "98a3ce0877da5acdabcf598f70c2df37135a2ddb18a3be689617ad5990426ab9"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/ieframe.dll",
+   "runtime_source": "lib/wine/i386-windows/ieframe.dll",
+   "before_sha256": "81cdbce05ad61c35d868f29426b2617da1e6c7ac2190ad6757b15d432b4cec98",
+   "after_sha256": "8d30a3fc84c3b8b2021eb98200d58e1aabb28e57244dfc0a661aa3c8df1a027b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/imaadp32.acm",
+   "runtime_source": "lib/wine/i386-windows/imaadp32.acm",
+   "before_sha256": "4e6c26749d5fa9eb36dae6493f42f187bba63a45d01504aa0c9e06fcdcfb9ff6",
+   "after_sha256": "30ee4aea72a51bc655cfbde1960dec66249c4b8605c42a81746c4a2112054fae"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/imm32.dll",
+   "runtime_source": "lib/wine/i386-windows/imm32.dll",
+   "before_sha256": "955074eec2b718501feaacad1f289c8e1a82fba458d27a53cbd2cde22f027850",
+   "after_sha256": "9a0343ec29bc0268898c5e4418f51a83019c65b1a01376aeddf4bc22d6466c16"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/inetcomm.dll",
+   "runtime_source": "lib/wine/i386-windows/inetcomm.dll",
+   "before_sha256": "a3f3dc05394f40370b0a5c1d12dd04dcbb7532921652fffdd0a09c57149dad6a",
+   "after_sha256": "2ae7898af2ab7cf323e037b21a9388e88c87964987ab3628d4e1ddfb57bdbe96"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/inetmib1.dll",
+   "runtime_source": "lib/wine/i386-windows/inetmib1.dll",
+   "before_sha256": "e766d2b792c2b5bd94b441406caa56d5c97c2d18318f3829b5ff1e0ea1ba3879",
+   "after_sha256": "c6c86d3a71d3d4392057615416c1d2a832c2a80e9e1f9c25317989b0936930f5"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/itss.dll",
+   "runtime_source": "lib/wine/i386-windows/itss.dll",
+   "before_sha256": "25866754acf1d661eb2eccc616c85a8399949a543b54f5132c64c0bdc05c76e4",
+   "after_sha256": "6ad0e5f5c6528beda809006086a85120343083e11a83d14cd4aa8d868af8815f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/iyuv_32.dll",
+   "runtime_source": "lib/wine/i386-windows/iyuv_32.dll",
+   "before_sha256": "4d5f6595c33227bcf3ccb87a8d3d30f4996e49d7d281e070339f0aaf7703b301",
+   "after_sha256": "b6bd7088c11ccc7632d5d0dc8adf2db73b4b2d31b0d0d3a57db85c28073b5d2c"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/joy.cpl",
+   "runtime_source": "lib/wine/i386-windows/joy.cpl",
+   "before_sha256": "923206f2fc5cb49bdc4c0627406b125daba6d54b68fc50afc231ac59b7f18949",
+   "after_sha256": "48b31381efc17dda2990a5afa15249f9bc950a8433f743fb415272d68d9634a5"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/jscript.dll",
+   "runtime_source": "lib/wine/i386-windows/jscript.dll",
+   "before_sha256": "9207104c05dd2e2be09ba4ad2ac7a2c50d2921e9842b5d6c7d136083067eff00",
+   "after_sha256": "85b74f18d54a237ed97d0056496fd0c819985fbc198d887a6f7e46dbb4e69ac2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/jsproxy.dll",
+   "runtime_source": "lib/wine/i386-windows/jsproxy.dll",
+   "before_sha256": "48e70b12a4e9c55fa3b25936cfa0ce045b7e9ca840de6d78647895f729787753",
+   "after_sha256": "b41fa168821d05a595d65409d1d065032c57c2de05bfcb2120260f60938c924b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/kerberos.dll",
+   "runtime_source": "lib/wine/i386-windows/kerberos.dll",
+   "before_sha256": "cf069746c65138cdc6c86ebff9c115830169f904af486b0d4c5206e77e123e6d",
+   "after_sha256": "755f29290b042e7c8ec4eced6ba14ce9f959cf3394404f6cf31bb12f992adac2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/kernel32.dll",
+   "runtime_source": "lib/wine/i386-windows/kernel32.dll",
+   "before_sha256": "1ad3f3a0b9506baef7b606cfdc238b9a69318eac6167185342bbdd4a69f2cb72",
+   "after_sha256": "b1c9e5ec1e9aaf243bf78468f46dac3460951270be63f0c4331bfd0089a4928d"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/kernelbase.dll",
+   "runtime_source": "lib/wine/i386-windows/kernelbase.dll",
+   "before_sha256": "810b845a2dd285d683a5c94bdc0540d1751b726b208aba349b9c3bfbb7999205",
+   "after_sha256": "63febf48ffb419de2c0e2ec418745fe42601b0587536011a769fe2921b2ebebb"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/l3codeca.acm",
+   "runtime_source": "lib/wine/i386-windows/l3codeca.acm",
+   "before_sha256": "dffd226a0d7a0de29bf87d546e6cc94d568d8497222860ac849d98e09098d33c",
+   "after_sha256": "06c41f0771b55453957f03e0c3c14aa0d8206f6a085a957bc57311aa67153efb"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/localspl.dll",
+   "runtime_source": "lib/wine/i386-windows/localspl.dll",
+   "before_sha256": "7cfd3830922dbd19aa2c61fae4cbc7ac418303a192ddef7b4db6ba3a26efeda2",
+   "after_sha256": "416840533f4c8770d340225a75e637297b87e11cb54558cdfcf31f5bc9561e4a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mapi32.dll",
+   "runtime_source": "lib/wine/i386-windows/mapi32.dll",
+   "before_sha256": "cc8b20402937f025ef4202cb016f93f99b28b91b8278e6d154afa61f1f4cf544",
+   "after_sha256": "33a844b14771e64e381bab3747c7d19a19b3ed53ff0bacc82ee6b0d9815e7f15"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mciavi32.dll",
+   "runtime_source": "lib/wine/i386-windows/mciavi32.dll",
+   "before_sha256": "c20b9965ce29c556234c18067fdc8665e01b87647c1c4b7cdde895f1d4ff223b",
+   "after_sha256": "1030bed714aa5e25c7d2765f042be55e13dc00eea4943557c3b404fc99ecc096"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mcicda.dll",
+   "runtime_source": "lib/wine/i386-windows/mcicda.dll",
+   "before_sha256": "a638f91cbba6578cb7be174faa591814ecdd3e44d4801055fdc4d4393ce21c40",
+   "after_sha256": "e0955a688f7baa58a95274a887d96854006cabb4b59475df60de6dfbef50d772"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mciwave.dll",
+   "runtime_source": "lib/wine/i386-windows/mciwave.dll",
+   "before_sha256": "49a8d53aaaed6df4a09344ae2970f965aa0dd12a00079d4416246b502fd0e9c2",
+   "after_sha256": "73b21de4946291ce8d4e4fb20da28c607d04992762feab7072f1fb85d9efdaad"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mf.dll",
+   "runtime_source": "lib/wine/i386-windows/mf.dll",
+   "before_sha256": "e52f7b41c17e1602c6a749a0758e370c8a823dd93c3fc37350d1ef18aee63831",
+   "after_sha256": "37cd4d56842c6552b4bc72a28cebdd9e5d085ee52daa52fefbfa00020f1113af"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mfasfsrcsnk.dll",
+   "runtime_source": "lib/wine/i386-windows/mfasfsrcsnk.dll",
+   "before_sha256": "ec324ef56b616a598b921fcdb1d192ee567f5653fa91a82e7ac56831274ac54a",
+   "after_sha256": "de42ef3bac1b4cd5a22d5cb2ef09fbb3bdcecd054c6fe166919f39407aebfd18"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mfmp4srcsnk.dll",
+   "runtime_source": "lib/wine/i386-windows/mfmp4srcsnk.dll",
+   "before_sha256": "0616cab9630b1f0b97b4512ffd6037c712a1c8924ca76641c8e5d05c7c2a581a",
+   "after_sha256": "70f6ea501956ee91c1168869e58f6b0cf7c008eccde7d09157a971804a01cd0e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mfplay.dll",
+   "runtime_source": "lib/wine/i386-windows/mfplay.dll",
+   "before_sha256": "5f2c203d79e2acf1163732341131bc7a87670a6dbee2bd11cbec9b535d6295c5",
+   "after_sha256": "6de003d364174aa07a95f8b944abf1cceabd67c450da53d8114e5d9651ec3e99"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mfreadwrite.dll",
+   "runtime_source": "lib/wine/i386-windows/mfreadwrite.dll",
+   "before_sha256": "2a0a0e457541145bd89a69219d200fb831f2cc91c81474eb8f13bdcef2a366d7",
+   "after_sha256": "a4efd897364669d6aef98e6d184d86df3be93cb0cc8d5fe0c77d2bc0a45d6b43"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mfsrcsnk.dll",
+   "runtime_source": "lib/wine/i386-windows/mfsrcsnk.dll",
+   "before_sha256": "bf6e0da2275242e06e015d2abbf88bcc9caf891bd950889831da870257bfa8ea",
+   "after_sha256": "e8d46944e4f1469ded8c51514ff22c7d697c0fe1ad3ed1a7f28868170d86dc34"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mlang.dll",
+   "runtime_source": "lib/wine/i386-windows/mlang.dll",
+   "before_sha256": "63d26f5c888cdcd4ce7802e53755962c09abfcac1accb72d75193afa31de8442",
+   "after_sha256": "fbe530778ff3ae27d151ecddf47297ddb9b720ef833ea2dd159484868f18201b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mmdevapi.dll",
+   "runtime_source": "lib/wine/i386-windows/mmdevapi.dll",
+   "before_sha256": "b99760de20408dd9bad017d920155a8ff81bc44eb1d0e9dc5cc3b7d5817494d4",
+   "after_sha256": "2ab59349ec54e9707ce92b9f5a9c8c9e60e39671cc42f6e838cefca2deb20634"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mp3dmod.dll",
+   "runtime_source": "lib/wine/i386-windows/mp3dmod.dll",
+   "before_sha256": "f763dfdac15b3237884c179ae845b06be31a470bd5346891aad12a028c9941a4",
+   "after_sha256": "42e62bfaea1681914d588b53df07dd86ef8459b70b62653ce0990d6778259746"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msacm32.dll",
+   "runtime_source": "lib/wine/i386-windows/msacm32.dll",
+   "before_sha256": "1e45fabaa6d18d32c487c7a3ba192ea86da8e3a7289fa2e95e68f384dcd3421d",
+   "after_sha256": "a0a954a8d51c1760aaa42fb5cfacb9856517a23675c9eff8678fc28c5ac98e9c"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msadp32.acm",
+   "runtime_source": "lib/wine/i386-windows/msadp32.acm",
+   "before_sha256": "edb9c61354931ece5f5c1eff158e3492ccfda610b621a4112ea03fd1bc5cd80e",
+   "after_sha256": "4274eb57cfada1492e631aa75835cf1af3be123e99eb2c8ac740bba336c0b403"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mscms.dll",
+   "runtime_source": "lib/wine/i386-windows/mscms.dll",
+   "before_sha256": "156ae9f97f5ec629282dee80dda7e5cac67351d0610f7e34d47c72f7e9341a26",
+   "after_sha256": "ec31f556499ad23677b437f2e0b05601982968d2c32c810c20ab44f01a1352af"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mscoree.dll",
+   "runtime_source": "lib/wine/i386-windows/mscoree.dll",
+   "before_sha256": "fa527d97317acf10fa5104ff67bda6e67dec0030ca35beb154a24c3d532653da",
+   "after_sha256": "c535b5849fa23958a66608eb05195d89dc23b24110925e91dc0e1021d48486f7"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msg711.acm",
+   "runtime_source": "lib/wine/i386-windows/msg711.acm",
+   "before_sha256": "a65bcc1c7b97ee123a171ecbf3aaf9d631666468511ed8d236866dc6e8444fba",
+   "after_sha256": "bba1e3c1cbf45a333ed8e19e08328c247d9b2e52df12d6509623fe7b6b932206"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msgsm32.acm",
+   "runtime_source": "lib/wine/i386-windows/msgsm32.acm",
+   "before_sha256": "7bf4e1dd1bf9868ff6f87f6f11972f75ccc5088a2b1125f7e5294440b8964cae",
+   "after_sha256": "d06279581621439afc430da06e2706e7b187895a813081cbc21d08df314a3988"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mshtml.dll",
+   "runtime_source": "lib/wine/i386-windows/mshtml.dll",
+   "before_sha256": "d42490ac70400eb3ae2757de4b8c7aceba70d8213130e94a2e2985d95facb8ee",
+   "after_sha256": "d79462d3733320575d49726c5abeb63234c97737d0a59a971b2bc272a297dd06"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msi.dll",
+   "runtime_source": "lib/wine/i386-windows/msi.dll",
+   "before_sha256": "2e5950d994df7ea5f37ea4b683707673359fd949fac37b264341e531ec15d25e",
+   "after_sha256": "ca5d8b5ec7c911748d7a04649c1c9974ccc7b3a849876d9108264e6a1f5a03f2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/mspatcha.dll",
+   "runtime_source": "lib/wine/i386-windows/mspatcha.dll",
+   "before_sha256": "18f09f6ed47219ad309d3a280993b6f634b8c6e52398b4c5846c6bcac1fa7ca1",
+   "after_sha256": "7e32fc2702e0329ee880552fceacc164785bbe22e1851bf0faa3aba1c08dcf61"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msrle32.dll",
+   "runtime_source": "lib/wine/i386-windows/msrle32.dll",
+   "before_sha256": "30574e00ff07104345867ee50464f0b2cd659553500f2665237bf33e66ced13f",
+   "after_sha256": "6852b81327b6261bdcefa62628af78bcd5ec59efa8c1ded7d3bdaccc769c0656"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msv1_0.dll",
+   "runtime_source": "lib/wine/i386-windows/msv1_0.dll",
+   "before_sha256": "397c073c7b0df093f946049cf3ddafe1e1999da75fb875448c9f0f036c9b1708",
+   "after_sha256": "0d5f0afb83ffbf5e41b3b52714df830845d9397dd83f19ef87bd88e6d8fea2c1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcirt.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcirt.dll",
+   "before_sha256": "0819a769531512fdfb9fd4bd981bee30f3dc9cb226563dadf9a5c50fbdb6ab39",
+   "after_sha256": "d683c4752fa6567b88891c61c80e22cf150de3f05187014e3f40229c4887cba4"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp100.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp100.dll",
+   "before_sha256": "0ed1ed4050f6063821429c80dd25c47a0fe5420d7bb0f2795be86b929c2b0b8c",
+   "after_sha256": "d33d2daa3e42cd2d661f88eb622e2ee7b586abe8e0f9762908f73dd4b2a630b1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp110.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp110.dll",
+   "before_sha256": "0ab6455f0b844c9b7ab0d88c4041de2824ffb4d300cae7e596809665e6d0c28c",
+   "after_sha256": "dcd904ead1a99a2259bdc5f2207b2ceebd9ee5c75fdbd52f355979b6c8ef44fc"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp120.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp120.dll",
+   "before_sha256": "848b89698cf460b1205e75c424e5fa272d20fa66c708a3b56861bb001dccbf80",
+   "after_sha256": "9402ccc4969b26594bacc307f388127a16810024751201e7a3e833cba988309d"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp140.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp140.dll",
+   "before_sha256": "ab91814cdd2c6c1f603fb0374004b980fdaf8a7e07b724c8d3d56a3bfda8b806",
+   "after_sha256": "3b765aab2e4de9f221df2c9e8c404f4ad7646f51c21f33727ad74d4811ae045e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp140_atomic_wait.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp140_atomic_wait.dll",
+   "before_sha256": "32600e9dc2b8883fbc62c2308bff1d22fe084687991114ded08e275b276f3898",
+   "after_sha256": "f1546b385424e4001e3ff84f1565287f396364ec83174deb13a19476ad39cbd8"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp60.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp60.dll",
+   "before_sha256": "f9b509e61aa5835007216c123556cf659ec9061716d94362b84bcb3218d17d97",
+   "after_sha256": "f0af60995c6f236081503ce0b4dc46f026d3a73388fefed7fd9406fef8444565"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp70.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp70.dll",
+   "before_sha256": "d0f80e71fcd02377a97137106116a85ad305f4ecbae4dfd835edeb4e7daa48e4",
+   "after_sha256": "2eaacd3467ab2294953aa726335be4814e505ca1cf7778e8a53baca6f25c0786"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp71.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp71.dll",
+   "before_sha256": "e4af841c8a18dbf9dac9ddb7ea25cde86d114d3d22f7e9e90202e2ea7eb25195",
+   "after_sha256": "baad05f78c14ee64de8e97e5ec18d85f3047e50c0d80edabfb044599c346cad4"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp80.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp80.dll",
+   "before_sha256": "09bffb50a2ecf154e99b9a1863130352a365f37d2111d10c203f8249447ccbc2",
+   "after_sha256": "fa90f6b1521b601dca68bbd415ec416e2a060677c770e7793e02fc383f1146e1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcp90.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp90.dll",
+   "before_sha256": "d84cbb27d939f7c83552fe0089f5942c8393009348e33725de16efe731040f16",
+   "after_sha256": "656cabae4b2d5970b8213cfca115d2a742c1712058bda66c5327153aa1b45400"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcr100.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr100.dll",
+   "before_sha256": "c4d24b3632327b05830b7c87c8d303ae64a98ddf94461ef141152d227865e34b",
+   "after_sha256": "792f3315c942c08d2e166840046f031852a827a74f7d63445674d0b5c81c6108"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcr110.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr110.dll",
+   "before_sha256": "489de4886b831a38eebc4257dad53cd5c460c2d93f4e6f0848a50d52048a13ff",
+   "after_sha256": "6fbd4bd1255bf6395436e228954d161e8bcc7e8065cf523a582f899e8fbb70e1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcr120.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr120.dll",
+   "before_sha256": "f8a33caa65ac3ea08a1ee2d77cef486b9e50de05beab25eca384b1eb27a69783",
+   "after_sha256": "8012554e6dc52502dce08c455b37a57b3becb69713a60cb2aa4a4dcd0ce42f98"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcr70.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr70.dll",
+   "before_sha256": "2cc255e6e8baab2a36ae278d9f92450089aefca1919d40cbb8c1f6be6894040a",
+   "after_sha256": "f7af283af29663f2ceb44f287ff5d8d620fe300e6576e745f1760b8af3385d96"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcr71.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr71.dll",
+   "before_sha256": "2b09a8a5b079a505cae1bd0f937e59835b22a1fb5eb810e2020d06a7bfa1114d",
+   "after_sha256": "a5c63bcf89bb9b247a5e99f03cc9da38e4f223ac2976294f79599ea269571823"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcr80.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr80.dll",
+   "before_sha256": "173df7100b63f5f1d663a50c19028ca22d2c2338a5067ed7d054f5a7d6bdc458",
+   "after_sha256": "c725bcc5a7820f5b49c91d033d57e1ba76aae92a91a6226fe5bf39f7ebf9a808"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcr90.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr90.dll",
+   "before_sha256": "8a4ab4c21205b9b877c642059097fb60978a5f9cabb05516b71a631befb3139e",
+   "after_sha256": "d15d8183b2b0ff26788d0025677838d743445322e90412783504dc167cb596c6"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcrt.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcrt.dll",
+   "before_sha256": "8912270ce4354956793b28e8fc67c8da6a549f181b32ba40a3261c28f6dbf270",
+   "after_sha256": "2fa9f7569e561af443f2315a0d010adca42085453ebaa1b5c6b8ece93eaea0fc"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvcrtd.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcrtd.dll",
+   "before_sha256": "634a062c915380f9ed97f8575862e8baee7f8ecb65627fa029eef901897296c1",
+   "after_sha256": "a40d1a90f0a20536a60c87782f169dc1541023e4df3a7025aa9513f7a8055421"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msvproc.dll",
+   "runtime_source": "lib/wine/i386-windows/msvproc.dll",
+   "before_sha256": "9f19a2e90d063be491fe619d302ed8bf16dd756f15e675a5768ce40948acb0a6",
+   "after_sha256": "349ef4840632506dd737c7d96ab33acf4afda5a396323fe865d7f41cc664e7df"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/msxml3.dll",
+   "runtime_source": "lib/wine/i386-windows/msxml3.dll",
+   "before_sha256": "7954dd7f44bf436846ba99b1075966d33cad4f53dfcc1fc7791d7fa8684b314e",
+   "after_sha256": "a4a354e8ca0e15517bfd82615eba83d16fcb16618a7240b3bbee67dacc20c016"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/netapi32.dll",
+   "runtime_source": "lib/wine/i386-windows/netapi32.dll",
+   "before_sha256": "efde8320d30f19c58288e7206470c19acea85e7e15174039e26768eedd3b3c9c",
+   "after_sha256": "353b43e1356358a4e86ed1e87c6924dda2f28ef4e2fe7961e254df46f778e7f7"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/notepad.exe",
+   "runtime_source": "lib/wine/i386-windows/notepad.exe",
+   "before_sha256": "ce65948c5743fa51ffbd906c4dc0c060eedbd4e02eb8fff2e9319361441576ab",
+   "after_sha256": "4ca9dd83a6fe2448d690d7bc7dd09a74a26d854f5ecf70f6d560afc87e3931a4"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/ntdll.dll",
+   "runtime_source": "lib/wine/i386-windows/ntdll.dll",
+   "before_sha256": "1d4bc62feb18a0fdf128426eab98f194cdd586b3a934b94e107f50fd9d61200b",
+   "after_sha256": "2d220fbc3de62742e65334d662161937fea22d644ad7d8981748aee53ba401fe"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/ntoskrnl.exe",
+   "runtime_source": "lib/wine/i386-windows/ntoskrnl.exe",
+   "before_sha256": "35553d1f1195adc9bd6027f53843de7ef6139b606829dd56dfcdc91460c3a484",
+   "after_sha256": "e5318b5e49ff2fa4cefbb254397125c52615647eea9601e0d6c70393506d226f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/odbc32.dll",
+   "runtime_source": "lib/wine/i386-windows/odbc32.dll",
+   "before_sha256": "e676c13d032f3e8048dec78d28acaa12ea237e845b83cf6e10b497a814733830",
+   "after_sha256": "6e5055b78dcbc8ac171c3609abb5f489ddf0162c5eca01ea59452335d8517018"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/odbccp32.dll",
+   "runtime_source": "lib/wine/i386-windows/odbccp32.dll",
+   "before_sha256": "9833ab155c0af69db701e7ca870ea7e03e04668628d8e0950928c5c9ca0be975",
+   "after_sha256": "67c3ae2e152153cecba970382e0211189dceb38f6420cbc07300359d0994f560"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/ole32.dll",
+   "runtime_source": "lib/wine/i386-windows/ole32.dll",
+   "before_sha256": "48a81d96cf8c7b484920aa738c4cac4cc570b694e7f2cd5af1c1d3106b987ac8",
+   "after_sha256": "7e0f2f834ae675d332a15f70ef75e43a8177761d2c26c40d0c977d6481aaa569"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/oleacc.dll",
+   "runtime_source": "lib/wine/i386-windows/oleacc.dll",
+   "before_sha256": "64058ca619b8889614bf896cf4ba3a981f0a7bc0e3abe5f902373db9fa3c85c8",
+   "after_sha256": "4fd5caa9b4154aeea40213f56df2beb333037df7b66644c136adeafdde4cc42c"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/oleaut32.dll",
+   "runtime_source": "lib/wine/i386-windows/oleaut32.dll",
+   "before_sha256": "1fc250cb1b349723dd080d640ae66edade7a8ceea9345410fdb88f7c9e82c980",
+   "after_sha256": "9b04fe900784eae192d387edb7ac4b2e5d456f58d619323a5ca5bd368aa9e5ce"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/opengl32.dll",
+   "runtime_source": "lib/wine/i386-windows/opengl32.dll",
+   "before_sha256": "3dbe3c05ebe5e67abcc506d7f2facbeb2b316d9c11ba662abfc4801bdf3bd106",
+   "after_sha256": "e4d671fb06e23107594d9b7ad2ee01e27305069a3fc77948c9686e95ec736132"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/pdh.dll",
+   "runtime_source": "lib/wine/i386-windows/pdh.dll",
+   "before_sha256": "89ba99219801bdb351595cf8b1c210f9661ceff348141f84840e45e7a668ea5c",
+   "after_sha256": "cdf97ca2c5c7fdb7cbeb2f9ca2a30920d1eafc7137b2b178364861ebf7c40274"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/propsys.dll",
+   "runtime_source": "lib/wine/i386-windows/propsys.dll",
+   "before_sha256": "138d462ddbe5cd2c8bfc4099b5e729f6bbe2ad2b3d6864ffb2c6d07501d2d870",
+   "after_sha256": "99f5e33e3f62d7674822827e4e814c84b5d59e6c862d94aeb8509e611f3b1f61"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/qasf.dll",
+   "runtime_source": "lib/wine/i386-windows/qasf.dll",
+   "before_sha256": "8224c6812dfe42f63796db93bb60d2c6817b04d91cf9a4b1ea9bb67bdb491782",
+   "after_sha256": "2cd5f8024ab1f6e8c0055cc351049d435265d60c591e6635dd058b6208cb2051"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/qcap.dll",
+   "runtime_source": "lib/wine/i386-windows/qcap.dll",
+   "before_sha256": "7796aebdf113193d3e66078e68f72502536b2f7cdf0a9116b422508520e01c9c",
+   "after_sha256": "ef6ba84ed9bd412ce593d5ced5c03ca1be6e8b6fdb6991f2718bbf6cc16e2d49"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/qdvd.dll",
+   "runtime_source": "lib/wine/i386-windows/qdvd.dll",
+   "before_sha256": "1e6f51e0a93e39037a213c14b5c53e8a278b942cc70514978874aecd98bfd10c",
+   "after_sha256": "63082972cd64d9750684c59b34c1f90af6b7ec4d0f9cbee90091bd83c9f41268"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/qedit.dll",
+   "runtime_source": "lib/wine/i386-windows/qedit.dll",
+   "before_sha256": "eccc81220ea5e8b8d293af507a5e40590e77dd267fb316f898d5e1812a30d453",
+   "after_sha256": "e2f6326395a7fd92c8dcc62e90bbae74116e1437912e7e85c285e507b2d3cc44"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/qmgr.dll",
+   "runtime_source": "lib/wine/i386-windows/qmgr.dll",
+   "before_sha256": "2b5d8891e3568353a528c6caddc684a3a31e1ac1182301d8d16daed4191ae32c",
+   "after_sha256": "d533c86d340200567f1c2201185bf30363e66755c8c71c841b627af3b980db94"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/quartz.dll",
+   "runtime_source": "lib/wine/i386-windows/quartz.dll",
+   "before_sha256": "024cddaf9bf1e01c438a1f870969ac4d855b0ae53c7777b286c0b2e7078afb34",
+   "after_sha256": "bfefffd56f423e2388630750816601953557ec24bf9bfc88d9065ea22cd05fe7"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/regedit.exe",
+   "runtime_source": "lib/wine/i386-windows/regedit.exe",
+   "before_sha256": "571e4e53ace1d993502b2b59177bf6adeb1580f61dea8396e23ef72611d7fae7",
+   "after_sha256": "cdce7c01aba40a33519eb0d6492db71838ad44f0aba23533717dd770c5b633fd"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/resampledmo.dll",
+   "runtime_source": "lib/wine/i386-windows/resampledmo.dll",
+   "before_sha256": "d41b949d53507a3d91a16e3819519398b109abadcfba161516ef048363cba7a2",
+   "after_sha256": "b86f353e7c37deb41f36994a56edfc3cca0549fc2b7fabed9697157eec5bf5d5"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/riched20.dll",
+   "runtime_source": "lib/wine/i386-windows/riched20.dll",
+   "before_sha256": "78d2468934921b2fd2b11e404682c1d68894af27b8645e0baaa3f667ecd8ce9e",
+   "after_sha256": "2e77d5677ea5c292e78062ae829b16b4f5e7097cbd71a61f203d236d68729a01"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/rometadata.dll",
+   "runtime_source": "lib/wine/i386-windows/rometadata.dll",
+   "before_sha256": "3c83856d10a9c4c0edec0235684ddab73d1c73315d5c3104fc9f5791385fd743",
+   "after_sha256": "d07103bf5186e0eddfa330b086198cd54a9cf644d021ca09ce4293bb8e2ea978"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/rpcrt4.dll",
+   "runtime_source": "lib/wine/i386-windows/rpcrt4.dll",
+   "before_sha256": "a5c146a8d00b6c1f4dabc44a395721fbe5abc59dd90bc85fd0d28123d2828f28",
+   "after_sha256": "4c0f402b2541787609cb7e03883192daafee7333d503f6532c1689df9d2ce7f2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/rsaenh.dll",
+   "runtime_source": "lib/wine/i386-windows/rsaenh.dll",
+   "before_sha256": "8beaa4ceffa068d791a0ef6119080ebcfd719b92b4cef2ae19b0265228c8bf75",
+   "after_sha256": "6955229e2afebaf91c4346861e8612adcceb34376a921a5d727ad9443272fd32"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/rtworkq.dll",
+   "runtime_source": "lib/wine/i386-windows/rtworkq.dll",
+   "before_sha256": "fce09933a941fa6dbfd5d9702e139003486c6e7fb9f023edd6a26748d3b0d4fe",
+   "after_sha256": "45e40ed146500c7c833d6b096753228c970bace7b238e548be0bb095013d27a0"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/schedsvc.dll",
+   "runtime_source": "lib/wine/i386-windows/schedsvc.dll",
+   "before_sha256": "48779700f64a5a24c640db10f439d631f9bc0dcffc4b23904f4dea5b109672c7",
+   "after_sha256": "8acebd24d1d082478940120362888471f100c2ccda4a8e9be7fcc7dd70b40385"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/scrrun.dll",
+   "runtime_source": "lib/wine/i386-windows/scrrun.dll",
+   "before_sha256": "f4ad7140b94a0be1df71035a815d21680b323af4e242099c5761c2daac3a6285",
+   "after_sha256": "bbf3ac7426124526567a6cf99c7585469cbb2308b477c3afce29555c72410e07"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/sechost.dll",
+   "runtime_source": "lib/wine/i386-windows/sechost.dll",
+   "before_sha256": "53ceb3433bde8335ae3e7c546406ee9385dd66535b9f15a7cf44db6a6930f4a4",
+   "after_sha256": "d318041370bbfe70b95602853f4d877424e13bb945c77cc4b37b7430e63b6cea"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/secur32.dll",
+   "runtime_source": "lib/wine/i386-windows/secur32.dll",
+   "before_sha256": "40d63b7fa26e8aba8a58b2f8683466ec911be0afed8225b9c59120cc2c25501d",
+   "after_sha256": "126480d57fc14ee7398495776fa6c5208c4f92c1229773b45adf6d7727aa091b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/setupapi.dll",
+   "runtime_source": "lib/wine/i386-windows/setupapi.dll",
+   "before_sha256": "36db2268ef5a32d974d62041ab3b3435ae29c0b4b41738947d67bf02ee5dcb7a",
+   "after_sha256": "c7cdc3a17259083542b9b14956f60e7f2579549e785aa86e08b63116e2fa0970"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/shell32.dll",
+   "runtime_source": "lib/wine/i386-windows/shell32.dll",
+   "before_sha256": "1b2b149b8491b5becaa91398d40e0b9e18d693b392e96227f883cb647a59d709",
+   "after_sha256": "10db9298cb61d433d01b514afaa0e251c1aa8c70250665ad17d7d5c5ee8e3254"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/spoolss.dll",
+   "runtime_source": "lib/wine/i386-windows/spoolss.dll",
+   "before_sha256": "8510945763c4ee5725a004e0e7a11293b4fcaf516b51fccf9d2561249c6af75e",
+   "after_sha256": "21f5df1d42d54da3c30dc2a329699a375b7317570d7e77dd8d4c1811ec1d8de6"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/ucrtbase.dll",
+   "runtime_source": "lib/wine/i386-windows/ucrtbase.dll",
+   "before_sha256": "254496c415cbcae47ee0dcf5ceba1dacb058a5e9b02f4c38ac15250ffc28c0b3",
+   "after_sha256": "84debbfe0503865439b24623feadeed74c7fe16706b52ee1bd6f690665a3dd0f"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/uiautomationcore.dll",
+   "runtime_source": "lib/wine/i386-windows/uiautomationcore.dll",
+   "before_sha256": "b703a04db0c7e12d53e919e801e2d2ebb1aeca47f70d9d18bbc843d84cf8974e",
+   "after_sha256": "cf49580c130cdd4d302156cf12429e447dcf4e40cd32b03b6a9af03a6b4ae65e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/urlmon.dll",
+   "runtime_source": "lib/wine/i386-windows/urlmon.dll",
+   "before_sha256": "f06c05c63ae18fe50f2d7fb9d647f821f358ab297c8aca5ce5aaebb6f701d405",
+   "after_sha256": "c97c55fe34a263efa27acedf18732d8ca39b1bf2d3c16bc006d460a18180927e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/user32.dll",
+   "runtime_source": "lib/wine/i386-windows/user32.dll",
+   "before_sha256": "c801926e5899e26f2b4d0e9efd9af8fe00f4f093763c0bd025dc4509585bc57b",
+   "after_sha256": "5ae5647ff34c00b9b44f9662cf2176da45f7d363ccb12f5af598ff07fbffbb8b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/vbscript.dll",
+   "runtime_source": "lib/wine/i386-windows/vbscript.dll",
+   "before_sha256": "deda6a8205c1623cdd7ffd093aa6cc05c9c12612a528293da7f2a242f6f8fbc2",
+   "after_sha256": "d4a62d6926216c36027919a3dd043f3b5e670c6e583d47a99995fa9060422a2e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/vcomp.dll",
+   "runtime_source": "lib/wine/i386-windows/vcomp.dll",
+   "before_sha256": "42b68ec2e9e27d47be6224f78bd3ad72be662908355706cb48cca5a3c485bc32",
+   "after_sha256": "1fd37cf0c520cf8590d8f26840f56b8673ca51c396cbdb73f08b3c9abf7b31af"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/vcomp100.dll",
+   "runtime_source": "lib/wine/i386-windows/vcomp100.dll",
+   "before_sha256": "a958de6b093b1d24520acfb2f83525b03cc848b961d052ab310b3f76ca9fab14",
+   "after_sha256": "9c840681e62cbc3d2d9ef39536576a3b78aefc5971a2a085ff87ea5ba117482b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/vcomp110.dll",
+   "runtime_source": "lib/wine/i386-windows/vcomp110.dll",
+   "before_sha256": "3c4c6a9b5833fdac70b94c32d37c7bb1a8d7d9371804ec3208f46d86e9e41292",
+   "after_sha256": "d1373b841948fdb59b4832821d2a03ea861d7188d0c90fb3acc9751e6272bc24"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/vcomp120.dll",
+   "runtime_source": "lib/wine/i386-windows/vcomp120.dll",
+   "before_sha256": "be21fc8f81a758ffb715a5d270235c43108a78e64ef1957bfc5fe3baf8e88b0b",
+   "after_sha256": "b4900e2e1ac031f77e69cb2510122ec245ba14ebe2602135e63696edea94fbad"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/vcomp140.dll",
+   "runtime_source": "lib/wine/i386-windows/vcomp140.dll",
+   "before_sha256": "a18b4b8da36f2d95578579c2c6185431ade55f326afd37fa7cc1501d194f96f9",
+   "after_sha256": "45630feff31c4970b9afb243897611a9e009fc72c70ee78b7f56ec915a6a45a3"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/vidreszr.dll",
+   "runtime_source": "lib/wine/i386-windows/vidreszr.dll",
+   "before_sha256": "a06c5f4663e482ffa47bac0f6b212d476f06c464950c974961cc0543af9e7d61",
+   "after_sha256": "b6b99e272628d22f0e0e4b6497f7a6e56b3f6c9bea5c0176751e163212cc0db3"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wbem/wbemprox.dll",
+   "runtime_source": "lib/wine/i386-windows/wbemprox.dll",
+   "before_sha256": "9a1794e81f08e96fee6cba26fe52e10a09ffea72e0c32e214e90897153f6ff25",
+   "after_sha256": "5b22f0c77d8e0936dc1f7778b8d0d7ee5474a9bb9f0eea07575d655c87b36b37"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wbem/wmiutils.dll",
+   "runtime_source": "lib/wine/i386-windows/wmiutils.dll",
+   "before_sha256": "a6770e7f41f0e142263e21bd4712d8d32dcb679bddf3a00e57bd3c0de1024c3a",
+   "after_sha256": "c75e25ba4dc7de5b8aa86f8b51e9d4e5d2c194d017556fc79e25a7e1bb5f01a1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/webservices.dll",
+   "runtime_source": "lib/wine/i386-windows/webservices.dll",
+   "before_sha256": "8aaee726568b7ac8f7cebd92b3bd78bcfe16ff49c822c7016b05a3edda4f4b0c",
+   "after_sha256": "58d7a5aabe43b38a9b303d894e1373838f2c7958c4d49c5ea6648e6e363ef9cf"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wer.dll",
+   "runtime_source": "lib/wine/i386-windows/wer.dll",
+   "before_sha256": "6be9e3d45ec85702d73c27741465ad5d363fe2a48cf8cbf7874b618219c999cb",
+   "after_sha256": "49938689abd023b65092350c5ae89c0fbe1c1c797a841e52b8419e2fa6de1be4"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.devices.bluetooth.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.devices.bluetooth.dll",
+   "before_sha256": "d9414927c7ea80f21b2289bc862c84cad2e8641e259557683b5910f26f1f8c08",
+   "after_sha256": "67725949251a4c448999713de1e40f2b30bc2b321444c4a4e08fbcd3efbcd142"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.devices.enumeration.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.devices.enumeration.dll",
+   "before_sha256": "be0d70c9ea6807df9c1621bc181349cf5ab79e7e9f513a2b0953b4e856bb3345",
+   "after_sha256": "8948acb2789dd9741730d5bf91e3c8b609b316f32993f848a53a0dd321103466"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.devices.radios.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.devices.radios.dll",
+   "before_sha256": "e0375c23cc6c2cd945910dce61472aa23aa500e086533be69498a4ed5e1e2172",
+   "after_sha256": "ea7c112f54c1972dc7f9809f6ccc0f158b9adf20ee2b5afc013719de75e01b5a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.gaming.input.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.gaming.input.dll",
+   "before_sha256": "ec336792b8b6f93d84444d2de3a632489b910bbe5308d5324ae1206f5dbd8a61",
+   "after_sha256": "7e8c8e33c2ed594c98727a5ace6286ca6094dd943c8b75a190e8285a5bba3950"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.media.playback.backgroundmediaplayer.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.media.playback.backgroundmediaplayer.dll",
+   "before_sha256": "2ae10ce9e4b1a5953a45b37e45934a4a6606ab8f06852023f1eadc2b3d888d08",
+   "after_sha256": "d0fb1153859874f5dcc7059c534573d49cd4a4ebe69986f2a44ef01c4706250d"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.media.speech.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.media.speech.dll",
+   "before_sha256": "61a60bf3a62e9c64aa18c98129900fb65f9e3dec92406b434b8e14b7a2b3c9d0",
+   "after_sha256": "b402ce1f85967d2d046fd35dd5c912dee14cab4f916df2a1d5bfce74b607b242"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.perception.stub.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.perception.stub.dll",
+   "before_sha256": "da414ad88977242d7089d3d0bc56cec812c29d2653c3a6a8052e0f692128bc6a",
+   "after_sha256": "afd3e457c9ecfc3bd73a4bad5adc079cfa389cd1747592f1b05560d78ec28774"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.security.credentials.ui.userconsentverifier.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.security.credentials.ui.userconsentverifier.dll",
+   "before_sha256": "4395c9ad8306175cb1d107c696bbf4b32ddbd8daf1ce5f52eeeb1caef1985b14",
+   "after_sha256": "bc352f0e21c2386d83aaaf90a1bd8f2e14155f045505592612af8c1f6b29463a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windows.storage.dll",
+   "runtime_source": "lib/wine/i386-windows/windows.storage.dll",
+   "before_sha256": "83059fa3b8cebeac074efab32a9fb545635716923fe0d5ecfa11ab8405e28410",
+   "after_sha256": "ea86debbd5b29670de000154e3953605f1c6876f2ce91daa12e49ddf6561216b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/windowscodecs.dll",
+   "runtime_source": "lib/wine/i386-windows/windowscodecs.dll",
+   "before_sha256": "9425d23d78bf644c7263967471a64850dc24147e321d68a6b7624d2ee15411b5",
+   "after_sha256": "7c17b77945a2ec58018dad982746c33af0688345feb64a4a42d9ea3789a68c2e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/winecfg.exe",
+   "runtime_source": "lib/wine/i386-windows/winecfg.exe",
+   "before_sha256": "db2a8290f54a0920a0ca726725cccbc89ea160f9aa9d4c91e6ce551a8788c2cd",
+   "after_sha256": "9269ac89de324e7124e57ac04c04dd8b6859e7b2761c18a2d8cbe236bd40dd99"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wined3d.dll",
+   "runtime_source": "lib/wine/i386-windows/wined3d.dll",
+   "before_sha256": "d3a4220b9c786998737b1a759bd1eea5842501f922507160bf594126191c8e10",
+   "after_sha256": "177085478dbb5be0ba999701c827f6d85d9367fe78caa81386f38f7aa4cce2fd"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/winedbg.exe",
+   "runtime_source": "lib/wine/i386-windows/winedbg.exe",
+   "before_sha256": "89f097bf8fd7a4cf7a18753ad0d50c4cde76b25c03353067fbcda14882057785",
+   "after_sha256": "445bb947aa4d0b36163080fc928474658fbcb90daa56ecc6bb23250bfbba0d31"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/winefile.exe",
+   "runtime_source": "lib/wine/i386-windows/winefile.exe",
+   "before_sha256": "9f54814d462db0162a9b1f214b72027ca9aa5e00d58cfbcaf63c0c53dd4f89c2",
+   "after_sha256": "7ad1cc174c2ac0608b922c8c4b004bb96a02d1bb574fa311003bba9c635c2756"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/winhlp32.exe",
+   "runtime_source": "lib/wine/i386-windows/winhlp32.exe",
+   "before_sha256": "6439e817a5bf6bf3833a6ab9a8fb3ec78a5218afe08008d470dae86c0baac7ca",
+   "after_sha256": "41eea891e1af70c0dd75279a7418cb5dc408d88d1c963f74e8dcce26ba478949"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/winhttp.dll",
+   "runtime_source": "lib/wine/i386-windows/winhttp.dll",
+   "before_sha256": "945baa77113cc8eb65f80dca59dc8329f60f400301a730b5c07ef27f4afde784",
+   "after_sha256": "8c9e64383ca2946cde88ead8bf64274886d94af957fdfbe10a5df4335e1f4e79"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wininet.dll",
+   "runtime_source": "lib/wine/i386-windows/wininet.dll",
+   "before_sha256": "6fbda8350b9849011547915b42269fd9ac26f534c15cf3af9121f89ea33dc573",
+   "after_sha256": "c584be811c78103f38e6b73a59159881a2a7bbba1f220a98703be3d3dbea8bd5"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/winmm.dll",
+   "runtime_source": "lib/wine/i386-windows/winmm.dll",
+   "before_sha256": "51b00d4fad371521db30c793be7f0c2ce24e9553bda9ef7c1fd63e91a2fb5016",
+   "after_sha256": "f640bc8b6bf15c20143c7fa97e64a8ec4e76a4ffcd80eff0be45e78c890f219b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/winspool.drv",
+   "runtime_source": "lib/wine/i386-windows/winspool.drv",
+   "before_sha256": "4c87a59ce84a49139a8c2c49d358cb798df8847884bf2d7af0ccbfe113dccda1",
+   "after_sha256": "8fc77b638d7f649c128e9e01d23366ea753797a1052fee6312fbd5d50334a958"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wintab32.dll",
+   "runtime_source": "lib/wine/i386-windows/wintab32.dll",
+   "before_sha256": "2700bc32911dc41f6a9b835696ec95d7011310d6fa83b465bbe21cc30d0748e7",
+   "after_sha256": "49aeb6ef2dead4d64b5a707b12a2360b1e99d5e7acaddacb5b0243c7ee762380"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wintrust.dll",
+   "runtime_source": "lib/wine/i386-windows/wintrust.dll",
+   "before_sha256": "7c4cf1b4873dcac170352f2c3357b2960e91cf9a27e745623dd9b471eab21fa3",
+   "after_sha256": "36b80dccecc810c1bbd38c48c8f84f152f6a9fed6bab3cedf203319b259c714a"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wldap32.dll",
+   "runtime_source": "lib/wine/i386-windows/wldap32.dll",
+   "before_sha256": "a4a65eb3c3ad9047e2301b2b15def01f5d89e512719e8b29597ce79c87afad01",
+   "after_sha256": "be9b60f2f626ee2b50c7bd9d864b9ac40efd7ba5b30598abd1b97d8900e848a8"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wmphoto.dll",
+   "runtime_source": "lib/wine/i386-windows/wmphoto.dll",
+   "before_sha256": "03cb24bb28f35956e56efc2b5036b09f77402064f6358f6f9250d799b6d6ee5a",
+   "after_sha256": "d6ca216a16909302f55e3bea9db404c45533b36ddb20aa09d6e574c38ec08546"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/wmvcore.dll",
+   "runtime_source": "lib/wine/i386-windows/wmvcore.dll",
+   "before_sha256": "05ca502abdc529d1cdeeb879ce3f134a10ceddff35dcbd3e2845ce0c42f0ddf3",
+   "after_sha256": "3857bcd901346ffb7f0f861065d9c9cc14a1e5d7867c5997ee5b1ccaf46894dd"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/ws2_32.dll",
+   "runtime_source": "lib/wine/i386-windows/ws2_32.dll",
+   "before_sha256": "122c2f1241cc6659d8297dbc06ce0bc18193e42b735fd1e21070c59fc637aa80",
+   "after_sha256": "24f5738d65111c8f858279b09d9a794f586904b50a44b5297cf231d4c7193603"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine2_0.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine2_0.dll",
+   "before_sha256": "cd7cb574205b5250e9f323755aee1009bbc02aa6028c1d94af0a80dc124aa830",
+   "after_sha256": "2d088b38e65be17f1a6e302cdaa7eb73872034fb099c07e131064a153e904d10"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine2_4.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine2_4.dll",
+   "before_sha256": "5b69dc51c1d527cb5e739584c8502c33d31226d42db36480371d8007245a9cd4",
+   "after_sha256": "10a679a35885ef2f861ef3146ac4d2578e993f75a1687aa7f510972bc8c4d3d2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine2_7.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine2_7.dll",
+   "before_sha256": "a2c0c27d982ded4ab570585bf6de5ed59f2ef758680aa17f86804acacd1ee18c",
+   "after_sha256": "d79b3827d83c3f1623935ad983122770a8df12b10d9d89d458416cf66f4f57d1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine2_9.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine2_9.dll",
+   "before_sha256": "392ca51d82fc77816940cdc5b993d9deb100634303a758e42caee03e30285527",
+   "after_sha256": "0e58b27718faf54215d1b1e179cef2bf6ac670a587e3fe438b5314f44ae79239"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_0.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_0.dll",
+   "before_sha256": "ee93382e24a41f3a85c3daa82ed47200e0a9f29444dd7b440e94b9e183b06e48",
+   "after_sha256": "83eed9877c0f1b45a0420bfe78dad4b7fab361f6efdb048ac725a08962437b5d"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_1.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_1.dll",
+   "before_sha256": "451475ad430dc00448f3eabb0247cf64783dcd22fc41519027eae11b097ec141",
+   "after_sha256": "df245f8be8686e966c718cc070e58c9807b5b017ba018c558c58c4b27cf4323b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_2.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_2.dll",
+   "before_sha256": "36db8cbc11c75dd9d5e3e7ce939873a5b415aab603be72aaadf81080226a56c8",
+   "after_sha256": "154bc9e0f6769321215e042e47772348f2158e2a3d129eea0e48c100a5eebf13"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_3.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_3.dll",
+   "before_sha256": "04c7348896767c21f8c2e445c9d6cb51d6593b0fbfc087d01dfe85b733671662",
+   "after_sha256": "bb68512ab54bf50ba508a053fb9816217a96e0a01c2887e1145cbd9c2ee97027"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_4.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_4.dll",
+   "before_sha256": "c9ce588e60e68ec0ef1e6306c87ee471918feba339515ea957a8084476b09e87",
+   "after_sha256": "b138ecf66fc64b4e9e51627e344275384d1a616c39a7676ae93410b2c3bcdada"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_5.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_5.dll",
+   "before_sha256": "d6f43ecc21c44d91265c9552112430821b3de5f30680da6f11556007202f22a5",
+   "after_sha256": "5b73c6290f13fbb234f2fe0146dccbfba72aa42d5f02a3c0141c98a80fd3b432"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_6.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_6.dll",
+   "before_sha256": "524cb97673727f317d62d9807425f7b1ae7a66632f0e9adaeac21df31f6ebe09",
+   "after_sha256": "d8fdf12c61eb7c654a6a86a411d9e47f7267a0f1127c374c9048827bf9db40d7"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xactengine3_7.dll",
+   "runtime_source": "lib/wine/i386-windows/xactengine3_7.dll",
+   "before_sha256": "d9c26b2dc34422bca64330083a38a01e82bd8ecde51354e9e9645c7ba0eb2deb",
+   "after_sha256": "24da727104d8057247e8065852725f27cdf2c77b7ec12f1364c04b6c3f95e9de"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_0.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_0.dll",
+   "before_sha256": "5e051f9e2703da38796a771523f86492ea7942e3234f03aeaca508774e93e7bf",
+   "after_sha256": "8fed97423a855a93b6d5f9f86094c4f13c22aac9ff40b4301eb536406910221b"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_1.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_1.dll",
+   "before_sha256": "ea30d170db6be4d4855256b5a66def87a63c8de0b9a2fbeb95cbb0e54acc19c8",
+   "after_sha256": "e2034d9d3ad11226740c8723251f2816d4f9317ce3c620b934a55a9e08b6d7bc"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_2.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_2.dll",
+   "before_sha256": "d74324c02c6d0bf78d31f97cb793e798fc381d3b74e68adae93cebb85d66515d",
+   "after_sha256": "902f8cc075dd0aac2f6b6c05094becbcaf5a13336417436f13d09c3c853caae4"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_3.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_3.dll",
+   "before_sha256": "9d30d2640aa8b309996ad52f185f752cc375018557befe85470cc1a0bc52f647",
+   "after_sha256": "5c2e454f0e1ec19743f514db78a2d3ed103bcab3abc1064166b6d6dee1d0a657"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_4.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_4.dll",
+   "before_sha256": "6b3b6d2affcc6eea80a96548438d1f182a24931c25d98dff0b91df0089a66dcc",
+   "after_sha256": "1db7df5daced5fb47f9f6f7a7650bbf12e1039f7f6826af3da1bedaa6f84785e"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_5.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_5.dll",
+   "before_sha256": "f4ec17acf3443cbf79b8ef69cc52278135e15042f57f8ebbb5dd9cc2a034a836",
+   "after_sha256": "b6aaecf08c826bbee50d1c0456067c5d2e189e310ba3d186c73892346603f595"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_6.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_6.dll",
+   "before_sha256": "80293db445fdaced3afa14529aaa2c4e7df4d653292e926b5b30da521da8efdb",
+   "after_sha256": "4986dfb31bc9d87346eb6ce36626f876d5b57e6e3e31c50bb7fd5841650b25f1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_7.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_7.dll",
+   "before_sha256": "08303e0f36b2255ed292119a983798101f207a524d3805c8d4e77d89053e4915",
+   "after_sha256": "3e72d6c1b5e9237aee55cda50a69ced4899ab6601753206810efee6b1bc03a85"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_8.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_8.dll",
+   "before_sha256": "e93f7ea11f31bf7ad540e2d302d2355f26aeaa43b8493aae2318fa19475a1f0f",
+   "after_sha256": "96f8d5e3cd7de7bea8650a4d32bc1f854d7ee1d25c040d9f7c77adabc4ad0dc1"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xaudio2_9.dll",
+   "runtime_source": "lib/wine/i386-windows/xaudio2_9.dll",
+   "before_sha256": "70468a233d29f78625d22563e113bd4ead6796f8d2e6fb173b59a981c3e6a810",
+   "after_sha256": "d83fb201d8be78e373748af55e3e4fac1f63f212582b1d779e0b965886abf023"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xinput1_1.dll",
+   "runtime_source": "lib/wine/i386-windows/xinput1_1.dll",
+   "before_sha256": "8a4d7866de83e0ecd2e1c0c97e628e11697d68218f7aaee12d5f00acf98416fb",
+   "after_sha256": "6f9a00fc1b722b3f6a205ab5927858a5e40358913dd6b03b7253bc7e2141be76"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xinput1_2.dll",
+   "runtime_source": "lib/wine/i386-windows/xinput1_2.dll",
+   "before_sha256": "a4b6213ff7864d067a51daa473a9f6aa0657873b97e7d0e7d5f6a58ea4434f8d",
+   "after_sha256": "c7300d99d0795040345edeb62b1b3c6e65ce6d1dfc58626145faaa70b853e3f2"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xinput1_3.dll",
+   "runtime_source": "lib/wine/i386-windows/xinput1_3.dll",
+   "before_sha256": "8fc3e66d970d07447c53cc01fca5fe1896ea5bb5872548ce967521859c837d7a",
+   "after_sha256": "7b68a2964cacceb3a32053459cc128b9b4af121c3c559de508461821bc03eaa8"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xinput1_4.dll",
+   "runtime_source": "lib/wine/i386-windows/xinput1_4.dll",
+   "before_sha256": "398845f062cc7b9774eb38818f2f5095698b0f5262ef783ef3c6122aef9e35e7",
+   "after_sha256": "c494ea26ede402ba670bc5dd8c8d66a6c1effec2fea2ffe2f195850594276473"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xinputuap.dll",
+   "runtime_source": "lib/wine/i386-windows/xinputuap.dll",
+   "before_sha256": "8f4306926d27501fd80f44f16c656fe94b2d7bb79cf7bdad6b8ea436c7bca862",
+   "after_sha256": "172f4f79f7ab805bc71d26dea61bee125537079d1b8bd0cc4a4aedd398ac6743"
+  },
+  {
+   "template_path": "drive_c/windows/syswow64/xmllite.dll",
+   "runtime_source": "lib/wine/i386-windows/xmllite.dll",
+   "before_sha256": "00df14691cea70c3a311b03c80d8396d9b660ad21107a321dd35bd677e12b1ba",
+   "after_sha256": "e9185638a84523a7e754492d208a545988989166af4a0138a90134f926258c92"
+  },
+  {
+   "template_path": "drive_c/windows/winhlp32.exe",
+   "runtime_source": "lib/wine/i386-windows/winhlp32.exe",
+   "before_sha256": "6439e817a5bf6bf3833a6ab9a8fb3ec78a5218afe08008d470dae86c0baac7ca",
+   "after_sha256": "41eea891e1af70c0dd75279a7418cb5dc408d88d1c963f74e8dcce26ba478949"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft-windows-msxml30_31bf3856ad364e35_6.0.6000.16386_none_deadbeef/msxml3.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msxml3.dll",
+   "before_sha256": "0eff9f1fb8fd962b7092a3c1d01bde2d6502d2ef2c78cba6fc6e223809859515",
+   "after_sha256": "fccdb6198134a812f15d96e8f8d4bc4ff47926b866b5435fca35079b14710583"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft.vc80.crt_1fc8b3b9a1e18e3b_8.0.50727.9672_none_deadbeef/msvcp80.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp80.dll",
+   "before_sha256": "6b150e0c4b857cbfc71ebe8b493afb4b471583c45dc6e5c96b9bbbf77cb73801",
+   "after_sha256": "4f16b0069c8a37a5560b284bca273c112c009dd03c7a8357ddb0c25932229fd1"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft.vc80.crt_1fc8b3b9a1e18e3b_8.0.50727.9672_none_deadbeef/msvcr80.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr80.dll",
+   "before_sha256": "092dd453210c9fc131c0342879fd74dc28cada0d961057ddec69be1384946646",
+   "after_sha256": "1b0b85a197b5e7fcc08de2a7633bf5794189a9afa9f6160068f23fa04aefa0ba"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft.vc90.crt_1fc8b3b9a1e18e3b_9.0.30729.6161_none_deadbeef/msvcp90.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcp90.dll",
+   "before_sha256": "a5a0e57b58fa39f5bea0c00fe77047da98e6145429c821015391dfdefcde9601",
+   "after_sha256": "8fdbad0f686bc60eba9344d136da13a40e27d059841542e713009fc6e7b61d68"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft.vc90.crt_1fc8b3b9a1e18e3b_9.0.30729.6161_none_deadbeef/msvcr90.dll",
+   "runtime_source": "lib/wine/x86_64-windows/msvcr90.dll",
+   "before_sha256": "3f72422b7cbb1b14dfd4aa7dd1d707f482bb77ba9968f41a9b16b413d8492bfb",
+   "after_sha256": "8e0b80fac07897f6b97233c1590e75f177151f8a2f3bdc2f2e1e0d4082046ac2"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef/comctl32.dll",
+   "runtime_source": "lib/wine/x86_64-windows/comctl32_v6.dll",
+   "before_sha256": "40f5273319d16e2cdaf42a4bcf2bdd42e6e28834bc991220bc4264383dcff3ac",
+   "after_sha256": "86e254c7fff8fa44b85342df24133c8d7a83f4cd087fe5f16f90e05a3a17accf"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft.windows.gdiplus_6595b64144ccf1df_1.0.6000.16386_none_deadbeef/gdiplus.dll",
+   "runtime_source": "lib/wine/x86_64-windows/gdiplus.dll",
+   "before_sha256": "bd1ca57e443ec3f54349a3f7c6ba3890423d9d6d18648acd1dfbf1c95b0132b1",
+   "after_sha256": "1c841c5b3e7bbc82d4e1bc45bcada858d2dc483a384b7a76529efe99952fe501"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/amd64_microsoft.windows.gdiplus_6595b64144ccf1df_1.1.7601.23038_none_deadbeef/gdiplus.dll",
+   "runtime_source": "lib/wine/x86_64-windows/gdiplus.dll",
+   "before_sha256": "bd1ca57e443ec3f54349a3f7c6ba3890423d9d6d18648acd1dfbf1c95b0132b1",
+   "after_sha256": "1c841c5b3e7bbc82d4e1bc45bcada858d2dc483a384b7a76529efe99952fe501"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft-windows-msxml30_31bf3856ad364e35_6.0.6000.16386_none_deadbeef/msxml3.dll",
+   "runtime_source": "lib/wine/i386-windows/msxml3.dll",
+   "before_sha256": "7954dd7f44bf436846ba99b1075966d33cad4f53dfcc1fc7791d7fa8684b314e",
+   "after_sha256": "a4a354e8ca0e15517bfd82615eba83d16fcb16618a7240b3bbee67dacc20c016"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft.vc80.crt_1fc8b3b9a1e18e3b_8.0.50727.9672_none_deadbeef/msvcp80.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp80.dll",
+   "before_sha256": "09bffb50a2ecf154e99b9a1863130352a365f37d2111d10c203f8249447ccbc2",
+   "after_sha256": "fa90f6b1521b601dca68bbd415ec416e2a060677c770e7793e02fc383f1146e1"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft.vc80.crt_1fc8b3b9a1e18e3b_8.0.50727.9672_none_deadbeef/msvcr80.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr80.dll",
+   "before_sha256": "173df7100b63f5f1d663a50c19028ca22d2c2338a5067ed7d054f5a7d6bdc458",
+   "after_sha256": "c725bcc5a7820f5b49c91d033d57e1ba76aae92a91a6226fe5bf39f7ebf9a808"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft.vc90.crt_1fc8b3b9a1e18e3b_9.0.30729.6161_none_deadbeef/msvcp90.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcp90.dll",
+   "before_sha256": "d84cbb27d939f7c83552fe0089f5942c8393009348e33725de16efe731040f16",
+   "after_sha256": "656cabae4b2d5970b8213cfca115d2a742c1712058bda66c5327153aa1b45400"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft.vc90.crt_1fc8b3b9a1e18e3b_9.0.30729.6161_none_deadbeef/msvcr90.dll",
+   "runtime_source": "lib/wine/i386-windows/msvcr90.dll",
+   "before_sha256": "8a4ab4c21205b9b877c642059097fb60978a5f9cabb05516b71a631befb3139e",
+   "after_sha256": "d15d8183b2b0ff26788d0025677838d743445322e90412783504dc167cb596c6"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef/comctl32.dll",
+   "runtime_source": "lib/wine/i386-windows/comctl32_v6.dll",
+   "before_sha256": "a990a55f7bfe7f037b98539982ec958b3f259c030700b56c1ff0b83a18f93dd2",
+   "after_sha256": "b2672f53273c1e761a6171956876b7fc6055833087eeb18cc244d948e93f42c5"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft.windows.gdiplus_6595b64144ccf1df_1.0.6000.16386_none_deadbeef/gdiplus.dll",
+   "runtime_source": "lib/wine/i386-windows/gdiplus.dll",
+   "before_sha256": "3b2612e43069ace6061d81516be9ae83ae62b085096d94137261f18e0430a592",
+   "after_sha256": "36f250646cb7d03a35bd9e12d336f22aa1f56c7016dba01f97f17c81553af9b7"
+  },
+  {
+   "template_path": "drive_c/windows/winsxs/x86_microsoft.windows.gdiplus_6595b64144ccf1df_1.1.7601.23038_none_deadbeef/gdiplus.dll",
+   "runtime_source": "lib/wine/i386-windows/gdiplus.dll",
+   "before_sha256": "3b2612e43069ace6061d81516be9ae83ae62b085096d94137261f18e0430a592",
+   "after_sha256": "36f250646cb7d03a35bd9e12d336f22aa1f56c7016dba01f97f17c81553af9b7"
+  }
+ ]
+}

@@ -185,7 +185,9 @@ function(playden_add_ps5_title)
 		COMMAND "${host_tool}" self --sign --in "${out}/eboot.elf" --out "${app}/eboot.bin" --magic 0x1D3D154F
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${libc_prx}" "${app}/sce_module/libc.prx"
 		COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
-		DEPENDS ${probe_ca} "${pie}" "${host_tool}" "${libc_prx}" "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake" ${package_inputs}
+		DEPENDS ${probe_ca} "${pie}" "${host_tool}" "${libc_prx}" "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
+			"${CMAKE_SOURCE_DIR}/sce_sys/icon0.png"
+			"${CMAKE_SOURCE_DIR}/sce_sys/pic0.dds" "${CMAKE_SOURCE_DIR}/sce_sys/pic1.dds" ${package_inputs}
 		VERBATIM)
 	add_custom_target(playden-ps5-package ALL DEPENDS "${stamp}")
 endfunction()

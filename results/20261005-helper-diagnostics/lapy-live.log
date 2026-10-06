@@ -1,0 +1,17 @@
+HELLO ps5log/1 title=LAPYOWN app=lapy-owned-root-daemon boot=0x1dca9b6db1e7 tag=fw1360-input
+1	32756028726228	MARK	daemon_start build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 firmware=13600007 title=FAKE77031 service=0 require_client_result=0 max_requests=0
+2	32756028819644	MARK	self_directory build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 private_fd=1 root_system=1 jail_null=1 cwd_root=1 cred_refs=25 threads=1
+3	32756028900952	MARK	self_credential_state build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 native_clone=1 private_cred=1 cred_refs=2
+4	32756028908009	MARK	self_credential build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 native_clone=1 refs=2
+5	32756028920197	MARK	group_layout build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 valid=1 error=0
+6	32756029540752	MARK	thread_credential_slot build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 offset=320
+7	32756029557510	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=layout_before hold=66 use=65
+8	32756080133663	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=layout_donor hold=68 use=67
+9	32756130323562	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=layout_released hold=66 use=65
+10	32756130351146	MARK	root_layout_probe build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 attempt=1 valid=1 error=0 retryable=0 before_hold=66 before_use=65 donor_hold=68 donor_use=67 released_hold=66 released_use=65
+11	32756130364296	MARK	root_layout build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 valid=1 error=0 attempts=1
+12	32756130470382	MARK	root_sample build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 phase=helper_before hold=66 use=65
+13	32756130628587	MARK	target_state build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 pid=846 fd_refs=1 cred_refs=2 threads=2 suspended=0 root_old=1 jail_old=1 prison0=1
+14	32756130648313	ERR	request_result build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 stage=target_preflight error=16 pid=846 roots_moved=0 cred_changed=0 detached=0 donors_reaped=0
+15	32756130662586	ERR	daemon_result build=875593deceee827459f2601ccbf23c12e78349e6c52adcdf87cb31a70e1ffb85 stage=helper_request error=5 pid=-1 acknowledged=0 root_balanced=0
+BYE seq=15 reason=daemon-failed

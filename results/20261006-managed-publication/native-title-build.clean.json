@@ -1,0 +1,10 @@
+{
+  "eboot_sha256": "96c269d97e3320754d83e7255ff8cb41f973049ebdacb75e0bb467c64b332ebb",
+  "managed_descriptor_required": true,
+  "managed_publication_guard": "playden-publication-guard-v1",
+  "publication_provider_sha256": "f14d5e3ecb31951e3cf5bfdc41972181a9be1d96ed0dc7cb3aeebb8e4aab844a",
+  "schema": "prospero-win-native-title/1",
+  "source_dirty": false,
+  "source_revision": "bde4b394a8db20cc243e8dc32945adb0dccfe2a7",
+  "title_id": "FAKE78001"
+}

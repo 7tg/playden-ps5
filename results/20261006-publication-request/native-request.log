@@ -1,0 +1,5 @@
+begin pid=1168
+smp route=/api/v1/version curl=0 http=200 body={"status":0,"api_version":1,"shadowmount_version":"1.7beta2","capabilities":["web_ui","storage_space","list_images","list_games","game_info","game_icon","mount_game","unmount_game","uninstall_game","move_game_source","copy_game_source","delete_game_source","unpack_game_image","storage_job_status","storage_job_cancel","list_manual_sources","add_manual_source","remove_manual_source","manage_settings","read_debug_log","read_kernel_log","rescan"]}
+bootstrap grant=1 runtime_ready=1 euid=1
+publication_request root=/data/playden/request-probe-1168 euid=1 passed=1 state=1 bytes=770 detail=
+end

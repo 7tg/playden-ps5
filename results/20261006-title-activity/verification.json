@@ -1,0 +1,55 @@
+{
+  "scope": "Read-only title activity prerequisite; production publication remains disabled",
+  "console": "10.0.1.68",
+  "firmware": "0x13600007",
+  "sdk": "v0.43",
+  "native_process_record_bytes": 1096,
+  "native_processes_observed": 89,
+  "before_fix": {
+    "pid": 1132,
+    "self": "active",
+    "wine": "unknown",
+    "reason": "Successful PID1 AppInfo has app_id0 and title NPXS45095"
+  },
+  "after_fix": {
+    "pid": 1137,
+    "self_title": "FAKE77031",
+    "self": "active",
+    "wine_title": "FAKE78001",
+    "wine": "stopped"
+  },
+  "developer_eboot_sha256": "a3958cf6dafbeaee322026b0d99d07f793c5d0b0ca2498b7222a00d6d5b49282",
+  "commands": {
+    "native_package": "bash ../playden-ps5/scripts/with-env.sh cmake --build build/homebrew-ps5-publication-native --target playden-homebrew-ps5-package -j4",
+    "host_build": "cmake --build build/homebrew-host -j4",
+    "host_tests": "ctest --test-dir build/homebrew-host --output-on-failure"
+  },
+  "host_tests": {
+    "passed": 106,
+    "failed": 0,
+    "seconds": 23.51
+  },
+  "regression": {
+    "case": "successful zero-app-id title must remain active; PID1 system identity permits complete stopped observation",
+    "red_exit_code": 8,
+    "green": "passed"
+  },
+  "restoration": {
+    "restored": {
+      "eboot.bin": "d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa",
+      "playden-package.identity": "c7593741974bfd517df3335f9ecfe6b41a17fafd4f3c0f0432ca548a6921fb40"
+    },
+    "restored_modes": {
+      "eboot.bin": "0755",
+      "playden-package.identity": "0644"
+    },
+    "stopped_diagnostic_pid": 1137
+  },
+  "console_released": true,
+  "limits": [
+    "Read-only point observations cannot prevent an independent launch after the check.",
+    "Publisher exclusion and Wine lifetime admission remain separate acceptance gates.",
+    "Production driver/native installed-title inventory/UI are not wired by this change.",
+    "Other firmware/SDK contexts and actual Wine child-process/lifetime behavior are not qualified."
+  ]
+}

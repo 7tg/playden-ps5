@@ -1,0 +1,35 @@
+{
+  "title_id": "FAKE77031",
+  "changes": [
+    {
+      "path": "runtime/input/gamepad.input",
+      "sha256": "9b6245325f7f024853edc181f7fa75d50414f643757d9b5d4470274d80c18213",
+      "bytes": 431,
+      "previous_sha256": null
+    },
+    {
+      "path": "runtime/input/LICENSE",
+      "sha256": "da07098f25b7786f3414c59525e5c3f6ef284a8f34648fad6563a4428f432b74",
+      "bytes": 1071,
+      "previous_sha256": null
+    },
+    {
+      "path": "runtime/input/mouse.input",
+      "sha256": "dd598960c651f404e46fcb51e0390fd35b0a265709fea1b6a30194fad32535b7",
+      "bytes": 361,
+      "previous_sha256": null
+    },
+    {
+      "path": "eboot.bin",
+      "sha256": "109e55a60d1e554104ba787421cce77ef2c153acc2379284cf5364af6d1552b1",
+      "bytes": 24967021,
+      "previous_sha256": "035691dc27685081d5545bb5754bc2c6811b8296ff56d7fd9869c3e9627efde7"
+    },
+    {
+      "path": "playden-package.identity",
+      "sha256": "8649d492afb7aabce93165f932d444c929ec3ede18bb236dd43706c7dd4373f8",
+      "bytes": 92,
+      "previous_sha256": "af8cc9fc0da7d79ff50a9c123424d66a709b4f026758dd4b26e21e081c0fd364"
+    }
+  ]
+}

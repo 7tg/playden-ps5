@@ -1,0 +1,22 @@
+{
+  "host_tests_failed": 0,
+  "host_tests_passed": 104,
+  "native_bridge_objects": "passed with Playden SDK v0.43; not deployed",
+  "native_guard_optimized": "passed",
+  "native_guard_ubsan": "passed",
+  "native_source_hashes": {
+    "native/pw_title_publication_native.c": "7f99f6d62798b5059429c2a8b2cb40d8622d2e044ff4564fe37b879c7ed4b198",
+    "native/pw_title_publication_native.h": "f94443dc3bfaf70d09da9ab39dc97fcbcc581e7963f90913e598137c42e20507",
+    "tests/test_pw_title_publication_native.c": "5ed66cda9d857e938c025696544ef14d2751da8ddd37919b42853fd7378607e9"
+  },
+  "parent_base": "d3146c165955d5c35694e415f7fc03ca71129850",
+  "portable_publication": "passed",
+  "prospero_revision": "79cf85c065e49ae57679ff5babb88bd290b9e9e9",
+  "scalar_sha256": "passed",
+  "scope": "host and build proof; no new-source native-console acceptance or production trust",
+  "sdk_object": "foundation 9c0b994, SDK v0.42, -O2 -Wall -Wextra -Werror; passed",
+  "standalone_diagnostic_build": "passed at current pin with frozen SDK v0.42 inventory; not run on console",
+  "wrapper_build": "clean exact title FAKE78001, SDK v0.42; passed",
+  "wrapper_eboot_sha256": "07be74885397808e51179c6810af2501ba88ec34757ee6a34e9dce24bad660b7",
+  "wrapper_elf_sha256": "285beafbf18dfb1af0036c407b2fb3fef3051a23df5ae4ba6c90ff0ee58c1bfb"
+}

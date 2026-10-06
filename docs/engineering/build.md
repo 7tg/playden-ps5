@@ -15,7 +15,13 @@ build/homebrew-host/playden-homebrew
 
 The host starts in live-service mode and stores the private Steam session under
 `build/homebrew-host/playden-data` by default. Use `--data-dir PATH` to select another live
-storage root. Fixture profiles, replays, captures, snapshots, recordings, and headless runs are
+storage root. Relative host paths are resolved to absolute paths; the trusted
+CLI destination's existing aliases are resolved before storage is selected.
+Game settings use an app-created `game-settings-private` child with 0700
+permissions and 0600 files. Owned legacy `game-settings.json` is imported once
+without deletion; an existing private record takes precedence and corruption
+blocks automatic writes. The general storage root keeps its existing mode.
+Fixture profiles, replays, captures, snapshots, recordings, and headless runs are
 available only in an explicit simulation context, for example:
 
 ```sh

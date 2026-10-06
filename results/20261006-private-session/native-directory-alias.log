@@ -1,0 +1,26 @@
+begin pid=1028
+smp route=/api/v1/version curl=0 http=200 body={"status":0,"api_version":1,"shadowmount_version":"1.7beta2","capabilities":["web_ui","storage_space","list_images","list_games","game_info","game_icon","mount_game","unmount_game","uninstall_game","move_game_source","copy_game_source","delete_game_source","unpack_game_image","storage_job_status","storage_job_cancel","list_manual_sources","add_manual_source","remove_manual_source","manage_settings","read_debug_log","read_kernel_log","rescan"]}
+bootstrap grant=1 runtime_ready=1 euid=1
+directory contract kernel_fd=0 root_fd=14 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=0 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=0 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=100 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=20000 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=20000 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=0 absolute=0 flags=20100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=0 absolute=1 flags=20100 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 root_fd=14 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=0 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=0 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=100 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=20000 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=20000 fd=15 errno=0 stat=0 mode=40777
+directory contract kernel_fd=1 absolute=0 flags=20100 fd=-1 errno=22 stat=-1 mode=40777
+directory contract kernel_fd=1 absolute=1 flags=20100 fd=15 errno=0 stat=0 mode=40777
+directory alias path=/dev/fd/14/playden fd=-1 errno=2 same_object=0 device=0 inode=0
+directory alias path=/proc/self/fd/14/playden fd=-1 errno=2 same_object=0 device=0 inode=0
+directory alias path=/proc/curproc/fd/14/playden fd=-1 errno=2 same_object=0 device=0 inode=0
+directory alias path=/proc/1028/fd/14/playden fd=-1 errno=2 same_object=0 device=0 inode=0
+end

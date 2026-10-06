@@ -1,0 +1,24 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-coordinator-host-test.log"
+  },
+  "focused_suite": {
+    "passed": 4,
+    "failed": 0
+  },
+  "sdk": "v0.43 coordinator and verifier static archives only",
+  "prospero_revision": "79cf85c065e49ae57679ff5babb88bd290b9e9e9",
+  "console_acceptance": false,
+  "production_writer_wired": false,
+  "files": {
+    "src/runtime/settings_publication.cpp": "1430dcbd814d4dd3d91b7ab47f9154f610a912645660b85b5b72ef11cdb8846b",
+    "src/runtime/settings_publication.h": "53f287a6a76d2ea7e54756e57afa2727451e1fe508440bfe335b48fa5b080216",
+    "src/platform/managed_file_lock.cpp": "bb53353284dd51b69449d995be109251a3cdaa755e417e9dd74f044ec6a83398",
+    "src/platform/managed_file_lock.h": "9d2cbe0809d05d7ce7d75e3e67f301306c5ce67feffd4f07e8814ff3207f4605",
+    "tests/runtime_settings_publication_test.cpp": "62ccd380711de2f3784d49d83315ae39b895b30aa8dc27799b79dbb649b4a5b2",
+    "tests/settings_publication_fixture.h": "ec18197560aa4632ec45f12041e88cd76c1219bb262e4cc20873d3cb00e93b49"
+  },
+  "host_process_death_boundaries": 7
+}

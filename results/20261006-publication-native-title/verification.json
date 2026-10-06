@@ -1,0 +1,11 @@
+{
+  "host_command": "cmake --build build/homebrew-host -j4 && ctest --test-dir build/homebrew-host --output-on-failure -j4",
+  "host_tests_passed": 102,
+  "host_tests_failed": 0,
+  "focused_python_tests_passed": 10,
+  "standalone_sdk_v042_build": "passed; not run on console",
+  "standalone_elf_sha256": "95b91c23122973dd83541f27e1c5ef7f3722750ef806af2a8a15f2e6dc9c062c",
+  "native_sdk_v043_build": "passed",
+  "normal_diagnostic_off_build": "passed",
+  "normal_eboot_sha256": "d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa"
+}

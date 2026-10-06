@@ -1,0 +1,16 @@
+{
+  "host_command": "cmake --build build/homebrew-host -j4; ctest --test-dir build/homebrew-host --output-on-failure -j4",
+  "host_tests_failed": 0,
+  "host_tests_passed": 103,
+  "independent_review": "not claimed; final Task C review remains pending",
+  "inputs": {
+    "cmake/HomebrewUI.cmake": "a4c7caec4236c6c8d99b1b189028b540d89165c3b69b7549957c4848099cc9c2",
+    "src/runtime/publication_backup.cpp": "d82c6822e1bf3d2b99b391c756b93784d363022eea53f62f74b09935aa017f46",
+    "src/runtime/publication_backup.h": "94c541dac17c8e339089bd1433d9a5cbacf90095425b4462e9c060e5f3d6ee45",
+    "tests/runtime_publication_backup_test.cpp": "94dd910f85136f8709b8916438f46aefc811e718198ae6b8adafe289b777b5d9"
+  },
+  "parent_base": "3d4febe8779e140cc0e4d2372f379510f63e60eb",
+  "sdk_command": "bash ../playden-ps5/scripts/with-env.sh cmake --build build/homebrew-ps5 --target playden_runtime_publication_backup -j4",
+  "sdk_scope": "SDK v0.43 static archive; not production publisher final link or native acceptance",
+  "warning_check": "c++ -std=c++17 -Wall -Wextra -Werror -Isrc -fsyntax-only src/runtime/publication_backup.cpp"
+}

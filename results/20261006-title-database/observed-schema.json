@@ -1,0 +1,6 @@
+[
+  [
+    "tbl_contentinfo",
+    "CREATE TABLE tbl_contentinfo (titleId TEXT NOT NULL,contentId TEXT,titleName TEXT COLLATE NOCASE,metaDataPath TEXT,lastAccessTime DATETIME,contentStatus INT,contentLocation INT,ps4parentalLevel INT,sortPriority INT,pathInfo INT,lastAccessIndex INT,dispLocation INT,uninstallable INT,ps4contentType INT,pathInfo2 INT,size INT,promoteTime DATETIME,installTime DATETIME,viewCategory TEXT,ps4disableLiveDetail INT,ps4serviceIdAddCont1 TEXT,ps4serviceIdAddCont2 TEXT,ps4serviceIdAddCont3 TEXT,ps4serviceIdAddCont4 TEXT,ps4serviceIdAddCont5 TEXT,ps4serviceIdAddCont6 TEXT,ps4serviceIdAddCont7 TEXT,hddLocation INT,externalHddAppStatus INT,mTime DATETIME,sizeOtherHdd INT,appFormatType INT,categoryType INT,ps4Attribute INT,pprAttribute3 INT,pprAttribute4 INT,attributeInternal INT,conceptId INT,localConceptId TEXT,pprDeeplinkUri TEXT,pprHubAppUri TEXT,platform INT,installStatus INT,snd0Info TEXT,icon0Info TEXT,pic0Info TEXT,pic1Info TEXT,discStatus INT,isTitleDiscInserted INT,pprAgeLevel TEXT,appType INT,primaryTitleSort INT,bgMatteType TEXT,bgImageId TEXT,appinfoContentType INT,contentBadgeType INT,is3rdPartyVideoApp INT,upgradePs5TitleIdList TEXT,packageLocation INT,AppInfoJson TEXT,PRIMARY KEY(titleId))"
+  ]
+]

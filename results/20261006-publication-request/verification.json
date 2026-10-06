@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-06",
+  "host_tests": {
+    "passed": 108,
+    "failed": 0,
+    "seconds": 26.86
+  },
+  "native_sdk": "v0.43",
+  "native_firmware": "13.60",
+  "native_pid": 1168,
+  "native_request_bytes": 770,
+  "native_fixture": "/data/playden/request-probe-1168",
+  "native_checks": [
+    "private-directory creation",
+    "request encode",
+    "exclusive durable write",
+    "durable reopen",
+    "exact roundtrip",
+    "overwrite refusal"
+  ],
+  "native_package_sha256": "93ba6a26b318927746ac532f19a46a48dc3265432640cd65ffba2fa11a58c827",
+  "native_log_sha256": "e37658c361ec468e273b55b0a4a5b44c1b2f3d1249618f93c09b325562079d9d",
+  "owner_sdk_archive_compiled": true,
+  "restoration": {
+    "restored": {
+      "eboot.bin": "d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa",
+      "playden-package.identity": "c7593741974bfd517df3335f9ecfe6b41a17fafd4f3c0f0432ca548a6921fb40"
+    },
+    "restored_modes": {
+      "eboot.bin": "0755",
+      "playden-package.identity": "0644"
+    },
+    "stopped_diagnostic_pid": 1168
+  },
+  "console_released": true,
+  "full_native_publication_tested": false,
+  "ready_update_request_handoff_complete": false,
+  "production_composition_complete": false
+}

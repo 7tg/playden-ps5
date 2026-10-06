@@ -270,6 +270,20 @@ void live_install_requests_and_projection() {
     check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Pause, "Pause goes to the service");
     model.UpdateInstalls({}, {{42, 600'000'000}});
     check(model.action("details:42") && has_row(model, "details-installed"), "a finished install shows Installed");
+    check(!has_row(model, "details-runtime"), "no runtime row before the runtime host reports");
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready,
+                        {{42, "Not prepared", "Makes a private bottle and its own PS5 title", true, false}});
+    check(model.action("details:42") && has_row(model, "details-runtime"), "an installed game offers Prepare");
+    activate(model, "details-runtime");
+    const auto prepare = model.TakeRuntimePrepareRequests();
+    check(prepare.size() == 1 && prepare[0] == 42, "Prepare goes to the runtime host");
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
+    check(model.action("details:42"), "details reopen");
+    check(model.state().installations.size() == 1 && !model.state().installations[0].runtime_ready, "preparing is not ready");
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Ready", "FAKE78001", false, true}});
+    model.UpdateInstalls({}, {{42, 600'000'000}});
+    check(model.state().installations[0].runtime_ready, "readiness survives install refreshes");
+    check(model.action("details:42"), "details reopen");
     check(model.action("focus:details-more") && model.action("cross"), "context opens");
     activate(model, "uninstall");
     activate(model, "confirm-destructive");

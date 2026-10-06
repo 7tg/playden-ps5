@@ -1,0 +1,10 @@
+2026-10-05T21:30:17Z graphics entry point probe starting
+2026-10-05T21:30:17Z graphics entry point result=0
+2026-10-05T21:30:17Z data grant starting
+2026-10-05T21:30:17Z session access stage=before-grant uid=1 euid=1 gid=1 egid=1 stat_error=0 file_uid=0 file_gid=0 mode=384 open_error=0
+2026-10-05T21:30:18Z session access stage=after-grant uid=0 euid=0 gid=0 egid=1 stat_error=0 file_uid=1 file_gid=0 mode=384 open_error=13
+2026-10-05T21:30:18Z session access stage=after-uid-restore uid=0 euid=1 gid=0 egid=0 stat_error=0 file_uid=1 file_gid=0 mode=384 open_error=0
+2026-10-05T21:30:19Z user service initialization starting
+2026-10-05T21:30:19Z user service result=0
+2026-10-05T21:30:19Z helper stage=complete status=0 error=0
+2026-10-05T21:30:19Z bootstrap launcher_ready=1 runtime_ready=1 error=

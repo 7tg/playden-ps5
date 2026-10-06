@@ -6,6 +6,7 @@
 #include "app/preferences.h"
 #include "library/organization.h"
 #include "library/model.h"
+#include "runtime/game_settings.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -56,6 +57,18 @@ struct LiveVolume {
     bool available = true;
     std::optional<std::uint64_t> total_bytes;
     std::optional<std::uint64_t> free_bytes;
+};
+// Live per-game runtime (private bottle and PS5 title) state, projected from the runtime host.
+struct LiveRuntimeGame {
+    GameId game_id = 0;
+    std::string status;   // short value, e.g. "Not prepared", "Preparing", "Ready"
+    std::string detail;   // why, or what happens next
+    bool can_prepare = false;
+    bool ready = false;
+    // Play: whether it can start now, and the current or last launch.
+    bool can_play = false;
+    std::string play_status;  // e.g. "Starting…", "Playing"; empty when idle
+    std::string play_detail;  // the last launch's outcome or refusal
 };
 // Live Steam Cloud save state for one game, projected from the cloud service.
 enum class CloudStatus { None, Checking, Syncing, Synced, UpToDate, Conflict, NeedsAccount, Unsupported, Failed };
@@ -200,18 +213,6 @@ struct Volume {
     std::uint64_t games_bytes = 0; // live: bytes of finished installs on this volume
 };
 
-struct Profile {
-    std::string id;
-    std::string name;
-    std::string summary;
-    std::string resolution = "1920x1080";
-    std::string frame_limit = "60";
-    bool vsync = true;
-    std::string launch_arguments;
-    bool is_default = false;
-    bool save_failed = false;
-};
-
 struct ModalEntry {
     std::string id;
     std::string title;
@@ -220,6 +221,7 @@ struct ModalEntry {
     int focused_action = 0;
     bool destructive = false;
     std::string body;  // explanatory text; empty uses the simulation's default wording
+    std::string setting_id;  // Game settings picker: the catalogue setting being chosen
 };
 
 struct Navigation {
@@ -287,12 +289,13 @@ struct State {
     std::vector<Volume> volumes;
     std::string default_volume_id;  // live: where new installs go
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
-    std::vector<Profile> profiles;
+    std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
+    std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
     Navigation navigation;
     EditorState editor;
     std::vector<Notice> notices;
-    std::map<GameId, std::string> selected_profiles;
-    std::map<GameId, Profile> custom_profiles;
+    // Per-game settings: preset and player overrides (see runtime/game_settings.h).
+    std::map<GameId, playden::runtime::GameSettingsRecord> game_settings;
     SessionState session = SessionState::Idle;
     RuntimeState runtime = RuntimeState::Unavailable;
     LogState log_state = LogState::Ready;
@@ -302,6 +305,7 @@ struct State {
     GameId session_game_id = 0;
     std::string session_error;
     bool reduced_motion = false;
+    bool title_store_suffix = false;  // PS5 titles named "<game> (Steam)"
     bool controller_connected = true;
     ControllerState controller;
     bool persistence_available = true;
@@ -328,7 +332,9 @@ struct ViewRow {
     bool enabled = true;
     bool selected = false;
     bool dangerous = false;
+    bool modified = false;  // Game settings: the player changed this value
     std::string section;  // Settings: the rail section the row belongs to
+    bool rail_only = false;  // Settings: the section's rail entry is the action (Quit Playden), no card
 };
 
 struct ViewData {
@@ -372,6 +378,12 @@ public:
     // Live mode: Steam Cloud save requests for the cloud service, and its state for display.
     [[nodiscard]] std::vector<CloudRequest> TakeCloudRequests();
     void UpdateCloud(const std::vector<LiveCloudGame>& games);
+    // Live mode: games to prepare (bottle + PS5 title), and the runtime state for display.
+    [[nodiscard]] std::vector<GameId> TakeRuntimePrepareRequests();
+    [[nodiscard]] std::vector<GameId> TakeRuntimePlayRequests();
+    [[nodiscard]] bool TakeRuntimeCleanupRequest();
+    void SetRuntimeLeftovers(std::size_t count);
+    void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
@@ -401,6 +413,15 @@ public:
     void PreferencesSaveResult(std::uint64_t revision, playden::StorageError error);
     bool TakePersistenceRetryRequest();
     [[nodiscard]] std::vector<ServiceAction> TakeServiceActions();
+    // Presets and recipes for the Game settings sheet (runtime/presets.json, runtime/recipes/).
+    void SetSettingsData(std::vector<playden::runtime::SettingsPreset> presets,
+                         std::vector<playden::runtime::GameRecipe> recipes);
+    void SetKitCapabilities(playden::runtime::KitCapabilities kit);
+    // Live mode: where per-game settings are kept (loaded now, saved on every change).
+    void SetGameSettingsFile(std::filesystem::path path);
+    // The recipe and effective settings the sheet shows for a game.
+    [[nodiscard]] const playden::runtime::GameRecipe& RecipeFor(GameId id) const;
+    [[nodiscard]] bool EffectiveSettingsFor(GameId id, playden::runtime::EffectiveSettings* settings) const;
 
     [[nodiscard]] const State& state() const noexcept { return state_; }
     [[nodiscard]] const ViewData& view() const noexcept { return view_; }
@@ -419,7 +440,17 @@ private:
     std::string last_error_;
     std::string pending_destructive_action_;
     std::string selected_volume_id_;
-    std::string selected_profile_id_;
+    std::vector<playden::runtime::SettingsPreset> settings_presets_;
+    std::map<std::uint32_t, playden::runtime::GameRecipe> recipes_;
+    mutable std::map<GameId, playden::runtime::GameRecipe> simulated_recipes_;
+    playden::runtime::KitCapabilities kit_;
+    std::set<std::string> expanded_settings_sections_;
+    std::string editing_setting_id_;
+    std::filesystem::path game_settings_file_;
+    std::map<GameId, playden::runtime::GameSettingsRecord> saved_game_settings_;
+    bool settings_save_failed_ = false;
+    bool settings_load_failed_ = false;
+    std::optional<playden::runtime::GameSettingsRecord> settings_opened_record_;  // for the close toast
     std::string editing_target_id_;
     std::uint64_t challenge_generation_ = 0;
     std::uint64_t cancelled_challenge_generation_ = 0;
@@ -427,6 +458,9 @@ private:
     std::uint64_t next_job_serial_ = 1;
     std::vector<ServiceAction> pending_service_actions_;
     std::vector<InstallRequest> pending_install_requests_;
+    std::vector<GameId> pending_runtime_prepare_requests_;
+    std::vector<GameId> pending_runtime_play_requests_;
+    bool pending_runtime_cleanup_ = false;
     bool library_catalog_received_ = false;
     // Live install events become notifications; the first snapshot is restored history, not an event.
     bool live_installs_seen_ = false;
@@ -488,6 +522,12 @@ private:
     void start_editor(std::string purpose, std::string value);
     void commit_editor();
     void advance_jobs();
+    [[nodiscard]] std::vector<std::string> game_settings_actions() const;
+    void refresh_game_settings();
+    bool can_change_game_settings();
+    void set_game_setting(const std::string& id, const std::string& value);
+    void announce_settings_saved();
+    [[nodiscard]] const playden::runtime::SettingsPreset* preset_for(GameId id) const;
     void start_logs();
     void finish_logs();
     void queue_service_action(ServiceAction action);

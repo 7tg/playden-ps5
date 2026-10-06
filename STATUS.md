@@ -1,10 +1,15 @@
 # Playden PS5 Launcher status and roadmap
 
-Updated 2026-10-05. **The connected-library v1 (MVP) is functionally complete** and verified with a real account on the PS5 ([connected run](results/20261005-connected-ps5/README.md)); native 4K60 was removed from the MVP by the user. The selected direct **ps5-homebrew-ui** presentation is merged and production authentication, library, offline cache, search, and persistence are implemented. Next: v2 management UI, v3 real downloads, then the prospero-win runtime milestone.
+Updated 2026-10-06. **Half-Life 2 installs, prepares and plays through Playden on the PS5 with its own private Wine bottle
+and its own PS5 title** ("Half-Life 2 (Steam)", FAKE78002), with sound, controller, saves and Steam Cloud checks. The
+prospero-win integration branch is merged into `main`. What remains is mostly maintenance (removal, update rollback)
+and final acceptance; see [Next session](#next-session).
 
-The asynchronous artwork slice is committed on `main` (see the artwork row below). The PS5 MCP tools are available in the current session; claim the console before use.
-
-Read [HANDOFF.md](HANDOFF.md) for exact worktree state, commands, ownership, and next steps. The [approved execution plan](docs/superpowers/plans/2026-10-04-foundation-to-connected-library.md) remains authoritative; the [execution ledger](docs/engineering/v1-progress.md) contains historical verification details.
+Evidence for the runtime work: [release kit and audio](results/20261006-release-kit/README.md),
+[Play from Playden](results/20261006-play-from-playden/README.md), [recovery UI](results/20261006-recovery-ui/README.md),
+[title name and icon](results/20261006-title-name-icon/README.md). The detailed integration handoff is
+[docs/engineering/2026-10-06-prospero-win-integration-handoff.md](docs/engineering/2026-10-06-prospero-win-integration-handoff.md)
+(its "Remaining work" list predates the items marked done below). [HANDOFF.md](HANDOFF.md) is historical (2026-10-04).
 
 ## Completed implementation
 
@@ -26,24 +31,45 @@ Read [HANDOFF.md](HANDOFF.md) for exact worktree state, commands, ownership, and
 | Notifications | Toasts for finished, failed (with reason) and removed installs, Cloud sync results and pending choices, controller loss/return; wait behind dialogs | Model tests; uninstall toast observed on the console |
 | Log viewer | Install, Cloud saves, sign-in and launch logs on the device (newest 128 KB, UTC-stamped, install lines carry the app ID); a download's log shows only that game and offers Retry | Model and reader tests; real install log viewed on the console |
 | Steam Cloud saves | On-demand sync from Details over CM `Cloud.*` service methods: `ufs` path mapping into the install and a prospero-win style prefix, content-based three-way merge, conflict and account-confirmation dialogs, backups before replacing local saves | Engine, service and model tests against a fake Steam Cloud; on the console the account's real Half-Life 2 saves downloaded (8 files) and a re-check was up to date. Uploads not run against the real account |
+| Per-game runtime (prospero-win) | Pinned `third_party/prospero-win` (`301246d`, per-game wrapper mode); hash-pinned release-clean kit (runtime `e16ec8f3-ps5-console-r1-neutral`, template `hl2-fresh-v16-neutral`, no host paths); private bottle per game under `/data/playden/games/<install>`; own PS5 title from FAKE78000–78999 with the game's name and Steam cover icon (optional " (Steam)" suffix) | Console: prepare, register, in-place runtime upgrade ("Update"), ~10 min of HL2 play over two sessions on the current kits, audio port `status=ok` with ~92% audible buffers, saves written, clean quit to Home |
+| Play and sessions | Details Play: worker preflight, main-thread handoff with a session ID, durable launch journal, wrapper session records; a title that stops without a record ends after 3 stopped polls; Play refused while a title is running | Console: Play → HL2 → save → quit → Playden reopens and ends the session |
+| Cloud around Play | Cloud uses the bottle; sync before Play (conflict stops Play for the player's choice; a failed check lets the player start without syncing); auto sync after a session; no transfer while the title runs | Console: the HL2 conflict stops Play (choice left to the player) |
+| Settings publication and recovery | Journaled settings publication with recovery; cleanup of unused settings requests; detect/repair a title that would refuse to start; "Registration pending" instead of resubmitting | Console runs in `results/20261006-*` |
 
-At `d237176`, the selected host suite passed **38/38**, legacy regression suite **21/21**, and selected PS5 compile/link/sign/package passed. The real graphical persistence restoration capture is in [persistence evidence](results/20261004-persistence-host/README.md). These results do not establish native lifecycle or physical-controller acceptance.
+## Next session
 
-## Remaining roadmap
+### Remaining roadmap (from the prospero-win roadmap and the integration handoff)
 
-| Order | Work | Completion evidence |
+Saves/Cloud migration from earlier locations is **not needed**: nothing has been released, so there is no legacy data to migrate.
+
+| Order | Work | Notes |
 | --- | --- | --- |
-| 1 | v3: real Steam downloads and management | Done on the console: real depot download, licensed-depot selection, journal resume after interruption, install record/file list, managed uninstall. app 140 installed (87 MB) and Half-Life 2 (app 220) installed (1,471 files, 5.77 GB, 4 depots) with a verified pause/resume; both appear in the Recently Installed shelf. [v3 evidence](results/20261005-first-real-install/README.md) |
-| 2 | prospero-win packaging and install design | Survey plus a console runtime attempt: [investigation](docs/engineering/prospero-win-investigation.md). Playden-side profile drafting implemented and tested (`src/runtime/prospero_profile.*`). Open decisions remain for the prospero-win owner (handoff, template prefix, `/data` access, Steamworks) |
-| 3 | Runtime milestone: launch through prospero-win | **Blocked by prospero-win, not Playden.** Fixed the execute-bit packaging issue so PW starts; PW then stops at its own firmware-gated Lapy `/data` helper (`helper_errno=54`, firmware 12.02 only). Playden drafts a valid PW profile; the remaining prefix + LaunchApp handoff waits on a PW helper build that completes on this firmware |
-| — | Native 4K60 performance | Removed from the MVP by the user (2026-10-05); kept as a separate, unscheduled performance goal |
+| 1 | 20+ minute HL2 gameplay run on the current build | Only an older build had a 20-minute session. Capture pacing evidence, save, restart and reload. Console time only |
+| 2 | Fresh independent review of the whole integration | Earlier reviews covered slices; the final composition has not had one |
+| 3 | M4: remove a prepared game | Uninstall removes only the Steam download, not the PS5 title or bottle. Native unregister returned EBUSY while Playden was open: first find a supported after-exit path, otherwise write a separate reviewed design for a narrow helper. Keep saves by default |
+| 4 | M4: kit update rollback | In-place upgrade works; a failed update's rollback is not built or tested |
+| 5 | Interruption / power-loss qualification | Deferred by the user: cold restart mid-preparation and retry; settings reader lease against the publisher over a full title run |
+| 6 | Cloud and storage cases on the console | Account confirmation, USB-download adoption, unavailable media. The HL2 Cloud conflict is the player's choice (do not resolve it for them) |
+| 7 | Clean-checkout reproduction | prospero-win commits through `301246d` (branch `feat/playden-per-game-title` in `../ps5-homebrew/prospero-win`) and the kit exist only locally; publishing waits for the user |
+| 8 | Still unported from the macOS app | First-run setup, reset-app-data UI, ambient backdrop, other stores; more games beyond the HL2 recipe (others show "Untested") |
+| 9 | Minor | `tools/console_kit_upload.py --replace` names the set-aside kit after the new kit's hash |
 
-The [macOS feature ports](docs/superpowers/plans/2026-10-05-macos-feature-ports.md) (games storage, notifications, log viewer, Steam Cloud saves) are implemented; Cloud sync around a game launch waits for the runtime handoff. Still unported: runtime-dependent per-game settings, profiles, display and input; first-run setup; reset-app-data UI; ambient backdrop; other stores.
+### After moving the project folder
 
-Installation/download/session management screens currently provide explicit development simulations. Real installation and Wine/runtime integration are not implemented yet. The Wine implementation will be `../ps5-homebrew/prospero-win`; roadmap step 2 covers how downloaded games are packaged and installed for it.
+- Submodules use relative git dirs and move cleanly. CMake build directories under `build/` cache absolute paths: reconfigure (or delete them) after the move.
+- The build still defaults to sibling checkouts by absolute path: `scripts/build-homebrew-ps5.sh` (`PLAYDEN_PS5_ENV`, `PLAYDEN_PS5_DEPS_DIR`, pointing at `../playden-ps5` and `../rmlfocus/.deps`) and `cmake/HomebrewUI.cmake` (stb from `../rmlfocus/third_party/stb`). Set the environment/cache variables or update the defaults if those siblings move or stay behind.
+- `.worktrees/prospero-win-per-game` and `.worktrees/prospero-foundation-prx` are worktrees of `../ps5-homebrew/prospero-win` and `../playden-ps5/.deps/prospero-foundation`. After the move run `git worktree repair <new path>` in each of those repositories.
+- The `feat/game-settings` worktree lives under `~/.chauffeur/worktrees/…`; after the move run `git worktree repair` from the new checkout.
+
+### Console notes
+
+- After a PS5 restart: re-jailbreak (Media > WebKitAutoloader), and make sure kstuff is loaded (without it titles fail with CE-100008-9).
+- If FTP (port 2120) stays closed, delete the stale `/data/zftpd/instance.pid` and start zftpd through the web file manager API on :8888 (`/api/delete`, `/api/launch-elf`).
+- Only whoever launched an app (DualSense or MCP) controls it. Claim the console before use and release it when idle. Never sign out.
+- Tools: `tools/console_kit_upload.py build/kits/hl2-fw1360-dev1 --replace`, `tools/console_title_deploy.py deploy build/homebrew-ps5/dist/FAKE77031 --backup <dir>`. The bottle folders are private; Playden copies the newest session report to `/data/homebrew/FAKE77031/logs/title-<TITLE>.log` when it starts.
 
 ## Working constraints
 
-Work on `main`, commit coherent increments, use the agent-team skill and independent review, and preserve the selected UI. Do not rebuild the old RmlFocus presentation or restore its stashed WIP. Keep reusable selected-renderer fixes in ps5-homebrew-ui and product behavior here.
+Work on a feature branch and merge to `main`; commit coherent increments and preserve the selected UI. Never push anywhere until the user says so. Do not rebuild the old RmlFocus presentation or restore its stashed WIP. Keep reusable selected-renderer fixes in ps5-homebrew-ui and product behavior here.
 
 The launcher title is **FAKE77031**. Coordinate with the runtime effort before using the shared PS5. The PS5 MCP is available: claim the console before use, refresh the claim during long waits, and release it when done. A successful build or upload is never console acceptance.

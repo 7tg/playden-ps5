@@ -143,6 +143,26 @@ void PreferencesPersistAcrossStoreInstances() {
   Check(loaded.diagnostic.empty(), "valid preferences have no diagnostic");
 }
 
+void TitleStoreSuffixPersistsAndVersionOneStillLoads() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  playden::Preferences preferences;
+  preferences.title_store_suffix = true;
+  Check(store.Save(preferences).ok(), "suffix preference saves");
+  const auto loaded = store.Load();
+  Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.title_store_suffix &&
+            !loaded.preferences.reduce_motion,
+        "title store suffix survives restart");
+  const std::string old_format = "version=1\nreduce_motion=1\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(old_format.begin(), old_format.end())).ok(),
+        "version 1 fixture is written");
+  const auto legacy = store.Load();
+  Check(legacy.status == playden::PreferencesLoadStatus::kLoaded && legacy.preferences.reduce_motion &&
+            !legacy.preferences.title_store_suffix,
+        "version 1 preferences still load, without the suffix");
+}
+
 void CorruptPreferencesRestoreDefaultsWithVisibleDiagnostic() {
   TemporaryDirectory directory;
   playden::Storage storage(directory.path());
@@ -185,6 +205,7 @@ int main() {
   MissingPreferencesUseDefaultsWithoutAnError();
   PreferencesPersistAcrossStoreInstances();
   CorruptPreferencesRestoreDefaultsWithVisibleDiagnostic();
+  TitleStoreSuffixPersistsAndVersionOneStillLoads();
 
   if (failures != 0) {
     std::fprintf(stderr, "%d preference test assertion(s) failed\n", failures);

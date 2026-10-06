@@ -9,7 +9,7 @@
 namespace playden::steam {
 
 // CloudRunner over the Steam Cloud engine. A game's Wine prefix (for Windows user folders) lives
-// under its state folder so saves outlive an uninstall.
+// at the explicitly supplied bottle path, with a legacy state-folder fallback.
 class SteamCloudRunner final : public CloudRunner {
  public:
   SteamCloudRunner(CmClient& cm, HttpClient& http);
@@ -26,7 +26,11 @@ class SteamCloudRunner final : public CloudRunner {
 
  private:
   cloud::CloudSync sync_;
-  std::map<GameId, cloud::CloudPlan> plans_;  // the last check per game, for Apply
+  struct PendingPlan {
+    cloud::CloudPlan plan;
+    cloud::GameSaveLocation location;
+  };
+  std::map<GameId, PendingPlan> plans_;  // bind Apply to the location actually checked
   std::function<void(GameId, const char*, const std::string&)> log_;
   GameId current_app_ = 0;  // the game being checked or synced, for traces
 };

@@ -1,0 +1,5 @@
+begin pid=761
+payload_directory_fsync=0 errno=0 random_bytes=16
+route=/api/v1/games http=200 body_bytes=4458 inventory_body_redacted=true
+query title=FAKE78001 state=1 path=
+end result=0

@@ -1,0 +1,139 @@
+#
+# A user thread receives a fatal signal
+#
+# signal: 11 (SIGSEGV)
+# thread ID: 101866
+# thread name: eboot.bin
+# proc ID: 535
+# proc name: eboot.bin
+# reason: page fault (user read instruction, page not present)
+# fault address: 0000000000000000
+#
+# registers:
+# rax: 0000000000000000  rbx: 0000000000000033
+# rcx: 0000000080020000  rdx: 00000007eeffb9a0
+# rsi: 000000020111d780  rdi: 00000002019cdea1
+# rbp: 00000007eeffbd80  rsp: 00000007eeff91b8
+# r8 : 0084000000000067  r9 : 00000002013e600e
+# r10: ff00fffffffffff8  r11: 0000000000000212
+# r12: 0000000000000008  r13: 00000007eeffb6b0
+# r14: 00000002013e5fc0  r15: 0000000000000039
+# rip: 0000000000000000  eflags: 00010202
+# lbf: ffffffffffffffff  lbt: ffffffffffffffff
+# lb0: ffffffffffffffff  lb1: ffffffffffffffff
+# lb2: ffffffffffffffff  lb3: ffffffffffffffff
+# lb4: ffffffffffffffff  lb5: ffffffffffffffff
+# lb6: ffffffffffffffff  lb7: ffffffffffffffff
+#
+# backtrace:
+copyin: eboot.bin has nonsleeping lock
+# 000000000040015b
+# 0000000000000000
+#
+# dynamic libraries:
+# /app0/eboot.bin
+#  xotext: 0000000000400000:0000000000fa8000 nsegs: 4
+#  fingerprint: e41ebe9171a56db4f5888264b3aacd8500000000
+# /sWlXnh546V/common/lib/libkernel.sprx
+#  xotext: 0000000800000000:0000000800048000 nsegs: 4
+#  fingerprint: dc088297572186a79f13c8e227026d0d00000000
+# /sWlXnh546V/common/lib/libSceLibcInternal.sprx
+#  xotext: 00000008000a4000:00000008001cc000 nsegs: 4
+#  fingerprint: acfdf1b620da82b65f2b9093d5a0a9c100000000
+# /sWlXnh546V/common/lib/libSceSysmodule.sprx
+#  xotext: 000000080026c000:0000000800278000 nsegs: 4
+#  fingerprint: 8c45c3c069fbe1d95e9a88f2f62aa8cd00000000
+# /sWlXnh546V/common/lib/libSceAmpr.sprx
+#  xotext: 0000000800298000:00000008002a0000 nsegs: 4
+#  fingerprint: aec7d89e504e6023892d713d5cba451400000000
+# /app0/sce_module/libc.prx
+#  xotext: 0000000080000000:00000000800cc000 nsegs: 4
+#  fingerprint: 5f73a9defd7d02be9079d4d6dbd9617455b4d62b
+# /sWlXnh546V/common/lib/libSceNet.sprx
+#  xotext: 00000008002ac000:00000008002e0000 nsegs: 4
+#  fingerprint: f25b9a2e61053dc416a646ceab6632ad00000000
+# /sWlXnh546V/common/lib/libSceIpmi.sprx
+#  xotext: 0000000800494000:000000080049c000 nsegs: 4
+#  fingerprint: 96d39272d7c609cff76f753d276da21500000000
+# /sWlXnh546V/common/lib/libSceMbus.sprx
+#  xotext: 00000008004b8000:00000008004c0000 nsegs: 4
+#  fingerprint: a2c5439419bf946a79a6f0bce126be2000000000
+# /sWlXnh546V/common/lib/libSceRegMgr.sprx
+#  xotext: 00000008004cc000:00000008004d0000 nsegs: 4
+#  fingerprint: 0b245022e8bc9934e28442182b3fcbc900000000
+# /sWlXnh546V/common/lib/libSceRtc.sprx
+#  xotext: 00000008004dc000:00000008004e0000 nsegs: 4
+#  fingerprint: e103bd528a759575de48c8805857b2f700000000
+# /sWlXnh546V/common/lib/libSceRazorCpu.sprx
+#  xotext: 00000008004ec000:00000008004f8000 nsegs: 4
+#  fingerprint: d57f718fa5b8959d1eecc424ccd5072100000000
+# /sWlXnh546V/common/lib/libSceAvSetting.sprx
+#  xotext: 0000000800508000:000000080051c000 nsegs: 4
+#  fingerprint: 4f2439c76201d2d1e7376b296ca1a7c200000000
+# /sWlXnh546V/common/lib/libSceVideoOut.sprx
+#  xotext: 000000080052c000:000000080054c000 nsegs: 4
+#  fingerprint: f80b437cdf7237ec46c67e1e86dde55b00000000
+# /sWlXnh546V/common/lib/libSceAgcDriver.sprx
+#  xotext: 0000000800564000:0000000800570000 nsegs: 4
+#  fingerprint: fcf82fa66a1664585ed1616a807e039400000000
+# /sWlXnh546V/common/lib/libSceAgc.sprx
+#  xotext: 0000000800588000:00000008005a0000 nsegs: 4
+#  fingerprint: 5e68175c31f4242884bd66d2ad5bce9a00000000
+# /sWlXnh546V/common/lib/libSceAudioOut.sprx
+#  xotext: 00000008005d4000:0000000800628000 nsegs: 4
+#  fingerprint: 639361d1b5fd08537b7910ea84bd106200000000
+# /sWlXnh546V/common/lib/libSceAudioIn.sprx
+#  xotext: 00000008009ac000:00000008009b4000 nsegs: 4
+#  fingerprint: 8fffd48e6389f4de9ede127590db49ab00000000
+# /sWlXnh546V/common/lib/libSceAjmi.sprx
+#  xotext: 00000008009c0000:00000008009c4000 nsegs: 4
+#  fingerprint: e3f558685353523bd9ad72d0fffd8f7500000000
+# /sWlXnh546V/common/lib/libSceAjm.native.sprx
+#  xotext: 00000008009d0000:00000008009dc000 nsegs: 4
+#  fingerprint: f14e37ba7b65da644ce56b54e039d14d00000000
+# /sWlXnh546V/common/lib/libScePad.sprx
+#  xotext: 00000008009f8000:0000000800a14000 nsegs: 4
+#  fingerprint: 087ecf8c6ab9ffdd4f497efaa261e6a700000000
+# /sWlXnh546V/common/lib/libSceNetCtl.sprx
+#  xotext: 0000000800a2c000:0000000800a34000 nsegs: 4
+#  fingerprint: a54bf0f72669bfd3d5262a7976da483900000000
+# /sWlXnh546V/common/lib/libSceSsl.sprx
+#  xotext: 0000000800a40000:0000000800b34000 nsegs: 4
+#  fingerprint: caf692eeab7cf888e48eb362f6fcc14400000000
+# /sWlXnh546V/common/lib/libSceHttpCache.sprx
+#  xotext: 0000000800bac000:0000000800bf4000 nsegs: 4
+#  fingerprint: 172f95bdc19fd462e743ec493e9037e700000000
+# /sWlXnh546V/common/lib/libSceHttp.sprx
+#  xotext: 0000000800c0c000:0000000800c3c000 nsegs: 4
+#  fingerprint: fca93e922486f48895b5485fb413c10000000000
+# /sWlXnh546V/common/lib/libSceHttp2.sprx
+#  xotext: 0000000800c54000:0000000800c80000 nsegs: 4
+#  fingerprint: 42063484c7d964df53b85acc2e1af58e00000000
+# /sWlXnh546V/common/lib/libSceNpCommon.sprx
+#  xotext: 0000000800c94000:0000000800cc8000 nsegs: 4
+#  fingerprint: 112fe1df76b730a7eeef45fea6f4c9b900000000
+# /sWlXnh546V/common/lib/libSceNpManager.sprx
+#  xotext: 0000000800ce4000:0000000800d28000 nsegs: 4
+#  fingerprint: 32c4520ba59a39a3872643ea48d68b5800000000
+# /sWlXnh546V/common/lib/libSceNpGameIntent.sprx
+#  xotext: 0000000800d48000:0000000800d4c000 nsegs: 4
+#  fingerprint: 232146f91a690ef7b25bd7b4c839c2bb00000000
+# /sWlXnh546V/common/lib/libSceNpWebApi2.sprx
+#  xotext: 0000000800d58000:0000000800d78000 nsegs: 4
+#  fingerprint: 294f847e5fa259ca461b5512abfd205600000000
+# /sWlXnh546V/common/lib/libSceSaveData.native.sprx
+#  xotext: 0000000800d88000:0000000800dbc000 nsegs: 4
+#  fingerprint: a45c4ceb698e39faf6d68a6ccd31c5f600000000
+# /sWlXnh546V/common/lib/libSceSystemService.sprx
+#  xotext: 0000000800dd4000:0000000800e00000 nsegs: 4
+#  fingerprint: 1b72a8d2c8a28fb2cbc60e1f0fccc84e00000000
+# /sWlXnh546V/common/lib/libSceUserService.sprx
+#  xotext: 0000000800e28000:0000000800e38000 nsegs: 4
+#  fingerprint: bbdedf0423ebe6f6d6dd6d79b51c980300000000
+# /sWlXnh546V/common/lib/libSceCommonDialog.sprx
+#  xotext: 0000000800e48000:0000000800e4c000 nsegs: 4
+#  fingerprint: 22568759342d23850e6a3e1bdbe11d7d00000000
+# /sWlXnh546V/common/lib/libSceSysUtil.sprx
+#  xotext: 0000000800e58000:0000000800e5c000 nsegs: 4
+#  fingerprint: b0a877ec09c7a685bbbede67e1405fc000000000
+mDBG: Sending signal(pid: 535, tid: 101866, signo: 0xb)

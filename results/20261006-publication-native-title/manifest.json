@@ -1,0 +1,59 @@
+{
+  "artifacts": {
+    "eboot.bin": "78fe0adb3793cbbb04ffc599c11c31db10749725e1eeb34559034d2740e07456",
+    "playden-package.identity": "ca994c40550d6716b9813785f1bd760b5cbfb346eacc0a0dfd2aaee1430cccdf"
+  },
+  "authored_inputs": {
+    "cmake/HomebrewPS5.cmake": "51b04ba7563acca9acb05afe7f5f775246773c93d1fde7c7511b0be4e4963a78",
+    "probes/publication-acceptance/main.c": "0debaf3f9ec6cc23fd31735a84747be7ed380c6df52923f1079d8ffb5ebed712",
+    "src/platform/ps5/file_shims.c": "c69e683e1cf370895039c87155d1c4a420a71a9c1cebf4d3410e17c24bebd9bd",
+    "src/platform/ps5/title_contract_probe.cpp": "c549150d907dbc75616eff4d119aaa9a95fc7cb86f33ff529b63dd4a46c6e258"
+  },
+  "command": "bash ../playden-ps5/scripts/with-env.sh cmake --build build/homebrew-ps5-publication-native --target playden-homebrew-ps5-package -j4",
+  "fixture_title_id": "FAKE78997",
+  "nonce": "7489667744b2d7b8",
+  "notes": [
+    "Cleanup native checked unlink/rmdir/fsync all returned zero. FTP listing returned 451 and is not independent absence proof.",
+    "Normal preview restored with byte-for-byte FTP readback; restoration.json binds actual prior hashes."
+  ],
+  "parent_base": "80c39770ade93c7f4fa0f24fad47112c1dc3a2f0",
+  "parent_source_dirty": true,
+  "pinned_guard_inputs": {
+    "native/pw_title_publication_native.c": "d2e36daaeffe8d72d31f9281d5fc34a8167bb4606e1f031bff53dcb0237e1844",
+    "native/pw_title_publication_ps5_lock.c": "d04b40196eb9e716d3932f3ecc29913c9011915dee9516c2afc610904e987092",
+    "src/pw_app_profile.c": "90480ad125be969879863743a9d629f00dc07346604173de93b62d2decd49781",
+    "src/pw_game_profile.c": "f970d71d465d0b471d8a1f70715227f091dfcb1cf702690b1f6c290d21aeeee2",
+    "src/pw_profile_catalog.c": "93f204bb82165d044e5abf3d28eae3b8cb4e203afa7123fbaeeae309068c99d3",
+    "src/pw_publication_sha256.c": "60c3b53e9ad6737cff5122722b5d35d4b1abca60dcef3c717723daa314dffaf4",
+    "src/pw_title_launch.c": "b9a283eb51b397ccb00f2ab374ed95ac4ce3db8a999bffb1d880d677ffabded1",
+    "src/pw_title_publication.c": "7365bab7563e3c0c8328e5a379dae7ac79aec0e6ed599e0a2a664e5099cafb3e",
+    "src/pw_wine_launch.c": "0b87732d4124e99fa98eb782fdb3cd53e7106ea9b85fcba74c3da98afe0d27a8",
+    "third_party/mbedtls-publication/library/sha256.c": "632672d0c954d8bc0e20fdc8370c9f1725f3ffc5fcdaacc14949e42a1b5424d7"
+  },
+  "prospero_revision": "bde4b394a8db20cc243e8dc32945adb0dccfe2a7",
+  "results": {
+    "cleanup": {
+      "fixed_inventory_removed": true,
+      "pass": 1,
+      "pid": 1113
+    },
+    "reader": {
+      "admission_rc": 0,
+      "errstage": -1,
+      "euid": 1,
+      "grant": 1,
+      "lookup_rc": 0,
+      "pid": 1102,
+      "symbol_present": 1
+    },
+    "writer": {
+      "exclusive_lock_rc": 0,
+      "pid": 1107
+    }
+  },
+  "schema": "playden-native-publication-diagnostic/1",
+  "scope": "native Playden title after Lapy grant; no Wine or concurrent-process/lifetime acceptance",
+  "sdk": "v0.43; Playden native title toolchain, not foundation v0.42 wrapper",
+  "sdk_path": "/Users/leolobato/Documents/Projetos/Personal/GameNative/playden-ps5/.deps/ps5-payload-sdk",
+  "title_id": "FAKE77031"
+}

@@ -1,0 +1,39 @@
+{
+  "patched_helper": {
+    "path": "../ps5-homebrew/PS5-Lapy-JB-Daemon/build/owned_root_helper-FAKE77031/lapy.elf",
+    "sha256": "33c42097d30af928011ac415daa04b3ad10e9fe8f1bf4586bb283a1d2ded4938",
+    "source_base": "611fa5f7ed46cdde7094b764168390ab5c4e89f8",
+    "exact_title_build_extension": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9"
+  },
+  "native_diagnostic": {
+    "path": "build/homebrew-ps5/dist/FAKE77031/eboot.bin",
+    "sha256": "4c00e3a15fb787a7342ddd241d45410d0fab777fbbabd4bc00f7f9d44607086d",
+    "purpose": "Final TitleBackend public check_flag=1, developer handoff probe"
+  },
+  "disposable_title": {
+    "path": "build/title-contract/FAKE78000/eboot.bin",
+    "sha256": "fe94197a033afa7aa34211062d28727b21fc38f05e15031f7429fdabd3e6f09d"
+  },
+  "normal_package": {
+    "path": "build/homebrew-ps5/dist/FAKE77031/eboot.bin",
+    "sha256": "8d2e0eae0a96fcf1a3629ea3f151b641b443ac7219762030d70be83815df2585",
+    "console_verified": "Normal Playden Home rendered after restore; probe OFF"
+  },
+  "original_probe_reproduction": {
+    "sha256": "713fffc424725906048a9936ccf810b447c7008eb14ad3aaae8d9d793c500e12",
+    "result": "Earlier pid519 reproduction CE-108255-1 at17:05:44UTC; no fault instruction captured in that attempt"
+  },
+  "original_fault_capture": {
+    "original_eboot_sha256": "713fffc424725906048a9936ccf810b447c7008eb14ad3aaae8d9d793c500e12",
+    "utc": "2026-10-05T17:12:40Z",
+    "title_id": "FAKE77031",
+    "pid": 535,
+    "signal": "SIGSEGV",
+    "fault_address": "0x0",
+    "rip": "0x0",
+    "capture_payload_path": "/data/pldmgr/payloads/playden-kernel-log-probe/playden-kernel-log-probe.elf",
+    "capture_remote_path": "/data/playden/logs/kernel-capture-LtC7Sg",
+    "full_capture_sha256": "379af4353f7595bbfc28fd48481fc04d0971093c8e2c4c3b730e957f8dcb7f89",
+    "limitations": "Replayed untouched original artifact after fix development, before restoring fixed executable; first historical trace not recovered; exact failing import not symbolized"
+  }
+}

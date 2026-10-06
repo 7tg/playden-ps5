@@ -24,7 +24,8 @@ target_compile_definitions(playden_library PRIVATE UTF8PROC_STATIC)
 target_compile_features(playden_library PUBLIC cxx_std_17)
 
 add_library(playden_storage STATIC
-    "${CMAKE_SOURCE_DIR}/src/platform/storage.cpp")
+    "${CMAKE_SOURCE_DIR}/src/platform/storage.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp")
 target_include_directories(playden_storage PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_storage PUBLIC cxx_std_17)
 target_link_libraries(playden_library PUBLIC playden_storage)
@@ -63,7 +64,144 @@ target_include_directories(playden_persistence_service PUBLIC "${CMAKE_SOURCE_DI
 target_compile_features(playden_persistence_service PUBLIC cxx_std_17)
 target_link_libraries(playden_persistence_service PUBLIC playden_preferences playden_library Threads::Threads)
 
+add_library(playden_game_paths STATIC "${CMAKE_SOURCE_DIR}/src/steam/backend/game_path.cpp")
+target_include_directories(playden_game_paths PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_game_paths PUBLIC cxx_std_17)
+
+add_library(playden_runtime_installs STATIC "${CMAKE_SOURCE_DIR}/src/runtime/game_install.cpp")
+target_include_directories(playden_runtime_installs PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_installs PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_installs PUBLIC playden_storage playden_steam_protocol playden_game_paths)
+
+add_library(playden_runtime_install_service STATIC "${CMAKE_SOURCE_DIR}/src/runtime/install_service.cpp")
+target_include_directories(playden_runtime_install_service PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_install_service PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_install_service PUBLIC playden_runtime_installs)
+
+add_library(playden_managed_directory STATIC
+    "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/managed_file_lock.cpp")
+target_include_directories(playden_managed_directory PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_managed_directory PUBLIC cxx_std_17)
+target_link_libraries(playden_storage PUBLIC playden_managed_directory)
+if(PLAYDEN_PLATFORM_PS5)
+    target_compile_definitions(playden_managed_directory PRIVATE PLAYDEN_PLATFORM_PS5=1)
+endif()
+
+add_library(playden_runtime_private_directories STATIC "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp")
+target_include_directories(playden_runtime_private_directories PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_private_directories PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_private_directories PUBLIC playden_managed_directory)
+
+add_library(playden_runtime_package_installer STATIC "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp")
+target_include_directories(playden_runtime_package_installer PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_package_installer PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_package_installer PUBLIC playden_runtime_install_service playden_runtime_private_directories)
+
+add_library(playden_runtime_launch_service STATIC "${CMAKE_SOURCE_DIR}/src/runtime/launch_service.cpp")
+target_include_directories(playden_runtime_launch_service PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_launch_service PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_launch_service PUBLIC playden_runtime_install_service)
+
+add_library(playden_runtime_session_reconciler STATIC
+    "${CMAKE_SOURCE_DIR}/src/runtime/session_reconciler.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/session_storage.cpp")
+target_include_directories(playden_runtime_session_reconciler PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_session_reconciler PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_session_reconciler PUBLIC playden_runtime_install_service playden_storage
+    PRIVATE playden_steam_protocol)
+
+add_library(playden_native_access STATIC
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_access.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_access_posix.cpp")
+target_include_directories(playden_native_access PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_native_access PUBLIC cxx_std_17)
+
 if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(managed_file_lock_test
+        "${CMAKE_SOURCE_DIR}/tests/managed_file_lock_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_file_lock.cpp")
+    target_compile_definitions(managed_file_lock_test PRIVATE flock=playden_test_flock)
+    target_link_libraries(managed_file_lock_test PRIVATE playden_managed_directory)
+    add_test(NAME managed_file_lock COMMAND managed_file_lock_test)
+    add_executable(managed_file_lock_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/managed_file_lock_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_file_lock.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(managed_file_lock_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_link_libraries(managed_file_lock_native_policy_test PRIVATE playden_managed_directory)
+    add_test(NAME managed_file_lock_native_policy COMMAND managed_file_lock_native_policy_test)
+    add_executable(durable_storage_test "${CMAKE_SOURCE_DIR}/tests/durable_storage_test.cpp")
+    target_link_libraries(durable_storage_test PRIVATE playden_storage ${CMAKE_DL_LIBS})
+    add_test(NAME durable_storage COMMAND durable_storage_test)
+    add_executable(durable_storage_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/durable_storage_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(durable_storage_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_link_libraries(durable_storage_native_policy_test PRIVATE playden_storage ${CMAKE_DL_LIBS})
+    add_test(NAME durable_storage_native_policy COMMAND durable_storage_native_policy_test)
+    add_executable(managed_directory_test "${CMAKE_SOURCE_DIR}/tests/managed_directory_test.cpp")
+    target_link_libraries(managed_directory_test PRIVATE playden_managed_directory)
+    add_test(NAME managed_directory COMMAND managed_directory_test)
+    add_executable(runtime_private_directories_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_private_directories_native_policy_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_include_directories(runtime_private_directories_native_policy_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_compile_features(runtime_private_directories_native_policy_test PRIVATE cxx_std_17)
+    target_compile_definitions(runtime_private_directories_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    add_test(NAME runtime_private_directories_native_policy COMMAND runtime_private_directories_native_policy_test)
+    add_executable(runtime_session_reconciler_test "${CMAKE_SOURCE_DIR}/tests/runtime_session_reconciler_test.cpp")
+    target_link_libraries(runtime_session_reconciler_test PRIVATE playden_runtime_session_reconciler)
+    add_test(NAME runtime_session_reconciler COMMAND runtime_session_reconciler_test)
+    add_executable(runtime_session_storage_test "${CMAKE_SOURCE_DIR}/tests/runtime_session_storage_test.cpp")
+    target_link_libraries(runtime_session_storage_test PRIVATE playden_runtime_session_reconciler)
+    add_test(NAME runtime_session_storage COMMAND runtime_session_storage_test)
+    add_executable(runtime_session_storage_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_session_storage_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/session_storage.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp")
+    target_compile_definitions(runtime_session_storage_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_link_libraries(runtime_session_storage_native_policy_test PRIVATE playden_runtime_session_reconciler playden_steam_protocol)
+    add_test(NAME runtime_session_storage_native_policy COMMAND runtime_session_storage_native_policy_test)
+    add_executable(runtime_launch_service_test "${CMAKE_SOURCE_DIR}/tests/runtime_launch_service_test.cpp")
+    target_link_libraries(runtime_launch_service_test PRIVATE playden_runtime_launch_service ${CMAKE_DL_LIBS})
+    add_test(NAME runtime_launch_service COMMAND runtime_launch_service_test)
+    add_executable(runtime_launch_service_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_launch_service_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/launch_service.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(runtime_launch_service_native_policy_test PRIVATE
+        PLAYDEN_PLATFORM_PS5=1 PLAYDEN_TEST_DURABLE_FAULTS=1 fsync=playden_test_fsync)
+    target_link_libraries(runtime_launch_service_native_policy_test PRIVATE playden_runtime_launch_service ${CMAKE_DL_LIBS})
+    add_test(NAME runtime_launch_service_native_policy COMMAND runtime_launch_service_native_policy_test)
+    add_executable(runtime_package_installer_test "${CMAKE_SOURCE_DIR}/tests/runtime_package_installer_test.cpp")
+    target_link_libraries(runtime_package_installer_test PRIVATE playden_runtime_package_installer)
+    add_test(NAME runtime_package_installer COMMAND runtime_package_installer_test)
+    add_executable(runtime_package_installer_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_package_installer_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
+    target_compile_definitions(runtime_package_installer_native_policy_test PRIVATE
+        PLAYDEN_PLATFORM_PS5=1 PLAYDEN_TEST_AT_UNAVAILABLE=1)
+    target_link_libraries(runtime_package_installer_native_policy_test PRIVATE playden_runtime_install_service)
+    add_test(NAME runtime_package_installer_native_policy COMMAND runtime_package_installer_native_policy_test)
+    add_executable(runtime_install_service_test "${CMAKE_SOURCE_DIR}/tests/runtime_install_service_test.cpp")
+    target_link_libraries(runtime_install_service_test PRIVATE playden_runtime_install_service)
+    add_test(NAME runtime_install_service COMMAND runtime_install_service_test)
+    add_executable(native_access_test "${CMAKE_SOURCE_DIR}/tests/native_access_test.cpp")
+    target_link_libraries(native_access_test PRIVATE playden_native_access)
+    add_test(NAME native_access COMMAND native_access_test)
+    add_executable(native_access_posix_test "${CMAKE_SOURCE_DIR}/tests/native_access_posix_test.cpp")
+    target_link_libraries(native_access_posix_test PRIVATE playden_native_access)
+    add_test(NAME native_access_posix COMMAND native_access_posix_test)
+    add_executable(runtime_game_install_test "${CMAKE_SOURCE_DIR}/tests/runtime_game_install_test.cpp")
+    target_link_libraries(runtime_game_install_test PRIVATE playden_runtime_installs ${CMAKE_DL_LIBS})
+    add_test(NAME runtime_game_install COMMAND runtime_game_install_test)
     add_executable(diagnostic_log_test "${CMAKE_SOURCE_DIR}/tests/diagnostic_log_test.cpp")
     target_link_libraries(diagnostic_log_test PRIVATE playden_diagnostic_log)
     add_test(NAME diagnostic_log COMMAND diagnostic_log_test)
@@ -81,4 +219,53 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
         target_link_libraries(${test_name}_test PRIVATE playden_library)
         add_test(NAME ${test_name} COMMAND ${test_name}_test)
     endforeach()
+endif()
+
+add_library(playden_title_activity STATIC "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_activity.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_runtime.cpp")
+target_include_directories(playden_title_activity PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_title_activity PUBLIC cxx_std_17)
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(title_activity_test "${CMAKE_SOURCE_DIR}/tests/title_activity_test.cpp")
+    target_link_libraries(title_activity_test PRIVATE playden_title_activity)
+    add_test(NAME title_activity COMMAND title_activity_test)
+endif()
+
+foreach(sqlite_file sqlite3.c sqlite3.h)
+    string(JSON expected_sqlite_hash GET "${playden_dependency_lock}" sqlite3 files "${sqlite_file}")
+    set(sqlite_path "${CMAKE_SOURCE_DIR}/third_party/sqlite3/${sqlite_file}")
+    file(SHA256 "${sqlite_path}" actual_sqlite_hash)
+    if(NOT actual_sqlite_hash STREQUAL expected_sqlite_hash)
+        message(FATAL_ERROR "Pinned SQLite source hash mismatch: ${sqlite_file}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sqlite_path}")
+endforeach()
+add_library(playden_sqlite_reader STATIC "${CMAKE_SOURCE_DIR}/third_party/sqlite3/sqlite3.c")
+target_include_directories(playden_sqlite_reader PUBLIC "${CMAKE_SOURCE_DIR}/third_party/sqlite3")
+target_compile_definitions(playden_sqlite_reader PRIVATE SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_THREADSAFE=0
+    SQLITE_TEMP_STORE=3 SQLITE_MAX_MMAP_SIZE=0 SQLITE_USE_URI=0)
+add_library(playden_title_database STATIC "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_database.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_runtime.cpp")
+target_include_directories(playden_title_database PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_title_database PUBLIC cxx_std_17)
+target_link_libraries(playden_title_database PRIVATE playden_sqlite_reader Threads::Threads)
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(title_database_test "${CMAKE_SOURCE_DIR}/tests/title_database_test.cpp")
+    target_link_libraries(title_database_test PRIVATE playden_title_database playden_sqlite_reader)
+    add_test(NAME title_database COMMAND title_database_test)
+endif()
+
+add_library(playden_publication_transaction STATIC "${CMAKE_SOURCE_DIR}/src/runtime/publication_transaction.cpp")
+target_include_directories(playden_publication_transaction PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_publication_transaction PUBLIC cxx_std_17)
+add_library(playden_native_coordinator STATIC "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_coordinator.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/ps5/title_registry.cpp")
+target_include_directories(playden_native_coordinator PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_native_coordinator PUBLIC cxx_std_17)
+target_link_libraries(playden_native_coordinator PUBLIC playden_runtime_install_service playden_title_database
+    playden_title_activity playden_managed_directory playden_steam_protocol playden_publication_transaction)
+if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(native_coordinator_test "${CMAKE_SOURCE_DIR}/tests/native_coordinator_test.cpp")
+    target_link_libraries(native_coordinator_test PRIVATE playden_native_coordinator)
+    add_test(NAME native_coordinator COMMAND native_coordinator_test)
 endif()

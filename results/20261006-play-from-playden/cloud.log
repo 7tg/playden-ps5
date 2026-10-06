@@ -1,0 +1,33 @@
+2026-10-05T05:54:12Z app=242820 event=check-up-to-date No Cloud saves yet
+2026-10-05T05:54:41Z app=220 event=check-ready 8 saves to download
+2026-10-05T05:58:58Z app=220 event=trace app-info
+2026-10-05T05:58:59Z app=220 event=trace list
+2026-10-05T05:59:00Z app=220 event=trace mapping
+2026-10-05T05:59:00Z app=220 event=trace scan
+2026-10-05T05:59:00Z app=220 event=trace fingerprint
+2026-10-05T05:59:00Z app=220 event=trace plan
+2026-10-05T05:59:00Z app=220 event=check-ready 8 saves to download
+2026-10-05T05:59:01Z app=220 event=trace download
+2026-10-05T05:59:01Z app=220 event=trace download
+2026-10-05T05:59:02Z app=220 event=trace download
+2026-10-05T05:59:02Z app=220 event=trace download
+2026-10-05T05:59:03Z app=220 event=trace download
+2026-10-05T05:59:03Z app=220 event=trace download
+2026-10-05T05:59:04Z app=220 event=trace download
+2026-10-05T05:59:04Z app=220 event=trace download
+2026-10-05T05:59:05Z app=220 event=trace verify
+2026-10-05T05:59:05Z app=220 event=apply-ok 8 saves downloaded
+2026-10-05T05:59:22Z app=220 event=trace app-info
+2026-10-05T05:59:24Z app=220 event=trace list
+2026-10-05T05:59:24Z app=220 event=trace mapping
+2026-10-05T05:59:24Z app=220 event=trace scan
+2026-10-05T05:59:24Z app=220 event=trace fingerprint
+2026-10-05T05:59:24Z app=220 event=trace plan
+2026-10-05T05:59:24Z app=220 event=check-up-to-date Saves are up to date
+2026-10-06T12:33:08Z app=220 event=trace app-info
+2026-10-06T12:33:09Z app=220 event=trace list
+2026-10-06T12:33:11Z app=220 event=trace mapping
+2026-10-06T12:33:11Z app=220 event=trace scan
+2026-10-06T12:33:11Z app=220 event=trace fingerprint
+2026-10-06T12:33:11Z app=220 event=trace plan
+2026-10-06T12:33:11Z app=220 event=check-conflict Saves here and in Steam Cloud both changed. Choose which to keep.

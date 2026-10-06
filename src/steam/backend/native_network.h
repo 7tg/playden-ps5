@@ -8,6 +8,11 @@
 
 namespace playden::steam::internal {
 
+// Minimal single-threaded initialization for the title-scoped grant transport.
+// Does not run the watchdog-based nonblocking preflight. Steam/curl callers must
+// still call InitializeNativeNetwork after bootstrap to complete that check.
+bool InitializeNativeNetworkForBootstrap();
+
 // Initializes and semantically checks the process-wide native network runtime before curl global
 // initialization. The PS5 runtime is intentionally retained until process exit so this adapter
 // never terminates networking initialized or used by another subsystem.

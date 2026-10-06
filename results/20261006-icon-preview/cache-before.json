@@ -1,0 +1,37 @@
+[
+  {
+    "path": "/user/appmeta/FAKE77031/icon0.png",
+    "bytes": 357566,
+    "matches": false
+  },
+  {
+    "path": "/user/appmeta/FAKE77031/pic0.dds",
+    "bytes": 8294548,
+    "matches": false
+  },
+  {
+    "path": "/user/appmeta/FAKE77031/pic1.dds",
+    "bytes": 8294548,
+    "matches": false
+  },
+  {
+    "path": "/user/app/FAKE77031/icon0.png",
+    "bytes": 357566,
+    "matches": false
+  },
+  {
+    "path": "/user/app/FAKE77031/sce_sys/icon0.png",
+    "bytes": 357566,
+    "matches": false
+  },
+  {
+    "path": "/user/app/FAKE77031/sce_sys/pic0.dds",
+    "bytes": 8294548,
+    "matches": false
+  },
+  {
+    "path": "/user/app/FAKE77031/sce_sys/pic1.dds",
+    "bytes": 8294548,
+    "matches": false
+  }
+]

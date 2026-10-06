@@ -1,0 +1,177 @@
+2026-10-06T09:15:34Z console_firmware=13.59
+2026-10-06T09:15:34Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=5 reason=current firmware is not declared supported by this kit
+2026-10-06T09:15:34Z runtime ready installs=0 kit=none (The compatibility kit is missing or could not be verified.)
+2026-10-06T09:16:32Z console_firmware=13.59 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T09:16:32Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=5 reason=current firmware is not declared supported by this kit
+2026-10-06T09:16:32Z runtime ready installs=0 kit=none (The compatibility kit is missing or could not be verified.)
+2026-10-06T09:17:08Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T09:17:22Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T09:17:22Z runtime ready installs=0 kit=hl2-fw1360-dev1
+2026-10-06T09:17:35Z prepare start app=220 root=/data/homebrew/FAKE77031/games/220 ok=1 message=
+2026-10-06T09:18:33Z prepare step app=220 from=stage-title ok=1 error=0 state=1 to=copy-template message=
+2026-10-06T09:19:36Z prepare step app=220 from=copy-template ok=1 error=0 state=1 to=validate-artifacts message=
+2026-10-06T09:19:41Z prepare step app=220 from=validate-artifacts ok=1 error=0 state=1 to=publish-profile message=
+2026-10-06T09:19:46Z publication request transaction=de94cd03-90f1-4568-bf8c-1fda2f48c194 state=0 code= message=
+2026-10-06T09:19:57Z publication resume state=2 code=publication-request-capture message=Owned game working directory is unavailable.
+2026-10-06T09:19:57Z prepare step app=220 from=publish-profile ok=0 error=9 state=1 to=control-ready message=Owned game working directory is unavailable.
+2026-10-06T09:19:57Z prepare result app=220 Owned game working directory is unavailable.
+2026-10-06T09:22:01Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T09:22:16Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T09:22:16Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T09:27:24Z game root mode 0777 -> 0755 path=/data/homebrew/FAKE77031/games/220
+2026-10-06T09:27:24Z prepare start app=220 root=/data/homebrew/FAKE77031/games/220 ok=1 message=
+2026-10-06T09:27:38Z prepare step app=220 from=control-ready ok=0 error=9 state=1 to=control-ready message=OWNER setup has no valid frozen operation; capture remains unfinished.
+2026-10-06T09:27:38Z prepare result app=220 OWNER setup has no valid frozen operation; capture remains unfinished.
+2026-10-06T09:31:22Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T09:31:37Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T09:31:37Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T09:36:42Z prepare start app=220 root=/data/homebrew/FAKE77031/games/220 ok=1 message=
+2026-10-06T09:37:10Z publication resume journal=settings-control/control-ready state=2 code=publication-registration-pending message=Native registration completion is not yet visible.
+2026-10-06T09:37:10Z prepare step app=220 from=control-ready ok=0 error=14 state=2 to=await-native message=Native registration completion is not yet visible.
+2026-10-06T09:37:10Z prepare result app=220 Native registration completion is not yet visible.
+2026-10-06T09:37:39Z prepare start app=220 root=/data/homebrew/FAKE77031/games/220 ok=1 message=
+2026-10-06T09:37:48Z publication resume journal=settings-publication/await-native state=2 code=publication-registration-pending message=Native registration is pending or uncertain; query before any repeat submission.
+2026-10-06T09:37:48Z prepare step app=220 from=await-native ok=0 error=14 state=2 to=await-native message=Native registration is pending or uncertain; query before any repeat submission.
+2026-10-06T09:37:48Z prepare result app=220 Native registration is pending or uncertain; query before any repeat submission.
+2026-10-06T09:48:06Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T09:48:21Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T09:48:21Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T09:48:42Z resume title check state=0 code= message=
+2026-10-06T09:48:42Z prepare start app=220 root=/data/homebrew/FAKE77031/games/220 ok=1 message=
+2026-10-06T09:49:14Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T09:49:29Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T09:49:29Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T09:51:59Z resume title check state=0 code= message=
+2026-10-06T09:51:59Z prepare start app=220 root=/data/homebrew/FAKE77031/games/220 ok=1 message=
+2026-10-06T09:52:08Z publication resume journal=settings-publication/await-native state=0 code= message=
+2026-10-06T09:52:08Z prepare step app=220 from=await-native ok=1 error=0 state=3 to= message=
+2026-10-06T09:52:08Z prepare result app=220 ready
+2026-10-06T09:54:41Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T09:54:56Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T09:54:56Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T10:10:37Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T10:10:52Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T10:10:52Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T10:11:11Z title refresh app=220 state=0 code= message=
+2026-10-06T10:11:11Z prepare result app=220 ready
+2026-10-06T10:35:45Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T10:36:03Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T10:36:03Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T10:43:53Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T10:44:11Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T10:44:11Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T10:47:19Z title refresh app=220 state=0 code= message=
+2026-10-06T10:47:19Z prepare result app=220 ready
+2026-10-06T10:47:55Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T10:48:13Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T10:48:13Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T10:49:08Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T10:49:23Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T10:49:23Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T10:52:33Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T10:52:48Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T10:52:48Z admission check title=FAKE78002 verifying
+2026-10-06T10:52:48Z admission check title=FAKE78002 result=admission status=-1: publication admission refused at stage 7
+2026-10-06T10:52:48Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:02:45Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:03:00Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:03:00Z admission check title=FAKE78002 verifying
+2026-10-06T11:03:00Z admission check title=FAKE78002 result=admission status=-1: publication admission refused at stage 7
+2026-10-06T11:03:00Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:03:18Z title refresh app=220 state=0 code= message=
+2026-10-06T11:03:18Z bottle repair app=220 state=0 code= admission=ok
+2026-10-06T11:03:18Z prepare result app=220 ready
+2026-10-06T11:04:02Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:04:17Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:04:17Z admission check title=FAKE78002 verifying
+2026-10-06T11:04:17Z admission check title=FAKE78002 result=ok
+2026-10-06T11:04:17Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:08:25Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:08:41Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:08:41Z admission check title=FAKE78002 verifying
+2026-10-06T11:08:41Z admission check title=FAKE78002 result=ok
+2026-10-06T11:08:41Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:14:09Z title refresh app=220 state=0 code= message=
+2026-10-06T11:14:09Z prepare result app=220 ready
+2026-10-06T11:16:35Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:16:54Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:16:54Z admission check title=FAKE78002 verifying
+2026-10-06T11:16:54Z admission check title=FAKE78002 result=ok
+2026-10-06T11:16:54Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:23:00Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:23:18Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:23:18Z admission check title=FAKE78002 verifying
+2026-10-06T11:23:18Z admission check title=FAKE78002 result=ok
+2026-10-06T11:23:18Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:23:57Z title refresh app=220 state=0 code= message=
+2026-10-06T11:23:57Z prepare result app=220 ready
+2026-10-06T11:26:50Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:27:08Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:27:08Z admission check title=FAKE78002 verifying
+2026-10-06T11:27:08Z admission check title=FAKE78002 result=ok
+2026-10-06T11:27:08Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:37:39Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:37:54Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:37:54Z admission check title=FAKE78002 verifying
+2026-10-06T11:37:54Z admission check title=FAKE78002 result=ok
+2026-10-06T11:37:54Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T11:38:23Z play preflight install=steam-220 capability=1 volume=1 bottle=1 admission=ok runtime=1 helper=1 profile=1 title=1 inventory=1 activity=0 revision=0
+2026-10-06T11:38:23Z play request app=220 accepted=1 session=99fe3693-17af-4a0f-845e-c184c722d5b9 code= message=
+2026-10-06T11:38:23Z launch_title title=FAKE78002 stage=system-service accepted=0 result=0x80940010
+2026-10-06T11:38:23Z play handoff install=steam-220 accepted=1 session=99fe3693-17af-4a0f-845e-c184c722d5b9 code= message=
+2026-10-06T11:39:18Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T11:39:36Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T11:39:36Z admission check title=FAKE78002 verifying
+2026-10-06T11:39:36Z admission check title=FAKE78002 result=ok
+2026-10-06T11:39:36Z play finished install=steam-220 session=99fe3693-17af-4a0f-845e-c184c722d5b9 state=5 code= exit=unknown cleared=1 
+2026-10-06T11:39:36Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:18:02Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:18:21Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:18:21Z admission check title=FAKE78002 verifying
+2026-10-06T12:18:21Z admission check title=FAKE78002 result=ok
+2026-10-06T12:18:21Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:20:03Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:20:21Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:20:21Z admission check title=FAKE78002 verifying
+2026-10-06T12:20:21Z admission check title=FAKE78002 result=ok
+2026-10-06T12:20:21Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:21:15Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:21:33Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:21:33Z admission check title=FAKE78002 verifying
+2026-10-06T12:21:33Z admission check title=FAKE78002 result=ok
+2026-10-06T12:21:33Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:22:17Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:22:35Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:22:35Z admission check title=FAKE78002 verifying
+2026-10-06T12:22:35Z admission check title=FAKE78002 result=ok
+2026-10-06T12:22:35Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:23:57Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:24:16Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:24:16Z admission check title=FAKE78002 verifying
+2026-10-06T12:24:16Z admission check title=FAKE78002 result=ok
+2026-10-06T12:24:16Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:26:46Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:27:05Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:27:05Z admission check title=FAKE78002 verifying
+2026-10-06T12:27:05Z admission check title=FAKE78002 result=ok
+2026-10-06T12:27:05Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:28:02Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:28:20Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:28:20Z admission check title=FAKE78002 verifying
+2026-10-06T12:28:20Z admission check title=FAKE78002 result=ok
+2026-10-06T12:28:20Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:28:56Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:29:15Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:29:15Z admission check title=FAKE78002 verifying
+2026-10-06T12:29:15Z admission check title=FAKE78002 result=ok
+2026-10-06T12:29:15Z runtime ready installs=1 kit=hl2-fw1360-dev1
+2026-10-06T12:30:34Z play preflight install=steam-220 capability=1 volume=1 bottle=1 admission=ok runtime=1 helper=1 profile=1 title=1 inventory=1 activity=0 revision=0
+2026-10-06T12:30:34Z play request app=220 accepted=1 session=44f28d44-c20a-4ca2-9998-f69ea6d0b2e2 code= message=
+2026-10-06T12:30:34Z launch_title title=FAKE78002 stage=system-service accepted=0 result=0x80940010
+2026-10-06T12:30:34Z play handoff install=steam-220 accepted=1 session=44f28d44-c20a-4ca2-9998-f69ea6d0b2e2 code= message=
+2026-10-06T12:32:49Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-06T12:33:08Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason=
+2026-10-06T12:33:08Z admission check title=FAKE78002 verifying
+2026-10-06T12:33:08Z admission check title=FAKE78002 result=ok
+2026-10-06T12:33:08Z play finished install=steam-220 session=44f28d44-c20a-4ca2-9998-f69ea6d0b2e2 state=5 code= exit=unknown cleared=1 
+2026-10-06T12:33:08Z runtime ready installs=1 kit=hl2-fw1360-dev1

@@ -7,8 +7,9 @@ namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
                        LibraryService* library_service, app::PersistenceService* persistence_service,
                        steam::AppDetailsService* app_details, steam::InstallService* installs,
-                       steam::CloudService* cloud)
-    : model_(model), app_details_(app_details), installs_(installs), cloud_(cloud), library_service_(library_service) {
+                       steam::CloudService* cloud, RuntimeHost* runtime)
+    : model_(model), app_details_(app_details), installs_(installs), cloud_(cloud), runtime_(runtime),
+      library_service_(library_service) {
   if (model_.state().simulation_mode) return;
   if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
   service_ = std::make_unique<steam::SteamService>(backend,repository);
@@ -34,6 +35,7 @@ void Controller::Shutdown() {
   if(app_details_) app_details_->Shutdown();
   if(installs_) installs_->Shutdown();
   if(cloud_) cloud_->Shutdown();
+  if(runtime_) runtime_->Shutdown();
   service_.reset();
   persistence_.reset();
   library_.reset();
@@ -132,13 +134,90 @@ void Controller::Tick() {
   TickAppDetails();
   TickInstalls();
   TickCloud();
+  TickRuntime();
+}
+bool Controller::SessionActive(GameId id) const {
+  if (!runtime_) return false;
+  const auto snapshot = runtime_->Snapshot();
+  // Until the runtime has started, a session pending from before a restart is
+  // not known yet: no game's saves move.
+  if (snapshot.status == RuntimeHostStatus::kStarting) return true;
+  if (play_queued_.count(id)) return true;
+  if (!snapshot.launch || snapshot.launch->app_id != id) return false;
+  using runtime::LaunchState;
+  const auto state = snapshot.launch->state;
+  return state == LaunchState::kReadyToHandoff || state == LaunchState::kLaunching || state == LaunchState::kRunning;
 }
 void Controller::TickCloud() {
   if (!cloud_) return;
-  for (const auto& request : model_.TakeCloudRequests()) {
+  auto requests = model_.TakeCloudRequests();
+  // A session that just ended syncs its saves, as Steam does after play.
+  for (auto& [id, issued] : sync_before_play_)
+    if (!issued) {
+      requests.push_back({CloudRequestKind::Sync, id});
+      issued = true;
+    }
+  for (auto it = sync_after_session_.begin(); it != sync_after_session_.end();) {
+    if (game_roots_.count(*it) && !saves_root_.empty()) {
+      requests.push_back({CloudRequestKind::Sync, *it});
+      it = sync_after_session_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (const auto& request : requests) cloud_held_.push_back({request, false, 0});
+  // Saves move only once the console confirms the game's own title is stopped,
+  // whoever started it (Playden or the PS5 Home screen). Unknown counts as running.
+  std::vector<CloudRequest> confirmed;
+  if (!runtime_) {
+    for (const auto& held : cloud_held_) confirmed.push_back(held.request);
+    cloud_held_.clear();
+  } else {
+    const auto runtime = runtime_->Snapshot();
+    std::vector<HeldCloudRequest> waiting;
+    for (auto& held : cloud_held_) {
+      const auto id = held.request.game_id;
+      if (runtime.status == RuntimeHostStatus::kStarting) { waiting.push_back(held); continue; }
+      if (!held.asked) {
+        held.asked = true;
+        held.after = runtime.activity_serial;
+        runtime_->CheckActivity(id);
+        waiting.push_back(held);
+        continue;
+      }
+      const auto answer = runtime.activity.find(id);
+      if (answer == runtime.activity.end() || answer->second.second <= held.after) { waiting.push_back(held); continue; }
+      if (answer->second.first == runtime::NativeActivity::kStopped && !SessionActive(id)) {
+        confirmed.push_back(held.request);
+        continue;
+      }
+      // Refused: the title runs, or its state is unknown.
+      if (sync_before_play_.erase(id)) {
+        play_notes_[id] = "The game's PS5 title may still be running. Close it, then press Play.";
+        ++play_notes_revision_;
+      }
+    }
+    cloud_held_ = std::move(waiting);
+  }
+  for (const auto& request : confirmed) {
     const auto root = game_roots_.find(request.game_id);
-    if (root == game_roots_.end() || saves_root_.empty()) continue;  // only installed games sync
-    const steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
+    if (root == game_roots_.end() || saves_root_.empty()) {
+      // A pre-play check that cannot run must not leave Play waiting.
+      if (sync_before_play_.erase(request.game_id)) {
+        play_notes_.erase(request.game_id);
+        ++play_notes_revision_;
+        plays_ready_.push_back(request.game_id);
+      }
+      continue;
+    }
+    // Busy from now on, before Cloud reports it, so Play cannot slip in.
+    cloud_busy_.insert(request.game_id);
+    steam::CloudLocation location{request.game_id, root->second, saves_root_ + "/" + std::to_string(request.game_id)};
+    // A prepared game keeps its Windows-folder saves in its private bottle.
+    if (runtime_)
+      for (const auto& view : runtime_->Snapshot().installs)
+        if (view.app_id == request.game_id && view.state == runtime::PreparationState::kReady)
+          location.prefix_root = view.prefix_root;
     switch (request.kind) {
       case CloudRequestKind::Sync: cloud_->Sync(location); break;
       case CloudRequestKind::UseLocal: cloud_->Resolve(location, steam::CloudResolution::kUseLocal, true); break;
@@ -149,6 +228,31 @@ void Controller::TickCloud() {
   const auto snapshot = cloud_->Snapshot();
   if (snapshot.revision == cloud_revision_) return;
   cloud_revision_ = snapshot.revision;
+  // Settle Play requests whose Cloud check has finished. Sync marks a game as
+  // checking at once, so a finished state seen here is the check's own result.
+  const auto settle = [this](GameId id, CloudStatus status) {
+    const auto pending = sync_before_play_.find(id);
+    if (pending == sync_before_play_.end() || !pending->second) return;
+    if (status == CloudStatus::Checking || status == CloudStatus::Syncing) return;
+    sync_before_play_.erase(pending);
+    ++play_notes_revision_;
+    switch (status) {
+      case CloudStatus::Synced:
+      case CloudStatus::UpToDate:
+      case CloudStatus::Unsupported:
+        play_notes_.erase(id);
+        plays_ready_.push_back(id);
+        break;
+      case CloudStatus::Conflict:
+      case CloudStatus::NeedsAccount:
+        play_notes_[id] = "Choose which Cloud saves to keep, then press Play.";
+        break;
+      default:
+        play_notes_[id] = "Cloud saves could not be checked. Press Play again to start without syncing.";
+        play_without_sync_.insert(id);
+        break;
+    }
+  };
   std::vector<LiveCloudGame> games;
   for (const auto& game : snapshot.games) {
     CloudStatus status = CloudStatus::None;
@@ -164,11 +268,166 @@ void Controller::TickCloud() {
       case steam::CloudState::kFailed: status = CloudStatus::Failed; break;
     }
     const auto& report = game.report;
+    if (status == CloudStatus::Checking || status == CloudStatus::Syncing) cloud_busy_.insert(game.id);
+    else cloud_busy_.erase(game.id);
+    cloud_status_[game.id] = status;
+    settle(game.id, status);
     games.push_back({game.id, status, report.message, report.local_files, report.remote_files, report.local_bytes,
                      report.remote_bytes, static_cast<std::int64_t>(report.local_latest),
                      static_cast<std::int64_t>(report.remote_latest)});
   }
   model_.UpdateCloud(games);
+}
+// Per-game runtime: queue Prepare with the Steam install's location, queue Play,
+// and project the runtime host's state for installed games. The worker checks a
+// Play request; this thread, the application thread, then starts the title.
+void Controller::TickRuntime() {
+  if (!runtime_) return;
+  {
+    // The name each installed game's PS5 title should carry.
+    std::map<std::uint32_t, std::string> names;
+    for (const auto& [id, root] : game_roots_)
+      for (const auto& game : model_.state().games)
+        if (game.id == id && !game.title.empty())
+          names[id] = model_.state().title_store_suffix ? game.title + " (Steam)" : game.title;
+    runtime_->SetTitleNames(std::move(names));
+  }
+  for (const auto id : model_.TakeRuntimePrepareRequests()) {
+    const auto root = game_roots_.find(id);
+    if (root == game_roots_.end()) continue;
+    std::string name;
+    for (const auto& game : model_.state().games) if (game.id == id) name = game.title;
+    if (model_.state().title_store_suffix && !name.empty()) name += " (Steam)";
+    runtime_->Prepare({id, root->second, game_volumes_[id], name});
+  }
+  if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
+  auto plays = model_.TakeRuntimePlayRequests();
+  for (const auto id : plays) {
+    if (sync_before_play_.count(id)) continue;
+    // Play checks Cloud saves first, as Steam does before a game starts; the
+    // game starts once its saves are in step.
+    const bool cloud_known = cloud_ && game_roots_.count(id) && !saves_root_.empty();
+    if (cloud_known && !play_without_sync_.erase(id)) {
+      sync_before_play_[id] = false;
+      play_notes_[id] = "Checking Cloud saves before starting…";
+      ++play_notes_revision_;
+      continue;
+    }
+    play_notes_.erase(id);
+    ++play_notes_revision_;
+    plays_ready_.push_back(id);
+  }
+  std::vector<GameId> later;
+  for (const auto id : plays_ready_) {
+    // Never start a game while its saves are moving; it starts once they stop.
+    if (cloud_busy_.count(id)) { later.push_back(id); continue; }
+    play_queued_.insert(id);
+    ++plays_requested_;
+    runtime_->Play(id);
+  }
+  plays_ready_ = std::move(later);
+  {
+    const auto current = runtime_->Snapshot();
+    if (current.handoff_ready && current.launch && !cloud_busy_.count(current.launch->app_id))
+      runtime_->Handoff();
+  }
+  const auto snapshot = runtime_->Snapshot();
+  // Queued Plays are settled once the worker has handled every request; their
+  // sessions or refusals are then visible.
+  if (snapshot.plays_handled >= plays_requested_) play_queued_.clear();
+  if (snapshot.launch) {
+    const std::pair<GameId, runtime::LaunchState> current{snapshot.launch->app_id, snapshot.launch->state};
+    if (current.second == runtime::LaunchState::kExited && last_launch_ != current)
+      sync_after_session_.insert(current.first);
+    last_launch_ = current;
+  }
+  if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
+      cloud_revision_ == runtime_cloud_revision_ && play_notes_revision_ == runtime_notes_revision_) return;
+  runtime_notes_revision_ = play_notes_revision_;
+  runtime_revision_ = snapshot.revision;
+  runtime_install_revision_ = install_revision_;
+  runtime_cloud_revision_ = cloud_revision_;
+  const bool usable = snapshot.status == RuntimeHostStatus::kReady && snapshot.kit_available;
+  const auto state = snapshot.status == RuntimeHostStatus::kStarting ? RuntimeState::Checking
+                   : snapshot.status == RuntimeHostStatus::kUnavailable ? RuntimeState::Failed
+                   : usable ? RuntimeState::Ready : RuntimeState::Unavailable;
+  std::vector<LiveRuntimeGame> games;
+  for (const auto& [id, root] : game_roots_) {
+    LiveRuntimeGame game; game.game_id = id;
+    const RuntimeInstallView* record = nullptr;
+    for (const auto& view : snapshot.installs) if (view.app_id == id) record = &view;
+    const auto refusal = snapshot.refusals.find(id);
+    if (snapshot.status == RuntimeHostStatus::kStarting) {
+      game.status = "Checking";
+    } else if (snapshot.status != RuntimeHostStatus::kReady) {
+      game.status = "Unavailable"; game.detail = snapshot.reason;
+    } else if (snapshot.preparing_app == id) {
+      game.status = "Preparing"; game.detail = record ? record->step : std::string{};
+    } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
+               !record->title_current) {
+      game.status = "Update available"; game.can_prepare = usable;
+      game.detail = "Update gives " + record->title_id + " the current runtime, name and icon";
+    } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
+               record->admission != "ok") {
+      game.status = "Needs repair"; game.can_prepare = usable;
+      game.detail = record->title_id + " would refuse to start: " + record->admission;
+    } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending) {
+      game.status = "Ready"; game.detail = record->title_id; game.ready = true;
+    } else if (record && record->recovery_pending &&
+               (record->step == "register" || record->step == "await-native" || record->step == "query-native")) {
+      // The registration was submitted but not confirmed. Checking only asks the
+      // console; an uncertain registration is never submitted again.
+      game.status = "Registration pending";
+      game.detail = "The console has not confirmed " + record->title_id +
+                    " yet. Check again only asks the console; Playden never registers a title twice.";
+      game.can_prepare = usable;
+    } else if (record && record->recovery_pending) {
+      game.status = "Needs recovery";
+      game.detail = record->failure.empty() ? "Resume continues the saved preparation." : record->failure;
+      game.can_prepare = usable;
+    } else if (record && (record->state == runtime::PreparationState::kFailed ||
+                          record->state == runtime::PreparationState::kUnavailable)) {
+      game.status = "Failed"; game.detail = record->failure; game.can_prepare = usable;
+    } else {
+      game.status = "Not prepared";
+      game.detail = usable ? "Creates a private bottle and the game's own PS5 title" : snapshot.kit_reason;
+      game.can_prepare = usable;
+    }
+    if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
+    if (const auto refused = snapshot.play_refusals.find(id); refused != snapshot.play_refusals.end())
+      game.play_detail = "Could not start: " + refused->second;
+    const bool launching = snapshot.launch && snapshot.launch->app_id == id;
+    if (launching) {
+      using runtime::LaunchState;
+      switch (snapshot.launch->state) {
+        case LaunchState::kWaitingForCloud: game.play_status = "Waiting for Cloud"; break;
+        case LaunchState::kReadyToHandoff:
+        case LaunchState::kLaunching: game.play_status = "Starting…"; break;
+        case LaunchState::kRunning: game.play_status = "Playing"; break;
+        case LaunchState::kExited: game.play_detail = "The last session ended."; break;
+        case LaunchState::kFailed:
+          game.play_detail = snapshot.launch->message.empty() ? "The game could not start."
+                                                              : "Could not start: " + snapshot.launch->message;
+          break;
+        case LaunchState::kIdle: break;
+      }
+    }
+    // One launch at a time: Play waits while any session is undecided.
+    const bool busy = snapshot.launch && (snapshot.launch->state == runtime::LaunchState::kWaitingForCloud ||
+                                          snapshot.launch->state == runtime::LaunchState::kReadyToHandoff ||
+                                          snapshot.launch->state == runtime::LaunchState::kLaunching ||
+                                          snapshot.launch->state == runtime::LaunchState::kRunning);
+    // Updating or repairing waits while this game is being started or played.
+    if (launching && busy) game.can_prepare = false;
+    game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
+                    play_queued_.empty() && !sync_before_play_.count(id);
+    if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
+    if (sync_before_play_.count(id)) game.play_status = "Checking saves…";
+    if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
+    games.push_back(std::move(game));
+  }
+  model_.UpdateRuntime(state, games);
+  model_.SetRuntimeLeftovers(snapshot.leftover_requests);
 }
 void Controller::TickInstalls() {
   if (!installs_) return;
@@ -184,8 +443,9 @@ void Controller::TickInstalls() {
   }
   const auto snapshot = installs_->Snapshot();
   game_roots_.clear();
+  game_volumes_.clear();
   for (const auto& game : snapshot.installed)
-    if (game.available) game_roots_[game.id] = game.root;
+    if (game.available) { game_roots_[game.id] = game.root; game_volumes_[game.id] = game.volume_id; }
   if (!snapshot.volumes.empty()) saves_root_ = snapshot.volumes.front().games_root + "/.playden-saves";
   // Free space changes outside Playden too, so volumes refresh every few seconds as well.
   const auto now = std::chrono::steady_clock::now();

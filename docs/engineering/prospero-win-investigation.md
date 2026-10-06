@@ -2,6 +2,28 @@
 
 Written 2026-10-05 (roadmap step 2). Read-only survey of `../ps5-homebrew/prospero-win` (PW below) and the macOS reference at `de952b3d`. Paths are relative to each repository. Items marked **unknown** were not established from the sources.
 
+
+## Updated integration baseline (runtime owner, 2026-10-05)
+
+Verified local Git objects: wrapper/source pin
+`54caac176e86c60c7c407972583b491f67838ed9` on `feat/fw-v13.60-support`, including
+native startup fix `824b4ec960b9ee93365437d7bb063db1d0e44b28`. The later commit is
+documentation only. The committed `docs/FIRMWARE_13_60.md` records gameplay,
+audio and controller verification; earlier limitations below are historical.
+Keep Wine runtime `e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9` for reproduction.
+
+Build the patched Lapy base `611fa5f7ed46cdde7094b764168390ab5c4e89f8`
+([PR #49](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon/pull/49)) with foundation
+`9c0b994a048521af6fb84c73ded364504fe250e9` / SDK v0.42. Replace the downloaded
+helper and matching manifest in the package. Helpers must match their target
+identity; the local Task 1 FAKE-title CLI extension still needs a committed pin.
+
+Audio/controller fixes restore the bottle's 32-bit MMDeviceEnumerator and
+DirectInput8 COM registrations; there is no additional Wine code patch. Capture
+and validate these repairs in the offline template recipe. The final HL2 profile
+uses `+exec 360controller.cfg +joystick 1`, input mode `xinput` and `options = escape`.
+See the approved integration plan for exact pins and remaining acceptance gates.
+
 ## What prospero-win is
 
 - One native PS5 folder app, title `PPSA99995`, installed at `/data/homebrew/PPSA99995` and registered by ShadowMountPlus (`docs/GETTING_STARTED.md:25-39`, `tools/package_release.sh`). Wine's Unix side loads as PRX modules; 64-bit games run natively, 32-bit through its `wowprospero` translator; Direct3D 8–11 through DXVK on Vulkan, optional OpenGL, GDI for 2D (`README.md:89-103`, `docs/ARCHITECTURE.md`).
@@ -36,6 +58,8 @@ Written 2026-10-05 (roadmap step 2). Read-only survey of `../ps5-homebrew/prospe
 Depot download to `/data`; app PICS launch entries (text VDF, deferred from the CM work); create a prefix without console `wineboot` (for example copy a PC-built template prefix); apply the `pw_prefix.py` conversions; write the `.profile` and `profiles.lst` entry; gbe_fork swap; and hand off to PW. SteamStub unpacking and redistributable installers cannot run on the console (child processes, .NET), so they need PC-side preparation or must be excluded.
 
 ## Runtime attempt on the console (2026-10-05)
+
+**Update from the later build:** the data-mount helper now completes successfully. The [Half-Life 2 baseline attempt](../../results/20261005-hl2-runtime-baseline/README.md) reached Wine through a direct prospero-win launch, then stopped at a missing prefix. Playden’s existing title-launch probe crashed before handing off. The historical helper failure below is superseded for the currently installed runtime.
 
 Tried to start prospero-win (PW, PPSA99995) on the dev PS5 to validate the handoff. Two blockers were found; the first is solved, the second is PW's own and remains open.
 

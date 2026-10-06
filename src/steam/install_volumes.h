@@ -23,9 +23,9 @@ struct VolumeCandidate {
 // marked available (its folder is created on first install).
 std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates);
 
-// Candidate drives for the PS5 title: console storage under /app0, then extended storage and
-// USB drives if the title can see them.
-std::vector<VolumeCandidate> ConsoleVolumeCandidates();
+// Candidate drives for the PS5 title: console storage under the verified title
+// root, then extended storage and USB drives. Use the stable root after a grant.
+std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_root = "/app0");
 
 struct VolumeSpace {
   std::uint64_t total_bytes = 0;

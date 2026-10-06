@@ -1,0 +1,27 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-retirement-host-test.log"
+  },
+  "focused_suite": {
+    "passed": 2,
+    "failed": 0
+  },
+  "sdk": "v0.43 settings-publication static archive",
+  "process_death": "after archive rename before directory sync",
+  "ready_gate": "real repository Ready and coherent native registration required",
+  "foreign_archive": "preserved; never replaced",
+  "production_ui_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/settings_publication.cpp": "df906c4e904a8f9dd0ba3d5f1816e646ac6126f59f237e79f75e76a9e14b843c",
+    "src/runtime/settings_publication.h": "b3b811c00f257acf6d26e5d6f6413df3fdd4f0c0c0f2a36f236209584a0f754a",
+    "src/runtime/settings_publication_journal.cpp": "a829b441940a6f4c196291cc87326f2ccfd26928aa968402f9293f072bc0fc2e",
+    "src/runtime/settings_publication_journal.h": "5b7ca7f053e54066a4293b92ad88920316d421f6febd38258bad0beab5bc1f31",
+    "src/runtime/settings_publication_owner.cpp": "9e71302f083208e3738a705ef243c30fdc01256c12d15c15bcc4813e7aff81d1",
+    "src/runtime/settings_publication_owner.h": "f574c024df79a09c5c7e635407a0dcee30043cc98b8623007b1ba57b5a8565af",
+    "tests/runtime_settings_publication_test.cpp": "c1538f6311ebd8f4951b220e4fc48c939b62af84ef8d8426f5ca4d70dc5d2ad5",
+    "tests/runtime_settings_publication_journal_test.cpp": "ec9e63690ecc76456c1bb0b0094227267a1e41b708104aab70e703d41ec23ea5"
+  }
+}
