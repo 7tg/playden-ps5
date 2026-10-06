@@ -135,6 +135,8 @@ struct RuntimeSnapshot {
   std::map<std::uint32_t, std::string> play_refusals;
   // A checked session waits for Handoff on the application thread.
   bool handoff_ready = false;
+  // Recipes Playden generated from Steam launch options, for the settings sheet.
+  std::vector<runtime::GameRecipe> generated_recipes;
 };
 
 // A downloaded game to prepare. The game files stay at install_path.
@@ -143,6 +145,10 @@ struct RuntimePrepareRequest {
   std::string install_path;  // console path of the Steam install
   std::string volume_id;
   std::string title_name;    // the game's name, shown for its PS5 title
+  // Steam's Windows launch options (label = Steam's description), used when Playden
+  // ships no recipe for the game. launch_reason says why they are missing.
+  std::vector<runtime::LaunchEntry> launches;
+  std::string launch_reason;
 };
 
 // The worker constructs and owns every runtime collaborator, so durable work and
@@ -183,6 +189,10 @@ class RuntimeHost {
   void Publish(const std::function<void(RuntimeSnapshot&)>& change);
   void PublishInstalls(const Composition& composition);
   std::string RunPrepare(Composition& composition, const RuntimePrepareRequest& request);
+  const runtime::GameRecipe* RecipeForPrepare(Composition& composition, const RuntimePrepareRequest& request,
+                                              std::string* reason);
+  void LoadGeneratedRecipes(Composition& composition);
+  void PublishRecipes(const Composition& composition);
   runtime::PackageActionResult DrivePublication(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,

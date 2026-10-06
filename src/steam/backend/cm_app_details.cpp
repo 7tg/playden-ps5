@@ -31,6 +31,9 @@ AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer) {
   std::vector<AppLaunch> launches;
   details.windows_installable = EligibleLaunches(*app, owned, &launches, &reason);
   if (!details.windows_installable) details.reason = "No Windows launch configuration.";
+  for (const auto& launch : launches)
+    details.launches.push_back({launch.executable, launch.arguments, launch.working_directory,
+                                launch.description.value_or(std::string())});
   return details;
 }
 

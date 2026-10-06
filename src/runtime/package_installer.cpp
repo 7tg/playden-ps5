@@ -425,6 +425,15 @@ bool FilesystemPackageInstaller::ValidView() const {
   return true;
 }
 
+// The kit's own recipe, or the one Playden generated for this game from Steam's
+// launch options (runtime::GeneratedRecipeId: "steam-<app id>-auto"). The kit's
+// runtime and template run either; only the launch entries differ.
+bool FilesystemPackageInstaller::RecipeAccepted(const RuntimeInstall& record) const {
+  if (record.recipe_id == kit_.recipe.id && record.recipe_version == kit_.recipe.version) return true;
+  return record.app_id != 0 && record.recipe_id == "steam-" + std::to_string(record.app_id) + "-auto" &&
+         !record.recipe_version.empty();
+}
+
 std::optional<FilesystemPackageInstaller::ResolvedPaths>
 FilesystemPackageInstaller::Resolve(const RuntimeInstall& record) const {
   if (!ValidView() || !Variant(record) ||
@@ -433,7 +442,7 @@ FilesystemPackageInstaller::Resolve(const RuntimeInstall& record) const {
       !IsManagedTitle(record.title_id) || record.default_profile_id.empty() ||
       record.default_profile_id.find('/') != std::string::npos ||
       record.runtime_bundle_id != kit_.runtime.bundle_id ||
-      record.recipe_id != kit_.recipe.id || record.recipe_version != kit_.recipe.version)
+      !RecipeAccepted(record))
     return std::nullopt;
   const fs::path game = paths_.host_data_root / "playden/games" / record.install_id;
   const fs::path title = paths_.host_data_root / "homebrew" / record.title_id;

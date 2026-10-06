@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <set>
@@ -88,7 +89,7 @@ std::vector<SettingDefinition> BuildCatalogue() {
                          {"frametimes", "Frame rate and frame times", "Adds a graph of how long each frame took."},
                          {"full", "Everything", "Also memory, GPU load and the DXVK version."}},
                         "fps", 2));
-  list.push_back(Text("extra_arguments", "Extra arguments", "Added after the arguments the recipe needs.",
+  list.push_back(Text("extra_arguments", "Extra arguments", "Added after the arguments the game needs.",
                       "[application] arguments", T::kBasic));
   list.push_back(Choice("frame_limit", "Frame limit", "Caps the frame rate for steadier motion and less heat.",
                         "dxgi.maxFrameRate · d3d9.maxFrameRate", T::kBasic,
@@ -357,7 +358,7 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     if (error) *error = {std::move(id), std::move(message)};
     return false;
   };
-  if (recipe.launch_entries.empty()) return fail("launch_option", "the recipe has no launch entry");
+  if (recipe.launch_entries.empty()) return fail("launch_option", "the game has no launch option");
 
   EffectiveSettings out;
   for (const auto& definition : SettingsCatalogue()) {
@@ -372,11 +373,11 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
       value.source = kind;
       return true;
     };
-    if (!layer(recipe.defaults, ValueSource::kRecipe)) return fail(definition.id, "recipe default is invalid");
+    if (!layer(recipe.defaults, ValueSource::kRecipe)) return fail(definition.id, "a default for this game is invalid");
     value.locked = definition.id == "graphics" || recipe.locked.count(definition.id) > 0;
     if (definition.id == "graphics") value.value = recipe.graphics, value.source = ValueSource::kRecipe;
     if (value.locked) {
-      value.reason = "Required by recipe";
+      value.reason = "Required by this game";
     } else {
       if (preset && !layer(preset->settings, ValueSource::kPreset))
         return fail(definition.id, "preset value is invalid");
@@ -409,6 +410,7 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
   ReplaceAll(&resolution_arguments, "{w}", resolution.substr(0, x));
   ReplaceAll(&resolution_arguments, "{h}", x == std::string::npos ? "" : resolution.substr(x + 1));
   ReplaceAll(&arguments, "{resolution}", resolution_arguments);
+  if (!out.launch->arguments.empty()) arguments += " " + out.launch->arguments;
   const auto& extra = out.values["extra_arguments"].value;
   if (!extra.empty()) arguments += " " + extra;
   out.arguments = CollapseSpaces(arguments);
@@ -628,8 +630,10 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
     LaunchEntry entry;
     if (!item.object() || !StringField(item, "id", &entry.id) || !StringField(item, "label", &entry.label) ||
         !StringField(item, "executable", &entry.executable) ||
-        !StringField(item, "working_directory", &entry.working_directory, false))
+        !StringField(item, "working_directory", &entry.working_directory, false) ||
+        !StringField(item, "arguments", &entry.arguments, false))
       return fail("launch entry needs id, label and executable");
+    if (HasControl(entry.arguments)) return fail("launch entry arguments contain a control character");
     out.launch_entries.push_back(std::move(entry));
   }
   if (!StringMap(root->get("defaults"), &out.defaults)) return fail("defaults must map setting ids to strings");
@@ -733,6 +737,176 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record) {
     text += "\"" + json::escape(id) + "\":\"" + json::escape(value) + "\"";
   }
   return text + "}}";
+}
+
+std::string SerializeGameRecipe(const GameRecipe& recipe) {
+  const auto quoted = [](const std::string& text) { return "\"" + json::escape(text) + "\""; };
+  std::string text = "{\"recipe_id\":" + quoted(recipe.id) + ",\"recipe_version\":" + std::to_string(recipe.version) +
+                     ",\"app_id\":" + std::to_string(recipe.app_id) + ",\"name\":" + quoted(recipe.name) +
+                     ",\"launch_entries\":[";
+  for (std::size_t index = 0; index < recipe.launch_entries.size(); ++index) {
+    const auto& entry = recipe.launch_entries[index];
+    if (index) text += ",";
+    text += "{\"id\":" + quoted(entry.id) + ",\"label\":" + quoted(entry.label) + ",\"executable\":" +
+            quoted(entry.executable) + ",\"working_directory\":" + quoted(entry.working_directory) +
+            ",\"arguments\":" + quoted(entry.arguments) + "}";
+  }
+  text += "],\"arguments\":" + quoted(recipe.arguments) + ",\"resolution_arguments\":" +
+          quoted(recipe.resolution_arguments) + ",\"dll_overrides\":" + quoted(recipe.dll_overrides) +
+          ",\"architecture\":" + quoted(recipe.architecture) + ",\"runtime\":" + quoted(recipe.runtime) +
+          ",\"prefix\":" + quoted(recipe.prefix) + ",\"graphics\":" + quoted(recipe.graphics) + ",\"defaults\":{";
+  bool first = true;
+  for (const auto& [id, value] : recipe.defaults) {
+    if (!first) text += ",";
+    first = false;
+    text += quoted(id) + ":" + quoted(value);
+  }
+  text += "},\"locked\":[";
+  first = true;
+  for (const auto& id : recipe.locked) {
+    if (!first) text += ",";
+    first = false;
+    text += quoted(id);
+  }
+  return text + "]}\n";
+}
+
+namespace {
+
+std::string LowerAscii(std::string text) {
+  for (auto& value : text)
+    if (value >= 'A' && value <= 'Z') value = static_cast<char>(value - 'A' + 'a');
+  return text;
+}
+
+// Finds a game-relative path the way Windows would, ignoring case, and returns the
+// spelling on disk. Symbolic links are not followed.
+std::optional<std::string> ResolveGameFile(const std::string& root, const std::string& relative) {
+  namespace fs = std::filesystem;
+  fs::path cursor(root);
+  std::string resolved;
+  std::size_t start = 0;
+  while (start <= relative.size()) {
+    const auto end = std::min(relative.find('/', start), relative.size());
+    const auto part = relative.substr(start, end - start);
+    start = end + 1;
+    if (part.empty()) return std::nullopt;
+    std::error_code error;
+    // The spelling stored in the directory, exact first (filesystems may ignore case).
+    std::string match;
+    const auto wanted = LowerAscii(part);
+    for (fs::directory_iterator it(cursor, error), last; !error && it != last; it.increment(error)) {
+      const auto name = it->path().filename().string();
+      if (name == part) { match = name; break; }
+      if (match.empty() && LowerAscii(name) == wanted) match = name;
+    }
+    if (match.empty()) return std::nullopt;
+    cursor /= match;
+    resolved += (resolved.empty() ? "" : "/") + match;
+    const auto status = fs::symlink_status(cursor, error);
+    if (error || fs::is_symlink(status)) return std::nullopt;
+    if (end == relative.size()) return fs::is_regular_file(status) ? std::optional<std::string>(resolved) : std::nullopt;
+    if (!fs::is_directory(status)) return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+// "pe32" or "pe64" from a Windows executable's PE header; empty when it is neither.
+std::string ExecutableArchitecture(const std::string& path) {
+  const int file = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (file < 0) return {};
+  const auto read_at = [file](off_t offset, unsigned char* buffer, std::size_t size) {
+    std::size_t done = 0;
+    while (done < size) {
+      const auto count = ::pread(file, buffer + done, size - done, offset + static_cast<off_t>(done));
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) return false;
+      done += static_cast<std::size_t>(count);
+    }
+    return true;
+  };
+  unsigned char dos[64];
+  unsigned char header[26];
+  std::string architecture;
+  if (read_at(0, dos, sizeof(dos)) && dos[0] == 'M' && dos[1] == 'Z') {
+    const std::uint32_t pe = dos[0x3c] | (dos[0x3d] << 8) | (dos[0x3e] << 16) | (static_cast<std::uint32_t>(dos[0x3f]) << 24);
+    if (pe < 64u * 1024u * 1024u && read_at(static_cast<off_t>(pe), header, sizeof(header)) &&
+        header[0] == 'P' && header[1] == 'E' && header[2] == 0 && header[3] == 0) {
+      const unsigned machine = header[4] | (header[5] << 8);
+      const unsigned magic = header[24] | (header[25] << 8);
+      if (machine == 0x014c && magic == 0x010b) architecture = "pe32";
+      if (machine == 0x8664 && magic == 0x020b) architecture = "pe64";
+    }
+  }
+  ::close(file);
+  return architecture;
+}
+
+}  // namespace
+
+std::string GeneratedRecipeId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id) + "-auto"; }
+
+bool IsGeneratedRecipeId(std::string_view id) {
+  return id.size() > 11 && id.substr(0, 6) == "steam-" && id.substr(id.size() - 5) == "-auto";
+}
+
+bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std::vector<LaunchEntry>& launches,
+                        const std::string& install_root, GameRecipe* recipe, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  GameRecipe out;
+  out.id = GeneratedRecipeId(app_id);
+  out.version = 1;
+  out.app_id = app_id;
+  out.name = name;
+  out.graphics = "auto";
+  std::string first_missing;
+  for (const auto& launch : launches) {
+    const auto relative = steam::RelativeGamePath(launch.executable);
+    if (!relative || relative->size() < 4 || LowerAscii(relative->substr(relative->size() - 4)) != ".exe") continue;
+    if (HasControl(launch.arguments) || launch.arguments.size() > kProsperoMaxArgumentBytes / 2 ||
+        !SplitProsperoArguments(launch.arguments, nullptr))
+      continue;
+    std::string working;
+    if (!launch.working_directory.empty()) {
+      const auto directory = steam::RelativeGamePath(launch.working_directory, true);
+      if (!directory) continue;
+      working = *directory == "." ? std::string() : *directory;
+    }
+    const auto on_disk = ResolveGameFile(install_root, *relative);
+    if (!on_disk) {
+      if (first_missing.empty()) first_missing = *relative;
+      continue;
+    }
+    const auto architecture = ExecutableArchitecture(install_root + "/" + *on_disk);
+    if (architecture.empty()) continue;
+    if (out.launch_entries.empty()) out.architecture = architecture;
+    else if (architecture != out.architecture) continue;
+    LaunchEntry entry;
+    entry.id = "launch-" + std::to_string(out.launch_entries.size() + 1);
+    const auto slash = on_disk->rfind('/');
+    entry.label = !launch.label.empty() ? launch.label
+                                        : slash == std::string::npos ? *on_disk : on_disk->substr(slash + 1);
+    entry.label.erase(std::remove_if(entry.label.begin(), entry.label.end(),
+                                     [](char value) { return HasControl(std::string_view(&value, 1)); }),
+                      entry.label.end());
+    if (entry.label.size() > 120) entry.label.resize(120);
+    entry.executable = *on_disk;
+    entry.working_directory = working;
+    entry.arguments = CollapseSpaces(launch.arguments);
+    out.launch_entries.push_back(std::move(entry));
+  }
+  if (out.launch_entries.empty())
+    return fail(first_missing.empty() ? "Steam lists no Windows program this console can start for this game."
+                                      : "The game's program " + first_missing + " is missing; verify the download.");
+  // Round trip so a generated recipe obeys the same rules as a shipped one.
+  GameRecipe checked;
+  std::string why;
+  if (!ParseGameRecipe(SerializeGameRecipe(out), &checked, &why)) return fail("Playden could not set up this game: " + why);
+  *recipe = std::move(checked);
+  return true;
 }
 
 namespace {

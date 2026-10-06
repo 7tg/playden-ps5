@@ -100,7 +100,12 @@ void AppInfoBecomesWindowsEstimate() {
   "config"
   {
     "installdir" "Synthetic"
-    "launch" { "0" { "executable" "game.exe" "type" "default" "config" { "oslist" "windows" } } }
+    "launch"
+    {
+      "0" { "executable" "game.exe" "type" "default" "config" { "oslist" "windows" } }
+      "1" { "executable" "bin\\safe.exe" "arguments" "-safe" "description" "Safe mode" "config" { "oslist" "windows" } }
+      "2" { "executable" "game.app" "config" { "oslist" "macos" } }
+    }
   }
   "depots"
   {
@@ -112,6 +117,10 @@ void AppInfoBecomesWindowsEstimate() {
   const auto details = DetailsFromAppInfo(440, buffer + std::string(2, '\0'));
   assert(details.available && details.windows_installable);
   assert(details.install_bytes == 3500u && details.download_bytes == 1400u);
+  // The Windows launch options, default first, are kept for preparing the game.
+  assert(details.launches.size() == 2 && details.launches[0].executable == "game.exe");
+  assert(details.launches[1].executable == "bin\\safe.exe" && details.launches[1].arguments == "-safe" &&
+         details.launches[1].description == "Safe mode");
   const auto unreadable = DetailsFromAppInfo(440, "not vdf {");
   assert(!unreadable.available && !unreadable.reason.empty());
   const std::string mac_only = R"("appinfo" { "depots" { "1" { "config" { "oslist" "macos" } "manifests" { "public" { "gid" "1" } } } } })";

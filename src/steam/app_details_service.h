@@ -18,6 +18,14 @@
 
 namespace playden::steam {
 
+// One Windows launch option from Steam's app info, as Steam wrote it.
+struct LaunchOption {
+  std::string executable;
+  std::string arguments;
+  std::string working_directory;
+  std::string description;
+};
+
 // What a game's Steam app info says about installing it on this console.
 struct AppDetails {
   GameId id = 0;
@@ -27,6 +35,7 @@ struct AppDetails {
   std::optional<std::uint64_t> install_bytes;
   bool windows_installable = false;  // depots and a launch entry exist for Windows/English
   std::string reason;                // short, user-facing, no identifiers
+  std::vector<LaunchOption> launches;  // Windows launch options, default first
 };
 
 // Runs on the service worker; may block on the network.

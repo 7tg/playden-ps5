@@ -71,6 +71,7 @@ struct LaunchEntry {
   std::string label;
   std::string executable;         // relative to the install root, '/' or '\' separated
   std::string working_directory;  // relative to the install root; empty = executable's folder
+  std::string arguments;          // this entry's own arguments, after the recipe's
 };
 
 struct GameRecipe {
@@ -163,6 +164,20 @@ bool ApplyGameSettings(const GameRecipe& recipe, const EffectiveSettings& settin
 bool ParseGameRecipe(std::string_view json, GameRecipe* recipe, std::string* reason);
 bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* presets, std::string* reason);
 bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, std::string* reason);
+// The recipe as JSON that ParseGameRecipe reads back.
+std::string SerializeGameRecipe(const GameRecipe& recipe);
+
+// Games without a shipped recipe get one generated from Steam's Windows launch options.
+// Its id is GeneratedRecipeId(app_id); it starts the first launch entry with the game's own
+// arguments, lets the kit choose the graphics mode and locks nothing.
+std::string GeneratedRecipeId(std::uint32_t app_id);
+bool IsGeneratedRecipeId(std::string_view id);
+// Builds that recipe from Steam's launch options (default first). Entries whose executable is
+// not a game-relative .exe are skipped. The architecture comes from the first usable entry's
+// PE header under install_root; entries built for the other architecture are skipped. On
+// failure, reason is a short sentence for the player.
+bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std::vector<LaunchEntry>& launches,
+                        const std::string& install_root, GameRecipe* recipe, std::string* reason);
 std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
 
 // Deletes the DXVK pipeline cache for the launch entry's executable (<install_root>/

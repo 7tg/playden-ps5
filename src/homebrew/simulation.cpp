@@ -232,7 +232,7 @@ std::string binding_label(const std::string& value) {
 
 const char* source_label(rt::ValueSource source) {
     switch (source) {
-    case rt::ValueSource::kRecipe: return "From recipe";
+    case rt::ValueSource::kRecipe: return "From the game";
     case rt::ValueSource::kPreset: return "From preset";
     case rt::ValueSource::kUser: return "Your choice";
     default: return "Playden default";
@@ -1955,7 +1955,7 @@ void Simulation::rebuild_view() {
                 else if (id.rfind("button.", 0) == 0) item.value = binding_label(value.value);
                 else if (definition->kind == rt::SettingKind::kText) item.value = value.value.empty() ? "Empty" : value.value;
                 else item.value = choice_label(*definition, value.value);
-                item.badge = value.locked ? "Required by recipe"
+                item.badge = value.locked ? "Required by this game"
                     : definition->apply == rt::ApplyMode::kGameClosed ? "Game must be closed"
                     : definition->apply == rt::ApplyMode::kPreparesBottle ? "Prepares bottle" : "";
                 item.enabled = value.available && !value.locked;
@@ -1992,7 +1992,7 @@ void Simulation::rebuild_view() {
                 } else if (modal.setting_id.rfind("button.", 0) == 0) {
                     value = common_bindings()[index].first;
                     item.title = common_bindings()[index].second;
-                    if (index == 0) item.subtitle = "Use the preset or recipe binding: " + binding_label(inherited.value) + ".";
+                    if (index == 0) item.subtitle = "Use the preset or game binding: " + binding_label(inherited.value) + ".";
                 } else {
                     const auto& choice = rt::FindSetting(modal.setting_id)->choices[index];
                     value = choice.value;
@@ -3836,10 +3836,25 @@ void Simulation::SetKitCapabilities(rt::KitCapabilities kit) {
     rebuild_view();
 }
 
+void Simulation::SetGeneratedRecipes(const std::vector<rt::GameRecipe>& recipes) {
+    std::map<std::uint32_t, rt::GameRecipe> generated;
+    for (const auto& recipe : recipes) generated[recipe.app_id] = recipe;
+    if (generated.size() == generated_recipes_.size() &&
+        std::equal(generated.begin(), generated.end(), generated_recipes_.begin(), [](const auto& a, const auto& b) {
+            return a.first == b.first && rt::SerializeGameRecipe(a.second) == rt::SerializeGameRecipe(b.second);
+        }))
+        return;
+    generated_recipes_ = std::move(generated);
+    refresh_game_settings();
+    rebuild_view();
+}
+
 const rt::GameRecipe& Simulation::RecipeFor(GameId id) const {
     if (const auto found = recipes_.find(static_cast<std::uint32_t>(id)); found != recipes_.end()) return found->second;
-    // Games without a recipe get a generic one so the sheet can be shown; a real install
-    // still needs a recipe before it can be prepared.
+    if (const auto found = generated_recipes_.find(static_cast<std::uint32_t>(id)); found != generated_recipes_.end())
+        return found->second;
+    // Games not prepared yet get a generic one so the sheet can be shown; preparing a real
+    // install generates the game's own from Steam's launch options.
     auto& recipe = simulated_recipes_[id];
     if (recipe.launch_entries.empty()) {
         const auto* game = find_game(state_, id);

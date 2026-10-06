@@ -10,6 +10,7 @@
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -364,7 +365,7 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
     if (candidate.app_id == record.app_id && candidate.id == record.recipe_id) recipe = &candidate;
-  if (!recipe) return failed("recipe-unavailable", "The game's preparation recipe is unavailable.");
+  if (!recipe) return failed("recipe-unavailable", "Playden no longer knows how to start this game; prepare it again.");
   rt::SettingsLaunchInput input;
   input.recipe = recipe;
   input.record = config_.settings_record ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{})
@@ -662,6 +663,74 @@ rt::PackageActionResult RuntimeHost::WriteTitleMetadata(Composition& c, const rt
   return c.installer->WriteTitleMetadata(record, param, icon);
 }
 
+namespace {
+// Generated recipes live in the private runtime state, one file per game.
+std::string GeneratedRecipeFile(const std::string& recipe_id) { return "recipe-" + recipe_id + ".json"; }
+}  // namespace
+
+// The recipe a game is prepared with: Playden's shipped one, otherwise one generated
+// from Steam's launch options and saved so recovery and later settings changes use the
+// same launch entries. Returns null with the reason for the player.
+const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const RuntimePrepareRequest& request,
+                                                    std::string* reason) {
+  for (const auto& candidate : c.recipes)
+    if (candidate.app_id == request.app_id && !rt::IsGeneratedRecipeId(candidate.id)) return &candidate;
+  if (!c.settings_data_reason.empty()) { *reason = c.settings_data_reason; return nullptr; }
+  if (request.launches.empty()) {
+    *reason = request.launch_reason.empty() ? "Steam lists no Windows program this console can start for this game."
+                                            : request.launch_reason;
+    return nullptr;
+  }
+  const auto root = config_.host_namespace_prefix.empty()
+      ? std::filesystem::path(request.install_path)
+      : config_.host_namespace_prefix / std::filesystem::path(request.install_path).relative_path();
+  rt::GameRecipe generated;
+  if (!rt::GenerateGameRecipe(request.app_id, request.title_name, request.launches, root.string(), &generated, reason))
+    return nullptr;
+  const auto text = rt::SerializeGameRecipe(generated);
+  const auto written = c.storage.WriteAtomicPrivate(GeneratedRecipeFile(generated.id), Bytes(text.begin(), text.end()));
+  if (!written.ok()) {
+    Log("generated recipe write failed app=" + std::to_string(request.app_id) + " message=" + written.message());
+    *reason = "Playden could not save how to start this game.";
+    return nullptr;
+  }
+  Log("generated recipe app=" + std::to_string(request.app_id) + " architecture=" + generated.architecture +
+      " entries=" + std::to_string(generated.launch_entries.size()) + " executable=" +
+      generated.launch_entries.front().executable);
+  c.recipes.erase(std::remove_if(c.recipes.begin(), c.recipes.end(),
+                                 [&](const rt::GameRecipe& recipe) { return recipe.id == generated.id; }),
+                  c.recipes.end());
+  c.recipes.push_back(std::move(generated));
+  PublishRecipes(c);
+  return &c.recipes.back();
+}
+
+void RuntimeHost::LoadGeneratedRecipes(Composition& c) {
+  for (const auto& record : c.repository.Snapshot()) {
+    if (!rt::IsGeneratedRecipeId(record.recipe_id)) continue;
+    const auto bytes = c.storage.Read(GeneratedRecipeFile(record.recipe_id), 256 * 1024);
+    rt::GameRecipe recipe;
+    std::string reason;
+    if (!bytes.ok() ||
+        !rt::ParseGameRecipe(std::string(bytes.value().begin(), bytes.value().end()), &recipe, &reason) ||
+        recipe.id != record.recipe_id || recipe.app_id != record.app_id ||
+        std::to_string(recipe.version) != record.recipe_version) {
+      Log("generated recipe unavailable install=" + record.install_id + " " +
+          (bytes.ok() ? reason : bytes.message()));
+      continue;
+    }
+    c.recipes.push_back(std::move(recipe));
+  }
+  PublishRecipes(c);
+}
+
+void RuntimeHost::PublishRecipes(const Composition& c) {
+  std::vector<rt::GameRecipe> generated;
+  for (const auto& recipe : c.recipes)
+    if (rt::IsGeneratedRecipeId(recipe.id)) generated.push_back(recipe);
+  Publish([&](RuntimeSnapshot& s) { s.generated_recipes = std::move(generated); });
+}
+
 std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request) {
   if (!c.kit) return Snapshot().kit_reason;
   // A game being started or played keeps its title and bottle as they are.
@@ -773,6 +842,19 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     }
     if (existing->install_path != request.install_path)
       return "The game's files moved since preparation started; recovery is not connected yet.";
+    // A generated recipe that could not be read back is made again before a fresh start.
+    const bool fresh_start = existing->state == rt::PreparationState::kFailed ||
+                             existing->state == rt::PreparationState::kUnavailable ||
+                             existing->state == rt::PreparationState::kDownloaded;
+    if (fresh_start && rt::IsGeneratedRecipeId(existing->recipe_id) &&
+        std::none_of(c.recipes.begin(), c.recipes.end(),
+                     [&](const rt::GameRecipe& recipe) { return recipe.id == existing->recipe_id; })) {
+      std::string reason;
+      const auto* recipe = RecipeForPrepare(c, request, &reason);
+      if (!recipe) return reason;
+      if (recipe->id != existing->recipe_id || std::to_string(recipe->version) != existing->recipe_version)
+        return "This game's setup changed; remove its PS5 title before preparing it again.";
+    }
     if (existing->state == rt::PreparationState::kFailed || existing->state == rt::PreparationState::kUnavailable)
       started = c.service->Retry(existing->install_id);
     else if (existing->state == rt::PreparationState::kDownloaded)
@@ -790,14 +872,14 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     // routes it to the saved request or frozen operation, never a new plan, and
     // never resubmits an uncertain registration.
   } else {
-    const rt::GameRecipe* recipe = nullptr;
-    for (const auto& candidate : c.recipes) if (candidate.app_id == request.app_id) recipe = &candidate;
-    if (!recipe)
-      return c.settings_data_reason.empty() ? "No compatible preparation recipe exists for this game."
-                                            : c.settings_data_reason;
-    if (recipe->id != c.kit->view.recipe.id || std::to_string(recipe->version) != c.kit->view.recipe.version)
-      return "The installed kit does not carry this game's recipe.";
-    if (recipe->launch_entries.empty()) return "The game's recipe has no launch entry.";
+    std::string reason;
+    const rt::GameRecipe* recipe = RecipeForPrepare(c, request, &reason);
+    if (!recipe) return reason;
+    // A shipped recipe is trusted only from the kit that carries it.
+    if (!rt::IsGeneratedRecipeId(recipe->id) &&
+        (recipe->id != c.kit->view.recipe.id || std::to_string(recipe->version) != c.kit->view.recipe.version))
+      return "The installed compatibility kit was built for another version of this game's setup.";
+    if (recipe->launch_entries.empty()) return "Steam lists no Windows program this console can start for this game.";
     const auto& launch = recipe->launch_entries.front();
     const auto settings = config_.settings_record ? config_.settings_record(request.app_id) : std::nullopt;
     rt::ReserveRequest reserve;
@@ -905,7 +987,7 @@ void RuntimeHost::Run() {
             if (recipe.app_id == record.app_id && recipe.id == record.recipe_id &&
                 std::to_string(recipe.version) == record.recipe_version)
               return rt::CompatibilityResult{true, {}};
-          return rt::CompatibilityResult{false, "No compatible preparation recipe exists for this game."};
+          return rt::CompatibilityResult{false, "Playden no longer knows how to start this game; prepare it again."};
         },
         [this] { return Stopping(); },
         [this, &c](const rt::RuntimeInstall& record) { return DrivePublication(c, record); });
@@ -917,6 +999,7 @@ void RuntimeHost::Run() {
     } else {
       // Startup only reads durable state. Records with a journal wait for an
       // explicit recovery action; nothing resumes, registers or rebuilds here.
+      LoadGeneratedRecipes(c);
       PublishInstalls(c);
       if (c.kit)
         for (const auto& record : c.repository.Snapshot())

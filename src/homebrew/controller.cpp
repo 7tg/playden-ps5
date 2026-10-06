@@ -293,12 +293,15 @@ void Controller::TickRuntime() {
     runtime_->SetTitleNames(std::move(names));
   }
   for (const auto id : model_.TakeRuntimePrepareRequests()) {
-    const auto root = game_roots_.find(id);
-    if (root == game_roots_.end()) continue;
-    std::string name;
-    for (const auto& game : model_.state().games) if (game.id == id) name = game.title;
-    if (model_.state().title_store_suffix && !name.empty()) name += " (Steam)";
-    runtime_->Prepare({id, root->second, game_volumes_[id], name});
+    if (!game_roots_.count(id)) continue;
+    // Without Steam's launch options yet, ask Steam first; TickAppDetails submits it.
+    if (app_details_ && !launch_options_.count(id) && !launch_options_reason_.count(id) &&
+        model_.state().account.authentication == AuthState::SignedIn) {
+      prepare_after_details_.insert(id);
+      app_details_->Request(id, model_.state().account_generation);
+      continue;
+    }
+    SubmitPrepare(id);
   }
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   auto plays = model_.TakeRuntimePlayRequests();
@@ -495,6 +498,7 @@ void Controller::TickRuntime() {
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
     games.push_back(std::move(game));
   }
+  model_.SetGeneratedRecipes(snapshot.generated_recipes);
   model_.UpdateRuntime(state, games);
   model_.SetRuntimeLeftovers(snapshot.leftover_requests);
 }
@@ -570,6 +574,9 @@ void Controller::TickAppDetails() {
     app_details_->Invalidate(generation);
     requested_generation_ = generation;
     requested_detail_.reset();
+    launch_options_.clear();
+    launch_options_reason_.clear();
+    prepare_after_details_.clear();
   }
   // Fetch Steam app info when the player opens a game's details while signed in.
   if (state.account.authentication == AuthState::SignedIn && state.navigation.detail_id &&
@@ -579,9 +586,32 @@ void Controller::TickAppDetails() {
   }
   for (const auto& details : app_details_->Pump()) {
     if (details.account_generation != generation) continue;
-    if (details.available)
+    if (details.available) {
       model_.UpdateAppDetails(details.id, details.download_bytes, details.install_bytes, details.windows_installable);
+      launch_options_[details.id] = details.launches;
+      launch_options_reason_.erase(details.id);
+    } else if (!launch_options_.count(details.id)) {
+      launch_options_reason_[details.id] = details.reason.empty() ? "Steam details are unavailable right now." : details.reason;
+    }
+    if (prepare_after_details_.erase(details.id) && runtime_) SubmitPrepare(details.id);
   }
+}
+void Controller::SubmitPrepare(GameId id) {
+  const auto root = game_roots_.find(id);
+  if (!runtime_ || root == game_roots_.end()) return;
+  RuntimePrepareRequest request{id, root->second, game_volumes_[id], {}};
+  for (const auto& game : model_.state().games) if (game.id == id) request.title_name = game.title;
+  if (model_.state().title_store_suffix && !request.title_name.empty()) request.title_name += " (Steam)";
+  if (const auto found = launch_options_.find(id); found != launch_options_.end())
+    for (const auto& option : found->second)
+      request.launches.push_back({"", option.description, option.executable, option.working_directory, option.arguments});
+  if (const auto reason = launch_options_reason_.find(id); reason != launch_options_reason_.end())
+    request.launch_reason = "Playden could not read how to start this game from Steam: " + reason->second;
+  else if (!launch_options_.count(id))
+    request.launch_reason = "Sign in to Steam so Playden can read how to start this game.";
+  // After a failed answer, ask Steam again so a later Prepare can use the options.
+  if (app_details_ && !launch_options_.count(id)) app_details_->Request(id, model_.state().account_generation);
+  runtime_->Prepare(std::move(request));
 }
 void Controller::Apply(const steam::SteamEvent& event) {
   if (event.generation < generation_) return;

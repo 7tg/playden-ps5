@@ -138,7 +138,7 @@ RuntimeInstallService::Prepare(const std::string &install_id) {
     record->last_failure =
         RuntimeFailure{"recipe-unavailable",
                        compatibility.reason.empty()
-                           ? "compatible preparation recipe is unavailable"
+                           ? "Playden does not know how to start this game yet."
                            : compatibility.reason};
     record->journal.reset();
     const auto persisted = Persist(*record);
@@ -187,7 +187,7 @@ RuntimeInstallService::Retry(const std::string &install_id) {
     record->last_failure =
         RuntimeFailure{"recipe-unavailable",
                        compatibility.reason.empty()
-                           ? "compatible preparation recipe is unavailable"
+                           ? "Playden does not know how to start this game yet."
                            : compatibility.reason};
     const auto persisted = Persist(*record);
     return persisted.ok() ? InstallServiceResult::Failure(

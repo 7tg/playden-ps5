@@ -422,6 +422,8 @@ public:
     // Live mode: where per-game settings are kept (loaded now, saved on every change).
     void SetGameSettingsFile(std::filesystem::path path);
     // The recipe and effective settings the sheet shows for a game.
+    // Recipes the runtime generated from Steam launch options; a shipped recipe wins.
+    void SetGeneratedRecipes(const std::vector<playden::runtime::GameRecipe>& recipes);
     [[nodiscard]] const playden::runtime::GameRecipe& RecipeFor(GameId id) const;
     [[nodiscard]] bool EffectiveSettingsFor(GameId id, playden::runtime::EffectiveSettings* settings) const;
 
@@ -444,6 +446,7 @@ private:
     std::string selected_volume_id_;
     std::vector<playden::runtime::SettingsPreset> settings_presets_;
     std::map<std::uint32_t, playden::runtime::GameRecipe> recipes_;
+    std::map<std::uint32_t, playden::runtime::GameRecipe> generated_recipes_;
     mutable std::map<GameId, playden::runtime::GameRecipe> simulated_recipes_;
     playden::runtime::KitCapabilities kit_;
     std::set<std::string> expanded_settings_sections_;

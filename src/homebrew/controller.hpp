@@ -51,6 +51,12 @@ class Controller {
   std::uint64_t cloud_revision_ = 0;
   std::map<GameId, std::string> game_roots_;  // installed games' folders, for Steam Cloud
   std::map<GameId, std::string> game_volumes_;  // installed games' volume ids
+  // Steam's Windows launch options per game, from app details. A game Playden ships
+  // no recipe for is prepared from them; Prepare waits while they are fetched.
+  std::map<GameId, std::vector<steam::LaunchOption>> launch_options_;
+  std::map<GameId, std::string> launch_options_reason_;
+  std::set<GameId> prepare_after_details_;
+  void SubmitPrepare(GameId id);
   RuntimeHost* runtime_ = nullptr;
   std::uint64_t runtime_revision_ = 0;
   std::uint64_t runtime_install_revision_ = 0;

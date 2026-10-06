@@ -688,6 +688,74 @@ void PlaysReadyTitleThroughHandoff() {
   restarted.Shutdown();
 }
 
+// A game Playden ships no recipe for is prepared from Steam's launch options; the
+// generated recipe is saved and read back after a restart.
+void PreparesGameWithoutShippedRecipe() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/4242";
+  // A 64-bit PE header is all the generator reads.
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  Write(game / "Bin/Game.exe", pe, 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  RuntimePrepareRequest request{4242, "/data/homebrew/FAKE77031/games/4242", "internal", "Example Game"};
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  // Without Steam's launch options there is nothing to start.
+  request.launch_reason = "Steam details are unavailable right now.";
+  host.Prepare(request);
+  auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(4242) != 0; });
+  CHECK(refused.refusals.at(4242) == "Steam details are unavailable right now.");
+  CHECK(refused.installs.empty() && fixture.registry_mutations == 0);
+
+  request.launch_reason.clear();
+  request.launches = {{"", "", "bin\\game.exe", "", "-windowed"}};
+  host.Prepare(request);
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && ((s.refusals.count(4242) && s.refusals.at(4242) != "Steam details are unavailable right now.") ||
+           (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (done.refusals.count(4242)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(4242).c_str());
+  CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
+  CHECK(done.generated_recipes.size() == 1 && done.generated_recipes[0].id == "steam-4242-auto");
+  CHECK(done.generated_recipes[0].architecture == "pe64");
+  CHECK(done.generated_recipes[0].launch_entries[0].executable == "Bin/Game.exe");
+  CHECK(fs::is_regular_file(fixture.root / "data/runtime-state/recipe-steam-4242-auto.json"));
+  const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
+  CHECK(descriptor.find("steam-4242-auto") != std::string::npos);
+  host.Shutdown();
+
+  // After a restart the saved recipe is found without Steam.
+  RuntimeHost restarted(config);
+  CHECK(restarted.Start());
+  const auto reloaded = WaitFor(restarted, [](const RuntimeSnapshot& s) { return Started(s) && !s.generated_recipes.empty(); });
+  CHECK(reloaded.generated_recipes[0].id == "steam-4242-auto");
+  restarted.Prepare({4242, "/data/homebrew/FAKE77031/games/4242", "internal", "Example Game"});
+  const auto again = WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.refusals.count(4242) != 0; });
+  CHECK(again.refusals.at(4242) == "This game is already prepared.");
+  restarted.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -695,6 +763,7 @@ int main(int argc, char** argv) {
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
+  PreparesGameWithoutShippedRecipe();
   ResumesInterruptedCaptureFromSavedRequest();
   ResumesInterruptedCaptureFromSavedRequest(true);
   RefreshesInstalledTitleToRespunKit();

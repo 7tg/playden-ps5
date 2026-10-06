@@ -160,6 +160,7 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   struct ResolvedPaths;
 
   std::optional<ResolvedPaths> Resolve(const RuntimeInstall& record) const;
+  bool RecipeAccepted(const RuntimeInstall& record) const;
   const KitTitleVariant* Variant(const RuntimeInstall& record) const;
   bool ValidView() const;
   // Owner marker, exact file contents and modes, and published (0755) folders.

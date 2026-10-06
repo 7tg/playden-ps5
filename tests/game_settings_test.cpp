@@ -32,6 +32,17 @@ std::string ReadText(const std::filesystem::path& path) {
 
 const std::string& Value(const EffectiveSettings& settings, const char* id) { return settings.values.at(id).value; }
 
+// A minimal PE header: "MZ", e_lfanew, "PE\0\0", machine and optional-header magic.
+void WritePe(const std::filesystem::path& path, bool pe64) {
+  std::filesystem::create_directories(path.parent_path());
+  std::string bytes(0x80 + 26, '\0');
+  bytes[0] = 'M'; bytes[1] = 'Z'; bytes[0x3c] = 0x40;
+  bytes[0x40] = 'P'; bytes[0x41] = 'E';
+  bytes[0x44] = pe64 ? 0x64 : 0x4c; bytes[0x45] = pe64 ? static_cast<char>(0x86) : 0x01;
+  bytes[0x40 + 24] = 0x0b; bytes[0x40 + 25] = pe64 ? 0x02 : 0x01;
+  std::ofstream(path, std::ios::binary) << bytes;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -625,6 +636,54 @@ int main(int argc, char** argv) {
   CHECK(::stat((plan_root / "game" / "dxvk.conf").c_str(), &preserved_mode) == 0);
   CHECK((preserved_mode.st_mode & 0777) == 0600);
   std::filesystem::remove_all(plan_root);
+
+  // Games without a shipped recipe: one is generated from Steam's launch options.
+  {
+    const auto game_root = std::filesystem::temp_directory_path() / ("playden-generated-recipe-" + std::to_string(::getpid()));
+    std::filesystem::remove_all(game_root);
+    WritePe(game_root / "Bin" / "Game.exe", true);
+    WritePe(game_root / "Launcher32.exe", false);
+    WritePe(game_root / "Bin" / "Tool.exe", true);
+    std::vector<LaunchEntry> launches = {
+        {"", "", "setup.bat", "", ""},                                  // not an .exe
+        {"", "Play", "bin\\game.exe", "Bin", "-windowed  -nosplash"},  // case differs from the disk
+        {"", "", "Launcher32.exe", "", ""},                             // other architecture
+        {"", "", "Missing.exe", "", ""},
+        {"", "", "Bin/Tool.exe", "", ""},
+    };
+    GameRecipe generated;
+    CHECK(GenerateGameRecipe(4242, "Example", launches, game_root.string(), &generated, &reason));
+    CHECK(generated.id == GeneratedRecipeId(4242) && IsGeneratedRecipeId(generated.id) && !IsGeneratedRecipeId(hl2.id));
+    CHECK(generated.app_id == 4242 && generated.version == 1 && generated.architecture == "pe64");
+    CHECK(generated.graphics == "auto" && generated.dll_overrides.empty() && generated.locked.empty());
+    CHECK(generated.launch_entries.size() == 2);
+    CHECK(generated.launch_entries[0].executable == "Bin/Game.exe" && generated.launch_entries[0].label == "Play");
+    CHECK(generated.launch_entries[0].working_directory == "Bin");
+    CHECK(generated.launch_entries[0].arguments == "-windowed -nosplash");
+    CHECK(generated.launch_entries[1].executable == "Bin/Tool.exe" && generated.launch_entries[1].label == "Tool.exe");
+    // The recipe round-trips through its JSON form.
+    GameRecipe reread;
+    CHECK(ParseGameRecipe(SerializeGameRecipe(generated), &reread, &reason));
+    CHECK(SerializeGameRecipe(reread) == SerializeGameRecipe(generated));
+    // The launch entry's own arguments reach the profile, before the player's.
+    EffectiveSettings generated_settings;
+    SettingsError generated_error;
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"extra_arguments", "-dev"}}, KitCapabilities{},
+                                 &generated_settings, &generated_error));
+    CHECK(generated_settings.arguments == "-windowed -nosplash -dev");
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"launch_option", "launch-2"}}, KitCapabilities{},
+                                 &generated_settings, &generated_error));
+    CHECK(generated_settings.arguments.empty() && generated_settings.launch->executable == "Bin/Tool.exe");
+    // A 32-bit game is pe32.
+    CHECK(GenerateGameRecipe(4243, "Old", {{"", "", "Launcher32.exe", "", ""}}, game_root.string(), &generated, &reason));
+    CHECK(generated.architecture == "pe32");
+    // Nothing startable: a missing program names itself; no .exe at all says so.
+    CHECK(!GenerateGameRecipe(4244, "Gone", {{"", "", "Missing.exe", "", ""}}, game_root.string(), &generated, &reason));
+    CHECK(reason.find("Missing.exe") != std::string::npos);
+    CHECK(!GenerateGameRecipe(4245, "Script", {{"", "", "run.sh", "", ""}}, game_root.string(), &generated, &reason));
+    CHECK(reason.find("no Windows program") != std::string::npos);
+    std::filesystem::remove_all(game_root);
+  }
 
   std::puts("game settings tests passed");
 }
