@@ -63,3 +63,9 @@ other three failures exist at the parent `79cf85c`: the `/private/tmp`
 native fixture (fixed in `672d905`), `test_title_identity` expectations and
 `test_test_reachability`. `test_playden_kit` passes 39/0. GCC 15 and Clang 21
 compile gates fail on pre-existing test code; LLVM 18 builds everything.
+
+Follow-up at `672d905` (LLVM 18, same VM): `test_pw_title_publication_native`
+now runs on Linux and passes all five contract groups, including the explicit
+game-root admission cases. `test_native_contract` passes 6/6. Individual sweep:
+99/101 make-test targets, kit 39/0. The remaining failures
+(`test_title_identity`, `test_test_reachability`) predate `439ae06`.
