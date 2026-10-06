@@ -23,7 +23,7 @@ def main():
             package = argparse.ArgumentParser()
             package.add_argument('--spec', required=True, type=Path)
             package.add_argument('--out', required=True, type=Path)
-            inputs = package.parse_args(args.arguments[1:])
+            inputs, _ = package.parse_known_args(args.arguments[1:])
             spec = json.loads(inputs.spec.read_text())
             template = spec['template']
             preparation = template['preparation']
