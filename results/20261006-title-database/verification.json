@@ -1,0 +1,61 @@
+{
+  "scope": "Read-only native title inventory prerequisite; no reservation/ownership/Ready grant",
+  "firmware": "0x13600007",
+  "sdk": "v0.43",
+  "native_pid": 1153,
+  "native_euid": 1,
+  "sqlite3_pin": {
+    "version": "3.53.1",
+    "source_id": "c88b22011a54b4f6fbd149e9f8e4de77658c",
+    "local_source_repository": "../ps5-homebrew/CheatRunner",
+    "local_source_revision": "59dcb9efaba71af00dc29d6cfe35da7d1ea43651",
+    "files": {
+      "sqlite3.c": "9ac97192c93a6d9671d2ea667ba14e3c8fe3719a171afc5827c9d86d0278fc14",
+      "sqlite3.h": "16d6e2f265fb13ece42329da39a865d4c540045b444d16b4bf9f7e1a7e39408f"
+    },
+    "purpose": "Read-only native installed-title inventory; no native database writes"
+  },
+  "native_app_db": {
+    "uid": 0,
+    "mode": "0644",
+    "size": 2772992
+  },
+  "queries": {
+    "FAKE77031": "occupied with identity",
+    "FAKE78001": "occupied with identity",
+    "FAKE78998": "free"
+  },
+  "reader": "read-only/no-follow; 64MiB file limit; bounded fields and VM progress; no busy wait; serialized calls",
+  "host_tests": {
+    "passed": 107,
+    "failed": 0,
+    "seconds": 26.48
+  },
+  "red_test": {
+    "command": "ctest --test-dir build/homebrew-host -R '^title_database$' --output-on-failure",
+    "exit_code": 8,
+    "failed_assertion": "Empty supported native schema must yield free"
+  },
+  "commands": {
+    "host": "cmake --build build/homebrew-host -j4 && ctest --test-dir build/homebrew-host --output-on-failure",
+    "native": "bash ../playden-ps5/scripts/with-env.sh cmake --build build/homebrew-ps5-publication-native --target playden-homebrew-ps5-package -j4"
+  },
+  "developer_eboot_sha256": "9f232d33dc3e25df26d742502aaf861976fa6007b207e8591a3f8bda0c4c7a56",
+  "restoration": {
+    "restored": {
+      "eboot.bin": "d76d1a42306daf024d792da5497c29a8152a8341d71470e86f79ab8bd4308daa",
+      "playden-package.identity": "c7593741974bfd517df3335f9ecfe6b41a17fafd4f3c0f0432ca548a6921fb40"
+    },
+    "restored_modes": {
+      "eboot.bin": "0755",
+      "playden-package.identity": "0644"
+    },
+    "stopped_diagnostic_pid": 1153
+  },
+  "console_released": true,
+  "limits": [
+    "A database row is occupied; it does not by itself prove native installation completion or Playden ownership.",
+    "Free inventory still requires independently free source path and reservation/OWNER gates.",
+    "NativeCoordinator/application composition and full publication/Wine/gameplay acceptance remain open."
+  ]
+}

@@ -776,3 +776,31 @@ Application/kit/UI composition, independent installed-title/source ownership,
 startup/orphan/uncertain registration recovery, final review and PS5/Wine/
 gameplay acceptance remain open. This adds the activity prerequisite only;
 production publication capability is still disabled.
+
+
+### Task C independent native database inventory prerequisite
+
+The actual SDK v0.43 developer Playden title on FW13.60 reads the native app
+installation database through pinned SQLite. It reports Playden/Wine occupied
+with bounded content/metadata identities and the unused probe title free. Missing,
+busy, unsupported and failed/incomplete queries remain unknown. Case aliases and
+invalid metadata cannot authorize identity adoption. The database is opened
+read-only/no-follow with bounded query work and a nonblocking global reader gate;
+no native database writes or title registration were performed.
+
+Copied public-domain SQLite source/header exactly match committed CheatRunner
+59dcb9efaba71af00dc29d6cfe35da7d1ea43651 objects and enforced dependency hashes.
+The empty supported-schema test failed RED, then passed GREEN; all 107 host tests
+and actual SDK native packaging/execution pass. Normal preview bytes and modes
+were independently restored/verified and the console released. See
+[database evidence](../../../results/20261006-title-database/README.md).
+
+Ruling: every matching native database row occupies a title ID, irrespective of
+undocumented completion/status values. A complete empty query is inventory-free
+only; source-path absence remains independently required. Existing metadata is
+observed identity data and never Playden ownership. If wrong, reservations and
+Ready refuse until stronger native/source/OWNER evidence is obtained.
+
+Production native coordinator/source-path checks, kit/application/UI composition,
+startup/orphan/uncertain registration recovery and full publication/Wine/gameplay
+acceptance remain open. Production publication trust is still disabled.

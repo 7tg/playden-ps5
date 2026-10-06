@@ -2,6 +2,7 @@
 #include "steam/backend/native_network.h"
 #include "platform/ps5/title_registry.h"
 #include "platform/ps5/title_activity.h"
+#include "platform/ps5/title_database.h"
 #include "platform/ps5/title_probe_contract.h"
 #include "runtime/private_directories.h"
 extern "C" {
@@ -16,6 +17,7 @@ int sceUserServiceInitialize(void*);
 int sceUserServiceGetForegroundUser(unsigned*);
 }
 #include <cstdio>
+#include <cstring>
 #include <cerrno>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -332,6 +334,34 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   const int result = access.granted ? 0 : -1;
   std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
+  if (std::string(action) == "title-inventory") {
+    const char* path = "/system_data/priv/mms/app.db";
+    const int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    const int open_error = fd < 0 ? errno : 0;
+    struct stat info{};
+    const int stat_result = fd >= 0 ? fstat(fd, &info) : -1;
+    char header[16]{};
+    ssize_t count = -1;
+    if (fd >= 0 && stat_result == 0 && S_ISREG(info.st_mode)) {
+      do { count = read(fd, header, sizeof(header)); } while (count < 0 && errno == EINTR);
+    }
+    const bool sqlite = count == sizeof(header) && std::memcmp(header, "SQLite format 3\0", sizeof(header)) == 0;
+    const int close_result = fd >= 0 ? close(fd) : -1;
+    std::fprintf(log, "title_inventory_file path=%s open=%d open_errno=%d stat=%d regular=%d uid=%u mode=%o size=%lld header_bytes=%lld sqlite_header=%d close=%d\n",
+        path, fd >= 0, open_error, stat_result, S_ISREG(info.st_mode), static_cast<unsigned>(info.st_uid),
+        static_cast<unsigned>(info.st_mode & 07777), static_cast<long long>(info.st_size),
+        static_cast<long long>(count), sqlite, close_result);
+    for (const char* title : {"FAKE77031", "FAKE78001", "FAKE78998"}) {
+      const auto observed = ReadNativeTitleDatabase(title);
+      std::fprintf(log, "title_inventory_query title=%s state=%d free=%d occupied=%d unknown=%d identity=%d content=%s metadata=%s\n",
+          title, static_cast<int>(observed.inventory), static_cast<int>(runtime::TitleAvailability::kFree),
+          static_cast<int>(runtime::TitleAvailability::kOccupied), static_cast<int>(runtime::TitleAvailability::kUnknown),
+          observed.identity.has_value(), observed.identity ? observed.identity->content_id.c_str() : "",
+          observed.identity ? observed.identity->metadata_path.c_str() : "");
+    }
+    std::fprintf(log, "end\n");
+    std::fclose(log); return true;
+  }
   if (std::string(action) == "title-activity") {
     const auto self_title = std::filesystem::path(access.paths.title_root).filename().string();
     const TitleActivityTrace trace = [log](const std::string& event) { std::fprintf(log, "title_activity_trace %s\n", event.c_str()); };
