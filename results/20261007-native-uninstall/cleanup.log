@@ -1,0 +1,127 @@
+start time=1791324116 uid=1
+opendir /data/homebrew/FAKE99032/logs errno=13
+rmdir /data/homebrew/FAKE99032 errno=66
+tree /data/homebrew/FAKE99032 removed=0 failed=2
+end removed=0 failed=2 time=1791324116
+start time=1791324135 uid=1
+root=0 uid=0
+opendir /data/homebrew/FAKE99032/logs errno=13
+rmdir /data/homebrew/FAKE99032 errno=66
+tree /data/homebrew/FAKE99032 removed=0 failed=2
+end removed=0 failed=2 time=1791324135
+start time=1791324155 uid=1
+root=0 uid=0 caps=0
+opendir /data/homebrew/FAKE99032/logs errno=13
+rmdir /data/homebrew/FAKE99032 errno=66
+tree /data/homebrew/FAKE99032 removed=0 failed=2
+end removed=0 failed=2 time=1791324155
+start time=1791324180 uid=1
+root=0 uid=0 caps=0
+tree /data/homebrew/FAKE99032 removed=4 failed=0
+end removed=4 failed=0 time=1791324180
+start time=1791324195 uid=1
+root=0 uid=0 caps=0
+tree /data/homebrew/FAKE99033 removed=10 failed=0
+end removed=10 failed=0 time=1791324195
+start time=1791324212 uid=1
+root=0 uid=0 caps=0
+tree /data/homebrew/FAKE99121 removed=3 failed=0
+tree /data/homebrew/FAKE99122 removed=13 failed=0
+tree /data/homebrew/FAKE99123 removed=13 failed=0
+tree /data/homebrew/FAKE99124 removed=13 failed=0
+tree /data/homebrew/FAKE99125 removed=13 failed=0
+tree /data/homebrew/FAKE99126 removed=13 failed=0
+tree /data/homebrew/FAKE99127 removed=13 failed=0
+tree /data/homebrew/FAKE99034 removed=10 failed=0
+tree /data/homebrew/FAKE99036 removed=11 failed=0
+tree /data/homebrew/FAKE99038 removed=11 failed=0
+tree /data/homebrew/FAKE99039 removed=10 failed=0
+tree /data/homebrew/FAKE99040 removed=11 failed=0
+tree /data/homebrew/FAKE99041 removed=11 failed=0
+tree /data/homebrew/FAKE99042 removed=14 failed=0
+tree /data/homebrew/FAKE99043 removed=13 failed=0
+tree /data/homebrew/FAKE99128 removed=13 failed=0
+tree /data/homebrew/FAKE99045 removed=15 failed=0
+tree /data/homebrew/FAKE99129 removed=13 failed=0
+tree /data/homebrew/FAKE99047 removed=13 failed=0
+tree /data/homebrew/FAKE99048 removed=13 failed=0
+tree /data/homebrew/FAKE99049 removed=13 failed=0
+tree /data/homebrew/FAKE99050 removed=13 failed=0
+tree /data/homebrew/FAKE99051 removed=13 failed=0
+tree /data/homebrew/FAKE99052 removed=13 failed=0
+tree /data/homebrew/FAKE99053 removed=13 failed=0
+tree /data/homebrew/FAKE99054 removed=13 failed=0
+tree /data/homebrew/FAKE99055 removed=13 failed=0
+tree /data/homebrew/FAKE99056 removed=13 failed=0
+tree /data/homebrew/FAKE99058 removed=13 failed=0
+tree /data/homebrew/FAKE99060 removed=13 failed=0
+tree /data/homebrew/FAKE99061 removed=13 failed=0
+tree /data/homebrew/FAKE99062 removed=13 failed=0
+tree /data/homebrew/FAKE99063 removed=13 failed=0
+tree /data/homebrew/FAKE99130 removed=13 failed=0
+tree /data/homebrew/FAKE99065 removed=13 failed=0
+tree /data/homebrew/FAKE99066 removed=13 failed=0
+tree /data/homebrew/FAKE99067 removed=13 failed=0
+tree /data/homebrew/FAKE99068 removed=13 failed=0
+tree /data/homebrew/FAKE99069 removed=13 failed=0
+tree /data/homebrew/FAKE99131 removed=13 failed=0
+tree /data/homebrew/FAKE99132 removed=13 failed=0
+tree /data/homebrew/FAKE99133 removed=13 failed=0
+tree /data/homebrew/FAKE99075 removed=13 failed=0
+tree /data/homebrew/FAKE99076 removed=13 failed=0
+tree /data/homebrew/FAKE99077 removed=13 failed=0
+tree /data/homebrew/FAKE99078 removed=13 failed=0
+tree /data/homebrew/FAKE99134 removed=13 failed=0
+tree /data/homebrew/FAKE99135 removed=13 failed=0
+tree /data/homebrew/FAKE99136 removed=13 failed=0
+tree /data/homebrew/FAKE99137 removed=13 failed=0
+tree /data/homebrew/FAKE99138 removed=13 failed=0
+tree /data/homebrew/FAKE99088 removed=13 failed=0
+tree /data/homebrew/FAKE99089 removed=13 failed=0
+tree /data/homebrew/FAKE99090 removed=13 failed=0
+tree /data/homebrew/FAKE99091 removed=13 failed=0
+tree /data/homebrew/FAKE99094 removed=13 failed=0
+tree /data/homebrew/FAKE99139 removed=13 failed=0
+tree /data/homebrew/FAKE99096 removed=13 failed=0
+tree /data/homebrew/FAKE99140 removed=13 failed=0
+tree /data/homebrew/FAKE99098 removed=13 failed=0
+tree /data/homebrew/FAKE99099 removed=13 failed=0
+tree /data/homebrew/FAKE99100 removed=13 failed=0
+tree /data/homebrew/FAKE99103 removed=10 failed=0
+tree /data/homebrew/FAKE99104 removed=10 failed=0
+tree /data/homebrew/FAKE99105 removed=13 failed=0
+tree /data/homebrew/FAKE99106 removed=13 failed=0
+tree /data/homebrew/FAKE99107 removed=13 failed=0
+tree /data/homebrew/FAKE99108 removed=13 failed=0
+tree /data/homebrew/FAKE99109 removed=13 failed=0
+tree /data/homebrew/FAKE99110 removed=13 failed=0
+tree /data/homebrew/FAKE99111 removed=13 failed=0
+tree /data/homebrew/FAKE99141 removed=13 failed=0
+tree /data/homebrew/FAKE99115 removed=13 failed=0
+tree /data/homebrew/FAKE99142 removed=13 failed=0
+tree /data/homebrew/FAKE99118 removed=4 failed=0
+tree /data/homebrew/FAKE99143 removed=13 failed=0
+tree /data/homebrew/FAKE99144 removed=13 failed=0
+tree /data/homebrew/FAKE99145 removed=13 failed=0
+tree /data/homebrew/FAKE99146 removed=13 failed=0
+tree /data/homebrew/FAKE99147 removed=13 failed=0
+tree /data/homebrew/FAKE99148 removed=13 failed=0
+tree /data/homebrew/FAKE99149 removed=13 failed=0
+tree /data/homebrew/FAKE99151 removed=13 failed=0
+tree /data/homebrew/FAKE99152 removed=13 failed=0
+tree /data/homebrew/FAKE99153 removed=13 failed=0
+tree /data/homebrew/FAKE99154 removed=15 failed=0
+tree /data/homebrew/FAKE99159 removed=13 failed=0
+tree /data/homebrew/FAKE99160 removed=13 failed=0
+tree /data/homebrew/FAKE99161 removed=13 failed=0
+tree /data/homebrew/FAKE99162 removed=13 failed=0
+tree /data/homebrew/FAKE99163 removed=13 failed=0
+tree /data/homebrew/FAKE99164 removed=13 failed=0
+tree /data/homebrew/FAKE99165 removed=13 failed=0
+tree /data/homebrew/FAKE99166 removed=13 failed=0
+tree /data/playden/games/acceptance-hl2-fresh-v16.ftp-staging removed=5 failed=0
+tree /data/playden/games/acceptance-hl2-fresh-v16 removed=11 failed=0
+tree /data/playden/games/probe-session-1073-1791247973 removed=9 failed=0
+tree /data/playden/games/probe-session-1084-1791248687 removed=9 failed=0
+tree /data/playden/games/probe-session-1089-1791249449 removed=9 failed=0
+end removed=1231 failed=0 time=1791324223
