@@ -196,6 +196,72 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
     return fail("Publisher ownership/activity changed after durable capture handoff.");
   return captured;
 }
+PackageActionResult SettingsPublicationOwner::Resume(const RuntimeInstall& record, const std::filesystem::path& prefix) {
+  if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal()))
+    return Failure("publication-recovery-invalid", "Invalid recovery namespace.");
+  auto current = records_.Find(record.install_id);
+  if (!current || !SameOwner(*current, record) || current->settings_revision != record.settings_revision ||
+      (current->state != PreparationState::kPreparing && current->state != PreparationState::kRegistering) ||
+      !current->journal || !record.journal || current->journal->operation != record.journal->operation ||
+      current->journal->operation_id != record.journal->operation_id ||
+      (current->journal->operation != "settings-control" && current->journal->operation != "settings-publication") ||
+      !IsSettingsPublicationTransactionId(current->journal->operation_id) ||
+      native_.Activity(current->title_id) != NativeActivity::kStopped || !OwnedPackage(package_.Inspect(*current)))
+    return Failure("publication-recovery-owner", "Recovery has no matching stopped reserved OWNER intent/provenance.");
+  const auto transaction = current->journal->operation_id;
+  if (current->journal->operation == "settings-control") {
+    auto initialized = InitializeControl(*current, transaction, prefix);
+    if (initialized.state != PackageActionState::kComplete) return initialized;
+    current = records_.Find(record.install_id);
+    if (!current || !SameOwner(*current, record) || current->settings_revision != record.settings_revision ||
+        current->state != PreparationState::kPreparing || !current->journal || current->journal->operation != "settings-control" ||
+        current->journal->operation_id != transaction || current->journal->step != "control-ready")
+      return Failure("publication-recovery-owner", "OWNER changed after setup recovery.");
+  }
+  auto map = [&](const std::string& path) {
+    const auto canonical = std::filesystem::path(path);
+    return prefix.empty() ? canonical : prefix / canonical.relative_path();
+  };
+  std::optional<SettingsPublicationOperation> operation;
+  {
+    const auto control_path = map(current->data_root + "/.playden-control");
+    auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
+    auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher) : std::nullopt;
+    if (!lease || native_.Activity(current->title_id) != NativeActivity::kStopped)
+      return Failure("publication-recovery-lock", "Recovery publisher lease/stopped activity is unavailable.");
+    auto active = LoadSettingsPublicationOperation(control_path);
+    auto prepared = LoadPreparedSettingsPublicationOperation(control_path, transaction);
+    if (active.state == PublicationRecoveryState::kCorrupt || active.state == PublicationRecoveryState::kUnavailable ||
+        prepared.state == PublicationRecoveryState::kCorrupt || prepared.state == PublicationRecoveryState::kUnavailable)
+      return Failure("publication-recovery-journal", "Recovery journal/intent is corrupt or unavailable; preserve its evidence.");
+    if (active.operation && active.operation->transaction_id != transaction)
+      return Failure("publication-recovery-conflict", "A different active operation must first be reconciled.");
+    std::string reason;
+    if (active.operation && prepared.operation &&
+        EncodeSettingsPublicationOperation(*active.operation, &reason) != EncodeSettingsPublicationOperation(*prepared.operation, &reason))
+      return Failure("publication-recovery-conflict", "Recovery active journal and prepared intent disagree.");
+    operation = active.operation ? active.operation : prepared.operation;
+    if (!operation)
+      return Failure("publication-recovery-intent-missing", "OWNER setup has no valid frozen operation; capture remains unfinished.");
+    auto observed = records_.Find(record.install_id);
+    if (!SameOwner(operation->install, *current) ||
+        (current->settings_revision != operation->previous_revision && current->settings_revision != operation->plan.settings_revision) ||
+        !observed || !SameOwner(*observed, *current) || observed->settings_revision != current->settings_revision ||
+        observed->state != current->state || !observed->journal || observed->journal->operation != current->journal->operation ||
+        observed->journal->operation_id != transaction || observed->journal->step != current->journal->step ||
+        !lease->Validate(*control, "publication.lock") || native_.Activity(current->title_id) != NativeActivity::kStopped)
+      return Failure("publication-recovery-owner", "Frozen operation/OWNER ownership or activity changed during recovery.");
+  }
+  // The coordinator reacquires and revalidates the canonical stable inode and
+  // every journal/receipt before effects; the inspection lease grants no future
+  // authority after release. No settings/recipe plan is regenerated on recovery.
+  const auto profiles = operation->install.data_root + "/library/profiles/";
+  const PublicationPaths paths{map(profiles + operation->plan.profile_id + ".profile"), map(profiles + "profiles.lst"),
+      map(operation->install.data_root + "/library/input"),
+      map("/data/homebrew/" + operation->install.title_id + "/game-launch.json"), map(profiles + ".playden-publication")};
+  auto dependencies = Dependencies(prefix);
+  return PublishSettingsOperation(*operation, paths, dependencies);
+}
 PackageActionResult SettingsPublicationOwner::Persist(const RuntimeInstall& record) {
   auto result = records_.Update(record);
   if (!result.ok) return {PackageActionState::kFailed, result.code.empty() ? "publication-owner-persistence" : result.code,

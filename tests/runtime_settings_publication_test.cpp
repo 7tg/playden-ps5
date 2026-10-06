@@ -668,6 +668,74 @@ int main() {
     auto backup = LoadPublicationRegistryBackup(t.control, t.operation.transaction_id, *t.operation.registry_backup);
     CHECK(backup.state == PublicationRecoveryState::kValid && backup.bytes == original);
   }
+  // Service recovery discovers the frozen operation through persisted OWNER
+  // UUID after producer exit, then resumes queued native registration without
+  // regenerating a plan or overwriting the newer registration arm.
+  {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records; native.queue = true;
+    SettingsPublicationOwner owner(records, package, native);
+    CHECK(owner.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root).ok());
+    RuntimeInstallRepository restarted(storage, "installs.json", availability); CHECK(restarted.Load().ok());
+    RepositoryInstallRecordStore recovered_records(restarted); native.records = &recovered_records;
+    SettingsPublicationOwner resumed_owner(recovered_records, package, native);
+    RuntimeInstallService service(recovered_records, package, native, {}, {},
+        [&](const RuntimeInstall& record) { return resumed_owner.Resume(record, t.root); });
+    CHECK(!service.Step(t.operation.install.install_id).ok());
+    auto observed = recovered_records.Find(t.operation.install.install_id);
+    CHECK(observed && observed->state == PreparationState::kRegistering && observed->journal);
+    CHECK(observed->journal->operation == "settings-publication" && observed->journal->step == "await-native" && !observed->last_failure);
+    CHECK(native.registrations == 1 && package.mutations == 0);
+    const auto profile = Read(t.paths.profile);
+    CHECK(Read(t.control / "publication-state.v1") == LoadSettingsPublicationOperation(t.control).operation->committed_receipt_bytes);
+    CHECK(!service.Step(t.operation.install.install_id).ok() && native.registrations == 1 && Read(t.paths.profile) == profile);
+    native.status.installed = true; native.status.scan_pending = false;
+    CHECK(service.Step(t.operation.install.install_id).ok() && native.registrations == 1);
+    observed = recovered_records.Find(t.operation.install.install_id);
+    CHECK(observed->state == PreparationState::kReady && !observed->journal && !observed->last_failure);
+    // Updates keep the previous OWNER revision while pending, then recovery
+    // advances it to the frozen desired revision under the same real protocol.
+    const auto previous_revision = t.operation.plan.settings_revision;
+    auto desired = t.operation.install; desired.settings_revision = previous_revision + 1;
+    auto next_plan = t.operation.plan; next_plan.settings_revision = previous_revision + 1;
+    auto next = resumed_owner.Prepare(desired, next_plan, t.operation.kit_id,
+        "22222222-2222-4222-8222-222222222222", 1760000010, t.root);
+    CHECK(next.ok()); t.operation = next.value(); t.deps = resumed_owner.Dependencies(t.root);
+    t.deps.after_step = [](PublicationStep step) { return step != PublicationStep::kPendingDurable; };
+    CHECK(t.Run().state == PackageActionState::kFailed);
+    observed = recovered_records.Find(t.operation.install.install_id);
+    CHECK(observed->settings_revision == previous_revision && observed->journal->operation_id == t.operation.transaction_id);
+    CHECK(service.Step(t.operation.install.install_id).ok() && native.registrations == 1);
+    CHECK(recovered_records.Find(t.operation.install.install_id)->settings_revision == previous_revision + 1);
+  }
+  // A managed UUID discovers only its exact frozen journal. Corrupt/missing
+  // evidence is refused and retained, without legacy profile effects/register.
+  for (unsigned damage = 0; damage < 3; ++damage) {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native;
+    SettingsPublicationOwner owner(records, package, native);
+    CHECK(owner.InitializeControl(t.operation.install, t.operation.transaction_id, t.root).state == PackageActionState::kComplete);
+    if (damage > 0) CHECK(owner.Prepare(t.operation.install, t.operation.plan, t.operation.kit_id, t.operation.transaction_id, 1760000000, t.root).ok());
+    if (damage == 1) std::ofstream(t.control / ("settings-intent-" + t.operation.transaction_id + ".v1"), std::ios::binary | std::ios::trunc) << "corrupt";
+    if (damage == 2) {
+      auto stored = *records.Find(t.operation.install.install_id);
+      stored.journal->operation_id = "22222222-2222-4222-8222-222222222222"; CHECK(records.Update(stored).ok);
+    }
+    const auto before = Read(owner_root / "installs.json");
+    RuntimeInstallService service(records, package, native, {}, {}, [&](const RuntimeInstall& record) { return owner.Resume(record, t.root); });
+    CHECK(!service.Step(t.operation.install.install_id).ok());
+    CHECK(Read(owner_root / "installs.json") == before && package.mutations == 0 && native.registrations == 0);
+    CHECK(!fs::exists(t.paths.profile) && !fs::exists(t.control / "publication-state.v1"));
+    if (damage == 1) CHECK(Read(t.control / ("settings-intent-" + t.operation.transaction_id + ".v1")) == "corrupt");
+  }
   // Initial control setup recovers from real process exit at each durability
   // boundary, with a fresh repository and no manually recreated lock/directory.
   for (unsigned boundary = 0; boundary < 4; ++boundary) {

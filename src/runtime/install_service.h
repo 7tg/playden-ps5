@@ -132,12 +132,20 @@ struct InstallServiceResult {
   InstallServiceError error() const { return error_code; }
 };
 
+// A complete publication driver owns durable control/publication/registration
+// journals and readiness. The service must never overwrite its latest OWNER
+// snapshot with the pre-callback preparation record. Captured collaborators must
+// outlive the service. Empty retains legacy adapter compatibility; managed
+// journals always require an explicit complete driver.
+using InstallPublicationDriver = std::function<PackageActionResult(const RuntimeInstall&)>;
+
 class RuntimeInstallService {
 public:
   RuntimeInstallService(InstallRecordStore &records, PackageInstaller &package,
                         NativeCoordinator &native,
                         CompatibilityQuery compatibility,
-                        InstallCancellationQuery canceled);
+                        InstallCancellationQuery canceled,
+                        InstallPublicationDriver publication = {});
   InstallServiceResult Prepare(const std::string &install_id);
   InstallServiceResult Retry(const std::string &install_id);
   InstallServiceResult Step(const std::string &install_id);
@@ -152,6 +160,7 @@ private:
   InstallServiceResult HandlePackageAction(RuntimeInstall record,
                                            const std::string &next_step,
                                            PackageActionResult result);
+  InstallServiceResult StepPublication(const RuntimeInstall& record);
   InstallServiceResult StepNative(RuntimeInstall record,
                                   const PackageStatus &package_status);
 
@@ -160,6 +169,7 @@ private:
   NativeCoordinator &native_;
   CompatibilityQuery compatibility_;
   InstallCancellationQuery canceled_;
+  InstallPublicationDriver publication_;
 };
 
 } // namespace playden::runtime

@@ -19,6 +19,11 @@ class SettingsPublicationOwner {
   Result<SettingsPublicationOperation> Prepare(const RuntimeInstall& record, const SettingsLaunchPlan& plan,
       const std::string& kit_id, const std::string& transaction_id, std::int64_t registry_unix_time,
       const std::filesystem::path& host_namespace_prefix = {});
+  // Routes a persisted settings-control/settings-publication UUID to its exact
+  // frozen active/prepared operation. No plan/recipe regeneration. The complete
+  // coordinator rechecks ownership/receipt and reconciles durable Ready.
+  PackageActionResult Resume(const RuntimeInstall& record,
+      const std::filesystem::path& host_namespace_prefix = {});
   PublicationDependencies Dependencies(const std::filesystem::path& host_namespace_prefix = {});
  private:
   PackageActionResult Block(const SettingsPublicationOperation& operation);

@@ -672,3 +672,38 @@ valid prepared intent, explicit uncertain native-registration recovery,
 installer/UI integration, final native application link/review and PS5/Wine
 acceptance remain unfinished. This closes host control initialization only;
 no production guard capability is enabled and no console build is replaced.
+
+
+### Task C service routing and OWNER UUID recovery
+
+RuntimeInstallService now routes configured initial publication and all managed
+control/publication journals through a complete driver. It never writes its
+pre-callback OWNER copy afterward. Complete results require durable Ready
+readback; pending registration retains its latest arm. Missing drivers and
+cancellation/active/unknown activity preserve managed recovery evidence. Managed
+Retry retains UUID/operation/registration step rather than allowing legacy
+query-native resubmission or discarding frozen intent for unavailable recipes.
+
+OWNER Resume discovers active/prepared frozen operations from the persisted
+managed UUID under a publisher inspection lease. It refuses corrupt/mismatched/
+missing evidence and invokes the complete coordinator after releasing that lease;
+the coordinator independently reacquires/revalidates before effects. No recipe or
+settings regeneration occurs. Real durable repository/OWNER/coordinator/native
+verifier fixtures recover before first publication, through queued registration
+without resubmission, and after an interrupted pending settings update. Controlled
+package/native inventory collaborators are explicitly not console acceptance.
+Routing and Resume tests were observed RED, then GREEN. All 105 host tests and
+actual SDK v0.43 service/publication archives pass. See
+[service evidence](../../../results/20261006-publication-service/README.md).
+
+Ruling: retain optional legacy adapter compatibility while requiring an explicit
+complete driver for every managed journal. Configured complete publication owns
+all durable transitions, and retry never rearms uncertain native submission. If
+wrong, a caller without the new driver is refused for managed work instead of
+silently reverting to the older publication/registration path.
+
+The legacy FilesystemPackageInstaller inspector/publisher and application driver
+still need integration; no guarded capability is enabled. Startup discovery is
+implemented for persisted managed UUIDs only. Prepared updates while OWNER is
+still Ready, setup before frozen capture, explicit uncertain registration
+recovery, final native link/review and PS5/Wine/gameplay gates remain open.

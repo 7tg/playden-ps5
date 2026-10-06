@@ -540,9 +540,86 @@ void ExplicitRetryRecoversUncertainAwaitWithoutAutomaticResubmit() {
   CHECK(f.native.register_calls == 1);
 }
 
+void PublicationDriverOwnsLatestRecordAndRecoveryJournal() {
+  for (const bool pending : {false, true}) {
+    Fixture f; MakePackageCoherent(f.package);
+    auto& initial = f.store.records["install-hl2"];
+    initial.state = PreparationState::kPreparing;
+    initial.journal = PreparationJournal{"prepare-install-hl2", "prepare", "publish-profile"};
+    unsigned calls = 0;
+    InstallPublicationDriver publication = [&](const RuntimeInstall& record) {
+      ++calls;
+      auto latest = *f.store.Find(record.install_id);
+      latest.journal = PreparationJournal{"11111111-1111-4111-8111-111111111111", "settings-publication", "await-native"};
+      latest.state = PreparationState::kRegistering;
+      if (!pending || calls > 1) { latest.state = PreparationState::kReady; latest.journal.reset(); }
+      CHECK(f.store.Update(latest).ok);
+      return latest.state == PreparationState::kReady ? PackageActionResult{PackageActionState::kComplete, {}, {}} :
+          PackageActionResult{PackageActionState::kFailed, "publication-registration-pending", "registration is pending"};
+    };
+    RuntimeInstallService service(f.store, f.package, f.native, {}, {}, publication);
+    const auto result = service.Step("install-hl2");
+    CHECK(calls == 1 && f.package.profile_calls == 0 && f.native.register_calls == 0);
+    CHECK(result.ok() == !pending);
+    if (pending) CHECK(result.error() == InstallServiceError::kRegistrationPending);
+    auto observed = f.store.Find("install-hl2"); CHECK(observed && !observed->last_failure);
+    if (pending) {
+      CHECK(observed->state == PreparationState::kRegistering && observed->journal->operation == "settings-publication");
+      CHECK(observed->journal->step == "await-native");
+      RuntimeInstallService restarted(f.store, f.package, f.native, {}, {}, publication);
+      CHECK(restarted.Step("install-hl2").ok() && calls == 2);
+    }
+    CHECK(f.store.Find("install-hl2")->state == PreparationState::kReady && !f.store.Find("install-hl2")->journal);
+  }
+}
+void ManagedJournalsNeverFallThroughToLegacyRegistrationOrRetry() {
+  for (const auto* operation : {"settings-control", "settings-publication"}) {
+    Fixture f; MakePackageCoherent(f.package);
+    auto& initial = f.store.records["install-hl2"];
+    initial.state = PreparationState::kRegistering;
+    initial.journal = PreparationJournal{"11111111-1111-4111-8111-111111111111", operation, "await-native"};
+    const auto before = f.store.updates;
+    auto legacy = f.Service();
+    CHECK(!legacy.Step("install-hl2").ok());
+    CHECK(f.store.updates == before && f.native.register_calls == 0 && f.package.profile_calls == 0);
+    initial.state = PreparationState::kFailed;
+    CHECK(!legacy.Retry("install-hl2").ok()); CHECK(f.store.updates == before);
+    // Retry must preserve a managed registration arm; it cannot rearm native
+    // submission by changing await-native to the legacy query-native step.
+    InstallPublicationDriver publication = [](const RuntimeInstall&) { return PackageActionResult{PackageActionState::kFailed, "pending", "pending"}; };
+    RuntimeInstallService service(f.store, f.package, f.native, {}, {}, publication);
+    CHECK(service.Retry("install-hl2").ok());
+    CHECK(f.store.Find("install-hl2")->journal->operation == operation && f.store.Find("install-hl2")->journal->step == "await-native");
+    CHECK(!service.Step("install-hl2").ok() && f.native.register_calls == 0);
+  }
+}
+void ManagedDriverCannotClaimCompleteBeforeReady() {
+  Fixture f; MakePackageCoherent(f.package);
+  auto& initial = f.store.records["install-hl2"];
+  initial.state = PreparationState::kPreparing;
+  initial.journal = PreparationJournal{"11111111-1111-4111-8111-111111111111", "settings-control", "control-ready"};
+  unsigned calls = 0;
+  RuntimeInstallService service(f.store, f.package, f.native, {}, {}, [&](const RuntimeInstall&) {
+    ++calls; return PackageActionResult{PackageActionState::kComplete, {}, {}};
+  });
+  CHECK(!service.Step("install-hl2").ok() && calls == 1 && f.store.updates == 0);
+  f.native.activity = NativeActivity::kActive;
+  CHECK(service.Step("install-hl2").error() == InstallServiceError::kActivityActive && calls == 1 && f.store.updates == 0);
+  f.native.activity = NativeActivity::kUnknown;
+  CHECK(service.Step("install-hl2").error() == InstallServiceError::kActivityUnknown && calls == 1 && f.store.updates == 0);
+  f.native.activity = NativeActivity::kStopped;
+  RuntimeInstallService canceled(f.store, f.package, f.native, {}, [] { return true; }, [&](const RuntimeInstall&) {
+    ++calls; return PackageActionResult{PackageActionState::kComplete, {}, {}};
+  });
+  CHECK(canceled.Step("install-hl2").error() == InstallServiceError::kCanceled && calls == 1 && f.store.updates == 0);
+}
+
 } // namespace
 
 int main() {
+  PublicationDriverOwnsLatestRecordAndRecoveryJournal();
+  ManagedJournalsNeverFallThroughToLegacyRegistrationOrRetry();
+  ManagedDriverCannotClaimCompleteBeforeReady();
   DownloadedIsNotReadyAndUnknownRecipeRemainsDownloaded();
   EachSideEffectSeesItsDurableJournalAndScanQueuedIsPending();
   FailuresAndCancellationPreserveDownloadAndJournal();

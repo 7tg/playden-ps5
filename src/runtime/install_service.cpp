@@ -5,6 +5,11 @@
 namespace playden::runtime {
 namespace {
 
+bool ManagedPublication(const RuntimeInstall& record) {
+  return record.journal && (record.journal->operation == "settings-control" ||
+                            record.journal->operation == "settings-publication");
+}
+
 bool IsNativeStep(const std::string &step) {
   return step == "query-native" || step == "register" || step == "await-native";
 }
@@ -61,9 +66,10 @@ RuntimeInstallService::RuntimeInstallService(InstallRecordStore &records,
                                              PackageInstaller &package,
                                              NativeCoordinator &native,
                                              CompatibilityQuery compatibility,
-                                             InstallCancellationQuery canceled)
+                                             InstallCancellationQuery canceled,
+                                             InstallPublicationDriver publication)
     : records_(records), package_(package), native_(native),
-      compatibility_(std::move(compatibility)), canceled_(std::move(canceled)) {
+      compatibility_(std::move(compatibility)), canceled_(std::move(canceled)), publication_(std::move(publication)) {
 }
 
 InstallServiceResult RuntimeInstallService::Persist(RuntimeInstall record) {
@@ -149,6 +155,21 @@ RuntimeInstallService::Retry(const std::string &install_id) {
     return InstallServiceResult::Failure(InstallServiceError::kInvalidState,
                                          "runtime install is not retryable");
   }
+  if (ManagedPublication(*record)) {
+    if (!publication_)
+      return InstallServiceResult::Failure(InstallServiceError::kPackageUnavailable,
+          "complete publication recovery driver is unavailable; retain the OWNER journal");
+    const auto activity = native_.Activity(record->title_id);
+    if (activity != NativeActivity::kStopped)
+      return InstallServiceResult::Failure(activity == NativeActivity::kActive ? InstallServiceError::kActivityActive :
+          InstallServiceError::kActivityUnknown, "native title must be positively stopped before publication retry");
+    // A managed journal is frozen recovery authority even if a newer recipe is
+    // unavailable. Preserve its UUID/operation/arm; legacy query-native retry
+    // must never permit automatic repeat registration of an uncertain request.
+    const bool armed = record->journal->operation == "settings-publication" &&
+        (record->journal->step == "register" || record->journal->step == "await-native");
+    return Advance(*record, armed ? PreparationState::kRegistering : PreparationState::kPreparing, record->journal->step);
+  }
   const auto compatibility =
       compatibility_ ? compatibility_(*record) : CompatibilityResult{};
   if (!compatibility.compatible) {
@@ -197,6 +218,28 @@ RuntimeInstallService::HandlePackageAction(RuntimeInstall record,
                          ? PreparationState::kRegistering
                          : PreparationState::kPreparing;
   return Advance(std::move(record), state, next_step);
+}
+
+InstallServiceResult RuntimeInstallService::StepPublication(const RuntimeInstall& record) {
+  if (!publication_)
+    return InstallServiceResult::Failure(InstallServiceError::kPackageUnavailable,
+        "complete publication recovery driver is unavailable; retain the OWNER journal");
+  const auto result = publication_(record);
+  // The driver owns every durable transition. Even failures can follow file
+  // effects or a newer registration arm; never write this older record back.
+  if (result.state != PackageActionState::kComplete) {
+    const auto error = result.state == PackageActionState::kCanceled ? InstallServiceError::kCanceled :
+        result.code == "publication-registration-pending" ? InstallServiceError::kRegistrationPending : InstallServiceError::kPackageFailed;
+    return InstallServiceResult::Failure(error, ErrorMessage(result.message, "complete publication remains unfinished"));
+  }
+  auto observed = records_.Find(record.install_id);
+  if (!observed || !ValidateRuntimeInstallRecord(*observed) || observed->title_id != record.title_id ||
+      observed->app_id != record.app_id || observed->data_root != record.data_root ||
+      observed->runtime_bundle_id != record.runtime_bundle_id || observed->state != PreparationState::kReady ||
+      observed->journal || observed->last_failure || observed->settings_revision < record.settings_revision)
+    return InstallServiceResult::Failure(InstallServiceError::kPersistence,
+        "publication completion has no matching durable Ready OWNER readback");
+  return InstallServiceResult::Success();
 }
 
 InstallServiceResult
@@ -294,21 +337,29 @@ RuntimeInstallService::Step(const std::string &install_id) {
         InstallServiceError::kInvalidState,
         "runtime install has no active preparation journal");
   }
+  const bool managed = ManagedPublication(*record) || (publication_ && record->journal->operation == "prepare" &&
+      record->journal->step == "publish-profile");
   if (canceled_ && canceled_()) {
+    if (managed) return InstallServiceResult::Failure(InstallServiceError::kCanceled, "complete publication was canceled; retain recovery intent");
     return Fail(*record, InstallServiceError::kCanceled, "canceled",
                 "preparation was canceled");
   }
   const auto activity = native_.Activity(record->title_id);
   if (activity == NativeActivity::kUnknown) {
+    if (managed) return InstallServiceResult::Failure(InstallServiceError::kActivityUnknown, "native title activity is unknown; retain recovery intent");
     return Fail(*record, InstallServiceError::kActivityUnknown,
                 "title-activity-unknown",
                 "native title activity is unknown; preparation is blocked");
   }
   if (activity == NativeActivity::kActive) {
+    if (managed) return InstallServiceResult::Failure(InstallServiceError::kActivityActive, "native title is active; retain recovery intent");
     return Fail(*record, InstallServiceError::kActivityActive, "title-active",
                 "native title is active; stop it before preparation");
   }
 
+  if (managed) return StepPublication(*record);
+  if (record->journal->operation != "prepare")
+    return InstallServiceResult::Failure(InstallServiceError::kInvalidState, "unknown preparation operation; retain recovery intent");
   const auto status = package_.Inspect(*record);
   if (!status.known) {
     return Fail(*record, InstallServiceError::kPackageUnavailable,
