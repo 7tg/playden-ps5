@@ -840,6 +840,15 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   if (!staging_known)
     return Failed("staging-unavailable", "staging state is unavailable");
   if (staging_exists) {
+    // A stop between creating the staging folder and writing its owner marker
+    // leaves an empty folder of ours: it holds nothing and is reclaimed.
+    struct stat existing{};
+    std::error_code listing;
+    if (::lstat(staging.c_str(), &existing) == 0 && S_ISDIR(existing.st_mode) && existing.st_uid == ::geteuid() &&
+        fs::is_empty(staging, listing) && !listing && ::rmdir(staging.c_str()) == 0)
+      return CopyMappings(record, mappings, staging, final, stage_kind, final_marker);
+  }
+  if (staging_exists) {
     if (stage_kind == "template" && !IsPrivateDirectory(staging))
       return Failed("staging-collision", "existing bottle staging has wrong owner or permissions");
     if (!MarkerEquals(staging / kStageOwner, expected_stage))

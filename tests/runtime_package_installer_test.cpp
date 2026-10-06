@@ -579,6 +579,23 @@ void CreatedFoldersIgnoreUmask() {
   CHECK(::stat((fixture.host_data / "playden/staging").c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
 }
 
+// A staging folder left empty by a stop before its owner marker is reclaimed; one
+// with content and no marker is still refused.
+void EmptyUnmarkedStagingIsReclaimed() {
+  Fixture fixture;
+  auto installer = fixture.Installer();
+  const auto staging = fixture.host_data / ("playden/staging/title-" + Record().install_id);
+  std::filesystem::create_directories(staging);
+  CHECK(installer.StageTitle(Record()).state == PackageActionState::kComplete);
+
+  Fixture stray;
+  auto refusing = stray.Installer();
+  const auto stray_staging = stray.host_data / ("playden/staging/title-" + Record().install_id);
+  Write(stray_staging / "unknown", "not ours", 0600);
+  CHECK(refusing.StageTitle(Record()).code == "staging-collision");
+  CHECK(std::filesystem::exists(stray_staging / "unknown"));
+}
+
 void LateSyncFailureIsReestablishedOnRetry() {
   Fixture fixture;
   fixture.fail_title_post_rename_once = true;
@@ -876,6 +893,7 @@ int main() {
   LateSyncFailureIsReestablishedOnRetry();
   PrivateTitleFoldersAreRepublished();
   CreatedFoldersIgnoreUmask();
+  EmptyUnmarkedStagingIsReclaimed();
   CollisionsTraversalSymlinksAndModesFailClosed();
   RestartDoesNotRecopyOrDestroyMutableFiles();
   CorruptPublicationAndInvalidDriveTableAreRejected();
