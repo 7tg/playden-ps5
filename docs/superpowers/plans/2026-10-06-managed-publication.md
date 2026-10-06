@@ -432,3 +432,32 @@ and SDK v0.43 archive compilation pass. See
 [recovery ownership evidence](../../../results/20261006-previous-publication/README.md).
 Live sequencing, file collision admission, interruption/retry, final review and
 native acceptance remain outstanding.
+
+
+### Task C publisher sequencing and shared verifier adapter
+
+Added the coordinator for stopped-title publication under the actual stable
+exclusive publisher lease. It requires OWNER blocking and explicit preflight,
+file application, shared verification and reconciliation adapters. Missing
+adapters fail closed. It durably freezes/reloads the journal before pending
+publication, verifies exact pending state before file edits and commitment,
+and verifies committed state before OWNER reconciliation. Corrupt, foreign or
+drifted recovery evidence is preserved and refused. A committed retry performs
+verification/reconciliation without applying files again. Borrowed descriptors
+are validated against the canonical private lock throughout and passed to the
+shared native verifier without lock conversion.
+
+Ruling: retain completed journals for now rather than delete recovery evidence
+before the real OWNER reconciliation/next-operation admission boundary exists.
+This intentionally blocks a different operation until completed-journal
+retirement is implemented; it is not the final settings-update behavior.
+
+The tests exercise actual journal/receipt storage, locks and pinned native
+complete-set verification. OWNER/registration and file writes are fixture
+adapters, so the seven coordinator fault boundaries do not prove production
+per-file crash durability. All 105 host tests pass, a focused repeat passes 4/4,
+and SDK v0.43 coordinator/verifier archives compile. See
+[coordinator evidence](../../../results/20261006-publication-coordinator/README.md).
+Production file mutation, OWNER/registration wiring, next-operation retirement,
+installer/UI boundaries, final native link/acceptance and independent Task C
+review remain pending. No full task checkbox is completed by this increment.

@@ -2,6 +2,7 @@
 
 #include "runtime/game_settings.h"
 #include "runtime/package_installer.h"
+#include "runtime/settings_publication_journal.h"
 
 namespace playden::runtime {
 
@@ -25,4 +26,43 @@ inline void FillProfilePublication(const SettingsLaunchPlan& plan, ProfilePublic
   }
 }
 
+enum class PublicationStep {
+  kOwnerBlocked, kJournalDurable, kPendingDurable, kFilesApplied,
+  kPendingVerified, kCommitDurable, kCommitVerified,
+};
+using PublicationFileAction = std::function<PackageActionResult(
+    const SettingsPublicationOperation&, const PublicationPaths&, int borrowed_publisher_fd)>;
+struct PublicationDependencies {
+  // Test-only canonical namespace prefix. Production passes an empty path.
+  std::filesystem::path host_namespace_prefix;
+  std::function<NativeActivity(const RuntimeInstall&)> activity;
+  // Validates approved OWNER identity and durably blocks new readiness. Called
+  // only under publisher ownership, before the operation/receipt/file effects.
+  std::function<PackageActionResult(const SettingsPublicationOperation&)> block_owner;
+  // Read-only ownership/collision preflight. Never writes directories/settings.
+  PublicationFileAction preflight;
+  // Creates/writes the complete set, with per-file/parent durability. Called
+  // only after the exact frozen pending receipt is durably established.
+  PublicationFileAction apply_files;
+  // Must use shared native semantics, with exact phase bytes and metadata hash.
+  std::function<PackageActionResult(const SettingsPublicationOperation&, const PublicationPaths&,
+                                   int borrowed_publisher_fd, bool committed)> verify_files;
+  // Reconciles publication with OWNER persistence/registration gates. Initial
+  // install still needs registration; no callback may restage the bottle/title.
+  std::function<PackageActionResult(const SettingsPublicationOperation&)> reconcile_committed;
+  // Optional diagnostic fault seam after durable effects. False stops the call;
+  // caller must reconstruct/reload. Production leaves this empty.
+  std::function<bool(PublicationStep)> after_step;
+};
+// The control directory and stable private lock must already exist. Unknown or
+// active native activity never mutates state. Borrowed descriptors must never be
+// closed/converted by callbacks. Readiness requires complete committed semantic
+// verification and OWNER reconciliation; a failed operation preserves evidence.
+PackageActionResult PublishSettingsOperation(const SettingsPublicationOperation& operation,
+    const PublicationPaths& paths, PublicationDependencies& dependencies);
+// Concrete shared native verification adapter; does not acquire/change the
+// borrowed lock or authorize file mutations. Prefix is test-only, empty on PS5.
+PackageActionResult VerifySettingsPublicationFiles(const SettingsPublicationOperation& operation,
+    const PublicationPaths& paths, int borrowed_publisher_fd, bool committed,
+    const std::filesystem::path& host_namespace_prefix = {});
 }  // namespace playden::runtime

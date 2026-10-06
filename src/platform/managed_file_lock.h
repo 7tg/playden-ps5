@@ -20,6 +20,10 @@ class ManagedFileLock {
   ManagedFileLock(const ManagedFileLock&) = delete;
   ManagedFileLock& operator=(const ManagedFileLock&) = delete;
 
+  // Borrowed by the locked semantic verifier; callers never close or convert it.
+  int fd() const { return descriptor_; }
+  bool Validate(const ManagedDirectory& directory, const std::string& filename) const;
+
  private:
   explicit ManagedFileLock(int descriptor) : descriptor_(descriptor) {}
   int descriptor_ = -1;

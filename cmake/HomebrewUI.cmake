@@ -108,6 +108,29 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
 
+add_library(playden_runtime_publication_verifier STATIC
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/native/pw_title_publication_native.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_publication.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_launch.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_game_profile.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_app_profile.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_profile_catalog.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_wine_launch.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_publication_sha256.c"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/library/sha256.c"
+)
+target_include_directories(playden_runtime_publication_verifier PUBLIC "${PLAYDEN_PROSPERO_SOURCE_DIR}/native"
+    PRIVATE "${PLAYDEN_PROSPERO_SOURCE_DIR}/src" "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication"
+    "${PLAYDEN_PROSPERO_SOURCE_DIR}/third_party/mbedtls-publication/include")
+target_compile_definitions(playden_runtime_publication_verifier PRIVATE
+    _DEFAULT_SOURCE MBEDTLS_CONFIG_FILE="pw_publication_config.h")
+target_compile_features(playden_runtime_publication_verifier PRIVATE c_std_11)
+
+add_library(playden_runtime_settings_publication STATIC "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication.cpp")
+target_include_directories(playden_runtime_settings_publication PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_runtime_settings_publication PUBLIC cxx_std_17)
+target_link_libraries(playden_runtime_settings_publication PUBLIC playden_runtime_settings_publication_journal playden_runtime_publication_verifier)
+
 add_library(playden_runtime_settings_publication_journal STATIC
     "${CMAKE_SOURCE_DIR}/src/runtime/settings_publication_journal.cpp"
     "${PLAYDEN_PROSPERO_SOURCE_DIR}/src/pw_title_launch.c"
@@ -506,6 +529,9 @@ if(BUILD_TESTING)
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
     # Inject failures only at the POSIX I/O boundary of this test's production
     # compilation; the shipped settings implementation has ordinary syscalls.
+    add_executable(runtime_settings_publication_test tests/runtime_settings_publication_test.cpp)
+    target_link_libraries(runtime_settings_publication_test PRIVATE playden_runtime_settings_publication)
+    add_test(NAME runtime_settings_publication COMMAND runtime_settings_publication_test)
     add_executable(runtime_settings_publication_journal_test tests/runtime_settings_publication_journal_test.cpp)
     target_link_libraries(runtime_settings_publication_journal_test PRIVATE playden_runtime_settings_publication_journal)
     add_test(NAME runtime_settings_publication_journal COMMAND runtime_settings_publication_journal_test)

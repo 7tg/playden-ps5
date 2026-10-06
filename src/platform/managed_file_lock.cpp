@@ -66,6 +66,11 @@ ManagedFileLock& ManagedFileLock::operator=(ManagedFileLock&& other) noexcept {
   }
   return *this;
 }
+bool ManagedFileLock::Validate(const ManagedDirectory& directory, const std::string& filename) const {
+  struct stat opened{}, named{};
+  return descriptor_ >= 0 && directory.policy() == DirectoryPolicy::kPrivate && directory.Validate() &&
+      ::fstat(descriptor_, &opened) == 0 && directory.InspectChild(filename, &named) && SameLock(opened, named);
+}
 ManagedFileLock::~ManagedFileLock() {
   if (descriptor_ >= 0) ::close(descriptor_);
 }
