@@ -1133,6 +1133,23 @@ PackageActionResult FilesystemPackageInstaller::StageTitle(
 }
 
 namespace {
+// Marker text without the lines a respin of the same kit may change (its file
+// inventory and a rebuilt runtime's revision and path), for comparing identity.
+std::string RespinIdentity(const std::string& marker) {
+  std::string kept;
+  std::size_t start = 0;
+  while (start < marker.size()) {
+    auto end = marker.find('\n', start);
+    if (end == std::string::npos) end = marker.size();
+    const auto line = marker.substr(start, end - start);
+    if (line.rfind("files_sha256=", 0) != 0 && line.rfind("runtime_revision=", 0) != 0 &&
+        line.rfind("runtime_path=", 0) != 0)
+      kept += line + "\n";
+    start = end + 1;
+  }
+  return kept;
+}
+
 // Marker text with its files_sha256 line replaced, for comparing two kits that
 // differ only in their file inventory.
 std::optional<std::string> WithFilesDigest(const std::string& marker, const std::string& digest) {
@@ -1176,8 +1193,9 @@ PackageActionResult FilesystemPackageInstaller::RefreshTitle(const RuntimeInstal
   const auto title_digest = old_digest(title_marker);
   if (!IsDirectoryNoSymlink(paths->title) || !IsPrivateDirectoryTree(paths->game, paths->bottle) ||
       !title_marker || !bottle_marker || !IsHexDigest(title_digest) || old_digest(bottle_marker) != title_digest ||
-      WithFilesDigest(new_title, title_digest) != *title_marker ||
-      WithFilesDigest(new_bottle, title_digest) != *bottle_marker)
+      !WithFilesDigest(new_title, title_digest) || !WithFilesDigest(new_bottle, title_digest) ||
+      RespinIdentity(new_title) != RespinIdentity(*title_marker) ||
+      RespinIdentity(new_bottle) != RespinIdentity(*bottle_marker))
     return Failed("refresh-ownership", "installed title and bottle are not this install's from a compatible kit");
   if (title_digest == kit_.files_sha256 && TitleMatches(record, *paths)) return Complete();
   std::vector<char> buffer(64 * 1024);  // heap: console worker stacks are small

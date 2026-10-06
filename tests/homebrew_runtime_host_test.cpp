@@ -99,13 +99,13 @@ RuntimeInstall Record() {
 // the repository's HL2 recipe. It is not a runnable Wine runtime.
 RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native",
                         const std::string& kit_id = "kit-1", char files_digest = 'a',
-                        const std::string& runtime = "runtime") {
+                        const std::string& runtime = "runtime", const std::string& revision = "rev") {
   Write(kit / "titles/variant/eboot.bin", eboot, 0755);
   Write(kit / "titles/variant/sce_sys/param.json",
         "{\n  \"contentId\": \"UP9000-FAKE78001_00-PROSPEROWIN00001\",\n  \"localizedParameters\": {\n"
         "    \"en-US\": {\n      \"titleName\": \"Prospero Win\"\n    }\n  },\n  \"titleId\": \"FAKE78001\"\n}\n", 0644);
   Write(kit / "titles/variant/sce_sys/icon0.png", "kit-icon", 0644);
-  Write(kit / "runtime/wine/rev/lib/core.prx", runtime, 0755);
+  Write(kit / ("runtime/wine/" + revision + "/lib/core.prx"), runtime, 0755);
   Write(kit / "template/bottle/system.reg", "WINE REGISTRY Version 2\n", 0644);
   Write(kit / "template/bottle/user.reg", "WINE REGISTRY Version 2\n", 0644);
   Write(kit / "template/bottle/drive_c/windows/win.ini", "", 0644);
@@ -114,7 +114,7 @@ RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native"
   RuntimeKit admitted;
   auto& view = admitted.view;
   view.root = kit; view.kit_id = kit_id; view.files_sha256 = std::string(64, files_digest);
-  view.runtime = {"wine-wow64", "rev", "runtime/wine/rev"};
+  view.runtime = {"wine-wow64", revision, "runtime/wine/" + revision};
   view.template_path = "template/bottle";
   view.template_drive_table = "template/bottle/dosdevices/.pw-symlinks";
   view.recipe = {"steam-220-hl2-v1", "1", "recipes/hl2.json", *HashArtifactFile(kit / "recipes/hl2.json")};
@@ -122,12 +122,12 @@ RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native"
   for (const auto& [path, mode] : std::vector<std::pair<std::string, unsigned>>{
            {"titles/variant/eboot.bin", 0755}, {"titles/variant/sce_sys/param.json", 0644},
            {"titles/variant/sce_sys/icon0.png", 0644},
-           {"runtime/wine/rev/lib/core.prx", 0755}, {"template/bottle/system.reg", 0644},
+           {"runtime/wine/" + revision + "/lib/core.prx", 0755}, {"template/bottle/system.reg", 0644},
            {"template/bottle/user.reg", 0644}, {"template/bottle/drive_c/windows/win.ini", 0644},
            {"template/bottle/dosdevices/.pw-symlinks", 0644}, {"recipes/hl2.json", 0644}})
     view.files.push_back({path, fs::file_size(kit / path), *HashArtifactFile(kit / path), mode});
   view.artifacts = {
-      {"runtime", "rev", *HashArtifactFile(kit / "runtime/wine/rev/lib/core.prx"),
+      {"runtime", revision, *HashArtifactFile(kit / ("runtime/wine/" + revision + "/lib/core.prx")),
        ImmutableArtifactLocation::kStagedTitle, "win/wine/lib/core.prx"},
       {"recipe", "steam-220-hl2-v1-1", *HashArtifactFile(kit / "recipes/hl2.json"),
        ImmutableArtifactLocation::kKit, "recipes/hl2.json"}};
@@ -437,7 +437,7 @@ void RefreshesInstalledTitleToRespunKit() {
   // A rebuilt runtime (same artifacts, new bytes) upgrades the title in place:
   // the new runtime reaches the title, the record keeps the new hashes, the
   // registration and bottle registry stay.
-  const auto rebuilt = SyntheticKit(fixture.root / "kit-rebuilt", "native-2", "kit-1", 'd', "runtime-neutral");
+  const auto rebuilt = SyntheticKit(fixture.root / "kit-rebuilt", "native-2", "kit-1", 'd', "runtime-neutral", "rev-neutral");
   auto fourth = config;
   fourth.admit_kit = [rebuilt](std::string*) { return std::optional<RuntimeKit>(rebuilt); };
   RuntimeHost upgraded(fourth);
