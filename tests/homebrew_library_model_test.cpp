@@ -723,9 +723,37 @@ void preparation_steps_read_as_player_words() {
     check(PreparationStepWords("").empty(), "no step, no words");
 }
 
+void live_details_focus_moves_to_play_once_enabled() {
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RuntimeState;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(42, 300, 600, true);
+    model.UpdateInstalls({}, {{42, 600'000'000}});
+    check(model.action("details:42"), "details open");
+    // The runtime is still checking: no Play yet, focus waits on the first enabled action.
+    check(model.state().navigation.focus_key != "details-play", "no Play while the runtime checks");
+    LiveRuntimeGame checking; checking.game_id = 42; checking.status = "Checking";
+    model.UpdateRuntime(RuntimeState::Checking, {checking});
+    check(model.state().navigation.focus_key == "details-cloud", "a disabled Play leaves focus on Cloud saves for now");
+    LiveRuntimeGame ready; ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true; ready.has_title = true;
+    model.UpdateRuntime(RuntimeState::Ready, {ready});
+    check(model.state().navigation.focus_key == "details-play", "focus moves to Play once it is enabled");
+
+    // Once the player moves, Play becoming enabled leaves focus where they put it.
+    model.UpdateRuntime(RuntimeState::Checking, {checking});
+    check(model.action("details:42"), "details reopen");
+    check(model.action("right"), "the player moves");
+    const auto chosen = model.state().navigation.focus_key;
+    model.UpdateRuntime(RuntimeState::Ready, {ready});
+    check(model.state().navigation.focus_key == chosen, "focus stays where the player moved it");
+}
+
 } // namespace
 
 int main() {
+    live_details_focus_moves_to_play_once_enabled();
     preparation_steps_read_as_player_words();
     live_install_requests_and_projection();
     live_install_volumes();

@@ -2424,14 +2424,20 @@ void Simulation::rebuild_view() {
     }
     // Live Details opens on Favorite while Steam's app info is still loading; once it arrives
     // focus moves to the first action (Install, the download, or Cloud saves), as on macOS
-    // where the primary action is focused. Only until the user moves.
+    // where the primary action is focused. An installed game waits for Play: while the runtime
+    // is still checking, Play is absent or disabled, and focus moves to it once it is enabled.
+    // Only until the user moves.
     if (details_primary_pending_ && state_.navigation.route == Route::Details && !has_overlay) {
         const auto first = std::find_if(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) {
             return item.enabled && (item.kind == RowKind::Action || item.kind == RowKind::Toggle);
         });
         if (first != view_.rows.end()) state_.navigation.focus_key = first->key;
-        if (std::none_of(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) { return item.key == "details-checking"; }))
-            details_primary_pending_ = false;
+        const auto has = [this](const char* key) {
+            return std::any_of(view_.rows.begin(), view_.rows.end(), [key](const ViewRow& item) { return item.key == key; });
+        };
+        const auto play = std::find_if(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) { return item.key == "details-play"; });
+        const bool awaiting_play = has("details-installed") && (play == view_.rows.end() || !play->enabled);
+        if (!has("details-checking") && !awaiting_play) details_primary_pending_ = false;
     }
     auto focused = std::find_if(view_.rows.begin(), view_.rows.end(), [this](const ViewRow& item) { return item.key == state_.navigation.focus_key; });
     if (focused != view_.rows.end()) view_.focused_row = static_cast<int>(std::distance(view_.rows.begin(), focused));
