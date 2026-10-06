@@ -1,0 +1,22 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-dxvk-host-test.log"
+  },
+  "sdk": "v0.43 settings publication static archive",
+  "red": "missing DXVK entry point; real renderer freeze refused at test assertion",
+  "process_exit": [
+    "after replacement",
+    "after removal"
+  ],
+  "write_fault": "RLIMIT_FSIZE before rename",
+  "console_acceptance": false,
+  "production_ui_wired": false,
+  "files": {
+    "src/runtime/settings_publication.cpp": "e2ef6509369f4592fc1d6fa1fbe872b2bf924d03f436acbe388f011cf5528b1a",
+    "src/runtime/settings_publication.h": "bc0bab6633305bc3e5632f38443e1e638cda1f2bd8834bd001de6766293788ff",
+    "src/runtime/settings_publication_journal.cpp": "60b21b6f10ce78976ae137cedcc35697ef34dd00cb55cb39cfdd65f97cfce43a",
+    "tests/runtime_settings_publication_test.cpp": "5575251b0aafdab445704d4ae1e0f8801e3f27def4cf5c97baad655828004dcf"
+  }
+}

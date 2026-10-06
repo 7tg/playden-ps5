@@ -71,4 +71,9 @@ PackageActionResult VerifySettingsPublicationFiles(const SettingsPublicationOper
 // bytes only; collision/failure preserves evidence, with no immediate rollback.
 PackageActionResult ApplyPendingPublicationRegistry(const SettingsPublicationOperation& operation,
     int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {});
+// Game working-directory DXVK effect under the same pending operation. Preserves
+// the captured mode, admits original/intended bytes only, and syncs absence on
+// removal. Does not create game directories or roll back earlier effects.
+PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperation& operation,
+    int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {});
 }  // namespace playden::runtime

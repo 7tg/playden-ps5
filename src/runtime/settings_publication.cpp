@@ -6,6 +6,7 @@ extern "C" {
 }
 #include "platform/managed_file_lock.h"
 #include <cerrno>
+#include <atomic>
 #include <unistd.h>
 
 namespace playden::runtime {
@@ -227,6 +228,107 @@ PackageActionResult ApplyPendingPublicationRegistry(const SettingsPublicationOpe
   }
   if (!held() || !read(&current, &mode) || current != intended || mode != 0600 || !held())
     return Failure("publication-registry-verify", "Published registry could not be verified durably.");
+  return {PackageActionState::kComplete, {}, {}};
+}
+PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperation& o,
+    int borrowed, const std::filesystem::path& prefix) {
+  std::string reason;
+  auto encoded = EncodeSettingsPublicationOperation(o, &reason);
+  if (!encoded || (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())))
+    return Failure("publication-invalid", "Frozen DXVK operation or namespace is invalid.");
+  const auto control = Map(prefix, o.install.data_root + "/.playden-control");
+  auto directory = ManagedDirectory::Open(control, DirectoryPolicy::kPrivate);
+  struct stat opened{}, named{};
+  auto held = [&] {
+    return directory && borrowed >= 0 && directory->Validate() &&
+        fstat(borrowed, &opened) == 0 && directory->InspectChild("publication.lock", &named) &&
+        S_ISREG(opened.st_mode) && S_ISREG(named.st_mode) && opened.st_uid == geteuid() &&
+        named.st_uid == geteuid() && opened.st_nlink == 1 && named.st_nlink == 1 &&
+        (opened.st_mode & 07777) == 0600 && (named.st_mode & 07777) == 0600 &&
+        opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
+  };
+  if (!held()) return Failure("publication-lock", "Registry publisher descriptor is unavailable or changed.");
+  auto journal = LoadSettingsPublicationOperation(control);
+  auto recovered = journal.operation ? EncodeSettingsPublicationOperation(*journal.operation, &reason) : std::nullopt;
+  auto receipt = ReadReceipt(control, *directory);
+  if (journal.state != PublicationRecoveryState::kValid || !recovered || *recovered != *encoded ||
+      !receipt.ok || receipt.absent || receipt.bytes != o.pending_receipt_bytes || !held())
+    return Failure("publication-dxvk-ownership", "Registry effects require the exact durable pending operation.");
+  PwTitlePublicationMetadata metadata{};
+  if (pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.metadata_bytes.data()),
+      o.metadata_bytes.size(), &metadata) != PW_OK)
+    return Failure("publication-invalid", "Frozen DXVK metadata is invalid.");
+  const auto target = Map(prefix, metadata.dxvk_path);
+  auto game = ManagedDirectory::Open(target.parent_path(), DirectoryPolicy::kApprovedTree);
+  struct stat game_info{};
+  if (!game || lstat(target.parent_path().c_str(), &game_info) || game_info.st_uid != geteuid() ||
+      ((game_info.st_mode & 07777) != 0700 && (game_info.st_mode & 07777) != 0755))
+    return Failure("publication-dxvk-directory", "Owned game working directory is unavailable.");
+  auto same = [](const struct stat& a, const struct stat& b) {
+    return a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_mode == b.st_mode &&
+        a.st_uid == b.st_uid && a.st_nlink == b.st_nlink && a.st_size == b.st_size &&
+        a.st_mtime == b.st_mtime && a.st_ctime == b.st_ctime;
+  };
+  auto read = [&](FrozenFileSnapshot* snapshot) {
+    *snapshot = {}; struct stat before{}, opened{}, after{};
+    if (!game->InspectChild("dxvk.conf", &before)) return errno == ENOENT && game->Sync();
+    if (!S_ISREG(before.st_mode) || before.st_uid != geteuid() || before.st_nlink != 1 ||
+        before.st_size < 0 || before.st_size > 256 * 1024 ||
+        ((before.st_mode & 07777) != 0600 && (before.st_mode & 07777) != 0644)) return false;
+    int fd = game->OpenRegularFile("dxvk.conf", true, before.st_mode & 07777);
+    if (fd < 0) return false;
+    bool valid = fstat(fd, &opened) == 0 && same(before, opened);
+    std::string bytes; char buffer[4096];
+    while (valid) {
+      auto count = ::read(fd, buffer, sizeof(buffer));
+      if (count < 0 && errno == EINTR) continue;
+      if (count < 0 || static_cast<std::size_t>(count) > 256 * 1024 - bytes.size()) { valid = false; break; }
+      if (!count) break;
+      bytes.append(buffer, count);
+    }
+    valid = valid && fstat(fd, &opened) == 0 && same(before, opened) &&
+        game->InspectChild("dxvk.conf", &after) && same(before, after) &&
+        bytes.size() == static_cast<std::uint64_t>(before.st_size) && fsync(fd) == 0;
+    const bool closed = close(fd) == 0;
+    if (!valid || !closed || !game->Sync()) return false;
+    *snapshot = {true, static_cast<unsigned>(before.st_mode & 07777), bytes.size(), {}, std::move(bytes)};
+    return true;
+  };
+  FrozenFileSnapshot current;
+  if (!read(&current) || !held()) return Failure("publication-dxvk-read", "DXVK identity or durability could not be verified.");
+  const bool desired_present = !o.plan.dxvk_config.empty();
+  const unsigned desired_mode = o.dxvk_before.present ? o.dxvk_before.mode : 0644;
+  const bool original = current.present == o.dxvk_before.present && (!current.present ||
+      (current.bytes == o.dxvk_before.bytes && current.mode == o.dxvk_before.mode));
+  const bool applied = current.present == desired_present && (!current.present ||
+      (current.bytes == o.plan.dxvk_config && current.mode == desired_mode));
+  if (!original && !applied)
+    return Failure("publication-dxvk-collision", "Live DXVK matches neither frozen original nor intended bytes.");
+  if (!applied && !desired_present) {
+    if (!held() || !game->RemoveRegularFile("dxvk.conf") || !game->Sync())
+      return Failure("publication-dxvk-remove", "DXVK removal failed; recover the pending operation.");
+  } else if (!applied) {
+    static std::atomic<unsigned long> sequence{0}; std::string temporary; int fd = -1;
+    for (unsigned attempt = 0; attempt < 128; ++attempt) {
+      temporary = ".dxvk.conf.publication-" + std::to_string(getpid()) + "-" + std::to_string(sequence++);
+      fd = game->CreateExclusiveFile(temporary, desired_mode);
+      if (fd >= 0 || errno != EEXIST) break;
+    }
+    if (fd < 0) return Failure("publication-dxvk-write", "Exclusive DXVK temporary creation failed.");
+    std::size_t offset = 0; bool valid = true;
+    while (offset < o.plan.dxvk_config.size()) {
+      const auto count = write(fd, o.plan.dxvk_config.data() + offset, o.plan.dxvk_config.size() - offset);
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) { valid = false; break; }
+      offset += static_cast<std::size_t>(count);
+    }
+    const bool synced = valid && fsync(fd) == 0; const bool closed = close(fd) == 0;
+    if (!synced || !closed || !held() || !game->RenameChild(temporary, *game, "dxvk.conf", current.present) || !game->Sync())
+      return Failure("publication-dxvk-write", "DXVK publication failed; pending effects require recovery.");
+  }
+  if (!held() || !read(&current) || current.present != desired_present ||
+      (current.present && (current.bytes != o.plan.dxvk_config || current.mode != desired_mode)) || !held())
+    return Failure("publication-dxvk-verify", "DXVK intended presence/bytes/mode could not be verified durably.");
   return {PackageActionState::kComplete, {}, {}};
 }
 }  // namespace playden::runtime

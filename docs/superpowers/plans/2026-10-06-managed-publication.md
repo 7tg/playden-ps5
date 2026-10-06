@@ -487,3 +487,23 @@ Warning/diff checks and SDK v0.43 archive compilation pass. See
 This supplies the registry part of the production apply callback. DXVK and
 remaining file effects, OWNER/registration, journal retirement, installer/UI
 wiring, final review and native acceptance remain open.
+
+
+### Task C DXVK effect adapter and renderer compatibility
+
+Added the pending DXVK effect with exact operation/receipt/lock validation,
+original-or-intended admission, existing-mode preservation, individually durable
+replacement/removal and readback/absence verification. Working directories must
+already exist. Snapshot ownership/absence remains the mandatory preflight's
+duty before pending publication; a header alone grants no initial ownership.
+Failures preserve pending evidence, with no immediate rollback.
+
+Host tests qualify creation, replacement, removal, private file-policy refusal,
+process exit after each completed effect and actual write failure before rename.
+A real `RenderDxvkConfig` test exposed and reproduced the draft codec's rejection
+of the renderer's explanatory header sentence. The codec now accepts the exact
+current rendered header and earlier short line, while refusing arbitrary suffixes.
+All 105 host tests, warning/diff checks and SDK v0.43 archive compilation pass.
+See [DXVK evidence](../../../results/20261006-publication-dxvk/README.md).
+Remaining production file effects, preflight/OWNER/registration, retirement,
+installer/UI integration, final review and PS5 acceptance remain incomplete.

@@ -135,9 +135,14 @@ bool CanonicalPath(const std::string& value) {
   return true;
 }
 bool OwnedDxvk(const std::string& text) {
-  return text.empty() || (text.size() <= kDxvkLimit &&
-      text.compare(0, std::strlen(kDxvkHeader), kDxvkHeader) == 0 &&
-      text.size() > std::strlen(kDxvkHeader) && text[std::strlen(kDxvkHeader)] == '\n');
+  if (text.empty()) return true;
+  if (text.size() > kDxvkLimit || text.compare(0, std::strlen(kDxvkHeader), kDxvkHeader) != 0) return false;
+  const auto suffix = std::strlen(kDxvkHeader);
+  // Accept the renderer's exact current line and the earlier short line.
+  // A matching prefix followed by arbitrary text does not establish ownership.
+  constexpr const char* rendered_suffix = " Changes here are replaced on the next launch.\n";
+  return (text.size() > suffix && text[suffix] == '\n') ||
+      text.compare(suffix, std::strlen(rendered_suffix), rendered_suffix) == 0;
 }
 std::string NormalRelative(std::string text) { std::replace(text.begin(), text.end(), '\\', '/'); return text; }
 bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
