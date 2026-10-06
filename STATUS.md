@@ -44,6 +44,7 @@ Saves/Cloud migration from earlier locations is **not needed**: nothing has been
 
 | Order | Work | Notes |
 | --- | --- | --- |
+| 0 | Console smoke test of the moved repo | First thing next session. The package built from this layout differs from the installed one in two files: `eboot.bin` (Mbed TLS now built with relative source paths) and the Lapy helper (location-independent build, `8595a835…`). Deploy with `tools/console_title_deploy.py`, then check Playden starts, the kit is admitted, and HL2 starts and quits. The PS5 was off when the move finished |
 | 1 | 20+ minute HL2 gameplay run on the current build | Only an older build had a 20-minute session. Capture pacing evidence, save, restart and reload. Console time only |
 | 2 | Fresh independent review of the whole integration | Earlier reviews covered slices; the final composition has not had one |
 | 3 | M4: remove a prepared game | Uninstall removes only the Steam download, not the PS5 title or bottle. Native unregister returned EBUSY while Playden was open: first find a supported after-exit path, otherwise write a separate reviewed design for a narrow helper. Keep saves by default |
