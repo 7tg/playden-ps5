@@ -1,8 +1,12 @@
 #include "runtime/launch_service.h"
 
+#undef fsync
+
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -10,6 +14,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace playden::runtime;
@@ -26,6 +31,33 @@ using namespace playden::runtime;
 namespace {
 
 constexpr const char *kSession = "d9428888-122b-4b1e-8d5d-fd3b5f4b9b2c";
+bool fail_file_sync = false;
+bool fail_directory_sync = false;
+
+mode_t Mode(const std::filesystem::path &path) {
+  struct stat status {};
+  CHECK(::lstat(path.c_str(), &status) == 0);
+  return status.st_mode & 0777;
+}
+
+std::string ReadFile(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  CHECK(input.good());
+  return {std::istreambuf_iterator<char>(input), {}};
+}
+
+LaunchSession JournalSession() {
+  LaunchSession session;
+  session.session_id = kSession;
+  session.install_id = "install-hl2";
+  session.title_id = "FAKE78001";
+  session.runtime_bundle_id = "prospero-win-e16ec8f";
+  session.settings_revision = std::numeric_limits<std::uint64_t>::max();
+  session.account_token = "account-private-token";
+  session.requested_ms = std::numeric_limits<std::int64_t>::min();
+  session.handoff_ms = std::numeric_limits<std::int64_t>::max();
+  return session;
+}
 
 RuntimeInstall ReadyInstall() {
   RuntimeInstall record;
@@ -373,6 +405,16 @@ void LostNativeResultWriteLeavesRecoverableHandoffPending() {
   CHECK(!restarted.Handoff().accepted && f.backend_calls == 1);
 }
 
+void FailedHandoffPublicationCannotRetryBackend() {
+  Fixture f;
+  f.journal.fail_pending_call = 2;
+  auto service = f.Service();
+  CHECK(service.Request("install-hl2").accepted);
+  CHECK(!service.Handoff().accepted && f.backend_calls == 0);
+  CHECK(!service.Handoff().accepted && f.backend_calls == 0);
+  CHECK(f.journal.pending_calls == 2);
+}
+
 void WrapperIdentityAndRevisionAreValidatedBeforeStateMapping() {
   Fixture wrong;
   auto wrong_service = wrong.Service();
@@ -471,33 +513,137 @@ void MissingFutureCloudHookAllowsTaskSixLaunch() {
   CHECK(requested.accepted && service.Snapshot().state == LaunchState::kReadyToHandoff);
 }
 
-void ConcreteJournalIsPrivateRoundTripsUint64AndRejectsUuidReuse() {
-  const auto root = std::filesystem::temp_directory_path() /
-                    ("playden-launch-service-" + std::to_string(getpid()));
-  std::filesystem::create_directory(root);
-  playden::Storage storage(root.string());
+void ConcreteJournalRequiresPrivateRootAndSupportedState() {
+  namespace fs = std::filesystem;
+  const auto base = fs::canonical(fs::temp_directory_path()) /
+                    ("playden-launch-service-policy-" + std::to_string(getpid()));
+  fs::remove_all(base);
+  fs::create_directory(base);
+  fs::permissions(base, fs::perms::owner_all | fs::perms::group_read |
+                            fs::perms::group_exec | fs::perms::others_read |
+                            fs::perms::others_exec);
+  playden::Storage public_storage(base.string());
+  StorageLaunchSessionJournal public_journal(public_storage);
+  CHECK(!public_journal.PersistPending(JournalSession()).ok);
+  CHECK(!fs::exists(base / "launch-pending.v1"));
+
+  fs::remove_all(base);
+  fs::create_directory(base);
+  fs::permissions(base, fs::perms::owner_all);
+  playden::Storage storage(base.string());
   StorageLaunchSessionJournal journal(storage);
-  LaunchSession session;
-  session.session_id = kSession;
-  session.install_id = "install-hl2";
-  session.title_id = "FAKE78001";
-  session.runtime_bundle_id = "prospero-win-e16ec8f";
-  session.settings_revision = std::numeric_limits<std::uint64_t>::max();
-  session.account_token = "account-private-token";
-  CHECK(journal.CreateHistory(session).ok);
-  CHECK(!journal.CreateHistory(session).ok);
-  CHECK(journal.PersistPending(session).ok);
-  const auto loaded = journal.LoadPending();
-  CHECK(loaded.ok && loaded.session &&
-        loaded.session->settings_revision == std::numeric_limits<std::uint64_t>::max() &&
-        loaded.session->account_token == "account-private-token");
-  const auto permissions = std::filesystem::status(root / "launch-pending.v1").permissions();
-  CHECK((permissions & std::filesystem::perms::group_all) == std::filesystem::perms::none);
-  CHECK((permissions & std::filesystem::perms::others_all) == std::filesystem::perms::none);
-  std::filesystem::remove_all(root);
+  auto unsupported = JournalSession();
+  unsupported.schema_version = 2;
+  CHECK(!journal.PersistPending(unsupported).ok);
+  unsupported = JournalSession();
+  unsupported.phase = static_cast<LaunchSessionPhase>(99);
+  CHECK(!journal.PersistPending(unsupported).ok);
+  CHECK(!fs::exists(base / "launch-pending.v1"));
+  fs::remove_all(base);
 }
 
+void ConcreteJournalRoundTripsAndHistoryIsImmutable() {
+  namespace fs = std::filesystem;
+  const auto root = fs::canonical(fs::temp_directory_path()) /
+                    ("playden-launch-service-roundtrip-" + std::to_string(getpid()));
+  fs::remove_all(root);
+  fs::create_directory(root);
+  fs::permissions(root, fs::perms::owner_all);
+  playden::Storage storage(root.string());
+  StorageLaunchSessionJournal journal(storage);
+  auto session = JournalSession();
+  CHECK(journal.CreateHistory(session).ok);
+  const auto history_path = root / (std::string("launch-history-") + kSession + ".v1");
+  const auto history = ReadFile(history_path);
+  session.account_token = "replacement-must-not-win";
+  CHECK(!journal.CreateHistory(session).ok);
+  CHECK(ReadFile(history_path) == history);
+  CHECK(journal.PersistPending(session).ok);
+  StorageLaunchSessionJournal restarted(storage);
+  const auto loaded = restarted.LoadPending();
+  CHECK(loaded.ok && loaded.session &&
+        loaded.session->settings_revision == std::numeric_limits<std::uint64_t>::max() &&
+        loaded.session->requested_ms == std::numeric_limits<std::int64_t>::min() &&
+        loaded.session->handoff_ms == std::numeric_limits<std::int64_t>::max() &&
+        loaded.session->account_token == "replacement-must-not-win");
+  CHECK(Mode(root / "launch-pending.v1") == 0600);
+  CHECK(Mode(history_path) == 0600);
+  CHECK(restarted.ClearPending().ok);
+  CHECK(!fs::exists(root / "launch-pending.v1"));
+  CHECK(restarted.LoadPending().ok && !restarted.LoadPending().session);
+  fs::remove_all(root);
+}
+
+void ConcreteJournalRefusesSymlinks() {
+  namespace fs = std::filesystem;
+  const auto root = fs::canonical(fs::temp_directory_path()) /
+                    ("playden-launch-service-symlink-" + std::to_string(getpid()));
+  fs::remove_all(root);
+  fs::create_directory(root);
+  fs::permissions(root, fs::perms::owner_all);
+  const auto target = root.parent_path() / (root.filename().string() + "-target");
+  { std::ofstream(target) << "preserve"; }
+  CHECK(::symlink(target.c_str(), (root / "launch-pending.v1").c_str()) == 0);
+  playden::Storage storage(root.string());
+  StorageLaunchSessionJournal journal(storage);
+  CHECK(!journal.LoadPending().ok);
+  CHECK(!journal.PersistPending(JournalSession()).ok);
+  CHECK(fs::is_symlink(root / "launch-pending.v1"));
+  CHECK(ReadFile(target) == "preserve");
+  fs::remove_all(root);
+  fs::remove(target);
+}
+
+#if defined(PLAYDEN_TEST_DURABLE_FAULTS)
+void ConcreteJournalReportsSyncFailuresForReconciliation() {
+  namespace fs = std::filesystem;
+  const auto root = fs::canonical(fs::temp_directory_path()) /
+                    ("playden-launch-service-sync-" + std::to_string(getpid()));
+  fs::remove_all(root);
+  fs::create_directory(root);
+  fs::permissions(root, fs::perms::owner_all);
+  playden::Storage storage(root.string());
+  StorageLaunchSessionJournal journal(storage);
+
+  fail_file_sync = true;
+  CHECK(!journal.PersistPending(JournalSession()).ok);
+  CHECK(!fail_file_sync);
+  CHECK(!fs::exists(root / "launch-pending.v1"));
+
+  fail_directory_sync = true;
+  CHECK(!journal.PersistPending(JournalSession()).ok);
+  CHECK(!fail_directory_sync);
+  const auto recovered = journal.LoadPending();
+  CHECK(recovered.ok && recovered.session && recovered.session->session_id == kSession);
+
+  fail_directory_sync = true;
+  CHECK(!journal.ClearPending().ok);
+  CHECK(!fail_directory_sync);
+  CHECK(!fs::exists(root / "launch-pending.v1"));
+  const auto absent = journal.LoadPending();
+  CHECK(absent.ok && !absent.session);
+  fs::remove_all(root);
+}
+#endif
+
 } // namespace
+
+extern "C" int playden_test_fsync(int fd) {
+  struct stat status {};
+  if (::fstat(fd, &status) == 0) {
+    if (S_ISREG(status.st_mode) && fail_file_sync) {
+      fail_file_sync = false;
+      errno = EIO;
+      return -1;
+    }
+    if (S_ISDIR(status.st_mode) && fail_directory_sync) {
+      fail_directory_sync = false;
+      errno = EIO;
+      return -1;
+    }
+  }
+  return ::fsync(fd);
+}
 
 int main() {
   MissingAndUnreadyInstallsNeverInvokeBackend();
@@ -512,12 +658,18 @@ int main() {
   UnknownOrActiveActivityPreservesUncertainPending();
   RestartAfterHandoffNeverCallsBackendAgain();
   LostNativeResultWriteLeavesRecoverableHandoffPending();
+  FailedHandoffPublicationCannotRetryBackend();
   WrapperIdentityAndRevisionAreValidatedBeforeStateMapping();
   ExitRequiresValidatedTerminalEvidenceAndPreservesUnknownCode();
   CloudWaitCancelOfflineOptInAndAccountCoherence();
   ClockCannotCreateRunningEvidence();
   MissingFutureCloudHookAllowsTaskSixLaunch();
-  ConcreteJournalIsPrivateRoundTripsUint64AndRejectsUuidReuse();
+  ConcreteJournalRequiresPrivateRootAndSupportedState();
+  ConcreteJournalRoundTripsAndHistoryIsImmutable();
+  ConcreteJournalRefusesSymlinks();
+#if defined(PLAYDEN_TEST_DURABLE_FAULTS)
+  ConcreteJournalReportsSyncFailuresForReconciliation();
+#endif
   std::puts("runtime_launch_service_test: all assertions passed");
   return EXIT_SUCCESS;
 }

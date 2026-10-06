@@ -246,6 +246,9 @@ private:
   CloudLaunchCheck cloud_check_;
   LaunchSnapshot snapshot_;
   bool recovered_pending_ = false;
+  // A durable operation can fail after its rename/remove became visible. Freeze
+  // this instance until a fresh journal load reconciles the on-disk state.
+  bool persistence_uncertain_ = false;
 };
 
 } // namespace playden::runtime

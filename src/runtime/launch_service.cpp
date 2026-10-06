@@ -1,12 +1,12 @@
 #include "runtime/launch_service.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cctype>
 #include <limits>
-#include <sstream>
+#include <string_view>
 #include <utility>
-#include <vector>
 
 namespace playden::runtime {
 namespace {
@@ -28,18 +28,15 @@ bool ValidUuid(const std::string &value) {
   return true;
 }
 
-std::string Hex(const std::string &value) {
+void AppendHex(std::string *output, const std::string &value) {
   static constexpr char digits[] = "0123456789abcdef";
-  std::string result;
-  result.reserve(value.size() * 2);
   for (const unsigned char byte : value) {
-    result.push_back(digits[byte >> 4]);
-    result.push_back(digits[byte & 15]);
+    output->push_back(digits[byte >> 4]);
+    output->push_back(digits[byte & 15]);
   }
-  return result;
 }
 
-std::optional<std::string> Unhex(const std::string &value) {
+std::optional<std::string> Unhex(std::string_view value) {
   if ((value.size() & 1U) != 0 || value.size() > kMaxJournalBytes * 2)
     return std::nullopt;
   const auto nibble = [](char c) -> int {
@@ -59,7 +56,7 @@ std::optional<std::string> Unhex(const std::string &value) {
 }
 
 template <typename Integer>
-bool ParseInteger(const std::string &text, Integer *value) {
+bool ParseInteger(std::string_view text, Integer *value) {
   if (text.empty()) return false;
   Integer parsed{};
   const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
@@ -69,28 +66,73 @@ bool ParseInteger(const std::string &text, Integer *value) {
   return true;
 }
 
-std::string Serialize(const LaunchSession &session) {
-  std::ostringstream output;
-  output << "PLAYDEN-LAUNCH-V1\n" << Hex(session.session_id) << '\n'
-         << Hex(session.install_id) << '\n' << Hex(session.title_id) << '\n'
-         << Hex(session.runtime_bundle_id) << '\n' << session.settings_revision
-         << '\n' << Hex(session.account_token) << '\n'
-         << static_cast<unsigned>(session.phase) << '\n' << session.requested_ms
-         << '\n' << session.handoff_ms << '\n'
-         << (session.has_native_result ? 1 : 0) << '\n' << session.native_code
-         << '\n' << Hex(session.failure_code) << '\n'
-         << Hex(session.failure_message) << '\n';
-  return output.str();
+template <typename Integer>
+bool AppendIntegerLine(std::string *output, Integer value) {
+  std::array<char, std::numeric_limits<Integer>::digits10 + 4> buffer{};
+  const auto converted = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+  if (converted.ec != std::errc()) return false;
+  output->append(buffer.data(), converted.ptr);
+  output->push_back('\n');
+  return true;
+}
+
+bool SupportedSession(const LaunchSession &session) {
+  const auto phase = static_cast<unsigned>(session.phase);
+  if (session.schema_version != 1 || !ValidUuid(session.session_id) ||
+      session.install_id.empty() || session.title_id.empty() ||
+      session.runtime_bundle_id.empty() ||
+      phase > static_cast<unsigned>(LaunchSessionPhase::kFailed)) return false;
+  const std::string *fields[] = {
+      &session.session_id, &session.install_id, &session.title_id,
+      &session.runtime_bundle_id, &session.account_token,
+      &session.failure_code, &session.failure_message};
+  return std::all_of(std::begin(fields), std::end(fields), [](const auto *field) {
+    return field->size() <= kMaxJournalBytes / 2;
+  });
+}
+
+std::optional<std::string> Serialize(const LaunchSession &session) {
+  if (!SupportedSession(session)) return std::nullopt;
+  std::string output = "PLAYDEN-LAUNCH-V1\n";
+  const auto append_text = [&](const std::string &value) {
+    AppendHex(&output, value);
+    output.push_back('\n');
+  };
+  append_text(session.session_id);
+  append_text(session.install_id);
+  append_text(session.title_id);
+  append_text(session.runtime_bundle_id);
+  if (!AppendIntegerLine(&output, session.settings_revision)) return std::nullopt;
+  append_text(session.account_token);
+  if (!AppendIntegerLine(&output, static_cast<unsigned>(session.phase)) ||
+      !AppendIntegerLine(&output, session.requested_ms) ||
+      !AppendIntegerLine(&output, session.handoff_ms) ||
+      !AppendIntegerLine(&output, session.has_native_result ? 1u : 0u) ||
+      !AppendIntegerLine(&output, session.native_code)) return std::nullopt;
+  append_text(session.failure_code);
+  append_text(session.failure_message);
+  if (output.size() > kMaxJournalBytes) return std::nullopt;
+  return output;
 }
 
 std::optional<LaunchSession> Parse(const Bytes &bytes) {
   if (bytes.empty() || bytes.size() > kMaxJournalBytes) return std::nullopt;
-  std::istringstream input(std::string(bytes.begin(), bytes.end()));
-  std::vector<std::string> lines;
-  std::string line;
-  while (std::getline(input, line)) lines.push_back(line);
-  if (lines.size() != 14 || lines[0] != "PLAYDEN-LAUNCH-V1")
-    return std::nullopt;
+  const std::string_view text(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+  std::array<std::string_view, 14> lines{};
+  std::size_t start = 0;
+  for (std::size_t index = 0; index < lines.size(); ++index) {
+    const auto newline = text.find('\n', start);
+    if (newline == std::string_view::npos) {
+      if (index + 1 != lines.size()) return std::nullopt;
+      lines[index] = text.substr(start);
+      start = text.size();
+    } else {
+      lines[index] = text.substr(start, newline - start);
+      start = newline + 1;
+      if (index + 1 == lines.size() && start != text.size()) return std::nullopt;
+    }
+  }
+  if (lines[0] != "PLAYDEN-LAUNCH-V1") return std::nullopt;
   LaunchSession session;
   const auto session_id = Unhex(lines[1]);
   const auto install_id = Unhex(lines[2]);
@@ -122,6 +164,14 @@ std::optional<LaunchSession> Parse(const Bytes &bytes) {
   session.failure_code = *failure_code;
   session.failure_message = *failure_message;
   return session;
+}
+
+std::optional<Bytes> Encode(const LaunchSession &session) {
+  const auto text = Serialize(session);
+  if (!text) return std::nullopt;
+  Bytes bytes(text->begin(), text->end());
+  if (!Parse(bytes)) return std::nullopt;
+  return bytes;
 }
 
 LaunchSnapshot FailureSnapshot(const LaunchSession &session, LaunchError error,
@@ -260,7 +310,7 @@ StorageLaunchSessionJournal::StorageLaunchSessionJournal(
       history_prefix_(std::move(history_prefix)) {}
 
 LaunchJournalLoad StorageLaunchSessionJournal::LoadPending() {
-  const auto read = storage_.Read(pending_path_, kMaxJournalBytes);
+  const auto read = storage_.ReadDurable(pending_path_, kMaxJournalBytes);
   if (!read.ok()) {
     if (read.error() == StorageError::kNotFound)
       return LaunchJournalLoad::Success(std::nullopt);
@@ -280,18 +330,11 @@ StorageLaunchSessionJournal::CreateHistory(const LaunchSession &session) {
     return LaunchJournalResult::Failure("invalid-session-id",
                                         "launch session UUID is invalid");
   const std::string path = history_prefix_ + session.session_id + ".v1";
-  const auto existing = storage_.Read(path, kMaxJournalBytes);
-  if (existing.ok())
-    return LaunchJournalResult::Failure("history-exists",
-                                        "launch history already exists");
-  if (existing.error() != StorageError::kNotFound)
-    return LaunchJournalResult::Failure("history-read-failed",
-                                        "launch history could not be checked");
-  const auto text = Serialize(session);
-  if (text.size() > kMaxJournalBytes)
-    return LaunchJournalResult::Failure("history-too-large",
-                                        "launch history exceeds its size limit");
-  const auto written = storage_.WriteAtomicPrivate(path, Bytes(text.begin(), text.end()));
+  const auto bytes = Encode(session);
+  if (!bytes)
+    return LaunchJournalResult::Failure("history-invalid",
+                                        "launch history state is unsupported or too large");
+  const auto written = storage_.WriteDurableExclusive(path, *bytes);
   return written.ok()
              ? LaunchJournalResult::Success()
              : LaunchJournalResult::Failure("history-write-failed",
@@ -303,12 +346,11 @@ StorageLaunchSessionJournal::PersistPending(const LaunchSession &session) {
   if (!ValidUuid(session.session_id))
     return LaunchJournalResult::Failure("invalid-session-id",
                                         "launch session UUID is invalid");
-  const auto text = Serialize(session);
-  if (text.size() > kMaxJournalBytes)
-    return LaunchJournalResult::Failure("pending-too-large",
-                                        "pending launch exceeds its size limit");
-  const auto written =
-      storage_.WriteAtomicPrivate(pending_path_, Bytes(text.begin(), text.end()));
+  const auto bytes = Encode(session);
+  if (!bytes)
+    return LaunchJournalResult::Failure("pending-invalid",
+                                        "pending launch state is unsupported or too large");
+  const auto written = storage_.WriteDurable(pending_path_, *bytes);
   return written.ok()
              ? LaunchJournalResult::Success()
              : LaunchJournalResult::Failure("pending-write-failed",
@@ -316,7 +358,7 @@ StorageLaunchSessionJournal::PersistPending(const LaunchSession &session) {
 }
 
 LaunchJournalResult StorageLaunchSessionJournal::ClearPending() {
-  const auto removed = storage_.Remove(pending_path_);
+  const auto removed = storage_.RemoveDurable(pending_path_);
   return removed.ok()
              ? LaunchJournalResult::Success()
              : LaunchJournalResult::Failure("pending-remove-failed",
@@ -516,10 +558,14 @@ bool LaunchService::PersistFailure(LaunchError error, const std::string &code,
   session_->failure_message = message;
   const auto persisted = journal_.PersistPending(*session_);
   snapshot_ = FailureSnapshot(*session_, error, code, message);
+  if (!persisted.ok) persistence_uncertain_ = true;
   return persisted.ok;
 }
 
 LaunchResult LaunchService::Handoff() {
+  if (persistence_uncertain_)
+    return Reject(LaunchError::kPersistence, "launch-recovery-required",
+                  "launch journal requires reconciliation");
   if (!session_ || session_->phase != LaunchSessionPhase::kPrepared)
     return Reject(LaunchError::kDuplicate, "handoff-unavailable",
                   "launch handoff is not available");
@@ -569,7 +615,9 @@ LaunchResult LaunchService::Handoff() {
   session_->handoff_ms = dependencies_.now_ms();
   const auto committed = journal_.PersistPending(*session_);
   if (!committed.ok) {
-    session_->phase = LaunchSessionPhase::kPrepared;
+    persistence_uncertain_ = true;
+    snapshot_ = FailureSnapshot(*session_, LaunchError::kPersistence,
+                                committed.code, committed.message);
     return Reject(LaunchError::kPersistence, committed.code, committed.message);
   }
   if (!dependencies_.flush) {
@@ -598,13 +646,16 @@ LaunchResult LaunchService::Handoff() {
   snapshot_.install_id = session_->install_id;
   snapshot_.session_id = session_->session_id;
   snapshot_.native_code = result.code;
-  if (!persisted.ok)
+  if (!persisted.ok) {
+    persistence_uncertain_ = true;
     return Reject(LaunchError::kPersistence, persisted.code, persisted.message);
+  }
   return LaunchResult::Accepted(session_->session_id);
 }
 
 LaunchSnapshot LaunchService::Snapshot() {
   if (cloud_record_ || !session_) return snapshot_;
+  if (persistence_uncertain_) return snapshot_;
   snapshot_.install_id = session_->install_id;
   snapshot_.session_id = session_->session_id;
   if (session_->has_native_result) snapshot_.native_code = session_->native_code;
