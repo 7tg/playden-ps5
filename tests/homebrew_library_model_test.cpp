@@ -872,9 +872,22 @@ void live_ready_to_play_quits_to_home() {
     check(dropped.state().navigation.modals.empty(), "a Ready game needs no prompt");
 }
 
+void live_store_details_fill_the_description() {
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateStoreDetails(42, "A synthetic game.", {"Action", "Indie"}, "full");
+    const auto& games = model.state().games;
+    check(games[0].description == "A synthetic game." && games[0].genres.size() == 2 && games[0].controller_support == "full",
+          "the store fills the description, genres and controller support");
+    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library refreshed");
+    check(model.state().games[0].description == "A synthetic game.", "a library refresh keeps the store description");
+}
+
 } // namespace
 
 int main() {
+    live_store_details_fill_the_description();
     live_ready_to_play_quits_to_home();
     live_details_focus_moves_to_play_once_enabled();
     live_settings_focus_stays_near_a_removed_row();

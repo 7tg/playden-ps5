@@ -43,6 +43,7 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include "homebrew/store_fetch.hpp"
 #include <memory>
 #include <optional>
 #include <sys/stat.h>
@@ -355,6 +356,8 @@ int main() {
         }
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud,
                                                runtime_host.get());
+        playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
+        services.SetStoreDetails(&store_details);
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer(paths.assets_root);

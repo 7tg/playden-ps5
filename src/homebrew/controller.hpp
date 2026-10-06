@@ -5,6 +5,7 @@
 #include "app/library_controller.h"
 #include "app/persistence_controller.h"
 #include "steam/app_details_service.h"
+#include "steam/store_details_service.h"
 #include "steam/install_service.h"
 #include "steam/cloud_service.h"
 #include "homebrew/runtime_host.hpp"
@@ -26,6 +27,8 @@ class Controller {
   ~Controller();
   void Tick();
   void Shutdown();
+  // Steam store descriptions, genres and controller support for the games the player opens.
+  void SetStoreDetails(steam::StoreDetailsService* store_details) { store_details_ = store_details; }
   Controller(const Controller&) = delete;
   Controller& operator=(const Controller&) = delete;
  private:
@@ -40,6 +43,9 @@ class Controller {
   void Update(AuthState state, const std::string& error = {}, bool clear = false,
               const std::string& challenge = {});
   void TickAppDetails();
+  void TickStoreDetails();
+  steam::StoreDetailsService* store_details_ = nullptr;
+  std::optional<GameId> requested_store_detail_;
   void TickInstalls();
   void TickCloud();
   void TickRuntime();
@@ -98,6 +104,7 @@ class Controller {
     std::chrono::steady_clock::time_point submitted_at{};
   };
   std::map<GameId, ReadyWatch> ready_watch_;
+  std::vector<GameId> ready_notices_;  // ready to play, announced after the next projection
   // Titles waiting for the PS5 when Playden started are checked once (query only).
   bool startup_awaiting_known_ = false;
   std::set<GameId> startup_awaiting_;

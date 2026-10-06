@@ -871,6 +871,20 @@ bool Simulation::UpdateAppDetails(GameId id, std::optional<std::uint64_t> downlo
     return true;
 }
 
+void Simulation::UpdateStoreDetails(GameId id, std::string description, std::vector<std::string> genres,
+                                    std::string controller_support) {
+    if (!live()) return;
+    auto& facts = store_facts_[id];
+    facts = {std::move(description), std::move(genres), std::move(controller_support)};
+    for (auto& game : state_.games) {
+        if (game.id != id) continue;
+        if (!facts.description.empty()) game.description = facts.description;
+        game.genres = facts.genres;
+        game.controller_support = facts.controller_support;
+    }
+    rebuild_view();
+}
+
 bool Simulation::UpdateLibrary(LibraryUpdate update) {
     if (!live()) return false;
 
@@ -919,6 +933,11 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
                 game.last_played = static_cast<std::int64_t>(*summary.last_played_unix_seconds);
             if (summary.added_at_unix_seconds)
                 game.added_at = static_cast<std::int64_t>(*summary.added_at_unix_seconds);
+            if (const auto facts = store_facts_.find(game.id); facts != store_facts_.end()) {
+                if (!facts->second.description.empty()) game.description = facts->second.description;
+                game.genres = facts->second.genres;
+                game.controller_support = facts->second.controller_support;
+            }
             projected.push_back(std::move(game));
         }
         state_.games = std::move(projected);

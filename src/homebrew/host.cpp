@@ -35,6 +35,7 @@
 #include <fstream>
 #include <functional>
 #include <memory>
+#include "homebrew/store_fetch.hpp"
 #include <optional>
 #include <string>
 #include <string_view>
@@ -427,6 +428,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::steam::SteamCloudRunner> cloud_runner;
     std::unique_ptr<playden::LocalSessionRepository> cloud_sessions;
     std::unique_ptr<playden::steam::CloudService> cloud;
+    std::unique_ptr<playden::steam::StoreDetailsService> store_details;  // declared first: the controller uses it
     std::unique_ptr<playden::homebrew::Controller> services;
     std::unique_ptr<playden::homebrew::HttpArtworkBackend> artwork_backend;
     std::unique_ptr<playden::homebrew::ArtworkService> artwork;
@@ -526,6 +528,8 @@ int main(int argc, char** argv) {
         cloud = std::make_unique<playden::steam::CloudService>(*cloud_runner, *cloud_sessions);
         simulation.SetLogDirectory(options->data_directory / "logs");
         services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get(),cloud.get());
+        store_details = std::make_unique<playden::steam::StoreDetailsService>(playden::homebrew::StoreFetch(PLAYDEN_HOMEBREW_CA_BUNDLE));
+        services->SetStoreDetails(store_details.get());
     }
 
     if (!options->simulation) {

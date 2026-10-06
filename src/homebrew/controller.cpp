@@ -132,6 +132,7 @@ void Controller::Tick() {
   if(library_) { library_->Tick();AdvanceClear(); }
   if(persistence_) { persistence_->Tick();AdvanceOrganizationClear(); }
   TickAppDetails();
+  TickStoreDetails();
   TickInstalls();
   TickCloud();
   TickRuntime();
@@ -391,7 +392,8 @@ void Controller::TickRuntime() {
           std::chrono::steady_clock::now() - it->second.submitted_at > std::chrono::seconds(15);
       if (!it->second.seen_preparing && !unseen_too_long) { ++it; continue; }
       const auto* record = record_of(id);
-      if (it->second.seen_preparing && record && record->awaiting_registration) model_.NotifyReadyToPlay(id);
+      // Announced once the model has the game's new state (after the projection below).
+      if (it->second.seen_preparing && record && record->awaiting_registration) ready_notices_.push_back(id);
       it = ready_watch_.erase(it);
     }
     for (auto it = play_after_prepare_.begin(); it != play_after_prepare_.end();) {
@@ -464,8 +466,15 @@ void Controller::TickRuntime() {
       sync_after_session_.insert(current.first);
     last_launch_ = current;
   }
+  const auto announce_ready = [this] {
+    for (const auto id : ready_notices_) model_.NotifyReadyToPlay(id);
+    ready_notices_.clear();
+  };
   if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
-      cloud_revision_ == runtime_cloud_revision_ && play_notes_revision_ == runtime_notes_revision_) return;
+      cloud_revision_ == runtime_cloud_revision_ && play_notes_revision_ == runtime_notes_revision_) {
+    announce_ready();
+    return;
+  }
   runtime_notes_revision_ = play_notes_revision_;
   runtime_revision_ = snapshot.revision;
   runtime_install_revision_ = install_revision_;
@@ -573,6 +582,7 @@ void Controller::TickRuntime() {
   model_.SetGeneratedRecipes(snapshot.generated_recipes);
   model_.UpdateRuntime(state, games);
   model_.SetRuntimeLeftovers(snapshot.leftover_requests);
+  announce_ready();
 }
 void Controller::BeginUninstall(GameId id, bool delete_saves) {
   // Without the runtime there is no PS5 title to remove: the download goes as before.
@@ -672,6 +682,18 @@ void Controller::TickInstalls() {
   std::vector<LiveInstalledGame> installed;
   for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes, game.volume_id, game.available});
   model_.UpdateInstalls(jobs, installed);
+}
+void Controller::TickStoreDetails() {
+  if (!store_details_) return;
+  // The store is public: a game's description is asked for when its details open.
+  const auto& detail = model_.state().navigation.detail_id;
+  if (detail && detail != requested_store_detail_) {
+    requested_store_detail_ = detail;
+    store_details_->Request(*detail);
+  }
+  for (auto& details : store_details_->Pump())
+    model_.UpdateStoreDetails(details.id, std::move(details.description), std::move(details.genres),
+                              std::move(details.controller_support));
 }
 void Controller::TickAppDetails() {
   if (!app_details_) return;

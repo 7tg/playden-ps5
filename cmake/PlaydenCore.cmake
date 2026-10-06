@@ -34,6 +34,7 @@ add_library(playden_steam_core STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/session_store.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/service.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/app_details_service.cpp"
+    "${CMAKE_SOURCE_DIR}/src/steam/store_details_service.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/install_service.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/install_volumes.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/cloud_service.cpp")
@@ -42,7 +43,7 @@ target_compile_features(playden_steam_core PUBLIC cxx_std_17)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_definitions(playden_steam_core PRIVATE PLAYDEN_PLATFORM_PS5=1)
 endif()
-target_link_libraries(playden_steam_core PUBLIC playden_storage Threads::Threads)
+target_link_libraries(playden_steam_core PUBLIC playden_storage playden_steam_protocol Threads::Threads)
 
 add_library(playden_library_service STATIC
     "${CMAKE_SOURCE_DIR}/src/library/service.cpp")

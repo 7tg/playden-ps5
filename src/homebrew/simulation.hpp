@@ -421,6 +421,10 @@ public:
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
     bool UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
                           std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable);
+    // Live mode: the Steam store's description, genres and controller support for one game;
+    // kept across library refreshes.
+    void UpdateStoreDetails(GameId id, std::string description, std::vector<std::string> genres,
+                            std::string controller_support);
     PersistenceLoadToken BeginOrganizationLoad(std::uint64_t account);
     bool ApplyOrganization(std::uint64_t account, PersistenceLoadToken token,
                            std::optional<playden::OrganizationSnapshot> loaded);
@@ -503,6 +507,8 @@ private:
     std::vector<GameId> pending_kept_delete_requests_;
     bool uninstall_delete_saves_ = false;  // the uninstall dialog's choice
     std::set<GameId> kept_selected_;  // the kept game data manager's checked games
+    struct StoreFacts { std::string description; std::vector<std::string> genres; std::string controller_support; };
+    std::map<GameId, StoreFacts> store_facts_;  // live: from the Steam store, applied over library refreshes
     std::vector<GameId> ready_prompts_;  // games to announce as ready to play, oldest first
     std::filesystem::path log_directory_;
     std::vector<CloudRequest> pending_cloud_requests_;
