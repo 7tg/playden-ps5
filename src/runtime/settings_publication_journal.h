@@ -21,11 +21,17 @@ struct SettingsPublicationOperation {
   RuntimeInstall install;
   SettingsLaunchPlan plan;
   std::string descriptor_bytes, catalog_bytes, metadata_bytes;
+  // Captured from the previous verified committed set before replacing its
+  // receipt with pending. Retains ownership hashes for partially updated files.
+  std::string previous_receipt_bytes, previous_metadata_bytes;
+  // Makes registry section timestamps deterministic across interrupted retries.
+  std::int64_t registry_unix_time = 0;
   FrozenFileSnapshot dxvk_before;
   std::optional<RegistryBackupBinding> registry_backup;
   std::string plan_sha256, pending_receipt_bytes, committed_receipt_bytes;
 };
-// Pure frozen-byte contract. No recipe reload, filesystem mutation or ownership
+// PWOP2 wire format; older local draft encodings are refused. The semantic
+// operation schema remains 1. Pure frozen-byte contract. No recipe reload, filesystem mutation or ownership
 // grant. Profile/input bytes live only in plan. Receipts and the digest are
 // generated from the validated canonical payload, avoiding a hash cycle.
 std::optional<SettingsPublicationOperation> FreezeSettingsPublicationOperation(

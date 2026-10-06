@@ -1,0 +1,16 @@
+{
+  "host_command": "cmake --build build/homebrew-host -j4; ctest --test-dir build/homebrew-host --output-on-failure -j4",
+  "host_tests_failed": 0,
+  "host_tests_passed": 104,
+  "inputs": {
+    "src/runtime/settings_publication_journal.cpp": "99066e037563a4a34be50f1847f7ba5010a6ad6da2a406f0eb04f70e0ee68296",
+    "src/runtime/settings_publication_journal.h": "9f4e9d178f18867457cf17b1be4f0e1f31d1d52debe2dd59654d7e23f95f8420",
+    "tests/runtime_settings_publication_journal_test.cpp": "395c9d2b2ad6f871f0a4d347aaf6a88976c498f06da418850147ed05e949c068"
+  },
+  "parent_base": "8cacd8d0c7df3eb18b3a6da930b577d44f831145",
+  "sdk_command": "bash ../playden-ps5/scripts/with-env.sh cmake --build build/homebrew-ps5 --target playden_runtime_settings_publication_journal -j4",
+  "sdk_scope": "SDK v0.43 static archive; no production writer final link or console acceptance",
+  "semantic_operation_schema": 1,
+  "warning_check": "c++ -std=c++17 -Wall -Wextra -Werror -Isrc -Ithird_party/prospero-win/src -fsyntax-only src/runtime/settings_publication_journal.cpp",
+  "wire_marker": "PWOP2"
+}

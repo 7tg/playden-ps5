@@ -64,7 +64,7 @@ template<class C, class T> void Presence(C& c, std::optional<T>& value) {
   if constexpr (C::reading) { if (present) value.emplace(); else value.reset(); }
 }
 template<class C> void Payload(C& c, SettingsPublicationOperation& o) {
-  std::string magic = "PWOP1"; c.Text(magic, 5); if (magic != "PWOP1") c.ok = false;
+  std::string magic = "PWOP2"; c.Text(magic, 5); if (magic != "PWOP2") c.ok = false;
   c.U32(o.schema); c.Text(o.transaction_id, 36); c.Text(o.kit_id, 64); c.U64(o.previous_revision);
   auto& r = o.install;
   c.U32(r.schema_version); c.Text(r.install_id, 64); c.Text(r.title_id, 9); c.U32(r.app_id);
@@ -91,6 +91,10 @@ template<class C> void Payload(C& c, SettingsPublicationOperation& o) {
   c.Text(p.launch_entry.id, 128); c.Text(p.launch_entry.label, 1024);
   c.Text(p.launch_entry.executable, 1024); c.Text(p.launch_entry.working_directory, 1024);
   c.Text(o.descriptor_bytes, 8192); c.Text(o.catalog_bytes, 8192); c.Text(o.metadata_bytes, 32768);
+  c.Text(o.previous_receipt_bytes, 8192); c.Text(o.previous_metadata_bytes, 32768);
+  std::uint64_t registry_time = static_cast<std::uint64_t>(o.registry_unix_time); c.U64(registry_time);
+  if (registry_time > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) c.ok = false;
+  if constexpr (C::reading) { if (c.ok) o.registry_unix_time = static_cast<std::int64_t>(registry_time); }
   unsigned present = o.dxvk_before.present ? 1 : 0; c.U32(present);
   if (present > 1) c.ok = false;
   if constexpr (C::reading) o.dxvk_before.present = present != 0;
@@ -138,7 +142,7 @@ bool OwnedDxvk(const std::string& text) {
 std::string NormalRelative(std::string text) { std::replace(text.begin(), text.end(), '\\', '/'); return text; }
 bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
   const auto& r = o.install; const auto& p = o.plan;
-  if (o.schema != 1 || !ValidateRuntimeInstallRecord(r) ||
+  if (o.schema != 1 || o.registry_unix_time < 0 || !ValidateRuntimeInstallRecord(r) ||
       static_cast<unsigned>(r.state) > static_cast<unsigned>(PreparationState::kRemoving) ||
       p.app_id != r.app_id || p.recipe_id != r.recipe_id || p.recipe_version != r.recipe_version ||
       p.profile_id != r.default_profile_id || p.settings_revision != r.settings_revision ||
@@ -148,6 +152,26 @@ bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
       r.install_path != "/data/homebrew/" + r.title_id + "/games/" + std::to_string(r.app_id))
     return Reject(reason, "Frozen OWNER record and launch plan disagree.");
   if (!PayloadBytes(o)) return Reject(reason, "Frozen operation exceeds field or total bounds.");
+  const bool has_previous = !o.previous_receipt_bytes.empty();
+  if (has_previous != !o.previous_metadata_bytes.empty() || (!has_previous && o.previous_revision))
+    return Reject(reason, "Previous publication ownership bytes are missing or incomplete.");
+  if (has_previous) {
+    PwTitlePublication previous{}; PwTitlePublicationMetadata previous_metadata{};
+    if (pw_title_publication_parse(reinterpret_cast<const uint8_t*>(o.previous_receipt_bytes.data()),
+          o.previous_receipt_bytes.size(), &previous) != PW_OK ||
+        previous.phase != PW_TITLE_PUBLICATION_COMMITTED || previous.transaction_id == o.transaction_id ||
+        previous.settings_revision != o.previous_revision || previous.install_id != r.install_id || previous.title_id != r.title_id ||
+        !Digest(o.previous_metadata_bytes, previous.publication_sha256) ||
+        pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.previous_metadata_bytes.data()),
+          o.previous_metadata_bytes.size(), &previous_metadata) != PW_OK ||
+        previous_metadata.install_id != r.install_id || previous_metadata.title_id != r.title_id ||
+        previous_metadata.data_root != r.data_root || previous_metadata.settings_revision != o.previous_revision ||
+        std::strcmp(previous_metadata.kit_id, previous.kit_id) ||
+        std::strcmp(previous_metadata.runtime_bundle_id, previous.runtime_bundle_id) ||
+        std::strcmp(previous_metadata.recipe_id, previous.recipe_id) ||
+        std::strcmp(previous_metadata.recipe_version, previous.recipe_version))
+      return Reject(reason, "Previous committed receipt and metadata do not bind the same owned publication.");
+  }
   PwTitleLaunch launch{}; char error[256]{};
   if (pw_title_launch_parse(o.descriptor_bytes.data(), o.descriptor_bytes.size(), r.title_id.c_str(), &launch, error, sizeof(error)) != PW_OK ||
       launch.app_id != r.app_id || launch.settings_revision != p.settings_revision || launch.install_id != r.install_id ||

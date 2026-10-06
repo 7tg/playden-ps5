@@ -398,3 +398,37 @@ module set. See [verifier evidence](../../../results/20261006-locked-publication
 The runtime artifact and production capability trust are unchanged. New-source
 native verification, publisher sequencing/retry, final Task C review and actual
 Wine lifetime/gameplay acceptance remain open.
+
+
+### Task C prior ownership and deterministic registry retry
+
+Before live writer wiring, review found a recovery gap: publishing pending state
+replaces the prior committed receipt, while the draft operation preserved no
+prior profile/catalog/input/descriptor ownership hashes. Retain the previous
+committed receipt and exact schema-2 metadata in the frozen operation. Capture
+and verify them under the publisher lease before changing that receipt. Recovery
+can then distinguish prior owned bytes from intended new bytes without trusting
+unbound metadata found after interruption. These retained bytes do not themselves
+grant ownership; the producer still must verify the prior complete set and the
+approved OWNER record before initial pending publication.
+
+The codec now requires both prior files together, checks committed phase,
+transaction separation, previous revision, same install/title/data root, matching
+metadata identity and exact metadata digest. Nonzero previous revision requires
+this evidence. Revision zero can represent an initial install or a valid previous
+publication; the live writer must distinguish them by its verified preflight.
+The retained prior receipt/metadata are included in the new operation digest;
+only the current generated receipts and self-digest are excluded. A frozen
+nonnegative registry timestamp ensures registry section text can be regenerated
+identically from the immutable backup on retry.
+
+The wire marker is now PWOP2, so older local draft encodings fail closed; semantic
+operation schema remains 1. The feature has not written production journals and
+is not connected to live UI publication. Tests reproduce the missing-prior-proof
+acceptance and cover retained evidence round trip, altered/missing/noncommitted
+prior evidence, reused transaction, revision mismatch, timestamp extrema/drift
+and rejection of the earlier draft marker. All 104 host tests, warning checks
+and SDK v0.43 archive compilation pass. See
+[recovery ownership evidence](../../../results/20261006-previous-publication/README.md).
+Live sequencing, file collision admission, interruption/retry, final review and
+native acceptance remain outstanding.
