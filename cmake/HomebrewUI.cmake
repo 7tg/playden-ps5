@@ -2,10 +2,10 @@
 # Copyright (C) 2026 Leo Lobato
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-set(PLAYDEN_HOMEBREW_UI_REVISION "8a716f294835e26a24ef5612f1535aabffef4080")
+set(PLAYDEN_HOMEBREW_UI_REVISION "f3a3695f9c761b013e62e457e0c5301c3cb7bfea")
 set(PLAYDEN_HUI_SOURCE_DIR
-    "${CMAKE_SOURCE_DIR}/build/dependencies/homebrew-ui" CACHE PATH
-    "Isolated ps5-homebrew-ui checkout")
+    "${CMAKE_SOURCE_DIR}/third_party/ps5-homebrew-ui" CACHE PATH
+    "ps5-homebrew-ui checkout (the pinned feat/playden-ps5 submodule)")
 set(PLAYDEN_HOMEBREW_UI_SOURCE_DIR "${PLAYDEN_HUI_SOURCE_DIR}" CACHE PATH
     "Compatibility alias for PLAYDEN_HUI_SOURCE_DIR" FORCE)
 set(PLAYDEN_STB_IMAGE_INCLUDE_DIR
@@ -16,21 +16,12 @@ string(JSON expected_hui_revision GET "${playden_dependency_lock}" homebrew_ui r
 if(NOT expected_hui_revision STREQUAL PLAYDEN_HOMEBREW_UI_REVISION)
     message(FATAL_ERROR "CMake Hui revision does not match dependencies.lock.json")
 endif()
-foreach(patch_name homebrew-ui-macos-4.1.patch homebrew-ui-cff-sdf.patch)
-    string(JSON expected_patch_hash GET "${playden_dependency_lock}" homebrew_ui patches "${patch_name}")
-    file(SHA256 "${CMAKE_SOURCE_DIR}/patches/${patch_name}" actual_patch_hash)
-    if(NOT actual_patch_hash STREQUAL expected_patch_hash)
-        message(FATAL_ERROR "Pinned Hui patch hash mismatch: ${patch_name}")
-    endif()
-endforeach()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/dependencies.lock.json"
-    "${CMAKE_SOURCE_DIR}/patches/homebrew-ui-macos-4.1.patch"
-    "${CMAKE_SOURCE_DIR}/patches/homebrew-ui-cff-sdf.patch")
+    "${CMAKE_SOURCE_DIR}/dependencies.lock.json")
 
 if(NOT EXISTS "${PLAYDEN_HUI_SOURCE_DIR}/src/gfx/renderer.cpp")
     message(FATAL_ERROR
-        "ps5-homebrew-ui is not prepared. Run scripts/build-homebrew.sh --prepare-only")
+        "ps5-homebrew-ui is missing. Run: git submodule update --init third_party/ps5-homebrew-ui")
 endif()
 
 execute_process(
@@ -43,39 +34,16 @@ if(NOT playden_hui_revision_status EQUAL 0 OR
     message(FATAL_ERROR
         "ps5-homebrew-ui must be ${PLAYDEN_HOMEBREW_UI_REVISION}; found '${playden_hui_revision}'")
 endif()
-set(expected_hui_changes " M src/gfx/backdrop.cpp\n M src/gfx/backdrop.hpp\n M src/gfx/canvas.cpp\n M src/gfx/canvas.hpp\n M src/gfx/gl_batch.cpp\n M src/gfx/gl_batch.hpp\n M src/gfx/gl_program.hpp\n M src/gfx/renderer.cpp\n M tools/font-baker/bake_font.cpp\n?? src/gfx/gl.hpp")
 execute_process(
     COMMAND git -C "${PLAYDEN_HUI_SOURCE_DIR}" status --porcelain --untracked-files=all
     OUTPUT_VARIABLE actual_hui_changes OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY)
-if(NOT actual_hui_changes STREQUAL expected_hui_changes)
-    message(FATAL_ERROR "Isolated ps5-homebrew-ui checkout differs from the two pinned patches")
+if(NOT actual_hui_changes STREQUAL "")
+    message(FATAL_ERROR "ps5-homebrew-ui has local changes; commit them on its feat/playden-ps5 branch")
 endif()
-foreach(patch_name homebrew-ui-macos-4.1.patch homebrew-ui-cff-sdf.patch)
-    execute_process(
-        COMMAND git -C "${PLAYDEN_HUI_SOURCE_DIR}" apply --check --reverse
-            "${CMAKE_SOURCE_DIR}/patches/${patch_name}"
-        RESULT_VARIABLE reverse_patch_status ERROR_QUIET)
-    if(NOT reverse_patch_status EQUAL 0)
-        message(FATAL_ERROR "Pinned Hui patch is not applied cleanly: ${patch_name}")
-    endif()
-endforeach()
-string(JSON expected_patched_file_count LENGTH "${playden_dependency_lock}"
-    homebrew_ui patched_files)
-math(EXPR expected_patched_file_last "${expected_patched_file_count} - 1")
-foreach(file_index RANGE 0 ${expected_patched_file_last})
-    string(JSON patched_file MEMBER "${playden_dependency_lock}"
-        homebrew_ui patched_files ${file_index})
-    string(JSON expected_patched_hash GET "${playden_dependency_lock}"
-        homebrew_ui patched_files "${patched_file}")
-    file(SHA256 "${PLAYDEN_HUI_SOURCE_DIR}/${patched_file}" actual_patched_hash)
-    if(NOT actual_patched_hash STREQUAL expected_patched_hash)
-        message(FATAL_ERROR "Pinned Hui patched-file hash mismatch: ${patched_file}")
-    endif()
-endforeach()
 
 # Every source/header that can enter the Hui libraries or platform front ends triggers a fresh
-# configure, where the exact worktree status and patched-file hashes are checked again.
+# configure, where the pinned revision and a clean checkout are checked again.
 file(GLOB_RECURSE playden_hui_trusted_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
     "${PLAYDEN_HUI_SOURCE_DIR}/src/*"
     "${PLAYDEN_HUI_SOURCE_DIR}/host/*"

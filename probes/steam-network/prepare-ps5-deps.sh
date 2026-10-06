@@ -3,10 +3,10 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 launcher_root=$(cd -- "$root/../.." && pwd)
-ps5_repo=${PLAYDEN_PS5_REPO:-"$launcher_root/../playden-ps5"}
-with_env="$ps5_repo/scripts/with-env.sh"
-toolchain="$ps5_repo/.deps/ps5-payload-sdk/toolchain/prospero.cmake"
-compiler_launcher="$ps5_repo/.deps/ps5-payload-sdk/bin/prospero-clang"
+sdk=${PS5_PAYLOAD_SDK:-"$launcher_root/deps/ps5-payload-sdk"}
+with_env="$launcher_root/scripts/with-env.sh"
+toolchain="$sdk/toolchain/prospero.cmake"
+compiler_launcher="$sdk/bin/prospero-clang"
 deps="$root/.deps"
 downloads="$deps/downloads"
 prefix="$deps/ps5"
@@ -28,7 +28,7 @@ fetch() {
 }
 
 [[ -f "$with_env" ]] || { echo "missing PS5 environment wrapper: $with_env" >&2; exit 1; }
-[[ -f "$toolchain" ]] || { echo "missing PS5 CMake toolchain: $toolchain" >&2; exit 1; }
+[[ -f "$toolchain" ]] || { echo "missing PS5 CMake toolchain: $toolchain (run scripts/fetch-deps.sh)" >&2; exit 1; }
 [[ -f "$compiler_launcher" ]] || { echo "missing PS5 compiler launcher: $compiler_launcher" >&2; exit 1; }
 [[ "$(shasum -a 256 "$curl_patch" | awk '{print $1}')" == "$curl_patch_sha256" ]] || {
     echo "hash mismatch for $curl_patch" >&2
@@ -89,7 +89,7 @@ fi
 compiler_binary="$($llvm_config --bindir)/clang"
 [[ -f "$compiler_binary" ]] || { echo "missing compiler binary: $compiler_binary" >&2; exit 1; }
 compiler_version=$(bash "$with_env" "$compiler_launcher" --version | head -n 1)
-sdk_revision=$(git -C "$ps5_repo" rev-parse HEAD)
+sdk_archive_sha256=$(cat "$sdk/.playden-source-sha256" 2>/dev/null || echo unknown)
 {
     printf 'format=playden-steam-network-ps5-deps-v1\n'
     printf 'curl_version=%s\n' "$curl_version"
@@ -99,7 +99,7 @@ sdk_revision=$(git -C "$ps5_repo" rev-parse HEAD)
     printf 'mbedtls_source_sha256=%s\n' "$mbedtls_sha256"
     printf 'cacert_version=2026-09-25\n'
     printf 'cacert_source_sha256=%s\n' "$cacert_sha256"
-    printf 'ps5_sdk_repository_revision=%s\n' "$sdk_revision"
+    printf 'ps5_payload_sdk_archive_sha256=%s\n' "$sdk_archive_sha256"
     printf 'ps5_toolchain_sha256=%s\n' "$(shasum -a 256 "$toolchain" | awk '{print $1}')"
     printf 'ps5_compiler_launcher_sha256=%s\n' \
         "$(shasum -a 256 "$compiler_launcher" | awk '{print $1}')"

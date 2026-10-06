@@ -8,10 +8,9 @@ Build from the repository root with the patched runtime's foundation SDK 0.42:
 
 ```sh
 mkdir -p build/per-game-title-probe
-bash ../playden-ps5/scripts/with-env.sh \
-  ../playden-ps5/.deps/prospero-foundation/.deps/native/ps5-payload-sdk/bin/prospero-clang++ \
+scripts/with-env.sh \
+  deps/ps5-payload-sdk-helper/bin/prospero-clang++ \
   -std=c++17 -Wall -Wextra -Werror -Isrc \
-  -Ibuild/dependencies/homebrew-ui/include \
   probes/per-game-title/main.cpp \
   src/platform/ps5/title_registry.cpp src/platform/ps5/title_runtime.cpp \
   -o build/per-game-title-probe/playden-per-game-title-probe.elf

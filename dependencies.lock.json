@@ -6,19 +6,26 @@
   },
   "prospero_launcher_helper": {
     "base_revision": "611fa5f7ed46cdde7094b764168390ab5c4e89f8",
-    "owned_title_revision": "e9f2cfc2c3913e42fdf83d74291e270b041ff0d9",
+    "owned_title_revision": "5898dde2d690ec6c2bbfdd9e646068770321ca6f",
     "foundation_revision": "9c0b994a048521af6fb84c73ded364504fe250e9",
     "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869",
     "variants": {
-      "FAKE77031": "33c42097d30af928011ac415daa04b3ad10e9fe8f1bf4586bb283a1d2ded4938"
-    }
+      "FAKE77031": "8595a83558b7c4b1a72bfd51adb004474bd181e1db8abdfd5958b1f776b14793"
+    },
+    "payload_sdk": {
+      "version": "v0.42",
+      "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.42/ps5-payload-sdk.zip",
+      "sha256": "8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da"
+    },
+    "source": "third_party/PS5-Lapy-JB-Daemon submodule, fork branch feat/playden-ps5 at owned_title_revision; build with scripts/build-lapy-helper.sh"
   },
   "ps5_opengl": {
     "version": "1.0.0",
-    "source_revision": "dce74910af7f4274c48d05e0ae001b3038462588",
+    "source_revision": "e9c1104e83e9466637b7f79c350ee164bf772459",
     "sdk_url": "https://github.com/blackbearreloaded/ps5-opengl/releases/download/v1.0.0/ps5-opengl-sdk-1.0.0.tar.gz",
     "sdk_sha256": "f93643c04c843d56143b00951df1f8042ea7706ae9f19e4e9abf158e1ead77c5",
-    "libPS5OpenGL_sha256": "11ab03a347cf75e143c7aa896ff0fd94714ded471a92146aa0f2aba82722ae95"
+    "libPS5OpenGL_sha256": "11ab03a347cf75e143c7aa896ff0fd94714ded471a92146aa0f2aba82722ae95",
+    "source": "third_party/ps5-opengl submodule, fork branch feat/playden-ps5 (v1.0.0 dce7491 plus the legacy varying-linkage fix; native-app files unchanged)"
   },
   "ps5_native_app_boilerplate": {
     "revision": "f98de734b68b0b980d38ff03a330066afd6ae16d",
@@ -28,7 +35,11 @@
   },
   "compiler_rt_builtins": {
     "version": "18.1.8",
-    "sha256": "61002d0f8fa316a09db9c97f47744cfa5866862e9dc3fdd554d7cf6fdc3c2566"
+    "sha256": "61002d0f8fa316a09db9c97f47744cfa5866862e9dc3fdd554d7cf6fdc3c2566",
+    "url": "http://archive.ubuntu.com/ubuntu/pool/universe/l/llvm-toolchain-18/libclang-rt-18-dev_18.1.8-20ubuntu11_amd64.deb",
+    "archive_sha256": "e7077f4fda48dcac60df1d99beca2d784300ae654d1f660ec904f206edb4d576",
+    "member": "usr/lib/llvm-18/lib/clang/18/lib/linux/libclang_rt.builtins-x86_64.a",
+    "why": "ps5-opengl needs __emutls_get_address; Homebrew LLVM ships only Darwin builtins"
   },
   "recorded_host_toolchain": {
     "platform": "macOS Apple Silicon",
@@ -96,12 +107,8 @@
     }
   },
   "homebrew_ui": {
-    "revision": "8a716f294835e26a24ef5612f1535aabffef4080",
-    "source": "third_party/ps5-homebrew-ui submodule (https://github.com/blackbearreloaded/ps5-homebrew-ui); revision is upstream 4bd9425 plus the local feat/latin-glyphs commits, not yet pushed",
-    "patches": {
-      "homebrew-ui-macos-4.1.patch": "8f672e19009e1e63601c4276979aaa31d19b7a5ff4b00184206b89041af66c09",
-      "homebrew-ui-cff-sdf.patch": "5af8fe22fa96c9cb2f8f7402fbd9c17d38ac1cadf249bfff2dec42a2623bea1a"
-    },
+    "revision": "f3a3695f9c761b013e62e457e0c5301c3cb7bfea",
+    "source": "third_party/ps5-homebrew-ui submodule, fork branch feat/playden-ps5: upstream 4bd9425 plus the latin-glyph, macOS OpenGL 4.1 and CFF SDF commits (not yet upstream)",
     "stb_image": {
       "source": "Vendored third_party/stb/stb_image.h (stb v2.30)",
       "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
@@ -120,18 +127,6 @@
       "fixtures/ui-comparison/assets/fonts/noto-arabic-OFL.txt": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
       "assets/fonts/NotoSans-Regular.ttf": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
       "assets/fonts/NotoSans-OFL.txt": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb"
-    },
-    "patched_files": {
-      "src/gfx/backdrop.cpp": "92367fbbdfbd2582be2744f824fbc07852bfd4f45f16d42f42725c60152fa7b1",
-      "src/gfx/backdrop.hpp": "eb6fd3b94c39c4a5925774bcde15f62bef761a8b1b426c4e61957cf83633aea8",
-      "src/gfx/canvas.cpp": "b69cf8857e736c00a571f1e09b29b2a061d97ddfe5b348f2e1c103251d96002b",
-      "src/gfx/canvas.hpp": "1da1223c39d3b9c4048b350febef5b281e2f1ad55f1ba1330a01cf22336f48b5",
-      "src/gfx/gl_batch.cpp": "d9155bda5ae755a3caee21c9a61cc53f3f763193034bb724c02b74616570d87a",
-      "src/gfx/gl_batch.hpp": "76474147ce8f4f29d752871fae95a8c6a8d79eb56ac47c0eb5873310178fddf2",
-      "src/gfx/gl_program.hpp": "cf8be9e4099a6bb3f6bb35bdc64942c128546b9bf0af1110ae042bb3a75198cc",
-      "src/gfx/renderer.cpp": "2d9ab40a6e5d9f6e9ed20588261020c063ece4f20262a894da6ca6488df71b78",
-      "src/gfx/gl.hpp": "ecbca1f585e2dcddb9a3ac02d33acea9613a6f4bf5c393f53bf5e86c6abea98f",
-      "tools/font-baker/bake_font.cpp": "610b17f80c217329ad25977f63f8367ce3b55ee78354485f28164001eb9fa316"
     }
   },
   "qrcodegen": {
@@ -165,11 +160,14 @@
   },
   "prospero_win": {
     "revision": "301246dcb56afa90443761ffd5ad38b587342e32",
-    "url": "https://github.com/mpereiraesaa/prospero-win.git",
+    "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
     "status": "development-source; release kit and native acceptance pending",
-    "retained_runtime_artifact_revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9"
+    "retained_runtime_artifact_revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+    "upstream_url": "https://github.com/mpereiraesaa/prospero-win.git",
+    "branch": "feat/playden-ps5",
+    "note": "The pin is the wrapper the current kit was built from. The branch tip adds the display-handoff input fix (a4c3856) and the OpenGL drawable patch 0663 (4234987) used by the console runtime; move this pin and the kit together at the next runtime rebuild."
   },
   "prospero_bottle_preparation": {
     "hl2-fresh-v16": {
@@ -200,8 +198,8 @@
   "sqlite3": {
     "version": "3.53.1",
     "source_id": "c88b22011a54b4f6fbd149e9f8e4de77658c",
-    "local_source_repository": "../ps5-homebrew/CheatRunner",
-    "local_source_revision": "59dcb9efaba71af00dc29d6cfe35da7d1ea43651",
+    "source_repository": "https://github.com/notmaj0r/CheatRunner.git",
+    "source_revision": "59dcb9efaba71af00dc29d6cfe35da7d1ea43651",
     "files": {
       "sqlite3.c": "9ac97192c93a6d9671d2ea667ba14e3c8fe3719a171afc5827c9d86d0278fc14",
       "sqlite3.h": "16d6e2f265fb13ece42329da39a865d4c540045b444d16b4bf9f7e1a7e39408f"

@@ -6,99 +6,35 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-revision=8a716f294835e26a24ef5612f1535aabffef4080
-framework_repo=${PLAYDEN_HUI_REPOSITORY:-"$root/third_party/ps5-homebrew-ui"}
-hui_source="$root/build/dependencies/homebrew-ui"
-patch_files=("$root/patches/homebrew-ui-macos-4.1.patch" "$root/patches/homebrew-ui-cff-sdf.patch")
+revision=f3a3695f9c761b013e62e457e0c5301c3cb7bfea
+hui_source=${PLAYDEN_HUI_SOURCE_DIR:-"$root/third_party/ps5-homebrew-ui"}
 build_dir="$root/build/homebrew-host"
 font_dir="$root/build/homebrew-fonts"
 prepare_only=0
-validate_prepared_source=0
 
 if [[ ${1:-} == --prepare-only ]]; then
     prepare_only=1
     shift
 elif [[ ${1:-} == --prepare-fonts-only ]]; then
-    [[ -n ${2:-} ]] || { echo '--prepare-fonts-only requires a prepared Hui checkout' >&2; exit 1; }
     prepare_only=1
-    validate_prepared_source=1
-    hui_source=$2
-    shift 2
+    shift
 fi
 
+# The submodule must be exactly the pinned commit of the feat/playden-ps5 fork, without local edits.
 if [[ ! -e $hui_source/.git ]]; then
-    if (( validate_prepared_source )); then
-        printf 'prepared ps5-homebrew-ui checkout not found: %s\n' "$hui_source" >&2
-        exit 1
-    fi
-    if [[ ! -d $framework_repo/.git && ! -f $framework_repo/.git ]]; then
-        printf 'ps5-homebrew-ui repository not found: %s\n' "$framework_repo" >&2
-        exit 1
-    fi
-    mkdir -p "$root/build/dependencies"
-    git -C "$framework_repo" worktree add --detach "$hui_source" "$revision"
+    printf 'ps5-homebrew-ui not found at %s: run git submodule update --init third_party/ps5-homebrew-ui\n' "$hui_source" >&2
+    exit 1
 fi
-
 actual_revision=$(git -C "$hui_source" rev-parse HEAD)
 if [[ $actual_revision != "$revision" ]]; then
-    printf 'ps5-homebrew-ui revision mismatch: expected %s, found %s\n' \
-        "$revision" "$actual_revision" >&2
+    printf 'ps5-homebrew-ui revision mismatch: expected %s, found %s\n' "$revision" "$actual_revision" >&2
     exit 1
 fi
-
-expected_patch_hashes=(
-    8f672e19009e1e63601c4276979aaa31d19b7a5ff4b00184206b89041af66c09
-    5af8fe22fa96c9cb2f8f7402fbd9c17d38ac1cadf249bfff2dec42a2623bea1a
-)
-for index in "${!patch_files[@]}"; do
-    actual_hash=$(shasum -a 256 "${patch_files[$index]}" | awk '{print $1}')
-    if [[ $actual_hash != "${expected_patch_hashes[$index]}" ]]; then
-        printf 'recorded Hui patch hash mismatch: %s\n' "${patch_files[$index]}" >&2
-        exit 1
-    fi
-done
-
-if (( validate_prepared_source )); then
-    for patch_file in "${patch_files[@]}"; do
-        if ! git -C "$hui_source" apply --check --reverse "$patch_file" >/dev/null 2>&1; then
-            printf 'prepared ps5-homebrew-ui checkout lacks recorded patch: %s\n' "$patch_file" >&2
-            exit 1
-        fi
-    done
-else
-    for patch_file in "${patch_files[@]}"; do
-        if git -C "$hui_source" apply --check "$patch_file" >/dev/null 2>&1; then
-            git -C "$hui_source" apply "$patch_file"
-        elif ! git -C "$hui_source" apply --check --reverse "$patch_file" >/dev/null 2>&1; then
-            printf 'isolated ps5-homebrew-ui checkout conflicts with recorded patch: %s\n' "$patch_file" >&2
-            git -C "$hui_source" status --short >&2
-            exit 1
-        fi
-    done
-fi
-
-# The isolated worktree may contain only the two pinned patch effects.
-expected_changes=$' M src/gfx/backdrop.cpp\n M src/gfx/backdrop.hpp\n M src/gfx/canvas.cpp\n M src/gfx/canvas.hpp\n M src/gfx/gl_batch.cpp\n M src/gfx/gl_batch.hpp\n M src/gfx/gl_program.hpp\n M src/gfx/renderer.cpp\n M tools/font-baker/bake_font.cpp\n?? src/gfx/gl.hpp'
-actual_changes=$(git -C "$hui_source" status --porcelain --untracked-files=all)
-if [[ $actual_changes != "$expected_changes" ]]; then
-    printf 'isolated ps5-homebrew-ui checkout has changes outside the pinned patches\n' >&2
-    printf '%s\n' "$actual_changes" >&2
+if [[ -n $(git -C "$hui_source" status --porcelain --untracked-files=all) ]]; then
+    printf 'ps5-homebrew-ui has local changes; commit them on its feat/playden-ps5 branch first\n' >&2
+    git -C "$hui_source" status --short >&2
     exit 1
 fi
-
-python3 - "$root/dependencies.lock.json" "$hui_source" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-lock = json.loads(pathlib.Path(sys.argv[1]).read_text())
-source = pathlib.Path(sys.argv[2])
-for relative, expected in lock["homebrew_ui"]["patched_files"].items():
-    actual = hashlib.sha256((source / relative).read_bytes()).hexdigest()
-    if actual != expected:
-        raise SystemExit(f"pinned Hui patched-file hash mismatch: {relative}")
-PY
 
 cxx=$(command -v "${HOST_CXX:-clang++}")
 baker="$root/build/hui-bake-font"
