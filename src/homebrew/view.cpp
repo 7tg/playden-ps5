@@ -2324,7 +2324,7 @@ class Render::Impl
                           view.surface == "choice-picker" || view.surface == "preset-picker" ||
                           view.surface == "button-mapping" ||
                           view.surface == "controller" || view.surface == "logs" ||
-                          view.surface == "storage";
+                          view.surface == "storage" || view.surface == "kept-data";
         const float width = wide ? 960.0F : 640.0F;
         const gfx::Rect panel{kWidth - width + (1.0F - ease) * width, 0.0F, width, kHeight};
         overlay_.shadow({panel.x - 18.0F, 0.0F, panel.w + 18.0F, panel.h}, 0.0F, 36.0F,
@@ -2335,6 +2335,7 @@ class Render::Impl
                                      view.surface == "button-mapping";
         section_overlay(settings_picker ? std::string_view("Game settings")
                         : view.surface == "game-settings" ? std::string_view("Playden")
+                        : view.surface == "kept-data" ? std::string_view("Settings")
                                                           : std::string_view(view.surface),
                         panel.x + 48.0F, 72.0F);
         ui::text(overlay_, fonts_.display, view.title, panel.x + 48.0F, 142.0F, 48.0F, kText);
@@ -2669,7 +2670,9 @@ class Render::Impl
             }
             // Game settings rows carry an effect line under the name (or the reason a row is
             // disabled), an accent dot when the player changed the value, and a tag.
-            const bool described = settings_sheet && !row.subtitle.empty() && row.kind != RowKind::Heading;
+            // Kept game data: each game is a checkbox row with its kept date under the name.
+            const bool checkbox = view.surface == "kept-data" && row.kind == RowKind::Toggle;
+            const bool described = (settings_sheet || checkbox) && !row.subtitle.empty() && row.kind != RowKind::Heading;
             const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F : 72.0F};
             const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
             focus_glow(overlay_, rect, amount);
@@ -2680,6 +2683,20 @@ class Render::Impl
             const float value_width = value.empty() ? 0.0F : std::min(rect.w * 0.45F, fonts_.regular.measure(value, 22.0F));
             const float name_y = described ? rect.y + 40.0F : rect.cy() + 10.0F;
             float name_x = rect.x + 24.0F;
+            if (checkbox)
+            {
+                const gfx::Rect box{name_x, name_y - 24.0F, 28.0F, 28.0F};
+                if (row.selected)
+                {
+                    overlay_.rounded_rect(box, 6.0F, kAccent);
+                    // A check mark drawn as two strokes.
+                    overlay_.line(box.x + 7.0F, box.y + 14.0F, box.x + 12.0F, box.y + 20.0F, 3.0F, theme_.on_primary);
+                    overlay_.line(box.x + 12.0F, box.y + 20.0F, box.x + 22.0F, box.y + 8.0F, 3.0F, theme_.on_primary);
+                }
+                else
+                    overlay_.bordered_rect(box, 6.0F, kPanel.with_alpha(0.0F), 2.0F, kText.with_alpha(0.45F));
+                name_x += 44.0F;
+            }
             if (row.modified)
             {
                 overlay_.circle(name_x + 5.0F, name_y - 9.0F, 5.0F, kAccent);
@@ -2699,7 +2716,7 @@ class Render::Impl
             }
             if (described)
                 ui::text(overlay_, fonts_.regular, fit(fonts_.regular, row.subtitle, 19.0F, rect.w - 72.0F - value_width),
-                         rect.x + 24.0F, rect.y + 74.0F, 19.0F, row.enabled ? kSecondary : kMuted);
+                         checkbox ? name_x : rect.x + 24.0F, rect.y + 74.0F, 19.0F, row.enabled ? kSecondary : kMuted);
             if (!value.empty())
                 ui::text(overlay_, fonts_.regular, fit(fonts_.regular, value, 22.0F, value_width), rect.x + rect.w - 24.0F,
                          described ? rect.y + 52.0F : rect.cy() + 8.0F, 22.0F,

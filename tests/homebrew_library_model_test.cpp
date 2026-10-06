@@ -699,16 +699,70 @@ void live_uninstall_removes_title_and_keeps_saves() {
     auto deletes = model.TakeKeptDeleteRequests();
     check(deletes.size() == 1 && deletes[0] == 42, "the confirmed deletion goes to the runtime");
 
-    // Settings lists kept game data with its date and deletes per entry.
+    // Settings shows kept game data as one row that opens the manager.
+    model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}, {43, "", 1760000000, 3'000'000},
+                             {44, "Third", 0, 1'000'000}});
     model.action("r1"); model.action("r1"); model.action("r1");
-    const auto* entry = find_row(model, "settings-kept-42");
-    check(entry && entry->title == "Kept: Synthetic" && entry->subtitle.find("Kept 2025-10-09") == 0, "Settings lists kept game data");
-    activate(model, "settings-kept-42");
+    check(model.state().navigation.route == playden::homebrew::Route::Settings, "Settings opens");
+    check(!has_row(model, "settings-kept-42"), "kept games are not listed one by one in Settings");
+    const auto* entry = find_row(model, "settings-kept");
+    check(entry && entry->title == "Kept game data" && entry->value.find("3 games · ") == 0, "the row counts kept games and size");
+    activate(model, "settings-kept");
+    check(model.state().navigation.modals.back().id == "kept-data", "the row opens the kept game data manager");
+    const auto* named = find_row(model, "kept-toggle-43");
+    check(named && named->title == "No title" && named->kind == RowKind::Toggle && !named->selected,
+          "a game without a kept name uses the library's, unchecked");
+    check(find_row(model, "kept-toggle-42")->subtitle == "Kept 2025-10-09", "each game shows when it was kept");
+    check(!find_row(model, "kept-selection-delete")->enabled, "nothing to delete until a game is checked");
+    activate(model, "kept-toggle-43");
+    check(find_row(model, "kept-toggle-43")->selected && !model.state().navigation.modals.empty(), "checking stays in the manager");
+    check(find_row(model, "kept-selection-delete")->value.find("1 game · ") == 0, "Delete names how many");
+    activate(model, "kept-select-all");
+    check(find_row(model, "kept-toggle-42")->selected && find_row(model, "kept-toggle-44")->selected, "Select all checks every game");
+    check(find_row(model, "kept-select-all")->title == "Clear selection", "with all checked it clears instead");
+    activate(model, "kept-select-all");
+    check(!find_row(model, "kept-toggle-42")->selected, "Clear selection unchecks every game");
+    activate(model, "kept-toggle-42");
+    activate(model, "kept-toggle-44");
+    activate(model, "kept-selection-delete");
+    const auto& confirm = model.state().navigation.modals.back();
+    check(confirm.title == "Delete kept game data?" && confirm.body.find("2 games (6 MB)") != std::string::npos,
+          "the confirmation names how many games and how much space");
+    activate(model, "cancel");
+    check(model.TakeKeptDeleteRequests().empty() && model.state().navigation.modals.back().id == "kept-data",
+          "cancelling deletes nothing and returns to the manager");
+    activate(model, "kept-selection-delete");
     activate(model, "confirm-destructive");
     deletes = model.TakeKeptDeleteRequests();
-    check(deletes.size() == 1 && deletes[0] == 42, "Settings deletes kept game data after confirming");
+    check(deletes == std::vector<playden::homebrew::GameId>{42, 44}, "the confirmed games go to the runtime");
+    check(model.state().navigation.modals.empty() && model.state().navigation.focus_key == "settings-kept",
+          "the manager closes and focus returns to its row");
+
+    // Kept data changes while the manager is open: it lists what is left, and closes when nothing is.
+    activate(model, "settings-kept");
+    model.UpdateKeptBottles({{43, "", 1760000000, 3'000'000}});
+    check(!has_row(model, "kept-toggle-42") && has_row(model, "kept-toggle-43"), "the open manager follows the kept list");
     model.UpdateKeptBottles({});
-    check(has_row(model, "settings-kept-none"), "nothing kept says so");
+    check(model.state().navigation.modals.empty(), "the manager closes when nothing is kept");
+    entry = find_row(model, "settings-kept");
+    check(entry && entry->value == "None" && !entry->enabled, "nothing kept says so");
+    check(model.state().navigation.focus_key == "settings-kept", "focus stays on the row");
+}
+
+void live_settings_focus_stays_near_a_removed_row() {
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.SetRuntimeLeftovers(2);
+    model.action("r1"); model.action("r1"); model.action("r1");
+    activate(model, "settings-runtime-cleanup");
+    check(model.TakeRuntimeCleanupRequest(), "cleanup goes to the runtime");
+    model.SetRuntimeLeftovers(0);
+    const auto& rows = model.view().rows;
+    const auto focused = rows[static_cast<std::size_t>(model.view().focused_row)];
+    check(!has_row(model, "settings-runtime-cleanup"), "the cleaned row is gone");
+    check(focused.section == "Library" && !focused.rail_only && !model.state().navigation.settings_rail_focused,
+          "focus moves to the nearest row in the same section, not the rail");
 }
 
 void preparation_steps_read_as_player_words() {
@@ -754,6 +808,7 @@ void live_details_focus_moves_to_play_once_enabled() {
 
 int main() {
     live_details_focus_moves_to_play_once_enabled();
+    live_settings_focus_stays_near_a_removed_row();
     preparation_steps_read_as_player_words();
     live_install_requests_and_projection();
     live_install_volumes();

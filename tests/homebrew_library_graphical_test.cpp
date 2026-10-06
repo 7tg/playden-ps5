@@ -131,6 +131,15 @@ int main(int argc,char** argv) {
       live.UpdateKeptBottles({{42, "Synthetic library title", 1700000000, 450'000'000}});
       assert(live.action("details:42"));
       capture_live("details-kept.png");
+      // Settings: kept game data is one row that opens the manager with a checkbox per game.
+      live.UpdateKeptBottles({{42, "Synthetic library title", 1700000000, 450'000'000},
+                              {43, "Café on the coast", 1699000000, 1'200'000'000}});
+      while(live.state().navigation.route!=Route::Settings) assert(live.action("r1"));
+      assert(live.action("focus:settings-kept"));
+      capture_live("settings-kept.png");
+      assert(live.action("cross"));
+      assert(live.action("focus:kept-toggle-43") && live.action("cross"));
+      capture_live("kept-manager.png");
     }
     model.UpdateAccount({AuthState::Offline,"123","Synthetic account",{},{},true});
     controller.Activate(123,true);settle();

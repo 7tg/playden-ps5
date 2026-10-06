@@ -267,6 +267,17 @@ std::vector<std::string> context_actions(bool live) {
     return {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"};
 }
 
+// The name kept game data is shown with: the game's name, else the library's, else its app id.
+std::string kept_name(const State& state, const LiveKeptBottle& kept) {
+    if (!kept.name.empty()) return kept.name;
+    if (const auto* game = find_game(state, kept.game_id); game && !game->title.empty()) return game->title;
+    return "Steam app " + std::to_string(kept.game_id);
+}
+
+std::string kept_count(std::size_t count) {
+    return std::to_string(count) + (count == 1 ? " game" : " games");
+}
+
 std::string action_label(const std::string& key) {
     static const std::map<std::string, std::string> labels = {
         {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"favorite", "Favorite"},
@@ -521,7 +532,35 @@ std::vector<GameId> Simulation::TakeRuntimePrepareRequests() {
 
 void Simulation::UpdateKeptBottles(std::vector<LiveKeptBottle> kept) {
     state_.kept_bottles = std::move(kept);
+    std::erase_if(kept_selected_, [this](GameId id) {
+        return std::none_of(state_.kept_bottles.begin(), state_.kept_bottles.end(), [id](const LiveKeptBottle& item) { return item.game_id == id; });
+    });
+    // An open manager lists what is kept now; with nothing left it closes.
+    auto& modals = state_.navigation.modals;
+    for (std::size_t index = 0; index < modals.size(); ++index) {
+        auto& modal = modals[index];
+        if (modal.id != "kept-data") continue;
+        if (state_.kept_bottles.empty()) {
+            if (index + 1 == modals.size()) close_modal();
+            break;
+        }
+        const auto focused = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+        modal.action_keys = kept_manager_actions();
+        const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), focused);
+        modal.focused_action = found == modal.action_keys.end()
+            ? std::min(modal.focused_action, static_cast<int>(modal.action_keys.size()) - 1)
+            : static_cast<int>(found - modal.action_keys.begin());
+        if (index + 1 == modals.size()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+    }
     rebuild_view();
+}
+
+std::vector<std::string> Simulation::kept_manager_actions() const {
+    std::vector<std::string> actions{"kept-select-all"};
+    for (const auto& kept : state_.kept_bottles) actions.push_back("kept-toggle-" + std::to_string(kept.game_id));
+    actions.push_back("kept-selection-delete");
+    actions.push_back("cancel");
+    return actions;
 }
 
 std::vector<GameId> Simulation::TakeKeptDeleteRequests() {
@@ -1945,6 +1984,9 @@ void Simulation::rebuild_view() {
         } else if (modal.id == "preset-picker") {
             view_.subtitle = "A preset sets several settings at once. Choosing one clears your changes for this game.";
         }
+        if (modal.id == "kept-data")
+            view_.subtitle = "Saves and settings kept when a game was uninstalled. Installing a game again brings its saves "
+                             "back. Saves in Steam Cloud stay in Steam Cloud.";
         for (const auto& action_key : modal.action_keys) {
             auto& item = row(action_key, RowKind::Action, action_label(action_key), action_key);
             item.dangerous = modal.destructive && action_key != "cancel";
@@ -2048,6 +2090,31 @@ void Simulation::rebuild_view() {
                     item.enabled = volume->available && volume->writable;
                     item.selected = volume->id == selected_volume_id_;
                 }
+            }
+            else if (action_key == "kept-select-all") {
+                const bool all = !state_.kept_bottles.empty() && kept_selected_.size() == state_.kept_bottles.size();
+                item.title = all ? "Clear selection" : "Select all";
+                item.enabled = !state_.kept_bottles.empty();
+            }
+            else if (action_key.rfind("kept-toggle-", 0) == 0) {
+                const auto id = static_cast<GameId>(std::strtoull(action_key.c_str() + 12, nullptr, 10));
+                for (const auto& kept : state_.kept_bottles) {
+                    if (kept.game_id != id) continue;
+                    item.kind = RowKind::Toggle;
+                    item.title = kept_name(state_, kept);
+                    item.value = format_bytes(kept.bytes);
+                    // The console has no gmtime_r: the date is the log timestamp's day.
+                    if (kept.kept_at > 0) item.subtitle = "Kept " + playden::app::FormatLogTimestamp(kept.kept_at).substr(0, 10);
+                    item.selected = kept_selected_.contains(id);
+                }
+            }
+            else if (action_key == "kept-selection-delete") {
+                std::uint64_t bytes = 0;
+                for (const auto& kept : state_.kept_bottles) if (kept_selected_.contains(kept.game_id)) bytes += kept.bytes;
+                item.title = "Delete selected";
+                item.dangerous = true;
+                item.enabled = !kept_selected_.empty();
+                if (!kept_selected_.empty()) item.value = kept_count(kept_selected_.size()) + " · " + format_bytes(bytes);
             }
             else if (action_key == "uninstall-delete-saves") {
                 item.kind = RowKind::Toggle;
@@ -2355,23 +2422,16 @@ void Simulation::rebuild_view() {
             suffix.subtitle = "Name game titles like \"Half-Life 2 (Steam)\". Prepared games change with their next Update.";
         }
         if (live()) {
-            // Saves and settings kept from uninstalled games: the way to reclaim their space.
+            // Saves and settings kept from uninstalled games: one row that opens the manager,
+            // where the player picks which to delete to reclaim their space.
+            auto& kept = add("settings-kept", RowKind::Action, "Kept game data", "kept-manage");
+            kept.subtitle = "Saves and settings kept when a game is uninstalled";
             if (state_.kept_bottles.empty()) {
-                auto& none = add("settings-kept-none", RowKind::Status, "Kept game data", "");
-                none.value = "None";
-                none.subtitle = "Saves and settings kept when a game is uninstalled";
-                none.enabled = false;
-            }
-            for (const auto& kept : state_.kept_bottles) {
-                std::string name = kept.name;
-                if (name.empty()) if (const auto* game = find_game(state_, kept.game_id)) name = game->title;
-                if (name.empty()) name = "Steam app " + std::to_string(kept.game_id);
-                auto& entry = add("settings-kept-" + std::to_string(kept.game_id), RowKind::Action, "Kept: " + name,
-                                  "kept-delete-" + std::to_string(kept.game_id));
-                entry.value = format_bytes(kept.bytes);
-                // The console has no gmtime_r: the date is the log timestamp's day.
-                const auto date = kept.kept_at > 0 ? playden::app::FormatLogTimestamp(kept.kept_at).substr(0, 10) : std::string{};
-                entry.subtitle = (date.empty() ? std::string{} : "Kept " + date + " · ") + "Delete to free its space";
+                kept.kind = RowKind::Status; kept.action.clear(); kept.enabled = false; kept.value = "None";
+            } else {
+                std::uint64_t bytes = 0;
+                for (const auto& item : state_.kept_bottles) bytes += item.bytes;
+                kept.value = kept_count(state_.kept_bottles.size()) + " · " + format_bytes(bytes);
             }
         }
         if (live() && state_.runtime_leftover_requests > 0) {
@@ -2440,6 +2500,29 @@ void Simulation::rebuild_view() {
         if (!has("details-checking") && !awaiting_play) details_primary_pending_ = false;
     }
     auto focused = std::find_if(view_.rows.begin(), view_.rows.end(), [this](const ViewRow& item) { return item.key == state_.navigation.focus_key; });
+    // Settings: the focused row went away (a dialog deleted it, or its data changed). Focus
+    // the nearest row left in the same section, never the rail-only Quit entry.
+    if (focused == view_.rows.end() && !has_overlay && state_.navigation.route == Route::Settings &&
+        !state_.navigation.settings_rail_focused && !settings_focus_section_.empty() && !view_.rows.empty() &&
+        state_.navigation.focus_key.rfind("settings-", 0) == 0) {
+        const int last = static_cast<int>(view_.rows.size()) - 1;
+        const int origin = std::clamp(settings_focus_index_, 0, last);
+        int best = -1;
+        for (int distance = 0; distance <= last && best < 0; ++distance)
+            for (const int candidate : {origin - distance, origin + distance}) {
+                if (candidate < 0 || candidate > last) continue;
+                const auto& item = view_.rows[static_cast<std::size_t>(candidate)];
+                if (item.section == settings_focus_section_ && !item.rail_only) { best = candidate; break; }
+            }
+        for (int distance = 0; distance <= last && best < 0; ++distance)
+            for (const int candidate : {origin - distance, origin + distance})
+                if (candidate >= 0 && candidate <= last && !view_.rows[static_cast<std::size_t>(candidate)].rail_only) { best = candidate; break; }
+        if (best >= 0) {
+            state_.navigation.selected_index = best;
+            state_.navigation.focus_key = view_.rows[static_cast<std::size_t>(best)].key;
+            focused = view_.rows.begin() + best;
+        }
+    }
     if (focused != view_.rows.end()) view_.focused_row = static_cast<int>(std::distance(view_.rows.begin(), focused));
     else if (!view_.rows.empty() && !(state_.navigation.route == Route::Library && state_.navigation.library_rail_focused)
              && !(state_.navigation.route == Route::Home && !view_.shelves.empty())) {
@@ -2449,6 +2532,11 @@ void Simulation::rebuild_view() {
         state_.navigation.focus_key = view_.rows[static_cast<std::size_t>(view_.focused_row)].key;
         if (!has_overlay && view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id != 0)
             state_.navigation.selected_game_id = view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id;
+    }
+    if (!has_overlay && state_.navigation.route == Route::Settings && view_.focused_row >= 0 &&
+        static_cast<std::size_t>(view_.focused_row) < view_.rows.size()) {
+        settings_focus_index_ = view_.focused_row;
+        settings_focus_section_ = view_.rows[static_cast<std::size_t>(view_.focused_row)].section;
     }
     if (!has_overlay) route_view_ = view_;
 }
@@ -3078,6 +3166,34 @@ void Simulation::activate() {
         open_modal(std::move(confirmation));
     } else if (action_name == "uninstall-delete-saves") {
         uninstall_delete_saves_ = !uninstall_delete_saves_;
+    } else if (live() && action_name == "kept-manage") {
+        if (state_.kept_bottles.empty()) return;
+        kept_selected_.clear();
+        open_modal({"kept-data", "Kept game data", state_.navigation.focus_key, kept_manager_actions(), 0, false});
+    } else if (live() && action_name == "kept-select-all") {
+        if (kept_selected_.size() == state_.kept_bottles.size()) kept_selected_.clear();
+        else for (const auto& kept : state_.kept_bottles) kept_selected_.insert(kept.game_id);
+    } else if (live() && action_name.rfind("kept-toggle-", 0) == 0) {
+        const auto id = static_cast<GameId>(std::strtoull(action_name.c_str() + 12, nullptr, 10));
+        if (!kept_selected_.erase(id)) kept_selected_.insert(id);
+    } else if (live() && action_name == "kept-selection-delete") {
+        if (kept_selected_.empty()) return;
+        std::uint64_t bytes = 0;
+        std::string only;
+        for (const auto& kept : state_.kept_bottles)
+            if (kept_selected_.contains(kept.game_id)) { bytes += kept.bytes; only = kept_name(state_, kept); }
+        pending_destructive_action_ = action_name;
+        ModalEntry confirmation{"confirmation", "Delete kept game data?", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
+        confirmation.body = "The saves and settings kept from " + (kept_selected_.size() == 1 ? only : kept_count(kept_selected_.size())) +
+                            " (" + format_bytes(bytes) + ") are deleted from this console. Saves in Steam Cloud stay in Steam Cloud.";
+        open_modal(std::move(confirmation));
+    } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_ == "kept-selection-delete") {
+        for (const auto& kept : state_.kept_bottles)
+            if (kept_selected_.contains(kept.game_id)) pending_kept_delete_requests_.push_back(kept.game_id);
+        kept_selected_.clear();
+        pending_destructive_action_.clear();
+        state_.navigation.focus_key = state_.navigation.modals.front().opener_focus_key;
+        state_.navigation.modals.clear();
     } else if (live() && action_name.rfind("kept-delete-", 0) == 0) {
         pending_destructive_action_ = action_name;
         const auto id = static_cast<GameId>(std::strtoull(action_name.c_str() + 12, nullptr, 10));
@@ -3091,6 +3207,7 @@ void Simulation::activate() {
     } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_.rfind("kept-delete-", 0) == 0) {
         pending_kept_delete_requests_.push_back(static_cast<GameId>(std::strtoull(pending_destructive_action_.c_str() + 12, nullptr, 10)));
         pending_destructive_action_.clear();
+        state_.navigation.focus_key = state_.navigation.modals.front().opener_focus_key;
         state_.navigation.modals.clear();
     } else if (action_name == "confirm-destructive" && live() &&
                (pending_destructive_action_.rfind("job-cancel-", 0) == 0 || pending_destructive_action_ == "uninstall")) {

@@ -494,11 +494,15 @@ private:
     std::set<GameId> pending_uninstalls_;
     std::vector<GameId> pending_kept_delete_requests_;
     bool uninstall_delete_saves_ = false;  // the uninstall dialog's choice
+    std::set<GameId> kept_selected_;  // the kept game data manager's checked games
     std::filesystem::path log_directory_;
     std::vector<CloudRequest> pending_cloud_requests_;
     std::string live_log_topic_;
     GameId live_log_game_ = 0;
     bool details_primary_pending_ = false;  // live Details: move focus to the first action once known
+    // Settings: the last focused row, so focus stays nearby when that row goes away.
+    int settings_focus_index_ = 0;
+    std::string settings_focus_section_;
 
     struct OrganizationJournalEntry {
         playden::OrganizationSnapshot before;
@@ -550,6 +554,7 @@ private:
     void commit_editor();
     void advance_jobs();
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;
+    [[nodiscard]] std::vector<std::string> kept_manager_actions() const;
     void refresh_game_settings();
     bool can_change_game_settings();
     void set_game_setting(const std::string& id, const std::string& value);
