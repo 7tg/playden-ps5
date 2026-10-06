@@ -46,13 +46,13 @@ Saves/Cloud migration from earlier locations is **not needed**: nothing has been
 | --- | --- | --- |
 | 1 | 20+ minute HL2 gameplay run on the current build | Only an older build had a 20-minute session. Capture pacing evidence, save, restart and reload. Console time only |
 | 2 | Fresh independent review of the whole integration | Earlier reviews covered slices; the final composition has not had one |
-| 3 | M4: remove a prepared game | Built 2026-10-07, host-tested only ([plan](docs/superpowers/plans/2026-10-06-game-removal.md)): uninstall syncs Cloud, removes the PS5 title through the one-shot `title-remover.elf` (works while Playden runs, [probe](results/20261007-native-uninstall/README.md)), then the download; saves are kept as `<install>.kept` and come back on reinstall; Details and Settings list and delete kept data. Console acceptance on a disposable game is next |
+| 3 | M4: remove a prepared game | Built 2026-10-07 ([plan](docs/superpowers/plans/2026-10-06-game-removal.md)) and run on the console ([evidence](results/20261007-game-removal/README.md)): uninstall syncs Cloud, removes the PS5 title through the one-shot `title-remover.elf` while Playden runs, then the download; saves are kept as `<install>.kept`, listed in Settings > Library and deletable. Not yet verified on the console: reinstall bringing kept saves back, refusal while the game runs |
 | 4 | M4: kit update rollback | In-place upgrade works; a failed update's rollback is not built or tested |
 | 5 | Interruption / power-loss qualification | Deferred by the user: cold restart mid-preparation and retry; settings reader lease against the publisher over a full title run |
 | 6 | Cloud and storage cases on the console | Account confirmation, USB-download adoption, unavailable media. The HL2 Cloud conflict is the player's choice (do not resolve it for them) |
 | 7 | Publish (when the user says so) | See the publish checklist below |
 | 8 | Still unported from the macOS app | First-run setup, reset-app-data UI, ambient backdrop, other stores |
-| 8a | Other games on the console | Since 2026-10-06 any Steam game is prepared from its Windows launch options (`steam-<app>-auto`, PE architecture, automatic graphics); Play prepares first and finished downloads prepare themselves. Host-tested only: no game besides HL2 has been prepared or played on the console. Preparing one leaves a PS5 title and bottle that cannot be removed until M4 exists |
+| 8a | Other games on the console | Any Steam game is prepared from its Windows launch options (`steam-<app>-auto`). On the console BALL x PIT prepared (pe64, `Balls.exe`) but crashed at start (Unity on wined3d; session marker refused). **New titles cannot register while Playden is open** (ShadowMountPlus postpones scans while any title runs), so Play-prepares-first stops at "Registration pending" until Playden is closed: needs a decision (register natively like the remover, or a queue helper) |
 | 9 | Minor | `tools/console_kit_upload.py --replace` names the set-aside kit after the new kit's hash |
 
 ### Repository layout (2026-10-06)
