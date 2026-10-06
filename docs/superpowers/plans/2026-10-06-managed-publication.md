@@ -840,3 +840,22 @@ Full host 108/108, actual SDK OWNER archive and developer package pass. Native
 PID1168 qualified request encoding/private durable storage/reopen/overwrite refusal.
 Evidence: results/20261006-publication-request. Preview hashes and modes restored,
 independently verified; console released. This does not close Task C acceptance.
+
+### Task C Ready update requested-plan handoff
+
+Ready titles now gain a durable capture-update request journal while retaining
+the prior committed revision. Request admission checks current complete package
+publication and coherent existing native registration. Launch Request/Handoff
+refuse active OWNER journals. Cold recovery uses the exact saved plan before
+capture and the exact prepared intent afterward; retirement verifies the old
+committed set and matching requested transaction. Commit advances the revision
+without new registration or title/bottle staging.
+
+RED Ready-request rejection/Play admission -> GREEN; full host108/108 including
+native-policy launch coverage. Actual SDK OWNER/launch archives and developer
+package link pass. Evidence results/20261006-ready-settings-request. No new
+console deployment or native Ready update claim; PS5 remains released. Explicit
+orphan reconciliation, app/UI/kit composition and full native acceptance remain
+open. The original preservation of existing Steam download paths must also be
+checked while composing the services; source-title identity is separate from
+recorded game-file routing.

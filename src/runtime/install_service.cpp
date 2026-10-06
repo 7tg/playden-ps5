@@ -352,8 +352,10 @@ RuntimeInstallService::Step(const std::string &install_id) {
     return InstallServiceResult::Failure(InstallServiceError::kNotFound,
                                          "runtime install was not found");
   }
+  const bool requested_update = record->state == PreparationState::kReady && record->journal &&
+      record->journal->operation == "settings-request" && record->journal->step == "capture-update";
   if ((record->state != PreparationState::kPreparing &&
-       record->state != PreparationState::kRegistering) ||
+       record->state != PreparationState::kRegistering && !requested_update) ||
       !record->journal) {
     return InstallServiceResult::Failure(
         InstallServiceError::kInvalidState,

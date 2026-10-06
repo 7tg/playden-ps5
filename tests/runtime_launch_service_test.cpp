@@ -645,7 +645,18 @@ extern "C" int playden_test_fsync(int fd) {
   return ::fsync(fd);
 }
 
+void RequestedSettingsUpdateBlocksPlayAndHandoff() {
+  Fixture f; auto service = f.Service();
+  f.records.records["install-hl2"].journal = PreparationJournal{kSession, "settings-request", "capture-update"};
+  CHECK(!service.Request("install-hl2").accepted);
+  CHECK(f.backend_calls == 0);
+  f.records.records["install-hl2"].journal.reset();
+  CHECK(service.Request("install-hl2").accepted);
+  f.records.records["install-hl2"].journal = PreparationJournal{kSession, "settings-request", "capture-update"};
+  CHECK(!service.Handoff().accepted && f.backend_calls == 0);
+}
 int main() {
+  RequestedSettingsUpdateBlocksPlayAndHandoff();
   MissingAndUnreadyInstallsNeverInvokeBackend();
   EveryFreshPreflightGateBlocksBeforePersistenceOrBackend();
   InvalidUuidAndPersistenceFailuresNeverInvokeBackend();

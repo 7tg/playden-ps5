@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-06",
+  "host_tests": {
+    "passed": 108,
+    "failed": 0,
+    "seconds": 25.96
+  },
+  "red_regressions": [
+    "Ready update request refused",
+    "Play accepted Ready record with settings-request journal"
+  ],
+  "cold_recovery": [
+    "before capture",
+    "after prepared intent"
+  ],
+  "sdk": "v0.43",
+  "sdk_compiled": [
+    "settings_publication_owner",
+    "settings_publication",
+    "launch_service"
+  ],
+  "sdk_package_linked": true,
+  "new_console_deployment": false,
+  "native_ready_update_tested": false,
+  "console_released": true,
+  "production_composition_complete": false
+}

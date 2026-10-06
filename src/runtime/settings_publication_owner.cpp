@@ -13,6 +13,22 @@ bool OwnedPackage(const PackageStatus& s) {
   return s.known && s.title_staged && s.manifest_matches && s.template_owned &&
       s.mutable_bottle_present && s.mutable_bottle_owned && s.artifacts_valid;
 }
+bool ReadyCaptureAllowed(const RuntimeInstall& record, const std::string& transaction) {
+  return record.state == PreparationState::kReady && !record.last_failure &&
+      (!record.journal || (record.journal->operation == "settings-request" &&
+       record.journal->step == "capture-update" && record.journal->operation_id == transaction));
+}
+PublicationPaths OperationPaths(const SettingsPublicationOperation& operation, const std::filesystem::path& prefix) {
+  auto map = [&](const std::string& value) {
+    const auto path = std::filesystem::path(value);
+    return prefix.empty() ? path : prefix / path.relative_path();
+  };
+  const auto profiles = operation.install.data_root + "/library/profiles/";
+  return {map(profiles + operation.plan.profile_id + ".profile"), map(profiles + "profiles.lst"),
+          map(operation.install.data_root + "/library/input"),
+          map("/data/homebrew/" + operation.install.title_id + "/game-launch.json"),
+          map(profiles + ".playden-publication")};
+}
 bool MatchingJournal(const RuntimeInstall& r, const SettingsPublicationOperation& o) {
   return r.journal && r.journal->operation == "settings-publication" && r.journal->operation_id == o.transaction_id;
 }
@@ -23,15 +39,25 @@ PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationR
     const std::filesystem::path& directory) {
   std::string reason; auto expected = EncodeSettingsPublicationRequest(request, &reason);
   auto current = records_.Find(request.install.install_id);
+  const bool update = current && current->state == PreparationState::kReady;
+  const bool armed = current && current->journal && current->journal->operation == "settings-request";
   if (!expected || !current || !SameRuntimeInstallIdentity(*current, request.install) ||
-      current->settings_revision != request.plan.settings_revision ||
-      current->state != PreparationState::kPreparing || !current->journal ||
-      (current->journal->operation != "prepare" && current->journal->operation != "settings-request") ||
+      (update ? request.plan.settings_revision <= current->settings_revision :
+                request.plan.settings_revision != current->settings_revision) ||
+      (update ? !ReadyCaptureAllowed(*current, request.transaction_id) :
+                current->state != PreparationState::kPreparing || !current->journal ||
+                (current->journal->operation != "prepare" && !armed)) ||
       native_.Activity(current->title_id) != NativeActivity::kStopped || !OwnedPackage(package_.Inspect(*current)))
-    return Failure("publication-request-owner", "Initial request requires matching reserved stopped OWNER/package provenance.");
-  const bool armed = current->journal->operation == "settings-request";
-  if (armed && (current->journal->operation_id != request.transaction_id || current->journal->step != "capture-settings"))
+    return Failure("publication-request-owner", "Request requires matching reserved stopped OWNER/package provenance and revision.");
+  if (armed && (current->journal->operation_id != request.transaction_id ||
+      current->journal->step != (update ? "capture-update" : "capture-settings")))
     return Failure("publication-request-conflict", "A different requested operation must be reconciled first.");
+  if (update) {
+    const auto package = package_.Inspect(*current); const auto native = native_.Query(*current);
+    if (!package.profile_published || package.profile_settings_revision != current->settings_revision ||
+        !native.available || !native.installed || native.collision || !native.source_available || !native.owned_manifest_matches)
+      return Failure("publication-request-ready", "Update requires the existing committed publication and coherent native registration.");
+  }
   auto loaded = LoadSettingsPublicationRequest(directory, request.transaction_id);
   if (armed) {
     auto observed = loaded.request ? EncodeSettingsPublicationRequest(*loaded.request, &reason) : std::nullopt;
@@ -47,12 +73,12 @@ PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationR
   // immutable request, never permission to regenerate or overwrite its plan.
   auto observed = records_.Find(current->install_id);
   if (!observed || !SameRuntimeInstallIdentity(*observed, *current) || observed->state != current->state ||
-      observed->settings_revision != current->settings_revision || !observed->journal ||
-      observed->journal->operation != current->journal->operation ||
-      observed->journal->operation_id != current->journal->operation_id || observed->journal->step != current->journal->step ||
+      observed->settings_revision != current->settings_revision || observed->journal.has_value() != current->journal.has_value() ||
+      (current->journal && (observed->journal->operation != current->journal->operation ||
+       observed->journal->operation_id != current->journal->operation_id || observed->journal->step != current->journal->step)) ||
       native_.Activity(current->title_id) != NativeActivity::kStopped || !OwnedPackage(package_.Inspect(*observed)))
     return Failure("publication-request-owner", "OWNER/activity changed after request persistence; preserve the orphan.");
-  current->journal = PreparationJournal{request.transaction_id, "settings-request", "capture-settings"};
+  current->journal = PreparationJournal{request.transaction_id, "settings-request", update ? "capture-update" : "capture-settings"};
   current->last_failure.reset();
   return Persist(*current);
 }
@@ -62,23 +88,26 @@ PackageActionResult SettingsPublicationOwner::ResumeRequested(const RuntimeInsta
   if (!current || !SameRuntimeInstallIdentity(*current, record) || current->settings_revision != record.settings_revision ||
       !current->journal || !record.journal || current->journal->operation != record.journal->operation ||
       current->journal->operation_id != record.journal->operation_id || current->journal->step != record.journal->step ||
-      (current->state != PreparationState::kPreparing && current->state != PreparationState::kRegistering))
+      (current->state != PreparationState::kPreparing && current->state != PreparationState::kRegistering &&
+       !ReadyCaptureAllowed(*current, current->journal->operation_id)))
     return Failure("publication-request-owner", "Startup recovery requires the current durable requested OWNER arm.");
   if (current->journal->operation == "settings-publication") return Resume(*current, prefix);
   if (current->journal->operation != "settings-request" && current->journal->operation != "settings-control")
     return Failure("publication-request-owner", "No requested capture/control operation is armed.");
   auto loaded = LoadSettingsPublicationRequest(directory, current->journal->operation_id);
   if (loaded.state != PublicationRecoveryState::kValid || !loaded.request ||
-      !SameRuntimeInstallIdentity(loaded.request->install, *current) || loaded.request->plan.settings_revision != current->settings_revision)
+      !SameRuntimeInstallIdentity(loaded.request->install, *current) ||
+      (current->state == PreparationState::kReady ? loaded.request->plan.settings_revision <= current->settings_revision :
+                                                  loaded.request->plan.settings_revision != current->settings_revision))
     return Failure("publication-request-unavailable", "Requested plan is missing, altered or does not match OWNER; preserve all evidence.");
   const auto& request = *loaded.request;
   auto prepared = Prepare(request.install, request.plan, request.kit_id, request.transaction_id, request.registry_unix_time, prefix);
   if (!prepared.ok()) return {PackageActionState::kFailed, "publication-request-capture", prepared.message()};
-  // The prepared intent already freezes before snapshots and backups. Resume
-  // reads it again under its own qualified publisher lease before live effects.
-  current = records_.Find(record.install_id);
-  if (!current) return Failure("publication-request-owner", "OWNER disappeared after durable capture.");
-  return Resume(*current, prefix);
+  // Capture durably freezes snapshots/backups. Publication reacquires the
+  // qualified lease, verifies prior committed semantics and rechecks OWNER
+  // before any effects. The Ready request arm blocks Play during this handoff.
+  auto dependencies = Dependencies(prefix);
+  return PublishSettingsOperation(prepared.value(), OperationPaths(prepared.value(), prefix), dependencies);
 }
 PackageActionResult SettingsPublicationOwner::InitializeControl(const RuntimeInstall& record, const std::string& transaction,
     const std::filesystem::path& prefix, const std::function<bool(PublicationControlStep)>& after_step) {
@@ -213,7 +242,7 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
     if (current->journal && current->journal->operation == "settings-publication" && current->journal->operation_id != transaction)
       return fail("A different blocked OWNER operation must first be reconciled.");
     if (recovered.operation && recovered.operation->transaction_id != transaction &&
-        (current->state != PreparationState::kReady || current->journal || current->last_failure))
+        !ReadyCaptureAllowed(*current, transaction))
       return fail("Previous active operation must first reconcile to durable Ready.");
     recovered = intent;
   }
@@ -230,7 +259,7 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   }
   if (current->journal && current->journal->operation == "settings-publication")
     return fail("Unreconciled OWNER intent requires explicit recovery before another operation capture.");
-  if (recovered.operation && (current->state != PreparationState::kReady || current->journal || current->last_failure ||
+  if (recovered.operation && (!ReadyCaptureAllowed(*current, transaction) ||
       current->settings_revision != recovered.operation->plan.settings_revision))
     return fail("Previous frozen operation must first reconcile to durable Ready.");
   if (!lease->Validate(*control, "publication.lock") || native_.Activity(record.title_id) != NativeActivity::kStopped)
@@ -333,6 +362,8 @@ PackageActionResult SettingsPublicationOwner::Block(const SettingsPublicationOpe
   if (!record || !SameRuntimeInstallIdentity(*record, o.install) || record->state == PreparationState::kRemoving ||
       (record->settings_revision != o.previous_revision && record->settings_revision != o.plan.settings_revision))
     return Failure("publication-owner-conflict", "Reserved OWNER identity/revision disagrees with the frozen operation.");
+  if (record->journal && record->journal->operation == "settings-request" && record->journal->operation_id != o.transaction_id)
+    return Failure("publication-owner-conflict", "A different requested operation must first be reconciled.");
   if (record->journal && record->journal->operation == "settings-publication" && !MatchingJournal(*record, o))
     return Failure("publication-owner-conflict", "A different OWNER publication operation must be reconciled first.");
   if (native_.Activity(record->title_id) != NativeActivity::kStopped)
@@ -395,7 +426,7 @@ PackageActionResult SettingsPublicationOwner::AuthorizeRetirement(const Settings
     const SettingsPublicationOperation& next) {
   auto record = records_.Find(previous.install.install_id);
   if (!record || !SameRuntimeInstallIdentity(*record, previous.install) || !SameRuntimeInstallIdentity(*record, next.install) ||
-      record->state != PreparationState::kReady || record->journal || record->last_failure ||
+      !ReadyCaptureAllowed(*record, next.transaction_id) ||
       record->settings_revision != previous.plan.settings_revision ||
       native_.Activity(record->title_id) != NativeActivity::kStopped ||
       !OwnedPackage(package_.Inspect(previous.install)) || !OwnedPackage(package_.Inspect(next.install)))

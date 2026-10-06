@@ -426,7 +426,7 @@ LaunchResult LaunchService::Request(const std::string &install_id) {
   if (!record)
     return Reject(LaunchError::kNotFound, "install-not-found",
                   "runtime installation was not found");
-  if (record->state != PreparationState::kReady)
+  if (record->state != PreparationState::kReady || record->journal)
     return Reject(LaunchError::kNotReady, "install-not-ready",
                   "runtime installation is not ready");
   if (!dependencies_.preflight)
@@ -577,7 +577,7 @@ LaunchResult LaunchService::Handoff() {
     return Reject(LaunchError::kWrongThread, "wrong-launch-thread",
                   "native launch must run on the application thread");
   const auto record = records_.Find(session_->install_id);
-  if (!record || record->state != PreparationState::kReady ||
+  if (!record || record->state != PreparationState::kReady || record->journal ||
       record->title_id != session_->title_id ||
       record->runtime_bundle_id != session_->runtime_bundle_id ||
       record->settings_revision != session_->settings_revision) {

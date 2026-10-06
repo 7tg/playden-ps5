@@ -9,10 +9,10 @@ enum class PublicationControlStep { kOwnerArmed, kDirectorySynced, kLockSynced, 
 class SettingsPublicationOwner {
  public:
   SettingsPublicationOwner(InstallRecordStore& records, PackageInstaller& package, NativeCoordinator& native);
-  // Initial-install handoff: persist the exact requested plan in the existing
+  // Persist the exact requested plan in the existing
   // private OWNER request directory, then arm OWNER before control/capture.
-  // Pre-arm orphans never resume implicitly. Ready updates retain Prepare's
-  // existing API until their separate durable request handoff is qualified.
+  // Pre-arm orphans never resume implicitly. Ready updates retain their current
+  // revision and gain a capture-update journal that blocks launch until commit.
   PackageActionResult Request(const SettingsPublicationRequest& request,
       const std::filesystem::path& request_directory);
   PackageActionResult ResumeRequested(const RuntimeInstall& record,
