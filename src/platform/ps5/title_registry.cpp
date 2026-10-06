@@ -71,8 +71,17 @@ TitleResult TitleRegistry::Register(const std::string& title) {
   if (existing.state == RegistrationState::kUnavailable) return {false, EIO, "query"};
   if (existing.state == RegistrationState::kCollision) return {false, EEXIST, "collision"};
   if (existing.state == RegistrationState::kReady) return {true, 0, "registered"};
+  // Already submitted and waiting for its scan: never submit it again.
+  if (existing.state == RegistrationState::kPending) return {true, 0, "pending"};
   auto result = Post("/api/v1/manual/add", SourceBody(title));
-  return result.ok ? Post("/api/v1/scan", "{}") : result;
+  // No answer: the add may have happened. Report it as uncertain so the caller
+  // only queries from now on and never submits it again on its own.
+  if (!result.ok && result.code == EIO) return {false, ETIMEDOUT, "uncertain"};
+  if (!result.ok) return result;
+  // ShadowMount rescans its manual sources by itself (every 15 s on 13.60), so
+  // a lost scan request only delays registration.
+  const auto scanned = Post("/api/v1/scan", "{}");
+  return scanned.ok ? scanned : TitleResult{true, 0, "scan-deferred"};
 }
 TitleResult TitleRegistry::RemoveManualSource(const std::string& title) {
   if (!IsPlaydenGameTitle(title)) return {false, EINVAL, "title-id"};

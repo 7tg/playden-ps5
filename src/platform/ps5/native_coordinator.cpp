@@ -131,6 +131,9 @@ runtime::RegistrationResult Ps5NativeCoordinator::Register(const runtime::Runtim
   if (!package.known || !package.template_owned || !package.mutable_bottle_present || !package.mutable_bottle_owned)
     return {RegistrationResultState::kFailed, "native-bottle", "Registration requires the reserved owned template bottle."};
   const auto result = registry_.Register(record.title_id);
+  // An unanswered submission is followed like a queued one: queries only.
+  if (!result.ok && result.stage == "uncertain")
+    return runtime::RegistrationResult{RegistrationResultState::kScanQueued, {}, {}};
   return result.ok ? runtime::RegistrationResult{RegistrationResultState::kScanQueued, {}, {}} :
       runtime::RegistrationResult{RegistrationResultState::kFailed, "native-registration", "ShadowMount registration submission failed."};
 }

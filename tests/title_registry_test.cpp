@@ -39,6 +39,25 @@ int main() {
   CHECK(registry.Unregister("FAKE78000").ok);
   CHECK(requests.back() == "/api/v1/games/uninstall {\"title_id\":\"FAKE78000\"}");
   CHECK(!registry.Unregister("FAKE77031").ok);
+  // A title already pending its scan is never submitted again.
+  response = R"({"status":0,"games":[{"title_id":"FAKE78000","installed":false,"managed":true,"source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78000"}]})";
+  before = requests.size();
+  const auto pending = registry.Register("FAKE78000");
+  CHECK(pending.ok && pending.stage == "pending" && requests.size() == before + 1);
+  response = R"({"status":0,"games":[]})";
+  // No answer to the add: uncertain, not a failure to retry.
+  bool answer_add = false, answer_scan = true;
+  TitleRegistry flaky([&](const std::string& route, const std::string&) -> std::optional<std::string> {
+    if (route == "/api/v1/games") return response;
+    if (route == "/api/v1/manual/add") return answer_add ? std::optional<std::string>(R"({"status":0})") : std::nullopt;
+    return answer_scan ? std::optional<std::string>(R"({"status":0})") : std::nullopt;
+  });
+  const auto unanswered = flaky.Register("FAKE78000");
+  CHECK(!unanswered.ok && unanswered.stage == "uncertain");
+  // A lost scan request after an accepted add still counts as submitted.
+  answer_add = true; answer_scan = false;
+  const auto deferred = flaky.Register("FAKE78000");
+  CHECK(deferred.ok && deferred.stage == "scan-deferred");
   TitleRegistry offline([](const auto&, const auto&) -> std::optional<std::string> { return {}; });
   CHECK(offline.Query("FAKE78000").state == RegistrationState::kUnavailable);
   CHECK(!offline.Register("FAKE78000").ok);
