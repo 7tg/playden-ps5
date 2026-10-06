@@ -22,6 +22,7 @@ int sceUserServiceGetForegroundUser(unsigned*);
 #include <dirent.h>
 
 namespace playden::ps5 {
+void RunManagedFilesystemProbe(FILE* log);
 static size_t receive(char* data, size_t size, size_t count, void* destination) {
   auto& body = *static_cast<std::string*>(destination);
   if (count > 1048576 || size > 1048576 || size * count > 1048576 - body.size()) return 0;
@@ -319,6 +320,10 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
   const int result = access.granted ? 0 : -1;
   std::fprintf(log, "bootstrap grant=%d runtime_ready=%d euid=%d\n", access.granted, access.runtime_ready, geteuid());
   std::fflush(log);
+  if (std::string(action) == "managed-filesystem") {
+    RunManagedFilesystemProbe(log);
+    std::fprintf(log, "end\n"); std::fclose(log); return true;
+  }
   if (std::string(action) == "directory-contract") {
     for (const bool kernel_fd : {false, true}) {
       const int root = kernel_fd ? playden_ps5_probe_kernel_directory("/data") : open("/data", O_RDONLY);

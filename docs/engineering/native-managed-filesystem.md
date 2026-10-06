@@ -63,10 +63,16 @@ The probe-enabled link originally lacked the new managed archive; its unresolved
 symbol failure was reproduced and corrected in the explicit link/dependencies.
 Default builds retain `PLAYDEN_TITLE_CONTRACT_PROBE=OFF`.
 
-Console acceptance remains open: invoke the actual backend and migrated
-consumers after the normal grant restores EUID, create a fresh private tree,
-copy/write/sync/read/hash it, publish and remove named entries, reject replaced
-contexts and leave sentinels unchanged. Then exercise installer retry, settings
-save/reopen/reset, registry backup/rollback and targeted cache removal. Until
-those pass, native readiness and full installation/gameplay acceptance remain
+The actual backend and migrated directory/hash consumers passed the fresh-tree
+PS5 diagnostic after the normal grant restored EUID 1. It verified directory
+ownership/0700, exclusive file ownership/0600 before bytes, file and directory
+fsync, write/read/hash, file/directory publication, rejection of the old renamed
+context, named removal and preservation of the proof file. Evidence is in
+`results/20261006-managed-filesystem/native.log`. FTP could not read the private
+proof file; native readback and the production hash are the evidence. This is
+successful syscall/readback evidence, not a power-loss recovery test.
+
+Installer retry, settings save/reopen/reset, registry backup/rollback and
+targeted cache removal still require native acceptance after their consumers
+are migrated. Native readiness and full installation/gameplay acceptance remain
 open.
