@@ -21,14 +21,21 @@ of title IDs and calls `sceAppInstUtilAppUnInstall` for each **while Playden run
 result. Targets: the disposable "Playden Native Probe" titles `FAKE99151–99166` (no source folder, unknown to SMP).
 Then verify with the console app list and SMP's `/api/v1/games`, and check that nothing is registered again.
 
-## Step 2a — if the native call works while Playden runs (option C)
+**Outcome (2026-10-07, [evidence](../../../results/20261007-native-uninstall/README.md)): it works.** With Playden in
+the foreground the payload removed `FAKE99151` (`sceAppInstUtilAppUnInstall` = 0) and Playden kept running, so step 2a
+applies. Requirements found: link `-lSceIpmi -lSceAppInstUtil -lSceUserService -lSceSystemService`, call
+`sceAppInstUtilInitialize` before changing the authid. An idle registered title (`FAKE78002`) has no mount (only a
+running title's folder is nullfs-mounted into `/system_ex/app`), so no unmount step is needed. ShadowMountPlus's cache
+does not refresh while a title runs; in-session confirmation uses `app.db`, the source folder and `/user/app/<T>`.
+
+## Step 2a — the native call works while Playden runs (option C, chosen)
 
 No resident program. Removal from Playden:
 
 1. Refuse while the game's title runs, a session is undecided, or Cloud is moving its saves.
 2. Journal each step in the install record (`removing` state, step name), so an interrupted removal resumes on start.
-3. Retire the source: `manual/remove`, then move `/data/homebrew/<T>` out of the scan root (to a private trash under
-   `/data/playden`), then delete it.
+3. Retire the source: `manual/remove`, then rename `/data/homebrew/<T>` in one atomic move out of the scan root (to a
+   private trash under `/data/playden`), then delete the trash.
 4. Unregister: Playden launches the one-shot uninstall payload with the title ID (same mechanism as the probe, via a
    loopback request that Playden can make), and waits for its result file.
 5. Confirm: SMP `Query` absent and `/user/app/<T>` absent. Only then free the title ID and drop the record.
@@ -37,7 +44,7 @@ No resident program. Removal from Playden:
 
 Renames and icon changes can reuse the same path (unregister, then SMP registers the folder again with its new name).
 
-## Step 2b — if the console refuses while an app runs (option B)
+## Step 2b — not needed: fallback if the console ever refuses while an app runs (option B)
 
 A small resident queue helper next to SMP (loaded at boot like kstuff): it accepts register / unregister /
 re-register jobs from Playden through a private file queue and runs each when no title runs. SMP keeps mounting games.
