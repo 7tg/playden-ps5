@@ -113,6 +113,9 @@ struct OwnerNative final : NativeCoordinator {
   NativeStatus Query(const RuntimeInstall&) override { return status; }
   RegistrationResult Register(const RuntimeInstall& record) override {
     auto stored = records->Find(record.install_id); CHECK(stored && stored->journal && stored->journal->step == "register");
+    CHECK(record.state == stored->state && record.settings_revision == stored->settings_revision && record.journal);
+    CHECK(record.journal->operation_id == stored->journal->operation_id &&
+          record.journal->operation == stored->journal->operation && record.journal->step == stored->journal->step);
     CHECK(stored->state == PreparationState::kRegistering); ++registrations;
     if (fail) return {RegistrationResultState::kFailed, "submit-failed", "injected native submission failure"};
     if (queue) status.scan_pending = true; else status.installed = true;
@@ -886,6 +889,67 @@ int main() {
     CHECK(prepared.ok() && fs::exists(t.control / "publication.lock") && !fs::exists(t.control / "publication-state.v1"));
     t.operation = prepared.value(); t.deps = owner.Dependencies(t.root);
     CHECK(t.Run().state == PackageActionState::kComplete && native.registrations == 1);
+  }
+  // Requested settings survive cold restart before capture and after control
+  // initialization, without reloading a changed recipe/settings repository.
+  for (unsigned boundary = 0; boundary < 2; ++boundary) {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability);
+    auto preparing = t.operation.install; preparing.state = PreparationState::kPreparing;
+    SeedOwner(repository, preparing, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records;
+    SettingsPublicationOwner owner(records, package, native);
+    SettingsPublicationRequest request;
+    request.transaction_id = t.operation.transaction_id; request.kit_id = t.operation.kit_id;
+    request.install = t.operation.install; request.plan = t.operation.plan; request.registry_unix_time = 1760000000;
+    auto requested = owner.Request(request, owner_root);
+    if (requested.state != PackageActionState::kComplete) std::fprintf(stderr, "Request: %s %s\n", requested.code.c_str(), requested.message.c_str());
+    CHECK(requested.state == PackageActionState::kComplete);
+    CHECK(owner.Request(request, owner_root).state == PackageActionState::kComplete);
+    auto changed_request = request; changed_request.plan.profile_bytes += "\n";
+    CHECK(owner.Request(changed_request, owner_root).state == PackageActionState::kFailed);
+    CHECK(!fs::exists(t.control));
+    auto armed = records.Find(request.install.install_id); CHECK(armed && armed->journal && armed->journal->operation == "settings-request");
+    if (boundary) CHECK(owner.InitializeControl(*armed, request.transaction_id, t.root).state == PackageActionState::kComplete);
+    CHECK(!fs::exists(t.control / ("settings-intent-" + request.transaction_id + ".v1")));
+    RuntimeInstallRepository restart(storage, "installs.json", availability); CHECK(restart.Load().ok());
+    RepositoryInstallRecordStore restarted_records(restart); native.records = &restarted_records;
+    SettingsPublicationOwner resumed(restarted_records, package, native);
+    RuntimeInstallService service(restarted_records, package, native, {}, {},
+        [&](const RuntimeInstall& record) { return resumed.ResumeRequested(record, owner_root, t.root); });
+    CHECK(service.Step(request.install.install_id).ok());
+    auto ready = restarted_records.Find(request.install.install_id);
+    CHECK(ready && ready->state == PreparationState::kReady && !ready->journal && native.registrations == 1);
+    CHECK(Read(t.paths.profile) == request.plan.profile_bytes);
+    auto frozen = LoadSettingsPublicationOperation(t.control);
+    CHECK(frozen.operation && frozen.operation->registry_unix_time == 1760000000);
+    CHECK(resumed.Request(request, owner_root).state == PackageActionState::kFailed);
+  }
+  {
+    Test t; fs::remove_all(t.control);
+    const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability);
+    auto preparing = t.operation.install; preparing.state = PreparationState::kPreparing;
+    SeedOwner(repository, preparing, false);
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records;
+    SettingsPublicationOwner owner(records, package, native);
+    SettingsPublicationRequest request;
+    request.transaction_id = t.operation.transaction_id; request.kit_id = t.operation.kit_id;
+    request.install = preparing; request.plan = t.operation.plan; request.registry_unix_time = 1760000000;
+    const auto before = Read(owner_root / "installs.json");
+    native.activity = NativeActivity::kUnknown;
+    CHECK(owner.Request(request, owner_root).state == PackageActionState::kFailed);
+    CHECK(LoadSettingsPublicationRequest(owner_root, request.transaction_id).state == PublicationRecoveryState::kAbsent);
+    native.activity = NativeActivity::kStopped;
+    CHECK(CreateSettingsPublicationRequest(owner_root, request).ok()); // Inert pre-arm orphan.
+    CHECK(owner.Request(request, owner_root).code == "publication-request-orphan");
+    CHECK(owner.ResumeRequested(preparing, owner_root, t.root).state == PackageActionState::kFailed);
+    CHECK(Read(owner_root / "installs.json") == before && !fs::exists(t.control));
   }
   std::puts("settings publication coordinator tests passed");
 }

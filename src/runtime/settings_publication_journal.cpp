@@ -63,10 +63,7 @@ template<class C, class T> void Presence(C& c, std::optional<T>& value) {
   if (!c.ok || present > 1) { c.ok = false; return; }
   if constexpr (C::reading) { if (present) value.emplace(); else value.reset(); }
 }
-template<class C> void Payload(C& c, SettingsPublicationOperation& o) {
-  std::string magic = "PWOP2"; c.Text(magic, 5); if (magic != "PWOP2") c.ok = false;
-  c.U32(o.schema); c.Text(o.transaction_id, 36); c.Text(o.kit_id, 64); c.U64(o.previous_revision);
-  auto& r = o.install;
+template<class C> void IdentityPayload(C& c, RuntimeInstall& r, SettingsLaunchPlan& p) {
   c.U32(r.schema_version); c.Text(r.install_id, 64); c.Text(r.title_id, 9); c.U32(r.app_id);
   c.Text(r.data_root, 511); c.Text(r.default_profile_id, 64); c.Text(r.runtime_bundle_id, 64);
   c.Text(r.recipe_id, 64); c.Text(r.recipe_version, 64); c.U64(r.settings_revision); c.Text(r.exit_policy, 15);
@@ -81,7 +78,6 @@ template<class C> void Payload(C& c, SettingsPublicationOperation& o) {
   if (r.last_failure) { c.Text(r.last_failure->code, 128); c.Text(r.last_failure->message, 1024); }
   Presence(c, r.journal);
   if (r.journal) { c.Text(r.journal->operation_id, 128); c.Text(r.journal->operation, 128); c.Text(r.journal->step, 128); }
-  auto& p = o.plan;
   c.U32(p.app_id); c.Text(p.recipe_id, 64); c.Text(p.recipe_version, 64); c.Text(p.profile_id, 64);
   c.Text(p.profile_bytes, 8192); c.U64(p.settings_revision); c.Text(p.launch_entry_id, 128);
   Count(c, p.input_presets, 64);
@@ -90,6 +86,11 @@ template<class C> void Payload(C& c, SettingsPublicationOperation& o) {
   for (auto& value : p.registry) { c.Text(value.key, 1024); c.Text(value.name, 64); c.Text(value.data, 128); }
   c.Text(p.launch_entry.id, 128); c.Text(p.launch_entry.label, 1024);
   c.Text(p.launch_entry.executable, 1024); c.Text(p.launch_entry.working_directory, 1024);
+}
+template<class C> void Payload(C& c, SettingsPublicationOperation& o) {
+  std::string magic = "PWOP2"; c.Text(magic, 5); if (magic != "PWOP2") c.ok = false;
+  c.U32(o.schema); c.Text(o.transaction_id, 36); c.Text(o.kit_id, 64); c.U64(o.previous_revision);
+  IdentityPayload(c, o.install, o.plan);
   c.Text(o.descriptor_bytes, 8192); c.Text(o.catalog_bytes, 8192); c.Text(o.metadata_bytes, 32768);
   c.Text(o.previous_receipt_bytes, 8192); c.Text(o.previous_metadata_bytes, 32768);
   std::uint64_t registry_time = static_cast<std::uint64_t>(o.registry_unix_time); c.U64(registry_time);
@@ -287,6 +288,110 @@ bool FrozenValid(const SettingsPublicationOperation& o, std::string* reason) {
     return Reject(reason, "Frozen digest or receipts disagree with the operation.");
   return true;
 }
+}
+namespace {
+template<class C> void RequestPayload(C& c, SettingsPublicationRequest& r) {
+  std::string magic = "PWRQ1"; c.Text(magic, 5); if (magic != "PWRQ1") c.ok = false;
+  c.U32(r.schema); c.Text(r.transaction_id, 36); c.Text(r.kit_id, 64);
+  IdentityPayload(c, r.install, r.plan);
+  auto time = static_cast<std::uint64_t>(r.registry_unix_time); c.U64(time);
+  if (time > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) c.ok = false;
+  if constexpr (C::reading) { if (c.ok) r.registry_unix_time = static_cast<std::int64_t>(time); }
+}
+bool RequestValid(const SettingsPublicationRequest& q, std::string* reason) {
+  const auto& r = q.install; const auto& p = q.plan;
+  if (q.schema != 1 || !IsSettingsPublicationTransactionId(q.transaction_id) || q.kit_id.empty() ||
+      q.kit_id.size() > 64 || q.kit_id.find('\0') != std::string::npos || q.registry_unix_time < 0 ||
+      !ValidateRuntimeInstallRecord(r) || p.app_id != r.app_id || p.recipe_id != r.recipe_id ||
+      p.recipe_version != r.recipe_version || p.profile_id != r.default_profile_id ||
+      p.settings_revision != r.settings_revision || p.launch_entry_id != r.launch_entry_id ||
+      p.launch_entry.id != r.launch_entry_id || NormalRelative(p.launch_entry.executable) != NormalRelative(r.launch_path) ||
+      NormalRelative(p.launch_entry.working_directory) != NormalRelative(r.launch_working_directory))
+    return Reject(reason, "Requested OWNER identity and settings plan disagree.");
+  PwGameProfile profile{};
+  if (pw_game_profile_parse(reinterpret_cast<const uint8_t*>(p.profile_bytes.data()), p.profile_bytes.size(), &profile) != PW_OK ||
+      profile.app.id != p.profile_id || profile.app.runtime != r.runtime_bundle_id || std::strcmp(profile.app.prefix, "game"))
+    return Reject(reason, "Requested profile is unsupported or has mismatched identities.");
+  bool selected = !profile.input.preset[0];
+  for (std::size_t i = 0; i < p.input_presets.size(); ++i) {
+    const auto& input = p.input_presets[i]; PwGameInput parsed; pw_game_input_init(&parsed);
+    if (input.first.size() <= 6 || input.first.substr(input.first.size() - 6) != ".input" ||
+        input.first.find_first_of("/\\\0", 0, 3) != std::string::npos ||
+        pw_game_input_parse(reinterpret_cast<const uint8_t*>(input.second.data()), input.second.size(), &parsed) != PW_OK)
+      return Reject(reason, "Requested input preset is malformed.");
+    for (std::size_t j = 0; j < i; ++j) if (EqualAscii(input.first, p.input_presets[j].first))
+      return Reject(reason, "Requested input presets have an ambiguous alias.");
+    const auto wanted = std::string(profile.input.preset) + ".input";
+    if (profile.input.preset[0] && EqualAscii(input.first, wanted)) {
+      if (input.first != wanted) return Reject(reason, "Selected input has a case alias.");
+      selected = true;
+    }
+  }
+  if (!selected || !OwnedDxvk(p.dxvk_config)) return Reject(reason, "Requested input or DXVK contents are unsupported.");
+  return true;
+}
+}
+std::optional<Bytes> EncodeSettingsPublicationRequest(const SettingsPublicationRequest& request, std::string* reason) {
+  if (!RequestValid(request, reason)) return {};
+  auto copy = request; Writer writer; RequestPayload(writer, copy);
+  if (!writer.ok) { Reject(reason, "Requested settings exceed field or total bounds."); return {}; }
+  auto hash = HashArtifactBytes(std::string_view(reinterpret_cast<const char*>(writer.bytes.data()), writer.bytes.size()));
+  if (!hash) { Reject(reason, "Requested settings hashing is unavailable."); return {}; }
+  writer.Text(*hash, 64);
+  if (!writer.ok) return {};
+  return std::move(writer.bytes);
+}
+std::optional<SettingsPublicationRequest> DecodeSettingsPublicationRequest(const Bytes& bytes, std::string* reason) {
+  if (bytes.empty() || bytes.size() > kMaxSettingsPublicationOperationBytes) return {};
+  SettingsPublicationRequest request; Reader reader{bytes}; RequestPayload(reader, request);
+  std::string hash; reader.Text(hash, 64);
+  if (!reader.ok || reader.offset != bytes.size()) { Reject(reason, "Requested settings are truncated or have trailing bytes."); return {}; }
+  auto encoded = EncodeSettingsPublicationRequest(request, reason);
+  if (!encoded || *encoded != bytes) { Reject(reason, "Requested settings digest or canonical contents disagree."); return {}; }
+  return request;
+}
+PublicationRequestLoad LoadSettingsPublicationRequest(const std::filesystem::path& root, const std::string& transaction) {
+  auto fail = [](PublicationRecoveryState state, std::string message) {
+    return PublicationRequestLoad{state, {}, std::move(message)};
+  };
+  if (!IsSettingsPublicationTransactionId(transaction))
+    return fail(PublicationRecoveryState::kCorrupt, "Invalid request transaction filename.");
+  auto directory = platform::ManagedDirectory::Open(root, platform::DirectoryPolicy::kPrivate);
+  if (!directory) return fail(PublicationRecoveryState::kUnavailable, "Private request directory unavailable.");
+  const auto name = "settings-request-" + transaction + ".v1";
+  struct stat before{}, after{};
+  if (!directory->InspectChild(name, &before)) {
+    const auto error = errno;
+    return fail(error == ENOENT && directory->Sync() ? PublicationRecoveryState::kAbsent :
+        error == EINVAL || error == ELOOP ? PublicationRecoveryState::kCorrupt : PublicationRecoveryState::kUnavailable,
+        "Request could not be inspected or its absence synced.");
+  }
+  if (!S_ISREG(before.st_mode) || before.st_uid != geteuid() || before.st_nlink != 1 ||
+      (before.st_mode & 07777) != 0600 || before.st_size <= 0 ||
+      static_cast<std::uint64_t>(before.st_size) > kMaxSettingsPublicationOperationBytes)
+    return fail(PublicationRecoveryState::kCorrupt, "Request is not an exact private bounded file.");
+  Storage storage(root.string()); auto bytes = storage.ReadDurable(name, kMaxSettingsPublicationOperationBytes);
+  if (!bytes.ok()) return fail(PublicationRecoveryState::kUnavailable, bytes.message());
+  if (!directory->Validate() || !directory->InspectChild(name, &after) ||
+      before.st_dev != after.st_dev || before.st_ino != after.st_ino || before.st_mode != after.st_mode ||
+      before.st_uid != after.st_uid || before.st_nlink != after.st_nlink || before.st_size != after.st_size)
+    return fail(PublicationRecoveryState::kUnavailable, "Request identity changed while loading.");
+  std::string reason; auto request = DecodeSettingsPublicationRequest(bytes.value(), &reason);
+  if (!request || request->transaction_id != transaction)
+    return fail(PublicationRecoveryState::kCorrupt, "Request digest, contents or filename disagree: " + reason);
+  return {PublicationRecoveryState::kValid, std::move(request), {}};
+}
+Result<void> CreateSettingsPublicationRequest(const std::filesystem::path& root, const SettingsPublicationRequest& request) {
+  std::string reason; auto bytes = EncodeSettingsPublicationRequest(request, &reason);
+  if (!bytes) return Result<void>::Failure(StorageError::kInvalidData, reason);
+  Storage storage(root.string());
+  auto written = storage.WriteDurableExclusive("settings-request-" + request.transaction_id + ".v1", *bytes);
+  if (!written.ok()) return written;
+  auto loaded = LoadSettingsPublicationRequest(root, request.transaction_id);
+  auto roundtrip = loaded.request ? EncodeSettingsPublicationRequest(*loaded.request, &reason) : std::nullopt;
+  if (loaded.state != PublicationRecoveryState::kValid || !roundtrip || *roundtrip != *bytes)
+    return Result<void>::Failure(StorageError::kInvalidData, "Request durable readback failed; preserve it for reconciliation.");
+  return Result<void>::Success();
 }
 std::optional<SettingsPublicationOperation> FreezeSettingsPublicationOperation(SettingsPublicationOperation o, std::string* reason) {
   if (!BaseValid(o, reason)) return std::nullopt;

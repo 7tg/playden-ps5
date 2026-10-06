@@ -19,6 +19,30 @@ int main() {
   CHECK(!FreezeSettingsPublicationOperation({}, &reason));
   CHECK(!DecodeSettingsPublicationOperation({}, &reason));
   CHECK(!DecodeSettingsPublicationOperation(playden::Bytes(kMaxSettingsPublicationOperationBytes + 1), &reason));
+  auto request_source = Fixture();
+  SettingsPublicationRequest request;
+  request.transaction_id = request_source.transaction_id;
+  request.kit_id = request_source.kit_id;
+  request.install = request_source.install;
+  request.plan = request_source.plan;
+  request.registry_unix_time = request_source.registry_unix_time;
+  auto request_bytes = EncodeSettingsPublicationRequest(request, &reason); CHECK(request_bytes);
+  auto request_recovered = DecodeSettingsPublicationRequest(*request_bytes, &reason); CHECK(request_recovered);
+  CHECK(EncodeSettingsPublicationRequest(*request_recovered, &reason) == request_bytes);
+  CHECK(request_recovered->plan.profile_bytes == request.plan.profile_bytes);
+  CHECK(request_recovered->install.launch_arguments == request.install.launch_arguments);
+  for (std::size_t i = 0; i < request_bytes->size(); ++i) {
+    auto cut = *request_bytes; cut.resize(i); CHECK(!DecodeSettingsPublicationRequest(cut, &reason));
+    auto altered = *request_bytes; altered[i] ^= 1; CHECK(!DecodeSettingsPublicationRequest(altered, &reason));
+  }
+  auto request_extra = *request_bytes; request_extra.push_back(0);
+  CHECK(!DecodeSettingsPublicationRequest(request_extra, &reason));
+  auto invalid_request = request; ++invalid_request.plan.settings_revision;
+  CHECK(!EncodeSettingsPublicationRequest(invalid_request, &reason));
+  invalid_request = request; invalid_request.transaction_id = "00000000-0000-0000-0000-000000000000";
+  CHECK(!EncodeSettingsPublicationRequest(invalid_request, &reason));
+  invalid_request = request; invalid_request.plan.profile_bytes.resize(8193, 'x');
+  CHECK(!EncodeSettingsPublicationRequest(invalid_request, &reason));
   auto source = Fixture(); auto frozen = FreezeSettingsPublicationOperation(source, &reason);
   if (!frozen) std::fprintf(stderr, "%s\n", reason.c_str()); CHECK(frozen);
   auto encoded = EncodeSettingsPublicationOperation(*frozen, &reason); CHECK(encoded);
@@ -105,6 +129,26 @@ int main() {
   namespace fs = std::filesystem;
   char pattern[] = "/tmp/playden-settings-operation-XXXXXX"; CHECK(mkdtemp(pattern));
   const auto root = fs::canonical(pattern);
+  CHECK(LoadSettingsPublicationRequest(root, request.transaction_id).state == PublicationRecoveryState::kAbsent);
+  CHECK(CreateSettingsPublicationRequest(root, request).ok());
+  CHECK(!CreateSettingsPublicationRequest(root, request).ok()); // Never replace a request, even with identical bytes.
+  auto loaded_request = LoadSettingsPublicationRequest(root, request.transaction_id);
+  CHECK(loaded_request.state == PublicationRecoveryState::kValid && loaded_request.request);
+  CHECK(EncodeSettingsPublicationRequest(*loaded_request.request, &reason) == request_bytes);
+  const auto request_file = root / ("settings-request-" + request.transaction_id + ".v1");
+  CHECK(chmod(request_file.c_str(), 0644) == 0);
+  CHECK(LoadSettingsPublicationRequest(root, request.transaction_id).state == PublicationRecoveryState::kCorrupt);
+  CHECK(chmod(request_file.c_str(), 0600) == 0);
+  const std::string another_transaction = "00000000-0000-7000-8000-000000000099";
+  const auto other_request = root / ("settings-request-" + another_transaction + ".v1");
+  fs::copy_file(request_file, other_request);
+  CHECK(LoadSettingsPublicationRequest(root, another_transaction).state == PublicationRecoveryState::kCorrupt);
+  fs::remove(other_request); fs::create_hard_link(request_file, other_request);
+  CHECK(LoadSettingsPublicationRequest(root, request.transaction_id).state == PublicationRecoveryState::kCorrupt);
+  fs::remove(other_request); fs::create_symlink(request_file, other_request);
+  CHECK(LoadSettingsPublicationRequest(root, another_transaction).state == PublicationRecoveryState::kCorrupt);
+  fs::remove(other_request);
+  CHECK(LoadSettingsPublicationRequest(root, "../escape").state == PublicationRecoveryState::kCorrupt);
   CHECK(LoadSettingsPublicationOperation(root).state == PublicationRecoveryState::kAbsent);
   CHECK(CreateSettingsPublicationOperation(root, *frozen).ok());
   auto loaded = LoadSettingsPublicationOperation(root);

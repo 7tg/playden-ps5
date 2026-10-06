@@ -6,7 +6,8 @@ namespace playden::runtime {
 namespace {
 
 bool ManagedPublication(const RuntimeInstall& record) {
-  return record.journal && (record.journal->operation == "settings-control" ||
+  return record.journal && (record.journal->operation == "settings-request" ||
+                            record.journal->operation == "settings-control" ||
                             record.journal->operation == "settings-publication");
 }
 

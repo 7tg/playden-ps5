@@ -824,3 +824,19 @@ and modes were restored and independently verified; the console was released.
 This increment does not close Task C acceptance: production app/kit composition,
 full native owned registration/publication and final independent review remain
 required. The diagnostic performs no registration or bottle mutation.
+
+### Task C requested-plan startup handoff prerequisite
+
+Added an immutable PWRQ1 request persisted before initial OWNER request arming,
+control setup and before-state capture. Initial cold repository/service recovery
+uses the original requested plan and timestamp without recipe regeneration.
+Requests never grant ownership/readiness; pre-arm orphans remain inert. Ready
+updates still require a separate durable request handoff and explicit orphan
+reconciliation remains open. The initial adapter is not yet composed into the UI.
+
+RED-to-GREEN request codec/store/OWNER API tests and stale native-registration
+handoff regression pass. Publication now submits its persisted armed OWNER record.
+Full host 108/108, actual SDK OWNER archive and developer package pass. Native
+PID1168 qualified request encoding/private durable storage/reopen/overwrite refusal.
+Evidence: results/20261006-publication-request. Preview hashes and modes restored,
+independently verified; console released. This does not close Task C acceptance.

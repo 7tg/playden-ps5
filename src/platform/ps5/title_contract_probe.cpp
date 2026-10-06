@@ -6,6 +6,7 @@
 #include "platform/ps5/native_coordinator.h"
 #include "platform/ps5/title_probe_contract.h"
 #include "runtime/private_directories.h"
+#include "runtime/settings_publication_journal.h"
 extern "C" {
 int playden_publication_native_probe(FILE*, const char*, const char*);
 int playden_ps5_directory_api_ready(void);
@@ -347,6 +348,39 @@ bool RunTitleContractProbe(const NativeAccessResult& access) {
       std::fprintf(log, "title_source_cache title=%s state=%d path=%s\n", title, static_cast<int>(cached.state), cached.path.c_str());
     }
     std::fprintf(log, "end\n"); std::fclose(log); return true;
+  }
+  if (std::string(action) == "publication-request") {
+    const auto root = std::filesystem::path("/data/playden") / ("request-probe-" + std::to_string(getpid()));
+    struct stat info{}; std::string reason;
+    bool ok = lstat(root.c_str(), &info) != 0 && errno == ENOENT &&
+        runtime::EnsurePrivateDirectories("/data", root, root, &reason);
+    runtime::SettingsPublicationRequest request;
+    char transaction[37]{};
+    std::snprintf(transaction, sizeof(transaction), "00000000-0000-7000-8000-%012u", unsigned(getpid()));
+    request.transaction_id = transaction; request.kit_id = "request-probe"; request.registry_unix_time = 1760000000;
+    auto& r = request.install;
+    r.install_id = "request-probe"; r.title_id = "FAKE78001"; r.app_id = 220;
+    r.data_root = "/data/playden/games/request-probe"; r.default_profile_id = "playden-steam-220";
+    r.runtime_bundle_id = "wine-wow64"; r.recipe_id = "steam-220-hl2-v1"; r.recipe_version = "1";
+    r.settings_revision = 7; r.launch_entry_id = "main"; r.launch_path = "probe.exe";
+    r.install_path = "/data/homebrew/FAKE78001/games/220"; r.volume_id = "internal";
+    auto& p = request.plan;
+    p.app_id = r.app_id; p.recipe_id = r.recipe_id; p.recipe_version = r.recipe_version;
+    p.profile_id = r.default_profile_id; p.settings_revision = r.settings_revision;
+    p.launch_entry_id = "main"; p.launch_entry = {"main", "Play", "probe.exe", ""};
+    p.profile_bytes = "[application]\nid = playden-steam-220\nname = Probe\n"
+        "executable = Z:\\data\\homebrew\\FAKE78001\\games\\220\\probe.exe\n"
+        "working_directory = Z:\\data\\homebrew\\FAKE78001\\games\\220\n"
+        "arguments = -steam\nprefix = game\nruntime = wine-wow64\narchitecture = pe64\ngraphics = dxvk\n";
+    auto bytes = runtime::EncodeSettingsPublicationRequest(request, &reason);
+    ok = ok && bytes.has_value() && runtime::CreateSettingsPublicationRequest(root, request).ok();
+    auto loaded = runtime::LoadSettingsPublicationRequest(root, request.transaction_id);
+    auto observed = loaded.request ? runtime::EncodeSettingsPublicationRequest(*loaded.request, &reason) : std::nullopt;
+    ok = ok && loaded.state == runtime::PublicationRecoveryState::kValid && bytes == observed &&
+        !runtime::CreateSettingsPublicationRequest(root, request).ok();
+    std::fprintf(log, "publication_request root=%s euid=%u passed=%d state=%d bytes=%zu detail=%s\nend\n",
+        root.c_str(), unsigned(geteuid()), ok, int(loaded.state), bytes ? bytes->size() : 0, reason.c_str());
+    std::fclose(log); return true;
   }
   if (std::string(action) == "title-inventory") {
     const char* path = "/system_data/priv/mms/app.db";
