@@ -10,6 +10,8 @@
 #include <iterator>
 #include <sys/stat.h>
 #include <thread>
+#include <atomic>
+#include <memory>
 #include <unistd.h>
 
 using namespace playden::homebrew;
@@ -35,6 +37,7 @@ struct Fixture {
   fs::path root;
   unsigned database_reads = 0, registry_mutations = 0;
   bool registered = false;
+  std::shared_ptr<std::atomic<int>> activity = std::make_shared<std::atomic<int>>(static_cast<int>(NativeActivity::kStopped));
   Fixture() {
     char name[] = "/tmp/playden-runtime-host-XXXXXX"; CHECK(mkdtemp(name));
     root = fs::canonical(name);
@@ -52,7 +55,7 @@ struct Fixture {
       return TitleDatabaseObservation{TitleAvailability::kOccupied,
           InstalledTitleIdentity{title, "UP9000-FAKE78001_00-PROSPEROWIN00001", "/user/app/FAKE78001/sce_sys"}};
     };
-    config.native.activity = [](const std::string&) { return NativeActivity::kStopped; };
+    config.native.activity = [activity = activity](const std::string&) { return static_cast<NativeActivity>(activity->load()); };
     // ShadowMount loopback API: registration makes the title appear installed.
     config.registry_transport = [this](const std::string& route, const std::string&) -> std::optional<std::string> {
       if (route != "/api/v1/games") { ++registry_mutations; registered = true; return R"({"status":0})"; }
@@ -526,6 +529,10 @@ void PlaysReadyTitleThroughHandoff() {
   std::this_thread::sleep_for(std::chrono::milliseconds(2500));  // one more poll
   CHECK(host.Snapshot().play_refusals.count(220) && launches.size() == 1);
 
+  // The game cannot be updated or repaired while its session is undecided.
+  host.Prepare(Hl2());
+  const auto held = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; }, 30);
+  CHECK(held.refusals.at(220).find("Close the game") != std::string::npos);
   // The wrapper records the session in the private game data root.
   const auto sessions = fixture.root / "data/playden/games/steam-220/logs/sessions";
   fs::create_directories(sessions);
@@ -569,6 +576,28 @@ void PlaysReadyTitleThroughHandoff() {
   restarted.Play(220);
   WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
   CHECK(restarted.Handoff() && launches.size() == 3);
+  // Evidence that does not belong to this session fails it, but while the title
+  // runs the session stays pending and Play stays refused.
+  const std::string fourth = "00000000-0000-4000-8000-000000000004";
+  CHECK(launches[2].second[0] == "session=" + fourth);
+  fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+  auto foreign = record(fourth, "running");
+  foreign.replace(foreign.find("\"playden\""), 9, "\"home\"");
+  Write(sessions / (fourth + ".json"), foreign, 0600);
+  WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kFailed; }, 30);
+  std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+  const auto handled_before = restarted.Snapshot().plays_handled;
+  restarted.Play(220);
+  const auto refused_while_alive = WaitFor(restarted, [handled_before](const RuntimeSnapshot& s) {
+    return s.plays_handled > handled_before;
+  }, 30);
+  CHECK(refused_while_alive.play_refusals.count(220) && launches.size() == 3);
+  // Once the title is seen stopped, the failed session ends and Play works again.
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+  restarted.Play(220);
+  WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(restarted.Handoff() && launches.size() == 4);
   restarted.Shutdown();
 }
 

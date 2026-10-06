@@ -517,6 +517,15 @@ bool RuntimeHost::PollLaunch(Composition& c) {
     const auto loaded = c.launch_journal->LoadPending();
     return loaded.ok && loaded.session.has_value();
   }();
+  if (pending && snapshot.state == rt::LaunchState::kFailed) {
+    // A failure read from bad or missing evidence says nothing about the title
+    // itself: end the session only once the console shows the title stopped.
+    const auto record = c.records.Find(snapshot.install_id);
+    if (record && c.coordinator->Activity(record->title_id) != rt::NativeActivity::kStopped) {
+      PublishLaunch(c, snapshot);
+      return true;
+    }
+  }
   if (pending && (snapshot.state == rt::LaunchState::kExited || snapshot.state == rt::LaunchState::kFailed)) {
     const auto finished = c.launch->Finish();
     Log("play finished install=" + snapshot.install_id + " session=" + snapshot.session_id + " state=" +
@@ -532,6 +541,13 @@ bool RuntimeHost::PollLaunch(Composition& c) {
 
 std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request) {
   if (!c.kit) return Snapshot().kit_reason;
+  // A game being started or played keeps its title and bottle as they are.
+  if (c.launch_journal) {
+    const auto pending = c.launch_journal->LoadPending();
+    if (!pending.ok) return "The launch record cannot be read; restart Playden before preparing.";
+    if (pending.session && pending.session->install_id == InstallId(request.app_id))
+      return "Close the game before updating or repairing its PS5 title.";
+  }
   std::optional<rt::RuntimeInstall> existing;
   for (const auto& record : c.repository.Snapshot())
     if (record.app_id == request.app_id) existing = record;
@@ -744,17 +760,6 @@ void RuntimeHost::Run() {
               ? std::filesystem::path(record.data_root)
               : config_.host_namespace_prefix / std::filesystem::path(record.data_root).relative_path();
           if (const auto text = NewestSessionLog(root)) config_.title_log(record.title_id, *text);
-          // Development diagnostics: the bottle registry the wrapper's guard parses.
-          std::string bytes;
-          const auto registry = root / "library/prefixes/game/user.reg";
-          const int fd = open(registry.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-          if (fd >= 0) {
-            char chunk[4096];
-            for (ssize_t count; (count = read(fd, chunk, sizeof(chunk))) > 0 && bytes.size() < 4 * 1024 * 1024;)
-              bytes.append(chunk, static_cast<std::size_t>(count));
-            close(fd);
-          }
-          if (!bytes.empty()) config_.title_log(record.title_id + ".user.reg", bytes);
         }
       // Play: the launch journal sits beside the install records. A session
       // pending from before a restart is polled, never handed off again.
@@ -842,7 +847,18 @@ void RuntimeHost::Run() {
       std::lock_guard<std::mutex> lock(mutex_);
       launch_poll_ = again;
     }
-    for (const auto& request : requests) {
+    for (std::size_t index = 0; index < requests.size(); ++index) {
+      const auto& request = requests[index];
+      // A handoff that became ready during this pass reads install records on
+      // the application thread: hold the remaining preparations until it is done.
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (snapshot_.handoff_ready) {
+          prepare_requests_.insert(prepare_requests_.begin(), requests.begin() + static_cast<std::ptrdiff_t>(index),
+                                   requests.end());
+          break;
+        }
+      }
       std::string refusal;
       if (!composition) {
         const auto current = Snapshot();

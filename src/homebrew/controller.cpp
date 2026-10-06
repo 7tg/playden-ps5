@@ -363,6 +363,8 @@ void Controller::TickRuntime() {
                                           snapshot.launch->state == runtime::LaunchState::kReadyToHandoff ||
                                           snapshot.launch->state == runtime::LaunchState::kLaunching ||
                                           snapshot.launch->state == runtime::LaunchState::kRunning);
+    // Updating or repairing waits while this game is being started or played.
+    if (launching && busy) game.can_prepare = false;
     game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
                     play_queued_.empty() && !sync_before_play_.count(id);
     if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
