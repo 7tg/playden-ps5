@@ -36,6 +36,13 @@ the two runtime fixes the console runtime was built with; move the pin and the k
 These are used unmodified. If one ever needs a patch, it becomes a fork submodule with a build step, like the
 projects above.
 
+## Built in this repository
+
+- **Title remover** (`tools/title-remover/main.c`): a one-shot payload Playden sends to the console's payload loader to
+  unregister one of its game titles. Built reproducibly by `scripts/build-title-remover.sh` with the v0.43 payload SDK
+  (`scripts/build-homebrew-ps5.sh` runs it); the package refuses an ELF whose SHA-256 differs from `title_remover` in
+  `dependencies.lock.json`. Changing the source means updating that pin.
+
 ## Vendored in the repository
 
 `third_party/stb` (`stb_image.h`), `third_party/sqlite3` (from `notmaj0r/CheatRunner`), `third_party/zstd`,

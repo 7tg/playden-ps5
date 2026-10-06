@@ -46,7 +46,7 @@ Saves/Cloud migration from earlier locations is **not needed**: nothing has been
 | --- | --- | --- |
 | 1 | 20+ minute HL2 gameplay run on the current build | Only an older build had a 20-minute session. Capture pacing evidence, save, restart and reload. Console time only |
 | 2 | Fresh independent review of the whole integration | Earlier reviews covered slices; the final composition has not had one |
-| 3 | M4: remove a prepared game | Uninstall removes only the Steam download, not the PS5 title or bottle. Native unregister returned EBUSY while Playden was open: first find a supported after-exit path, otherwise write a separate reviewed design for a narrow helper. Keep saves by default |
+| 3 | M4: remove a prepared game | Built 2026-10-07, host-tested only ([plan](docs/superpowers/plans/2026-10-06-game-removal.md)): uninstall syncs Cloud, removes the PS5 title through the one-shot `title-remover.elf` (works while Playden runs, [probe](results/20261007-native-uninstall/README.md)), then the download; saves are kept as `<install>.kept` and come back on reinstall; Details and Settings list and delete kept data. Console acceptance on a disposable game is next |
 | 4 | M4: kit update rollback | In-place upgrade works; a failed update's rollback is not built or tested |
 | 5 | Interruption / power-loss qualification | Deferred by the user: cold restart mid-preparation and retry; settings reader lease against the publisher over a full title run |
 | 6 | Cloud and storage cases on the console | Account confirmation, USB-download adoption, unavailable media. The HL2 Cloud conflict is the player's choice (do not resolve it for them) |
