@@ -29,6 +29,62 @@ bool PathsMatch(const SettingsPublicationOperation& o, const PublicationPaths& p
       p.descriptor == Map(prefix, "/data/homebrew/" + o.install.title_id + "/game-launch.json") &&
       p.metadata == Map(prefix, profiles + ".playden-publication");
 }
+std::optional<FrozenFileSnapshot> ReadPublicationFile(const ManagedDirectory& directory,
+    const std::string& name, std::size_t maximum) {
+  struct stat before{}, opened{}, after{};
+  if (!directory.InspectChild(name, &before)) {
+    if (errno == ENOENT && directory.Sync()) return FrozenFileSnapshot{};
+    return std::nullopt;
+  }
+  auto same = [](const struct stat& a, const struct stat& b) {
+    return a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_mode == b.st_mode &&
+        a.st_uid == b.st_uid && a.st_nlink == b.st_nlink && a.st_size == b.st_size &&
+        a.st_mtime == b.st_mtime && a.st_ctime == b.st_ctime;
+  };
+  if (!S_ISREG(before.st_mode) || before.st_uid != geteuid() || before.st_nlink != 1 ||
+      before.st_size < 0 || static_cast<std::uint64_t>(before.st_size) > maximum ||
+      ((before.st_mode & 07777) != 0600 && (before.st_mode & 07777) != 0644)) return std::nullopt;
+  int fd = directory.OpenRegularFile(name, true, before.st_mode & 07777);
+  if (fd < 0) return std::nullopt;
+  bool valid = fstat(fd, &opened) == 0 && same(before, opened);
+  std::string bytes; char buffer[4096];
+  while (valid) {
+    const auto count = read(fd, buffer, sizeof(buffer));
+    if (count < 0 && errno == EINTR) continue;
+    if (count < 0 || static_cast<std::size_t>(count) > maximum - bytes.size()) { valid = false; break; }
+    if (!count) break;
+    bytes.append(buffer, count);
+  }
+  valid = valid && fstat(fd, &opened) == 0 && same(before, opened) &&
+      directory.InspectChild(name, &after) && same(before, after) &&
+      bytes.size() == static_cast<std::uint64_t>(before.st_size) && fsync(fd) == 0;
+  const bool closed = close(fd) == 0;
+  if (!valid || !closed || !directory.Sync()) return std::nullopt;
+  return FrozenFileSnapshot{true, static_cast<unsigned>(before.st_mode & 07777), bytes.size(), {}, std::move(bytes)};
+}
+bool WritePublicationFile(const ManagedDirectory& directory, const std::string& name,
+    const std::string& bytes, const FrozenFileSnapshot& before, const std::function<bool()>& held) {
+  static std::atomic<unsigned long> sequence{0}; std::string temporary; int fd = -1;
+  for (unsigned attempt = 0; attempt < 128; ++attempt) {
+    temporary = "." + name + ".publication-" + std::to_string(getpid()) + "-" + std::to_string(sequence++);
+    fd = directory.CreateExclusiveFile(temporary, 0600);
+    if (fd >= 0 || errno != EEXIST) break;
+  }
+  if (fd < 0) return false;
+  std::size_t offset = 0; bool valid = true;
+  while (offset < bytes.size()) {
+    const auto count = write(fd, bytes.data() + offset, bytes.size() - offset);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) { valid = false; break; }
+    offset += static_cast<std::size_t>(count);
+  }
+  const bool synced = valid && fsync(fd) == 0; const bool closed = close(fd) == 0;
+  if (!synced || !closed || !held()) return false;
+  auto observed = ReadPublicationFile(directory, name, kMaxSettingsPublicationOperationBytes);
+  if (!observed || observed->present != before.present ||
+      (before.present && (observed->bytes != before.bytes || observed->mode != before.mode))) return false;
+  return held() && directory.RenameChild(temporary, directory, name, before.present) && directory.Sync() && held();
+}
 struct ReceiptRead {
   bool ok = false;
   bool absent = false;
@@ -330,5 +386,89 @@ PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperati
       (current.present && (current.bytes != o.plan.dxvk_config || current.mode != desired_mode)) || !held())
     return Failure("publication-dxvk-verify", "DXVK intended presence/bytes/mode could not be verified durably.");
   return {PackageActionState::kComplete, {}, {}};
+}
+PackageActionResult ApplyPendingPublicationFiles(const SettingsPublicationOperation& o,
+    const PublicationPaths& paths, int borrowed, const std::filesystem::path& prefix,
+    const std::function<bool(const std::filesystem::path&)>& after_effect) {
+  std::string reason;
+  if (!EncodeSettingsPublicationOperation(o, &reason) || !PathsMatch(o, paths, prefix))
+    return Failure("publication-invalid", "Frozen file operation or canonical paths are invalid.");
+  auto result = ApplyPendingPublicationRegistry(o, borrowed, prefix);
+  if (!Complete(result)) return result;
+  const auto control = Map(prefix, o.install.data_root + "/.playden-control");
+  auto directory = ManagedDirectory::Open(control, DirectoryPolicy::kPrivate);
+  auto held = [&] {
+    struct stat opened{}, named{};
+    return directory && directory->Validate() && borrowed >= 0 && fstat(borrowed, &opened) == 0 &&
+        directory->InspectChild("publication.lock", &named) && S_ISREG(opened.st_mode) && S_ISREG(named.st_mode) &&
+        opened.st_uid == geteuid() && named.st_uid == geteuid() && opened.st_nlink == 1 && named.st_nlink == 1 &&
+        (opened.st_mode & 07777) == 0600 && (named.st_mode & 07777) == 0600 &&
+        opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
+  };
+  auto checkpoint = [&](const std::filesystem::path& path) { return (!after_effect || after_effect(path)) && held(); };
+  if (!checkpoint(Map(prefix, o.install.data_root + "/library/prefixes/game/user.reg")))
+    return Failure("publication-interrupted", "Registry effect requires fresh recovery.");
+  result = ApplyPendingPublicationDxvk(o, borrowed, prefix);
+  if (!Complete(result)) return result;
+  PwTitlePublicationMetadata current{}, previous{};
+  if (pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.metadata_bytes.data()),
+      o.metadata_bytes.size(), &current) != PW_OK || (!o.previous_metadata_bytes.empty() &&
+      pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.previous_metadata_bytes.data()),
+      o.previous_metadata_bytes.size(), &previous) != PW_OK))
+    return Failure("publication-invalid", "Frozen publication metadata is invalid.");
+  if (!checkpoint(Map(prefix, current.dxvk_path))) return Failure("publication-interrupted", "DXVK effect requires fresh recovery.");
+  auto library = ManagedDirectory::Open(Map(prefix, o.install.data_root + "/library"), DirectoryPolicy::kPrivate);
+  if (!library) return Failure("publication-directory", "Owned private library is unavailable.");
+  auto profiles = library->OpenChild("profiles", DirectoryPolicy::kPrivate, true);
+  if (!profiles || !profiles->Sync() || !library->Sync() || !checkpoint(paths.profile.parent_path()))
+    return Failure("publication-directory", "Private profile directory requires recovery.");
+  auto inputs = library->OpenChild("input", DirectoryPolicy::kPrivate, true);
+  if (!inputs || !inputs->Sync() || !library->Sync() || !checkpoint(paths.input_directory))
+    return Failure("publication-directory", "Private input directory requires recovery.");
+  auto title = ManagedDirectory::Open(paths.descriptor.parent_path(), DirectoryPolicy::kApprovedTree);
+  struct stat title_info{};
+  if (!title || lstat(paths.descriptor.parent_path().c_str(), &title_info) || title_info.st_uid != geteuid() ||
+      ((title_info.st_mode & 07777) != 0700 && (title_info.st_mode & 07777) != 0755))
+    return Failure("publication-directory", "Owned staged title directory is unavailable.");
+  auto publish = [&](const ManagedDirectory& parent, const std::filesystem::path& path,
+                     const std::string& bytes, const std::string& prior_hash) -> PackageActionResult {
+    if (!held()) return Failure("publication-lock", "Publisher ownership changed before file effects.");
+    auto observed = ReadPublicationFile(parent, path.filename().string(), kMaxSettingsPublicationOperationBytes);
+    if (!observed) return Failure("publication-file-read", "Publication file identity or durability is unavailable.");
+    const bool intended = observed->present && observed->mode == 0600 && observed->bytes == bytes;
+    const auto digest = observed->present ? HashArtifactBytes(observed->bytes) : std::nullopt;
+    const bool original = prior_hash.empty() ? !observed->present :
+        observed->present && digest && *digest == prior_hash;
+    if (!original && !intended)
+      return Failure("publication-file-collision", "Publication file matches neither owned prior nor intended bytes.");
+    if (!intended && !WritePublicationFile(parent, path.filename().string(), bytes, *observed, held))
+      return Failure("publication-file-write", "Publication file write failed; recover retained pending evidence.");
+    auto verified = ReadPublicationFile(parent, path.filename().string(), kMaxSettingsPublicationOperationBytes);
+    if (!verified || !verified->present || verified->mode != 0600 || verified->bytes != bytes || !held())
+      return Failure("publication-file-verify", "Publication file readback could not be verified.");
+    if (!checkpoint(path)) return Failure("publication-interrupted", "Durable publication file requires fresh recovery.");
+    return {PackageActionState::kComplete, {}, {}};
+  };
+  result = publish(*profiles, paths.profile, o.plan.profile_bytes,
+      previous.profile_id == o.plan.profile_id ? previous.profile_sha256 : "");
+  if (!Complete(result)) return result;
+  for (const auto& input : o.plan.input_presets) {
+    std::string prior;
+    for (std::size_t i = 0; i < previous.input_count; ++i)
+      if (input.first == previous.inputs[i].name) prior = previous.inputs[i].sha256;
+    result = publish(*inputs, paths.input_directory / input.first, input.second, prior);
+    if (!Complete(result)) return result;
+  }
+  result = publish(*profiles, paths.catalog, o.catalog_bytes, previous.catalog_sha256);
+  if (!Complete(result)) return result;
+  result = publish(*title, paths.descriptor, o.descriptor_bytes, previous.descriptor_sha256);
+  if (!Complete(result)) return result;
+  std::string previous_digest;
+  if (!o.previous_metadata_bytes.empty()) {
+    auto digest = HashArtifactBytes(o.previous_metadata_bytes);
+    if (!digest) return Failure("publication-hash", "Prior metadata hashing is unavailable.");
+    previous_digest = *digest;
+  }
+  return publish(*profiles, paths.metadata, o.metadata_bytes, previous_digest);
 }
 }  // namespace playden::runtime

@@ -76,4 +76,11 @@ PackageActionResult ApplyPendingPublicationRegistry(const SettingsPublicationOpe
 // removal. Does not create game directories or roll back earlier effects.
 PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperation& operation,
     int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {});
+// Complete pending file effects. Requires independently approved OWNER/preflight
+// and stopped-title status from the coordinator. No bottle/title restaging.
+// after_effect is a test-only fault seam; production leaves it empty.
+PackageActionResult ApplyPendingPublicationFiles(const SettingsPublicationOperation& operation,
+    const PublicationPaths& paths, int borrowed_publisher_fd,
+    const std::filesystem::path& host_namespace_prefix = {},
+    const std::function<bool(const std::filesystem::path&)>& after_effect = {});
 }  // namespace playden::runtime

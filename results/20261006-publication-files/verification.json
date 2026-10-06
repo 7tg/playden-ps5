@@ -1,0 +1,22 @@
+{
+  "host_suite": {
+    "passed": 105,
+    "failed": 0,
+    "log": "build/publication-files-host-test.log"
+  },
+  "sdk": "v0.43 settings-publication static archive",
+  "process_death_boundaries": {
+    "directory": 2,
+    "file": 5
+  },
+  "write_fault": "RLIMIT_FSIZE during first profile write",
+  "update_fixture": "actual prior set verified under publisher lease; test-only journal retirement",
+  "save_preservation": true,
+  "production_owner_wired": false,
+  "console_acceptance": false,
+  "files": {
+    "src/runtime/settings_publication.cpp": "edb4b570e41f072ea00cae1dacf5469255789237316314a4f64c30b9a9dbc71e",
+    "src/runtime/settings_publication.h": "409e37b1f84759df55a97a34044e55b711df35486bd4273ee2c39c970208db70",
+    "tests/runtime_settings_publication_test.cpp": "d7896caf432ee687918e416e0c02569c438df36eb702d34b6d2ae745b677e93f"
+  }
+}

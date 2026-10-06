@@ -34,6 +34,9 @@ struct Test {
     CHECK(chmod((data / "library/prefixes/game/user.reg").c_str(), 0644) == 0);
     paths = {data / "library/profiles/playden-steam-220.profile", data / "library/profiles/profiles.lst",
              data / "library/input", root / "data/homebrew/FAKE78001/game-launch.json", data / "library/profiles/.playden-publication"};
+    // Title/game staging precedes settings publication; the production writer
+    // must never create or restage this directory.
+    fs::create_directories(paths.descriptor.parent_path() / "games/220");
     deps.host_namespace_prefix = root;
     deps.activity = [&](const RuntimeInstall&) { ++activities; return stopped ? NativeActivity::kStopped : NativeActivity::kUnknown; };
     deps.block_owner = [&](const auto&) { CheckLease(); ++blocks; ready = false; return Ok(); };
@@ -46,20 +49,8 @@ struct Test {
     deps.apply_files = [&](const auto& o, const auto&, int borrowed) {
       CHECK(borrowed >= 0); CheckLease(); CHECK(!ready && Read(control / "publication-state.v1") == o.pending_receipt_bytes);
       ++applies;
-      auto registry = ApplyPendingPublicationRegistry(o, borrowed, root);
-      if (registry.state != PackageActionState::kComplete) return registry;
-      for (const auto& directory : {paths.profile.parent_path(), paths.input_directory}) {
-        fs::create_directories(directory); CHECK(chmod(directory.c_str(), 0700) == 0);
-      }
-      fs::create_directories(paths.descriptor.parent_path() / "games/220");
-      auto dxvk = ApplyPendingPublicationDxvk(o, borrowed, root);
-      if (dxvk.state != PackageActionState::kComplete) return dxvk;
-      auto write = [&](const auto& file, const auto& bytes) {
-        std::ofstream(file, std::ios::binary).write(bytes.data(), bytes.size()); CHECK(chmod(file.c_str(), 0600) == 0);
-      };
-      write(paths.profile, o.plan.profile_bytes); write(paths.catalog, o.catalog_bytes);
-      write(paths.descriptor, o.descriptor_bytes); write(paths.metadata, o.metadata_bytes);
-      for (const auto& input : o.plan.input_presets) write(paths.input_directory / input.first, input.second);
+      auto result = ApplyPendingPublicationFiles(o, paths, borrowed, root);
+      if (result.state != PackageActionState::kComplete) return result;
       return fail_apply ? Fail() : Ok();
     };
     deps.verify_files = [&](const auto& o, const auto&, int borrowed, bool committed) {
@@ -350,6 +341,80 @@ int main() {
     }
     if (bad == 2) CHECK(chmod(t.DxvkPath().c_str(), 0444) == 0);
     CHECK(t.Run().code == "publication-dxvk-read" && !t.ready && Read(t.DxvkPath()) == dxvk_old);
+  }
+  for (unsigned boundary = 0; boundary < 7; ++boundary) {
+    Test t;
+    const std::vector<fs::path> effects = {t.paths.profile.parent_path(), t.paths.input_directory, t.paths.profile,
+      t.paths.input_directory / "gamepad.input", t.paths.catalog, t.paths.descriptor, t.paths.metadata};
+    const auto save = t.DxvkPath().parent_path() / "save.dat";
+    std::ofstream(save) << "save survives";
+    const auto child = fork(); CHECK(child >= 0);
+    if (child == 0) {
+      t.deps.apply_files = [&](const auto& operation, const auto& paths, int borrowed) {
+        return ApplyPendingPublicationFiles(operation, paths, borrowed, t.root, [&](const fs::path& effect) {
+          if (effect == effects[boundary]) _exit(77);
+          return true;
+        });
+      };
+      t.Run(); _exit(78);
+    }
+    int status = 0; CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 77);
+    CHECK(Read(t.control / "publication-state.v1") == t.operation.pending_receipt_bytes);
+    CHECK(t.Run().state == PackageActionState::kComplete && t.ready && Read(save) == "save survives");
+  }
+  {
+    Test t;
+    const auto child = fork(); CHECK(child >= 0);
+    if (child == 0) {
+      t.deps.apply_files = [&](const auto& operation, const auto& paths, int borrowed) {
+        return ApplyPendingPublicationFiles(operation, paths, borrowed, t.root, [&](const fs::path& effect) {
+          if (effect == paths.input_directory) {
+            CHECK(std::signal(SIGXFSZ, SIG_IGN) != SIG_ERR);
+            struct rlimit limit{32, 32}; CHECK(setrlimit(RLIMIT_FSIZE, &limit) == 0);
+          }
+          return true;
+        });
+      };
+      const auto result = t.Run(); _exit(result.code == "publication-file-write" ? 77 : 78);
+    }
+    int status = 0; CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 77);
+    CHECK(!fs::exists(t.paths.profile) && Read(t.control / "publication-state.v1") == t.operation.pending_receipt_bytes);
+    CHECK(t.Run().state == PackageActionState::kComplete && t.ready);
+  }
+  {
+    Test t; t.deps.after_step = [&](PublicationStep step) {
+      if (step == PublicationStep::kPendingDurable) {
+        fs::create_directories(t.paths.catalog.parent_path()); CHECK(chmod(t.paths.catalog.parent_path().c_str(), 0700) == 0);
+        std::ofstream(t.paths.catalog) << "foreign\n"; CHECK(chmod(t.paths.catalog.c_str(), 0600) == 0);
+      }
+      return true;
+    };
+    CHECK(t.Run().code == "publication-file-collision" && !t.ready && Read(t.paths.catalog) == "foreign\n");
+    CHECK(Read(t.control / "publication-state.v1") == t.operation.pending_receipt_bytes);
+  }
+  for (const bool missing_prior : {false, true}) {
+    Test t; CHECK(t.Run().state == PackageActionState::kComplete);
+    auto source = Fixture(); source.transaction_id = "00000000-0000-7000-8000-000000000003";
+    source.previous_revision = 7; source.install.settings_revision = source.plan.settings_revision = 8;
+    source.previous_receipt_bytes = t.operation.committed_receipt_bytes; source.previous_metadata_bytes = t.operation.metadata_bytes;
+    source.plan.input_presets[0].second = "[input]\nmode = keyboard\ncross = enter\n";
+    Refresh(source); std::string reason; auto frozen = FreezeSettingsPublicationOperation(source, &reason); CHECK(frozen);
+    auto directory = playden::platform::ManagedDirectory::Open(t.control, playden::platform::DirectoryPolicy::kPrivate); CHECK(directory);
+    auto lease = playden::platform::ManagedFileLock::Acquire(*directory, "publication.lock", playden::platform::LockMode::kPublisher); CHECK(lease);
+    CHECK(VerifySettingsPublicationFiles(t.operation, t.paths, lease->fd(), true, t.root).state == PackageActionState::kComplete);
+    // Test-only next-operation fixture setup; production journal retirement and
+    // OWNER admission are separate, still unfinished boundaries.
+    playden::Storage storage(t.control.string()); CHECK(storage.RemoveDurable("settings-operation.v1").ok());
+    CHECK(CreateSettingsPublicationOperation(t.control, *frozen).ok());
+    CHECK(storage.WriteDurable("publication-state.v1", playden::Bytes(frozen->pending_receipt_bytes.begin(), frozen->pending_receipt_bytes.end())).ok());
+    if (missing_prior) fs::remove(t.paths.profile);
+    const auto result = ApplyPendingPublicationFiles(*frozen, t.paths, lease->fd(), t.root);
+    if (missing_prior) CHECK(result.code == "publication-file-collision");
+    else {
+      CHECK(result.state == PackageActionState::kComplete);
+      CHECK(Read(t.paths.input_directory / "gamepad.input") == source.plan.input_presets[0].second);
+      CHECK(VerifySettingsPublicationFiles(*frozen, t.paths, lease->fd(), false, t.root).state == PackageActionState::kComplete);
+    }
   }
   std::puts("settings publication coordinator tests passed");
 }

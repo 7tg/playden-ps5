@@ -507,3 +507,26 @@ All 105 host tests, warning/diff checks and SDK v0.43 archive compilation pass.
 See [DXVK evidence](../../../results/20261006-publication-dxvk/README.md).
 Remaining production file effects, preflight/OWNER/registration, retirement,
 installer/UI integration, final review and PS5 acceptance remain incomplete.
+
+
+### Task C complete pending file writer
+
+The coordinator tests now call the production complete file adapter instead of
+fixture streams. It publishes registry/DXVK and the profile, required inputs,
+catalog, canonical descriptor and schema-2 metadata with exclusive temporaries,
+file/parent sync, checked rename and readback. Private directory creation is
+behind pending admission; staged title/game directories must already exist.
+Retained prior metadata hashes admit owned previous bytes, intended bytes admit
+partial retries, and missing prior/changed unknown files are collisions. Actual
+initial ownership still belongs to the producer's read-only preflight and OWNER
+checks; pending recovery admission does not adopt arbitrary initial files.
+
+Host process death at both directory and all five fixture file boundaries
+recovers while preserving a game save. Actual profile write failure recovers
+from retained pending evidence. A verified previous-publication fixture updates
+input/descriptor/metadata bytes and refuses a missing prior profile. Its explicit
+test-only journal removal does not implement the production retirement boundary.
+All 105 host tests, warning/diff checks and SDK v0.43 archive compilation pass.
+See [complete writer evidence](../../../results/20261006-publication-files/README.md).
+Production preflight/OWNER/registration, journal retirement, installer/UI wiring,
+final native link/acceptance and independent Task C review remain incomplete.
