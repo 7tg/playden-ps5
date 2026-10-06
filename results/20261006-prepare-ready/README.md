@@ -70,3 +70,31 @@ Delivering it requires refreshing the installed title to a new kit.
   preview (`eboot.bin` `d76d1a42…`, identity `c7593741…`) is backed up in
   `build/console-backups/20261006-runtime-host` for restore with
   `tools/console_title_deploy.py restore`.
+
+## HL2 gameplay from the prepared title (later the same day)
+
+After Playden's title refresh installed the `9f31431` wrapper (eboot verified
+by SHA-256 over FTP; Ready kept, no new registration), `FAKE78002` launched
+from Home with no arguments:
+
+- The data grant reported `credential_errno=0`: the real-UID restore works on
+  hardware, and wineserver accepted the app-owned private bottle.
+- HL2 main menu ([screenshot](hl2-menu-fake78002-home-launch.jpg)); Cross opened
+  New Game; Chapter 1 loaded and the G-Man intro and train arrival played
+  ([train](hl2-train-ingame.jpg), [moved](hl2-moved-and-turned.jpg)).
+- 20 min 27 s of continuous gameplay (10:13:23 to 10:33:50, build-host
+  clock) with controller movement, look and interaction prompts responding
+  ([last frame](hl2-21min-interact.jpg)).
+- Audio: the capture setup has no audio input. The wrapper's own counters at
+  the end of the session report `audio=267978 audible=264313` buffers, about
+  98 % non-silent. That is the only audio check available here.
+- Save: the pause menu's Save Game wrote `hl2/save/half-life-001.sav`
+  (1046391 bytes) into the recorded download root
+  `/data/homebrew/FAKE77031/games/220`.
+
+Not verified: loading that save after a restart. Every launch after the
+session was force-closed fails with CE-108255-1 about two seconds after a
+successful grant. The session report stops after `data_mount`, before
+publication admission completes or a session starts. Investigation is open.
+A separate hazard: launching a title while ShadowMount is still finalizing its
+previous instance also fails; wait for `runtime layers released`.
