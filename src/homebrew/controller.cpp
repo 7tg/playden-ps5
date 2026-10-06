@@ -302,6 +302,74 @@ void Controller::TickRuntime() {
   }
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   auto plays = model_.TakeRuntimePlayRequests();
+  {
+    const auto prepared = runtime_->Snapshot();
+    const bool usable = prepared.status == RuntimeHostStatus::kReady && prepared.kit_available;
+    const auto record_of = [&prepared](GameId id) -> const RuntimeInstallView* {
+      for (const auto& view : prepared.installs) if (view.app_id == id) return &view;
+      return nullptr;
+    };
+    const auto ready = [](const RuntimeInstallView* view) {
+      return view && view->state == runtime::PreparationState::kReady && !view->recovery_pending &&
+             view->title_current && view->admission == "ok";
+    };
+    const auto refusal_of = [&prepared](GameId id) {
+      const auto found = prepared.refusals.find(id);
+      return found == prepared.refusals.end() ? std::string{} : found->second;
+    };
+    // Play on a game that was never prepared prepares it first.
+    std::vector<GameId> direct;
+    for (const auto id : plays) {
+      if (usable && game_roots_.count(id) && !record_of(id) && !play_after_prepare_.count(id)) {
+        play_after_prepare_[id] = {};
+        auto_prepare_.erase(id);
+        ++play_notes_revision_;
+      } else if (!play_after_prepare_.count(id)) {
+        direct.push_back(id);
+      }
+    }
+    plays = std::move(direct);
+    // Finished downloads are prepared one at a time, never over a game that already has a record.
+    if (prepared.status != RuntimeHostStatus::kStarting)
+      for (auto it = auto_prepare_.begin(); it != auto_prepare_.end();) {
+        if (!usable || !game_roots_.count(*it) || record_of(*it)) { it = auto_prepare_.erase(it); continue; }
+        if (prepared.preparing_app) break;
+        play_after_prepare_.erase(*it);
+        model_.RequestRuntimePrepare(*it);
+        auto_prepare_.erase(it);
+        break;
+      }
+    for (auto it = play_after_prepare_.begin(); it != play_after_prepare_.end();) {
+      const auto id = it->first;
+      auto& pending = it->second;
+      if (!pending.queued) {
+        if (prepared.preparing_app && *prepared.preparing_app != id) { ++it; continue; }
+        pending.queued = true;
+        pending.refusal = refusal_of(id);
+        pending.queued_at = std::chrono::steady_clock::now();
+        model_.RequestRuntimePrepare(id);
+        ++it;
+        continue;
+      }
+      if (prepared.preparing_app == id) { pending.seen_preparing = true; ++it; continue; }
+      if (ready(record_of(id))) {
+        plays.push_back(id);
+        it = play_after_prepare_.erase(it);
+        ++play_notes_revision_;
+        continue;
+      }
+      // Prepare ended without a Ready title (the PS5 title row shows why), or was
+      // refused before it was seen starting.
+      const bool unseen_too_long = !pending.seen_preparing && !prepared.preparing_app &&
+          std::chrono::steady_clock::now() - pending.queued_at > std::chrono::seconds(15);
+      if (pending.seen_preparing || refusal_of(id) != pending.refusal || !game_roots_.count(id) || unseen_too_long) {
+        it = play_after_prepare_.erase(it);
+        ++play_notes_revision_;
+        continue;
+      }
+      ++it;
+    }
+  }
   for (const auto id : plays) {
     if (sync_before_play_.count(id)) continue;
     // Play checks Cloud saves first, as Steam does before a game starts; the
@@ -390,7 +458,7 @@ void Controller::TickRuntime() {
       game.status = "Failed"; game.detail = record->failure; game.can_prepare = usable;
     } else {
       game.status = "Not prepared";
-      game.detail = usable ? "Creates a private bottle and the game's own PS5 title" : snapshot.kit_reason;
+      game.detail = usable ? "Play prepares it: a private bottle and the game's own PS5 title" : snapshot.kit_reason;
       game.can_prepare = usable;
     }
     if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
@@ -423,6 +491,7 @@ void Controller::TickRuntime() {
                     play_queued_.empty() && !sync_before_play_.count(id);
     if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
     if (sync_before_play_.count(id)) game.play_status = "Checking saves…";
+    if (play_after_prepare_.count(id)) { game.play_status = "Preparing…"; game.can_prepare = false; }
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
     games.push_back(std::move(game));
   }
@@ -446,6 +515,12 @@ void Controller::TickInstalls() {
   game_volumes_.clear();
   for (const auto& game : snapshot.installed)
     if (game.available) { game_roots_[game.id] = game.root; game_volumes_[game.id] = game.volume_id; }
+  // A download that finished in this session is prepared next, so the game is ready to play.
+  std::set<GameId> downloading;
+  for (const auto& job : snapshot.jobs) downloading.insert(job.id);
+  for (const auto id : downloading_)
+    if (!downloading.count(id) && game_roots_.count(id)) auto_prepare_.insert(id);
+  downloading_ = std::move(downloading);
   if (!snapshot.volumes.empty()) saves_root_ = snapshot.volumes.front().games_root + "/.playden-saves";
   // Free space changes outside Playden too, so volumes refresh every few seconds as well.
   const auto now = std::chrono::steady_clock::now();

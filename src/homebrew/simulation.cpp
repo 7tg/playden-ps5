@@ -519,6 +519,10 @@ std::vector<GameId> Simulation::TakeRuntimePrepareRequests() {
     return requests;
 }
 
+void Simulation::RequestRuntimePrepare(GameId id) {
+    if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+}
+
 std::vector<GameId> Simulation::TakeRuntimePlayRequests() {
     auto requests = std::move(pending_runtime_play_requests_);
     pending_runtime_play_requests_.clear();
@@ -2185,15 +2189,21 @@ void Simulation::rebuild_view() {
                 status.value = installation->installed_bytes > 0 ? format_bytes(installation->installed_bytes) : "";
                 status.subtitle = installation->available ? "On " + label : "Connect " + label + " to use this game";
                 if (installation->available) {
-                    // Play the game's own PS5 title once it is Ready.
+                    // Play the game's own PS5 title. A game that is not prepared yet is prepared
+                    // first and then starts, so the player never has to prepare it by hand.
                     const auto play_game = state_.runtime_games.find(game->id);
-                    if (play_game != state_.runtime_games.end() &&
-                        (play_game->second.ready || !play_game->second.play_status.empty())) {
+                    if (play_game != state_.runtime_games.end()) {
                         const auto& value = play_game->second;
-                        auto& play = row("details-play", RowKind::Action, "Play", value.can_play ? "runtime-play" : "");
-                        play.value = value.play_status;
-                        play.subtitle = value.play_detail;
-                        play.enabled = value.can_play;
+                        const bool prepares_first = !value.ready && value.can_prepare && value.status == "Not prepared";
+                        const bool enabled = value.can_play || prepares_first;
+                        auto& play = row("details-play", RowKind::Action, "Play", enabled ? "runtime-play" : "");
+                        // Otherwise Play names what holds it (Preparing, Update available…); the PS5 title row says why.
+                        play.value = !value.play_status.empty() || value.ready || prepares_first ? value.play_status
+                                                                                                 : value.status;
+                        play.subtitle = !value.play_detail.empty() ? value.play_detail
+                                      : prepares_first ? "The first start sets the game up and adds it to the PS5 Home screen"
+                                                       : std::string{};
+                        play.enabled = enabled;
                     }
                     // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
                     const auto cloud = state_.cloud.find(game->id);

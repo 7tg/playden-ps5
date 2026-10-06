@@ -69,6 +69,19 @@ class Controller {
   std::map<GameId, bool> sync_before_play_;
   std::vector<GameId> plays_ready_;
   std::set<GameId> play_without_sync_;
+  // Games are prepared without a button press: once their download finishes (games
+  // downloading now, then games waiting to be prepared), and when Play finds one not
+  // prepared yet. Play then starts it once it is Ready; the refusal seen when Prepare
+  // was queued tells a new refusal from an old one.
+  std::set<GameId> downloading_;
+  std::set<GameId> auto_prepare_;
+  struct PlayAfterPrepare {
+    bool queued = false;
+    bool seen_preparing = false;
+    std::string refusal;
+    std::chrono::steady_clock::time_point queued_at{};
+  };
+  std::map<GameId, PlayAfterPrepare> play_after_prepare_;
   std::map<GameId, std::string> play_notes_;
   std::uint64_t play_notes_revision_ = 0;
   std::uint64_t runtime_notes_revision_ = 0;

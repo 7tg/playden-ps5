@@ -380,6 +380,8 @@ public:
     void UpdateCloud(const std::vector<LiveCloudGame>& games);
     // Live mode: games to prepare (bottle + PS5 title), and the runtime state for display.
     [[nodiscard]] std::vector<GameId> TakeRuntimePrepareRequests();
+    // Queues Prepare without a button press: after a download, or before Play.
+    void RequestRuntimePrepare(GameId id);
     [[nodiscard]] std::vector<GameId> TakeRuntimePlayRequests();
     [[nodiscard]] bool TakeRuntimeCleanupRequest();
     void SetRuntimeLeftovers(std::size_t count);

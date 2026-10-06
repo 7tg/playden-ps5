@@ -246,6 +246,12 @@ void live_details_keep_personal_edits_and_block_fixture_operations() {
     check(uninstall != model.view().rows.end() && !uninstall->enabled, "live Uninstall is disabled until installed");
 }
 
+const playden::homebrew::ViewRow* find_row(const Simulation& model, const std::string& key) {
+    const auto found = std::find_if(model.view().rows.begin(), model.view().rows.end(),
+                                    [&key](const auto& row) { return row.key == key; });
+    return found == model.view().rows.end() ? nullptr : &*found;
+}
+
 void live_install_requests_and_projection() {
     auto model=make_live();
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
@@ -274,9 +280,16 @@ void live_install_requests_and_projection() {
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready,
                         {{42, "Not prepared", "Makes a private bottle and its own PS5 title", true, false}});
     check(model.action("details:42") && has_row(model, "details-runtime"), "an installed game offers Prepare");
+    const auto* play = find_row(model, "details-play");
+    check(play && play->enabled && play->action == "runtime-play", "Play is offered before the game is prepared");
+    activate(model, "details-play");
+    const auto plays = model.TakeRuntimePlayRequests();
+    check(plays.size() == 1 && plays[0] == 42, "Play on an unprepared game goes to the controller, which prepares first");
     activate(model, "details-runtime");
     const auto prepare = model.TakeRuntimePrepareRequests();
     check(prepare.size() == 1 && prepare[0] == 42, "Prepare goes to the runtime host");
+    model.RequestRuntimePrepare(42);
+    check(model.TakeRuntimePrepareRequests().size() == 1, "Prepare can be queued without a button press");
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
     check(model.action("details:42"), "details reopen");
     check(model.state().installations.size() == 1 && !model.state().installations[0].runtime_ready, "preparing is not ready");
@@ -293,12 +306,6 @@ void live_install_requests_and_projection() {
     model.UpdateAppDetails(42, std::nullopt, std::nullopt, false);
     model.UpdateInstalls({}, {});
     check(model.action("details:42") && has_row(model, "details-unavailable"), "a game without Windows content says so");
-}
-
-const playden::homebrew::ViewRow* find_row(const Simulation& model, const std::string& key) {
-    const auto found = std::find_if(model.view().rows.begin(), model.view().rows.end(),
-                                    [&key](const auto& row) { return row.key == key; });
-    return found == model.view().rows.end() ? nullptr : &*found;
 }
 
 void live_install_volumes() {
