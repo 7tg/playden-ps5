@@ -3,8 +3,8 @@
 
 namespace playden::runtime {
 KitManifestResult VerifyInstalledKit(const std::filesystem::path& root,
-                                    const KitManifestTrustedConfig& trusted) {
-  auto production = trusted;
+                                    const KitAdmissionConfig& config) {
+  auto production = config;
   production.hash_file = HashArtifactFile;
   production.hash_bytes = HashArtifactBytes;
   return VerifyKitManifest(root, production);

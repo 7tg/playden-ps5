@@ -566,8 +566,15 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
               && switched_restart.state().library.favorites.contains(900010),
           "T11 switched account identity and organization restore only from its profile");
     restored.action("route:settings"); activate(restored, "settings-about");
-    check(restored.view().surface == "about" && restored.view().rows.size() == 4,
-          "T11 About exposes build, framework, platform, and Back rows");
+    check(restored.view().surface == "about" && restored.view().rows.size() == 6,
+          "T11 About exposes build, framework, platform, kit, kit source, and Back rows");
+    {
+        const auto& rows = restored.view().rows;
+        const auto kit = std::find_if(rows.begin(), rows.end(), [](const auto& row) { return row.key == "about-kit"; });
+        check(kit != rows.end() && kit->value.rfind("hl2-fw1360-dev1 · ", 0) == 0 &&
+                  kit->subtitle == "The kit this version of Playden was tested with",
+              "T11 About names the compatibility kit and whether it is the tested one");
+    }
 }
 
 void t12_stress_dataset_keeps_logical_focus(const std::filesystem::path& fixtures,

@@ -279,14 +279,24 @@ int main() {
                 playden::app::AppendLogLine(log_root, "runtime.log", "console_firmware=" + firmware.value_or("unknown") + " " +
                     playden::ps5::ConsoleFirmwareDiagnostics());
                 if (!firmware) { *reason = "The console firmware version is unknown."; return std::nullopt; }
-                auto admitted = rt::VerifyInstalledKit(rt::kDevelopmentKitRoot, rt::DevelopmentKitTrust(*firmware));
+                const auto admission = rt::DevelopmentKitAdmission(*firmware);
+                auto admitted = rt::VerifyInstalledKit(rt::kDevelopmentKitRoot, admission);
+                std::string ignored;
+                for (const auto& name : admitted.ignored_capabilities) ignored += (ignored.empty() ? "" : ",") + name;
+                const auto wrapper = admitted.sources.find("wrapper");
+                const auto revision = wrapper != admitted.sources.end() && wrapper->second.count("revision")
+                    ? wrapper->second.at("revision") : std::string{};
                 playden::app::AppendLogLine(log_root, "runtime.log", std::string("kit_admission root=") +
-                    rt::kDevelopmentKitRoot + " status=" + std::to_string(static_cast<int>(admitted.status)) + " reason=" + admitted.reason);
+                    rt::kDevelopmentKitRoot + " status=" + std::to_string(static_cast<int>(admitted.status)) + " reason=" + admitted.reason +
+                    " manifest=" + admitted.manifest_sha256 + " expected=" + admission.expected_manifest_sha256 +
+                    " prospero_win=" + revision + (admitted.source_dirty ? "-dirty" : "") +
+                    " ignored_capabilities=" + (ignored.empty() ? "-" : ignored));
                 if (admitted.status != rt::KitManifestStatus::kVerified || !admitted.view) {
-                    *reason = "The compatibility kit is missing or could not be verified.";
+                    *reason = "The compatibility kit is missing or incomplete.";
                     return std::nullopt;
                 }
-                return playden::homebrew::RuntimeKit{*admitted.view, admitted.capabilities};
+                return playden::homebrew::RuntimeKit{*admitted.view, admitted.capabilities, admitted.manifest_sha256,
+                                                     admission.expected_manifest_sha256, revision, admitted.source_dirty};
             };
             config.package_operations.hash_file = rt::HashArtifactFile;
             config.package_operations.hash_bytes = rt::HashArtifactBytes;

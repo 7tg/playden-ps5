@@ -582,6 +582,13 @@ void Controller::TickRuntime() {
   model_.SetGeneratedRecipes(snapshot.generated_recipes);
   model_.UpdateRuntime(state, games);
   model_.SetRuntimeLeftovers(snapshot.leftover_requests);
+  LiveKitInfo kit;
+  if (snapshot.kit)
+    kit = {snapshot.kit->view.kit_id, snapshot.kit->manifest_sha256, snapshot.kit->expected_manifest_sha256,
+           snapshot.kit->prospero_win_revision, snapshot.kit->source_dirty, {}};
+  else
+    kit.unavailable_reason = snapshot.status == RuntimeHostStatus::kReady ? snapshot.kit_reason : std::string{};
+  model_.SetKitInfo(std::move(kit));
   announce_ready();
 }
 void Controller::BeginUninstall(GameId id, bool delete_saves) {

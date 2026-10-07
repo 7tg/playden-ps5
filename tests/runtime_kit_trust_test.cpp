@@ -17,8 +17,8 @@ const Json& Get(const Json& value, const std::string& key) {
   std::fprintf(stderr, "missing key %s\n", key.c_str()); std::exit(1);
 }
 
-// The compiled trust anchors must agree with the dependency lock, and the
-// locally packaged development kit (when present) must be admitted by them.
+// The kit this build was tested with must agree with the dependency lock, and the
+// locally packaged development kit (when present) must be admitted and recognised as it.
 int main(int argc, char** argv) {
   CHECK(argc == 3);
   std::ifstream in(argv[1]);
@@ -29,36 +29,29 @@ int main(int argc, char** argv) {
   CHECK(lock && lock->is_object());
   const auto& kit = Get(*lock, "prospero_kit");
   const auto field = [&](const char* name) { return Get(kit, name).text(); };
-  const auto trust = DevelopmentKitTrust("13.60");
+  const auto config = DevelopmentKitAdmission("13.60");
   CHECK(field("kit_id") == kDevelopmentKitId && field("console_root") == kDevelopmentKitRoot);
-  CHECK(field("manifest_sha256") == trust.manifest_sha256);
-  CHECK(field("wrapper_revision") == trust.sources.at("wrapper").at("revision"));
-  CHECK(Get(Get(*lock, "prospero_win"), "revision").text() == field("wrapper_revision"));
-  for (const char* title : {"FAKE78001", "FAKE78002", "FAKE78003", "FAKE78004", "FAKE78005", "FAKE78006",
-                            "FAKE78007", "FAKE78008", "FAKE78009", "FAKE78010"}) {
-    const auto& pin = Get(Get(kit, "title_pins"), title);
-    CHECK(Get(pin, "helper_sha256").text() == trust.title_pins.at(title).helper_sha256);
-    CHECK(Get(pin, "protocol_sha256").text() == trust.title_pins.at(title).protocol_sha256);
-  }
+  CHECK(field("manifest_sha256") == config.expected_manifest_sha256);
   std::vector<std::string> capabilities;
   for (const auto& item : Get(kit, "capabilities").array()) capabilities.push_back(item.text());
-  CHECK(capabilities == trust.allowed_capabilities);
+  CHECK(capabilities == config.known_capabilities);
 
   const std::filesystem::path root = argv[2];
   if (!std::filesystem::exists(root / "manifest.json")) {
-    std::puts("kit trust matches the lock; packaged kit absent, admission skipped");
+    std::puts("expected kit matches the lock; packaged kit absent, admission skipped");
     return 0;
   }
-  const auto admitted = VerifyInstalledKit(std::filesystem::canonical(root), trust);
+  const auto admitted = VerifyInstalledKit(std::filesystem::canonical(root), config);
   if (admitted.status != KitManifestStatus::kVerified) std::fprintf(stderr, "admission: %s\n", admitted.reason.c_str());
   CHECK(admitted.status == KitManifestStatus::kVerified && admitted.view);
   CHECK(admitted.view->kit_id == kDevelopmentKitId);
+  CHECK(admitted.manifest_sha256 == config.expected_manifest_sha256 && admitted.ignored_capabilities.empty());
   std::vector<std::string> variants;
   for (int i = 1; i <= 10; ++i) variants.push_back("hl2-fake780" + std::string(i < 10 ? "0" : "") + std::to_string(i) + "-v1");
   CHECK(admitted.available_variant_ids == variants);
   // Unknown or other firmware is refused.
-  CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitTrust("")).status != KitManifestStatus::kVerified);
-  CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitTrust("12.02")).status != KitManifestStatus::kVerified);
-  std::puts("development kit admitted by its independent trust anchors");
+  CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitAdmission("")).status != KitManifestStatus::kVerified);
+  CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitAdmission("12.02")).status != KitManifestStatus::kVerified);
+  std::puts("development kit admitted and recognised as the expected kit");
   return 0;
 }

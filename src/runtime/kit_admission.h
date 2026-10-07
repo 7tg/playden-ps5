@@ -4,9 +4,9 @@
 
 namespace playden::runtime {
 
-// Bind admission to the production SHA-256 and no-follow file hashing backend.
-// Caller-supplied hash callbacks are ignored; pins must come from the lock owner.
+// Admission with the production SHA-256 and no-follow file hashing backend.
+// Caller-supplied hash callbacks are ignored.
 KitManifestResult VerifyInstalledKit(const std::filesystem::path& root,
-                                    const KitManifestTrustedConfig& trusted);
+                                    const KitAdmissionConfig& config);
 
 }  // namespace playden::runtime

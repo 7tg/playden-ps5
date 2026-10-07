@@ -223,48 +223,6 @@
     "wrapper_revision": "231fb4c35a11f8df0586f70fec3bf3cb5cd79dad",
     "runtime_artifact_revision": "e16ec8f3-ps5-console-r1-neutral",
     "runtime_inventory_source": "Path-neutral rebuild of the console runtime recipe (e16ec8f3 + a4c3856 sink, 4234987 patch 0663, e9c1104 PSBC); results/20261006-release-kit",
-    "template_preparation": "hl2-fresh-v16-neutral",
-    "title_pins": {
-      "FAKE78001": {
-        "helper_sha256": "5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78002": {
-        "helper_sha256": "e2449875f8b22a8c595a0d40c02a57c706e0661054986a4d96076c763deaafb2",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78003": {
-        "helper_sha256": "451a5f223b3f2360f9df5bb7b2cae2df90eb9c2c98223f6784ea82f4fe2606c8",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78004": {
-        "helper_sha256": "21ae2769aa1e2c77972c6bec0b4b27e62bff824c25f57640e52020efb9e8d02e",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78005": {
-        "helper_sha256": "19293f8b3795e5b5a5e5bf45452c2ab4e1dc61477aac74f6208accfc777ee4b8",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78006": {
-        "helper_sha256": "004f67349b8678bc7c6ffb5abc0530b190420a555b604e351e29a6cb4baa21d6",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78007": {
-        "helper_sha256": "3f464c2ef7c83e5ada6f66b09b236520945fad146b77b81eac82f92537790043",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78008": {
-        "helper_sha256": "bc4bd449639ac46dc8d2f7595990636512c1f23d896026bb3d5785ac78a35d68",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78009": {
-        "helper_sha256": "4fd5e80a788901074fb699d4b472470816e5f9cb302bad148442c8eaae77e735",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      },
-      "FAKE78010": {
-        "helper_sha256": "30cb8eddd908e42c682dd49885f7a8d2436043a806ad557c1268da78fe311c3d",
-        "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869"
-      }
-    }
+    "template_preparation": "hl2-fresh-v16-neutral"
   }
 }

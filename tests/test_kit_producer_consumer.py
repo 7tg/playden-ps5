@@ -74,7 +74,8 @@ class ProducerConsumerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('verified', result.stdout)
 
-    def test_independent_manifest_pin_is_required(self):
+    def test_admission_reports_the_installed_manifest_digest(self):
+        # The consumer checks the reported digest against the one it was given.
         result = self.admit('0' * 64)
         self.assertNotEqual(result.returncode, 0)
 
@@ -91,7 +92,7 @@ class ProducerConsumerTests(unittest.TestCase):
         result = self.admit()
         self.assertNotEqual(result.returncode, 0)
 
-    def test_self_consistent_replacement_cannot_change_independent_helper_pin(self):
+    def test_self_consistent_rebuilt_helper_is_admitted(self):
         manifest_path = self.fixture.out / 'manifest.json'
         manifest = json.loads(manifest_path.read_text())
         variant = manifest['variants'][0]
@@ -101,15 +102,14 @@ class ProducerConsumerTests(unittest.TestCase):
         helper_manifest = json.loads(helper_manifest_path.read_text())
         helper_manifest['elf_sha256'] = hashlib.sha256(helper.read_bytes()).hexdigest()
         helper_manifest_path.write_text(json.dumps(helper_manifest))
-        # Re-sign the fixture inventory and supply its new expected manifest
-        # digest. The consumer's independent helper bytes still cannot change.
+        # A rebuilt kit whose files match its own manifest is used, whichever
+        # helper it carries; a helper that differs from its manifest is not (above).
         packager = importlib.import_module('tools.package_playden_kit')
         manifest['files'] = packager._file_entries(self.fixture.out)
         manifest['files_sha256'] = packager._files_digest(manifest['files'])
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
         result = self.admit(hashlib.sha256(manifest_path.read_bytes()).hexdigest())
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('independent title pin', result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == '__main__':

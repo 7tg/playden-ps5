@@ -312,6 +312,7 @@ std::string action_label(const std::string& key) {
         {"account-last-sync", "Last library sync"}, {"account-sync", "Sync now"},
         {"account-recover", "Reconnect account"}, {"account-switch", "Switch account"},
         {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
+        {"about-kit", "Compatibility kit"}, {"about-kit-source", "Built from"},
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
         {"inject-startup-loading", "Show startup loading"}};
     if (const auto found = labels.find(key); found != labels.end()) return found->second;
@@ -602,6 +603,12 @@ bool Simulation::TakeRuntimeCleanupRequest() {
 void Simulation::SetRuntimeLeftovers(std::size_t count) {
     if (!live() || state_.runtime_leftover_requests == count) return;
     state_.runtime_leftover_requests = count;
+    rebuild_view();
+}
+
+void Simulation::SetKitInfo(LiveKitInfo kit) {
+    if (!live()) return;
+    state_.kit = std::move(kit);
     rebuild_view();
 }
 
@@ -2192,6 +2199,25 @@ void Simulation::rebuild_view() {
             else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? "Live service model" : "UI comparison fixture"; item.enabled = false; }
             else if (action_key == "about-framework") { item.kind = RowKind::Status; item.value = "Homebrew native model + Hui"; item.enabled = false; }
             else if (action_key == "about-platform") { item.kind = RowKind::Status; item.value = "Host / PS5 homebrew"; item.enabled = false; }
+            else if (action_key == "about-kit" || action_key == "about-kit-source") {
+                // The kit in use, and the one this build was tested with when they differ.
+                LiveKitInfo kit = state_.kit;
+                if (!live()) kit = {"hl2-fw1360-dev1", std::string(64, 'b'), std::string(64, 'b'), std::string(40, '2'), false, {}};
+                const auto short_hash = [](const std::string& hash) { return hash.substr(0, 12); };
+                item.kind = RowKind::Status; item.enabled = false;
+                if (kit.kit_id.empty()) {
+                    item.value = action_key == "about-kit" ? "None" : "—";
+                    if (action_key == "about-kit") item.subtitle = kit.unavailable_reason.empty() ? "Checking" : kit.unavailable_reason;
+                } else if (action_key == "about-kit") {
+                    item.value = kit.kit_id + " · " + short_hash(kit.manifest_sha256);
+                    item.subtitle = kit.manifest_sha256 == kit.expected_manifest_sha256
+                        ? "The kit this version of Playden was tested with"
+                        : "Not the kit this version was tested with (" + short_hash(kit.expected_manifest_sha256) + ")";
+                } else {
+                    item.value = "prospero-win " + kit.prospero_win_revision.substr(0, 7);
+                    if (kit.source_dirty) item.subtitle = "Includes uncommitted changes";
+                }
+            }
             else if (action_key == "install-confirm" || action_key == "install-estimate-retry") {
                 const auto assessment = assess_install(state_, state_.navigation.selected_game_id, selected_volume_id_);
                 if (action_key == "install-estimate-retry") item.enabled = assessment.readiness == InstallReadiness::UnknownSize;
@@ -3546,7 +3572,7 @@ void Simulation::activate() {
     else if (action_name == "simulation-controls") open_modal({"simulation-controls", "Simulation controls", state_.navigation.focus_key,
         {"advance-clock", "inject-download-failed", "inject-verification-failed", "inject-uninstall-failed", "inject-storage-disconnect", "inject-storage-reconnect", "inject-controller-disconnect", "inject-controller-reconnect", "inject-launch-failure", "inject-stop-failure", "inject-runtime-failed", "inject-save-failure", "inject-logs-loading", "inject-logs-empty", "inject-logs-failure", "inject-logs-ready", "inject-delayed-art", "inject-failed-art", "inject-library-refresh", "inject-startup-loading", "cancel"}, 0, false});
     else if (action_name == "about") open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", state_.navigation.focus_key,
-        {"about-build", "about-framework", "about-platform", "about-back"}, 0, false});
+        {"about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 0, false});
     else if (action_name == "about-back") close_modal();
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
         {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "cancel"}, 0, false});

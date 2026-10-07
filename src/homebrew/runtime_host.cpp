@@ -1652,6 +1652,7 @@ void RuntimeHost::Run() {
       Publish([&](RuntimeSnapshot& s) {
         s.status = RuntimeHostStatus::kReady; s.reason.clear();
         s.kit_available = kit_available; s.kit_reason = kit_available ? std::string{} : kit_reason;
+        s.kit = c.kit;
       });
     }
   }

@@ -214,24 +214,25 @@ bool ValidateRegistry(const fs::path& bottle, bool require_audio) {
 
 class Verifier {
  public:
-  Verifier(fs::path root, const KitManifestTrustedConfig& trusted)
-      : root_(std::move(root)), trusted_(trusted) {}
+  Verifier(fs::path root, const KitAdmissionConfig& config)
+      : root_(std::move(root)), config_(config) {}
 
   KitManifestResult Run() {
-    if (!trusted_.hash_file || !trusted_.hash_bytes || !Digest(trusted_.manifest_sha256))
-      return Failure(KitManifestStatus::kUnsupportedKit, "trusted kit digest and cryptographic hash callbacks are required");
-    if (std::find(trusted_.allowed_capabilities.begin(), trusted_.allowed_capabilities.end(),
-                  kPublicationGuard) != trusted_.allowed_capabilities.end() &&
-        (!trusted_.publication_provider_sha256 || !Digest(*trusted_.publication_provider_sha256)))
+    if (!config_.hash_file || !config_.hash_bytes)
+      return Failure(KitManifestStatus::kUnsupportedKit, "cryptographic hash callbacks are required");
+    if (std::find(config_.known_capabilities.begin(), config_.known_capabilities.end(),
+                  kPublicationGuard) != config_.known_capabilities.end() &&
+        (!config_.publication_provider_sha256 || !Digest(*config_.publication_provider_sha256)))
       return Failure(KitManifestStatus::kUnsupportedKit,
                      "publication guard trust requires an independent provider provenance digest");
     std::error_code error;
     const auto root_status = fs::symlink_status(root_, error);
     if (error || !fs::is_directory(root_status) || fs::is_symlink(root_status))
       return Failure(KitManifestStatus::kIntegrityFailure, "kit root is not an ordinary directory");
-    const auto manifest_hash = trusted_.hash_file(root_ / "manifest.json");
-    if (!manifest_hash || *manifest_hash != trusted_.manifest_sha256)
-      return Failure(KitManifestStatus::kIntegrityFailure, "manifest does not match the trusted dependency-lock digest");
+    // Which kit this is, for display; any build of prospero-win is admitted.
+    const auto manifest_hash = config_.hash_file(root_ / "manifest.json");
+    if (!manifest_hash) return Failure(KitManifestStatus::kIntegrityFailure, "manifest cannot be hashed");
+    result_.manifest_sha256 = *manifest_hash;
     const auto bytes = Read(root_ / "manifest.json", kMaxManifestBytes);
     if (!bytes) return Failure(KitManifestStatus::kMalformed, "manifest cannot be read within bounds");
     const auto parsed = steam::json::Parse(*bytes, {kMaxManifestBytes, 16, kMaxFiles * 8, 1024 * 1024});
@@ -241,7 +242,7 @@ class Verifier {
     if (!schema || schema->text() != kSchema)
       return Failure(KitManifestStatus::kUnsupportedSchema, "unknown kit manifest schema");
     const auto* architecture = Field(*manifest_, "architecture", Json::Type::kString);
-    if (!architecture || architecture->text() != trusted_.required_architecture)
+    if (!architecture || architecture->text() != config_.required_architecture)
       return Failure(KitManifestStatus::kUnsupportedArchitecture, "kit architecture is not positively supported");
     auto contract = ValidateContract(); if (contract) return *contract;
     auto sources = ValidateSources(); if (sources) return *sources;
@@ -269,39 +270,39 @@ class Verifier {
       if (!item.is_string() || item.text().empty() || !seen.insert(item.text()).second)
         return Failure(KitManifestStatus::kMalformed, "firmware entries must be unique non-empty strings");
       result_.firmware.push_back(item.text());
-      firmware_supported |= item.text() == trusted_.current_firmware;
+      firmware_supported |= item.text() == config_.current_firmware;
     }
     if (!firmware_supported)
       return Failure(KitManifestStatus::kUnsupportedFirmware, "current firmware is not declared supported by this kit");
     seen.clear();
+    std::vector<std::string> declared;
     for (const auto& item : capabilities->array()) {
-      if (!item.is_string() || !seen.insert(item.text()).second ||
-          std::find(trusted_.allowed_capabilities.begin(), trusted_.allowed_capabilities.end(), item.text()) == trusted_.allowed_capabilities.end())
-        return Failure(KitManifestStatus::kUnsupportedKit, "kit advertises an untrusted capability");
-      result_.capabilities.push_back(item.text());
+      if (!item.is_string() || !seen.insert(item.text()).second)
+        return Failure(KitManifestStatus::kMalformed, "capabilities must be unique strings");
+      declared.push_back(item.text());
     }
-    if (!std::is_sorted(result_.capabilities.begin(), result_.capabilities.end()))
+    if (!std::is_sorted(declared.begin(), declared.end()))
       return Failure(KitManifestStatus::kMalformed, "capabilities must use canonical sorted order");
+    // A newer kit can do more than this build knows about: those capabilities stay unused.
+    for (const auto& name : declared)
+      (std::find(config_.known_capabilities.begin(), config_.known_capabilities.end(), name) ==
+               config_.known_capabilities.end()
+           ? result_.ignored_capabilities
+           : result_.capabilities).push_back(name);
     view_.root = root_; view_.kit_id = kit_id->text();
     return std::nullopt;
   }
 
   std::optional<KitManifestResult> ValidateSources() {
+    // What the kit was built from, reported for display.
     const auto* sources = Field(*manifest_, "sources", Json::Type::kObject);
-    if (!sources || trusted_.sources.empty())
-      return Failure(KitManifestStatus::kUnsupportedSource, "source provenance trust pins are missing");
-    for (const auto& source : trusted_.sources) {
-      const auto* reported = Field(*sources, source.first.c_str(), Json::Type::kObject);
-      if (!reported) return Failure(KitManifestStatus::kUnsupportedSource, "required source provenance is absent: " + source.first);
-      for (const auto& pin : source.second) {
-        const auto* value = Field(*reported, pin.first.c_str(), Json::Type::kString);
-        if (!value || value->text() != pin.second)
-          return Failure(KitManifestStatus::kUnsupportedSource, "source provenance does not match trusted pin: " + source.first + "." + pin.first);
-      }
+    if (!sources) return Failure(KitManifestStatus::kMalformed, "source provenance is missing");
+    for (const auto& source : sources->object()) {
+      if (!source.second.is_object()) return Failure(KitManifestStatus::kMalformed, "source provenance is malformed: " + source.first);
+      auto& reported = result_.sources[source.first];
+      for (const auto& field : source.second.object())
+        if (field.second.is_string()) reported[field.first] = field.second.text();
     }
-    for (const auto& reported : sources->object())
-      if (!trusted_.sources.count(reported.first))
-        return Failure(KitManifestStatus::kUnsupportedSource, "manifest contains an unknown source: " + reported.first);
     return std::nullopt;
   }
 
@@ -334,7 +335,7 @@ class Verifier {
       const auto permissions = static_cast<unsigned>(fs::status(actual, error).permissions()) & 07777;
       unsigned expected_mode = 0;
       for (char c : mode->text()) expected_mode = expected_mode * 8 + static_cast<unsigned>(c - '0');
-      const auto actual_hash = trusted_.hash_file(actual);
+      const auto actual_hash = config_.hash_file(actual);
       if (error || actual_size != *parsed_size || permissions != expected_mode || !actual_hash || *actual_hash != sha->text())
         return Failure(KitManifestStatus::kIntegrityFailure, "declared file bytes, size, or mode differ: " + path->text());
       canonical += path->text() + '\t' + std::to_string(*parsed_size) + '\t' + sha->text() + '\t' + mode->text() + '\n';
@@ -352,7 +353,7 @@ class Verifier {
     }
     if (walk_error || actual != declared)
       return Failure(KitManifestStatus::kIntegrityFailure, "kit file set differs from the exact manifest inventory");
-    const auto computed = trusted_.hash_bytes(canonical);
+    const auto computed = config_.hash_bytes(canonical);
     if (!computed || *computed != aggregate->text())
       return Failure(KitManifestStatus::kIntegrityFailure, "aggregate file digest does not match canonical inventory");
     view_.files_sha256 = aggregate->text();
@@ -383,10 +384,8 @@ class Verifier {
         path->text() != "runtime/" + bundle->text() + "/" + revision->text() ||
         inventory_path->text() != path->text() + "/runtime-inventory.json")
       return Failure(KitManifestStatus::kMalformed, "runtime identity paths are not canonical");
-    const auto wine_pin = trusted_.sources.find("wine");
-    if (!wine_revision || wine_pin == trusted_.sources.end() || !wine_pin->second.count("revision") ||
-        wine_revision->text() != wine_pin->second.at("revision"))
-      return Failure(KitManifestStatus::kUnsupportedSource, "runtime Wine source does not match the trusted source pin");
+    if (!wine_revision || wine_revision->text().empty())
+      return Failure(KitManifestStatus::kMalformed, "runtime Wine source is not named");
     const auto inventory = ParseFile(root_ / inventory_path->text(), 8 * 1024 * 1024, kMaxFiles * 2);
     if (!inventory || !inventory->is_object() || inventory->object().empty())
       return Failure(KitManifestStatus::kMalformed, "runtime inventory is malformed");
@@ -394,7 +393,7 @@ class Verifier {
     for (const auto& entry : inventory->object()) {
       if (!SafeRelative(entry.first) || !entry.second.is_string() || !Digest(entry.second.text()) || !declared.insert(entry.first).second)
         return Failure(KitManifestStatus::kMalformed, "runtime inventory entry is malformed");
-      const auto hash = trusted_.hash_file(root_ / path->text() / entry.first);
+      const auto hash = config_.hash_file(root_ / path->text() / entry.first);
       if (!RegularNoSymlink(root_ / path->text(), entry.first) || !hash || *hash != entry.second.text())
         return Failure(KitManifestStatus::kIntegrityFailure, "runtime inventory hash or path differs: " + entry.first);
     }
@@ -420,7 +419,7 @@ class Verifier {
       if (!RegularNoSymlink(root_ / path->text(), "lib/wine/x86_64-unix/" + std::string(name)))
         return Failure(KitManifestStatus::kIntegrityFailure, "runtime is missing a required native PRX");
     view_.runtime = {bundle->text(), revision->text(), path->text()};
-    const auto digest = trusted_.hash_file(root_ / inventory_path->text());
+    const auto digest = config_.hash_file(root_ / inventory_path->text());
     if (!digest) return Failure(KitManifestStatus::kIntegrityFailure, "runtime identity cannot be hashed");
     view_artifacts_.push_back({"runtime", bundle->text() + "-" + revision->text(), *digest,
                                ImmutableArtifactLocation::kStagedTitle, "win/wine/runtime-inventory.json"});
@@ -435,7 +434,7 @@ class Verifier {
     if (!id || !Identifier(id->text()) || !version || version->text().empty() || version->text().size() > 64 || !recipe_path ||
         recipe_path->text() != "recipes/" + id->text() + ".json" || !sha || !Digest(sha->text()))
       return Failure(KitManifestStatus::kMalformed, "recipe identity is malformed");
-    const auto actual = trusted_.hash_file(root_ / recipe_path->text());
+    const auto actual = config_.hash_file(root_ / recipe_path->text());
     const auto document = ParseFile(root_ / recipe_path->text());
     if (!actual || *actual != sha->text() || !document || !document->is_object())
       return Failure(KitManifestStatus::kIntegrityFailure, "recipe bytes do not match identity");
@@ -490,7 +489,7 @@ class Verifier {
       for (const char* name : kDxvkDlls) {
         const auto* expected = Field(*table, name, Json::Type::kString);
         const fs::path module = template_root / "drive_c/windows" / pair.second / name;
-        const auto hash = trusted_.hash_file(module);
+        const auto hash = config_.hash_file(module);
         if (!expected || !Digest(expected->text()) || !hash || *hash != expected->text() ||
             !PeArchitecture(module, pair.first == std::string("x64")))
           return Failure(KitManifestStatus::kIntegrityFailure, "DXVK file hash or architecture differs");
@@ -506,11 +505,6 @@ class Verifier {
 
   std::optional<KitManifestResult> ValidateVariants(const Json& variants) {
     std::set<std::string> ids, titles;
-    const auto wrapper = trusted_.sources.find("wrapper");
-    const auto helper = trusted_.sources.find("helper");
-    if (wrapper == trusted_.sources.end() || helper == trusted_.sources.end() ||
-        !wrapper->second.count("revision") || !helper->second.count("revision"))
-      return Failure(KitManifestStatus::kUnsupportedSource, "variant source pins are incomplete");
     for (const auto& variant : variants.array()) {
       if (!variant.is_object()) return Failure(KitManifestStatus::kMalformed, "variant is not an object");
       const auto* id = Field(variant, "id", Json::Type::kString);
@@ -520,12 +514,8 @@ class Verifier {
       const auto* helper_revision = Field(variant, "helper_revision", Json::Type::kString);
       if (!id || !Identifier(id->text()) || !title || !TitleId(title->text()) || !path || path->text() != "titles/" + id->text() ||
           !ids.insert(id->text()).second || !titles.insert(title->text()).second ||
-          !wrapper_revision || wrapper_revision->text() != wrapper->second.at("revision") ||
-          !helper_revision || helper_revision->text() != helper->second.at("revision"))
-        return Failure(KitManifestStatus::kUnsupportedSource, "variant identity or provenance is unsupported");
-      const auto pin = trusted_.title_pins.find(title->text());
-      if (pin == trusted_.title_pins.end() || !Digest(pin->second.helper_sha256) || !Digest(pin->second.protocol_sha256))
-        return Failure(KitManifestStatus::kUnsupportedKit, "title has no independent helper/protocol trust pin");
+          !wrapper_revision || wrapper_revision->text().empty() || !helper_revision || helper_revision->text().empty())
+        return Failure(KitManifestStatus::kMalformed, "variant identity or provenance is malformed");
       const std::string helper_path = path->text() + "/lapy.elf";
       const auto* manifest_path = Field(variant, "helper_manifest", Json::Type::kString);
       const auto* protocol_path = Field(variant, "helper_protocol", Json::Type::kString);
@@ -534,10 +524,10 @@ class Verifier {
           !protocol_path || protocol_path->text() != path->text() + "/lapy_elevation_protocol.h" ||
           !build_path || build_path->text() != path->text() + "/native-title-build.json")
         return Failure(KitManifestStatus::kMalformed, "variant metadata paths are not canonical");
-      const auto helper_hash = trusted_.hash_file(root_ / helper_path);
-      const auto protocol_hash = trusted_.hash_file(root_ / protocol_path->text());
-      if (!helper_hash || *helper_hash != pin->second.helper_sha256 || !protocol_hash || *protocol_hash != pin->second.protocol_sha256)
-        return Failure(KitManifestStatus::kIntegrityFailure, "helper or protocol bytes differ from independent title pin");
+      const auto helper_hash = config_.hash_file(root_ / helper_path);
+      const auto protocol_hash = config_.hash_file(root_ / protocol_path->text());
+      if (!helper_hash || !protocol_hash)
+        return Failure(KitManifestStatus::kIntegrityFailure, "helper or protocol cannot be hashed");
       const auto helper_doc = ParseFile(root_ / manifest_path->text());
       const auto parameter = ParseFile(root_ / path->text() / "sce_sys/param.json");
       const auto build = ParseFile(root_ / build_path->text());
@@ -560,19 +550,20 @@ class Verifier {
       const auto* build_revision = Field(*build, "source_revision", Json::Type::kString);
       const auto* dirty = Field(*build, "source_dirty", Json::Type::kBool);
       const auto* eboot = Field(*build, "eboot_sha256", Json::Type::kString);
-      const auto eboot_hash = trusted_.hash_file(root_ / path->text() / "eboot.bin");
+      const auto eboot_hash = config_.hash_file(root_ / path->text() / "eboot.bin");
       if (!build_schema || build_schema->text() != "prospero-win-native-title/1" || !build_title || build_title->text() != title->text() ||
-          !build_revision || build_revision->text() != wrapper->second.at("revision") || !dirty || dirty->boolean() ||
+          !build_revision || build_revision->text() != wrapper_revision->text() || !dirty ||
           !eboot || !eboot_hash || eboot->text() != *eboot_hash)
-        return Failure(KitManifestStatus::kIntegrityFailure, "native build manifest is dirty or lacks matching source/artifact provenance");
+        return Failure(KitManifestStatus::kIntegrityFailure, "native build manifest lacks matching source/artifact provenance");
+      result_.source_dirty |= dirty->boolean();
       if (std::find(result_.capabilities.begin(), result_.capabilities.end(),
                     kPublicationGuard) != result_.capabilities.end()) {
         const auto* guard = Field(*build, "managed_publication_guard", Json::Type::kString);
         const auto* descriptor = Field(*build, "managed_descriptor_required", Json::Type::kBool);
         const auto* provider = Field(*build, "publication_provider_sha256", Json::Type::kString);
         if (!guard || guard->text() != kPublicationGuard || !descriptor || !descriptor->boolean() ||
-            !provider || !trusted_.publication_provider_sha256 ||
-            provider->text() != *trusted_.publication_provider_sha256)
+            !provider || !config_.publication_provider_sha256 ||
+            provider->text() != *config_.publication_provider_sha256)
           return Failure(KitManifestStatus::kIntegrityFailure,
                          "native title does not match the trusted publication guard/provider contract");
       }
@@ -583,7 +574,7 @@ class Verifier {
   }
 
   fs::path root_;
-  const KitManifestTrustedConfig& trusted_;
+  const KitAdmissionConfig& config_;
   const Json* manifest_ = nullptr;
   KitManifestResult result_;
   VerifiedKitView view_;
@@ -593,8 +584,8 @@ class Verifier {
 }  // namespace
 
 KitManifestResult VerifyKitManifest(const std::filesystem::path& root,
-                                    const KitManifestTrustedConfig& trusted) {
-  return Verifier(root, trusted).Run();
+                                    const KitAdmissionConfig& config) {
+  return Verifier(root, config).Run();
 }
 
 }  // namespace playden::runtime

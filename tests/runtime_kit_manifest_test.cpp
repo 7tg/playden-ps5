@@ -73,7 +73,7 @@ struct Fixture {
   const std::string helper_base = std::string(40, 'd');
   const std::string foundation = std::string(40, 'e');
   const std::string dxvk_archive = std::string(64, 'f');
-  KitManifestTrustedConfig trust;
+  KitAdmissionConfig trust;
   bool publication_guard = false;
   std::string additional_variants;
 
@@ -98,7 +98,6 @@ struct Fixture {
       text.replace(at, 9, "FAKE78002");
       Write(path, text);
     }
-    trust.title_pins["FAKE78002"] = trust.title_pins.at("FAKE78001");
     additional_variants =
         ",{\"id\":\"second\",\"title_id\":\"FAKE78002\",\"path\":\"titles/second\","
         "\"wrapper_revision\":" + Quote(wrapper) + ",\"helper_revision\":" + Quote(helper_revision) +
@@ -158,15 +157,7 @@ struct Fixture {
 
     trust.current_firmware = "12.02";
     trust.required_architecture = "x86_64+wow64-i386";
-    trust.allowed_capabilities = {"wine-wow64", "ps5-audio"};
-    trust.sources = {{"wrapper", {{"revision", wrapper}, {"baseline_revision", wrapper}}},
-                     {"wine", {{"revision", wine}}},
-                     {"helper", {{"revision", helper_revision}, {"base_revision", helper_base}}},
-                     {"foundation", {{"revision", foundation}}},
-                     {"sdk", {{"version", "0.42"}}},
-                     {"dxvk", {{"version", "2.6.2"}, {"archive_sha256", dxvk_archive}}}};
-    trust.title_pins["FAKE78001"] = {*HashFile(root / "titles/variant/lapy.elf"),
-                                      *HashFile(root / "titles/variant/lapy_elevation_protocol.h")};
+    trust.known_capabilities = {"wine-wow64", "ps5-audio"};
     trust.hash_file = HashFile;
     trust.hash_bytes = [](std::string_view bytes) -> std::optional<std::string> {
       return HashBytes(bytes);
@@ -196,7 +187,7 @@ struct Fixture {
           "[Volatile Environment]\n\"USERNAME\"=\"prospero\"\n\"USERPROFILE\"=\"C:\\\\users\\\\prospero\"\n");
   }
 
-  void RefreshInnerManifests() {
+  void RefreshInnerManifests(bool dirty = false) {
     const auto helper = *HashFile(root / "titles/variant/lapy.elf");
     const auto protocol = *HashFile(root / "titles/variant/lapy_elevation_protocol.h");
     Write(root / "titles/variant/lapy-manifest.json",
@@ -205,7 +196,7 @@ struct Fixture {
           ",\"features\":[\"root_layout_probe_retry\"]}");
     Write(root / "titles/variant/native-title-build.json",
           "{\"schema\":\"prospero-win-native-title/1\",\"title_id\":\"FAKE78001\","
-          "\"source_revision\":" + Quote(wrapper) + ",\"source_dirty\":false,\"eboot_sha256\":" +
+          "\"source_revision\":" + Quote(wrapper) + ",\"source_dirty\":" + (dirty ? "true" : "false") + ",\"eboot_sha256\":" +
           Quote(*HashFile(root / "titles/variant/eboot.bin")) + "}");
   }
 
@@ -280,7 +271,7 @@ struct Fixture {
       "\"native_build_manifest\":\"titles/variant/native-title-build.json\"}" + additional_variants + "],\"dxvk\":" + dxvk.str() +
       ",\"files\":" + files.str() + ",\"files_sha256\":" + Quote(HashBytes(lines.str())) + "}";
     Write(root / "manifest.json", manifest);
-    trust.manifest_sha256 = *HashFile(root / "manifest.json");
+    trust.expected_manifest_sha256 = std::string(64, '0');
   }
 
   KitManifestResult Verify() const {
@@ -309,7 +300,7 @@ int main() {
       ",\"managed_descriptor_required\":true,\"publication_provider_sha256\":" + Quote(provider);
   {
     Fixture fixture;
-    fixture.trust.allowed_capabilities.push_back(guard);
+    fixture.trust.known_capabilities.push_back(guard);
     // Incomplete opt-in trust configuration must fail even for a legacy kit.
     CheckRejected(fixture.Verify(), KitManifestStatus::kUnsupportedKit);
     fixture.trust.publication_provider_sha256 = std::string(64, 'A');
@@ -323,8 +314,11 @@ int main() {
     fixture.SetPublicationMarkers(valid_guard_fields);
     fixture.RewriteManifest();
     fixture.trust.publication_provider_sha256 = provider;
-    // Supplying a digest does not opt the capability into the allowlist.
-    CheckRejected(fixture.Verify(), KitManifestStatus::kUnsupportedKit);
+    // Supplying a digest does not make the capability known: the kit is admitted without it.
+    const auto result = fixture.Verify();
+    assert(result.status == KitManifestStatus::kVerified);
+    assert(result.ignored_capabilities == std::vector<std::string>{guard});
+    assert(std::find(result.capabilities.begin(), result.capabilities.end(), guard) == result.capabilities.end());
   }
   const std::vector<std::string> invalid_guard_fields = {
       "",
@@ -340,7 +334,7 @@ int main() {
   for (const auto& fields : invalid_guard_fields) {
     Fixture fixture;
     fixture.publication_guard = true;
-    fixture.trust.allowed_capabilities.push_back(guard);
+    fixture.trust.known_capabilities.push_back(guard);
     fixture.trust.publication_provider_sha256 = provider;
     fixture.SetPublicationMarkers(fields);
     fixture.RewriteManifest();
@@ -349,7 +343,7 @@ int main() {
   {
     Fixture fixture;
     fixture.publication_guard = true;
-    fixture.trust.allowed_capabilities.push_back(guard);
+    fixture.trust.known_capabilities.push_back(guard);
     fixture.trust.publication_provider_sha256 = provider;
     fixture.AddSecondVariant(); // First and second are legacy native-build manifests.
     fixture.SetPublicationMarkers(valid_guard_fields);
@@ -371,6 +365,21 @@ int main() {
     assert(result.available_variant_ids == std::vector<std::string>{"variant"});
     assert(result.capabilities == std::vector<std::string>({"ps5-audio", "wine-wow64"}));
     assert(result.artifacts.size() >= 2);
+    // What the kit was built from is reported, whatever it is.
+    assert(result.manifest_sha256 == *HashFile(fixture.root / "manifest.json"));
+    assert(result.sources.at("wine").at("revision") == fixture.wine);
+    assert(result.sources.at("wrapper").at("revision") == fixture.wrapper);
+    assert(result.ignored_capabilities.empty() && !result.source_dirty);
+  }
+  {
+    // A kit built from uncommitted changes, with a capability this build doesn't know.
+    Fixture fixture;
+    fixture.trust.known_capabilities = {"wine-wow64"};
+    fixture.RefreshInnerManifests(true); fixture.RewriteManifest();
+    const auto result = fixture.Verify();
+    assert(result.status == KitManifestStatus::kVerified && result.source_dirty);
+    assert(result.capabilities == std::vector<std::string>{"wine-wow64"});
+    assert(result.ignored_capabilities == std::vector<std::string>{"ps5-audio"});
   }
   {
     // TypeName is descriptive: a real Wine registration selects this provider
@@ -424,10 +433,6 @@ int main() {
     CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
   }
   {
-    Fixture fixture; fixture.trust.sources["wine"]["revision"] = std::string(40, '9');
-    CheckRejected(fixture.Verify(), KitManifestStatus::kUnsupportedSource);
-  }
-  {
     Fixture fixture; Write(fixture.root / "unexpected.bin", "extra");
     CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
   }
@@ -438,10 +443,13 @@ int main() {
     CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
   }
   {
+    // A helper that differs from its own helper manifest is refused; a rebuilt one is used.
     Fixture fixture;
-    Write(fixture.root / "titles/variant/lapy.elf", "attacker helper", 0755);
-    fixture.RefreshInnerManifests(); fixture.RewriteManifest();
+    Write(fixture.root / "titles/variant/lapy.elf", "other helper", 0755);
+    fixture.RewriteManifest();
     CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+    fixture.RefreshInnerManifests(); fixture.RewriteManifest();
+    assert(fixture.Verify().status == KitManifestStatus::kVerified);
   }
   {
     Fixture fixture; fixture.RewriteManifest("99.99");

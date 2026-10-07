@@ -13,25 +13,20 @@
 
 namespace playden::runtime {
 
-struct KitTitleTrustPin {
-  std::string helper_sha256;
-  std::string protocol_sha256;
-};
-
-// Trust data is supplied by the dependency lock owner. Values reported by the
-// kit manifest are never promoted to trust anchors.
-struct KitManifestTrustedConfig {
-  std::string manifest_sha256;
+// What this Playden build accepts. A kit is admitted when it is complete and its files
+// match its own manifest, whichever prospero-win build it comes from; what it was
+// built from is reported, not compared (Settings > About shows it).
+struct KitAdmissionConfig {
+  // The kit this build was tested with: shown next to the installed one, never required.
+  std::string expected_manifest_sha256;
   std::string current_firmware;
   std::string required_architecture = "x86_64+wow64-i386";
-  std::map<std::string, std::map<std::string, std::string>> sources;
-  std::map<std::string, KitTitleTrustPin> title_pins;
-  std::vector<std::string> allowed_capabilities;
+  // Capabilities Playden can use; a kit's other capabilities are ignored.
+  std::vector<std::string> known_capabilities;
   std::function<std::optional<std::string>(const std::filesystem::path&)> hash_file;
   std::function<std::optional<std::string>(std::string_view)> hash_bytes;
-  // Independent digest of the reviewed publication-provider provenance JSON.
-  // Required when the owner allows playden-publication-guard-v1; never derived
-  // from the kit's own claim or a runtime source checkout.
+  // Digest of the reviewed publication-provider provenance JSON. Required when
+  // playden-publication-guard-v1 is a known capability; never read from the kit.
   std::optional<std::string> publication_provider_sha256;
 };
 
@@ -54,9 +49,14 @@ struct KitManifestResult {
   std::vector<std::string> capabilities;
   std::vector<std::string> available_variant_ids;
   std::vector<RuntimeArtifactIdentity> artifacts;
+  // What the kit says about itself, for display.
+  std::string manifest_sha256;
+  std::vector<std::string> ignored_capabilities;
+  std::map<std::string, std::map<std::string, std::string>> sources;
+  bool source_dirty = false;  // a title was built from uncommitted source
 };
 
 KitManifestResult VerifyKitManifest(const std::filesystem::path& root,
-                                    const KitManifestTrustedConfig& trusted);
+                                    const KitAdmissionConfig& config);
 
 }  // namespace playden::runtime

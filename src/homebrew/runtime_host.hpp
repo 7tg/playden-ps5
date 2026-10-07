@@ -30,6 +30,10 @@ namespace playden::homebrew {
 struct RuntimeKit {
   runtime::VerifiedKitView view;
   std::vector<std::string> capabilities;
+  std::string manifest_sha256;
+  std::string expected_manifest_sha256;  // the kit this build was tested with
+  std::string prospero_win_revision;     // what its PS5 titles were built from
+  bool source_dirty = false;
 };
 
 // A game's private bottle kept after its PS5 title was removed: its saves and
@@ -149,6 +153,7 @@ struct RuntimeSnapshot {
   std::string reason;  // why the runtime services are unavailable
   bool kit_available = false;
   std::string kit_reason;  // why preparation is unavailable
+  std::optional<RuntimeKit> kit;  // the admitted kit, for display
   std::vector<RuntimeInstallView> installs;
   // Latest refused or failed request per Steam app, for presentation.
   std::map<std::uint32_t, std::string> refusals;

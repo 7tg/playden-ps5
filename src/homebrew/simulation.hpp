@@ -59,6 +59,15 @@ struct LiveVolume {
     std::optional<std::uint64_t> total_bytes;
     std::optional<std::uint64_t> free_bytes;
 };
+// The compatibility kit in use, for Settings > About. Every field is empty when no kit is usable.
+struct LiveKitInfo {
+    std::string kit_id;
+    std::string manifest_sha256;
+    std::string expected_manifest_sha256;  // the kit this build was tested with
+    std::string prospero_win_revision;     // what the kit's PS5 titles were built from
+    bool source_dirty = false;             // built from uncommitted changes
+    std::string unavailable_reason;        // why no kit is in use
+};
 // Live per-game runtime (private bottle and PS5 title) state, projected from the runtime host.
 struct LiveRuntimeGame {
     GameId game_id = 0;
@@ -308,6 +317,7 @@ struct State {
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
     std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
     std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
+    LiveKitInfo kit;                                    // live: the compatibility kit in use
     std::vector<LiveKeptBottle> kept_bottles;           // live: saves kept from uninstalled games
     Navigation navigation;
     EditorState editor;
@@ -416,6 +426,7 @@ public:
     // nothing else is open, whether to quit to the PS5 Home screen to play it.
     void NotifyReadyToPlay(GameId id);
     void SetRuntimeLeftovers(std::size_t count);
+    void SetKitInfo(LiveKitInfo kit);
     void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
