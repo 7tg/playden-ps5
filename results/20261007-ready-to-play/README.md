@@ -49,10 +49,24 @@ The user signed in again. Playden restored the session on the new build.
 - **Sign-in:** a refused saved session (`eresult=63`) now starts a new QR code at once (host-tested; not seen on the
   console, the session was valid).
 
+## Third run, by the feat/new-games session (build `7331f5e` on `d5c3991`, ~02:25–02:37)
+
+With the user's approval, "140" was uninstalled to free a title slot.
+
+- **Uninstall with a PS5 title:** the dialog read Cancel / "Delete saves too · Off" / Uninstall. During removal Details
+  showed "Play · Removing PS5 title…" and "PS5 title · Removing · Removing the game's PS5 title"; `runtime.log`: retire →
+  unregister `code=0` → complete in 12 s.
+- **Kept saves in Details:** afterwards "Install", "Delete saves", and the line "Saves from a previous install · 450 MB ·
+  Installing the game again brings them back."
+- **Ready to play after a download (Balatro, 60 MB):** automatic preparation ended at "Play · Ready to play" and "PS5
+  title · Check again · Waiting for the PS5, which adds the game to Home when Playden quits". The prompt "Balatro is
+  ready to play" (Later / Play, Play focused) opened on its own over Details. Play quit to Home, the "Balatro (Steam)"
+  tile appeared within about 15 s, and the game started from Home.
+- Seen: Install on "140" read 610 MB although 87 MB were installed; the download estimate from Steam's app info looks
+  off (not investigated).
+
 ## Not verified
 
-Blocked by the two title slots (needs a free slot, e.g. uninstalling "140" or a kit with more variants):
-
-- the ready-to-play prompt after an automatic preparation, and Play/Later in it;
-- the accent-fill progress on Play, and deletion progress during an uninstall with a PS5 title;
-- the kept game data manager with entries, the kept-saves line in Details, and the "Delete saves too" dialog choice.
+- Play filling with the accent during the template copy (nobody was on Details then).
+- The Settings "Kept game data" manager with entries.
+- A new QR code after a refused session on the console (host-tested).
