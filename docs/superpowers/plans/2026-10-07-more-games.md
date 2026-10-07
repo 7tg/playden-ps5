@@ -192,8 +192,9 @@ The kit had two title variants (FAKE78001, FAKE78002), so only two games could b
   `runtime_kit_trust_test`).
 - [x] Console: kit uploaded with `--replace` (old kit set aside), Playden deployed; both prepared titles passed
   admission and offered Update; Half-Life 2 and "140" updated in place.
-- [ ] Console: play Half-Life 2 after the update; prepare a third and fourth game at once (FAKE78003+). Blocked
-  2026-10-07 01:10: the jailbreak's ELF loader (port 9021) died, so no title's `/data` helper can run.
+- [x] Console (2026-10-07 07:00–07:23, after restarting the ELF loader): Half-Life 2 reaches its menu on the
+  updated title; Super Meat Boy, Pizza Tower and Hexcells took FAKE78003–FAKE78005, so five game titles are
+  registered at once. Results: [more games](../../../results/20261007-more-games/README.md).
 
 ## Order and acceptance
 
@@ -214,6 +215,7 @@ The kit had two title variants (FAKE78001, FAKE78002), so only two games could b
    | Super Meat Boy | 40800 | 0.93 GB | Own engine (pe32), D3D9 imported, `steam_api.dll` |
    | Pizza Tower | 2231450 | 0.40 GB | GameMaker (pe64), D3D11 loaded at run time |
    | Balatro | 2379780 | 0.07 GB | LÖVE, OpenGL; Steam DRM listed: Steamworks emulation or a SteamStub refusal |
+   | Hexcells | 265890 | 0.06 GB | Unity before 2017.2 (pe32, player in the program): Direct3D 9 (added 2026-10-07) |
 
    Not covered by these: Unreal (`*-Shipping.exe`); the smallest platinum Unreal games in the library are 3 GB or more
    (AMID EVIL lists 13 GB). Refusals were checked on the Mac copies: Mirror's Edge Catalyst (Direct3D 12), Geometry
