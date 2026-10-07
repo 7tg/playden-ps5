@@ -42,6 +42,14 @@ TitleRegistration TitleRegistry::Query(const std::string& title) {
     if (path.empty()) return {};
     const auto managed = Flag(game, "managed");
     if (!managed) return {};
+    // ShadowMount retains a removed title's row after its manual source,
+    // registration and directory are gone. This explicit tombstone is absent;
+    // the coordinator still checks the directory, native database and activity.
+    if (!*managed && path == "/data/homebrew/" + title &&
+        Text(game, "runtime_path") == path && Text(game, "source_type") == "folder" &&
+        Flag(game, "installed") == false && Flag(game, "mounted") == false &&
+        Flag(game, "source_available") == false)
+      continue;
     if (path != "/data/homebrew/" + title || !*managed)
       result = {RegistrationState::kCollision, path};
     else {

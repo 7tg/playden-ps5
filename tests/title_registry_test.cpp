@@ -23,6 +23,40 @@ int main() {
   CHECK(registry.Query("FAKE78000").state == RegistrationState::kUnavailable);
   response = R"({"status":0,"games":[{"title_id":"FAKE78000","installed":false,"managed":true,"source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78000"}]})";
   CHECK(registry.Query("FAKE78000").state == RegistrationState::kPending);
+  // ShadowMount keeps removed titles as unmanaged, unavailable tombstones.
+  const std::string removed = R"({"title_id":"FAKE78000","installed":false,"managed":false,"mounted":false,"source_available":false,"source_type":"folder","runtime_path":"/data/homebrew/FAKE78000","path":"/data/homebrew/FAKE78000"})";
+  response = "{\"status\":0,\"games\":[" + removed + "]}";
+  CHECK(registry.Query("FAKE78000").state == RegistrationState::kAbsent);
+  CHECK(registry.Register("FAKE78000").ok);
+  CHECK(requests[requests.size()-2] == "/api/v1/manual/add {\"path\":\"/data/homebrew/FAKE78000\"}");
+  for (const auto* flag : {"installed", "managed", "mounted", "source_available"}) {
+    auto live = removed;
+    const std::string field = "\"" + std::string(flag) + "\":false";
+    live.replace(live.find(field), field.size(), "\"" + std::string(flag) + "\":true");
+    response = "{\"status\":0,\"games\":[" + live + "]}";
+    CHECK(registry.Query("FAKE78000").state != RegistrationState::kAbsent);
+    live = removed;
+    live.erase(live.find(field), field.size() + 1);
+    response = "{\"status\":0,\"games\":[" + live + "]}";
+    CHECK(registry.Query("FAKE78000").state != RegistrationState::kAbsent);
+    live = removed;
+    live.replace(live.find(field), field.size(), "\"" + std::string(flag) + "\":0");
+    response = "{\"status\":0,\"games\":[" + live + "]}";
+    CHECK(registry.Query("FAKE78000").state != RegistrationState::kAbsent);
+  }
+  for (const auto* key : {"path", "runtime_path", "source_type"}) {
+    auto foreign = removed;
+    const auto value = foreign.find(":\"", foreign.find("\"" + std::string(key) + "\"")) + 2;
+    foreign.replace(value, foreign.find('"', value) - value, "other");
+    response = "{\"status\":0,\"games\":[" + foreign + "]}";
+    CHECK(registry.Query("FAKE78000").state != RegistrationState::kAbsent);
+  }
+  auto incomplete = removed;
+  incomplete.erase(incomplete.find("\"mounted\":false,"), std::string("\"mounted\":false,").size());
+  response = "{\"status\":0,\"games\":[" + incomplete + "]}";
+  CHECK(registry.Query("FAKE78000").state != RegistrationState::kAbsent);
+  response = "{\"status\":0,\"games\":[" + removed + "," + removed + "]}";
+  CHECK(registry.Query("FAKE78000").state == RegistrationState::kCollision);
   response = R"({"status":0,"games":[]})";
   CHECK(registry.Register("FAKE78000").ok);
   CHECK(requests[requests.size()-2] == "/api/v1/manual/add {\"path\":\"/data/homebrew/FAKE78000\"}");

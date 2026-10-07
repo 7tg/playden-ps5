@@ -48,6 +48,23 @@ int main() {
   auto available = native.Availability(record.title_id);
   CHECK(available.inventory == TitleAvailability::kFree && available.source_path == TitleAvailability::kFree);
   CHECK(native.Activity(record.title_id) == NativeActivity::kStopped);
+  response = R"({"status":0,"games":[{"title_id":"FAKE78001","installed":false,"managed":false,"mounted":false,"source_available":false,"source_type":"folder","runtime_path":"/data/homebrew/FAKE78001","path":"/data/homebrew/FAKE78001"}]})";
+  available = native.Availability(record.title_id);
+  CHECK(available.inventory == TitleAvailability::kFree && available.source_path == TitleAvailability::kFree);
+  for (const auto occupied : {TitleAvailability::kOccupied, TitleAvailability::kUnknown}) {
+    database.inventory = occupied;
+    CHECK(native.Availability(record.title_id).inventory != TitleAvailability::kFree);
+  }
+  database.inventory = TitleAvailability::kFree;
+  for (const auto busy : {NativeActivity::kActive, NativeActivity::kUnknown}) {
+    activity = busy;
+    CHECK(native.Availability(record.title_id).inventory != TitleAvailability::kFree);
+  }
+  activity = NativeActivity::kStopped;
+  std::filesystem::create_directories(root / record.title_id);
+  CHECK(native.Availability(record.title_id).source_path == TitleAvailability::kOccupied);
+  std::filesystem::remove(root / record.title_id);
+  response = R"({"status":0,"games":[]})";
   auto source = root / record.title_id; std::filesystem::create_directories(source / "sce_sys");
   CHECK(chmod(source.c_str(), 0700) == 0); CHECK(chmod((source / "sce_sys").c_str(), 0700) == 0);
   std::ofstream(source / "sce_sys/param.json") << R"({"titleId":"FAKE78001","contentId":"UP9000-FAKE78001_00-PROSPEROWIN00001"})";
