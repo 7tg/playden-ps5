@@ -176,6 +176,25 @@ Host tests: discovery (case, depth, links, wrong architecture), backup-once and 
 `.orig`" failure, interface extraction against a synthetic DLL, INI contents (DLCs only when owned, save path), the
 mutation record and its startup re-check, undo, HL2 untouched (`original`).
 
+## Step 3 — more PS5 title slots (added 2026-10-07 at the user's request) — built
+
+The kit had two title variants (FAKE78001, FAKE78002), so only two games could be prepared at once (STATUS row 14).
+
+- [x] Reproducibility gate: FAKE78002's wrapper rebuilt at prospero-win 301246d on this Mac (Homebrew `llvm@18` as
+  `PS5_CLANG`, the prepared foundation `9c0b994` in `GameNative/playden-ps5/.deps/prospero-foundation`) is byte
+  identical to the kit's (`36edcbe6…`).
+- [x] Lapy helpers FAKE78003–FAKE78010 from a clean e9f2cfc clone with `build_owned_daemon.py --elf-helper` through
+  `scripts/with-env.sh`; same protocol hash `bb02c4aa…`. Copies in `build/kit-inputs-slots/helpers` (not in Git).
+- [x] prospero-win `231fb4c` (branch `feat/playden-kit-slots`, on 301246d, local only): the packager trusts the eight new
+  helpers. All ten wrappers rebuilt there, clean.
+- [x] Kit packaged and validated with the same id `hl2-fw1360-dev1` (spec `build/kit-inputs-slots/kit-spec.json`):
+  10 variants, manifest `b730337f…`, files `3c1c18ae…`. Playden trusts it (`kit_trust.cpp`, lock `prospero_kit`,
+  `runtime_kit_trust_test`).
+- [x] Console: kit uploaded with `--replace` (old kit set aside), Playden deployed; both prepared titles passed
+  admission and offered Update; Half-Life 2 and "140" updated in place.
+- [ ] Console: play Half-Life 2 after the update; prepare a third and fourth game at once (FAKE78003+). Blocked
+  2026-10-07 01:10: the jailbreak's ELF loader (port 9021) died, so no title's `/data` helper can run.
+
 ## Order and acceptance
 
 1. Step 0, then step 1 (host tests green), then step 2.
