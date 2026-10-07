@@ -161,6 +161,14 @@ int main() {
     const auto source = DefaultsFor(ProbeGame(root.string(), "hl2.exe"));
     CHECK(source.graphics == "dxvk" && source.resolution_arguments == "-w {w} -h {h}");
   }
+  {  // LÖVE (Balatro): OpenGL, found through love.dll beside the program.
+    const auto root = fresh();
+    WritePe(root / "Balatro.exe", {true, {"love.dll", "lua51.dll", "KERNEL32.dll"}});
+    WritePe(root / "love.dll", {true, {"SDL2.dll", "KERNEL32.dll"}});
+    const auto defaults = DefaultsFor(ProbeGame(root.string(), "Balatro.exe"));
+    CHECK(defaults.graphics == "opengl" && defaults.summary == "love graphics=opengl");
+    CHECK(DetectedLabel(defaults.summary) == "L\xC3\x96VE \xC2\xB7 OpenGL");
+  }
   {  // An Unreal root program is replaced by its Shipping program, which starts in its own folder.
     const auto root = fresh();
     WritePe(root / "Game.exe", {true, {"KERNEL32.dll"}});

@@ -265,6 +265,8 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
     probe.engine = "gamemaker";
   } else if (Find(here, Lower(stem) + ".pck", false)) {
     probe.engine = "godot";
+  } else if (Find(here, "love.dll", false)) {
+    probe.engine = "love";  // LÖVE draws with OpenGL through SDL, which it loads at run time
   }
   for (const auto* entries : {&here, &top})
     if (Find(*entries, "easyanticheat", true) || Find(*entries, "battleye", true)) probe.anticheat = true;
@@ -291,6 +293,8 @@ GameDefaults DefaultsFor(const GameProbe& probe) {
     out.graphics = "dxvk";
     out.arguments = "{resolution}";
     out.resolution_arguments = "-w {w} -h {h}";
+  } else if (probe.engine == "love") {
+    out.graphics = "opengl";
   } else if (probe.engine == "godot") {
     out.graphics = "opengl";
     out.arguments = "--rendering-driver opengl3";
@@ -322,7 +326,7 @@ std::string DetectedLabel(const std::string& summary) {
   std::string engine;
   for (const auto& [id, name] : std::initializer_list<std::pair<const char*, const char*>>{
            {"unity", "Unity"}, {"unity-il2cpp", "Unity"}, {"unreal", "Unreal Engine"}, {"source", "Source"},
-           {"gamemaker", "GameMaker"}, {"godot", "Godot"}})
+           {"gamemaker", "GameMaker"}, {"godot", "Godot"}, {"love", "L\xC3\x96VE"}})
     if (facts.count(id)) engine = name;
   std::string api;
   if (graphics == "opengl") api = "OpenGL";
