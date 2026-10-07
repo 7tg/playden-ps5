@@ -267,6 +267,11 @@ std::vector<std::string> context_actions(bool live) {
     return {"favorite", "collection", "note", "hide", "verify", "uninstall", "logs", "cancel"};
 }
 
+constexpr const char* uninstall_body_kept = "The game's files and its PS5 title are removed from this console. Its saves and "
+                                            "settings are kept, and installing the game again brings them back.";
+constexpr const char* uninstall_body_deleted = "The game's files, its PS5 title and its saves and settings on this console are "
+                                               "deleted.";
+
 // The name kept game data is shown with: the game's name, else the library's, else its app id.
 std::string kept_name(const State& state, const LiveKeptBottle& kept) {
     if (!kept.name.empty()) return kept.name;
@@ -2546,8 +2551,9 @@ void Simulation::rebuild_view() {
     // is still checking, Play is absent or disabled, and focus moves to it once it is enabled.
     // Only until the user moves.
     if (details_primary_pending_ && state_.navigation.route == Route::Details && !has_overlay) {
+        // Never a destructive action (Delete saves): a second Cross must not land on it.
         const auto first = std::find_if(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) {
-            return item.enabled && (item.kind == RowKind::Action || item.kind == RowKind::Toggle);
+            return item.enabled && !item.dangerous && (item.kind == RowKind::Action || item.kind == RowKind::Toggle);
         });
         if (first != view_.rows.end()) state_.navigation.focus_key = first->key;
         const auto has = [this](const char* key) {
@@ -3218,8 +3224,7 @@ void Simulation::activate() {
                 const auto cloud = state_.cloud.find(id);
                 const bool no_cloud = cloud != state_.cloud.end() && cloud->second.status == CloudStatus::Unsupported;
                 title = "Uninstall this game?";
-                body = has_title ? "The game's files and its PS5 title are removed from this console. Its saves and settings are kept, "
-                                   "and installing the game again brings them back."
+                body = has_title ? uninstall_body_kept
                                  : "The game's files are removed from this console. You can install it again from Steam.";
                 body += no_cloud ? " This game has no Steam Cloud saves: its saves exist only on this console."
                                  : " Steam Cloud saves are synced first; if that fails, Playden asks before going on.";
@@ -3237,6 +3242,13 @@ void Simulation::activate() {
         open_modal(std::move(confirmation));
     } else if (action_name == "uninstall-delete-saves") {
         uninstall_delete_saves_ = !uninstall_delete_saves_;
+        // The dialog says what happens to the saves with the current choice.
+        if (!state_.navigation.modals.empty()) {
+            auto& body = state_.navigation.modals.back().body;
+            const std::string_view from = uninstall_delete_saves_ ? uninstall_body_kept : uninstall_body_deleted;
+            const std::string_view to = uninstall_delete_saves_ ? uninstall_body_deleted : uninstall_body_kept;
+            if (const auto at = body.find(from); at != std::string::npos) body.replace(at, from.size(), to);
+        }
     } else if (live() && action_name == "quit-to-home") {
         // Ready to play: ShadowMountPlus registers the title once Playden quits, and the
         // game appears on the Home screen. The dialog or Details already said so.

@@ -662,6 +662,9 @@ void live_uninstall_removes_title_and_keeps_saves() {
     activate(model, "uninstall-delete-saves");
     toggle = find_row(model, "uninstall-delete-saves");
     check(toggle && toggle->selected && !model.state().navigation.modals.empty(), "the choice toggles in the open dialog");
+    check(model.state().navigation.modals.back().body.find("saves and settings on this console are deleted") != std::string::npos &&
+          model.state().navigation.modals.back().body.find("are kept") == std::string::npos,
+          "the dialog says the saves go when the choice is on");
     activate(model, "confirm-destructive");
     auto requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && requests[0].game_id == 42 &&
@@ -703,6 +706,18 @@ void live_uninstall_removes_title_and_keeps_saves() {
     check(model.action("details:42"), "details open");
     const auto* kept = find_row(model, "details-kept");
     check(kept && kept->title == "Saves from a previous install" && !kept->value.empty(), "kept saves are shown with their size");
+    check(model.state().navigation.focus_key != "details-kept-delete", "Delete saves is never focused by default");
+    {
+        // While Steam is still checked there is no Install yet: focus still avoids Delete saves.
+        model.UpdateInstalls({}, {});
+        model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}, {43, "No title", 1760000000, 1'000'000}});
+        check(model.action("details:43") && has_row(model, "details-checking") && has_row(model, "details-kept-delete"),
+              "kept saves while Steam is checked");
+        check(model.state().navigation.focus_key != "details-kept-delete", "a second Cross cannot land on Delete saves");
+        model.UpdateInstalls({}, {{43, 100}});
+        model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}});
+        check(model.action("details:42"), "details reopen");
+    }
     check(has_row(model, "details-install"), "Install brings them back");
     activate(model, "details-kept-delete");
     check(model.state().navigation.modals.back().title == "Delete kept saves?", "deleting asks first");
