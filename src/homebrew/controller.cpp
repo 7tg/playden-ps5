@@ -791,6 +791,12 @@ void Controller::Apply(const steam::SteamEvent& event) {
       if (clearing) Update(model_.state().account.id.empty() ? AuthState::Failed : established_auth_,
                            "Sign-out failed. Your saved account remains. Retry sign-out in Settings.");
       else if (restoring && event.error == steam::AuthError::kNoSession) Update(AuthState::SignedOut,{},true);
+      else if (restoring && (event.error == steam::AuthError::kRejected || event.error == steam::AuthError::kCredentialsRevoked)) {
+        // Steam no longer accepts the saved session: show a new QR code right away
+        // instead of a failure the player can only retry.
+        Update(AuthState::SignedOut,{},true);
+        Begin();
+      }
       else if (event.error == steam::AuthError::kCanceled) Update(AuthState::Cancelled,{},true);
       else if (event.error == steam::AuthError::kExpired) Update(AuthState::Expired,diagnostics::AuthMessage(event.error),true);
       else Update(AuthState::Failed,diagnostics::AuthMessage(event.error),true);

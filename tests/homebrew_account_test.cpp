@@ -164,9 +164,25 @@ void StorageFailureAndRevocation() {
     Simulation model({}, {},ModelMode::Live); Repository repo; repo.value=Session(); repo.fail_load=corrupt;
     Backend backend; backend.error=AuthError::kCredentialsRevoked;
     Controller controller(model,backend,repo);
-    Wait(controller,[&]{return model.state().account.authentication==AuthState::Failed;});
-    assert(model.state().account.challenge_url.empty() && model.state().account.id.empty());
+    if (corrupt) {
+      Wait(controller,[&]{return model.state().account.authentication==AuthState::Failed;});
+      assert(model.state().account.challenge_url.empty() && model.state().account.id.empty());
+    } else {
+      // A revoked session shows a new QR code right away.
+      Wait(controller,[&]{return !model.state().account.challenge_url.empty();});
+      assert(model.state().account.authentication==AuthState::Waiting && model.state().account.id.empty());
+    }
+    controller.Shutdown();
     std::lock_guard<std::mutex> lock(repo.mutex); assert(corrupt?repo.value.has_value():!repo.value.has_value());
+  }
+  {
+    // Steam refuses the saved session (eresult 63 on the console): a new QR code, not a failure.
+    Simulation model({}, {},ModelMode::Live); Repository repo; repo.value=Session();
+    Backend backend; backend.error=AuthError::kRejected;
+    Controller controller(model,backend,repo);
+    Wait(controller,[&]{return !model.state().account.challenge_url.empty();});
+    assert(model.state().account.authentication==AuthState::Waiting && backend.calls==1);
+    controller.Shutdown();
   }
 }
 void ConnectedLibraryAndOfflineRestart() {
