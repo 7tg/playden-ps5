@@ -281,6 +281,8 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
     probe.engine = "godot";
   } else if (Find(here, "love.dll", false)) {
     probe.engine = "love";  // LÖVE draws with OpenGL through SDL, which it loads at run time
+  } else if (Find(here, "nw.dll", false)) {
+    probe.engine = "nwjs";  // NW.js (RPG Maker MV and MZ): Chromium with Node
   }
   for (const auto* entries : {&here, &top})
     if (Find(*entries, "easyanticheat", true) || Find(*entries, "battleye", true)) probe.anticheat = true;
@@ -293,6 +295,9 @@ GameDefaults DefaultsFor(const GameProbe& probe) {
   const bool direct3d = has("d3d8") || has("d3d9") || has("d3d10") || has("d3d11") || has("dxgi");
   if (probe.steam_stub) {
     out.refusal = "This game's program has Steam DRM that Playden can't unpack on the PS5 yet.";
+  } else if (probe.engine == "nwjs") {
+    // Chromium starts helper processes, and in one process it reserves 64 GB of address space.
+    out.refusal = "This game runs on NW.js (a built-in web browser), which Playden can't start on the PS5 yet.";
   } else if (probe.shared_section) {
     out.refusal = "This game's program needs a shared memory section the PS5 can't map yet.";
   } else if (probe.dotnet) {
@@ -346,7 +351,7 @@ std::string DetectedLabel(const std::string& summary) {
   std::string engine;
   for (const auto& [id, name] : std::initializer_list<std::pair<const char*, const char*>>{
            {"unity", "Unity"}, {"unity-il2cpp", "Unity"}, {"unity-legacy", "Unity"}, {"unreal", "Unreal Engine"}, {"source", "Source"},
-           {"gamemaker", "GameMaker"}, {"godot", "Godot"}, {"love", "L\xC3\x96VE"}})
+           {"gamemaker", "GameMaker"}, {"godot", "Godot"}, {"love", "L\xC3\x96VE"}, {"nwjs", "NW.js"}})
     if (facts.count(id)) engine = name;
   std::string api;
   if (graphics == "opengl") api = "OpenGL";

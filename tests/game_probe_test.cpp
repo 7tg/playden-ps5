@@ -192,6 +192,13 @@ int main() {
     CHECK(defaults.graphics == "opengl" && defaults.summary == "love graphics=opengl");
     CHECK(DetectedLabel(defaults.summary) == "L\xC3\x96VE \xC2\xB7 OpenGL");
   }
+  {  // NW.js (Look Outside, RPG Maker MZ) is refused: Chromium can't start on the console.
+    const auto root = fresh();
+    WritePe(root / "Game.exe", {true, {"nw.dll", "KERNEL32.dll"}});
+    WritePe(root / "nw.dll", {true, {"dxgi.dll", "KERNEL32.dll"}});
+    const auto defaults = DefaultsFor(ProbeGame(root.string(), "Game.exe"));
+    CHECK(defaults.refusal.find("NW.js") != std::string::npos && defaults.summary.rfind("nwjs,", 0) == 0);
+  }
   {  // An Unreal root program is replaced by its Shipping program, which starts in its own folder.
     const auto root = fresh();
     WritePe(root / "Game.exe", {true, {"KERNEL32.dll"}});

@@ -9,7 +9,7 @@ namespace playden::runtime {
 // bounded: symbolic links are never followed, folders are walked a few levels deep and at
 // most kProbeScanBytes of a program are scanned.
 struct GameProbe {
-  std::string engine;  // "unity", "unreal", "source", "gamemaker", "godot", "love", or empty
+  std::string engine;  // "unity", "unreal", "source", "gamemaker", "godot", "love", "nwjs", or empty
   bool il2cpp = false;  // Unity with GameAssembly.dll
   bool legacy_unity = false;  // Unity before 2017.2: the player is built into the program
   // Graphics libraries the program or its engine imports or names: "d3d8", "d3d9", "d3d10",
