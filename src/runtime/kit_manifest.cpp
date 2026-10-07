@@ -1,4 +1,5 @@
 #include "runtime/kit_manifest.h"
+#include "runtime/game_settings.h"
 
 #include "steam/backend/json.h"
 
@@ -505,6 +506,9 @@ class Verifier {
 
   std::optional<KitManifestResult> ValidateVariants(const Json& variants) {
     std::set<std::string> ids, titles;
+    bool any_title_seen = false;
+    const bool any_title_capability = std::find(result_.capabilities.begin(), result_.capabilities.end(),
+                                                kKitTitleAnyId) != result_.capabilities.end();
     for (const auto& variant : variants.array()) {
       if (!variant.is_object()) return Failure(KitManifestStatus::kMalformed, "variant is not an object");
       const auto* id = Field(variant, "id", Json::Type::kString);
@@ -538,10 +542,40 @@ class Verifier {
       const auto* reported_helper = Field(*helper_doc, "elf_sha256", Json::Type::kString);
       const auto* reported_protocol = Field(*helper_doc, "protocol_sha256", Json::Type::kString);
       const auto* features = Field(*helper_doc, "features", Json::Type::kArray);
-      bool retry = false;
-      if (features) for (const auto& feature : features->array()) retry |= feature.is_string() && feature.text() == "root_layout_probe_retry";
+      bool retry = false, rule_feature = false;
+      if (features)
+        for (const auto& feature : features->array()) {
+          retry |= feature.is_string() && feature.text() == "root_layout_probe_retry";
+          rule_feature |= feature.is_string() && feature.text() == "title_rule";
+        }
+      // One shell for every game: its helper serves FAKE78xxx titles listed in Playden's
+      // root-owned allow-list, and the shell says it was built for that rule.
+      const auto* any_title = variant.Find("any_title");
+      if (any_title && any_title->type() != Json::Type::kBool)
+        return Failure(KitManifestStatus::kMalformed, "variant any_title is not a boolean");
+      const bool is_any = any_title && any_title->boolean();
+      std::string expected_target = title->text();
+      if (is_any) {
+        const auto* rule = Field(*helper_doc, "title_rule", Json::Type::kObject);
+        const auto* prefix = rule ? Field(*rule, "prefix", Json::Type::kString) : nullptr;
+        const auto* allow_list = rule ? Field(*rule, "allow_list", Json::Type::kString) : nullptr;
+        const auto* build_any = Field(*build, "any_title", Json::Type::kBool);
+        const auto* build_rule = Field(*build, "title_rule", Json::Type::kObject);
+        const auto* build_prefix = build_rule ? Field(*build_rule, "prefix", Json::Type::kString) : nullptr;
+        const auto* build_list = build_rule ? Field(*build_rule, "allow_list", Json::Type::kString) : nullptr;
+        if (any_title_seen || !any_title_capability || !rule_feature || !prefix ||
+            prefix->text() != kTitleRulePrefix || !allow_list || allow_list->text() != kTitleRuleAllowList ||
+            !build_any || !build_any->boolean() || !build_prefix || build_prefix->text() != prefix->text() ||
+            !build_list || build_list->text() != allow_list->text())
+          return Failure(KitManifestStatus::kIntegrityFailure,
+                         "the any-title variant lacks its capability or Playden's title rule");
+        any_title_seen = true;
+        expected_target = prefix->text() + "*";
+      } else if (build->Find("any_title") != nullptr) {
+        return Failure(KitManifestStatus::kIntegrityFailure, "an any-title shell is listed as a fixed title");
+      }
       const auto* parameter_title = Field(*parameter, "titleId", Json::Type::kString);
-      if (!mode || mode->text() != "elf-helper" || !target || target->text() != title->text() ||
+      if (!mode || mode->text() != "elf-helper" || !target || target->text() != expected_target ||
           !reported_helper || reported_helper->text() != *helper_hash || !reported_protocol || reported_protocol->text() != *protocol_hash ||
           !retry || !parameter_title || parameter_title->text() != title->text())
         return Failure(KitManifestStatus::kIntegrityFailure, "helper manifest or title metadata is inconsistent");
@@ -568,8 +602,10 @@ class Verifier {
                          "native title does not match the trusted publication guard/provider contract");
       }
       result_.available_variant_ids.push_back(id->text());
-      view_.variants.push_back({id->text(), title->text(), path->text()});
+      view_.variants.push_back({id->text(), title->text(), path->text(), is_any});
     }
+    if (any_title_capability && !any_title_seen)
+      return Failure(KitManifestStatus::kIntegrityFailure, "the title-any-id capability has no any-title variant");
     return std::nullopt;
   }
 

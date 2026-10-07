@@ -97,6 +97,10 @@ struct RuntimeHostConfig {
   // only; bounded). The nonce ties its answer to this request. Empty disables
   // removal of PS5 titles.
   std::function<TitleRemoverResult(const std::string& title_id, const std::string& nonce)> unregister_title;
+  // Replaces the root-owned allow-list (runtime::kTitleRuleAllowList) that a kit's any-title
+  // helper reads with these bytes: one title ID per line (worker only). Empty: a kit with one
+  // shell for every game can't prepare games.
+  std::function<bool(const std::string& contents, std::string* error)> write_title_allow_list;
   // How long removal waits for the console to drop an unregistered title.
   int removal_confirm_polls = 30;
   std::chrono::milliseconds removal_poll_interval{1000};
@@ -265,6 +269,9 @@ class RuntimeHost {
   std::string RestoreKeptSaves(Composition& composition, std::uint32_t app_id);
   std::string DeleteKept(Composition& composition, std::uint32_t app_id);
   void PublishKeptBottles(const Composition& composition);
+  // With an any-title kit, lists every recorded game title in the helper's allow-list so their
+  // titles may start; empty on success (or with no such kit), otherwise why not.
+  std::string SyncTitleAllowList(Composition& composition);
   std::filesystem::path HostPath(const std::string& console_path) const;
   std::optional<std::string> InstalledTitleName(const runtime::RuntimeInstall& record) const;
   bool TitleNameCurrent(const runtime::RuntimeInstall& record) const;

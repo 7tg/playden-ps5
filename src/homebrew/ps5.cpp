@@ -13,6 +13,7 @@
 #include "runtime/settings_storage.h"
 #include "homebrew/runtime_host.hpp"
 #include "homebrew/title_icon.hpp"
+#include "platform/ps5/title_allow_list.h"
 #include "platform/ps5/console_services.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/kit_admission.h"
@@ -343,6 +344,8 @@ int main() {
                                             (generic_icon ? " uses the generic icon: no cover" : " has no cover or generic icon"));
                 return generic_icon;
             };
+            // An any-title kit's helper serves the game titles listed here (root-owned).
+            config.write_title_allow_list = playden::ps5::WriteTitleAllowList;
             // Play: start a prepared title with its session argument. LncUtil is
             // resolved through the system service module (its static imports are null).
             config.launch_title = [](const std::string& title, const std::vector<std::string>& arguments) {

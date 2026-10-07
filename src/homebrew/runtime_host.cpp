@@ -780,9 +780,7 @@ rt::PackageActionResult RuntimeHost::WriteTitleMetadata(Composition& c, const rt
     return rt::PackageActionResult{rt::PackageActionState::kFailed, "title-metadata", std::move(message)};
   };
   if (!c.kit) return failed("No verified compatibility kit is installed.");
-  const rt::KitTitleVariant* variant = nullptr;
-  for (const auto& candidate : c.kit->view.variants)
-    if (candidate.title_id == record.title_id) variant = &candidate;
+  const rt::KitTitleVariant* variant = rt::KitVariantFor(c.kit->view, record.title_id);
   if (!variant) return failed("The kit has no title for this game.");
   // The kit's param.json with the game's name in place of the kit's.
   std::string param;
@@ -795,21 +793,28 @@ rt::PackageActionResult RuntimeHost::WriteTitleMetadata(Composition& c, const rt
       param.append(chunk, static_cast<std::size_t>(count));
     close(fd);
   }
-  // The single "titleName": "<value>" entry; any other layout keeps the kit's name.
+  // Replaces the value of the single "<key>": "<value>" entry; false for any other layout.
+  const auto replace_value = [&param](std::string_view key, const std::string& value) {
+    const std::string quoted = "\"" + std::string(key) + "\"";
+    const auto at = param.find(quoted);
+    if (at == std::string::npos || param.find(quoted, at + quoted.size()) != std::string::npos) return false;
+    auto cursor = param.find_first_not_of(" \t\r\n", at + quoted.size());
+    if (cursor == std::string::npos || param[cursor] != ':') return false;
+    cursor = param.find_first_not_of(" \t\r\n", cursor + 1);
+    if (cursor == std::string::npos || param[cursor] != '"') return false;
+    const auto end = param.find('"', cursor + 1);
+    if (end == std::string::npos) return false;
+    param.replace(cursor + 1, end - cursor - 1, value);
+    return true;
+  };
+  // The any-title shell is one title for every game: each copy gets its own title ID.
+  if (variant->any_title &&
+      !(replace_value("titleId", record.title_id) && replace_value("conceptId", record.title_id.substr(4)) &&
+        replace_value("contentId", "UP9000-" + record.title_id + "_00-PROSPEROWIN00001")))
+    return failed("The kit's title parameters have an unexpected layout.");
   const std::string name = title_name.empty() ? "Steam game " + std::to_string(record.app_id) : title_name;
-  static constexpr std::string_view key = "\"titleName\"";
-  const auto at = param.find(key);
-  std::size_t start = std::string::npos, end = std::string::npos;
-  if (at != std::string::npos && param.find(key, at + key.size()) == std::string::npos) {
-    auto cursor = param.find_first_not_of(" \t\r\n", at + key.size());
-    if (cursor != std::string::npos && param[cursor] == ':') cursor = param.find_first_not_of(" \t\r\n", cursor + 1);
-    if (cursor != std::string::npos && param[cursor] == '"') {
-      start = cursor + 1;
-      end = param.find('"', start);
-    }
-  }
-  if (end != std::string::npos) param.replace(start, end - start, JsonEscaped(name));
-  else Log("title metadata app=" + std::to_string(record.app_id) + " keeps the kit's name: unexpected layout");
+  if (!replace_value("titleName", JsonEscaped(name)))
+    Log("title metadata app=" + std::to_string(record.app_id) + " keeps the kit's name: unexpected layout");
   const auto icon = config_.title_icon ? config_.title_icon(record.app_id) : std::nullopt;
   Log("title metadata app=" + std::to_string(record.app_id) + " name=" + name + " icon=" +
       (icon ? std::to_string(icon->size()) + "B" : std::string("kit")));
@@ -1052,10 +1057,23 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     reserve.launch_working_directory = launch.working_directory;
     reserve.install_path = request.install_path;
     reserve.volume_id = request.volume_id;
-    for (const auto& variant : c.kit->view.variants) reserve.kit_title_variants.push_back(variant.title_id);
+    bool any_title = false;
+    for (const auto& variant : c.kit->view.variants) {
+      if (!variant.any_title) reserve.kit_title_variants.push_back(variant.title_id);
+      any_title |= variant.any_title;
+    }
+    // One shell for every game: the lowest free title in the range, after any fixed ones.
+    if (any_title)
+      for (int number = 1; number <= 999; ++number) {
+        char title[16];
+        std::snprintf(title, sizeof(title), "%s%03d", rt::kTitleRulePrefix, number);
+        if (rt::KitVariantFor(c.kit->view, title)) reserve.kit_title_variants.push_back(title);
+      }
     auto reserved = c.repository.Reserve(reserve);
     if (!reserved.ok()) return "A PS5 title could not be reserved: " + reserved.message();
     auto record = reserved.value();
+    // Before the title exists: it may only start once its helper lists it.
+    if (const auto listed = SyncTitleAllowList(c); !listed.empty()) return listed;
     record.artifacts.clear();
     for (const auto& artifact : c.kit->view.artifacts)
       record.artifacts.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
@@ -1275,6 +1293,25 @@ std::filesystem::path RuntimeHost::HostPath(const std::string& console_path) con
       : config_.host_namespace_prefix / std::filesystem::path(console_path).relative_path();
 }
 
+std::string RuntimeHost::SyncTitleAllowList(Composition& c) {
+  if (!c.kit || std::none_of(c.kit->view.variants.begin(), c.kit->view.variants.end(),
+                             [](const rt::KitTitleVariant& variant) { return variant.any_title; }))
+    return {};
+  if (!config_.write_title_allow_list) return "This console can't let new PS5 titles start.";
+  std::set<std::string> titles;
+  for (const auto& record : c.repository.Snapshot())
+    if (rt::KitVariantFor(c.kit->view, record.title_id)) titles.insert(record.title_id);
+  std::string contents;
+  for (const auto& title : titles) contents += title + "\n";
+  std::string error;
+  if (!config_.write_title_allow_list(contents, &error)) {
+    Log("title allow-list write failed titles=" + std::to_string(titles.size()) + " error=" + error);
+    return "The list of PS5 titles allowed to start could not be written: " + error;
+  }
+  Log("title allow-list titles=" + std::to_string(titles.size()));
+  return {};
+}
+
 bool RuntimeHost::TitleListed(Composition& c, const std::string& title_id) {
   if (c.coordinator->Inventory(title_id) != rt::TitleAvailability::kFree) return true;
   struct stat info{};
@@ -1458,6 +1495,8 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
                                                                                : rt::TitleAvailability::kOccupied;
   const auto erased = c.repository.EraseAfterUnregister(record.install_id, confirmed);
   if (!erased.ok()) return fail("erase", "The removal could not be completed: " + erased.message());
+  // The title is gone; a stale entry would only let a later title with its ID start early.
+  if (const auto listed = SyncTitleAllowList(c); !listed.empty()) Log("remove allow-list: " + listed);
   // A generated recipe is made again from Steam's launch options on the next prepare.
   if (rt::IsGeneratedRecipeId(record.recipe_id)) {
     c.storage.Remove(GeneratedRecipeFile(record.recipe_id));
@@ -1594,6 +1633,7 @@ void RuntimeHost::Run() {
         }
       }
       Log("startup trash emptied");
+      if (const auto listed = SyncTitleAllowList(c); !listed.empty()) Log("startup allow-list: " + listed);
       if (c.kit)
         for (const auto& record : c.repository.Snapshot())
           if (record.state == rt::PreparationState::kReady) {

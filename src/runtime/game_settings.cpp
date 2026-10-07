@@ -1585,6 +1585,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.input_wheel = has(kKitInputWheel);
   kit.audio_volume = has(kKitAudioVolume);
   kit.shared_sections = has(kKitSharedSections);
+  kit.title_any_id = has(kKitTitleAnyId);
   kit.registry = bottle_access;
   return kit;
 }

@@ -12,6 +12,7 @@ KitAdmissionConfig DevelopmentKitAdmission(const std::string& current_firmware) 
   config.current_firmware = current_firmware;
   // The publication guard capability stays unused until native qualification.
   config.known_capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386", kKitSharedSections,
+                                kKitTitleAnyId,
                                 kKitAudioVolume, kKitDxvkConfig, kKitDxvkPresent, kKitInputTuning,
                                 kKitInputWheel, kKitEnvironment};
   std::sort(config.known_capabilities.begin(), config.known_capabilities.end());

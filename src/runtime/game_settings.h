@@ -35,6 +35,7 @@ struct KitCapabilities {
   bool input_wheel = false;   // prospero-win [input] wheel, with Wine patch 0745 (U4, not built yet)
   bool audio_volume = false;  // prospero-win [audio] volume (U4, not released)
   bool shared_sections = false;  // Wine maps unaligned shared PE sections as private copies (patch 0602)
+  bool title_any_id = false;     // one title shell for every game; no fixed set of titles
 };
 
 struct SettingChoice {
@@ -244,6 +245,9 @@ inline constexpr const char* kKitInputWheel = "settings-input-wheel";        // 
 inline constexpr const char* kKitAudioVolume = "settings-audio-volume";      // [audio] volume
 // Runtime ability (not a setting): games with a shared section, such as GameMaker's, can start.
 inline constexpr const char* kKitSharedSections = "wine-shared-sections";
+// Runtime ability: the kit carries one title shell for every game (an any-title variant), so
+// Playden makes a new PS5 title per game instead of using a fixed set of titles.
+inline constexpr const char* kKitTitleAnyId = "title-any-id";
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the

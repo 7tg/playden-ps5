@@ -290,9 +290,8 @@ bool RemoveTreeNoFollow(const std::string& path) {
 
 std::string OwnerMarker(const RuntimeInstall& record, const VerifiedKitView& kit,
                         const char* kind) {
-  std::string variant_id;
-  for (const auto& variant : kit.variants)
-    if (variant.title_id == record.title_id) variant_id = variant.id;
+  const auto* variant = KitVariantFor(kit, record.title_id);
+  const std::string variant_id = variant ? variant->id : std::string();
   return std::string("schema=1\nkind=") + kind + "\ninstall_id=" + record.install_id +
          "\ntitle_id=" + record.title_id + "\nkit_id=" + kit.kit_id +
          "\nfiles_sha256=" + kit.files_sha256 +
@@ -395,6 +394,16 @@ bool PublicationIdentityMatches(const RuntimeInstall& record,
 
 }  // namespace
 
+const KitTitleVariant* KitVariantFor(const VerifiedKitView& kit, const std::string& title_id) {
+  const KitTitleVariant* any = nullptr;
+  for (const auto& variant : kit.variants) {
+    if (variant.any_title) any = &variant;
+    else if (variant.title_id == title_id) return &variant;
+  }
+  // The any-title shell serves every managed title except its own template ID.
+  return any && IsManagedTitle(title_id) && title_id != any->title_id ? any : nullptr;
+}
+
 FilesystemPackageInstaller::FilesystemPackageInstaller(
     VerifiedKitView kit, PackageInstallPaths paths,
     PackageInstallerOperations operations)
@@ -403,11 +412,7 @@ FilesystemPackageInstaller::FilesystemPackageInstaller(
 
 const KitTitleVariant* FilesystemPackageInstaller::Variant(
     const RuntimeInstall& record) const {
-  const auto found = std::find_if(kit_.variants.begin(), kit_.variants.end(),
-                                  [&](const KitTitleVariant& variant) {
-                                    return variant.title_id == record.title_id;
-                                  });
-  return found == kit_.variants.end() ? nullptr : &*found;
+  return KitVariantFor(kit_, record.title_id);
 }
 
 bool FilesystemPackageInstaller::ValidView() const {
@@ -540,6 +545,9 @@ FilesystemPackageInstaller::TitleMappings(const RuntimeInstall& record) const {
       mapping.owned = std::move(described);
       mapping.source = own;
     }
+    // The any-title shell's own param.json names its template ID: a game title only ever
+    // gets the parameters Playden wrote for it.
+    if (variant->any_title && destination == kTitleMetadataFiles[0] && !mapping.owned) return {};
     mappings.push_back(std::move(mapping));
   }
   return mappings;
@@ -569,6 +577,13 @@ PackageActionResult FilesystemPackageInstaller::WriteTitleMetadata(const Runtime
                                                                    const std::optional<std::string>& icon_png) {
   const auto paths = Resolve(record);
   if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
+  // The parameters name this title, whichever kit title they were made from.
+  const auto parameters = playden::steam::json::Parse(param_json, {64 * 1024, 8, 1024, 64 * 1024});
+  const auto* title = parameters && parameters->is_object()
+                          ? Required(*parameters, "titleId", playden::steam::json::Value::Type::kString)
+                          : nullptr;
+  if (!title || title->text() != record.title_id)
+    return Failed("title-metadata", "the title parameters do not name this title");
   const auto root = TitleMetadataPath(record, {});
   std::string detail;
   if (!EnsurePrivateDirectories(paths_.host_data_root, paths->game, root / "sce_sys", &detail))

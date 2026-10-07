@@ -39,7 +39,14 @@ struct KitTitleVariant {
   std::string id;
   std::string title_id;
   std::string path;
+  // One shell for every game (kit capability title-any-id): title_id is only the template's,
+  // and its title-rule helper serves any FAKE78xxx title listed in kTitleRuleAllowList.
+  bool any_title = false;
 };
+
+// The root-owned allow-list an any-title kit's helper reads, and the range it serves.
+inline constexpr const char* kTitleRuleAllowList = "/data/playden/title-rule/allow-list";
+inline constexpr const char* kTitleRulePrefix = "FAKE78";
 
 enum class ImmutableArtifactLocation { kKit, kStagedTitle };
 struct KitArtifact {
@@ -62,6 +69,9 @@ struct VerifiedKitView {
   std::vector<KitFile> files;
   std::vector<KitArtifact> artifacts;
 };
+
+// The variant a title uses: its own fixed variant, else the kit's any-title variant.
+const KitTitleVariant* KitVariantFor(const VerifiedKitView& kit, const std::string& title_id);
 
 // Canonical paths remain /data/... in RuntimeInstall and descriptors. Tests map
 // that namespace beneath host_data_root without weakening canonical validation.
