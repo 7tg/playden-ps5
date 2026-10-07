@@ -625,6 +625,40 @@ void AnyTitleVariantServesEveryTitle() {
   CHECK(installer.TitleMetadataCurrent(record) && installer.Inspect(record).manifest_matches);
 }
 
+// A game prepared on a fixed kit title moves to the any-title shell when its kit is respun:
+// same title, same bottle, the new shell's files.
+void FixedTitleRefreshesToAnyTitleShell() {
+  Fixture fixture;
+  std::filesystem::create_directories(fixture.host_data);
+  auto record = Record();
+  for (const auto& artifact : fixture.view.artifacts)
+    record.artifacts.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
+  const std::string own = "{\"titleId\": \"FAKE78001\", \"titleName\": \"Half-Life 2\"}\n";
+  {
+    auto installer = fixture.Installer();
+    CHECK(installer.WriteTitleMetadata(record, own, std::nullopt).state == PackageActionState::kComplete);
+    CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+    CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+    CHECK(installer.TitleCurrent(record));
+  }
+  Write(fixture.kit / "titles/variant/eboot.bin", "any-title-shell", 0755);
+  for (auto& file : fixture.view.files)
+    if (file.path == "titles/variant/eboot.bin") {
+      file.size = std::string("any-title-shell").size();
+      file.sha256 = *TestHash(fixture.kit / file.path);
+    }
+  fixture.view.files_sha256 = std::string(64, 'b');
+  fixture.view.variants = {{"any-title", "FAKE78000", "titles/variant", true}};
+  auto respun = fixture.Installer();
+  CHECK(!respun.TitleCurrent(record));
+  const auto refreshed = respun.RefreshTitle(record);
+  if (refreshed.state != PackageActionState::kComplete) std::fprintf(stderr, "refresh: %s %s\n", refreshed.code.c_str(), refreshed.message.c_str());
+  CHECK(refreshed.state == PackageActionState::kComplete);
+  CHECK(respun.TitleCurrent(record));
+  CHECK(Read(fixture.host_data / "homebrew/FAKE78001/eboot.bin") == "any-title-shell");
+  CHECK(Read(fixture.host_data / "homebrew/FAKE78001/sce_sys/param.json") == own);
+}
+
 void PrivateTitleFoldersAreRepublished() {
   Fixture fixture;
   auto installer = fixture.Installer();
@@ -965,6 +999,7 @@ int main() {
   LateSyncFailureIsReestablishedOnRetry();
   PrivateTitleFoldersAreRepublished();
   AnyTitleVariantServesEveryTitle();
+  FixedTitleRefreshesToAnyTitleShell();
   CreatedFoldersIgnoreUmask();
   EmptyUnmarkedStagingIsReclaimed();
   CollisionsTraversalSymlinksAndModesFailClosed();
