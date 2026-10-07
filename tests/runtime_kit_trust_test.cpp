@@ -34,7 +34,8 @@ int main(int argc, char** argv) {
   CHECK(field("manifest_sha256") == trust.manifest_sha256);
   CHECK(field("wrapper_revision") == trust.sources.at("wrapper").at("revision"));
   CHECK(Get(Get(*lock, "prospero_win"), "revision").text() == field("wrapper_revision"));
-  for (const char* title : {"FAKE78001", "FAKE78002"}) {
+  for (const char* title : {"FAKE78001", "FAKE78002", "FAKE78003", "FAKE78004", "FAKE78005", "FAKE78006",
+                            "FAKE78007", "FAKE78008", "FAKE78009", "FAKE78010"}) {
     const auto& pin = Get(Get(kit, "title_pins"), title);
     CHECK(Get(pin, "helper_sha256").text() == trust.title_pins.at(title).helper_sha256);
     CHECK(Get(pin, "protocol_sha256").text() == trust.title_pins.at(title).protocol_sha256);
@@ -52,7 +53,9 @@ int main(int argc, char** argv) {
   if (admitted.status != KitManifestStatus::kVerified) std::fprintf(stderr, "admission: %s\n", admitted.reason.c_str());
   CHECK(admitted.status == KitManifestStatus::kVerified && admitted.view);
   CHECK(admitted.view->kit_id == kDevelopmentKitId);
-  CHECK((admitted.available_variant_ids == std::vector<std::string>{"hl2-fake78001-v1", "hl2-fake78002-v1"}));
+  std::vector<std::string> variants;
+  for (int i = 1; i <= 10; ++i) variants.push_back("hl2-fake780" + std::string(i < 10 ? "0" : "") + std::to_string(i) + "-v1");
+  CHECK(admitted.available_variant_ids == variants);
   // Unknown or other firmware is refused.
   CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitTrust("")).status != KitManifestStatus::kVerified);
   CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitTrust("12.02")).status != KitManifestStatus::kVerified);
