@@ -165,7 +165,8 @@ RuntimeKit AnyTitleKit(const fs::path& kit) {
 // stamped with its own title ID, and its helper's allow-list names it before the title exists.
 // Without a way to write that list nothing is prepared.
 void AnyTitleKitMakesTheGameItsOwnTitle() {
-  for (const bool writer : {false, true}) {
+  for (const int scenario : {0, 1, 2}) {
+    const bool writer = scenario != 0;
     Fixture fixture;
     auto config = fixture.Config();
     config.host_namespace_prefix = fixture.root;
@@ -186,19 +187,26 @@ void AnyTitleKitMakesTheGameItsOwnTitle() {
     config.unix_time = [] { return std::int64_t{1760000000}; };
     std::vector<std::string> lists;
     if (writer)
-      config.write_title_allow_list = [&lists](const std::string& contents, std::string*) {
+      config.write_title_allow_list = [&lists, scenario](const std::string& contents, std::string*) {
         lists.push_back(contents);
-        return true;
+        return scenario != 2 || lists.size() != 2;
       };
     Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
     RuntimeHost host(config);
     CHECK(host.Start());
     CHECK(WaitFor(host, Started).kit_available);
     host.Prepare(Hl2());
-    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
       return !s.preparing_app && (s.refusals.count(220) ||
           (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
     }, 60);
+    if (scenario == 2) {
+      CHECK(done.refusals.count(220));
+      host.Prepare(Hl2());
+      done = WaitFor(host, [](const RuntimeSnapshot& s) {
+        return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+      }, 60);
+    }
     if (!writer) {
       CHECK(done.refusals.count(220) && done.refusals.at(220) == "This console can't let new PS5 titles start.");
       CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001"));
@@ -209,7 +217,7 @@ void AnyTitleKitMakesTheGameItsOwnTitle() {
     CHECK(!done.refusals.count(220) && done.installs.size() == 1);
     CHECK(done.installs[0].state == PreparationState::kReady && done.installs[0].title_id == "FAKE78001");
     // Startup wrote the (empty) list; the reservation listed the new title before staging.
-    CHECK(lists.size() == 2 && lists[0].empty() && lists[1] == "FAKE78001\n");
+    CHECK(lists.size() == (scenario == 2 ? 3u : 2u) && lists[0].empty() && lists.back() == "FAKE78001\n");
     const auto param = Read(fixture.root / "data/homebrew/FAKE78001/sce_sys/param.json");
     CHECK(param.find(R"("titleId": "FAKE78001")") != std::string::npos);
     CHECK(param.find(R"("conceptId": "78001")") != std::string::npos);
@@ -218,6 +226,22 @@ void AnyTitleKitMakesTheGameItsOwnTitle() {
     CHECK(Read(fixture.root / "data/homebrew/FAKE78001/eboot.bin") == "native");
     CHECK(done.installs[0].title_current && done.installs[0].admission == "ok");
     host.Shutdown();
+    std::atomic<bool> list_writable{false};
+    std::atomic<unsigned> retries{0};
+    config.write_title_allow_list = [&](const std::string&, std::string*) { ++retries; return list_writable.load(); };
+    RuntimeHost restarted(config);
+    CHECK(restarted.Start());
+    WaitFor(restarted, Started);
+    restarted.Prepare(Hl2());
+    const auto refused = WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.refusals.count(220); });
+    CHECK(retries >= 2);
+    CHECK(refused.refusals.at(220) != "This game is already prepared.");
+    list_writable = true;
+    restarted.Prepare(Hl2());
+    WaitFor(restarted, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && s.refusals.count(220) && s.refusals.at(220) == "This game is already prepared.";
+    });
+    restarted.Shutdown();
   }
 }
 

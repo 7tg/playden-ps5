@@ -48,9 +48,11 @@ int main(int argc, char** argv) {
   CHECK(admitted.status == KitManifestStatus::kVerified && admitted.view);
   CHECK(admitted.view->kit_id == kDevelopmentKitId);
   CHECK(admitted.manifest_sha256 == config.expected_manifest_sha256 && admitted.ignored_capabilities.empty());
-  std::vector<std::string> variants;
-  for (int i = 1; i <= 10; ++i) variants.push_back("hl2-fake780" + std::string(i < 10 ? "0" : "") + std::to_string(i) + "-v1");
-  CHECK(admitted.available_variant_ids == variants);
+  // Kit C carries one template shell; the installed title chooses its ID at runtime.
+  CHECK(admitted.available_variant_ids ==
+        std::vector<std::string>{"any-title-" + field("wrapper_revision").substr(0, 7)});
+  CHECK(admitted.view->variants.size() == 1 && admitted.view->variants.front().any_title);
+  CHECK(KitVariantFor(*admitted.view, "FAKE78011") == &admitted.view->variants.front());
   // Unknown or other firmware is refused.
   CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitAdmission("")).status != KitManifestStatus::kVerified);
   CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitAdmission("12.02")).status != KitManifestStatus::kVerified);

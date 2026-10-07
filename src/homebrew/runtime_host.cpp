@@ -924,7 +924,25 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       Log("game root mode " + std::string(mode) + " -> 0755 path=" + request.install_path);
     }
   }
+  // Reservations survive a failed allow-list or metadata write. Complete these
+  // prerequisites again before a fresh start, keeping already-bound artifacts.
+  const auto initialize_reserved = [&](rt::RuntimeInstall& record) -> std::string {
+    if (record.artifacts.empty()) {
+      for (const auto& artifact : c.kit->view.artifacts)
+        record.artifacts.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
+      const auto bound = c.repository.Update(record);
+      if (!bound.ok()) return "The kit artifacts could not be recorded: " + bound.message();
+    }
+    if (!c.installer->TitleMetadataCurrent(record)) {
+      const auto written = WriteTitleMetadata(c, record, request.title_name);
+      if (written.state != rt::PackageActionState::kComplete) return written.message;
+    }
+    return {};
+  };
   if (existing) {
+    // Startup may have failed to publish the list. Never install a rule shell
+    // until its durable reservation is admitted by the helper.
+    if (const auto listed = SyncTitleAllowList(c); !listed.empty()) return listed;
     if (existing->state == rt::PreparationState::kReady) {
       if (c.coordinator->Activity(existing->title_id) != rt::NativeActivity::kStopped)
         return "Close the game before updating or repairing its PS5 title.";
@@ -1017,6 +1035,8 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       if (recipe->id != existing->recipe_id || std::to_string(recipe->version) != existing->recipe_version)
         return "This game's setup changed; remove its PS5 title before preparing it again.";
     }
+    if (fresh_start)
+      if (const auto initialized = initialize_reserved(*existing); !initialized.empty()) return initialized;
     if (existing->state == rt::PreparationState::kFailed || existing->state == rt::PreparationState::kUnavailable)
       started = c.service->Retry(existing->install_id);
     else if (existing->state == rt::PreparationState::kDownloaded)
@@ -1063,14 +1083,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     auto record = reserved.value();
     // Before the title exists: it may only start once its helper lists it.
     if (const auto listed = SyncTitleAllowList(c); !listed.empty()) return listed;
-    record.artifacts.clear();
-    for (const auto& artifact : c.kit->view.artifacts)
-      record.artifacts.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
-    const auto bound = c.repository.Update(record);
-    if (!bound.ok()) return "The kit artifacts could not be recorded: " + bound.message();
-    if (const auto written = WriteTitleMetadata(c, record, request.title_name);
-        written.state != rt::PackageActionState::kComplete)
-      return written.message;
+    if (const auto initialized = initialize_reserved(record); !initialized.empty()) return initialized;
     PublishInstalls(c);
     started = c.service->Prepare(record.install_id);
   }
