@@ -268,6 +268,7 @@ void live_install_requests_and_projection() {
           "Install sends one request");
     model.UpdateInstalls({{42, playden::homebrew::JobState::Downloading, 50, 200, {}}}, {});
     check(has_row(model, "details-download") && !has_row(model, "details-install"), "a running job replaces Install");
+    check(model.state().navigation.focus_key == "details-download", "focus follows Install to the download");
     activate(model, "details-download");
     check(model.state().navigation.route == playden::homebrew::Route::Downloads, "the download row opens Downloads");
     activate(model, "job-42");
@@ -773,6 +774,7 @@ void live_settings_focus_stays_near_a_removed_row() {
     check(!has_row(model, "settings-runtime-cleanup"), "the cleaned row is gone");
     check(focused.section == "Library" && !focused.rail_only && !model.state().navigation.settings_rail_focused,
           "focus moves to the nearest row in the same section, not the rail");
+    check(focused.enabled, "a row that can be chosen is preferred");
 }
 
 void preparation_steps_read_as_player_words() {

@@ -2558,6 +2558,14 @@ void Simulation::rebuild_view() {
         if (!has("details-checking") && !awaiting_play) details_primary_pending_ = false;
     }
     auto focused = std::find_if(view_.rows.begin(), view_.rows.end(), [this](const ViewRow& item) { return item.key == state_.navigation.focus_key; });
+    // Details: Install becomes Download, and Download becomes Play; focus follows the primary action.
+    if (focused == view_.rows.end() && !has_overlay && state_.navigation.route == Route::Details &&
+        (state_.navigation.focus_key == "details-install" || state_.navigation.focus_key == "details-download")) {
+        focused = std::find_if(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) {
+            return item.key == "details-install" || item.key == "details-download" || item.key == "details-play";
+        });
+        if (focused != view_.rows.end()) state_.navigation.focus_key = focused->key;
+    }
     // Settings: the focused row went away (a dialog deleted it, or its data changed). Focus
     // the nearest row left in the same section, never the rail-only Quit entry.
     if (focused == view_.rows.end() && !has_overlay && state_.navigation.route == Route::Settings &&
@@ -2566,12 +2574,17 @@ void Simulation::rebuild_view() {
         const int last = static_cast<int>(view_.rows.size()) - 1;
         const int origin = std::clamp(settings_focus_index_, 0, last);
         int best = -1;
-        for (int distance = 0; distance <= last && best < 0; ++distance)
-            for (const int candidate : {origin - distance, origin + distance}) {
-                if (candidate < 0 || candidate > last) continue;
-                const auto& item = view_.rows[static_cast<std::size_t>(candidate)];
-                if (item.section == settings_focus_section_ && !item.rail_only) { best = candidate; break; }
-            }
+        // A row that can be chosen first, then any row of the same section.
+        for (const bool need_enabled : {true, false})
+            for (int distance = 0; distance <= last && best < 0; ++distance)
+                for (const int candidate : {origin - distance, origin + distance}) {
+                    if (candidate < 0 || candidate > last) continue;
+                    const auto& item = view_.rows[static_cast<std::size_t>(candidate)];
+                    if (item.section == settings_focus_section_ && !item.rail_only && (item.enabled || !need_enabled)) {
+                        best = candidate;
+                        break;
+                    }
+                }
         for (int distance = 0; distance <= last && best < 0; ++distance)
             for (const int candidate : {origin - distance, origin + distance})
                 if (candidate >= 0 && candidate <= last && !view_.rows[static_cast<std::size_t>(candidate)].rail_only) { best = candidate; break; }
