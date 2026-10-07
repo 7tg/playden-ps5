@@ -2,6 +2,20 @@
 
 Plan: [title shells on device](../../docs/superpowers/plans/2026-10-07-title-shells-on-device.md). FW 13.60, console 10.0.1.68.
 
+## Final outcome — completed 2026-10-08 Europe/Berlin
+
+Kit C on fixed kit B passed the accepted console checks. Half-Life 2, Super Meat Boy, Pizza Tower and Hexcells
+launch from Home using one any-title shell. Hexcells reached **FAKE78011**, then reused the lowest free
+**FAKE78005** after cleanup and a console-discovered ShadowMount tombstone fix. The final action started
+Hexcells from Home successfully; it was left running when the console was released.
+
+140 (01) and Look Outside (06) retain their original executable/helper/metadata hashes. All dummy/probe titles
+and scratch folders are gone; exactly six real FAKE78 titles remain. Kit backups were preserved. **Option A
+retains root recovery by game code**; the allow-list is not isolation. No pushes, PRs or merge commits.
+
+See the [resumed acceptance](#resumed-acceptance-fixed-kit-b-and-option-a-2026-10-07) below for current kit hashes,
+source revisions, tests and evidence. Earlier stopped kit-A/drop experiments are historical.
+
 ## Step 0: console probes (21:17–21:35)
 
 Probe shell: prospero-win `feat/title-shells` 665f84b, built with `PW_TITLE_PROBE=1 PW_TITLE_ID=FAKE78090`. At startup it
@@ -169,3 +183,126 @@ runtime, template and recipe with the one any-title variant. It ran on the Mac; 
 
 Open decision: how to keep game code from regaining root after the grant (see the report), and whether kit C ships
 without the drop until then.
+
+## Resumed acceptance: fixed kit B and option A (2026-10-07)
+
+The earlier kit-A and stopped-acceptance sections above are historical. This run uses fixed kit B
+`build/kit-b-25a967d` plus the any-title shell. All five PS5 MCP tools were present, and the console was claimed.
+
+### Option B rejected by console evidence
+
+- [Probe 6](probe-logs/6-helper-drop-root.txt): the exact FAKE78090 drop helper completed, but the shell
+  rejected the grant (`credential_errno=1`); `root-write seteuid=0 … file_uid=0`.
+- [Helper log](probe-logs/6-helper-drop-ps5log.txt): `root_dropped … uid=1 ruid=1 svuid=1 kept_authority=1`.
+  Thus the helper really wrote and verified the UIDs; retaining Sony privileges still permitted root recovery.
+- [Probe 7](probe-logs/7-original-authority.txt): restoring all original Sony credentials blocked
+  `seteuid(0)` (`errno=1`), but `/data/homebrew` could not be opened (`errno=1`).
+- [Probe 8](probe-logs/8-original-caps.txt): restoring just the original capabilities, retaining grant authid
+  and attributes, produced the same denial. `data_after=1` only proves the `/data` stat, not useful file access.
+- These are bounded probe-only experiments, not a complete mapping of firmware capabilities. The specified
+  option B cannot meet its gate; the authorized option A fallback is used. Games retain the existing ability
+  to regain root. The allow-list does not isolate running game code. No claim of a secure drop is made.
+- FAKE78090 was removed from ShadowMountPlus manual sources, uninstalled (`result=00000000`), and deleted.
+  It is absent from `/user/app` and `/data/homebrew`; `/data/title-shell-probe` was removed.
+
+### Build and recovery record
+
+- Lapy `feat/title-rule`: `9adc6b7` reverts the ineffective drop; sources match `66ab4f1`.
+- prospero-win `feat/title-shells`: `850e62c` removes the failing shell drop gate and accepts that helper revision.
+- Kit: `build/kit-c/kit-c-kit-b-850e62c/kit`, 3,551 manifest files, one any-title variant.
+- Manifest SHA-256: `8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97`.
+- Files SHA-256: `c836be09e758c46ef57b17ef58e3cfabc35dcfeb7f7c97edef586beeb0beef29`.
+- Shell SHA-256: `ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14`.
+- Rule helper SHA-256: `17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792`.
+- Runtime/template/recipe come from fixed kit B's spec. Runtime remains `bea2be5`; native WoW64 fallback is
+  inherited from shell base `25a967d`. Reproducible build script: [make-kit-c.sh](make-kit-c.sh), default `BASE=kit-b`.
+- Original Playden backup: `build/console-backups/20261007-title-shells-kit-c-b`.
+- Host: 117/117 after rebase and again after the prospero source pin changed; Lapy 51 Python tests and C
+  title-rule test pass; prospero 46 kit tests, 5 helper tests and title-ID/data-mount tests pass.
+
+For FAKE78011, temporarily occupied FAKE78005 after removing Hexcells as well as 07–10: otherwise
+lowest-free allocation must reuse 05. These were empty directories, without title metadata or registration.
+
+### Existing-title Home launches
+
+Playden updated Pizza Tower (04), Hexcells (05), Super Meat Boy (03), then Half-Life 2 (02).
+All four remained on their original IDs and have identical shell and helper hashes:
+[read-back hashes](console/updated-title-hashes.json). Every native build manifest reports
+`any_title=true`, `source_dirty=false`, and shell revision `850e62c`.
+
+All four started using PS5 MCP `launch`, after closing Playden. Each session log reports its actual
+`FAKE7800x` ID, `source=kernel compiled=FAKE78000`, `origin=home`, and a successful `/data` grant.
+Evidence in [console/](console/): Half-Life 2 and Hexcells menus, Super Meat Boy title screen, Pizza Tower
+animated intro, and session-log excerpts. This is launch acceptance, not an extended gameplay test.
+
+The installed kit B was preserved as `/data/playden/kits/.hl2-fw1360-dev1.retired-c836be09e758`.
+No kit backup was deleted. Upload verified 3,552 files (including manifest) and 119 directories.
+
+The real-kit trust test initially rejected the one-shell kit because it still hardcoded ten variants.
+It now checks the single any-title variant and resolution of FAKE78011; re-running against kit C passes.
+
+### Past ten and recovery checks
+
+- Hexcells was removed with `delete_saves=0`; the UI confirmed retained saves and settings.
+- With empty 05 and 07–10 occupying the lower free slots, preparation allocated **FAKE78011**.
+- After leaving Playden, PS5 Home registered Hexcells as FAKE78011. MCP `launch(FAKE78011)` reached its
+  save-slot menu: [screenshot](console/hexcells-11.jpg), [session](console/hexcells-11-session.log.excerpt.txt).
+  The session reports `id=FAKE78011 source=kernel compiled=FAKE78000`, `origin=home`, successful grant.
+- [Read-back hashes](console/FAKE78011-hashes.json) match the same kit C shell and helper as the four updated games.
+- All five dummy directories were checked empty and removed using FTP RMD only:
+  [cleanup](console/dummy-cleanup.txt). No fake registered titles were used for the occupancy test.
+- [140 and Look Outside verification](console/preserved-games-verified.json): executable, helper and `param.json`
+  exactly match the pre-run hashes. Neither game was updated, removed or launched by this acceptance run.
+- Review found two allow-list write recovery defects. Existing records now re-sync before update/resume;
+  failed reservations finish missing artifact/metadata initialization on retry without replacing bound artifacts.
+  Regression tests cover reservation failure/retry and startup failure/refused update/recovery. Review of the fix
+  found no remaining Important/Critical issues. Final full host suite: **117/117**, 54.98 seconds.
+- Final Playden package includes the recovery and tombstone fixes; deployed with backup
+  `build/console-backups/20261007-title-shells-reuse`. Original pre-task backup remains `...-kit-c-b`.
+
+### Source revisions
+
+| Repository / branch | Verified implementation tip |
+| --- | --- |
+| Playden `feat/title-shells-on-device` | `8e5ba1957f982c4bda6df7a40de4de9295e5215b` (followed by this acceptance-evidence commit) |
+| prospero-win `feat/title-shells` | `850e62c9243c551684dfea5dada7bb2689a9ba4f` |
+| Lapy `feat/title-rule` | `9adc6b72ced860e4630d9c3c53271da094eea291` |
+
+Playden's source submodules are prospero-win `850e62c` and prospero-foundation `98f5582`.
+The separate rule-helper worktree is used by the kit builder; Playden's exact-title helper stays unchanged.
+Final Playden executable SHA-256: `b4174e12854be3f4b56ba8243f7a4a8cd122e1d001aafa498b43497ffa885898`.
+The final Playden branch tip is the commit containing this evidence; its full hash is in the Chauffeur completion report.
+
+### Console-discovered reuse bug
+
+The first attempt after dummy cleanup allocated 07 instead of 05. ShadowMount kept removed 05 and 11 as
+[unmanaged tombstones](console/shadowmount-tombstones.json) (`installed=false`, `managed=false`, `mounted=false`,
+`source_available=false`). Playden treated every such row as a collision. The registry now ignores only this
+explicit tombstone with canonical source/runtime paths and folder type. Missing/malformed flags, other paths/types,
+live rows and duplicates still block reuse. The coordinator still independently requires the title folder absent,
+native database free, and activity stopped. Tests cover all these guards, plus add/scan for a reclaimed tombstone.
+The intermediate 07 preparation was removed through Playden with saves retained. On the corrected build,
+Hexcells re-preparation stamped **FAKE78005**, the lowest free ID:
+[metadata read-back](console/FAKE78005-reused-param.json). Only 01–06 title folders remained.
+
+### Final reuse, Home launch and cleanup
+
+- Playden completed preparation at `2026-10-07T22:07:41Z` and displayed
+  [PS5 title Ready · FAKE78005](console/hexcells-reused-ready.jpg).
+- Closed Playden, then MCP `launch(FAKE78005)` reached the Hexcells save-slot menu:
+  [final screenshot](console/hexcells-05-final.jpg), [final session](console/hexcells-05-final-session.log.excerpt.txt).
+  The log reports `id=FAKE78005 source=kernel compiled=FAKE78000`, `origin=home`, and a successful grant.
+- [Final inventory and hashes](console/final-inventory.json): exactly FAKE78001–FAKE78006 registered and present;
+  updated games 02–05 match kit C, 01/06 match their pre-run bytes, kit C manifest matches the local build.
+- [Runtime acceptance log](console/runtime-acceptance.log) records removals with `delete_saves=0`, preparation
+  and admission checks. [Helper evidence](console/helper-rule.log.excerpt.txt) shows the rule admitted 02–05 and 11.
+- Empty dummies 05/07–10 were removed with RMD, intermediate 07 and 11 were removed through Playden, and probe90
+  was uninstalled. `/data/title-shell-probe` and `/data/title-shell-acceptance` were removed after evidence export.
+  The local ps5log listener was stopped. No kit backups were deleted.
+- Console released successfully after the final Home launch, leaving Hexcells running. No Steam/Playden sign-out.
+- Verification: [117/117 host tests](console/host-tests.txt), [tombstone/coordinator checks](console/reuse-focused-tests.txt),
+  actual kit C admission, PS5 build and verified [deployment](console/playden-deploy.txt). Review found no remaining
+  Important/Critical defects in the recovery and tombstone changes.
+
+This proves launch past the old ten-ID boundary and lowest-free reuse using temporary occupancy, as accepted in
+this handoff. It does not claim twelve concurrently installed real games or extended gameplay coverage.

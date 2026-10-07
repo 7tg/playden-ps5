@@ -1,6 +1,14 @@
 # One PS5 title per game, made on the console
 
-Status: steps 0–4 done, step 5 in progress ([results](../../../results/20261007-title-shells/README.md)). Written 2026-10-07 while kit B builds.
+Status: steps 0–5 done; console acceptance completed 2026-10-08 Europe/Berlin ([results](../../../results/20261007-title-shells/README.md)). Written 2026-10-07 while kit B builds.
+
+- [x] Step 0: identity, helper-rule and Home probes.
+- [x] Step 1: one shell resolves its actual title ID.
+- [x] Step 2: Lapy rule helper; option B disproved, accepted option A exposure documented.
+- [x] Step 3: kit C built on fixed kit B, one any-title variant, verified upload.
+- [x] Step 4: allocation, migration, allow-list recovery and tombstone reuse fixes tested.
+- [x] Step 5: four Home launches, Hexcells at 11, cleanup, lowest-free 05 reused and Home-launched;
+  01/06 unchanged, six real titles ready/preserved, console released, no pushes or merges.
 
 ## Goal
 
@@ -28,8 +36,9 @@ ShadowMountPlus registers any title folder, so registration does not depend on t
   keeps upstream's default PPSA99995 title working. One binary serves every game; nothing is edited per game, so the
   fake-signed SELF never needs re-signing on the console.
 - **Root helper:** accepts a *rule* instead of one ID. The rule: the caller's title ID is in Playden's range
-  (`FAKE78xxx`) **and** listed in an allow-list file that only root can write (written by Playden's own helper, the
-  one embedded in FAKE77031, at preparation). Removal deletes the entry.
+  (`FAKE78xxx`) **and** listed in a root-owned allow-list written by Playden after its own grant.
+  Removal deletes the entry. Under the accepted option A fallback, game code can regain root and alter this file;
+  it is an admission check, not isolation.
 - **Kit:** one variant marked "any ID" plus a capability, e.g. `title-any-id`. Old kits keep the ten fixed variants;
   Playden supports both.
 - **Playden:** when the kit has `title-any-id`, `Reserve` allocates the next unused ID in the range instead of a free
@@ -88,19 +97,27 @@ small file next to the shell, and the shell finds it through the sandbox listing
 - Preparation: copy the shell, stamp `param.json` and icon (extend `WriteTitleMetadata`), add the allow-list entry
   through Playden's helper, register. Removal: unregister, delete the folder, drop the allow-list entry.
 - Host tests: allocation, reuse after removal, mixed records from old fixed slots, refusal when the kit lacks the
-  capability, and crash safety (an ID reserved but not registered is reclaimed on startup).
+  capability, and crash safety (an unfinished reservation survives startup and is resumed explicitly).
 
-## Step 5: console acceptance
+## Step 5: console acceptance — done
 
-- With the new kit: prepare 12 or more games (more than ten), all on PS5 Home, start several from Home.
+- Accepted bounded replacement for 12 installed games: occupy lower slots with empty folders, prepare Hexcells as
+  FAKE78011, and start it from Home. This proves allocation and launch past ten, not twelve concurrent real games.
 - Remove a few, prepare new ones, and check the IDs are reused without leftovers.
-- Recheck Half-Life 2, Super Meat Boy, Hexcells and Pizza Tower on their existing FAKE78001–FAKE78005 titles.
+- Recheck Half-Life 2, Super Meat Boy, Hexcells and Pizza Tower on their existing FAKE78002–FAKE78005 titles; preserve 140 (01) and Look Outside (06).
 
 ## Risks
 
 - **The shell can't learn its ID in the app sandbox:** probe 1, with the fallback above.
-- **Helper security:** a rule is looser than one exact ID. It's bounded by the root-owned allow-list, and only Playden's
-  title can add entries. Review this before it ships.
+- **Helper security — option A fallback on FW 13.60:** the console disproved the proposed UID drop: the helper
+  re-read uid/ruid/svuid=1, yet `seteuid(0)` still succeeded with elevated Sony capabilities. Restoring original
+  capabilities denied root recovery but also denied `/data/homebrew` access. Kit C therefore retains the existing
+  per-game root exposure. The root-owned allow-list is an admission check, **not isolation from game code**:
+  a running game can regain root and alter it. A safe reduced-capability grant remains unproven; do not describe
+  the rule as writable only by Playden. See results probe logs 6–8.
+- **ShadowMount removal tombstones:** console reuse exposed explicit uninstalled/unmanaged/unmounted/unavailable rows
+  blocking reclaimed IDs. Ignore only canonical folder tombstones; all live/ambiguous rows still block allocation,
+  and folder/native database/activity checks remain mandatory. Regression tests cover these guards.
 - **PS5 Home limits:** probe 4.
 - **Upstream:** the shell change and helper rule mode are general; propose them upstream with probe evidence.
 

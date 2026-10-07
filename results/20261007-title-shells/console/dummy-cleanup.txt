@@ -1,0 +1,5 @@
+/data/homebrew/FAKE78005: empty; 250 Directory removed.
+/data/homebrew/FAKE78007: empty; 250 Directory removed.
+/data/homebrew/FAKE78008: empty; 250 Directory removed.
+/data/homebrew/FAKE78009: empty; 250 Directory removed.
+/data/homebrew/FAKE78010: empty; 250 Directory removed.

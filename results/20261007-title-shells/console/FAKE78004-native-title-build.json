@@ -1,0 +1,15 @@
+{
+  "any_title": true,
+  "eboot_sha256": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+  "managed_descriptor_required": true,
+  "managed_publication_guard": "playden-publication-guard-v1",
+  "publication_provider_sha256": "f14d5e3ecb31951e3cf5bfdc41972181a9be1d96ed0dc7cb3aeebb8e4aab844a",
+  "schema": "prospero-win-native-title/1",
+  "source_dirty": false,
+  "source_revision": "850e62c9243c551684dfea5dada7bb2689a9ba4f",
+  "title_id": "FAKE78000",
+  "title_rule": {
+    "allow_list": "/data/playden/title-rule/allow-list",
+    "prefix": "FAKE78"
+  }
+}

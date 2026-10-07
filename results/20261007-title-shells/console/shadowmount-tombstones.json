@@ -1,0 +1,40 @@
+[
+  {
+    "path": "/data/homebrew/FAKE78005",
+    "runtime_path": "/data/homebrew/FAKE78005",
+    "source_type": "folder",
+    "image_type": "",
+    "platform": "unknown",
+    "title_id": "FAKE78005",
+    "content_id": "",
+    "title_name": "Hexcells (Steam)",
+    "last_access_time": "",
+    "install_time": "",
+    "icon_url": "",
+    "app_db_size_bytes": 0,
+    "installed": false,
+    "managed": false,
+    "mounted": false,
+    "image_backed": false,
+    "source_available": false
+  },
+  {
+    "path": "/data/homebrew/FAKE78011",
+    "runtime_path": "/data/homebrew/FAKE78011",
+    "source_type": "folder",
+    "image_type": "",
+    "platform": "unknown",
+    "title_id": "FAKE78011",
+    "content_id": "",
+    "title_name": "Hexcells (Steam)",
+    "last_access_time": "",
+    "install_time": "",
+    "icon_url": "",
+    "app_db_size_bytes": 0,
+    "installed": false,
+    "managed": false,
+    "mounted": false,
+    "image_backed": false,
+    "source_available": false
+  }
+]

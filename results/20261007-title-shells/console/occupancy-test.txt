@@ -1,0 +1,6 @@
+Created empty directories only, with no title metadata or registration:
+FAKE78007
+FAKE78008
+FAKE78009
+FAKE78010
+After Hexcells removal completed with delete_saves=0, created empty FAKE78005 to hold its old slot.

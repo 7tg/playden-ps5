@@ -1,0 +1,10 @@
+Internal ctest changing into directory: /Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-title-shells-on-device/build/homebrew-host
+Test project /Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-title-shells-on-device/build/homebrew-host
+    Start 27: native_coordinator
+1/2 Test #27: native_coordinator ...............   Passed    0.24 sec
+    Start 84: title_registry
+2/2 Test #84: title_registry ...................   Passed    0.21 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.45 sec

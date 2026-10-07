@@ -1,0 +1,4 @@
+2026-10-07T22:08:28.696004+00:00
+PS5 MCP release_console returned: released
+Final foreground application: Hexcells FAKE78005, launched by this session from Home.
+Scratch /data/title-shell-probe and /data/title-shell-acceptance removed before release.

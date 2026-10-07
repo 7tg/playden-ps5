@@ -1,0 +1,15 @@
+PW_REPORT/1 build=850e62c9243c551684dfea5dada7bb2689a9ba4f profile=playden-steam-265890 cycle=0 pid=447 time=1791410886
+REC seq=1 t=21913.616060797 PW_WINE64 title id=FAKE78005 source=kernel compiled=FAKE78000
+REC seq=4 t=21915.150807264 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 credential_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/download0/prospero-win
+REC seq=6 t=21915.204927211 PW_WINE64 session id=d3e2b706-8b13-4866-86ae-ea1f365bd2d6 origin=home phase=starting
+REC seq=10 t=21915.205031132 PW_WINE64 native_cpu supported=0 status=0 fingerprint=dc088297572186a79f13c8e227026d0d00000000 segments=4[+0/0x48000/4,+0x48000/0x20000/1,+0x68000/0x4000/1,+0x6c000/0x38000/3] sigaction=+0xc3f0 sysarch=+0xde0
+REC seq=11 t=21915.205034099 PW_WINE64 cpu=translator prefix_cpu=-2
+REC seq=584 t=21916.253237083 PW_WINE64 alive tick=60 sink_calls=484 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=1 vk_busy=0 cpu_ms=3245 audio=0 audible=0
+REC seq=685 t=21917.273112002 PW_WINE64 alive tick=120 sink_calls=581 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=4945 audio=168 audible=0
+REC seq=765 t=21918.276383166 PW_WINE64 alive tick=180 sink_calls=652 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=21 vk_busy=0 cpu_ms=5937 audio=356 audible=37
+REC seq=767 t=21919.001142299 PW_WINE64 session id=d3e2b706-8b13-4866-86ae-ea1f365bd2d6 phase=running evidence=graphics status=0
+REC seq=768 t=21919.259970333 PW_WINE64 alive tick=240 sink_calls=652 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=21 vk_busy=0 cpu_ms=6530 audio=541 audible=222
+REC seq=769 t=21920.229521122 PW_WINE64 alive tick=300 sink_calls=652 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=21 vk_busy=0 cpu_ms=7090 audio=723 audible=404
+REC seq=772 t=21921.198955402 PW_WINE64 alive tick=360 sink_calls=652 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=21 vk_busy=0 cpu_ms=7652 audio=904 audible=585
+REC seq=773 t=21922.168108311 PW_WINE64 alive tick=420 sink_calls=652 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=21 vk_busy=0 cpu_ms=8209 audio=1086 audible=767
+REC seq=774 t=21923.137385829 PW_WINE64 alive tick=480 sink_calls=652 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=21 vk_busy=0 cpu_ms=8761 audio=1268 audible=949

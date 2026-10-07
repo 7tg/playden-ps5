@@ -1,0 +1,3 @@
+deployed eboot.bin b4174e12854b 755
+deployed playden-package.identity 19e3fa25d1ba 644
+2 files changed; backup in build/console-backups/20261007-title-shells-reuse

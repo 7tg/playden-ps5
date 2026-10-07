@@ -1,0 +1,16 @@
+uploaded 250/3552
+uploaded 500/3552
+uploaded 750/3552
+uploaded 1000/3552
+uploaded 1250/3552
+uploaded 1500/3552
+uploaded 1750/3552
+uploaded 2000/3552
+uploaded 2250/3552
+uploaded 2500/3552
+uploaded 2750/3552
+uploaded 3000/3552
+uploaded 3250/3552
+uploaded 3500/3552
+moved previous kit aside to /data/playden/kits/.hl2-fw1360-dev1.retired-c836be09e758
+verified 3552 files and 119 directories; installed /data/playden/kits/hl2-fw1360-dev1

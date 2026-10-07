@@ -1,0 +1,18 @@
+PW_REPORT/1 build=850e62c9243c551684dfea5dada7bb2689a9ba4f profile=playden-steam-2231450 cycle=0 pid=395 time=1791408898
+REC seq=1 t=19925.491027431 PW_WINE64 title id=FAKE78004 source=kernel compiled=FAKE78000
+REC seq=4 t=19927.068123027 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 credential_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/download0/prospero-win
+REC seq=6 t=19927.211086816 PW_WINE64 session id=349b9f3a-88de-48ab-8572-9d76b9763a7e origin=home phase=starting
+REC seq=10 t=19927.211182237 PW_WINE64 cpu=translator prefix_cpu=-2
+REC seq=134 t=19928.243877923 PW_WINE64 alive tick=60 sink_calls=59 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=2698 audio=0 audible=0
+REC seq=228 t=19929.243231227 PW_WINE64 alive tick=120 sink_calls=130 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=5208 audio=0 audible=0
+REC seq=500 t=19930.278822408 PW_WINE64 alive tick=180 sink_calls=385 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=7 vk_busy=0 cpu_ms=8745 audio=89 audible=0
+REC seq=543 t=19931.269800105 PW_WINE64 alive tick=240 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=12 vk_busy=0 cpu_ms=12319 audio=275 audible=0
+REC seq=545 t=19931.675319909 PW_WINE64 session id=349b9f3a-88de-48ab-8572-9d76b9763a7e phase=running evidence=graphics status=0
+REC seq=813 t=20005.941794825 PW_WINE64 alive tick=4860 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=257518 audio=14255 audible=12075
+REC seq=814 t=20006.911069456 PW_WINE64 alive tick=4920 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=260928 audio=14436 audible=12256
+REC seq=815 t=20007.879755927 PW_WINE64 alive tick=4980 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=264334 audio=14618 audible=12438
+REC seq=816 t=20008.848937141 PW_WINE64 alive tick=5040 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=267744 audio=14800 audible=12620
+REC seq=817 t=20009.818219710 PW_WINE64 alive tick=5100 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=271151 audio=14981 audible=12801
+REC seq=820 t=20010.787657759 PW_WINE64 alive tick=5160 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=274547 audio=15163 audible=12983
+REC seq=821 t=20011.756707870 PW_WINE64 alive tick=5220 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=277944 audio=15345 audible=13165
+REC seq=822 t=20012.725506521 PW_WINE64 alive tick=5280 sink_calls=406 frames_put=1 shown=0 rejected=0 last=960x540 inputs=0 refused=0 vk_shown=13 vk_busy=0 cpu_ms=281332 audio=15527 audible=13347

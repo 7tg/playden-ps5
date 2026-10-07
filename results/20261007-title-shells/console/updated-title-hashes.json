@@ -1,0 +1,18 @@
+{
+  "FAKE78002": {
+    "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+    "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+  },
+  "FAKE78003": {
+    "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+    "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+  },
+  "FAKE78004": {
+    "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+    "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+  },
+  "FAKE78005": {
+    "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+    "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+  }
+}

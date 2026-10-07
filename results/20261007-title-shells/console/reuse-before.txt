@@ -1,0 +1,8 @@
+After Hexcells 11 removal, before reinstall:
+FAKE78005: absent from /user/app and /data/homebrew
+FAKE78007: absent from /user/app and /data/homebrew
+FAKE78008: absent from /user/app and /data/homebrew
+FAKE78009: absent from /user/app and /data/homebrew
+FAKE78010: absent from /user/app and /data/homebrew
+FAKE78011: absent from /user/app and /data/homebrew
+FAKE78090: absent from /user/app and /data/homebrew

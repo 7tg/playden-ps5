@@ -1,0 +1,190 @@
+2026-10-07T21:30:03Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-07T21:30:22Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason= manifest=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 expected=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 prospero_win=850e62c9243c551684dfea5dada7bb2689a9ba4f ignored_capabilities=-
+2026-10-07T21:30:22Z startup loading records
+2026-10-07T21:30:22Z startup records loaded installs=6
+2026-10-07T21:30:22Z startup generated recipes loaded
+2026-10-07T21:30:22Z startup installs published
+2026-10-07T21:30:22Z startup kept bottles published
+2026-10-07T21:30:22Z startup trash emptied
+2026-10-07T21:30:22Z title allow-list titles=6
+2026-10-07T21:30:22Z admission check title=FAKE78002 verifying
+2026-10-07T21:30:22Z admission check title=FAKE78002 result=ok
+2026-10-07T21:30:22Z admission check title=FAKE78004 verifying
+2026-10-07T21:30:22Z admission check title=FAKE78004 result=ok
+2026-10-07T21:30:22Z admission check title=FAKE78001 verifying
+2026-10-07T21:30:22Z admission check title=FAKE78001 result=ok
+2026-10-07T21:30:22Z admission check title=FAKE78005 verifying
+2026-10-07T21:30:22Z admission check title=FAKE78005 result=ok
+2026-10-07T21:30:22Z admission check title=FAKE78006 verifying
+2026-10-07T21:30:22Z admission check title=FAKE78006 result=ok
+2026-10-07T21:30:22Z admission check title=FAKE78003 verifying
+2026-10-07T21:30:22Z admission check title=FAKE78003 result=ok
+2026-10-07T21:30:22Z runtime ready installs=6 kit=hl2-fw1360-dev1
+2026-10-07T21:31:21Z title refresh app=2231450 state=0 code= message=
+2026-10-07T21:31:31Z prepare result app=2231450 ready
+2026-10-07T21:32:10Z title refresh app=265890 state=0 code= message=
+2026-10-07T21:32:25Z prepare result app=265890 ready
+2026-10-07T21:33:09Z title refresh app=40800 state=0 code= message=
+2026-10-07T21:33:29Z prepare result app=40800 ready
+2026-10-07T21:34:15Z title refresh app=220 state=0 code= message=
+2026-10-07T21:34:40Z prepare result app=220 ready
+2026-10-07T21:39:34Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-07T21:39:53Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason= manifest=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 expected=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 prospero_win=850e62c9243c551684dfea5dada7bb2689a9ba4f ignored_capabilities=-
+2026-10-07T21:39:53Z startup loading records
+2026-10-07T21:39:53Z startup records loaded installs=6
+2026-10-07T21:39:53Z startup generated recipes loaded
+2026-10-07T21:39:53Z startup installs published
+2026-10-07T21:39:53Z startup kept bottles published
+2026-10-07T21:39:53Z startup trash emptied
+2026-10-07T21:39:53Z title allow-list titles=6
+2026-10-07T21:39:53Z admission check title=FAKE78002 verifying
+2026-10-07T21:39:53Z admission check title=FAKE78002 result=ok
+2026-10-07T21:39:53Z admission check title=FAKE78004 verifying
+2026-10-07T21:39:53Z admission check title=FAKE78004 result=ok
+2026-10-07T21:39:53Z admission check title=FAKE78001 verifying
+2026-10-07T21:39:53Z admission check title=FAKE78001 result=ok
+2026-10-07T21:39:53Z admission check title=FAKE78005 verifying
+2026-10-07T21:39:53Z admission check title=FAKE78005 result=ok
+2026-10-07T21:39:53Z admission check title=FAKE78006 verifying
+2026-10-07T21:39:53Z admission check title=FAKE78006 result=ok
+2026-10-07T21:39:53Z admission check title=FAKE78003 verifying
+2026-10-07T21:39:53Z admission check title=FAKE78003 result=ok
+2026-10-07T21:39:54Z runtime ready installs=6 kit=hl2-fw1360-dev1
+2026-10-07T21:41:04Z remove install=steam-265890 title=FAKE78005 step=retire delete_saves=0
+2026-10-07T21:41:04Z remove manual source title=FAKE78005 ok=1 stage=shadowmount
+2026-10-07T21:41:13Z remove unregister title=FAKE78005 sent=1 code=0 detail=answered
+2026-10-07T21:41:33Z title allow-list titles=5
+2026-10-07T21:41:52Z remove complete install=steam-265890 title=FAKE78005
+2026-10-07T21:41:52Z remove result app=265890 removed
+2026-10-07T21:43:18Z game root mode 0777 -> 0755 path=/data/homebrew/FAKE77031/games/265890
+2026-10-07T21:43:18Z generated recipe app=265890 detected=unity-legacy,d3d11,d3d12,d3d9,dxgi,opengl,vulkan graphics=dxvk architecture=pe32 entries=1 executable=Hexcells.exe
+2026-10-07T21:43:19Z title allow-list titles=6
+2026-10-07T21:43:19Z title metadata app=265890 name=Hexcells (Steam) icon=36098B
+2026-10-07T21:43:39Z prepare start app=265890 root=/data/homebrew/FAKE77031/games/265890 ok=1 message=
+2026-10-07T21:44:53Z prepare step app=265890 from=stage-title ok=1 error=0 state=1 to=copy-template message=
+2026-10-07T21:46:19Z prepare step app=265890 from=copy-template ok=1 error=0 state=1 to=validate-artifacts message=
+2026-10-07T21:46:36Z prepare step app=265890 from=validate-artifacts ok=1 error=0 state=1 to=publish-profile message=
+2026-10-07T21:46:37Z steamworks app=265890 mode=emulate found=1 changed=Hexcells_Data/Plugins/steam_api.dll
+2026-10-07T21:46:45Z publication request transaction=e3ddf595-8ec6-426c-b592-ed2cc8622cea state=0 code= message=
+2026-10-07T21:47:33Z publication resume state=2 code=publication-registration-pending message=Native registration completion is not yet visible.
+2026-10-07T21:47:43Z prepare step app=265890 from=publish-profile ok=0 error=14 state=2 to=await-native message=Native registration completion is not yet visible.
+2026-10-07T21:47:53Z restore kept saves app=265890 kept_removed=1
+2026-10-07T21:47:53Z prepare result app=265890 awaiting registration
+2026-10-07T21:48:45Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-07T21:49:04Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason= manifest=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 expected=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 prospero_win=850e62c9243c551684dfea5dada7bb2689a9ba4f ignored_capabilities=-
+2026-10-07T21:49:04Z startup loading records
+2026-10-07T21:49:04Z startup records loaded installs=6
+2026-10-07T21:49:04Z startup generated recipes loaded
+2026-10-07T21:49:04Z startup installs published
+2026-10-07T21:49:04Z startup kept bottles published
+2026-10-07T21:49:04Z startup trash emptied
+2026-10-07T21:49:04Z title allow-list titles=6
+2026-10-07T21:49:04Z admission check title=FAKE78002 verifying
+2026-10-07T21:49:04Z admission check title=FAKE78002 result=ok
+2026-10-07T21:49:04Z admission check title=FAKE78004 verifying
+2026-10-07T21:49:04Z admission check title=FAKE78004 result=ok
+2026-10-07T21:49:04Z admission check title=FAKE78001 verifying
+2026-10-07T21:49:04Z admission check title=FAKE78001 result=ok
+2026-10-07T21:49:04Z admission check title=FAKE78006 verifying
+2026-10-07T21:49:04Z admission check title=FAKE78006 result=ok
+2026-10-07T21:49:04Z admission check title=FAKE78003 verifying
+2026-10-07T21:49:04Z admission check title=FAKE78003 result=ok
+2026-10-07T21:49:04Z runtime ready installs=6 kit=hl2-fw1360-dev1
+2026-10-07T21:49:13Z title allow-list titles=6
+2026-10-07T21:49:21Z resume title check state=0 code= message=
+2026-10-07T21:49:30Z prepare start app=265890 root=/data/homebrew/FAKE77031/games/265890 ok=1 message=
+2026-10-07T21:49:48Z publication resume journal=settings-publication/await-native state=0 code= message=
+2026-10-07T21:50:00Z prepare step app=265890 from=await-native ok=1 error=0 state=3 to= message=
+2026-10-07T21:50:00Z prepare result app=265890 ready
+2026-10-07T21:50:12Z remove install=steam-265890 title=FAKE78011 step=retire delete_saves=0
+2026-10-07T21:50:12Z remove manual source title=FAKE78011 ok=1 stage=shadowmount
+2026-10-07T21:50:22Z remove unregister title=FAKE78011 sent=1 code=0 detail=answered
+2026-10-07T21:50:42Z title allow-list titles=5
+2026-10-07T21:51:00Z remove complete install=steam-265890 title=FAKE78011
+2026-10-07T21:51:00Z remove result app=265890 removed
+2026-10-07T21:52:56Z game root mode 0777 -> 0755 path=/data/homebrew/FAKE77031/games/265890
+2026-10-07T21:52:56Z generated recipe app=265890 detected=unity-legacy,d3d11,d3d12,d3d9,dxgi,opengl,vulkan graphics=dxvk architecture=pe32 entries=1 executable=Hexcells.exe
+2026-10-07T21:52:57Z title allow-list titles=6
+2026-10-07T21:52:58Z title metadata app=265890 name=Hexcells (Steam) icon=36098B
+2026-10-07T21:53:17Z prepare start app=265890 root=/data/homebrew/FAKE77031/games/265890 ok=1 message=
+2026-10-07T21:54:34Z prepare step app=265890 from=stage-title ok=1 error=0 state=1 to=copy-template message=
+2026-10-07T21:55:54Z prepare step app=265890 from=copy-template ok=1 error=0 state=1 to=validate-artifacts message=
+2026-10-07T21:56:11Z prepare step app=265890 from=validate-artifacts ok=1 error=0 state=1 to=publish-profile message=
+2026-10-07T21:56:11Z steamworks app=265890 mode=emulate found=1 changed=Hexcells_Data/Plugins/steam_api.dll
+2026-10-07T21:56:20Z publication request transaction=7a8ab436-ed6a-4bae-bf05-edc008e0c564 state=0 code= message=
+2026-10-07T21:57:09Z publication resume state=2 code=publication-registration-pending message=Native registration completion is not yet visible.
+2026-10-07T21:57:18Z prepare step app=265890 from=publish-profile ok=0 error=14 state=2 to=await-native message=Native registration completion is not yet visible.
+2026-10-07T21:57:28Z restore kept saves app=265890 kept_removed=1
+2026-10-07T21:57:28Z prepare result app=265890 awaiting registration
+2026-10-07T21:58:08Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-07T21:58:26Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason= manifest=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 expected=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 prospero_win=850e62c9243c551684dfea5dada7bb2689a9ba4f ignored_capabilities=-
+2026-10-07T21:58:26Z startup loading records
+2026-10-07T21:58:26Z startup records loaded installs=6
+2026-10-07T21:58:26Z startup generated recipes loaded
+2026-10-07T21:58:27Z startup installs published
+2026-10-07T21:58:27Z startup kept bottles published
+2026-10-07T21:58:27Z startup trash emptied
+2026-10-07T21:58:27Z title allow-list titles=6
+2026-10-07T21:58:27Z admission check title=FAKE78002 verifying
+2026-10-07T21:58:27Z admission check title=FAKE78002 result=ok
+2026-10-07T21:58:27Z admission check title=FAKE78004 verifying
+2026-10-07T21:58:27Z admission check title=FAKE78004 result=ok
+2026-10-07T21:58:27Z admission check title=FAKE78001 verifying
+2026-10-07T21:58:27Z admission check title=FAKE78001 result=ok
+2026-10-07T21:58:27Z admission check title=FAKE78006 verifying
+2026-10-07T21:58:27Z admission check title=FAKE78006 result=ok
+2026-10-07T21:58:27Z admission check title=FAKE78003 verifying
+2026-10-07T21:58:27Z admission check title=FAKE78003 result=ok
+2026-10-07T21:58:27Z runtime ready installs=6 kit=hl2-fw1360-dev1
+2026-10-07T21:58:36Z title allow-list titles=6
+2026-10-07T21:58:45Z resume title check state=0 code= message=
+2026-10-07T21:58:54Z prepare start app=265890 root=/data/homebrew/FAKE77031/games/265890 ok=1 message=
+2026-10-07T21:59:13Z publication resume journal=settings-publication/await-native state=0 code= message=
+2026-10-07T21:59:25Z prepare step app=265890 from=await-native ok=1 error=0 state=3 to= message=
+2026-10-07T21:59:25Z prepare result app=265890 ready
+2026-10-07T21:59:36Z remove install=steam-265890 title=FAKE78007 step=retire delete_saves=0
+2026-10-07T21:59:36Z remove manual source title=FAKE78007 ok=1 stage=shadowmount
+2026-10-07T21:59:47Z remove unregister title=FAKE78007 sent=1 code=0 detail=answered
+2026-10-07T22:00:07Z title allow-list titles=5
+2026-10-07T22:00:26Z remove complete install=steam-265890 title=FAKE78007
+2026-10-07T22:00:26Z remove result app=265890 removed
+2026-10-07T22:01:45Z game root mode 0777 -> 0755 path=/data/homebrew/FAKE77031/games/265890
+2026-10-07T22:01:45Z generated recipe app=265890 detected=unity-legacy,d3d11,d3d12,d3d9,dxgi,opengl,vulkan graphics=dxvk architecture=pe32 entries=1 executable=Hexcells.exe
+2026-10-07T22:01:46Z title allow-list titles=6
+2026-10-07T22:01:47Z title metadata app=265890 name=Hexcells (Steam) icon=36098B
+2026-10-07T22:02:06Z prepare start app=265890 root=/data/homebrew/FAKE77031/games/265890 ok=1 message=
+2026-10-07T22:03:22Z prepare step app=265890 from=stage-title ok=1 error=0 state=1 to=copy-template message=
+2026-10-07T22:04:47Z prepare step app=265890 from=copy-template ok=1 error=0 state=1 to=validate-artifacts message=
+2026-10-07T22:05:04Z prepare step app=265890 from=validate-artifacts ok=1 error=0 state=1 to=publish-profile message=
+2026-10-07T22:05:04Z steamworks app=265890 mode=emulate found=1 changed=Hexcells_Data/Plugins/steam_api.dll
+2026-10-07T22:05:13Z publication request transaction=fbf434ce-17e8-4030-b920-91e459a0fc1f state=0 code= message=
+2026-10-07T22:06:01Z publication resume state=2 code=publication-registration-pending message=Native registration completion is not yet visible.
+2026-10-07T22:06:10Z prepare step app=265890 from=publish-profile ok=0 error=14 state=2 to=await-native message=Native registration completion is not yet visible.
+2026-10-07T22:06:20Z restore kept saves app=265890 kept_removed=1
+2026-10-07T22:06:20Z prepare result app=265890 awaiting registration
+2026-10-07T22:06:27Z console_firmware=13.60 sw_rc=0 sw_text=13.590.001 sw_version=0x13590001 sdk_rc=0 sdk_version=0x13600007
+2026-10-07T22:06:46Z kit_admission root=/data/playden/kits/hl2-fw1360-dev1 status=0 reason= manifest=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 expected=8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97 prospero_win=850e62c9243c551684dfea5dada7bb2689a9ba4f ignored_capabilities=-
+2026-10-07T22:06:46Z startup loading records
+2026-10-07T22:06:46Z startup records loaded installs=6
+2026-10-07T22:06:46Z startup generated recipes loaded
+2026-10-07T22:06:46Z startup installs published
+2026-10-07T22:06:46Z startup kept bottles published
+2026-10-07T22:06:46Z startup trash emptied
+2026-10-07T22:06:46Z title allow-list titles=6
+2026-10-07T22:06:46Z admission check title=FAKE78002 verifying
+2026-10-07T22:06:46Z admission check title=FAKE78002 result=ok
+2026-10-07T22:06:46Z admission check title=FAKE78004 verifying
+2026-10-07T22:06:46Z admission check title=FAKE78004 result=ok
+2026-10-07T22:06:46Z admission check title=FAKE78001 verifying
+2026-10-07T22:06:46Z admission check title=FAKE78001 result=ok
+2026-10-07T22:06:46Z admission check title=FAKE78006 verifying
+2026-10-07T22:06:46Z admission check title=FAKE78006 result=ok
+2026-10-07T22:06:46Z admission check title=FAKE78003 verifying
+2026-10-07T22:06:46Z admission check title=FAKE78003 result=ok
+2026-10-07T22:06:46Z runtime ready installs=6 kit=hl2-fw1360-dev1
+2026-10-07T22:06:55Z title allow-list titles=6
+2026-10-07T22:07:03Z resume title check state=0 code= message=
+2026-10-07T22:07:12Z prepare start app=265890 root=/data/homebrew/FAKE77031/games/265890 ok=1 message=
+2026-10-07T22:07:30Z publication resume journal=settings-publication/await-native state=0 code= message=
+2026-10-07T22:07:41Z prepare step app=265890 from=await-native ok=1 error=0 state=3 to= message=
+2026-10-07T22:07:41Z prepare result app=265890 ready

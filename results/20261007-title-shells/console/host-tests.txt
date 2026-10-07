@@ -1,0 +1,240 @@
+Internal ctest changing into directory: /Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-title-shells-on-device/build/homebrew-host
+Test project /Users/leolobato/.chauffeur/worktrees/18C0FEEF-6A3F-52E4-64F1-24A93D005389/feat-title-shells-on-device/build/homebrew-host
+        Start   1: managed_file_lock
+  1/117 Test   #1: managed_file_lock ............................   Passed    0.01 sec
+        Start   2: managed_file_lock_native_policy
+  2/117 Test   #2: managed_file_lock_native_policy ..............   Passed    0.01 sec
+        Start   3: durable_storage
+  3/117 Test   #3: durable_storage ..............................   Passed    0.01 sec
+        Start   4: durable_storage_native_policy
+  4/117 Test   #4: durable_storage_native_policy ................   Passed    0.01 sec
+        Start   5: managed_directory
+  5/117 Test   #5: managed_directory ............................   Passed    0.01 sec
+        Start   6: runtime_private_directories_native_policy
+  6/117 Test   #6: runtime_private_directories_native_policy ....   Passed    0.01 sec
+        Start   7: runtime_session_reconciler
+  7/117 Test   #7: runtime_session_reconciler ...................   Passed    0.01 sec
+        Start   8: runtime_session_storage
+  8/117 Test   #8: runtime_session_storage ......................   Passed    0.04 sec
+        Start   9: runtime_session_storage_native_policy
+  9/117 Test   #9: runtime_session_storage_native_policy ........   Passed    0.04 sec
+        Start  10: runtime_launch_service
+ 10/117 Test  #10: runtime_launch_service .......................   Passed    0.01 sec
+        Start  11: runtime_launch_service_native_policy
+ 11/117 Test  #11: runtime_launch_service_native_policy .........   Passed    0.01 sec
+        Start  12: runtime_package_installer
+ 12/117 Test  #12: runtime_package_installer ....................   Passed    0.62 sec
+        Start  13: runtime_package_installer_native_policy
+ 13/117 Test  #13: runtime_package_installer_native_policy ......   Passed    0.60 sec
+        Start  14: runtime_install_service
+ 14/117 Test  #14: runtime_install_service ......................   Passed    0.01 sec
+        Start  15: native_access
+ 15/117 Test  #15: native_access ................................   Passed    0.00 sec
+        Start  16: native_access_posix
+ 16/117 Test  #16: native_access_posix ..........................   Passed    0.01 sec
+        Start  17: runtime_game_install
+ 17/117 Test  #17: runtime_game_install .........................   Passed    0.14 sec
+        Start  18: diagnostic_log
+ 18/117 Test  #18: diagnostic_log ...............................   Passed    0.01 sec
+        Start  19: preferences
+ 19/117 Test  #19: preferences ..................................   Passed    0.02 sec
+        Start  20: persistence_service
+ 20/117 Test  #20: persistence_service ..........................   Passed    0.20 sec
+        Start  21: library_sync
+ 21/117 Test  #21: library_sync .................................   Passed    0.06 sec
+        Start  22: library_query
+ 22/117 Test  #22: library_query ................................   Passed    0.01 sec
+        Start  23: library_cache
+ 23/117 Test  #23: library_cache ................................   Passed    0.05 sec
+        Start  24: library_organization
+ 24/117 Test  #24: library_organization .........................   Passed    0.08 sec
+        Start  25: title_activity
+ 25/117 Test  #25: title_activity ...............................   Passed    0.01 sec
+        Start  26: title_database
+ 26/117 Test  #26: title_database ...............................   Passed    0.01 sec
+        Start  27: native_coordinator
+ 27/117 Test  #27: native_coordinator ...........................   Passed    0.24 sec
+        Start  28: title_remover
+ 28/117 Test  #28: title_remover ................................   Passed    0.23 sec
+        Start  29: title_allow_list
+ 29/117 Test  #29: title_allow_list .............................   Passed    0.20 sec
+        Start  30: proto_wire
+ 30/117 Test  #30: proto_wire ...................................   Passed    0.01 sec
+        Start  31: auth_messages
+ 31/117 Test  #31: auth_messages ................................   Passed    0.01 sec
+        Start  32: steam_json
+ 32/117 Test  #32: steam_json ...................................   Passed    0.01 sec
+        Start  33: token_claims
+ 33/117 Test  #33: token_claims .................................   Passed    0.01 sec
+        Start  34: session_store
+ 34/117 Test  #34: session_store ................................   Passed    0.01 sec
+        Start  35: steam_auth
+ 35/117 Test  #35: steam_auth ...................................   Passed    0.05 sec
+        Start  36: http_client
+ 36/117 Test  #36: http_client ..................................   Passed    0.77 sec
+        Start  37: auth_client
+ 37/117 Test  #37: auth_client ..................................   Passed    0.02 sec
+        Start  38: cm_messages
+ 38/117 Test  #38: cm_messages ..................................   Passed    0.02 sec
+        Start  39: cm_client
+ 39/117 Test  #39: cm_client ....................................   Passed    1.52 sec
+        Start  40: install_service
+ 40/117 Test  #40: install_service ..............................   Passed    0.03 sec
+        Start  41: cloud_service
+ 41/117 Test  #41: cloud_service ................................   Passed    0.04 sec
+        Start  42: install_volumes
+ 42/117 Test  #42: install_volumes ..............................   Passed    0.01 sec
+        Start  43: depot_installer
+ 43/117 Test  #43: depot_installer ..............................   Passed    0.03 sec
+        Start  44: steam_cloud
+ 44/117 Test  #44: steam_cloud ..................................   Passed    0.04 sec
+        Start  45: cdn_client
+ 45/117 Test  #45: cdn_client ...................................   Passed    0.01 sec
+        Start  46: store_details
+ 46/117 Test  #46: store_details ................................   Passed    0.01 sec
+        Start  47: app_details
+ 47/117 Test  #47: app_details ..................................   Passed    0.05 sec
+        Start  48: entitled_library
+ 48/117 Test  #48: entitled_library .............................   Passed    0.07 sec
+        Start  49: library_client
+ 49/117 Test  #49: library_client ...............................   Passed    0.14 sec
+        Start  50: runtime_publication_contract
+ 50/117 Test  #50: runtime_publication_contract .................   Passed    0.01 sec
+        Start  51: prospero_publication_sha256_contract
+ 51/117 Test  #51: prospero_publication_sha256_contract .........   Passed    0.01 sec
+        Start  52: prospero_title_publication_native_contract
+ 52/117 Test  #52: prospero_title_publication_native_contract ...   Passed    1.13 sec
+        Start  53: publication_acceptance_tools
+ 53/117 Test  #53: publication_acceptance_tools .................   Passed    0.10 sec
+        Start  54: prospero_source_pin
+ 54/117 Test  #54: prospero_source_pin ..........................   Passed    2.18 sec
+        Start  55: prospero_bottle_preparation_evidence
+ 55/117 Test  #55: prospero_bottle_preparation_evidence .........   Passed    0.05 sec
+        Start  56: prospero_title_launch_contract
+ 56/117 Test  #56: prospero_title_launch_contract ...............   Passed    0.00 sec
+        Start  57: prospero_title_publication_contract
+ 57/117 Test  #57: prospero_title_publication_contract ..........   Passed    0.00 sec
+        Start  58: prospero_title_session_contract
+ 58/117 Test  #58: prospero_title_session_contract ..............   Passed    0.03 sec
+        Start  59: prospero_app_profile_contract
+ 59/117 Test  #59: prospero_app_profile_contract ................   Passed    0.01 sec
+        Start  60: prospero_game_profile_contract
+ 60/117 Test  #60: prospero_game_profile_contract ...............   Passed    0.00 sec
+        Start  61: prospero_profile_catalog_contract
+ 61/117 Test  #61: prospero_profile_catalog_contract ............   Passed    0.00 sec
+        Start  62: runtime_kit_trust
+ 62/117 Test  #62: runtime_kit_trust ............................   Passed    0.01 sec
+        Start  63: prospero_kit_producer_consumer
+ 63/117 Test  #63: prospero_kit_producer_consumer ...............   Passed    0.71 sec
+        Start  64: runtime_kit_admission
+ 64/117 Test  #64: runtime_kit_admission ........................   Passed    1.77 sec
+        Start  65: runtime_artifact_hash
+ 65/117 Test  #65: runtime_artifact_hash ........................   Passed    0.02 sec
+        Start  66: runtime_artifact_hash_native_policy
+ 66/117 Test  #66: runtime_artifact_hash_native_policy ..........   Passed    0.02 sec
+        Start  67: runtime_kit_manifest
+ 67/117 Test  #67: runtime_kit_manifest .........................   Passed    0.70 sec
+        Start  68: homebrew_focus_motion
+ 68/117 Test  #68: homebrew_focus_motion ........................   Passed    0.01 sec
+        Start  69: homebrew_storage
+ 69/117 Test  #69: homebrew_storage .............................   Passed    0.01 sec
+        Start  70: homebrew_runtime_host
+ 70/117 Test  #70: homebrew_runtime_host ........................   Passed   23.74 sec
+        Start  71: homebrew_title_icon
+ 71/117 Test  #71: homebrew_title_icon ..........................   Passed    0.09 sec
+        Start  72: homebrew_controller_tour
+ 72/117 Test  #72: homebrew_controller_tour .....................   Passed    2.18 sec
+        Start  73: homebrew_management_tour
+ 73/117 Test  #73: homebrew_management_tour .....................   Passed    0.02 sec
+        Start  74: homebrew_host_input
+ 74/117 Test  #74: homebrew_host_input ..........................   Passed    0.58 sec
+        Start  75: homebrew_browse
+ 75/117 Test  #75: homebrew_browse ..............................   Passed    0.02 sec
+        Start  76: homebrew_simulation
+ 76/117 Test  #76: homebrew_simulation ..........................   Passed    0.16 sec
+        Start  77: homebrew_live_model
+ 77/117 Test  #77: homebrew_live_model ..........................   Passed    0.01 sec
+        Start  78: homebrew_library_model
+ 78/117 Test  #78: homebrew_library_model .......................   Passed    0.02 sec
+        Start  79: homebrew_uninstall_flow
+ 79/117 Test  #79: homebrew_uninstall_flow ......................   Passed    0.01 sec
+        Start  80: homebrew_library_graphical
+ 80/117 Test  #80: homebrew_library_graphical ...................   Passed    6.08 sec
+        Start  81: homebrew_artwork_graphical
+ 81/117 Test  #81: homebrew_artwork_graphical ...................   Passed    0.94 sec
+        Start  82: homebrew_glyph_fallback_graphical
+ 82/117 Test  #82: homebrew_glyph_fallback_graphical ............   Passed    0.90 sec
+        Start  83: title_runtime
+ 83/117 Test  #83: title_runtime ................................   Passed    0.01 sec
+        Start  84: title_registry
+ 84/117 Test  #84: title_registry ...............................   Passed    0.01 sec
+        Start  85: title_probe_contract
+ 85/117 Test  #85: title_probe_contract .........................   Passed    0.00 sec
+        Start  86: steam_gzip
+ 86/117 Test  #86: steam_gzip ...................................   Passed    0.01 sec
+        Start  87: steam_binary_kv
+ 87/117 Test  #87: steam_binary_kv ..............................   Passed    0.05 sec
+        Start  88: steam_vdf
+ 88/117 Test  #88: steam_vdf ....................................   Passed    0.19 sec
+        Start  89: steam_app_info
+ 89/117 Test  #89: steam_app_info ...............................   Passed    0.01 sec
+        Start  90: prospero_profile
+ 90/117 Test  #90: prospero_profile .............................   Passed    0.01 sec
+        Start  91: game_settings
+ 91/117 Test  #91: game_settings ................................   Passed    0.43 sec
+        Start  92: game_probe
+ 92/117 Test  #92: game_probe ...................................   Passed    0.16 sec
+        Start  93: runtime_steamworks
+ 93/117 Test  #93: runtime_steamworks ...........................   Passed    0.61 sec
+        Start  94: runtime_settings_publication
+ 94/117 Test  #94: runtime_settings_publication .................   Passed    1.15 sec
+        Start  95: runtime_settings_publication_journal
+ 95/117 Test  #95: runtime_settings_publication_journal .........   Passed    0.33 sec
+        Start  96: runtime_publication_backup
+ 96/117 Test  #96: runtime_publication_backup ...................   Passed    0.24 sec
+        Start  97: runtime_settings_storage
+ 97/117 Test  #97: runtime_settings_storage .....................   Passed    0.01 sec
+        Start  98: game_settings_io
+ 98/117 Test  #98: game_settings_io .............................   Passed    0.02 sec
+        Start  99: steam_depot_chunk
+ 99/117 Test  #99: steam_depot_chunk ............................   Passed    0.23 sec
+        Start 100: steam_depot_manifest
+100/117 Test #100: steam_depot_manifest .........................   Passed    0.01 sec
+        Start 101: homebrew_artwork
+101/117 Test #101: homebrew_artwork .............................   Passed    0.49 sec
+        Start 102: homebrew_artwork_backend
+102/117 Test #102: homebrew_artwork_backend .....................   Passed    0.04 sec
+        Start 103: homebrew_artwork_cache
+103/117 Test #103: homebrew_artwork_cache .......................   Passed    0.75 sec
+        Start 104: homebrew_persistence_model
+104/117 Test #104: homebrew_persistence_model ...................   Passed    0.33 sec
+        Start 105: persistence_controller
+105/117 Test #105: persistence_controller .......................   Passed    0.37 sec
+        Start 106: homebrew_persistence_integration
+106/117 Test #106: homebrew_persistence_integration .............   Passed    0.47 sec
+        Start 107: homebrew_account
+107/117 Test #107: homebrew_account .............................   Passed    0.50 sec
+        Start 108: library_controller
+108/117 Test #108: library_controller ...........................   Passed    0.04 sec
+        Start 109: local_session_repository
+109/117 Test #109: local_session_repository .....................   Passed    0.01 sec
+        Start 110: auth_redaction
+110/117 Test #110: auth_redaction ...............................   Passed    0.00 sec
+        Start 111: homebrew_qr
+111/117 Test #111: homebrew_qr ..................................   Passed    0.03 sec
+        Start 112: homebrew_qr_graphical
+112/117 Test #112: homebrew_qr_graphical ........................   Passed    0.62 sec
+        Start 113: homebrew_font_latin
+113/117 Test #113: homebrew_font_latin ..........................   Passed    0.03 sec
+        Start 114: homebrew_font_cff
+114/117 Test #114: homebrew_font_cff ............................   Passed    0.20 sec
+        Start 115: homebrew_font_arabic
+115/117 Test #115: homebrew_font_arabic .........................   Passed    0.02 sec
+        Start 116: homebrew_font_greek
+116/117 Test #116: homebrew_font_greek ..........................   Passed    0.04 sec
+        Start 117: ui_comparison_fixture
+117/117 Test #117: ui_comparison_fixture ........................   Passed    0.53 sec
+
+100% tests passed, 0 tests failed out of 117
+
+Total Test time (real) =  54.98 sec

@@ -207,7 +207,7 @@
   "prospero_kit": {
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
-    "status": "kit C on fixed kit B: console acceptance pending; authorized no-drop fallback",
+    "status": "kit C on fixed kit B: console acceptance passed; authorized no-drop fallback",
     "manifest_sha256": "8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97",
     "files_sha256": "c836be09e758c46ef57b17ef58e3cfabc35dcfeb7f7c97edef586beeb0beef29",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",

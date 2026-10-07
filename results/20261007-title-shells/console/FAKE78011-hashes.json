@@ -1,0 +1,6 @@
+{
+  "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+  "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792",
+  "sce_sys/param.json": "f4cdb73cce2f8780f3af5f6ff2c00ffb25c8a652a717cb3db466783fc13d606c",
+  "native-title-build.json": "cd64064ee09f9dda673cc2f3535b180f010b16c17e5a98306b6ff08066c3ecbb"
+}

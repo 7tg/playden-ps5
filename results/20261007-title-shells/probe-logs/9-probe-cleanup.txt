@@ -1,0 +1,6 @@
+start time=1791408348
+authid_before=480000001000000e
+appinst_init=00000000
+authid_set=0
+uninstall FAKE78090 result=00000000
+end time=1791408348

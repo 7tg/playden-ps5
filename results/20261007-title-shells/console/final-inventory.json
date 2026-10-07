@@ -1,0 +1,62 @@
+{
+  "registered_titles": [
+    "FAKE78001",
+    "FAKE78002",
+    "FAKE78003",
+    "FAKE78004",
+    "FAKE78005",
+    "FAKE78006"
+  ],
+  "title_folders": [
+    "FAKE78001",
+    "FAKE78002",
+    "FAKE78003",
+    "FAKE78004",
+    "FAKE78005",
+    "FAKE78006"
+  ],
+  "kit_manifest_sha256": "8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97",
+  "updated_games": {
+    "FAKE78002": {
+      "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+      "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+    },
+    "FAKE78003": {
+      "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+      "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+    },
+    "FAKE78004": {
+      "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+      "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+    },
+    "FAKE78005": {
+      "eboot.bin": "ad96e879757d71195006030bce26cf9ea1b5a9ceceac196ba1e0c909e1b5ee14",
+      "lapy.elf": "17f7fc80688273aa7ef807de8f7040aabaf307049125abb460bcde5011ce1792"
+    }
+  },
+  "preserved_games_unchanged": true,
+  "preserved_games": {
+    "FAKE78001": {
+      "eboot.bin": "aab239ea525a153f817c7e2e576a40b2370673286ca4ee8c731ef4211099c768",
+      "lapy.elf": "5608915201204dfcd1846b01dd2a9e60d03aa390c69b1dc61f3b150566bf1935",
+      "sce_sys/param.json": "39bdbf4a77172a956a9b2d4a4a1824f22a7d8bb925a7f1541856c189ab87babc"
+    },
+    "FAKE78006": {
+      "eboot.bin": "758efd50d1068e31d515cc5c30ad540cb07a944e2000157f610a86548502e382",
+      "lapy.elf": "004f67349b8678bc7c6ffb5abc0530b190420a555b604e351e29a6cb4baa21d6",
+      "sce_sys/param.json": "49289ee35167fccb6118344671aa612b690c177370f364427140c4c8fbbac0fd"
+    }
+  },
+  "kit_directories": [
+    ".hl2-fw1360-dev1.retired-357fe2fac268",
+    ".hl2-fw1360-dev1.retired-3c1c18aefac1",
+    ".hl2-fw1360-dev1.retired-5807db5fc55d",
+    ".hl2-fw1360-dev1.retired-77bc521fa060",
+    ".hl2-fw1360-dev1.retired-c836be09e758",
+    ".hl2-fw1360-dev1.retired-caeeae697fdd",
+    ".hl2-fw1360-dev1.retired-kit-b-489bfba5",
+    ".hl2-fw1360-dev1.retired-kit-c-508c36b3",
+    ".hl2-fw1360-dev1.retired-original-b730337f",
+    "hl2-fw1360-dev1"
+  ]
+}
