@@ -9,6 +9,7 @@
 #include "runtime/settings_publication_journal.h"
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
+#include "steam/backend/cloud_mapping.h"
 #include "steam/backend/json.h"
 
 #include <algorithm>
@@ -63,21 +64,12 @@ bool AwaitingRegistration(const rt::RuntimeInstall& record) {
 }  // namespace
 
 // Newest wrapper session log under <data root>/library/logs, last 128 KiB.
-std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_root) {
-  namespace fs = std::filesystem;
-  std::error_code error;
-  fs::path newest; fs::file_time_type newest_time{};
-  for (fs::directory_iterator it(data_root / "library/logs", error), end; !error && it != end; it.increment(error)) {
-    const auto name = it->path().filename().string();
-    if (name.rfind("session-", 0) != 0 || !it->is_regular_file(error)) continue;
-    const auto when = it->last_write_time(error);
-    if (!error && (newest.empty() || when > newest_time)) { newest = it->path(); newest_time = when; }
-  }
-  if (newest.empty()) return std::nullopt;
-  const int fd = open(newest.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-  if (fd < 0) return std::nullopt;
+// The last bytes of a regular file, without following links.
+std::string FileTail(const std::filesystem::path& path, off_t tail) {
+  const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return {};
   struct stat info{};
-  constexpr off_t kTail = 128 * 1024;
+  const off_t kTail = tail;
   std::string bytes;
   if (fstat(fd, &info) == 0 && S_ISREG(info.st_mode)) {
     const off_t start = info.st_size > kTail ? info.st_size - kTail : 0;
@@ -91,7 +83,54 @@ std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_ro
     bytes.resize(done);
   }
   close(fd);
-  return "== " + newest.filename().string() + "\n" + bytes;
+  return bytes;
+}
+
+// The newest regular file in folder whose name passes keep. Links are skipped.
+template <typename Keep>
+void Newest(const std::filesystem::path& folder, Keep keep, std::filesystem::path* newest,
+            std::filesystem::file_time_type* newest_time) {
+  namespace fs = std::filesystem;
+  std::error_code error;
+  for (fs::directory_iterator it(folder, error), end; !error && it != end; it.increment(error)) {
+    if (!keep(it->path().filename().string()) || it->is_symlink(error) || !it->is_regular_file(error)) continue;
+    const auto when = it->last_write_time(error);
+    if (!error && (newest->empty() || when > *newest_time)) { *newest = it->path(); *newest_time = when; }
+  }
+}
+
+// The subfolders of folder, links skipped.
+std::vector<std::filesystem::path> Folders(const std::filesystem::path& folder) {
+  namespace fs = std::filesystem;
+  std::vector<fs::path> out;
+  std::error_code error;
+  for (fs::directory_iterator it(folder, error), end; !error && it != end && out.size() < 256; it.increment(error))
+    if (!it->is_symlink(error) && it->is_directory(error)) out.push_back(it->path());
+  return out;
+}
+
+// The newest session report of a game's bottle, followed by the newest log its engine wrote
+// in the bottle: Unity's AppData/LocalLow/<company>/<product>/Player.log or Unreal's
+// AppData/Local/<project>/Saved/Logs/*.log. Those name the crash when the report stops short.
+std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_root) {
+  namespace fs = std::filesystem;
+  fs::path newest; fs::file_time_type newest_time{};
+  Newest(data_root / "library/logs", [](const std::string& name) { return name.rfind("session-", 0) == 0; },
+         &newest, &newest_time);
+  if (newest.empty()) return std::nullopt;
+  std::string text = "== " + newest.filename().string() + "\n" + FileTail(newest, 128 * 1024);
+  const auto user = data_root / "library/prefixes/game" / playden::steam::cloud::kPrefixUserFolder / "AppData";
+  fs::path engine; fs::file_time_type engine_time{};
+  for (const auto& company : Folders(user / "LocalLow"))
+    for (const auto& product : Folders(company))
+      Newest(product, [](const std::string& name) { return name == "Player.log"; }, &engine, &engine_time);
+  for (const auto& project : Folders(user / "Local"))
+    Newest(project / "Saved/Logs", [](const std::string& name) {
+      return name.size() > 4 && name.compare(name.size() - 4, 4, ".log") == 0;
+    }, &engine, &engine_time);
+  if (!engine.empty())
+    text += "\n== " + engine.lexically_relative(data_root).string() + "\n" + FileTail(engine, 64 * 1024);
+  return text;
 }
 
 std::optional<std::string> RandomUuid() {
@@ -738,7 +777,8 @@ const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const Runtim
     *reason = "Playden could not save how to start this game.";
     return nullptr;
   }
-  Log("generated recipe app=" + std::to_string(request.app_id) + " architecture=" + generated.architecture +
+  Log("generated recipe app=" + std::to_string(request.app_id) + " detected=" + generated.detected +
+      " architecture=" + generated.architecture +
       " entries=" + std::to_string(generated.launch_entries.size()) + " executable=" +
       generated.launch_entries.front().executable);
   c.recipes.erase(std::remove_if(c.recipes.begin(), c.recipes.end(),

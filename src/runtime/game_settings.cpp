@@ -1,4 +1,5 @@
 #include "runtime/game_settings.h"
+#include "runtime/game_probe.h"
 
 #include "homebrew/json.hpp"
 #include "platform/managed_directory.h"
@@ -374,8 +375,9 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
       return true;
     };
     if (!layer(recipe.defaults, ValueSource::kRecipe)) return fail(definition.id, "a default for this game is invalid");
-    value.locked = definition.id == "graphics" || recipe.locked.count(definition.id) > 0;
+    // Graphics comes from the recipe; only a recipe that locks it (Half-Life 2) keeps players from changing it.
     if (definition.id == "graphics") value.value = recipe.graphics, value.source = ValueSource::kRecipe;
+    value.locked = recipe.locked.count(definition.id) > 0;
     if (value.locked) {
       value.reason = "Required by this game";
     } else {
@@ -418,6 +420,11 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     return fail("extra_arguments", "arguments are too long or have too many words");
 
   out.dll_overrides = recipe.dll_overrides;
+  // A generated recipe reaches the bottle's DXVK through overrides that follow the graphics value,
+  // so a player who changes graphics never keeps DXVK half on.
+  if (IsGeneratedRecipeId(recipe.id) && out.graphics == "dxvk")
+    out.dll_overrides = out.dll_overrides.empty() ? std::string(kDxvkOverrides)
+                                                  : std::string(kDxvkOverrides) + ";" + out.dll_overrides;
   const auto& extra_overrides = out.values["library_overrides"].value;
   if (!extra_overrides.empty())
     out.dll_overrides = out.dll_overrides.empty() ? extra_overrides : out.dll_overrides + ";" + extra_overrides;
@@ -622,7 +629,8 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
       !StringField(*root, "dll_overrides", &out.dll_overrides, false) ||
       !StringField(*root, "architecture", &out.architecture, false) ||
       !StringField(*root, "runtime", &out.runtime, false) || !StringField(*root, "prefix", &out.prefix, false) ||
-      !StringField(*root, "graphics", &out.graphics, false))
+      !StringField(*root, "graphics", &out.graphics, false) ||
+      !StringField(*root, "detected", &out.detected, false))
     return fail("recipe has a field of the wrong type");
   const auto* entries = root->get("launch_entries");
   if (!entries || !entries->array() || entries->array()->empty()) return fail("recipe needs launch_entries");
@@ -754,7 +762,8 @@ std::string SerializeGameRecipe(const GameRecipe& recipe) {
   text += "],\"arguments\":" + quoted(recipe.arguments) + ",\"resolution_arguments\":" +
           quoted(recipe.resolution_arguments) + ",\"dll_overrides\":" + quoted(recipe.dll_overrides) +
           ",\"architecture\":" + quoted(recipe.architecture) + ",\"runtime\":" + quoted(recipe.runtime) +
-          ",\"prefix\":" + quoted(recipe.prefix) + ",\"graphics\":" + quoted(recipe.graphics) + ",\"defaults\":{";
+          ",\"prefix\":" + quoted(recipe.prefix) + ",\"graphics\":" + quoted(recipe.graphics) +
+          (recipe.detected.empty() ? std::string() : ",\"detected\":" + quoted(recipe.detected)) + ",\"defaults\":{";
   bool first = true;
   for (const auto& [id, value] : recipe.defaults) {
     if (!first) text += ",";
@@ -858,11 +867,11 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
   };
   GameRecipe out;
   out.id = GeneratedRecipeId(app_id);
-  out.version = 1;
+  out.version = 2;  // 2: graphics and engine arguments from the game's files
   out.app_id = app_id;
   out.name = name;
-  out.graphics = "auto";
   std::string first_missing;
+  std::string first_refusal;
   for (const auto& launch : launches) {
     const auto relative = steam::RelativeGamePath(launch.executable);
     if (!relative || relative->size() < 4 || LowerAscii(relative->substr(relative->size() - 4)) != ".exe") continue;
@@ -875,15 +884,34 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
       if (!directory) continue;
       working = *directory == "." ? std::string() : *directory;
     }
-    const auto on_disk = ResolveGameFile(install_root, *relative);
+    auto on_disk = ResolveGameFile(install_root, *relative);
     if (!on_disk) {
       if (first_missing.empty()) first_missing = *relative;
       continue;
     }
+    const auto probe = ProbeGame(install_root, *on_disk);
+    const auto defaults = DefaultsFor(probe);
+    if (!defaults.refusal.empty()) {
+      if (first_refusal.empty()) first_refusal = defaults.refusal;
+      continue;
+    }
+    // An Unreal root program only starts the real one as a child process, which the console cannot do.
+    if (!probe.unreal_program.empty()) {
+      on_disk = probe.unreal_program;
+      const auto folder = on_disk->rfind('/');
+      working = folder == std::string::npos ? std::string() : on_disk->substr(0, folder);
+    }
     const auto architecture = ExecutableArchitecture(install_root + "/" + *on_disk);
     if (architecture.empty()) continue;
-    if (out.launch_entries.empty()) out.architecture = architecture;
-    else if (architecture != out.architecture) continue;
+    if (out.launch_entries.empty()) {
+      out.architecture = architecture;
+      out.graphics = defaults.graphics;
+      out.arguments = defaults.arguments;
+      out.resolution_arguments = defaults.resolution_arguments;
+      out.detected = defaults.summary;
+    } else if (architecture != out.architecture) {
+      continue;
+    }
     LaunchEntry entry;
     entry.id = "launch-" + std::to_string(out.launch_entries.size() + 1);
     const auto slash = on_disk->rfind('/');
@@ -898,9 +926,11 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
     entry.arguments = CollapseSpaces(launch.arguments);
     out.launch_entries.push_back(std::move(entry));
   }
-  if (out.launch_entries.empty())
+  if (out.launch_entries.empty()) {
+    if (!first_refusal.empty()) return fail(first_refusal);
     return fail(first_missing.empty() ? "Steam lists no Windows program this console can start for this game."
                                       : "The game's program " + first_missing + " is missing; verify the download.");
+  }
   // Round trip so a generated recipe obeys the same rules as a shipped one.
   GameRecipe checked;
   std::string why;

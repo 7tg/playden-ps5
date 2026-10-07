@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <sys/stat.h>
 #include <thread>
 #include <atomic>
@@ -782,6 +783,8 @@ void PreparesGameWithoutShippedRecipe() {
     launches.emplace_back(title, arguments);
     return TitleResult{true, 0, "launch"};
   };
+  std::map<std::string, std::string> title_logs;
+  config.title_log = [&title_logs](const std::string& title, const std::string& text) { title_logs[title] = text; };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/4242";
   // A 64-bit PE header is all the generator reads.
   std::string pe(0x80 + 26, '\0');
@@ -841,11 +844,20 @@ void PreparesGameWithoutShippedRecipe() {
   CHECK(ended.launch->state == LaunchState::kExited);
   host.Shutdown();
 
-  // After a restart the saved recipe is found without Steam.
+  // After a restart the saved recipe is found without Steam, and the title log carries the
+  // session report followed by the engine's own log from the bottle.
+  const auto data = fixture.root / "data/playden/games/steam-4242";
+  Write(data / "library/logs/session-0.log", "PW_REPORT/1 stopped\n", 0600);
+  Write(data / "library/prefixes/game/drive_c/users/prospero/AppData/LocalLow/Studio/Game/Player.log",
+        "NullReferenceException at Boot\n", 0600);
   RuntimeHost restarted(config);
   CHECK(restarted.Start());
   const auto reloaded = WaitFor(restarted, [](const RuntimeSnapshot& s) { return Started(s) && !s.generated_recipes.empty(); });
   CHECK(reloaded.generated_recipes[0].id == "steam-4242-auto");
+  CHECK(title_logs.count("FAKE78001"));
+  const auto& title_log = title_logs.at("FAKE78001");
+  CHECK(title_log.find("== session-0.log\nPW_REPORT/1 stopped") != std::string::npos);
+  CHECK(title_log.find("AppData/LocalLow/Studio/Game/Player.log\nNullReferenceException at Boot") != std::string::npos);
   restarted.Prepare({4242, "/data/homebrew/FAKE77031/games/4242", "internal", "Example Game"});
   const auto again = WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.refusals.count(4242) != 0; });
   CHECK(again.refusals.at(4242) == "This game is already prepared.");

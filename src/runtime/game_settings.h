@@ -91,6 +91,7 @@ struct GameRecipe {
   std::string graphics = "auto";
   std::map<std::string, std::string> defaults;  // setting id -> value
   std::set<std::string> locked;                 // setting ids the player cannot change
+  std::string detected;  // generated recipes: what the game's files showed (GameDefaults::summary)
 };
 
 struct SettingsPreset {
@@ -169,13 +170,16 @@ std::string SerializeGameRecipe(const GameRecipe& recipe);
 
 // Games without a shipped recipe get one generated from Steam's Windows launch options.
 // Its id is GeneratedRecipeId(app_id); it starts the first launch entry with the game's own
-// arguments, lets the kit choose the graphics mode and locks nothing.
+// arguments, takes graphics and engine arguments from the game's files (game_probe.h) and
+// locks nothing. With graphics "dxvk", BuildEffectiveSettings adds kDxvkOverrides.
 std::string GeneratedRecipeId(std::uint32_t app_id);
 bool IsGeneratedRecipeId(std::string_view id);
 // Builds that recipe from Steam's launch options (default first). Entries whose executable is
 // not a game-relative .exe are skipped. The architecture comes from the first usable entry's
-// PE header under install_root; entries built for the other architecture are skipped. On
-// failure, reason is a short sentence for the player.
+// PE header under install_root; entries built for the other architecture are skipped, and so
+// are programs the console cannot run (SteamStub, .NET, Direct3D 12 only). An Unreal root
+// program is replaced by its *-Shipping.exe. On failure, reason is a short sentence for the
+// player.
 bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std::vector<LaunchEntry>& launches,
                         const std::string& install_root, GameRecipe* recipe, std::string* reason);
 std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);

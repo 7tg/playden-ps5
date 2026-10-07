@@ -67,7 +67,8 @@ add_library(playden_steam_cm_codec STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/backend/vdf.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/app_info.cpp"
     "${CMAKE_SOURCE_DIR}/src/runtime/prospero_profile.cpp"
-    "${CMAKE_SOURCE_DIR}/src/runtime/game_settings.cpp")
+    "${CMAKE_SOURCE_DIR}/src/runtime/game_settings.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/game_probe.cpp")
 target_include_directories(playden_steam_cm_codec PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_include_directories(playden_steam_cm_codec PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
 target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
@@ -499,7 +500,7 @@ if(BUILD_TESTING)
     target_link_libraries(title_probe_contract_test PRIVATE playden_steam_cm_codec)
     target_compile_features(title_probe_contract_test PRIVATE cxx_std_20)
     add_test(NAME title_probe_contract COMMAND title_probe_contract_test)
-    foreach(test_name steam_gzip steam_binary_kv steam_vdf steam_app_info prospero_profile game_settings)
+    foreach(test_name steam_gzip steam_binary_kv steam_vdf steam_app_info prospero_profile game_settings game_probe)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_steam_cm_codec)
         target_compile_features(${test_name}_test PRIVATE cxx_std_20)
@@ -509,6 +510,7 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME prospero_profile COMMAND prospero_profile_test "${CMAKE_SOURCE_DIR}/fixtures/prospero-win-profiles")
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
+    add_test(NAME game_probe COMMAND game_probe_test)
     # Inject failures only at the POSIX I/O boundary of this test's production
     # compilation; the shipped settings implementation has ordinary syscalls.
     add_executable(runtime_settings_publication_test tests/runtime_settings_publication_test.cpp)
@@ -523,7 +525,7 @@ if(BUILD_TESTING)
     add_executable(runtime_settings_storage_test tests/runtime_settings_storage_test.cpp)
     target_link_libraries(runtime_settings_storage_test PRIVATE playden_runtime_settings_storage)
     add_test(NAME runtime_settings_storage COMMAND runtime_settings_storage_test)
-    add_executable(game_settings_io_test tests/game_settings_io_test.cpp src/runtime/game_settings.cpp src/platform/managed_directory.cpp)
+    add_executable(game_settings_io_test tests/game_settings_io_test.cpp src/runtime/game_settings.cpp src/runtime/game_probe.cpp src/platform/managed_directory.cpp)
     target_link_libraries(game_settings_io_test PRIVATE playden_steam_cm_codec)
     target_compile_features(game_settings_io_test PRIVATE cxx_std_20)
     target_compile_definitions(game_settings_io_test PRIVATE

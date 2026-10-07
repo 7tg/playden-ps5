@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "homebrew/simulation.hpp"
+#include "runtime/game_probe.h"
 
 #include "app/diagnostic_log.h"
 #include "homebrew/browse.hpp"
@@ -2066,6 +2067,10 @@ void Simulation::rebuild_view() {
                 item.title = definition->label;
                 item.subtitle = value.available ? definition->effect : value.reason;
                 if (modal.id == "button-mapping") item.subtitle.clear();  // the sheet title says it once
+                if (id == "graphics" && value.source == rt::ValueSource::kRecipe) {
+                    const auto detected = rt::DetectedLabel(RecipeFor(settings_game).detected);
+                    if (!detected.empty()) item.subtitle = "Chosen from the game's files: " + detected + ".";
+                }
                 if (id == "launch_option") item.value = settings_values.launch->label;
                 else if (id.rfind("button.", 0) == 0) item.value = binding_label(value.value);
                 else if (definition->kind == rt::SettingKind::kText) item.value = value.value.empty() ? "Empty" : value.value;

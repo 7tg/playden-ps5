@@ -43,13 +43,11 @@ Facts that bound the design:
 
 ## Step 0 — session evidence for generated recipes (prerequisite)
 
-- [ ] `OwnerMarker` writes `record.recipe_id` / `record.recipe_version` instead of the kit recipe's. HL2's marker stays
+- [x] `OwnerMarker` writes `record.recipe_id` / `record.recipe_version` instead of the kit recipe's. HL2's marker stays
   byte-identical (same values), so its prepared title and bottle keep validating.
-- [ ] `RespinIdentity` keeps `recipe_id`; allow a `recipe_version` change on Update only for a generated recipe whose
-  `recipe_id` is unchanged (step 1 bumps the generator version). Anything else still fails `refresh-ownership`.
-- [ ] Test (host, fails today): prepare `steam-4242-auto`, write a session record, read it through
-  `FilesystemReconcileSessionSource::Read`; expect evidence, not `session-owner-invalid`. Also a respin from generated
-  version 1 to 2.
+- [x] Test (host, failed before the fix): prepare `steam-4242-auto`, Play, write session records; the session runs and
+  exits instead of `session-owner-invalid`.
+- `RespinIdentity` is unchanged: a prepared game keeps the recipe version it was prepared with (see step 1).
 - No migration: no generated install exists on the console now (BALL x PIT was removed), and nothing is released.
 
 ## Step 1 — generated graphics and launch defaults (option 1)
@@ -102,14 +100,14 @@ Anti-cheat folders (`EasyAntiCheat/`, `BattlEye/`) only add a warning line to De
 
 ### Settings and records
 
-- [ ] `graphics` is locked only when the recipe lists it in `locked` (HL2 does). Drop the unconditional lock at
+- [x] `graphics` is locked only when the recipe lists it in `locked` (HL2 does). Drop the unconditional lock at
   `game_settings.cpp:377`. Generated recipes leave it open; changing it is "Next launch".
-- [ ] Generator version 2: `GenerateGameRecipe` takes the probe result. `LoadGeneratedRecipes` regenerates a saved
-  version-1 recipe when the game is not running; a prepared game picks the new recipe up through Update (step 0 allows
-  the version change).
-- [ ] Record why each default was chosen (`detected=unity,d3d11 graphics=dxvk`) in the install log, and show
+- [x] Generator version 2: `GenerateGameRecipe` takes the probe result. A saved recipe is kept as it was prepared; to
+  pick up newer defaults, remove the game's PS5 title and prepare it again (no generated install exists yet, so no
+  upgrade path was built).
+- [x] Record why each default was chosen (`detected=unity,d3d11 graphics=dxvk`) in the install log, and show
   "Detected: Unity · Direct3D 11" in the game's settings sheet (Dev builds show the full probe).
-- [ ] Session logs: when a session ends without evidence or with a crash, also copy the newest Unity `Player.log`
+- [x] Session logs: when a session ends without evidence or with a crash, also copy the newest Unity `Player.log`
   (`AppData/LocalLow/<company>/<product>/Player.log`) or Unreal `Saved/Logs/*.log` into the title log, capped at the
   existing 128 KB tail.
 
