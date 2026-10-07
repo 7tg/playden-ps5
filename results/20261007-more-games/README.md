@@ -55,6 +55,27 @@ used, and `wine-shared-sections` lifts the shared-section refusal.
   (FAKE78002): main menu.
 - The PS5 Home row now shows every game tile (the earlier gap resolved itself).
 
+## Kit B (19:46–20:40)
+
+prospero-win rebased onto upstream main 73675f7 (`feat/upstream-rebase`, now `feat/playden-ps5`): 32 of our 34 commits
+re-applied (our display-handoff fix dropped for upstream #386, one makedep commit identical to upstream #390), plus build
+fixes 8171ba3 and bea2be5. Runtime bea2be5 (path-neutral, RADV 9d3cd41, PRX converter prospero-foundation 98f5582,
+new `wow64native` and `dwrite`), ten titles rebuilt with Lapy a8f391b (upstream v0.3.2 + our 2 commits).
+
+- First kit B (manifest `489bfba5…`, titles 4298adf): every title went back to Home within a second of starting.
+  Cause: upstream #432 starts 32-bit games on the native WoW64 CPU by default; on FW 13.60 Wine's patch 0883 doesn't
+  recognise libkernel (fingerprint `dc088297…`, only `1c44ccec…` is known), `BTCpuProcessInit` fails and patch 0611
+  only falls back when the DLL fails to load, so Wine exits. The session reports were written (phase `failed`, under
+  `<data_root>/logs/sessions/` and `library/logs/session-N.log`), not where first looked. Kit A was put back meanwhile.
+- Fix 25a967d: the shell runs ntdll's identity check before choosing the native CPU and keeps the translator when it
+  isn't supported (`PW_WINE64 native_cpu supported=0 … fingerprint=dc0882…`).
+- Fixed kit B (manifest `4b59e1e0…`, files `77bc521f…`, 3,641 files, `build/kit-b-25a967d`): Half-Life 2 and Super
+  Meat Boy updated and reached their menus, Hexcells its menu, Pizza Tower its story intro (20:31–20:40).
+- Upstream follow-ups: add FW 13.60's libkernel fingerprint to patch 0883 (after validating its raw-signal entries),
+  and make 0611 fall back when `BTCpuProcessInit` fails, not only when the DLL can't load.
+- The kit uploader names the old kit's backup after the *new* kit's files hash; a second install of the same kit
+  therefore refuses. Backups were renamed by hand (`.retired-original-b730337f`, `.retired-kit-b-489bfba5`, …).
+
 ## Console problems seen
 
 - The ELF loader (port 9021) stopped between 00:34 (Balatro's `/data` helper ran) and 00:50. Possibly when Balatro's

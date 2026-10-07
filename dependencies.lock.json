@@ -157,15 +157,15 @@
     }
   },
   "prospero_win": {
-    "revision": "394bba16655bb506d349289a57c8a5e2aebfa036",
+    "revision": "25a967d29dcaac480b1c532e69c83d71d7e0a511",
     "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
     "status": "development-source; release kit and native acceptance pending",
-    "retained_runtime_artifact_revision": "6a77259-ps5-kit-a-r1-neutral",
+    "retained_runtime_artifact_revision": "bea2be5-ps5-kit-b-r1-neutral",
     "upstream_url": "https://github.com/mpereiraesaa/prospero-win.git",
     "branch": "feat/playden-ps5",
-    "note": "The tip of feat/playden-ps5: the Wine runtime of kit A (6a77259, with the shared-section patch 0602) plus the packager's Wine pin (394bba1). The kit's ten title variants are still the ones built from 231fb4c."
+    "note": "The tip of feat/playden-ps5 (kit B): upstream prospero-win main 73675f7 with our work rebased on top, the shared-section patch 0602, and the shell's native WoW64 identity gate (25a967d). Kit B's runtime is bea2be5 and its ten title variants 25a967d."
   },
   "prospero_bottle_preparation": {
     "hl2-fresh-v16": {
@@ -207,9 +207,9 @@
   "prospero_kit": {
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
-    "status": "kit A: Pizza Tower, Super Meat Boy, Hexcells and Half-Life 2 reach their menus on the console (2026-10-07)",
-    "manifest_sha256": "1fe7c211199f5e9155abfa0646efee25ee4eef564c75e7bbf694ffd3d18649ab",
-    "files_sha256": "c41f5f3cd24bd2683b0eb1da5acf1bb1b3062bb0c918f91b96c2e78f96684a8f",
+    "status": "kit B: Half-Life 2, Super Meat Boy, Hexcells and Pizza Tower reach their menus on the console (2026-10-07)",
+    "manifest_sha256": "4b59e1e056868452d3863aaa783967eceecf08ec064327f36b4001c210b4331e",
+    "files_sha256": "77bc521fa060c4a16e08ff8191b6a9842f973a04c869bc5dc74b5a37afe6aa11",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",
     "firmware": [
       "13.60"
@@ -221,9 +221,9 @@
       "wine-shared-sections",
       "wow64_i386"
     ],
-    "wrapper_revision": "231fb4c35a11f8df0586f70fec3bf3cb5cd79dad",
-    "runtime_artifact_revision": "6a77259-ps5-kit-a-r1-neutral",
-    "runtime_inventory_source": "Path-neutral build of prospero-win 6a77259 with RADV from PS5_Mesa 9d3cd41 and the e9c1104 PSBC members; build/kit-a-6a77259/README.md (not tracked)",
-    "template_preparation": "hl2-fresh-v16-neutral-6a77259"
+    "wrapper_revision": "25a967d29dcaac480b1c532e69c83d71d7e0a511",
+    "runtime_artifact_revision": "bea2be5-ps5-kit-b-r1-neutral",
+    "runtime_inventory_source": "Path-neutral build of prospero-win bea2be5 (upstream 73675f7 + our work), RADV PS5_Mesa 9d3cd41, PRX converter prospero-foundation 98f5582; titles from 25a967d with Lapy a8f391b helpers; build/kit-b-25a967d/README.md (not tracked)",
+    "template_preparation": "hl2-fresh-v16-neutral-bea2be5"
   }
 }
