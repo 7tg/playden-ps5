@@ -65,8 +65,13 @@ With the user's approval, "140" was uninstalled to free a title slot.
 - Seen: Install on "140" read 610 MB although 87 MB were installed; the download estimate from Steam's app info looks
   off (not investigated).
 
+- **Kept game data manager:** Settings > Library read "Kept game data · 1 game · 450 MB"; the sheet listed Select all,
+  "140 · Kept 2026-10-07 · 450 MB" with a checkbox, Delete selected (disabled until something is checked) and Cancel.
+- **Found:** Details of an uninstalled game with kept saves, opened while Steam was still checked, had "Delete saves" as
+  its first and focused button, so a second Cross opened "Delete kept saves?" (Cancel focused, nothing lost). The
+  uninstall dialog still said the saves are kept with "Delete saves too" on. Both fixed on `main`.
+
 ## Not verified
 
 - Play filling with the accent during the template copy (nobody was on Details then).
-- The Settings "Kept game data" manager with entries.
 - A new QR code after a refused session on the console (host-tested).
