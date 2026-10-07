@@ -32,11 +32,27 @@ no game was uninstalled.
 - Genre tags overlapped the footer hints once a description showed; live Details now shows two description lines a page
   and drops tags without room.
 
-## Not verified (blocked)
+## Second run, signed in again (build `a67ef1a`)
 
-At the next launch Steam refused the saved session (`auth.log`: `GenerateAccessTokenForApp eresult=63`) and Playden
-returned to "Connect Steam". The remaining checks need a signed-in session and a disposable download:
+The user signed in again. Playden restored the session on the new build.
+
+- **Descriptions** showed for BALL x PIT, with "Read more" paging and "Controller: Full".
+- **Install → automatic preparation** started after the 236 MB download and was refused: "A PS5 title could not be
+  reserved: no supported native title variant is available". The installed kit has two title slots (`FAKE78001`,
+  `FAKE78002`), held by "140" and Half-Life 2, so a third game cannot be prepared. "140" and Half-Life 2 were not
+  removed to free a slot, since the user installed them.
+- **Uninstall without a PS5 title** showed the two-button dialog (no saves choice) and removed the download.
+- **Settings > Library** showed one "Kept game data · None" row. "Clean up" on "Unused game settings data" (left by the
+  refused preparation) removed the row and focus stayed in Library on the nearest row instead of the rail; it landed on a
+  row that cannot be chosen, so focus now prefers one that can.
+- **Details focus** fell to More when Install became the download; it now follows the primary action.
+- **Sign-in:** a refused saved session (`eresult=63`) now starts a new QR code at once (host-tested; not seen on the
+  console, the session was valid).
+
+## Not verified
+
+Blocked by the two title slots (needs a free slot, e.g. uninstalling "140" or a kit with more variants):
 
 - the ready-to-play prompt after an automatic preparation, and Play/Later in it;
-- the accent-fill progress on Play, and deletion progress during an uninstall;
-- the kept game data manager, the kept-saves line in Details, the dialog label, and Settings focus after a deletion.
+- the accent-fill progress on Play, and deletion progress during an uninstall with a PS5 title;
+- the kept game data manager with entries, the kept-saves line in Details, and the "Delete saves too" dialog choice.
