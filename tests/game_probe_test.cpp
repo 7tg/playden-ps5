@@ -29,6 +29,7 @@ struct PeSpec {
   bool bind_entry = false;   // entry point inside a ".bind" section (SteamStub)
   std::string text;          // bytes placed in the code section (names loaded at run time)
   std::size_t data_at = 0x1400;  // file offset of the section holding the import table
+  bool shared_data = false;  // the data section is writable and shared, on 4 KB pages
 };
 
 void Put32(std::string* bytes, std::size_t at, std::uint32_t value) {
@@ -64,6 +65,7 @@ void WritePe(const fs::path& path, const PeSpec& spec) {
   };
   section(0, spec.bind_entry ? ".bind" : ".text", 0x1000, 0x400);
   section(1, ".rdata", 0x2000, static_cast<std::uint32_t>(spec.data_at));
+  if (spec.shared_data) Put32(&bytes, table + 40 + 36, 0xd0000040);
   bytes.replace(0x400, spec.text.size(), spec.text);
   std::uint32_t name_rva = 0x2400;
   for (std::size_t i = 0; i < spec.imports.size(); ++i) {
@@ -115,6 +117,17 @@ int main() {
     CHECK(defaults.resolution_arguments == "-screen-width {w} -screen-height {h}");
     CHECK(defaults.summary == "unity-il2cpp,d3d11,d3d12 graphics=dxvk");
   }
+  {  // Unity before 2017.2 (140): the player is in the program; Direct3D 9 is forced.
+    const auto root = fresh();
+    WritePe(root / "140.exe", {false, {"KERNEL32.dll", "d3d9.dll"}, false, false, "d3d11.dll"});
+    fs::create_directories(root / "140_Data/Managed");
+    const auto probe = ProbeGame(root.string(), "140.exe");
+    CHECK(probe.engine == "unity" && probe.legacy_unity && !probe.il2cpp);
+    const auto defaults = DefaultsFor(probe);
+    CHECK(defaults.graphics == "dxvk" && defaults.arguments == "-force-d3d9 {resolution}");
+    CHECK(defaults.summary == "unity-legacy,d3d11,d3d9 graphics=dxvk");
+    CHECK(DetectedLabel(defaults.summary) == "Unity \xC2\xB7 Direct3D 9");
+  }
   {  // A linked UnityPlayer.dll is not followed.
     const auto root = fresh();
     WritePe(root / "Game.exe", {true, {"KERNEL32.dll"}});
@@ -128,8 +141,18 @@ int main() {
     WritePe(root / "Risk.exe", {true, {"KERNEL32.dll"}, false, false, "D3D11.DLL"});
     Touch(root / "data.win");
     const auto probe = ProbeGame(root.string(), "Risk.exe");
-    CHECK(probe.engine == "gamemaker" && probe.apis.count("d3d11"));
+    CHECK(probe.engine == "gamemaker" && probe.apis.count("d3d11") && !probe.shared_section);
     CHECK(DefaultsFor(probe).graphics == "dxvk");
+  }
+  {  // A shared writable section on 4 KB pages (GameMaker's ".mydata", Pizza Tower) can't be mapped.
+    const auto root = fresh();
+    WritePe(root / "PizzaTower.exe", {true, {"KERNEL32.dll"}, false, false, "D3D11.DLL", 0x1400, true});
+    Touch(root / "data.win");
+    const auto probe = ProbeGame(root.string(), "PizzaTower.exe");
+    CHECK(probe.engine == "gamemaker" && probe.shared_section);
+    const auto defaults = DefaultsFor(probe);
+    CHECK(defaults.refusal.find("shared memory section") != std::string::npos);
+    CHECK(defaults.summary == "gamemaker,d3d11,shared-section graphics=auto");
   }
   {  // Programs the console cannot run are refused with a reason.
     const auto root = fresh();

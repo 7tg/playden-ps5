@@ -73,12 +73,19 @@ struct Section {
   std::uint32_t address = 0;
   std::uint32_t size = 0;
   std::uint32_t raw = 0;
+  std::uint32_t flags = 0;
 };
+
+// The console's memory pages are 16 KB; Windows lays sections out on 4 KB ones.
+constexpr std::uint32_t kConsolePage = 0x4000;
+constexpr std::uint32_t kSharedWritable = 0x10000000u | 0x80000000u;  // IMAGE_SCN_MEM_SHARED | _WRITE
 
 struct PeFacts {
   bool valid = false;
   bool clr = false;
   std::string entry_section;
+  // A writable section shared between processes that doesn't fill whole console pages.
+  bool unaligned_shared = false;
   std::vector<std::string> imports;  // lower case
 };
 
@@ -117,6 +124,11 @@ PeFacts ReadPe(const std::string& path) {
     section.address = U32(row + 12);
     section.size = std::max(U32(row + 8), U32(row + 16));
     section.raw = U32(row + 20);
+    section.flags = U32(row + 36);
+    const auto mapped = (U32(row + 8) + 0xfffu) & ~0xfffu;
+    if ((section.flags & kSharedWritable) == kSharedWritable &&
+        (section.address % kConsolePage != 0 || mapped % kConsolePage != 0))
+      facts.unaligned_shared = true;
     list.push_back(section);
   }
   const auto file_offset = [&](std::uint32_t rva) -> std::optional<std::uint64_t> {
@@ -247,6 +259,7 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
   const auto program = ReadPe((root / executable).string());
   probe.dotnet = program.clr || std::count(program.imports.begin(), program.imports.end(), "mscoree.dll") > 0;
   probe.steam_stub = Lower(program.entry_section) == ".bind";
+  probe.shared_section = program.unaligned_shared;
   AddImports(program, &probe.apis);
   for (const auto& [name, directory] : here)
     if (!directory && EndsWith(Lower(name), ".dll")) AddImports(ReadPe((root / folder / name).string()), &probe.apis);
@@ -255,6 +268,7 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
   if (const auto unity = Find(here, "unityplayer.dll", false); unity || Find(here, Lower(stem) + "_data", true)) {
     probe.engine = "unity";
     probe.il2cpp = Find(here, "gameassembly.dll", false).has_value();
+    probe.legacy_unity = !unity;
     if (unity) ScanNames((root / folder / *unity).string(), &probe.apis);
   } else if (EndsWith(lower_file, "-shipping.exe") || Find(here, "engine", true)) {
     probe.engine = "unreal";
@@ -279,12 +293,16 @@ GameDefaults DefaultsFor(const GameProbe& probe) {
   const bool direct3d = has("d3d8") || has("d3d9") || has("d3d10") || has("d3d11") || has("dxgi");
   if (probe.steam_stub) {
     out.refusal = "This game's program has Steam DRM that Playden can't unpack on the PS5 yet.";
+  } else if (probe.shared_section) {
+    out.refusal = "This game's program needs a shared memory section the PS5 can't map yet.";
   } else if (probe.dotnet) {
     out.refusal = "This game needs .NET, which Playden's runtime doesn't include yet.";
   } else if (probe.engine == "unity") {
-    // Unity also names d3d12 and Vulkan; D3D11 is the path DXVK covers.
+    // Unity also names d3d12 and Vulkan; D3D11 is the path DXVK covers. Unity before 2017.2
+    // (the player built into the program) still has a Direct3D 9 renderer, which draws on the
+    // console (Hexcells); on D3D11 one (140) stopped before its first frame.
     out.graphics = "dxvk";
-    out.arguments = "-force-d3d11 {resolution}";
+    out.arguments = probe.legacy_unity ? "-force-d3d9 {resolution}" : "-force-d3d11 {resolution}";
     out.resolution_arguments = "-screen-width {w} -screen-height {h}";
   } else if (probe.engine == "unreal") {
     out.graphics = "dxvk";
@@ -307,8 +325,10 @@ GameDefaults DefaultsFor(const GameProbe& probe) {
   }
   std::string facts = probe.engine;
   if (probe.il2cpp) facts += facts.empty() ? "il2cpp" : "-il2cpp";
+  if (probe.legacy_unity) facts += "-legacy";
   for (const auto& api : probe.apis) facts += (facts.empty() ? "" : ",") + api;
   if (probe.anticheat) facts += (facts.empty() ? "" : ",") + std::string("anticheat");
+  if (probe.shared_section) facts += (facts.empty() ? "" : ",") + std::string("shared-section");
   out.summary = (facts.empty() ? "unknown" : facts) + " graphics=" + out.graphics;
   return out;
 }
@@ -325,13 +345,14 @@ std::string DetectedLabel(const std::string& summary) {
   }
   std::string engine;
   for (const auto& [id, name] : std::initializer_list<std::pair<const char*, const char*>>{
-           {"unity", "Unity"}, {"unity-il2cpp", "Unity"}, {"unreal", "Unreal Engine"}, {"source", "Source"},
+           {"unity", "Unity"}, {"unity-il2cpp", "Unity"}, {"unity-legacy", "Unity"}, {"unreal", "Unreal Engine"}, {"source", "Source"},
            {"gamemaker", "GameMaker"}, {"godot", "Godot"}, {"love", "L\xC3\x96VE"}})
     if (facts.count(id)) engine = name;
   std::string api;
   if (graphics == "opengl") api = "OpenGL";
   else if (graphics == "dxvk")
-    api = facts.count("d3d11") || facts.count("dxgi") || engine == "Unity" || engine == "Unreal Engine" ||
+    api = facts.count("unity-legacy") ? "Direct3D 9"
+              : facts.count("d3d11") || facts.count("dxgi") || engine == "Unity" || engine == "Unreal Engine" ||
                   engine == "GameMaker"
               ? "Direct3D 11"
               : facts.count("d3d10") ? "Direct3D 10" : facts.count("d3d9") ? "Direct3D 9"

@@ -11,11 +11,15 @@ namespace playden::runtime {
 struct GameProbe {
   std::string engine;  // "unity", "unreal", "source", "gamemaker", "godot", "love", or empty
   bool il2cpp = false;  // Unity with GameAssembly.dll
+  bool legacy_unity = false;  // Unity before 2017.2: the player is built into the program
   // Graphics libraries the program or its engine imports or names: "d3d8", "d3d9", "d3d10",
   // "d3d11", "dxgi", "d3d12", "opengl", "vulkan", "ddraw".
   std::set<std::string> apis;
   bool dotnet = false;      // a .NET program (needs Mono, which the runtime lacks)
   bool steam_stub = false;  // SteamStub DRM: the entry point is in a ".bind" section
+  // A writable section shared between processes whose pages the console can't map
+  // (16 KB pages; GameMaker's runner has one, ".mydata").
+  bool shared_section = false;
   bool anticheat = false;   // an EasyAntiCheat or BattlEye folder in the game
   // For an Unreal game started through its root program (which starts the real one as a
   // child process, which the console cannot do): the *-Shipping.exe to start instead,
