@@ -157,15 +157,15 @@
     }
   },
   "prospero_win": {
-    "revision": "231fb4c35a11f8df0586f70fec3bf3cb5cd79dad",
+    "revision": "394bba16655bb506d349289a57c8a5e2aebfa036",
     "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
     "status": "development-source; release kit and native acceptance pending",
-    "retained_runtime_artifact_revision": "e16ec8f3a19dec4a1162e7554ab73ce41f83bdb9",
+    "retained_runtime_artifact_revision": "6a77259-ps5-kit-a-r1-neutral",
     "upstream_url": "https://github.com/mpereiraesaa/prospero-win.git",
     "branch": "feat/playden-ps5",
-    "note": "The pin is the wrapper the current kit was built from. The branch tip adds the display-handoff input fix (a4c3856) and the OpenGL drawable patch 0663 (4234987) used by the console runtime; move this pin and the kit together at the next runtime rebuild."
+    "note": "The tip of feat/playden-ps5: the Wine runtime of kit A (6a77259, with the shared-section patch 0602) plus the packager's Wine pin (394bba1). The kit's ten title variants are still the ones built from 231fb4c."
   },
   "prospero_bottle_preparation": {
     "hl2-fresh-v16": {
@@ -207,9 +207,9 @@
   "prospero_kit": {
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
-    "status": "release-clean kit: no host build paths (privacy scan without exemptions); console acceptance of this kit pending",
-    "manifest_sha256": "b730337f29199c25bac33f22af580509704eae291d7c6597a37667800dfc4ad7",
-    "files_sha256": "3c1c18aefac106a3f598d9ee39e365062d2fbf94c6600c594f24253d0d7974f2",
+    "status": "kit A: Pizza Tower, Super Meat Boy, Hexcells and Half-Life 2 reach their menus on the console (2026-10-07)",
+    "manifest_sha256": "1fe7c211199f5e9155abfa0646efee25ee4eef564c75e7bbf694ffd3d18649ab",
+    "files_sha256": "c41f5f3cd24bd2683b0eb1da5acf1bb1b3062bb0c918f91b96c2e78f96684a8f",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",
     "firmware": [
       "13.60"
@@ -218,11 +218,12 @@
       "dxvk",
       "offline_bottle",
       "per_game_title",
+      "wine-shared-sections",
       "wow64_i386"
     ],
     "wrapper_revision": "231fb4c35a11f8df0586f70fec3bf3cb5cd79dad",
-    "runtime_artifact_revision": "e16ec8f3-ps5-console-r1-neutral",
-    "runtime_inventory_source": "Path-neutral rebuild of the console runtime recipe (e16ec8f3 + a4c3856 sink, 4234987 patch 0663, e9c1104 PSBC); results/20261006-release-kit",
-    "template_preparation": "hl2-fresh-v16-neutral"
+    "runtime_artifact_revision": "6a77259-ps5-kit-a-r1-neutral",
+    "runtime_inventory_source": "Path-neutral build of prospero-win 6a77259 with RADV from PS5_Mesa 9d3cd41 and the e9c1104 PSBC members; build/kit-a-6a77259/README.md (not tracked)",
+    "template_preparation": "hl2-fresh-v16-neutral-6a77259"
   }
 }
