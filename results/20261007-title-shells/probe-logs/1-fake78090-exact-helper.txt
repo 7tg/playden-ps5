@@ -1,0 +1,64 @@
+build=665f84be84380344bbe2b6170d1e13cc1b941e8a compiled_title=FAKE78090
+before step=appinfo
+before pid=178 uid=1 euid=1
+before appinfo rc=0x0 app_id=0x8018 title_id=FAKE78090
+before app0 stat=0 errno=0
+before step=sysctl
+before pathname rc=-1 errno=2 value=
+before param open=1 errno=0
+before param bytes=822 titleId="titleId": "FAKE78090",
+  "versi
+before path=/mnt/sandbox open=0 errno=2
+step=grant
+grant rc=0 completed=1 helper_errno=0 credential_errno=0 data_after=1
+after step=appinfo
+after pid=178 uid=1 euid=1
+after appinfo rc=0x0 app_id=0x8018 title_id=FAKE78090
+after app0 stat=-1 errno=2
+after step=sysctl
+after pathname rc=-1 errno=2 value=
+after param open=0 errno=2
+after path=/mnt/sandbox open=1 errno=0
+after entry=.
+after entry=..
+after entry=NPXS40000_000
+after entry=NPXS40094_000
+after entry=NPXS40109_000
+after entry=NPXS40210_000
+after entry=NPXS40142_000
+after entry=NPXS40087_000
+after entry=download
+after entry=NPXS40039_000
+after entry=NPXS40153_000
+after entry=FAKE78090_000
+after entry=NPXS40085_000
+after entry=NPXS40101_000
+after entry=NPXS40100_000
+after entry=NPXS40102_000
+after entry=NPXS40112_000
+after entry=NPXS40173_000
+after entry=NPXS40028_000
+after entry=NPXS40091_000
+after path=/data/homebrew open=1 errno=0
+after entry=.
+after entry=..
+after entry=FAKE78001
+after entry=FAKE78003
+after entry=FAKE78004
+after entry=FAKE78005
+after entry=FAKE78006
+after entry=PPSA03671-app0
+after entry=PPSA99764
+after entry=FAKE78090
+after entry=PPSA99000
+after entry=PPSA99005
+after entry=Wolverine
+after entry=dev.conf
+after entry=FAKE78002
+after entry=PPSA99050
+after entry=FAKE77031
+after entry=PPSA99995
+allow-list write fd=12 bytes=10 errno=0
+allow-list dir uid=0 mode=755
+allow-list file uid=0 mode=644 nlink=1
+root-write seteuid=0 errno=0 open=1 file_uid=0 mode=644 restored_euid=1

@@ -1,0 +1,25 @@
+build=665f84be84380344bbe2b6170d1e13cc1b941e8a compiled_title=FAKE78090
+before step=appinfo
+before pid=217 uid=1 euid=1
+before appinfo rc=0x0 app_id=0x4018 title_id=FAKE78090
+before app0 stat=0 errno=0
+before step=sysctl
+before pathname rc=-1 errno=2 value=
+before param open=1 errno=0
+before param bytes=822 titleId="titleId": "FAKE78090",
+  "versi
+before path=/mnt/sandbox open=0 errno=2
+step=grant
+grant rc=-1 completed=0 helper_errno=3 credential_errno=0 data_after=0
+after step=appinfo
+after pid=217 uid=1 euid=1
+after appinfo rc=0x0 app_id=0x4018 title_id=FAKE78090
+after app0 stat=0 errno=3
+after step=sysctl
+after pathname rc=-1 errno=2 value=
+after param open=1 errno=0
+after param bytes=822 titleId="titleId": "FAKE78090",
+  "versi
+after path=/mnt/sandbox open=0 errno=2
+after path=/data/homebrew open=0 errno=2
+root-write seteuid=-1 errno=1 open=0 file_uid=-1 mode=0 restored_euid=1

@@ -1,6 +1,6 @@
 # One PS5 title per game, made on the console
 
-Status: plan, not started. Written 2026-10-07 while kit B builds.
+Status: step 0 done ([results](../../../results/20261007-title-shells/README.md)). Written 2026-10-07 while kit B builds.
 
 ## Goal
 
@@ -36,7 +36,10 @@ ShadowMountPlus registers any title folder, so registration does not depend on t
   variant, copies the shell and helper, writes `param.json` (ID, name), the icon and the allow-list entry, then
   registers as today. Games already on FAKE78001–FAKE78010 keep their titles.
 
-## Step 0: console probes (decide before any code)
+## Step 0: console probes (decide before any code) — done
+
+All four passed. The shell uses `sceKernelGetAppInfo(getpid())`; Playden writes the allow-list itself after its grant
+(`seteuid(0)`), so the helper protocol is unchanged and there is no second request kind.
 
 Each probe uses a throwaway title outside Playden's slots (FAKE78090+), uploaded and removed by hand. Claim the console
 first; never sign out of anything. Record results in `results/2026-10-xx-title-shell-probes/`.
