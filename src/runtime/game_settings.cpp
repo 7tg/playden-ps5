@@ -382,7 +382,10 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     if (!layer(recipe.defaults, ValueSource::kRecipe)) return fail(definition.id, "a default for this game is invalid");
     // Graphics comes from the recipe; only a recipe that locks it (Half-Life 2) keeps players from changing it.
     if (definition.id == "graphics") value.value = recipe.graphics, value.source = ValueSource::kRecipe;
+    // A shipped recipe was proven with the game's own Steam library (Half-Life 2), so that stays.
     value.locked = recipe.locked.count(definition.id) > 0;
+    if (definition.id == "steam_features" && !IsGeneratedRecipeId(recipe.id))
+      value.value = "game", value.source = ValueSource::kRecipe, value.locked = true;
     if (value.locked) {
       value.reason = "Required by this game";
     } else {

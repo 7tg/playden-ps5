@@ -196,6 +196,15 @@ int main() {
     CHECK(settings.arguments == "-force-d3d11 -screen-width 1920 -screen-height 1080");
     CHECK(BuildEffectiveSettings(recipe, nullptr, {{"graphics", "auto"}}, KitCapabilities{}, &settings, &error));
     CHECK(settings.graphics == "auto" && settings.dll_overrides.empty());
+    // Steam features: emulation by default here, and the player may choose the game's own files.
+    CHECK(settings.values.at("steam_features").value == "emulate" && !settings.values.at("steam_features").locked);
+    CHECK(BuildEffectiveSettings(recipe, nullptr, {{"steam_features", "game"}}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.values.at("steam_features").value == "game");
+    // A shipped recipe keeps the game's own Steam library, whatever the player asks.
+    auto shipped = recipe;
+    shipped.id = "steam-2062430-shipped-v1";
+    CHECK(BuildEffectiveSettings(shipped, nullptr, {{"steam_features", "emulate"}}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.values.at("steam_features").value == "game" && settings.values.at("steam_features").locked);
     // Every program refused: the first reason is the player's.
     WritePe(root / "Stub.exe", {false, {"d3d9.dll"}, false, true});
     CHECK(!GenerateGameRecipe(1, "Stub", {{"", "", "Stub.exe", "", ""}}, root.string(), &recipe, &reason));

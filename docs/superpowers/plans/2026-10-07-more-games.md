@@ -48,7 +48,8 @@ Facts that bound the design:
 - [x] Test (host, failed before the fix): prepare `steam-4242-auto`, Play, write session records; the session runs and
   exits instead of `session-owner-invalid`.
 - `RespinIdentity` is unchanged: a prepared game keeps the recipe version it was prepared with (see step 1).
-- No migration: no generated install exists on the console now (BALL x PIT was removed), and nothing is released.
+- No migration: a game prepared from a generated recipe before this build (its marker names the kit's recipe) must be
+  removed with the earlier build and prepared again. On the console that is "140" (FAKE78001, 2026-10-07).
 
 ## Step 1 — generated graphics and launch defaults (option 1)
 
@@ -121,19 +122,23 @@ upgrade. Targets: `game_settings`, `homebrew_runtime_host`, new `runtime_game_pr
 
 ### Binaries and provenance
 
-- [ ] Ship gbe_fork's `steam_api.dll` and `steam_api64.dll` unmodified in Playden's title package
-  (`assets/steamworks/`), taken from the macOS reference's pinned copies (SHA-256 `4cc9dfca…d08ed` and
-  `513430ac…cdd1b`, `Resources/steampipe/PROVENANCE.md`). Pin both hashes in `dependencies.lock.json`; Playden checks
-  them before every use.
-- [ ] gbe_fork is LGPL-3.0 (macOS `THIRD_PARTY_NOTICES.md:64`): add the notice and source pointer, and add it to the
-  publish checklist in STATUS. Record the gbe_fork revision when known; the macOS copy has none for the Windows DLLs.
+- [x] Ship gbe_fork's `steam_api.dll` and `steam_api64.dll` unmodified in Playden's title package
+  (`runtime/steamworks/`, with a README for provenance and the LGPL notice), taken from the macOS reference's pinned copies (SHA-256 `4cc9dfca…d08ed` and
+  `513430ac…cdd1b`, `Resources/steampipe/PROVENANCE.md`). Both hashes are pinned in `src/runtime/steamworks.h`;
+  Playden checks them before every use.
+- [x] gbe_fork is LGPL-3.0 (macOS `THIRD_PARTY_NOTICES.md:64`): notice and source pointer in
+  `runtime/steamworks/README.md`. To do when merging: add it to the publish checklist in STATUS. Record the gbe_fork revision when known; the macOS copy has none for the Windows DLLs.
 - Steamless is **not** ported: it is a .NET program (needs a child process and Mono) and CC BY-NC-ND. SteamStub stays a
   refusal (step 1).
 
-### Prepare step `steamworks` (after the game files are known, before `stage-title`)
+### As built: `RuntimeHost::ApplySteamworks` (`src/runtime/steamworks.{h,cpp}`)
 
-Runs when the recipe's new `steamworks` field is `emulate` (generated default when any `steam_api(64).dll` is found);
-shipped recipes default to `original` (HL2's `steam_api.dll` must stay byte-for-byte, integration handoff:66).
+It runs during the prepare's settings publication (so a first start from the PS5 Home screen has it) and before each
+Play from Playden while the game is stopped (so a changed setting applies). It is idempotent and verifies every file
+on each call, so no mutation record or startup re-check was needed. Planned version kept below for reference.
+
+Runs when the game's **Steam features** setting is `emulate` (the generated recipe's default). Shipped recipes are
+always `game`, locked (HL2's `steam_api.dll` must stay byte-for-byte, integration handoff:66).
 
 - [ ] Find `steam_api.dll` / `steam_api64.dll` below the game root: case-insensitive, depth ≤ 10, no links, no hidden
   folders. The PE machine must match the name.
@@ -153,9 +158,11 @@ shipped recipes default to `original` (HL2's `steam_api.dll` must stay byte-for-
   - `steam_interfaces.txt` (in `steam_settings/` and beside the DLL): extracted from the `.orig` by the macOS string
     scan (printable runs ≥ 10 chars, known interface prefix + digits, `SteamClient017` rule). Port the prefix list.
   - Achievements and stats: not now.
-- [ ] Record every mutated path with its original and new SHA-256 in the install record (`game_mutations`). Startup
-  validation re-checks them; a mismatch (e.g. the DLL was restored by hand) re-runs the step on the next prepare.
-- [ ] Undo: setting **Steam features** (T2, "Game must be closed"): "Offline emulation" (default for generated) /
+- [x] Instead of a mutation record: each call hashes every found DLL. Emulator present with its `.orig`: done.
+  Emulator without `.orig`: refused ("verify the download"). Any other DLL (first swap or a game update): it becomes
+  the `.orig`, then the emulator goes in. Installed depots and owned DLC come from `.playden-steam` in the game folder,
+  written by the download (`SteamInstallRunner`); the account comes from the signed-in session.
+- [x] Undo: setting **Steam features** (T2, "Game must be closed"): "Offline emulation" (default for generated) /
   "Game's own Steam files". Switching back copies each `.orig` over its DLL, keeps the `.orig` and `steam_settings/`.
 - [ ] Uninstall: no change needed; `RemoveManagedInstall` falls back to `RemoveTree` for extra files.
 - [ ] Future verify/repair (not built on the PS5 yet): must check `.orig` instead of the swapped DLL and re-download
