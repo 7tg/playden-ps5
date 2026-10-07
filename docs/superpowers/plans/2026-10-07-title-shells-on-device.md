@@ -1,6 +1,6 @@
 # One PS5 title per game, made on the console
 
-Status: step 0 done ([results](../../../results/20261007-title-shells/README.md)). Written 2026-10-07 while kit B builds.
+Status: steps 0–4 done, step 5 in progress ([results](../../../results/20261007-title-shells/README.md)). Written 2026-10-07 while kit B builds.
 
 ## Goal
 
@@ -62,25 +62,25 @@ first; never sign out of anything. Record results in `results/2026-10-xx-title-s
 Stop and report after step 0. If probe 1 fails every way, the fallback is still useful: Playden stamps the ID into a
 small file next to the shell, and the shell finds it through the sandbox listing. Decide with the results in hand.
 
-## Step 1: prospero-win shell (branch from `feat/playden-ps5`)
+## Step 1: prospero-win shell (branch from `feat/playden-ps5`) — done
 
 - `wine64_main.c`: resolve the title ID once at startup (method chosen in probe 1), build `PW_SANDBOX_APP0`, the title
   descriptor name and the log name from it; `PW_TITLE_ID` stays as the fallback.
 - Host tests for the resolver (mock the kernel call). `tools/build_native.sh`: a build mode with no fixed ID.
 - Upstream-shaped: the same change lets any launcher use one shell, so it belongs in the upstream proposal list.
 
-## Step 2: Lapy helper (branch from `feat/playden-ps5`)
+## Step 2: Lapy helper (branch from `feat/playden-ps5`) — done
 
 - Rule mode next to the exact-ID mode: range prefix + root-owned allow-list path, both compiled in.
-- The allow-list writer is a second request kind, only accepted from Playden's own title (FAKE77031).
-- Protocol header change → new protocol hash; the shell and Playden must agree. Tests for every refusal case in probe 3.
+- ~~The allow-list writer is a second request kind~~: Playden writes the list itself as root (step 0 decision), so the
+  protocol header and its hash are unchanged. Tests for every refusal case in probe 3.
 
-## Step 3: kit
+## Step 3: kit — done
 
 - Packager: an "any ID" variant (one shell, one helper, a template `param.json`) and the `title-any-id` capability.
 - Build as part of the next kit after kit B (or kit B's successor), with the same path-neutral pipeline.
 
-## Step 4: Playden
+## Step 4: Playden — done
 
 - `KitTitleVariant` gains "any ID"; `KitCapabilities` gains `title_any_id`.
 - Install repository: allocate the lowest unused FAKE78xxx not on disk and not in a record; keep the fixed-variant path for
