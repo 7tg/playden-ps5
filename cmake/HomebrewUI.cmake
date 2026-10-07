@@ -242,7 +242,7 @@ target_include_directories(playden_homebrew_runtime_host PUBLIC "${CMAKE_SOURCE_
 target_link_libraries(playden_homebrew_runtime_host PUBLIC playden_native_coordinator playden_runtime_settings_publication
     playden_runtime_installs playden_runtime_install_service playden_runtime_package_installer
     playden_runtime_private_directories playden_runtime_launch_service playden_runtime_session_reconciler
-    playden_storage playden_steam_cm_codec)
+    playden_storage playden_steam_cm_codec playden_runtime_steamworks)
 
 add_library(playden_homebrew_artwork STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/artwork.cpp"
@@ -511,6 +511,9 @@ if(BUILD_TESTING)
     add_test(NAME prospero_profile COMMAND prospero_profile_test "${CMAKE_SOURCE_DIR}/fixtures/prospero-win-profiles")
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
     add_test(NAME game_probe COMMAND game_probe_test)
+    add_executable(runtime_steamworks_test tests/runtime_steamworks_test.cpp)
+    target_link_libraries(runtime_steamworks_test PRIVATE playden_runtime_steamworks)
+    add_test(NAME runtime_steamworks COMMAND runtime_steamworks_test "${CMAKE_SOURCE_DIR}/runtime/steamworks")
     # Inject failures only at the POSIX I/O boundary of this test's production
     # compilation; the shipped settings implementation has ordinary syscalls.
     add_executable(runtime_settings_publication_test tests/runtime_settings_publication_test.cpp)

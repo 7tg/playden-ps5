@@ -134,7 +134,8 @@ add_library(playden_steam_cm STATIC
 target_include_directories(playden_steam_cm PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_steam_cm PUBLIC cxx_std_17)
 target_link_libraries(playden_steam_cm PUBLIC
-    playden_steam_http playden_steam_protocol playden_steam_cm_codec playden_depot_codec playden_steam_core)
+    playden_steam_http playden_steam_protocol playden_steam_cm_codec playden_depot_codec playden_steam_core
+    playden_runtime_steamworks)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_definitions(playden_steam_cm PRIVATE PLAYDEN_PLATFORM_PS5=1)
     target_compile_options(playden_steam_cm PRIVATE -fno-exceptions -fno-rtti)

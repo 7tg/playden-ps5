@@ -1,5 +1,6 @@
 #include "steam/backend/steam_install_runner.h"
 
+#include "runtime/steamworks.h"
 #include "steam/backend/app_info.h"
 
 #include <set>
@@ -79,6 +80,14 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
   });
   log("install", InstallErrorName(outcome.error), outcome.detail.c_str());
   result.ok = outcome.error == InstallError::kNone;
+  if (result.ok) {
+    // What the Steamworks emulator needs later, while the licenses are at hand: installed depots and owned DLC.
+    std::vector<std::uint32_t> depots, dlc;
+    for (const auto& depot : target.depots) depots.push_back(depot.id);
+    for (const auto app_id : app->dlc_app_ids)
+      if (entitlements.owned_apps.count(app_id)) dlc.push_back(app_id);
+    if (!runtime::WriteSteamworksFacts(root, depots, dlc)) log("steamworks_facts", "write-failed", root.c_str());
+  }
   result.canceled = outcome.error == InstallError::kCanceled;
   result.failure = InstallFailureText(outcome.error);
   result.install_bytes = outcome.progress.install_total;

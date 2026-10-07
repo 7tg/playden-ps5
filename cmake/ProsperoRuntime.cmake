@@ -142,6 +142,11 @@ add_library(playden_runtime_artifact_hash STATIC
 target_include_directories(playden_runtime_artifact_hash PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_artifact_hash PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_artifact_hash PRIVATE playden_curl_8_22 playden_managed_directory)
+# gbe_fork Steamworks emulation in a game's folder (runtime/steamworks).
+add_library(playden_runtime_steamworks STATIC "${CMAKE_SOURCE_DIR}/src/runtime/steamworks.cpp")
+target_compile_features(playden_runtime_steamworks PUBLIC cxx_std_17)
+target_include_directories(playden_runtime_steamworks PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(playden_runtime_steamworks PUBLIC playden_runtime_artifact_hash)
 add_library(playden_runtime_kit_admission STATIC
     "${CMAKE_SOURCE_DIR}/src/runtime/kit_admission.cpp")
 target_include_directories(playden_runtime_kit_admission PUBLIC "${CMAKE_SOURCE_DIR}/src")

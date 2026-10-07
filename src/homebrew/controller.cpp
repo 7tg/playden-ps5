@@ -768,6 +768,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       if(!library_) update.error = "Library sync is unavailable. Try again later.";
       model_.UpdateAccount(std::move(update));
       if(persistence_) persistence_->Activate(event.steam_id);
+      if(runtime_) runtime_->SetSteamAccount(event.account_name, event.steam_id);
       if(library_) library_->Activate(event.steam_id,offline);
       break;
     }
@@ -776,6 +777,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       established_auth_=AuthState::SignedOut;
       if(library_) library_->Reset();
       if(persistence_) persistence_->Reset();
+      if(runtime_) runtime_->SetSteamAccount({}, 0);
       const bool begin = begin_after_clear_; begin_after_clear_ = false;
       Update(AuthState::SignedOut,{},true);
       if (begin) Begin();

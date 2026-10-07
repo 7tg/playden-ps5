@@ -160,6 +160,11 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"auto", "Automatic", ""}, {"gdi", "GDI", "2D only."}, {"dxvk", "DXVK", "Direct3D 9-11 on Vulkan."},
                          {"opengl", "OpenGL", ""}},
                         "auto"));
+  list.push_back(Choice("steam_features", "Steam features", "How the game reaches Steam without the Steam client.",
+                        "steam_api.dll · steam_api64.dll", T::kCompatibility,
+                        {{"emulate", "Offline emulation", "Playden's Steam emulator answers the game."},
+                         {"game", "Game's own files", "The game's Steam library, unchanged."}},
+                        "game", 1, ApplyMode::kGameClosed));
   list.push_back(Choice("frame_latency", "Frame latency", "How many frames can wait in the queue.",
                         "dxgi.maxFrameLatency · d3d9.maxFrameLatency", T::kCompatibility,
                         {{"game", "Game default", ""}, {"1", "1", "Lowest delay."}, {"2", "2", ""}, {"3", "3", ""}},
@@ -909,6 +914,8 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
       out.arguments = defaults.arguments;
       out.resolution_arguments = defaults.resolution_arguments;
       out.detected = defaults.summary;
+      // Most Steam games stop when the Steam client is missing; the emulator answers instead.
+      out.defaults["steam_features"] = "emulate";
     } else if (architecture != out.architecture) {
       continue;
     }

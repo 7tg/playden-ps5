@@ -791,10 +791,22 @@ void PreparesGameWithoutShippedRecipe() {
   pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
   pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
   Write(game / "Bin/Game.exe", pe, 0644);
+  // The game's own Steam library (a 64-bit PE that asks for one interface).
+  const std::string own_api = pe + std::string("\0SteamUser021\0", 14);
+  Write(game / "Bin/steam_api64.dll", own_api, 0644);
+  Write(game / ".playden-steam", "depots=4243\ndlc=4250\n", 0644);
+  std::map<std::string, std::string> saved_settings;
+  config.settings_record = [&saved_settings](std::uint32_t) -> std::optional<GameSettingsRecord> {
+    if (saved_settings.empty()) return std::nullopt;
+    GameSettingsRecord record;
+    record.overrides = saved_settings;
+    return record;
+  };
   CHECK(chmod(game.c_str(), 0755) == 0);
   RuntimePrepareRequest request{4242, "/data/homebrew/FAKE77031/games/4242", "internal", "Example Game"};
 
   RuntimeHost host(config);
+  host.SetSteamAccount("player", 76561198000000001ull);
   CHECK(host.Start());
   CHECK(WaitFor(host, Started).kit_available);
   // Without Steam's launch options there is nothing to start.
@@ -819,12 +831,21 @@ void PreparesGameWithoutShippedRecipe() {
   CHECK(fs::is_regular_file(fixture.root / "data/runtime-state/recipe-steam-4242-auto.json"));
   const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
   CHECK(descriptor.find("steam-4242-auto") != std::string::npos);
+  // Steamworks: the emulator replaced the game's library, which is kept, and steam_settings/ was written.
+  const auto emulator = Read(fs::path(g_runtime_dir) / "steamworks/steam_api64.dll");
+  CHECK(Read(game / "Bin/steam_api64.dll") == emulator && Read(game / "Bin/steam_api64.dll.orig") == own_api);
+  CHECK(Read(game / "Bin/steam_settings/configs.user.ini").find("account_name=player\n") != std::string::npos);
+  CHECK(Read(game / "Bin/steam_settings/configs.app.ini").find("4250=dlc4250\n") != std::string::npos);
+  CHECK(Read(game / "Bin/steam_settings/steam_interfaces.txt") == "SteamUser021\n");
   // The bottle's owner marker names the generated recipe, so the game's sessions are read.
   const auto marker = Read(fixture.root / "data/playden/games/steam-4242/library/prefixes/game/.playden-template-owner");
   CHECK(marker.find("\nrecipe_id=steam-4242-auto\n") != std::string::npos);
+  // The player asks for the game's own Steam files: Play puts them back before the game starts.
+  saved_settings = {{"steam_features", "game"}};
   host.Play(4242);
   WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
   CHECK(host.Handoff() && launches.size() == 1 && launches[0].first == "FAKE78001");
+  CHECK(Read(game / "Bin/steam_api64.dll") == own_api);
   const auto session = launches[0].second[0].substr(std::strlen("session="));
   const auto sessions = fixture.root / "data/playden/games/steam-4242/logs/sessions";
   fs::create_directories(sessions);

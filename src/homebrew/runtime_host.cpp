@@ -9,6 +9,7 @@
 #include "runtime/settings_publication_journal.h"
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
+#include "runtime/steamworks.h"
 #include "steam/backend/cloud_mapping.h"
 #include "steam/backend/json.h"
 
@@ -289,6 +290,56 @@ void RuntimeHost::DeleteKeptBottle(std::uint32_t app_id) {
   wake_.notify_all();
 }
 
+void RuntimeHost::SetSteamAccount(std::string account_name, std::uint64_t steam_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  steam_account_name_ = std::move(account_name);
+  steam_id_ = steam_id;
+}
+
+std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstall& record) {
+  const rt::GameRecipe* recipe = nullptr;
+  for (const auto& candidate : c.recipes)
+    if (candidate.app_id == record.app_id && candidate.id == record.recipe_id) recipe = &candidate;
+  if (!recipe) return {};  // publication reports the missing recipe
+  const auto saved = config_.settings_record ? config_.settings_record(record.app_id) : std::nullopt;
+  const rt::SettingsPreset* preset = nullptr;
+  if (saved)
+    for (const auto& candidate : c.presets)
+      if (candidate.id == saved->preset_id) preset = &candidate;
+  rt::EffectiveSettings settings;
+  rt::SettingsError error;
+  static const std::map<std::string, std::string> none;
+  const auto kit = c.kit ? rt::KitCapabilitiesFromManifest(c.kit->capabilities, true) : rt::KitCapabilities{};
+  if (!rt::BuildEffectiveSettings(*recipe, preset, saved ? saved->overrides : none, kit, &settings, &error))
+    return {};  // publication reports invalid settings
+  const auto root = config_.host_namespace_prefix.empty()
+      ? std::filesystem::path(record.install_path)
+      : config_.host_namespace_prefix / std::filesystem::path(record.install_path).relative_path();
+  const bool emulate = settings.values.at("steam_features").value == "emulate";
+  rt::SteamworksResult result;
+  if (emulate) {
+    rt::SteamworksIdentity identity;
+    identity.app_id = record.app_id;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      identity.account_name = steam_account_name_;
+      identity.steam_id = steam_id_;
+    }
+    if (!rt::ReadSteamworksFacts(root.string(), &identity))
+      Log("steamworks app=" + std::to_string(record.app_id) + " no download facts: no DLC or depots listed");
+    const auto emulator = config_.steamworks_dir.empty() ? config_.runtime_dir + "/steamworks" : config_.steamworks_dir;
+    result = rt::EmulateSteamworks(root.string(), emulator, identity);
+  } else {
+    result = rt::RestoreSteamworks(root.string());
+  }
+  std::string changed;
+  for (const auto& path : result.changed) changed += (changed.empty() ? "" : ",") + path;
+  Log("steamworks app=" + std::to_string(record.app_id) + " mode=" + (emulate ? "emulate" : "game") +
+      " found=" + std::to_string(result.found.size()) + " changed=" + (changed.empty() ? "-" : changed) +
+      (result.ok ? std::string() : " failed=" + result.message));
+  return result.ok ? std::string() : result.message;
+}
+
 void RuntimeHost::SetTitleNames(std::map<std::uint32_t, std::string> names) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -462,6 +513,8 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
   std::string reason;
   if (input.record.revision != record.settings_revision)
     return failed("settings-changed", "The game's settings changed during preparation; prepare it again.");
+  // The first start may come from the PS5 Home screen, so the game's Steam files are set up now.
+  if (const auto steamworks = ApplySteamworks(c, record); !steamworks.empty()) return failed("steamworks", steamworks);
   if (!rt::BuildSettingsLaunchPlan(input, &plan, &reason)) {
     Log("publication plan refused: " + reason);
     return failed("settings-plan", reason);
@@ -590,7 +643,15 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
     } else if (!record) {
       result = rt::LaunchResult::Failure(rt::LaunchError::kNotFound, "This game has no PS5 title yet.");
     } else {
-      result = c.launch->Request(record->install_id);
+      // A changed "Steam features" setting takes effect now, while nothing of the game runs.
+      bool idle = false;
+      if (c.launch_journal) {
+        const auto pending = c.launch_journal->LoadPending();
+        idle = pending.ok && !pending.session && c.coordinator->Activity(record->title_id) == rt::NativeActivity::kStopped;
+      }
+      const auto steamworks = idle ? ApplySteamworks(c, *record) : std::string();
+      result = steamworks.empty() ? c.launch->Request(record->install_id)
+                                  : rt::LaunchResult::Failure(rt::LaunchError::kPreflight, steamworks);
     }
     if (result.accepted) {
       snapshot = c.launch->Snapshot();

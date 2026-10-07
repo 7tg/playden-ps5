@@ -69,6 +69,8 @@ struct RuntimeHostConfig {
   runtime::PackageInstallerOperations package_operations;
   // Bundled recipes/presets/input presets (<title>/runtime).
   std::string runtime_dir;
+  // gbe_fork's steam_api DLLs; empty: <runtime_dir>/steamworks.
+  std::string steamworks_dir;
   // The player's saved settings for a game; nothing means Playden defaults.
   std::function<std::optional<runtime::GameSettingsRecord>(std::uint32_t app_id)> settings_record;
   // Canonical lower-case UUID for a publication transaction, or nothing when no
@@ -218,6 +220,8 @@ class RuntimeHost {
   void SetTitleNames(std::map<std::uint32_t, std::string> names);
   // Queues Play of a Ready game.
   void Play(std::uint32_t app_id);
+  // The signed-in Steam account, for the Steamworks emulator's settings (empty when signed out).
+  void SetSteamAccount(std::string account_name, std::uint64_t steam_id);
   // Queues removal of a game's PS5 title. Its bottle (saves and settings) is kept
   // unless delete_saves; an interrupted removal continues with its first choice.
   void Remove(std::uint32_t app_id, bool delete_saves);
@@ -241,6 +245,9 @@ class RuntimeHost {
   void LoadGeneratedRecipes(Composition& composition);
   void PublishRecipes(const Composition& composition);
   runtime::PackageActionResult DrivePublication(Composition& composition, const runtime::RuntimeInstall& record);
+  // Puts the game's steam_api DLLs in the state its "Steam features" setting asks for. Call
+  // only while the game is stopped; empty on success, otherwise why not (for the player).
+  std::string ApplySteamworks(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);
@@ -284,6 +291,8 @@ class RuntimeHost {
   bool launch_poll_ = false;
   bool cleanup_requested_ = false;
   std::map<std::uint32_t, std::string> title_names_;  // guarded by mutex_
+  std::string steam_account_name_;                     // guarded by mutex_
+  std::uint64_t steam_id_ = 0;                         // guarded by mutex_
   bool title_names_changed_ = false;
   // Guards the worker's launch service and preflight cache for Handoff.
   std::mutex launch_mutex_;
