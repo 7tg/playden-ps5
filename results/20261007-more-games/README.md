@@ -20,6 +20,7 @@ Build: `feat/new-games` (7331f5e, on `main` d5c3991), FW 13.60, kit `hl2-fw1360-
 | 140 (242820) | `unity,d3d11,d3d12,d3d9,dxgi,opengl graphics=dxvk`, pe32 | Ready; Steamworks `changed=steam_api.dll`; kept saves restored; prompt; registered | 00:5x: hung while the ELF loader was down. 06:52 (loader back): Playden's loading spinner for 3 min, then closed | Unity 5.3.6p5 runs: `output_log.txt` shows the D3D11 device (DXVK), "Steamworks Initialized" through the emulator, 1920x1080, the first scene loaded. Then no present: never `loading done`, `vk_shown` is the spinner's 12/s, CPU almost idle. Re-test with `-force-d3d9` blocked: uninstall stopped at "Cloud saves need a choice" (the player's) |
 | Super Meat Boy (40800) | `d3d9 graphics=dxvk`, pe32 | Ready; Steamworks `changed=steam_api.dll`; prompt; registered as FAKE78003 | From Home: Team Meat and Newgrounds intros, main menu, controller works, story cutscene after Start Game | First game started with no recipe at all, on generated defaults (DXVK D3D9, `loading done by=frame`) |
 | Pizza Tower (2231450) | `gamemaker,d3d11,dxgi graphics=dxvk`, pe64 | Ready; Steamworks `changed=steam_api64.dll`; registered as FAKE78004 | From Home: back to Home within a second | Wine: `unaligned shared mapping … not supported`, "Could not map … shared section .mydata", c000007b. `.mydata` is writable and shared (0xd0000040) on 4 KB pages; the console's are 16 KB. Now refused before staging (d2acb35). Likely every GameMaker game |
+| Look Outside (3373660) | `dxgi graphics=dxvk`, pe64 (NW.js / RPG Maker MZ, not recognised then) | Ready; Steamworks `changed=lib/steam_api.dll,lib/steam_api64.dll`; registered as FAKE78006 | Spinner; with `--single-process` added to `package.json` (`chromium-args`, restored afterwards): CE-108255-1 within 4 s, also with `--js-flags=--jitless` | Chromium starts helper processes (`NtCreateUserProcess … not supported`, in a loop). In one process PartitionAlloc reserves 64 GB (`map_view anon mmap error … size 1000000000`) and stops (`FATAL:partition_address_space.cc`). Now refused before staging |
 | Hexcells (265890) | `unity-legacy,d3d11,d3d12,d3d9,dxgi,opengl,vulkan graphics=dxvk`, pe32 (after d2acb35) | Ready; Steamworks `changed=Hexcells_Data/Plugins/steam_api.dll`; registered as FAKE78005 | From Home: main menu with `-force-d3d9` | Unity without `UnityPlayer.dll` now starts on D3D9 |
 
 Session evidence (step 0): Play from Playden on Balatro ended `play finished … state=6 code=wrapper-start-failed`, read
@@ -54,5 +55,7 @@ Half-Life 2 regression (06:57, refreshed FAKE78002 wrapper, build 231fb4c): from
 - Balatro: LÖVE/PhysFS boot failure. BALL x PIT: SteamStub.
 - "140" on D3D9: needs the player's Cloud saves choice, then uninstall and install again (the recipe is only
   generated at preparation).
+- NW.js games (RPG Maker MV/MZ): would need prospero-win to reserve large address ranges without backing them, plus
+  `--single-process` from Playden. Not started.
 - GameMaker games: Wine could map an unaligned shared section as private (the console can't start a second process to
   share it with); that is a prospero-win change and a new kit.
