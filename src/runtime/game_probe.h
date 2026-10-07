@@ -40,7 +40,11 @@ struct GameDefaults {
   std::string refusal;  // non-empty: the console cannot run this program; a sentence for the player
   std::string summary;  // e.g. "unity,d3d11 graphics=dxvk", for logs and the settings sheet
 };
-GameDefaults DefaultsFor(const GameProbe& probe);
+// What the installed kit's runtime can do beyond the baseline, as far as starting a game is concerned.
+struct RuntimeAbilities {
+  bool shared_sections = false;  // maps a shared section the console's pages can't hold as a private copy
+};
+GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime = {});
 
 // The player's words for a GameDefaults::summary: "Unity · Direct3D 11", "OpenGL"; empty
 // when nothing was recognised.

@@ -2,6 +2,7 @@
 #include "runtime/kit_trust.h"
 #include "steam/backend/json.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -32,9 +33,10 @@ int main(int argc, char** argv) {
   const auto config = DevelopmentKitAdmission("13.60");
   CHECK(field("kit_id") == kDevelopmentKitId && field("console_root") == kDevelopmentKitRoot);
   CHECK(field("manifest_sha256") == config.expected_manifest_sha256);
-  std::vector<std::string> capabilities;
-  for (const auto& item : Get(kit, "capabilities").array()) capabilities.push_back(item.text());
-  CHECK(capabilities == config.known_capabilities);
+  // Everything the tested kit offers is something this build can use.
+  for (const auto& item : Get(kit, "capabilities").array())
+    CHECK(std::find(config.known_capabilities.begin(), config.known_capabilities.end(), item.text()) !=
+          config.known_capabilities.end());
 
   const std::filesystem::path root = argv[2];
   if (!std::filesystem::exists(root / "manifest.json")) {

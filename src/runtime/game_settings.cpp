@@ -868,7 +868,8 @@ bool IsGeneratedRecipeId(std::string_view id) {
 }
 
 bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std::vector<LaunchEntry>& launches,
-                        const std::string& install_root, GameRecipe* recipe, std::string* reason) {
+                        const std::string& install_root, GameRecipe* recipe, std::string* reason,
+                        const KitCapabilities& kit) {
   const auto fail = [&](std::string why) {
     if (reason) *reason = std::move(why);
     return false;
@@ -898,7 +899,9 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
       continue;
     }
     const auto probe = ProbeGame(install_root, *on_disk);
-    const auto defaults = DefaultsFor(probe);
+    RuntimeAbilities abilities;
+    abilities.shared_sections = kit.shared_sections;
+    const auto defaults = DefaultsFor(probe, abilities);
     if (!defaults.refusal.empty()) {
       if (first_refusal.empty()) first_refusal = defaults.refusal;
       continue;
@@ -1581,6 +1584,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.input_tuning = has(kKitInputTuning);
   kit.input_wheel = has(kKitInputWheel);
   kit.audio_volume = has(kKitAudioVolume);
+  kit.shared_sections = has(kKitSharedSections);
   kit.registry = bottle_access;
   return kit;
 }

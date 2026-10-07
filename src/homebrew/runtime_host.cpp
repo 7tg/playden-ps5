@@ -838,7 +838,8 @@ const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const Runtim
       ? std::filesystem::path(request.install_path)
       : config_.host_namespace_prefix / std::filesystem::path(request.install_path).relative_path();
   rt::GameRecipe generated;
-  if (!rt::GenerateGameRecipe(request.app_id, request.title_name, request.launches, root.string(), &generated, reason))
+  const auto kit = c.kit ? rt::KitCapabilitiesFromManifest(c.kit->capabilities, true) : rt::KitCapabilities{};
+  if (!rt::GenerateGameRecipe(request.app_id, request.title_name, request.launches, root.string(), &generated, reason, kit))
     return nullptr;
   const auto text = rt::SerializeGameRecipe(generated);
   const auto written = c.storage.WriteAtomicPrivate(GeneratedRecipeFile(generated.id), Bytes(text.begin(), text.end()));

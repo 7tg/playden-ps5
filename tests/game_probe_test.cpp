@@ -153,6 +153,17 @@ int main() {
     const auto defaults = DefaultsFor(probe);
     CHECK(defaults.refusal.find("shared memory section") != std::string::npos);
     CHECK(defaults.summary == "gamemaker,d3d11,shared-section graphics=auto");
+    // A kit whose Wine maps the section as a private copy starts it like any other game.
+    RuntimeAbilities runtime;
+    runtime.shared_sections = true;
+    CHECK(DefaultsFor(probe, runtime).refusal.empty());
+    GameRecipe recipe;
+    std::string reason;
+    CHECK(!GenerateGameRecipe(2231450, "Pizza Tower", {{"", "", "PizzaTower.exe", "", ""}}, root.string(), &recipe, &reason));
+    KitCapabilities kit;
+    kit.shared_sections = true;
+    CHECK(GenerateGameRecipe(2231450, "Pizza Tower", {{"", "", "PizzaTower.exe", "", ""}}, root.string(), &recipe, &reason, kit));
+    CHECK(KitCapabilitiesFromManifest({"dxvk", kKitSharedSections}, false).shared_sections);
   }
   {  // Programs the console cannot run are refused with a reason.
     const auto root = fresh();

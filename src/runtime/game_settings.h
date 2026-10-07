@@ -34,6 +34,7 @@ struct KitCapabilities {
   bool input_tuning = false;  // prospero-win [input] stick_deadzone, rumble, trigger_deadzone (U4, not released)
   bool input_wheel = false;   // prospero-win [input] wheel, with Wine patch 0745 (U4, not built yet)
   bool audio_volume = false;  // prospero-win [audio] volume (U4, not released)
+  bool shared_sections = false;  // Wine maps unaligned shared PE sections as private copies (patch 0602)
 };
 
 struct SettingChoice {
@@ -181,7 +182,8 @@ bool IsGeneratedRecipeId(std::string_view id);
 // program is replaced by its *-Shipping.exe. On failure, reason is a short sentence for the
 // player.
 bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std::vector<LaunchEntry>& launches,
-                        const std::string& install_root, GameRecipe* recipe, std::string* reason);
+                        const std::string& install_root, GameRecipe* recipe, std::string* reason,
+                        const KitCapabilities& kit = {});
 std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
 
 // Deletes the DXVK pipeline cache for the launch entry's executable (<install_root>/
@@ -240,6 +242,8 @@ inline constexpr const char* kKitEnvironment = "settings-profile-environment";  
 inline constexpr const char* kKitInputTuning = "settings-input-tuning";      // stick/trigger dead zones, rumble
 inline constexpr const char* kKitInputWheel = "settings-input-wheel";        // [input] wheel
 inline constexpr const char* kKitAudioVolume = "settings-audio-volume";      // [audio] volume
+// Runtime ability (not a setting): games with a shared section, such as GameMaker's, can start.
+inline constexpr const char* kKitSharedSections = "wine-shared-sections";
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the

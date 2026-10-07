@@ -289,7 +289,7 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
   return probe;
 }
 
-GameDefaults DefaultsFor(const GameProbe& probe) {
+GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime) {
   GameDefaults out;
   const auto has = [&](const char* api) { return probe.apis.count(api) != 0; };
   const bool direct3d = has("d3d8") || has("d3d9") || has("d3d10") || has("d3d11") || has("dxgi");
@@ -298,7 +298,7 @@ GameDefaults DefaultsFor(const GameProbe& probe) {
   } else if (probe.engine == "nwjs") {
     // Chromium starts helper processes, and in one process it reserves 64 GB of address space.
     out.refusal = "This game runs on NW.js (a built-in web browser), which Playden can't start on the PS5 yet.";
-  } else if (probe.shared_section) {
+  } else if (probe.shared_section && !runtime.shared_sections) {
     out.refusal = "This game's program needs a shared memory section the PS5 can't map yet.";
   } else if (probe.dotnet) {
     out.refusal = "This game needs .NET, which Playden's runtime doesn't include yet.";
