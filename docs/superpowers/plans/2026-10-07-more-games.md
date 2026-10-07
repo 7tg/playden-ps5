@@ -179,4 +179,16 @@ mutation record and its startup re-check, undo, HL2 untouched (`original`).
    its exception.
 3. HL2 regression: after deploying, read `/data/playden/games/steam-220/library/prefixes/game/.playden-template-owner`
    and confirm it is unchanged; then Play → menu → quit, with `steam_api.dll` unchanged.
-4. A second engine (an Unreal 4 or a D3D9 game) to check the table is not Unity-specific.
+4. Test games, picked 2026-10-07 from the owner's Steam library (ProtonDB platinum, full controller support,
+   single-player; sizes from Steam's public depot manifests). Each covers a different path:
+
+   | Game | App | Size | Path |
+   | --- | --- | --- | --- |
+   | BALL x PIT | 2062430 | 0.51 GB | Unity (pe64), D3D11 loaded at run time, Steamworks |
+   | Super Meat Boy | 40800 | 0.93 GB | Own engine (pe32), D3D9 imported, `steam_api.dll` |
+   | Pizza Tower | 2231450 | 0.40 GB | GameMaker (pe64), D3D11 loaded at run time |
+   | Balatro | 2379780 | 0.07 GB | LÖVE, OpenGL; Steam DRM listed: Steamworks emulation or a SteamStub refusal |
+
+   Not covered by these: Unreal (`*-Shipping.exe`); the smallest platinum Unreal games in the library are 3 GB or more
+   (AMID EVIL lists 13 GB). Refusals were checked on the Mac copies: Mirror's Edge Catalyst (Direct3D 12), Geometry
+   Wars 3 and NightSky (SteamStub).
