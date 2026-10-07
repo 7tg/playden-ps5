@@ -153,3 +153,19 @@ runtime, template and recipe with the one any-title variant. It ran on the Mac; 
 | files | 3,548 (kit A 3,638 minus the ten titles plus one) | 3,551 |
 | capabilities | dxvk, offline_bottle, per_game_title, title-any-id, wine-shared-sections, wow64_i386 | same |
 | Playden admission | kVerified, 0 ignored capabilities | — |
+
+## Step 5: console acceptance — stopped (22:19–22:24)
+
+- Deployed Playden (fa4d59e package; backup `build/console-backups/20261007-title-shells`) and kit C on kit A
+  (`508c36b3…`, 3,549 files verified).
+- Saved-UID proof with the probe shell built from `feat/title-shells-kit-a` 7c50df5 (exact FAKE78090 helper),
+  [log](probe-logs/5-saved-uid-dropped.txt): the helper completed (`helper_errno=0`) but the drop did not take:
+  `credential_errno=1`, and `seteuid(0)` still worked afterwards (`root-write seteuid=0 … file_uid=0`). On the
+  console, `setuid(app user)` from root does not clear the saved root UID. So `pw_data_mount` fails the grant
+  closed, and every title built from this shell would fail its /data grant. Kit C was therefore not tested with games.
+- Restored: kit A back in place (manifest `1fe7c211…`; kit C kept as `.hl2-fw1360-dev1.retired-kit-c-508c36b3`),
+  Playden restored from the backup, FAKE78090 unregistered and deleted, `/data/title-shell-probe` removed. `/user/app`
+  has FAKE78001–FAKE78006 only. Games were not touched.
+
+Open decision: how to keep game code from regaining root after the grant (see the report), and whether kit C ships
+without the drop until then.
