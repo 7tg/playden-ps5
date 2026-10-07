@@ -880,9 +880,25 @@ void PreparesGameWithoutShippedRecipe() {
   CHECK(title_log.find("== session-0.log\nPW_REPORT/1 stopped") != std::string::npos);
   CHECK(title_log.find("AppData/LocalLow/Studio/Game/Player.log\nNullReferenceException at Boot") != std::string::npos);
   restarted.Prepare({4242, "/data/homebrew/FAKE77031/games/4242", "internal", "Example Game"});
-  const auto again = WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.refusals.count(4242) != 0; });
-  CHECK(again.refusals.at(4242) == "This game is already prepared.");
+  const auto prepared = WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.refusals.count(4242) != 0; });
+  CHECK(prepared.refusals.at(4242) == "This game is already prepared.");
   restarted.Shutdown();
+
+  // Unity 5 writes output_log.txt beside the program instead; the newer log is the one shown.
+  Write(game / "Bin/Game_Data/output_log.txt", "Initialize engine version: 5.3.6p5\n", 0600);
+  std::filesystem::last_write_time(game / "Bin/Game_Data/output_log.txt",
+                                   std::filesystem::file_time_type::clock::now() + std::chrono::seconds(10));
+  title_logs.clear();
+  RuntimeHost legacy(config);
+  CHECK(legacy.Start());
+  WaitFor(legacy, [](const RuntimeSnapshot& s) { return Started(s) && !s.generated_recipes.empty(); });
+  CHECK(title_logs.count("FAKE78001"));
+  CHECK(title_logs.at("FAKE78001").find("== Game_Data/output_log.txt\nInitialize engine version: 5.3.6p5") !=
+        std::string::npos);
+  legacy.Prepare({4242, "/data/homebrew/FAKE77031/games/4242", "internal", "Example Game"});
+  const auto again = WaitFor(legacy, [](const RuntimeSnapshot& s) { return s.refusals.count(4242) != 0; });
+  CHECK(again.refusals.at(4242) == "This game is already prepared.");
+  legacy.Shutdown();
 }
 
 // Uninstall removes the game's PS5 title: the title folder leaves ShadowMount's

@@ -110,10 +110,13 @@ std::vector<std::filesystem::path> Folders(const std::filesystem::path& folder) 
   return out;
 }
 
-// The newest session report of a game's bottle, followed by the newest log its engine wrote
-// in the bottle: Unity's AppData/LocalLow/<company>/<product>/Player.log or Unreal's
-// AppData/Local/<project>/Saved/Logs/*.log. Those name the crash when the report stops short.
-std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_root) {
+// The newest session report of a game's bottle, followed by the newest log its engine wrote:
+// Unity's AppData/LocalLow/<company>/<product>/Player.log or Unreal's
+// AppData/Local/<project>/Saved/Logs/*.log in the bottle, or Unity 5's
+// <program>_Data/output_log.txt beside the program. Those name the crash when the report
+// stops short.
+std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_root,
+                                            const std::filesystem::path& program) {
   namespace fs = std::filesystem;
   fs::path newest; fs::file_time_type newest_time{};
   Newest(data_root / "library/logs", [](const std::string& name) { return name.rfind("session-", 0) == 0; },
@@ -129,8 +132,14 @@ std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_ro
     Newest(project / "Saved/Logs", [](const std::string& name) {
       return name.size() > 4 && name.compare(name.size() - 4, 4, ".log") == 0;
     }, &engine, &engine_time);
-  if (!engine.empty())
-    text += "\n== " + engine.lexically_relative(data_root).string() + "\n" + FileTail(engine, 64 * 1024);
+  if (!program.empty())
+    Newest(program.parent_path() / (program.stem().string() + "_Data"),
+           [](const std::string& name) { return name == "output_log.txt"; }, &engine, &engine_time);
+  if (!engine.empty()) {
+    const auto shown = engine.lexically_relative(data_root);
+    text += "\n== " + (shown.empty() || *shown.begin() == ".." ? engine.parent_path().filename() / engine.filename() : shown).string() + "\n" +
+            FileTail(engine, 64 * 1024);
+  }
   return text;
 }
 
@@ -1597,7 +1606,12 @@ void RuntimeHost::Run() {
           const auto root = config_.host_namespace_prefix.empty()
               ? std::filesystem::path(record.data_root)
               : config_.host_namespace_prefix / std::filesystem::path(record.data_root).relative_path();
-          if (const auto text = NewestSessionLog(root)) config_.title_log(record.title_id, *text);
+          const auto install = config_.host_namespace_prefix.empty()
+              ? std::filesystem::path(record.install_path)
+              : config_.host_namespace_prefix / std::filesystem::path(record.install_path).relative_path();
+          const auto program = record.install_path.empty() || record.launch_path.empty()
+              ? std::filesystem::path() : install / record.launch_path;
+          if (const auto text = NewestSessionLog(root, program)) config_.title_log(record.title_id, *text);
         }
       // Play: the launch journal sits beside the install records. A session
       // pending from before a restart is polled, never handed off again.
