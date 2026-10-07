@@ -72,6 +72,9 @@ struct VerifiedKitView {
 
 // The variant a title uses: its own fixed variant, else the kit's any-title variant.
 const KitTitleVariant* KitVariantFor(const VerifiedKitView& kit, const std::string& title_id);
+// The titles a new game may get, in order: the fixed variants' titles, then, with an any-title
+// variant, every other FAKE78001-FAKE78999 (the lowest free one is taken).
+std::vector<std::string> KitTitleCandidates(const VerifiedKitView& kit);
 
 // Canonical paths remain /data/... in RuntimeInstall and descriptors. Tests map
 // that namespace beneath host_data_root without weakening canonical validation.

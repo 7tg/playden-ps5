@@ -75,7 +75,33 @@ struct Fixture {
   const std::string dxvk_archive = std::string(64, 'f');
   KitAdmissionConfig trust;
   bool publication_guard = false;
+  bool any_title_capability = false;
+  std::string variant_fields;  // extra members of the first variant, e.g. ,"any_title":true
+  std::string variant_title = "FAKE78001";
   std::string additional_variants;
+
+  // Turns the variant into one shell for every game: template title FAKE78000, a FAKE78 rule
+  // helper reading Playden's allow-list, and the capability.
+  void MakeAnyTitle(const std::string& allow_list = "/data/playden/title-rule/allow-list",
+                    const std::string& prefix = "FAKE78") {
+    const auto helper = *HashFile(root / "titles/variant/lapy.elf");
+    const auto protocol = *HashFile(root / "titles/variant/lapy_elevation_protocol.h");
+    const std::string rule = "{\"prefix\":" + Quote(prefix) + ",\"allow_list\":" + Quote(allow_list) + "}";
+    Write(root / "titles/variant/sce_sys/param.json", "{\"titleId\":\"FAKE78000\"}");
+    Write(root / "titles/variant/lapy-manifest.json",
+          "{\"schema\":\"lapy-owned-build/1\",\"mode\":\"elf-helper\",\"target_title\":" + Quote(prefix + "*") +
+          ",\"title_rule\":" + rule + ",\"elf_sha256\":" + Quote(helper) + ",\"protocol_sha256\":" + Quote(protocol) +
+          ",\"features\":[\"root_layout_probe_retry\",\"title_rule\"]}");
+    Write(root / "titles/variant/native-title-build.json",
+          "{\"schema\":\"prospero-win-native-title/1\",\"title_id\":\"FAKE78000\",\"any_title\":true,"
+          "\"title_rule\":" + rule + ",\"source_revision\":" + Quote(wrapper) + ",\"source_dirty\":false,\"eboot_sha256\":" +
+          Quote(*HashFile(root / "titles/variant/eboot.bin")) + "}");
+    variant_title = "FAKE78000";
+    variant_fields = ",\"any_title\":true";
+    any_title_capability = true;
+    trust.known_capabilities.push_back("title-any-id");
+    RewriteManifest();
+  }
 
   void SetPublicationMarkers(const std::string& fields,
                              const std::string& variant = "variant") {
@@ -258,14 +284,15 @@ struct Fixture {
     const std::string manifest =
       "{\"schema\":\"playden-prospero-kit/1\",\"kit_id\":\"kit-1\",\"firmware\":[" + Quote(firmware) +
       "],\"architecture\":\"x86_64+wow64-i386\",\"capabilities\":[" +
-      (publication_guard ? "\"playden-publication-guard-v1\"," : "") + "\"ps5-audio\",\"wine-wow64\"],"
+      (publication_guard ? "\"playden-publication-guard-v1\"," : "") + "\"ps5-audio\"," +
+      (any_title_capability ? "\"title-any-id\"," : "") + "\"wine-wow64\"],"
       "\"sources\":" + sources + ",\"runtime\":{\"bundle_id\":\"wine-wow64\",\"artifact_revision\":\"artifact-e16\","
       "\"wine_revision\":" + Quote(wine) + ",\"path\":" + Quote(runtime_path) +
       ",\"inventory_manifest\":\"runtime/wine-wow64/artifact-e16/runtime-inventory.json\","
       "\"module_counts\":{\"i386-windows\":6,\"x86_64-windows\":7,\"x86_64-unix\":6}},"
       "\"template\":{\"path\":\"template/bottle\",\"user\":\"prospero\"},"
       "\"recipe\":{\"id\":\"steam-220-hl2-v1\",\"version\":\"1\",\"path\":\"recipes/steam-220-hl2-v1.json\",\"sha256\":" +
-      Quote(*HashFile(root / "recipes/steam-220-hl2-v1.json")) + "},\"variants\":[{\"id\":\"variant\",\"title_id\":\"FAKE78001\","
+      Quote(*HashFile(root / "recipes/steam-220-hl2-v1.json")) + "},\"variants\":[{\"id\":\"variant\",\"title_id\":" + Quote(variant_title) + variant_fields + ","
       "\"path\":\"titles/variant\",\"wrapper_revision\":" + Quote(wrapper) + ",\"helper_revision\":" + Quote(helper_revision) +
       ",\"helper_manifest\":\"titles/variant/lapy-manifest.json\",\"helper_protocol\":\"titles/variant/lapy_elevation_protocol.h\","
       "\"native_build_manifest\":\"titles/variant/native-title-build.json\"}" + additional_variants + "],\"dxvk\":" + dxvk.str() +
@@ -319,6 +346,55 @@ int main() {
     assert(result.status == KitManifestStatus::kVerified);
     assert(result.ignored_capabilities == std::vector<std::string>{guard});
     assert(std::find(result.capabilities.begin(), result.capabilities.end(), guard) == result.capabilities.end());
+  }
+  {
+    // One shell for every game is admitted with its capability and Playden's title rule.
+    Fixture fixture;
+    fixture.MakeAnyTitle();
+    const auto result = fixture.Verify();
+    assert(result.status == KitManifestStatus::kVerified && result.view);
+    assert(result.view->variants.size() == 1 && result.view->variants[0].any_title &&
+           result.view->variants[0].title_id == "FAKE78000");
+    assert(KitVariantFor(*result.view, "FAKE78042") == &result.view->variants[0]);
+  }
+  {
+    // A build that doesn't know the capability ignores it and so refuses the variant.
+    Fixture fixture;
+    fixture.MakeAnyTitle();
+    fixture.trust.known_capabilities.pop_back();
+    CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    // Without the capability, or without Playden's allow-list or range, it is refused.
+    Fixture without;
+    without.MakeAnyTitle();
+    without.any_title_capability = false;
+    without.RewriteManifest();
+    CheckRejected(without.Verify(), KitManifestStatus::kIntegrityFailure);
+    Fixture other_list;
+    other_list.MakeAnyTitle("/data/elsewhere/allow-list");
+    CheckRejected(other_list.Verify(), KitManifestStatus::kIntegrityFailure);
+    Fixture other_range;
+    other_range.MakeAnyTitle("/data/playden/title-rule/allow-list", "FAKE7");
+    CheckRejected(other_range.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    // The capability with only fixed titles, or an any-title shell listed as a fixed title.
+    Fixture capability_only;
+    capability_only.any_title_capability = true;
+    capability_only.trust.known_capabilities.push_back("title-any-id");
+    capability_only.RewriteManifest();
+    CheckRejected(capability_only.Verify(), KitManifestStatus::kIntegrityFailure);
+    Fixture unmarked;
+    unmarked.MakeAnyTitle();
+    unmarked.variant_fields.clear();
+    unmarked.RewriteManifest();
+    CheckRejected(unmarked.Verify(), KitManifestStatus::kIntegrityFailure);
+    Fixture malformed;
+    malformed.MakeAnyTitle();
+    malformed.variant_fields = ",\"any_title\":\"yes\"";
+    malformed.RewriteManifest();
+    CheckRejected(malformed.Verify(), KitManifestStatus::kMalformed);
   }
   const std::vector<std::string> invalid_guard_fields = {
       "",

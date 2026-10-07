@@ -1057,18 +1057,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     reserve.launch_working_directory = launch.working_directory;
     reserve.install_path = request.install_path;
     reserve.volume_id = request.volume_id;
-    bool any_title = false;
-    for (const auto& variant : c.kit->view.variants) {
-      if (!variant.any_title) reserve.kit_title_variants.push_back(variant.title_id);
-      any_title |= variant.any_title;
-    }
-    // One shell for every game: the lowest free title in the range, after any fixed ones.
-    if (any_title)
-      for (int number = 1; number <= 999; ++number) {
-        char title[16];
-        std::snprintf(title, sizeof(title), "%s%03d", rt::kTitleRulePrefix, number);
-        if (rt::KitVariantFor(c.kit->view, title)) reserve.kit_title_variants.push_back(title);
-      }
+    reserve.kit_title_variants = rt::KitTitleCandidates(c.kit->view);
     auto reserved = c.repository.Reserve(reserve);
     if (!reserved.ok()) return "A PS5 title could not be reserved: " + reserved.message();
     auto record = reserved.value();

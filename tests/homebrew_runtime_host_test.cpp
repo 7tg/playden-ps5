@@ -142,7 +142,84 @@ RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native"
   admitted.capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
   return admitted;
 }
+// The same kit with one shell for every game: its own param.json names the template title.
+RuntimeKit AnyTitleKit(const fs::path& kit) {
+  auto admitted = SyntheticKit(kit);
+  const auto param = kit / "titles/variant/sce_sys/param.json";
+  Write(param,
+        "{\n  \"conceptId\": \"78000\",\n  \"contentId\": \"UP9000-FAKE78000_00-PROSPEROWIN00001\",\n"
+        "  \"localizedParameters\": {\n    \"en-US\": {\n      \"titleName\": \"Prospero Win\"\n    }\n  },\n"
+        "  \"titleId\": \"FAKE78000\"\n}\n", 0644);
+  for (auto& file : admitted.view.files)
+    if (file.path == "titles/variant/sce_sys/param.json") {
+      file.size = fs::file_size(param);
+      file.sha256 = *HashArtifactFile(param);
+    }
+  admitted.view.variants = {{"any-title", "FAKE78000", "titles/variant", true}};
+  admitted.capabilities.push_back("title-any-id");
+  return admitted;
+}
 }  // namespace
+
+// One shell for every game: the game gets a new title of its own (the lowest free FAKE78xxx),
+// stamped with its own title ID, and its helper's allow-list names it before the title exists.
+// Without a way to write that list nothing is prepared.
+void AnyTitleKitMakesTheGameItsOwnTitle() {
+  for (const bool writer : {false, true}) {
+    Fixture fixture;
+    auto config = fixture.Config();
+    config.host_namespace_prefix = fixture.root;
+    config.package_paths.console_data_root = "/data";
+    config.package_paths.host_data_root = fixture.root / "data";
+    config.package_operations.hash_file = HashArtifactFile;
+    config.package_operations.hash_bytes = HashArtifactBytes;
+    config.package_operations.free_space_unverifiable = true;
+    config.package_operations.validate_bottle = [](const fs::path& bottle) {
+      return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+    };
+    const auto kit = AnyTitleKit(fixture.root / "kit");
+    config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+    unsigned uuids = 0;
+    config.uuid = [&uuids]() -> std::optional<std::string> {
+      ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+    };
+    config.unix_time = [] { return std::int64_t{1760000000}; };
+    std::vector<std::string> lists;
+    if (writer)
+      config.write_title_allow_list = [&lists](const std::string& contents, std::string*) {
+        lists.push_back(contents);
+        return true;
+      };
+    Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) ||
+          (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (!writer) {
+      CHECK(done.refusals.count(220) && done.refusals.at(220) == "This console can't let new PS5 titles start.");
+      CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001"));
+      host.Shutdown();
+      continue;
+    }
+    if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+    CHECK(!done.refusals.count(220) && done.installs.size() == 1);
+    CHECK(done.installs[0].state == PreparationState::kReady && done.installs[0].title_id == "FAKE78001");
+    // Startup wrote the (empty) list; the reservation listed the new title before staging.
+    CHECK(lists.size() == 2 && lists[0].empty() && lists[1] == "FAKE78001\n");
+    const auto param = Read(fixture.root / "data/homebrew/FAKE78001/sce_sys/param.json");
+    CHECK(param.find(R"("titleId": "FAKE78001")") != std::string::npos);
+    CHECK(param.find(R"("conceptId": "78001")") != std::string::npos);
+    CHECK(param.find(R"("contentId": "UP9000-FAKE78001_00-PROSPEROWIN00001")") != std::string::npos);
+    CHECK(param.find("FAKE78000") == std::string::npos && param.find(R"("titleName": "Half-Life \"2\"")") != std::string::npos);
+    CHECK(Read(fixture.root / "data/homebrew/FAKE78001/eboot.bin") == "native");
+    CHECK(done.installs[0].title_current && done.installs[0].admission == "ok");
+    host.Shutdown();
+  }
+}
 
 // Without an admitted kit, the composed services start, report why preparation
 // is unavailable and refuse Prepare without creating durable records.
@@ -1059,6 +1136,7 @@ int main(int argc, char** argv) {
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
+  AnyTitleKitMakesTheGameItsOwnTitle();
   PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();
   ResumesInterruptedCaptureFromSavedRequest();

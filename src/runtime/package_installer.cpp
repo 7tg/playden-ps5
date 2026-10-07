@@ -7,6 +7,7 @@
 #include "steam/backend/json.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <array>
 #include <cerrno>
 #include <cstring>
@@ -402,6 +403,23 @@ const KitTitleVariant* KitVariantFor(const VerifiedKitView& kit, const std::stri
   }
   // The any-title shell serves every managed title except its own template ID.
   return any && IsManagedTitle(title_id) && title_id != any->title_id ? any : nullptr;
+}
+
+std::vector<std::string> KitTitleCandidates(const VerifiedKitView& kit) {
+  std::vector<std::string> titles;
+  bool any_title = false;
+  for (const auto& variant : kit.variants) {
+    if (!variant.any_title) titles.push_back(variant.title_id);
+    any_title |= variant.any_title;
+  }
+  if (any_title)
+    for (int number = 1; number <= 999; ++number) {
+      char title[16];
+      std::snprintf(title, sizeof(title), "%s%03d", kTitleRulePrefix, number);
+      if (std::find(titles.begin(), titles.end(), title) == titles.end() && KitVariantFor(kit, title))
+        titles.push_back(title);
+    }
+  return titles;
 }
 
 FilesystemPackageInstaller::FilesystemPackageInstaller(

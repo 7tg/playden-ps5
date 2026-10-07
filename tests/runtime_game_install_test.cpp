@@ -3,6 +3,7 @@
 #include "platform/storage.h"
 
 #include <cstdio>
+#include <set>
 #include <cerrno>
 #include <dlfcn.h>
 #include <sys/stat.h>
@@ -217,6 +218,69 @@ void StateArtifactsFailureAndJournalRoundTrip() {
   CHECK(removal_repository.Reserve(contender).ok());
 }
 
+// With one shell for every game the candidates are the whole FAKE78001-FAKE78999 range
+// (runtime::KitTitleCandidates): more than ten games each get the lowest free title, titles
+// taken on the console are skipped, games kept on old fixed titles keep them, a removed game's
+// title is used again, and a title reserved before a stop stays with its game after a restart.
+void AnyTitleRangeAllocatesBeyondTenAndReusesRemovedTitles() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path);
+  std::vector<std::string> range;
+  for (int number = 1; number <= 999; ++number) {
+    char title[16];
+    std::snprintf(title, sizeof(title), "FAKE78%03d", number);
+    range.push_back(title);
+  }
+  // FAKE78003 is someone else's folder; FAKE78004 is still listed by the console.
+  const auto availability = [](const std::string& title) {
+    if (title == "FAKE78003") return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kOccupied};
+    if (title == "FAKE78004") return NativeTitleAvailability{TitleAvailability::kOccupied, TitleAvailability::kFree};
+    return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree};
+  };
+  RuntimeInstallRepository repository(storage, "runtime-installs.json", availability);
+  CHECK(repository.Load().ok());
+  // A game prepared with an older ten-title kit keeps its fixed title.
+  auto fixed = Request("old-fixed");
+  fixed.kit_title_variants = {"FAKE78001"};
+  CHECK(repository.Reserve(fixed).ok());
+
+  std::vector<std::string> titles;
+  for (int game = 0; game < 12; ++game) {
+    auto request = Request("game-" + std::to_string(game));
+    request.kit_title_variants = range;
+    const auto reserved = repository.Reserve(request);
+    CHECK(reserved.ok());
+    titles.push_back(reserved.value().title_id);
+  }
+  CHECK(titles.front() == "FAKE78002" && titles[1] == "FAKE78005" && titles.back() == "FAKE78015");
+  CHECK(std::set<std::string>(titles.begin(), titles.end()).size() == 12);
+  CHECK(repository.Snapshot().size() == 13);
+
+  // Removing a game frees its title for the next one, and only once it is gone.
+  auto removed = *repository.Find("game-3");
+  CHECK(removed.title_id == "FAKE78007");
+  removed.state = PreparationState::kRemoving;
+  CHECK(repository.Update(removed).ok());
+  auto next = Request("game-new");
+  next.kit_title_variants = range;
+  auto reserved = repository.Reserve(next);
+  CHECK(reserved.ok() && reserved.value().title_id == "FAKE78016");  // still reserved while removing
+  CHECK(repository.EraseAfterUnregister("game-3").ok());
+  auto again = Request("game-again");
+  again.kit_title_variants = range;
+  reserved = repository.Reserve(again);
+  CHECK(reserved.ok() && reserved.value().title_id == "FAKE78007");
+
+  // After a restart every reservation still holds, registered or not.
+  RuntimeInstallRepository restarted(storage, "runtime-installs.json", availability);
+  CHECK(restarted.Load().ok());
+  CHECK(restarted.Find("game-again")->title_id == "FAKE78007");
+  auto after = Request("after-restart");
+  after.kit_title_variants = range;
+  reserved = restarted.Reserve(after);
+  CHECK(reserved.ok() && reserved.value().title_id == "FAKE78017");
+}
+
 void MalformedAndUnsupportedFilesDoNotBecomeEmptyRepositories() {
   TemporaryDirectory directory;
   playden::Storage storage(directory.path);
@@ -416,6 +480,7 @@ int main() {
   RegistryPublicationRejectsSymlinkDestination();
   ReservationSurvivesRestartAndReinstallReusesIdentity();
   NativeInventoryAndSourceCollisionsAreNeverAllocated();
+  AnyTitleRangeAllocatesBeyondTenAndReusesRemovedTitles();
   LegacyDownloadAdoptsWithoutCopyAndRemainsDownloaded();
   StateArtifactsFailureAndJournalRoundTrip();
   MalformedAndUnsupportedFilesDoNotBecomeEmptyRepositories();

@@ -573,6 +573,58 @@ void NativeFsyncFallbackPublishesAtomically() {
 // A stop between moving the title into place and publishing its folders leaves
 // them private. Inspection reports the title unmatched and staging republishes it
 // instead of refusing it as a collision.
+// One shell for every game: any managed title but the template's uses it, and a game title
+// only ever gets the parameters Playden wrote for it, naming its own ID.
+void AnyTitleVariantServesEveryTitle() {
+  Fixture fixture;
+  const std::string template_param = "{\"titleId\": \"FAKE78000\", \"titleName\": \"Prospero Win\"}\n";
+  Write(fixture.kit / "titles/variant/sce_sys/param.json", template_param, 0644);
+  for (auto& file : fixture.view.files)
+    if (file.path == "titles/variant/sce_sys/param.json") {
+      file.size = template_param.size();
+      file.sha256 = *TestHash(fixture.kit / file.path);
+    }
+  fixture.view.variants = {{"any", "FAKE78000", "titles/variant", true}};
+
+  const auto& view = fixture.view;
+  CHECK(KitVariantFor(view, "FAKE78001") == &view.variants[0]);
+  CHECK(KitVariantFor(view, "FAKE78999") == &view.variants[0]);
+  CHECK(KitVariantFor(view, "FAKE78000") == nullptr);  // the template is never a game title
+  CHECK(KitVariantFor(view, "PPSA99995") == nullptr && KitVariantFor(view, "FAKE7801") == nullptr);
+  auto candidates = KitTitleCandidates(view);
+  CHECK(candidates.size() == 999 && candidates.front() == "FAKE78001" && candidates.back() == "FAKE78999");
+  CHECK(std::find(candidates.begin(), candidates.end(), "FAKE78000") == candidates.end());
+
+  // A fixed variant keeps its title and is offered first; the any-title shell serves the rest.
+  auto mixed = view;
+  mixed.variants.push_back({"fixed", "FAKE78005", "titles/variant"});
+  CHECK(KitVariantFor(mixed, "FAKE78005") == &mixed.variants[1]);
+  CHECK(KitVariantFor(mixed, "FAKE78006") == &mixed.variants[0]);
+  candidates = KitTitleCandidates(mixed);
+  CHECK(candidates.size() == 999 && candidates[0] == "FAKE78005" && candidates[1] == "FAKE78001");
+  // Fixed variants only: exactly their titles, as before.
+  auto fixed = view;
+  fixed.variants = {{"fixed", "FAKE78005", "titles/variant"}};
+  CHECK(KitTitleCandidates(fixed) == std::vector<std::string>{"FAKE78005"});
+  CHECK(KitVariantFor(fixed, "FAKE78006") == nullptr);
+
+  auto record = Record();
+  record.title_id = "FAKE78012";
+  std::filesystem::create_directories(fixture.host_data);
+  auto installer = fixture.Installer();
+  // Without the game's own parameters the template's would name the wrong title.
+  CHECK(installer.StageTitle(record).state != PackageActionState::kComplete);
+  CHECK(!std::filesystem::exists(fixture.host_data / "homebrew/FAKE78012"));
+  CHECK(installer.WriteTitleMetadata(record, template_param, std::nullopt).state != PackageActionState::kComplete);
+  CHECK(installer.WriteTitleMetadata(record, "not json", std::nullopt).state != PackageActionState::kComplete);
+  const std::string own = "{\"titleId\": \"FAKE78012\", \"titleName\": \"Half-Life 2\"}\n";
+  CHECK(installer.WriteTitleMetadata(record, own, std::nullopt).state == PackageActionState::kComplete);
+  CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  CHECK(Read(fixture.host_data / "homebrew/FAKE78012/sce_sys/param.json") == own);
+  CHECK(Read(fixture.host_data / "homebrew/FAKE78012/eboot.bin") == "native");
+  CHECK(installer.TitleMetadataCurrent(record) && installer.Inspect(record).manifest_matches);
+}
+
 void PrivateTitleFoldersAreRepublished() {
   Fixture fixture;
   auto installer = fixture.Installer();
@@ -912,6 +964,7 @@ int main() {
   NativeFsyncFallbackPublishesAtomically();
   LateSyncFailureIsReestablishedOnRetry();
   PrivateTitleFoldersAreRepublished();
+  AnyTitleVariantServesEveryTitle();
   CreatedFoldersIgnoreUmask();
   EmptyUnmarkedStagingIsReclaimed();
   CollisionsTraversalSymlinksAndModesFailClosed();
