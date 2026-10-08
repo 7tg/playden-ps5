@@ -207,24 +207,25 @@
   "prospero_kit": {
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
-    "status": "kit C on fixed kit B: console acceptance passed; authorized no-drop fallback",
-    "manifest_sha256": "8943e45e5e1b024f075e830753ab0ebcb52ae89134d4606365c53223c33aea97",
-    "files_sha256": "c836be09e758c46ef57b17ef58e3cfabc35dcfeb7f7c97edef586beeb0beef29",
+    "status": "kit C on fixed kit B with game-root-unowned (shell 33130a9); kit C console acceptance passed; authorized no-drop fallback",
+    "manifest_sha256": "a003dcec6ca4867aa1e475db4586e8f0ed4dce10950d26720b047579cbcf4647",
+    "files_sha256": "1237d8e87eb4b3f40a612933596266115997374b781ce2cc2fd8bee8f1ca637d",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",
     "firmware": [
       "13.60"
     ],
     "capabilities": [
       "dxvk",
+      "game-root-unowned",
       "offline_bottle",
       "per_game_title",
       "title-any-id",
       "wine-shared-sections",
       "wow64_i386"
     ],
-    "wrapper_revision": "850e62c9243c551684dfea5dada7bb2689a9ba4f",
+    "wrapper_revision": "33130a9f9ad7af7d129bec75330f7c4c70c54768",
     "runtime_artifact_revision": "bea2be5-ps5-kit-b-r1-neutral",
-    "runtime_inventory_source": "Fixed kit B runtime, template and recipe from build/kit-b-25a967d; any-title shell 850e62c (same tree as a123875) and Lapy title-rule 9adc6b7; option A retains root recovery on FW 13.60.",
+    "runtime_inventory_source": "Fixed kit B runtime, template and recipe from build/kit-b-25a967d; any-title shell 33130a9 (a123875 plus publication schema 3 for exFAT game folders) and Lapy title-rule 66ab4f1 (same tree as 9adc6b7); built by build/kit-c/scripts/make_kit_unowned.sh; option A retains root recovery on FW 13.60.",
     "template_preparation": "hl2-fresh-v16-neutral-bea2be5"
   }
 }
