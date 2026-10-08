@@ -115,6 +115,30 @@ void activate(playden::homebrew::Simulation& simulation, const std::string& key)
     check(simulation.action("cross"), "focused action activates");
 }
 
+void t03_circle_leaves_an_applied_search(const std::filesystem::path& fixtures,
+                                         const std::filesystem::path& profile) {
+    playden::homebrew::Simulation simulation(fixtures, profile);
+    simulation.action("route:library");
+    const auto has_legend = [&](const std::string& legend) {
+        const auto& legends = simulation.view().legends;
+        return std::find(legends.begin(), legends.end(), legend) != legends.end();
+    };
+    check(has_legend("Touchpad Search") && !has_legend("Search") && !has_legend("Circle Clear search"),
+          "T03 Library names the touchpad for Search");
+    simulation.action("search");
+    simulation.text("Night Orchard");
+    simulation.action("done");
+    check(simulation.visible_games().size() == 1 && has_legend("Circle Clear search"),
+          "T03 an applied search offers Circle to clear it");
+    simulation.action("circle");
+    check(simulation.state().library.query.empty() && simulation.visible_games().size() > 1
+              && simulation.state().navigation.route == playden::homebrew::Route::Library,
+          "T03 Circle clears the search and stays in the Library");
+    simulation.action("circle");
+    check(simulation.state().navigation.route == playden::homebrew::Route::Home,
+          "T03 Circle without a search goes back Home");
+}
+
 void t03_search_filters_and_focus_reconciliation(const std::filesystem::path& fixtures,
                                                  const std::filesystem::path& profile) {
     playden::homebrew::Simulation simulation(fixtures, profile);
@@ -663,6 +687,8 @@ int main(int argc, char** argv) {
     t02_focus_and_nested_modal_restoration(fixtures, profile);
     clean();
     t03_search_filters_and_focus_reconciliation(fixtures, profile);
+    clean();
+    t03_circle_leaves_an_applied_search(fixtures, profile);
     clean();
     t04_organization_persists_without_deleting_games(fixtures, profile);
     clean();

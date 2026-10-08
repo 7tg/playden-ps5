@@ -2342,7 +2342,10 @@ void Simulation::rebuild_view() {
         }
         if (view_.rows.empty()) row(state_.library.query.empty() ? "library-empty" : "clear-search", RowKind::Action,
                                     state_.library.query.empty() ? "Connect Steam" : "Clear search", state_.library.query.empty() ? "connect" : "clear-search");
-        view_.legends = {"Cross Open", "Square Favorite", "Options Actions", "Triangle Filters", "Search"};
+        // The footer shows five legends; with a search applied, Circle clears it in place of Square Favorite.
+        view_.legends = state_.library.query.empty()
+            ? std::vector<std::string>{"Cross Open", "Square Favorite", "Options Actions", "Triangle Filters", "Touchpad Search"}
+            : std::vector<std::string>{"Cross Open", "Options Actions", "Triangle Filters", "Touchpad Search", "Circle Clear search"};
     } else if (state_.navigation.route == Route::Details) {
         const auto* game = find_game(state_, state_.navigation.detail_id.value_or(state_.navigation.selected_game_id));
         view_.title = game ? game->title : "Game unavailable";
@@ -2814,6 +2817,12 @@ void Simulation::cancel() {
         return;
     }
     if (state_.editor.active) { state_.editor.active = false; state_.navigation.focus_key = state_.editor.opener_focus_key; return; }
+    // An applied search is undone before Circle leaves the Library.
+    if (state_.navigation.route == Route::Library && state_.navigation.modals.empty() && !state_.library.query.empty()) {
+        state_.library.query.clear();
+        reconcile_library_selection(state_);
+        return;
+    }
     if (!state_.navigation.modals.empty()) {
         const bool crash_logs = state_.navigation.modals.back().id == "logs" && state_.session == SessionState::Crashed;
         const bool settings_sheet = state_.navigation.modals.back().id == "game-settings";

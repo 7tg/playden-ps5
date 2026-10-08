@@ -323,6 +323,8 @@ ui::Button legend_button(std::string_view legend, std::size_t index)
         return ui::Button::triangle;
     if (legend.rfind("Options", 0) == 0)
         return ui::Button::options;
+    if (legend.rfind("Touchpad", 0) == 0)
+        return ui::Button::touchpad;
     if (legend.find("Favorite") != std::string_view::npos)
         return ui::Button::square;
     if (legend.find("Backspace") != std::string_view::npos)
@@ -1312,11 +1314,20 @@ class Render::Impl
                                  static_cast<int>(std::distance(entries.begin(), selected_entry));
         const int focus_index = state.navigation.library_rail_focused ? state.navigation.selected_index :
                                                                          std::max(0, selected);
-        const ShelfWindow window = shelf_window(static_cast<int>(entries.size()), focus_index, 12);
+        // An applied search gets its own row above the rail, so nothing is drawn over a focus ring.
+        const bool searching = !state.library.query.empty();
+        const float rail_top = searching ? 200.0F : 150.0F;
+        if (searching)
+        {
+            scene_.rounded_rect({96.0F, 150.0F, 300.0F, 38.0F}, 6.0F, kPanel);
+            ui::text(scene_, fonts_.regular, fit(fonts_.regular, state.library.query, 22.0F, 260.0F),
+                     118.0F, 177.0F, 22.0F, kText);
+        }
+        const ShelfWindow window = shelf_window(static_cast<int>(entries.size()), focus_index, searching ? 11 : 12);
         for (int visible = 0; visible < window.count; ++visible)
         {
             const int index = window.first + visible;
-            const float y = 150.0F + visible * 66.0F;
+            const float y = rail_top + visible * 66.0F;
             const bool focused = route_focus_ && state.navigation.library_rail_focused &&
                                  index == state.navigation.selected_index;
             const gfx::Rect entry{96.0F, y, 300.0F, 60.0F};
@@ -1337,13 +1348,7 @@ class Render::Impl
                      374.0F, y + 38.0F, 20.0F, kMuted,
                      gfx::Align::right);
         }
-        if (!state.library.query.empty())
-        {
-            scene_.rounded_rect({96.0F, 108.0F, 300.0F, 38.0F}, 6.0F, kPanel);
-            ui::text(scene_, fonts_.regular, fit(fonts_.regular, state.library.query, 22.0F, 260.0F),
-                     118.0F, 135.0F, 22.0F, kText);
-        }
-        if (!view.subtitle.empty() && entries.size() <= 8)
+        if (!view.subtitle.empty() && entries.size() <= (searching ? 7U : 8U))
             ui::paragraph(scene_, fonts_.regular, view.subtitle, 96.0F, 722.0F, 22.0F, 300.0F,
                           30.0F, kSecondary, 4);
     }
@@ -2204,8 +2209,9 @@ class Render::Impl
                     continue;
                 hints.push_back({legend_button(labels[index], index), labels[index].c_str()});
             }
+            // Circle is already spoken for by "Circle …" legends ("Circle Clear search") and Back/Cancel ones.
             const bool has_back = std::any_of(labels.begin(), labels.end(), [](const std::string &label) {
-                return label.find("Back") != std::string::npos ||
+                return label.rfind("Circle", 0) == 0 || label.find("Back") != std::string::npos ||
                        label.find("Cancel") != std::string::npos;
             });
             if (!has_back)
