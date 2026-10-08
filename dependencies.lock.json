@@ -5,12 +5,12 @@
     "sha256": "a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb"
   },
   "prospero_launcher_helper": {
-    "base_revision": "611fa5f7ed46cdde7094b764168390ab5c4e89f8",
-    "owned_title_revision": "5898dde2d690ec6c2bbfdd9e646068770321ca6f",
+    "base_revision": "b48b7d7236eca25c7b9dfd6c040c763ae05dde80",
+    "owned_title_revision": "66ab4f10f9a6c6a5a42d05f1d165230c13ae2ab7",
     "foundation_revision": "9c0b994a048521af6fb84c73ded364504fe250e9",
     "protocol_sha256": "bb02c4aa814eaba7a7a423a31b29ff41f786212c2953678cf29434e85fa0f869",
     "variants": {
-      "FAKE77031": "8595a83558b7c4b1a72bfd51adb004474bd181e1db8abdfd5958b1f776b14793"
+      "FAKE77031": "910f12157ea9ddcb3fd1c84864b02a0eee95d33133bafdf9058426f66d3dd316"
     },
     "payload_sdk": {
       "version": "v0.42",
@@ -157,15 +157,15 @@
     }
   },
   "prospero_win": {
-    "revision": "850e62c9243c551684dfea5dada7bb2689a9ba4f",
+    "revision": "a1238750b12b76282d9c8e9a0f460d97a4d2f1d5",
     "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
     "status": "development-source; release kit and native acceptance pending",
     "retained_runtime_artifact_revision": "bea2be5-ps5-kit-b-r1-neutral",
     "upstream_url": "https://github.com/mpereiraesaa/prospero-win.git",
-    "branch": "feat/title-shells",
-    "note": "Any-title shell on fixed kit B (25a967d). Firmware 13.60 uses the authorized no-drop fallback; games retain root recovery. Runtime remains bea2be5."
+    "branch": "feat/playden-ps5",
+    "note": "Any-title shell on fixed kit B (25a967d). Firmware 13.60 uses the authorized no-drop fallback; games retain root recovery. Runtime remains bea2be5. Same tree as kit C's shell revision 850e62c (history squashed; the old commits are on backup/playden-ps5-850e62c)."
   },
   "prospero_bottle_preparation": {
     "hl2-fresh-v16": {
@@ -224,7 +224,7 @@
     ],
     "wrapper_revision": "850e62c9243c551684dfea5dada7bb2689a9ba4f",
     "runtime_artifact_revision": "bea2be5-ps5-kit-b-r1-neutral",
-    "runtime_inventory_source": "Fixed kit B runtime, template and recipe from build/kit-b-25a967d; any-title shell 850e62c and Lapy title-rule 9adc6b7; option A retains root recovery on FW 13.60.",
+    "runtime_inventory_source": "Fixed kit B runtime, template and recipe from build/kit-b-25a967d; any-title shell 850e62c (same tree as a123875) and Lapy title-rule 9adc6b7; option A retains root recovery on FW 13.60.",
     "template_preparation": "hl2-fresh-v16-neutral-bea2be5"
   }
 }

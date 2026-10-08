@@ -11,11 +11,11 @@ which the submodule tracks. The forks are not published yet, so a fresh clone ca
 
 | Submodule | Purpose | Fork / upstream | Our commits on `feat/playden-ps5` |
 | --- | --- | --- | --- |
-| `prospero-win` | Wine for PS5: per-game wrapper sources the launcher compiles, kit tooling, Wine patch series | `leolobato/prospero-win` / `mpereiraesaa/prospero-win` | Firmware 13.60 native startup (`824b4ec`), per-game wrapper mode through `301246d` (audio port fix), display-handoff input (`a4c3856`), OpenGL drawable patch `0663` (`4234987`), sync-header patch `0895` |
+| `prospero-win` | Wine for PS5: per-game wrapper sources the launcher compiles, kit tooling, Wine patch series | `leolobato/prospero-win` / `mpereiraesaa/prospero-win` | 42 commits: firmware 13.60 support, per-game title shells (one any-title shell since kit C), verified start-up, kit packaging, Wine patches (unaligned shared sections, OpenGL resize, 32-bit translator fallback) |
 | `ps5-homebrew-ui` | Launcher UI toolkit | `leolobato/ps5-homebrew-ui` / `blackbearreloaded/ps5-homebrew-ui` | Latin glyph baking (3 commits), macOS OpenGL 4.1 host, CFF SDF font atlases |
 | `ps5-opengl` | Native-title link inputs (`native-app/`); legacy varying fix used by the Wine runtime | `leolobato/ps5-opengl` / `blackbearreloaded/ps5-opengl` | Legacy OpenGL varying linkage (`e9c1104`) |
 | `prospero-foundation` | PRX conversion and linking for the Wine runtime (`ps5-native-tool`, `ps5-pie.ld`) | `leolobato/prospero-foundation` / `mpereiraesaa/ps5-native-app-boilerplate` | Module hash tests aligned with the measured loader contract (`182f1ea`) |
-| `PS5-Lapy-JB-Daemon` | Title-scoped root helper that gives a title `/data` access | `leolobato/PS5-Lapy-JB-Daemon` / `mpereiraesaa/PS5-Lapy-JB-Daemon` | Exact FAKE title IDs (`e9f2cfc`), location-independent helper builds (`5898dde`). Our firmware 13.60 fix (PR #49) is merged upstream |
+| `PS5-Lapy-JB-Daemon` | Title-scoped root helper that gives a title `/data` access | `leolobato/PS5-Lapy-JB-Daemon` / `mpereiraesaa/PS5-Lapy-JB-Daemon` | On v0.3.2: exact FAKE title IDs (`08d179a`), location-independent helper builds (`a8f391b`), title-rule mode for the any-title shell (`66ab4f1`). Our firmware 13.60 fix (PR #49) is merged upstream |
 | `ps5-native-app-boilerplate` | Native title tooling and `libc.prx` shim | upstream `blackbearreloaded/ps5-native-app-boilerplate` | None |
 
 `prospero-foundation` is a fork of `ps5-native-app-boilerplate` under another name, because GitHub allows one fork per
