@@ -15,6 +15,18 @@ bool IsDirectory(const std::string& path) {
   return stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
 }
 
+// A drive's mount point sits on a different device than the folder holding it.
+bool IsMountPoint(const std::string& path) {
+  if (path == "/") return true;
+  struct stat mount {}, parent {};
+  const auto slash = path.find_last_of('/');
+  const auto parent_path = slash == 0 ? std::string("/") : path.substr(0, slash);
+  if (slash == std::string::npos || lstat(path.c_str(), &mount) != 0 || !S_ISDIR(mount.st_mode) ||
+      stat(parent_path.c_str(), &parent) != 0)
+    return false;
+  return mount.st_dev != parent.st_dev;
+}
+
 // mkdir -p for an absolute path; existing components are fine.
 bool MakeDirectories(const std::string& path) {
   if (path.empty()) return false;
@@ -46,6 +58,7 @@ std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandid
       continue;
     }
     if (!IsDirectory(candidate.mount)) continue;
+    if (candidate.require_mount_point && !IsMountPoint(candidate.mount)) continue;
     const bool available = MakeDirectories(candidate.games_root) && CanWrite(candidate.games_root);
     volumes.push_back({candidate.id, candidate.label, candidate.games_root, available});
   }
@@ -55,10 +68,10 @@ std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandid
 std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_root) {
   return {
       {InstallService::kPrimaryVolumeId, "Console storage", title_root, title_root + "/games"},
-      {"m2", "M.2 SSD", "/mnt/ext1", "/mnt/ext1/playden/games"},
-      {"extended", "Extended storage", "/mnt/ext0", "/mnt/ext0/playden/games"},
-      {"usb0", "USB drive", "/mnt/usb0", "/mnt/usb0/playden/games"},
-      {"usb1", "USB drive 2", "/mnt/usb1", "/mnt/usb1/playden/games"},
+      {"m2", "M.2 SSD", "/mnt/ext1", "/mnt/ext1/playden/games", true},
+      {"extended", "Extended storage", "/mnt/ext0", "/mnt/ext0/playden/games", true},
+      {"usb0", "USB drive", "/mnt/usb0", "/mnt/usb0/playden/games", true},
+      {"usb1", "USB drive 2", "/mnt/usb1", "/mnt/usb1/playden/games", true},
   };
 }
 

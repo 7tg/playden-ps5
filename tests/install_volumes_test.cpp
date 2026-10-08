@@ -40,9 +40,24 @@ int main() {
   CHECK(volumes[2].id == "locked");
   if (::geteuid() != 0) CHECK(!volumes[2].available);  // root ignores the permission bits
 
-  // The console candidates start with console storage under /app0.
+  // A folder on the same filesystem as its parent is an empty mount point, not a drive:
+  // it is skipped and nothing is created inside it.
+  std::filesystem::create_directories(base / "unmounted");
+  const auto unmounted = DiscoverInstallVolumes({
+      candidates[0],
+      {"extended", "Extended storage", (base / "unmounted").string(), (base / "unmounted" / "playden" / "games").string(), true},
+  });
+  CHECK(unmounted.size() == 1 && unmounted[0].id == "internal");
+  CHECK(!std::filesystem::exists(base / "unmounted" / "playden"));
+  // The filesystem root is a mount point on any host, so a required mount point there is offered.
+  const auto mounted = DiscoverInstallVolumes({candidates[0], {"root", "Root", "/", (base / "root-games").string(), true}});
+  CHECK(mounted.size() == 2 && mounted[1].id == "root");
+
+  // The console candidates start with console storage under /app0; drives must be mounted.
   const auto console = ConsoleVolumeCandidates();
   CHECK(!console.empty() && console[0].id == InstallService::kPrimaryVolumeId && console[0].games_root == "/app0/games");
+  CHECK(!console[0].require_mount_point);
+  for (std::size_t index = 1; index < console.size(); ++index) CHECK(console[index].require_mount_point);
 
   const auto space = QueryVolumeSpace(base.string());
   CHECK(space && space->total_bytes > 0 && space->free_bytes <= space->total_bytes);

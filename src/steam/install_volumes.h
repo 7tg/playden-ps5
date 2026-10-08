@@ -10,15 +10,18 @@
 namespace playden::steam {
 
 // A drive Playden may install to. `mount` must exist for the candidate to be offered;
-// `games_root` is created under it.
+// `games_root` is created under it. With `require_mount_point`, `mount` must also be a
+// different filesystem from its parent folder: the console keeps empty /mnt/ext0 and
+// /mnt/usb* folders when no drive is attached, and writing there fills system storage.
 struct VolumeCandidate {
   std::string id;
   std::string label;
   std::string mount;
   std::string games_root;
+  bool require_mount_point = false;
 };
 
-// Candidates whose mount exists, with `available` set when Playden could create games_root and
+// Candidates whose mount exists (and is mounted, when required), with `available` set when Playden could create games_root and
 // write a probe file there. The first candidate is the primary volume and is always returned,
 // marked available (its folder is created on first install).
 std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates);
