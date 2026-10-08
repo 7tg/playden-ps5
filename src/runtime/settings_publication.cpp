@@ -32,8 +32,19 @@ bool PathsMatch(const SettingsPublicationOperation& o, const PublicationPaths& p
       p.descriptor == Map(prefix, "/data/homebrew/" + o.install.title_id + "/game-launch.json") &&
       p.metadata == Map(prefix, profiles + ".playden-publication");
 }
+DirectoryPolicy GameDirectoryPolicy(bool unowned) {
+  return unowned ? DirectoryPolicy::kUnownedTree : DirectoryPolicy::kApprovedTree;
+}
+// The game's working folder belongs to the app user with 0700/0755, unless its
+// filesystem records no owner or permissions.
+bool OwnedGameDirectory(const struct stat& info, bool unowned) {
+  return S_ISDIR(info.st_mode) && (unowned || (info.st_uid == geteuid() &&
+      ((info.st_mode & 07777) == 0700 || (info.st_mode & 07777) == 0755)));
+}
+// unowned: the file lives in a game folder whose filesystem records no owner or
+// permissions (metadata game_root.unowned), so owner and mode are not checked.
 std::optional<FrozenFileSnapshot> ReadPublicationFile(const ManagedDirectory& directory,
-    const std::string& name, std::size_t maximum) {
+    const std::string& name, std::size_t maximum, bool unowned = false) {
   struct stat before{}, opened{}, after{};
   if (!directory.InspectChild(name, &before)) {
     if (errno == ENOENT && directory.Sync()) return FrozenFileSnapshot{};
@@ -44,10 +55,11 @@ std::optional<FrozenFileSnapshot> ReadPublicationFile(const ManagedDirectory& di
         a.st_uid == b.st_uid && a.st_nlink == b.st_nlink && a.st_size == b.st_size &&
         a.st_mtime == b.st_mtime && a.st_ctime == b.st_ctime;
   };
-  if (!S_ISREG(before.st_mode) || before.st_uid != geteuid() || before.st_nlink != 1 ||
+  if (!S_ISREG(before.st_mode) || (!unowned && before.st_uid != geteuid()) || before.st_nlink != 1 ||
       before.st_size < 0 || static_cast<std::uint64_t>(before.st_size) > maximum ||
-      ((before.st_mode & 07777) != 0600 && (before.st_mode & 07777) != 0644)) return std::nullopt;
-  int fd = directory.OpenRegularFile(name, true, before.st_mode & 07777);
+      (!unowned && (before.st_mode & 07777) != 0600 && (before.st_mode & 07777) != 0644)) return std::nullopt;
+  int fd = unowned ? directory.OpenRegularFile(name)
+                   : directory.OpenRegularFile(name, true, before.st_mode & 07777);
   if (fd < 0) return std::nullopt;
   bool valid = fstat(fd, &opened) == 0 && same(before, opened);
   std::string bytes; char buffer[4096];
@@ -341,10 +353,10 @@ PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperati
       o.metadata_bytes.size(), &metadata) != PW_OK)
     return Failure("publication-invalid", "Frozen DXVK metadata is invalid.");
   const auto target = Map(prefix, metadata.dxvk_path);
-  auto game = ManagedDirectory::Open(target.parent_path(), DirectoryPolicy::kApprovedTree);
+  const bool unowned = metadata.game_root_unowned != 0;
+  auto game = ManagedDirectory::Open(target.parent_path(), GameDirectoryPolicy(unowned));
   struct stat game_info{};
-  if (!game || lstat(target.parent_path().c_str(), &game_info) || game_info.st_uid != geteuid() ||
-      ((game_info.st_mode & 07777) != 0700 && (game_info.st_mode & 07777) != 0755))
+  if (!game || lstat(target.parent_path().c_str(), &game_info) || !OwnedGameDirectory(game_info, unowned))
     return Failure("publication-dxvk-directory", "Owned game working directory is unavailable.");
   auto same = [](const struct stat& a, const struct stat& b) {
     return a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_mode == b.st_mode &&
@@ -354,10 +366,11 @@ PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperati
   auto read = [&](FrozenFileSnapshot* snapshot) {
     *snapshot = {}; struct stat before{}, opened{}, after{};
     if (!game->InspectChild("dxvk.conf", &before)) return errno == ENOENT && game->Sync();
-    if (!S_ISREG(before.st_mode) || before.st_uid != geteuid() || before.st_nlink != 1 ||
+    if (!S_ISREG(before.st_mode) || (!unowned && before.st_uid != geteuid()) || before.st_nlink != 1 ||
         before.st_size < 0 || before.st_size > 256 * 1024 ||
-        ((before.st_mode & 07777) != 0600 && (before.st_mode & 07777) != 0644)) return false;
-    int fd = game->OpenRegularFile("dxvk.conf", true, before.st_mode & 07777);
+        (!unowned && (before.st_mode & 07777) != 0600 && (before.st_mode & 07777) != 0644)) return false;
+    int fd = unowned ? game->OpenRegularFile("dxvk.conf")
+                     : game->OpenRegularFile("dxvk.conf", true, before.st_mode & 07777);
     if (fd < 0) return false;
     bool valid = fstat(fd, &opened) == 0 && same(before, opened);
     std::string bytes; char buffer[4096];
@@ -380,10 +393,12 @@ PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperati
   if (!read(&current) || !held()) return Failure("publication-dxvk-read", "DXVK identity or durability could not be verified.");
   const bool desired_present = !o.plan.dxvk_config.empty();
   const unsigned desired_mode = o.dxvk_before.present ? o.dxvk_before.mode : 0644;
+  // An unowned folder reports one fixed mode for every file; only bytes count there.
+  const auto mode_matches = [&](unsigned mode, unsigned wanted) { return unowned || mode == wanted; };
   const bool original = current.present == o.dxvk_before.present && (!current.present ||
-      (current.bytes == o.dxvk_before.bytes && current.mode == o.dxvk_before.mode));
+      (current.bytes == o.dxvk_before.bytes && mode_matches(current.mode, o.dxvk_before.mode)));
   const bool applied = current.present == desired_present && (!current.present ||
-      (current.bytes == o.plan.dxvk_config && current.mode == desired_mode));
+      (current.bytes == o.plan.dxvk_config && mode_matches(current.mode, desired_mode)));
   if (!original && !applied)
     return Failure("publication-dxvk-collision", "Live DXVK matches neither frozen original nor intended bytes.");
   if (!applied && !desired_present) {
@@ -409,7 +424,7 @@ PackageActionResult ApplyPendingPublicationDxvk(const SettingsPublicationOperati
       return Failure("publication-dxvk-write", "DXVK publication failed; pending effects require recovery.");
   }
   if (!held() || !read(&current) || current.present != desired_present ||
-      (current.present && (current.bytes != o.plan.dxvk_config || current.mode != desired_mode)) || !held())
+      (current.present && (current.bytes != o.plan.dxvk_config || !mode_matches(current.mode, desired_mode))) || !held())
     return Failure("publication-dxvk-verify", "DXVK intended presence/bytes/mode could not be verified durably.");
   return {PackageActionState::kComplete, {}, {}};
 }
@@ -561,12 +576,12 @@ PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperat
     }
   }
   const auto dxvk = Map(prefix, desired.dxvk_path);
-  auto game = ManagedDirectory::Open(dxvk.parent_path(), DirectoryPolicy::kApprovedTree);
+  const bool unowned = desired.game_root_unowned != 0;
+  auto game = ManagedDirectory::Open(dxvk.parent_path(), GameDirectoryPolicy(unowned));
   struct stat game_info{};
-  if (!game || lstat(game->path().c_str(), &game_info) || game_info.st_uid != geteuid() ||
-      ((game_info.st_mode & 07777) != 0700 && (game_info.st_mode & 07777) != 0755))
+  if (!game || lstat(game->path().c_str(), &game_info) || !OwnedGameDirectory(game_info, unowned))
     return Failure("publication-preflight-directory", "Owned game working directory is unavailable.");
-  auto before = ReadPublicationFile(*game, "dxvk.conf", 256 * 1024);
+  auto before = ReadPublicationFile(*game, "dxvk.conf", 256 * 1024, unowned);
   if (!before || before->present != o.dxvk_before.present || (before->present &&
       (before->bytes != o.dxvk_before.bytes || before->mode != o.dxvk_before.mode)))
     return Failure("publication-preflight-snapshot", "Live DXVK disagrees with the frozen before snapshot.");
@@ -632,7 +647,12 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
   auto hash = [&](auto& target, const std::string& bytes) {
     auto digest = HashArtifactBytes(bytes); return digest && bind(target, *digest);
   };
-  PwTitlePublicationMetadata m{}; m.schema_version = 2; m.settings_revision = plan.settings_revision;
+  // A game folder on a drive that records no owner or permissions (exFAT) is
+  // published as schema 3 so the kit's launch admission accepts it.
+  const auto records_ownership = platform::RecordsOwnership(Map(prefix, working));
+  if (!records_ownership) return fail("The game's working directory cannot be checked.");
+  PwTitlePublicationMetadata m{}; m.schema_version = *records_ownership ? 2 : 3;
+  m.game_root_unowned = *records_ownership ? 0 : 1; m.settings_revision = plan.settings_revision;
   if (!bind(m.install_id, r.install_id) || !bind(m.title_id, r.title_id) || !bind(m.data_root, r.data_root) ||
       !bind(m.profile_id, plan.profile_id) || !bind(m.runtime_bundle_id, r.runtime_bundle_id) ||
       !bind(m.recipe_id, plan.recipe_id) || !bind(m.recipe_version, plan.recipe_version) || !bind(m.kit_id, kit_id) ||
@@ -710,8 +730,8 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
       return fail("Before state is not a verified committed complete publication.");
     o.previous_revision = parsed.settings_revision; o.previous_receipt_bytes = receipt.bytes; o.previous_metadata_bytes = prior->bytes;
   }
-  auto game = ManagedDirectory::Open(Map(prefix, working), DirectoryPolicy::kApprovedTree);
-  auto dxvk = game ? ReadPublicationFile(*game, "dxvk.conf", 256 * 1024) : std::nullopt;
+  auto game = ManagedDirectory::Open(Map(prefix, working), GameDirectoryPolicy(m.game_root_unowned != 0));
+  auto dxvk = game ? ReadPublicationFile(*game, "dxvk.conf", 256 * 1024, m.game_root_unowned != 0) : std::nullopt;
   if (!dxvk) return fail("Before DXVK snapshot cannot be verified.");
   o.dxvk_before = *dxvk;
   if (dxvk->present) {

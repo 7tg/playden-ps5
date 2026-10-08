@@ -36,6 +36,7 @@ struct KitCapabilities {
   bool audio_volume = false;  // prospero-win [audio] volume (U4, not released)
   bool shared_sections = false;  // Wine maps unaligned shared PE sections as private copies (patch 0602)
   bool title_any_id = false;     // one title shell for every game; no fixed set of titles
+  bool game_root_unowned = false;  // games start from drives that record no file owners (exFAT)
 };
 
 struct SettingChoice {
@@ -248,6 +249,9 @@ inline constexpr const char* kKitSharedSections = "wine-shared-sections";
 // Runtime ability: the kit carries one title shell for every game (an any-title variant), so
 // Playden makes a new PS5 title per game instead of using a fixed set of titles.
 inline constexpr const char* kKitTitleAnyId = "title-any-id";
+// Runtime ability: launch admission accepts a game folder on a drive that records no file
+// owners or permissions, such as an exFAT USB disk (publication metadata schema 3).
+inline constexpr const char* kKitGameRootUnowned = "game-root-unowned";
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the

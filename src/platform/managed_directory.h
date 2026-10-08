@@ -9,7 +9,7 @@
 namespace playden::platform {
 
 enum class DirectoryBackend { kDescriptorRelative, kAbsolutePath };
-enum class DirectoryPolicy { kApprovedTree, kPrivate };
+enum class DirectoryPolicy { kApprovedTree, kPrivate, kUnownedTree };
 
 // Operations assume a stable managed namespace and coordinated writers. The
 // absolute-path backend checks components and observed identities, but is NOT a
@@ -20,8 +20,19 @@ enum class DirectoryPolicy { kApprovedTree, kPrivate };
 // kPrivate requires current-EUID ownership and mode 0700 from the selected root
 // downward; ancestors above that root may be public. kApprovedTree accepts
 // existing directory ownership/modes, then refuses identity/owner/mode drift.
-// Both reject symlinks in every path component. Caller owns root authorization,
+// kUnownedTree is kApprovedTree for a filesystem that records no owner or
+// permissions (exFAT: every entry shows the mount owner and 0777): file
+// operations skip owner and mode checks, and a rename is checked by device,
+// type and size because such filesystems may renumber renamed files. All
+// policies reject symlinks in every path component. Caller owns root authorization,
 // stopped-title checks, journals, file-content validation and collision policy.
+// Whether files created in `directory` keep the owner and permissions they are
+// given: creates a probe file, sets it to 0600 and reads it back. Nothing when
+// the probe cannot be written. On exFAT the answer is false.
+std::optional<bool> RecordsOwnership(const std::filesystem::path& directory);
+// Test hook: replaces the probe until reset with nullptr.
+void SetOwnershipProbeForTesting(std::optional<bool> (*probe)(const std::filesystem::path&));
+
 class ManagedDirectory {
  public:
   static DirectoryBackend DefaultBackend();

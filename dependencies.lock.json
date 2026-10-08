@@ -157,7 +157,7 @@
     }
   },
   "prospero_win": {
-    "revision": "a1238750b12b76282d9c8e9a0f460d97a4d2f1d5",
+    "revision": "33130a9f9ad7af7d129bec75330f7c4c70c54768",
     "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
@@ -165,7 +165,7 @@
     "retained_runtime_artifact_revision": "bea2be5-ps5-kit-b-r1-neutral",
     "upstream_url": "https://github.com/mpereiraesaa/prospero-win.git",
     "branch": "feat/playden-ps5",
-    "note": "Any-title shell on fixed kit B (25a967d). Firmware 13.60 uses the authorized no-drop fallback; games retain root recovery. Runtime remains bea2be5. Same tree as kit C's shell revision 850e62c (history squashed; the old commits are on backup/playden-ps5-850e62c)."
+    "note": "Any-title shell on fixed kit B (25a967d). Firmware 13.60 uses the authorized no-drop fallback; games retain root recovery. Runtime remains bea2be5. Same tree as kit C's shell revision 850e62c (history squashed; the old commits are on backup/playden-ps5-850e62c). 33130a9 adds publication metadata schema 3 (game_root.unowned) for game folders on exFAT drives."
   },
   "prospero_bottle_preparation": {
     "hl2-fresh-v16": {

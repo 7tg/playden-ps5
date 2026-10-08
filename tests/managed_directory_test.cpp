@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <unistd.h>
 
@@ -171,6 +172,30 @@ void ForeignOwnershipWhenPrivileged(DirectoryBackend backend) {
 }
 }
 
+// kUnownedTree is used for game folders on drives without owners or permissions.
+// The host filesystem keeps modes, so this checks that the policy's operations
+// work and that links and specials are still refused; the probe sees ownership.
+void UnownedTreeOperations(DirectoryBackend backend) {
+  Fixture f;
+  CHECK(::chmod(f.root.c_str(), 0777) == 0);
+  CHECK(playden::platform::RecordsOwnership(f.root) == std::optional<bool>(true));
+  CHECK(!fs::exists(f.root / (".playden-ownership-probe-" + std::to_string(::getpid()))));
+  CHECK(!playden::platform::RecordsOwnership(f.root / "missing"));
+  auto root = ManagedDirectory::Open(f.root, DirectoryPolicy::kUnownedTree, backend);
+  CHECK(root && root->policy() == DirectoryPolicy::kUnownedTree);
+  const int file = root->CreateExclusiveFile(".dxvk.conf.tmp", 0644);
+  CHECK(file >= 0 && ::write(file, "x", 1) == 1 && ::close(file) == 0);
+  { std::ofstream existing(f.root / "dxvk.conf"); existing << "old"; }
+  CHECK(::chmod((f.root / "dxvk.conf").c_str(), 0666) == 0);
+  CHECK(root->RenameChild(".dxvk.conf.tmp", *root, "dxvk.conf", true));
+  const int read = root->OpenRegularFile("dxvk.conf");
+  char byte = 0;
+  CHECK(read >= 0 && ::read(read, &byte, 1) == 1 && byte == 'x' && ::close(read) == 0);
+  fs::create_symlink("dxvk.conf", f.root / "linked.conf");
+  CHECK(root->OpenRegularFile("linked.conf") < 0 && !root->RemoveRegularFile("linked.conf"));
+  CHECK(root->RemoveRegularFile("dxvk.conf") && !fs::exists(f.root / "dxvk.conf"));
+}
+
 int main() {
 #if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
   CHECK(ManagedDirectory::DefaultBackend() == DirectoryBackend::kAbsolutePath);
@@ -186,6 +211,7 @@ int main() {
     RejectPolicyAndIdentityDrift(backend, true);
     RenameAdmission(backend);
     ForeignOwnershipWhenPrivileged(backend);
+    UnownedTreeOperations(backend);
   }
   std::printf("managed directory: %zu backends, identity, policy and file operations pass\n", backends.size());
 }

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <unistd.h>
+#include <string>
 #include <utility>
 
 #if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
@@ -248,9 +249,11 @@ int ManagedDirectory::CreateExclusiveFile(const std::string& name, mode_t mode) 
   const int file = OpenFile(name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode);
   if (file < 0) return -1;
   struct stat info{}, named{};
-  bool valid = ::fchmod(file, mode) == 0 && ::fstat(file, &info) == 0;
-  if (valid && (!S_ISREG(info.st_mode) || info.st_uid != uid_ ||
-                (info.st_mode & 07777) != mode)) valid = Refuse(EACCES);
+  const bool unowned = policy_ == DirectoryPolicy::kUnownedTree;
+  bool valid = (::fchmod(file, mode) == 0 || unowned) && ::fstat(file, &info) == 0;
+  if (valid && (!S_ISREG(info.st_mode) ||
+                (!unowned && (info.st_uid != uid_ || (info.st_mode & 07777) != mode))))
+    valid = Refuse(EACCES);
   if (valid) valid = Validate() && Inspect(name, &named);
   if (valid && !SameIdentity(info, named)) valid = Refuse(ESTALE);
   if (!valid) { ClosePreservingError(file); return -1; }
@@ -264,13 +267,15 @@ bool ManagedDirectory::RenameChild(const std::string& from,
   if (observations_.back().identity.st_dev != destination.observations_.back().identity.st_dev)
     return Refuse(EXDEV);
   struct stat source{}, target{};
+  const bool unowned = policy_ == DirectoryPolicy::kUnownedTree &&
+                       destination.policy_ == DirectoryPolicy::kUnownedTree;
   if (!InspectChild(from, &source)) return false;
-  if (source.st_uid != uid_) return Refuse(EACCES);
+  if (!unowned && source.st_uid != uid_) return Refuse(EACCES);
   if (S_ISDIR(source.st_mode) && destination.policy_ == DirectoryPolicy::kPrivate && !Private(source, uid_))
     return Refuse(EACCES);
   if (destination.InspectChild(to, &target)) {
     if (!replace_existing || S_ISDIR(target.st_mode)) return Refuse(EEXIST);
-    if (target.st_uid != uid_ || !S_ISREG(source.st_mode)) return Refuse(EACCES);
+    if ((!unowned && target.st_uid != uid_) || !S_ISREG(source.st_mode)) return Refuse(EACCES);
   } else if (errno != ENOENT) return false;
   // A missing child does not establish that the destination context survived.
   if (!Validate() || !destination.Validate()) return false;
@@ -283,6 +288,9 @@ bool ManagedDirectory::RenameChild(const std::string& from,
     renamed = ::rename((path_ / from).c_str(), (destination.path_ / to).c_str());
   if (renamed != 0 || !Validate() || !destination.Validate() ||
       !destination.InspectChild(to, &target)) return false;
+  if (unowned)
+    return (source.st_dev == target.st_dev && (source.st_mode & S_IFMT) == (target.st_mode & S_IFMT) &&
+            source.st_size == target.st_size) || Refuse(ESTALE);
   return SameIdentity(source, target) || Refuse(ESTALE);
 }
 
@@ -290,7 +298,7 @@ bool ManagedDirectory::Remove(const std::string& name, bool directory) const {
   struct stat info{};
   if (!InspectChild(name, &info)) return false;
   if (directory ? !S_ISDIR(info.st_mode) : !S_ISREG(info.st_mode)) return Refuse(EINVAL);
-  if (info.st_uid != uid_) return Refuse(EACCES);
+  if (policy_ != DirectoryPolicy::kUnownedTree && info.st_uid != uid_) return Refuse(EACCES);
   int removed;
 #if !PLAYDEN_MANAGED_NATIVE
   if (backend_ == DirectoryBackend::kDescriptorRelative)
@@ -300,6 +308,30 @@ bool ManagedDirectory::Remove(const std::string& name, bool directory) const {
     removed = directory ? ::rmdir((path_ / name).c_str()) : ::unlink((path_ / name).c_str());
   return removed == 0 && Validate();
 }
+
+namespace {
+std::optional<bool> (*g_ownership_probe)(const fs::path&) = nullptr;
+
+std::optional<bool> ProbeOwnership(const fs::path& directory) {
+  const auto probe = directory / (".playden-ownership-probe-" + std::to_string(::getpid()));
+  ::unlink(probe.c_str());
+  const int file = ::open(probe.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (file < 0) return std::nullopt;
+  struct stat info{};
+  const bool chmodded = ::fchmod(file, 0600) == 0;
+  const bool inspected = ::fstat(file, &info) == 0;
+  ::close(file);
+  ::unlink(probe.c_str());
+  if (!inspected) return std::nullopt;
+  return chmodded && info.st_uid == ::geteuid() && (info.st_mode & 07777) == 0600;
+}
+}  // namespace
+
+std::optional<bool> RecordsOwnership(const fs::path& directory) {
+  return g_ownership_probe ? g_ownership_probe(directory) : ProbeOwnership(directory);
+}
+
+void SetOwnershipProbeForTesting(std::optional<bool> (*probe)(const fs::path&)) { g_ownership_probe = probe; }
 
 bool ManagedDirectory::RemoveRegularFile(const std::string& name) const { return Remove(name, false); }
 bool ManagedDirectory::RemoveEmptyDirectory(const std::string& name) const { return Remove(name, true); }

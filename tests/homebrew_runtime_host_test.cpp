@@ -1,7 +1,9 @@
 #include "homebrew/runtime_host.hpp"
+#include "platform/managed_directory.h"
 #include "platform/storage.h"
 #include "runtime/artifact_hash.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -1153,6 +1155,64 @@ void RemovesTitleKeepingSaves() {
   }
 }
 
+// A game on a drive that records no file owners (exFAT) keeps its folder as it
+// is. Its publication says so (metadata schema 3), and only a kit that can start
+// games from such drives prepares it.
+void PreparesGameOnUnownedDrive() {
+  playden::platform::SetOwnershipProbeForTesting([](const fs::path&) { return std::optional<bool>(false); });
+  for (const bool capable : {false, true}) {
+    Fixture fixture;
+    auto config = fixture.Config();
+    config.host_namespace_prefix = fixture.root;
+    config.package_paths.console_data_root = "/data";
+    config.package_paths.host_data_root = fixture.root / "data";
+    config.package_operations.hash_file = HashArtifactFile;
+    config.package_operations.hash_bytes = HashArtifactBytes;
+    config.package_operations.free_space_unverifiable = true;
+    config.package_operations.validate_bottle = [](const fs::path& bottle) {
+      return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+    };
+    auto kit = SyntheticKit(fixture.root / "kit");
+    if (capable) {
+      kit.capabilities.push_back("game-root-unowned");
+      std::sort(kit.capabilities.begin(), kit.capabilities.end());
+    }
+    config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+    unsigned uuids = 0;
+    config.uuid = [&uuids]() -> std::optional<std::string> {
+      ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+    };
+    config.unix_time = [] { return std::int64_t{1760000000}; };
+    const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+    Write(game / "hl2.exe", "existing-game", 0644);
+    CHECK(chmod(game.c_str(), 0777) == 0);  // what exFAT reports for every folder
+
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) ||
+          (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    struct stat game_info{};
+    CHECK(stat(game.c_str(), &game_info) == 0 && (game_info.st_mode & 07777) == 0777);
+    if (!capable) {
+      CHECK(done.refusals.count(220) && done.refusals.at(220).find("doesn't keep file owners") != std::string::npos);
+      CHECK(done.installs.empty());
+    } else {
+      if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+      CHECK(!done.refusals.count(220));
+      CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
+      const auto metadata = Read(fixture.root / "data/playden/games/steam-220/library/profiles/.playden-publication");
+      CHECK(metadata.find("schema=3\n") != std::string::npos);
+      CHECK(metadata.find("game_root.unowned=1\n") != std::string::npos);
+    }
+    host.Shutdown();
+  }
+  playden::platform::SetOwnershipProbeForTesting(nullptr);
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -1160,6 +1220,7 @@ int main(int argc, char** argv) {
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
+  PreparesGameOnUnownedDrive();
   AnyTitleKitMakesTheGameItsOwnTitle();
   PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();

@@ -104,6 +104,7 @@ std::optional<std::string> SerializePublicationMetadata(const PwTitlePublication
   if (!MarkerField(output, "dxvk.path_hex", metadata.dxvk_path, true)) return std::nullopt;
   NumberField(output, "dxvk.present", metadata.dxvk_present);
   if (!MarkerField(output, "dxvk.sha256", metadata.dxvk_sha256)) return std::nullopt;
+  if (metadata.schema_version >= 3) NumberField(output, "game_root.unowned", metadata.game_root_unowned);
   NumberField(output, "registry_count", metadata.registry_count);
   for (unsigned i = 0; i < metadata.registry_count; ++i) {
     const auto& entry = metadata.registry[i];

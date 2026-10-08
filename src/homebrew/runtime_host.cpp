@@ -909,7 +909,9 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   // Settings publication writes dxvk.conf into the game folder and requires that
   // folder to belong to the app user without group/other write access. Console
   // downloads are created world-writable; tighten an owned root to 0755. A root
-  // owned by anyone else is refused, never taken over.
+  // owned by anyone else is refused, never taken over. A drive that records no
+  // owners or permissions (exFAT) has nothing to check or tighten; the kit must
+  // then admit such folders (publication metadata schema 3).
   {
     const auto root = config_.host_namespace_prefix.empty()
         ? std::filesystem::path(request.install_path)
@@ -917,8 +919,16 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     struct stat info{};
     if (lstat(root.c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
       return "The game's folder is unavailable.";
-    if (info.st_uid != geteuid()) return "The game's folder belongs to another user.";
-    if ((info.st_mode & 07777) != 0700 && (info.st_mode & 07777) != 0755) {
+    const auto records_ownership = platform::RecordsOwnership(root);
+    if (!records_ownership) return "The game's folder can't be written.";
+    if (!*records_ownership) {
+      if (!rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned)
+        return "This drive doesn't keep file owners, and the installed runtime kit can't start games from it. "
+               "Install the game on console storage, or update the kit.";
+      Log("game root without ownership path=" + request.install_path);
+    } else if (info.st_uid != geteuid()) {
+      return "The game's folder belongs to another user.";
+    } else if ((info.st_mode & 07777) != 0700 && (info.st_mode & 07777) != 0755) {
       if (chmod(root.c_str(), 0755) != 0) return "The game's folder permissions could not be tightened.";
       char mode[8]; std::snprintf(mode, sizeof(mode), "%04o", unsigned(info.st_mode & 07777));
       Log("game root mode " + std::string(mode) + " -> 0755 path=" + request.install_path);
