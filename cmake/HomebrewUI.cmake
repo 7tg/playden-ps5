@@ -514,6 +514,9 @@ if(BUILD_TESTING)
     add_executable(runtime_steamworks_test tests/runtime_steamworks_test.cpp)
     target_link_libraries(runtime_steamworks_test PRIVATE playden_runtime_steamworks)
     add_test(NAME runtime_steamworks COMMAND runtime_steamworks_test "${CMAKE_SOURCE_DIR}/runtime/steamworks")
+    add_executable(runtime_dotnet_heap_test tests/runtime_dotnet_heap_test.cpp)
+    target_link_libraries(runtime_dotnet_heap_test PRIVATE playden_runtime_steamworks)
+    add_test(NAME runtime_dotnet_heap COMMAND runtime_dotnet_heap_test)
     # Inject failures only at the POSIX I/O boundary of this test's production
     # compilation; the shipped settings implementation has ordinary syscalls.
     add_executable(runtime_settings_publication_test tests/runtime_settings_publication_test.cpp)

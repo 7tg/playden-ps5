@@ -7,6 +7,7 @@
 #include "runtime/private_directories.h"
 #include "runtime/prospero_profile.h"
 #include "runtime/settings_publication_journal.h"
+#include "runtime/dotnet_heap.h"
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
 #include "runtime/steamworks.h"
@@ -346,7 +347,17 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   Log("steamworks app=" + std::to_string(record.app_id) + " mode=" + (emulate ? "emulate" : "game") +
       " found=" + std::to_string(result.found.size()) + " changed=" + (changed.empty() ? "-" : changed) +
       (result.ok ? std::string() : " failed=" + result.message));
-  return result.ok ? std::string() : result.message;
+  if (!result.ok) return result.message;
+  // Self-contained .NET games reserve more address space than the console grants unless
+  // their garbage collector is given a heap limit (runtime/dotnet_heap.h).
+  const auto dotnet = rt::LimitDotnetHeap(root.string());
+  if (!dotnet.found.empty() || !dotnet.ok) {
+    std::string limited;
+    for (const auto& path : dotnet.changed) limited += (limited.empty() ? "" : ",") + path;
+    Log("dotnet heap app=" + std::to_string(record.app_id) + " found=" + std::to_string(dotnet.found.size()) +
+        " changed=" + (limited.empty() ? "-" : limited) + (dotnet.ok ? std::string() : " failed=" + dotnet.message));
+  }
+  return dotnet.ok ? std::string() : dotnet.message;
 }
 
 void RuntimeHost::SetTitleNames(std::map<std::uint32_t, std::string> names) {
