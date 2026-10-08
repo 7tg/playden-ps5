@@ -4,8 +4,9 @@ Playden `main` 1077446 (deployed build), kit C `hl2-fw1360-dev1` (shell 850e62c,
 Spire 2 (Steam 2868840) was the first game picked from the [library ranking](https://artifacts.cliq.dev/d/EHFkTcnrMq):
 Godot 4.5.1 "MegaDot" with C# (.NET 9.0.7 CoreCLR, self-contained), FMOD, Spine, Sentry/crashpad. 2.9 GB, 64-bit.
 
-Result: **reaches its first screen with the controller detected, then runs out of flexible memory.** Two runtime gaps
-stop it; neither is in Playden.
+Result: **plays.** From the exFAT USB disk it reaches the main menu, starts a run and shows the act map at about 55 fps
+with the controller. Screens that draw a blurred copy of the screen behind a dialog ("What's Early Access?", tutorial
+prompts) drop to about 4 fps (GL driver cost, see [Fixed](#fixed)). The first runs below show what it took.
 
 ## Steps
 
@@ -39,8 +40,25 @@ stop it; neither is in Playden.
   patch 0600 does for Wine's anonymous memory. No runtime switch for it exists today.
 - Godot's OpenGL compatibility renderer, FMOD audio (`audible` frames counted) and XInput all work in this kit.
 
+## Fixed (same day)
+
+| Gap | Fix | Where |
+| --- | --- | --- |
+| .NET 7+ GC reserves 256 GiB | Playden writes `System.GC.HeapHardLimit` = 2 GiB into the runtimeconfig of games that ship `coreclr.dll` (prepare and every Play; the game's own limit wins) | `src/runtime/dotnet_heap.cpp`, called from `RuntimeHost::ApplySteamworks`; log `dotnet heap app=… changed=…` |
+| Wine's Unix-side heap in flexible memory | Heap spans and large blocks come from main direct memory once direct memory passes its self-check (`WINE_PS5_HEAP_FLEXIBLE` turns it off) | prospero-win 67fba29 (`wine/ps5/pw_wine_heap.c`, `pw_wine_dmem_ps5.c`); kit `hl2-fw1360-dev1` manifest 229ea5f4 with ntdll/win32u/wineserver PRXs rebuilt from bea2be5 + that change |
+| exFAT USB game folder | See [results/20261008-exfat-usb-games](../20261008-exfat-usb-games/README.md) | — |
+
+Run on the fixed kit ([session-heap-direct-memory](session-heap-direct-memory.log), 18:52-18:54): `flexible_free` stays at
+265 MiB (was 0), heap 336 MiB, no faults. `PW_GL` 4 fps while the Early Access dialog shows, 22-56 fps on the menu and
+map. During the slow frames the PS5 Mesa driver's CPU cache flushing grows by about 4.3 GB per 5 s
+(`ps5-cpu-flush-summary`), roughly 200 MB per frame: the dialog's backdrop is a screen copy that the driver resolves
+through full cache flushes. That is a PS5 Mesa (gallium `ps5_screen.c`) performance item.
+
+Also seen: changing the kit while a game waits for registration strands it ("Recovery has no matching stopped reserved
+OWNER intent/provenance"); uninstall needed the ELF loader reloaded and a native uninstall of the stale title (see
+`ps5-title-identity-and-registration` notes).
+
 ## Open
 
-- prospero-win: direct-memory heap for the unix side (needs a runtime rebuild), then retry past the first screen.
-- Playden: apply `System.GC.HeapHardLimit` to self-contained CoreCLR games during preparation, and add the case to the
-  probe.
+- PS5 Mesa: screen-copy (backdrop blur) frames flush ~200 MB of CPU cache each; Godot dialogs run at 4 fps.
+- Playden: a kit change must not strand a game waiting for registration.
