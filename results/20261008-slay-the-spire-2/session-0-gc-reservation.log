@@ -1,0 +1,750 @@
+== session-0.log
+PW_REPORT/1 build=850e62c9243c551684dfea5dada7bb2689a9ba4f profile=playden-steam-2868840 cycle=0 pid=148 time=1791480259
+REC seq=1 t=7857.914138316 PW_WINE64 title id=FAKE78007 source=kernel compiled=FAKE78000
+REC seq=2 t=7857.918097231 PW_WINE64 hid preload libSceKeyboard id=0x106 status=0 handle=208
+REC seq=3 t=7857.921666044 PW_WINE64 hid preload libSceMouse id=0xa9 status=0 handle=209
+REC seq=4 t=7859.579484784 PW_WINE64 data_mount data_before=0 helper_completed=1 helper_errno=0 credential_errno=0 data_after=1 waited_ms=0 settled_ms=1000 root=/download0/prospero-win
+REC seq=5 t=7859.606584088 PW_WINE64 umask private=1 previous=0 errno=0
+REC seq=6 t=7859.651780199 PW_WINE64 session id=af10f5a7-e36c-4564-a7fd-b329931b635a origin=home phase=starting
+REC seq=7 t=7859.651793430 PW_WINE64 library status=ok listed_by=0 scan_errno=0 entries=1 games=1 root=/data/playden/games/steam-2868840/library
+REC seq=8 t=7859.651796878 PW_WINE64 args argc=1 mode=game profile=playden-steam-2868840 cycle=0 refused=0
+REC seq=9 t=7859.651870889 PW_WINE64 runtime thread_scheduling=0
+REC seq=10 t=7859.651873696 PW_WINE64 cpu=translator prefix_cpu=-2
+REC seq=11 t=7859.651877785 PW_WINE64 profile id=playden-steam-2868840 prefix=/data/playden/games/steam-2868840/library/prefixes/game desktop=1920x1080 scaling=0 view=window show_fps=0 refresh=60 gl_thread=0 input=ok preset=- mode=xinput mouse=0 dll_overrides=opengl32=b
+REC seq=12 t=7859.651886365 PW_WINE64 cpus online=16
+REC seq=13 t=7859.714704826 PW_WINE64 prefix temp folders=2 last=users/prospero/AppData/Local/Temp
+REC seq=14 t=7859.714711161 PW_WINE64 arguments words=2 line=--rendering-driver opengl3
+REC seq=15 t=7859.714759192 PW_WINE64 runtime not at /app0/win/wine/lib/wine/x86_64-unix
+REC seq=16 t=7859.714800247 PW_WINE64 ntdll=/mnt/sandbox/FAKE78007_000/app0/win/wine/lib/wine/x86_64-unix/ntdll.prx prefix=/data/playden/games/steam-2868840/library/prefixes/game exe=Z:\data\homebrew\FAKE77031\games\2868840\SlayTheSpire2.exe
+REC seq=17 t=7859.733680947 PW_WINE64 load status=0 stage=6 module=0x20d2 segments=4 module_start=0 adopted=1 stats=1
+REC seq=18 t=7859.733700352 PW_WINE64 output_sink=1
+REC seq=19 t=7859.753098728 PW_WINE64 hid keyboard module=0xd0 init=0 open=0x11b0800 user=300742841
+REC seq=20 t=7859.753193026 PW_WINE64 hid mouse module=0xd1 init=0 open=0x1c0800 merged=1 user=300742841
+REC seq=21 t=7859.755017325 PW_WINE64 display present_sink=1 frames=1 post_input=1 xinput=1 video=ok pad=ok hid=ok
+REC seq=22 t=7859.755921255 PW_WINE64 audio sink=1 port=536870912 status=ok
+REC seq=23 t=7859.755926708 PW_WINE64 cwd=Z:\data\homebrew\FAKE77031\games\2868840 host=/data/homebrew/FAKE77031/games/2868840 status=0
+REC seq=24 t=7859.755940981 PW_WINE64 environment status=0
+REC seq=25 t=7859.761802856 PW_WINE64 run status=0
+REC seq=26 t=7859.761803978 PW_WINE64 thread entered, calling __wine_main
+REC seq=27 t=7859.761816006 WINE wine startup: init_paths
+REC seq=28 t=7859.763331430 WINE wine startup: virtual_init
+REC seq=29 t=7859.763649767 WINESERVER wine-ps5: direct memory in use for anonymous memory (region 10000, 1663 MiB)
+REC seq=30 t=7859.763838122 WINE wine startup: init_environment
+REC seq=31 t=7859.765672765 WINE wine startup: start_main_thread
+REC seq=32 t=7859.765676052 WINE wine startup: virtual_alloc_first_teb
+REC seq=33 t=7859.766149467 WINE wine startup: dbg_init
+REC seq=34 t=7859.766158047 WINE wine startup: server_init_process
+REC seq=35 t=7859.786935853 WINESERVER wine-ps5: directory listings for missed names: on
+REC seq=36 t=7859.807339354 WINESERVER wine-ps5: anonymous mappings in shared memory
+REC seq=37 t=7859.853009602 WINESERVER wine-ps5: shared event/semaphore backend: on
+REC seq=38 t=7859.853015696 WINESERVER wine-ps5: shared mutex backend: on
+REC seq=39 t=7859.853018342 WINESERVER wine-ps5: server requests on client threads: on
+REC seq=40 t=7859.853021951 WINESERVER wine-ps5: immediate mutex calls: off
+REC seq=41 t=7859.853117051 WINE wine startup: server connected
+REC seq=42 t=7859.860408311 WINE 0024:trace:process:NtCreateUserProcess process creation is not supported on PS5
+REC seq=43 t=7859.860434291 WINE 0024:err:environ:run_wineboot failed to start wineboot c00000bb
+REC seq=44 t=7860.286557418 WINESERVER wine-ps5: image-view fd release: on
+REC seq=45 t=7860.286564154 WINESERVER wine-ps5: released image-view fd 44 (views 1)
+REC seq=46 t=7860.291297018 WINESERVER wine-ps5: released image-view fd 47 (views 1)
+REC seq=47 t=7860.295193789 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000025,100091fa30,0x00000040,0)
+REC seq=48 t=7860.295224099 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\SlayTheSpire2.exe" at 0000000140000000: native
+REC seq=49 t=7860.295233160 WINE 0024:trace:loaddll:build_ntdll_module Loaded L"C:\\windows\\system32\\ntdll.dll" at 00000013FFD40000: builtin
+REC seq=50 t=7860.299659395 WINESERVER wine-ps5: released image-view fd 49 (views 1)
+REC seq=51 t=7860.308232981 WINESERVER wine-ps5: released image-view fd 48 (views 1)
+REC seq=52 t=7860.308836697 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernelbase.dll" at 00000013FFBA0000: builtin
+REC seq=53 t=7860.308890582 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\kernel32.dll" at 00000013FFCE0000: builtin
+REC seq=54 t=7860.323030398 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=55 t=7860.327352794 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=56 t=7860.332349388 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=57 t=7860.332892884 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msvcrt.dll" at 00000013FF9F0000: builtin
+REC seq=58 t=7860.336416713 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=59 t=7860.341557079 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=60 t=7860.342026886 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ucrtbase.dll" at 00000013FF8F0000: builtin
+REC seq=61 t=7860.342053988 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\sechost.dll" at 00000013FF9C0000: builtin
+REC seq=62 t=7860.342074436 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\advapi32.dll" at 00000013FFA90000: builtin
+REC seq=63 t=7860.346247045 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=64 t=7860.352124395 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=65 t=7860.360767101 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=66 t=7860.363957919 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=67 t=7860.364245945 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\win32u.dll" at 00000013FF610000: builtin
+REC seq=68 t=7860.364272567 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\user32.dll" at 00000013FF650000: builtin
+REC seq=69 t=7860.364299509 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\gdi32.dll" at 00000013FF810000: builtin
+REC seq=70 t=7860.369177268 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=71 t=7860.371702067 WINESERVER wine-ps5: released image-view fd 55 (views 1)
+REC seq=72 t=7860.371909988 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cryptbase.dll" at 00000013FF570000: builtin
+REC seq=73 t=7860.371952646 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rpcrt4.dll" at 00000013FF580000: builtin
+REC seq=74 t=7860.371987206 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\combase.dll" at 00000013FF890000: builtin
+REC seq=75 t=7860.375350984 WINESERVER wine-ps5: released image-view fd 53 (views 1)
+REC seq=76 t=7860.375606295 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\coml2.dll" at 00000013FF550000: builtin
+REC seq=77 t=7860.375680707 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ole32.dll" at 00000013FFAE0000: builtin
+REC seq=78 t=7860.379626311 WINESERVER wine-ps5: released image-view fd 52 (views 1)
+REC seq=79 t=7860.383848715 WINESERVER wine-ps5: released image-view fd 52 (views 1)
+REC seq=80 t=7860.384163924 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\msacm32.dll" at 00000013FF4E0000: builtin
+REC seq=81 t=7860.384209148 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINMM.dll" at 00000013FF500000: builtin
+REC seq=82 t=7860.396478239 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=83 t=7860.401754520 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=84 t=7860.405844618 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=85 t=7860.406069698 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shcore.dll" at 00000013FEB90000: builtin
+REC seq=86 t=7860.406106343 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\shlwapi.dll" at 00000013FEBB0000: builtin
+REC seq=87 t=7860.406142106 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\SHELL32.dll" at 00000013FEC00000: builtin
+REC seq=88 t=7860.412544591 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=89 t=7860.412992667 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\OLEAUT32.dll" at 00000013FEAB0000: builtin
+REC seq=90 t=7860.416504388 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=91 t=7860.416922314 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\IMM32.dll" at 00000013FEA80000: builtin
+REC seq=92 t=7860.422159625 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=93 t=7860.422469140 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\bcrypt.dll" at 00000013FEA10000: builtin
+REC seq=94 t=7860.427272969 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=95 t=7860.429893348 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=96 t=7860.430142805 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\ncrypt.dll" at 00000013FE950000: builtin
+REC seq=97 t=7860.430177926 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\CRYPT32.dll" at 00000013FE970000: builtin
+REC seq=98 t=7860.432666962 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=99 t=7860.432860850 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\AVRT.dll" at 00000013FE940000: builtin
+REC seq=100 t=7860.434827237 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=101 t=7860.434973095 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dwmapi.dll" at 00000013FE930000: builtin
+REC seq=102 t=7860.439156689 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=103 t=7860.439510387 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\DWrite.dll" at 00000013FE8B0000: builtin
+REC seq=104 t=7860.442833271 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=105 t=7860.443179190 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WS2_32.dll" at 00000013FE880000: builtin
+REC seq=106 t=7860.445569999 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=107 t=7860.447658108 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=108 t=7860.447959124 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dnsapi.dll" at 00000013FE830000: builtin
+REC seq=109 t=7860.449702034 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=110 t=7860.449839391 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\nsi.dll" at 00000013FE820000: builtin
+REC seq=111 t=7860.449873390 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\IPHLPAPI.DLL" at 00000013FE850000: builtin
+REC seq=112 t=7860.451974168 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=113 t=7860.452255940 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WSOCK32.dll" at 00000013FE800000: builtin
+REC seq=114 t=7860.457048943 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=115 t=7860.461210887 WINESERVER wine-ps5: released image-view fd 51 (views 1)
+REC seq=116 t=7860.461579740 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\oleacc.dll" at 00000013FE750000: builtin
+REC seq=117 t=7860.461617748 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\UIAutomationCore.DLL" at 00000013FE780000: builtin
+REC seq=118 t=7860.461991011 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000001a,100091f5a8,0x00000008,0)
+REC seq=119 t=7860.537704972 WINE 0024:trace:process:GetEnvironmentVariableW (L"WINEUNIXCP" 000000100091F340 85)
+REC seq=120 t=7860.544038738 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4896" 0000000000000000 0)
+REC seq=121 t=7860.544044351 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4896" 000000100094C1D0 17)
+REC seq=122 t=7860.546733369 WINESERVER wine-ps5: released image-view fd 55 (views 1)
+REC seq=123 t=7860.546852204 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4897" 0000000000000000 0)
+REC seq=124 t=7860.546857175 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"@tzres.dll,-4897" 000000100094C200 17)
+REC seq=125 t=7860.547663841 WINESERVER wine-ps5: released image-view fd 55 (views 1)
+REC seq=126 t=7860.751043015 PW_WINE64 alive tick=60 sink_calls=53 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=2844 audio=0 audible=0
+REC seq=127 t=7861.257359341 WINE 0024:trace:process:GetEnvironmentVariableW (L"oanocache" 0000000000000000 0)
+REC seq=128 t=7861.265865891 WINESERVER pw_wine_dl: cannot open /mnt/sandbox/FAKE78007_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.so, tried /mnt/sandbox/FAKE78007_000/app0/win/wine/lib/wine/x86_64-unix/dnsapi.prx /app0/sce_module/dnsapi.prx: not found
+REC seq=129 t=7861.265867896 WINE 0024:err:dnsapi:DllMain No libresolv support, expect problems
+REC seq=130 t=7861.265892513 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000007,100091f9e0,0x00000008,0)
+REC seq=131 t=7861.750307715 PW_WINE64 alive tick=120 sink_calls=56 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=2988 audio=0 audible=0
+REC seq=132 t=7861.949361928 WINESERVER ac_compute_device_uuid's output is based on invalid pci bus info.
+REC seq=133 t=7861.949492710 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=134 t=7861.949583881 WINESERVER Failed to create /app0 for shader cache (Read-only filesystem)---disabling.
+REC seq=135 t=7861.950190082 STDOUT [ps5-cache] clflushopt=1 cacheline=64
+REC seq=136 t=7861.959127229 STDOUT [ps5-gallium] shared-render-pool bytes=335544320 arena-offset=67108864 arena-bytes=268435456
+REC seq=137 t=7861.959141422 STDOUT [ps5-gallium] display-alias index=1 offset=33554432 bytes=33554432
+REC seq=138 t=7861.960049922 STDOUT [ps5-egl] versions core=46 compat=46 requested=0.0 profile=0000
+REC seq=139 t=7861.961072206 STDOUT [ps5-egl] versions core=46 compat=46 requested=0.0 profile=0000
+REC seq=140 t=7861.980757166 WINESERVER wine-ps5: released image-view fd 57 (views 1)
+REC seq=141 t=7861.981135240 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\uxtheme.dll" at 00000013FE710000: builtin
+REC seq=142 t=7862.249493311 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=143 t=7862.249503816 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EF60 32767)
+REC seq=144 t=7862.284427132 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\fmod.dll" at 00000013FE400000: native
+REC seq=145 t=7862.284454315 WINESERVER wine-ps5: released image-view fd 180 (views 1)
+REC seq=146 t=7862.290726098 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\fmodstudio.dll" at 00000013FE270000: native
+REC seq=147 t=7862.290748871 WINESERVER wine-ps5: released image-view fd 180 (views 1)
+REC seq=148 t=7862.290913812 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\libGodotFmod.windows.template_release.x86_64.dll" at 00000013FE620000: native
+REC seq=149 t=7862.290933457 WINESERVER wine-ps5: released image-view fd 178 (views 1)
+REC seq=150 t=7862.302755114 WINESERVER wine-ps5: released image-view fd 178 (views 1)
+REC seq=151 t=7862.306334431 WINESERVER wine-ps5: released image-view fd 178 (views 1)
+REC seq=152 t=7862.306617806 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\jsproxy.dll" at 00000013FE0B0000: builtin
+REC seq=153 t=7862.306679388 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\WINHTTP.dll" at 00000013FE0D0000: builtin
+REC seq=154 t=7862.311449859 WINESERVER wine-ps5: released image-view fd 178 (views 1)
+REC seq=155 t=7862.311929048 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dbghelp.dll" at 00000013FE020000: builtin
+REC seq=156 t=7862.314022849 WINESERVER wine-ps5: released image-view fd 178 (views 1)
+REC seq=157 t=7862.314173357 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\VERSION.dll" at 00000013FE010000: builtin
+REC seq=158 t=7862.314426503 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\libsentry.windows.release.x86_64.dll" at 00000013FE120000: native
+REC seq=159 t=7862.314488647 WINESERVER wine-ps5: released image-view fd 177 (views 1)
+REC seq=160 t=7862.321508880 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\libspine_godot.windows.template_release.x86_64.dll" at 00000013FDEA0000: native
+REC seq=161 t=7862.321542317 WINESERVER wine-ps5: released image-view fd 177 (views 1)
+REC seq=162 t=7862.334378319 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=163 t=7862.334386979 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EC40 32767)
+REC seq=164 t=7862.335010180 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=165 t=7862.335017076 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EC90 32767)
+REC seq=166 t=7862.335213290 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=167 t=7862.335218582 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EDD0 32767)
+REC seq=168 t=7862.335301654 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=169 t=7862.335306546 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EC00 32767)
+REC seq=170 t=7862.345158688 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=171 t=7862.345167588 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EBC0 32767)
+REC seq=172 t=7862.353326776 STDOUT MegaDot v4.5.1.m.12.mono.custom_build - https://godotengine.org
+REC seq=173 t=7862.372322301 WINE 0024:trace:process:GetEnvironmentVariableW (L"SDL_GAMECONTROLLERCONFIG" 000000100090EDA0 32767)
+REC seq=174 t=7862.372332003 WINE 0024:trace:process:GetEnvironmentVariableW (L"SDL_GAMECONTROLLER_IGNORE_DEVICES" 000000100090EDA0 32767)
+REC seq=175 t=7862.372529260 WINE 0024:fixme:powermgnt:PowerCreateRequest (000000100091EB70): stub
+REC seq=176 t=7862.372547542 WINE 0024:fixme:powermgnt:PowerSetRequest (0000000000000114, 1): stub
+REC seq=177 t=7862.372550830 WINE 0024:fixme:powermgnt:PowerSetRequest (0000000000000114, 0): stub
+REC seq=178 t=7862.375030724 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=179 t=7862.375305199 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wintab32.dll" at 00000013FDE80000: builtin
+REC seq=180 t=7862.375331339 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=181 t=7862.375337834 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EB30 32767)
+REC seq=182 t=7862.381434733 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=183 t=7862.382010384 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\winsxs\\amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef\\comctl32.dll" at 00000013FDD40000: builtin
+REC seq=184 t=7862.382659004 WINE 0024:trace:loaddll:free_modref Unloaded module L"C:\\windows\\winsxs\\amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef\\comctl32.dll" : builtin
+REC seq=185 t=7862.397262052 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=186 t=7862.397349213 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\opengl32.dll" at 000000007B960000: builtin
+REC seq=187 t=7862.438257810 PW_WINE64 display released to vulkan close=ok shown=0
+REC seq=188 t=7862.439195258 STDOUT [ps5-egl] hide-splash=00000000
+REC seq=189 t=7862.439840991 STDOUT [ps5-egl] versions core=46 compat=46 requested=0.0 profile=0000
+REC seq=190 t=7862.440196213 PW_WINE64 vulkan frames idle=1 show=1 buffer=1
+REC seq=191 t=7862.441897026 STDOUT [ps5-egl] versions core=46 compat=46 requested=0.0 profile=0000
+REC seq=192 t=7862.442811059 STDOUT [ps5-egl] versions core=46 compat=46 requested=3.3 profile=0001
+REC seq=193 t=7862.444798535 STDOUT [ps5-descriptor-reuse] hits=0 misses=0 retained=0
+REC seq=194 t=7862.444808398 STDOUT [ps5-driver-cycles] phase=0 calls=0 cycles=0
+REC seq=195 t=7862.444818261 STDOUT [ps5-driver-cycles] phase=1 calls=0 cycles=0
+REC seq=196 t=7862.444831171 STDOUT [ps5-driver-cycles] phase=2 calls=0 cycles=0
+REC seq=197 t=7862.444839670 STDOUT [ps5-driver-cycles] phase=3 calls=1 cycles=306
+REC seq=198 t=7862.444858033 STDOUT [ps5-driver-cycles] phase=4 calls=0 cycles=0
+REC seq=199 t=7862.444864848 STDOUT [ps5-driver-cycles] phase=5 calls=0 cycles=0
+REC seq=200 t=7862.444878640 STDOUT [ps5-driver-cycles] phase=6 calls=0 cycles=0
+REC seq=201 t=7862.444887300 STDOUT [ps5-driver-cycles] phase=7 calls=0 cycles=0
+REC seq=202 t=7862.444902375 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=203 t=7862.444907266 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=204 t=7862.444916648 STDOUT [ps5-cpu-flush-summary] calls=0 bytes=0
+REC seq=205 t=7862.444948963 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=0 reject-input=0 reject-shader=0 reject-query=0 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=0 profile=1
+REC seq=206 t=7862.445206198 STDOUT [ps5-descriptor-reuse] hits=0 misses=0 retained=0
+REC seq=207 t=7862.445216542 STDOUT [ps5-driver-cycles] phase=0 calls=0 cycles=0
+REC seq=208 t=7862.445224881 STDOUT [ps5-driver-cycles] phase=1 calls=0 cycles=0
+REC seq=209 t=7862.445234583 STDOUT [ps5-driver-cycles] phase=2 calls=0 cycles=0
+REC seq=210 t=7862.445246371 STDOUT [ps5-driver-cycles] phase=3 calls=2 cycles=398
+REC seq=211 t=7862.445254951 STDOUT [ps5-driver-cycles] phase=4 calls=0 cycles=0
+REC seq=212 t=7862.445267139 STDOUT [ps5-driver-cycles] phase=5 calls=0 cycles=0
+REC seq=213 t=7862.445277964 STDOUT [ps5-driver-cycles] phase=6 calls=0 cycles=0
+REC seq=214 t=7862.445288628 STDOUT [ps5-driver-cycles] phase=7 calls=0 cycles=0
+REC seq=215 t=7862.445299293 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=216 t=7862.445304104 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=217 t=7862.445317736 STDOUT [ps5-cpu-flush-summary] calls=0 bytes=0
+REC seq=218 t=7862.445341310 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=0 reject-input=0 reject-shader=0 reject-query=0 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=0 profile=1
+REC seq=219 t=7862.449567242 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=220 t=7862.454516367 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=221 t=7862.458723295 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=222 t=7862.459014929 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\cfgmgr32.dll" at 00000013FDDA0000: builtin
+REC seq=223 t=7862.459077393 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\setupapi.dll" at 00000013FDDD0000: builtin
+REC seq=224 t=7862.461636591 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=225 t=7862.464318553 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=226 t=7862.465729496 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=227 t=7862.466289110 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\winsxs\\amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.2600.2982_none_deadbeef\\comctl32.dll" at 00000013FDC10000: builtin
+REC seq=228 t=7862.466331207 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\compstui.dll" at 00000013FDD50000: builtin
+REC seq=229 t=7862.466375870 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\winspool.drv" at 00000013FDD70000: builtin
+REC seq=230 t=7862.466401370 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\wbem\\wbemprox.dll" at 00000013FDE40000: builtin
+REC seq=231 t=7862.466626530 WINESERVER pw_wine_dl: cannot open /mnt/sandbox/FAKE78007_000/app0/win/wine/lib/wine/x86_64-unix/winspool.so, tried /mnt/sandbox/FAKE78007_000/app0/win/wine/lib/wine/x86_64-unix/winspool.prx /app0/sce_module/winspool.prx: not found
+REC seq=232 t=7862.466923457 WINE 0024:fixme:wbemprox:enum_class_object_Next timeout not supported
+REC seq=233 t=7862.471115470 WINE 0024:fixme:dwmapi:DwmSetWindowAttribute (0000000000020034, 21, 000000100091DBE0, 4) stub
+REC seq=234 t=7862.472315445 STDOUT [ps5-egl] versions core=46 compat=46 requested=0.0 profile=0000
+REC seq=235 t=7862.473237417 STDOUT [ps5-egl] versions core=46 compat=46 requested=3.3 profile=0001
+REC seq=236 t=7862.474093396 STDOUT [ps5-descriptor-reuse] hits=0 misses=0 retained=0
+REC seq=237 t=7862.474104622 STDOUT [ps5-driver-cycles] phase=0 calls=0 cycles=0
+REC seq=238 t=7862.474117131 STDOUT [ps5-driver-cycles] phase=1 calls=0 cycles=0
+REC seq=239 t=7862.474124989 STDOUT [ps5-driver-cycles] phase=2 calls=0 cycles=0
+REC seq=240 t=7862.474136857 STDOUT [ps5-driver-cycles] phase=3 calls=3 cycles=524
+REC seq=241 t=7862.474148885 STDOUT [ps5-driver-cycles] phase=4 calls=0 cycles=0
+REC seq=242 t=7862.474157866 STDOUT [ps5-driver-cycles] phase=5 calls=0 cycles=0
+REC seq=243 t=7862.474170535 STDOUT [ps5-driver-cycles] phase=6 calls=0 cycles=0
+REC seq=244 t=7862.474178794 STDOUT [ps5-driver-cycles] phase=7 calls=0 cycles=0
+REC seq=245 t=7862.474193548 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=246 t=7862.474197237 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=247 t=7862.474204293 STDOUT [ps5-cpu-flush-summary] calls=0 bytes=0
+REC seq=248 t=7862.474240216 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=0 reject-input=0 reject-shader=0 reject-query=0 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=0 profile=1
+REC seq=249 t=7862.474428491 WINE 0024:fixme:win:RegisterTouchWindow hwnd 0000000000020034, flags 0 stub!
+REC seq=250 t=7862.474540991 WINE 0024:fixme:shell:SHGetPropertyStoreForWindow (0000000000020034 00000001443BCA20 000000100091EAD8) stub!
+REC seq=251 t=7862.474584372 WINE 0024:fixme:shell:window_prop_store_SetValue 000000100A8A1950, {{9f4c2855-9f79-4b39-a8d0-e1d42de1d5f3},5}, 000000100091EA80
+REC seq=252 t=7862.477813519 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=253 t=7862.478122473 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\hid.dll" at 00000013FDBF0000: builtin
+REC seq=254 t=7862.479323891 WINE 0060:err:service:device_notify_proc failed to open RPC handle, error 1722
+REC seq=255 t=7862.483649895 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=256 t=7862.484244390 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\XInput1_4.dll" at 00000013FDBB0000: builtin
+REC seq=257 t=7862.487808471 WINESERVER wine-ps5: released image-view fd 176 (views 1)
+REC seq=258 t=7862.488198974 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\dinput8.dll" at 00000013FDB60000: builtin
+REC seq=259 t=7862.489021276 WINE 0064:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000024,100c89fdbc,0x00000004,0)
+REC seq=260 t=7862.508356787 WINE 0024:fixme:xinput:XInputGetBatteryInformation index 0, type 0, battery 000000100091E6E6.
+REC seq=261 t=7862.508635351 WINE 0024:fixme:avrt:AvSetMmThreadCharacteristicsW (L"Games",000000100091EC20): stub
+REC seq=262 t=7862.508641044 WINE 0024:fixme:avrt:AvSetMmThreadPriority (0000000012345678)->(2) stub
+REC seq=263 t=7862.513771628 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=264 t=7862.513779647 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=265 t=7862.513994785 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=266 t=7862.514002162 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EA50 32767)
+REC seq=267 t=7862.514098224 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=268 t=7862.514103275 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E9A0 32767)
+REC seq=269 t=7862.514444304 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=270 t=7862.514449676 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EAE0 32767)
+REC seq=271 t=7862.514874258 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=272 t=7862.514879631 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EB70 32767)
+REC seq=273 t=7862.525872009 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=274 t=7862.525880589 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E580 32767)
+REC seq=275 t=7862.526099977 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=276 t=7862.526106231 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6C0 32767)
+REC seq=277 t=7862.526188100 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=278 t=7862.526193072 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E610 32767)
+REC seq=279 t=7862.526561444 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=280 t=7862.526566976 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E750 32767)
+REC seq=281 t=7862.527062041 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=282 t=7862.527068376 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7E0 32767)
+REC seq=283 t=7862.537682841 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=284 t=7862.537691100 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7E0 32767)
+REC seq=285 t=7862.538230026 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=286 t=7862.538235879 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7E0 32767)
+REC seq=287 t=7862.549550203 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=288 t=7862.549559504 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6F0 32767)
+REC seq=289 t=7862.549757482 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=290 t=7862.549763095 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E830 32767)
+REC seq=291 t=7862.549842880 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=292 t=7862.549847691 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E780 32767)
+REC seq=293 t=7862.550211332 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=294 t=7862.550216463 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=295 t=7862.550675445 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=296 t=7862.550680737 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=297 t=7862.561475619 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=298 t=7862.561484039 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=299 t=7862.562035634 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=300 t=7862.562041648 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=301 t=7862.572417882 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=302 t=7862.572426542 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6F0 32767)
+REC seq=303 t=7862.572616982 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=304 t=7862.572621874 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E830 32767)
+REC seq=305 t=7862.572701658 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=306 t=7862.572706630 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E780 32767)
+REC seq=307 t=7862.573072115 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=308 t=7862.573077247 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=309 t=7862.573532219 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=310 t=7862.573537511 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=311 t=7862.582742076 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=312 t=7862.582751377 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=313 t=7862.583285733 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=314 t=7862.583291105 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=315 t=7862.593670867 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=316 t=7862.593679527 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6F0 32767)
+REC seq=317 t=7862.593865878 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=318 t=7862.593871091 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E830 32767)
+REC seq=319 t=7862.593951998 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=320 t=7862.593956969 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E780 32767)
+REC seq=321 t=7862.594322133 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=322 t=7862.594327185 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=323 t=7862.594796430 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=324 t=7862.594801963 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=325 t=7862.605397183 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=326 t=7862.605405843 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=327 t=7862.605946373 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=328 t=7862.605951826 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E950 32767)
+REC seq=329 t=7862.623316219 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=330 t=7862.623325761 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6B0 32767)
+REC seq=331 t=7862.623517084 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=332 t=7862.623522135 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7F0 32767)
+REC seq=333 t=7862.623601599 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=334 t=7862.623606410 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E740 32767)
+REC seq=335 t=7862.623964358 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=336 t=7862.623970212 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E880 32767)
+REC seq=337 t=7862.624433844 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=338 t=7862.624439056 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=339 t=7862.634489176 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=340 t=7862.634498156 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=341 t=7862.635067312 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=342 t=7862.635073006 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=343 t=7862.645491979 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=344 t=7862.645500879 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E650 32767)
+REC seq=345 t=7862.650240800 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=346 t=7862.651069035 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=268 hash=c52b7899 user-sgprs=4 scratch=0/0 table=0
+REC seq=347 t=7862.651126528 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=0 ssbos=0 images=0 textures=1 default-ubo=0 uniforms=0 face=0/0
+REC seq=348 t=7862.651376466 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=120 hash=8549be92 user-sgprs=3 scratch=0/0 table=0
+REC seq=349 t=7862.651386810 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=350 t=7862.652384878 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=351 t=7862.653106065 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=328 hash=cd5f818e user-sgprs=5 scratch=0/0 table=0
+REC seq=352 t=7862.653160992 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=0 ssbos=0 images=0 textures=1 default-ubo=0 uniforms=0 face=0/0
+REC seq=353 t=7862.653403874 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=120 hash=8549be92 user-sgprs=3 scratch=0/0 table=0
+REC seq=354 t=7862.653411411 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=355 t=7862.654561030 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=2 face=0/0
+REC seq=356 t=7862.655317339 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=344 hash=4b608162 user-sgprs=5 scratch=0/0 table=0
+REC seq=357 t=7862.655369620 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=0 ssbos=0 images=0 textures=1 default-ubo=0 uniforms=0 face=0/0
+REC seq=358 t=7862.655614987 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=120 hash=8549be92 user-sgprs=3 scratch=0/0 table=0
+REC seq=359 t=7862.655626854 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=360 t=7862.656644969 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=361 t=7862.657469195 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=328 hash=cd5f818e user-sgprs=5 scratch=0/0 table=0
+REC seq=362 t=7862.657535107 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=2 face=0/0
+REC seq=363 t=7862.657822171 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=136 hash=d20c4c04 user-sgprs=3 scratch=0/0 table=0
+REC seq=364 t=7862.657829388 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=365 t=7862.658884387 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=366 t=7862.659594349 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=328 hash=cd5f818e user-sgprs=5 scratch=0/0 table=0
+REC seq=367 t=7862.659656893 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=2 face=0/0
+REC seq=368 t=7862.659944278 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=136 hash=76ce5078 user-sgprs=3 scratch=0/0 table=0
+REC seq=369 t=7862.659955584 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=370 t=7862.661489852 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=371 t=7862.662212884 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=328 hash=cd5f818e user-sgprs=5 scratch=0/0 table=0
+REC seq=372 t=7862.662299484 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=7 face=0/0
+REC seq=373 t=7862.663129403 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=352 hash=3fcc6221 user-sgprs=3 scratch=0/0 table=0
+REC seq=374 t=7862.663140068 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=375 t=7862.664092591 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=376 t=7862.664678746 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=268 hash=c52b7899 user-sgprs=4 scratch=0/0 table=0
+REC seq=377 t=7862.664738645 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=1 face=0/0
+REC seq=378 t=7862.665041264 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=152 hash=d467ada7 user-sgprs=3 scratch=0/0 table=0
+REC seq=379 t=7862.665054575 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=380 t=7862.666632464 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=2 face=0/0
+REC seq=381 t=7862.667392622 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=344 hash=4b608162 user-sgprs=5 scratch=0/0 table=0
+REC seq=382 t=7862.667482109 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=1 face=0/0
+REC seq=383 t=7862.668616411 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=724 hash=f1372212 user-sgprs=3 scratch=0/0 table=0
+REC seq=384 t=7862.668626595 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=385 t=7862.669487947 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=386 t=7862.670183315 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=240 hash=5a0e61ff user-sgprs=4 scratch=0/0 table=0
+REC seq=387 t=7862.670237440 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=388 t=7862.670368383 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=24 hash=6dd0e49f user-sgprs=2 scratch=0/0 table=0
+REC seq=389 t=7862.671303826 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=390 t=7862.671953969 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=320 hash=040139f2 user-sgprs=5 scratch=0/0 table=0
+REC seq=391 t=7862.672005849 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=392 t=7862.672213850 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=76 hash=b6b81015 user-sgprs=3 scratch=0/0 table=0
+REC seq=393 t=7862.673309744 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=394 t=7862.674127555 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=328 hash=cd5f818e user-sgprs=5 scratch=0/0 table=0
+REC seq=395 t=7862.674194270 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=0 ssbos=0 images=0 textures=1 default-ubo=0 uniforms=0 face=0/0
+REC seq=396 t=7862.674689816 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=308 hash=65dd8634 user-sgprs=3 scratch=0/0 table=0
+REC seq=397 t=7862.674700560 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=398 t=7862.675872551 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=399 t=7862.676611940 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=284 hash=2aa6ac65 user-sgprs=4 scratch=0/0 table=0
+REC seq=400 t=7862.676690602 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=1 face=0/0
+REC seq=401 t=7862.677175804 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=316 hash=03b40cb8 user-sgprs=3 scratch=0/0 table=0
+REC seq=402 t=7862.677185587 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=403 t=7862.677275314 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=404 t=7862.677284215 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E560 32767)
+REC seq=405 t=7862.688244199 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=406 t=7862.688252698 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6E0 32767)
+REC seq=407 t=7862.688444181 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=408 t=7862.688449474 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E820 32767)
+REC seq=409 t=7862.688539040 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=410 t=7862.688544333 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E770 32767)
+REC seq=411 t=7862.688906931 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=412 t=7862.688912143 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8B0 32767)
+REC seq=413 t=7862.689377620 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=414 t=7862.689382912 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E940 32767)
+REC seq=415 t=7862.699700290 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=416 t=7862.699708389 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E940 32767)
+REC seq=417 t=7862.700238655 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=418 t=7862.700244027 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E940 32767)
+REC seq=419 t=7862.711173059 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=420 t=7862.711182441 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E700 32767)
+REC seq=421 t=7862.711383225 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=422 t=7862.711388518 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E840 32767)
+REC seq=423 t=7862.711470467 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=424 t=7862.711475359 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E790 32767)
+REC seq=425 t=7862.711834990 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=426 t=7862.711840042 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8D0 32767)
+REC seq=427 t=7862.712308325 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=428 t=7862.712313697 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E960 32767)
+REC seq=429 t=7862.722363095 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=430 t=7862.722371354 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E960 32767)
+REC seq=431 t=7862.722911323 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=432 t=7862.722916936 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E960 32767)
+REC seq=433 t=7862.734661935 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=434 t=7862.734670114 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6B0 32767)
+REC seq=435 t=7862.734858710 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=436 t=7862.734864564 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7F0 32767)
+REC seq=437 t=7862.734944509 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=438 t=7862.734949400 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E740 32767)
+REC seq=439 t=7862.735310555 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=440 t=7862.735315607 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E880 32767)
+REC seq=441 t=7862.735778998 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=442 t=7862.735784611 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=443 t=7862.745741796 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=444 t=7862.745750055 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=445 t=7862.746280642 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=446 t=7862.746285854 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=447 t=7862.750328483 PW_WINE64 alive tick=180 sink_calls=234 frames_put=0 shown=0 rejected=0 last=0x0 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=3440 audio=0 audible=0
+REC seq=448 t=7862.756753901 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=449 t=7862.756762561 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E650 32767)
+REC seq=450 t=7862.760599032 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=451 t=7862.761406339 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=268 hash=c52b7899 user-sgprs=4 scratch=0/0 table=0
+REC seq=452 t=7862.761589001 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=0 uniforms=0 face=0/0
+REC seq=453 t=7862.763768441 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=1776 hash=ebab87c1 user-sgprs=3 scratch=0/0 table=0
+REC seq=454 t=7862.763773653 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=455 t=7862.763870918 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=456 t=7862.763879738 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E560 32767)
+REC seq=457 t=7862.774631320 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=458 t=7862.774640301 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6B0 32767)
+REC seq=459 t=7862.774831383 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=460 t=7862.774836595 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7F0 32767)
+REC seq=461 t=7862.774915979 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=462 t=7862.774920790 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E740 32767)
+REC seq=463 t=7862.775322920 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=464 t=7862.775329254 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E880 32767)
+REC seq=465 t=7862.775796334 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=466 t=7862.775801867 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=467 t=7862.785451701 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=468 t=7862.785460041 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=469 t=7862.785996641 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=470 t=7862.786002094 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E910 32767)
+REC seq=471 t=7862.795743260 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=472 t=7862.795751599 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E650 32767)
+REC seq=473 t=7862.797079630 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=474 t=7862.797801299 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=268 hash=c52b7899 user-sgprs=4 scratch=0/0 table=0
+REC seq=475 t=7862.797857829 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=0 ssbos=0 images=0 textures=1 default-ubo=0 uniforms=0 face=0/0
+REC seq=476 t=7862.798108088 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=120 hash=8549be92 user-sgprs=3 scratch=0/0 table=0
+REC seq=477 t=7862.798120356 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=478 t=7862.798189877 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=479 t=7862.798198698 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E560 32767)
+REC seq=480 t=7862.809984511 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=481 t=7862.809993011 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E660 32767)
+REC seq=482 t=7862.810199729 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=483 t=7862.810205021 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7A0 32767)
+REC seq=484 t=7862.810285848 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=485 t=7862.810290819 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6F0 32767)
+REC seq=486 t=7862.810651253 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=487 t=7862.810656946 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E830 32767)
+REC seq=488 t=7862.811119375 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=489 t=7862.811124748 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=490 t=7862.820926293 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=491 t=7862.820935193 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=492 t=7862.821475242 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=493 t=7862.821480855 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=494 t=7862.831553828 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=495 t=7862.831562328 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E660 32767)
+REC seq=496 t=7862.831747716 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=497 t=7862.831752848 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7A0 32767)
+REC seq=498 t=7862.831832472 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=499 t=7862.831837203 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6F0 32767)
+REC seq=500 t=7862.832202287 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=501 t=7862.832207500 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E830 32767)
+REC seq=502 t=7862.832672896 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=503 t=7862.832678348 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=504 t=7862.842173906 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=505 t=7862.842182566 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=506 t=7862.842745227 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=507 t=7862.842751241 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=508 t=7862.855172203 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=509 t=7862.855181745 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E660 32767)
+REC seq=510 t=7862.855381407 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=511 t=7862.855386459 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7A0 32767)
+REC seq=512 t=7862.855467847 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=513 t=7862.855472738 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6F0 32767)
+REC seq=514 t=7862.855859953 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=515 t=7862.855865887 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E830 32767)
+REC seq=516 t=7862.856333047 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=517 t=7862.856338420 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=518 t=7862.865596308 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=519 t=7862.865605048 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=520 t=7862.866142852 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=521 t=7862.866148465 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=522 t=7862.875933091 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=523 t=7862.875942392 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E600 32767)
+REC seq=524 t=7862.908197619 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=3 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=7 face=0/0
+REC seq=525 t=7862.911053022 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=2 result=0 bytes=1820 hash=989b38c4 user-sgprs=5 scratch=0/0 table=0
+REC seq=526 t=7862.912418018 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=7 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=18 face=0/0
+REC seq=527 t=7862.939985285 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=15144 hash=db1e429f user-sgprs=3 scratch=0/0 table=0
+REC seq=528 t=7862.939991138 STDOUT [ps5-gallium] input-semantics count=2 first=0000000f
+REC seq=529 t=7862.972885844 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=3 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=7 face=0/0
+REC seq=530 t=7862.976192931 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=5 result=0 bytes=1876 hash=37cafdc4 user-sgprs=5 scratch=0/0 table=0
+REC seq=531 t=7862.977552956 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=7 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=18 face=0/0
+REC seq=532 t=7863.004980219 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=15144 hash=db1e429f user-sgprs=3 scratch=0/0 table=0
+REC seq=533 t=7863.004989040 STDOUT [ps5-gallium] input-semantics count=2 first=0000000f
+REC seq=534 t=7863.012481405 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=3 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=6 face=0/0
+REC seq=535 t=7863.014029866 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=1032 hash=3a1e071e user-sgprs=5 scratch=0/0 table=0
+REC seq=536 t=7863.014165459 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=2 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=537 t=7863.014314444 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=24 hash=6dd0e49f user-sgprs=3 scratch=0/0 table=0
+REC seq=538 t=7863.022830616 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=3 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=6 face=0/0
+REC seq=539 t=7863.024808871 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=4 result=0 bytes=1208 hash=2468221e user-sgprs=5 scratch=0/0 table=0
+REC seq=540 t=7863.024915277 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=2 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=541 t=7863.025060974 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=24 hash=6dd0e49f user-sgprs=3 scratch=0/0 table=0
+REC seq=542 t=7863.025178285 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=543 t=7863.025187346 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E510 32767)
+REC seq=544 t=7863.036108921 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=545 t=7863.036117742 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E660 32767)
+REC seq=546 t=7863.036315559 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=547 t=7863.036320691 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7A0 32767)
+REC seq=548 t=7863.036401438 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=549 t=7863.036406329 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E6F0 32767)
+REC seq=550 t=7863.036783601 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=551 t=7863.036791620 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E830 32767)
+REC seq=552 t=7863.037273374 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=553 t=7863.037278827 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=554 t=7863.047812224 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=555 t=7863.047821445 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=556 t=7863.048361013 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=557 t=7863.048366385 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E8C0 32767)
+REC seq=558 t=7863.060467889 STDOUT OpenGL API 4.6 (Core Profile) Mesa 26.2.0 - Compatibility - Using Device: PS5 homebrew - PS5 AGC
+REC seq=559 t=7863.064002061 WINESERVER wine-ps5: released image-view fd 174 (views 1)
+REC seq=560 t=7863.064462646 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\mmdevapi.dll" at 00000013FDB30000: builtin
+REC seq=561 t=7863.071161737 STDOUT 
+REC seq=562 t=7863.072420488 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=563 t=7863.072797520 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=76 hash=b6b81015 user-sgprs=3 scratch=0/0 table=0
+REC seq=564 t=7863.072990045 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=565 t=7863.073632090 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=2 result=0 bytes=252 hash=45a3fe4e user-sgprs=4 scratch=0/0 table=0
+REC seq=566 t=7863.074065011 STDOUT [ps5-gallium] compile-shader stage=1 primitive=5 provoking-last=0 smooth=0 variant-attrs=2 result=0 bytes=168 hash=19d19c91 user-sgprs=4 scratch=0/0 table=0
+REC seq=567 t=7863.074299152 STDOUT [ps5-gallium] compile-shader stage=5 primitive=5 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=76 hash=72395abd user-sgprs=3 scratch=0/0 table=0
+REC seq=568 t=7863.090276097 STDOUT [ps5-output-register] width=1920 height=1080 offset=33554432 result=00000000
+REC seq=569 t=7863.090289729 STDOUT [ps5-agc] present-open handle=4e100200 framebuffer=20c000000/67108864 buffers=2 alias=0
+REC seq=570 t=7863.090380018 STDOUT [ps5-prepare-startup] attempts=1 result=0 clock_valid=1 setup_ms=0.151550 scanout_flush_ms=1.114658 video_ms=14.714746 command_ms=0.024938 command_flush_ms=0.003047 total_ms=16.008939
+REC seq=571 t=7863.090392045 STDOUT [ps5-gallium] clear-gpu-color status=0 draws=1
+REC seq=572 t=7863.091301909 STDOUT [ps5-gallium] compile-shader stage=1 primitive=4 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=240 hash=edc4acb2 user-sgprs=5 scratch=0/0 table=0
+REC seq=573 t=7863.091581676 STDOUT [ps5-gallium] compile-shader stage=5 primitive=4 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=128 hash=4dbb05aa user-sgprs=3 scratch=0/0 table=0
+REC seq=574 t=7863.091588973 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=575 t=7863.091737156 STDOUT [ps5-inflight] peak=1 capacity=8
+REC seq=576 t=7863.091892796 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=1 face=0/0
+REC seq=577 t=7863.092140088 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=76 hash=b6b81015 user-sgprs=3 scratch=0/0 table=0
+REC seq=578 t=7863.092330368 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=0 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=0/0
+REC seq=579 t=7863.092921414 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=2 result=0 bytes=252 hash=45a3fe4e user-sgprs=4 scratch=0/0 table=0
+REC seq=580 t=7863.093331483 STDOUT [ps5-gallium] compile-shader stage=1 primitive=5 provoking-last=0 smooth=0 variant-attrs=2 result=0 bytes=168 hash=19d19c91 user-sgprs=4 scratch=0/0 table=0
+REC seq=581 t=7863.093555280 STDOUT [ps5-gallium] compile-shader stage=5 primitive=5 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=76 hash=72395abd user-sgprs=3 scratch=0/0 table=0
+REC seq=582 t=7863.093647574 STDOUT [ps5-gallium] clear-gpu-color status=0 draws=1
+REC seq=583 t=7863.093748928 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=1 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=1 face=0/0
+REC seq=584 t=7863.094053152 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=108 hash=ab7b8f39 user-sgprs=3 scratch=0/0 table=0
+REC seq=585 t=7863.094142318 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=4 face=0/0
+REC seq=586 t=7863.094820606 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=376 hash=9bb2f061 user-sgprs=5 scratch=0/0 table=0
+REC seq=587 t=7863.094960289 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=0 ssbos=0 images=0 textures=1 default-ubo=0 uniforms=0 face=0/0
+REC seq=588 t=7863.095217925 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=140 hash=85b5bd62 user-sgprs=3 scratch=0/0 table=0
+REC seq=589 t=7863.095227788 STDOUT [ps5-gallium] input-semantics count=1 first=00000035
+REC seq=590 t=7863.095316152 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=1 ssbos=0 images=0 textures=0 default-ubo=1 uniforms=4 face=0/0
+REC seq=591 t=7863.096013204 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=2 result=0 bytes=396 hash=7e535662 user-sgprs=5 scratch=0/0 table=0
+REC seq=592 t=7863.096655970 STDOUT [ps5-gallium] compile-shader stage=1 primitive=6 provoking-last=0 smooth=0 variant-attrs=2 result=0 bytes=256 hash=f94f027c user-sgprs=5 scratch=0/0 table=0
+REC seq=593 t=7863.096918978 STDOUT [ps5-gallium] compile-shader stage=5 primitive=6 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=148 hash=e81d717a user-sgprs=3 scratch=0/0 table=0
+REC seq=594 t=7863.096925634 STDOUT [ps5-gallium] input-semantics count=1 first=00000035
+REC seq=595 t=7863.146060052 WINE 0078:fixme:kernelbase:AppPolicyGetThreadInitializationType FFFFFFFFFFFFFFFA, 000000101134FF50
+REC seq=596 t=7863.148069018 WINE 007c:fixme:kernelbase:AppPolicyGetThreadInitializationType FFFFFFFFFFFFFFFA, 0000001011DBFF50
+REC seq=597 t=7863.149528553 WINE 0084:fixme:kernelbase:AppPolicyGetThreadInitializationType FFFFFFFFFFFFFFFA, 0000001012FDFF50
+REC seq=598 t=7863.150818816 STDOUT FMOD Sound System: Successfully initialized
+REC seq=599 t=7863.152647285 WINE 0024:trace:process:GetEnvironmentVariableW (L"SENTRY_DSN" 000000100090EBD0 32767)
+REC seq=600 t=7863.152657789 WINE 0024:trace:process:GetEnvironmentVariableW (L"SENTRY_RELEASE" 000000100090EBD0 32767)
+REC seq=601 t=7863.152673746 WINE 0024:trace:process:GetEnvironmentVariableW (L"SENTRY_ENVIRONMENT" 000000100090EBD0 32767)
+REC seq=602 t=7863.152728352 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=603 t=7863.152733323 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090EB60 32767)
+REC seq=604 t=7863.168157390 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=605 t=7863.168166611 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E7F0 32767)
+REC seq=606 t=7863.175823116 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\data_sts2_windows_x86_64\\hostfxr.dll" at 00000013FDAD0000: native
+REC seq=607 t=7863.175849417 WINESERVER wine-ps5: released image-view fd 259 (views 1)
+REC seq=608 t=7863.175951654 WINE 0024:trace:process:GetEnvironmentVariableW (L"COREHOST_TRACE" 0000000000000000 0)
+REC seq=609 t=7863.176093501 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_ROLL_FORWARD_TO_PRERELEASE" 0000000000000000 0)
+REC seq=610 t=7863.176101520 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_ROLL_FORWARD_ON_NO_CANDIDATE_FX" 0000000000000000 0)
+REC seq=611 t=7863.185106503 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\data_sts2_windows_x86_64\\hostpolicy.dll" at 00000013FDA60000: native
+REC seq=612 t=7863.185132804 WINESERVER wine-ps5: released image-view fd 259 (views 1)
+REC seq=613 t=7863.185228064 WINE 0024:trace:process:GetEnvironmentVariableW (L"COREHOST_TRACE" 0000000000000000 0)
+REC seq=614 t=7863.185237366 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_ROLL_FORWARD_TO_PRERELEASE" 0000000000000000 0)
+REC seq=615 t=7863.185278581 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_SHARED_STORE" 0000000000000000 0)
+REC seq=616 t=7863.185283713 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_MULTILEVEL_LOOKUP" 0000000000000000 0)
+REC seq=617 t=7863.185458597 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000001a,100091df38,0x00000008,0)
+REC seq=618 t=7863.185464210 WINE 0024:trace:process:GetEnvironmentVariableW (L"ProgramFiles" 0000000000000000 0)
+REC seq=619 t=7863.185470144 WINE 0024:trace:process:GetEnvironmentVariableW (L"ProgramFiles" 000000100F619730 17)
+REC seq=620 t=7863.185552334 WINE 0024:trace:process:GetEnvironmentVariableW (L"ProgramFiles(x86)" 0000000000000000 0)
+REC seq=621 t=7863.185557787 WINE 0024:trace:process:GetEnvironmentVariableW (L"ProgramFiles(x86)" 000000100F6A1140 23)
+REC seq=622 t=7863.188856134 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_RUNTIME_ID" 0000000000000000 0)
+REC seq=623 t=7863.188865355 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_STARTUP_HOOKS" 0000000000000000 0)
+REC seq=624 t=7863.188946022 WINE 0024:trace:process:GetEnvironmentVariableW (L"COREHOST_TRACE" 0000000000000000 0)
+REC seq=625 t=7863.197190927 WINE 0024:trace:loaddll:build_module Loaded L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\data_sts2_windows_x86_64\\coreclr.dll" at 00000013FD5B0000: native
+REC seq=626 t=7863.197219874 WINESERVER wine-ps5: released image-view fd 259 (views 1)
+REC seq=627 t=7863.197434370 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_gcConcurrent" 000000100091E4B8 130)
+REC seq=628 t=7863.197441587 WINE 0024:trace:process:GetEnvironmentVariableW (L"COMPlus_gcConcurrent" 000000100091E4B8 130)
+REC seq=629 t=7863.197446959 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_gcServer" 000000100091E4B8 130)
+REC seq=630 t=7863.197451851 WINE 0024:trace:process:GetEnvironmentVariableW (L"COMPlus_gcServer" 000000100091E4B8 130)
+REC seq=631 t=7863.197456662 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_GCRetainVM" 000000100091E4B8 130)
+REC seq=632 t=7863.197461232 WINE 0024:trace:process:GetEnvironmentVariableW (L"COMPlus_GCRetainVM" 000000100091E4B8 130)
+REC seq=633 t=7863.197466525 WINE 0024:trace:process:GetEnvironmentVariableW (L"DOTNET_DisableConfigCache" 000000100091E3F8 130)
+REC seq=634 t=7863.197471416 WINE 0024:trace:process:GetEnvironmentVariableW (L"COMPlus_DisableConfigCache" 000000100091E3F8 130)
+REC seq=635 t=7863.197511589 WINE 0024:fixme:process:GetProcessGroupAffinity (FFFFFFFFFFFFFFFF,000000100091E574,0000000000000000): stub
+REC seq=636 t=7863.235942055 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000015,100091e568,0x00000008,0)
+REC seq=637 t=7863.237298071 WINE 0024:trace:process:GetEnvironmentVariableW (L"gcConservative" 000000100091E058 130)
+REC seq=638 t=7863.237304887 WINE 0024:trace:process:GetEnvironmentVariableW (L"gcForceCompact" 000000100091E058 130)
+REC seq=639 t=7863.237310179 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCBreakOnOOM" 000000100091E058 130)
+REC seq=640 t=7863.237314990 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCNoAffinitize" 000000100091E058 130)
+REC seq=641 t=7863.237319962 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLogEnabled" 000000100091E058 130)
+REC seq=642 t=7863.237325093 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCConfigLogEnabled" 000000100091E058 130)
+REC seq=643 t=7863.237329905 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCNumaAware" 000000100091E058 130)
+REC seq=644 t=7863.237334716 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCCpuGroup" 000000100091E058 130)
+REC seq=645 t=7863.237339447 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLargePages" 000000100091E058 130)
+REC seq=646 t=7863.237344258 WINE 0024:trace:process:GetEnvironmentVariableW (L"HeapVerify" 000000100091E048 130)
+REC seq=647 t=7863.237348828 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLOHCompact" 000000100091E048 130)
+REC seq=648 t=7863.237353399 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLOHThreshold" 000000100091E048 130)
+REC seq=649 t=7863.237358050 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCSpinCount" 000000100091E048 130)
+REC seq=650 t=7863.237362781 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCSpin" 000000100091E048 130)
+REC seq=651 t=7863.237367351 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapCount" 000000100091E048 130)
+REC seq=652 t=7863.237372162 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCMaxHeapCount" 000000100091E048 130)
+REC seq=653 t=7863.237377054 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCgen0size" 000000100091E048 130)
+REC seq=654 t=7863.237381624 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCSegmentSize" 000000100091E048 130)
+REC seq=655 t=7863.237386435 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLatencyMode" 000000100091E048 130)
+REC seq=656 t=7863.237391166 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLatencyLevel" 000000100091E048 130)
+REC seq=657 t=7863.237395576 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLogFileSize" 000000100091E048 130)
+REC seq=658 t=7863.237400307 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCCompactRatio" 000000100091E048 130)
+REC seq=659 t=7863.237404958 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapAffinitizeMask" 000000100091E048 130)
+REC seq=660 t=7863.237409930 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHighMemPercent" 000000100091E048 130)
+REC seq=661 t=7863.237414741 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCProvModeStress" 000000100091E048 130)
+REC seq=662 t=7863.237419472 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCGen0MaxBudget" 000000100091E048 130)
+REC seq=663 t=7863.237424684 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCGen1MaxBudget" 000000100091E048 130)
+REC seq=664 t=7863.237429415 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLowSkipRatio" 000000100091E048 130)
+REC seq=665 t=7863.237433985 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimit" 000000100091E048 130)
+REC seq=666 t=7863.237438796 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimitPercent" 000000100091E048 130)
+REC seq=667 t=7863.237443928 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCTotalPhysicalMemory" 000000100091E048 130)
+REC seq=668 t=7863.237448419 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCRegionRange" 000000100091E048 130)
+REC seq=669 t=7863.237452989 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCRegionSize" 000000100091E048 130)
+REC seq=670 t=7863.237457640 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCEnableSpecialRegions" 000000100091E048 130)
+REC seq=671 t=7863.237462291 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLTuningEnabled" 000000100091E048 130)
+REC seq=672 t=7863.237467102 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCMemGoal" 000000100091E048 130)
+REC seq=673 t=7863.237471753 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCMemGoalSlack" 000000100091E048 130)
+REC seq=674 t=7863.237476323 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLSweepGoal" 000000100091E048 130)
+REC seq=675 t=7863.237480894 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLSweepGoalLOH" 000000100091E048 130)
+REC seq=676 t=7863.237485384 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLkp" 000000100091E048 130)
+REC seq=677 t=7863.237489955 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLki" 000000100091E048 130)
+REC seq=678 t=7863.237494445 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLkd" 000000100091E048 130)
+REC seq=679 t=7863.237498855 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLff" 000000100091E048 130)
+REC seq=680 t=7863.237503426 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLSmoothFactor" 000000100091E048 130)
+REC seq=681 t=7863.237507836 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLGradualD" 000000100091E048 130)
+REC seq=682 t=7863.237512246 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCMLkp" 000000100091E048 130)
+REC seq=683 t=7863.237516656 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCMLki" 000000100091E048 130)
+REC seq=684 t=7863.237521147 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLEnableKi" 000000100091E048 130)
+REC seq=685 t=7863.237525717 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLEnableKd" 000000100091E048 130)
+REC seq=686 t=7863.237538387 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLEnableSmooth" 000000100091E048 130)
+REC seq=687 t=7863.237543198 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLEnableTBH" 000000100091E048 130)
+REC seq=688 t=7863.237547608 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCFLEnableFF" 000000100091E048 130)
+REC seq=689 t=7863.237552098 WINE 0024:trace:process:GetEnvironmentVariableW (L"BGCG2RatioStep" 000000100091E048 130)
+REC seq=690 t=7863.237556669 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimitSOH" 000000100091E048 130)
+REC seq=691 t=7863.237561560 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimitLOH" 000000100091E048 130)
+REC seq=692 t=7863.237566211 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimitPOH" 000000100091E048 130)
+REC seq=693 t=7863.237571182 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimitSOHPercent" 000000100091E048 130)
+REC seq=694 t=7863.237576314 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimitLOHPercent" 000000100091E048 130)
+REC seq=695 t=7863.237581366 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCHeapHardLimitPOHPercent" 000000100091E048 130)
+REC seq=696 t=7863.237586418 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCEnabledInstructionSets" 000000100091E048 130)
+REC seq=697 t=7863.237591068 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCConserveMemory" 000000100091E048 130)
+REC seq=698 t=7863.237595880 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCWriteBarrier" 000000100091E048 130)
+REC seq=699 t=7863.237600530 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCSpinCountUnit" 000000100091E048 130)
+REC seq=700 t=7863.237605341 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCDynamicAdaptationMode" 000000100091E048 130)
+REC seq=701 t=7863.237610072 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCDTargetTCP" 000000100091E048 130)
+REC seq=702 t=7863.237614964 WINE 0024:trace:process:GetEnvironmentVariableW (L" GCDBGCRatio" 000000100091E048 130)
+REC seq=703 t=7863.237619695 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCLogBGCThreadId" 000000100091E058 130)
+REC seq=704 t=7863.237624346 WINE 0024:trace:process:GetEnvironmentVariableW (L"GCCacheSizeFromSysConf" 000000100091E058 130)
+REC seq=705 t=7863.237642227 WINE 0024:fixme:process:GetProcessGroupAffinity (FFFFFFFFFFFFFFFF,000000100091E540,0000000000000000): stub
+REC seq=706 t=7863.237648882 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000015,100091e540,0x00000008,0)
+REC seq=707 t=7863.238163031 WINE 0024:fixme:seh:WerRegisterRuntimeExceptionModule (L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840\\data_sts2_windows_x86_64\\mscordaccore.dll", 00000013FD5B0000) stub
+REC seq=708 t=7863.238876361 WINE 0024:trace:process:GetEnvironmentVariableW (L"CORECLR_ENABLE_PROFILING" 000000100091E278 130)
+REC seq=709 t=7863.238883738 WINE 0024:trace:process:GetEnvironmentVariableW (L"CORECLR_NOTIFICATION_PROFILERS_64" 000000100091DF08 130)
+REC seq=710 t=7863.238888950 WINE 0024:trace:process:GetEnvironmentVariableW (L"CORECLR_NOTIFICATION_PROFILERS" 000000100091DF08 130)
+REC seq=711 t=7863.251613093 WINE 0024:fixme:ntdll:NtQuerySystemInformation info_class SYSTEM_PERFORMANCE_INFORMATION
+REC seq=712 t=7863.251619348 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,100091e110,0x00000060,0)
+REC seq=713 t=7863.251699934 WINE 0024:err:virtual:map_view anon mmap error Cannot allocate memory, size 4000010000, unix_prot 0
+REC seq=714 t=7863.251704745 WINE 0024:err:virtual:allocate_virtual_memory out of memory for allocation, base 0 size 4000000000
+REC seq=715 t=7863.252139109 WINESERVER GC heap initialization failed with error 0x8007000E
+REC seq=716 t=7863.252365794 WINESERVER Failed to create CoreCLR, HRESULT: 0x8007000E
+REC seq=717 t=7863.252391453 WINESERVER ERROR: hostfxr_get_runtime_delegate failed with code: -2147450743
+REC seq=718 t=7863.252395462 WINESERVER    at: initialize_hostfxr_self_contained (modules/mono/mono_gd/gd_mono.cpp:413)
+REC seq=719 t=7863.254294173 WINESERVER ERROR: Parameter "load_assembly_and_get_function_pointer" is null.
+REC seq=720 t=7863.254298583 WINESERVER    at: initialize_hostfxr_and_godot_plugins (modules/mono/mono_gd/gd_mono.cpp:472)
+REC seq=721 t=7863.255696616 WINESERVER ERROR: Parameter "godot_plugins_initialize" is null.
+REC seq=722 t=7863.255700705 WINESERVER    at: initialize (modules/mono/mono_gd/gd_mono.cpp:653)
+REC seq=723 t=7863.274930693 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rsaenh.dll" 0000000000000000 0)
+REC seq=724 t=7863.274937669 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rsaenh.dll" 000000100F8F2D80 31)
+REC seq=725 t=7863.279380502 WINESERVER wine-ps5: released image-view fd 281 (views 1)
+REC seq=726 t=7863.279770444 WINE 0024:trace:loaddll:build_module Loaded L"C:\\windows\\system32\\rsaenh.dll" at 00000013FD550000: builtin
+REC seq=727 t=7863.280554337 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rsaenh.dll" 0000000000000000 0)
+REC seq=728 t=7863.280559549 WINE 0024:trace:process:ExpandEnvironmentStringsW (L"C:\\windows\\system32\\rsaenh.dll" 000000100F8F2D80 31)
+REC seq=729 t=7863.284178317 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000022,100000f240,0x00000004,0)
+REC seq=730 t=7863.284252168 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000007,100091b838,0x00000008,0)
+REC seq=731 t=7863.286471460 WINE 0024:fixme:advapi:RegisterEventSourceW ((null),L".NET Runtime"): stub
+REC seq=732 t=7863.286479077 WINE 0024:fixme:advapi:ReportEventW (00000000CAFE4242,0x0001,0x0000,0x00000402,0000000000000000,0x0001,0x00000000,000000100091AAC0,0000000000000000): stub
+REC seq=733 t=7863.286483327 WINE 0024:err:eventlog:ReportEventW L"Application: SlayTheSpire2.exe\n"
+REC seq=734 t=7863.286486695 WINE 0024:err:eventlog:ReportEventW L"CoreCLR Version: 9.0.725.31616\n"
+REC seq=735 t=7863.286489982 WINE 0024:err:eventlog:ReportEventW L".NET Version: 9.0.7\n"
+REC seq=736 t=7863.286493510 WINE 0024:err:eventlog:ReportEventW L"Description: The process was terminated due to an unhandled exception.\n"
+REC seq=737 t=7863.286497119 WINE 0024:err:eventlog:ReportEventW L"Exception Info: exception code c0000005, exception address 0000000000000000\n"
+REC seq=738 t=7863.286500246 WINE 0024:err:eventlog:ReportEventW L"Stack:\n"
+REC seq=739 t=7863.286503774 WINE 0024:fixme:advapi:DeregisterEventSource (00000000CAFE4242) stub
+REC seq=740 t=7863.286510189 WINE 0024:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x0000000c,100091b79c,0x00000004,0)
+REC seq=741 t=7863.286519972 WINE wine: Unhandled page fault on execute access to 0000000000000000 at address 0000000000000000 (thread 0024), starting debugger...
+REC seq=742 t=7863.286634076 WINE 0024:trace:process:CreateProcessInternalW app (null) cmdline L"winedbg --auto 32 568"
+REC seq=743 t=7863.286642976 WINE 0024:trace:process:find_exe_file looking for L"winedbg" in L"Z:\\data\\homebrew\\FAKE77031\\games\\2868840;.;C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem;C:\\windows\\system32\\WindowsPowershell\\v1.0"
+REC seq=744 t=7863.287591570 WINE 0024:trace:process:NtCreateUserProcess process creation is not supported on PS5
+REC seq=745 t=7863.287598866 WINE 0024:err:seh:start_debugger Couldn't start debugger L"winedbg --auto 32 568" (50)
+REC seq=746 t=7863.287601513 WINE Read the Wine Developers Guide on how to set up winedbg or another debugger
+REC seq=747 t=7863.288351808 PW_WINE64 exit sink_calls=455
+REC seq=748 t=7863.305310463 PW_WINE64 session_end reason=wine64-exit

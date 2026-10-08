@@ -1,0 +1,916 @@
+== session-2.log
+T [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=1728 t=8057.776766337 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=1729 t=8057.776775158 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E700 32767)
+REC seq=1730 t=8057.785425400 STDOUT [ps5-gallium] compile-shader stage=1 primitive=4 provoking-last=0 smooth=0 variant-attrs=1 result=0 bytes=256 hash=540af5ee user-sgprs=5 scratch=0/0 table=0
+REC seq=1731 t=8057.786612786 STDOUT [ps5-gallium] compile-shader stage=5 primitive=4 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=740 hash=33f8e115 user-sgprs=3 scratch=0/0 table=0
+REC seq=1732 t=8057.786621286 STDOUT [ps5-gallium] input-semantics count=1 first=0000000f
+REC seq=1733 t=8057.787709322 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=1734 t=8057.787718864 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E690 32767)
+REC seq=1735 t=8057.794113972 STDOUT [ps5-gallium] create-shader stage=1 nir-stage=0 io-lowered=1 ubos=3 ssbos=0 images=0 textures=0 default-ubo=0 uniforms=0 face=1/0
+REC seq=1736 t=8057.795617529 STDOUT [ps5-gallium] compile-shader stage=1 primitive=0 provoking-last=0 smooth=0 variant-attrs=4 result=0 bytes=664 hash=d2e89656 user-sgprs=5 scratch=0/0 table=0
+REC seq=1737 t=8057.795749835 STDOUT [ps5-gallium] create-shader stage=5 nir-stage=4 io-lowered=1 ubos=4 ssbos=0 images=0 textures=1 default-ubo=1 uniforms=1 face=0/0
+REC seq=1738 t=8057.796278978 STDOUT [ps5-gallium] compile-shader stage=5 primitive=0 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=248 hash=157943a4 user-sgprs=3 scratch=0/0 table=0
+REC seq=1739 t=8057.796387870 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 0000000000000000 0)
+REC seq=1740 t=8057.796397893 WINE 0024:trace:process:GetEnvironmentVariableW (L"APPDATA" 000000100090E5A0 32767)
+REC seq=1741 t=8057.807533804 STDOUT [ps5-gallium] compile-shader stage=1 primitive=4 provoking-last=0 smooth=0 variant-attrs=4 result=0 bytes=580 hash=90bcc40d user-sgprs=6 scratch=0/0 table=0
+REC seq=1742 t=8057.808086522 STDOUT [ps5-gallium] compile-shader stage=5 primitive=4 provoking-last=0 smooth=0 variant-attrs=0 result=0 bytes=264 hash=e1a5896f user-sgprs=3 scratch=0/0 table=0
+REC seq=1743 t=8057.835964106 WINESERVER PW_GL frames=208 fps=31.7
+REC seq=1744 t=8057.836268811 STDOUT [INFO] Preloading 'Common' assets... count=686 vfx=92
+REC seq=1745 t=8057.837919668 STDOUT [INFO] [Startup] Resource stats (main menu loaded (complete)): StaticMem=0B, VRAM=195.5MB, Objects=8,031, Resources=459, Nodes=1,439, CachedAssets=5
+REC seq=1746 t=8057.996777491 PW_WINE64 alive tick=1200 sink_calls=1167 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=14046 audio=3145 audible=911
+REC seq=1747 t=8057.996782382 PW_WINE64 mmap=3745 munmap=6 mprotect=7047 skipped=9438 faults=3 images=136
+REC seq=1748 t=8057.996804674 PW_WINE64 memory flexible_free=14336K dmem=1551056K dmem_peak=1551248K runs=611 dmem_failures=0 heap=260944K heap_peak=261232K dmem_low=17472K dmem_low_peak=17472K
+REC seq=1749 t=8058.108742238 WINE 0040:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,10066fa7c0,0x00000060,0)
+REC seq=1750 t=8058.324266938 STDOUT [ps5-driver-elapsed] calls=10000 cycles=27296145832
+REC seq=1751 t=8058.324283055 STDOUT [ps5-driver-cycles] phase=0 calls=10000 cycles=13324613872
+REC seq=1752 t=8058.324296767 STDOUT [ps5-driver-cycles] phase=1 calls=8892 cycles=11547585
+REC seq=1753 t=8058.324309676 STDOUT [ps5-driver-cycles] phase=2 calls=9999 cycles=11227011526
+REC seq=1754 t=8058.324319379 STDOUT [ps5-driver-cycles] phase=3 calls=83694 cycles=10771483
+REC seq=1755 t=8058.324333091 STDOUT [ps5-driver-cycles] phase=4 calls=1098 cycles=10785891171
+REC seq=1756 t=8058.324341831 STDOUT [ps5-driver-cycles] phase=5 calls=82262 cycles=194220978
+REC seq=1757 t=8058.324356425 STDOUT [ps5-driver-cycles] phase=6 calls=1423 cycles=61306617
+REC seq=1758 t=8058.324363561 STDOUT [ps5-driver-cycles] phase=7 calls=1419 cycles=2209899333
+REC seq=1759 t=8058.324373103 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=1760 t=8058.324383688 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=1761 t=8058.324397560 STDOUT [ps5-map-caller] pc=806bbfee calls=697 reads=0 textures=697
+REC seq=1762 t=8058.324412635 STDOUT [ps5-map-caller] pc=80b8e5ed calls=43 reads=0 textures=43
+REC seq=1763 t=8058.324424582 STDOUT [ps5-map-caller] pc=80da90ae calls=677 reads=131 textures=0
+REC seq=1764 t=8058.324439336 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=1765 t=8058.324455774 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=1766 t=8058.324467722 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=1767 t=8058.332999050 STDOUT [ps5-submit-perf] calls=1050 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004713 scanout_flush_ms=1.101092 video_ms=0.002051 command_ms=0.016382 command_flush_ms=0.002449 submit_ms=0.003823 suspend_ms=0.000901 poll_ms=0.029643 cleanup_ms=0.027175 total_ms=1.188230
+REC seq=1768 t=8058.333048845 STDOUT [ps5-present-perf] calls=513 failures=0 warmup_frames=30 idle_ms=0.003274 flip_ms=0.013434 vblank_ms=0.000908 total_ms=0.017617
+REC seq=1769 t=8058.333101687 STDOUT [ps5-batch-perf] calls=2064 failures=0 warmup_frames=30 sleeps=2 submit_ms=0.006154 suspend_ms=0.000898 poll_ms=0.011622 cleanup_ms=0.000950 total_ms=0.019623
+REC seq=1770 t=8058.333158859 STDOUT [ps5-prepare-perf] calls=8950 failures=0 warmup_frames=30 setup_ms=0.005396 scanout_flush_ms=0.000908 video_ms=0.719639 command_ms=0.013820 command_flush_ms=0.002718 total_ms=0.742482
+REC seq=1771 t=8058.960283182 STDOUT [ps5-driver-cycles] phase=0 calls=11632 cycles=13412878940
+REC seq=1772 t=8058.960297455 STDOUT [ps5-driver-cycles] phase=1 calls=10505 cycles=16116189
+REC seq=1773 t=8058.960308360 STDOUT [ps5-driver-cycles] phase=2 calls=11632 cycles=11312012524
+REC seq=1774 t=8058.960315657 STDOUT [ps5-driver-cycles] phase=3 calls=132290 cycles=16054251
+REC seq=1775 t=8058.960330010 STDOUT [ps5-driver-cycles] phase=4 calls=1102 cycles=10786356028
+REC seq=1776 t=8058.960337066 STDOUT [ps5-driver-cycles] phase=5 calls=130710 cycles=315697130
+REC seq=1777 t=8058.960350056 STDOUT [ps5-driver-cycles] phase=6 calls=1501 cycles=62204339
+REC seq=1778 t=8058.960362966 STDOUT [ps5-driver-cycles] phase=7 calls=1497 cycles=2385367102
+REC seq=1779 t=8058.960370103 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=1780 t=8058.960377800 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=1781 t=8058.960393757 STDOUT [ps5-map-caller] pc=806bbfee calls=768 reads=0 textures=768
+REC seq=1782 t=8058.960408271 STDOUT [ps5-map-caller] pc=80b8e5ed calls=46 reads=0 textures=46
+REC seq=1783 t=8058.960419256 STDOUT [ps5-map-caller] pc=80da90ae calls=681 reads=131 textures=0
+REC seq=1784 t=8058.960433209 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=1785 t=8058.960448123 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=1786 t=8058.960463759 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=1787 t=8058.960468570 STDOUT [ps5-cpu-flush-summary] calls=225252 bytes=4120027894
+REC seq=1788 t=8058.960503371 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=9960 reject-input=15 reject-shader=0 reject-query=15 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=25 profile=1
+REC seq=1789 t=8058.967186264 PW_WINE64 alive tick=1260 sink_calls=1168 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=15486 audio=3327 audible=1093
+REC seq=1790 t=8059.270376561 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=159159 bytes=938149058 cycles=169563324
+REC seq=1791 t=8059.270401419 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=1792 t=8059.270423069 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=1793 t=8059.270440469 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=549 bytes=74550784 cycles=2200848
+REC seq=1794 t=8059.270455945 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=18524 bytes=1921168 cycles=7872286
+REC seq=1795 t=8059.270473105 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=2803 bytes=407840 cycles=1779666
+REC seq=1796 t=8059.270490505 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=5276 bytes=78948 cycles=2382561
+REC seq=1797 t=8059.270509028 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=38516 bytes=1229443488 cycles=47054003
+REC seq=1798 t=8059.270536371 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=1799 t=8059.270553210 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=1800 t=8059.270571252 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=552 bytes=1611136 cycles=438609
+REC seq=1801 t=8059.270589053 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=1802 t=8059.270606934 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=739 bytes=1912602624 cycles=56894024
+REC seq=1803 t=8059.270639169 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=18 bytes=80640 cycles=10505
+REC seq=1804 t=8059.270651758 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=18 bytes=1152 cycles=8206
+REC seq=1805 t=8059.270684794 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=12679 bytes=341232 cycles=6445821
+REC seq=1806 t=8059.270712378 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=11034 bytes=45277744 cycles=8668092
+REC seq=1807 t=8059.270743009 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=12115 bytes=43131408 cycles=9432489
+REC seq=1808 t=8059.270770192 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=1809 t=8059.270785347 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=1810 t=8059.273607553 WINE 005c:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,100a66a9a0,0x00000060,0)
+REC seq=1811 t=8059.936559202 PW_WINE64 alive tick=1320 sink_calls=1169 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=16743 audio=3509 audible=1275
+REC seq=1812 t=8060.332312823 WINE 002c:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,10039aa680,0x00000060,0)
+REC seq=1813 t=8060.906455510 PW_WINE64 alive tick=1380 sink_calls=1170 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=18092 audio=3691 audible=1457
+REC seq=1814 t=8060.911729867 PW_WINE64 flexible_holders available=3072K mapped=535536K unnamed=0K buckets=64 overflow=366
+REC seq=1815 t=8060.911736602 PW_WINE64 flexible_holder rank=1 bytes=237824K count=161 prot=0x3 name=anon:0000801788d2
+REC seq=1816 t=8060.911739970 PW_WINE64 flexible_holder rank=2 bytes=33968K count=8 prot=0x3 name=anon:0000806c22aa
+REC seq=1817 t=8060.911743017 PW_WINE64 flexible_holder rank=3 bytes=20768K count=22 prot=0x3 name=anon:0000803edc42
+REC seq=1818 t=8060.911745904 PW_WINE64 flexible_holder rank=4 bytes=18000K count=1 prot=0x3 name=anon:00010040016b
+REC seq=1819 t=8060.911748791 PW_WINE64 flexible_holder rank=5 bytes=17040K count=5 prot=0x3 name=anon:000080178c48
+REC seq=1820 t=8060.911751597 PW_WINE64 flexible_holder rank=6 bytes=16896K count=6 prot=0x3 name=anon:000080178cb9
+REC seq=1821 t=8060.911754404 PW_WINE64 flexible_holder rank=7 bytes=16384K count=1 prot=0x3 name=anon:00010040229d
+REC seq=1822 t=8060.911757210 PW_WINE64 flexible_holder rank=8 bytes=16384K count=1 prot=0x3 name=tid   101957
+REC seq=1823 t=8060.911760097 PW_WINE64 flexible_holder rank=9 bytes=15440K count=2 prot=0x1 name=libvulkan.prx
+REC seq=1824 t=8060.911762903 PW_WINE64 flexible_holder rank=10 bytes=11840K count=2 prot=0x1 name=win32u.prx
+REC seq=1825 t=8060.911765710 PW_WINE64 flexible_holder rank=11 bytes=11680K count=1 prot=0x4 name=win32u.prx
+REC seq=1826 t=8060.911768516 PW_WINE64 flexible_holder rank=12 bytes=7664K count=1 prot=0x4 name=libvulkan.prx
+REC seq=1827 t=8060.911771323 PW_WINE64 flexible_holder rank=13 bytes=6208K count=7 prot=0x3 name=anon:000080168a68
+REC seq=1828 t=8060.911774129 PW_WINE64 flexible_holder rank=14 bytes=4016K count=2 prot=0x3 name=win32u.prx
+REC seq=1829 t=8060.911776936 PW_WINE64 flexible_holder rank=15 bytes=2032K count=1 prot=0x3 name=anon:0001004021f9
+REC seq=1830 t=8060.911779823 PW_WINE64 flexible_holder rank=16 bytes=1728K count=2 prot=0x3 name=ntdll.prx
+REC seq=1831 t=8061.760816896 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=372975 bytes=2278994498 cycles=403095554
+REC seq=1832 t=8061.760841593 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=1833 t=8061.760857309 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=1834 t=8061.760873106 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=557 bytes=75075072 cycles=2218974
+REC seq=1835 t=8061.760894275 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=25041 bytes=3309616 cycles=10803083
+REC seq=1836 t=8061.760911835 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=2944 bytes=616240 cycles=1862253
+REC seq=1837 t=8061.760927872 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=5643 bytes=89700 cycles=2549329
+REC seq=1838 t=8061.760948480 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=61808 bytes=1992423104 cycles=75993553
+REC seq=1839 t=8061.760973578 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=1840 t=8061.760992582 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=1841 t=8061.761010223 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=570 bytes=3029248 cycles=565896
+REC seq=1842 t=8061.761038528 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=1843 t=8061.761053202 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=948 bytes=2369781760 cycles=70592357
+REC seq=1844 t=8061.761076696 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=45 bytes=201600 cycles=26770
+REC seq=1845 t=8061.761091050 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=45 bytes=2880 cycles=20942
+REC seq=1846 t=8061.761110936 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=18607 bytes=447744 cycles=9417916
+REC seq=1847 t=8061.761129619 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=16936 bytes=69459248 cycles=13301466
+REC seq=1848 t=8061.761143411 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=18007 bytes=67224928 cycles=14245646
+REC seq=1849 t=8061.761167707 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=1850 t=8061.761188074 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=1851 t=8061.880766186 PW_WINE64 alive tick=1440 sink_calls=1170 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=19191 audio=3873 audible=1639
+REC seq=1852 t=8062.048023753 WINE 0058:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,1009d5a7f0,0x00000060,0)
+REC seq=1853 t=8062.265848090 STDOUT [ps5-driver-elapsed] calls=20000 cycles=33588093005
+REC seq=1854 t=8062.265861401 STDOUT [ps5-driver-cycles] phase=0 calls=20000 cycles=13872787105
+REC seq=1855 t=8062.265872546 STDOUT [ps5-driver-cycles] phase=1 calls=18752 cycles=42292150
+REC seq=1856 t=8062.265883692 STDOUT [ps5-driver-cycles] phase=2 calls=19999 cycles=11746786617
+REC seq=1857 t=8062.265894196 STDOUT [ps5-driver-cycles] phase=3 calls=423542 cycles=47971202
+REC seq=1858 t=8062.265904861 STDOUT [ps5-driver-cycles] phase=4 calls=1126 cycles=10789154368
+REC seq=1859 t=8062.265918412 STDOUT [ps5-driver-cycles] phase=5 calls=421423 cycles=1045543745
+REC seq=1860 t=8062.265931643 STDOUT [ps5-driver-cycles] phase=6 calls=1808 cycles=65809973
+REC seq=1861 t=8062.265943430 STDOUT [ps5-driver-cycles] phase=7 calls=1802 cycles=2604604241
+REC seq=1862 t=8062.265953133 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=1863 t=8062.265962915 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=1864 t=8062.265976547 STDOUT [ps5-map-caller] pc=806bbfee calls=899 reads=0 textures=899
+REC seq=1865 t=8062.265989858 STDOUT [ps5-map-caller] pc=80b8e5ed calls=198 reads=0 textures=198
+REC seq=1866 t=8062.266003088 STDOUT [ps5-map-caller] pc=80da90ae calls=705 reads=131 textures=0
+REC seq=1867 t=8062.266024177 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=1868 t=8062.266037087 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=1869 t=8062.266049917 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=1870 t=8062.275101648 STDOUT [ps5-submit-perf] calls=140 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004903 scanout_flush_ms=0.224472 video_ms=0.001108 command_ms=0.018992 command_flush_ms=0.002730 submit_ms=0.005549 suspend_ms=0.000985 poll_ms=0.020844 cleanup_ms=0.033977 total_ms=0.313560
+REC seq=1871 t=8062.275142141 STDOUT [ps5-present-perf] calls=14 failures=0 warmup_frames=30 idle_ms=0.003402 flip_ms=0.016278 vblank_ms=0.000928 total_ms=0.020608
+REC seq=1872 t=8062.275193781 STDOUT [ps5-batch-perf] calls=112 failures=0 warmup_frames=30 sleeps=14 submit_ms=0.018365 suspend_ms=0.000884 poll_ms=0.169188 cleanup_ms=0.001352 total_ms=0.189789
+REC seq=1873 t=8062.275249911 STDOUT [ps5-prepare-perf] calls=9860 failures=0 warmup_frames=30 setup_ms=0.003383 scanout_flush_ms=0.000897 video_ms=0.000933 command_ms=0.012536 command_flush_ms=0.002723 total_ms=0.020473
+REC seq=1874 t=8062.783379229 STDOUT [ps5-driver-cycles] phase=0 calls=21674 cycles=13962633792
+REC seq=1875 t=8062.783384842 STDOUT [ps5-driver-cycles] phase=1 calls=20407 cycles=48085127
+REC seq=1876 t=8062.783396308 STDOUT [ps5-driver-cycles] phase=2 calls=21674 cycles=11834589889
+REC seq=1877 t=8062.783409619 STDOUT [ps5-driver-cycles] phase=3 calls=471994 cycles=53239576
+REC seq=1878 t=8062.783418279 STDOUT [ps5-driver-cycles] phase=4 calls=1130 cycles=10789651689
+REC seq=1879 t=8062.783431109 STDOUT [ps5-driver-cycles] phase=5 calls=469869 cycles=1167240590
+REC seq=1880 t=8062.783439448 STDOUT [ps5-driver-cycles] phase=6 calls=1815 cycles=65958209
+REC seq=1881 t=8062.783452679 STDOUT [ps5-driver-cycles] phase=7 calls=1809 cycles=2607517711
+REC seq=1882 t=8062.783468154 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=1883 t=8062.783478819 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=1884 t=8062.783492130 STDOUT [ps5-map-caller] pc=806bbfee calls=902 reads=0 textures=902
+REC seq=1885 t=8062.783506643 STDOUT [ps5-map-caller] pc=80b8e5ed calls=198 reads=0 textures=198
+REC seq=1886 t=8062.783526048 STDOUT [ps5-map-caller] pc=80da90ae calls=709 reads=131 textures=0
+REC seq=1887 t=8062.783541444 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=1888 t=8062.783555637 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=1889 t=8062.783572155 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=1890 t=8062.783577046 STDOUT [ps5-cpu-flush-summary] calls=646027 bytes=8100325766
+REC seq=1891 t=8062.783610885 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=19848 reject-input=57 reject-shader=0 reject-query=57 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=95 profile=1
+REC seq=1892 t=8062.853431939 PW_WINE64 alive tick=1500 sink_calls=1171 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=20221 audio=4056 audible=1822
+REC seq=1893 t=8062.853436990 PW_WINE64 mmap=3995 munmap=6 mprotect=7483 skipped=9775 faults=3 images=136
+REC seq=1894 t=8062.853461046 PW_WINE64 memory flexible_free=0K dmem=1600480K dmem_peak=1688368K runs=700 dmem_failures=0 heap=275344K heap_peak=275344K dmem_low=17472K dmem_low_peak=17472K
+REC seq=1895 t=8063.049969693 WINESERVER PW_GL frames=19 fps=3.6
+REC seq=1896 t=8063.180799263 WINE 00a4:fixme:thread:NtQueryInformationThread ThreadIsIoPending info class not supported yet
+REC seq=1897 t=8063.184581609 WINE 00bc:fixme:thread:NtQueryInformationThread ThreadIsIoPending info class not supported yet
+REC seq=1898 t=8063.823566718 PW_WINE64 alive tick=1560 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=21219 audio=4238 audible=2004
+REC seq=1899 t=8063.987777800 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=586045 bytes=3614858050 cycles=635782433
+REC seq=1900 t=8063.987801776 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=1901 t=8063.987817652 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=1902 t=8063.987835293 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=566 bytes=75664896 cycles=2239580
+REC seq=1903 t=8063.987853656 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=31614 bytes=4715424 cycles=13759135
+REC seq=1904 t=8063.987872579 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=3076 bytes=805168 cycles=1941940
+REC seq=1905 t=8063.987890220 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=5973 bytes=99348 cycles=2701006
+REC seq=1906 t=8063.987910507 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=85640 bytes=2773302432 cycles=105640230
+REC seq=1907 t=8063.987935364 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=1908 t=8063.987958217 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=1909 t=8063.987974495 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=586 bytes=4289792 cycles=684047
+REC seq=1910 t=8063.987992216 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=1911 t=8063.988008093 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=964 bytes=2403336192 cycles=71610934
+REC seq=1912 t=8063.988036238 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=70 bytes=311040 cycles=41116
+REC seq=1913 t=8063.988054841 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=70 bytes=4480 cycles=32527
+REC seq=1914 t=8063.988075689 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=24665 bytes=555040 cycles=12480958
+REC seq=1915 t=8063.988093169 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=22969 bytes=94176960 cycles=17991899
+REC seq=1916 t=8063.988110409 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=24032 bytes=91857216 cycles=19204071
+REC seq=1917 t=8063.988137752 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=1918 t=8063.988154912 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=1919 t=8064.792508339 PW_WINE64 alive tick=1620 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=22227 audio=4419 audible=2185
+REC seq=1920 t=8065.760398729 PW_WINE64 alive tick=1680 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=23252 audio=4601 audible=2367
+REC seq=1921 t=8065.823318945 STDOUT [ps5-driver-elapsed] calls=30000 cycles=39266872934
+REC seq=1922 t=8065.823326723 STDOUT [ps5-driver-cycles] phase=0 calls=30000 cycles=14419039405
+REC seq=1923 t=8065.823340194 STDOUT [ps5-driver-cycles] phase=1 calls=28612 cycles=73355693
+REC seq=1924 t=8065.823351100 STDOUT [ps5-driver-cycles] phase=2 calls=29999 cycles=12264928400
+REC seq=1925 t=8065.823364170 STDOUT [ps5-driver-cycles] phase=3 calls=762882 cycles=84988677
+REC seq=1926 t=8065.823373552 STDOUT [ps5-driver-cycles] phase=4 calls=1154 cycles=10792570381
+REC seq=1927 t=8065.823384778 STDOUT [ps5-driver-cycles] phase=5 calls=760566 cycles=1896586866
+REC seq=1928 t=8065.823395362 STDOUT [ps5-driver-cycles] phase=6 calls=1945 cycles=66203430
+REC seq=1929 t=8065.823403621 STDOUT [ps5-driver-cycles] phase=7 calls=1939 cycles=2622272135
+REC seq=1930 t=8065.823416371 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=1931 t=8065.823428318 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=1932 t=8065.823442672 STDOUT [ps5-map-caller] pc=806bbfee calls=934 reads=0 textures=934
+REC seq=1933 t=8065.823452534 STDOUT [ps5-map-caller] pc=80b8e5ed calls=272 reads=0 textures=272
+REC seq=1934 t=8065.823470817 STDOUT [ps5-map-caller] pc=80da90ae calls=733 reads=131 textures=0
+REC seq=1935 t=8065.823487174 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=1936 t=8065.823494231 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=1937 t=8065.823509707 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=1938 t=8065.832941517 STDOUT [ps5-submit-perf] calls=140 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004743 scanout_flush_ms=0.224799 video_ms=0.001083 command_ms=0.017990 command_flush_ms=0.002729 submit_ms=0.005364 suspend_ms=0.000894 poll_ms=0.021875 cleanup_ms=0.032604 total_ms=0.312080
+REC seq=1939 t=8065.832982331 STDOUT [ps5-present-perf] calls=14 failures=0 warmup_frames=30 idle_ms=0.003310 flip_ms=0.017131 vblank_ms=0.000905 total_ms=0.021346
+REC seq=1940 t=8065.833049687 STDOUT [ps5-batch-perf] calls=113 failures=0 warmup_frames=30 sleeps=14 submit_ms=0.019102 suspend_ms=0.000883 poll_ms=0.167401 cleanup_ms=0.001372 total_ms=0.188758
+REC seq=1941 t=8065.833104694 STDOUT [ps5-prepare-perf] calls=9860 failures=0 warmup_frames=30 setup_ms=0.003381 scanout_flush_ms=0.000896 video_ms=0.000936 command_ms=0.012500 command_flush_ms=0.002719 total_ms=0.020432
+REC seq=1942 t=8066.200394174 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=796726 bytes=4935689490 cycles=865705750
+REC seq=1943 t=8066.200418951 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=1944 t=8066.200435149 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=1945 t=8066.200452309 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=575 bytes=76254720 cycles=2259994
+REC seq=1946 t=8066.200468827 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=38544 bytes=6194736 cycles=16853482
+REC seq=1947 t=8066.200486307 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=3219 bytes=1010624 cycles=2028796
+REC seq=1948 t=8066.200505151 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=6342 bytes=110148 cycles=2870043
+REC seq=1949 t=8066.200524155 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=110588 bytes=3590639520 cycles=136543795
+REC seq=1950 t=8066.200550375 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=1951 t=8066.200571063 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=1952 t=8066.200588784 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=604 bytes=5707904 cycles=809056
+REC seq=1953 t=8066.200604501 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=1954 t=8066.200623585 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=988 bytes=2453667840 cycles=72984349
+REC seq=1955 t=8066.200646598 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=96 bytes=430080 cycles=56741
+REC seq=1956 t=8066.200660630 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=96 bytes=6144 cycles=44373
+REC seq=1957 t=8066.200682120 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=31009 bytes=668208 cycles=15746583
+REC seq=1958 t=8066.200696874 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=29286 bytes=120058320 cycles=22900507
+REC seq=1959 t=8066.200714675 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=30341 bytes=117653232 cycles=24330372
+REC seq=1960 t=8066.200743542 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=1961 t=8066.200762466 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=1962 t=8066.565411761 STDOUT [ps5-driver-cycles] phase=0 calls=31719 cycles=14515519748
+REC seq=1963 t=8066.565421062 STDOUT [ps5-driver-cycles] phase=1 calls=30307 cycles=79423577
+REC seq=1964 t=8066.565433972 STDOUT [ps5-driver-cycles] phase=2 calls=31719 cycles=12355374833
+REC seq=1965 t=8066.565446000 STDOUT [ps5-driver-cycles] phase=3 calls=835559 cycles=92876597
+REC seq=1966 t=8066.565456665 STDOUT [ps5-driver-cycles] phase=4 calls=1160 cycles=10793295600
+REC seq=1967 t=8066.565468131 STDOUT [ps5-driver-cycles] phase=5 calls=833235 cycles=2079383960
+REC seq=1968 t=8066.565478635 STDOUT [ps5-driver-cycles] phase=6 calls=1954 cycles=66215973
+REC seq=1969 t=8066.565489300 STDOUT [ps5-driver-cycles] phase=7 calls=1948 cycles=2622886134
+REC seq=1970 t=8066.565497960 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=1971 t=8066.565508304 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=1972 t=8066.565521615 STDOUT [ps5-map-caller] pc=806bbfee calls=938 reads=0 textures=938
+REC seq=1973 t=8066.565533643 STDOUT [ps5-map-caller] pc=80b8e5ed calls=272 reads=0 textures=272
+REC seq=1974 t=8066.565547916 STDOUT [ps5-map-caller] pc=80da90ae calls=738 reads=131 textures=0
+REC seq=1975 t=8066.565564594 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=1976 t=8066.565577825 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=1977 t=8066.565591376 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=1978 t=8066.565604928 STDOUT [ps5-cpu-flush-summary] calls=1090824 bytes=11837550238
+REC seq=1979 t=8066.565631950 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=29733 reject-input=102 reject-shader=0 reject-query=102 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=165 profile=1
+REC seq=1980 t=8066.730645688 PW_WINE64 alive tick=1740 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=24246 audio=4783 audible=2549
+REC seq=1981 t=8067.698745442 PW_WINE64 alive tick=1800 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=25256 audio=4964 audible=2730
+REC seq=1982 t=8067.698750333 PW_WINE64 mmap=4009 munmap=6 mprotect=7500 skipped=9798 faults=3 images=136
+REC seq=1983 t=8067.698774068 PW_WINE64 memory flexible_free=0K dmem=1586512K dmem_peak=1688368K runs=704 dmem_failures=0 heap=275344K heap_peak=275344K dmem_low=17472K dmem_low_peak=17472K
+REC seq=1984 t=8068.114052758 WINESERVER PW_GL frames=20 fps=3.9
+REC seq=1985 t=8068.409927018 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=1007411 bytes=6256573762 cycles=1095489778
+REC seq=1986 t=8068.409949229 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=1987 t=8068.409967271 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=1988 t=8068.409986195 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=584 bytes=76844544 cycles=2279741
+REC seq=1989 t=8068.410002873 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=45474 bytes=7674048 cycles=19971036
+REC seq=1990 t=8068.410032943 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=3363 bytes=1219280 cycles=2114758
+REC seq=1991 t=8068.410038315 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=6711 bytes=120948 cycles=3037988
+REC seq=1992 t=8068.410059645 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=135536 bytes=4407976608 cycles=167469767
+REC seq=1993 t=8068.410084422 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=1994 t=8068.410102223 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=1995 t=8068.410119864 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=622 bytes=7126016 cycles=932147
+REC seq=1996 t=8068.410137745 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=1997 t=8068.410155947 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1003 bytes=2485125120 cycles=73845313
+REC seq=1998 t=8068.410180645 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=123 bytes=551040 cycles=73355
+REC seq=1999 t=8068.410201012 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=123 bytes=7872 cycles=56601
+REC seq=2000 t=8068.410219615 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=37354 bytes=781392 cycles=18963821
+REC seq=2001 t=8068.410235972 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=35604 bytes=145943904 cycles=27811300
+REC seq=2002 t=8068.410255939 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=36650 bytes=143449248 cycles=29476425
+REC seq=2003 t=8068.410281277 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2004 t=8068.410297475 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2005 t=8068.668452112 PW_WINE64 alive tick=1860 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=26320 audio=5127 audible=2893
+REC seq=2006 t=8069.371565030 STDOUT [ps5-driver-elapsed] calls=40000 cycles=44930939154
+REC seq=2007 t=8069.371578180 STDOUT [ps5-driver-cycles] phase=0 calls=40000 cycles=14965510572
+REC seq=2008 t=8069.371587722 STDOUT [ps5-driver-cycles] phase=1 calls=38472 cycles=105011546
+REC seq=2009 t=8069.371597104 STDOUT [ps5-driver-cycles] phase=2 calls=39999 cycles=12783791743
+REC seq=2010 t=8069.371611457 STDOUT [ps5-driver-cycles] phase=3 calls=1102069 cycles=121952019
+REC seq=2011 t=8069.371621400 STDOUT [ps5-driver-cycles] phase=4 calls=1182 cycles=10795965497
+REC seq=2012 t=8069.371631985 STDOUT [ps5-driver-cycles] phase=5 calls=1099696 cycles=2748816415
+REC seq=2013 t=8069.371642489 STDOUT [ps5-driver-cycles] phase=6 calls=2006 cycles=66320712
+REC seq=2014 t=8069.371653795 STDOUT [ps5-driver-cycles] phase=7 calls=1999 cycles=2627214365
+REC seq=2015 t=8069.371667106 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2016 t=8069.371672959 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2017 t=8069.371689477 STDOUT [ps5-map-caller] pc=806bbfee calls=951 reads=0 textures=951
+REC seq=2018 t=8069.371704472 STDOUT [ps5-map-caller] pc=80b8e5ed calls=288 reads=0 textures=288
+REC seq=2019 t=8069.371718825 STDOUT [ps5-map-caller] pc=80da90ae calls=761 reads=131 textures=0
+REC seq=2020 t=8069.371732858 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2021 t=8069.371747211 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2022 t=8069.371759239 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2023 t=8069.605473600 STDOUT [ps5-submit-perf] calls=145 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004783 scanout_flush_ms=0.232669 video_ms=0.001130 command_ms=0.018338 command_flush_ms=0.002736 submit_ms=0.005533 suspend_ms=0.000906 poll_ms=0.020802 cleanup_ms=0.032521 total_ms=0.319418
+REC seq=2024 t=8069.605515056 STDOUT [ps5-present-perf] calls=15 failures=0 warmup_frames=30 idle_ms=0.003411 flip_ms=0.016288 vblank_ms=0.000930 total_ms=0.020629
+REC seq=2025 t=8069.605573591 STDOUT [ps5-batch-perf] calls=116 failures=0 warmup_frames=30 sleeps=14 submit_ms=0.018983 suspend_ms=0.000899 poll_ms=0.163122 cleanup_ms=0.001323 total_ms=0.184328
+REC seq=2026 t=8069.605632527 STDOUT [ps5-prepare-perf] calls=9855 failures=0 warmup_frames=30 setup_ms=0.003377 scanout_flush_ms=0.000900 video_ms=0.000935 command_ms=0.012525 command_flush_ms=0.002718 total_ms=0.020455
+REC seq=2027 t=8069.638200959 PW_WINE64 alive tick=1920 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=27331 audio=5309 audible=3075
+REC seq=2028 t=8070.116213755 STDOUT [ps5-driver-cycles] phase=0 calls=41761 cycles=15064649217
+REC seq=2029 t=8070.116227146 STDOUT [ps5-driver-cycles] phase=1 calls=40204 cycles=110181060
+REC seq=2030 t=8070.116238372 STDOUT [ps5-driver-cycles] phase=2 calls=41761 cycles=12875380905
+REC seq=2031 t=8070.116246070 STDOUT [ps5-driver-cycles] phase=3 calls=1174744 cycles=129830054
+REC seq=2032 t=8070.116257857 STDOUT [ps5-driver-cycles] phase=4 calls=1188 cycles=10796701215
+REC seq=2033 t=8070.116270206 STDOUT [ps5-driver-cycles] phase=5 calls=1172365 cycles=2930461902
+REC seq=2034 t=8070.116283276 STDOUT [ps5-driver-cycles] phase=6 calls=2015 cycles=66333001
+REC seq=2035 t=8070.116290814 STDOUT [ps5-driver-cycles] phase=7 calls=2008 cycles=2627696614
+REC seq=2036 t=8070.116302441 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2037 t=8070.116311822 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2038 t=8070.116325774 STDOUT [ps5-map-caller] pc=806bbfee calls=954 reads=0 textures=954
+REC seq=2039 t=8070.116340930 STDOUT [ps5-map-caller] pc=80b8e5ed calls=288 reads=0 textures=288
+REC seq=2040 t=8070.116355283 STDOUT [ps5-map-caller] pc=80da90ae calls=767 reads=131 textures=0
+REC seq=2041 t=8070.116370197 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2042 t=8070.116384390 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2043 t=8070.116395055 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2044 t=8070.116402191 STDOUT [ps5-cpu-flush-summary] calls=1511479 bytes=15387278814
+REC seq=2045 t=8070.116437393 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=39616 reject-input=144 reject-shader=0 reject-query=144 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=240 profile=1
+REC seq=2046 t=8070.607171366 PW_WINE64 alive tick=1980 sink_calls=1173 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=28322 audio=5491 audible=3257
+REC seq=2047 t=8070.628817099 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=1220811 bytes=7594987170 cycles=1328541069
+REC seq=2048 t=8070.628839872 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2049 t=8070.628859357 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=2050 t=8070.628876677 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=592 bytes=77368832 cycles=2298546
+REC seq=2051 t=8070.628894238 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=52067 bytes=9082528 cycles=22934720
+REC seq=2052 t=8070.628911558 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=3504 bytes=1427680 cycles=2199544
+REC seq=2053 t=8070.628928878 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=7079 bytes=131724 cycles=3205965
+REC seq=2054 t=8070.628948684 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=159136 bytes=5181090656 cycles=196736977
+REC seq=2055 t=8070.628974744 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2056 t=8070.628988937 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2057 t=8070.629005615 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=640 bytes=8544128 cycles=1055785
+REC seq=2058 t=8070.629026945 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2059 t=8070.629046029 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1012 bytes=2503999488 cycles=74360080
+REC seq=2060 t=8070.629073292 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=150 bytes=672000 cycles=88805
+REC seq=2061 t=8070.629089650 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=150 bytes=9600 cycles=68957
+REC seq=2062 t=8070.629107451 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=43359 bytes=889136 cycles=21967337
+REC seq=2063 t=8070.629127497 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=41583 bytes=170440800 cycles=32445153
+REC seq=2064 t=8070.629142011 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=42619 bytes=167859392 cycles=34362029
+REC seq=2065 t=8070.629168312 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2066 t=8070.629184830 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2067 t=8070.670265665 WINE 0034:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,1004bca680,0x00000060,0)
+REC seq=2068 t=8071.576482641 PW_WINE64 alive tick=2040 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=29354 audio=5672 audible=3438
+REC seq=2069 t=8072.544395804 PW_WINE64 alive tick=2100 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=30349 audio=5854 audible=3620
+REC seq=2070 t=8072.544400855 PW_WINE64 mmap=4015 munmap=6 mprotect=7521 skipped=9807 faults=3 images=136
+REC seq=2071 t=8072.544420020 PW_WINE64 memory flexible_free=0K dmem=1583824K dmem_peak=1688368K runs=716 dmem_failures=0 heap=275424K heap_peak=275424K dmem_low=17472K dmem_low_peak=17472K
+REC seq=2072 t=8072.856390941 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=1434491 bytes=8934670530 cycles=1562055868
+REC seq=2073 t=8072.856417723 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2074 t=8072.856435925 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=2075 t=8072.856451481 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=601 bytes=77958656 cycles=2318581
+REC seq=2076 t=8072.856469042 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=58564 bytes=10468304 cycles=25814083
+REC seq=2077 t=8072.856487805 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=3636 bytes=1616608 cycles=2279766
+REC seq=2078 t=8072.856503441 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=7408 bytes=141348 cycles=3360621
+REC seq=2079 t=8072.856522124 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=182660 bytes=5951835552 cycles=225951084
+REC seq=2080 t=8072.856547062 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2081 t=8072.856565826 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2082 t=8072.856583065 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=656 bytes=9804672 cycles=1165158
+REC seq=2083 t=8072.856602390 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2084 t=8072.856620111 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1034 bytes=2550136832 cycles=75644020
+REC seq=2085 t=8072.856642483 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=175 bytes=781440 cycles=104017
+REC seq=2086 t=8072.856661086 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=175 bytes=11200 cycles=80364
+REC seq=2087 t=8072.856680731 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=49340 bytes=995200 cycles=24974153
+REC seq=2088 t=8072.856698532 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=47539 bytes=194843120 cycles=37055102
+REC seq=2089 t=8072.856715371 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=48567 bytes=192175056 cycles=39236675
+REC seq=2090 t=8072.856740389 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2091 t=8072.856756506 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2092 t=8072.923143299 STDOUT [ps5-driver-elapsed] calls=50000 cycles=50600332655
+REC seq=2093 t=8072.923152761 STDOUT [ps5-driver-cycles] phase=0 calls=50000 cycles=15512367846
+REC seq=2094 t=8072.923167435 STDOUT [ps5-driver-cycles] phase=1 calls=48332 cycles=136417699
+REC seq=2095 t=8072.923174411 STDOUT [ps5-driver-cycles] phase=2 calls=49999 cycles=13302942743
+REC seq=2096 t=8072.923189005 STDOUT [ps5-driver-cycles] phase=3 calls=1441305 cycles=158921450
+REC seq=2097 t=8072.923196382 STDOUT [ps5-driver-cycles] phase=4 calls=1210 cycles=10799417725
+REC seq=2098 t=8072.923209292 STDOUT [ps5-driver-cycles] phase=5 calls=1438832 cycles=3599394134
+REC seq=2099 t=8072.923220037 STDOUT [ps5-driver-cycles] phase=6 calls=2091 cycles=66393423
+REC seq=2100 t=8072.923230862 STDOUT [ps5-driver-cycles] phase=7 calls=2084 cycles=2635979539
+REC seq=2101 t=8072.923239762 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2102 t=8072.923251790 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2103 t=8072.923265983 STDOUT [ps5-map-caller] pc=806bbfee calls=978 reads=0 textures=978
+REC seq=2104 t=8072.923278813 STDOUT [ps5-map-caller] pc=80b8e5ed calls=318 reads=0 textures=318
+REC seq=2105 t=8072.923293326 STDOUT [ps5-map-caller] pc=80da90ae calls=789 reads=131 textures=0
+REC seq=2106 t=8072.923304392 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2107 t=8072.923322835 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2108 t=8072.923335985 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2109 t=8073.158390405 STDOUT [ps5-submit-perf] calls=145 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004754 scanout_flush_ms=0.217781 video_ms=0.001089 command_ms=0.017789 command_flush_ms=0.002698 submit_ms=0.005210 suspend_ms=0.000891 poll_ms=0.021051 cleanup_ms=0.032468 total_ms=0.303732
+REC seq=2110 t=8073.158430738 STDOUT [ps5-present-perf] calls=14 failures=0 warmup_frames=30 idle_ms=0.003316 flip_ms=0.016530 vblank_ms=0.000911 total_ms=0.020756
+REC seq=2111 t=8073.158481014 STDOUT [ps5-batch-perf] calls=115 failures=0 warmup_frames=30 sleeps=15 submit_ms=0.018552 suspend_ms=0.000888 poll_ms=0.176327 cleanup_ms=0.001349 total_ms=0.197115
+REC seq=2112 t=8073.158538186 STDOUT [ps5-prepare-perf] calls=9855 failures=0 warmup_frames=30 setup_ms=0.003374 scanout_flush_ms=0.000899 video_ms=0.000936 command_ms=0.012507 command_flush_ms=0.002715 total_ms=0.020432
+REC seq=2113 t=8073.181078068 WINESERVER PW_GL frames=20 fps=4.0
+REC seq=2114 t=8073.516178714 PW_WINE64 alive tick=2160 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=31469 audio=6036 audible=3802
+REC seq=2115 t=8073.689587224 STDOUT [ps5-driver-cycles] phase=0 calls=51803 cycles=15613998408
+REC seq=2116 t=8073.689601096 STDOUT [ps5-driver-cycles] phase=1 calls=50106 cycles=141031073
+REC seq=2117 t=8073.689609516 STDOUT [ps5-driver-cycles] phase=2 calls=51803 cycles=13395911107
+REC seq=2118 t=8073.689620020 STDOUT [ps5-driver-cycles] phase=3 calls=1514028 cycles=166841642
+REC seq=2119 t=8073.689632128 STDOUT [ps5-driver-cycles] phase=4 calls=1216 cycles=10800156688
+REC seq=2120 t=8073.689646642 STDOUT [ps5-driver-cycles] phase=5 calls=1511503 cycles=3781870344
+REC seq=2121 t=8073.689656103 STDOUT [ps5-driver-cycles] phase=6 calls=2124 cycles=66414840
+REC seq=2122 t=8073.689666688 STDOUT [ps5-driver-cycles] phase=7 calls=2117 cycles=2657565655
+REC seq=2123 t=8073.689675107 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2124 t=8073.689685532 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2125 t=8073.689699965 STDOUT [ps5-map-caller] pc=806bbfee calls=1003 reads=0 textures=1003
+REC seq=2126 t=8073.689714318 STDOUT [ps5-map-caller] pc=80b8e5ed calls=320 reads=0 textures=320
+REC seq=2127 t=8073.689726105 STDOUT [ps5-map-caller] pc=80da90ae calls=795 reads=131 textures=0
+REC seq=2128 t=8073.689741581 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2129 t=8073.689754892 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2130 t=8073.689771330 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2131 t=8073.689777344 STDOUT [ps5-cpu-flush-summary] calls=1932049 bytes=18962817790
+REC seq=2132 t=8073.689813507 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=49504 reject-input=186 reject-shader=0 reject-query=186 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=310 profile=1
+REC seq=2133 t=8074.485941514 PW_WINE64 alive tick=2220 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=32468 audio=6218 audible=3984
+REC seq=2134 t=8075.085748989 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=1645176 bytes=10255582482 cycles=1792186116
+REC seq=2135 t=8075.085769837 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2136 t=8075.085790765 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=2137 t=8075.085809689 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=610 bytes=78548480 cycles=2339743
+REC seq=2138 t=8075.085828613 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=65494 bytes=11947616 cycles=28925157
+REC seq=2139 t=8075.085841603 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=3780 bytes=1825264 cycles=2366520
+REC seq=2140 t=8075.085861409 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=7777 bytes=152148 cycles=3532597
+REC seq=2141 t=8075.085878568 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=207608 bytes=6769172640 cycles=256859117
+REC seq=2142 t=8075.085904388 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2143 t=8075.085919463 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2144 t=8075.085941915 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=674 bytes=11222784 cycles=1288141
+REC seq=2145 t=8075.085956589 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2146 t=8075.085973989 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1049 bytes=2581594112 cycles=76623307
+REC seq=2147 t=8075.085996922 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=202 bytes=902400 cycles=120100
+REC seq=2148 t=8075.086014082 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=202 bytes=12928 cycles=92856
+REC seq=2149 t=8075.086036053 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=55685 bytes=1108384 cycles=28148415
+REC seq=2150 t=8075.086051608 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=53857 bytes=220728704 cycles=41959461
+REC seq=2151 t=8075.086071254 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=54876 bytes=217971072 cycles=44400325
+REC seq=2152 t=8075.086097314 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2153 t=8075.086112469 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2154 t=8075.454543309 PW_WINE64 alive tick=2280 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=33559 audio=6400 audible=4166
+REC seq=2155 t=8076.422441076 PW_WINE64 alive tick=2340 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=34630 audio=6581 audible=4347
+REC seq=2156 t=8076.751669263 STDOUT [ps5-driver-elapsed] calls=60000 cycles=56711804958
+REC seq=2157 t=8076.751683295 STDOUT [ps5-driver-cycles] phase=0 calls=60000 cycles=16063478957
+REC seq=2158 t=8076.751697488 STDOUT [ps5-driver-cycles] phase=1 calls=58187 cycles=167190637
+REC seq=2159 t=8076.751703502 STDOUT [ps5-driver-cycles] phase=2 calls=59999 cycles=13820947700
+REC seq=2160 t=8076.751713284 STDOUT [ps5-driver-cycles] phase=3 calls=1804988 cycles=198417980
+REC seq=2161 t=8076.751726836 STDOUT [ps5-driver-cycles] phase=4 calls=1240 cycles=10803055083
+REC seq=2162 t=8076.751738382 STDOUT [ps5-driver-cycles] phase=5 calls=1802206 cycles=4510597545
+REC seq=2163 t=8076.751749849 STDOUT [ps5-driver-cycles] phase=6 calls=2289 cycles=66501450
+REC seq=2164 t=8076.751763400 STDOUT [ps5-driver-cycles] phase=7 calls=2282 cycles=2711984529
+REC seq=2165 t=8076.751777112 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2166 t=8076.751780720 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2167 t=8076.751795715 STDOUT [ps5-map-caller] pc=806bbfee calls=1126 reads=0 textures=1126
+REC seq=2168 t=8076.751810309 STDOUT [ps5-map-caller] pc=80b8e5ed calls=339 reads=0 textures=339
+REC seq=2169 t=8076.751825865 STDOUT [ps5-map-caller] pc=80da90ae calls=818 reads=131 textures=0
+REC seq=2170 t=8076.751841742 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2171 t=8076.751851444 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2172 t=8076.751865958 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2173 t=8076.754379690 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2174 t=8076.762246201 STDOUT [ps5-submit-perf] calls=140 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004816 scanout_flush_ms=0.225717 video_ms=0.001086 command_ms=0.018234 command_flush_ms=0.002712 submit_ms=0.005404 suspend_ms=0.000927 poll_ms=0.021762 cleanup_ms=0.032285 total_ms=0.312945
+REC seq=2175 t=8076.762285652 STDOUT [ps5-present-perf] calls=14 failures=0 warmup_frames=30 idle_ms=0.003471 flip_ms=0.017091 vblank_ms=0.000928 total_ms=0.021490
+REC seq=2176 t=8076.762336891 STDOUT [ps5-batch-perf] calls=112 failures=0 warmup_frames=30 sleeps=14 submit_ms=0.018494 suspend_ms=0.000882 poll_ms=0.168709 cleanup_ms=0.001334 total_ms=0.189419
+REC seq=2177 t=8076.762398794 STDOUT [ps5-prepare-perf] calls=9860 failures=0 warmup_frames=30 setup_ms=0.003382 scanout_flush_ms=0.000901 video_ms=0.000933 command_ms=0.012520 command_flush_ms=0.002716 total_ms=0.020452
+REC seq=2178 t=8076.778903038 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2179 t=8077.001820031 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2180 t=8077.007372230 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2181 t=8077.027800669 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=1107 calls=61267 bytes=1003798528 cycles=108181184
+REC seq=2182 t=8077.027818470 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=1108 calls=61267 bytes=28112600 cycles=31192743
+REC seq=2183 t=8077.027835951 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=1109 calls=61266 bytes=3803072 cycles=26531406
+REC seq=2184 t=8077.027856879 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=1194 calls=17 bytes=557056 cycles=59187
+REC seq=2185 t=8077.027874039 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=1715 calls=1439 bytes=12545412 cycles=1598678
+REC seq=2186 t=8077.027892321 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=1823 calls=40707 bytes=325656 cycles=18036325
+REC seq=2187 t=8077.027915254 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=4223 calls=1229 bytes=82476793856 cycles=2209353003
+REC seq=2188 t=8077.027934178 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/platform/ps5_agc_runtime_backend.c line=5000 calls=34952 bytes=279616 cycles=16953354
+REC seq=2189 t=8077.031796308 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2190 t=8077.033867899 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=a level=0 image=1024x576 layers=1 box=0,0,0/1024x576x1 bytes=4194304
+REC seq=2191 t=8077.255041019 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2192 t=8077.260591695 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2193 t=8077.275987536 STDOUT [ps5-driver-cycles] phase=0 calls=61845 cycles=16162186518
+REC seq=2194 t=8077.275994993 STDOUT [ps5-driver-cycles] phase=1 calls=60008 cycles=173011136
+REC seq=2195 t=8077.276007021 STDOUT [ps5-driver-cycles] phase=2 calls=61845 cycles=13917112740
+REC seq=2196 t=8077.276016082 STDOUT [ps5-driver-cycles] phase=3 calls=1853439 cycles=203679617
+REC seq=2197 t=8077.276029313 STDOUT [ps5-driver-cycles] phase=4 calls=1244 cycles=10803536349
+REC seq=2198 t=8077.276044548 STDOUT [ps5-driver-cycles] phase=5 calls=1850652 cycles=4632363649
+REC seq=2199 t=8077.276054892 STDOUT [ps5-driver-cycles] phase=6 calls=2297 cycles=67258630
+REC seq=2200 t=8077.276065476 STDOUT [ps5-driver-cycles] phase=7 calls=2289 cycles=2712315681
+REC seq=2201 t=8077.276080712 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2202 t=8077.276084801 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2203 t=8077.276099154 STDOUT [ps5-map-caller] pc=806bbfee calls=1128 reads=0 textures=1128
+REC seq=2204 t=8077.276115593 STDOUT [ps5-map-caller] pc=80b8e5ed calls=340 reads=0 textures=340
+REC seq=2205 t=8077.276127460 STDOUT [ps5-map-caller] pc=80da90ae calls=823 reads=131 textures=0
+REC seq=2206 t=8077.276142054 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2207 t=8077.276156968 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2208 t=8077.276171001 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2209 t=8077.276176934 STDOUT [ps5-cpu-flush-summary] calls=2352653 bytes=22584515222
+REC seq=2210 t=8077.276210612 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=59392 reject-input=228 reject-shader=0 reject-query=228 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=380 profile=1
+REC seq=2211 t=8077.285166442 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2212 t=8077.334372786 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=1855833 bytes=11576192594 cycles=2022096084
+REC seq=2213 t=8077.334392913 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2214 t=8077.334412398 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=2215 t=8077.334430440 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=619 bytes=79138304 cycles=2360930
+REC seq=2216 t=8077.334447038 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=72424 bytes=13426928 cycles=32020850
+REC seq=2217 t=8077.334462434 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=3923 bytes=2030720 cycles=2453399
+REC seq=2218 t=8077.334477829 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=8146 bytes=162948 cycles=3701020
+REC seq=2219 t=8077.334498276 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=232556 bytes=7586509728 cycles=287833336
+REC seq=2220 t=8077.334523294 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2221 t=8077.334538931 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2222 t=8077.334560661 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=692 bytes=12640896 cycles=1411244
+REC seq=2223 t=8077.334580467 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2224 t=8077.334600593 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1097 bytes=2682257408 cycles=79735711
+REC seq=2225 t=8077.334625771 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=228 bytes=1021440 cycles=136375
+REC seq=2226 t=8077.334641007 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=228 bytes=14592 cycles=104881
+REC seq=2227 t=8077.334662256 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=62029 bytes=1221552 cycles=31328713
+REC seq=2228 t=8077.334679896 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=60174 bytes=246610064 cycles=46848724
+REC seq=2229 t=8077.334695773 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=61185 bytes=243767088 cycles=49582485
+REC seq=2230 t=8077.334720150 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2231 t=8077.334737309 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2232 t=8077.393290949 PW_WINE64 alive tick=2400 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=35631 audio=6763 audible=4529
+REC seq=2233 t=8077.393295519 PW_WINE64 mmap=4072 munmap=6 mprotect=7556 skipped=9818 faults=3 images=136
+REC seq=2234 t=8077.393319014 PW_WINE64 memory flexible_free=0K dmem=1585872K dmem_peak=1688368K runs=719 dmem_failures=0 heap=276592K heap_peak=276592K dmem_low=17472K dmem_low_peak=17472K
+REC seq=2235 t=8077.508671194 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2236 t=8077.514220747 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2237 t=8077.538572899 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2238 t=8077.761188555 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2239 t=8077.766708920 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2240 t=8077.790947129 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2241 t=8078.013631825 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2242 t=8078.019404454 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2243 t=8078.043631757 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2244 t=8078.266623323 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2245 t=8078.272197412 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2246 t=8078.296439229 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2247 t=8078.297774156 WINESERVER PW_GL frames=20 fps=3.9
+REC seq=2248 t=8078.366854617 PW_WINE64 alive tick=2460 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=36633 audio=6946 audible=4712
+REC seq=2249 t=8078.518831890 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2250 t=8078.524417045 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2251 t=8078.548625905 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=64x64 layers=1 box=0,0,0/64x64x1 bytes=2097152
+REC seq=2252 t=8078.550592373 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=209x239 layers=1 box=0,0,0/209x239x1 bytes=2097152
+REC seq=2253 t=8078.551483232 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=209x239 layers=1 box=0,0,0/209x239x1 bytes=2097152
+REC seq=2254 t=8078.552353726 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=209x239 layers=1 box=0,0,0/209x239x1 bytes=2097152
+REC seq=2255 t=8078.553220931 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=209x239 layers=1 box=0,0,0/209x239x1 bytes=2097152
+REC seq=2256 t=8078.554104654 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=209x239 layers=1 box=0,0,0/209x239x1 bytes=2097152
+REC seq=2257 t=8078.554976430 STDOUT [ps5-map-layout] target=2 format=84 bind=a usage=2 level=0 image=209x239 layers=1 box=0,0,0/209x239x1 bytes=2097152
+REC seq=2258 t=8078.776743324 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=0,0,0/20224x1x1 bytes=2097152
+REC seq=2259 t=8078.782250940 STDOUT [ps5-map-layout] target=0 format=81 bind=10 usage=22 level=0 image=2097152x1 layers=1 box=20224,0,0/137344x1x1 bytes=2097152
+REC seq=2260 t=8079.336331556 PW_WINE64 alive tick=2520 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=37644 audio=7127 audible=4893
+REC seq=2261 t=8079.566924699 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=2068659 bytes=12911002226 cycles=2254225222
+REC seq=2262 t=8079.566943383 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2263 t=8079.566963349 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=21 bytes=123049728 cycles=3328230
+REC seq=2264 t=8079.566981631 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=627 bytes=79662592 cycles=2378669
+REC seq=2265 t=8079.566999512 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=79088 bytes=14847968 cycles=35042933
+REC seq=2266 t=8079.567016111 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=4064 bytes=2239120 cycles=2537836
+REC seq=2267 t=8079.567035997 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=8514 bytes=173724 cycles=3868930
+REC seq=2268 t=8079.567057887 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=256438 bytes=8368902704 cycles=317538865
+REC seq=2269 t=8079.567083306 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2270 t=8079.567101508 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2271 t=8079.567117225 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=710 bytes=14059008 cycles=1534522
+REC seq=2272 t=8079.567134946 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2273 t=8079.567155393 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1115 bytes=2720006144 cycles=81015100
+REC seq=2274 t=8079.567178486 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=255 bytes=1142400 cycles=152914
+REC seq=2275 t=8079.567196207 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=255 bytes=16320 cycles=117144
+REC seq=2276 t=8079.567214489 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=68105 bytes=1330432 cycles=34388653
+REC seq=2277 t=8079.567256106 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=66224 bytes=271397776 cycles=51548273
+REC seq=2278 t=8079.567273025 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=67224 bytes=268465072 cycles=54543282
+REC seq=2279 t=8079.567298123 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2280 t=8079.567315042 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2281 t=8080.305647081 PW_WINE64 alive tick=2580 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=38641 audio=7309 audible=5075
+REC seq=2282 t=8080.320887844 STDOUT [ps5-driver-elapsed] calls=70000 cycles=62409348878
+REC seq=2283 t=8080.320897065 STDOUT [ps5-driver-cycles] phase=0 calls=70000 cycles=16611733033
+REC seq=2284 t=8080.320911980 STDOUT [ps5-driver-cycles] phase=1 calls=68042 cycles=198032987
+REC seq=2285 t=8080.320922163 STDOUT [ps5-driver-cycles] phase=2 calls=69999 cycles=14339934142
+REC seq=2286 t=8080.320930182 STDOUT [ps5-driver-cycles] phase=3 calls=2144200 cycles=235386349
+REC seq=2287 t=8080.320943172 STDOUT [ps5-driver-cycles] phase=4 calls=1268 cycles=10806438143
+REC seq=2288 t=8080.320953997 STDOUT [ps5-driver-cycles] phase=5 calls=2141331 cycles=5362095512
+REC seq=2289 t=8080.320965223 STDOUT [ps5-driver-cycles] phase=6 calls=2364 cycles=69832839
+REC seq=2290 t=8080.320976850 STDOUT [ps5-driver-cycles] phase=7 calls=2355 cycles=2743372250
+REC seq=2291 t=8080.320989358 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2292 t=8080.321000905 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2293 t=8080.321011169 STDOUT [ps5-map-caller] pc=806bbfee calls=1159 reads=0 textures=1159
+REC seq=2294 t=8080.321031536 STDOUT [ps5-map-caller] pc=80b8e5ed calls=352 reads=0 textures=352
+REC seq=2295 t=8080.321048696 STDOUT [ps5-map-caller] pc=80da90ae calls=847 reads=131 textures=0
+REC seq=2296 t=8080.321064492 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2297 t=8080.321073072 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2298 t=8080.321087666 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2299 t=8080.329967319 STDOUT [ps5-submit-perf] calls=140 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004723 scanout_flush_ms=0.224312 video_ms=0.001113 command_ms=0.017977 command_flush_ms=0.002734 submit_ms=0.005286 suspend_ms=0.000895 poll_ms=0.023241 cleanup_ms=0.032017 total_ms=0.312299
+REC seq=2300 t=8080.330008775 STDOUT [ps5-present-perf] calls=14 failures=0 warmup_frames=30 idle_ms=0.003494 flip_ms=0.016255 vblank_ms=0.000899 total_ms=0.020648
+REC seq=2301 t=8080.330061296 STDOUT [ps5-batch-perf] calls=112 failures=0 warmup_frames=30 sleeps=14 submit_ms=0.018715 suspend_ms=0.000884 poll_ms=0.168236 cleanup_ms=0.001350 total_ms=0.189185
+REC seq=2302 t=8080.330127289 STDOUT [ps5-prepare-perf] calls=9860 failures=0 warmup_frames=30 setup_ms=0.003382 scanout_flush_ms=0.000900 video_ms=0.000932 command_ms=0.012522 command_flush_ms=0.002744 total_ms=0.020480
+REC seq=2303 t=8080.848421633 STDOUT [ps5-driver-cycles] phase=0 calls=71887 cycles=16712999478
+REC seq=2304 t=8080.848434142 STDOUT [ps5-driver-cycles] phase=1 calls=69910 cycles=204529761
+REC seq=2305 t=8080.848442802 STDOUT [ps5-driver-cycles] phase=2 calls=71887 cycles=14440016732
+REC seq=2306 t=8080.848456193 STDOUT [ps5-driver-cycles] phase=3 calls=2192659 cycles=240678606
+REC seq=2307 t=8080.848466777 STDOUT [ps5-driver-cycles] phase=4 calls=1272 cycles=10806958018
+REC seq=2308 t=8080.848479767 STDOUT [ps5-driver-cycles] phase=5 calls=2189779 cycles=5483935069
+REC seq=2309 t=8080.848486423 STDOUT [ps5-driver-cycles] phase=6 calls=2375 cycles=69854893
+REC seq=2310 t=8080.848500455 STDOUT [ps5-driver-cycles] phase=7 calls=2365 cycles=2743843520
+REC seq=2311 t=8080.848511120 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2312 t=8080.848522987 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2313 t=8080.848530124 STDOUT [ps5-map-caller] pc=806bbfee calls=1164 reads=0 textures=1164
+REC seq=2314 t=8080.848544156 STDOUT [ps5-map-caller] pc=80b8e5ed calls=354 reads=0 textures=354
+REC seq=2315 t=8080.848559391 STDOUT [ps5-map-caller] pc=80da90ae calls=851 reads=131 textures=0
+REC seq=2316 t=8080.848573905 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2317 t=8080.848586895 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2318 t=8080.848601088 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2319 t=8080.848613196 STDOUT [ps5-cpu-flush-summary] calls=2773216 bytes=26162140110
+REC seq=2320 t=8080.848640619 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=69280 reject-input=270 reject-shader=0 reject-query=270 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=450 profile=1
+REC seq=2321 t=8081.275285753 PW_WINE64 alive tick=2640 sink_calls=1174 frames_put=10 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=39654 audio=7491 audible=5257
+REC seq=2322 t=8081.365207448 STDOUT [INFO] CONTROLLER DETECTED: XInput Controller
+REC seq=2323 t=8081.812602805 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=2283141 bytes=14255779122 cycles=2488955216
+REC seq=2324 t=8081.812625498 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2325 t=8081.812641054 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=22 bytes=124688128 cycles=3376374
+REC seq=2326 t=8081.812658855 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=635 bytes=80186880 cycles=2397652
+REC seq=2327 t=8081.812679222 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=85485 bytes=16210512 cycles=37910075
+REC seq=2328 t=8081.812702316 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=4195 bytes=2427984 cycles=2617503
+REC seq=2329 t=8081.812719716 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=8843 bytes=183348 cycles=4021217
+REC seq=2330 t=8081.812740163 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=279568 bytes=9126551872 cycles=346276188
+REC seq=2331 t=8081.812765341 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2332 t=8081.812786270 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2333 t=8081.812807599 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=726 bytes=15308416 cycles=1642970
+REC seq=2334 t=8081.812828207 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2335 t=8081.812845767 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1132 bytes=2755657728 cycles=81982844
+REC seq=2336 t=8081.812869743 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=280 bytes=1251840 cycles=167439
+REC seq=2337 t=8081.812885138 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=280 bytes=17920 cycles=128408
+REC seq=2338 t=8081.812904784 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=73985 bytes=1434880 cycles=37340629
+REC seq=2339 t=8081.812923627 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=72079 bytes=295386336 cycles=56155556
+REC seq=2340 t=8081.812939103 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=73072 bytes=292373568 cycles=59319163
+REC seq=2341 t=8081.812969814 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2342 t=8081.812990021 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2343 t=8082.244922341 PW_WINE64 alive tick=2700 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=40694 audio=7673 audible=5439
+REC seq=2344 t=8082.244927393 PW_WINE64 mmap=4131 munmap=6 mprotect=7593 skipped=9845 faults=3 images=136
+REC seq=2345 t=8082.244946477 PW_WINE64 memory flexible_free=0K dmem=1576656K dmem_peak=1688368K runs=718 dmem_failures=0 heap=276592K heap_peak=276592K dmem_low=17472K dmem_low_peak=17472K
+REC seq=2346 t=8083.212897487 PW_WINE64 alive tick=2760 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=41690 audio=7854 audible=5620
+REC seq=2347 t=8083.395971788 WINESERVER PW_GL frames=20 fps=3.9
+REC seq=2348 t=8083.893256028 STDOUT [ps5-driver-elapsed] calls=80000 cycles=68111924482
+REC seq=2349 t=8083.893263966 STDOUT [ps5-driver-cycles] phase=0 calls=80000 cycles=17142271619
+REC seq=2350 t=8083.893274711 STDOUT [ps5-driver-cycles] phase=1 calls=77911 cycles=230739096
+REC seq=2351 t=8083.893287942 STDOUT [ps5-driver-cycles] phase=2 calls=79999 cycles=14860960700
+REC seq=2352 t=8083.893296441 STDOUT [ps5-driver-cycles] phase=3 calls=2483432 cycles=272304206
+REC seq=2353 t=8083.893309351 STDOUT [ps5-driver-cycles] phase=4 calls=1296 cycles=10809857783
+REC seq=2354 t=8083.893318172 STDOUT [ps5-driver-cycles] phase=5 calls=2480482 cycles=6213898540
+REC seq=2355 t=8083.893331082 STDOUT [ps5-driver-cycles] phase=6 calls=2449 cycles=70034481
+REC seq=2356 t=8083.893342869 STDOUT [ps5-driver-cycles] phase=7 calls=2436 cycles=2748162119
+REC seq=2357 t=8083.893353774 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2358 t=8083.893359708 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2359 t=8083.893375665 STDOUT [ps5-map-caller] pc=806bbfee calls=1199 reads=0 textures=1199
+REC seq=2360 t=8083.893387612 STDOUT [ps5-map-caller] pc=80b8e5ed calls=369 reads=0 textures=369
+REC seq=2361 t=8083.893401725 STDOUT [ps5-map-caller] pc=80da90ae calls=875 reads=131 textures=0
+REC seq=2362 t=8083.893418564 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2363 t=8083.893430191 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2364 t=8083.893445426 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2365 t=8084.038480004 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=2495917 bytes=15589689066 cycles=2721513195
+REC seq=2366 t=8084.038502295 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2367 t=8084.038522582 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=22 bytes=124688128 cycles=3376374
+REC seq=2368 t=8084.038538459 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=635 bytes=80186880 cycles=2397652
+REC seq=2369 t=8084.038555779 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=92154 bytes=17593776 cycles=40886712
+REC seq=2370 t=8084.038570613 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=4330 bytes=2636064 cycles=2700670
+REC seq=2371 t=8084.038588415 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=9212 bytes=194148 cycles=4189566
+REC seq=2372 t=8084.038609664 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=303508 bytes=9909537760 cycles=375991775
+REC seq=2373 t=8084.038634842 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2374 t=8084.038653605 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2375 t=8084.038671406 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=744 bytes=16626304 cycles=1758864
+REC seq=2376 t=8084.038685278 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2377 t=8084.038704443 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1153 bytes=2799697920 cycles=83192067
+REC seq=2378 t=8084.038726093 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=307 bytes=1372800 cycles=184900
+REC seq=2379 t=8084.038743092 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=307 bytes=19648 cycles=140753
+REC seq=2380 t=8084.038763058 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=80060 bytes=1543744 cycles=40382985
+REC seq=2381 t=8084.038802109 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=78127 bytes=320165424 cycles=60853103
+REC seq=2382 t=8084.038817985 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=79111 bytes=317095632 cycles=64229681
+REC seq=2383 t=8084.038843565 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2384 t=8084.038860323 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2385 t=8084.127558710 STDOUT [ps5-submit-perf] calls=140 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004877 scanout_flush_ms=0.162468 video_ms=0.001088 command_ms=0.018606 command_flush_ms=0.002743 submit_ms=0.005548 suspend_ms=0.000888 poll_ms=0.021625 cleanup_ms=0.033889 total_ms=0.251733
+REC seq=2386 t=8084.127597920 STDOUT [ps5-present-perf] calls=15 failures=0 warmup_frames=30 idle_ms=0.003186 flip_ms=0.016304 vblank_ms=0.000946 total_ms=0.020437
+REC seq=2387 t=8084.127651243 STDOUT [ps5-batch-perf] calls=120 failures=0 warmup_frames=30 sleeps=15 submit_ms=0.018229 suspend_ms=0.000904 poll_ms=0.169380 cleanup_ms=0.001310 total_ms=0.189824
+REC seq=2388 t=8084.127707052 STDOUT [ps5-prepare-perf] calls=9860 failures=0 warmup_frames=30 setup_ms=0.003387 scanout_flush_ms=0.000899 video_ms=0.000934 command_ms=0.012529 command_flush_ms=0.002725 total_ms=0.020474
+REC seq=2389 t=8084.183046700 PW_WINE64 alive tick=2820 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=42707 audio=8036 audible=5802
+REC seq=2390 t=8084.640648538 STDOUT [ps5-driver-cycles] phase=0 calls=81920 cycles=17243249691
+REC seq=2391 t=8084.640662811 STDOUT [ps5-driver-cycles] phase=1 calls=79805 cycles=236783775
+REC seq=2392 t=8084.640672434 STDOUT [ps5-driver-cycles] phase=2 calls=81920 cycles=14960828580
+REC seq=2393 t=8084.640725276 STDOUT [ps5-driver-cycles] phase=3 calls=2556102 cycles=280188037
+REC seq=2394 t=8084.640732813 STDOUT [ps5-driver-cycles] phase=4 calls=1302 cycles=10810578568
+REC seq=2395 t=8084.640745723 STDOUT [ps5-driver-cycles] phase=5 calls=2553151 cycles=6396795025
+REC seq=2396 t=8084.640753982 STDOUT [ps5-driver-cycles] phase=6 calls=2456 cycles=70044083
+REC seq=2397 t=8084.640768095 STDOUT [ps5-driver-cycles] phase=7 calls=2442 cycles=2748205928
+REC seq=2398 t=8084.640775311 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2399 t=8084.640788702 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2400 t=8084.640797844 STDOUT [ps5-map-caller] pc=806bbfee calls=1200 reads=0 textures=1200
+REC seq=2401 t=8084.640815805 STDOUT [ps5-map-caller] pc=80b8e5ed calls=369 reads=0 textures=369
+REC seq=2402 t=8084.640828635 STDOUT [ps5-map-caller] pc=80da90ae calls=881 reads=131 textures=0
+REC seq=2403 t=8084.640845714 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2404 t=8084.640857422 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2405 t=8084.640873138 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2406 t=8084.640879312 STDOUT [ps5-cpu-flush-summary] calls=3218102 bytes=29872055342
+REC seq=2407 t=8084.640910825 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=79160 reject-input=315 reject-shader=0 reject-query=315 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=525 profile=1
+REC seq=2408 t=8085.152430784 PW_WINE64 alive tick=2880 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=43716 audio=8218 audible=5984
+REC seq=2409 t=8086.120272581 PW_WINE64 alive tick=2940 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=44720 audio=8399 audible=6165
+REC seq=2410 t=8086.261865280 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=2710488 bytes=16934928170 cycles=2956083361
+REC seq=2411 t=8086.261886770 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2412 t=8086.261907939 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=22 bytes=124688128 cycles=3376374
+REC seq=2413 t=8086.261924056 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=635 bytes=80186880 cycles=2397652
+REC seq=2414 t=8086.261944022 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=98599 bytes=18943760 cycles=43749672
+REC seq=2415 t=8086.261957413 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=4464 bytes=2840944 cycles=2780196
+REC seq=2416 t=8086.261974092 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=9581 bytes=204948 cycles=4357207
+REC seq=2417 t=8086.261994539 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=326552 bytes=10663041664 cycles=404499602
+REC seq=2418 t=8086.262031424 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2419 t=8086.262035674 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2420 t=8086.262056763 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=762 bytes=17907328 cycles=1871481
+REC seq=2421 t=8086.262073121 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2422 t=8086.262091323 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1176 bytes=2847932416 cycles=84576512
+REC seq=2423 t=8086.262113935 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=333 bytes=1491840 cycles=200687
+REC seq=2424 t=8086.262137349 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=333 bytes=21312 cycles=152613
+REC seq=2425 t=8086.262159400 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=85910 bytes=1649008 cycles=43323067
+REC seq=2426 t=8086.262173593 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=83950 bytes=344022784 cycles=65383884
+REC seq=2427 t=8086.262191875 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=84926 bytes=340896608 cycles=68978330
+REC seq=2428 t=8086.262217214 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2429 t=8086.262235897 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2430 t=8086.905515978 WINESERVER WARNING: Sub-emitter modes other than SUB_EMITTER_DISABLED are not supported in the Compatibility renderer.
+REC seq=2431 t=8086.905521190 WINESERVER    at: set_sub_emitter_mode (scene/resources/particle_process_material.cpp:1970)
+REC seq=2432 t=8087.089410736 PW_WINE64 alive tick=3000 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=45713 audio=8581 audible=6347
+REC seq=2433 t=8087.089415307 PW_WINE64 mmap=4172 munmap=6 mprotect=7639 skipped=9860 faults=3 images=136
+REC seq=2434 t=8087.089436235 PW_WINE64 memory flexible_free=0K dmem=1578000K dmem_peak=1688368K runs=729 dmem_failures=0 heap=276592K heap_peak=276592K dmem_low=17472K dmem_low_peak=17472K
+REC seq=2435 t=8087.884523836 STDOUT [ps5-driver-elapsed] calls=90000 cycles=74483174544
+REC seq=2436 t=8087.884529930 STDOUT [ps5-driver-cycles] phase=0 calls=90000 cycles=17670504443
+REC seq=2437 t=8087.884538269 STDOUT [ps5-driver-cycles] phase=1 calls=87767 cycles=263631231
+REC seq=2438 t=8087.884548453 STDOUT [ps5-driver-cycles] phase=2 calls=89999 cycles=15380881194
+REC seq=2439 t=8087.884565452 STDOUT [ps5-driver-cycles] phase=3 calls=2871151 cycles=314120689
+REC seq=2440 t=8087.884576197 STDOUT [ps5-driver-cycles] phase=4 calls=1328 cycles=10813719365
+REC seq=2441 t=8087.884585899 STDOUT [ps5-driver-cycles] phase=5 calls=2868078 cycles=7186840887
+REC seq=2442 t=8087.884596724 STDOUT [ps5-driver-cycles] phase=6 calls=2559 cycles=70637531
+REC seq=2443 t=8087.884608512 STDOUT [ps5-driver-cycles] phase=7 calls=2541 cycles=2765683522
+REC seq=2444 t=8087.884620539 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2445 t=8087.884626393 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2446 t=8087.884640345 STDOUT [ps5-map-caller] pc=806bbfee calls=1252 reads=0 textures=1252
+REC seq=2447 t=8087.884656141 STDOUT [ps5-map-caller] pc=80b8e5ed calls=394 reads=0 textures=394
+REC seq=2448 t=8087.884672499 STDOUT [ps5-map-caller] pc=80da90ae calls=907 reads=131 textures=0
+REC seq=2449 t=8087.884684688 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2450 t=8087.884700083 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2451 t=8087.884717163 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2452 t=8087.893480066 STDOUT [ps5-submit-perf] calls=135 failures=0 warmup_frames=30 sleeps=1 setup_ms=0.004824 scanout_flush_ms=0.124963 video_ms=0.001028 command_ms=0.018154 command_flush_ms=0.002818 submit_ms=0.005545 suspend_ms=0.000935 poll_ms=0.032886 cleanup_ms=0.035732 total_ms=0.226886
+REC seq=2453 t=8087.893523928 STDOUT [ps5-present-perf] calls=15 failures=0 warmup_frames=30 idle_ms=0.002844 flip_ms=0.016374 vblank_ms=0.000909 total_ms=0.020127
+REC seq=2454 t=8087.893568992 STDOUT [ps5-batch-perf] calls=120 failures=0 warmup_frames=30 sleeps=15 submit_ms=0.017637 suspend_ms=0.000883 poll_ms=0.169159 cleanup_ms=0.001320 total_ms=0.188998
+REC seq=2455 t=8087.893625282 STDOUT [ps5-prepare-perf] calls=9865 failures=0 warmup_frames=30 setup_ms=0.003378 scanout_flush_ms=0.000898 video_ms=0.000933 command_ms=0.012507 command_flush_ms=0.002721 total_ms=0.020437
+REC seq=2456 t=8088.058420835 PW_WINE64 alive tick=3060 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=46719 audio=8763 audible=6529
+REC seq=2457 t=8088.405911091 WINESERVER PW_GL frames=20 fps=4.0
+REC seq=2458 t=8088.486105172 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=2925268 bytes=18281534122 cycles=3190552760
+REC seq=2459 t=8088.486126502 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2460 t=8088.486149996 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=22 bytes=124688128 cycles=3376374
+REC seq=2461 t=8088.486204522 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=635 bytes=80186880 cycles=2397652
+REC seq=2462 t=8088.486223286 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=105016 bytes=20289584 cycles=46578190
+REC seq=2463 t=8088.486237478 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=4599 bytes=3049024 cycles=2861934
+REC seq=2464 t=8088.486252794 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=9950 bytes=215748 cycles=4525185
+REC seq=2465 t=8088.486273401 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=349484 bytes=11412860320 cycles=432819515
+REC seq=2466 t=8088.486296735 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2467 t=8088.486315018 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2468 t=8088.486329050 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=780 bytes=19183744 cycles=1984488
+REC seq=2469 t=8088.486348054 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2470 t=8088.486360884 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1209 bytes=2917138432 cycles=86500410
+REC seq=2471 t=8088.486381972 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=360 bytes=1612800 cycles=217188
+REC seq=2472 t=8088.486397769 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=360 bytes=23040 cycles=164865
+REC seq=2473 t=8088.486415089 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=91733 bytes=1753840 cycles=46235730
+REC seq=2474 t=8088.486435616 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=89746 bytes=367769680 cycles=69900288
+REC seq=2475 t=8088.486448526 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=90713 bytes=364582448 cycles=73734242
+REC seq=2476 t=8088.486471620 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2477 t=8088.486489261 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2478 t=8088.637612077 STDOUT [ps5-driver-cycles] phase=0 calls=91952 cycles=17773309687
+REC seq=2479 t=8088.637626189 STDOUT [ps5-driver-cycles] phase=1 calls=89693 cycles=270163414
+REC seq=2480 t=8088.637637816 STDOUT [ps5-driver-cycles] phase=2 calls=91952 cycles=15483368224
+REC seq=2481 t=8088.637646236 STDOUT [ps5-driver-cycles] phase=3 calls=2943846 cycles=321969272
+REC seq=2482 t=8088.637658183 STDOUT [ps5-driver-cycles] phase=4 calls=1334 cycles=10814457384
+REC seq=2483 t=8088.637666523 STDOUT [ps5-driver-cycles] phase=5 calls=2940751 cycles=7369989605
+REC seq=2484 t=8088.637679673 STDOUT [ps5-driver-cycles] phase=6 calls=2578 cycles=70775442
+REC seq=2485 t=8088.637691701 STDOUT [ps5-driver-cycles] phase=7 calls=2560 cycles=2770059280
+REC seq=2486 t=8088.637703568 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2487 t=8088.637708380 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2488 t=8088.637723775 STDOUT [ps5-map-caller] pc=806bbfee calls=1260 reads=0 textures=1260
+REC seq=2489 t=8088.637741817 STDOUT [ps5-map-caller] pc=80b8e5ed calls=399 reads=0 textures=399
+REC seq=2490 t=8088.637752321 STDOUT [ps5-map-caller] pc=80da90ae calls=913 reads=131 textures=0
+REC seq=2491 t=8088.637765872 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2492 t=8088.637779985 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2493 t=8088.637793937 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2494 t=8088.637801234 STDOUT [ps5-cpu-flush-summary] calls=3687341 bytes=33797639206
+REC seq=2495 t=8088.637831625 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=89032 reject-input=363 reject-shader=0 reject-query=363 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=605 profile=1
+REC seq=2496 t=8089.028433492 PW_WINE64 alive tick=3120 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=47727 audio=8945 audible=6711
+REC seq=2497 t=8089.996022144 PW_WINE64 alive tick=3180 sink_calls=1174 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=48730 audio=9126 audible=6892
+REC seq=2498 t=8090.432746185 WINE 0050:trace:process:NtQueryInformationProcess (ffffffffffffffff,0x00000003,1008b3a640,0x00000060,0)
+REC seq=2499 t=8090.727700237 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=3140015 bytes=19627773378 cycles=3425351978
+REC seq=2500 t=8090.727726618 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2501 t=8090.727741532 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=22 bytes=124688128 cycles=3376374
+REC seq=2502 t=8090.727758692 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=635 bytes=80186880 cycles=2397652
+REC seq=2503 t=8090.727778257 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=111433 bytes=21635408 cycles=49406759
+REC seq=2504 t=8090.727798464 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=4734 bytes=3257104 cycles=2943907
+REC seq=2505 t=8090.727811695 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=10319 bytes=226548 cycles=4693622
+REC seq=2506 t=8090.727833425 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=372416 bytes=12162678976 cycles=461244242
+REC seq=2507 t=8090.727859084 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2508 t=8090.727876083 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2509 t=8090.727895889 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=798 bytes=20460160 cycles=2105954
+REC seq=2510 t=8090.727911926 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2511 t=8090.727927402 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1275 bytes=3055550464 cycles=90397656
+REC seq=2512 t=8090.727951778 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=387 bytes=1733760 cycles=234398
+REC seq=2513 t=8090.727969499 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=387 bytes=24768 cycles=177174
+REC seq=2514 t=8090.727990749 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=97556 bytes=1858672 cycles=49142356
+REC seq=2515 t=8090.728004300 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=95542 bytes=391516576 cycles=74398708
+REC seq=2516 t=8090.728022502 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=96500 bytes=388268288 cycles=78438780
+REC seq=2517 t=8090.728053454 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2518 t=8090.728067326 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2519 t=8090.966456016 PW_WINE64 alive tick=3240 sink_calls=1175 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=49762 audio=9308 audible=7074
+REC seq=2520 t=8091.673532499 STDOUT [ps5-pair-cache] lookups=100000 hot=99982 scanned=0 full=0 entries=17 bytes=604048
+REC seq=2521 t=8091.673566257 STDOUT [ps5-driver-elapsed] calls=100000 cycles=80531643822
+REC seq=2522 t=8091.673576120 STDOUT [ps5-driver-cycles] phase=0 calls=100000 cycles=18194033137
+REC seq=2523 t=8091.673584941 STDOUT [ps5-driver-cycles] phase=1 calls=97632 cycles=297384445
+REC seq=2524 t=8091.673598893 STDOUT [ps5-driver-cycles] phase=2 calls=99999 cycles=15902137750
+REC seq=2525 t=8091.673613086 STDOUT [ps5-driver-cycles] phase=3 calls=3234882 cycles=353294828
+REC seq=2526 t=8091.673622387 STDOUT [ps5-driver-cycles] phase=4 calls=1358 cycles=10817412707
+REC seq=2527 t=8091.673631047 STDOUT [ps5-driver-cycles] phase=5 calls=3231471 cycles=8099167729
+REC seq=2528 t=8091.673643957 STDOUT [ps5-driver-cycles] phase=6 calls=2782 cycles=71139498
+REC seq=2529 t=8091.673652136 STDOUT [ps5-driver-cycles] phase=7 calls=2764 cycles=2802860209
+REC seq=2530 t=8091.673661999 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2531 t=8091.673673786 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2532 t=8091.673686455 STDOUT [ps5-map-caller] pc=806bbfee calls=1329 reads=0 textures=1329
+REC seq=2533 t=8091.673700408 STDOUT [ps5-map-caller] pc=80b8e5ed calls=510 reads=0 textures=510
+REC seq=2534 t=8091.673712676 STDOUT [ps5-map-caller] pc=80da90ae calls=937 reads=131 textures=0
+REC seq=2535 t=8091.673729114 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2536 t=8091.673744028 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2537 t=8091.673756698 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2538 t=8091.912317947 STDOUT [ps5-submit-perf] calls=139 failures=0 warmup_frames=30 sleeps=0 setup_ms=0.004952 scanout_flush_ms=0.129788 video_ms=0.001071 command_ms=0.018287 command_flush_ms=0.002794 submit_ms=0.005607 suspend_ms=0.000898 poll_ms=0.023160 cleanup_ms=0.036041 total_ms=0.222598
+REC seq=2539 t=8091.912357238 STDOUT [ps5-present-perf] calls=16 failures=0 warmup_frames=30 idle_ms=0.002831 flip_ms=0.016618 vblank_ms=0.000892 total_ms=0.020342
+REC seq=2540 t=8091.912406953 STDOUT [ps5-batch-perf] calls=125 failures=0 warmup_frames=30 sleeps=15 submit_ms=0.018014 suspend_ms=0.000888 poll_ms=0.161248 cleanup_ms=0.001346 total_ms=0.181496
+REC seq=2541 t=8091.912464526 STDOUT [ps5-prepare-perf] calls=9861 failures=0 warmup_frames=30 setup_ms=0.003401 scanout_flush_ms=0.000896 video_ms=0.000937 command_ms=0.012521 command_flush_ms=0.002719 total_ms=0.020473
+REC seq=2542 t=8091.935035759 PW_WINE64 alive tick=3300 sink_calls=1175 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=50758 audio=9490 audible=7256
+REC seq=2543 t=8091.935041372 PW_WINE64 mmap=4190 munmap=6 mprotect=7661 skipped=9872 faults=3 images=136
+REC seq=2544 t=8091.935061178 PW_WINE64 memory flexible_free=0K dmem=1579472K dmem_peak=1688368K runs=736 dmem_failures=0 heap=276864K heap_peak=276864K dmem_low=17472K dmem_low_peak=17472K
+REC seq=2545 t=8092.435856738 STDOUT [ps5-batch-checks] calls=100000 eligible=98912 input=408 shader=0 query=408 framebuffer=0 depth=0 vertex=0 texture=680
+REC seq=2546 t=8092.435875501 STDOUT [ps5-driver-cycles] phase=0 calls=101982 cycles=18298129749
+REC seq=2547 t=8092.435884562 STDOUT [ps5-driver-cycles] phase=1 calls=99588 cycles=304299644
+REC seq=2548 t=8092.435897392 STDOUT [ps5-driver-cycles] phase=2 calls=101982 cycles=16006370311
+REC seq=2549 t=8092.435908457 STDOUT [ps5-driver-cycles] phase=3 calls=3307655 cycles=361129767
+REC seq=2550 t=8092.435917198 STDOUT [ps5-driver-cycles] phase=4 calls=1364 cycles=10818185291
+REC seq=2551 t=8092.435928023 STDOUT [ps5-driver-cycles] phase=5 calls=3304149 cycles=8281655733
+REC seq=2552 t=8092.435937805 STDOUT [ps5-driver-cycles] phase=6 calls=2840 cycles=71202578
+REC seq=2553 t=8092.435950875 STDOUT [ps5-driver-cycles] phase=7 calls=2822 cycles=2816218145
+REC seq=2554 t=8092.435964186 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2555 t=8092.435968276 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2556 t=8092.435986478 STDOUT [ps5-map-caller] pc=806bbfee calls=1343 reads=0 textures=1343
+REC seq=2557 t=8092.435996020 STDOUT [ps5-map-caller] pc=80b8e5ed calls=548 reads=0 textures=548
+REC seq=2558 t=8092.436014142 STDOUT [ps5-map-caller] pc=80da90ae calls=943 reads=131 textures=0
+REC seq=2559 t=8092.436039480 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2560 t=8092.436056399 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2561 t=8092.436064418 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2562 t=8092.436071795 STDOUT [ps5-cpu-flush-summary] calls=4132308 bytes=37629400054
+REC seq=2563 t=8092.436099620 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=98912 reject-input=408 reject-shader=0 reject-query=408 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=680 profile=1
+REC seq=2564 t=8092.905651892 PW_WINE64 alive tick=3360 sink_calls=1175 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=51773 audio=9672 audible=7438
+REC seq=2565 t=8092.964623458 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=3354809 bytes=20974457026 cycles=3659890397
+REC seq=2566 t=8092.964648476 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=2 bytes=13107200 cycles=344889
+REC seq=2567 t=8092.964667720 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=22 bytes=124688128 cycles=3376374
+REC seq=2568 t=8092.964684800 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=635 bytes=80186880 cycles=2397652
+REC seq=2569 t=8092.964703002 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=117850 bytes=22981232 cycles=52223611
+REC seq=2570 t=8092.964719440 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=4869 bytes=3465184 cycles=3023957
+REC seq=2571 t=8092.964745019 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=10688 bytes=237348 cycles=4862961
+REC seq=2572 t=8092.964763622 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=395348 bytes=12912497632 cycles=489564514
+REC seq=2573 t=8092.964790965 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2574 t=8092.964807564 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2575 t=8092.964825285 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=816 bytes=21736576 cycles=2218907
+REC seq=2576 t=8092.964847015 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2577 t=8092.964861769 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1294 bytes=3095396352 cycles=91704574
+REC seq=2578 t=8092.964886546 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=414 bytes=1854720 cycles=251815
+REC seq=2579 t=8092.964903786 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=414 bytes=26496 cycles=189674
+REC seq=2580 t=8092.964922550 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=103379 bytes=1963504 cycles=52053829
+REC seq=2581 t=8092.964941874 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=101338 bytes=415263472 cycles=78936172
+REC seq=2582 t=8092.964957190 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=102287 bytes=411954128 cycles=83168031
+REC seq=2583 t=8092.964981406 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2584 t=8092.964998164 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2585 t=8093.117468256 WINE 00ac:fixme:thread:NtQueryInformationThread ThreadIsIoPending info class not supported yet
+REC seq=2586 t=8093.118136682 STDOUT [ps5-descriptor-reuse] hits=0 misses=0 retained=0
+REC seq=2587 t=8093.118142215 STDOUT [ps5-driver-cycles] phase=0 calls=103380 cycles=18373409324
+REC seq=2588 t=8093.118153842 STDOUT [ps5-driver-cycles] phase=1 calls=100965 cycles=309126615
+REC seq=2589 t=8093.118165308 STDOUT [ps5-driver-cycles] phase=2 calls=103380 cycles=16079867614
+REC seq=2590 t=8093.118176694 STDOUT [ps5-driver-cycles] phase=3 calls=3375157 cycles=368418206
+REC seq=2591 t=8093.118190486 STDOUT [ps5-driver-cycles] phase=4 calls=1369 cycles=10818777959
+REC seq=2592 t=8093.118201472 STDOUT [ps5-driver-cycles] phase=5 calls=3371643 cycles=8451776529
+REC seq=2593 t=8093.118214462 STDOUT [ps5-driver-cycles] phase=6 calls=2849 cycles=71209772
+REC seq=2594 t=8093.118221598 STDOUT [ps5-driver-cycles] phase=7 calls=2831 cycles=2821829250
+REC seq=2595 t=8093.118235631 STDOUT [ps5-driver-cycles] phase=8 calls=0 cycles=0
+REC seq=2596 t=8093.118241083 STDOUT [ps5-map-caller-anchor] report=806b1ea0 overflow=0
+REC seq=2597 t=8093.118258403 STDOUT [ps5-map-caller] pc=806bbfee calls=1346 reads=0 textures=1346
+REC seq=2598 t=8093.118271233 STDOUT [ps5-map-caller] pc=80b8e5ed calls=550 reads=0 textures=550
+REC seq=2599 t=8093.118292963 STDOUT [ps5-map-caller] pc=80da90ae calls=947 reads=131 textures=0
+REC seq=2600 t=8093.118298015 STDOUT [ps5-map-caller] pc=80ebde8e calls=2 reads=0 textures=0
+REC seq=2601 t=8093.118314132 STDOUT [ps5-map-caller] pc=80ee0ebe calls=2 reads=2 textures=2
+REC seq=2602 t=8093.118324877 STDOUT [ps5-map-caller] pc=80ee0eeb calls=2 reads=0 textures=2
+REC seq=2603 t=8093.118336344 STDOUT [ps5-cpu-flush-summary] calls=4211158 bytes=38248677502
+REC seq=2604 t=8093.118362324 WINESERVER [ps5-batch-summary] config gpu-present=1 multidraw=1 deferred=1 eligible=0 reject-input=0 reject-shader=0 reject-query=0 reject-framebuffer=0 reject-depth=0 reject-vertex=0 reject-texture=0 profile=1
+REC seq=2605 t=8093.449465326 WINESERVER PW_GL frames=20 fps=4.0
+REC seq=2606 t=8093.876157209 PW_WINE64 alive tick=3420 sink_calls=1176 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=52787 audio=9854 audible=7620
+REC seq=2607 t=8094.844390552 PW_WINE64 alive tick=3480 sink_calls=1176 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=53786 audio=10035 audible=7801
+REC seq=2608 t=8095.196455306 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=0 calls=3570621 bytes=22327942978 cycles=3895706362
+REC seq=2609 t=8095.196478560 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2668 calls=4 bytes=26214400 cycles=690940
+REC seq=2610 t=8095.196499167 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2671 calls=41 bytes=228404736 cycles=6234234
+REC seq=2611 t=8095.196521459 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2672 calls=638 bytes=110173184 cycles=3197800
+REC seq=2612 t=8095.196532284 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2674 calls=124137 bytes=24301808 cycles=55006690
+REC seq=2613 t=8095.196548802 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2675 calls=5003 bytes=3673312 cycles=3104419
+REC seq=2614 t=8095.196567485 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2677 calls=11056 bytes=248124 cycles=5030061
+REC seq=2615 t=8095.196585367 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=2678 calls=1 bytes=24 cycles=724
+REC seq=2616 t=8095.196602927 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=3558 calls=417760 bytes=13645337760 cycles=517309022
+REC seq=2617 t=8095.196635002 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7059 calls=1 bytes=2097152 cycles=56349
+REC seq=2618 t=8095.196649275 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7088 calls=131 bytes=1054552 cycles=130601
+REC seq=2619 t=8095.196664750 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7106 calls=834 bytes=23012992 cycles=2332166
+REC seq=2620 t=8095.196682150 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7187 calls=1 bytes=2097152 cycles=55283
+REC seq=2621 t=8095.196702918 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=7217 calls=1317 bytes=3143630848 cycles=93071952
+REC seq=2622 t=8095.196724328 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9439 calls=441 bytes=1975680 cycles=268939
+REC seq=2623 t=8095.196740606 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=9463 calls=441 bytes=28224 cycles=202007
+REC seq=2624 t=8095.196759369 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10337 calls=109070 bytes=2066224 cycles=54911815
+REC seq=2625 t=8095.196779095 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10364 calls=107003 bytes=438473712 cycles=83328910
+REC seq=2626 t=8095.196794811 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=10426 calls=107942 bytes=435105328 cycles=87762970
+REC seq=2627 t=8095.196821272 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13555 calls=1 bytes=2097152 cycles=55983
+REC seq=2628 t=8095.196837149 STDOUT [ps5-cache-site] file=/prospero-win/sdk-releasexxxxxxxxxxxxxx/src/gallium/ps5/ps5_screen.c line=13722 calls=5 bytes=55559680 cycles=1636852
+REC seq=2629 t=8095.204983667 WINE 0024:err:seh:handle_syscall_fault syscall fault 0xc0000005 at 8000b8766
+REC seq=2630 t=8095.812657251 PW_WINE64 alive tick=3540 sink_calls=1177 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=54187 audio=10217 audible=7983
+REC seq=2631 t=8096.779983456 PW_WINE64 alive tick=3600 sink_calls=1177 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=54214 audio=10398 audible=8164
+REC seq=2632 t=8096.779988428 PW_WINE64 mmap=4219 munmap=6 mprotect=7689 skipped=9882 faults=4 images=136
+REC seq=2633 t=8096.779992598 PW_WINE64 fault_top rank=1 count=3 page=0 pc=0x801465ad kind=0 vprot=0 host_vprot=0 result=2
+REC seq=2634 t=8096.779995805 PW_WINE64 fault_top rank=2 count=1 page=0 pc=0x8000b8766 kind=1 vprot=0 host_vprot=0 result=2
+REC seq=2635 t=8096.780020422 PW_WINE64 memory flexible_free=0K dmem=1571664K dmem_peak=1688368K runs=749 dmem_failures=0 heap=276288K heap_peak=276864K dmem_low=17472K dmem_low_peak=17472K
+REC seq=2636 t=8097.747499380 PW_WINE64 alive tick=3660 sink_calls=1177 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=54241 audio=10579 audible=8345
+REC seq=2637 t=8098.714964868 PW_WINE64 alive tick=3720 sink_calls=1177 frames_put=11 shown=0 rejected=0 last=1920x1080 inputs=0 refused=0 vk_shown=0 vk_busy=0 cpu_ms=54267 audio=10761 audible=8527
+REC seq=2638 t=8099.157077368 WINE 00d4:err:seh:call_seh_handlers invalid frame 00000012A1B9F980 (00000012A4CA8000-00000012A54A0000)
+REC seq=2639 t=8099.157085066 WINE 00d4:err:seh:NtRaiseException Exception frame is not in stack limits => unable to dispatch exception.
+REC seq=2640 t=8099.157951951 PW_WINE64 exit sink_calls=1179
+REC seq=2641 t=8099.173853923 PW_WINE64 session_end reason=wine64-exit
