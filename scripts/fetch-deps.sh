@@ -69,8 +69,12 @@ if ! fresh "$deps/compiler-rt" "$rt_sha"; then
     fetch "$(lock compiler_rt_builtins url)" "$rt_sha" "libclang-rt-18-dev.deb"
     work=$(mktemp -d "$deps/.unpack.XXXXXX")
     member=$(lock compiler_rt_builtins member)
-    # macOS tar reads the .deb (ar) container and its zstd data archive.
-    tar -xf "$downloads/libclang-rt-18-dev.deb" -C "$work" data.tar.zst
+    # macOS (bsd)tar reads the .deb (ar) container directly; GNU tar can't, so use ar there.
+    if [[ $(uname) == Darwin ]]; then
+        tar -xf "$downloads/libclang-rt-18-dev.deb" -C "$work" data.tar.zst
+    else
+        (cd "$work" && ar x "$downloads/libclang-rt-18-dev.deb" data.tar.zst)
+    fi
     tar -xf "$work/data.tar.zst" -C "$work" "./$member"
     rm -rf "$deps/compiler-rt"
     mkdir -p "$deps/compiler-rt"

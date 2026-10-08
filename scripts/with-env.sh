@@ -13,6 +13,8 @@ if [[ -z "${LLVM_CONFIG:-}" ]]; then
 fi
 export LLVM_CONFIG
 command -v "$LLVM_CONFIG" >/dev/null 2>&1 || { echo 'Missing LLVM 18: brew install llvm@18, or set LLVM_CONFIG.' >&2; exit 1; }
+# The SDK's wrappers resolve LLVM_CONFIG with readlink -f, which turns a bare name into a path in the current directory.
+LLVM_CONFIG="$(command -v "$LLVM_CONFIG")"
 [[ -x "$PS5_PAYLOAD_SDK/bin/prospero-clang" ]] || { echo "Missing PS5 payload SDK at $PS5_PAYLOAD_SDK: run scripts/fetch-deps.sh." >&2; exit 1; }
 export PATH="$("$LLVM_CONFIG" --bindir):$PATH"
 exec "$@"
