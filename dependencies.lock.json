@@ -157,7 +157,7 @@
     }
   },
   "prospero_win": {
-    "revision": "33130a9f9ad7af7d129bec75330f7c4c70c54768",
+    "revision": "67fba29c51f896bfaf7b6ce0a9ac588a4f912e29",
     "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
@@ -207,9 +207,9 @@
   "prospero_kit": {
     "kit_id": "hl2-fw1360-dev1",
     "published": false,
-    "status": "kit C on fixed kit B with game-root-unowned (shell 33130a9); kit C console acceptance passed; authorized no-drop fallback",
-    "manifest_sha256": "a003dcec6ca4867aa1e475db4586e8f0ed4dce10950d26720b047579cbcf4647",
-    "files_sha256": "1237d8e87eb4b3f40a612933596266115997374b781ce2cc2fd8bee8f1ca637d",
+    "status": "kit C on fixed kit B with game-root-unowned (shell 33130a9) and the Unix-side heap in direct memory (ntdll, win32u, wineserver PRXs rebuilt from bea2be5 + 67fba29's heap change, build/kit-heap-dmem-67fba29); kit C console acceptance passed; authorized no-drop fallback",
+    "manifest_sha256": "229ea5f4a1d41f62edadf454299bcfacfd2e9def29707ea8cc3fc89dff681291",
+    "files_sha256": "fefd7a4fb355646390ed2ea364071fe8053bc54faa304d51feb9d4498fe0b639",
     "console_root": "/data/playden/kits/hl2-fw1360-dev1",
     "firmware": [
       "13.60"
@@ -224,7 +224,7 @@
       "wow64_i386"
     ],
     "wrapper_revision": "33130a9f9ad7af7d129bec75330f7c4c70c54768",
-    "runtime_artifact_revision": "bea2be5-ps5-kit-b-r1-neutral",
+    "runtime_artifact_revision": "bea2be5-heap-dmem-67fba29-r1",
     "runtime_inventory_source": "Fixed kit B runtime, template and recipe from build/kit-b-25a967d; any-title shell 33130a9 (a123875 plus publication schema 3 for exFAT game folders) and Lapy title-rule 66ab4f1 (same tree as 9adc6b7); built by build/kit-c/scripts/make_kit_unowned.sh; option A retains root recovery on FW 13.60.",
     "template_preparation": "hl2-fresh-v16-neutral-bea2be5"
   }
