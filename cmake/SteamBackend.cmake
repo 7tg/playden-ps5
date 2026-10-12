@@ -222,6 +222,8 @@ function(playden_register_steam_backend_tests)
         add_executable(cdn_client_test "${CMAKE_SOURCE_DIR}/tests/cdn_client_test.cpp")
         target_link_libraries(cdn_client_test PRIVATE playden_steam_cm)
         add_test(NAME cdn_client COMMAND cdn_client_test)
+        add_test(NAME download_speed_report
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_download_speed_report.py")
         add_executable(store_details_test "${CMAKE_SOURCE_DIR}/tests/store_details_test.cpp")
         target_link_libraries(store_details_test PRIVATE playden_steam_core)
         add_test(NAME store_details COMMAND store_details_test)

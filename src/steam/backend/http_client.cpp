@@ -282,8 +282,17 @@ class HttpClient::Impl {
     }
 #undef PLAYDEN_SETOPT
 
-    resolve_error = internal::AttachNativeResolution(easy, request.url, request.timeout_ms, cancel,
-                                                      &resolve_entries);
+    {
+      const auto start = Clock::now();
+      resolve_error = internal::AttachNativeResolution(easy, request.url, request.timeout_ms, cancel,
+                                                       &resolve_entries);
+#if PLAYDEN_PLATFORM_PS5
+      transfer.response.timing.resolve_ms = static_cast<std::uint32_t>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count());
+#else
+      (void)start;
+#endif
+    }
     if (resolve_error != internal::NativeResolveError::kNone) {
       canceled = resolve_error == internal::NativeResolveError::kCanceled;
       result = canceled ? CURLE_ABORTED_BY_CALLBACK
@@ -344,6 +353,21 @@ class HttpClient::Impl {
     if (result == CURLE_OK && transfer.response.status_code == 0) result = CURLE_WEIRD_SERVER_REPLY;
 
   cleanup:
+    if (easy) {
+      curl_off_t lookup = 0, connect = 0, tls = 0, first = 0;
+      long connections = 0;
+      curl_easy_getinfo(easy, CURLINFO_NAMELOOKUP_TIME_T, &lookup);
+      curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME_T, &connect);
+      curl_easy_getinfo(easy, CURLINFO_APPCONNECT_TIME_T, &tls);
+      curl_easy_getinfo(easy, CURLINFO_STARTTRANSFER_TIME_T, &first);
+      curl_easy_getinfo(easy, CURLINFO_NUM_CONNECTS, &connections);
+      const auto ms = [](curl_off_t us) { return static_cast<std::uint32_t>(std::max<curl_off_t>(0, us) / 1000); };
+      transfer.response.timing.connect_ms = ms(connect - lookup);
+      transfer.response.timing.tls_ms = ms(tls - connect);
+      transfer.response.timing.first_byte_ms = ms(first);
+      transfer.response.timing.new_connections = static_cast<std::uint32_t>(std::max(0L, connections));
+    }
+    transfer.response.timing.body_bytes = transfer.response.body.size();
     if (added) curl_multi_remove_handle(multi, easy);
     curl_slist_free_all(resolve_entries);
     curl_slist_free_all(request_headers);
@@ -371,8 +395,12 @@ HttpClient::HttpClient(HttpClient&&) noexcept = default;
 HttpClient& HttpClient::operator=(HttpClient&&) noexcept = default;
 
 HttpResponse HttpClient::Perform(const HttpRequest& request, const std::atomic<bool>& cancel) {
-  if (!impl_) return {HttpError::kInitializationFailed, 0, {}, {}};
-  return impl_->Perform(request, cancel);
+  const auto start = std::chrono::steady_clock::now();
+  auto response = impl_ ? impl_->Perform(request, cancel)
+                        : HttpResponse{HttpError::kInitializationFailed, 0, {}, {}};
+  response.timing.total_ms = static_cast<std::uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - start).count());
+  return response;
 }
 
 }  // namespace playden::steam

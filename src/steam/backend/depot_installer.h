@@ -40,6 +40,16 @@ struct InstallProgress {
   std::uint32_t files_total = 0;
 };
 
+// Wall-clock phases and summed write-loop stages; bytes exclude resumed journal entries.
+struct InstallStats : CdnStats {
+  std::uint64_t access_ms = 0, servers_ms = 0, manifests_ms = 0, prepare_ms = 0, download_ms = 0;
+  std::uint64_t fetch_ms = 0, process_ms = 0, create_ms = 0, write_ms = 0, journal_ms = 0, backoff_ms = 0;
+  std::uint64_t chunks_done = 0, chunks_skipped = 0, compressed_bytes = 0, original_bytes = 0;
+  std::uint64_t files_created = 0, folders_created = 0, chunk_retries = 0, corrupt_retries = 0;
+  std::uint64_t files_total = 0, download_total = 0, chunks_pending = 0, files_pending = 0, bytes_pending = 0;
+  std::uint32_t slots = 1, reuse = 0;
+};
+
 struct InstallOutcome {
   InstallError error = InstallError::kProtocol;
   InstallProgress progress;
@@ -58,6 +68,8 @@ struct InstallerHooks {
   std::function<std::uint64_t(const std::string& path)> free_bytes;
   // Optional: the last CDN failure detail for logs.
   std::function<std::string()> last_failure;
+  std::function<CdnStats()> cdn_stats;
+  std::function<void(const char* phase, const InstallStats&)> stats;
   // Optional: step markers for diagnosing native failures (no identifiers).
   std::function<void(const char* step)> trace;
   // Optional: waits between attempts at a chunk the CDN refused (a busy server answers 503 for a
@@ -85,6 +97,7 @@ class DepotInstaller {
  private:
   InstallerHooks hooks_;
  public:
+  void SetStats(std::function<void(const char*, const InstallStats&)> stats) { hooks_.stats = std::move(stats); }
   void SetTrace(std::function<void(const char*)> trace) { hooks_.trace = std::move(trace); }
 };
 

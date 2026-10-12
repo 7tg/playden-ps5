@@ -46,6 +46,16 @@ struct HttpRequest {
   std::size_t max_response_bytes = 1024 * 1024;
 };
 
+struct HttpTiming {
+  std::uint32_t resolve_ms = 0;
+  std::uint32_t connect_ms = 0;
+  std::uint32_t tls_ms = 0;
+  std::uint32_t first_byte_ms = 0;
+  std::uint32_t total_ms = 0;
+  std::uint32_t new_connections = 0;
+  std::uint64_t body_bytes = 0;
+};
+
 struct HttpResponse {
   HttpError error = HttpError::kNone;
   long status_code = 0;
@@ -53,6 +63,8 @@ struct HttpResponse {
   // decide whether a duplicated semantic header such as X-EResult is acceptable.
   std::vector<std::pair<std::string, std::string>> headers;
   std::vector<std::uint8_t> body;
+
+  HttpTiming timing;  // Retained when a failed response discards its payload.
 
   bool ok() const { return error == HttpError::kNone; }
 };

@@ -4,8 +4,46 @@
 #include "steam/backend/app_info.h"
 
 #include <set>
+#include <charconv>
 
 namespace playden::steam {
+
+std::string FormatInstallStats(const char* phase, const InstallStats& stats) {
+  std::string detail;
+  const auto add = [&](const char* key, std::uint64_t value) {
+    if (!detail.empty()) detail += ' ';
+    detail += key; detail += '='; detail += std::to_string(value);
+  };
+  add("files_total", stats.files_total); add("download_total", stats.download_total);
+  if (std::string(phase) == "shape") {
+    add("chunks_pending", stats.chunks_pending); add("files_pending", stats.files_pending);
+    add("bytes_pending", stats.bytes_pending);
+    return detail;
+  }
+  add("dl_ms", stats.download_ms); add("cb", stats.compressed_bytes); add("ob", stats.original_bytes);
+  add("ch", stats.chunks_done); add("sk", stats.chunks_skipped);
+  add("fc", stats.files_created); add("dc", stats.folders_created);
+  add("fetch", stats.fetch_ms); add("proc", stats.process_ms); add("create", stats.create_ms);
+  add("write", stats.write_ms); add("jrnl", stats.journal_ms); add("back", stats.backoff_ms);
+  add("req", stats.requests); add("conn", stats.new_connections);
+  add("res", stats.resolve_ms); add("tcp", stats.connect_ms); add("tls", stats.tls_ms); add("ttfb", stats.first_byte_ms);
+  add("retry", stats.chunk_retries); add("bad", stats.corrupt_retries);
+  add("slots", stats.slots); add("reuse", stats.reuse);
+  add("access", stats.access_ms); add("servers", stats.servers_ms); add("manifest", stats.manifests_ms); add("prep", stats.prepare_ms);
+  add("http_ms", stats.total_ms); add("http_b", stats.bytes); add("fail", stats.failures);
+  return detail;
+}
+
+bool SteamInstallRunner::Remove(const std::string& root) {
+  const bool ok = RemoveManagedInstall(root);
+  const auto slash = root.rfind('/');
+  const auto name = root.substr(slash == std::string::npos ? 0 : slash + 1);
+  GameId app = 0;
+  const auto parsed = std::from_chars(name.data(), name.data() + name.size(), app);
+  if (log_ && app != 0 && parsed.ec == std::errc{} && parsed.ptr == name.data() + name.size())
+    log_(app, "install-removal", "done", ok ? "ok=1" : "ok=0");
+  return ok;
+}
 
 const char* InstallFailureText(InstallError error) {
   switch (error) {

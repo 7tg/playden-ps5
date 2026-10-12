@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -21,6 +22,22 @@
 
 namespace playden::steam {
 namespace {
+
+using Clock = std::chrono::steady_clock;
+struct ScopeExit {
+  std::function<void()> fn;
+  ~ScopeExit() { fn(); }
+};
+// Accumulate full clock precision, converting only when a snapshot is emitted.
+template <class Fn>
+auto Timed(Clock::duration& elapsed, Fn fn) -> decltype(fn()) {
+  const auto start = Clock::now();
+  ScopeExit end{[&] { elapsed += Clock::now() - start; }};
+  return fn();
+}
+std::uint64_t Milliseconds(Clock::duration elapsed) {
+  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+}
 
 std::string Hex(const std::array<std::uint8_t, 20>& bytes) {
   static constexpr char kDigits[] = "0123456789abcdef";
@@ -37,7 +54,7 @@ std::string Lower(std::string text) {
   return text;
 }
 
-bool MakeDirs(const std::string& path) {
+bool MakeDirs(const std::string& path, std::uint64_t* created = nullptr) {
   if (path.empty()) return false;
   std::string current;
   std::size_t start = 0;
@@ -48,7 +65,9 @@ bool MakeDirs(const std::string& path) {
     if (!part.empty()) {
       if (current.size() > 1 || (current.size() == 1 && current[0] != '/')) current += '/';
       current += part;
-      if (mkdir(current.c_str(), 0777) != 0) {
+      if (mkdir(current.c_str(), 0777) == 0) {
+        if (created) ++*created;
+      } else {
         struct stat info {};
         if (stat(current.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) return false;
       }
@@ -217,6 +236,7 @@ DepotInstaller::DepotInstaller(CmClient& cm, CdnClient& cdn) {
                         std::size_t max_bytes, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out) {
     return cdn.Chunk(server, depot, sha, max_bytes, cancel, out);
   };
+  hooks_.cdn_stats = [&cdn] { return cdn.stats(); };
   hooks_.free_bytes = &DefaultFreeBytes;
   hooks_.last_failure = [&cdn, manifest_problem] {
     return manifest_problem->empty() ? cdn.last_failure() : *manifest_problem;
@@ -234,6 +254,28 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
                                    const std::atomic<bool>& cancel,
                                    const std::function<void(const InstallProgress&)>& on_progress) {
   InstallOutcome outcome;
+  InstallStats stats;
+  const auto initial_cdn = hooks_.cdn_stats ? hooks_.cdn_stats() : CdnStats{};
+  Clock::duration fetch{}, process{}, create{}, write{}, journal_time{}, backoff{};
+  auto phase_start = Clock::now();
+  Clock::time_point download_start{}, last_stats{};
+  bool loop_finished = false;
+  auto emit = [&](const char* phase) {
+    if (!hooks_.stats) return;
+    stats.fetch_ms = Milliseconds(fetch); stats.process_ms = Milliseconds(process);
+    stats.create_ms = Milliseconds(create); stats.write_ms = Milliseconds(write);
+    stats.journal_ms = Milliseconds(journal_time); stats.backoff_ms = Milliseconds(backoff);
+    if (download_start != Clock::time_point{} && !loop_finished)
+      stats.download_ms = Milliseconds(Clock::now() - download_start);
+    if (hooks_.cdn_stats) {
+      const auto current = hooks_.cdn_stats();
+#define CDN_DELTA(field) stats.field = current.field - initial_cdn.field
+      CDN_DELTA(requests); CDN_DELTA(failures); CDN_DELTA(resolve_ms); CDN_DELTA(connect_ms);
+      CDN_DELTA(tls_ms); CDN_DELTA(first_byte_ms); CDN_DELTA(total_ms); CDN_DELTA(new_connections); CDN_DELTA(bytes);
+#undef CDN_DELTA
+    }
+    hooks_.stats(phase, stats);
+  };
   auto fail = [&outcome](InstallError error, const char* detail) {
     outcome.error = error;
     outcome.detail = detail;
@@ -259,11 +301,15 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   }
   if (access.grants.size() != requests.size()) return fail(InstallError::kProtocol, "incomplete depot access");
 
+  stats.access_ms = Milliseconds(Clock::now() - phase_start);
+  phase_start = Clock::now();
   std::vector<ContentServer> servers;
   const auto listed = hooks_.servers(session.cell_id.value_or(0), cancel, &servers);
   if (listed == CdnError::kCanceled) return fail(InstallError::kCanceled, "canceled");
   if (listed != CdnError::kNone || servers.empty()) return fail(InstallError::kNetwork, "no content servers");
 
+  stats.servers_ms = Milliseconds(Clock::now() - phase_start);
+  phase_start = Clock::now();
   trace("manifests");
   // Manifests, in mounting order.
   std::vector<DepotManifest> manifests(access.grants.size());
@@ -291,6 +337,8 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     }
   }
 
+  stats.manifests_ms = Milliseconds(Clock::now() - phase_start);
+  phase_start = Clock::now();
   trace("merge");
   // Later depots replace the same path from earlier ones; identical copies stay with the first.
   std::map<std::string, Placement> placements;
@@ -346,56 +394,92 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   for (const auto& [key, placement] : placements) {
     if (placement.file->is_directory() || placement.file->is_symlink()) continue;
     const auto depot_id = manifests[placement.depot].depot_id;
+    bool pending = placement.file->chunks.empty() && !Exists(target.install_root + "/" + placement.file->path);
     for (const auto& chunk : placement.file->chunks) {
-      if (done.count(JournalKey(depot_id, placement.file->path, chunk.offset))) progress.download_done += chunk.compressed_size;
-      else remaining_bytes += chunk.original_size;
+      if (done.count(JournalKey(depot_id, placement.file->path, chunk.offset))) {
+        progress.download_done += chunk.compressed_size;
+        ++stats.chunks_skipped;
+      } else {
+        remaining_bytes += chunk.original_size;
+        ++stats.chunks_pending;
+        stats.bytes_pending += chunk.compressed_size;
+        pending = true;
+      }
     }
+    if (pending) ++stats.files_pending;
   }
   trace("space");
   if (hooks_.free_bytes(target.install_root) < remaining_bytes + 64ull * 1024 * 1024)
     return fail(InstallError::kNoSpace, "not enough free space");
   if (on_progress) on_progress(progress);
 
+  stats.prepare_ms = Milliseconds(Clock::now() - phase_start);
+  stats.files_total = progress.files_total;
+  stats.download_total = progress.download_total;
+  emit("shape");
   trace("write");
   FILE* journal = std::fopen(journal_path.c_str(), "a");
   if (!journal) return fail(InstallError::kStorage, "cannot write journal");
+  download_start = last_stats = Clock::now();
+  ScopeExit end_stats{[&] { emit("end"); }};
+  auto report_progress = [&] {
+    const auto now = Clock::now();
+    if (now - last_stats >= std::chrono::seconds(60)) { emit("progress"); last_stats = now; }
+  };
   std::size_t server_cursor = 0;
   for (const auto& [key, placement] : placements) {
+    report_progress();
     const auto& file = *placement.file;
     const std::string path = target.install_root + "/" + file.path;
     if (file.is_directory()) {
-      if (!MakeDirs(path)) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create folder"); }
+      if (!Timed(create, [&] { return MakeDirs(path, &stats.folders_created); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create folder"); }
       continue;
     }
     if (file.is_symlink()) continue;  // recorded in the install record; the console has no symlinks
-    if (!MakeDirs(Parent(path))) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create folder"); }
-    if (file.chunks.empty() || !Exists(path)) {
-      if (!EnsureFileSize(path, file.size)) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create file"); }
+    if (!Timed(create, [&] { return MakeDirs(Parent(path), &stats.folders_created); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create folder"); }
+    const bool existed = Exists(path);
+    if (file.chunks.empty() || !existed) {
+      if (!Timed(create, [&] { return EnsureFileSize(path, file.size); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create file"); }
+      if (!existed) ++stats.files_created;
     }
     const auto& grant = access.grants[placement.depot];
     for (const auto& chunk : file.chunks) {
+      report_progress();
       const auto entry = JournalKey(grant.depot_id, file.path, chunk.offset);
       if (done.count(entry)) continue;
       if (cancel.load()) { std::fclose(journal); return fail(InstallError::kCanceled, "canceled"); }
       if (progress.download_done == 0) trace("first-chunk");
       std::vector<std::uint8_t> plain;
+      std::uint64_t compressed_bytes = 0;
       InstallError result = InstallError::kNetwork;
       const auto attempts = static_cast<std::size_t>(kChunkAttempts) * std::max<std::size_t>(1, std::min<std::size_t>(servers.size(), 2));
       for (std::size_t attempt = 0; attempt < attempts; ++attempt) {
+        if (attempt > 0) ++stats.chunk_retries;
         std::vector<std::uint8_t> encrypted;
-        const auto fetched = hooks_.chunk(servers[server_cursor % servers.size()], grant.depot_id, Hex(chunk.sha),
-                                          static_cast<std::size_t>(chunk.compressed_size) + 4096, cancel, &encrypted);
+        const auto fetched = Timed(fetch, [&] {
+          return hooks_.chunk(servers[server_cursor % servers.size()], grant.depot_id, Hex(chunk.sha),
+                              static_cast<std::size_t>(chunk.compressed_size) + 4096, cancel, &encrypted);
+        });
+        report_progress();
         if (fetched == CdnError::kCanceled) { std::fclose(journal); return fail(InstallError::kCanceled, "canceled"); }
         if (fetched != CdnError::kNone) {
           ++server_cursor;
           result = InstallError::kNetwork;
           // 1, 2, 4, 8 s before the next try, so a short CDN outage does not end the download.
-          if (hooks_.pause && attempt + 1 < attempts) hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), cancel);
+          if (hooks_.pause && attempt + 1 < attempts)
+            Timed(backoff, [&] { hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), cancel); });
           continue;
         }
-        const auto processed = ProcessDepotChunk(encrypted, grant.key, chunk.original_size, chunk.crc, chunk.sha, &plain);
-        if (processed == ChunkError::kNone) { result = InstallError::kNone; break; }
+        const auto processed = Timed(process, [&] {
+          return ProcessDepotChunk(encrypted, grant.key, chunk.original_size, chunk.crc, chunk.sha, &plain);
+        });
+        if (processed == ChunkError::kNone) {
+          compressed_bytes = encrypted.size();
+          result = InstallError::kNone;
+          break;
+        }
         ++server_cursor;
+        if (attempt + 1 < attempts) ++stats.corrupt_retries;
         result = InstallError::kCorrupt;
       }
       if (result != InstallError::kNone) {
@@ -406,14 +490,21 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
         return outcome;
       }
       if (progress.download_done == 0) trace("first-write");
-      if (!WriteAt(path, file.size, chunk.offset, plain)) { std::fclose(journal); return fail(InstallError::kStorage, "cannot write file"); }
-      std::fprintf(journal, "%s\n", entry.c_str());
-      std::fflush(journal);
+      if (!Timed(write, [&] { return WriteAt(path, file.size, chunk.offset, plain); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot write file"); }
+      Timed(journal_time, [&] {
+        std::fprintf(journal, "%s\n", entry.c_str());
+        std::fflush(journal);
+      });
+      ++stats.chunks_done;
+      stats.compressed_bytes += compressed_bytes;
+      stats.original_bytes += chunk.original_size;
       progress.download_done += chunk.compressed_size;
       if (on_progress) on_progress(progress);
     }
   }
   std::fclose(journal);
+  stats.download_ms = Milliseconds(Clock::now() - download_start);
+  loop_finished = true;
 
   // Install record, then drop the journal: the record marks a complete, verified install.
   const std::string record_path = target.install_root + "/" + kInstallRecord;

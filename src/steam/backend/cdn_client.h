@@ -18,6 +18,12 @@ struct ContentServer {
   int load = 100;
 };
 
+struct CdnStats {
+  std::uint64_t requests = 0, failures = 0;
+  std::uint64_t resolve_ms = 0, connect_ms = 0, tls_ms = 0, first_byte_ms = 0, total_ms = 0;
+  std::uint64_t new_connections = 0, bytes = 0;
+};
+
 enum class CdnError { kNone, kCanceled, kNetwork, kNotFound, kProtocol };
 
 // Steam CDN access over the verified HTTPS client: the content server list for the account's
@@ -40,6 +46,7 @@ class CdnClient {
   // Bounded by the HTTP client's response cap.
   static constexpr std::size_t kMaxManifestDownloadBytes = kMaxHttpResponseBytes;
   // The last failure as "http=<status>" or "transport=<category>", for sanitized logs.
+  const CdnStats& stats() const { return stats_; }
   const std::string& last_failure() const { return last_failure_; }
 
  private:
@@ -49,6 +56,7 @@ class CdnClient {
   Perform perform_;
   std::unique_ptr<HttpClient> http_;
   std::string last_failure_;
+  CdnStats stats_;
 };
 
 // A host or vhost from the directory may only contain DNS name characters.

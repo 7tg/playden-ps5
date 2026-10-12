@@ -7,8 +7,39 @@
 #include <charconv>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 
 namespace playden::steam {
+std::vector<InstallRequest> ParseInstallRequests(const std::string& text) {
+  std::vector<InstallRequest> requests;
+  std::string_view remaining(text);
+  while (!remaining.empty() && requests.size() < 64) {
+    const auto newline = remaining.find('\n');
+    auto line = remaining.substr(0, newline);
+    remaining = newline == std::string_view::npos ? std::string_view{} : remaining.substr(newline + 1);
+    const auto token = [&line]() {
+      const auto first = line.find_first_not_of(" \t\r\v\f");
+      if (first == std::string_view::npos) { line = {}; return std::string_view{}; }
+      line.remove_prefix(first);
+      const auto end = line.find_first_of(" \t\r\v\f");
+      const auto word = line.substr(0, end);
+      line = end == std::string_view::npos ? std::string_view{} : line.substr(end);
+      return word;
+    };
+    auto id = token();
+    if (id.empty()) continue;
+    InstallRequest request;
+    if (id == "uninstall" || id == "cancel") {
+      request.action = id == "uninstall" ? InstallRequest::Action::kUninstall : InstallRequest::Action::kCancel;
+      id = token();
+    }
+    if (id.empty() || !token().empty()) continue;
+    const auto parsed = std::from_chars(id.data(), id.data() + id.size(), request.app);
+    if (parsed.ec != std::errc{} || parsed.ptr != id.data() + id.size() || request.app == 0) continue;
+    requests.push_back(request);
+  }
+  return requests;
+}
 namespace {
 
 constexpr const char* kRecord = ".playden-install.json";

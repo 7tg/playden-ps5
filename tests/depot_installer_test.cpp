@@ -1,5 +1,6 @@
 #include "steam/backend/depot_chunk.h"
 #include "steam/backend/depot_installer.h"
+#include "steam/backend/steam_install_runner.h"
 
 #include <mbedtls/aes.h>
 #include <mbedtls/sha1.h>
@@ -194,6 +195,126 @@ World MakeWorld() {
   return world;
 }
 
+void CountsActualUsefulCompressedBytes(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  // HTTP permits the advertised size plus padding; a verified body can differ from metadata.
+  for (auto& [id, manifest] : world.manifests)
+    for (auto& file : manifest.files)
+      for (auto& chunk : file.chunks) chunk.compressed_size += 16;
+  auto hooks = world.Hooks();
+  const auto fetch = hooks.chunk;
+  std::uint64_t received = 0;
+  hooks.chunk = [&](const ContentServer& server, std::uint32_t depot, const std::string& sha,
+                    std::size_t cap, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out) {
+    const auto result = fetch(server, depot, sha, cap, cancel, out);
+    if (result == CdnError::kNone) received += out->size();
+    return result;
+  };
+  InstallStats last;
+  hooks.stats = [&](const char* phase, const InstallStats& stats) { if (std::string(phase) == "end") last = stats; };
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  const auto outcome = installer.Run({}, Target(root), cancel);
+  CHECK(outcome.error == InstallError::kNone);
+  CHECK(last.compressed_bytes == received);
+  CHECK(last.compressed_bytes + 3 * 16 == outcome.progress.download_total);
+}
+
+void StorageFailureEndsStats(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  std::filesystem::create_directories(root);
+  std::ofstream(root / "DATA") << "not a directory";
+  auto hooks = world.Hooks();
+  int ends = 0;
+  hooks.stats = [&](const char* phase, const InstallStats&) { if (std::string(phase) == "end") ++ends; };
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kStorage);
+  CHECK(ends == 1);
+}
+
+void StatsAndRemovalLogs(const std::filesystem::path& root) {
+  InstallStats stats;
+  stats.download_ms = 300000; stats.compressed_bytes = 6000000000ull;
+  stats.files_total = 48000; stats.files_created = 48000;
+  const auto line = FormatInstallStats("end", stats);
+  CHECK(line.size() < 480);
+  CHECK(line.find("dl_ms=300000") != std::string::npos && line.find("reuse=0") != std::string::npos);
+  CmClient cm(CmClientHooks{}, cm::DeviceIdentity{});
+  CdnClient cdn([](const HttpRequest&, const std::atomic<bool>&) { return HttpResponse{}; });
+  SteamInstallRunner runner(cm, cdn);
+  int removals = 0;
+  GameId expected_app = 440;
+  const char* expected_ok = "ok=1";
+  runner.SetLog([&](GameId app, const char* step, const char* result, const char* detail) {
+    CHECK(app == expected_app && std::string(step) == "install-removal" && std::string(result) == "done");
+    CHECK(std::string(detail) == expected_ok);
+    ++removals;
+  });
+  CHECK(runner.Remove((root / "440").string()));
+  CHECK(removals == 1);
+  expected_app = 441; expected_ok = "ok=0";
+  std::filesystem::create_directories(root / "441");
+  std::ofstream(root / "441" / "keep.txt") << "unmanaged";
+  CHECK(!runner.Remove((root / "441").string()));
+  CHECK(removals == 2);
+  CHECK(!runner.Remove((root / "account-name").string() + "/.."));
+  CHECK(removals == 2); // no unvalidated path/name is logged
+}
+
+void RunStats(const std::filesystem::path& base) {
+  for (int mode = 0; mode < 3; ++mode) {
+    auto world = MakeWorld();
+    world.manifests[441].files.pop_back(); // two files and three merged chunks
+    world.manifests[442].files[0].path = "data/level.dat"; // stable folder count on either filesystem
+    std::atomic<bool> cancel{false};
+    world.cancel = &cancel;
+    if (mode == 1) world.cancel_after = 1;
+    if (mode == 2) world.corrupt = true;
+    auto hooks = world.Hooks();
+    InstallStats last;
+    int ends = 0, shapes = 0;
+    hooks.stats = [&](const char* phase, const InstallStats& stats) {
+      if (std::string(phase) == "end") { ++ends; last = stats; }
+      if (std::string(phase) == "shape") {
+        ++shapes;
+        if (ends == 0) CHECK(stats.chunks_pending == 3 && stats.files_pending == 2 && stats.files_total == 2);
+      }
+    };
+    CdnStats totals;
+    totals.requests = 100;
+    hooks.cdn_stats = [&] { return totals; };
+    auto fetch = hooks.chunk;
+    hooks.chunk = [&](const ContentServer& server, std::uint32_t depot, const std::string& sha,
+                      std::size_t cap, const std::atomic<bool>& canceled, std::vector<std::uint8_t>* out) {
+      ++totals.requests;
+      if (mode == 0) usleep(600);
+      return fetch(server, depot, sha, cap, canceled, out);
+    };
+    DepotInstaller installer(hooks);
+    auto target = Target(base / std::to_string(mode));
+    const auto outcome = installer.Run({}, target, cancel);
+    CHECK(ends == 1 && shapes == 1 && last.requests == static_cast<std::uint64_t>(world.chunk_calls));
+    CHECK(last.slots == 1 && last.reuse == 0);
+    if (mode == 0) {
+      CHECK(outcome.error == InstallError::kNone && last.chunks_done == 3 && last.files_created == 2);
+      CHECK(last.fetch_ms >= 1); // sub-millisecond chunks accumulate before conversion
+      CHECK(last.original_bytes == 39 && last.folders_created == 1);
+      CHECK(last.compressed_bytes == outcome.progress.download_total);
+    } else if (mode == 1) {
+      CHECK(outcome.error == InstallError::kCanceled && last.chunks_done == 1);
+      CHECK(last.original_bytes > 0 && last.compressed_bytes > 0);
+      cancel = false; world.cancel_after = -1;
+      installer.Run({}, target, cancel);
+      CHECK(ends == 2 && last.chunks_skipped == 1 && last.chunks_done == 2);
+      CHECK(last.files_created <= 1 && last.requests == static_cast<std::uint64_t>(world.chunk_calls - 2));
+    } else {
+      CHECK(outcome.error == InstallError::kCorrupt && last.chunks_done == 0);
+      CHECK(last.compressed_bytes == 0 && last.original_bytes == 0 && last.corrupt_retries == 5);
+    }
+  }
+}
+
 void InstallsMergedDepotsAndWritesRecord(const std::filesystem::path& root) {
   auto world = MakeWorld();
   DepotInstaller installer(world.Hooks());
@@ -312,6 +433,10 @@ void RemovesOnlyManagedFolders(const std::filesystem::path& base) {
 int main() {
   const auto base = std::filesystem::temp_directory_path() / ("playden-installer-test-" + std::to_string(::getpid()));
   std::filesystem::remove_all(base);
+  CountsActualUsefulCompressedBytes(base / "actual-compressed");
+  StorageFailureEndsStats(base / "storage-stats");
+  StatsAndRemovalLogs(base / "removal");
+  RunStats(base / "stats");
   InstallsMergedDepotsAndWritesRecord(base / "install");
   ResumesWithoutRefetchingFinishedChunks(base / "resume");
   RefusesWhenSpaceIsShort(base / "space");

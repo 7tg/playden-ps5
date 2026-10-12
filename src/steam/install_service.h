@@ -17,6 +17,14 @@
 
 namespace playden::steam {
 
+struct InstallRequest {
+  enum class Action { kInstall, kUninstall, kCancel };
+  Action action = Action::kInstall;
+  std::uint32_t app = 0;
+};
+// Development request file: strict app IDs, preserving command order, at most 64 commands.
+std::vector<InstallRequest> ParseInstallRequests(const std::string& text);
+
 enum class InstallJobState { kQueued, kRunning, kPaused, kFailed };
 
 // A place games can be installed: a folder on one drive. `available` means the folder exists and

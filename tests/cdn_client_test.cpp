@@ -15,6 +15,24 @@ HttpResponse Body(long status, const std::string& text) {
   return response;
 }
 
+void TotalsIncludeFailedRequests() {
+  int calls = 0;
+  CdnClient client([&](const HttpRequest&, const std::atomic<bool>&) {
+    auto response = Body(++calls == 1 ? 200 : 503, "payload");
+    response.timing = {1, 2, 3, 4, 5, 1, 7};
+    return response;
+  });
+  std::atomic<bool> cancel{false};
+  std::vector<std::uint8_t> out;
+  ContentServer server{"h.example.invalid", "v.example.invalid", 1};
+  assert(client.Chunk(server, 1, std::string(40, 'a'), 1024, cancel, &out) == CdnError::kNone);
+  assert(client.Chunk(server, 1, std::string(40, 'a'), 1024, cancel, &out) == CdnError::kNetwork);
+  const auto& stats = client.stats();
+  assert(stats.requests == 2 && stats.failures == 1 && stats.bytes == 14);
+  assert(stats.resolve_ms == 2 && stats.connect_ms == 4 && stats.tls_ms == 6);
+  assert(stats.first_byte_ms == 8 && stats.total_ms == 10 && stats.new_connections == 2);
+}
+
 void ServersFilterAndSortByLoad() {
   std::vector<std::string> urls;
   CdnClient client([&](const HttpRequest& request, const std::atomic<bool>&) {
@@ -61,6 +79,7 @@ void ManifestAndChunkUrlsAndErrors() {
 }  // namespace
 
 int main() {
+  TotalsIncludeFailedRequests();
   ServersFilterAndSortByLoad();
   ManifestAndChunkUrlsAndErrors();
 }

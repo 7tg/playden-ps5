@@ -139,27 +139,31 @@ struct UsbKeyboard {
 
 std::string title_root = "/app0";
 std::string log_root = "/app0/logs";
-// Development aid for unattended console runs: /app0/dev/install-request.txt holding Steam app
-// IDs, one per line, queues those installs once. Nothing in the UI triggers it. The file stays
-// until Playden can queue them (its game runtime started); each ID is logged in install.log.
-std::vector<std::uint32_t> take_install_requests(bool runtime_ready) {
+// Development requests are processed in file order on the first frame.
+std::vector<playden::steam::InstallRequest> take_install_requests(bool runtime_ready) {
     const std::string request_path = title_root + "/dev/install-request.txt";
-    std::vector<std::uint32_t> apps;
     FILE* request = std::fopen(request_path.c_str(), "r");
-    if (!request) return apps;
+    if (!request) return {};
+    std::string text;
     char line[64] = {};
-    while (apps.size() < 64 && std::fgets(line, sizeof(line), request))
-        if (const auto app = static_cast<std::uint32_t>(std::strtoul(line, nullptr, 10))) apps.push_back(app);
+    while (text.size() < 4096 && std::fgets(line, sizeof(line), request)) {
+        // Reject an overlong line rather than executing its truncated prefix.
+        if (!std::strchr(line, '\n') && !std::feof(request)) {
+            int value;
+            while ((value = std::fgetc(request)) != '\n' && value != EOF) {}
+            continue;
+        }
+        text += line;
+    }
     std::fclose(request);
+    const auto requests = playden::steam::ParseInstallRequests(text);
     if (!runtime_ready) {
         playden::app::AppendLogLine(log_root, "install.log", "install-request kept: the game runtime is not available (" +
-                                                                 std::to_string(apps.size()) + " app ids)");
+                                                                 std::to_string(requests.size()) + " commands)");
         return {};
     }
     std::remove(request_path.c_str());
-    for (const auto app : apps)
-        playden::app::AppendLogLine(log_root, "install.log", "install-request queued app=" + std::to_string(app));
-    return apps;
+    return requests;
 }
 }  // namespace
 
@@ -269,8 +273,11 @@ int main() {
         playden::steam::CdnClient install_cdn(paths.trust_store);
         playden::steam::SteamInstallRunner install_runner(install_cm, install_cdn);
         install_runner.SetLog([](playden::GameId app, const char* step, const char* category, const char* detail) {
-            char line[320];
-            std::snprintf(line, sizeof(line), "app=%u step=%s result=%s detail=%s", app, step, category, detail);
+            char line[640];
+            if (std::string(step) == "install-removal")
+                std::snprintf(line, sizeof(line), "install-removal done app=%u %s", app, detail);
+            else
+                std::snprintf(line, sizeof(line), "app=%u step=%s result=%s detail=%s", app, step, category, detail);
             playden::app::AppendLogLine(log_root, "install.log", line);
         });
         playden::LocalSessionRepository install_sessions(paths.steam_state_root);
@@ -488,7 +495,15 @@ int main() {
                 presented = true;
                 playden::app::AppendLogLine(log_root, "launch.log", "first frame presented");
 #if !PLAYDEN_UI_SIMULATION
-                for (const auto app : take_install_requests(native_access.runtime_ready)) installs.Install(app);
+                for (const auto& request : take_install_requests(native_access.runtime_ready)) {
+                    using Action = playden::steam::InstallRequest::Action;
+                    const char* action = "queued";
+                    if (request.action == Action::kUninstall) { action = "uninstall"; installs.Uninstall(request.app); }
+                    else if (request.action == Action::kCancel) { action = "cancel"; installs.Cancel(request.app); }
+                    else installs.Install(request.app);
+                    playden::app::AppendLogLine(log_root, "install.log", "install-request " + std::string(action) +
+                                               " app=" + std::to_string(request.app));
+                }
 #endif
             }
             // Work advances only through the documented manual fixture clock.

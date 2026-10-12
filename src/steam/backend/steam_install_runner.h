@@ -7,6 +7,8 @@
 
 namespace playden::steam {
 
+std::string FormatInstallStats(const char* phase, const InstallStats& stats);
+
 // Installs a Steam game: PICS app info for the depot selection (Windows, English, public
 // branch), then the resumable depot installer.
 class SteamInstallRunner final : public InstallRunner {
@@ -15,12 +17,18 @@ class SteamInstallRunner final : public InstallRunner {
   Result Install(const StoredSession& session, GameId id, const std::string& root,
                  const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t)>& progress) override;
-  bool Remove(const std::string& root) override { return RemoveManagedInstall(root); }
+  bool Remove(const std::string& root) override;
   // Optional sanitized log: the Steam app ID, step, error category and a short detail; never
   // tokens or account identifiers. Called on the install worker.
   using LogFn = std::function<void(GameId app, const char* step, const char* category, const char* detail)>;
   void SetLog(LogFn log) {
     log_ = log;
+    installer_.SetStats([this, log](const char* phase, const InstallStats& stats) {
+      if (log) {
+        const auto detail = FormatInstallStats(phase, stats);
+        log(current_app_.load(), "stats", phase, detail.c_str());
+      }
+    });
     installer_.SetTrace([this, log](const char* step) { if (log) log(current_app_.load(), "trace", step, ""); });
   }
 

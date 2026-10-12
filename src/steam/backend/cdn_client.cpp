@@ -45,6 +45,15 @@ CdnError CdnClient::Get(const std::string& url, std::size_t max_bytes, std::uint
     response = http_->Perform(request, cancel);
   }
   const auto error = FromHttp(response);
+  ++stats_.requests;
+  if (error != CdnError::kNone) ++stats_.failures;
+  stats_.resolve_ms += response.timing.resolve_ms;
+  stats_.connect_ms += response.timing.connect_ms;
+  stats_.tls_ms += response.timing.tls_ms;
+  stats_.first_byte_ms += response.timing.first_byte_ms;
+  stats_.total_ms += response.timing.total_ms;
+  stats_.new_connections += response.timing.new_connections;
+  stats_.bytes += response.timing.body_bytes;
   if (error == CdnError::kNone) {
     *out = std::move(response.body);
   } else {

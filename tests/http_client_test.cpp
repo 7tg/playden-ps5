@@ -43,6 +43,9 @@ int main(int argc, char** argv) {
   Check(response.ok(), "verified GET should succeed");
   Check(response.status_code == 200, "GET should retain HTTP status");
   Check(Text(response.body) == "fixture-ok", "GET should retain response bytes");
+  Check(response.timing.new_connections == 1, "GET should measure a fresh connection");
+  Check(response.timing.resolve_ms == 0, "host has no native resolution phase");
+  Check(response.timing.total_ms > 0 && response.timing.body_bytes == 10, "GET should measure time and bytes");
   bool found_result = false;
   for (const auto& header : response.headers)
     found_result |= header.first == "X-ErEsUlT" && header.second == "42";
@@ -62,6 +65,7 @@ int main(int argc, char** argv) {
   timeout.timeout_ms = 100;
   auto started = std::chrono::steady_clock::now();
   response = client.Perform(timeout, cancel);
+  Check(response.timing.total_ms > 0, "failure should preserve timing");
   Check(response.error == HttpError::kTimeout, "slow response should time out");
   Check(std::chrono::steady_clock::now() - started < std::chrono::milliseconds(500),
         "timeout should be enforced near its deadline");

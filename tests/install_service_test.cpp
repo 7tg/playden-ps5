@@ -95,6 +95,17 @@ bool Installed(const InstallSnapshot& snapshot, GameId id) {
 }  // namespace
 
 int main() {
+  const auto requests = ParseInstallRequests("uninstall 439490\n439490\ncancel 108600\n108600\n");
+  CHECK(requests.size() == 4);
+  CHECK(requests[0].action == InstallRequest::Action::kUninstall && requests[0].app == 439490);
+  CHECK(requests[1].action == InstallRequest::Action::kInstall && requests[1].app == 439490);
+  CHECK(requests[2].action == InstallRequest::Action::kCancel && requests[2].app == 108600);
+  CHECK(requests[3].action == InstallRequest::Action::kInstall && requests[3].app == 108600);
+  CHECK(ParseInstallRequests("0\n-1\n4294967296\n12x\nuninstall 12 extra\nunknown 12\n").empty());
+  CHECK(ParseInstallRequests("  cancel 42  \r\n")[0].app == 42);
+  std::string many_requests;
+  for (int app = 1; app <= 70; ++app) many_requests += std::to_string(app) + "\n";
+  CHECK(ParseInstallRequests(many_requests).size() == 64);
   {
     // Installed records must survive removal of the title's /app0 view.
     const auto stable = std::filesystem::temp_directory_path() /
