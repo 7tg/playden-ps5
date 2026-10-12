@@ -158,6 +158,25 @@ int main(int argc,char** argv) {
       assert(live.action("focus:kept-toggle-43") && live.action("cross"));
       capture_live("kept-manager.png");
     }
+    {
+      // Rate and remaining time share the downloaded-size baseline, aligned to the card's right edge.
+      Simulation downloads({}, {}, ModelMode::Live);
+      downloads.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
+      assert(downloads.UpdateLibrary({backend.games,false,{},false,false,{}}));
+      LiveInstallJob job{42, JobState::Downloading, 47ULL << 30, 59ULL << 30, {}, "internal"};
+      job.bytes_per_second = 40'055'603; // 38.2 MiB/s in the UI's existing size convention.
+      job.eta_seconds = 300;
+      downloads.UpdateInstalls({job}, {});
+      while(downloads.state().navigation.route != Route::Downloads) assert(downloads.action("r1"));
+      auto capture_download = [&](const char* name) {
+        for(int i=0;i<16;++i) renderer.draw(downloads,1920,1080);
+        assert(renderer.capture_png(output/name,1920,1080));
+      };
+      capture_download("download-rate-eta.png");
+      job.state = JobState::Paused;
+      downloads.UpdateInstalls({job}, {});
+      capture_download("download-rate-paused.png");
+    }
     model.UpdateAccount({AuthState::Offline,"123","Synthetic account",{},{},true});
     controller.Activate(123,true);settle();
     assert(model.state().games.size()==3 && model.state().library_offline);
