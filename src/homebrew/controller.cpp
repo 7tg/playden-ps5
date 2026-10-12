@@ -962,8 +962,6 @@ void Controller::TickRuntime() {
                       snapshot.status == RuntimeHostStatus::kReady;
       game.settings_revision = record->settings_revision;
       game.launch_entry_id = record->launch_entry_id;
-      game.launch_path = record->launch_path;
-      game.launch_working_directory = record->launch_working_directory;
       game.save_backups = record->save_backups;
       game.latest_save_backup = record->latest_save_backup;
     }

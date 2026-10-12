@@ -58,15 +58,15 @@ std::vector<SettingDefinition> BuildCatalogue() {
   using T = SettingTier;
   std::vector<SettingDefinition> list;
   // Settings (T1).
-  // The launch entry is part of a prepared title's identity, so a new one needs the bottle made again.
-  // Its picker also lists the game folder's programs, which set "program".
+  // A new program or folder applies like other settings: applying them switches the prepared
+  // title's program (RuntimeHost::RepublishSettings). The picker also lists the game folder's
+  // programs, which set "program".
   list.push_back(Choice("launch_option", "Program", "Which program starts when you press Play.",
-                        "Steam launch option · [application] executable", T::kBasic, {}, "", 1, ApplyMode::kPreparesBottle));
+                        "Steam launch option · [application] executable", T::kBasic, {}, "", 1));
   {
     // Not a row of its own: the Program picker sets it to a program from the game folder.
     auto program = Text("program", "Program file", "A program from the game folder instead of a launch option.",
                         "[application] executable", T::kBasic);
-    program.apply = ApplyMode::kPreparesBottle;
     list.push_back(std::move(program));
   }
   list.push_back(Choice("resolution", "Resolution", "Size of the game's screen. Higher is sharper and slower.",
@@ -214,7 +214,7 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         ".NET · shared section", T::kCompatibility,
                         {{"stop", "Don't start", "Playden stops before a program it expects to fail."},
                          {"try", "Try anyway", "Prepares the game anyway. It may not start."}},
-                        "stop", 1, ApplyMode::kPreparesBottle));
+                        "stop", 1));
   list.push_back(Choice("logging", "Logging", "How much detail goes into the game's log file.", "WINEDEBUG",
                         T::kCompatibility,
                         {{"normal", "Normal", "Errors and loaded modules."},
@@ -233,7 +233,6 @@ std::vector<SettingDefinition> BuildCatalogue() {
     auto folder = Text("program_folder", "Program folder",
                        "Folder the program starts in, inside the game folder. Empty: the program's own folder.",
                        "[application] working_directory", T::kAdvanced);
-    folder.apply = ApplyMode::kPreparesBottle;
     list.push_back(std::move(folder));
   }
   list.push_back(Text("program_arguments", "Program arguments", "The program's own arguments, as Steam lists them.",

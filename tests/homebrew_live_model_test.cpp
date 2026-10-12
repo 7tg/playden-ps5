@@ -307,135 +307,80 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
 }
 
 
-// A program chosen after the title was made starts only once the bottle is made again: closing
-// Game settings offers Recreate bottle, the game page says so, and Play offers it again.
-void live_program_change_offers_recreate_bottle(const std::filesystem::path& base) {
+// A new program applies like any other setting: closing Game settings asks the runtime to apply
+// it (RuntimeHost::RepublishSettings switches the prepared title's program), with no dialog, and
+// Play starts at once. Reset to recipe goes back to Steam's launch option.
+void live_program_change_applies_like_other_settings(const std::filesystem::path& base) {
     using playden::homebrew::GameId;
     using playden::homebrew::MaintenanceKind;
     using playden::homebrew::TitleActivity;
     using Requests = std::vector<std::pair<GameId, MaintenanceKind>>;
     std::filesystem::create_directories(base);
     auto model = make_live(base);
-    model.SetGameSettingsFile(base / "recreate-settings.json");
+    model.SetGameSettingsFile(base / "program-settings.json");
     model.SetSettingsData({{"playden-default", "Playden default", "Most games", "", {}}}, {});
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
     playden::GameSummary game;
     game.id = 22380;
     game.title = "Fallout: New Vegas";
-    check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "recreate: library delivered");
+    check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "program: library delivered");
     model.UpdateInstalls({}, {{22380, 1024, "internal", true}});
-    // Prepared from Steam's launch option, the launcher, as on the console.
+    // Prepared for a program picked earlier, so the recipe lists it first, as on the console.
     playden::runtime::GameRecipe recipe;
     recipe.id = playden::runtime::GeneratedRecipeId(22380);
     recipe.version = 2;
     recipe.app_id = 22380;
     recipe.name = game.title;
-    recipe.launch_entries = {{"launch-1", "Fallout: New Vegas", "FalloutNVLauncher.exe", "", ""}};
+    recipe.launch_entries = {{"program", "FalloutNV.exe", "FalloutNV.exe", "", ""},
+                             {"launch-1", "Fallout: New Vegas", "FalloutNVLauncher.exe", "", ""}};
     model.SetGeneratedRecipes({recipe});
     std::map<GameId, playden::homebrew::LiveGameSetup> setups;
     setups[22380].scanned = true;
-    setups[22380].programs = {{"FalloutNV.exe", "pe32", "", false, ""}, {"Other/Other.exe", "pe32", "", false, ""}};
+    setups[22380].programs = {{"FalloutNV.exe", "pe32", "", false, ""},
+                              {"FalloutNVLauncher.exe", "pe32", "", false, ""},
+                              {"Redists/vcredist_x86.exe", "pe32", "", false, ""}};
     model.SetGameSetups(setups);
     playden::homebrew::LiveRuntimeGame runtime;
     runtime.game_id = 22380;
     runtime.status = "Ready";
     runtime.ready = runtime.prepared = runtime.has_title = runtime.can_play = true;
     runtime.launch_entry_id = "launch-1";
-    runtime.launch_path = "FalloutNVLauncher.exe";
     runtime.activity = TitleActivity::Stopped;
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
-    check(model.action("details:22380"), "recreate: open details");
-    const auto marked = [&] {
-        return find_row(model, "details-runtime")->subtitle == "Settings apply when the bottle is prepared again";
-    };
-    check(!marked(), "recreate: an unchanged bottle is not marked");
+    check(model.action("details:22380"), "program: open details");
 
+    // The Program picker lists each program once: Steam's launcher as its entry, the earlier pick as
+    // the folder program it is, and the subtitle names the default by its label.
     activate(model, "details-more");
     activate(model, "game-settings");
     (void)model.TakeActivityRequests();
     activate(model, "setting-launch_option");
-    activate(model, "program-0");
-    check(find_row(model, "setting-launch_option")->subtitle.rfind("Takes effect after Maintenance > Recreate bottle.", 0) == 0,
-          "recreate: the Program row says the new program waits for Recreate bottle");
-    check(model.action("circle"), "recreate: close the settings sheet");
-    check(!model.state().navigation.modals.empty() &&
-              model.state().navigation.modals.back().title == "Recreate the bottle now?",
-          "recreate: closing the sheet offers Recreate bottle");
-    check(model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
-          "recreate: the other settings are still applied");
-    activate(model, "ready-later");
-    check(model.state().navigation.modals.empty() && model.TakeMaintenanceRequests().empty(),
-          "recreate: Later leaves the bottle as it is");
-    check(marked(), "recreate: the game page marks the pending settings");
-    activate(model, "details-more");
-    activate(model, "game-settings");
-    activate(model, "setting-resolution");
-    activate(model, "choice-0");
-    check(model.action("circle") && model.state().navigation.modals.empty(),
-          "recreate: after Later, other changes do not offer it again");
-    (void)model.TakeMaintenanceRequests();
-
-    activate(model, "details-play");
-    check(model.state().navigation.modals.back().title == "Recreate the bottle first?" &&
-              model.TakeRuntimePlayRequests().empty(),
-          "recreate: Play offers Recreate bottle instead of starting the old program");
-    activate(model, "runtime-play-anyway");
-    check(model.TakeRuntimePlayRequests() == std::vector<GameId>{22380}, "recreate: Play anyway starts the prepared bottle");
-
-    activate(model, "details-play");
-    runtime.activity = TitleActivity::Running;
-    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
-    activate(model, "bottle-recreate");
-    check(model.TakeMaintenanceRequests().empty() && !model.state().navigation.modals.empty(),
-          "recreate: a running game keeps the offer open");
-    runtime.activity = TitleActivity::Stopped;
-    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
-    activate(model, "bottle-recreate");
-    check(model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::RecreateBottle}},
-          "recreate: the offer recreates the bottle");
-
-    // Made for the chosen program: nothing pending. Another program from the folder is pending again.
-    runtime.launch_entry_id = "program";
-    runtime.launch_path = "FalloutNV.exe";
-    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
-    check(!marked(), "recreate: a title made for the chosen program is not marked");
-    activate(model, "details-play");
-    check(model.TakeRuntimePlayRequests() == std::vector<GameId>{22380}, "recreate: Play starts it at once");
-    runtime.launch_path = "Other/Other.exe";
-    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
-    check(marked(), "recreate: one folder program replacing another is marked too");
-
-    // Recreated for the chosen program, the recipe lists it first. Reset to recipe goes back to Steam's
-    // launch option, which the next preparation makes, so it needs the bottle made again too.
-    recipe.launch_entries.insert(recipe.launch_entries.begin(), {"program", "FalloutNV.exe", "FalloutNV.exe", "", ""});
-    model.SetGeneratedRecipes({recipe});
-    runtime.launch_path = "FalloutNV.exe";
-    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
-    check(!marked(), "recreate: the recreated bottle matches the settings");
-    activate(model, "details-more");
-    activate(model, "game-settings");
-    activate(model, "setting-launch_option");
-    activate(model, "value-reset");
-    check(model.action("circle") && !model.state().navigation.modals.empty() &&
-              model.state().navigation.modals.back().title == "Recreate the bottle now?",
-          "recreate: Reset to recipe offers Recreate bottle");
-
-    // The Program picker lists each program once: Steam's launcher as its entry, the earlier pick as
-    // the folder program it is, and the subtitle names the default by its label.
-    activate(model, "ready-later");
-    setups[22380].programs = {{"FalloutNV.exe", "pe32", "", false, ""},
-                              {"FalloutNVLauncher.exe", "pe32", "", false, ""},
-                              {"Redists/vcredist_x86.exe", "pe32", "", false, ""}};
-    model.SetGameSetups(setups);
-    activate(model, "details-more");
-    activate(model, "game-settings");
-    activate(model, "setting-launch_option");
     check(!find_row(model, "choice-0") && find_row(model, "choice-1") && find_row(model, "program-0") &&
               !find_row(model, "program-1") && find_row(model, "program-2"),
           "picker: no program is listed twice");
-    check(model.view().subtitle.find("launch-1") == std::string::npos &&
-              model.view().subtitle.find("Fallout: New Vegas") != std::string::npos,
-          "picker: the default is named by its label");
+    check(model.view().subtitle.find("Recreate") == std::string::npos, "program: no Recreate bottle is needed");
+    activate(model, "program-0");
+    check(find_row(model, "setting-launch_option")->badge.empty() &&
+              find_row(model, "setting-launch_option")->value == "FalloutNV.exe",
+          "program: the Program row is an ordinary setting");
+    check(model.action("circle") && model.state().navigation.modals.empty(), "program: closing the sheet asks nothing");
+    check(model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
+          "program: closing the sheet applies the new program");
+    activate(model, "details-play");
+    check(model.state().navigation.modals.empty() && model.TakeRuntimePlayRequests() == std::vector<GameId>{22380},
+          "program: Play starts at once");
+
+    // Reset to recipe goes back to Steam's launch option, not the program the recipe lists first.
+    activate(model, "details-more");
+    activate(model, "game-settings");
+    activate(model, "setting-launch_option");
+    check(model.view().subtitle.find("Your choice: FalloutNV.exe. Applies on next launch.") != std::string::npos,
+          "picker: the choice is named by its program, not its id, and applies on next launch");
+    activate(model, "value-reset");
+    check(find_row(model, "setting-launch_option")->value == "Fallout: New Vegas", "program: reset goes back to Steam's");
+    check(model.action("circle") && model.state().navigation.modals.empty() &&
+              model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
+          "program: the reset applies the same way");
 }
 
 } // namespace
@@ -448,7 +393,7 @@ int main() {
 
     settings_survive_account_restore_and_cache_action_is_honest(base);
     live_settings_follow_the_prepared_title(base);
-    live_program_change_offers_recreate_bottle(base);
+    live_program_change_applies_like_other_settings(base);
     live_starts_clean_and_never_reads_or_writes_fixtures(base);
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);

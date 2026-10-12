@@ -347,7 +347,7 @@ int main(int argc, char** argv) {
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"windows_version", "win7"}, {"text_scale", "120"},
         {"registry_dll_overrides", "winmm=d"}}, every, &settings, &error));
     CHECK(RenderRegistryValues(settings).size() <= 2);
-    CHECK(FindSetting("launch_option")->apply == ApplyMode::kPreparesBottle);
+    CHECK(FindSetting("launch_option")->apply == ApplyMode::kNextLaunch);
     CHECK(FindSetting("locale")->apply == ApplyMode::kGameClosed);
   }
   CHECK(BuildEffectiveSettings(hl2, nullptr, tuning, tuning_kit, &settings, &error));
