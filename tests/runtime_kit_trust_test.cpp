@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
   CHECK(lock && lock->is_object());
   const auto& kit = Get(*lock, "prospero_kit");
   const auto field = [&](const char* name) { return Get(kit, name).text(); };
-  const auto config = DevelopmentKitAdmission("13.60");
+  const auto config = DevelopmentKitAdmission();
   CHECK(field("kit_id") == kDevelopmentKitId && field("console_root") == kDevelopmentKitRoot);
   CHECK(field("manifest_sha256") == config.expected_manifest_sha256);
   // Everything the tested kit offers is something this build can use.
@@ -53,9 +53,6 @@ int main(int argc, char** argv) {
         std::vector<std::string>{"any-title-" + field("wrapper_revision").substr(0, 7)});
   CHECK(admitted.view->variants.size() == 1 && admitted.view->variants.front().any_title);
   CHECK(KitVariantFor(*admitted.view, "FAKE78011") == &admitted.view->variants.front());
-  // Unknown or other firmware is refused.
-  CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitAdmission("")).status != KitManifestStatus::kVerified);
-  CHECK(VerifyInstalledKit(std::filesystem::canonical(root), DevelopmentKitAdmission("12.02")).status != KitManifestStatus::kVerified);
   std::puts("development kit admitted and recognised as the expected kit");
   return 0;
 }

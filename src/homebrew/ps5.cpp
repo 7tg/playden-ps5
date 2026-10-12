@@ -303,8 +303,7 @@ int main() {
                 const auto firmware = playden::ps5::ConsoleFirmwareVersion();
                 playden::app::AppendLogLine(log_root, "runtime.log", "console_firmware=" + firmware.value_or("unknown") + " " +
                     playden::ps5::ConsoleFirmwareDiagnostics());
-                if (!firmware) { *reason = "The console firmware version is unknown."; return std::nullopt; }
-                const auto admission = rt::DevelopmentKitAdmission(*firmware);
+                const auto admission = rt::DevelopmentKitAdmission();
                 auto admitted = rt::VerifyInstalledKit(rt::kDevelopmentKitRoot, admission);
                 std::string ignored;
                 for (const auto& name : admitted.ignored_capabilities) ignored += (ignored.empty() ? "" : ",") + name;

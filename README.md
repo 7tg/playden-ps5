@@ -66,8 +66,8 @@ you sign in:
 
 ## Requirements
 
-- **A PS5 on firmware 13.60, jailbroken** (for example with the WebKit autoloader). Other firmware versions are
-  untested.
+- **A jailbroken PS5** (for example with the WebKit autoloader). We test on firmware 13.60. Playden does not block
+  other firmware versions, but they are untested. Please give your firmware in a test report.
 - **These payloads loaded after each boot:**
   - [kstuff](https://github.com/EchoStretch/kstuff-lite) — required. Without it, every game fails with error
     CE-100008-9.

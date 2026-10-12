@@ -181,7 +181,6 @@ struct Fixture {
     Write(root / "titles/variant/sce_sys/param.json", "{\"titleId\":\"FAKE78001\"}");
     RefreshInnerManifests();
 
-    trust.current_firmware = "12.02";
     trust.required_architecture = "x86_64+wow64-i386";
     trust.known_capabilities = {"wine-wow64", "ps5-audio"};
     trust.hash_file = HashFile;
@@ -528,8 +527,9 @@ int main() {
     assert(fixture.Verify().status == KitManifestStatus::kVerified);
   }
   {
+    // Any console firmware is admitted; the kit's list is only what it was tested on.
     Fixture fixture; fixture.RewriteManifest("99.99");
-    CheckRejected(fixture.Verify(), KitManifestStatus::kUnsupportedFirmware);
+    assert(fixture.Verify().status == KitManifestStatus::kVerified);
   }
   {
     Fixture fixture; fixture.RewriteManifest("12.02", "../escape");

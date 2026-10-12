@@ -14,8 +14,7 @@ inline constexpr const char* kDevelopmentKitRoot = "/data/playden/kits/hl2-fw136
 inline constexpr const char* kExpectedKitManifestSha256 =
     "489927f2ef378ebed18be1e611173ef2878a712bf8bb27eef5c6fc6a87f0c24e";
 
-// What this build accepts from a kit. current_firmware is the running console's
-// version (for example "13.60"); an empty value never matches.
-KitAdmissionConfig DevelopmentKitAdmission(const std::string& current_firmware);
+// What this build accepts from a kit, on any console firmware.
+KitAdmissionConfig DevelopmentKitAdmission();
 
 }  // namespace playden::runtime

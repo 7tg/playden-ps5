@@ -43,7 +43,7 @@ This guide covers setup, builds, tests, running on a console, and how to change 
 - About 2 GB of free space for `deps/` and `build/`.
 - A checkout path without symbolic links. Playden refuses symlinked paths when it reads its data, so two tests fail
   in a link such as macOS `/tmp` (use `/private/tmp` or a folder in your home directory).
-- For console work: a PS5 on firmware 13.60 with a jailbreak (see [Running on a console](#running-on-a-console)).
+- For console work: a jailbroken PS5, preferably on firmware 13.60, the version we test on (see [Running on a console](#running-on-a-console)).
 
 ## Get the source
 
@@ -98,7 +98,7 @@ the input changed. The PS5 build is reproducible, so the same sources give the s
 
 You need:
 
-- A PS5 on firmware 13.60, jailbroken (for example with the WebKit autoloader).
+- A jailbroken PS5 (for example with the WebKit autoloader). We test on firmware 13.60; other versions are untested.
 - These payloads loaded after each boot. The versions are the ones we test with:
 
   | Payload | Version | What it is for |

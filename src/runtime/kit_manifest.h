@@ -21,7 +21,6 @@ namespace playden::runtime {
 struct KitAdmissionConfig {
   // The kit this build was tested with: shown next to the installed one, never required.
   std::string expected_manifest_sha256;
-  std::string current_firmware;
   std::string required_architecture = "x86_64+wow64-i386";
   // Capabilities Playden can use; a kit's other capabilities are ignored.
   std::vector<std::string> known_capabilities;
@@ -38,9 +37,9 @@ enum class KitManifestStatus {
   kIntegrityFailure,
   kUnsupportedSchema,
   kUnsupportedKit,
-  kUnsupportedFirmware,
-  kUnsupportedArchitecture,
-  kUnsupportedSource,
+  // Values are logged as numbers; 5 was the firmware check, removed when any firmware was allowed.
+  kUnsupportedArchitecture = 6,
+  kUnsupportedSource = 7,
 };
 
 struct KitManifestResult {

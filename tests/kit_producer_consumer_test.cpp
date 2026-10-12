@@ -8,7 +8,6 @@ int main(int argc, char** argv) {
   if (argc != 3) return 2;
   using namespace playden::runtime;
   KitAdmissionConfig config;
-  config.current_firmware = "13.60";
   config.expected_manifest_sha256 = argv[2];
   config.known_capabilities = {"per_game_title", "offline_bottle", "wow64_i386", "dxvk"};
   const auto result = VerifyInstalledKit(argv[1], config);

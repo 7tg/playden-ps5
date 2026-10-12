@@ -266,16 +266,13 @@ class Verifier {
     const auto* capabilities = Field(*manifest_, "capabilities", Json::Type::kArray);
     if (!kit_id || !Identifier(kit_id->text()) || !firmware || firmware->array().empty() || !capabilities)
       return Failure(KitManifestStatus::kMalformed, "kit identity, firmware, or capabilities are malformed");
-    bool firmware_supported = false;
+    // The firmware a kit was tested on, for display; any firmware is admitted.
     std::set<std::string> seen;
     for (const auto& item : firmware->array()) {
       if (!item.is_string() || item.text().empty() || !seen.insert(item.text()).second)
         return Failure(KitManifestStatus::kMalformed, "firmware entries must be unique non-empty strings");
       result_.firmware.push_back(item.text());
-      firmware_supported |= item.text() == config_.current_firmware;
     }
-    if (!firmware_supported)
-      return Failure(KitManifestStatus::kUnsupportedFirmware, "current firmware is not declared supported by this kit");
     seen.clear();
     std::vector<std::string> declared;
     for (const auto& item : capabilities->array()) {
