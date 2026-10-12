@@ -31,4 +31,16 @@ int main() {
   CHECK(rate.Estimate(11000, 6, std::numeric_limits<std::uint64_t>::max()).eta_seconds == std::numeric_limits<int>::max());
   rate.Record(10, 500); // a changed clock resets too
   CHECK(!rate.Estimate(500, 10, 20).bytes_per_second);
+  // A steady 10 MB/s reads as about 10 MB/s whatever the time within the second.
+  DownloadRate steady;
+  steady.Record(0, 0);
+  std::uint64_t done = 0;
+  for (std::int64_t now = 100; now <= 12900; now += 100) {
+    done += 1000000;
+    steady.Record(done, now);
+    if (now >= 10000) {
+      const auto speed = *steady.Estimate(now, done, done * 2).bytes_per_second;
+      CHECK(speed >= 9500000 && speed <= 10500000);
+    }
+  }
 }

@@ -31,7 +31,9 @@ class DownloadRate {
     for (const auto& bucket : buckets_)
       if (bucket.second >= 0 && now >= bucket.second * 1000 && now - bucket.second * 1000 < 5000)
         bytes += bucket.bytes;
-    const auto elapsed = std::min<std::int64_t>(5000, now - start_ms_);
+    // The counted buckets start at a whole second, so they span 4 to 5 seconds, not always 5.
+    const auto window = 4000 + now % 1000;
+    const auto elapsed = std::min<std::int64_t>(window, now - start_ms_);
     const long double per_second = static_cast<long double>(bytes) * 1000 / elapsed;
     DownloadEstimate result;
     result.bytes_per_second = per_second >= std::numeric_limits<std::uint64_t>::max()
