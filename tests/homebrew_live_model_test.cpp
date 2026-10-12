@@ -419,6 +419,23 @@ void live_program_change_offers_recreate_bottle(const std::filesystem::path& bas
     check(model.action("circle") && !model.state().navigation.modals.empty() &&
               model.state().navigation.modals.back().title == "Recreate the bottle now?",
           "recreate: Reset to recipe offers Recreate bottle");
+
+    // The Program picker lists each program once: Steam's launcher as its entry, the earlier pick as
+    // the folder program it is, and the subtitle names the default by its label.
+    activate(model, "ready-later");
+    setups[22380].programs = {{"FalloutNV.exe", "pe32", "", false, ""},
+                              {"FalloutNVLauncher.exe", "pe32", "", false, ""},
+                              {"Redists/vcredist_x86.exe", "pe32", "", false, ""}};
+    model.SetGameSetups(setups);
+    activate(model, "details-more");
+    activate(model, "game-settings");
+    activate(model, "setting-launch_option");
+    check(!find_row(model, "choice-0") && find_row(model, "choice-1") && find_row(model, "program-0") &&
+              !find_row(model, "program-1") && find_row(model, "program-2"),
+          "picker: no program is listed twice");
+    check(model.view().subtitle.find("launch-1") == std::string::npos &&
+              model.view().subtitle.find("Fallout: New Vegas") != std::string::npos,
+          "picker: the default is named by its label");
 }
 
 } // namespace

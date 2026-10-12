@@ -384,6 +384,15 @@ void forget_program_choices(std::map<std::string, std::string>* overrides) {
 bool has_resettable(const std::map<std::string, std::string>& overrides) {
     return std::any_of(overrides.begin(), overrides.end(), [](const auto& entry) { return !start_choice(entry.first); });
 }
+// A game-relative path as the bottle config and the Program picker compare it: '/' separated, lower
+// case, "." for none.
+std::string BottlePath(std::string path) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    std::transform(path.begin(), path.end(), path.begin(),
+                   [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    return path == "." ? std::string() : path;
+}
+
 void clear_keeping_start_choices(std::map<std::string, std::string>* overrides) {
     for (auto it = overrides->begin(); it != overrides->end();) it = start_choice(it->first) ? std::next(it) : overrides->erase(it);
 }
@@ -2337,9 +2346,15 @@ void Simulation::rebuild_view() {
             if (const auto* game = find_game(state_, settings_game)) view_.subtitle = game->title;
         } else if (!modal.setting_id.empty()) {
             if (const auto* definition = rt::FindSetting(modal.setting_id)) {
+                // A launch option by the name the picker shows, not its id.
+                const auto launch_label = [this](GameId game, const std::string& id) {
+                    for (const auto& entry : RecipeFor(game).launch_entries)
+                        if (entry.id == id) return entry.label.empty() ? entry.executable : entry.label;
+                    return id;
+                };
                 view_.subtitle = definition->effect;
                 view_.subtitle += settings_custom || inherited.source != rt::ValueSource::kPlayden
-                    ? std::string(" ") + source_label(inherited.source) + ": " + (modal.setting_id == "launch_option" ? inherited.value : choice_label(*definition, inherited.value)) + "."
+                    ? std::string(" ") + source_label(inherited.source) + ": " + (modal.setting_id == "launch_option" ? launch_label(settings_game, inherited.value) : choice_label(*definition, inherited.value)) + "."
                     : "";
                 const auto closed = !game_closed(settings_game) && definition->apply == rt::ApplyMode::kGameClosed;
                 // A game that was never prepared gets its bottle from these values on the next Play.
@@ -2470,8 +2485,12 @@ void Simulation::rebuild_view() {
                 }
                 const bool button = modal.setting_id.rfind("button.", 0) == 0;
                 const auto& current = settings_values.values.at(modal.setting_id);
+                // A folder pick of the file a Steam entry names shows on that entry.
+                const bool picked_here = modal.setting_id == "launch_option" && settings_values.launch &&
+                    settings_values.launch->id == rt::kProgramEntryId &&
+                    BottlePath(settings_values.launch->executable) == BottlePath(recipe.launch_entries[index].executable);
                 item.selected = button && index == 0 ? current.source != rt::ValueSource::kUser
-                    : value == current.value && !(button && current.source != rt::ValueSource::kUser);
+                    : (value == current.value || picked_here) && !(button && current.source != rt::ValueSource::kUser);
                 item.value = button ? (item.selected && index != 0 ? "Your choice" : "")
                     : value == inherited.value ? source_label(inherited.source) : item.selected ? "Your choice" : "";
             } else if (settings_ready && action_key == "choice-custom") {
@@ -5554,16 +5573,6 @@ bool Simulation::game_closed(GameId id, std::string* reason) const {
     return true;
 }
 
-namespace {
-// A game-relative path as the bottle config compares it: '/' separated, lower case, "." for none.
-std::string BottlePath(std::string path) {
-    std::replace(path.begin(), path.end(), '\\', '/');
-    std::transform(path.begin(), path.end(), path.begin(),
-                   [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
-    return path == "." ? std::string() : path;
-}
-} // namespace
-
 std::optional<Simulation::BottleConfig> Simulation::prepared_bottle(GameId id) const {
     if (!live() || !game_prepared(id)) return std::nullopt;
     const auto& title = state_.runtime_games.at(id);
@@ -5705,18 +5714,37 @@ void Simulation::open_setting(const std::string& id) {
         const std::size_t count = launch ? recipe.launch_entries.size() : definition->choices.size();
         std::vector<std::string> actions;
         int focused = 0;
+        const auto setup = launch ? game_setups_.find(state_.navigation.selected_game_id) : game_setups_.end();
+        // Each program is listed once: a folder program Steam names shows as Steam's entry, and the
+        // recipe's entry for the player's earlier pick as the folder program it is.
+        const auto in_folder = [&](const std::string& executable) {
+            if (setup == game_setups_.end()) return false;
+            for (const auto& program : setup->second.programs)
+                if (BottlePath(program.path) == BottlePath(executable)) return true;
+            return false;
+        };
+        const auto steam_names = [&](const std::string& path) {
+            for (const auto& entry : recipe.launch_entries)
+                if (entry.id != rt::kProgramEntryId && BottlePath(entry.executable) == BottlePath(path)) return true;
+            return false;
+        };
+        const bool picked = launch && values.launch && values.launch->id == rt::kProgramEntryId;
         for (std::size_t index = 0; index < count; ++index) {
+            if (launch && recipe.launch_entries[index].id == rt::kProgramEntryId &&
+                in_folder(recipe.launch_entries[index].executable))
+                continue;
             const auto& choice = launch ? recipe.launch_entries[index].id : definition->choices[index].value;
-            if (choice == value.value) focused = static_cast<int>(index);
+            if (choice == value.value ||
+                (picked && BottlePath(recipe.launch_entries[index].executable) == BottlePath(values.launch->executable)))
+                focused = static_cast<int>(actions.size());
             actions.push_back("choice-" + std::to_string(index));
         }
         if (launch) {
             // Steam's launch options are suggestions; any program in the game folder can start.
-            const auto setup = game_setups_.find(state_.navigation.selected_game_id);
             if (setup != game_setups_.end())
                 for (std::size_t index = 0; index < setup->second.programs.size(); ++index) {
-                    if (values.launch && values.launch->id == rt::kProgramEntryId &&
-                        setup->second.programs[index].path == values.launch->executable)
+                    if (steam_names(setup->second.programs[index].path)) continue;
+                    if (picked && BottlePath(setup->second.programs[index].path) == BottlePath(values.launch->executable))
                         focused = static_cast<int>(actions.size());
                     actions.push_back("program-" + std::to_string(index));
                 }
