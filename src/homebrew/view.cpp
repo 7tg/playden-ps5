@@ -207,16 +207,6 @@ std::string short_size(std::uint64_t bytes)
     return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : std::string("Unknown");
 }
 
-std::string transfer_rate(std::optional<std::uint64_t> bytes_per_second)
-{
-    if (!bytes_per_second)
-        return "—";
-    std::array<char, 32> value{};
-    const double mib = static_cast<double>(*bytes_per_second) / (1024.0 * 1024.0);
-    const int written = std::snprintf(value.data(), value.size(), "%.1f MB/s", mib);
-    return written > 0 ? std::string(value.data(), static_cast<std::size_t>(written)) : "—";
-}
-
 std::string join_words(const std::vector<std::string> &words)
 {
     if (words.empty())
@@ -1807,7 +1797,8 @@ class Render::Impl
             const std::string bytes = byte_count(primary->completed_bytes) + " / " +
                                       byte_count(primary->total_bytes);
             ui::text(scene_, fonts_.regular, bytes, 282.0F, 352.0F, 22.0F, kText);
-            ui::text(scene_, fonts_.regular, transfer_rate(primary->bytes_per_second), 1038.0F,
+            ui::text(scene_, fonts_.regular, FormatDownloadRate(primary->state == JobState::Downloading ? primary->bytes_per_second : std::nullopt,
+                                         primary->state == JobState::Downloading ? primary->eta_seconds : std::nullopt), 1038.0F,
                      352.0F, 22.0F, kSecondary, gfx::Align::right);
             const bool card_focused = route_focus_ && state.navigation.focus_key == "job-" + primary->id;
             focus_ring(scene_, active_card, control_focus("job-" + primary->id, card_focused));

@@ -41,6 +41,10 @@ std::vector<InstallRequest> ParseInstallRequests(const std::string& text) {
   return requests;
 }
 namespace {
+std::int64_t RateNowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 constexpr const char* kRecord = ".playden-install.json";
 constexpr const char* kJournal = ".playden-download";
@@ -264,6 +268,7 @@ void InstallService::Pause(GameId id) {
   if (!job) return;
   if (active_ == id) active_cancel_.store(true);
   job->view.state = InstallJobState::kPaused;
+  job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset();
   job->view.failure.clear();
   Publish();
 }
@@ -362,6 +367,19 @@ void InstallService::SetDefaultVolume(const std::string& volume_id) {
 InstallSnapshot InstallService::Snapshot() {
   std::lock_guard<std::mutex> lock(mutex_);
   InstallSnapshot snapshot;
+  const auto now = RateNowMs();
+  for (auto& job : jobs_) {
+    DownloadEstimate estimate;
+    if (job.view.state == InstallJobState::kRunning) {
+      if (job.rate_tick == now / 1000) continue;
+      job.rate_tick = now / 1000;
+      estimate = job.rate.Estimate(now, job.view.done_bytes, job.view.total_bytes);
+    }
+    if (job.view.bytes_per_second != estimate.bytes_per_second || job.view.eta_seconds != estimate.eta_seconds) {
+      job.view.bytes_per_second = estimate.bytes_per_second; job.view.eta_seconds = estimate.eta_seconds;
+      ++revision_; // Time-only telemetry changes do not write the install registry.
+    }
+  }
   snapshot.revision = revision_;
   for (const auto& job : jobs_) snapshot.jobs.push_back(job.view);
   snapshot.installed = installed_;
@@ -407,6 +425,8 @@ void InstallService::Run() {
             continue;
           }
           job.view.state = InstallJobState::kRunning;
+          job.rate.Reset(); job.rate_tick = -1;
+          job.view.bytes_per_second.reset(); job.view.eta_seconds.reset();
           next = job.view.id;
           next_root = RootOn(job.view.volume_id, job.view.id);
           active_ = next;
@@ -444,6 +464,10 @@ void InstallService::Run() {
                                [this, id = *next](std::uint64_t done, std::uint64_t total) {
                                  std::lock_guard<std::mutex> lock(mutex_);
                                  if (auto* job = Find(id)) {
+                                   if (job->view.state == InstallJobState::kRunning) {
+                                     job->rate.Record(done, RateNowMs());
+                                     job->rate_tick = -1;
+                                   }
                                    job->view.done_bytes = done;
                                    job->view.total_bytes = total;
                                    ++revision_;  // progress only; the registry is unchanged

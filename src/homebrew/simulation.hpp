@@ -42,6 +42,7 @@ enum class MaintenanceKind { ApplySettings, ClearShaderCache, Repair, BackupSave
 // Whether a game's PS5 title runs now, as the console last answered.
 enum class TitleActivity { Unknown, Stopped, Running };
 // Live install state projected from the real install service.
+std::string FormatDownloadRate(std::optional<std::uint64_t> bytes_per_second, std::optional<int> eta_seconds);
 struct LiveInstallJob {
     GameId game_id = 0;
     JobState state = JobState::Queued;
@@ -49,6 +50,8 @@ struct LiveInstallJob {
     std::uint64_t total_bytes = 0;
     std::string failure;
     std::string volume_id;
+    std::optional<std::uint64_t> bytes_per_second;
+    std::optional<int> eta_seconds;
 };
 struct LiveInstalledGame {
     GameId game_id = 0;

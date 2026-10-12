@@ -29,6 +29,18 @@
 #include <type_traits>
 
 namespace playden::homebrew {
+std::string FormatDownloadRate(std::optional<std::uint64_t> rate, std::optional<int> eta) {
+    if (!rate) return "—";
+    char text[64];
+    std::snprintf(text, sizeof(text), "%.1f MB/s", static_cast<double>(*rate) / (1024.0 * 1024.0));
+    std::string result(text);
+    result += " · ";
+    if (!eta || *eta < 0) return result + "—";
+    if (*eta < 60) return result + "~" + std::to_string(*eta) + " sec left";
+    if (*eta < 3600) return result + "~" + std::to_string((*eta + 59) / 60) + " min left";
+    return result + "~" + std::to_string((static_cast<std::int64_t>(*eta) + 3599) / 3600) + " hr left";
+}
+
 namespace {
 
 constexpr std::uint64_t kTransferPerTick = 67'108'864;
@@ -978,6 +990,10 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         job.total_bytes = live_job.total_bytes;
         job.failure = live_job.failure;
         job.volume_id = live_job.volume_id;
+        if (live_job.state == JobState::Downloading) {
+            job.bytes_per_second = live_job.bytes_per_second;
+            job.eta_seconds = live_job.eta_seconds;
+        }
         projected.push_back(std::move(job));
     }
     std::vector<Installation> installations;

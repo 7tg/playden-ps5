@@ -41,6 +41,7 @@ class Sessions final : public SessionRepository {
 class Runner final : public InstallRunner {
  public:
   std::atomic<bool> block{false};
+  bool telemetry = false;
   std::atomic<int> installs{0};
   std::atomic<int> canceled{0};
   std::mutex mutex;
@@ -53,9 +54,13 @@ class Runner final : public InstallRunner {
       std::lock_guard<std::mutex> lock(mutex);
       install_roots.push_back(root);
     }
-    progress(10, 100);
+    if (telemetry) { progress(9000000000ull, 10000000000ull); progress(9100000000ull, 10000000000ull); }
+    else progress(10, 100);
     while (block) {
-      if (cancel) { ++canceled; return {false, true, {}, 0}; }
+      if (cancel) {
+        if (telemetry) progress(9200000000ull, 10000000000ull); // a late callback after Pause
+        ++canceled; return {false, true, {}, 0};
+      }
       std::this_thread::sleep_for(1ms);
     }
     std::filesystem::create_directories(root);
@@ -92,9 +97,52 @@ bool Installed(const InstallSnapshot& snapshot, GameId id) {
   return false;
 }
 
+void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
+  Runner runner; runner.block = true; runner.telemetry = true;
+  Sessions sessions;
+  InstallService service(runner, sessions, root.string());
+  service.Install(900);
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& snapshot) {
+    const auto* job = JobOf(snapshot, 900);
+    return job && job->bytes_per_second && *job->bytes_per_second > 0;
+  });
+  const auto moving = service.Snapshot();
+  const auto* job = JobOf(moving, 900);
+  CHECK(job && *job->bytes_per_second <= 100000000 && job->eta_seconds);
+  CHECK(job->done_bytes == 9100000000ull); // only the fresh 100 MB belongs in the rate
+  const auto deadline = std::chrono::steady_clock::now() + 6s;
+  bool stalled = false;
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto snapshot = service.Snapshot();
+    const auto* current = JobOf(snapshot, 900);
+    CHECK(current && current->done_bytes == job->done_bytes);
+    if (current->bytes_per_second == 0) {
+      CHECK(!current->eta_seconds && snapshot.revision > moving.revision);
+      stalled = true; break;
+    }
+    std::this_thread::sleep_for(10ms);
+  }
+  CHECK(stalled);
+  service.Pause(900);
+  const auto paused = service.Snapshot();
+  CHECK(!JobOf(paused, 900)->bytes_per_second && !JobOf(paused, 900)->eta_seconds);
+  AwaitAt(__LINE__, service, [&](const InstallSnapshot&) { return runner.canceled == 1; });
+  CHECK(!JobOf(service.Snapshot(), 900)->bytes_per_second); // late callback cannot restore it
+  service.Resume(900);
+  AwaitAt(__LINE__, service, [&](const InstallSnapshot& snapshot) {
+    const auto* current = JobOf(snapshot, 900);
+    return runner.installs == 2 && current && current->state == InstallJobState::kRunning;
+  });
+  const auto resumed = service.Snapshot();
+  CHECK(!JobOf(resumed, 900)->bytes_per_second && !JobOf(resumed, 900)->eta_seconds);
+  service.Shutdown();
+  std::filesystem::remove_all(root);
+}
+
 }  // namespace
 
 int main() {
+  LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));
   const auto requests = ParseInstallRequests("uninstall 439490\n439490\ncancel 108600\n108600\n");
   CHECK(requests.size() == 4);
   CHECK(requests[0].action == InstallRequest::Action::kUninstall && requests[0].app == 439490);

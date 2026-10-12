@@ -2,6 +2,7 @@
 
 #include "library/model.h"
 #include "steam/session_store.h"
+#include "steam/download_rate.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -43,6 +44,8 @@ struct InstallJobView {
   std::uint64_t total_bytes = 0;
   std::string failure;  // short, user-facing
   std::string volume_id;
+  std::optional<std::uint64_t> bytes_per_second;
+  std::optional<int> eta_seconds;
 };
 
 struct InstalledGame {
@@ -117,6 +120,8 @@ class InstallService {
  private:
   struct Job {
     InstallJobView view;
+    DownloadRate rate;
+    std::int64_t rate_tick = -1;
     bool cancel_requested = false;  // delete files when the run stops
   };
   void Run();
