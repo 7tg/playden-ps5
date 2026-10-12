@@ -30,6 +30,12 @@ rm -rf "$deps/src/mbedtls-$mbedtls_version" "$deps/src/curl-$curl_version" \
     "$deps/build/mbedtls-host" "$deps/build/curl-host" "$prefix"
 mkdir -p "$prefix"
 tar -xjf "$downloads/mbedtls-$mbedtls_version.tar.bz2" -C "$deps/src"
+# TLS uses shared entropy/DRBG and PSA state even with distinct client contexts.
+# Configure the installed header as well as the libraries to keep their mutex layouts consistent.
+for option in MBEDTLS_THREADING_C MBEDTLS_THREADING_PTHREAD; do
+    python3 "$deps/src/mbedtls-$mbedtls_version/scripts/config.py" \
+        --file "$deps/src/mbedtls-$mbedtls_version/include/mbedtls/mbedtls_config.h" set "$option"
+done
 tar -xJf "$downloads/curl-$curl_version.tar.xz" -C "$deps/src"
 
 # Relative source paths keep local paths out of the objects (see prepare-ps5-deps.sh).

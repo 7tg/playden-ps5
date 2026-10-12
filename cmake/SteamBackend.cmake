@@ -49,6 +49,17 @@ foreach(required_path IN ITEMS
     endif()
 endforeach()
 
+# Threading changes public context layouts, so headers and all linked archives must be rebuilt together.
+set(playden_mbedtls_config "${PLAYDEN_STEAM_PREFIX}/include/mbedtls/mbedtls_config.h")
+string(JSON expected_mbedtls_config_hash GET "${playden_dependency_lock}"
+    steam_network_probe mbedtls config_sha256)
+file(SHA256 "${playden_mbedtls_config}" actual_mbedtls_config_hash)
+if(NOT actual_mbedtls_config_hash STREQUAL expected_mbedtls_config_hash)
+    message(FATAL_ERROR "Pinned Mbed TLS pthread configuration mismatch. "
+        "Rebuild with scripts/network-deps/prepare-${playden_steam_dependency_platform}-deps.sh")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${playden_mbedtls_config}")
+
 file(GLOB playden_curl_headers CONFIGURE_DEPENDS
     "${PLAYDEN_STEAM_PREFIX}/include/curl/*.h")
 string(JSON expected_header_count LENGTH "${playden_dependency_lock}"
@@ -105,6 +116,19 @@ if(APPLE AND NOT PLAYDEN_PLATFORM_PS5)
     set_property(TARGET playden_curl_8_22 APPEND PROPERTY INTERFACE_LINK_LIBRARIES
         "-framework SystemConfiguration" "-framework CoreFoundation"
         "-framework CoreServices")
+endif()
+
+# Require the threading implementation to link, catching new headers with old host archives.
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_LIBRARIES playden_curl_8_22)
+unset(playden_mbedtls_threading_links CACHE)
+check_cxx_source_compiles("#include <mbedtls/threading.h>
+int main() { mbedtls_threading_mutex_t mutex; mbedtls_mutex_init(&mutex);
+  int result = mbedtls_mutex_lock(&mutex); mbedtls_mutex_unlock(&mutex);
+  mbedtls_mutex_free(&mutex); return result; }" playden_mbedtls_threading_links)
+unset(CMAKE_REQUIRED_LIBRARIES)
+if(NOT playden_mbedtls_threading_links)
+    message(FATAL_ERROR "Mbed TLS pthread headers/libraries mismatch. Rebuild network dependencies together.")
 endif()
 
 add_library(playden_steam_http STATIC
@@ -190,6 +214,10 @@ function(playden_register_steam_backend_tests)
         add_executable(native_resolution_cache_test "${CMAKE_SOURCE_DIR}/tests/native_resolution_cache_test.cpp")
         target_link_libraries(native_resolution_cache_test PRIVATE playden_steam_http)
         add_test(NAME native_resolution_cache COMMAND native_resolution_cache_test)
+
+        add_executable(mbedtls_threading_test "${CMAKE_SOURCE_DIR}/tests/mbedtls_threading_test.cpp")
+        target_link_libraries(mbedtls_threading_test PRIVATE playden_steam_http)
+        add_test(NAME mbedtls_threading COMMAND mbedtls_threading_test)
 
         add_executable(http_client_test "${CMAKE_SOURCE_DIR}/tests/http_client_test.cpp")
         target_link_libraries(http_client_test PRIVATE playden_steam_http)

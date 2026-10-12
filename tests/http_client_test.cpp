@@ -44,6 +44,7 @@ int main(int argc, char** argv) {
   std::atomic<bool> cancel{false};
   HttpClient client(ca_bundle);
 
+
   {
     HttpClient persistent(ca_bundle);
     HttpRequest keep;
@@ -221,6 +222,26 @@ int main(int argc, char** argv) {
         "embedded NUL in header name should be rejected");
   Check(std::string(playden::steam::HttpErrorName(HttpError::kCanceled)) == "canceled",
         "error names should be stable and safe for diagnostics");
+
+  {
+    std::atomic<int> ready{0};
+    std::atomic<bool> begin{false};
+    std::vector<std::thread> workers;
+    for (int index = 0; index < 8; ++index) workers.emplace_back([&] {
+      HttpClient independent(ca_bundle);
+      ++ready;
+      while (!begin.load()) std::this_thread::yield();
+      HttpRequest request;
+      request.url = base_url + "/keep/ok";
+      for (int iteration = 0; iteration < 10; ++iteration) {
+        const auto response = independent.Perform(request, cancel);
+        Check(response.ok() && Text(response.body) == "fixture-ok", "parallel verified HTTPS clients");
+      }
+    });
+    while (ready.load() != 8) std::this_thread::yield();
+    begin.store(true);
+    for (auto& worker : workers) worker.join();
+  }
 
   return 0;
 }
