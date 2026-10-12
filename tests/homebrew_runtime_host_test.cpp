@@ -1517,18 +1517,47 @@ void PreparesProgramChosenInSettings() {
   CHECK(Read(profile).find("\\games\\1592280\\SELACO.exe\n") != std::string::npos);
   CHECK(Read(profile).find("\narchitecture = pe64\n") != std::string::npos);
 
-  // A later update applies the program's arguments but keeps the prepared program and folder.
+  // A later update applies the program's folder too, without preparing the game again; a folder
+  // that isn't there is refused and the title keeps what it had.
   fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
-  saved.revision = 1;
+  const auto apply = [&](std::uint64_t revision) {
+    saved.revision = revision;
+    const auto before = host.Snapshot().maintenance_handled;
+    host.Maintain(1592280, RuntimeMaintenance::kApplySettings);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  };
   saved.overrides["program_arguments"] = "-nostartup";
   saved.overrides["program_folder"] = "Elsewhere";
-  const auto before = host.Snapshot().maintenance_handled;
-  host.Maintain(1592280, RuntimeMaintenance::kApplySettings);
-  const auto applied = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  auto applied = apply(1);
+  CHECK(!applied.maintenance.at(1592280).ok &&
+        applied.maintenance.at(1592280).message.find("Elsewhere chosen in Game settings is missing") != std::string::npos);
+  CHECK(Read(profile).find("working_directory = Z:\\data\\homebrew\\FAKE77031\\games\\1592280\n") != std::string::npos);
+  CHECK(applied.installs[0].launch_working_directory.empty() && applied.installs[0].launch_path == "SELACO.exe" &&
+        !applied.installs[0].recovery_pending);
+  std::filesystem::create_directory(game / "Elsewhere");
+  CHECK(chmod((game / "Elsewhere").c_str(), 0755) == 0);
+  applied = apply(2);
   if (!applied.maintenance.at(1592280).ok) std::fprintf(stderr, "apply: %s\n", applied.maintenance.at(1592280).message.c_str());
   CHECK(applied.maintenance.at(1592280).ok);
   CHECK(Read(profile).find("\narguments = -nostartup\n") != std::string::npos);
-  CHECK(Read(profile).find("working_directory = Z:\\data\\homebrew\\FAKE77031\\games\\1592280\n") != std::string::npos);
+  CHECK(Read(profile).find("working_directory = Z:\\data\\homebrew\\FAKE77031\\games\\1592280\\Elsewhere\n") !=
+        std::string::npos);
+  CHECK(applied.installs[0].launch_working_directory == "Elsewhere");
+  // Another program from the folder: the profile and the install record both name it.
+  Write(game / "Other.exe", pe, 0644);
+  saved.overrides = {{"program", "Other.exe"}, {"architecture", "pe64"}};
+  applied = apply(3);
+  if (!applied.maintenance.at(1592280).ok) std::fprintf(stderr, "switch: %s\n", applied.maintenance.at(1592280).message.c_str());
+  CHECK(applied.maintenance.at(1592280).ok);
+  CHECK(Read(profile).find("\\games\\1592280\\Other.exe\n") != std::string::npos);
+  CHECK(applied.installs[0].launch_path == "Other.exe" && applied.installs[0].launch_entry_id == kProgramEntryId &&
+        applied.installs[0].launch_working_directory.empty() && applied.installs[0].settings_revision == 3);
+  // A program that isn't there is refused before anything changes.
+  saved.overrides = {{"program", "Missing.exe"}, {"architecture", "pe64"}};
+  applied = apply(4);
+  CHECK(!applied.maintenance.at(1592280).ok && applied.maintenance.at(1592280).message.find("missing") != std::string::npos);
+  CHECK(Read(profile).find("\\games\\1592280\\Other.exe\n") != std::string::npos &&
+        applied.installs[0].launch_path == "Other.exe" && applied.installs[0].settings_revision == 3);
   host.Shutdown();
 }
 

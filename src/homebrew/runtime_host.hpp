@@ -333,6 +333,8 @@ class RuntimeHost {
   // Puts the game's steam_api DLLs in the state its "Steam features" setting asks for. Call
   // only while the game is stopped; empty on success, otherwise why not (for the player).
   std::string ApplySteamworks(Composition& composition, const runtime::RuntimeInstall& record);
+  // Makes an owned, world-writable folder from root down to working 0755 (dxvk.conf goes there).
+  std::string TightenWorkingFolder(const std::filesystem::path& root, const std::string& working);
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);

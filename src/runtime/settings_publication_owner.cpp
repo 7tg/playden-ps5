@@ -4,6 +4,15 @@
 #include <unistd.h>
 namespace playden::runtime {
 namespace {
+// The program a publication starts: Game settings may have chosen another one
+// (RuntimeHost::RepublishSettings). The captured operation carries it, and the record names it
+// from the commit on, also when a commit is resumed after a crash.
+void CommitLaunch(RuntimeInstall* record, const RuntimeInstall& published) {
+  record->launch_entry_id = published.launch_entry_id;
+  record->launch_path = published.launch_path;
+  record->launch_working_directory = published.launch_working_directory;
+  record->launch_arguments = published.launch_arguments;
+}
 PackageActionResult Failure(const char* code, const char* message) {
   return {PackageActionState::kFailed, code, message};
 }
@@ -253,7 +262,10 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
     return fail("Previous frozen operation must first reconcile to durable Ready.");
   if (!lease->Validate(*control, "publication.lock"))
     return fail("The publication lock changed before capture.");
+  // The requested revision and program (RuntimeHost::RepublishSettings may switch it); the
+  // rest is the durable record's.
   auto snapshot = *current; snapshot.settings_revision = record.settings_revision;
+  CommitLaunch(&snapshot, record);
   auto captured = CaptureSettingsPublicationOperation(snapshot, plan, kit, transaction, time, lease->fd(), prefix);
   if (!captured.ok()) return captured;
   if (!lease->Validate(*control, "publication.lock"))
@@ -374,6 +386,7 @@ PackageActionResult SettingsPublicationOwner::Reconcile(const SettingsPublicatio
   // native query. The first publication decides here whether to register.
   if (!o.previous_receipt_bytes.empty()) {
     record->state = PreparationState::kReady; record->settings_revision = o.plan.settings_revision;
+    CommitLaunch(&*record, o.install);
     record->journal.reset(); record->last_failure.reset();
     return Persist(*record);
   }
@@ -404,6 +417,7 @@ PackageActionResult SettingsPublicationOwner::Reconcile(const SettingsPublicatio
     if (!status.installed) return Failure("publication-registration-pending", "Native registration completion is not yet visible.");
   }
   record->state = PreparationState::kReady; record->settings_revision = o.plan.settings_revision;
+  CommitLaunch(&*record, o.install);
   record->journal.reset(); record->last_failure.reset();
   return Persist(*record);
 }
