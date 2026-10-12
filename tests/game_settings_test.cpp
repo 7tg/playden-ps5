@@ -66,6 +66,23 @@ int main(int argc, char** argv) {
     CHECK(ValidateSettingValue(hl2, definition.id, definition.playden_default, &reason));
   }
 
+  // DefaultSkipsPlayerProgram: a recipe generated for the player's program lists it first; without
+  // that choice the default is Steam's entry, as the next preparation makes it, and the choice still finds it.
+  {
+    GameRecipe chosen = hl2;
+    chosen.launch_entries = {{kProgramEntryId, "FalloutNV.exe", "FalloutNV.exe", "", ""},
+                             {"launch-1", "Launcher", "FalloutNVLauncher.exe", "", ""}};
+    EffectiveSettings values;
+    SettingsError problem;
+    CHECK(BuildEffectiveSettings(chosen, nullptr, {}, KitCapabilities{}, &values, &problem));
+    CHECK(values.launch && values.launch->id == "launch-1");
+    CHECK(BuildEffectiveSettings(chosen, nullptr, {{"program", "FalloutNV.exe"}}, KitCapabilities{}, &values, &problem));
+    CHECK(values.launch && values.launch->id == kProgramEntryId && values.launch->executable == "FalloutNV.exe");
+    chosen.launch_entries.resize(1);
+    CHECK(BuildEffectiveSettings(chosen, nullptr, {}, KitCapabilities{}, &values, &problem));
+    CHECK(values.launch && values.launch->id == kProgramEntryId);
+  }
+
   // RecipeArgumentsPreserved: with no overrides the HL2 recipe gives the owner-verified profile.
   const ProfileTarget target{"playden-steam-220", "/data/homebrew/FAKE77031/games/220"};
   EffectiveSettings settings;

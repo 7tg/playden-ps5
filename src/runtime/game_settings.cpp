@@ -309,6 +309,15 @@ const LaunchEntry* FindEntry(const GameRecipe& recipe, std::string_view id) {
   return nullptr;
 }
 
+// The launch entry that starts without a choice: the recipe's first. A recipe generated for a
+// program the player chose lists it first; without that choice the next preparation drops it,
+// so the default is the first of Steam's entries. A recipe with only the player's program keeps it.
+std::string DefaultLaunchEntry(const GameRecipe& recipe) {
+  for (const auto& entry : recipe.launch_entries)
+    if (entry.id != kProgramEntryId) return entry.id;
+  return recipe.launch_entries.empty() ? std::string() : recipe.launch_entries.front().id;
+}
+
 // A row that settings built by hand (older callers, tests) may leave out reads as unavailable.
 const EffectiveValue& OptionalValue(const EffectiveSettings& settings, const char* id) {
   static const EffectiveValue missing = [] {
@@ -506,9 +515,7 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
   EffectiveSettings out;
   for (const auto& definition : SettingsCatalogue()) {
     EffectiveValue value;
-    value.value = definition.id == "launch_option"
-        ? (recipe.launch_entries.empty() ? std::string() : recipe.launch_entries.front().id)
-        : definition.playden_default;
+    value.value = definition.id == "launch_option" ? DefaultLaunchEntry(recipe) : definition.playden_default;
     const auto layer = [&](const std::map<std::string, std::string>& source, ValueSource kind) {
       const auto found = source.find(definition.id);
       if (found == source.end()) return true;

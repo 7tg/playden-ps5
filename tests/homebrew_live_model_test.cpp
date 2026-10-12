@@ -404,6 +404,21 @@ void live_program_change_offers_recreate_bottle(const std::filesystem::path& bas
     runtime.launch_path = "Other/Other.exe";
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
     check(marked(), "recreate: one folder program replacing another is marked too");
+
+    // Recreated for the chosen program, the recipe lists it first. Reset to recipe goes back to Steam's
+    // launch option, which the next preparation makes, so it needs the bottle made again too.
+    recipe.launch_entries.insert(recipe.launch_entries.begin(), {"program", "FalloutNV.exe", "FalloutNV.exe", "", ""});
+    model.SetGeneratedRecipes({recipe});
+    runtime.launch_path = "FalloutNV.exe";
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(!marked(), "recreate: the recreated bottle matches the settings");
+    activate(model, "details-more");
+    activate(model, "game-settings");
+    activate(model, "setting-launch_option");
+    activate(model, "value-reset");
+    check(model.action("circle") && !model.state().navigation.modals.empty() &&
+              model.state().navigation.modals.back().title == "Recreate the bottle now?",
+          "recreate: Reset to recipe offers Recreate bottle");
 }
 
 } // namespace
