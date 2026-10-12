@@ -18,6 +18,7 @@ std::string FormatInstallStats(const char* phase, const InstallStats& stats) {
   if (std::string(phase) == "shape") {
     add("chunks_pending", stats.chunks_pending); add("files_pending", stats.files_pending);
     add("bytes_pending", stats.bytes_pending);
+    add("slots", stats.slots); add("ahead", stats.ahead_files);
     return detail;
   }
   add("dl_ms", stats.download_ms); add("cb", stats.compressed_bytes); add("ob", stats.original_bytes);
@@ -29,6 +30,7 @@ std::string FormatInstallStats(const char* phase, const InstallStats& stats) {
   add("res", stats.resolve_ms); add("tcp", stats.connect_ms); add("tls", stats.tls_ms); add("ttfb", stats.first_byte_ms);
   add("retry", stats.chunk_retries); add("bad", stats.corrupt_retries);
   add("slots", stats.slots); add("reuse", stats.reuse);
+  add("waiting", stats.peak_waiting); add("active", stats.peak_active);
   add("access", stats.access_ms); add("servers", stats.servers_ms); add("manifest", stats.manifests_ms); add("prep", stats.prepare_ms);
   add("http_ms", stats.total_ms); add("http_b", stats.bytes); add("fail", stats.failures);
   return detail;
@@ -65,6 +67,7 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
                                                   const std::function<void(std::uint64_t, std::uint64_t)>& progress) {
   Result result;
   current_app_.store(id);
+  installer_.SetTuning(tuning_ ? tuning_() : DownloadTuning{});
   auto log = [this, id](const char* step, const char* category, const char* detail) {
     if (log_) log_(id, step, category, detail);
   };

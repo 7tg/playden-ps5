@@ -6,6 +6,10 @@
 #include <mbedtls/sha1.h>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -195,6 +199,332 @@ World MakeWorld() {
   return world;
 }
 
+void OverlapsFourFetches(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  world.manifests[441].files = {world.AddFile("parallel", {"a", "b", "c", "d", "e", "f", "g", "h"})};
+  world.manifests[442].files.clear();
+  auto hooks = world.Hooks();
+  std::mutex mutex;
+  std::condition_variable changed;
+  int active = 0, peak = 0, entered = 0;
+  hooks.chunk = [&](const ContentServer&, std::uint32_t, const std::string& sha, std::size_t,
+                    const std::atomic<bool>&, std::vector<std::uint8_t>* out) {
+    std::unique_lock<std::mutex> lock(mutex);
+    ++active; ++entered;
+    peak = std::max(peak, active);
+    changed.notify_all();
+    changed.wait_for(lock, std::chrono::milliseconds(250), [&] { return entered >= 4; });
+    lock.unlock();
+    *out = world.served.at(sha);
+    lock.lock();
+    --active;
+    return CdnError::kNone;
+  };
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  const auto outcome = installer.Run({}, Target(root), cancel);
+  CHECK(outcome.error == InstallError::kNone);
+  CHECK(peak == 4);
+  CHECK(Read(root / "parallel") == "abcdefgh");
+}
+
+struct ParallelFixture {
+  World world = MakeWorld();
+  std::mutex mutex;
+  std::condition_variable changed;
+  int entered = 0, finished = 0, active = 0, peak = 0, factories = 0, pauses = 0;
+  bool release = false, hold_first = false, fail_first = false, corrupt_first = false, backoff = false;
+  std::atomic<int> callbacks{0}, written{0};
+  InstallStats last;
+  std::string first_sha;
+  ParallelFixture() {
+    world.manifests[441].files = {world.AddFile("parallel", {"a", "b", "c", "d", "e", "f", "g", "h"})};
+    world.manifests[442].files.clear();
+    first_sha = HexOf(world.manifests[441].files[0].chunks[0].sha);
+  }
+  bool Wait(const std::function<bool()>& predicate) {
+    std::unique_lock<std::mutex> lock(mutex);
+    return changed.wait_for(lock, std::chrono::seconds(3), predicate);
+  }
+  void Release() {
+    std::lock_guard<std::mutex> lock(mutex);
+    release = true; changed.notify_all();
+  }
+  InstallerHooks Hooks(int invalid_factory = -1) {
+    auto hooks = world.Hooks();
+    hooks.make_fetcher = [this, invalid_factory] {
+      const int number = ++factories;
+      InstallerHooks::ChunkFetcher fetcher;
+      if (number == invalid_factory) return fetcher;
+      struct State {
+        std::thread::id owner;
+        std::uint64_t requests = 0;
+        int corruptions = 0;
+        ~State() { CHECK(owner == std::thread::id{} || owner == std::this_thread::get_id()); }
+      };
+      auto state = std::make_shared<State>();
+      fetcher.fetch = [this, state](const ContentServer&, std::uint32_t, const std::string& sha, std::size_t,
+                                   const std::atomic<bool>& stop, std::vector<std::uint8_t>* out) {
+        if (state->owner == std::thread::id{}) state->owner = std::this_thread::get_id();
+        CHECK(state->owner == std::this_thread::get_id());
+        ++state->requests;
+        std::unique_lock<std::mutex> lock(mutex);
+        ++entered; ++active; peak = std::max(peak, active); changed.notify_all();
+        const bool first = sha == first_sha;
+        while (!stop.load() && !(backoff || (fail_first && first && entered >= 4) || (release && (!hold_first || !first))))
+          changed.wait_for(lock, std::chrono::milliseconds(10));
+        CdnError error = CdnError::kNone;
+        if (stop.load()) error = CdnError::kCanceled;
+        else if (backoff || (fail_first && first)) error = CdnError::kNetwork;
+        else {
+          *out = world.served.at(sha);
+          if (corrupt_first && first && state->corruptions++ == 0) out->back() ^= 0xff;
+        }
+        --active; ++finished; changed.notify_all();
+        return error;
+      };
+      fetcher.last_failure = [state] {
+        CHECK(state->owner == std::this_thread::get_id());
+        return std::string("http=503");
+      };
+      fetcher.stats = [state] {
+        CHECK(state->owner == std::this_thread::get_id());
+        CdnStats stats; stats.requests = state->requests; return stats;
+      };
+      return fetcher;
+    };
+    hooks.pause = [this](int, const std::atomic<bool>& stop) {
+      if (!backoff) return;
+      std::unique_lock<std::mutex> lock(mutex);
+      ++pauses; changed.notify_all();
+      while (!stop.load()) changed.wait_for(lock, std::chrono::milliseconds(10));
+    };
+    hooks.stats = [this](const char* phase, const InstallStats& stats) {
+      ++callbacks;
+      if (std::string(phase) == "end") { CHECK(active == 0); last = stats; }
+    };
+    return hooks;
+  }
+};
+
+void OutOfOrderAndBoundedResults(const std::filesystem::path& root) {
+  ParallelFixture fixture;
+  fixture.hold_first = true;
+  auto hooks = fixture.Hooks();
+  const auto coordinator = std::this_thread::get_id();
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  InstallOutcome outcome;
+  std::uint64_t previous = 0;
+  bool block_callback = true;
+  std::thread caller([&] {
+    const auto owner = std::this_thread::get_id();
+    outcome = installer.Run({}, Target(root), cancel, [&](const InstallProgress& progress) {
+      CHECK(std::this_thread::get_id() == owner && owner != coordinator);
+      CHECK(progress.download_done >= previous); previous = progress.download_done;
+      ++fixture.callbacks;
+      if (progress.download_done == 0) return;
+      ++fixture.written;
+      std::unique_lock<std::mutex> lock(fixture.mutex);
+      fixture.changed.notify_all();
+      while (block_callback) fixture.changed.wait(lock);
+    });
+  });
+  CHECK(fixture.Wait([&] { return fixture.entered == 4; }));
+  fixture.Release();
+  CHECK(fixture.Wait([&] { return fixture.finished == 3 && fixture.written == 1; }));
+  {
+    std::lock_guard<std::mutex> lock(fixture.mutex);
+    CHECK(fixture.entered == 4); // the writing result still owns its slot
+    CHECK(Read(root / "parallel")[0] == '\0'); // first chunk remains in flight
+    fixture.hold_first = false; block_callback = false; fixture.changed.notify_all();
+  }
+  caller.join();
+  CHECK(outcome.error == InstallError::kNone);
+  CHECK(Read(root / "parallel") == "abcdefgh");
+  CHECK(outcome.progress.download_done == outcome.progress.download_total);
+  CHECK(fixture.last.requests == 8 && fixture.last.chunks_done == 8);
+  CHECK(fixture.last.peak_active == 4 && fixture.last.peak_waiting <= 4 && fixture.last.peak_waiting >= 1);
+}
+
+void EightSlotsAndShape(const std::filesystem::path& root) {
+  ParallelFixture fixture;
+  auto hooks = fixture.Hooks();
+  const auto stats = hooks.stats;
+  hooks.stats = [&](const char* phase, const InstallStats& value) {
+    stats(phase, value);
+    if (std::string(phase) == "shape") {
+      const auto detail = FormatInstallStats(phase, value);
+      CHECK(detail.find("slots=8") != std::string::npos && detail.find("ahead=5") != std::string::npos);
+    }
+  };
+  DepotInstaller installer(hooks);
+  installer.SetTuning({8, 5});
+  std::atomic<bool> cancel{false};
+  InstallOutcome result;
+  std::thread caller([&] { result = installer.Run({}, Target(root), cancel); });
+  CHECK(fixture.Wait([&] { return fixture.entered == 8; }));
+  fixture.Release();
+  caller.join();
+  CHECK(result.error == InstallError::kNone && fixture.peak == 8 && fixture.last.peak_active == 8);
+  CHECK(Read(root / "parallel") == "abcdefgh");
+}
+
+void CancelStopsAllWorkers(const std::filesystem::path& root, bool during_backoff) {
+  ParallelFixture fixture;
+  fixture.backoff = during_backoff;
+  DepotInstaller installer(fixture.Hooks());
+  std::atomic<bool> cancel{false};
+  InstallOutcome outcome;
+  std::thread caller([&] {
+    outcome = installer.Run({}, Target(root), cancel, [&](const InstallProgress&) { ++fixture.callbacks; });
+  });
+  CHECK(fixture.Wait([&] { return during_backoff ? fixture.pauses == 4 : fixture.entered == 4; }));
+  cancel.store(true);
+  caller.join();
+  CHECK(outcome.error == InstallError::kCanceled && fixture.active == 0);
+  CHECK(fixture.last.chunks_done == 0);
+  const auto calls = fixture.callbacks.load();
+  const auto fetches = fixture.entered;
+  usleep(20000);
+  CHECK(fixture.callbacks == calls && fixture.entered == fetches);
+  CHECK(Read(root / DepotInstaller::kJournalDir / "journal").empty());
+}
+
+void WorkerFailureWinsAndJoins(const std::filesystem::path& root) {
+  ParallelFixture fixture;
+  fixture.fail_first = true;
+  DepotInstaller installer(fixture.Hooks());
+  std::atomic<bool> cancel{false};
+  const auto result = installer.Run({}, Target(root), cancel);
+  CHECK(result.error == InstallError::kNetwork && result.detail == "chunk unavailable http=503");
+  CHECK(fixture.active == 0 && fixture.last.chunks_done == 0);
+  CHECK(fixture.last.chunk_retries == 5);
+}
+
+void InvalidFactoryJoinsStartedWorkers(const std::filesystem::path& root) {
+  ParallelFixture fixture;
+  DepotInstaller installer(fixture.Hooks(3));
+  std::atomic<bool> cancel{false};
+  const auto result = installer.Run({}, Target(root), cancel);
+  CHECK(result.error == InstallError::kNetwork && result.detail == "cannot create fetcher");
+  CHECK(fixture.factories == 3 && fixture.active == 0);
+}
+
+void WriteFailureStopsWorkers(const std::filesystem::path& root) {
+  ParallelFixture fixture;
+  DepotInstaller installer(fixture.Hooks());
+  std::atomic<bool> cancel{false};
+  InstallOutcome outcome;
+  std::thread caller([&] { outcome = installer.Run({}, Target(root), cancel); });
+  CHECK(fixture.Wait([&] { return fixture.entered == 4; }));
+  // Wait for the coordinator to prepare the file while all fetches are blocked.
+  for (int tries = 0; tries < 300 && !std::filesystem::exists(root / "parallel"); ++tries) usleep(10000);
+  CHECK(std::filesystem::is_regular_file(root / "parallel"));
+  std::filesystem::remove(root / "parallel");
+  std::filesystem::create_directory(root / "parallel");
+  fixture.Release();
+  caller.join();
+  CHECK(outcome.error == InstallError::kStorage && outcome.detail == "cannot write file");
+  CHECK(fixture.active == 0 && fixture.last.chunks_done == 0);
+  CHECK(Read(root / DepotInstaller::kJournalDir / "journal").empty());
+}
+
+void ParallelCorruptRetryAndResume(const std::filesystem::path& root) {
+  ParallelFixture fixture;
+  fixture.corrupt_first = true;
+  fixture.Release();
+  DepotInstaller installer(fixture.Hooks());
+  std::atomic<bool> cancel{false};
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kNone);
+  CHECK(fixture.last.corrupt_retries == 1 && fixture.last.chunk_retries == 1 && fixture.last.requests == 9);
+  CHECK(Read(root / "parallel") == "abcdefgh");
+  const auto resumed_root = root / "resumed";
+  std::filesystem::create_directories(resumed_root / DepotInstaller::kJournalDir);
+  std::ofstream(resumed_root / "parallel", std::ios::binary) << "a_c_e_g_";
+  std::ofstream journal(resumed_root / DepotInstaller::kJournalDir / "journal");
+  for (int offset : {0, 2, 4, 6}) journal << "441\t" << offset << "\tparallel\n";
+  journal.close();
+  fixture.corrupt_first = false;
+  fixture.entered = fixture.finished = 0;
+  CHECK(installer.Run({}, Target(resumed_root), cancel).error == InstallError::kNone);
+  CHECK(fixture.entered == 4 && fixture.last.requests == 4 && fixture.last.chunks_skipped == 4);
+  CHECK(Read(resumed_root / "parallel") == "abcdefgh");
+}
+
+void FileCreationAheadIsBounded(const std::filesystem::path& root) {
+  ParallelFixture fixture;
+  fixture.world.manifests[441].files.clear();
+  for (int index = 0; index < 20; ++index)
+    fixture.world.manifests[441].files.push_back(fixture.world.AddFile("folder/f" + std::to_string(100 + index), {std::to_string(index)}));
+  DepotInstaller installer(fixture.Hooks());
+  installer.SetTuning({4, 3});
+  std::atomic<bool> cancel{false};
+  InstallOutcome outcome;
+  std::thread caller([&] { outcome = installer.Run({}, Target(root), cancel); });
+  CHECK(fixture.Wait([&] { return fixture.entered == 4; }));
+  usleep(80000);
+  int count = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(root / "folder")) if (entry.is_regular_file()) ++count;
+  CHECK(count == 3);
+  fixture.Release();
+  caller.join();
+  CHECK(outcome.error == InstallError::kNone && fixture.last.chunks_done == 20);
+}
+
+void ParallelMergedAndFullyResumed(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  auto hooks = world.Hooks();
+  const auto original = hooks.chunk;
+  std::mutex mutex;
+  hooks.chunk = [&](const ContentServer& server, std::uint32_t depot, const std::string& sha, std::size_t cap,
+                    const std::atomic<bool>& stop, std::vector<std::uint8_t>* out) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return original(server, depot, sha, cap, stop, out);
+  };
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kNone);
+  CHECK(Read(root / "game.exe") == "MZ-executable-second-chunk");
+  CHECK(Read(root / "data/level.dat") == "level-patched");
+  CHECK(world.chunk_calls == 3 && std::filesystem::file_size(root / "empty.txt") == 0);
+  const auto resumed = root / "resumed";
+  std::filesystem::create_directories(resumed / DepotInstaller::kJournalDir);
+  std::filesystem::create_directories(resumed / "data");
+  std::ofstream(resumed / "game.exe") << "MZ-executable-second-chunk";
+  // On a case-sensitive filesystem make the chosen mixed-case parent too.
+  std::filesystem::create_directories(resumed / "DATA");
+  std::ofstream(resumed / "DATA/level.dat") << "level-patched";
+  std::ofstream journal(resumed / DepotInstaller::kJournalDir / "journal");
+  journal << "441\t0\tgame.exe\n441\t14\tgame.exe\n442\t0\tDATA/level.dat\n";
+  journal.close();
+  int factories = 0;
+  hooks.make_fetcher = [&] { ++factories; return InstallerHooks::ChunkFetcher{}; };
+  DepotInstaller fully_resumed(hooks);
+  CHECK(fully_resumed.Run({}, Target(resumed), cancel).error == InstallError::kNone);
+  CHECK(factories == 0 && std::filesystem::file_size(resumed / "empty.txt") == 0);
+  CHECK(Read(resumed / "game.exe") == "MZ-executable-second-chunk");
+}
+
+void TuningFileDefaultsAndValidation(const std::filesystem::path& root) {
+  std::filesystem::create_directories(root);
+  const auto path = (root / "tuning").string();
+  auto tuning = ReadDownloadTuning(path);
+  CHECK(tuning.slots == 4 && tuning.ahead_files == 256);
+  std::ofstream(path) << "slots=8\nahead=12\n";
+  tuning = ReadDownloadTuning(path);
+  CHECK(tuning.slots == 8 && tuning.ahead_files == 12);
+  std::ofstream(path) << "slots=99\n";
+  CHECK(ReadDownloadTuning(path).slots == 8);
+  std::ofstream(path) << "slots=0\n";
+  CHECK(ReadDownloadTuning(path).slots == 1);
+  for (const auto text : {"slots=8\nahead=-1\n", "slots=abc\n", "slots=8garbage\n", "unknown=1\n", "slots=8\nslots=1\n"}) {
+    std::ofstream(path) << text;
+    tuning = ReadDownloadTuning(path);
+    CHECK(tuning.slots == 4 && tuning.ahead_files == 256);
+  }
+}
+
 void CountsActualUsefulCompressedBytes(const std::filesystem::path& root) {
   auto world = MakeWorld();
   // HTTP permits the advertised size plus padding; a verified body can differ from metadata.
@@ -213,6 +543,7 @@ void CountsActualUsefulCompressedBytes(const std::filesystem::path& root) {
   InstallStats last;
   hooks.stats = [&](const char* phase, const InstallStats& stats) { if (std::string(phase) == "end") last = stats; };
   DepotInstaller installer(hooks);
+  installer.SetTuning({1, 256});
   std::atomic<bool> cancel{false};
   const auto outcome = installer.Run({}, Target(root), cancel);
   CHECK(outcome.error == InstallError::kNone);
@@ -228,6 +559,7 @@ void StorageFailureEndsStats(const std::filesystem::path& root) {
   int ends = 0;
   hooks.stats = [&](const char* phase, const InstallStats&) { if (std::string(phase) == "end") ++ends; };
   DepotInstaller installer(hooks);
+  installer.SetTuning({1, 256});
   std::atomic<bool> cancel{false};
   CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kStorage);
   CHECK(ends == 1);
@@ -292,6 +624,7 @@ void RunStats(const std::filesystem::path& base) {
       return fetch(server, depot, sha, cap, canceled, out);
     };
     DepotInstaller installer(hooks);
+  installer.SetTuning({1, 256});
     auto target = Target(base / std::to_string(mode));
     const auto outcome = installer.Run({}, target, cancel);
     CHECK(ends == 1 && shapes == 1 && last.requests == static_cast<std::uint64_t>(world.chunk_calls));
@@ -318,6 +651,7 @@ void RunStats(const std::filesystem::path& base) {
 void InstallsMergedDepotsAndWritesRecord(const std::filesystem::path& root) {
   auto world = MakeWorld();
   DepotInstaller installer(world.Hooks());
+  installer.SetTuning({1, 256});
   std::atomic<bool> cancel{false};
   InstallProgress last;
   const auto outcome = installer.Run({}, Target(root), cancel, [&](const InstallProgress& progress) { last = progress; });
@@ -340,6 +674,7 @@ void ResumesWithoutRefetchingFinishedChunks(const std::filesystem::path& root) {
   world.cancel = &cancel;
   world.cancel_after = 2;
   DepotInstaller installer(world.Hooks());
+  installer.SetTuning({1, 256});
   const auto first = installer.Run({}, Target(root), cancel);
   CHECK(first.error == InstallError::kCanceled);
   CHECK(std::filesystem::exists(root / DepotInstaller::kJournalDir));
@@ -357,6 +692,7 @@ void RefusesWhenSpaceIsShort(const std::filesystem::path& root) {
   auto world = MakeWorld();
   world.free_bytes = 1024;
   DepotInstaller installer(world.Hooks());
+  installer.SetTuning({1, 256});
   std::atomic<bool> cancel{false};
   CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kNoSpace);
   CHECK(world.chunk_calls == 0);
@@ -366,6 +702,7 @@ void CorruptChunksFailAfterRetries(const std::filesystem::path& root) {
   auto world = MakeWorld();
   world.corrupt = true;
   DepotInstaller installer(world.Hooks());
+  installer.SetTuning({1, 256});
   std::atomic<bool> cancel{false};
   CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kCorrupt);
   CHECK(world.chunk_calls == DepotInstaller::kChunkAttempts * 2);
@@ -378,6 +715,7 @@ void BusyCdnIsRetriedAfterAWait(const std::filesystem::path& root) {
   std::vector<int> waits;
   hooks.pause = [&](int milliseconds, const std::atomic<bool>&) { waits.push_back(milliseconds); };
   DepotInstaller installer(std::move(hooks));
+  installer.SetTuning({1, 256});
   std::atomic<bool> cancel{false};
   CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kNone);
   CHECK((waits == std::vector<int>{1000, 2000, 4000}));
@@ -399,6 +737,7 @@ void BrokenManifestIsFetchedAgainElsewhere(const std::filesystem::path& root) {
   std::vector<int> waits;
   hooks.pause = [&](int milliseconds, const std::atomic<bool>&) { waits.push_back(milliseconds); };
   DepotInstaller installer(std::move(hooks));
+  installer.SetTuning({1, 256});
   std::atomic<bool> cancel{false};
   CHECK(installer.Run({}, Target(root / "recovers"), cancel).error == InstallError::kNone);
   CHECK((waits == std::vector<int>{1000, 2000}));
@@ -411,6 +750,7 @@ void BrokenManifestIsFetchedAgainElsewhere(const std::filesystem::path& root) {
   };
   failing.pause = [](int, const std::atomic<bool>&) {};
   DepotInstaller stuck(std::move(failing));
+  stuck.SetTuning({1, 256});
   CHECK(stuck.Run({}, Target(root / "stuck"), cancel).error == InstallError::kNetwork);
   CHECK(tries == 4);
 }
@@ -433,6 +773,18 @@ void RemovesOnlyManagedFolders(const std::filesystem::path& base) {
 int main() {
   const auto base = std::filesystem::temp_directory_path() / ("playden-installer-test-" + std::to_string(::getpid()));
   std::filesystem::remove_all(base);
+  OverlapsFourFetches(base / "parallel");
+  OutOfOrderAndBoundedResults(base / "out-of-order");
+  EightSlotsAndShape(base / "eight-slots");
+  CancelStopsAllWorkers(base / "cancel-fetch", false);
+  CancelStopsAllWorkers(base / "cancel-backoff", true);
+  WorkerFailureWinsAndJoins(base / "worker-failure");
+  InvalidFactoryJoinsStartedWorkers(base / "factory-failure");
+  WriteFailureStopsWorkers(base / "write-failure");
+  ParallelCorruptRetryAndResume(base / "parallel-resume");
+  FileCreationAheadIsBounded(base / "ahead");
+  TuningFileDefaultsAndValidation(base / "tuning");
+  ParallelMergedAndFullyResumed(base / "parallel-merged");
   CountsActualUsefulCompressedBytes(base / "actual-compressed");
   StorageFailureEndsStats(base / "storage-stats");
   StatsAndRemovalLogs(base / "removal");

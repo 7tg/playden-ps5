@@ -18,6 +18,7 @@ class SteamInstallRunner final : public InstallRunner {
                  const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t)>& progress) override;
   bool Remove(const std::string& root) override;
+  void SetTuning(std::function<DownloadTuning()> tuning) { tuning_ = std::move(tuning); }
   // Optional sanitized log: the Steam app ID, step, error category and a short detail; never
   // tokens or account identifiers. Called on the install worker.
   using LogFn = std::function<void(GameId app, const char* step, const char* category, const char* detail)>;
@@ -36,6 +37,7 @@ class SteamInstallRunner final : public InstallRunner {
   CmClient& cm_;
   DepotInstaller installer_;
   LogFn log_;
+  std::function<DownloadTuning()> tuning_;
   std::atomic<GameId> current_app_{0};
 };
 

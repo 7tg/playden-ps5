@@ -48,6 +48,7 @@ class CdnClient {
   // The last failure as "http=<status>" or "transport=<category>", for sanitized logs.
   const CdnStats& stats() const { return stats_; }
   const std::string& last_failure() const { return last_failure_; }
+  const std::string& ca_bundle() const { return ca_bundle_; }
 
  private:
   CdnError Get(const std::string& url, std::size_t max_bytes, std::uint32_t timeout_ms,

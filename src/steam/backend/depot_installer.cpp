@@ -16,6 +16,10 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <condition_variable>
+#include <mutex>
+#include <pthread.h>
+#include <charconv>
 #include <map>
 #include <memory>
 #include <set>
@@ -184,6 +188,35 @@ std::string JournalKey(std::uint32_t depot, const std::string& path, std::uint64
 
 }  // namespace
 
+DownloadTuning ReadDownloadTuning(const std::string& path) {
+  DownloadTuning tuning;
+  FILE* input = std::fopen(path.c_str(), "r");
+  if (!input) return tuning;
+  ScopeExit close{[&] { std::fclose(input); }};
+  char line[128];
+  bool seen_slots = false, seen_ahead = false;
+  while (std::fgets(line, sizeof(line), input)) {
+    std::string text(line);
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
+    if (text.empty()) continue;
+    const auto equals = text.find('=');
+    if (equals == std::string::npos) return {};
+    int value = 0;
+    const auto parsed = std::from_chars(text.data() + equals + 1, text.data() + text.size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) return {};
+    const auto key = text.substr(0, equals);
+    if (key == "slots" && !seen_slots) {
+      seen_slots = true;
+      tuning.slots = std::clamp(value, 1, 8);
+    } else if (key == "ahead" && !seen_ahead && value >= 1 && value <= 65536) {
+      seen_ahead = true;
+      tuning.ahead_files = value;
+    } else return {};
+  }
+  if (std::ferror(input)) return {};
+  return tuning;
+}
+
 const char* InstallErrorName(InstallError error) {
   switch (error) {
     case InstallError::kNone: return "none";
@@ -232,9 +265,17 @@ DepotInstaller::DepotInstaller(CmClient& cm, CdnClient& cdn) {
     if (!ValidateDepotManifest(*out, &reason)) return corrupt("invalid " + reason);
     return InstallError::kNone;
   };
-  hooks_.chunk = [&cdn](const ContentServer& server, std::uint32_t depot, const std::string& sha,
-                        std::size_t max_bytes, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out) {
-    return cdn.Chunk(server, depot, sha, max_bytes, cancel, out);
+  const auto ca_bundle = cdn.ca_bundle();
+  hooks_.make_fetcher = [ca_bundle] {
+    auto client = std::make_shared<CdnClient>(ca_bundle);
+    InstallerHooks::ChunkFetcher fetcher;
+    fetcher.fetch = [client](const ContentServer& server, std::uint32_t depot, const std::string& sha,
+                              std::size_t cap, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out) {
+      return client->Chunk(server, depot, sha, cap, cancel, out);
+    };
+    fetcher.last_failure = [client] { return client->last_failure(); };
+    fetcher.stats = [client] { return client->stats(); };
+    return fetcher;
   };
   hooks_.cdn_stats = [&cdn] { return cdn.stats(); };
   hooks_.free_bytes = &DefaultFreeBytes;
@@ -255,6 +296,12 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
                                    const std::function<void(const InstallProgress&)>& on_progress) {
   InstallOutcome outcome;
   InstallStats stats;
+  const int slots = std::clamp(tuning_.slots, 1, 8);
+  const int ahead_files = std::clamp(tuning_.ahead_files, 1, 65536);
+  stats.slots = slots; stats.ahead_files = ahead_files;
+  CdnStats worker_cdn;
+  bool workers_running = false;
+  CdnStats coordinator_cdn;
   const auto initial_cdn = hooks_.cdn_stats ? hooks_.cdn_stats() : CdnStats{};
   Clock::duration fetch{}, process{}, create{}, write{}, journal_time{}, backoff{};
   auto phase_start = Clock::now();
@@ -267,12 +314,16 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     stats.journal_ms = Milliseconds(journal_time); stats.backoff_ms = Milliseconds(backoff);
     if (download_start != Clock::time_point{} && !loop_finished)
       stats.download_ms = Milliseconds(Clock::now() - download_start);
-    if (hooks_.cdn_stats) {
-      const auto current = hooks_.cdn_stats();
+    {
+      const auto current = workers_running ? coordinator_cdn : (hooks_.cdn_stats ? hooks_.cdn_stats() : CdnStats{});
 #define CDN_DELTA(field) stats.field = current.field - initial_cdn.field
       CDN_DELTA(requests); CDN_DELTA(failures); CDN_DELTA(resolve_ms); CDN_DELTA(connect_ms);
       CDN_DELTA(tls_ms); CDN_DELTA(first_byte_ms); CDN_DELTA(total_ms); CDN_DELTA(new_connections); CDN_DELTA(bytes);
 #undef CDN_DELTA
+#define CDN_ADD(field) stats.field += worker_cdn.field
+      CDN_ADD(requests); CDN_ADD(failures); CDN_ADD(resolve_ms); CDN_ADD(connect_ms);
+      CDN_ADD(tls_ms); CDN_ADD(first_byte_ms); CDN_ADD(total_ms); CDN_ADD(new_connections); CDN_ADD(bytes);
+#undef CDN_ADD
     }
     hooks_.stats(phase, stats);
   };
@@ -426,83 +477,262 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     const auto now = Clock::now();
     if (now - last_stats >= std::chrono::seconds(60)) { emit("progress"); last_stats = now; }
   };
-  std::size_t server_cursor = 0;
+  struct FileWork {
+    Placement placement;
+    bool prepared = false;
+    std::size_t pending = 0;
+  };
+  struct ChunkWork { std::size_t file; const ManifestChunk* chunk; std::string journal_key; };
+  std::vector<FileWork> files;
+  std::vector<ChunkWork> chunks;
   for (const auto& [key, placement] : placements) {
-    report_progress();
-    const auto& file = *placement.file;
-    const std::string path = target.install_root + "/" + file.path;
-    if (file.is_directory()) {
-      if (!Timed(create, [&] { return MakeDirs(path, &stats.folders_created); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create folder"); }
-      continue;
-    }
-    if (file.is_symlink()) continue;  // recorded in the install record; the console has no symlinks
-    if (!Timed(create, [&] { return MakeDirs(Parent(path), &stats.folders_created); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create folder"); }
-    const bool existed = Exists(path);
-    if (file.chunks.empty() || !existed) {
-      if (!Timed(create, [&] { return EnsureFileSize(path, file.size); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot create file"); }
-      if (!existed) ++stats.files_created;
-    }
-    const auto& grant = access.grants[placement.depot];
-    for (const auto& chunk : file.chunks) {
-      report_progress();
-      const auto entry = JournalKey(grant.depot_id, file.path, chunk.offset);
+    if (placement.file->is_symlink()) continue;
+    const auto index = files.size();
+    files.push_back({placement, false, 0});
+    for (const auto& chunk : placement.file->chunks) {
+      auto entry = JournalKey(access.grants[placement.depot].depot_id, placement.file->path, chunk.offset);
       if (done.count(entry)) continue;
-      if (cancel.load()) { std::fclose(journal); return fail(InstallError::kCanceled, "canceled"); }
-      if (progress.download_done == 0) trace("first-chunk");
-      std::vector<std::uint8_t> plain;
-      std::uint64_t compressed_bytes = 0;
-      InstallError result = InstallError::kNetwork;
-      const auto attempts = static_cast<std::size_t>(kChunkAttempts) * std::max<std::size_t>(1, std::min<std::size_t>(servers.size(), 2));
-      for (std::size_t attempt = 0; attempt < attempts; ++attempt) {
-        if (attempt > 0) ++stats.chunk_retries;
-        std::vector<std::uint8_t> encrypted;
-        const auto fetched = Timed(fetch, [&] {
-          return hooks_.chunk(servers[server_cursor % servers.size()], grant.depot_id, Hex(chunk.sha),
-                              static_cast<std::size_t>(chunk.compressed_size) + 4096, cancel, &encrypted);
-        });
-        report_progress();
-        if (fetched == CdnError::kCanceled) { std::fclose(journal); return fail(InstallError::kCanceled, "canceled"); }
-        if (fetched != CdnError::kNone) {
-          ++server_cursor;
-          result = InstallError::kNetwork;
-          // 1, 2, 4, 8 s before the next try, so a short CDN outage does not end the download.
-          if (hooks_.pause && attempt + 1 < attempts)
-            Timed(backoff, [&] { hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), cancel); });
-          continue;
-        }
-        const auto processed = Timed(process, [&] {
-          return ProcessDepotChunk(encrypted, grant.key, chunk.original_size, chunk.crc, chunk.sha, &plain);
-        });
-        if (processed == ChunkError::kNone) {
-          compressed_bytes = encrypted.size();
-          result = InstallError::kNone;
-          break;
-        }
-        ++server_cursor;
-        if (attempt + 1 < attempts) ++stats.corrupt_retries;
-        result = InstallError::kCorrupt;
-      }
-      if (result != InstallError::kNone) {
-        std::fclose(journal);
-        outcome.error = result;
-        outcome.detail = "chunk unavailable";
-        if (hooks_.last_failure && result == InstallError::kNetwork) outcome.detail += " " + hooks_.last_failure();
-        return outcome;
-      }
-      if (progress.download_done == 0) trace("first-write");
-      if (!Timed(write, [&] { return WriteAt(path, file.size, chunk.offset, plain); })) { std::fclose(journal); return fail(InstallError::kStorage, "cannot write file"); }
-      Timed(journal_time, [&] {
-        std::fprintf(journal, "%s\n", entry.c_str());
-        std::fflush(journal);
-      });
-      ++stats.chunks_done;
-      stats.compressed_bytes += compressed_bytes;
-      stats.original_bytes += chunk.original_size;
-      progress.download_done += chunk.compressed_size;
-      if (on_progress) on_progress(progress);
+      chunks.push_back({index, &chunk, std::move(entry)});
+      ++files.back().pending;
     }
   }
+  struct Worker {
+    InstallerHooks::ChunkFetcher fetcher;
+    pthread_t thread{};
+    bool started = false, busy = false, ready = false;
+    std::size_t work = 0;
+    std::vector<std::uint8_t> plain;
+    std::uint64_t compressed_bytes = 0, retries = 0, corrupt_retries = 0;
+    Clock::duration fetch{}, process{}, backoff{};
+    CdnStats cdn;
+    std::function<void()> run;
+  };
+  std::vector<std::unique_ptr<Worker>> workers;
+  std::mutex mutex;
+  std::condition_variable changed;
+  std::atomic<bool> stop{false};
+  std::size_t next_chunk = 0, occupied = 0, waiting = 0;
+  std::uint32_t peak_active = 0, peak_waiting = 0;
+  InstallError first_error = InstallError::kNone;
+  std::string first_detail;
+  const auto fail_locked = [&](InstallError error, std::string detail) {
+    if (first_error == InstallError::kNone) {
+      first_error = error;
+      first_detail = std::move(detail);
+    }
+    stop.store(true);
+    changed.notify_all();
+  };
+  const auto publish_failure = [&](InstallError error, std::string detail) {
+    std::lock_guard<std::mutex> lock(mutex);
+    fail_locked(error, std::move(detail));
+  };
+  // Workers publish their own counters under this lock. Never query their clients here.
+  const auto snapshot = [&] {
+    std::lock_guard<std::mutex> lock(mutex);
+    fetch = {}; process = {}; backoff = {}; worker_cdn = {};
+    stats.peak_active = peak_active; stats.peak_waiting = peak_waiting;
+    stats.chunk_retries = stats.corrupt_retries = 0;
+    for (const auto& worker : workers) {
+      fetch += worker->fetch; process += worker->process; backoff += worker->backoff;
+      stats.chunk_retries += worker->retries; stats.corrupt_retries += worker->corrupt_retries;
+#define SUM_CDN(field) worker_cdn.field += worker->cdn.field
+      SUM_CDN(requests); SUM_CDN(failures); SUM_CDN(resolve_ms); SUM_CDN(connect_ms); SUM_CDN(tls_ms);
+      SUM_CDN(first_byte_ms); SUM_CDN(total_ms); SUM_CDN(new_connections); SUM_CDN(bytes);
+#undef SUM_CDN
+    }
+  };
+  const auto join_workers = [&] {
+    stop.store(true);
+    changed.notify_all();
+    for (auto& worker : workers) {
+      if (worker->started) { pthread_join(worker->thread, nullptr); worker->started = false; }
+    }
+    workers_running = false;
+    snapshot();
+  };
+  ScopeExit joined{join_workers};
+  ScopeExit close_journal{[&] { if (journal) std::fclose(journal); }};
+  coordinator_cdn = hooks_.cdn_stats ? hooks_.cdn_stats() : CdnStats{};
+  workers_running = true;
+  if (!chunks.empty()) trace("first-chunk");
+  pthread_attr_t attr;
+  const bool attr_ready = pthread_attr_init(&attr) == 0;
+  const bool stack_ready = attr_ready && pthread_attr_setstacksize(&attr, 256 * 1024) == 0;
+  if (!stack_ready && !chunks.empty()) publish_failure(InstallError::kNetwork, "cannot start workers");
+  for (int index = 0; stack_ready && index < slots && !chunks.empty() && !stop.load(); ++index) {
+    auto worker = std::make_unique<Worker>();
+#if defined(__cpp_exceptions)
+    try {
+#endif
+      if (hooks_.make_fetcher) worker->fetcher = hooks_.make_fetcher();
+      else { worker->fetcher.fetch = hooks_.chunk; worker->fetcher.last_failure = hooks_.last_failure; }
+#if defined(__cpp_exceptions)
+    } catch (...) { publish_failure(InstallError::kNetwork, "cannot create fetcher"); break; }
+#endif
+    if (!worker->fetcher.fetch) { publish_failure(InstallError::kNetwork, "cannot create fetcher"); break; }
+    auto* self = worker.get();
+    self->run = [&, self] {
+      // Destroy the HTTP client on the same thread that used it, after publishing its counters.
+      ScopeExit release_fetcher{[self] { self->fetcher = {}; }};
+      std::size_t server_cursor = 0;
+      Clock::duration fetch_time{}, process_time{}, backoff_time{};
+      std::uint64_t retries = 0, corrupt_retries = 0;
+#if defined(__cpp_exceptions)
+      try {
+#endif
+        while (!stop.load()) {
+          {
+            std::unique_lock<std::mutex> lock(mutex);
+            changed.wait(lock, [&] { return stop.load() || !self->busy; });
+            if (stop.load() || next_chunk == chunks.size()) break;
+            self->work = next_chunk++;
+            self->busy = true;
+            ++occupied;
+            peak_active = std::max(peak_active, static_cast<std::uint32_t>(occupied));
+          }
+          const auto& work = chunks[self->work];
+          const auto& placement = files[work.file].placement;
+          const auto& grant = access.grants[placement.depot];
+          const auto& chunk = *work.chunk;
+          InstallError result = InstallError::kNetwork;
+          std::string detail;
+          std::vector<std::uint8_t> plain;
+          std::uint64_t compressed_bytes = 0;
+          const auto attempts = static_cast<std::size_t>(kChunkAttempts) * std::min<std::size_t>(servers.size(), 2);
+          for (std::size_t attempt = 0; attempt < attempts && !stop.load(); ++attempt) {
+            if (attempt > 0) ++retries;
+            std::vector<std::uint8_t> encrypted;
+            const auto fetched = Timed(fetch_time, [&] {
+              return self->fetcher.fetch(servers[server_cursor % servers.size()], grant.depot_id, Hex(chunk.sha),
+                                         static_cast<std::size_t>(chunk.compressed_size) + 4096, stop, &encrypted);
+            });
+            if (fetched == CdnError::kCanceled || stop.load()) { result = InstallError::kCanceled; break; }
+            if (fetched != CdnError::kNone) {
+              ++server_cursor;
+              result = InstallError::kNetwork;
+              if (hooks_.pause && attempt + 1 < attempts)
+                Timed(backoff_time, [&] { hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), stop); });
+              continue;
+            }
+            const auto processed = Timed(process_time, [&] {
+              return ProcessDepotChunk(encrypted, grant.key, chunk.original_size, chunk.crc, chunk.sha, &plain);
+            });
+            if (processed == ChunkError::kNone) {
+              compressed_bytes = encrypted.size(); result = InstallError::kNone; break;
+            }
+            ++server_cursor;
+            if (attempt + 1 < attempts) ++corrupt_retries;
+            result = InstallError::kCorrupt;
+          }
+          if (stop.load()) result = InstallError::kCanceled;
+          if (result != InstallError::kNone) {
+            detail = result == InstallError::kCanceled ? "canceled" : "chunk unavailable";
+            if (result == InstallError::kNetwork && self->fetcher.last_failure) {
+              const auto failure = self->fetcher.last_failure();
+              if (!failure.empty()) detail += " " + failure;
+            }
+          }
+          const auto cdn = self->fetcher.stats ? self->fetcher.stats() : CdnStats{};
+          {
+            std::lock_guard<std::mutex> lock(mutex);
+            self->fetch = fetch_time; self->process = process_time; self->backoff = backoff_time;
+            self->retries = retries; self->corrupt_retries = corrupt_retries; self->cdn = cdn;
+            if (result != InstallError::kNone) { fail_locked(result, std::move(detail)); break; }
+            self->plain = std::move(plain); self->compressed_bytes = compressed_bytes;
+            self->ready = true;
+            ++waiting;
+            peak_waiting = std::max(peak_waiting, static_cast<std::uint32_t>(waiting));
+            changed.notify_all();
+          }
+        }
+#if defined(__cpp_exceptions)
+      } catch (...) { publish_failure(InstallError::kNetwork, "chunk worker failed"); }
+#endif
+    };
+    workers.push_back(std::move(worker));
+    if (pthread_create(&self->thread, &attr, [](void* context) -> void* {
+          static_cast<Worker*>(context)->run(); return nullptr;
+        }, self) != 0) {
+      publish_failure(InstallError::kNetwork, "cannot start workers"); break;
+    }
+    self->started = true;
+  }
+  if (attr_ready) pthread_attr_destroy(&attr);
+  const auto prepare_file = [&](std::size_t index) {
+    auto& work = files[index];
+    if (work.prepared) return true;
+    const auto& file = *work.placement.file;
+    const auto path = target.install_root + "/" + file.path;
+    if (file.is_directory()) {
+      if (!Timed(create, [&] { return MakeDirs(path, &stats.folders_created); })) return false;
+    } else {
+      if (!Timed(create, [&] { return MakeDirs(Parent(path), &stats.folders_created); })) return false;
+      const bool existed = Exists(path);
+      if (file.chunks.empty() || !existed) {
+        if (!Timed(create, [&] { return EnsureFileSize(path, file.size); })) return false;
+        if (!existed) ++stats.files_created;
+      }
+    }
+    work.prepared = true;
+    return true;
+  };
+  std::size_t prepare_next = 0, front_file = 0, written_chunks = 0;
+  while (true) {
+    if (cancel.load()) publish_failure(InstallError::kCanceled, "canceled");
+    Worker* ready = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (first_error != InstallError::kNone) break;
+      for (auto& worker : workers) if (worker->ready) {
+        ready = worker.get(); ready->ready = false; --waiting; break;
+      }
+    }
+    snapshot();
+    report_progress();
+    if (ready) {
+      const auto& work = chunks[ready->work];
+      const auto& file = *files[work.file].placement.file;
+      if (!prepare_file(work.file)) { publish_failure(InstallError::kStorage, "cannot create file"); break; }
+      if (stats.chunks_done == 0) trace("first-write");
+      const auto path = target.install_root + "/" + file.path;
+      if (!Timed(write, [&] { return WriteAt(path, file.size, work.chunk->offset, ready->plain); })) {
+        publish_failure(InstallError::kStorage, "cannot write file"); break;
+      }
+      const bool recorded = Timed(journal_time, [&] {
+        return std::fprintf(journal, "%s\n", work.journal_key.c_str()) >= 0 && std::fflush(journal) == 0;
+      });
+      if (!recorded) { publish_failure(InstallError::kStorage, "cannot write journal"); break; }
+      ++stats.chunks_done; ++written_chunks; --files[work.file].pending;
+      stats.compressed_bytes += ready->compressed_bytes;
+      stats.original_bytes += work.chunk->original_size;
+      progress.download_done += work.chunk->compressed_size;
+      if (on_progress) on_progress(progress);
+      // Release the occupied slot only after its output has been written and freed.
+      std::vector<std::uint8_t>().swap(ready->plain);
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        ready->busy = false; --occupied; changed.notify_all();
+      }
+      continue;
+    }
+    while (front_file < files.size() && files[front_file].prepared && files[front_file].pending == 0) ++front_file;
+    while (prepare_next < files.size() && files[prepare_next].prepared) ++prepare_next;
+    if (prepare_next < files.size() && prepare_next - std::min(prepare_next, front_file) < static_cast<std::size_t>(ahead_files)) {
+      if (!prepare_file(prepare_next++)) { publish_failure(InstallError::kStorage, "cannot create file"); break; }
+      continue;
+    }
+    if (written_chunks == chunks.size() && prepare_next == files.size()) break;
+    std::unique_lock<std::mutex> lock(mutex);
+    changed.wait_for(lock, std::chrono::milliseconds(50), [&] { return stop.load() || waiting != 0; });
+  }
+  join_workers();
+  if (first_error != InstallError::kNone) {
+    outcome.error = first_error; outcome.detail = first_detail; outcome.progress = progress;
+    return outcome;
+  }
   std::fclose(journal);
+  journal = nullptr;
   stats.download_ms = Milliseconds(Clock::now() - download_start);
   loop_finished = true;
 

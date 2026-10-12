@@ -272,6 +272,9 @@ int main() {
         install_cm.SetSharedSession(steam_cm);
         playden::steam::CdnClient install_cdn(paths.trust_store);
         playden::steam::SteamInstallRunner install_runner(install_cm, install_cdn);
+        install_runner.SetTuning([root = paths.title_root] {
+            return playden::steam::ReadDownloadTuning(root + "/dev/download-tuning.txt");
+        });
         install_runner.SetLog([](playden::GameId app, const char* step, const char* category, const char* detail) {
             char line[640];
             if (std::string(step) == "install-removal")
