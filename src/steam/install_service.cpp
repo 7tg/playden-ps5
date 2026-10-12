@@ -370,11 +370,8 @@ InstallSnapshot InstallService::Snapshot() {
   const auto now = RateNowMs();
   for (auto& job : jobs_) {
     DownloadEstimate estimate;
-    if (job.view.state == InstallJobState::kRunning) {
-      if (job.rate_tick == now / 1000) continue;
-      job.rate_tick = now / 1000;
-      estimate = job.rate.Estimate(now, job.view.done_bytes, job.view.total_bytes);
-    }
+    if (job.view.state == InstallJobState::kRunning)
+      estimate = job.rate.Shown(now, job.view.done_bytes, job.view.total_bytes);
     if (job.view.bytes_per_second != estimate.bytes_per_second || job.view.eta_seconds != estimate.eta_seconds) {
       job.view.bytes_per_second = estimate.bytes_per_second; job.view.eta_seconds = estimate.eta_seconds;
       ++revision_; // Time-only telemetry changes do not write the install registry.
@@ -425,7 +422,7 @@ void InstallService::Run() {
             continue;
           }
           job.view.state = InstallJobState::kRunning;
-          job.rate.Reset(); job.rate_tick = -1;
+          job.rate.Reset();
           job.view.bytes_per_second.reset(); job.view.eta_seconds.reset();
           next = job.view.id;
           next_root = RootOn(job.view.volume_id, job.view.id);
@@ -464,10 +461,7 @@ void InstallService::Run() {
                                [this, id = *next](std::uint64_t done, std::uint64_t total) {
                                  std::lock_guard<std::mutex> lock(mutex_);
                                  if (auto* job = Find(id)) {
-                                   if (job->view.state == InstallJobState::kRunning) {
-                                     job->rate.Record(done, RateNowMs());
-                                     job->rate_tick = -1;
-                                   }
+                                   if (job->view.state == InstallJobState::kRunning) job->rate.Record(done, RateNowMs());
                                    job->view.done_bytes = done;
                                    job->view.total_bytes = total;
                                    ++revision_;  // progress only; the registry is unchanged

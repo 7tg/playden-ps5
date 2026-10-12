@@ -121,7 +121,6 @@ class InstallService {
   struct Job {
     InstallJobView view;
     DownloadRate rate;
-    std::int64_t rate_tick = -1;
     bool cancel_requested = false;  // delete files when the run stops
   };
   void Run();

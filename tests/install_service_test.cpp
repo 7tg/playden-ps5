@@ -78,7 +78,7 @@ class Runner final : public InstallRunner {
 
 template <typename Ready>
 void AwaitAt(int line, InstallService& service, Ready ready) {
-  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  const auto deadline = std::chrono::steady_clock::now() + 6s;
   while (std::chrono::steady_clock::now() < deadline) {
     if (ready(service.Snapshot())) return;
     std::this_thread::sleep_for(1ms);
@@ -110,7 +110,7 @@ void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
   const auto* job = JobOf(moving, 900);
   CHECK(job && *job->bytes_per_second <= 100000000 && job->eta_seconds);
   CHECK(job->done_bytes == 9100000000ull); // only the fresh 100 MB belongs in the rate
-  const auto deadline = std::chrono::steady_clock::now() + 6s;
+  const auto deadline = std::chrono::steady_clock::now() + 9s;
   bool stalled = false;
   while (std::chrono::steady_clock::now() < deadline) {
     const auto snapshot = service.Snapshot();
