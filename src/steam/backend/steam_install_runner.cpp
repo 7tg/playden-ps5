@@ -8,6 +8,13 @@
 
 namespace playden::steam {
 
+void LogInstallTrace(const InstallLogFn& log, GameId app, const char* marker) {
+  if (!log) return;
+  if (std::string(marker) == "journal-reset") log(app, "journal", "reset", "");
+  else if (std::string(marker) == "journal-legacy") log(app, "journal", "legacy", "");
+  else log(app, "trace", marker, "");
+}
+
 std::string FormatInstallStats(const char* phase, const InstallStats& stats) {
   std::string detail;
   const auto add = [&](const char* key, std::uint64_t value) {

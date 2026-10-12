@@ -288,6 +288,7 @@ struct ParallelFixture {
         return std::string("http=503");
       };
       fetcher.stats = [state] {
+        if (state->owner == std::thread::id{}) state->owner = std::this_thread::get_id();
         CHECK(state->owner == std::this_thread::get_id());
         CdnStats stats; stats.requests = state->requests; return stats;
       };
@@ -388,7 +389,7 @@ void CancelStopsAllWorkers(const std::filesystem::path& root, bool during_backof
   const auto fetches = fixture.entered;
   usleep(20000);
   CHECK(fixture.callbacks == calls && fixture.entered == fetches);
-  CHECK(Read(root / DepotInstaller::kJournalDir / "journal").empty());
+  CHECK(Read(root / DepotInstaller::kJournalDir / "journal") == "#v2 441:11,442:12\n");
 }
 
 void WorkerFailureWinsAndJoins(const std::filesystem::path& root) {
@@ -427,7 +428,7 @@ void WriteFailureStopsWorkers(const std::filesystem::path& root) {
   caller.join();
   CHECK(outcome.error == InstallError::kStorage && outcome.detail == "cannot write file");
   CHECK(fixture.active == 0 && fixture.last.chunks_done == 0);
-  CHECK(Read(root / DepotInstaller::kJournalDir / "journal").empty());
+  CHECK(Read(root / DepotInstaller::kJournalDir / "journal") == "#v2 441:11,442:12\n");
 }
 
 void ParallelCorruptRetryAndResume(const std::filesystem::path& root) {
@@ -688,6 +689,131 @@ void ResumesWithoutRefetchingFinishedChunks(const std::filesystem::path& root) {
   CHECK(Read(root / "game.exe") == "MZ-executable-second-chunk");
 }
 
+void ChangedManifestRefetchesSameOffset(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  std::atomic<bool> cancel{false};
+  world.cancel = &cancel; world.cancel_after = 1;
+  auto hooks = world.Hooks();
+  std::vector<std::string> traces;
+  hooks.trace = [&](const char* step) { traces.emplace_back(step); };
+  DepotInstaller installer(hooks);
+  installer.SetTuning({1, 256});
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kCanceled);
+  CHECK(Read(root / "DATA/level.dat") == "level-patched");
+  world.manifests[442].gid = 13;
+  world.manifests[442].files[0] = world.AddFile("DATA/level.dat", {"updated-level"});
+  auto target = Target(root);
+  target.depots[1].manifest_gid = 13;
+  cancel.store(false); world.cancel_after = -1; world.chunk_calls = 0;
+  CHECK(installer.Run({}, target, cancel).error == InstallError::kNone);
+  CHECK(Read(root / "DATA/level.dat") == "updated-level");
+  CHECK(world.chunk_calls == 3);
+  CHECK(std::count(traces.begin(), traces.end(), "journal-reset") == 1);
+}
+
+void JournalHeaderModes(const std::filesystem::path& base) {
+  const std::string header = "#v2 441:11,442:12\n";
+  const std::string entry = "442\t0\tDATA/level.dat\n";
+  const std::vector<std::string> journals = {
+    header + "#comment ignored\n#verified chunks\n" + entry, entry, "", "#v2 441:11,442:99\n" + entry,
+    "#v2 broken\n" + entry, header + header + entry, "#v2 442:12,441:11\n" + entry,
+    "\n" + header + entry, "#v1 441:11,442:12\n" + entry, "#V2 441:11,442:12\n" + entry,
+    "#comment\n" + entry, header + entry.substr(0, entry.size() - 1),
+  };
+  for (std::size_t mode = 0; mode < journals.size(); ++mode) {
+    const auto root = base / std::to_string(mode);
+    auto world = MakeWorld();
+    std::atomic<bool> cancel{false}; world.cancel = &cancel; world.cancel_after = 1;
+    auto hooks = world.Hooks();
+    std::vector<std::string> traces;
+    hooks.trace = [&](const char* step) { traces.emplace_back(step); };
+    InstallStats last;
+    hooks.stats = [&](const char* phase, const InstallStats& stats) { if (std::string(phase) == "end") last = stats; };
+    DepotInstaller installer(hooks); installer.SetTuning({1, 256});
+    CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kCanceled);
+    CHECK(Read(root / DepotInstaller::kJournalDir / "journal") == header + entry);
+    CHECK(std::count(traces.begin(), traces.end(), "journal-reset") == 0);
+    CHECK(std::count(traces.begin(), traces.end(), "journal-legacy") == 0);
+    std::ofstream(root / DepotInstaller::kJournalDir / "journal") << journals[mode];
+    cancel.store(false); world.cancel_after = -1; world.chunk_calls = 0; traces.clear();
+    CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kNone);
+    const bool legacy = mode == 1 || mode == 10;
+    const bool reuse = mode == 0 || mode == 11 || legacy;
+    CHECK(world.chunk_calls == (reuse ? 2 : 3));
+    CHECK(last.chunks_skipped == (reuse ? 1u : 0u));
+    CHECK(std::count(traces.begin(), traces.end(), "journal-reset") == (mode >= 3 && mode <= 9 ? 1 : 0));
+    CHECK(std::count(traces.begin(), traces.end(), "journal-legacy") == (legacy ? 1 : 0));
+    CHECK(Read(root / "game.exe") == "MZ-executable-second-chunk");
+    CHECK(Read(root / "DATA/level.dat") == "level-patched");
+  }
+}
+
+void UnterminatedJournalGetsSeparator(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  std::filesystem::create_directories(root / DepotInstaller::kJournalDir);
+  std::filesystem::create_directories(root / "DATA");
+  std::ofstream(root / "DATA/level.dat") << "level-patched";
+  std::ofstream(root / DepotInstaller::kJournalDir / "journal") << "#v2 441:11,442:12\n442\t0\tDATA/level.dat";
+  std::atomic<bool> cancel{false}; world.cancel = &cancel; world.cancel_after = 1;
+  DepotInstaller installer(world.Hooks()); installer.SetTuning({1, 256});
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kCanceled);
+  CHECK(Read(root / DepotInstaller::kJournalDir / "journal") ==
+        "#v2 441:11,442:12\n442\t0\tDATA/level.dat\n441\t0\tgame.exe\n");
+  cancel.store(false); world.chunk_calls = 0; world.cancel_after = -1;
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kNone);
+  CHECK(world.chunk_calls == 1);
+}
+
+void LongMatchingJournalHeader(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  world.manifests[441].files = {world.AddFile("one", {"written"})};
+  auto target = Target(root);
+  const auto depot = target.depots.front();
+  target.depots.assign(1500, depot);
+  std::string header = "#v2 ";
+  for (int index = 0; index < 1500; ++index) header += (index ? ",441:11" : "441:11");
+  CHECK(header.size() > 8192);
+  std::filesystem::create_directories(root / DepotInstaller::kJournalDir);
+  std::ofstream(root / "one") << "written";
+  std::ofstream(root / DepotInstaller::kJournalDir / "journal") << header << "\n441\t0\tone\n";
+  auto hooks = world.Hooks();
+  InstallStats last;
+  hooks.stats = [&](const char* phase, const InstallStats& stats) { if (std::string(phase) == "end") last = stats; };
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  const auto result = installer.Run({}, target, cancel);
+  CHECK(result.error == InstallError::kNone);
+  CHECK(world.chunk_calls == 0 && last.chunks_skipped == 1);
+  CHECK(Read(root / "one") == "written");
+}
+
+void HeaderWriteFailureCannotAppend(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  const auto folder = root / DepotInstaller::kJournalDir;
+  std::filesystem::create_directories(folder / "journal.tmp");
+  const std::string stale = "#v2 441:999,442:12\n442\t0\tDATA/level.dat\n";
+  std::ofstream(folder / "journal") << stale;
+  DepotInstaller installer(world.Hooks());
+  std::atomic<bool> cancel{false};
+  const auto outcome = installer.Run({}, Target(root), cancel);
+  CHECK(outcome.error == InstallError::kStorage && outcome.detail == "cannot write journal");
+  CHECK(world.chunk_calls == 0 && Read(folder / "journal") == stale);
+}
+
+void JournalTraceLogging() {
+  std::vector<std::string> lines;
+  const InstallLogFn log = [&](GameId app, const char* step, const char* category, const char* detail) {
+    lines.push_back(std::to_string(app) + " step=" + step + " result=" + category + " detail=" + detail);
+  };
+  LogInstallTrace(log, 440, "journal-reset");
+  LogInstallTrace(log, 440, "journal-legacy");
+  LogInstallTrace(log, 440, "write");
+  CHECK(lines == std::vector<std::string>({"440 step=journal result=reset detail=",
+                                         "440 step=journal result=legacy detail=",
+                                         "440 step=trace result=write detail="}));
+  LogInstallTrace({}, 440, "journal-reset");
+}
+
 void RefusesWhenSpaceIsShort(const std::filesystem::path& root) {
   auto world = MakeWorld();
   world.free_bytes = 1024;
@@ -791,6 +917,12 @@ int main() {
   RunStats(base / "stats");
   InstallsMergedDepotsAndWritesRecord(base / "install");
   ResumesWithoutRefetchingFinishedChunks(base / "resume");
+  ChangedManifestRefetchesSameOffset(base / "manifest-update");
+  JournalHeaderModes(base / "header-modes");
+  HeaderWriteFailureCannotAppend(base / "header-write-failure");
+  LongMatchingJournalHeader(base / "long-header");
+  UnterminatedJournalGetsSeparator(base / "unterminated-header");
+  JournalTraceLogging();
   RefusesWhenSpaceIsShort(base / "space");
   CorruptChunksFailAfterRetries(base / "corrupt");
   BusyCdnIsRetriedAfterAWait(base / "busy");

@@ -430,16 +430,69 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     if (std::fclose(list) != 0 || std::rename((list_path + ".tmp").c_str(), list_path.c_str()) != 0)
       return fail(InstallError::kStorage, "cannot write file list");
   }
-  std::set<std::string> done;
-  if (FILE* journal = std::fopen(journal_path.c_str(), "r")) {
-    char line[8192];
-    while (std::fgets(line, sizeof(line), journal)) {
-      std::string entry(line);
-      while (!entry.empty() && (entry.back() == '\n' || entry.back() == '\r')) entry.pop_back();
-      if (!entry.empty()) done.insert(entry);
-    }
-    std::fclose(journal);
+  std::string journal_header = "#v2 ";
+  for (std::size_t index = 0; index < access.grants.size(); ++index) {
+    if (index) journal_header += ',';
+    journal_header += std::to_string(access.grants[index].depot_id) + ':' +
+                      std::to_string(access.grants[index].manifest_gid);
   }
+  std::set<std::string> done;
+  bool has_header = false, nonempty_journal = false, reset_journal = false, first_line = true;
+  bool unterminated_journal = false;
+  if (FILE* input = std::fopen(journal_path.c_str(), "r")) {
+    const auto read_line = [&](std::string entry) {
+      while (!entry.empty() && (entry.back() == '\n' || entry.back() == '\r')) entry.pop_back();
+      const bool at_start = first_line;
+      first_line = false;
+      if (entry.empty()) return;
+      nonempty_journal = true;
+      if (entry[0] == '#') {
+        // Version headers must occur exactly once, on the first line. Other comments are ignored.
+        const bool version_prefix = entry.compare(0, 2, "#v") == 0 || entry.compare(0, 2, "#V") == 0;
+        const bool version_line = version_prefix && (entry.size() == 2 ||
+            (entry.size() > 2 && std::isdigit(static_cast<unsigned char>(entry[2]))));
+        if (version_line) {
+          if (!at_start || has_header || entry != journal_header) reset_journal = true;
+          has_header = true;
+        }
+        return;
+      }
+      done.insert(std::move(entry));
+    };
+    char buffer[8192];
+    std::string line;
+    bool oversized = false;
+    const auto max_line = std::max<std::size_t>(journal_header.size() + 2, sizeof(buffer));
+    while (std::fgets(buffer, sizeof(buffer), input)) {
+      const std::string part(buffer);
+      if (line.size() + part.size() > max_line) oversized = true;
+      if (!oversized) line += part;
+      if (!part.empty() && part.back() == '\n') {
+        if (oversized) { reset_journal = true; nonempty_journal = true; first_line = false; }
+        else read_line(std::move(line));
+        line.clear(); oversized = false;
+      }
+    }
+    if (oversized) { reset_journal = true; nonempty_journal = true; }
+    else if (!line.empty()) { read_line(std::move(line)); unterminated_journal = true; }
+    const bool read_ok = std::ferror(input) == 0;
+    const bool closed = std::fclose(input) == 0;
+    if (!read_ok || !closed) return fail(InstallError::kStorage, "cannot read journal");
+  } else if (Exists(journal_path)) return fail(InstallError::kStorage, "cannot read journal");
+  if (reset_journal || !nonempty_journal) {
+    done.clear();
+    const auto temporary = journal_path + ".tmp";
+    FILE* header = std::fopen(temporary.c_str(), "w");
+    if (!header) return fail(InstallError::kStorage, "cannot write journal");
+    const bool written = std::fprintf(header, "%s\n", journal_header.c_str()) >= 0;
+    const bool closed = std::fclose(header) == 0;
+    if (!written || !closed || std::rename(temporary.c_str(), journal_path.c_str()) != 0) {
+      std::remove(temporary.c_str());
+      return fail(InstallError::kStorage, "cannot write journal");
+    }
+    unterminated_journal = false;
+    if (reset_journal) trace("journal-reset");
+  } else if (!has_header) trace("journal-legacy");
 
   std::uint64_t remaining_bytes = 0;
   for (const auto& [key, placement] : placements) {
@@ -471,6 +524,11 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   trace("write");
   FILE* journal = std::fopen(journal_path.c_str(), "a");
   if (!journal) return fail(InstallError::kStorage, "cannot write journal");
+  // A valid final line need not have a newline; separate it from newly appended chunk keys.
+  if (unterminated_journal && (std::fprintf(journal, "\n") < 0 || std::fflush(journal) != 0)) {
+    std::fclose(journal);
+    return fail(InstallError::kStorage, "cannot write journal");
+  }
   download_start = last_stats = Clock::now();
   ScopeExit end_stats{[&] { emit("end"); }};
   auto report_progress = [&] {
