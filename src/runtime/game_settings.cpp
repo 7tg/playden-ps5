@@ -2042,6 +2042,11 @@ bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string&
   return ApplyRegistryFileValues(RenderRegistryValues(settings), prefix_dir, unix_time, reason);
 }
 
+bool ApplyBottleRegistryValues(const std::vector<RegistryValue>& values, const std::string& prefix_dir,
+                               std::int64_t unix_time, const std::string& hive, std::string* reason) {
+  return ApplyRegistryFileValues(values, prefix_dir, unix_time, reason, hive);
+}
+
 bool ParseUe3InstallGuid(std::string_view install_info, std::string* guid) {
   static constexpr std::string_view open = "<InstallGuidString>", close = "</InstallGuidString>";
   const auto start = install_info.find(open);

@@ -8,6 +8,7 @@
 #include "runtime/prospero_profile.h"
 #include "runtime/settings_publication_journal.h"
 #include "runtime/dotnet_heap.h"
+#include "runtime/install_script.h"
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
 #include "runtime/steam_stub.h"
@@ -457,6 +458,21 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     Log("ue3 eula app=" + std::to_string(record.app_id) + " guid=" + (eula.guid.empty() ? "-" : eula.guid) +
         " written=" + (eula.written ? "1" : "0") + (eula.ok ? std::string() : " failed=" + eula.message));
   if (!eula.ok) return "The game's EULA could not be marked accepted: " + eula.message + ".";
+  // Registry keys Steam's install script writes on a game's first start (Fallout: New Vegas's
+  // launcher wants its install path there).
+  if (const auto install_dir = rt::ProsperoWindowsPath(record.install_path)) {
+    const auto script = rt::ApplyInstallScripts(root.string(), *install_dir,
+                                                (HostPath(record.data_root) / "library/prefixes/game").string(),
+                                                config_.unix_time());
+    if (!script.found.empty()) {
+      std::string names;
+      for (const auto& name : script.found) names += (names.empty() ? "" : ",") + name;
+      Log("install script app=" + std::to_string(record.app_id) + " found=" + names +
+          " values=" + std::to_string(script.values) + " skipped=" + std::to_string(script.skipped.size()) +
+          (script.ok ? std::string() : " failed=" + script.message));
+    }
+    if (!script.ok) return "The game's install script could not be applied: " + script.message + ".";
+  }
   // Self-contained .NET games reserve more address space than the console grants unless
   // their garbage collector is given a heap limit (runtime/dotnet_heap.h).
   const auto dotnet = rt::LimitDotnetHeap(root.string());

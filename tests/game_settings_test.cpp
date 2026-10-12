@@ -1,5 +1,6 @@
 #include "runtime/game_settings.h"
 #include "runtime/game_probe.h"
+#include "runtime/install_script.h"
 #include "runtime/settings_publication.h"
 
 #include <algorithm>
@@ -507,6 +508,66 @@ int main(int argc, char** argv) {
     eula = AcceptUe3Eula(game.string(), programs, bottle.string(), 1791600000);
     CHECK(eula.found && !eula.ok && !eula.written && ReadText(bottle / "system.reg") == accepted);
     std::filesystem::remove_all(eula_root);
+  }
+
+  // A Steam install script's Registry section goes into the bottle (Fallout: New Vegas's launcher
+  // offers only "Install" without it); its Run Process entries are not run.
+  {
+    const std::string fnv =
+        "\"InstallScript\"\n{\n    \"Registry\"\n    {\n"
+        "        \"HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Bethesda Softworks\\\\FalloutNV\"\n        {\n"
+        "            \"string\"\n            {\n                \"Installed Path\"      \"%INSTALLDIR%\\\\\"\n"
+        "            }\n        }\n    }\n    \"Run Process\"\n    {\n        \"DirectX\"\n        {\n"
+        "            \"process 1\"     \"%INSTALLDIR%\\\\Redists\\\\directx\\\\DXSETUP.exe\"\n        }\n    }\n}\n";
+    InstallScriptValues values;
+    CHECK(ParseInstallScript(fnv, "Z:\\data\\games\\22380", &values, &reason));
+    CHECK(values.user.empty() && values.machine.size() == 2);
+    CHECK(values.machine[0].key == "SOFTWARE\\Bethesda Softworks\\FalloutNV" && values.machine[0].name == "Installed Path" &&
+          values.machine[0].data == "\"Z:\\\\data\\\\games\\\\22380\\\\\"");
+    CHECK(values.machine[1].key == "Software\\Wow6432Node\\Bethesda Softworks\\FalloutNV" &&
+          values.machine[1].data == values.machine[0].data);
+    // UTF-16 with its mark, HKCU, dwords; another %TOKEN%, other roots and other types are skipped.
+    const std::string mixed =
+        "\"InstallScript\" { \"Registry\" { \"HKEY_CURRENT_USER\\\\Software\\\\Studio\\\\Game\" { "
+        "\"dword\" { \"Installed\" \"1\" \"Bad\" \"x\" } \"string\" { \"Lang\" \"%LANGUAGE%\" \"Ok\" \"yes\" } "
+        "\"binary\" { \"Blob\" \"00ff\" } } \"HKEY_CLASSES_ROOT\\\\.sav\" { \"string\" { \"\" \"Game.Save\" } } } }";
+    std::string utf16 = "\xff\xfe";
+    for (const char value : mixed) utf16 += std::string{value, '\0'};
+    values = {};
+    CHECK(ParseInstallScript(utf16, "Z:\\g", &values, &reason));
+    CHECK(values.machine.empty() && values.user.size() == 2);
+    CHECK(values.user[0].key == "Software\\Studio\\Game" && values.user[0].name == "Installed" &&
+          values.user[0].data == "dword:00000001");
+    CHECK(values.user[1].name == "Ok" && values.user[1].data == "\"yes\"");
+    values = {};
+    CHECK(!ParseInstallScript("\"InstallScript\" {", "Z:\\g", &values, &reason));
+
+    const auto script_root = std::filesystem::canonical(std::filesystem::temp_directory_path()) /
+                             ("playden-install-script-" + std::to_string(::getpid()));
+    std::filesystem::remove_all(script_root);
+    const auto game = script_root / "game", bottle = script_root / "bottle";
+    std::filesystem::create_directories(game);
+    std::filesystem::create_directories(bottle);
+    std::filesystem::permissions(script_root, std::filesystem::perms::owner_all);
+    std::filesystem::permissions(bottle, std::filesystem::perms::owner_all);
+    const std::string system_reg = "WINE REGISTRY Version 2\n;; All keys relative to REGISTRY\\\\Machine\n\n#arch=win64\n";
+    std::ofstream(bottle / "system.reg") << system_reg;
+    ::chmod((bottle / "system.reg").c_str(), 0600);
+    // No script: nothing found, nothing written.
+    auto applied = ApplyInstallScripts(game.string(), "Z:\\data\\games\\22380", bottle.string(), 1791500000);
+    CHECK(applied.ok && applied.found.empty() && !std::filesystem::exists(bottle / "system.reg.playden-backup"));
+    std::ofstream(game / "InstallScript.vdf") << fnv;
+    applied = ApplyInstallScripts(game.string(), "Z:\\data\\games\\22380", bottle.string(), 1791500000);
+    CHECK(applied.ok && applied.found == std::vector<std::string>{"InstallScript.vdf"} && applied.values == 2);
+    const auto written = ReadText(bottle / "system.reg");
+    CHECK(written.find("\n[SOFTWARE\\\\Bethesda Softworks\\\\FalloutNV] 1791500000\n"
+                       "\"Installed Path\"=\"Z:\\\\data\\\\games\\\\22380\\\\\"\n") != std::string::npos);
+    CHECK(written.find("\n[Software\\\\Wow6432Node\\\\Bethesda Softworks\\\\FalloutNV] 1791500000\n") != std::string::npos);
+    CHECK(ReadText(bottle / "system.reg.playden-backup") == system_reg);
+    // Again: already there, so the hive is left as it is.
+    applied = ApplyInstallScripts(game.string(), "Z:\\data\\games\\22380", bottle.string(), 1791600000);
+    CHECK(applied.ok && ReadText(bottle / "system.reg") == written);
+    std::filesystem::remove_all(script_root);
   }
 
   // A prospero-win-profiles sidecar becomes a community preset for its game.

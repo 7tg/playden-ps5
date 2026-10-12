@@ -287,6 +287,11 @@ bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>
 bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string& prefix_dir, std::int64_t unix_time,
                            std::string* reason);
 
+// Applies values to one hive of the stopped bottle (user.reg or system.reg) the same way:
+// backed up to <hive>.playden-backup first, replaced atomically, untouched when nothing changes.
+bool ApplyBottleRegistryValues(const std::vector<RegistryValue>& values, const std::string& prefix_dir,
+                               std::int64_t unix_time, const std::string& hive, std::string* reason);
+
 // The <InstallGuidString> of an Unreal Engine 3 (UDK) Binaries/InstallInfo.xml: exactly one,
 // a 36-character 8-4-4-4-12 hex GUID once surrounding whitespace is trimmed.
 bool ParseUe3InstallGuid(std::string_view install_info, std::string* guid);
