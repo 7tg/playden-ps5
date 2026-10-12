@@ -108,6 +108,8 @@ struct LiveRuntimeGame {
     // The settings revision its PS5 title publishes and the launch entry it was made for.
     std::uint64_t settings_revision = 0;
     std::string launch_entry_id;
+    std::string launch_path;               // its program, relative to the install root
+    std::string launch_working_directory;  // empty: the program's own folder
     TitleActivity activity = TitleActivity::Unknown;
     // The newest maintenance request and its outcome.
     std::optional<MaintenanceKind> maintenance;
@@ -602,6 +604,7 @@ private:
     ViewData route_view_;
     std::string last_error_;
     std::string pending_destructive_action_;
+    GameId recreate_offer_game_ = 0;  // the game the open Recreate bottle offer is for
     std::string selected_volume_id_;
     std::vector<playden::runtime::SettingsPreset> settings_presets_;
     std::map<std::uint32_t, playden::runtime::GameRecipe> recipes_;
@@ -734,6 +737,23 @@ private:
     // Whether a setting or action that needs the game closed can run: false while the game
     // runs or the console has not said; reason says why.
     [[nodiscard]] bool game_closed(GameId id, std::string* reason = nullptr) const;
+    // What a prepared bottle is made for: the values of the "Prepares bottle" settings that its PS5
+    // title keeps until the bottle is made again (RuntimeHost::Launch starts the title's own program).
+    struct BottleConfig {
+        std::string launch_entry_id;
+        std::string program;            // relative to the install root, lower case, '/' separated
+        std::string working_directory;  // the same; empty: the program's own folder
+        bool operator==(const BottleConfig&) const = default;
+    };
+    // The config the game's PS5 title was prepared with, and the one its Game settings make now.
+    // Empty when the game has no prepared title or Playden does not know its recipe yet.
+    [[nodiscard]] std::optional<BottleConfig> prepared_bottle(GameId id) const;
+    [[nodiscard]] std::optional<BottleConfig> chosen_bottle(GameId id) const;
+    // Game settings changed a "Prepares bottle" setting since the title was made: those changes
+    // wait for Recreate bottle.
+    [[nodiscard]] bool bottle_outdated(GameId id) const;
+    // Offers Recreate bottle for such a game; on_play adds "Play anyway".
+    void offer_recreate_bottle(GameId id, bool on_play);
     [[nodiscard]] std::vector<std::string> maintenance_actions() const;
     // The game page's More menu: Game settings and Maintenance first for a prepared game.
     [[nodiscard]] std::vector<std::string> details_context_actions() const;

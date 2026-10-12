@@ -626,6 +626,8 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
       view.admission = found->second;
     view.settings_revision = record.settings_revision;
     view.launch_entry_id = record.launch_entry_id;
+    view.launch_path = record.launch_path;
+    view.launch_working_directory = record.launch_working_directory;
     std::error_code error;
     for (std::filesystem::directory_iterator it(SaveBackupRoot(record.install_id), error), end; !error && it != end;
          it.increment(error)) {

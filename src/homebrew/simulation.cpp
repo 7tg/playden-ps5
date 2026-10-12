@@ -14,6 +14,7 @@
 
 #include <cstring>
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <ctime>
 #include <fcntl.h>
@@ -401,7 +402,7 @@ std::vector<std::string> split_overrides(const std::string& list) {
 
 std::string action_label(const std::string& key) {
     static const std::map<std::string, std::string> labels = {
-        {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"ready-later", "Later"}, {"alert-ok", "OK"}, {"alert-settings", "Game settings"}, {"runtime-cleanup-confirm", "Clean up"}, {"quit-to-home", "Play"}, {"favorite", "Favorite"},
+        {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"ready-later", "Later"}, {"bottle-recreate", "Recreate bottle"}, {"runtime-play-anyway", "Play anyway"}, {"alert-ok", "OK"}, {"alert-settings", "Game settings"}, {"runtime-cleanup-confirm", "Clean up"}, {"quit-to-home", "Play"}, {"favorite", "Favorite"},
         {"collection", "Collections"}, {"note", "Compatibility and note"}, {"verify", "Verify files"},
         {"uninstall", "Uninstall"}, {"uninstall-delete-saves", "Delete saves too"}, {"logs", "Open logs"}, {"logs-back", "Back"},
         {"logs-pick", "Logs"}, {"log-install", "Install log"}, {"log-auth", "Sign-in log"},
@@ -2418,13 +2419,10 @@ void Simulation::rebuild_view() {
                     item.enabled = false;
                     item.subtitle = closed_reason;
                 }
-                // The prepared title keeps its launch entry until the bottle is made again.
-                if (id == "launch_option" && live()) {
-                    const auto runtime_game = state_.runtime_games.find(settings_game);
-                    if (runtime_game != state_.runtime_games.end() && runtime_game->second.prepared &&
-                        settings_values.launch && settings_values.launch->id != runtime_game->second.launch_entry_id)
-                        item.subtitle = "Takes effect after Maintenance > Recreate bottle.";
-                }
+                // A changed "Prepares bottle" row waits for the bottle to be made again.
+                if (definition->apply == rt::ApplyMode::kPreparesBottle && value.source == rt::ValueSource::kUser &&
+                    bottle_outdated(settings_game))
+                    item.subtitle = "Takes effect after Maintenance > Recreate bottle.";
                 // The technical names show on the focused row only, so more rows fit.
                 const bool focused_row = modal.focused_action >= 0 &&
                     static_cast<std::size_t>(modal.focused_action) < modal.action_keys.size() &&
@@ -2916,6 +2914,7 @@ void Simulation::rebuild_view() {
                                       : value.status == "Needs repair" ? "Runtime needs repair" : value.status;
                         runtime.subtitle = rechosen_after_refusal_.count(game->id) && value.status == "Not prepared"
                             ? "Play prepares it with your choices from Game settings" : value.detail;
+                        if (bottle_outdated(game->id)) runtime.subtitle = "Settings apply when the bottle is prepared again";
                         runtime.enabled = false;
                         if (value.progress) runtime.progress = std::max(*value.progress, 0.001F);
                     }
@@ -4121,7 +4120,29 @@ void Simulation::activate() {
         push_notice({"runtime-cleanup", "Unused game settings data cleaned up", "", false, kLiveNoticeSeconds, false, ""});
     } else if (live() && action_name == "runtime-play") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        // Settings changed since the title was made apply only once the bottle is made again.
+        if (id != 0 && bottle_outdated(id)) offer_recreate_bottle(id, true);
+        else if (id != 0) pending_runtime_play_requests_.push_back(id);
+    } else if (live() && action_name == "runtime-play-anyway") {
+        const auto id = recreate_offer_game_;
+        close_modal();
         if (id != 0) pending_runtime_play_requests_.push_back(id);
+    } else if (live() && action_name == "bottle-recreate") {
+        const auto id = recreate_offer_game_;
+        std::string refusal;
+        if (id == 0) {
+            close_modal();
+        } else if (!game_closed(id, &refusal)) {
+            // The offer stays open; the console's answer about the game arrives shortly.
+            push_notice({"recreate-" + std::to_string(id), "Recreate bottle has to wait", "", false, kLiveNoticeSeconds,
+                         false, refusal});
+        } else {
+            close_modal();
+            request_maintenance(id, MaintenanceKind::RecreateBottle);
+            const auto* game = find_game(state_, id);
+            push_notice({"recreate-" + std::to_string(id), "Recreating the bottle", "", false, kLiveNoticeSeconds, false,
+                         game ? game->title : std::string()});
+        }
     } else if (live() && action_name == "live-install") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id});
@@ -5533,6 +5554,53 @@ bool Simulation::game_closed(GameId id, std::string* reason) const {
     return true;
 }
 
+namespace {
+// A game-relative path as the bottle config compares it: '/' separated, lower case, "." for none.
+std::string BottlePath(std::string path) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    std::transform(path.begin(), path.end(), path.begin(),
+                   [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    return path == "." ? std::string() : path;
+}
+} // namespace
+
+std::optional<Simulation::BottleConfig> Simulation::prepared_bottle(GameId id) const {
+    if (!live() || !game_prepared(id)) return std::nullopt;
+    const auto& title = state_.runtime_games.at(id);
+    return BottleConfig{title.launch_entry_id, BottlePath(title.launch_path), BottlePath(title.launch_working_directory)};
+}
+
+std::optional<Simulation::BottleConfig> Simulation::chosen_bottle(GameId id) const {
+    // Without the game's own recipe the sheet's generic one says nothing about the title.
+    if (RecipeFor(id).id.rfind("simulated-", 0) == 0) return std::nullopt;
+    rt::EffectiveSettings values;
+    if (!EffectiveSettingsFor(id, &values) || !values.launch) return std::nullopt;
+    const auto& launch = *values.launch;
+    return BottleConfig{launch.id, BottlePath(launch.executable), BottlePath(launch.working_directory)};
+}
+
+bool Simulation::bottle_outdated(GameId id) const {
+    const auto prepared = prepared_bottle(id);
+    if (!prepared) return false;
+    const auto chosen = chosen_bottle(id);
+    return chosen && *chosen != *prepared;
+}
+
+void Simulation::offer_recreate_bottle(GameId id, bool on_play) {
+    if (!bottle_outdated(id)) return;
+    // Recreate bottle needs the game closed; ask now so the answer is there when it is chosen.
+    pending_activity_requests_.push_back(id);
+    recreate_offer_game_ = id;
+    ModalEntry offer{"confirmation", on_play ? "Recreate the bottle first?" : "Recreate the bottle now?",
+                     on_play ? "details-play" : state_.navigation.focus_key,
+                     on_play ? std::vector<std::string>{"cancel", "runtime-play-anyway", "bottle-recreate"}
+                             : std::vector<std::string>{"ready-later", "bottle-recreate"},
+                     on_play ? 2 : 1, false};
+    offer.body = "Some settings apply only when the bottle is prepared again. Recreate bottle keeps saves and settings; "
+                 "the game then waits for the PS5 Home screen once more.";
+    open_modal(std::move(offer));
+}
+
 void Simulation::request_maintenance(GameId id, MaintenanceKind kind) {
     if (!live()) {
         // Fixture mode only describes what the real action does.
@@ -5755,12 +5823,17 @@ void Simulation::announce_settings_saved() {
     for (const auto& [id, value] : before.overrides) ids.insert(id);
     for (const auto& [id, value] : after.overrides) ids.insert(id);
     int changes = before.preset_id != after.preset_id ? 1 : 0;
+    bool bottle_setting_changed = false;
     for (const auto& id : ids) {
         const auto old_value = before.overrides.find(id);
         const auto new_value = after.overrides.find(id);
         if ((old_value == before.overrides.end()) != (new_value == after.overrides.end()) ||
-            (old_value != before.overrides.end() && old_value->second != new_value->second))
+            (old_value != before.overrides.end() && old_value->second != new_value->second)) {
             ++changes;
+            const auto* definition = rt::FindSetting(id);
+            bottle_setting_changed = bottle_setting_changed ||
+                                     (definition && definition->apply == rt::ApplyMode::kPreparesBottle);
+        }
     }
     if (changes == 0) return;
     const auto game = state_.navigation.selected_game_id;
@@ -5777,15 +5850,15 @@ void Simulation::announce_settings_saved() {
                                        runtime_game->second.play_status == "Playing")
                                 : !game_closed(game);
     when += running ? " the next time Playden starts the game" : " on next launch";
-    const auto old_launch = before.overrides.find("launch_option");
-    const auto new_launch = after.overrides.find("launch_option");
-    const bool launch_changed = (old_launch == before.overrides.end()) != (new_launch == after.overrides.end()) ||
-                                (old_launch != before.overrides.end() && old_launch->second != new_launch->second);
-    if (launch_changed && live() && game_prepared(game)) when += " · Launch option after Recreate bottle";
+    const bool outdated = bottle_outdated(game);
+    if (outdated) when += " · Some after Recreate bottle";
     push_notice({"settings-saved", "Settings saved · " + (after.overrides.empty() ? name : "Custom · from " + name), "", false,
                  kLiveNoticeSeconds, false, when});
     // A prepared title gets the new settings now when it is stopped; otherwise Play applies them.
     if (live() && game_prepared(game)) pending_maintenance_requests_.push_back({game, MaintenanceKind::ApplySettings});
+    // A "Prepares bottle" setting changed just now: offer to make the bottle again now rather than at Play.
+    // A running game, or one whose player chose Later before, gets the offer when Play is next pressed.
+    if (outdated && bottle_setting_changed && !running) offer_recreate_bottle(game, false);
 }
 
 bool Simulation::can_change_game_settings() {

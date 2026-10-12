@@ -306,6 +306,106 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
     check(!find_row(model, "maintenance-shader")->enabled, "maintenance waits while the game runs");
 }
 
+
+// A program chosen after the title was made starts only once the bottle is made again: closing
+// Game settings offers Recreate bottle, the game page says so, and Play offers it again.
+void live_program_change_offers_recreate_bottle(const std::filesystem::path& base) {
+    using playden::homebrew::GameId;
+    using playden::homebrew::MaintenanceKind;
+    using playden::homebrew::TitleActivity;
+    using Requests = std::vector<std::pair<GameId, MaintenanceKind>>;
+    std::filesystem::create_directories(base);
+    auto model = make_live(base);
+    model.SetGameSettingsFile(base / "recreate-settings.json");
+    model.SetSettingsData({{"playden-default", "Playden default", "Most games", "", {}}}, {});
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    playden::GameSummary game;
+    game.id = 22380;
+    game.title = "Fallout: New Vegas";
+    check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "recreate: library delivered");
+    model.UpdateInstalls({}, {{22380, 1024, "internal", true}});
+    // Prepared from Steam's launch option, the launcher, as on the console.
+    playden::runtime::GameRecipe recipe;
+    recipe.id = playden::runtime::GeneratedRecipeId(22380);
+    recipe.version = 2;
+    recipe.app_id = 22380;
+    recipe.name = game.title;
+    recipe.launch_entries = {{"launch-1", "Fallout: New Vegas", "FalloutNVLauncher.exe", "", ""}};
+    model.SetGeneratedRecipes({recipe});
+    std::map<GameId, playden::homebrew::LiveGameSetup> setups;
+    setups[22380].scanned = true;
+    setups[22380].programs = {{"FalloutNV.exe", "pe32", "", false, ""}, {"Other/Other.exe", "pe32", "", false, ""}};
+    model.SetGameSetups(setups);
+    playden::homebrew::LiveRuntimeGame runtime;
+    runtime.game_id = 22380;
+    runtime.status = "Ready";
+    runtime.ready = runtime.prepared = runtime.has_title = runtime.can_play = true;
+    runtime.launch_entry_id = "launch-1";
+    runtime.launch_path = "FalloutNVLauncher.exe";
+    runtime.activity = TitleActivity::Stopped;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(model.action("details:22380"), "recreate: open details");
+    const auto marked = [&] {
+        return find_row(model, "details-runtime")->subtitle == "Settings apply when the bottle is prepared again";
+    };
+    check(!marked(), "recreate: an unchanged bottle is not marked");
+
+    activate(model, "details-more");
+    activate(model, "game-settings");
+    (void)model.TakeActivityRequests();
+    activate(model, "setting-launch_option");
+    activate(model, "program-0");
+    check(find_row(model, "setting-launch_option")->subtitle.rfind("Takes effect after Maintenance > Recreate bottle.", 0) == 0,
+          "recreate: the Program row says the new program waits for Recreate bottle");
+    check(model.action("circle"), "recreate: close the settings sheet");
+    check(!model.state().navigation.modals.empty() &&
+              model.state().navigation.modals.back().title == "Recreate the bottle now?",
+          "recreate: closing the sheet offers Recreate bottle");
+    check(model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
+          "recreate: the other settings are still applied");
+    activate(model, "ready-later");
+    check(model.state().navigation.modals.empty() && model.TakeMaintenanceRequests().empty(),
+          "recreate: Later leaves the bottle as it is");
+    check(marked(), "recreate: the game page marks the pending settings");
+    activate(model, "details-more");
+    activate(model, "game-settings");
+    activate(model, "setting-resolution");
+    activate(model, "choice-0");
+    check(model.action("circle") && model.state().navigation.modals.empty(),
+          "recreate: after Later, other changes do not offer it again");
+    (void)model.TakeMaintenanceRequests();
+
+    activate(model, "details-play");
+    check(model.state().navigation.modals.back().title == "Recreate the bottle first?" &&
+              model.TakeRuntimePlayRequests().empty(),
+          "recreate: Play offers Recreate bottle instead of starting the old program");
+    activate(model, "runtime-play-anyway");
+    check(model.TakeRuntimePlayRequests() == std::vector<GameId>{22380}, "recreate: Play anyway starts the prepared bottle");
+
+    activate(model, "details-play");
+    runtime.activity = TitleActivity::Running;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    activate(model, "bottle-recreate");
+    check(model.TakeMaintenanceRequests().empty() && !model.state().navigation.modals.empty(),
+          "recreate: a running game keeps the offer open");
+    runtime.activity = TitleActivity::Stopped;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    activate(model, "bottle-recreate");
+    check(model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::RecreateBottle}},
+          "recreate: the offer recreates the bottle");
+
+    // Made for the chosen program: nothing pending. Another program from the folder is pending again.
+    runtime.launch_entry_id = "program";
+    runtime.launch_path = "FalloutNV.exe";
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(!marked(), "recreate: a title made for the chosen program is not marked");
+    activate(model, "details-play");
+    check(model.TakeRuntimePlayRequests() == std::vector<GameId>{22380}, "recreate: Play starts it at once");
+    runtime.launch_path = "Other/Other.exe";
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(marked(), "recreate: one folder program replacing another is marked too");
+}
+
 } // namespace
 
 int main() {
@@ -316,6 +416,7 @@ int main() {
 
     settings_survive_account_restore_and_cache_action_is_honest(base);
     live_settings_follow_the_prepared_title(base);
+    live_program_change_offers_recreate_bottle(base);
     live_starts_clean_and_never_reads_or_writes_fixtures(base);
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);

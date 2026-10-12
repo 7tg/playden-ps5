@@ -141,6 +141,8 @@ struct RuntimeInstallView {
   // title was prepared with (a different Launch option needs the bottle made again).
   std::uint64_t settings_revision = 0;
   std::string launch_entry_id;
+  std::string launch_path;               // its program, relative to the install root
+  std::string launch_working_directory;  // its folder; empty: the program's own
   // Save backups kept for the game, and when the newest was made (Unix time).
   std::size_t save_backups = 0;
   std::int64_t latest_save_backup = 0;
