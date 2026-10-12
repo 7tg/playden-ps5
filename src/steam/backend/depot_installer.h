@@ -47,7 +47,7 @@ struct InstallStats : CdnStats {
   std::uint64_t chunks_done = 0, chunks_skipped = 0, compressed_bytes = 0, original_bytes = 0;
   std::uint64_t files_created = 0, folders_created = 0, chunk_retries = 0, corrupt_retries = 0;
   std::uint64_t files_total = 0, download_total = 0, chunks_pending = 0, files_pending = 0, bytes_pending = 0;
-  std::uint32_t slots = 1, reuse = 0;
+  std::uint32_t slots = 1, reuse = 1;
 };
 
 struct InstallOutcome {

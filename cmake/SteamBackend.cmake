@@ -187,6 +187,10 @@ function(playden_register_steam_backend_tests)
 
     if(TARGET playden_steam_http)
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_executable(native_resolution_cache_test "${CMAKE_SOURCE_DIR}/tests/native_resolution_cache_test.cpp")
+        target_link_libraries(native_resolution_cache_test PRIVATE playden_steam_http)
+        add_test(NAME native_resolution_cache COMMAND native_resolution_cache_test)
+
         add_executable(http_client_test "${CMAKE_SOURCE_DIR}/tests/http_client_test.cpp")
         target_link_libraries(http_client_test PRIVATE playden_steam_http)
         add_test(NAME http_client

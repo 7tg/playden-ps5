@@ -239,7 +239,7 @@ void StatsAndRemovalLogs(const std::filesystem::path& root) {
   stats.files_total = 48000; stats.files_created = 48000;
   const auto line = FormatInstallStats("end", stats);
   CHECK(line.size() < 480);
-  CHECK(line.find("dl_ms=300000") != std::string::npos && line.find("reuse=0") != std::string::npos);
+  CHECK(line.find("dl_ms=300000") != std::string::npos && line.find("reuse=1") != std::string::npos);
   CmClient cm(CmClientHooks{}, cm::DeviceIdentity{});
   CdnClient cdn([](const HttpRequest&, const std::atomic<bool>&) { return HttpResponse{}; });
   SteamInstallRunner runner(cm, cdn);
@@ -295,7 +295,7 @@ void RunStats(const std::filesystem::path& base) {
     auto target = Target(base / std::to_string(mode));
     const auto outcome = installer.Run({}, target, cancel);
     CHECK(ends == 1 && shapes == 1 && last.requests == static_cast<std::uint64_t>(world.chunk_calls));
-    CHECK(last.slots == 1 && last.reuse == 0);
+    CHECK(last.slots == 1 && last.reuse == 1);
     if (mode == 0) {
       CHECK(outcome.error == InstallError::kNone && last.chunks_done == 3 && last.files_created == 2);
       CHECK(last.fetch_ms >= 1); // sub-millisecond chunks accumulate before conversion

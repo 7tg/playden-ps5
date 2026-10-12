@@ -3,6 +3,7 @@
 #include <strings.h>
 
 #include "steam/backend/native_network.h"
+#include "steam/backend/native_resolution_cache.h"
 
 #include <curl/curl.h>
 
@@ -210,10 +211,16 @@ class HttpClient::Impl {
   explicit Impl(std::string ca_bundle) : ca_bundle_(std::move(ca_bundle)) {
     native_ready_ = internal::InitializeNativeNetwork();
     curl_ready_ = native_ready_ && GlobalCurl().ready;
+    if (curl_ready_) multi_ = internal::NativeResolutionCache::CreateTransport();
+  }
+
+  ~Impl() {
+    if (multi_) curl_multi_cleanup(multi_);
+    curl_slist_free_all(resolve_entries_);
   }
 
   HttpResponse Perform(const HttpRequest& request, const std::atomic<bool>& cancel) {
-    if (!curl_ready_ || ca_bundle_.empty())
+    if (!curl_ready_ || !multi_ || ca_bundle_.empty())
       return {HttpError::kInitializationFailed, 0, {}, {}};
     if (!ValidRequest(request)) return {HttpError::kInvalidRequest, 0, {}, {}};
     if (cancel.load(std::memory_order_acquire)) return {HttpError::kCanceled, 0, {}, {}};
@@ -221,10 +228,10 @@ class HttpClient::Impl {
     const auto deadline = request_start + std::chrono::milliseconds(request.timeout_ms);
 
     CURL* easy = curl_easy_init();
-    CURLM* multi = curl_multi_init();
+    CURLM* multi = multi_;
     curl_slist* request_headers = nullptr;
-    curl_slist* resolve_entries = nullptr;
-    TransferBuffer transfer;
+    auto transfer_buffer = std::make_unique<TransferBuffer>();
+    auto& transfer = *transfer_buffer;
     transfer.body_limit = request.max_response_bytes;
     CURLcode result = CURLE_FAILED_INIT;
     internal::NativeResolveError resolve_error = internal::NativeResolveError::kFailed;
@@ -265,6 +272,11 @@ class HttpClient::Impl {
     PLAYDEN_SETOPT(CURLOPT_PROTOCOLS_STR, "https");
     PLAYDEN_SETOPT(CURLOPT_REDIR_PROTOCOLS_STR, "https");
     PLAYDEN_SETOPT(CURLOPT_NOSIGNAL, 1L);
+    PLAYDEN_SETOPT(CURLOPT_TCP_KEEPALIVE, 1L);
+    if (request.method != HttpMethod::kGet) {
+      PLAYDEN_SETOPT(CURLOPT_FRESH_CONNECT, 1L);
+      PLAYDEN_SETOPT(CURLOPT_FORBID_REUSE, 1L);
+    }
     PLAYDEN_SETOPT(CURLOPT_WRITEFUNCTION, WriteBody);
     PLAYDEN_SETOPT(CURLOPT_WRITEDATA, &transfer);
     PLAYDEN_SETOPT(CURLOPT_HEADERFUNCTION, WriteHeader);
@@ -284,8 +296,8 @@ class HttpClient::Impl {
 
     {
       const auto start = Clock::now();
-      resolve_error = internal::AttachNativeResolution(easy, request.url, request.timeout_ms, cancel,
-                                                       &resolve_entries);
+      resolve_error = resolution_cache_.Attach(easy, request.url, request.timeout_ms, cancel,
+                                               &resolve_entries_, Clock::now());
 #if PLAYDEN_PLATFORM_PS5
       transfer.response.timing.resolve_ms = static_cast<std::uint32_t>(
           std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count());
@@ -369,12 +381,13 @@ class HttpClient::Impl {
     }
     transfer.response.timing.body_bytes = transfer.response.body.size();
     if (added) curl_multi_remove_handle(multi, easy);
-    curl_slist_free_all(resolve_entries);
-    curl_slist_free_all(request_headers);
-    if (multi) curl_multi_cleanup(multi);
     if (easy) curl_easy_cleanup(easy);
+    curl_slist_free_all(request_headers);
     transfer.response.error = MapError(result, transfer, canceled);
     if (!transfer.response.ok()) {
+      // Clearing both caches covers transport failure and abandonment before curl consumes
+      // staged DNS removals. Successful GETs retain their multi connection and DNS caches.
+      resolution_cache_.ResetTransport(multi_);
       transfer.response.status_code = 0;
       transfer.response.headers.clear();
       transfer.response.body.clear();
@@ -384,6 +397,9 @@ class HttpClient::Impl {
 
  private:
   std::string ca_bundle_;
+  CURLM* multi_ = nullptr;
+  curl_slist* resolve_entries_ = nullptr;
+  internal::NativeResolutionCache resolution_cache_;
   bool native_ready_ = false;
   bool curl_ready_ = false;
 };

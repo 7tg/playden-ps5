@@ -15,6 +15,7 @@ using playden::steam::HttpClient;
 using playden::steam::HttpError;
 using playden::steam::HttpMethod;
 using playden::steam::HttpRequest;
+using playden::steam::HttpResponse;
 
 void Check(bool condition, const char* message) {
   if (!condition) {
@@ -27,6 +28,12 @@ std::string Text(const std::vector<std::uint8_t>& bytes) {
   return std::string(bytes.begin(), bytes.end());
 }
 
+std::string Header(const HttpResponse& response, const std::string& name) {
+  for (const auto& header : response.headers)
+    if (header.first == name) return header.second;
+  return {};
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -36,6 +43,82 @@ int main(int argc, char** argv) {
   const std::string wrong_ca_bundle = argv[3];
   std::atomic<bool> cancel{false};
   HttpClient client(ca_bundle);
+
+  {
+    HttpClient persistent(ca_bundle);
+    HttpRequest keep;
+    keep.url = base_url + "/keep/marked";
+    auto first = persistent.Perform(keep, cancel);
+    Check(first.ok() && first.timing.new_connections == 1, "first keepalive GET opens connection");
+    Check(Header(first, "X-Fixture-Accepted") == "1", "server accepts first connection");
+    const auto connection = Header(first, "X-Fixture-Connection");
+    keep.url = base_url + "/keep/ok";
+    auto second = persistent.Perform(keep, cancel);
+    Check(second.ok() && Text(second.body) == "fixture-ok", "second keepalive GET succeeds");
+    Check(second.timing.new_connections == 0 && second.timing.tls_ms == 0,
+          "second keepalive GET reuses connection without TLS handshake");
+    Check(Header(second, "X-Fixture-Connection") == connection &&
+          Header(second, "X-Fixture-Accepted") == "1", "server sees one connection for two GETs");
+    Check(Header(second, "X-Fixture-Marker").empty(), "response headers do not leak");
+
+    HttpRequest other = keep;
+    other.url.replace(other.url.find("localhost"), 9, "127.0.0.1");
+    auto different = persistent.Perform(other, cancel);
+    Check(different.ok() && different.timing.new_connections == 1 &&
+          Header(different, "X-Fixture-Connection") != connection, "different origins do not share connections");
+
+    keep.url = base_url + "/keep/close";
+    Check(persistent.Perform(keep, cancel).ok(), "server closes idle connection after a reply");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    keep.url = base_url + "/keep/ok";
+    auto reconnected = persistent.Perform(keep, cancel);
+    Check(reconnected.ok() && reconnected.timing.new_connections == 1 &&
+          Text(reconnected.body) == "fixture-ok", "stale idle connection reconnects");
+
+    const auto check_recovery = [&] {
+      auto recovered = persistent.Perform(keep, cancel);
+      Check(recovered.ok() && Text(recovered.body) == "fixture-ok" &&
+            Header(recovered, "X-Fixture-Marker").empty() && recovered.timing.new_connections == 1,
+            "failed half-read connection is closed and next GET has clean body and headers");
+    };
+    HttpRequest slow = keep;
+    slow.url = base_url + "/keep/slow";
+    slow.timeout_ms = 100;
+    Check(persistent.Perform(slow, cancel).error == HttpError::kTimeout, "keepalive partial body times out");
+    check_recovery();
+    slow.timeout_ms = 3000;
+    std::thread cancel_keep([&] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      cancel.store(true);
+    });
+    auto canceled_keep = persistent.Perform(slow, cancel);
+    cancel_keep.join();
+    Check(canceled_keep.error == HttpError::kCanceled, "keepalive partial body cancels");
+    cancel.store(false);
+    check_recovery();
+    HttpRequest large = keep;
+    large.url = base_url + "/keep/large";
+    large.max_response_bytes = 64;
+    Check(persistent.Perform(large, cancel).error == HttpError::kResponseTooLarge, "keepalive body limit enforced");
+    check_recovery();
+
+    for (auto method : {HttpMethod::kPost, HttpMethod::kPut}) {
+      HttpRequest upload;
+      upload.method = method;
+      upload.url = base_url + "/keep/echo";
+      upload.body = {'x'};
+      std::string previous = Header(persistent.Perform(keep, cancel), "X-Fixture-Connection");
+      for (int attempt = 0; attempt < 2; ++attempt) {
+        auto sent = persistent.Perform(upload, cancel);
+        Check(sent.ok() && Text(sent.body) == ":x" && sent.timing.new_connections == 1 &&
+              Header(sent, "X-Fixture-Connection") != previous, "POST and PUT always open fresh connections");
+        previous = Header(sent, "X-Fixture-Connection");
+      }
+      auto after = persistent.Perform(keep, cancel);
+      Check(after.ok() && Text(after.body) == "fixture-ok" &&
+            Header(after, "X-Fixture-Connection") != previous, "GET after upload does not reuse upload connection");
+    }
+  }
 
   HttpRequest get;
   get.url = base_url + "/ok";
