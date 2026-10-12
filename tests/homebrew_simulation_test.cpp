@@ -126,8 +126,11 @@ void t03_circle_leaves_an_applied_search(const std::filesystem::path& fixtures,
     check(has_legend("Touchpad Search") && !has_legend("Search") && !has_legend("Circle Clear search"),
           "T03 Library names the touchpad for Search");
     simulation.action("search");
+    check(has_legend("Options Done"), "T03 the keyboard names Options for Done");
     simulation.text("Night Orchard");
-    simulation.action("done");
+    simulation.action("options");
+    check(!simulation.state().editor.active && simulation.state().library.query == "Night Orchard",
+          "T03 Options commits the keyboard like Done");
     check(simulation.visible_games().size() == 1 && has_legend("Circle Clear search"),
           "T03 an applied search offers Circle to clear it");
     simulation.action("circle");

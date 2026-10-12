@@ -2320,7 +2320,7 @@ void Simulation::rebuild_view() {
         if (state_.editor.purpose == "Search") view_.subtitle += " · " + std::to_string(visible_games().size()) + " results";
         row("keyboard-done", RowKind::Action, "Done", "editor-done");
         row("keyboard-cancel", RowKind::Action, "Cancel", "editor-cancel");
-        view_.legends = {"Cross Select", "Square Backspace", "L1/R1 Move caret", "Triangle Clear", "Circle Cancel"};
+        view_.legends = {"Cross Select", "Options Done", "Square Backspace", "L1/R1 Move caret", "Triangle Clear", "Circle Cancel"};
     } else if (!state_.navigation.modals.empty()) {
         const auto& modal = state_.navigation.modals.back();
         view_.title = modal.title;
@@ -5003,7 +5003,9 @@ bool Simulation::action(const std::string& logical_action) {
     if (state_.editor.active && logical_action == "l1") { state_.editor.caret = previous_caret(state_.editor.value, state_.editor.caret); rebuild_view(); return true; }
     if (state_.editor.active && logical_action == "r1") { state_.editor.caret = next_caret(state_.editor.value, state_.editor.caret); rebuild_view(); return true; }
     if (state_.editor.active && logical_action == "triangle") { state_.editor.value.clear(); state_.editor.caret = 0; rebuild_view(); return true; }
-    if (state_.editor.active && (logical_action == "l2" || logical_action == "r2" || logical_action == "options" || logical_action == "search")) return true;
+    // Options presses Done, so a game controller or a USB keyboard's Options key can finish the text without moving to Done.
+    if (state_.editor.active && logical_action == "options") { commit_editor(); rebuild_view(); return true; }
+    if (state_.editor.active && (logical_action == "l2" || logical_action == "r2" || logical_action == "search")) return true;
     if (!state_.editor.active && state_.navigation.modals.empty() && state_.navigation.route == Route::Details
         && (logical_action == "l2" || logical_action == "r2")) {
         auto& offset = state_.navigation.scroll_offsets["details-content"];
