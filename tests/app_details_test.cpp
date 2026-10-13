@@ -128,6 +128,40 @@ void AppInfoBecomesWindowsEstimate() {
   assert(none.available && !none.windows_installable && !none.install_bytes);
 }
 
+// Half-Life 2's appinfo since its 20th anniversary update (trimmed): the public branch's Windows launch option is tagged
+// betakey "default", and the other Windows options belong to the steam_legacy and test branches (issue #10).
+void DefaultBetaKeyIsThePublicBranch() {
+  const std::string buffer = R"("appinfo"
+{
+  "appid" "220"
+  "common" { "name" "Half-Life 2" "type" "Game" }
+  "config"
+  {
+    "installdir" "Half-Life 2"
+    "launch"
+    {
+      "0" { "executable" "hl2.exe" "arguments" "-steam -game hl2_complete" "workingdir" "bin" "config" { "betakey" "default" "oslist" "windows" } }
+      "1" { "executable" "hl2.sh" "arguments" "-game hl2 -steam" "config" { "oslist" "macos" } }
+      "2" { "executable" "hl2.sh" "arguments" "-steam -game hl2_complete" "config" { "oslist" "linux" } }
+      "3" { "executable" "hl2.exe" "arguments" "-steam -game hl2" "workingdir" "bin" "config" { "betakey" "steam_legacy" "oslist" "windows" } }
+      "4" { "executable" "hl2.sh" "arguments" "-steam -game hl2" "config" { "betakey" "steam_legacy" "oslist" "linux" } }
+      "5" { "executable" "hl2.exe" "arguments" "-steam -game hl2_complete" "workingdir" "bin" "config" { "betakey" "test" "oslist" "windows" } }
+      "6" { "executable" "hl2.sh" "arguments" "-steam -game hl2_complete" "config" { "betakey" "test" "oslist" "linux" } }
+    }
+  }
+  "depots"
+  {
+    "221" { "manifests" { "public" { "download" "2751430624" "gid" "4622516436473900521" "size" "5437140737" } } "systemdefined" "1" }
+    "222" { "config" { "oslist" "windows" } "manifests" { "public" { "download" "205502384" "gid" "6432688940779947022" "size" "333424562" } } "systemdefined" "1" }
+    "389" { "depotfromapp" "380" "sharedinstall" "2" }
+  }
+})";
+  const auto details = DetailsFromAppInfo(220, buffer);
+  assert(details.available && details.windows_installable);
+  assert(details.launches.size() == 1 && details.launches[0].executable == "hl2.exe" &&
+         details.launches[0].arguments == "-steam -game hl2_complete");
+}
+
 }  // namespace
 
 int main() {
@@ -135,4 +169,5 @@ int main() {
   NewGenerationDropsResultsAndRefetches();
   FailuresAreRetryable();
   AppInfoBecomesWindowsEstimate();
+  DefaultBetaKeyIsThePublicBranch();
 }

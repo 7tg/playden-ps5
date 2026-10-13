@@ -435,7 +435,9 @@ bool EligibleLaunches(const AppInfo& app, const std::set<std::uint32_t>& owned_a
   std::vector<AppLaunch> eligible;
   std::set<std::string> ids;
   for (const AppLaunch& launch : app.launches) {
-    const bool beta_ok = !launch.beta_key || launch.beta_key->empty() || *launch.beta_key == "public";
+    // "default" tags the public branch's option when other branches have their own (Half-Life 2, issue #10).
+    const bool beta_ok = !launch.beta_key || launch.beta_key->empty() || *launch.beta_key == "public" ||
+                         *launch.beta_key == "default";
     const bool dlc_ok = !launch.required_dlc || *launch.required_dlc == 0 ||
                         owned_apps.count(*launch.required_dlc) != 0;
     // A level editor or a dedicated server is not the game (Selaco lists its .NET editor).
