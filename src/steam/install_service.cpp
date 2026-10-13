@@ -71,6 +71,9 @@ constexpr const char* kDefaultVolume = ".playden-default-volume";
 constexpr const char* kDismissed = ".playden-downloads-dismissed";
 constexpr const char* kVolumeUnavailable = "The game's storage is not available.";
 constexpr std::chrono::seconds kSessionRetry{5};
+// A download that could not reach Steam waits this long before it tries again by itself.
+constexpr std::chrono::seconds kNetworkRetry{30};
+constexpr const char* kWaitingForSteam = "Waiting to reach Steam. It tries again by itself.";
 
 bool Exists(const std::string& path) {
   struct stat info {};
@@ -530,6 +533,7 @@ void InstallService::Run() {
             continue;
           }
           job.view.state = InstallJobState::kRunning;
+          if (job.view.failure == kWaitingForSteam) job.view.failure.clear();
           job.rate.Reset();
           job.view.bytes_per_second.reset(); job.view.eta_seconds.reset();
           next = job.view.id;
@@ -580,7 +584,7 @@ void InstallService::Run() {
 
     bool remove_files = false;
     {
-      std::lock_guard<std::mutex> lock(mutex_);
+      std::unique_lock<std::mutex> lock(mutex_);
       active_.reset();
       auto* job = Find(*next);
       if (job && job->cancel_requested) {
@@ -595,6 +599,16 @@ void InstallService::Run() {
       } else if (job && job->view.state == InstallJobState::kRunning && result.canceled && stopping_) {
         // Playden is closing: the download stays queued, so the next start carries on with it.
         job->view.state = InstallJobState::kQueued;
+      } else if (job && job->view.state == InstallJobState::kRunning && !result.ok && !result.canceled && result.retry_later) {
+        // Steam or the network is out of reach (it often is for a moment after Playden starts): the
+        // download keeps its place and tries again shortly instead of failing.
+        job->view.state = InstallJobState::kQueued;
+        job->view.failure = kWaitingForSteam;
+        job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset();
+        Publish();
+        // Any request (Pause, Resume, Install, Shutdown) also ends the wait.
+        if (!stopping_) wake_.wait_for(lock, kNetworkRetry);
+        continue;
       } else if (job && job->view.state == InstallJobState::kRunning) {
         // A Pause or Resume that arrived while the run was stopping already chose the state.
         job->view.state = result.canceled ? InstallJobState::kPaused : InstallJobState::kFailed;

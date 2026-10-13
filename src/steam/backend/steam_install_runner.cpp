@@ -86,6 +86,7 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
   if (!info.ok()) {
     log("app_info", CmErrorName(info.error), "");
     result.failure = "Could not reach Steam. Resume to try again.";
+    result.retry_later = info.error == CmError::kNetwork || info.error == CmError::kTimeout;
     return result;
   }
   const auto buffer = info.buffers.find(id);
@@ -108,6 +109,7 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
   if (!entitlements.ok()) {
     log("entitlements", CmErrorName(entitlements.error), "");
     result.failure = "Could not read this account's licenses. Resume to try again.";
+    result.retry_later = entitlements.error == CmError::kNetwork || entitlements.error == CmError::kTimeout;
     return result;
   }
   if (entitlements.skipped_packages)
@@ -139,6 +141,7 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
     if (!runtime::WriteSteamworksFacts(root, depots, dlc)) log("steamworks_facts", "write-failed", root.c_str());
   }
   result.canceled = outcome.error == InstallError::kCanceled;
+  result.retry_later = outcome.error == InstallError::kNetwork;
   result.failure = InstallFailureText(outcome.error);
   result.install_bytes = outcome.progress.install_total;
   return result;

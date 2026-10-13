@@ -95,6 +95,7 @@ class InstallRunner {
     bool canceled = false;
     std::string failure;
     std::uint64_t install_bytes = 0;
+    bool retry_later = false;  // Steam or the network was out of reach: the job waits and tries again
   };
   virtual Result Install(const StoredSession& session, GameId id, const std::string& root,
                          const std::atomic<bool>& cancel,

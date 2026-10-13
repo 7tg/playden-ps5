@@ -3116,8 +3116,7 @@ void Simulation::rebuild_view() {
         // focus moves in that same order, so Up and Down follow what is on screen.
         const auto active = std::find_if(jobs.begin(), jobs.end(), [](const Job* job) {
             return job->state == JobState::Downloading || job->state == JobState::Verifying ||
-                   job->state == JobState::Pausing || job->state == JobState::Paused ||
-                   job->state == JobState::Failed || job->state == JobState::Interrupted;
+                   job->state == JobState::Pausing;
         });
         if (active != jobs.end()) std::rotate(jobs.begin(), active, active + 1);
         for (const auto* job_pointer : jobs) {

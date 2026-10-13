@@ -46,6 +46,7 @@ class Runner final : public InstallRunner {
   std::uint64_t held = 0;  // bytes the fake install reports on disk
   std::atomic<int> installs{0};
   std::atomic<int> canceled{0};
+  std::atomic<int> unreachable{0};  // this many runs find Steam out of reach
   std::mutex mutex;
   std::vector<std::string> removed;
   std::vector<std::string> install_roots;
@@ -56,6 +57,7 @@ class Runner final : public InstallRunner {
       std::lock_guard<std::mutex> lock(mutex);
       install_roots.push_back(root);
     }
+    if (unreachable > 0) { --unreachable; return {false, false, "Could not reach Steam.", 0, true}; }
     if (telemetry) { progress(9000000000ull, 10000000000ull, held); progress(9100000000ull, 10000000000ull, held); }
     else progress(10, 100, held);
     while (block) {
@@ -260,9 +262,31 @@ void CompletedDownloadsList(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
 }
 
+// A download that cannot reach Steam keeps its place and waits instead of failing.
+void UnreachableSteamWaits(const std::filesystem::path& root) {
+  std::filesystem::remove_all(root);
+  Sessions sessions;
+  Runner runner;
+  runner.unreachable = 1;
+  InstallService service(runner, sessions, root.string());
+  service.Install(80);
+  service.Install(81);
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
+    const auto* job = JobOf(s, 80);
+    return job && job->state == InstallJobState::kQueued && job->failure.find("Waiting to reach Steam") == 0;
+  });
+  const auto waiting = service.Snapshot();
+  CHECK(waiting.jobs.size() == 2 && waiting.jobs[0].id == 80 && waiting.jobs[1].id == 81 &&
+        waiting.jobs[1].state == InstallJobState::kQueued);
+  service.Resume(80);  // a request ends the wait at once
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, 80) && Installed(s, 81); });
+  std::filesystem::remove_all(root);
+}
+
 int main() {
   SpaceAdmission(std::filesystem::temp_directory_path() / ("playden-space-service-" + std::to_string(::getpid())));
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));
+  UnreachableSteamWaits(std::filesystem::temp_directory_path() / ("playden-unreachable-service-" + std::to_string(::getpid())));
   CompletedDownloadsList(std::filesystem::temp_directory_path() / ("playden-completed-service-" + std::to_string(::getpid())));
   const auto requests = ParseInstallRequests("uninstall 439490\n439490\ncancel 108600\n108600\n");
   CHECK(requests.size() == 4);

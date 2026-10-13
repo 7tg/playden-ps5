@@ -1441,6 +1441,20 @@ void game_collections_sheet_adds_and_removes_the_game() {
           "a rename shows in the open sheet");
 }
 
+void live_download_card_keeps_queue_order() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    // The download retried a moment ago waits in the queue; a failed one behind it must not take the card.
+    model.UpdateInstalls({{42, JobState::Queued, 0, 100, {}}, {43, JobState::Failed, 0, 100, "Could not reach Steam."}}, {});
+    model.action("r1");
+    model.action("r1");
+    check(model.state().navigation.route == Route::Downloads, "Downloads open");
+    check(!model.view().rows.empty() && model.view().rows[0].key == "job-42" && model.view().rows[1].key == "job-43",
+          "the first download in the queue keeps the top spot ahead of a failed one");
+    model.UpdateInstalls({{42, JobState::Queued, 0, 100, {}}, {43, JobState::Downloading, 5, 100, {}}}, {});
+    check(model.view().rows[0].key == "job-43", "a running download takes the top spot");
+}
+
 void live_download_reorder_reaches_service() {
     using namespace playden::homebrew;
     auto model = make_live();
@@ -1476,6 +1490,7 @@ int main() {
     live_install_confirmation_checks_space_and_unknowns();
     live_install_notifications();
     live_completed_downloads_follow_the_queue();
+    live_download_card_keeps_queue_order();
     game_collections_sheet_adds_and_removes_the_game();
     live_log_viewer();
     live_cloud_saves();

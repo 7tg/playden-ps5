@@ -1754,10 +1754,11 @@ class Render::Impl
         std::stable_sort(jobs.begin(), jobs.end(), [](const Job* left, const Job* right) {
             return left->queue_order < right->queue_order;
         });
+        // The card shows the running transfer, or else the first one in queue order (a failed or paused
+        // download does not jump ahead of the queue).
         const auto active = std::find_if(jobs.begin(), jobs.end(), [](const Job* job) {
             return job->state == JobState::Downloading || job->state == JobState::Verifying ||
-                   job->state == JobState::Pausing || job->state == JobState::Paused ||
-                   job->state == JobState::Failed || job->state == JobState::Interrupted;
+                   job->state == JobState::Pausing;
         });
         // The card shows a transfer; finished downloads only follow the queue in the list below.
         const Job* primary = active != jobs.end() ? *active :
