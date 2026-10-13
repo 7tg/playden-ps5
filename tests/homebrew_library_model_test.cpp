@@ -1400,6 +1400,47 @@ void live_completed_downloads_follow_the_queue() {
           "Clear completed empties the list");
 }
 
+void game_collections_sheet_adds_and_removes_the_game() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Metro"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    check(model.action("details:42") && model.action("focus:details-more") && model.action("cross"), "game actions open");
+    activate(model, "collection");
+    check(model.state().navigation.modals.back().id == "collections" && has_row(model, "collection-new") &&
+              !has_row(model, "collection-manage") && find_row(model, "collection-new")->title == "New collection",
+          "with no collections the sheet offers New collection");
+
+    activate(model, "collection-new");
+    model.text("To test");
+    check(model.action("done"), "the name is entered");
+    const auto& collections = model.state().library.collections;
+    check(collections.size() == 1 && collections[0].name == "To test" && collections[0].members.contains(42),
+          "a collection made from a game's sheet holds that game");
+    const auto toggle = "collection-toggle-" + collections[0].id;
+    const auto* row = find_row(model, toggle);
+    check(row && row->title == "To test" && row->selected && row->value == "1 game" &&
+              model.state().navigation.focus_key == toggle && has_row(model, "collection-manage"),
+          "the new collection shows in the open sheet, checked and focused");
+
+    check(model.action("cross"), "the checkbox toggles");
+    check(!model.state().library.collections[0].members.contains(42) && !find_row(model, toggle)->selected &&
+              model.state().navigation.modals.back().id == "collections",
+          "unchecking removes the game and keeps the sheet open");
+
+    activate(model, "collection-manage");
+    const auto id = model.state().library.collections[0].id;
+    check(find_row(model, "collection-rename-" + id)->title == "Rename \u201cTo test\u201d" &&
+              find_row(model, "collection-pin-" + id) && find_row(model, "collection-delete-" + id)->dangerous,
+          "Manage collections renames, pins and deletes each collection");
+    activate(model, "collection-rename-" + id);
+    model.text(" later");
+    check(model.action("done"), "the new name is entered");
+    check(model.state().library.collections[0].name == "To test later" &&
+              find_row(model, "collection-rename-" + id)->title == "Rename \u201cTo test later\u201d",
+          "a rename shows in the open sheet");
+}
+
 void live_download_reorder_reaches_service() {
     using namespace playden::homebrew;
     auto model = make_live();
@@ -1435,6 +1476,7 @@ int main() {
     live_install_confirmation_checks_space_and_unknowns();
     live_install_notifications();
     live_completed_downloads_follow_the_queue();
+    game_collections_sheet_adds_and_removes_the_game();
     live_log_viewer();
     live_cloud_saves();
     live_saves_tab();

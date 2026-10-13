@@ -71,12 +71,15 @@ int main(int argc, char** argv) {
     require(simulation.state().navigation.focus_key == "note", "rating picker restores its context opener");
     choose(simulation, "collection");
     choose(simulation, "collection-toggle-collection-1");
+    choose(simulation, "collection-manage");
     choose(simulation, "collection-pin-collection-1");
     choose(simulation, "collection-delete-collection-1");
     require(simulation.state().navigation.focus_key == "cancel", "collection deletion defaults to Cancel");
     choose(simulation, "confirm-destructive");
     require(simulation.state().games.size() == 24 && simulation.state().library.collections.empty(),
             "controller deletes only collection organization");
+    require(!simulation.state().navigation.modals.empty() && simulation.state().navigation.modals.back().id == "collections-manage",
+            "deleting returns to the collection sheets, which list what is left");
     // Leave stacked menus and reach account destruction through normal sections.
     while (!simulation.state().navigation.modals.empty()) press(simulation, "circle");
     press(simulation, "circle");

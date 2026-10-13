@@ -313,6 +313,7 @@ void RealModalActionsAdvancePersistence() {
         model.UpdateLibrary({{Game(20, "Twenty")}, false, {}, false, true, 1});
         model.action("options");
         Activate(model, "collection");
+        Activate(model, "collection-manage");
         Activate(model, "collection-delete-collection-1");
         Activate(model, "confirm-destructive");
         const auto removed = model.ExportOrganization();

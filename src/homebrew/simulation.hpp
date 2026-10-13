@@ -747,6 +747,8 @@ private:
     void advance_jobs();
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;
     [[nodiscard]] std::vector<std::string> kept_manager_actions() const;
+    [[nodiscard]] std::vector<std::string> collection_sheet_actions(const std::string& sheet) const;
+    void refresh_collection_sheets(const std::string& focus = {});
     void refresh_game_settings();
     bool can_change_game_settings();
     void set_game_setting(const std::string& id, const std::string& value);

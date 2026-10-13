@@ -452,7 +452,7 @@ std::string action_label(const std::string& key) {
         {"inject-logs-ready", "Inject ready logs"}, {"account-auth", "Authentication"},
         {"account-last-sync", "Last library sync"}, {"account-sync", "Sync now"},
         {"account-recover", "Reconnect account"}, {"account-switch", "Switch account"},
-        {"account-reauth", "Sign in again"}, {"job-resume-all", "Resume all"}, {"job-clear-completed", "Clear completed"},
+        {"account-reauth", "Sign in again"}, {"job-resume-all", "Resume all"}, {"job-clear-completed", "Clear completed"}, {"collection-new", "New collection"}, {"collection-manage", "Manage collections"},
         {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
         {"about-kit", "Compatibility kit"}, {"about-kit-source", "Built from"},
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
@@ -708,6 +708,40 @@ void Simulation::UpdateKeptBottles(std::vector<LiveKeptBottle> kept) {
         if (index + 1 == modals.size()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
     }
     rebuild_view();
+}
+
+std::vector<std::string> Simulation::collection_sheet_actions(const std::string& sheet) const {
+    std::vector<std::string> actions;
+    if (sheet == "collections") {
+        for (const auto& collection : state_.library.collections) actions.push_back("collection-toggle-" + collection.id);
+        actions.push_back("collection-new");
+        if (!state_.library.collections.empty()) actions.push_back("collection-manage");
+    } else {
+        for (const auto& collection : state_.library.collections) {
+            actions.push_back("collection-rename-" + collection.id);
+            actions.push_back("collection-pin-" + collection.id);
+            actions.push_back("collection-delete-" + collection.id);
+        }
+    }
+    actions.push_back("cancel");
+    return actions;
+}
+
+// Open collection sheets list the collections as they are now; `focus` moves the focus to a row.
+void Simulation::refresh_collection_sheets(const std::string& focus) {
+    auto& modals = state_.navigation.modals;
+    for (std::size_t index = 0; index < modals.size(); ++index) {
+        auto& modal = modals[index];
+        if (modal.id != "collections" && modal.id != "collections-manage") continue;
+        const auto focused = focus.empty() && modal.focused_action < static_cast<int>(modal.action_keys.size())
+            ? modal.action_keys[static_cast<std::size_t>(modal.focused_action)] : focus;
+        modal.action_keys = collection_sheet_actions(modal.id);
+        const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), focused);
+        modal.focused_action = found == modal.action_keys.end()
+            ? std::min(modal.focused_action, static_cast<int>(modal.action_keys.size()) - 1)
+            : static_cast<int>(found - modal.action_keys.begin());
+        if (index + 1 == modals.size()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+    }
 }
 
 std::vector<std::string> Simulation::kept_manager_actions() const {
@@ -2796,17 +2830,30 @@ void Simulation::rebuild_view() {
                 const auto current = rating == state_.library.ratings.end() ? Compatibility::Untested : rating->second;
                 item.selected = (value == "works" && current == Compatibility::Works) || (value == "playable" && current == Compatibility::Playable)
                     || (value == "broken" && current == Compatibility::Broken) || (value == "untested" && current == Compatibility::Untested);
-            } else if (action_key.rfind("collection-", 0) == 0 && action_key != "collection-new") {
+            } else if (action_key.rfind("collection-", 0) == 0 && action_key != "collection-new" && action_key != "collection-manage") {
+                // A game's sheet: one checkbox per collection. Manage: rename, pin and delete each one.
                 const char* prefixes[] = {"collection-toggle-", "collection-rename-", "collection-pin-", "collection-delete-"};
-                const char* verbs[] = {"Membership", "Rename", "Pin on Home", "Delete"};
                 for (std::size_t index = 0; index < 4; ++index) if (action_key.rfind(prefixes[index], 0) == 0) {
                     const auto id = action_key.substr(std::char_traits<char>::length(prefixes[index]));
                     const auto found = std::find_if(state_.library.collections.begin(), state_.library.collections.end(), [&id](const Collection& value) { return value.id == id; });
-                    if (found != state_.library.collections.end()) {
-                        item.title = std::string(verbs[index]) + ": " + found->name;
-                        if (index == 0) item.selected = found->members.contains(state_.navigation.selected_game_id);
-                        if (index == 2) item.selected = found->pinned;
-                        if (index == 3) item.dangerous = true;
+                    if (found == state_.library.collections.end()) continue;
+                    const auto count = found->members.size();
+                    const std::string games = std::to_string(count) + (count == 1 ? " game" : " games");
+                    if (index == 0) {
+                        item.kind = RowKind::Toggle;
+                        item.title = found->name;
+                        item.value = games;
+                        item.selected = found->members.contains(state_.navigation.selected_game_id);
+                    } else if (index == 1) {
+                        item.title = "Rename \u201c" + found->name + "\u201d";
+                        item.value = games;
+                    } else if (index == 2) {
+                        item.title = "Pin \u201c" + found->name + "\u201d on Home";
+                        item.selected = found->pinned;
+                        item.value = found->pinned ? "On" : "Off";
+                    } else {
+                        item.title = "Delete \u201c" + found->name + "\u201d";
+                        item.dangerous = true;
                     }
                 }
             }
@@ -3533,7 +3580,18 @@ void Simulation::commit_editor() {
         std::string id;
         do { id = "collection-" + std::to_string(next_collection_serial_++); }
         while (std::any_of(state_.library.collections.begin(), state_.library.collections.end(), [&id](const Collection& value) { return value.id == id; }));
-        state_.library.collections.push_back({std::move(id), name, false, {}});
+        // Made from a game's Collections sheet, the new collection holds that game.
+        const bool from_game = std::any_of(state_.navigation.modals.begin(), state_.navigation.modals.end(),
+                                           [](const ModalEntry& modal) { return modal.id == "collections"; });
+        std::set<GameId> members;
+        if (from_game && state_.navigation.selected_game_id != 0) members.insert(state_.navigation.selected_game_id);
+        const auto new_id = id;
+        state_.library.collections.push_back({std::move(id), name, false, std::move(members)});
+        state_.editor.active = false;
+        state_.navigation.focus_key = state_.editor.opener_focus_key;
+        refresh_collection_sheets("collection-toggle-" + new_id);
+        save_profile();
+        return;
     } else if (state_.editor.purpose == "Rename collection") {
         const auto name = trimmed(state_.editor.value);
         const auto duplicate = std::find_if(state_.library.collections.begin(), state_.library.collections.end(), [this, &name](const Collection& value) { return value.name == name && value.id != editing_target_id_; });
@@ -3543,6 +3601,11 @@ void Simulation::commit_editor() {
             return;
         }
         target->name = name;
+        state_.editor.active = false;
+        state_.navigation.focus_key = state_.editor.opener_focus_key;
+        refresh_collection_sheets();
+        save_profile();
+        return;
     }
     state_.editor.active = false;
     state_.navigation.focus_key = state_.editor.opener_focus_key;
@@ -4564,6 +4627,13 @@ void Simulation::activate() {
                 state_.navigation.library_rail_focused = false;
                 reconcile_library_selection(state_);
             }
+            // Back to the collection sheets the delete came from, which list what is left.
+            close_modal();
+            pending_destructive_action_.clear();
+            refresh_collection_sheets();
+            save_profile();
+            rebuild_view();
+            return;
         }
         state_.navigation.modals.clear();
         pending_destructive_action_.clear();
@@ -4775,17 +4845,9 @@ void Simulation::activate() {
         save_profile(); close_modal();
     }
     else if (action_name == "edit-note") start_editor("Note", state_.library.notes[state_.navigation.selected_game_id]);
-    else if (action_name == "collection") {
-        std::vector<std::string> actions;
-        for (const auto& collection : state_.library.collections) {
-            actions.push_back("collection-toggle-" + collection.id);
-            actions.push_back("collection-rename-" + collection.id);
-            actions.push_back("collection-pin-" + collection.id);
-            actions.push_back("collection-delete-" + collection.id);
-        }
-        actions.push_back("collection-new"); actions.push_back("cancel");
-        open_modal({"collections", "Collections", "collection", std::move(actions), 0, false});
-    }
+    else if (action_name == "collection") open_modal({"collections", "Collections", "collection", collection_sheet_actions("collections"), 0, false});
+    else if (action_name == "collection-manage")
+        open_modal({"collections-manage", "Manage collections", "collection-manage", collection_sheet_actions("collections-manage"), 0, false});
     else if (action_name == "collection-new") { editing_target_id_.clear(); start_editor("Collection name", ""); }
     else if (action_name.rfind("collection-toggle-", 0) == 0) {
         const auto id = action_name.substr(18);
@@ -4804,6 +4866,7 @@ void Simulation::activate() {
         const auto id = action_name.substr(15);
         const auto found = std::find_if(state_.library.collections.begin(), state_.library.collections.end(), [&id](const Collection& value) { return value.id == id; });
         if (found != state_.library.collections.end()) { found->pinned = !found->pinned; save_profile(); }
+        refresh_collection_sheets();
     }
     else if (action_name.rfind("collection-delete-", 0) == 0) {
         pending_destructive_action_ = action_name;

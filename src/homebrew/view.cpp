@@ -2902,7 +2902,7 @@ class Render::Impl
         static const std::map<std::string, std::string> names = {
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
             {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"},
-            {"job-actions", "Downloads"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"},
+            {"job-actions", "Downloads"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
             {"filters", "Library"}, {"logs-controls", "Logs"}, {"setting-value", "Settings"}, {"diagnostics", "Settings"},
             {"notices", "Notifications"}, {"qr-controls", "Sign in"}, {"session-controls", "Simulation"},
             {"simulation-controls", "Simulation"}, {"scenarios", "Simulation"}};
@@ -3294,7 +3294,8 @@ class Render::Impl
                 return 54.0F + 12.0F;
             if (row.kind == RowKind::Heading || row.kind == RowKind::Separator)
                 return 54.0F;
-            const bool checkbox = view.surface == "kept-data" && row.kind == RowKind::Toggle;
+            const bool checkbox = (view.surface == "kept-data" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
+                                  row.kind == RowKind::Toggle;
             const bool described = (settings_sheet || checkbox) && !row.subtitle.empty();
             return (described ? 96.0F : 72.0F) + 12.0F;
         };
@@ -3362,7 +3363,8 @@ class Render::Impl
             // Game settings rows carry an effect line under the name (or the reason a row is
             // disabled), an accent dot when the player changed the value, and a tag.
             // Kept game data: each game is a checkbox row with its kept date under the name.
-            const bool checkbox = view.surface == "kept-data" && row.kind == RowKind::Toggle;
+            const bool checkbox = (view.surface == "kept-data" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
+                                  row.kind == RowKind::Toggle;
             const bool described = (settings_sheet || checkbox) && !row.subtitle.empty() && row.kind != RowKind::Heading;
             const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F : 72.0F};
             const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
