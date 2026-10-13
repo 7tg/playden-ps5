@@ -148,6 +148,21 @@ int main(int argc,char** argv) {
       live.UpdateKeptBottles({{42, "Synthetic library title", 1700000000, 450'000'000}});
       assert(live.action("details:42"));
       capture_live("details-kept.png");
+      live.UpdateVolumes({{"internal","Console storage",true,674'000'000'000ull,156'000'000'000ull},
+                          {"m2","M.2 SSD",true,1'000'000'000'000ull,249'000'000'000ull}}, "m2");
+      capture_live("details-free-space.png");
+      // Too little room on the default drive: Install opens the sheet, and another drive is for this game only.
+      live.UpdateVolumes({{"internal","Console storage",true,674'000'000'000ull,156'000'000'000ull},
+                          {"m2","M.2 SSD",true,1'000'000'000'000ull,64'000'000ull}}, "m2");
+      assert(live.action("focus:details-install") && live.action("cross"));
+      assert(live.TakeInstallRequests().empty());
+      capture_live("install-low-space.png");
+      assert(live.action("focus:storage-picker") && live.action("cross"));
+      capture_live("install-picker.png");
+      assert(live.action("focus:volume-internal") && live.action("cross"));
+      capture_live("install-other-drive.png");
+      assert(live.TakeInstallRequests().empty());
+      assert(live.action("circle"));
       // Settings: kept game data is one row that opens the manager with a checkbox per game.
       live.UpdateKeptBottles({{42, "Synthetic library title", 1700000000, 450'000'000},
                               {43, "Café on the coast", 1699000000, 1'200'000'000}});
@@ -176,6 +191,9 @@ int main(int argc,char** argv) {
       job.state = JobState::Paused;
       downloads.UpdateInstalls({job}, {});
       capture_download("download-rate-paused.png");
+      downloads.UpdateAppDetails(42, 25ULL << 30, 35ULL << 30, true);
+      downloads.UpdateVolumes({{"internal", "Console storage", true, 100ULL << 30, 20ULL << 30}}, "internal");
+      capture_download("download-reservation-over-capacity.png");
     }
     model.UpdateAccount({AuthState::Offline,"123","Synthetic account",{},{},true});
     controller.Activate(123,true);settle();

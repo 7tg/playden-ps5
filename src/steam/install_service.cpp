@@ -1,4 +1,5 @@
 #include "steam/install_service.h"
+#include "steam/install_volumes.h"
 
 #include <sys/stat.h>
 
@@ -250,13 +251,39 @@ void InstallService::Publish() {
   SaveRegistry();
 }
 
-void InstallService::Install(GameId id) {
+void InstallService::Install(GameId id, std::optional<std::uint64_t> estimated_bytes, const std::string& volume_id) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_ || id == 0 || Find(id) || jobs_.size() >= kMaxJobs) return;
   if (std::any_of(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; })) return;
   Job job;
   job.view.id = id;
-  job.view.volume_id = default_volume_id_;
+  const auto& target = volume_id.empty() ? default_volume_id_ : volume_id;
+  job.view.volume_id = target;
+  job.estimated_bytes = estimated_bytes;
+  const auto* volume = FindVolume(target);
+  const auto space = volume && volume->available ? QueryVolumeSpace(volume->games_root) : std::nullopt;
+  if (!volume || !volume->available) {
+    job.view.state = InstallJobState::kFailed;
+    job.view.failure = "The storage is disconnected.";
+  } else if (!space) {
+    if (VolumeSpaceSupported()) {
+      job.view.state = InstallJobState::kFailed;
+      job.view.failure = "Free space is unavailable. Check the storage and try again.";
+    }
+  } else {
+    auto available = space->free_bytes;
+    // Free space already counts what other downloads have written; reserve only the rest.
+    for (const auto& pending : jobs_) {
+      if (pending.view.volume_id != target || pending.cancel_requested ||
+          pending.view.state == InstallJobState::kFailed) continue;
+      const auto reserved = PendingInstallBytes(pending.estimated_bytes, pending.view.held_bytes);
+      available -= std::min(available, reserved);
+    }
+    if (available < kInstallSpaceMargin || estimated_bytes.value_or(0) > available - kInstallSpaceMargin) {
+      job.view.state = InstallJobState::kFailed;
+      job.view.failure = "Not enough free space after reserving space for other downloads.";
+    }
+  }
   jobs_.push_back(job);
   Publish();
   wake_.notify_all();
@@ -458,12 +485,13 @@ void InstallService::Run() {
       continue;
     } else {
       result = runner_.Install(*session.value(), *next, next_root, active_cancel_,
-                               [this, id = *next](std::uint64_t done, std::uint64_t total) {
+                               [this, id = *next](std::uint64_t done, std::uint64_t total, std::uint64_t held) {
                                  std::lock_guard<std::mutex> lock(mutex_);
                                  if (auto* job = Find(id)) {
                                    if (job->view.state == InstallJobState::kRunning) job->rate.Record(done, RateNowMs());
                                    job->view.done_bytes = done;
                                    job->view.total_bytes = total;
+                                   job->view.held_bytes = held;
                                    ++revision_;  // progress only; the registry is unchanged
                                  }
                                });

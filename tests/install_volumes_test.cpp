@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <unistd.h>
 
 using namespace playden::steam;
@@ -61,7 +62,38 @@ int main() {
 
   const auto space = QueryVolumeSpace(base.string());
   CHECK(space && space->total_bytes > 0 && space->free_bytes <= space->total_bytes);
-  CHECK(!QueryVolumeSpace((base / "absent").string()));
+  // A new game's directories may not exist yet; query the existing volume ancestor.
+  const auto missing = QueryVolumeSpace((base / "absent" / "new-game").string());
+  CHECK(missing && missing->total_bytes == space->total_bytes);
+  CHECK(!std::filesystem::exists(base / "absent"));
+  CHECK(!QueryVolumeSpace(""));
+  CHECK(QueryVolumeSpace(base.string() + "//./"));
+  CHECK(!QueryVolumeSpace(base.string() + "/../games"));
+  CHECK(QueryVolumeSpace("."));
+  CHECK(!QueryVolumeSpace(std::string("/tmp\0ignored", 12)));
+  CHECK(!QueryVolumeSpace("/playden-unknown-volume-" + std::to_string(::getpid()) + "/games"));
+  std::FILE* regular = std::fopen((base / "file").c_str(), "w");
+  CHECK(regular && std::fclose(regular) == 0);
+  CHECK(!QueryVolumeSpace((base / "file" / "games").string()));
+
+  const auto converted = detail::VolumeSpaceFromBlocks(65536, 15261605, 3799429);
+  CHECK(converted && converted->total_bytes == 1000184545280ull && converted->free_bytes == 248999378944ull);
+  const auto reserved = detail::VolumeSpaceFromBlocks(4096, 100, -1);
+  CHECK(reserved && reserved->total_bytes == 409600 && reserved->free_bytes == 0);
+  CHECK(!detail::VolumeSpaceFromBlocks(0, 100, 10));
+  CHECK(!detail::VolumeSpaceFromBlocks(-1, 100, 10));
+  CHECK(!detail::VolumeSpaceFromBlocks(4096, 0, 0));
+  CHECK(!detail::VolumeSpaceFromBlocks(4096, 10, 11));
+  CHECK(!detail::VolumeSpaceFromBlocks(4096, std::numeric_limits<std::uint64_t>::max(), 1));
+  for (const auto* root : {"/mnt/ext0", "/mnt/ext1", "/mnt/usb0", "/mnt/usb1"}) {
+    CHECK(detail::VolumeMountMatches(root, root));
+    CHECK(detail::VolumeMountMatches(std::string(root) + "/playden/games/new-game", root));
+    CHECK(!detail::VolumeMountMatches(root, "/mnt"));
+    CHECK(!detail::VolumeMountMatches(std::string(root) + "/playden", "/mnt"));
+    CHECK(!detail::VolumeMountMatches(root, "/mnt/ext2"));
+  }
+  CHECK(detail::VolumeMountMatches("/data/playden/games", "/data"));
+  CHECK(detail::VolumeMountMatches("/mnt/ext10", "/mnt"));
 
   std::filesystem::permissions(base / "locked", std::filesystem::perms::owner_all);
   std::filesystem::remove_all(base);

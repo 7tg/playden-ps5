@@ -200,6 +200,7 @@ std::string byte_count(std::optional<std::uint64_t> bytes)
 // Sizes as macOS shows files (decimal units), matching the model's labels: megabytes below a gigabyte.
 std::string short_size(std::uint64_t bytes)
 {
+    if (bytes == 0) return "0 MB";
     std::array<char, 32> value{};
     const double amount = static_cast<double>(bytes);
     const int written = amount >= 1e9 ? std::snprintf(value.data(), value.size(), "%.1f GB", amount / 1e9)
@@ -1874,9 +1875,8 @@ class Render::Impl
                 break;
             }
             ++drawn;
-            const std::uint64_t occupied = std::min(volume.capacity_bytes,
-                                                     volume.used_bytes + volume.reserved_bytes);
-            const std::uint64_t free = volume.capacity_bytes - occupied;
+            const std::uint64_t unused = volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes);
+            const std::uint64_t free = unused - std::min(volume.reserved_bytes, unused);
             const float fraction = volume.capacity_bytes == 0 ? 0.0F :
                 static_cast<float>(volume.used_bytes) / static_cast<float>(volume.capacity_bytes);
             const float reserved = volume.capacity_bytes == 0 ? 0.0F :
@@ -1890,12 +1890,12 @@ class Render::Impl
                      gfx::Align::right);
             if (!volume.capacity_known)
             {
-                // The console cannot report drive capacity to the title: show what Playden knows.
-                ui::text(scene_, fonts_.regular, "Used by games  " + byte_count(volume.games_bytes),
+                // A failed space query leaves capacity unknown: show only what Playden knows.
+                ui::text(scene_, fonts_.regular, "Used by games  " + short_size(volume.games_bytes),
                          1200.0F, y + 42.0F, 22.0F, kSecondary);
                 // Space held for queued downloads, only when there is some.
                 if (volume.reserved_bytes > 0)
-                    ui::text(scene_, fonts_.regular, "Reserved by queue  " + byte_count(volume.reserved_bytes),
+                    ui::text(scene_, fonts_.regular, "Reserved by queue  " + short_size(volume.reserved_bytes),
                              1784.0F, y + 42.0F, 22.0F, kSecondary, gfx::Align::right);
                 y += step;
                 continue;
@@ -1907,21 +1907,21 @@ class Render::Impl
             scene_.rounded_rect({bar_x, bar_y, bar_w * std::clamp(fraction, 0.0F, 1.0F), 12.0F},
                                 5.0F, volume.available ? kAccent : kMuted);
             scene_.rounded_rect({bar_x + bar_w * std::clamp(fraction, 0.0F, 1.0F), bar_y,
-                                 bar_w * std::clamp(reserved, 0.0F, 1.0F), 12.0F},
+                                 bar_w * std::clamp(reserved, 0.0F, 1.0F - std::clamp(fraction, 0.0F, 1.0F)), 12.0F},
                                 5.0F, volume.available ? kAmber : kMuted);
-            ui::text(scene_, fonts_.regular, "Capacity  " + byte_count(volume.capacity_bytes),
+            ui::text(scene_, fonts_.regular, "Capacity  " + short_size(volume.capacity_bytes),
                      1200.0F, y + 76.0F, 22.0F, kSecondary);
-            ui::text(scene_, fonts_.regular, "Used  " + byte_count(volume.used_bytes),
+            ui::text(scene_, fonts_.regular, "Used  " + short_size(volume.used_bytes),
                      1200.0F, y + 106.0F, 22.0F, kSecondary);
-            ui::text(scene_, fonts_.regular, "Reserved  " + byte_count(volume.reserved_bytes),
+            ui::text(scene_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes),
                      1784.0F, y + 76.0F, 22.0F, kSecondary, gfx::Align::right);
-            ui::text(scene_, fonts_.semibold, "Free  " + byte_count(free),
+            ui::text(scene_, fonts_.semibold, "Free  " + short_size(free),
                      1784.0F, y + 106.0F, 22.0F, volume.available ? kText : kMuted,
                      gfx::Align::right);
             y += step;
         }
         if (any_unreported)
-            ui::text(scene_, fonts_.regular, "Free space is not reported on this console",
+            ui::text(scene_, fonts_.regular, "Free space unavailable for some drives",
                      1200.0F, 912.0F, 22.0F, kMuted);
     }
 
@@ -2646,8 +2646,9 @@ class Render::Impl
         const Compatibility compatibility = rating == state.library.ratings.end() ?
                                                 Compatibility::Untested : rating->second;
         const bool installed = installation != nullptr && installation->installed_bytes > 0;
+        // One size for a game: what it takes on the drive (installed, or the install estimate).
         const std::string size = installed ? short_size(installation->installed_bytes) :
-            game->download_bytes ? short_size(*game->download_bytes) : std::string("Unknown");
+            game->install_bytes ? short_size(*game->install_bytes) : std::string("Unknown");
         const std::string playtime = game->playtime_minutes && *game->playtime_minutes > 0 ?
             playtime_label(game->playtime_minutes) : std::string("Never played");
         std::string compat = rating_label(compatibility);
@@ -2658,7 +2659,7 @@ class Render::Impl
         constexpr float left = 1304.0F;
         constexpr float right = 1584.0F;
         detail_cell("Playtime", playtime, left, 754.0F, 240.0F);
-        detail_cell(installed ? "Size" : "Download", size, right, 754.0F, 240.0F);
+        detail_cell("Size", size, right, 754.0F, 240.0F);
         detail_cell("Store", game->source.empty() ? "Steam" : game->source, left, 830.0F, 240.0F);
         detail_cell("Location", location, right, 830.0F, 240.0F);
         detail_cell("Compatibility", compat, left, 906.0F, 240.0F);
@@ -2882,7 +2883,7 @@ class Render::Impl
                           view.surface == "choice-picker" || view.surface == "preset-picker" ||
                           view.surface == "button-mapping" || view.surface == "game-maintenance" ||
                           view.surface == "controller" || view.surface == "logs" ||
-                          view.surface == "storage" || view.surface == "kept-data";
+                          view.surface == "storage" || view.surface == "install" || view.surface == "kept-data";
         const float width = overlay_transition_.panel_width(wide ? 960.0F : 640.0F);
         const gfx::Rect panel{kWidth - width + (1.0F - ease) * width, 0.0F, width, kHeight};
         overlay_.shadow({panel.x - 18.0F, 0.0F, panel.w + 18.0F, panel.h}, 0.0F, 36.0F,
@@ -2900,7 +2901,7 @@ class Render::Impl
         ui::text(overlay_, fonts_.display, view.title, panel.x + 48.0F, 142.0F, 48.0F, kText);
         if (!view.subtitle.empty())
             ui::paragraph(overlay_, fonts_.regular, view.subtitle, panel.x + 48.0F, 190.0F, 23.0F,
-                          panel.w - 96.0F, 32.0F, kSecondary, 3);
+                          panel.w - 96.0F, 32.0F, kSecondary, view.surface == "install" ? 6 : 3);
         if (view.surface == "storage")
             draw_storage_overlay_rows(view, {panel.x + 40.0F, 246.0F, panel.w - 80.0F, 710.0F});
         else if (view.surface == "logs")
@@ -2908,7 +2909,8 @@ class Render::Impl
         else if (view.surface == "controller")
             draw_controller_overlay(view, {panel.x + 40.0F, 236.0F, panel.w - 80.0F, 720.0F});
         else
-            draw_overlay_rows(view, {panel.x + 40.0F, 292.0F, panel.w - 80.0F, 650.0F});
+            draw_overlay_rows(view, {panel.x + 40.0F, view.surface == "install" ? 414.0F : 292.0F,
+                                     panel.w - 80.0F, view.surface == "install" ? 528.0F : 650.0F});
         if (view.comparison)
             draw_preset_comparison(*view.comparison, {72.0F, 150.0F, panel.x - 144.0F, 760.0F}, ease);
         overlay_.pop_opacity();
@@ -2981,9 +2983,8 @@ class Render::Impl
             if (found == current_state_->volumes.end())
                 continue;
             const Volume &volume = *found;
-            const std::uint64_t occupied = std::min(volume.capacity_bytes,
-                                                     volume.used_bytes + volume.reserved_bytes);
-            const std::uint64_t free = volume.capacity_bytes - occupied;
+            const std::uint64_t unused = volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes);
+            const std::uint64_t free = unused - std::min(volume.reserved_bytes, unused);
             const int row_index = static_cast<int>(&row - view.rows.data());
             const gfx::Rect card{bounds.x, y, bounds.w, 156.0F};
             const float amount = control_focus("volume-" + row.key, row_index == view.focused_row);
@@ -2999,31 +3000,31 @@ class Render::Impl
                      gfx::Align::right);
             if (!volume.capacity_known)
             {
-                ui::text(overlay_, fonts_.regular, "Used by games  " + byte_count(volume.games_bytes),
+                ui::text(overlay_, fonts_.regular, "Used by games  " + short_size(volume.games_bytes),
                          card.x + 22.0F, card.y + 98.0F, 17.0F, kSecondary);
                 if (volume.reserved_bytes > 0)
-                    ui::text(overlay_, fonts_.regular, "Reserved by queue  " + byte_count(volume.reserved_bytes),
+                    ui::text(overlay_, fonts_.regular, "Reserved by queue  " + short_size(volume.reserved_bytes),
                              card.x + card.w - 22.0F, card.y + 98.0F, 17.0F, kSecondary, gfx::Align::right);
-                ui::text(overlay_, fonts_.regular, "Free space is not reported on this console",
+                ui::text(overlay_, fonts_.regular, "Free space unavailable",
                          card.x + 22.0F, card.y + 128.0F, 17.0F, kMuted);
                 y += 174.0F;
                 continue;
             }
             const float fraction = volume.capacity_bytes == 0 ? 0.0F :
-                static_cast<float>(occupied) / static_cast<float>(volume.capacity_bytes);
+                static_cast<float>(volume.capacity_bytes - free) / static_cast<float>(volume.capacity_bytes);
             overlay_.rounded_rect({card.x + 22.0F, card.y + 58.0F, card.w - 44.0F, 8.0F}, 4.0F,
                                   kText.with_alpha(0.14F));
             overlay_.rounded_rect({card.x + 22.0F, card.y + 58.0F,
                                    (card.w - 44.0F) * std::clamp(fraction, 0.0F, 1.0F), 8.0F},
                                   4.0F, volume.available ? kAccent : kMuted);
-            ui::text(overlay_, fonts_.regular, "Capacity  " + byte_count(volume.capacity_bytes),
+            ui::text(overlay_, fonts_.regular, "Capacity  " + short_size(volume.capacity_bytes),
                      card.x + 22.0F, card.y + 98.0F, 17.0F, kSecondary);
-            ui::text(overlay_, fonts_.regular, "Used  " + byte_count(volume.used_bytes),
+            ui::text(overlay_, fonts_.regular, "Used  " + short_size(volume.used_bytes),
                      card.x + 22.0F, card.y + 128.0F, 17.0F, kSecondary);
-            ui::text(overlay_, fonts_.regular, "Reserved  " + byte_count(volume.reserved_bytes),
+            ui::text(overlay_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes),
                      card.x + card.w - 22.0F, card.y + 98.0F, 17.0F, kSecondary,
                      gfx::Align::right);
-            ui::text(overlay_, fonts_.semibold, "Free  " + byte_count(free),
+            ui::text(overlay_, fonts_.semibold, "Free  " + short_size(free),
                      card.x + card.w - 22.0F, card.y + 128.0F, 17.0F, kText,
                      gfx::Align::right);
             y += 174.0F;

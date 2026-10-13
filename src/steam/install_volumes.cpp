@@ -1,14 +1,50 @@
 #include "steam/install_volumes.h"
 
 #include <sys/stat.h>
-#if !PLAYDEN_PLATFORM_PS5
+#if PLAYDEN_PLATFORM_PS5
+#include <sys/mount.h>
+extern "C" int sceKernelDlsym(int, const char*, void**);
+#else
 #include <sys/statvfs.h>
 #endif
 
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
+#include <fcntl.h>
+#include <limits>
+#include <unistd.h>
 
 namespace playden::steam {
 namespace {
+
+std::string ExternalRoot(const std::string& path) {
+  for (const auto* root : {"/mnt/ext0", "/mnt/ext1", "/mnt/usb0", "/mnt/usb1"}) {
+    const std::size_t length = std::strlen(root);
+    if (path.compare(0, length, root) == 0 &&
+        (path.size() == length || path[length] == '/')) return root;
+  }
+  return {};
+}
+
+// Collapse redundant separators/dots, but reject parent traversal so an external path
+// cannot escape its required root (including through a symlink before the '..').
+std::string QueryPath(const std::string& path) {
+  if (path.empty() || path.find('\0') != std::string::npos) return {};
+  std::string result = path[0] == '/' ? "/" : "";
+  for (std::size_t start = 0; start < path.size();) {
+    const auto slash = path.find('/', start);
+    const auto part = path.substr(start, slash == std::string::npos ? slash : slash - start);
+    if (part == "..") return {};
+    if (!part.empty() && part != ".") {
+      if (!result.empty() && result.back() != '/') result += '/';
+      result += part;
+    }
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+  return result.empty() ? "." : result;
+}
 
 bool IsDirectory(const std::string& path) {
   struct stat info {};
@@ -47,7 +83,44 @@ bool CanWrite(const std::string& directory) {
   return written && closed;
 }
 
+#if PLAYDEN_PLATFORM_PS5
+using Fstatfs = int (*)(int, struct statfs*);
+// The ordinary statfs/fstatfs imports are absent in an app process (they live in libkernel_sys).
+// Only call the underscore export after resolving it in the app's libkernel.
+Fstatfs ResolvedFstatfs() {
+  static const Fstatfs query = [] {
+    void* symbol = nullptr;
+    if (sceKernelDlsym(0x2001, "_fstatfs", &symbol) != 0) return Fstatfs{};
+    return reinterpret_cast<Fstatfs>(symbol);
+  }();
+  return query;
+}
+#endif
+
 }  // namespace
+
+bool VolumeSpaceSupported() {
+#if PLAYDEN_PLATFORM_PS5
+  return ResolvedFstatfs() != nullptr;
+#else
+  return true;
+#endif
+}
+
+std::optional<VolumeSpace> detail::VolumeSpaceFromBlocks(std::int64_t block_size, std::uint64_t blocks,
+                                                       std::int64_t available_blocks) {
+  if (block_size <= 0 || blocks == 0) return std::nullopt;
+  const auto unit = static_cast<std::uint64_t>(block_size);
+  const auto available = available_blocks < 0 ? 0 : static_cast<std::uint64_t>(available_blocks);
+  if (available > blocks || blocks > std::numeric_limits<std::uint64_t>::max() / unit)
+    return std::nullopt;
+  return VolumeSpace{blocks * unit, available * unit};
+}
+
+bool detail::VolumeMountMatches(const std::string& path, const std::string& mount) {
+  const auto root = ExternalRoot(path);
+  return root.empty() || mount == root;
+}
 
 std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates) {
   std::vector<InstallVolume> volumes;
@@ -76,14 +149,47 @@ std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_ro
 }
 
 std::optional<VolumeSpace> QueryVolumeSpace(const std::string& path) {
+  std::string directory = QueryPath(path);
+  if (directory.empty()) return std::nullopt;
+  const auto external_root = ExternalRoot(directory);
 #if PLAYDEN_PLATFORM_PS5
-  (void)path;
-  return std::nullopt;
+  const auto query = ResolvedFstatfs();
+  if (!query) return std::nullopt;
+#else
+  if (!external_root.empty() && !IsMountPoint(external_root)) return std::nullopt;
+#endif
+  int fd = -1;
+  while ((fd = open(directory.c_str(), O_RDONLY | O_DIRECTORY)) < 0) {
+    // Only nonexistent destinations permit fallback, never permission/IO errors
+    // or a file in the path. An absent external root must not fall back to /mnt.
+    if (errno != ENOENT || directory == external_root) return std::nullopt;
+    const auto slash = directory.rfind('/');
+    if (slash == std::string::npos || slash == 0) return std::nullopt;
+    directory.resize(slash);
+  }
+#if PLAYDEN_PLATFORM_PS5
+  struct statfs info {};
+  const bool ok = query(fd, &info) == 0;
+  close(fd);
+  if (!ok) return std::nullopt;
+  const auto length = strnlen(info.f_mntonname, sizeof(info.f_mntonname));
+  if (length == sizeof(info.f_mntonname) ||
+      !detail::VolumeMountMatches(QueryPath(path), std::string(info.f_mntonname, length)))
+    return std::nullopt;
+  if (info.f_bsize > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+    return std::nullopt;
+  return detail::VolumeSpaceFromBlocks(static_cast<std::int64_t>(info.f_bsize), info.f_blocks, info.f_bavail);
 #else
   struct statvfs info {};
-  if (statvfs(path.c_str(), &info) != 0) return std::nullopt;
-  const auto unit = static_cast<std::uint64_t>(info.f_frsize ? info.f_frsize : info.f_bsize);
-  return VolumeSpace{static_cast<std::uint64_t>(info.f_blocks) * unit, static_cast<std::uint64_t>(info.f_bavail) * unit};
+  const bool ok = fstatvfs(fd, &info) == 0;
+  close(fd);
+  const auto unit = info.f_frsize ? info.f_frsize : info.f_bsize;
+  // Host statvfs fields are unsigned, while the console reports a signed bavail.
+  if (!ok || unit > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+      static_cast<std::uint64_t>(info.f_bavail) > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+    return std::nullopt;
+  return detail::VolumeSpaceFromBlocks(static_cast<std::int64_t>(unit), info.f_blocks,
+                                      static_cast<std::int64_t>(info.f_bavail));
 #endif
 }
 

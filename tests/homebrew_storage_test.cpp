@@ -81,6 +81,25 @@ void assessment_uses_installed_footprint_and_preserves_unknowns() {
           "unknown sizes remain null rather than becoming zero");
 }
 
+void assessment_preserves_unknown_capacity() {
+    State state;
+    state.games.push_back(game(1, 100, 150));
+    state.volumes.push_back(volume("external", 0, 0, 0));
+    state.volumes[0].capacity_known = false;
+    const auto assessment = assess_install(state, 1, "external");
+    check(!assessment.free_bytes, "unknown capacity never becomes zero free bytes");
+    check(assessment.readiness == InstallReadiness::UnknownCapacity,
+          "unknown capacity cannot approve an install");
+}
+
+void assessment_checks_margin_even_without_size() {
+    State state;
+    state.games.push_back(game(1, std::nullopt, std::nullopt));
+    state.volumes.push_back(volume("external", 100, 100, 0));
+    check(assess_install(state, 1, "external", 10).readiness == InstallReadiness::Insufficient,
+          "unknown size cannot bypass a known missing safety margin");
+}
+
 void assessment_rechecks_availability_and_writability() {
     State state;
     state.games.push_back(game(1, 100, 150));
@@ -168,6 +187,8 @@ void completion_moves_reservation_to_used_and_uninstall_preserves_saves() {
 
 int main() {
     assessment_uses_installed_footprint_and_preserves_unknowns();
+    assessment_preserves_unknown_capacity();
+    assessment_checks_margin_even_without_size();
     assessment_rechecks_availability_and_writability();
     reconciliation_is_baseline_preserving_and_idempotent();
     completion_moves_reservation_to_used_and_uninstall_preserves_saves();

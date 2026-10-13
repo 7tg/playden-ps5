@@ -35,8 +35,30 @@ struct VolumeSpace {
   std::uint64_t free_bytes = 0;
 };
 
-// Total and free bytes for the drive holding `path`, or nothing when the platform cannot report
-// them. On the PS5 this always returns nothing: statfs/statvfs terminate the title there.
+inline constexpr std::uint64_t kInstallSpaceMargin = 64ull * 1024 * 1024;
+
+// Space a download still needs: its install estimate less what it already holds on disk, which
+// the drive's free space already reflects. Without a report (not started this session) the
+// whole estimate is reserved.
+inline std::uint64_t PendingInstallBytes(std::optional<std::uint64_t> estimate, std::uint64_t held_bytes) {
+  const auto total = estimate.value_or(0);
+  return total > held_bytes ? total - held_bytes : 0;
+}
+
+// Total and available bytes for the directory's drive, or nothing if it cannot be verified.
+// Missing destination directories use an existing ancestor, without leaving an external root.
 std::optional<VolumeSpace> QueryVolumeSpace(const std::string& path);
+
+// False when the platform has no way to read free space (a console whose libkernel lacks the
+// query). Installs then go ahead unchecked, as before free space was readable, and a full drive
+// fails the write. When it is true, a failed query means the drive itself cannot be verified.
+bool VolumeSpaceSupported();
+
+namespace detail {
+// Shared validation of filesystem responses; available blocks may be negative for reserved space.
+std::optional<VolumeSpace> VolumeSpaceFromBlocks(std::int64_t block_size, std::uint64_t blocks,
+                                               std::int64_t available_blocks);
+bool VolumeMountMatches(const std::string& path, const std::string& mount);
+}  // namespace detail
 
 }  // namespace playden::steam

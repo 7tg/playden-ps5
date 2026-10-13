@@ -2,12 +2,11 @@
 
 #include "steam/backend/depot_chunk.h"
 #include "steam/backend/gzip.h"
+#include "steam/install_volumes.h"
 
 #include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/mount.h>
-#include <sys/param.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -116,22 +115,9 @@ bool EnsureFileSize(const std::string& path, std::uint64_t size) {
 }
 
 std::uint64_t DefaultFreeBytes(const std::string& path) {
-#if PLAYDEN_PLATFORM_PS5
-  // statfs/statvfs terminate the title on the console (sandboxed call), so free space is unknown
-  // there; a full disk surfaces as a write failure instead.
-  (void)path;
-  return std::numeric_limits<std::uint64_t>::max();
-#endif
-  // statfs is the kernel call on both FreeBSD (PS5) and macOS. The PS5 kernel fills a larger
-  // struct than the SDK header declares (a header-sized buffer overflowed the stack), so give it
-  // generous room; the block size and counts read here sit at the struct's stable start.
-  union {
-    struct statfs info;
-    unsigned char room[16384];
-  } buffer;
-  std::memset(&buffer, 0, sizeof(buffer));
-  if (statfs(path.c_str(), &buffer.info) != 0) return 0;
-  return static_cast<std::uint64_t>(buffer.info.f_bavail) * static_cast<std::uint64_t>(buffer.info.f_bsize);
+  const auto space = QueryVolumeSpace(path);
+  if (space) return space->free_bytes;
+  return VolumeSpaceSupported() ? 0 : std::numeric_limits<std::uint64_t>::max();
 }
 
 bool RemoveTree(const std::string& path) {
@@ -148,6 +134,13 @@ bool RemoveTree(const std::string& path) {
   }
   closedir(dir);
   return rmdir(path.c_str()) == 0 && ok;
+}
+
+// Bytes the filesystem has allocated to a file, at most its size; 0 when absent.
+std::uint64_t AllocatedBytes(const std::string& path, std::uint64_t size) {
+  struct stat info {};
+  if (stat(path.c_str(), &info) != 0 || info.st_blocks <= 0) return 0;
+  return std::min<std::uint64_t>(size, static_cast<std::uint64_t>(info.st_blocks) * 512);
 }
 
 bool Exists(const std::string& path) {
@@ -494,26 +487,39 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     if (reset_journal) trace("journal-reset");
   } else if (!has_header) trace("journal-legacy");
 
+  // Space still needed: per file, the smaller of its unwritten chunks and its unallocated bytes.
+  // A resumed install on a preallocating filesystem already holds its files at full size.
   std::uint64_t remaining_bytes = 0;
+  std::map<std::string, std::uint64_t> allocated;
   for (const auto& [key, placement] : placements) {
     if (placement.file->is_directory() || placement.file->is_symlink()) continue;
     const auto depot_id = manifests[placement.depot].depot_id;
-    bool pending = placement.file->chunks.empty() && !Exists(target.install_root + "/" + placement.file->path);
+    const auto path = target.install_root + "/" + placement.file->path;
+    const auto held = AllocatedBytes(path, placement.file->size);
+    allocated[key] = held;
+    progress.held_bytes += held;
+    bool pending = placement.file->chunks.empty() && !Exists(path);
+    std::uint64_t unwritten = pending ? placement.file->size : 0;
     for (const auto& chunk : placement.file->chunks) {
       if (done.count(JournalKey(depot_id, placement.file->path, chunk.offset))) {
         progress.download_done += chunk.compressed_size;
         ++stats.chunks_skipped;
       } else {
-        remaining_bytes += chunk.original_size;
+        unwritten += chunk.original_size;
         ++stats.chunks_pending;
         stats.bytes_pending += chunk.compressed_size;
         pending = true;
       }
     }
+    const auto needed = std::min(unwritten, placement.file->size - held);
+    if (remaining_bytes > std::numeric_limits<std::uint64_t>::max() - needed)
+      return fail(InstallError::kNoSpace, "install size exceeds available space");
+    remaining_bytes += needed;
     if (pending) ++stats.files_pending;
   }
   trace("space");
-  if (hooks_.free_bytes(target.install_root) < remaining_bytes + 64ull * 1024 * 1024)
+  const auto available_bytes = hooks_.free_bytes(target.install_root);
+  if (available_bytes < kInstallSpaceMargin || remaining_bytes > available_bytes - kInstallSpaceMargin)
     return fail(InstallError::kNoSpace, "not enough free space");
   if (on_progress) on_progress(progress);
 
@@ -539,6 +545,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     Placement placement;
     bool prepared = false;
     std::size_t pending = 0;
+    std::uint64_t allocated = 0;  // counted in progress.held_bytes
   };
   struct ChunkWork { std::size_t file; const ManifestChunk* chunk; std::string journal_key; };
   std::vector<FileWork> files;
@@ -546,7 +553,8 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   for (const auto& [key, placement] : placements) {
     if (placement.file->is_symlink()) continue;
     const auto index = files.size();
-    files.push_back({placement, false, 0});
+    const auto held = allocated.find(key);
+    files.push_back({placement, false, 0, held == allocated.end() ? 0 : held->second});
     for (const auto& chunk : placement.file->chunks) {
       auto entry = JournalKey(access.grants[placement.depot].depot_id, placement.file->path, chunk.offset);
       if (done.count(entry)) continue;
@@ -730,6 +738,8 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       if (file.chunks.empty() || !existed) {
         if (!Timed(create, [&] { return EnsureFileSize(path, file.size); })) return false;
         if (!existed) ++stats.files_created;
+        const auto now_held = AllocatedBytes(path, file.size);
+        if (now_held > work.allocated) { progress.held_bytes += now_held - work.allocated; work.allocated = now_held; }
       }
     }
     work.prepared = true;
@@ -765,6 +775,11 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       stats.compressed_bytes += ready->compressed_bytes;
       stats.original_bytes += work.chunk->original_size;
       progress.download_done += work.chunk->compressed_size;
+      // Writing into a sparse file allocates it; a preallocated file is already counted.
+      auto& written = files[work.file];
+      const auto grow = std::min<std::uint64_t>(work.chunk->original_size, file.size - written.allocated);
+      written.allocated += grow;
+      progress.held_bytes += grow;
       if (on_progress) on_progress(progress);
       // Release the occupied slot only after its output has been written and freed.
       std::vector<std::uint8_t>().swap(ready->plain);

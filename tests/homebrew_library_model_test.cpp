@@ -270,8 +270,14 @@ void live_install_requests_and_projection() {
     check(has_row(model, "details-install"), "an installable game offers Install");
     check(model.state().navigation.focus_key == "details-install",
           "focus moves from Favorite to Install once Steam's details arrive");
+    model.UpdateVolumes({{"internal", "Console storage", true, 2'000'000'000, 1'000'000'000}}, "internal");
+    check(find_row(model, "details-install")->value == "600 MB",
+          "Install shows the install size (not the download size), the one size a game has");
+    check(find_row(model, "details-install")->subtitle == "To Console storage · 1.0 GB free",
+          "Install names the destination and its free space");
     activate(model, "details-install");
     auto requests = model.TakeInstallRequests();
+    check(model.view().surface != "install", "a game that fits installs without a confirmation sheet");
     check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Install && requests[0].game_id == 42,
           "Install sends one request");
     model.UpdateInstalls({{42, playden::homebrew::JobState::Downloading, 50, 200, {}}}, {});
@@ -339,6 +345,7 @@ void live_install_volumes() {
     model.UpdateVolumes({{"internal", "Console storage", true, std::nullopt, std::nullopt},
                          {"m2", "M.2 SSD", true, 2'000, 500},
                          {"usb0", "USB drive", false, std::nullopt, std::nullopt}}, "internal");
+    model.UpdateAppDetails(43, 400, 800, true);
     model.UpdateInstalls({{43, JobState::Downloading, 100, 400, {}, "m2"}},
                          {{42, 600, "internal", true}, {44, 0, "usb0", false}});
 
@@ -347,7 +354,7 @@ void live_install_volumes() {
     check(!volumes[0].capacity_known && volumes[0].games_bytes == 600 && volumes[0].used_bytes == 600
               && volumes[0].reserved_bytes == 0, "a drive without a space report counts finished installs");
     check(volumes[1].capacity_known && volumes[1].capacity_bytes == 2'000 && volumes[1].used_bytes == 1'500
-              && volumes[1].reserved_bytes == 300, "a reported drive uses its own figures plus the queue's remaining bytes");
+              && volumes[1].reserved_bytes == 800, "a reported drive uses its own figures plus full install reservations");
     check(!volumes[2].available, "an absent drive stays listed as unavailable");
 
     // Settings shows the default and changes it through the install service.
@@ -379,13 +386,98 @@ void live_install_volumes() {
           "a game on an absent drive says so even without a known size");
     check(model.action("details:45") && model.UpdateAppDetails(45, 1'000, 2'000, true), "new game details");
     const auto* install = find_row(model, "details-install");
-    check(install && install->subtitle == "To M.2 SSD", "Install names the default drive when there is a choice");
+    check(install && install->subtitle.find("To M.2 SSD · ") == 0 && install->subtitle.find(" free") != std::string::npos &&
+              install->subtitle.find("reservation") == std::string::npos, "Install names the default drive and its free space");
 }
 
 const playden::homebrew::Notice* find_notice(const Simulation& model, const std::string& id) {
     const auto found = std::find_if(model.state().notices.begin(), model.state().notices.end(),
                                     [&id](const auto& notice) { return notice.id == id; });
     return found == model.state().notices.end() ? nullptr : &*found;
+}
+
+void live_install_confirmation_checks_space_and_unknowns() {
+    using playden::homebrew::JobState;
+    using playden::homebrew::InstallRequestKind;
+    constexpr std::uint64_t margin = 64ULL * 1024 * 1024;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "New"), game(43, "Queued")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(42, 100, 600, true);
+    model.UpdateAppDetails(43, 100, 700, true);
+    model.UpdateVolumes({{"internal", "Console storage", true, margin + 2'000, margin + 599},
+                         {"m2", "M.2 SSD", true, margin + 2'000, margin + 1'000}}, "internal");
+    check(model.action("details:42"), "details open");
+
+    // A game that does not fit the default drive opens the sheet, which explains and cannot confirm.
+    activate(model, "details-install");
+    check(model.view().surface == "install" && !find_row(model, "install-confirm")->enabled,
+          "a game that does not fit opens the install sheet without a usable Install");
+    check(model.view().subtitle.find("Not enough space") != std::string::npos, "the sheet says why");
+    check(model.TakeInstallRequests().empty(), "nothing is queued while it does not fit");
+
+    // Another drive is for this install only: the default stays.
+    activate(model, "storage-picker");
+    check(model.view().title == "Install to" && model.view().subtitle.find("For this game only") == 0,
+          "the picker says the choice is for this game only");
+    activate(model, "volume-m2");
+    check(model.view().surface == "install" && find_row(model, "install-confirm")->enabled,
+          "a drive with room enables Install");
+    check(model.view().subtitle.find("To M.2 SSD (this game only)") == 0 &&
+              model.view().subtitle.find("Other games still install to Console storage") != std::string::npos,
+          "the sheet names the one-off drive and the unchanged default");
+    check(model.TakeInstallRequests().empty() && model.state().default_volume_id == "internal",
+          "choosing a drive for one install does not change the default");
+    activate(model, "install-confirm");
+    auto requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Install && requests[0].game_id == 42 &&
+              requests[0].volume_id == "m2", "the install goes to the chosen drive");
+
+    // Reservations: the rest of each download's estimate, less what it already holds on the drive.
+    model.UpdateInstalls({{43, JobState::Downloading, 90, 100, {}, "m2"}}, {});
+    check(model.state().volumes[1].reserved_bytes == 700, "a download that has reported nothing reserves its estimate");
+    model.UpdateInstalls({{43, JobState::Downloading, 90, 100, {}, "m2", {}, {}, 300}}, {});
+    check(model.state().volumes[1].reserved_bytes == 400, "bytes a download already holds on the drive are not reserved twice");
+    model.UpdateInstalls({{43, JobState::Downloading, 90, 100, {}, "m2", {}, {}, 900}}, {});
+    check(model.state().volumes[1].reserved_bytes == 0, "a preallocated download reserves nothing more");
+    model.UpdateInstalls({{43, JobState::Failed, 90, 100, {}, "m2"}}, {});
+    check(model.state().volumes[1].reserved_bytes == 0, "failed downloads release live reservations");
+    model.UpdateInstalls({{43, JobState::Cancelled, 90, 100, {}, "m2"}}, {});
+    check(model.state().volumes[1].reserved_bytes == 0, "cancelled downloads hold no reservation");
+    model.UpdateInstalls({{43, JobState::Downloaded, 100, 100, {}, "m2"}}, {});
+    check(model.state().volumes[1].reserved_bytes == 0, "completed downloads hold no reservation");
+    model.UpdateInstalls({}, {});
+
+    // A game that fits installs at once, to the default drive.
+    model.UpdateVolumes({{"internal", "Console storage", true, margin + 2'000, margin + 1'000}}, "internal");
+    activate(model, "details-install");
+    requests = model.TakeInstallRequests();
+    check(model.view().surface != "install" && requests.size() == 1 && requests[0].volume_id.empty(),
+          "a game that fits installs without the sheet");
+
+    // An unknown size installs at once when the drive has the margin; the downloader checks it.
+    model.UpdateAppDetails(42, std::nullopt, std::nullopt, true);
+    check(find_row(model, "details-install")->value == "Size unknown", "unknown size never displays zero");
+    activate(model, "details-install");
+    check(model.TakeInstallRequests().size() == 1, "unknown size installs with a pre-download check");
+    model.UpdateVolumes({{"internal", "Console storage", true, margin + 2'000, 0}}, "internal");
+    activate(model, "details-install");
+    check(model.view().surface == "install" && !find_row(model, "install-confirm")->enabled,
+          "unknown size still needs the known download safety margin");
+    activate(model, "cancel");
+
+    // A drive whose free space cannot be read blocks; a console that cannot read it at all does not.
+    model.UpdateVolumes({{"internal", "Console storage", true, std::nullopt, std::nullopt}}, "internal");
+    activate(model, "details-install");
+    check(!find_row(model, "install-confirm")->enabled &&
+              model.view().subtitle.find("can't be read") != std::string::npos,
+          "unknown capacity is honestly unavailable and blocks confirmation");
+    check(model.TakeInstallRequests().empty(), "unknown capacity sends no install request");
+    activate(model, "cancel");
+    model.SetFreeSpaceSupported(false);
+    model.UpdateVolumes({{"internal", "Console storage", true, std::nullopt, std::nullopt}}, "internal");
+    activate(model, "details-install");
+    check(model.TakeInstallRequests().size() == 1, "a console that cannot read free space still installs, as before");
 }
 
 void live_install_notifications() {
@@ -1293,6 +1385,7 @@ int main() {
     live_install_requests_and_projection();
     live_install_volumes();
     live_uninstall_removes_title_and_keeps_saves();
+    live_install_confirmation_checks_space_and_unknowns();
     live_install_notifications();
     live_log_viewer();
     live_cloud_saves();

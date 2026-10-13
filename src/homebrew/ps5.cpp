@@ -334,7 +334,11 @@ int main() {
             };
             config.package_operations.hash_file = rt::HashArtifactFile;
             config.package_operations.hash_bytes = rt::HashArtifactBytes;
-            config.package_operations.free_space_unverifiable = true;  // statfs terminates the title
+            config.package_operations.free_bytes = [](const std::filesystem::path& path) -> std::optional<std::uint64_t> {
+                const auto space = playden::steam::QueryVolumeSpace(path.string());
+                return space ? std::optional<std::uint64_t>{space->free_bytes} : std::nullopt;
+            };
+            config.package_operations.free_space_unverifiable = !playden::steam::VolumeSpaceSupported();
             config.package_operations.validate_bottle = [](const std::filesystem::path& bottle) {
                 std::error_code error;
                 for (const char* name : {"system.reg", "user.reg", "userdef.reg"})

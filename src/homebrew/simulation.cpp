@@ -10,6 +10,7 @@
 #include "homebrew/browse.hpp"
 #include "homebrew/json.hpp"
 #include "homebrew/storage_sim.hpp"
+#include "steam/install_volumes.h"
 #include "steam/backend/json.h"
 
 #include <cstring>
@@ -988,6 +989,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         job.state = live_job.state;
         job.completed_bytes = live_job.done_bytes;
         job.total_bytes = live_job.total_bytes;
+        job.held_bytes = live_job.held_bytes;
         job.failure = live_job.failure;
         job.volume_id = live_job.volume_id;
         if (live_job.state == JobState::Downloading) {
@@ -1029,19 +1031,35 @@ void Simulation::UpdateVolumes(const std::vector<LiveVolume>& volumes, const std
     rebuild_view();
 }
 
-// Live volumes: used space is what the drive reports (or, without a report, the finished installs
-// on it); reserved space is what queued and running downloads still need.
+namespace {
+// Live installs go ahead when space fits, when the size is checked later by the downloader, or
+// when the console cannot read free space at all.
+bool live_install_allowed(InstallReadiness readiness, bool free_space_supported) {
+    return readiness == InstallReadiness::Ready || readiness == InstallReadiness::UnknownSize ||
+           (readiness == InstallReadiness::UnknownCapacity && !free_space_supported);
+}
+
+}  // namespace
+
+// Used space is what the drive reports, which already includes what downloads have written or
+// preallocated; reserved space is the rest of each download's install estimate, as the install
+// service reserves it when admitting a download.
 void Simulation::apply_live_volume_usage() {
     for (auto& volume : state_.volumes) {
         volume.games_bytes = 0;
         volume.reserved_bytes = 0;
         for (const auto& installation : state_.installations)
             if (installation.volume_id == volume.id) volume.games_bytes += installation.installed_bytes;
-        for (const auto& job : state_.jobs)
-            if (job.volume_id == volume.id && job.total_bytes > job.completed_bytes)
-                volume.reserved_bytes += job.total_bytes - job.completed_bytes;
+        for (const auto& job : state_.jobs) {
+            if (job.volume_id != volume.id || job.state == JobState::Failed ||
+                job.state == JobState::Cancelled || job.state == JobState::Downloaded) continue;
+            const auto* game = find_game(state_, job.game_id);
+            if (!game || !game->install_bytes) continue;
+            const auto pending = steam::PendingInstallBytes(game->install_bytes, job.held_bytes);
+            const auto maximum = std::numeric_limits<std::uint64_t>::max();
+            volume.reserved_bytes = pending > maximum - volume.reserved_bytes ? maximum : volume.reserved_bytes + pending;
+        }
         volume.used_bytes = volume.capacity_known ? volume.base_used_bytes : volume.games_bytes;
-        if (volume.capacity_known) volume.reserved_bytes = std::min(volume.reserved_bytes, volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes));
     }
 }
 
@@ -1155,6 +1173,7 @@ bool Simulation::UpdateAppDetails(GameId id, std::optional<std::uint64_t> downlo
     game->download_bytes = download_bytes;
     game->install_bytes = install_bytes;
     game->windows_installable = windows_installable;
+    apply_live_volume_usage();
     rebuild_view();
     return true;
 }
@@ -2383,6 +2402,32 @@ void Simulation::rebuild_view() {
         } else if (modal.id == "preset-picker") {
             view_.subtitle = "A preset sets several settings at once. Choosing one clears your changes for this game.";
         }
+        if (modal.id == "install" && live()) {
+            // Shown when the game does not fit as is: say why, and where it would go.
+            const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+            const auto assessment = assess_install(state_, id, install_target(), steam::kInstallSpaceMargin);
+            const auto* volume = find_volume(state_, install_target());
+            const auto* fallback = find_volume(state_, selected_volume_id_);
+            view_.subtitle = "To " + (volume ? volume->label : std::string("unavailable storage")) +
+                (install_volume_id_.empty() ? "" : " (this game only)") + ". ";
+            view_.subtitle += assessment.free_bytes ? format_bytes(*assessment.free_bytes) + " free. " : "";
+            view_.subtitle += assessment.installed_bytes
+                ? "Needs about " + format_bytes(*assessment.installed_bytes) + ". "
+                : "Its size is checked when the download starts. ";
+            if (assessment.readiness == InstallReadiness::Insufficient) view_.subtitle += "Not enough space: choose another drive or free up space.";
+            else if (assessment.readiness == InstallReadiness::Unavailable) view_.subtitle += "This drive is disconnected.";
+            else if (assessment.readiness == InstallReadiness::ReadOnly) view_.subtitle += "This drive is read-only.";
+            else if (assessment.readiness == InstallReadiness::UnknownCapacity)
+                view_.subtitle += free_space_supported_ ? "Free space on this drive can't be read: choose another drive."
+                                                        : "Free space can't be checked on this console.";
+            if (!install_volume_id_.empty() && fallback)
+                view_.subtitle += (view_.subtitle.back() == ' ' ? "" : " ") + std::string("Other games still install to ") +
+                                  fallback->label + ".";
+        }
+        if (modal.id == "storage" && live() && picking_install_volume_) {
+            const auto* fallback = find_volume(state_, selected_volume_id_);
+            view_.subtitle = "For this game only." + (fallback ? " Other games still install to " + fallback->label + "." : std::string());
+        }
         if (modal.id == "kept-data")
             view_.subtitle = "Saves and settings kept when a game was uninstalled. Installing a game again brings its saves "
                              "back. Saves in Steam Cloud stay in Steam Cloud.";
@@ -2619,14 +2664,15 @@ void Simulation::rebuild_view() {
                 item.kind = RowKind::Volume;
                 if (const auto* volume = find_volume(state_, action_key.substr(7))) {
                     item.title = volume->label;
-                    const auto occupied = std::min(volume->capacity_bytes, volume->used_bytes + volume->reserved_bytes);
+                    const auto unused = volume->capacity_bytes - std::min(volume->used_bytes, volume->capacity_bytes);
+                    const auto free = unused - std::min(volume->reserved_bytes, unused);
                     if (volume->capacity_known)
-                        item.value = std::to_string((volume->capacity_bytes - occupied) / (1024U * 1024U * 1024U)) + " GiB free";
+                        item.value = format_bytes(free) + " free";
                     else
-                        item.value = format_bytes(volume->games_bytes) + " in games";
+                        item.value = "Free space unknown";
                     item.subtitle = !volume->available ? "Disconnected" : !volume->writable ? "Read-only" : "Available";
                     item.enabled = volume->available && volume->writable;
-                    item.selected = volume->id == selected_volume_id_;
+                    item.selected = volume->id == (live() && picking_install_volume_ ? install_target() : selected_volume_id_);
                 }
             }
             else if (action_key == "quit-to-home") item.dangerous = true;  // the dialog's primary action
@@ -2710,9 +2756,19 @@ void Simulation::rebuild_view() {
                 }
             }
             else if (action_key == "install-confirm" || action_key == "install-estimate-retry") {
-                const auto assessment = assess_install(state_, state_.navigation.selected_game_id, selected_volume_id_);
+                const auto id = live() ? state_.navigation.detail_id.value_or(state_.navigation.selected_game_id)
+                                       : state_.navigation.selected_game_id;
+                const auto assessment = assess_install(state_, id, live() ? install_target() : selected_volume_id_,
+                                                       live() ? steam::kInstallSpaceMargin : 0);
                 if (action_key == "install-estimate-retry") item.enabled = assessment.readiness == InstallReadiness::UnknownSize;
-                else {
+                else if (live()) {
+                    item.enabled = live_install_allowed(assessment.readiness, free_space_supported_);
+                    item.subtitle = assessment.readiness == InstallReadiness::Insufficient ? "Not enough space"
+                        : assessment.readiness == InstallReadiness::Unavailable ? "Drive disconnected"
+                        : assessment.readiness == InstallReadiness::ReadOnly ? "Drive is read-only"
+                        : assessment.readiness == InstallReadiness::UnknownCapacity && free_space_supported_ ? "Free space unknown"
+                        : "Starts the download";
+                } else {
                     item.enabled = assessment.readiness == InstallReadiness::Ready && assessment.download_bytes.has_value();
                     item.subtitle = assessment.readiness == InstallReadiness::UnknownSize ? "Fetching size estimate" : assessment.readiness == InstallReadiness::Insufficient ? "Insufficient space" : assessment.readiness == InstallReadiness::Unavailable ? "Storage disconnected" : assessment.readiness == InstallReadiness::ReadOnly ? "Storage is read-only" : "Creates one download job";
                 }
@@ -2959,9 +3015,12 @@ void Simulation::rebuild_view() {
                 status.progress = job->total_bytes == 0 ? 0.0F : static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
             } else if (game->windows_installable.value_or(false)) {
                 auto& install = row("details-install", RowKind::Action, "Install", "live-install");
-                install.value = format_bytes(game->download_bytes.value_or(0));
-                if (state_.volumes.size() > 1)
-                    if (const auto* volume = find_volume(state_, selected_volume_id_)) install.subtitle = "To " + volume->label;
+                install.value = game->install_bytes ? format_bytes(*game->install_bytes) : "Size unknown";
+                if (const auto* volume = find_volume(state_, selected_volume_id_)) {
+                    const auto assessment = assess_install(state_, game->id, selected_volume_id_, steam::kInstallSpaceMargin);
+                    install.subtitle = "To " + volume->label + (assessment.free_bytes
+                        ? " · " + format_bytes(*assessment.free_bytes) + " free" : std::string());
+                }
             } else if (game->windows_installable.has_value()) {
                 row("details-unavailable", RowKind::Status, "No Windows version to install", "").enabled = false;
             } else {
@@ -3959,13 +4018,23 @@ void Simulation::activate() {
     } else if (action_name == "context") open_modal({"context", "Game actions", "details-more", details_context_actions(), 0, false});
     else if (action_name == "install") open_modal({"install", "Install game", "details-install", {"install-confirm", "install-estimate-retry", "storage-picker", "cancel"}, 0, false});
     else if (action_name == "storage-picker" || action_name == "storage-manager") {
+        // From the install sheet the choice is for that install only; Settings changes the default.
+        picking_install_volume_ = live() && action_name == "storage-picker";
         std::vector<std::string> actions;
         for (const auto& volume : state_.volumes) actions.push_back("volume-" + volume.id);
         actions.push_back("cancel");
-        open_modal({"storage", "Choose storage", state_.navigation.focus_key, std::move(actions), 0, false});
+        open_modal({"storage", picking_install_volume_ ? "Install to" : "Choose storage", state_.navigation.focus_key,
+                    std::move(actions), 0, false});
     } else if (action_name.rfind("volume-", 0) == 0) {
         const auto id = action_name.substr(7);
-        if (live()) {
+        if (live() && picking_install_volume_) {
+            const auto* volume = find_volume(state_, id);
+            if (volume && volume->available) install_volume_id_ = id == selected_volume_id_ ? std::string() : id;
+            picking_install_volume_ = false;
+            close_modal();
+            state_.navigation.focus_key = "install-confirm";  // back on the sheet, ready to install
+            return;
+        } else if (live()) {
             // The install service owns the choice; reflect it now and let its next snapshot confirm.
             const auto* volume = find_volume(state_, id);
             if (volume && volume->available && id != selected_volume_id_) {
@@ -3978,8 +4047,17 @@ void Simulation::activate() {
         }
         close_modal();
     } else if (action_name == "install-confirm") {
-        const auto assessment = assess_install(state_, state_.navigation.selected_game_id, selected_volume_id_);
-        if (assessment.readiness == InstallReadiness::UnknownSize || !assessment.download_bytes) {
+        const auto id = live() ? state_.navigation.detail_id.value_or(state_.navigation.selected_game_id)
+                               : state_.navigation.selected_game_id;
+        const auto assessment = assess_install(state_, id, live() ? install_target() : selected_volume_id_,
+                                               live() ? steam::kInstallSpaceMargin : 0);
+        if (live()) {
+            if (live_install_allowed(assessment.readiness, free_space_supported_)) {
+                if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id, install_volume_id_});
+                install_volume_id_.clear();
+                close_modal();
+            }
+        } else if (assessment.readiness == InstallReadiness::UnknownSize || !assessment.download_bytes) {
             state_.notices.push_back({"estimate", "Download or install size remains unknown", "install-estimate-retry", true, 0});
         } else if (assessment.readiness != InstallReadiness::Ready) {
             state_.notices.push_back({"install-blocked", "Selected storage is unavailable or has insufficient space", "storage-picker", true, 0});
@@ -4162,7 +4240,14 @@ void Simulation::activate() {
         if (id != 0) pending_runtime_play_requests_.push_back(id);
     } else if (live() && action_name == "live-install") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id});
+        // Install at once when the game fits the default drive (or its size is checked later);
+        // otherwise the sheet says why and offers another drive for this install.
+        install_volume_id_.clear();
+        if (id != 0 && live_install_allowed(assess_install(state_, id, selected_volume_id_, steam::kInstallSpaceMargin).readiness,
+                                            free_space_supported_))
+            pending_install_requests_.push_back({InstallRequestKind::Install, id});
+        else if (id != 0)
+            open_modal({"install", "Install game", "details-install", {"install-confirm", "storage-picker", "cancel"}, 0, false});
     } else if (live() && action_name == "open-downloads") {
         state_.navigation.route = Route::Downloads;
         state_.navigation.focus_key = "job-" + std::to_string(state_.navigation.detail_id.value_or(0));

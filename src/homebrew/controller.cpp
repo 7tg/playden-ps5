@@ -1068,7 +1068,14 @@ void Controller::TickInstalls() {
   if (!installs_) return;
   for (const auto& request : model_.TakeInstallRequests()) {
     switch (request.kind) {
-      case InstallRequestKind::Install: installs_->Install(request.game_id); break;
+      case InstallRequestKind::Install: {
+        const auto& games = model_.state().games;
+        const auto game = std::find_if(games.begin(), games.end(), [&](const Game& value) {
+          return value.id == request.game_id;
+        });
+        installs_->Install(request.game_id, game == games.end() ? std::nullopt : game->install_bytes, request.volume_id);
+        break;
+      }
       case InstallRequestKind::Pause: installs_->Pause(request.game_id); break;
       case InstallRequestKind::Resume: installs_->Resume(request.game_id); break;
       case InstallRequestKind::DownloadNow: installs_->DownloadNow(request.game_id); break;
@@ -1101,15 +1108,12 @@ void Controller::TickInstalls() {
     for (const auto& volume : snapshot.volumes) {
       LiveVolume live{volume.id, volume.label, volume.available, std::nullopt, std::nullopt};
       if (volume.available) {
-        auto space = steam::QueryVolumeSpace(volume.games_root);
-        if (!space) {
-          const auto slash = volume.games_root.find_last_of('/');
-          if (slash != std::string::npos && slash > 0) space = steam::QueryVolumeSpace(volume.games_root.substr(0, slash));
-        }
+        const auto space = steam::QueryVolumeSpace(volume.games_root);
         if (space) { live.total_bytes = space->total_bytes; live.free_bytes = space->free_bytes; }
       }
       volumes.push_back(std::move(live));
     }
+    model_.SetFreeSpaceSupported(steam::VolumeSpaceSupported());
     model_.UpdateVolumes(volumes, snapshot.default_volume_id);
     volume_refreshed_at_ = now;
   }
@@ -1126,7 +1130,7 @@ void Controller::TickInstalls() {
       case steam::InstallJobState::kFailed: state = JobState::Failed; break;
     }
     jobs.push_back({job.id, state, job.done_bytes, job.total_bytes, job.failure, job.volume_id,
-                    job.bytes_per_second, job.eta_seconds});
+                    job.bytes_per_second, job.eta_seconds, job.held_bytes});
   }
   std::vector<LiveInstalledGame> installed;
   for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes, game.volume_id, game.available});

@@ -38,6 +38,9 @@ struct InstallProgress {
   std::uint64_t download_done = 0;   // includes chunks already present from a previous run
   std::uint64_t install_total = 0;   // file bytes after merging depots
   std::uint32_t files_total = 0;
+  // Bytes of install_total this install already occupies on disk: preallocated files
+  // (exFAT allocates on ftruncate) or written chunks (sparse filesystems).
+  std::uint64_t held_bytes = 0;
 };
 
 struct DownloadTuning {

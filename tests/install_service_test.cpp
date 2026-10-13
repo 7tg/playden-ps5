@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <unistd.h>
@@ -42,30 +43,31 @@ class Runner final : public InstallRunner {
  public:
   std::atomic<bool> block{false};
   bool telemetry = false;
+  std::uint64_t held = 0;  // bytes the fake install reports on disk
   std::atomic<int> installs{0};
   std::atomic<int> canceled{0};
   std::mutex mutex;
   std::vector<std::string> removed;
   std::vector<std::string> install_roots;
   Result Install(const StoredSession&, GameId, const std::string& root, const std::atomic<bool>& cancel,
-                 const std::function<void(std::uint64_t, std::uint64_t)>& progress) override {
+                 const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress) override {
     ++installs;
     {
       std::lock_guard<std::mutex> lock(mutex);
       install_roots.push_back(root);
     }
-    if (telemetry) { progress(9000000000ull, 10000000000ull); progress(9100000000ull, 10000000000ull); }
-    else progress(10, 100);
+    if (telemetry) { progress(9000000000ull, 10000000000ull, held); progress(9100000000ull, 10000000000ull, held); }
+    else progress(10, 100, held);
     while (block) {
       if (cancel) {
-        if (telemetry) progress(9200000000ull, 10000000000ull); // a late callback after Pause
+        if (telemetry) progress(9200000000ull, 10000000000ull, held); // a late callback after Pause
         ++canceled; return {false, true, {}, 0};
       }
       std::this_thread::sleep_for(1ms);
     }
     std::filesystem::create_directories(root);
     std::ofstream(std::filesystem::path(root) / ".playden-install.json") << "{\"install_bytes\":4096}";
-    progress(100, 100);
+    progress(100, 100, held);
     return {true, false, {}, 4096};
   }
   bool Remove(const std::string& root) override {
@@ -95,6 +97,63 @@ const InstallJobView* JobOf(const InstallSnapshot& snapshot, GameId id) {
 bool Installed(const InstallSnapshot& snapshot, GameId id) {
   for (const auto& game : snapshot.installed) if (game.id == id) return true;
   return false;
+}
+
+void SpaceAdmission(const std::filesystem::path& root) {
+  std::filesystem::create_directories(root);
+  Runner runner; runner.block = true;
+  Sessions sessions;
+  InstallService service(runner, sessions, root.string());
+  // No wraparound can turn an impossible estimate into an accepted install.
+  service.Install(901, std::numeric_limits<std::uint64_t>::max());
+  auto snapshot = service.Snapshot();
+  CHECK(JobOf(snapshot, 901) && JobOf(snapshot, 901)->state == InstallJobState::kFailed);
+  CHECK(runner.installs == 0);
+  CHECK(JobOf(snapshot, 901)->failure.find("space") != std::string::npos);
+
+  const auto space = QueryVolumeSpace(root.string());
+  CHECK(space && space->free_bytes > 256ull * 1024 * 1024);
+  const auto estimate = space->free_bytes / 4 * 3;
+  service.Install(902, estimate);
+  AwaitAt(__LINE__, service, [&](const InstallSnapshot&) { return runner.installs == 1; });
+  service.Install(903, estimate);
+  snapshot = service.Snapshot();
+  CHECK(JobOf(snapshot, 903) && JobOf(snapshot, 903)->state == InstallJobState::kFailed);
+  CHECK(runner.installs == 1); // the running job's reservation prevents overcommit
+  service.Cancel(902);
+  AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) { return !JobOf(s, 902); });
+  service.Install(904, estimate);
+  AwaitAt(__LINE__, service, [&](const InstallSnapshot&) { return runner.installs == 2; });
+  service.Cancel(904);
+  AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) { return !JobOf(s, 904); });
+  // A download that already holds its estimate on the drive reserves nothing more: free space
+  // already counts those bytes.
+  runner.held = estimate;
+  service.Install(906, estimate);
+  AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) { return runner.installs == 3 && JobOf(s, 906) && JobOf(s, 906)->held_bytes == estimate; });
+  service.Install(907, estimate);
+  snapshot = service.Snapshot();
+  CHECK(JobOf(snapshot, 907) && JobOf(snapshot, 907)->state != InstallJobState::kFailed);
+  // An install can name its own drive; one the service does not know is refused, not redirected.
+  service.Install(908, std::nullopt, "missing-drive");
+  snapshot = service.Snapshot();
+  CHECK(JobOf(snapshot, 908) && JobOf(snapshot, 908)->state == InstallJobState::kFailed &&
+        JobOf(snapshot, 908)->volume_id == "missing-drive");
+  CHECK(snapshot.default_volume_id != "missing-drive");
+  service.Shutdown();
+  std::filesystem::remove_all(root);
+
+  // An unreadable destination is not equivalent to infinite (or zero) capacity.
+  std::ofstream(root) << "not a directory";
+  Runner unavailable_runner;
+  InstallService unavailable(unavailable_runner, sessions, (root / "games").string());
+  unavailable.Install(905);
+  snapshot = unavailable.Snapshot();
+  CHECK(JobOf(snapshot, 905) && JobOf(snapshot, 905)->state == InstallJobState::kFailed);
+  CHECK(JobOf(snapshot, 905)->failure.find("unavailable") != std::string::npos);
+  CHECK(unavailable_runner.installs == 0);
+  unavailable.Shutdown();
+  std::filesystem::remove(root);
 }
 
 void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
@@ -142,6 +201,7 @@ void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
 }  // namespace
 
 int main() {
+  SpaceAdmission(std::filesystem::temp_directory_path() / ("playden-space-service-" + std::to_string(::getpid())));
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));
   const auto requests = ParseInstallRequests("uninstall 439490\n439490\ncancel 108600\n108600\n");
   CHECK(requests.size() == 4);

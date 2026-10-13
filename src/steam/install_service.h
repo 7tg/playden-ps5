@@ -42,6 +42,7 @@ struct InstallJobView {
   InstallJobState state = InstallJobState::kQueued;
   std::uint64_t done_bytes = 0;
   std::uint64_t total_bytes = 0;
+  std::uint64_t held_bytes = 0;  // installed bytes already on disk (see PendingInstallBytes)
   std::string failure;  // short, user-facing
   std::string volume_id;
   std::optional<std::uint64_t> bytes_per_second;
@@ -77,7 +78,7 @@ class InstallRunner {
   };
   virtual Result Install(const StoredSession& session, GameId id, const std::string& root,
                          const std::atomic<bool>& cancel,
-                         const std::function<void(std::uint64_t done, std::uint64_t total)>& progress) = 0;
+                         const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress) = 0;
   virtual bool Remove(const std::string& root) = 0;
 };
 
@@ -97,7 +98,11 @@ class InstallService {
   InstallService(const InstallService&) = delete;
   InstallService& operator=(const InstallService&) = delete;
 
-  void Install(GameId id);
+  // Installs to `volume_id`, or the default drive when empty; the default is not changed. The
+  // estimate is reserved (less what the download already holds on disk) until the job ends, and
+  // the runner still checks the selected manifests before writing game data.
+  void Install(GameId id, std::optional<std::uint64_t> estimated_bytes = std::nullopt,
+               const std::string& volume_id = {});
   void Pause(GameId id);
   void Resume(GameId id);
   // Moves the download to the front of the queue and starts it. A download that was running stops
@@ -122,6 +127,7 @@ class InstallService {
     InstallJobView view;
     DownloadRate rate;
     bool cancel_requested = false;  // delete files when the run stops
+    std::optional<std::uint64_t> estimated_bytes;
   };
   void Run();
   void Scan();

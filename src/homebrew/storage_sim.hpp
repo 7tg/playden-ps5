@@ -15,6 +15,7 @@ namespace playden::homebrew {
 enum class InstallReadiness {
     Ready,
     UnknownSize,
+    UnknownCapacity,
     Insufficient,
     Unavailable,
     ReadOnly,
@@ -30,7 +31,8 @@ struct InstallAssessment {
 };
 
 [[nodiscard]] InstallAssessment assess_install(const State& state, GameId game_id,
-                                               const std::string& volume_id) noexcept;
+                                               const std::string& volume_id,
+                                               std::uint64_t safety_margin_bytes = 0) noexcept;
 
 void reconcile_storage(State& state) noexcept;
 

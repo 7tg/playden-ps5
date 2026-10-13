@@ -34,7 +34,7 @@ enum class InstallRequestKind { Install, Pause, Resume, DownloadNow, MoveUp, Mov
 struct InstallRequest {
     InstallRequestKind kind = InstallRequestKind::Install;
     GameId game_id = 0;
-    std::string volume_id;  // SetDefaultVolume only
+    std::string volume_id;  // SetDefaultVolume; Install: this install's drive (empty: the default)
     bool delete_saves = false;  // Uninstall only: also delete the game's kept saves and settings
 };
 // Game maintenance the details page offers (simulated in fixture mode).
@@ -52,6 +52,7 @@ struct LiveInstallJob {
     std::string volume_id;
     std::optional<std::uint64_t> bytes_per_second;
     std::optional<int> eta_seconds;
+    std::uint64_t held_bytes = 0;  // installed bytes already on the drive
 };
 struct LiveInstalledGame {
     GameId game_id = 0;
@@ -277,6 +278,7 @@ struct Job {
     std::uint64_t reserved_bytes = 0;
     bool reservation_held = false;
     bool completion_applied = false;
+    std::uint64_t held_bytes = 0;  // live: installed bytes already on the drive
 };
 
 struct Volume {
@@ -289,7 +291,7 @@ struct Volume {
     bool writable = true;
     std::uint64_t base_used_bytes = 0;
     std::uint64_t base_reserved_bytes = 0;
-    bool capacity_known = true;    // live volumes on the console cannot report capacity
+    bool capacity_known = true;    // false when the storage query did not return capacity and free space
     std::uint64_t games_bytes = 0; // live: bytes of finished installs on this volume
 };
 
@@ -532,6 +534,8 @@ public:
     void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
     void UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id);
+    // False on a console that cannot read free space at all: installs are then allowed without it.
+    void SetFreeSpaceSupported(bool supported) noexcept { free_space_supported_ = supported; }
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
     bool UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
                           std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable);
@@ -606,6 +610,11 @@ private:
     std::string last_error_;
     std::string pending_destructive_action_;
     std::string selected_volume_id_;
+    // Live: the drive chosen in the install sheet for this one install (empty: the default drive),
+    // and whether the open storage picker chooses it rather than the default.
+    std::string install_volume_id_;
+    bool picking_install_volume_ = false;
+    bool free_space_supported_ = true;
     std::vector<playden::runtime::SettingsPreset> settings_presets_;
     std::map<std::uint32_t, playden::runtime::GameRecipe> recipes_;
     std::map<std::uint32_t, playden::runtime::GameRecipe> generated_recipes_;
@@ -762,6 +771,9 @@ private:
     void load_live_log();
     [[nodiscard]] bool live_notices_visible() const noexcept;
     [[nodiscard]] bool live() const noexcept { return mode_ == ModelMode::Live; }
+    [[nodiscard]] const std::string& install_target() const noexcept {
+        return install_volume_id_.empty() ? selected_volume_id_ : install_volume_id_;
+    }
     [[nodiscard]] std::string next_job_id();
 };
 

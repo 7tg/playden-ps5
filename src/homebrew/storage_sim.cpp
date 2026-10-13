@@ -25,7 +25,7 @@ std::uint64_t add_saturated(std::uint64_t left, std::uint64_t right) noexcept {
 } // namespace
 
 InstallAssessment assess_install(const State& state, GameId game_id,
-                                  const std::string& volume_id) noexcept {
+                                  const std::string& volume_id, std::uint64_t safety_margin_bytes) noexcept {
     InstallAssessment result;
     const auto game = find_item(state.games, [game_id](const Game& value) {
         return value.id == game_id;
@@ -33,7 +33,7 @@ InstallAssessment assess_install(const State& state, GameId game_id,
     if (game != state.games.end()) {
         result.download_bytes = game->download_bytes;
         result.installed_bytes = game->install_bytes;
-        result.required_bytes = game->install_bytes;
+        if (game->install_bytes) result.required_bytes = add_saturated(*game->install_bytes, safety_margin_bytes);
     }
 
     const auto volume = find_item(state.volumes, [&volume_id](const Volume& value) {
@@ -42,16 +42,22 @@ InstallAssessment assess_install(const State& state, GameId game_id,
     if (volume == state.volumes.end()) return result;
 
     result.reserved_bytes = volume->reserved_bytes;
-    const std::uint64_t occupied = std::min(
-        volume->capacity_bytes, add_saturated(volume->used_bytes, volume->reserved_bytes));
-    result.free_bytes = volume->capacity_bytes - occupied;
+    if (volume->capacity_known) {
+        const std::uint64_t occupied = std::min(
+            volume->capacity_bytes, add_saturated(volume->used_bytes, volume->reserved_bytes));
+        result.free_bytes = volume->capacity_bytes - occupied;
+    }
     if (!volume->available) {
         result.readiness = InstallReadiness::Unavailable;
     } else if (!volume->writable) {
         result.readiness = InstallReadiness::ReadOnly;
+    } else if (!volume->capacity_known) {
+        result.readiness = InstallReadiness::UnknownCapacity;
+    } else if (*result.free_bytes < safety_margin_bytes) {
+        result.readiness = InstallReadiness::Insufficient;
     } else if (game == state.games.end() || !game->install_bytes) {
         result.readiness = InstallReadiness::UnknownSize;
-    } else if (*game->install_bytes > *result.free_bytes) {
+    } else if (*result.required_bytes > *result.free_bytes) {
         result.readiness = InstallReadiness::Insufficient;
     } else {
         result.readiness = InstallReadiness::Ready;

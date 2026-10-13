@@ -665,6 +665,7 @@ void InstallsMergedDepotsAndWritesRecord(const std::filesystem::path& root) {
   CHECK(Read(root / DepotInstaller::kFileList).find("f\tdata/level.dat") != std::string::npos ||
         Read(root / DepotInstaller::kFileList).find("f\tDATA/level.dat") != std::string::npos);
   CHECK(last.download_done == last.download_total && last.files_total == 3);
+  CHECK(last.held_bytes == last.install_total);  // every written byte is on the drive
   CHECK(world.chunk_calls == 3);  // the shadowed base level.dat is never fetched
   CHECK(Read(root / DepotInstaller::kInstallRecord).find("\"app_id\":440") != std::string::npos);
 }
@@ -824,6 +825,75 @@ void RefusesWhenSpaceIsShort(const std::filesystem::path& root) {
   CHECK(world.chunk_calls == 0);
 }
 
+void PreservesSpaceMargin(const std::filesystem::path& root) {
+  // The merged fixture downloads 14 + 12 executable bytes and 13 level bytes.
+  for (const auto bytes : {64ull * 1024 * 1024 - 1, 64ull * 1024 * 1024,
+                           64ull * 1024 * 1024 + 38, 64ull * 1024 * 1024 + 39}) {
+    auto world = MakeWorld();
+    world.free_bytes = bytes;
+    DepotInstaller installer(world.Hooks());
+    installer.SetTuning({1, 256});
+    std::atomic<bool> cancel{false};
+    const auto outcome = installer.Run({}, Target(root / std::to_string(bytes)), cancel);
+    if (bytes < 64ull * 1024 * 1024 + 39) {
+      CHECK(outcome.error == InstallError::kNoSpace && world.chunk_calls == 0);
+    } else {
+      CHECK(outcome.error == InstallError::kNone && world.chunk_calls == 3);
+    }
+  }
+}
+
+void PreallocatedResumeNeedsOnlyTheMargin(const std::filesystem::path& root) {
+  // An interrupted install on a preallocating filesystem (exFAT) already holds its files at full
+  // size. Its unwritten chunks need no further space, and the bytes count as held.
+  auto world = MakeWorld();
+  world.free_bytes = 64ull * 1024 * 1024;  // the margin alone; a fresh install needs 39 more bytes
+  std::filesystem::create_directories(root / DepotInstaller::kJournalDir);
+  std::filesystem::create_directories(root / "DATA");
+  // Written zeros, not a sparse resize: the files occupy blocks as exFAT's ftruncate leaves them.
+  std::ofstream(root / "game.exe") << std::string(26, '\0');
+  std::ofstream(root / "DATA/level.dat") << std::string(13, '\0');
+  std::ofstream(root / DepotInstaller::kJournalDir / "journal").close();
+  DepotInstaller installer(world.Hooks());
+  installer.SetTuning({1, 256});
+  std::atomic<bool> cancel{false};
+  InstallProgress first;
+  bool seen = false;
+  const auto outcome = installer.Run({}, Target(root), cancel, [&](const InstallProgress& progress) {
+    if (!seen) { first = progress; seen = true; }
+  });
+  CHECK(outcome.error == InstallError::kNone && world.chunk_calls == 3);
+  CHECK(seen && first.held_bytes == first.install_total);
+  CHECK(Read(root / "game.exe") == "MZ-executable-second-chunk");
+}
+
+void UnknownSpacePreventsDownload(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  world.free_bytes = 0;  // The default query maps an unverifiable filesystem to zero.
+  DepotInstaller installer(world.Hooks());
+  std::atomic<bool> cancel{false};
+  const auto outcome = installer.Run({}, Target(root), cancel);
+  CHECK(outcome.error == InstallError::kNoSpace && world.chunk_calls == 0);
+  CHECK(!std::filesystem::exists(root / "DATA" / "level.dat"));
+}
+
+void DefaultSpaceQueryFailurePreventsDownload(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  auto hooks = world.Hooks();
+  hooks.free_bytes = {};  // Exercise the real filesystem query, not the free-space fake.
+  hooks.trace = [&](const char* step) {
+    if (std::string(step) != "space") return;
+    // The destination ceased to be a directory after preparation. Filesystem
+    // capacity alone must not allow downloads when its directory cannot be opened.
+    std::filesystem::remove_all(root);
+    std::ofstream(root) << "unavailable destination";
+  };
+  DepotInstaller installer(std::move(hooks));
+  std::atomic<bool> cancel{false};
+  const auto outcome = installer.Run({}, Target(root), cancel);
+  CHECK(outcome.error == InstallError::kNoSpace && world.chunk_calls == 0);
+}
+
 void CorruptChunksFailAfterRetries(const std::filesystem::path& root) {
   auto world = MakeWorld();
   world.corrupt = true;
@@ -924,6 +994,10 @@ int main() {
   UnterminatedJournalGetsSeparator(base / "unterminated-header");
   JournalTraceLogging();
   RefusesWhenSpaceIsShort(base / "space");
+  PreservesSpaceMargin(base / "space-margin");
+  PreallocatedResumeNeedsOnlyTheMargin(base / "space-preallocated");
+  UnknownSpacePreventsDownload(base / "space-unknown");
+  DefaultSpaceQueryFailurePreventsDownload(base / "space-default-query");
   CorruptChunksFailAfterRetries(base / "corrupt");
   BusyCdnIsRetriedAfterAWait(base / "busy");
   BrokenManifestIsFetchedAgainElsewhere(base / "manifest");

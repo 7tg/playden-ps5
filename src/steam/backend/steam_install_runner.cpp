@@ -71,7 +71,7 @@ const char* InstallFailureText(InstallError error) {
 
 InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, GameId id, const std::string& root,
                                                   const std::atomic<bool>& cancel,
-                                                  const std::function<void(std::uint64_t, std::uint64_t)>& progress) {
+                                                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress) {
   Result result;
   current_app_.store(id);
   installer_.SetTuning(tuning_ ? tuning_() : DownloadTuning{});
@@ -126,7 +126,7 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
       if (selected.id == depot.id) ordered.push_back(selected);
   target.depots = ordered;
   const auto outcome = installer_.Run(session, target, cancel, [&](const InstallProgress& state) {
-    if (progress) progress(state.download_done, state.download_total);
+    if (progress) progress(state.download_done, state.download_total, state.held_bytes);
   });
   log("install", InstallErrorName(outcome.error), outcome.detail.c_str());
   result.ok = outcome.error == InstallError::kNone;
