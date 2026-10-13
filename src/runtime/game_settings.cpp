@@ -925,6 +925,51 @@ bool ExactUnsigned(const json::Value* value, std::uint64_t maximum, std::uint64_
   return true;
 }
 
+constexpr std::size_t kMaxRecipeRegistryValues = 16;
+
+// A registry value a recipe may carry: a key under HKEY_CURRENT_USER as Wine spells it, a
+// printable ASCII name and string, and never one of the two values the title publication
+// owns (settings_publication.cpp), which the next publication would put back.
+bool RecipeRegistryValueAllowed(const std::string& key, const std::string& name, const std::string& value,
+                                std::string* why) {
+  const auto printable = [](const std::string& text, bool backslashes) {
+    for (const unsigned char c : text)
+      if (c < 0x20 || c > 0x7e || c == '"' || (c == '\\' && !backslashes)) return false;
+    return true;
+  };
+  const auto lower = [](std::string text) {
+    for (auto& c : text) c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    return text;
+  };
+  if (key.empty() || key.size() > 200 || !printable(key, true) || key.front() == '\\' || key.back() == '\\' ||
+      key.find("\\\\") != std::string::npos) {
+    *why = "key is not a registry path";
+    return false;
+  }
+  const auto folded = lower(key);
+  if (folded.rfind("hkey_", 0) == 0 || folded.rfind("hkcu", 0) == 0 || folded.rfind("hklm", 0) == 0) {
+    *why = "keys are relative to HKEY_CURRENT_USER";
+    return false;
+  }
+  if (name.empty() || name.size() > 64 || !printable(name, false)) {
+    *why = "value name is not printable ASCII";
+    return false;
+  }
+  if (value.size() > 256 || !printable(value, false)) {
+    *why = "value is not a printable ASCII string";
+    return false;
+  }
+  static constexpr std::string_view kAppDefaults = "software\\wine\\appdefaults\\";
+  const bool version = folded.rfind(kAppDefaults, 0) == 0 &&
+                       folded.find('\\', kAppDefaults.size()) == std::string::npos && lower(name) == "version";
+  const bool log_pixels = folded == "control panel\\desktop" && lower(name) == "logpixels";
+  if (version || log_pixels) {
+    *why = "Game settings own this value";
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* reason) {
@@ -971,6 +1016,22 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
     for (const auto& item : *locked->array()) {
       if (!item.string() || !FindSetting(*item.string())) return fail("locked names an unknown setting");
       out.locked.insert(*item.string());
+    }
+  }
+  if (const auto* registry = root->get("registry")) {
+    const auto* keys = registry->object();
+    if (!keys) return fail("registry must map keys to their values");
+    for (const auto& [key, names] : *keys) {
+      const auto* list = names.object();
+      if (!list) return fail("registry key " + key + " must map value names to strings");
+      for (const auto& [name, value] : *list) {
+        const auto* string = value.string();
+        std::string why;
+        if (!string) return fail("registry value " + name + " must be a string");
+        if (!RecipeRegistryValueAllowed(key, name, *string, &why)) return fail("registry " + key + " " + name + ": " + why);
+        if (out.registry.size() >= kMaxRecipeRegistryValues) return fail("registry has too many values");
+        out.registry.push_back({key, name, "\"" + *string + "\""});
+      }
     }
   }
   if (out.dll_overrides.size() && !IsProsperoDllOverrides(out.dll_overrides)) return fail("recipe dll_overrides are invalid");
@@ -1098,7 +1159,26 @@ std::string SerializeGameRecipe(const GameRecipe& recipe) {
     first = false;
     text += quoted(id);
   }
-  return text + "]}\n";
+  text += "]";
+  if (!recipe.registry.empty()) {
+    // Grouped by key as the file has it; data holds the quoted string.
+    std::map<std::string, std::vector<const RegistryValue*>> keys;
+    for (const auto& value : recipe.registry) keys[value.key].push_back(&value);
+    text += ",\"registry\":{";
+    first = true;
+    for (const auto& [key, values] : keys) {
+      if (!first) text += ",";
+      first = false;
+      text += quoted(key) + ":{";
+      for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index) text += ",";
+        text += quoted(values[index]->name) + ":" + quoted(values[index]->data.substr(1, values[index]->data.size() - 2));
+      }
+      text += "}";
+    }
+    text += "}";
+  }
+  return text + "}\n";
 }
 
 namespace {

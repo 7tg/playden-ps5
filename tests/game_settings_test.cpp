@@ -630,6 +630,45 @@ int main(int argc, char** argv) {
   CHECK(!ParseGameRecipe(R"({"recipe_id":"x","recipe_version":1.5,"app_id":1,"launch_entries":[{"id":"a","label":"A","executable":"a.exe"}]})", &hl2, &reason));
   CHECK(!ParseGameRecipe(R"({"recipe_id":"x","recipe_version":1,"app_id":-1,"launch_entries":[{"id":"a","label":"A","executable":"a.exe"}]})", &hl2, &reason));
   CHECK(!ParseGameRecipe(R"({"recipe_id":"x","recipe_version":1,"app_id":4294967296,"launch_entries":[{"id":"a","label":"A","executable":"a.exe"}]})", &hl2, &reason));
+  // A recipe can carry registry values the bottle gets when the game's files are prepared, like a
+  // Steam install script: HKEY_CURRENT_USER strings only, never the two values the title publication owns.
+  {
+    const std::string head = R"({"recipe_id":"x","recipe_version":1,"app_id":1,"launch_entries":[{"id":"a","label":"A","executable":"a.exe"}],"registry":)";
+    GameRecipe with_registry;
+    CHECK(ParseGameRecipe(head + R"({"Software\\Wine\\AppDefaults\\a.exe\\Direct3D":{"VideoMemorySize":"4096"}}})", &with_registry, &reason));
+    CHECK(with_registry.registry.size() == 1 && with_registry.registry[0].key == "Software\\Wine\\AppDefaults\\a.exe\\Direct3D" &&
+          with_registry.registry[0].name == "VideoMemorySize" && with_registry.registry[0].data == "\"4096\"");
+    GameRecipe reread;
+    CHECK(ParseGameRecipe(SerializeGameRecipe(with_registry), &reread, &reason) && reread.registry.size() == 1 &&
+          reread.registry[0].key == with_registry.registry[0].key && reread.registry[0].data == "\"4096\"");
+    CHECK(SerializeGameRecipe(hl2).find("registry") == std::string::npos);   // absent when empty
+    GameRecipe refused;
+    CHECK(!ParseGameRecipe(head + R"([]})", &refused, &reason));                                    // not an object
+    CHECK(!ParseGameRecipe(head + R"({"Software\\X":{"A":1}}})", &refused, &reason));                  // not a string
+    CHECK(!ParseGameRecipe(head + R"({"HKEY_CURRENT_USER\\Software\\X":{"A":"1"}}})", &refused, &reason));  // keys are relative to HKCU
+    CHECK(!ParseGameRecipe(head + R"({"Software\\X":{"A":"say \"hi\""}}})", &refused, &reason));         // no quotes in a value
+    CHECK(!ParseGameRecipe(head + R"({"Software\\Wine\\AppDefaults\\a.exe":{"version":"win7"}}})", &refused, &reason));  // owned by the publication
+    CHECK(!ParseGameRecipe(head + R"({"Control Panel\\Desktop":{"LogPixels":"120"}}})", &refused, &reason));
+    // Applied to a bottle the way an install script is.
+    const auto registry_root = std::filesystem::canonical(std::filesystem::temp_directory_path()) /
+                               ("playden-recipe-registry-" + std::to_string(::getpid()));
+    std::filesystem::remove_all(registry_root);
+    std::filesystem::create_directories(registry_root);
+    std::filesystem::permissions(registry_root, std::filesystem::perms::owner_all);
+    std::ofstream(registry_root / "user.reg") << "WINE REGISTRY Version 2\n;; All keys relative to REGISTRY\\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n";
+    ::chmod((registry_root / "user.reg").c_str(), 0600);
+    CHECK(ApplyBottleRegistryValues(with_registry.registry, registry_root.string(), 1791500000, "user.reg", &reason));
+    CHECK(ReadText(registry_root / "user.reg").find("\n[Software\\\\Wine\\\\AppDefaults\\\\a.exe\\\\Direct3D] 1791500000\n\"VideoMemorySize\"=\"4096\"\n") != std::string::npos);
+    std::filesystem::remove_all(registry_root);
+  }
+  // Final Fantasy XIII asks DxDiag for its video memory, which Wine answers from wined3d, so the shipped
+  // recipe sets wined3d's VideoMemorySize for its program.
+  {
+    GameRecipe ffxiii;
+    CHECK(ParseGameRecipe(ReadText(source / "runtime/recipes/steam-292120-ffxiii-v1.json"), &ffxiii, &reason));
+    CHECK(ffxiii.app_id == 292120 && ffxiii.registry.size() == 1 && ffxiii.registry[0].name == "VideoMemorySize" &&
+          ffxiii.registry[0].key == "Software\\Wine\\AppDefaults\\ffxiiiimg.exe\\Direct3D" && ffxiii.registry[0].data == "\"4096\"");
+  }
   CHECK(!ParseSettingsPresets(R"({"presets":[{"id":"x","name":"X","settings":{"graphics":"gdi"}}]})", &presets, &reason));
   CHECK(!ParseSettingsPresets(R"({"presets":[{"id":"x","name":"X","settings":{"extra_arguments":"-a"}}]})", &presets, &reason));
 
@@ -656,7 +695,8 @@ int main(int argc, char** argv) {
   std::vector<SettingsPreset> loaded_presets;
   std::vector<GameRecipe> loaded_recipes;
   CHECK(LoadSettingsData((source / "runtime").string(), &loaded_presets, &loaded_recipes, &reason));
-  CHECK(loaded_presets.size() == 4 && loaded_recipes.size() == 1 && loaded_recipes.front().app_id == 220);
+  CHECK(loaded_presets.size() == 4 && loaded_recipes.size() == 2 && loaded_recipes.front().app_id == 220 &&
+        loaded_recipes.back().id == "steam-292120-ffxiii-v1");
   CHECK(!LoadSettingsData((source / "missing").string(), &loaded_presets, &loaded_recipes, &reason));
 
   // ApplyGameSettings writes the profile and a Playden dxvk.conf, removes it when nothing is

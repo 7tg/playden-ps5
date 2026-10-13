@@ -86,6 +86,14 @@ struct LaunchEntry {
   std::string arguments;          // this entry's own arguments, after the recipe's
 };
 
+// One value Playden owns in the bottle's user.reg (HKEY_CURRENT_USER). An empty data
+// removes the value, so the game inherits Wine's default again.
+struct RegistryValue {
+  std::string key;   // e.g. Software\Wine\AppDefaults\hl2.exe (single backslashes)
+  std::string name;  // e.g. Version
+  std::string data;  // Wine's text form: "\"win7\"" or "dword:00000078"; empty removes
+};
+
 struct GameRecipe {
   std::string id;
   int version = 0;
@@ -104,6 +112,9 @@ struct GameRecipe {
   std::map<std::string, std::string> defaults;  // setting id -> value
   std::set<std::string> locked;                 // setting ids the player cannot change
   std::string detected;  // generated recipes: what the game's files showed (GameDefaults::summary)
+  // Values the bottle's user.reg gets when the game's files are prepared, as a Steam install
+  // script's would be (docs/community-recipes.md): strings under HKEY_CURRENT_USER.
+  std::vector<RegistryValue> registry;
 };
 
 struct SettingsPreset {
@@ -263,14 +274,6 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record);
 // <exe stem>.dxvk-cache, next to where DXVK writes it from the working directory) and
 // nothing else. Missing cache is success. Call only while the game is not running.
 bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root, std::string* reason);
-
-// One value Playden owns in the bottle's user.reg (HKEY_CURRENT_USER). An empty data
-// removes the value, so the game inherits Wine's default again.
-struct RegistryValue {
-  std::string key;   // e.g. Software\Wine\AppDefaults\hl2.exe (single backslashes)
-  std::string name;  // e.g. Version
-  std::string data;  // Wine's text form: "\"win7\"" or "dword:00000078"; empty removes
-};
 
 // The registry values the effective settings ask for: Windows version for the launch
 // executable (AppDefaults) and text scale (Wine's LogPixels). Empty when the kit cannot

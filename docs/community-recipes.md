@@ -66,6 +66,7 @@ Recipe fields:
 | `graphics` | `auto`, `gdi`, `dxvk` or `opengl`. |
 | `defaults` | Game settings by setting id (`SettingsCatalogue()`), only values that differ from Playden's default. |
 | `locked` | Setting ids the player must choose "Change anyway" to change. |
+| `registry` | Values the bottle gets under `HKEY_CURRENT_USER` when the game's files are prepared, as a Steam install script's would be: `{"Software\\Wine\\AppDefaults\\game.exe\\Direct3D": {"VideoMemorySize": "4096"}}`. Strings only. The Windows version and text scale values belong to Game settings and are refused here. |
 
 Community fields:
 

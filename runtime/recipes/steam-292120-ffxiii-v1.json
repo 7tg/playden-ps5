@@ -1,0 +1,24 @@
+{
+  "recipe_id": "steam-292120-ffxiii-v1",
+  "recipe_version": 1,
+  "app_id": 292120,
+  "name": "Final Fantasy XIII",
+  "launch_entries": [
+    {"id": "game", "label": "Final Fantasy XIII", "executable": "white_data/prog/win/bin/ffxiiiimg.exe"}
+  ],
+  "arguments": "",
+  "resolution_arguments": "",
+  "dll_overrides": "",
+  "architecture": "pe32",
+  "runtime": "wine-wow64",
+  "prefix": "game",
+  "graphics": "dxvk",
+  "defaults": {
+    "steam_features": "emulate",
+    "controller": "xinput"
+  },
+  "registry": {
+    "Software\\Wine\\AppDefaults\\ffxiiiimg.exe\\Direct3D": {"VideoMemorySize": "4096"}
+  },
+  "locked": []
+}

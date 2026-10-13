@@ -478,6 +478,15 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     }
     if (!script.ok) return "The game's install script could not be applied: " + script.message + ".";
   }
+  // Registry values the recipe carries (docs/community-recipes.md), written the way an install script's are.
+  if (!recipe->registry.empty()) {
+    std::string reason;
+    const bool ok = rt::ApplyBottleRegistryValues(recipe->registry, (HostPath(record.data_root) / "library/prefixes/game").string(),
+                                                  config_.unix_time(), "user.reg", &reason);
+    Log("recipe registry app=" + std::to_string(record.app_id) + " values=" + std::to_string(recipe->registry.size()) +
+        (ok ? std::string() : " failed=" + reason));
+    if (!ok) return "The recipe's registry values could not be applied: " + reason + ".";
+  }
   // Self-contained .NET games reserve more address space than the console grants unless
   // their garbage collector is given a heap limit (runtime/dotnet_heap.h).
   const auto dotnet = rt::LimitDotnetHeap(root.string());
