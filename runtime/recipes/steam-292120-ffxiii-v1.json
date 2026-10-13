@@ -6,14 +6,15 @@
   "launch_entries": [
     {"id": "game", "label": "Final Fantasy XIII", "executable": "white_data/prog/win/bin/ffxiiiimg.exe"}
   ],
-  "arguments": "",
-  "resolution_arguments": "",
-  "dll_overrides": "",
+  "arguments": "-FullScreenMode=Force {resolution} -Shadow=4096 -MSAA=4",
+  "resolution_arguments": "-Width={w} -Height={h}",
+  "dll_overrides": "d3d9=n",
   "architecture": "pe32",
   "runtime": "wine-wow64",
   "prefix": "game",
   "graphics": "dxvk",
   "defaults": {
+    "resolution": "1920x1080",
     "steam_features": "emulate",
     "controller": "xinput"
   },

@@ -291,11 +291,23 @@ int main() {
     CHECK(settings.values.at("steam_features").value == "emulate" && !settings.values.at("steam_features").locked);
     CHECK(BuildEffectiveSettings(recipe, nullptr, {{"steam_features", "game"}}, KitCapabilities{}, &settings, &error));
     CHECK(settings.values.at("steam_features").value == "game");
-    // A shipped recipe keeps the game's own Steam library, whatever the player asks.
+    // A shipped recipe that says nothing about Steam features keeps the game's own library, whatever the player asks.
     auto shipped = recipe;
     shipped.id = "steam-2062430-shipped-v1";
+    shipped.defaults.erase("steam_features");
     CHECK(BuildEffectiveSettings(shipped, nullptr, {{"steam_features", "emulate"}}, KitCapabilities{}, &settings, &error));
     CHECK(settings.values.at("steam_features").value == "game" && settings.values.at("steam_features").locked);
+    // A shipped recipe that names its Steam features (Final Fantasy XIII: emulation) is followed, and
+    // the player may still choose the game's own files unless the recipe locks the row.
+    auto emulated = shipped;
+    emulated.defaults["steam_features"] = "emulate";
+    CHECK(BuildEffectiveSettings(emulated, nullptr, {}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.values.at("steam_features").value == "emulate" && !settings.values.at("steam_features").locked);
+    CHECK(BuildEffectiveSettings(emulated, nullptr, {{"steam_features", "game"}}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.values.at("steam_features").value == "game");
+    emulated.locked.insert("steam_features");
+    CHECK(BuildEffectiveSettings(emulated, nullptr, {{"steam_features", "game"}}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.values.at("steam_features").value == "emulate" && settings.values.at("steam_features").locked);
     // Every program refused: the first reason is the player's.
     WritePe(root / "Stub.exe", {false, {"d3d9.dll"}, false, true});
     GameRecipeDiagnostics diagnostics;

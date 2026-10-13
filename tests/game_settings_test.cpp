@@ -662,12 +662,22 @@ int main(int argc, char** argv) {
     std::filesystem::remove_all(registry_root);
   }
   // Final Fantasy XIII asks DxDiag for its video memory, which Wine answers from wined3d, so the shipped
-  // recipe sets wined3d's VideoMemorySize for its program.
+  // recipe sets wined3d's VideoMemorySize for its program. Its Direct3D 9 goes to DXVK (a shipped recipe
+  // names its own overrides), and it wants the Steam emulator, not the game's own files.
   {
     GameRecipe ffxiii;
     CHECK(ParseGameRecipe(ReadText(source / "runtime/recipes/steam-292120-ffxiii-v1.json"), &ffxiii, &reason));
     CHECK(ffxiii.app_id == 292120 && ffxiii.registry.size() == 1 && ffxiii.registry[0].name == "VideoMemorySize" &&
           ffxiii.registry[0].key == "Software\\Wine\\AppDefaults\\ffxiiiimg.exe\\Direct3D" && ffxiii.registry[0].data == "\"4096\"");
+    EffectiveSettings settings;
+    SettingsError error;
+    CHECK(BuildEffectiveSettings(ffxiii, nullptr, {}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.graphics == "dxvk" && settings.dll_overrides == "d3d9=n");
+    CHECK(settings.values.at("steam_features").value == "emulate" && !settings.values.at("steam_features").locked);
+    // Its own full-screen, size and quality arguments; the size follows the Resolution row.
+    CHECK(settings.arguments == "-FullScreenMode=Force -Width=1920 -Height=1080 -Shadow=4096 -MSAA=4");
+    CHECK(BuildEffectiveSettings(ffxiii, nullptr, {{"resolution", "1280x720"}}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.arguments == "-FullScreenMode=Force -Width=1280 -Height=720 -Shadow=4096 -MSAA=4");
   }
   CHECK(!ParseSettingsPresets(R"({"presets":[{"id":"x","name":"X","settings":{"graphics":"gdi"}}]})", &presets, &reason));
   CHECK(!ParseSettingsPresets(R"({"presets":[{"id":"x","name":"X","settings":{"extra_arguments":"-a"}}]})", &presets, &reason));

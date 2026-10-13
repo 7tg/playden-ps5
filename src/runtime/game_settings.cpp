@@ -528,9 +528,11 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     // Graphics comes from the recipe; only a recipe that locks it (Half-Life 2) keeps players from changing it.
     if (definition.id == "graphics") value.value = recipe.graphics, value.source = ValueSource::kRecipe;
     if (definition.id == "architecture") value.value = recipe.architecture, value.source = ValueSource::kRecipe;
-    // A shipped recipe was proven with the game's own Steam library (Half-Life 2), so that stays.
+    // A shipped recipe that says nothing about Steam features was proven with the game's own Steam
+    // library (Half-Life 2), so that stays; one that names them (Final Fantasy XIII: emulation) is followed.
     value.locked = recipe.locked.count(definition.id) > 0;
-    if (definition.id == "steam_features" && !IsGeneratedRecipeId(recipe.id) && !IsCommunityRecipeId(recipe.id))
+    if (definition.id == "steam_features" && !IsGeneratedRecipeId(recipe.id) && !IsCommunityRecipeId(recipe.id) &&
+        !recipe.defaults.count("steam_features"))
       value.value = "game", value.source = ValueSource::kRecipe, value.locked = true;
     // "Change anyway": the player's value wins over the recipe's lock; the row still says so.
     value.unlocked = value.locked && overrides.count(kUnlockPrefix + definition.id) > 0;
