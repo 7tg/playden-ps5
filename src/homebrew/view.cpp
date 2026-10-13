@@ -1521,7 +1521,9 @@ class Render::Impl
             return status;
         const State &state = *current_state_;
         const auto job = std::find_if(state.jobs.begin(), state.jobs.end(), [id](const Job &item) {
-            return item.game_id == id && item.state != JobState::Cancelled && item.stage != JobStage::Uninstall;
+            // A finished download listed in Downloads is the installation now, not a transfer.
+            return item.game_id == id && item.state != JobState::Cancelled && item.state != JobState::Downloaded &&
+                   item.stage != JobStage::Uninstall;
         });
         if (job != state.jobs.end())
             status.job = &*job;
@@ -1755,7 +1757,9 @@ class Render::Impl
                    job->state == JobState::Pausing || job->state == JobState::Paused ||
                    job->state == JobState::Failed || job->state == JobState::Interrupted;
         });
-        const Job* primary = active == jobs.end() ? (jobs.empty() ? nullptr : jobs.front()) : *active;
+        // The card shows a transfer; finished downloads only follow the queue in the list below.
+        const Job* primary = active != jobs.end() ? *active :
+            (jobs.empty() || jobs.front()->state == JobState::Downloaded ? nullptr : jobs.front());
 
         section_label("Transfers", 96.0F, 146.0F);
         const gfx::Rect active_card{96.0F, 180.0F, 1000.0F, 230.0F};
@@ -1834,9 +1838,21 @@ class Render::Impl
             scene_.rounded_rect(row, 8.0F, kPanel);
             dynamic_text(game == nullptr ? std::string_view("Unknown game") : std::string_view(game->title),
                          122.0F, row_y + 42.0F, 30.0F, kText, 560.0F);
-            ui::text(scene_, fonts_.regular, job_state_label(job->state), 712.0F, row_y + 42.0F,
+            const bool finished = job->state == JobState::Downloaded;
+            std::string state_text = job_state_label(job->state);
+            if (finished && job->finished_at > 0 && !state.simulation_mode)
+            {
+                // Short enough to stay clear of the size on the right.
+                const std::int64_t now = static_cast<std::int64_t>(state.clock_ticks);
+                const std::int64_t seconds = std::max<std::int64_t>(0, now - job->finished_at);
+                state_text += " · " + (seconds < 60     ? std::string("just now")
+                                       : seconds < 3600 ? std::to_string(seconds / 60) + " min ago"
+                                                        : relative_time(job->finished_at, now));
+            }
+            ui::text(scene_, fonts_.regular, state_text, 712.0F, row_y + 42.0F,
                      22.0F, job->state == JobState::Failed ? kRed : kSecondary);
-            const std::string bytes = byte_count(job->completed_bytes) + " / " + byte_count(job->total_bytes);
+            const std::string bytes = finished ? byte_count(job->total_bytes)
+                                               : byte_count(job->completed_bytes) + " / " + byte_count(job->total_bytes);
             ui::text(scene_, fonts_.regular, bytes, 1068.0F, row_y + 42.0F, 22.0F, kSecondary,
                      gfx::Align::right);
             const float progress = job->total_bytes == 0 ? 0.0F :

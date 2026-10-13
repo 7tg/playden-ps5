@@ -452,7 +452,7 @@ std::string action_label(const std::string& key) {
         {"inject-logs-ready", "Inject ready logs"}, {"account-auth", "Authentication"},
         {"account-last-sync", "Last library sync"}, {"account-sync", "Sync now"},
         {"account-recover", "Reconnect account"}, {"account-switch", "Switch account"},
-        {"account-reauth", "Sign in again"}, {"job-resume-all", "Resume all"},
+        {"account-reauth", "Sign in again"}, {"job-resume-all", "Resume all"}, {"job-clear-completed", "Clear completed"},
         {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
         {"about-kit", "Compatibility kit"}, {"about-kit-source", "Built from"},
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
@@ -946,7 +946,8 @@ void Simulation::UpdateCloud(const std::vector<LiveCloudGame>& games) {
     rebuild_view();
 }
 
-void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed) {
+void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed,
+                                const std::vector<LiveCompletedDownload>& completed) {
     if (!live()) return;
     std::map<GameId, JobState> job_states;
     for (const auto& job : jobs) job_states[job.game_id] = job.state;
@@ -996,6 +997,20 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
             job.bytes_per_second = live_job.bytes_per_second;
             job.eta_seconds = live_job.eta_seconds;
         }
+        projected.push_back(std::move(job));
+    }
+    // Finished downloads follow the queue, newest first, until the player dismisses them.
+    for (const auto& finished : completed) {
+        if (live_job_states_.contains(finished.game_id) || !live_installed_ids_.contains(finished.game_id)) continue;
+        Job job;
+        job.id = std::to_string(finished.game_id);
+        job.game_id = finished.game_id;
+        job.queue_order = order++;
+        job.state = JobState::Downloaded;
+        job.completed_bytes = job.total_bytes = finished.install_bytes;
+        job.volume_id = finished.volume_id;
+        job.finished_at = finished.finished_at;
+        job.completion_applied = true;
         projected.push_back(std::move(job));
     }
     std::vector<Installation> installations;
@@ -4096,7 +4111,11 @@ void Simulation::activate() {
         if (behind && (job->state == JobState::Queued || job->state == JobState::Paused || job->state == JobState::Interrupted))
             actions.insert(actions.begin(), "job-now-" + id);
         if (job && job->state == JobState::Queued) { actions.push_back("job-up-" + id); actions.push_back("job-down-" + id); }
-        if (job && job->state == JobState::Downloaded) { actions.push_back("job-open-" + id); actions.push_back("job-dismiss-" + id); }
+        if (job && job->state == JobState::Downloaded) {
+            actions.push_back("job-open-" + id); actions.push_back("job-dismiss-" + id);
+            const auto finished = std::count_if(state_.jobs.begin(), state_.jobs.end(), [](const Job& other) { return other.state == JobState::Downloaded; });
+            if (finished > 1) actions.push_back("job-clear-completed");
+        }
         else if (job && job->state != JobState::Cancelled) actions.push_back("job-cancel-" + id);
         actions.push_back("logs"); actions.push_back("cancel");
         open_modal({"job-actions", "Download actions", selected.key, std::move(actions), 0, false});
@@ -4319,9 +4338,15 @@ void Simulation::activate() {
             state_.navigation.selected_game_id = job->game_id; state_.navigation.detail_id = job->game_id; state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
         }
         close_modal();
+    } else if (action_name == "job-clear-completed") {
+        close_modal();
+        if (live()) pending_install_requests_.push_back({InstallRequestKind::ClearCompleted, 0});
+        state_.jobs.erase(std::remove_if(state_.jobs.begin(), state_.jobs.end(), [](const Job& value) { return value.state == JobState::Downloaded; }), state_.jobs.end());
     } else if (action_name.rfind("job-dismiss-", 0) == 0) {
         const auto id = action_name.substr(12);
         close_modal();
+        if (const auto* job = find_job(state_, id); live() && job && job->state == JobState::Downloaded)
+            pending_install_requests_.push_back({InstallRequestKind::DismissCompleted, job->game_id});
         state_.jobs.erase(std::remove_if(state_.jobs.begin(), state_.jobs.end(), [&id](const Job& value) { return value.id == id && value.state == JobState::Downloaded; }), state_.jobs.end());
     } else if (action_name.rfind("job-cancel-", 0) == 0) {
         pending_destructive_action_ = action_name;

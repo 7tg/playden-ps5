@@ -1084,6 +1084,8 @@ void Controller::TickInstalls() {
       case InstallRequestKind::Cancel: installs_->Cancel(request.game_id); break;
       case InstallRequestKind::Uninstall: BeginUninstall(request.game_id, request.delete_saves); break;
       case InstallRequestKind::SetDefaultVolume: installs_->SetDefaultVolume(request.volume_id); break;
+      case InstallRequestKind::DismissCompleted: installs_->DismissCompleted(request.game_id); break;
+      case InstallRequestKind::ClearCompleted: installs_->ClearCompleted(); break;
     }
   }
   const auto snapshot = installs_->Snapshot();
@@ -1134,7 +1136,10 @@ void Controller::TickInstalls() {
   }
   std::vector<LiveInstalledGame> installed;
   for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes, game.volume_id, game.available});
-  model_.UpdateInstalls(jobs, installed);
+  std::vector<LiveCompletedDownload> completed;
+  for (const auto& finished : snapshot.completed)
+    completed.push_back({finished.id, finished.install_bytes, finished.volume_id, finished.finished_at});
+  model_.UpdateInstalls(jobs, installed, completed);
 }
 void Controller::TickStoreDetails() {
   if (!store_details_) return;

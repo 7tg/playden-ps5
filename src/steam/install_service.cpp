@@ -41,6 +41,23 @@ std::vector<InstallRequest> ParseInstallRequests(const std::string& text) {
   }
   return requests;
 }
+
+std::vector<CompletedDownload> CompletedDownloads(const std::vector<InstalledGame>& installed,
+                                                  const std::vector<std::pair<GameId, std::int64_t>>& dismissed,
+                                                  std::int64_t now) {
+  std::vector<CompletedDownload> completed;
+  for (const auto& game : installed) {
+    if (game.finished_at <= 0 || game.finished_at > now || now - game.finished_at > kCompletedDays * 24 * 60 * 60) continue;
+    if (std::find(dismissed.begin(), dismissed.end(), std::make_pair(game.id, game.finished_at)) != dismissed.end()) continue;
+    completed.push_back({game.id, game.install_bytes, game.volume_id, game.finished_at});
+  }
+  std::stable_sort(completed.begin(), completed.end(), [](const CompletedDownload& left, const CompletedDownload& right) {
+    return left.finished_at > right.finished_at;
+  });
+  if (completed.size() > kMaxCompleted) completed.resize(kMaxCompleted);
+  return completed;
+}
+
 namespace {
 std::int64_t RateNowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -51,12 +68,23 @@ constexpr const char* kRecord = ".playden-install.json";
 constexpr const char* kJournal = ".playden-download";
 constexpr const char* kRegistry = ".playden-games";
 constexpr const char* kDefaultVolume = ".playden-default-volume";
+constexpr const char* kDismissed = ".playden-downloads-dismissed";
 constexpr const char* kVolumeUnavailable = "The game's storage is not available.";
 constexpr std::chrono::seconds kSessionRetry{5};
 
 bool Exists(const std::string& path) {
   struct stat info {};
   return stat(path.c_str(), &info) == 0;
+}
+
+// The install record is written when an install finishes, so its time is the finish time.
+std::int64_t RecordTime(const std::string& path) {
+  struct stat info {};
+  return stat(path.c_str(), &info) == 0 ? static_cast<std::int64_t>(info.st_mtime) : 0;
+}
+
+std::int64_t WallNow() {
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
 std::uint64_t RecordedBytes(const std::string& record_path) {
@@ -189,7 +217,8 @@ void InstallService::Scan() {
     }
     const auto root = RootOn(entry.volume_id, entry.id);
     if (Exists(root + "/" + kRecord)) {
-      installed_.push_back({entry.id, RecordedBytes(root + "/" + kRecord), root, entry.volume_id, true});
+      installed_.push_back({entry.id, RecordedBytes(root + "/" + kRecord), root, entry.volume_id, true,
+                            RecordTime(root + "/" + kRecord)});
     } else if ((Exists(root + "/" + kJournal) || entry.queued) && jobs_.size() < kMaxJobs) {
       // A job that failed or waited before writing anything (no journal yet) stays in
       // Downloads too, so a failure while Steam connects doesn't lose the queued game. A job that
@@ -209,6 +238,17 @@ void InstallService::Scan() {
   }
   std::sort(installed_.begin(), installed_.end(),
             [](const InstalledGame& left, const InstalledGame& right) { return left.id < right.id; });
+  // "<app id>\t<finish time>" per finished download the player took off Completed.
+  if (FILE* file = std::fopen((primary + "/" + kDismissed).c_str(), "r")) {
+    char line[64];
+    while (std::fgets(line, sizeof(line), file) && dismissed_.size() < kMaxJobs * 4) {
+      GameId id = 0;
+      long long finished = 0;
+      if (std::sscanf(line, "%u\t%lld", &id, &finished) == 2 && id != 0 && finished > 0)
+        dismissed_.emplace_back(id, static_cast<std::int64_t>(finished));
+    }
+    std::fclose(file);
+  }
   ++revision_;
 }
 
@@ -238,6 +278,46 @@ void InstallService::SaveDefaultVolume() {
   if (!file) return;
   std::fprintf(file, "%s\n", default_volume_id_.c_str());
   if (std::fclose(file) == 0) std::rename(temporary.c_str(), path.c_str());
+}
+
+void InstallService::SaveDismissed() {
+  // Only dismissals that still hide an install are kept.
+  dismissed_.erase(std::remove_if(dismissed_.begin(), dismissed_.end(), [this](const std::pair<GameId, std::int64_t>& entry) {
+    return std::none_of(installed_.begin(), installed_.end(), [&entry](const InstalledGame& game) {
+      return game.id == entry.first && game.finished_at == entry.second;
+    });
+  }), dismissed_.end());
+  const auto& primary = volumes_.front().games_root;
+  mkdir(primary.c_str(), 0777);
+  const auto path = primary + "/" + kDismissed;
+  const auto temporary = path + ".tmp";
+  FILE* file = std::fopen(temporary.c_str(), "w");
+  if (!file) return;
+  for (const auto& [id, finished] : dismissed_)
+    std::fprintf(file, "%u\t%lld\n", id, static_cast<long long>(finished));
+  if (std::fclose(file) == 0) std::rename(temporary.c_str(), path.c_str());
+}
+
+void InstallService::Dismiss(GameId id) {
+  for (const auto& game : installed_) {
+    if (game.id != id || game.finished_at <= 0) continue;
+    const std::pair<GameId, std::int64_t> entry{id, game.finished_at};
+    if (std::find(dismissed_.begin(), dismissed_.end(), entry) == dismissed_.end()) dismissed_.push_back(entry);
+  }
+}
+
+void InstallService::DismissCompleted(GameId id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Dismiss(id);
+  SaveDismissed();
+  ++revision_;
+}
+
+void InstallService::ClearCompleted() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (const auto& completed : CompletedDownloads(installed_, dismissed_, WallNow())) Dismiss(completed.id);
+  SaveDismissed();
+  ++revision_;
 }
 
 InstallService::Job* InstallService::Find(GameId id) {
@@ -407,6 +487,7 @@ InstallSnapshot InstallService::Snapshot() {
   snapshot.revision = revision_;
   for (const auto& job : jobs_) snapshot.jobs.push_back(job.view);
   snapshot.installed = installed_;
+  snapshot.completed = CompletedDownloads(installed_, dismissed_, WallNow());
   snapshot.volumes = volumes_;
   snapshot.default_volume_id = default_volume_id_;
   return snapshot;
@@ -510,7 +591,7 @@ void InstallService::Run() {
         const auto volume_id = job->view.volume_id;
         jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [&](const Job& entry) { return entry.view.id == *next; }),
                     jobs_.end());
-        installed_.push_back({*next, result.install_bytes, next_root, volume_id, true});
+        installed_.push_back({*next, result.install_bytes, next_root, volume_id, true, WallNow()});
       } else if (job && job->view.state == InstallJobState::kRunning && result.canceled && stopping_) {
         // Playden is closing: the download stays queued, so the next start carries on with it.
         job->view.state = InstallJobState::kQueued;

@@ -1353,6 +1353,53 @@ void live_saves_tab() {
           "More > Manage saves opens the game's saves");
 }
 
+void live_completed_downloads_follow_the_queue() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.SetWallClock(100'000);
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Finished"), game(43, "Downloading"), game(45, "Earlier"), game(46, "Removed")},
+                               false, {}, false, false, {}}), "library loaded");
+    // 46 is listed by the service but no longer installed; 43 is downloading again.
+    model.UpdateInstalls({{43, JobState::Downloading, 10, 100, {}, "internal"}},
+                         {{42, 100, "internal", true}, {43, 50, "internal", true}, {45, 300, "m2", true}},
+                         {{42, 100, "internal", 99'880}, {45, 300, "m2", 92'800}, {43, 50, "internal", 99'000}, {46, 9, "internal", 99'990}});
+    const auto& jobs = model.state().jobs;
+    check(jobs.size() == 3 && jobs[0].game_id == 43 && jobs[0].state == JobState::Downloading, "the queue comes first");
+    check(jobs[1].game_id == 42 && jobs[1].state == JobState::Downloaded && jobs[1].finished_at == 99'880 &&
+              jobs[1].completed_bytes == 100 && jobs[1].total_bytes == 100 && jobs[2].game_id == 45 && jobs[2].volume_id == "m2",
+          "finished downloads follow it, newest first, without games downloading again or uninstalled");
+    check(model.state().volumes.empty() || std::all_of(model.state().volumes.begin(), model.state().volumes.end(),
+                                                       [](const Volume& volume) { return volume.reserved_bytes == 0 || volume.id == "internal"; }),
+          "finished downloads reserve no space");
+
+    model.action("r1");
+    model.action("r1");
+    check(model.state().navigation.route == Route::Downloads, "Downloads open");
+    check(has_row(model, "job-43") && has_row(model, "job-42") && has_row(model, "job-45"), "every entry has a row");
+    activate(model, "job-42");
+    check(has_row(model, "job-open-42") && has_row(model, "job-dismiss-42") && has_row(model, "job-clear-completed") &&
+              !has_row(model, "job-cancel-42"), "a finished download offers Open, Dismiss and Clear completed");
+    activate(model, "job-dismiss-42");
+    auto requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::DismissCompleted && requests[0].game_id == 42,
+          "Dismiss tells the download service");
+    check(!has_row(model, "job-42") && has_row(model, "job-45"), "the dismissed entry goes at once");
+
+    activate(model, "job-45");
+    check(!has_row(model, "job-clear-completed"), "one finished download needs no Clear completed");
+    model.action("circle");
+    model.UpdateInstalls({}, {{42, 100, "internal", true}, {43, 50, "internal", true}, {45, 300, "m2", true}},
+                         {{43, 50, "internal", 99'950}, {45, 300, "m2", 92'800}});
+    activate(model, "job-43");
+    activate(model, "job-clear-completed");
+    requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::ClearCompleted, "Clear completed tells the service");
+    check(std::none_of(model.state().jobs.begin(), model.state().jobs.end(),
+                       [](const Job& job) { return job.state == JobState::Downloaded; }) && has_row(model, "downloads-empty"),
+          "Clear completed empties the list");
+}
+
 void live_download_reorder_reaches_service() {
     using namespace playden::homebrew;
     auto model = make_live();
@@ -1387,6 +1434,7 @@ int main() {
     live_uninstall_removes_title_and_keeps_saves();
     live_install_confirmation_checks_space_and_unknowns();
     live_install_notifications();
+    live_completed_downloads_follow_the_queue();
     live_log_viewer();
     live_cloud_saves();
     live_saves_tab();

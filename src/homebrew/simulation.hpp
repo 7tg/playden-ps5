@@ -30,7 +30,8 @@ enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
 enum class RuntimeState { Unavailable, Checking, Ready, Failed };
 enum class LogState { Loading, Ready, Failed };
-enum class InstallRequestKind { Install, Pause, Resume, DownloadNow, MoveUp, MoveDown, Cancel, Uninstall, SetDefaultVolume };
+enum class InstallRequestKind { Install, Pause, Resume, DownloadNow, MoveUp, MoveDown, Cancel, Uninstall, SetDefaultVolume,
+                                DismissCompleted, ClearCompleted };
 struct InstallRequest {
     InstallRequestKind kind = InstallRequestKind::Install;
     GameId game_id = 0;
@@ -59,6 +60,13 @@ struct LiveInstalledGame {
     std::uint64_t install_bytes = 0;
     std::string volume_id;
     bool available = true;  // false while the game's drive is absent
+};
+// A recent finished download, listed in Downloads after the queue.
+struct LiveCompletedDownload {
+    GameId game_id = 0;
+    std::uint64_t install_bytes = 0;
+    std::string volume_id;
+    std::int64_t finished_at = 0;  // Unix seconds
 };
 // A drive the real install service can use. Space is absent when the platform cannot report it.
 struct LiveVolume {
@@ -279,6 +287,7 @@ struct Job {
     bool reservation_held = false;
     bool completion_applied = false;
     std::uint64_t held_bytes = 0;  // live: installed bytes already on the drive
+    std::int64_t finished_at = 0;  // live: when a Downloaded job finished (Unix seconds), 0 unknown
 };
 
 struct Volume {
@@ -494,7 +503,8 @@ public:
     bool UpdateLibrary(LibraryUpdate update);
     // Live mode: requests for the real install service, and its state for display.
     [[nodiscard]] std::vector<InstallRequest> TakeInstallRequests();
-    void UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed);
+    void UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const std::vector<LiveInstalledGame>& installed,
+                        const std::vector<LiveCompletedDownload>& completed = {});
     // Live mode: Steam Cloud save requests for the cloud service, and its state for display.
     [[nodiscard]] std::vector<CloudRequest> TakeCloudRequests();
     void UpdateCloud(const std::vector<LiveCloudGame>& games);

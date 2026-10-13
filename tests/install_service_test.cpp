@@ -200,9 +200,70 @@ void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
 
 }  // namespace
 
+// Finished downloads stay listed after the queue for a week, newest first, until dismissed.
+void CompletedDownloadsList(const std::filesystem::path& root) {
+  constexpr std::int64_t kDay = 24 * 60 * 60;
+  const std::int64_t now = 1'800'000'000;
+  std::vector<InstalledGame> installed = {
+      {1, 10, "/g/1", "internal", true, now - 60},
+      {2, 20, "/g/2", "m2", true, now - 3 * kDay},
+      {3, 30, "/g/3", "internal", true, now - 8 * kDay},  // older than a week
+      {4, 40, "/g/4", "internal", true, 0},               // unknown finish time
+      {5, 50, "/g/5", "internal", true, now - 10},
+  };
+  auto completed = CompletedDownloads(installed, {}, now);
+  CHECK(completed.size() == 3 && completed[0].id == 5 && completed[1].id == 1 && completed[2].id == 2);
+  CHECK(completed[2].volume_id == "m2" && completed[2].install_bytes == 20 && completed[2].finished_at == now - 3 * kDay);
+  // A dismissal names the finish time: the same game installed again is listed again.
+  completed = CompletedDownloads(installed, {{5, now - 10}, {1, now - 999}}, now);
+  CHECK(completed.size() == 2 && completed[0].id == 1 && completed[1].id == 2);
+  std::vector<InstalledGame> many;
+  for (GameId id = 1; id <= kMaxCompleted + 5; ++id) many.push_back({id, 1, "/g", "internal", true, now - id});
+  completed = CompletedDownloads(many, {}, now);
+  CHECK(completed.size() == kMaxCompleted && completed.front().id == 1 && completed.back().id == kMaxCompleted);
+
+  // The service lists an install as it finishes, keeps dismissals across a restart, and Clear
+  // dismisses everything listed.
+  std::filesystem::remove_all(root);
+  Sessions sessions;
+  {
+    Runner runner;
+    InstallService service(runner, sessions, root.string());
+    service.Install(70);
+    service.Install(71);
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, 70) && Installed(s, 71); });
+    const auto snapshot = service.Snapshot();
+    CHECK(snapshot.completed.size() == 2 && snapshot.completed[0].install_bytes == 4096);
+    const auto revision = snapshot.revision;
+    service.DismissCompleted(70);
+    const auto dismissed = service.Snapshot();
+    CHECK(dismissed.revision > revision);
+    CHECK(dismissed.completed.size() == 1 && dismissed.completed[0].id == 71);
+    CHECK(Installed(dismissed, 70));
+  }
+  {
+    Runner runner;
+    InstallService restarted(runner, sessions, root.string());
+    const auto snapshot = restarted.Snapshot();
+    CHECK(snapshot.completed.size() == 1 && snapshot.completed[0].id == 71 && snapshot.completed[0].finished_at > 0);
+    restarted.ClearCompleted();
+    CHECK(restarted.Snapshot().completed.empty());
+    // Uninstalling drops the game's dismissal with it.
+    restarted.Uninstall(70);
+    restarted.DismissCompleted(71);
+  }
+  {
+    std::ifstream dismissed(root / ".playden-downloads-dismissed");
+    const std::string text((std::istreambuf_iterator<char>(dismissed)), std::istreambuf_iterator<char>());
+    CHECK(text.find("71\t") == 0 && text.find("70\t") == std::string::npos);
+  }
+  std::filesystem::remove_all(root);
+}
+
 int main() {
   SpaceAdmission(std::filesystem::temp_directory_path() / ("playden-space-service-" + std::to_string(::getpid())));
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));
+  CompletedDownloadsList(std::filesystem::temp_directory_path() / ("playden-completed-service-" + std::to_string(::getpid())));
   const auto requests = ParseInstallRequests("uninstall 439490\n439490\ncancel 108600\n108600\n");
   CHECK(requests.size() == 4);
   CHECK(requests[0].action == InstallRequest::Action::kUninstall && requests[0].app == 439490);

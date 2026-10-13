@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace playden::steam {
@@ -55,12 +56,31 @@ struct InstalledGame {
   std::string root;
   std::string volume_id;
   bool available = true;  // false while the game's volume is absent
+  std::int64_t finished_at = 0;  // Unix seconds the install finished (its record's time); 0 unknown
 };
+
+// A recent finished download that Downloads lists after the queue until the player dismisses it.
+struct CompletedDownload {
+  GameId id = 0;
+  std::uint64_t install_bytes = 0;
+  std::string volume_id;
+  std::int64_t finished_at = 0;
+};
+
+// Installs that finished at most `kCompletedDays` before `now` and were not dismissed (a dismissal
+// names the finish time, so installing the game again lists it again), newest first, at most
+// `kMaxCompleted`.
+inline constexpr std::int64_t kCompletedDays = 7;
+inline constexpr std::size_t kMaxCompleted = 20;
+std::vector<CompletedDownload> CompletedDownloads(const std::vector<InstalledGame>& installed,
+                                                  const std::vector<std::pair<GameId, std::int64_t>>& dismissed,
+                                                  std::int64_t now);
 
 struct InstallSnapshot {
   std::uint64_t revision = 0;
   std::vector<InstallJobView> jobs;
   std::vector<InstalledGame> installed;
+  std::vector<CompletedDownload> completed;
   std::vector<InstallVolume> volumes;
   std::string default_volume_id;
 };
@@ -114,6 +134,9 @@ class InstallService {
   void Uninstall(GameId id);
   // Chooses the volume for installs queued from now on; ignored unless it names an available volume.
   void SetDefaultVolume(const std::string& volume_id);
+  // Takes a finished download, or every one, off the Completed list in Downloads.
+  void DismissCompleted(GameId id);
+  void ClearCompleted();
   InstallSnapshot Snapshot();
   void Shutdown();
 
@@ -135,6 +158,8 @@ class InstallService {
   void Publish();
   void SaveRegistry();
   void SaveDefaultVolume();
+  void SaveDismissed();
+  void Dismiss(GameId id);
   const InstallVolume* FindVolume(const std::string& id) const;
   std::string RootOn(const std::string& volume_id, GameId id) const;
   std::string LockedRootFor(GameId id) const;
@@ -147,6 +172,7 @@ class InstallService {
   std::condition_variable wake_;
   std::deque<Job> jobs_;
   std::vector<InstalledGame> installed_;
+  std::vector<std::pair<GameId, std::int64_t>> dismissed_;  // finished downloads taken off Completed
   std::deque<std::string> removals_;  // folders to delete
   std::optional<GameId> active_;
   std::atomic<bool> active_cancel_{false};
