@@ -1,6 +1,6 @@
 # Compatibility
 
-Games tested on a PS5 on firmware 13.60. Last updated 2026-10-12.
+Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-13.
 
 > [!NOTE]
 > This release uses **kit H r6**, where OpenGL games draw through Mesa (Zink on Vulkan). Every game marked **H** was
@@ -65,12 +65,16 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | [ENSLAVED: Odyssey to the West Premium Edition](https://store.steampowered.com/app/245280) | ✅ Works | H | Unreal 3 · D3D9 · 32-bit | Main menu and New Journey with the controller. Needs kit H r4 (.NET through Wine Mono). |
 | [GUN](https://store.steampowered.com/app/2610) | ✅ Works | H | — · D3D9 · 32-bit | Menus and New Game with the controller. Needs kit H r3. |
 | [DUSK](https://store.steampowered.com/app/519860) | ✅ Works | H | Unity · D3D11 · 64-bit | Menus with the left stick and Cross; the first level plays. |
+| [R.E.P.O.](https://store.steampowered.com/app/3241660) | ✅ Works | H r5 | Unity · 64-bit | Community report ([#8](../../issues/8), firmware 9.40). Reaches the menu and plays single player with a USB mouse and keyboard; multiplayer does not work. Controller not tested. |
+| [PlateUp!](https://store.steampowered.com/app/1599600) | 🟡 Partial | H r5 | Unity · 64-bit | Community report ([#3](../../issues/3), firmware 9.40). Reaches the menu at 30+ fps with the DualSense (default and **Arrow keys** presets); the game's FPS limit options in Settings › Graphics reduce lag. Typing the profile name needs a USB keyboard. Loading takes 30–45 seconds. |
+| [Retro Rewind - Video Store Simulator](https://store.steampowered.com/app/3552140) | 🟡 Partial | H r5 | — | Community report ([#7](../../issues/7), firmware 9.40). Reaches the menu and plays well with a USB mouse and keyboard; the DualSense does not work. |
 | [Mullet Mad Jack](https://store.steampowered.com/app/2111190) | 🟡 Partial | H | Unity · D3D11 · 64-bit | Menus work with the controller, but the account's Cloud saves did not show in the game. Turn off Cloud sync for it until this is fixed. |
 | [Antichamber](https://store.steampowered.com/app/219890) | 🟡 Partial | H | Unreal 3 · D3D9 · 32-bit | Needs kit H r6. Reaches the first room; the controller is ignored. With Controller preset = **Mouse** the stick turns the view; walking needs a USB keyboard (WASD) or Button mapping. |
 | [Return to Castle Wolfenstein](https://store.steampowered.com/app/9010) | 🟡 Partial | H | id Tech 3 · OpenGL · 32-bit | Starts and plays its intro. The game has no controller support: use a USB mouse and keyboard, or Controller preset = **Mouse** (not tested yet). |
 | [Balatro](https://store.steampowered.com/app/2379780) | ❌ Broken | C | LÖVE · OpenGL · 64-bit | Stops at start-up: its file system (PhysFS) fails to start. |
 | [Look Outside](https://store.steampowered.com/app/3373660) | ⛔ Refused | H | RPG Maker (NW.js) · 64-bit | Runs on NW.js (a built-in web browser), which Playden can't start on the PS5 yet. |
 | [BLUE REVOLVER](https://store.steampowered.com/app/439490) | ✅ Works | H r6 | LÖVE · OpenGL · 64-bit | Default settings. The intro, the language menu and the story opening work with the controller. The earlier PhysFS start-up failure no longer happens; its cause is unknown. Gameplay not tested on r6. |
+| [Fellowship](https://store.steampowered.com/app/2352620) | ❌ Broken | H r5 | Unreal · 64-bit | Community report ([#2](../../issues/2), firmware 13.60). Shows "The UE-fellowship Game has crashed and will close" (Fatal error) at start-up. |
 | [DoDonPachi Resurrection](https://store.steampowered.com/app/464450) | ❌ Broken | H | — · D3D9 · 32-bit | Quits after about 5 seconds. |
 | [Far Cry 3 Blood Dragon](https://store.steampowered.com/app/233270) | ❌ Broken | H | Dunia 2 · D3D11 · 32-bit | Needs Ubisoft Connect. |
 | [Bullet Witch](https://store.steampowered.com/app/696180) | ❌ Broken | H | — · D3D9 · 32-bit | Needs PhysX, which the game installs from its redistributables. Playden does not run them yet. |
