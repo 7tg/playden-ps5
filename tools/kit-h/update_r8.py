@@ -4,9 +4,10 @@
 # readings, so a game that checks free memory before it starts (Fallout: New Vegas) sees about 12 GiB and an equal page file.
 # Only ntdll.prx changes; the shell, the template and Mono are r6's, so bottles need no Recreate. (r7 was a development kit.)
 # Copy kit H r6's inputs and kit-spec.json to PLAYDEN_KIT_DIR first (cp -c works). Build the cross PRXs with
-# tools/build_wine_ps5.sh on the runtime's prospero-win commit (as build_cross.sh does) into a fresh work folder, then run this
-# script with PLAYDEN_CROSS_PRX at its prx/sce_module (copied to the Mac or read in the VM) and PLAYDEN_RUNTIME_REVISION set to
-# that commit. Every other cross PRX must still match r6's.
+# tools/build_wine_ps5.sh on the runtime's prospero-win commit, with build_cross.sh's arguments and the same work folder
+# (wine-ps5; move r6's aside): assert messages keep the source path, so another folder name changes every PRX. Then run this
+# script with PLAYDEN_CROSS_PRX at that build's prx/sce_module (copied to the Mac or read in the VM) and
+# PLAYDEN_RUNTIME_REVISION set to that commit. Every other cross PRX must still match r6's.
 import hashlib, json, os, shutil
 from pathlib import Path
 
