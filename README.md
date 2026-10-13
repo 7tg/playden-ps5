@@ -100,11 +100,11 @@ Other versions can work, but these are the ones we know.
 
 Download both files from the latest [release](../../releases):
 
-- `playden-ps5-0.1.0.zip`: the Playden app (`FAKE77031`) and the console tools used below.
-- `playden-kit-h-r6.zip`: the runtime kit (`hl2-fw1360-dev1`), with its source list and license texts.
+- `playden-ps5-0.2.0.zip`: the Playden app (`FAKE77031`) and the console tools used below.
+- `playden-kit-h-r8.zip`: the runtime kit (`hl2-fw1360-dev1`), with its source list and license texts.
 
-You need Python 3 on your computer for the tools. Unzip both files, then run the commands from the folder that
-holds `tools/`.
+You need Python 3 on your computer for the tools. Unzip both files next to each other, then run the commands from
+the `playden-ps5-<version>` folder, which holds `tools/`.
 
 ### Install Playden
 
@@ -129,10 +129,10 @@ it replaced, and puts those three folders' modes right if they changed.
 
 ### Install the runtime kit
 
-This release uses **kit H r6**. Upload the kit folder from `playden-kit-h-r6.zip`:
+This release uses **kit H r8**. Upload the kit folder from `playden-kit-h-r8.zip`:
 
 ```sh
-python3 tools/console_kit_upload.py hl2-fw1360-dev1 --host <PS5 IP> --replace
+python3 tools/console_kit_upload.py ../playden-kit-h-r8/hl2-fw1360-dev1 --host <PS5 IP> --replace
 ```
 
 The upload checks every file before it switches to the new kit, and creates `/data/playden/kits` on a console that

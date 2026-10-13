@@ -3,8 +3,8 @@
 Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-13.
 
 > [!NOTE]
-> This release uses **kit H r6**, where OpenGL games draw through Mesa (Zink on Vulkan). Every game marked **H** was
-> checked on kit H (r6 where the column says so). Balatro was not, so its result is from kit C, which drew OpenGL through ps5-opengl instead.
+> This release uses **kit H r8**, where OpenGL games draw through Mesa (Zink on Vulkan). Every game marked **H** was
+> checked on kit H (the revision where the column names one). Balatro was not, so its result is from kit C, which drew OpenGL through ps5-opengl instead.
 
 Did you test a game? [Open a test report](../../issues/new?template=test-report.yml), even when it works.
 
@@ -25,10 +25,11 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | Game | Status | Kit | Engine · Graphics · CPU | Notes |
 | --- | --- | --- | --- | --- |
 | [STAR WARS: The Force Unleashed Ultimate Sith Edition](https://store.steampowered.com/app/32430) | ✅ Works | H r6 | D3D9 · DXVK · 32-bit | In the game's own launcher, set Input Device to Xbox360 Controller (`IsKBAndMouse=FALSE`), then start `SWTFU.exe`. Loading a save and walking as Darth Vader with the controller work. Full campaign not tested. |
-| [IMMORTALITY](https://store.steampowered.com/app/1350200) | ✅ Works | H r6 | Unity · D3D11 · DXVK · 64-bit | Default configuration. Controller menus, film-grid zoom/navigation, opening clip playback and scrubbing, pause/image mode, and face selection to a second clip verified. Bundled Bink DLLs handle video; this does not verify the missing MF backend. Limited opening test; audio synchronization, later clips and full playthrough untested. |
+| [IMMORTALITY](https://store.steampowered.com/app/1350200) | ✅ Works | H r8 | Unity · D3D11 · DXVK · 64-bit | Default configuration. Controller menus, film-grid zoom/navigation, opening clip playback and scrubbing, pause/image mode, and face selection to a second clip verified. Bundled Bink DLLs handle video; this does not verify the missing MF backend. Limited opening test; audio synchronization, later clips and full playthrough untested. |
 | [Call of Juarez Gunslinger](https://store.steampowered.com/app/204450) | ✅ Works | H r6 | D3D9 · DXVK · 32-bit | Add `-nologos` in Game settings > Extra arguments. Verified controller menus, Continue into A Fistful of Hot Lead, camera and walking; loading took about two minutes. Default startup aborts on missing `winegstreamer_create_wm_sync_reader` from wmvcore. Movie playback does not work yet; later movies, combat and full playthrough untested. |
 | [Machinarium](https://store.steampowered.com/app/40700) | ✅ Works | H r6 | DXVK · 32-bit DX9 | Select Machinarium_old_32bit_DX9.exe in Game settings > Program, then Recreate bottle. Verified menu, opening scene and first junkyard scene with native controller cursor/New Game input; no full playthrough. Current 64-bit executable crashes on a null D3D12 command allocator before Reset; DX9 bypasses it. |
 | [Bulletstorm: Full Clip Edition](https://store.steampowered.com/app/501590) | ⚠️ Partial | H r6 | Unreal 3 · DXVK · 64-bit | Missing MF video handler (0x80040154). Disabling StartupMovies/AlwaysLoadedMovies in DefaultEngine.ini reaches the menu with controller input; New Game still crashes on LoadingMovie00.upk. Needs Windows video playback, which does not work yet; gameplay blocked. |
+| [Fallout: New Vegas](https://store.steampowered.com/app/22380) | ✅ Works | H r8 | Gamebryo · D3D9 · DXVK · 32-bit | Needs kit H r8: on earlier kits the game saw almost no memory and stopped at start-up. Press Play once with the default program, the game's launcher, so it writes its settings. Then set Game settings › Program = `FalloutNV.exe`. The legal screen, the logos and the main menu (Continue, New, Load) work. Gameplay not tested yet. |
 | [Half-Life 2](https://store.steampowered.com/app/220) | ✅ Works | H | Source · D3D9 · 64-bit | Menu, New Game and the G-Man intro. |
 | [Super Meat Boy](https://store.steampowered.com/app/40800) | ✅ Works | H | Tommunism · D3D9 · 32-bit | Intro, menus and play with the D-pad. |
 | [FTL: Faster Than Light](https://store.steampowered.com/app/212680) | ✅ Works | H | SIL · OpenGL · 32-bit | Main menu through Zink. Mouse game: use Controller preset = **Mouse** (left stick and Cross) or a USB mouse. Asks for the language on every start. |
@@ -54,7 +55,7 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | [The Silent Age](https://store.steampowered.com/app/352520) | ✅ Works | H | Unity · D3D9 · 32-bit | Use Controller preset = **Mouse**: Options confirms the Unity settings window, then the left stick and Cross play. Cloud saves restore. |
 | [Future Knight](https://store.steampowered.com/app/4235410) | ✅ Works | H | Unity · D3D11 · 64-bit | Logo and the intro story; Cross advances. |
 | [Schildmaid MX](https://store.steampowered.com/app/2154760) | ✅ Works | H | Unity · D3D11 · 64-bit | Logos, then the main menu with the controller. |
-| [Redout: Enhanced Edition](https://store.steampowered.com/app/517710) | ✅ Works | H | Unreal 4 · D3D11 · 64-bit | Menus, Quick Race and the garage with the controller. |
+| [Redout: Enhanced Edition](https://store.steampowered.com/app/517710) | ✅ Works | H r8 | Unreal 4 · D3D11 · 64-bit | Menus, Quick Race and the garage with the controller. |
 | [Project Warlock](https://store.steampowered.com/app/893680) | ✅ Works | H | Unity · D3D11 · 64-bit | Plays the first level with the sticks. The D-pad does not move the menu focus. |
 | [STAR WARS Knights of the Old Republic II: The Sith Lords](https://store.steampowered.com/app/208580) | ✅ Works | H | Odyssey · OpenGL · 32-bit | New game, cutscenes and the prologue with the controller. |
 | [BULLET SOUL](https://store.steampowered.com/app/544580) | ✅ Works | H | — · D3D9 · 32-bit | Set Game settings › Program = `BulletSoulWin.exe`, then Recreate bottle: Playden picks the launcher, which the controller cannot use. Then it plays with the stick. |
@@ -90,6 +91,7 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 
 | Kit | What changed for games |
 | --- | --- |
+| H r8 | Games see the console's memory, about 12 GB, and a page file of the same size. Before, they saw almost none, so games that check free memory at start-up stopped (Fallout: New Vegas). No Recreate bottle needed. |
 | H r6 | Bottles have the .NET Framework registry entries and files that Wine Mono's installer writes, so .NET lookups of the Framework folder work. Recreate bottle for games set up on an earlier kit. |
 | H r4 | Wine Mono ships with the kit, so .NET programs start instead of being refused (ENSLAVED). |
 | H r3 | Wine reads the computer name without wineboot, so DirectX version checks through DxDiag pass (GUN). |
