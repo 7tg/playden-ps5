@@ -162,7 +162,7 @@
     }
   },
   "prospero_win": {
-    "revision": "03b64951bae3c385cb1232a6f17af781646064a1",
+    "revision": "ea6e6eed9091ed1a4ff9febd732f684d2d487962",
     "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
@@ -170,7 +170,7 @@
     "retained_runtime_artifact_revision": "bceed2d-kit-h-r1",
     "upstream_url": "https://github.com/mpereiraesaa/prospero-win.git",
     "branch": "feat/playden-ps5",
-    "note": "Rebased onto upstream b510eb3 on 2026-10-08. Any-title shell on fixed kit B (25a967d). Firmware 13.60 uses the authorized no-drop fallback; games retain root recovery. Runtime remains bea2be5. Same tree as kit C's shell revision 850e62c (history squashed; the old commits are on backup/playden-ps5-850e62c). 33130a9 adds publication metadata schema 3 (game_root.unowned) for game folders on exFAT drives. a9ce0d0 pins the packager to the kit D runtime built from 8ff88bf (rebased forks, direct-memory heap). Test branch feat/upstream-2026-10-10 (2026-10-10): rebased onto upstream ce890c0 (Mesa WGL/Zink OpenGL, PS5 OpenGL SDK path removed); patch 0663 dropped, ours renumbered 0950-0955; 3f8f559 pins the packager to the kit G runtime f29127a. Rebased again onto upstream 644e32e (kit H): our 0602 and the translator fallback 063f851 dropped for upstream #678/#677, patch 0956 keeps a window's pixel format with Mesa's WGL; 77231eb pins the packager to the kit H runtime bceed2d. 03b6495 (feat/playden-ps5) adds only test, documentation and allowlist fixes on top of ab3b29e; the runtime is unchanged."
+    "note": "Rebased onto upstream b510eb3 on 2026-10-08. Any-title shell on fixed kit B (25a967d). Firmware 13.60 uses the authorized no-drop fallback; games retain root recovery. Runtime remains bea2be5. Same tree as kit C's shell revision 850e62c (history squashed; the old commits are on backup/playden-ps5-850e62c). 33130a9 adds publication metadata schema 3 (game_root.unowned) for game folders on exFAT drives. a9ce0d0 pins the packager to the kit D runtime built from 8ff88bf (rebased forks, direct-memory heap). Test branch feat/upstream-2026-10-10 (2026-10-10): rebased onto upstream ce890c0 (Mesa WGL/Zink OpenGL, PS5 OpenGL SDK path removed); patch 0663 dropped, ours renumbered 0950-0955; 3f8f559 pins the packager to the kit G runtime f29127a. Rebased again onto upstream 644e32e (kit H): our 0602 and the translator fallback 063f851 dropped for upstream #678/#677, patch 0956 keeps a window's pixel format with Mesa's WGL; 77231eb pins the packager to the kit H runtime bceed2d. 03b6495 (feat/playden-ps5) adds only test, documentation and allowlist fixes on top of ab3b29e. 13fa077 adds Wine patch 0603 (upstream PR #688: Windows memory queries report the title's direct-memory budget) and ea6e6ee pins the packager to the kit H r8 runtime built from 13fa077."
   },
   "prospero_bottle_preparation": {
     "hl2-fresh-v16": {

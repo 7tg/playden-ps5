@@ -23,9 +23,10 @@ The scripts read these environment variables. The defaults fit a plain checkout.
 | `PROSPERO_WIN_SOURCE` | `setup_vm.sh`: the prospero-win repository to clone | `https://github.com/leolobato/prospero-win.git` |
 | `PROSPERO_FREETYPE_TARBALL` | `build_cross.sh`: the FreeType 2.13.3 source tarball | none, required |
 | `PLAYDEN_KIT_DIR` | `make_shell.sh`, `make_spec.py`, `stage_kit_h.py`: where kit H is staged | `build/kit-h` |
-| `PLAYDEN_KIT_FROM` | `update_r4.py`, `update_r5.py`, `update_r6.py`: the kit whose inputs were copied (its paths in the spec are rewritten) | `build/kit-h-r3`, `build/kit-h-r4`, `build/kit-h-r5` |
+| `PLAYDEN_KIT_FROM` | `update_r4.py`, `update_r5.py`, `update_r6.py`, `update_r8.py`: the kit whose inputs were copied (its paths in the spec are rewritten) | `build/kit-h-r3`, `build/kit-h-r4`, `build/kit-h-r5`, `build/kit-h-r6` |
 | `PLAYDEN_DOTNET_DIR` | `update_r6.py`: the prefixes before and after Wine Mono's support MSI install, and the MSI's tables | `$PLAYDEN_KIT_DIR/dotnet` |
-| `PLAYDEN_RUNTIME_REVISION` | `update_r5.py`: the prospero-win commit the runtime and its pin come from | none, required |
+| `PLAYDEN_RUNTIME_REVISION` | `update_r5.py`, `update_r8.py`: the prospero-win commit the runtime and its pin come from | none, required |
+| `PLAYDEN_CROSS_PRX` | `update_r8.py`: the cross build's `prx/sce_module` folder | `$PLAYDEN_KIT_WORK/wine-ps5/prx/sce_module` |
 | `PLAYDEN_WINE_MONO_ARCHIVE` | `update_r4.py`: the Wine Mono 11.3.0 archive (its SHA-256 is checked) | none, required |
 | `PLAYDEN_BUILD` | `stage_kit_h.py`: the build folder that holds kits A and F | `build/` |
 | `PLAYDEN_KIT_F` | `make_spec.py`: kit F's build, whose spec kit H starts from | `build/kit-f` |
@@ -62,13 +63,17 @@ earlier template does not have that value: use Recreate bottle. Kit H r5 (runtim
 CPU cores settings reach the game (capability `settings-profile-environment`). Copy r4's inputs (without `titles/`) and
 spec, run `make_shell.sh` with `PLAYDEN_KIT_DIR` on the prospero-win commit that pins the runtime (the new title shell),
 `build_cross.sh` on 70bfc92, then `update_r5.py` in the VM. Only the shell's `eboot.bin` and `ntdll.prx` change; the
-template is r4's, so bottles need no Recreate. Kit H r6 (the kit this release uses; r5's runtime and shell) gives the
+template is r4's, so bottles need no Recreate. Kit H r6 (r5's runtime and shell) gives the
 template bottle what Wine Mono's support MSI writes when Wine installs it, which kit H bottles never run: the .NET Framework
 `InstallRoot` (both registry views) and the other keys of the MSI's Registry table, and `C:\windows\Microsoft.NET`. Without
 them mscoree's `LoadLibraryShim` fails (Antichamber). Install the MSI once with kit H's host Wine on an x86_64 Linux host
 (the commands are in `update_r6.py`; Rosetta can't run wow64 Wine), then run `update_r6.py` on the Mac on a copy of r5's
 inputs and spec. It takes only what the MSI accounts for and checks each file against the MSI's hashes or the runtime's
-builtins. Bottles made from an earlier template need Recreate bottle. RADV (`libvulkan.prx`) comes
+builtins. Bottles made from an earlier template need Recreate bottle. Kit H r8 (the kit this release uses; runtime
+`13fa077-kit-h-r8`; r7 was a development kit and was not released) is r6 with Wine patch 0603: Windows memory queries
+report the title's direct-memory budget instead of about zero, so Fallout: New Vegas starts. Build the cross PRXs with
+`build_wine_ps5.sh` on 13fa077 into a fresh work folder, then run `update_r8.py` on a copy of r6's inputs and spec with
+`PLAYDEN_CROSS_PRX` at that build's `prx/sce_module`. Only `ntdll.prx` changes, so bottles need no Recreate. RADV (`libvulkan.prx`) comes
 from [PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan) 8aee3af / [PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa)
 01d7057, the same as kit G r2. OpenGL games under Zink need at least PS5_Mesa f2ee389.
 
