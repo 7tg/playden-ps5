@@ -190,9 +190,18 @@ To see our commits in a fork, run `git log --oneline upstream/main..feat/playden
 2. Update the pin in Playden and anything that records the revision (`dependencies.lock.json`, and for
    ps5-homebrew-ui the revision in `scripts/build-homebrew.sh` and `cmake/HomebrewUI.cmake`). Commit the submodule
    change with it.
-3. Push the fork branch before you push Playden, so the pin is fetchable.
+3. Push the fork branch before you push Playden, so the pin is fetchable. For prospero-win, the fork is
+   [leolobato/prospero-win](https://github.com/leolobato/prospero-win).
 4. Send the change upstream when it is useful there. When upstream merges it, rebase `feat/playden-ps5` onto
    upstream and drop the commit from our branch.
+
+Commits on `feat/playden-ps5` are temporary patches that wait for upstream. Larger work can sit on its own
+fork branch based on `feat/playden-ps5` (for example `feat/74-media-backend`) until it is ready to merge there.
+
+To send a change upstream, branch from `upstream/main` and replay only that change. Leave out fork-only commits
+and anything that names Playden: our console paths (`/data/playden-*`), profile `[environment]` support, kit
+pins and links to our issues or notes. Follow upstream's `CONTRIBUTING.md` and pull request template, and run its
+CI checks (`make all`, `make sanitize`) on Linux.
 
 To take a new upstream version, merge or rebase upstream into `feat/playden-ps5`, test, and move the pin.
 
