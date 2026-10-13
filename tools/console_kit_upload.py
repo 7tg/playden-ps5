@@ -140,10 +140,16 @@ def main():
             print("  " + problem, file=sys.stderr)
         return 2
     if kit_id in parent:
-        retired = f"{args.remote_parent}/.{kit_id}.retired-{manifest['files_sha256'][:12]}"
-        if f".{kit_id}.retired-{manifest['files_sha256'][:12]}" in listing(ftp, args.remote_parent):
-            print(f"refusing: {retired} exists", file=sys.stderr)
-            return 1
+        # Named after the kit being moved aside, so the name says which kit it holds.
+        try:
+            previous = io.BytesIO()
+            ftp.retrbinary(f"RETR {final}/manifest.json", previous.write)
+            tag = json.loads(previous.getvalue())["files_sha256"][:12]
+        except (ftplib.Error, ValueError, KeyError, TypeError):
+            tag = "unknown"
+        retired = f"{args.remote_parent}/.{kit_id}.retired-{tag}"
+        if f".{kit_id}.retired-{tag}" in listing(ftp, args.remote_parent):
+            remove_tree(ftp, retired)  # an earlier copy of this same kit
         ftp.rename(final, retired)
         print(f"moved previous kit aside to {retired}")
         for name in listing(ftp, args.remote_parent):
