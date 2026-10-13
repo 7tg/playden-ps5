@@ -822,7 +822,9 @@ class Render::Impl
             pending = 1;
         else
             pending = static_cast<std::size_t>(std::count_if(current_state_->jobs.begin(), current_state_->jobs.end(),
-                [](const Job &job) { return job.state != JobState::Cancelled && job.stage != JobStage::Uninstall; }));
+                [](const Job &job) {
+                    return job.state != JobState::Cancelled && job.state != JobState::Downloaded && job.stage != JobStage::Uninstall;
+                }));
         // Saves: the games that need the player, or a spinner while a check or Sync all runs.
         std::size_t needs_you = 0;
         for (const auto &[id, cloud] : current_state_->cloud)
@@ -1816,17 +1818,22 @@ class Render::Impl
         for (const Job *job : jobs)
             if (job != primary)
                 secondary.push_back(job);
-        const auto focused_job = std::find_if(secondary.begin(), secondary.end(), [&state](const Job *job) {
-            return state.navigation.focus_key == "job-" + job->id;
+        // While a job's sheet is open the list keeps that job's row in view instead of jumping to the top.
+        const std::string &list_focus = state.navigation.modals.empty() ? state.navigation.focus_key
+                                                                         : state.navigation.modals.front().opener_focus_key;
+        const auto focused_job = std::find_if(secondary.begin(), secondary.end(), [&list_focus](const Job *job) {
+            return list_focus == "job-" + job->id;
         });
         const int secondary_focus = focused_job == secondary.end() ? 0 :
             static_cast<int>(std::distance(secondary.begin(), focused_job));
-        // Five rows fit above the button guide; longer queues scroll smoothly to the focused row.
-        constexpr float job_pitch = 104.0F, job_top = 438.0F, job_viewport = 5 * job_pitch;
+        // Five rows fit above the button guide; longer queues scroll smoothly to the focused row. The
+        // window is exactly five rows tall, so scrolling moves whole rows and none shows in part.
+        constexpr float job_pitch = 104.0F, job_top = 438.0F, job_viewport = 5 * job_pitch - 12.0F;
         const float job_offset = list_scroll("downloads", secondary_focus * job_pitch, secondary_focus * job_pitch + 92.0F,
                                              job_viewport, secondary.empty() ? 0.0F : secondary.size() * job_pitch - 12.0F,
                                              state.reduced_motion);
-        scene_.push_clip({80.0F, job_top - 8.0F, 1032.0F, job_viewport + 4.0F});
+        // The clip leaves room for the focus ring around the first and the last row.
+        scene_.push_clip({80.0F, job_top - 10.0F, 1032.0F, job_viewport + 20.0F});
         for (std::size_t index = 0; index < secondary.size(); ++index)
         {
             const float row_y = job_top + index * job_pitch - job_offset;
@@ -2889,6 +2896,23 @@ class Render::Impl
         }
     }
 
+    // The small label above a sheet's title names where the sheet belongs, never its surface id.
+    static std::string sheet_eyebrow(const std::string &surface)
+    {
+        static const std::map<std::string, std::string> names = {
+            {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
+            {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"},
+            {"job-actions", "Downloads"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"},
+            {"filters", "Library"}, {"logs-controls", "Logs"}, {"setting-value", "Settings"}, {"diagnostics", "Settings"},
+            {"notices", "Notifications"}, {"qr-controls", "Sign in"}, {"session-controls", "Simulation"},
+            {"simulation-controls", "Simulation"}, {"scenarios", "Simulation"}};
+        if (const auto found = names.find(surface); found != names.end())
+            return found->second;
+        std::string label = surface;
+        std::replace(label.begin(), label.end(), '-', ' ');
+        return label;
+    }
+
     void draw_sheet_overlay(const ViewData &view)
     {
         const float ease = overlay_transition_.enter();
@@ -2906,14 +2930,7 @@ class Render::Impl
                         gfx::Color::rgb(0x000000, 0.75F));
         overlay_.rounded_rect(panel, 0.0F, kPanel);
         overlay_.push_opacity(overlay_transition_.content());
-        // Game settings pickers show where they return to instead of their surface id.
-        const bool settings_picker = view.surface == "choice-picker" || view.surface == "preset-picker" ||
-                                     view.surface == "button-mapping";
-        section_overlay(settings_picker ? std::string_view("Game settings")
-                        : view.surface == "game-settings" || view.surface == "game-maintenance" ? std::string_view("Playden")
-                        : view.surface == "kept-data" ? std::string_view("Settings")
-                                                          : std::string_view(view.surface),
-                        panel.x + 48.0F, 72.0F);
+        section_overlay(sheet_eyebrow(view.surface), panel.x + 48.0F, 72.0F);
         ui::text(overlay_, fonts_.display, view.title, panel.x + 48.0F, 142.0F, 48.0F, kText);
         if (!view.subtitle.empty())
             ui::paragraph(overlay_, fonts_.regular, view.subtitle, panel.x + 48.0F, 190.0F, 23.0F,
