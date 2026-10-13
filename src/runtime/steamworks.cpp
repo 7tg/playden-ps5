@@ -173,6 +173,12 @@ struct Emulator {
   std::string sha256;
 };
 
+// Playden's emulator, the current build or a retired one.
+bool IsPlaydenEmulator(const std::string& digest, const std::vector<std::string>& retired) {
+  return digest == kSteamApi32Sha256 || digest == kSteamApi64Sha256 ||
+         std::find(retired.begin(), retired.end(), digest) != retired.end();
+}
+
 std::optional<Emulator> LoadEmulator(const std::string& emulator_dir, bool pe64) {
   const auto bytes = ReadFile(fs::path(emulator_dir) / (pe64 ? "steam_api64.dll" : "steam_api.dll"), kMaxDllBytes);
   if (!bytes) return std::nullopt;
@@ -182,6 +188,11 @@ std::optional<Emulator> LoadEmulator(const std::string& emulator_dir, bool pe64)
 }
 
 }  // namespace
+
+std::vector<std::string> RetiredSteamApiSha256() {
+  return {"4cc9dfcab8b4df0db507fa91d0acec6e58693fd4edd78dc80d39bda8072d08ed",   // 2026-10-07, 32-bit
+          "513430ac8b869b0eed258d9e5feba5176a35446b3b61a63d01ab1d87683cdd1b"};  // 2026-10-07, 64-bit
+}
 
 std::vector<std::string> FindSteamApi(const std::string& install_root) {
   std::vector<std::string> found;
@@ -233,7 +244,7 @@ std::vector<std::string> SteamInterfaces(std::string_view bytes) {
 }
 
 SteamworksResult EmulateSteamworks(const std::string& install_root, const std::string& emulator_dir,
-                                   const SteamworksIdentity& identity) {
+                                   const SteamworksIdentity& identity, const std::vector<std::string>& retired) {
   SteamworksResult result;
   const fs::path root(install_root);
   result.found = FindSteamApi(install_root);
@@ -252,9 +263,19 @@ SteamworksResult EmulateSteamworks(const std::string& install_root, const std::s
     const auto digest = HashArtifactBytes(*current);
     if (!digest) return fail("Playden could not check the game's " + relative + ".");
     std::string original;
-    if (*digest == emulator->sha256) {
+    if (IsPlaydenEmulator(*digest, retired)) {
+      // Playden's own (an earlier build after a Playden update): the game's DLL is the .orig.
       const auto kept = IsRegular(orig) ? ReadFile(orig, kMaxDllBytes) : std::nullopt;
       if (!kept) return fail("The game's original " + relative + " is missing; verify the download.");
+      // An earlier Playden kept its own emulator as the original. The game's interface versions
+      // are lost with it, and the emulator would hand the game the wrong ones.
+      const auto kept_digest = HashArtifactBytes(*kept);
+      if (!kept_digest || IsPlaydenEmulator(*kept_digest, retired))
+        return fail("An earlier Playden lost the game's own " + relative + "; reinstall the game to get it back.");
+      if (*digest != emulator->sha256) {
+        if (!WriteAtomic(path, emulator->bytes)) return fail("Playden could not set up Steam features for this game.");
+        result.changed.push_back(relative);
+      }
       original = *kept;
     } else {
       if (Architecture(*current) != (pe64 ? "pe64" : "pe32")) continue;  // not a Steam API library this name promises
@@ -352,17 +373,21 @@ SteamworksResult RemoveLegacySteam(const std::string& install_root, const std::v
   return result;
 }
 
-SteamworksResult RestoreSteamworks(const std::string& install_root) {
+SteamworksResult RestoreSteamworks(const std::string& install_root, const std::vector<std::string>& retired) {
   SteamworksResult result;
   const fs::path root(install_root);
   result.found = FindSteamApi(install_root);
   for (const auto& relative : result.found) {
     const auto path = root / relative;
-    const bool pe64 = Lower(path.filename().string()) == "steam_api64.dll";
     const auto current = ReadFile(path, kMaxDllBytes);
     const auto digest = current ? HashArtifactBytes(*current) : std::nullopt;
-    if (!digest || *digest != (pe64 ? kSteamApi64Sha256 : kSteamApi32Sha256)) continue;  // already the game's own
+    if (!digest || !IsPlaydenEmulator(*digest, retired)) continue;  // already the game's own
     const auto kept = ReadFile(fs::path(path.string() + ".orig"), kMaxDllBytes);
+    const auto kept_digest = kept ? HashArtifactBytes(*kept) : std::nullopt;
+    if (kept_digest && IsPlaydenEmulator(*kept_digest, retired)) {
+      result.message = "An earlier Playden lost the game's own " + relative + "; reinstall the game to get it back.";
+      return result;
+    }
     if (!kept || !WriteAtomic(path, *kept)) {
       result.message = "Playden could not put back the game's own " + relative + "; verify the download.";
       return result;

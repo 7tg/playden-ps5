@@ -15,6 +15,11 @@ namespace playden::runtime {
 inline constexpr const char* kSteamApi32Sha256 = "cae4372bceda997d6c73cebc1c14eb27d39b74a7999d8f28384bdfd8d746a79c";
 inline constexpr const char* kSteamApi64Sha256 = "70d9826a402d3a78b0c07e9f7ea7c6832468a1113013f31ea570fccaa5445ea9";
 
+// The emulator builds earlier Playden versions shipped (32-bit, 64-bit). A game they set up
+// still has one as its DLL: it is Playden's, replaced like the current one and never kept as
+// the game's original. Add the outgoing pins here whenever the two above change.
+std::vector<std::string> RetiredSteamApiSha256();
+
 // A minimal steam.dll for games from before Steamworks (built from tools/steam-legacy, no imports):
 // every call says Steam runs and the game is owned.
 inline constexpr const char* kLegacySteamSha256 = "f813075716892ab19ee9b0c06000c328bd5f15e713692384a30ddbcfc9065e57";
@@ -48,13 +53,17 @@ struct SteamworksResult {
 std::vector<std::string> FindSteamApi(const std::string& install_root);
 
 // Swaps every found DLL for the emulator and writes its steam_settings/. A DLL that already is
-// the emulator needs its .orig; a DLL that is neither (a newer original from an update)
-// becomes the new .orig. No steam_api DLL: ok with nothing found.
+// the emulator, or an earlier build of it (retired), needs its .orig, which must be the game's
+// own; a DLL that is neither (a newer original from an update) becomes the new .orig. No
+// steam_api DLL: ok with nothing found.
 SteamworksResult EmulateSteamworks(const std::string& install_root, const std::string& emulator_dir,
-                                   const SteamworksIdentity& identity);
+                                   const SteamworksIdentity& identity,
+                                   const std::vector<std::string>& retired = RetiredSteamApiSha256());
 
-// Puts each .orig back over a swapped DLL; .orig and steam_settings/ stay.
-SteamworksResult RestoreSteamworks(const std::string& install_root);
+// Puts each .orig back over a swapped DLL (the emulator or a retired build); .orig and
+// steam_settings/ stay.
+SteamworksResult RestoreSteamworks(const std::string& install_root,
+                                   const std::vector<std::string>& retired = RetiredSteamApiSha256());
 
 // Games from before Steamworks (GUN) load steam.dll from beside their program and quit with "Failed
 // to find Steam." without it. For a game with no steam_api DLL, puts the minimal steam.dll

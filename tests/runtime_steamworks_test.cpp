@@ -1,5 +1,7 @@
 #include "runtime/steamworks.h"
 
+#include "runtime/artifact_hash.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -161,6 +163,36 @@ int main(int argc, char** argv) {
     const auto fake = root / "fake-emulator";
     Write(fake / "steam.dll", "not the stub");
     CHECK(!ProvideLegacySteam(legacy.string(), fake.string(), programs).ok && !fs::exists(legacy / "steam.dll"));
+  }
+
+  {  // A Playden update brings a new emulator build; games set up by the earlier one keep their original.
+    const auto game = root / "updated-playden";
+    const auto own = GameDll(false, "own-after-update");
+    const std::string earlier = "an earlier Playden's emulator build";
+    const std::vector<std::string> retired = {*HashArtifactBytes(earlier)};
+    Write(game / "steam_api.dll", earlier);
+    Write(game / "steam_api.dll.orig", own);
+    auto swapped = EmulateSteamworks(game.string(), emulator, identity, retired);
+    CHECK(swapped.ok && (swapped.changed == std::vector<std::string>{"steam_api.dll"}));
+    CHECK(Read(game / "steam_api.dll") == emulator32 && Read(game / "steam_api.dll.orig") == own);
+    CHECK(Read(game / "steam_settings/steam_interfaces.txt") ==
+          "STEAMAPPS_INTERFACE_VERSION008\nSTEAMCONTROLLER_INTERFACE_VERSION\nSteamClient017\nSteamUser021\n");
+    // The game's own mode puts it back from an earlier build too.
+    Write(game / "steam_api.dll", earlier);
+    auto restored = RestoreSteamworks(game.string(), retired);
+    CHECK(restored.ok && Read(game / "steam_api.dll") == own);
+    // An earlier Playden kept its emulator as the original: the game's own is lost, and nothing is
+    // swapped or written over it.
+    Write(game / "steam_api.dll", emulator32);
+    Write(game / "steam_api.dll.orig", earlier);
+    swapped = EmulateSteamworks(game.string(), emulator, identity, retired);
+    CHECK(!swapped.ok && swapped.message.find("reinstall the game") != std::string::npos);
+    CHECK(Read(game / "steam_api.dll.orig") == earlier);
+    restored = RestoreSteamworks(game.string(), retired);
+    CHECK(!restored.ok && restored.message.find("reinstall the game") != std::string::npos);
+    CHECK(Read(game / "steam_api.dll") == emulator32);
+    // The pins Playden ships cover both architectures of every earlier build.
+    CHECK(RetiredSteamApiSha256().size() == 2);
   }
 
   fs::remove_all(root);
