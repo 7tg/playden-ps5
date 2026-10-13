@@ -881,11 +881,11 @@ void Controller::TickRuntime() {
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                !record->title_current) {
       game.status = "Update available"; game.can_prepare = usable;
-      game.detail = "Play updates the Windows runtime first, not the game";
+      game.detail = "Play or Update runtime updates it first; the game and its saves stay as they are";
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                record->admission != "ok") {
       game.status = "Needs repair"; game.can_prepare = usable;
-      game.detail = "Play repairs the Windows runtime first (" + record->admission + ")";
+      game.detail = "Play repairs the runtime first (" + record->admission + ")";
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending) {
       game.status = "Ready"; game.detail = record->title_id; game.ready = true;
     } else if (record && record->awaiting_registration) {
@@ -938,8 +938,9 @@ void Controller::TickRuntime() {
                                           snapshot.launch->state == runtime::LaunchState::kReadyToHandoff ||
                                           snapshot.launch->state == runtime::LaunchState::kLaunching ||
                                           snapshot.launch->state == runtime::LaunchState::kRunning);
-    // Updating or repairing waits while this game is being started or played.
-    if (launching && busy) game.can_prepare = false;
+    // Updating or repairing waits while this game is being started or played, and a queued
+    // preparation is not asked for twice.
+    if ((launching && busy) || snapshot.queued_prepares.count(id)) game.can_prepare = false;
     game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
                     play_queued_.empty() && !sync_before_play_.count(id);
     if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;

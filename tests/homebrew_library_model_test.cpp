@@ -1083,7 +1083,23 @@ void live_play_does_the_next_useful_thing() {
               "the note names the runtime, not the game");
         activate(model, "details-play");
         check(model.TakeRuntimePlayRequests() == std::vector<playden::GameId>{42}, "Play goes to the controller");
+        // Only an update can happen without starting the game; a broken title is repaired by Play.
+        const auto* update = find_row(model, "details-update-runtime");
+        if (status == "Update available") {
+            check(update && update->title == "Update runtime" && update->enabled && update->action == "runtime-update",
+                  "Update runtime sits beside Play");
+            activate(model, "details-update-runtime");
+            check(model.TakeRuntimePrepareRequests() == std::vector<playden::GameId>{42} &&
+                      model.TakeRuntimePlayRequests().empty(),
+                  "Update runtime updates without starting the game");
+            check(model.state().navigation.focus_key == "details-play", "focus moves to Play, which shows the progress");
+        } else {
+            check(!update, "a repair offers no separate button");
+        }
     }
+    // While the runtime cannot act on it (queued, being played, uninstalling), there is no Update button.
+    show("Update available", false, false);
+    check(!find_row(model, "details-update-runtime"), "no Update runtime while the game cannot be prepared");
     // A title that needs the player's attention turns Play into that action.
     for (const auto& [status, label] : std::vector<std::pair<std::string, std::string>>{
              {"Needs recovery", "Resume"}, {"Failed", "Retry"}, {"Registration pending", "Check again"}}) {

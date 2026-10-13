@@ -2918,6 +2918,10 @@ void Simulation::rebuild_view() {
                                 play.value = trimmed(play.value.substr(0, play.value.find("…"))) + " " +
                                              std::to_string(static_cast<int>(*value.progress * 100.0F)) + "%";
                         }
+                        // A title made with an earlier kit's runtime can be updated without starting the
+                        // game; Play still updates it first. A repair stays on Play: that title is broken.
+                        if (value.status == "Update available" && value.can_prepare && value.uninstall_status.empty())
+                            row("details-update-runtime", RowKind::Action, "Update runtime", "runtime-update");
                     }
                     // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
                     const auto cloud = state_.cloud.find(game->id);
@@ -4125,6 +4129,11 @@ void Simulation::activate() {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         close_modal();
         if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+    } else if (live() && action_name == "runtime-update") {
+        // The button goes once the update starts; Play shows its progress, so focus moves there.
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+        state_.navigation.focus_key = "details-play";
     } else if (live() && action_name == "runtime-prepare") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_runtime_prepare_requests_.push_back(id);
