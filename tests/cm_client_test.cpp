@@ -214,14 +214,39 @@ void FailedLicenseListIsRejected() {
   assert(client.FetchAcquisitionDates(Session(), cancel).error == CmError::kRejected);
 }
 
-void IncompletePicsIsAProtocolError() {
-  auto script = HappyScript();
-  // Only the first part, already marked final by a server-side job eresult-less frame.
-  auto part = Fixture("pics_response_part2.pb");  // package 200 only, not pending
-  script->on_pics = {ServerFrame(cm::kEMsgClientPICSProductInfoResponse, part, std::nullopt, 1)};
-  auto client = MakeClient(script);
+// One odd license must not block every install (issue #1): a package Steam leaves out or sends without its token is
+// skipped, and only its apps stay unowned.
+void PackagesSteamCannotDescribeAreSkipped() {
   std::atomic<bool> cancel{false};
-  assert(client.FetchAcquisitionDates(Session(), cancel).error == CmError::kProtocol);
+  // Package 100 is left out; the reply holds package 200 only, not pending.
+  auto left_out = HappyScript();
+  left_out->on_pics = {ServerFrame(cm::kEMsgClientPICSProductInfoResponse, Fixture("pics_response_part2.pb"), std::nullopt, 1)};
+  auto client = MakeClient(left_out);
+  const auto partial = client.FetchAcquisitionDates(Session(), cancel);
+  assert(partial.ok() && partial.skipped_packages == 1);
+  assert(partial.owned_apps == (std::set<std::uint32_t>{20, 30}));
+  assert(partial.acquired_at.size() == 2 && partial.acquired_at.at(20) == 1500000000u);
+
+  // Package 100 comes back marked as missing its token, with no buffer.
+  auto tokenless = HappyScript();
+  auto body = Fixture("pics_response_part2.pb");
+  proto::Writer entry;
+  entry.AddVarint(1, 100);
+  entry.AddVarint(3, 1);
+  proto::Writer missing;
+  missing.AddMessage(3, entry);
+  body.insert(body.end(), missing.bytes().begin(), missing.bytes().end());
+  tokenless->on_pics = {ServerFrame(cm::kEMsgClientPICSProductInfoResponse, body, std::nullopt, 1)};
+  auto other = MakeClient(tokenless);
+  const auto skipped = other.FetchAcquisitionDates(Session(), cancel);
+  assert(skipped.ok() && skipped.skipped_packages == 1 && skipped.owned_apps == (std::set<std::uint32_t>{20, 30}));
+
+  // A reply with none of the packages is still a protocol error.
+  auto empty = HappyScript();
+  empty->on_pics = {ServerFrame(cm::kEMsgClientPICSProductInfoResponse, {}, std::nullopt, 1)};
+  auto third = MakeClient(empty);
+  const auto none = third.FetchAcquisitionDates(Session(), cancel);
+  assert(none.error == CmError::kProtocol && none.owned_apps.empty());
 }
 
 void JobErrorResultFailsTheBatch() {
@@ -588,7 +613,7 @@ int main(int argc, char** argv) {
   ResetCmBackoff();
   FailedLicenseListIsRejected();
   ResetCmBackoff();
-  IncompletePicsIsAProtocolError();
+  PackagesSteamCannotDescribeAreSkipped();
   ResetCmBackoff();
   JobErrorResultFailsTheBatch();
   ResetCmBackoff();

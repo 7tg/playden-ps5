@@ -947,10 +947,11 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
       for (const auto& package : part.packages) {
         if (!wanted.count(package.package_id)) continue;
         PackageContents contents;
+        // One odd license must not block every install (issue #1): skip it, its apps stay unowned.
         if (package.missing_token ||
             !ParsePackageBuffer(package.buffer.data(), package.buffer.size(), package.package_id,
                                 &contents))
-          return finish(CmError::kProtocol);
+          continue;
         auto& apps = package_apps[package.package_id];
         apps.insert(apps.end(), contents.app_ids.begin(), contents.app_ids.end());
         result.owned_apps.insert(contents.app_ids.begin(), contents.app_ids.end());
@@ -958,8 +959,10 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
         received.insert(package.package_id);
       }
     }
-    if (received != wanted) return finish(CmError::kProtocol);
+    result.skipped_packages += static_cast<std::uint32_t>(wanted.size() - received.size());
   }
+  // Nothing usable at all is a reply this client does not understand, not a few odd licenses.
+  if (!packages.empty() && result.skipped_packages == packages.size()) return finish(CmError::kProtocol);
 
   const auto now = hooks_.unix_now
                        ? hooks_.unix_now()

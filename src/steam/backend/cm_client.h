@@ -52,6 +52,8 @@ struct AcquisitionResult {
   // Apps and depots granted by those licenses' packages, for depot selection.
   std::set<std::uint32_t> owned_apps;
   std::set<std::uint32_t> owned_depots;
+  // Licensed packages Steam left out, sent without a token, or sent unreadable; their apps are not owned here.
+  std::uint32_t skipped_packages = 0;
   bool ok() const { return error == CmError::kNone; }
 };
 

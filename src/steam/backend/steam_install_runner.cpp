@@ -110,6 +110,8 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
     result.failure = "Could not read this account's licenses. Resume to try again.";
     return result;
   }
+  if (entitlements.skipped_packages)
+    log("entitlements", "partial", ("skipped_packages=" + std::to_string(entitlements.skipped_packages)).c_str());
   std::set<std::uint32_t> owned_apps = entitlements.owned_apps;
   owned_apps.insert(id);
   if (!SelectDepots(*app, owned_apps, entitlements.owned_depots, &target.depots, &reason)) {
