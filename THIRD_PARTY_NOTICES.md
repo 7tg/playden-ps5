@@ -45,8 +45,8 @@ revisions it was built from and includes their license texts in `LICENSES/`, and
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
 | Wine | upstream with the prospero-win patch series | LGPL-2.1-or-later | [winehq.org](https://www.winehq.org/), patches in prospero-win `wine/patches/` |
-| prospero-win (Wine's PS5 side, the 32-bit translator, the per-game app shell) | kit H r6: Wine and runtime `70bfc92`, app shell `4a1aa7a` | LGPL-2.1 | [mpereiraesaa/prospero-win](https://github.com/mpereiraesaa/prospero-win), our fork [leolobato/prospero-win](https://github.com/leolobato/prospero-win) |
-| prospero-foundation (native app tools for the per-game app shell) | kit H r6: `9c0b994` | GPL-3.0 | Fork of [mpereiraesaa/ps5-native-app-boilerplate](https://github.com/mpereiraesaa/ps5-native-app-boilerplate) |
+| prospero-win (Wine's PS5 side, the 32-bit translator, the per-game app shell) | kit H r8: Wine and runtime `13fa077`, app shell `4a1aa7a` | LGPL-2.1 | [mpereiraesaa/prospero-win](https://github.com/mpereiraesaa/prospero-win), our fork [leolobato/prospero-win](https://github.com/leolobato/prospero-win) |
+| prospero-foundation (native app tools for the per-game app shell) | kit H r8: `9c0b994` | GPL-3.0 | Fork of [mpereiraesaa/ps5-native-app-boilerplate](https://github.com/mpereiraesaa/ps5-native-app-boilerplate) |
 | DXVK | 2.6.2 | Zlib | [doitsujin/dxvk](https://github.com/doitsujin/dxvk) |
 | Mesa (WGL and Zink, for OpenGL games) | PS5_Mesa `e4607ef` | MIT | [mpereiraesaa/PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa), based on [Mesa](https://mesa3d.org/) |
 | RADV for the PS5 (`libvulkan.prx`) | PS5_Vulkan `8aee3af`, PS5_Mesa `01d7057` | GPL-3.0 (PS5_Vulkan); MIT (Mesa) | [mpereiraesaa/PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan), [mpereiraesaa/PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa) |
