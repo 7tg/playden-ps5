@@ -247,7 +247,8 @@ function(playden_add_homebrew_ps5_title)
 		COMMAND "${CMAKE_COMMAND}" -DAPP_DIR=${app} -DBOILERPLATE=${boilerplate}
 			-DASSETS_DIR=${CMAKE_SOURCE_DIR}/fixtures/ui-comparison/assets -DFONTS_DIR=${CMAKE_SOURCE_DIR}/build/homebrew-fonts
 			-DPARAM_SOURCE=${gl_source}/native-app/param.json -DPARAM_DEST=${app}/sce_sys/param.json
-			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=${playden_title_name}" -P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
+			-DTITLE_ID=${PLAYDEN_PS5_TITLE_ID} "-DTITLE_NAME=${playden_title_name}" -DAPP_VERSION=${PROJECT_VERSION}
+			-P "${CMAKE_SOURCE_DIR}/cmake/PackagePS5.cmake"
 		${simulation_package_commands}
 		COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/runtime" "${app}/runtime"
 		${native_helper_package_commands}
