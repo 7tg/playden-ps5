@@ -162,6 +162,28 @@ void DefaultBetaKeyIsThePublicBranch() {
          details.launches[0].arguments == "-steam -game hl2_complete");
 }
 
+// FINAL FANTASY XIII's appinfo (trimmed) reports each depot's download as about 1,700 times its installed size, which
+// showed 160 TB on Install (issue #5). A compressed download is never larger than what it installs.
+void ImpossibleDownloadSizeFallsBackToInstallSize() {
+  const std::string buffer = R"("appinfo"
+{
+  "appid" "292120"
+  "common" { "name" "FINAL FANTASY XIII" "type" "Game" }
+  "config" { "launch" { "0" { "executable" "FFXiiiLauncher.exe" "config" { "oslist" "windows" } } } }
+  "depots"
+  {
+    "228990" { "config" { "oslist" "windows" } "depotfromapp" "228980" "sharedinstall" "1" }
+    "292121" { "config" { "oslist" "windows" } "manifests" { "public" { "gid" "1" "size" "30738676601" "download" "56430184027278" } } }
+    "292122" { "config" { "oslist" "windows" } "manifests" { "public" { "gid" "2" "size" "61851360699" "download" "103960316066861" } } }
+    "292123" { "manifests" { "public" { "gid" "3" "size" "1000" "download" "400" } } }
+  }
+})";
+  const auto details = DetailsFromAppInfo(292120, buffer);
+  assert(details.available && details.windows_installable);
+  assert(details.install_bytes == 30738676601ull + 61851360699ull + 1000u);
+  assert(details.download_bytes == 30738676601ull + 61851360699ull + 400u);
+}
+
 }  // namespace
 
 int main() {
@@ -170,4 +192,5 @@ int main() {
   FailuresAreRetryable();
   AppInfoBecomesWindowsEstimate();
   DefaultBetaKeyIsThePublicBranch();
+  ImpossibleDownloadSizeFallsBackToInstallSize();
 }

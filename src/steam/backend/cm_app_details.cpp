@@ -24,7 +24,8 @@ AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer) {
   std::uint64_t download = 0;
   for (const auto& depot : depots) {
     install += depot.size;
-    download += depot.download_size;
+    // Some appinfo reports a download larger than the install (FINAL FANTASY XIII, issue #5); compressed chunks never are.
+    download += depot.size && depot.download_size > depot.size ? depot.size : depot.download_size;
   }
   if (install) details.install_bytes = install;
   if (download) details.download_bytes = download;
