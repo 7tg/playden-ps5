@@ -1021,6 +1021,67 @@ void PreparesGameWithoutShippedRecipe() {
   legacy.Shutdown();
 }
 
+// Settings saved while the game is being prepared, after its profile was written, reach the title
+// as soon as it is ready instead of waiting for the next Playden start.
+void SettingsSavedDuringPrepareReachReadyTitle() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  std::int64_t now = 1760000000;
+  config.unix_time = [&now] { return now; };
+  config.session_data_root = fixture.root / "data";
+  std::mutex mutex;
+  GameSettingsRecord saved;
+  bool applied_logged = false;
+  config.settings_record = [&](std::uint32_t) -> std::optional<GameSettingsRecord> {
+    std::lock_guard<std::mutex> lock(mutex);
+    return saved;
+  };
+  // The player changes a setting right after the profile is written.
+  config.log = [&](const std::string& line) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (line.rfind("prepare step app=220 from=publish-profile", 0) == 0) {
+      saved.revision = 1;
+      saved.overrides = {{"resolution", "1280x720"}};
+    }
+    if (line == "prepared settings app=220 applied") applied_logged = true;
+  };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  const auto profile = fixture.root / "data/playden/games/steam-220/library/profiles/playden-steam-220.profile";
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+  CHECK(done.installs[0].settings_revision == 1 && Read(profile).find("desktop = 1280x720") != std::string::npos);
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    CHECK(applied_logged);
+  }
+  host.Shutdown();
+}
+
 // Settings saved after preparation reach the Ready title through a journaled update, from
 // maintenance or from Play, only while the title is stopped; maintenance clears the shader
 // cache, backs up the bottle's user folders and repairs the bottle.
@@ -1661,6 +1722,7 @@ int main(int argc, char** argv) {
   RepairsBottleRegistryModes();
   PlaysReadyTitleThroughHandoff();
   MaintainsReadyTitle();
+  SettingsSavedDuringPrepareReachReadyTitle();
   KitRespinKeepsWaitingSettingsUpdate();
   RemovesTitleKeepingSaves();
   std::puts("runtime host tests passed");

@@ -2454,6 +2454,16 @@ void RuntimeHost::Run() {
         // A game prepared again gets back the saves it kept when it was uninstalled,
         // before it can first be started (from Home, while it waits for registration).
         if (refusal.empty()) refusal = RestoreKeptSaves(*composition, request.app_id);
+        // Settings saved while the game was being prepared (after its profile was written) reach
+        // the title as soon as it is ready; the check at startup ran before that.
+        if (refusal.empty() && !awaiting)
+          for (const auto& record : composition->repository.Snapshot()) {
+            if (record.app_id != request.app_id) continue;
+            bool published = false;
+            const auto refused = RepublishSettings(*composition, record, &published);
+            if (published || !refused.empty())
+              Log("prepared settings app=" + std::to_string(record.app_id) + " " + (refused.empty() ? "applied" : refused));
+          }
       }
       Log("prepare result app=" + std::to_string(request.app_id) + " " +
           (!refusal.empty() ? refusal : awaiting ? "awaiting registration" : "ready"));
