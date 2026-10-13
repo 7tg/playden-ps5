@@ -1474,9 +1474,9 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     std::string reason;
     const rt::GameRecipe* recipe = RecipeForPrepare(c, request, &reason);
     if (!recipe) return reason;
-    // A shipped recipe is trusted only from the kit that carries it.
-    if (!rt::IsGeneratedRecipeId(recipe->id) &&
-        (recipe->id != c.kit->view.recipe.id || std::to_string(recipe->version) != c.kit->view.recipe.version))
+    // Playden ships its recipes (runtime/recipes) and the kit carries a copy of one of them;
+    // only that one must agree with the kit, as the kit's shell was packaged for it.
+    if (recipe->id == c.kit->view.recipe.id && std::to_string(recipe->version) != c.kit->view.recipe.version)
       return "The installed compatibility kit was built for another version of this game's setup.";
     if (recipe->launch_entries.empty()) return "Steam lists no Windows program this console can start for this game.";
     const auto settings = config_.settings_record ? config_.settings_record(request.app_id) : std::nullopt;
@@ -2169,7 +2169,13 @@ void RuntimeHost::Run() {
       operations.canceled = [this] { return Stopping(); };
       operations.progress = [this](std::uint64_t done, std::uint64_t total) { ReportWork(done, total); };
       operations.log = [this](const std::string& line) { Log(line); };
-      c.installer = std::make_unique<rt::FilesystemPackageInstaller>(c.kit->view, config_.package_paths, operations);
+      auto installer = std::make_unique<rt::FilesystemPackageInstaller>(c.kit->view, config_.package_paths, operations);
+      // Records prepared with a recipe Playden ships resolve whatever recipe the kit carries.
+      std::vector<std::string> shipped;
+      for (const auto& recipe : c.recipes)
+        if (!rt::IsGeneratedRecipeId(recipe.id)) shipped.push_back(recipe.id);
+      installer->AcceptShippedRecipes(std::move(shipped));
+      c.installer = std::move(installer);
     } else {
       if (kit_reason.empty()) kit_reason = "No verified compatibility kit is installed.";
       c.installer = std::make_unique<UnavailablePackageInstaller>(kit_reason);

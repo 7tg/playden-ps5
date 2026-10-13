@@ -152,6 +152,10 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   FilesystemPackageInstaller(VerifiedKitView kit, PackageInstallPaths paths,
                              PackageInstallerOperations operations);
 
+  // The recipes Playden ships (runtime/recipes) besides the kit's own. A record
+  // prepared with one of them resolves whatever recipe the kit carries.
+  void AcceptShippedRecipes(std::vector<std::string> recipe_ids);
+
   PackageStatus Inspect(const RuntimeInstall& record) override;
   // The title's owner marker instead of its files and folder modes; the bottle,
   // artifacts and publication are checked as Inspect does.
@@ -216,6 +220,7 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   VerifiedKitView kit_;
   PackageInstallPaths paths_;
   PackageInstallerOperations operations_;
+  std::vector<std::string> shipped_recipe_ids_;
 };
 
 }  // namespace playden::runtime

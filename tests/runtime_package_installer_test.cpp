@@ -949,10 +949,36 @@ void MissingReferencedInputAndSymlinkedManagedParentsAreRejected() {
   }
 }
 
+// A record prepared with a recipe Playden ships resolves whatever recipe the kit carries;
+// the kit's own recipe still has to be at the kit's version, and an unknown one is refused.
+void ShippedRecipeResolvesWithAnyKit() {
+  Fixture fixture;
+  auto installer = fixture.Installer();
+  auto record = Record();
+  record.app_id = 292120; record.recipe_id = "steam-292120-ffxiii-v1"; record.recipe_version = "1";
+  record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                      {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+  CHECK(installer.StageTitle(record).code == "kit-invalid");
+  installer.AcceptShippedRecipes({"steam-292120-ffxiii-v1"});
+  CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  CHECK(installer.Inspect(record).known);
+  auto other = record;
+  other.recipe_id = "steam-440-tf2-v1";
+  CHECK(installer.StageTitle(other).code == "kit-invalid");
+  auto drifted = Record();
+  drifted.recipe_version = "2";
+  CHECK(installer.StageTitle(drifted).code == "kit-invalid");
+  auto generated = Record();
+  generated.recipe_id = "steam-220-auto";
+  CHECK(!installer.Inspect(generated).title_source_path.empty());
+}
+
 }  // namespace
 
 int main() {
   TemplateCopyReportsProgress();
+  ShippedRecipeResolvesWithAnyKit();
   {
     Fixture fixture;
     const auto game = fixture.host_data / "playden/games/install-hl2";

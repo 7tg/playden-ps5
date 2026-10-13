@@ -1702,6 +1702,50 @@ void PreparesUdkGameWithEulaAccepted() {
   host.Shutdown();
 }
 
+// Playden ships more recipes than the one the kit carries: a game with its own shipped recipe
+// (FF XIII) is prepared by a kit packaged for HL2, with the recipe's bottle values written.
+void ShippedRecipePreparesWithAnotherKitsRecipe() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/292120/white_data/prog/win/bin/ffxiiiimg.exe", "existing-game", 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare({292120, "/data/homebrew/FAKE77031/games/292120", "internal", "Final Fantasy XIII"});
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(292120) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (done.refusals.count(292120)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(292120).c_str());
+  CHECK(!done.refusals.count(292120) && done.installs.size() == 1 && done.installs[0].app_id == 292120);
+  CHECK(Read(config.state_root / "installs.json").find("\"recipe_id\":\"steam-292120-ffxiii-v1\"") != std::string::npos);
+  const auto game = fixture.root / "data/playden/games/steam-292120";
+  CHECK(Read(game / "library/profiles/playden-steam-292120.profile").find("ffxiiiimg.exe") != std::string::npos);
+  CHECK(Read(game / "library/prefixes/game/user.reg").find("\"VideoMemorySize\"=\"4096\"") != std::string::npos);
+  // A restart resolves the record again through the same rule.
+  host.Shutdown();
+  RuntimeHost restarted(config);
+  CHECK(restarted.Start());
+  const auto reloaded = WaitFor(restarted, Started);
+  CHECK(reloaded.installs.size() == 1 && reloaded.installs[0].state == PreparationState::kReady);
+  restarted.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -1725,6 +1769,7 @@ int main(int argc, char** argv) {
   SettingsSavedDuringPrepareReachReadyTitle();
   KitRespinKeepsWaitingSettingsUpdate();
   RemovesTitleKeepingSaves();
+  ShippedRecipePreparesWithAnotherKitsRecipe();
   std::puts("runtime host tests passed");
   return 0;
 }

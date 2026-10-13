@@ -516,13 +516,20 @@ bool FilesystemPackageInstaller::ValidView() const {
   return true;
 }
 
-// The kit's own recipe, or the one Playden generated for this game from Steam's
-// launch options (runtime::GeneratedRecipeId: "steam-<app id>-auto"). The kit's
-// runtime and template run either; only the launch entries differ.
+void FilesystemPackageInstaller::AcceptShippedRecipes(std::vector<std::string> recipe_ids) {
+  shipped_recipe_ids_ = std::move(recipe_ids);
+}
+
+// The kit's own recipe at the kit's version, a recipe Playden ships (AcceptShippedRecipes)
+// or the one Playden generated for this game from Steam's launch options
+// (runtime::GeneratedRecipeId: "steam-<app id>-auto"). The kit's runtime and template
+// run any of them; only the launch entries and bottle values differ.
 bool FilesystemPackageInstaller::RecipeAccepted(const RuntimeInstall& record) const {
-  if (record.recipe_id == kit_.recipe.id && record.recipe_version == kit_.recipe.version) return true;
-  return record.app_id != 0 && record.recipe_id == "steam-" + std::to_string(record.app_id) + "-auto" &&
-         !record.recipe_version.empty();
+  if (record.recipe_id == kit_.recipe.id) return record.recipe_version == kit_.recipe.version;
+  if (record.recipe_version.empty()) return false;
+  if (std::find(shipped_recipe_ids_.begin(), shipped_recipe_ids_.end(), record.recipe_id) != shipped_recipe_ids_.end())
+    return true;
+  return record.app_id != 0 && record.recipe_id == "steam-" + std::to_string(record.app_id) + "-auto";
 }
 
 std::optional<FilesystemPackageInstaller::ResolvedPaths>
