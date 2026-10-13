@@ -59,7 +59,7 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | [Project Warlock](https://store.steampowered.com/app/893680) | ✅ Works | H | Unity · D3D11 · 64-bit | Plays the first level with the sticks. The D-pad does not move the menu focus. |
 | [STAR WARS Knights of the Old Republic II: The Sith Lords](https://store.steampowered.com/app/208580) | ✅ Works | H | Odyssey · OpenGL · 32-bit | New game, cutscenes and the prologue with the controller. |
 | [BULLET SOUL](https://store.steampowered.com/app/544580) | ✅ Works | H | — · D3D9 · 32-bit | Set Game settings › Program = `BulletSoulWin.exe`, then Recreate bottle: Playden picks the launcher, which the controller cannot use. Then it plays with the stick. |
-| [REPLACED](https://store.steampowered.com/app/1663850) | ✅ Works | H | Unity · D3D11 · 64-bit | Cloud saves restore; Continue loads the save and the character moves. |
+| [REPLACED](https://store.steampowered.com/app/1663850) | ✅ Works | H r8 | Unity · D3D11 · 64-bit | Cloud saves restore; Continue loads the save and the character moves. |
 | [SENRAN KAGURA Peach Ball](https://store.steampowered.com/app/1074080) | ✅ Works | H | — · D3D11 · 64-bit | Title menu and the story scenes with the controller. |
 | [Brütal Legend](https://store.steampowered.com/app/225260) | ✅ Works | H | Buddha · D3D9 · 32-bit | Plays with the controller. |
 | [Star Wars: Battlefront II (Classic, 2005)](https://store.steampowered.com/app/6060) | ✅ Works | H | — · D3D9 · 32-bit | Use Controller preset = **Mouse**: the left stick moves the pointer, Cross clicks, Options is Enter. Menus and the first mission load. |
