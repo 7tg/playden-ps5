@@ -656,6 +656,31 @@ int main(int argc, char** argv) {
     CHECK(!ParseGameRecipe(head + R"({"Software\\X":{"A":"say \"hi\""}}})", &refused, &reason));         // no quotes in a value
     CHECK(!ParseGameRecipe(head + R"({"Software\\Wine\\AppDefaults\\a.exe":{"version":"win7"}}})", &refused, &reason));  // owned by the publication
     CHECK(!ParseGameRecipe(head + R"({"Control Panel\\Desktop":{"LogPixels":"120"}}})", &refused, &reason));
+    // Only the program's own Wine sections and the game's own keys: nothing that gets around the kit's
+    // audio check, the overrides Game settings shows or the [environment] allow-list.
+    GameRecipe allowed;
+    CHECK(ParseGameRecipe(head + R"({"Software\\Square Enix\\FINAL FANTASY XIII":{"Language":"en"}}})", &allowed, &reason));
+    CHECK(ParseGameRecipe(head + R"({"Software\\Wine\\AppDefaults\\a.exe\\DirectInput":{"MouseWarpOverride":"force"}}})", &allowed, &reason));
+    for (const char* key : {R"(Software\\Wine\\Drivers)", R"(Software\\Wine\\DllOverrides)", R"(Software\\Wine\\Direct3D)",
+                            R"(Software\\Wine\\AppDefaults\\a.exe\\DllOverrides)", R"(Software\\Wine\\AppDefaults\\a.exe)",
+                            R"(Software\\Microsoft\\Windows\\CurrentVersion\\Run)", R"(Software\\Classes\\CLSID)",
+                            R"(Software\\Policies\\X)", R"(software\\WINE\\drivers)", R"(Software)", R"(Environment)",
+                            R"(Control Panel\\Mouse)", R"(Console)"}) {
+      CHECK(!ParseGameRecipe(head + "{\"" + key + R"(":{"A":"1"}}})", &refused, &reason));
+    }
+    CHECK(!ParseGameRecipe(head + R"({"Software\\Wine\\AppDefaults\\a.exe\\DllOverrides":{"d3d9":"native"}}})", &refused, &reason) &&
+          reason.find("dll_overrides") != std::string::npos);
+    CHECK(!ParseGameRecipe(head + R"({"Environment":{"WINE_D3D_CONFIG":"x"}}})", &refused, &reason) &&
+          reason.find("Software\\<publisher>") != std::string::npos);
+    // A bracket would end the key's [section] header in user.reg early, so Wine would read another key.
+    CHECK(!ParseGameRecipe(head + R"({"Software\\Wine\\AppDefaults\\a.exe\\DllOverrides]":{"d3d9":"native"}}})", &refused, &reason));
+    CHECK(!ParseGameRecipe(head + R"({"Software\\Wine\\AppDefaults\\a.exe]\\Direct3D":{"Version":"win7"}}})", &refused, &reason));
+    CHECK(!ParseGameRecipe(head + R"({"Software\\[Studio\\Game":{"A":"1"}}})", &refused, &reason));
+    // The bottle refuses the same value twice, and registry names ignore case.
+    CHECK(!ParseGameRecipe(head + R"({"Software\\Studio\\Game":{"Language":"en","language":"fr"}}})", &refused, &reason) &&
+          reason.find("appears twice") != std::string::npos);
+    CHECK(!ParseGameRecipe(head + R"({"Software\\Studio\\Game":{"A":"1"},"software\\studio\\game":{"a":"2"}}})", &refused, &reason));
+    CHECK(ParseGameRecipe(head + R"({"Software\\Studio\\Game":{"A":"1","B":"2"},"Software\\Studio\\Other":{"A":"3"}}})", &allowed, &reason));
     // Applied to a bottle the way an install script is.
     const auto registry_root = std::filesystem::canonical(std::filesystem::temp_directory_path()) /
                                ("playden-recipe-registry-" + std::to_string(::getpid()));
@@ -1135,6 +1160,17 @@ int main(int argc, char** argv) {
     CHECK(BuildEffectiveSettings(exported, nullptr, {}, KitCapabilities{}, &again, &error));
     CHECK(again.values.at("steam_features").value == "emulate" && !again.values.at("steam_features").locked);
     CHECK(again.dll_overrides == kDxvkOverrides);  // the DXVK overrides are written out, not added again
+    // Registry values and requirements stay with the game when it is exported.
+    auto with_extras = from_generated;
+    with_extras.registry = {{"Software\\Wine\\AppDefaults\\a.exe\\Direct3D", "VideoMemorySize", "\"4096\""},
+                            {"Software\\Studio\\Game", "Language", "\"en\""}};
+    with_extras.requirements = {{"audio", "ps5"}};
+    CHECK(ParseGameRecipe(SerializeCommunityRecipe(BuildCommunityRecipe(with_extras, settings)), &exported, &reason));
+    CHECK(exported.requirements == with_extras.requirements && exported.registry.size() == 2);
+    for (const auto& value : with_extras.registry)
+      CHECK(std::any_of(exported.registry.begin(), exported.registry.end(), [&](const RegistryValue& read) {
+        return read.key == value.key && read.name == value.name && read.data == value.data;
+      }));
     auto broken = text;
     broken.replace(broken.find("\"works\""), 7, "\"great\"");
     CHECK(!ParseCommunityRecipe(broken, &parsed, &reason) && reason.find("status") != std::string::npos);

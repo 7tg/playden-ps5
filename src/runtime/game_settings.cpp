@@ -931,7 +931,12 @@ constexpr std::size_t kMaxRecipeRegistryValues = 16;
 
 // A registry value a recipe may carry: a key under HKEY_CURRENT_USER as Wine spells it, a
 // printable ASCII name and string, and never one of the two values the title publication
-// owns (settings_publication.cpp), which the next publication would put back.
+// owns (settings_publication.cpp), which the next publication would put back. Only two kinds
+// of key (docs/community-recipes.md): the program's own Wine settings, a section under
+// Software\Wine\AppDefaults\<program> other than DllOverrides (the recipe's dll_overrides
+// lists those where Game settings shows them), and the game's own keys, Software\<publisher>.
+// Wine's global keys, Windows' keys and Environment would get around what the kit checks
+// (Drivers\Audio), what Game settings shows (overrides) and the [environment] allow-list.
 bool RecipeRegistryValueAllowed(const std::string& key, const std::string& name, const std::string& value,
                                 std::string* why) {
   const auto printable = [](const std::string& text, bool backslashes) {
@@ -943,8 +948,9 @@ bool RecipeRegistryValueAllowed(const std::string& key, const std::string& name,
     for (auto& c : text) c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
     return text;
   };
+  // Brackets would end the key's [section] header in user.reg early, so Wine would read another key.
   if (key.empty() || key.size() > 200 || !printable(key, true) || key.front() == '\\' || key.back() == '\\' ||
-      key.find("\\\\") != std::string::npos) {
+      key.find("\\\\") != std::string::npos || key.find_first_of("[]") != std::string::npos) {
     *why = "key is not a registry path";
     return false;
   }
@@ -969,7 +975,22 @@ bool RecipeRegistryValueAllowed(const std::string& key, const std::string& name,
     *why = "Game settings own this value";
     return false;
   }
-  return true;
+  std::vector<std::string> parts;
+  for (std::size_t start = 0; start <= folded.size();) {
+    const auto end = std::min(folded.find('\\', start), folded.size());
+    parts.push_back(folded.substr(start, end - start));
+    start = end + 1;
+  }
+  if (parts.size() >= 4 && parts[0] == "software" && parts[1] == "wine" && parts[2] == "appdefaults") {
+    if (parts.size() >= 5 && parts[4] != "dlloverrides") return true;
+    *why = parts.size() >= 5 ? "library overrides belong in dll_overrides"
+                             : "use a section of the program's key, like " + key + "\\Direct3D";
+    return false;
+  }
+  static const std::set<std::string> kNotTheGames = {"wine", "microsoft", "classes", "policies", "wow6432node"};
+  if (parts.size() >= 2 && parts[0] == "software" && !kNotTheGames.count(parts[1])) return true;
+  *why = "only Software\\Wine\\AppDefaults\\<program>\\<section> and the game's own Software\\<publisher> keys";
+  return false;
 }
 
 }  // namespace
@@ -1024,6 +1045,8 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
   if (const auto* registry = root->get("registry")) {
     const auto* keys = registry->object();
     if (!keys) return fail("registry must map keys to their values");
+    // Registry names ignore case, and the bottle refuses the same value twice.
+    std::set<std::string> identities;
     for (const auto& [key, names] : *keys) {
       const auto* list = names.object();
       if (!list) return fail("registry key " + key + " must map value names to strings");
@@ -1033,6 +1056,7 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
         if (!string) return fail("registry value " + name + " must be a string");
         if (!RecipeRegistryValueAllowed(key, name, *string, &why)) return fail("registry " + key + " " + name + ": " + why);
         if (out.registry.size() >= kMaxRecipeRegistryValues) return fail("registry has too many values");
+        if (!identities.insert(LowerAscii(key + "\n" + name)).second) return fail("registry " + key + " " + name + " appears twice");
         out.registry.push_back({key, name, "\"" + *string + "\""});
       }
     }
@@ -2384,6 +2408,9 @@ CommunityRecipe BuildCommunityRecipe(const GameRecipe& recipe, const EffectiveSe
   }
   for (const auto& id : recipe.locked)
     if (!settings.values.at(id).unlocked) shared.locked.insert(id);
+  // What the bottle gets and what the kit must provide stay with the game.
+  shared.registry = recipe.registry;
+  shared.requirements = recipe.requirements;
   out.status = "untested";
   return out;
 }
@@ -2418,7 +2445,33 @@ std::string SerializeCommunityRecipe(const CommunityRecipe& community) {
     text += std::string(first ? "" : ", ") + quoted(id);
     first = false;
   }
-  text += "],\n  \"steam_appid\": " + std::to_string(recipe.app_id) + ",\n  \"executable\": " +
+  text += "]";
+  if (!recipe.requirements.empty()) {
+    text += ",\n  \"requirements\": {";
+    first = true;
+    for (const auto& [name, value] : recipe.requirements) {
+      text += std::string(first ? "" : ", ") + quoted(name) + ": " + quoted(value);
+      first = false;
+    }
+    text += "}";
+  }
+  if (!recipe.registry.empty()) {
+    // Grouped by key as ParseGameRecipe reads it; data holds the quoted string.
+    std::map<std::string, std::vector<const RegistryValue*>> keys;
+    for (const auto& value : recipe.registry) keys[value.key].push_back(&value);
+    text += ",\n  \"registry\": {";
+    first = true;
+    for (const auto& [key, values] : keys) {
+      text += std::string(first ? "" : ",") + "\n    " + quoted(key) + ": {";
+      for (std::size_t index = 0; index < values.size(); ++index)
+        text += std::string(index ? ", " : "") + quoted(values[index]->name) + ": " +
+                quoted(values[index]->data.substr(1, values[index]->data.size() - 2));
+      text += "}";
+      first = false;
+    }
+    text += "\n  }";
+  }
+  text += ",\n  \"steam_appid\": " + std::to_string(recipe.app_id) + ",\n  \"executable\": " +
           quoted(community.executable) + ",\n  \"community\": {\n    \"format_version\": 1,\n    \"min_kit\": " +
           quoted(community.min_kit) + ",\n    \"tested_firmware\": " + quoted(community.tested_firmware) +
           ",\n    \"tested_date\": " + quoted(community.tested_date) + ",\n    \"status\": " +
