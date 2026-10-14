@@ -1013,6 +1013,7 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
     out.launch_entries.push_back(std::move(entry));
   }
   if (!StringMap(root->get("defaults"), &out.defaults)) return fail("defaults must map setting ids to strings");
+  if (!StringMap(root->get("requirements"), &out.requirements)) return fail("requirements must map names to strings");
   if (const auto* locked = root->get("locked")) {
     if (!locked->array()) return fail("locked must be a list");
     for (const auto& item : *locked->array()) {
@@ -1162,6 +1163,16 @@ std::string SerializeGameRecipe(const GameRecipe& recipe) {
     text += quoted(id);
   }
   text += "]";
+  if (!recipe.requirements.empty()) {
+    text += ",\"requirements\":{";
+    first = true;
+    for (const auto& [name, value] : recipe.requirements) {
+      if (!first) text += ",";
+      first = false;
+      text += quoted(name) + ":" + quoted(value);
+    }
+    text += "}";
+  }
   if (!recipe.registry.empty()) {
     // Grouped by key as the file has it; data holds the quoted string.
     std::map<std::string, std::vector<const RegistryValue*>> keys;

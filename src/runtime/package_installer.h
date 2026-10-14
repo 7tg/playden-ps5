@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -65,6 +66,7 @@ struct VerifiedKitView {
   std::string template_path;
   std::string template_drive_table;
   KitRecipe recipe;
+  bool template_audio_ps5 = false;  // the template's user.reg selects Wine's ps5 audio driver
   std::vector<KitTitleVariant> variants;
   std::vector<KitFile> files;
   std::vector<KitArtifact> artifacts;
@@ -75,6 +77,11 @@ const KitTitleVariant* KitVariantFor(const VerifiedKitView& kit, const std::stri
 // The titles a new game may get, in order: the fixed variants' titles, then, with an any-title
 // variant, every other FAKE78001-FAKE78999 (the lowest free one is taken).
 std::vector<std::string> KitTitleCandidates(const VerifiedKitView& kit);
+// What a recipe's requirements ask of the kit's template bottle that it does not provide, in a
+// few words for the player ("PS5 audio"); empty when the kit provides all of it. The kit's
+// packager checks its own recipe this way; Playden checks the other recipes it ships. A
+// requirement this build does not know is never met.
+std::string UnmetRecipeRequirements(const std::map<std::string, std::string>& requirements, const VerifiedKitView& kit);
 
 // Canonical paths remain /data/... in RuntimeInstall and descriptors. Tests map
 // that namespace beneath host_data_root without weakening canonical validation.

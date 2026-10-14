@@ -53,6 +53,13 @@ int main(int argc, char** argv) {
 
   GameRecipe hl2;
   CHECK(ParseGameRecipe(ReadText(source / "runtime/recipes/steam-220-hl2-v1.json"), &hl2, &reason));
+  // What the kit's template must provide is read and written back (UnmetRecipeRequirements checks it).
+  CHECK(hl2.requirements == (std::map<std::string, std::string>{{"audio", "ps5"}}));
+  {
+    GameRecipe reread;
+    CHECK(ParseGameRecipe(SerializeGameRecipe(hl2), &reread, &reason) && reread.requirements == hl2.requirements);
+    CHECK(!ParseGameRecipe(R"({"recipe_id":"x","recipe_version":1,"app_id":1,"launch_entries":[{"id":"a","label":"A","executable":"a.exe"}],"requirements":{"audio":1}})", &reread, &reason));
+  }
   std::vector<SettingsPreset> presets;
   CHECK(ParseSettingsPresets(ReadText(source / "runtime/presets.json"), &presets, &reason));
   CHECK(presets.size() == 4 && presets.front().id == "playden-default");

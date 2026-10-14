@@ -974,11 +974,24 @@ void ShippedRecipeResolvesWithAnyKit() {
   CHECK(!installer.Inspect(generated).title_source_path.empty());
 }
 
+// A shipped recipe's requirements against what the kit's template provides.
+void RecipeRequirementsNameWhatTheKitLacks() {
+  VerifiedKitView kit;
+  CHECK(UnmetRecipeRequirements({}, kit).empty());
+  CHECK(UnmetRecipeRequirements({{"audio", "ps5"}}, kit) == "PS5 audio");
+  kit.template_audio_ps5 = true;
+  CHECK(UnmetRecipeRequirements({{"audio", "ps5"}}, kit).empty());
+  // A requirement this build does not know is never met.
+  CHECK(UnmetRecipeRequirements({{"audio", "ps5"}, {"gpu", "rdna9"}}, kit) == "gpu rdna9");
+  CHECK(UnmetRecipeRequirements({{"audio", "pulse"}}, kit) == "audio pulse");
+}
+
 }  // namespace
 
 int main() {
   TemplateCopyReportsProgress();
   ShippedRecipeResolvesWithAnyKit();
+  RecipeRequirementsNameWhatTheKitLacks();
   {
     Fixture fixture;
     const auto game = fixture.host_data / "playden/games/install-hl2";

@@ -1746,6 +1746,73 @@ void ShippedRecipePreparesWithAnotherKitsRecipe() {
   restarted.Shutdown();
 }
 
+// A shipped recipe's requirements are checked against the kit's template, as the kit's packager
+// checks the kit's own recipe: without PS5 audio in the template, a recipe that needs it is refused.
+void ShippedRecipeRequirementsFollowTheKit(bool template_audio_ps5) {
+  Fixture fixture;
+  auto config = fixture.Config();
+  const auto runtime = fixture.root / "runtime";
+  Write(runtime / "presets.json", Read(fs::path(g_runtime_dir) / "presets.json"), 0644);
+  Write(runtime / "recipes/recipes.lst", Read(fs::path(g_runtime_dir) / "recipes/recipes.lst"), 0644);
+  Write(runtime / "recipes/steam-220-hl2-v1.json", Read(fs::path(g_runtime_dir) / "recipes/steam-220-hl2-v1.json"), 0644);
+  auto ffxiii = Read(fs::path(g_runtime_dir) / "recipes/steam-292120-ffxiii-v1.json");
+  ffxiii.replace(ffxiii.find("\"locked\""), 0, "\"requirements\": {\"audio\": \"ps5\"},\n  ");
+  Write(runtime / "recipes/steam-292120-ffxiii-v1.json", ffxiii, 0644);
+  config.runtime_dir = runtime.string();
+  config.steamworks_dir = (fs::path(g_runtime_dir) / "steamworks").string();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.view.template_audio_ps5 = template_audio_ps5;
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/292120/white_data/prog/win/bin/ffxiiiimg.exe", "existing-game", 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare({292120, "/data/homebrew/FAKE77031/games/292120", "internal", "Final Fantasy XIII"});
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(292120) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (template_audio_ps5) {
+    if (done.refusals.count(292120)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(292120).c_str());
+    CHECK(!done.refusals.count(292120) && done.installs.size() == 1);
+    // Swapped for a kit without PS5 audio, Play is refused before the bottle or the game's files change.
+    host.Shutdown();
+    const auto user_reg = fixture.root / "data/playden/games/steam-292120/library/prefixes/game/user.reg";
+    auto marked = Read(user_reg);
+    marked.replace(marked.find("\"VideoMemorySize\"=\"4096\""), 24, "\"VideoMemorySize\"=\"1234\"");
+    Write(user_reg, marked, 0600);
+    kit.view.template_audio_ps5 = false;
+    RuntimeHost swapped(config);
+    CHECK(swapped.Start());
+    CHECK(WaitFor(swapped, Started).kit_available);
+    swapped.Play(292120);
+    const auto played = WaitFor(swapped, [](const RuntimeSnapshot& s) { return s.plays_handled > 0; }, 30);
+    if (played.play_refusals.count(292120)) std::fprintf(stderr, "Play refused: %s\n", played.play_refusals.at(292120).c_str());
+    CHECK(played.play_refusals.count(292120) &&
+          played.play_refusals.at(292120).find("lacks what this game needs (PS5 audio)") != std::string::npos);
+    CHECK(Read(user_reg).find("\"VideoMemorySize\"=\"1234\"") != std::string::npos);
+    swapped.Shutdown();
+    return;
+  } else {
+    CHECK(done.refusals.count(292120) && done.installs.empty());
+    CHECK(done.refusals.at(292120).find("lacks what this game needs (PS5 audio)") != std::string::npos);
+  }
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -1770,6 +1837,8 @@ int main(int argc, char** argv) {
   KitRespinKeepsWaitingSettingsUpdate();
   RemovesTitleKeepingSaves();
   ShippedRecipePreparesWithAnotherKitsRecipe();
+  ShippedRecipeRequirementsFollowTheKit(false);
+  ShippedRecipeRequirementsFollowTheKit(true);
   std::puts("runtime host tests passed");
   return 0;
 }

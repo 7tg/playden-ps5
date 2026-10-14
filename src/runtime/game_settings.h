@@ -115,6 +115,8 @@ struct GameRecipe {
   // Values the bottle's user.reg gets when the game's files are prepared, as a Steam install
   // script's would be (docs/community-recipes.md): strings under HKEY_CURRENT_USER.
   std::vector<RegistryValue> registry;
+  // What the kit's template bottle must provide ("audio": "ps5"); see UnmetRecipeRequirements.
+  std::map<std::string, std::string> requirements;
 };
 
 struct SettingsPreset {

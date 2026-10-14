@@ -66,6 +66,7 @@ Recipe fields:
 | `graphics` | `auto`, `gdi`, `dxvk` or `opengl`. |
 | `defaults` | Game settings by setting id (`SettingsCatalogue()`), only values that differ from Playden's default. |
 | `locked` | Setting ids the player must choose "Change anyway" to change. |
+| `requirements` | What the runtime kit's template bottle must provide: `{"audio": "ps5"}` (Wine's PS5 audio driver) is the only one so far. On a kit without it, Playden refuses to prepare the game and names what is missing. |
 | `registry` | Values the bottle gets under `HKEY_CURRENT_USER` when the game's files are prepared, as a Steam install script's would be: `{"Software\\Wine\\AppDefaults\\game.exe\\Direct3D": {"VideoMemorySize": "4096"}}`. Strings only. The Windows version and text scale values belong to Game settings and are refused here. |
 
 Community fields:

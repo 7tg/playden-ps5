@@ -499,6 +499,9 @@ class Verifier {
     }
     view_.template_path = template_path->text();
     view_.template_drive_table = template_path->text() + "/dosdevices/.pw-symlinks";
+    // Whether the template has PS5 audio even when its own recipe does not ask for it: other
+    // recipes Playden ships may (UnmetRecipeRequirements).
+    view_.template_audio_ps5 = audio || ValidateRegistry(template_root, true);
     view_.recipe = {id->text(), version->text(), recipe_path->text(), sha->text()};
     view_artifacts_.push_back({"recipe", id->text() + "-" + version->text(), sha->text(),
                                ImmutableArtifactLocation::kKit, recipe_path->text()});

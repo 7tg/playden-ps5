@@ -469,6 +469,15 @@ std::vector<std::string> KitTitleCandidates(const VerifiedKitView& kit) {
   return titles;
 }
 
+std::string UnmetRecipeRequirements(const std::map<std::string, std::string>& requirements, const VerifiedKitView& kit) {
+  std::string unmet;
+  for (const auto& [name, value] : requirements) {
+    if (name == "audio" && value == "ps5" && kit.template_audio_ps5) continue;
+    unmet += (unmet.empty() ? "" : ", ") + (name == "audio" && value == "ps5" ? std::string("PS5 audio") : name + " " + value);
+  }
+  return unmet;
+}
+
 FilesystemPackageInstaller::FilesystemPackageInstaller(
     VerifiedKitView kit, PackageInstallPaths paths,
     PackageInstallerOperations operations)

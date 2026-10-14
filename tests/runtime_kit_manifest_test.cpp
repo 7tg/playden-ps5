@@ -436,7 +436,7 @@ int main() {
     if (result.status != KitManifestStatus::kVerified)
       std::fprintf(stderr, "valid fixture rejected: %s\n", result.reason.c_str());
     assert(result.status == KitManifestStatus::kVerified);
-    assert(result.view && result.view->kit_id == "kit-1");
+    assert(result.view && result.view->kit_id == "kit-1" && result.view->template_audio_ps5);
     assert(result.available_variant_ids == std::vector<std::string>{"variant"});
     assert(result.capabilities == std::vector<std::string>({"ps5-audio", "wine-wow64"}));
     assert(result.artifacts.size() >= 2);
@@ -506,6 +506,20 @@ int main() {
           "; expected prospero C:\\\\users\\\\prospero\n");
     fixture.RewriteManifest();
     CheckRejected(fixture.Verify(), KitManifestStatus::kIntegrityFailure);
+  }
+  {
+    // The kit says whether its template has PS5 audio even when its own recipe does not ask for it,
+    // so Playden can check the other recipes it ships.
+    Fixture fixture;
+    Write(fixture.root / "recipes/steam-220-hl2-v1.json", "{\"id\":\"steam-220-hl2-v1\",\"version\":\"1\"}");
+    fixture.RewriteManifest();
+    auto result = fixture.Verify();
+    assert(result.status == KitManifestStatus::kVerified && result.view->template_audio_ps5);
+    Write(fixture.root / "template/bottle/user.reg",
+          "[Volatile Environment]\n\"USERNAME\"=\"prospero\"\n\"USERPROFILE\"=\"C:\\\\users\\\\prospero\"\n");
+    fixture.RewriteManifest();
+    result = fixture.Verify();
+    assert(result.status == KitManifestStatus::kVerified && !result.view->template_audio_ps5);
   }
   {
     Fixture fixture; Write(fixture.root / "unexpected.bin", "extra");

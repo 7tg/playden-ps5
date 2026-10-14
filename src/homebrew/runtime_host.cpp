@@ -58,6 +58,15 @@ constexpr std::int64_t kPreflightFreshMs = 5000;
 
 std::string InstallId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id); }
 
+// Why the kit cannot run a recipe Playden ships (its requirements), for the player; empty when it
+// can. The kit's own recipe is skipped: the kit's packager checked its template against it.
+std::string KitLacksForRecipe(const rt::GameRecipe& recipe, const rt::VerifiedKitView& kit) {
+  if (recipe.id == kit.recipe.id) return {};
+  const auto unmet = rt::UnmetRecipeRequirements(recipe.requirements, kit);
+  return unmet.empty() ? std::string()
+                       : "The installed compatibility kit lacks what this game needs (" + unmet + "); install a newer kit.";
+}
+
 // Staged, its registration submitted, and only waiting for ShadowMountPlus, which
 // registers titles once no title runs: the game is ready to play from Home. A
 // registration the console refused (a stale hook, a failed submission) is not.
@@ -769,6 +778,11 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   if (published) *published = false;
   const auto saved = config_.settings_record ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{})
                                              : rt::GameSettingsRecord{};
+  // A recipe this kit cannot run is refused before the game's files or bottle change.
+  if (c.kit)
+    for (const auto& candidate : c.recipes)
+      if (candidate.app_id == record.app_id && candidate.id == record.recipe_id)
+        if (const auto lacks = KitLacksForRecipe(candidate, c.kit->view); !lacks.empty()) return lacks;
   // "Steam features" only swaps the game's own files, so it follows the saved value at once.
   if (saved.revision <= record.settings_revision) return ApplySteamworks(c, record);
   if (!c.kit) return "No verified compatibility kit is installed.";
@@ -1478,6 +1492,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     // only that one must agree with the kit, as the kit's shell was packaged for it.
     if (recipe->id == c.kit->view.recipe.id && std::to_string(recipe->version) != c.kit->view.recipe.version)
       return "The installed compatibility kit was built for another version of this game's setup.";
+    if (const auto lacks = KitLacksForRecipe(*recipe, c.kit->view); !lacks.empty()) return lacks;
     if (recipe->launch_entries.empty()) return "Steam lists no Windows program this console can start for this game.";
     const auto settings = config_.settings_record ? config_.settings_record(request.app_id) : std::nullopt;
     // The title is made for the launch option the player chose, so its publication matches.
@@ -2170,10 +2185,14 @@ void RuntimeHost::Run() {
       operations.progress = [this](std::uint64_t done, std::uint64_t total) { ReportWork(done, total); };
       operations.log = [this](const std::string& line) { Log(line); };
       auto installer = std::make_unique<rt::FilesystemPackageInstaller>(c.kit->view, config_.package_paths, operations);
-      // Records prepared with a recipe Playden ships resolve whatever recipe the kit carries.
+      // Records prepared with a recipe Playden ships resolve whatever recipe the kit carries,
+      // as long as the kit's template provides what the recipe requires.
       std::vector<std::string> shipped;
-      for (const auto& recipe : c.recipes)
-        if (!rt::IsGeneratedRecipeId(recipe.id)) shipped.push_back(recipe.id);
+      for (const auto& recipe : c.recipes) {
+        if (rt::IsGeneratedRecipeId(recipe.id)) continue;
+        if (const auto lacks = KitLacksForRecipe(recipe, c.kit->view); lacks.empty()) shipped.push_back(recipe.id);
+        else Log("recipe " + recipe.id + " refused kit=" + c.kit->view.kit_id + " " + lacks);
+      }
       installer->AcceptShippedRecipes(std::move(shipped));
       c.installer = std::move(installer);
     } else {
