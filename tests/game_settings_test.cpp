@@ -673,7 +673,16 @@ int main(int argc, char** argv) {
     SettingsError error;
     CHECK(BuildEffectiveSettings(ffxiii, nullptr, {}, KitCapabilities{}, &settings, &error));
     CHECK(settings.graphics == "dxvk" && settings.dll_overrides == "d3d9=n");
-    CHECK(settings.values.at("steam_features").value == "emulate" && !settings.values.at("steam_features").locked);
+    // Both rows are locked: Direct3D 9 goes to DXVK whatever Graphics says, and without the emulator
+    // sgw.dll quits two seconds in. "Change anyway" still lets the player try.
+    CHECK(settings.values.at("steam_features").value == "emulate" && settings.values.at("steam_features").locked);
+    CHECK(settings.values.at("graphics").locked);
+    CHECK(BuildEffectiveSettings(ffxiii, nullptr, {{"steam_features", "game"}}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.values.at("steam_features").value == "emulate");
+    CHECK(BuildEffectiveSettings(ffxiii, nullptr, {{"steam_features", "game"}, {"unlock.steam_features", "on"}},
+                                 KitCapabilities{}, &settings, &error));
+    CHECK(settings.values.at("steam_features").value == "game" && settings.values.at("steam_features").unlocked);
+    CHECK(BuildEffectiveSettings(ffxiii, nullptr, {}, KitCapabilities{}, &settings, &error));
     // Its own full-screen, size and quality arguments; the size follows the Resolution row.
     CHECK(settings.arguments == "-FullScreenMode=Force -Width=1920 -Height=1080 -Shadow=4096 -MSAA=4");
     CHECK(BuildEffectiveSettings(ffxiii, nullptr, {{"resolution", "1280x720"}}, KitCapabilities{}, &settings, &error));
