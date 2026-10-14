@@ -304,6 +304,17 @@ int main() {
     CHECK(reason.find("Steam DRM") != std::string::npos);
   }
 
+  {  // Final Fantasy XIII keeps its program four folders deep; the picker reaches it, but not
+     // a tree that is deeper than any game ships.
+    const auto root = fresh();
+    Touch(root / "FFXiiiLauncher.exe");
+    Touch(root / "white_data/prog/win/bin/ffxiiiimg.exe");
+    Touch(root / "a/b/c/d/e/f/g/too-deep.exe");
+    const auto programs = ListGamePrograms(root.string());
+    CHECK(programs.size() == 2 && programs[0].path == "FFXiiiLauncher.exe" &&
+          programs[1].path == "white_data/prog/win/bin/ffxiiiimg.exe");
+  }
+
   {  // Selaco: Steam lists only .bat files around a .NET helper; the game's own program would start.
     const auto root = fresh();
     Touch(root / "Launch.bat");

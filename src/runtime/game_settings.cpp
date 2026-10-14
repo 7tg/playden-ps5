@@ -1383,7 +1383,7 @@ std::vector<GameProgram> ListGamePrograms(const std::string& install_root, const
                                                 "directx", "vcredist", "dotnet", "support", "$pluginsdir"};
   std::vector<std::string> found;
   std::vector<std::pair<std::string, int>> folders = {{"", 0}};
-  constexpr int kMaxDepth = 3;
+  constexpr int kMaxDepth = 6;
   constexpr std::size_t kMaxEntries = 4096;
   std::size_t seen = 0;
   for (std::size_t next = 0; next < folders.size() && found.size() < kMaxGamePrograms; ++next) {

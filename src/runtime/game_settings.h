@@ -247,7 +247,7 @@ struct GameProgram {
   std::string detected;      // GameDefaults::summary
 };
 inline constexpr std::size_t kMaxGamePrograms = 32;
-// The .exe files under install_root, a few folders deep, without following symbolic links
+// The .exe files under install_root, up to six folders deep, without following symbolic links
 // or entering redistributable folders; at most kMaxGamePrograms, shallowest first.
 std::vector<GameProgram> ListGamePrograms(const std::string& install_root, const KitCapabilities& kit = {});
 // "pe32" or "pe64" for a game-relative program under install_root (any case); empty when it
