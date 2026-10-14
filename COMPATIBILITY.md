@@ -1,6 +1,6 @@
 # Compatibility
 
-Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-13.
+Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-14.
 
 > [!NOTE]
 > This release uses **kit H r8**, where OpenGL games draw through Mesa (Zink on Vulkan). Every game marked **H** was
@@ -12,7 +12,7 @@ Did you test a game? [Open a test report](../../issues/new?template=test-report.
 
 | Status | Meaning |
 | --- | --- |
-| ✅ Works | Reaches the menu and plays with the controller (or the controller preset in the notes). |
+| ✅ Works | Reaches the menu and plays with the controller, controller preset or USB input noted. |
 | 🟡 Partial | Plays, with a problem that gets in the way. |
 | ❌ Broken | Starts, but does not reach a playable state. |
 | ⛔ Refused | Playden refuses to prepare it and tells you why. For .NET and shared-section refusals, Game settings › Known problems › Try anyway prepares it anyway. |
@@ -69,9 +69,16 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | [ENSLAVED: Odyssey to the West Premium Edition](https://store.steampowered.com/app/245280) | ✅ Works | H | Unreal 3 · D3D9 · 32-bit | Main menu and New Journey with the controller. Needs kit H r4 (.NET through Wine Mono). |
 | [GUN](https://store.steampowered.com/app/2610) | ✅ Works | H | — · D3D9 · 32-bit | Menus and New Game with the controller. Needs kit H r3. |
 | [DUSK](https://store.steampowered.com/app/519860) | ✅ Works | H | Unity · D3D11 · 64-bit | Menus with the left stick and Cross; the first level plays. |
-| [R.E.P.O.](https://store.steampowered.com/app/3241660) | ✅ Works | H r5 | Unity · 64-bit | Community report ([#8](../../issues/8), firmware 9.40). Reaches the menu and plays single player with a USB mouse and keyboard; multiplayer does not work. Controller not tested. |
-| [PlateUp!](https://store.steampowered.com/app/1599600) | 🟡 Partial | H r5 | Unity · 64-bit | Community report ([#3](../../issues/3), firmware 9.40). Reaches the menu at 30+ fps with the DualSense (default and **Arrow keys** presets); the game's FPS limit options in Settings › Graphics reduce lag. Typing the profile name needs a USB keyboard. Loading takes 30–45 seconds. |
-| [Retro Rewind - Video Store Simulator](https://store.steampowered.com/app/3552140) | 🟡 Partial | H r5 | — | Community report ([#7](../../issues/7), firmware 9.40). Reaches the menu and plays well with a USB mouse and keyboard; the DualSense does not work. |
+| [R.E.P.O.](https://store.steampowered.com/app/3241660) | ✅ Works | H r5 | Unity · 64-bit | Reaches the menu and plays single player with a USB mouse and keyboard; multiplayer does not work. Controller not tested. ([#8](https://github.com/leolobato/playden-ps5/issues/8), firmware 9.40) |
+| [Portal 2](https://store.steampowered.com/app/620) | ✅ Works | H r8 | Source · D3D9 · 32-bit | Default settings, DualSense; gameplay confirmed. ([#36](https://github.com/leolobato/playden-ps5/issues/36), firmware 13.60) |
+| [Megabonk](https://store.steampowered.com/app/3405340) | ✅ Works | H r8 | — | DualSense; Max/Ultra graphics reported. ([#30](https://github.com/leolobato/playden-ps5/issues/30), firmware 13.60) |
+| [American Truck Simulator](https://store.steampowered.com/app/270880) | ✅ Works | H r8 | — | Disable news, World of Trucks and image spotlight. DualSense or USB mouse and keyboard; startup takes over a minute. ([#27](https://github.com/leolobato/playden-ps5/issues/27), firmware 9.40) |
+| [Fast Food Simulator](https://store.steampowered.com/app/2916430) | ✅ Works | H r8 | — | Single-player with USB mouse and keyboard. Controller and multiplayer untested. ([#26](https://github.com/leolobato/playden-ps5/issues/26), firmware 9.40) |
+| [Wobbly Life](https://store.steampowered.com/app/1211020) | ✅ Works | H r8 | — | Single-player with DualSense or USB mouse and keyboard; multiplayer does not work. Loading takes about a minute. ([#25](https://github.com/leolobato/playden-ps5/issues/25), firmware 9.40) |
+| [IT Specialist Simulator](https://store.steampowered.com/app/3266090) | ✅ Works | H r8 | — | USB mouse and keyboard; controller untested. ([#21](https://github.com/leolobato/playden-ps5/issues/21), firmware 9.40) |
+| [Gas Station Simulator](https://store.steampowered.com/app/1149620) | ✅ Works | H r8 | — | Medium graphics preset, USB mouse and keyboard; controller untested. ([#17](https://github.com/leolobato/playden-ps5/issues/17), firmware 9.40) |
+| [PlateUp!](https://store.steampowered.com/app/1599600) | 🟡 Partial | H r5 | Unity · 64-bit | Reaches the menu at 30+ fps with the DualSense (default and **Arrow keys** presets); the game's FPS limit options in Settings › Graphics reduce lag. Typing the profile name needs a USB keyboard. Loading takes 30–45 seconds. ([#3](https://github.com/leolobato/playden-ps5/issues/3), firmware 9.40) |
+| [Retro Rewind - Video Store Simulator](https://store.steampowered.com/app/3552140) | 🟡 Partial | H r5 | — | Reaches the menu and plays well with a USB mouse and keyboard; the DualSense does not work. ([#7](https://github.com/leolobato/playden-ps5/issues/7), firmware 9.40) |
 | [Mullet Mad Jack](https://store.steampowered.com/app/2111190) | 🟡 Partial | H | Unity · D3D11 · 64-bit | Menus work with the controller, but the account's Cloud saves did not show in the game. Turn off Cloud sync for it until this is fixed. |
 | [Antichamber](https://store.steampowered.com/app/219890) | 🟡 Partial | H | Unreal 3 · D3D9 · 32-bit | Needs kit H r6. Reaches the first room; the controller is ignored. With Controller preset = **Mouse** the stick turns the view; walking needs a USB keyboard (WASD) or Button mapping. |
 | [Return to Castle Wolfenstein](https://store.steampowered.com/app/9010) | 🟡 Partial | H | id Tech 3 · OpenGL · 32-bit | Starts and plays its intro. The game has no controller support: use a USB mouse and keyboard, or Controller preset = **Mouse** (not tested yet). |
@@ -79,13 +86,13 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | [Balatro](https://store.steampowered.com/app/2379780) | ❌ Broken | C | LÖVE · OpenGL · 64-bit | Stops at start-up: its file system (PhysFS) fails to start. |
 | [Look Outside](https://store.steampowered.com/app/3373660) | ⛔ Refused | H | RPG Maker (NW.js) · 64-bit | Runs on NW.js (a built-in web browser), which Playden can't start on the PS5 yet. |
 | [BLUE REVOLVER](https://store.steampowered.com/app/439490) | ✅ Works | H r6 | LÖVE · OpenGL · 64-bit | Default settings. The intro, the language menu and the story opening work with the controller. The earlier PhysFS start-up failure no longer happens; its cause is unknown. Gameplay not tested on r6. |
-| [Fellowship](https://store.steampowered.com/app/2352620) | ❌ Broken | H r5 | Unreal · 64-bit | Community report ([#2](../../issues/2), firmware 13.60). Shows "The UE-fellowship Game has crashed and will close" (Fatal error) at start-up. |
+| [Fellowship](https://store.steampowered.com/app/2352620) | ❌ Broken | H r5 | Unreal · 64-bit | Shows "The UE-fellowship Game has crashed and will close" (Fatal error) at start-up. ([#2](https://github.com/leolobato/playden-ps5/issues/2), firmware 13.60) |
 | [Far Cry 3 Blood Dragon](https://store.steampowered.com/app/233270) | ❌ Broken | H | Dunia 2 · D3D11 · 32-bit | Needs Ubisoft Connect. |
 | [Bullet Witch](https://store.steampowered.com/app/696180) | ❌ Broken | H | — · D3D9 · 32-bit | Needs PhysX, which the game installs from its redistributables. Playden does not run them yet. |
 | [CULTIC](https://store.steampowered.com/app/1684930) | ❌ Broken | H | Unity · D3D11 · 64-bit | Stays on a black loading screen. |
 | [Spec Ops: The Line](https://store.steampowered.com/app/50300) | ❌ Broken | H | Unreal 3 · D3D9 · 32-bit | Exits after about 30 seconds without a picture. It probably needs its redistributables. |
 | [Singularity](https://store.steampowered.com/app/42670) | ❌ Broken | H | Unreal 3 · D3D9 · 32-bit | Crashes a few seconds after start. |
-| [Portal 2](https://store.steampowered.com/app/620) | ❌ Broken | H | Source · D3D9 · 32-bit | Stays on the loading screen: it stops while loading its own libraries. |
+| [Subnautica 2](https://store.steampowered.com/app/1962700) | ❌ Broken | H r8 | Unreal · 64-bit | Cannot start with `-dx11`; without it, reports DirectX 12 is unsupported. ([#20](https://github.com/leolobato/playden-ps5/issues/20), firmware 13.60) |
 | [Metal Wolf Chaos XD](https://store.steampowered.com/app/820630) | ❌ Broken | H | — · D3D11 · 32-bit | Crashes about 14 seconds after start, when it opens its first video: Windows video playback (Media Foundation with GStreamer) is not available yet. |
 | [Hotline Miami](https://store.steampowered.com/app/219150) | ❌ Broken | H | GameMaker · D3D8 · 32-bit | Steam starts it through a .NET launcher, so it is refused. With Game settings › Program = `HotlineMiami_Original.exe` it starts, but the keyboard and controller do nothing. |
 | [STAR WARS Empire at War: Gold Pack](https://store.steampowered.com/app/32470) | ❌ Broken | H r9 | Alamo · D3D9 · DXVK · 64-bit | Set Program to `GameData/StarWarsG.exe` (`runme.exe` only starts a launcher), Graphics to DXVK and Controller preset to **Mouse**. Needs kit H r9 for its built-in effects (Wine patches 0961–0963). With them, the intro and the main menu's 3D scene play and the menus work with the pointer (on the very first start the menu was 4:3 and ignored clicks; later starts were fine). Starting any tutorial crashes while the map loads (NULL read in `ucrtbase.dll`). |
