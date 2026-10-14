@@ -66,8 +66,8 @@ Recipe fields:
 | `graphics` | `auto`, `gdi`, `dxvk` or `opengl`. |
 | `defaults` | Game settings by setting id (`SettingsCatalogue()`), only values that differ from Playden's default. |
 | `locked` | Setting ids the player must choose "Change anyway" to change. |
-| `requirements` | What the runtime kit's template bottle must provide: `{"audio": "ps5"}` (Wine's PS5 audio driver) is the only one so far. On a kit without it, Playden refuses to prepare the game and names what is missing. |
-| `registry` | Values the bottle gets under `HKEY_CURRENT_USER` when the game's files are prepared, as a Steam install script's would be: `{"Software\\Wine\\AppDefaults\\game.exe\\Direct3D": {"VideoMemorySize": "4096"}}`. Strings only. The Windows version and text scale values belong to Game settings and are refused here. |
+| `requirements` | What the runtime kit's template bottle must provide: `{"audio": "ps5"}` (Wine's PS5 audio driver) is the only one so far. On a kit without it, Playden refuses to prepare or start the game and names what is missing. |
+| `registry` | Values the bottle gets under `HKEY_CURRENT_USER` when the game's files are prepared, as a Steam install script's would be: `{"Software\\Wine\\AppDefaults\\game.exe\\Direct3D": {"VideoMemorySize": "4096"}}`. Only some keys are allowed; see [Registry values](#registry-values). |
 
 Community fields:
 
@@ -86,3 +86,56 @@ for contributed recipes is not decided yet; do not accept
 contributions until it is.
 
 Applying community recipes from the preset chooser is planned.
+
+## Registry values
+
+Use `registry` only for a value the game reads from the registry and that no
+other field or Game settings row sets. Playden writes the values into the
+game's bottle whenever it prepares the game or applies its settings.
+
+A recipe may write two kinds of key, both under `HKEY_CURRENT_USER` (write the
+key without the `HKEY_CURRENT_USER\` part):
+
+| Key | For | Example |
+|---|---|---|
+| `Software\Wine\AppDefaults\<program>\<section>` | Wine settings for the game's program only. | `Software\Wine\AppDefaults\ffxiiiimg.exe\Direct3D`, value `VideoMemorySize` |
+| `Software\<publisher>\…` | The game's own keys: settings, install paths, accepted EULAs. | `Software\Square Enix\FINAL FANTASY XIII`, value `Language` |
+
+Every other key is refused, and the recipe does not load. Here is where those
+needs go instead:
+
+| Refused | Why | Use instead |
+|---|---|---|
+| `Software\Wine\AppDefaults\<program>\DllOverrides`, `Software\Wine\DllOverrides` | Game settings would not show these overrides. | `dll_overrides` |
+| `Version` under `AppDefaults\<program>`, `Control Panel\Desktop` `LogPixels` | Game settings writes them on every start. | The Windows version and text scale rows in `defaults` |
+| Other `Software\Wine\…` keys (for example `Drivers`, `Direct3D`) | They change Wine for the whole bottle, including what the kit checks (`Drivers\Audio`). | A section under `AppDefaults\<program>` |
+| `Environment` | It would get around the environment allow-list. | The `environment` row in `defaults` |
+| `Software\Microsoft`, `Software\Classes`, `Software\Policies`, `Control Panel`, other roots | Windows' own keys, not the game's. | Ask in an issue first. |
+| `HKEY_LOCAL_MACHINE` values | The field writes `HKEY_CURRENT_USER` only. | Playden applies the game's Steam install script (`installscript.vdf`), including its `HKEY_LOCAL_MACHINE` values. Ask in an issue if a game needs more. |
+
+Other rules: string values only, at most 16 values, printable ASCII, no `"` in
+names or values, no `\` in values, no `[` or `]` in keys, and each value once
+(letter case does not make two values different).
+
+## Shipped recipes
+
+A recipe Playden ships lives in `runtime/recipes/` and is used for that game
+instead of the one Playden makes from Steam's launch options. To add one:
+
+1. Get the game working from Game settings and export it as a recipe (see
+   [Make one](#make-one)).
+2. Name the file and its `recipe_id` `steam-<app id>-<short name>-v<version>`,
+   for example `steam-292120-ffxiii-v1`, and leave out the `community` block.
+   Change the version only when a change needs the game prepared again.
+3. Add the file name to `runtime/recipes/recipes.lst` (the console title
+   cannot list folders).
+4. Put in `locked` every row whose other values are known to stop the game. The
+   player then sees "Required by this game" and must choose "Change anyway" to
+   change it. Final Fantasy XIII locks `graphics` (its Direct3D 9 goes to DXVK
+   through `dll_overrides` whatever the row says) and `steam_features` (it quits
+   without the Steam emulator).
+5. Set `steam_features` in `defaults` if the game needs the Steam emulator. A
+   shipped recipe without it keeps the game's own Steam files.
+6. Add a test in `tests/game_settings_test.cpp` that loads the recipe and
+   checks its arguments and settings, and say in the pull request what you ran
+   on a console.

@@ -10,6 +10,9 @@ This guide covers setup, builds, tests, running on a console, and how to change 
 
 - **Test games.** Play a game from your Steam library and [send a test report](../../issues/new?template=test-report.yml),
   whether it worked or not. See [Report a game test](#report-a-game-test).
+- **Add a recipe for a game.** A recipe tells Playden how to start one game. See
+  [Community recipes](docs/community-recipes.md) for the format, the shipped recipes and the registry values a
+  recipe may set.
 - **Fix a bug or add a feature.** Look for an open issue, or open one to discuss a bigger change first.
 - **Improve the upstream projects.** Many fixes belong in prospero-win, ps5-homebrew-ui or PS5_Mesa. See
   [Dependencies](#dependencies).
