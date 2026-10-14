@@ -216,6 +216,19 @@ int main() {
     CHECK(fx::Get32(bytes, fx::kOptional + 16) == fx::kOriginalEntry);
     CHECK(Sections(bytes) == 2 && bytes.size() == fx::kBindRaw);
   }
+  {  // 2.1 whose SteamDRMP.dll pushes registers between the field loads and the key (Final Fantasy XIII).
+    fx::Spec21 spec;
+    spec.pushes_in_tail = true;
+    auto bytes = fx::Build21(spec);
+    const auto root = base / "v21-ff13";
+    Write(root / "ffxiiiimg.exe", bytes);
+    const auto info = InspectSteamStub((root / "ffxiiiimg.exe").string());
+    CHECK(info.kind == SteamStubKind::kSupported && info.detail == "2.1 x86");
+    std::string why;
+    CHECK(UnpackSteamStub(&bytes, &why));
+    CHECK(bytes.substr(fx::kCodeRaw, fx::kCodeSize) == fx::PlainCode());
+    CHECK(fx::Get32(bytes, fx::kOptional + 16) == fx::kOriginalEntry);
+  }
   {  // 2.1 without encryption (Call of Juarez Gunslinger): only the entry point comes back.
     fx::Spec21 spec;
     spec.flags = 0x26;

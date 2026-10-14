@@ -174,6 +174,10 @@ struct Spec21 {
   std::uint32_t flags = 0x20;
   std::uint32_t app_id = 208670;
   bool d0_header = false;  // the 0xD0-dword header, without LoadLibraryW
+  // SteamDRMP.dll builds differ after the fifth field load: Blades of Time stores then takes
+  // the key and IV straight away; Final Fantasy XIII pushes registers and loads a global in
+  // between, which moves the lea and the add.
+  bool pushes_in_tail = false;
 };
 
 constexpr std::size_t kBind21Size = 0x1000;
@@ -246,19 +250,32 @@ inline std::string Build21(const Spec21& spec = {}) {
   // the payload offsets from the operands.
   std::string drmp(drmp_size, '\0');
   constexpr std::size_t block = 0x40;
+  // mov edx, [eax+disp32] (8B 90) and mov [abs32], edx (89 15), as the real builds encode them.
   for (int i = 0; i < 5; ++i) {
     drmp[block + 12 * i] = '\x8B';
+    drmp[block + 12 * i + 1] = '\x90';
     drmp[block + 12 * i + 6] = '\x89';
+    drmp[block + 12 * i + 7] = '\x15';
   }
-  drmp[block + 60] = '\x8D';
-  drmp[block + 66] = '\x05';
   Put(&drmp, block + 2, 0x00, 4);   // flags
   Put(&drmp, block + 14, 0xF0, 4);  // app id (unused)
   Put(&drmp, block + 26, 0x04, 4);  // original entry point
   Put(&drmp, block + 38, 0x08, 4);  // code section address
   Put(&drmp, block + 50, 0x0C, 4);  // encrypted size
-  Put(&drmp, block + 62, 0x10, 4);  // AES key
-  Put(&drmp, block + 67, 0x30, 4);  // AES IV, then the code's first block
+  if (!spec.pushes_in_tail) {
+    drmp[block + 60] = '\x8D'; drmp[block + 61] = '\x90';  // lea edx, [eax+key]
+    Put(&drmp, block + 62, 0x10, 4);  // AES key
+    drmp[block + 66] = '\x05';                                // add eax, iv
+    Put(&drmp, block + 67, 0x30, 4);  // AES IV, then the code's first block
+  } else {
+    // ... 8B 90 <size> | 53 | 89 15 <abs> | 8D 90 <key> | 56 | 8B 35 <abs> | 05 <iv> ...
+    drmp[block + 54] = '\x53';                                                   // push ebx
+    drmp[block + 55] = '\x89'; drmp[block + 56] = '\x15';                        // mov [abs], edx
+    drmp[block + 61] = '\x8D'; drmp[block + 62] = '\x90'; Put(&drmp, block + 63, 0x10, 4);  // lea edx, [eax+key]
+    drmp[block + 67] = '\x56';                                                   // push esi
+    drmp[block + 68] = '\x8B'; drmp[block + 69] = '\x35'; Put(&drmp, block + 70, 0x1005c018u, 4);  // mov esi, [abs]
+    drmp[block + 74] = '\x05'; Put(&drmp, block + 75, 0x30, 4);                  // add eax, iv
+  }
   std::uint32_t keys[4];
   for (int i = 0; i < 4; ++i) keys[i] = Get32(payload, 0x60 + 4 * i);
   std::uint32_t chain1 = 0x55555555, chain2 = 0x55555555;

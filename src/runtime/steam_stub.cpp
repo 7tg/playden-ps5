@@ -262,6 +262,34 @@ std::optional<std::size_t> FindPattern(const std::vector<unsigned char>& data, c
   return std::nullopt;
 }
 
+// After the fifth field load, SteamDRMP.dll stores it, then takes the key with "lea reg,
+// [payload+key]" and the IV with "add eax, iv". Some builds (Final Fantasy XIII) push registers
+// and load a global in between, so the two are found by stepping over what sits there rather
+// than at fixed positions. False when the tail holds something this does not step over.
+bool TailFields21(const unsigned char* tail, std::size_t size, std::int32_t* key_at, std::int32_t* iv_at) {
+  bool key = false, iv = false;
+  for (std::size_t at = 0; at + 6 <= size && !(key && iv);) {
+    const unsigned char op = tail[at];
+    if (op >= 0x50 && op <= 0x5F) { at += 1; continue; }                 // push/pop reg
+    if (op == 0x31 || op == 0x33 || op == 0x8A) { at += 2; continue; }   // xor reg, reg; mov r8, r/m8 (register form)
+    if (op == 0xA3 || op == 0xA1) { at += 5; continue; }                 // mov [abs], eax; mov eax, [abs]
+    if (op == 0x05) {                                                    // add eax, imm32
+      if (key && !iv) { *iv_at = static_cast<std::int32_t>(U32(tail + at + 1)); iv = true; }
+      at += 5;
+      continue;
+    }
+    if (op == 0x89 || op == 0x8B || op == 0x8D) {
+      const unsigned char modrm = tail[at + 1];
+      const bool disp32 = (modrm & 0xC0) == 0x80, absolute = (modrm & 0xC7) == 0x05;
+      if (op == 0x8D && !key && disp32) { *key_at = static_cast<std::int32_t>(U32(tail + at + 2)); key = true; }
+      at += disp32 || absolute ? 6 : (modrm & 0xC0) == 0x40 ? 3 : 2;
+      continue;
+    }
+    break;
+  }
+  return key && iv;
+}
+
 SteamStubInfo Inspect21(const Reader& read, const Layout& layout, const Row& bind, Wrapper* out) {
   SteamStubInfo info;
   info.kind = SteamStubKind::kUnsupported;
@@ -325,8 +353,9 @@ SteamStubInfo Inspect21(const Reader& read, const Layout& layout, const Row& bin
   const std::int32_t entry_at = static_cast<std::int32_t>(U32(block + (fallback ? 25 : 26)));
   const std::int32_t code_va_at = static_cast<std::int32_t>(U32(block + (fallback ? 36 : 38)));
   const std::int32_t code_size_at = static_cast<std::int32_t>(U32(block + (fallback ? 47 : 50)));
-  const std::int32_t key_at = static_cast<std::int32_t>(U32(block + (fallback ? 61 : 62)));
-  const std::int32_t iv_at = static_cast<std::int32_t>(U32(block + (fallback ? 72 : 67)));
+  std::int32_t key_at = static_cast<std::int32_t>(U32(block + (fallback ? 61 : 62)));
+  std::int32_t iv_at = static_cast<std::int32_t>(U32(block + (fallback ? 72 : 67)));
+  if (!fallback && !TailFields21(block + 54, 64, &key_at, &iv_at)) return refuse("SteamDRMP.dll tail unknown");
   const auto in_range = [&](std::int32_t at, int size) { return at >= 0 && in_payload(static_cast<std::uint64_t>(at), size); };
   if (!in_range(flags_at, 4) || !in_range(entry_at, 4)) return refuse("payload fields out of range");
   const std::uint32_t flags = U32(payload.data() + flags_at);
