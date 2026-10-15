@@ -73,6 +73,20 @@ bool MakeDirectories(const std::string& path) {
   return IsDirectory(path) || mkdir(path.c_str(), 0777) == 0 || IsDirectory(path);
 }
 
+// Like MakeDirectories, but only below `mount`, and each folder it creates is made 0777 whatever
+// the umask, so the app user can write there after root made it.
+bool MakeSharedDirectories(const std::string& mount, const std::string& path) {
+  if (path.compare(0, mount.size() + 1, mount + "/") != 0) return false;
+  for (std::size_t slash = path.find('/', mount.size() + 1);; slash = path.find('/', slash + 1)) {
+    const auto prefix = slash == std::string::npos ? path : path.substr(0, slash);
+    if (!IsDirectory(prefix)) {
+      if (mkdir(prefix.c_str(), 0777) != 0 && !IsDirectory(prefix)) return false;
+      if (chmod(prefix.c_str(), 0777) != 0) return false;
+    }
+    if (slash == std::string::npos) return true;
+  }
+}
+
 bool CanWrite(const std::string& directory) {
   const auto probe = directory + "/.playden-probe";
   FILE* file = std::fopen(probe.c_str(), "w");
@@ -122,7 +136,7 @@ bool detail::VolumeMountMatches(const std::string& path, const std::string& moun
   return root.empty() || mount == root;
 }
 
-std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates) {
+std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates, const AsRoot& as_root) {
   std::vector<InstallVolume> volumes;
   for (std::size_t index = 0; index < candidates.size(); ++index) {
     const auto& candidate = candidates[index];
@@ -132,7 +146,10 @@ std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandid
     }
     if (!IsDirectory(candidate.mount)) continue;
     if (candidate.require_mount_point && !IsMountPoint(candidate.mount)) continue;
-    const bool available = MakeDirectories(candidate.games_root) && CanWrite(candidate.games_root);
+    bool available = MakeDirectories(candidate.games_root) && CanWrite(candidate.games_root);
+    if (!available && as_root &&
+        as_root([&] { return MakeSharedDirectories(candidate.mount, candidate.games_root); }))
+      available = CanWrite(candidate.games_root);
     volumes.push_back({candidate.id, candidate.label, candidate.games_root, available});
   }
   return volumes;

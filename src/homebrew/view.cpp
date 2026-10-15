@@ -1934,7 +1934,7 @@ class Render::Impl
             ui::text(scene_, fonts_.display, volume.label, 1200.0F, y, 30.0F, kText);
             const bool is_default = !state.simulation_mode && volume.id == state.default_volume_id;
             ui::text(scene_, fonts_.regular,
-                     volume.available ? (volume.writable ? (is_default ? "Default · Available" : "Available") : "Read only")
+                     volume.available ? (volume.writable ? (is_default ? "Default · Available" : "Available") : "No write access")
                                       : "Disconnected",
                      1784.0F, y, 22.0F, volume.available && volume.writable ? kSecondary : kAmber,
                      gfx::Align::right);
@@ -1963,8 +1963,9 @@ class Render::Impl
                      1200.0F, y + 76.0F, 22.0F, kSecondary);
             ui::text(scene_, fonts_.regular, "Used  " + short_size(volume.used_bytes),
                      1200.0F, y + 106.0F, 22.0F, kSecondary);
-            ui::text(scene_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes),
-                     1784.0F, y + 76.0F, 22.0F, kSecondary, gfx::Align::right);
+            if (volume.reserved_bytes > 0)
+                ui::text(scene_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes),
+                         1784.0F, y + 76.0F, 22.0F, kSecondary, gfx::Align::right);
             ui::text(scene_, fonts_.semibold, "Free  " + short_size(free),
                      1784.0F, y + 106.0F, 22.0F, volume.available ? kText : kMuted,
                      gfx::Align::right);
@@ -3142,9 +3143,10 @@ class Render::Impl
                      card.x + 22.0F, card.y + 98.0F, 17.0F, kSecondary);
             ui::text(overlay_, fonts_.regular, "Used  " + short_size(volume.used_bytes),
                      card.x + 22.0F, card.y + 128.0F, 17.0F, kSecondary);
-            ui::text(overlay_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes),
-                     card.x + card.w - 22.0F, card.y + 98.0F, 17.0F, kSecondary,
-                     gfx::Align::right);
+            if (volume.reserved_bytes > 0)
+                ui::text(overlay_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes),
+                         card.x + card.w - 22.0F, card.y + 98.0F, 17.0F, kSecondary,
+                         gfx::Align::right);
             ui::text(overlay_, fonts_.semibold, "Free  " + short_size(free),
                      card.x + card.w - 22.0F, card.y + 128.0F, 17.0F, kText,
                      gfx::Align::right);

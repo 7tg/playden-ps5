@@ -286,8 +286,14 @@ int main() {
             playden::app::AppendLogLine(log_root, "install.log", line);
         });
         playden::LocalSessionRepository install_sessions(paths.steam_state_root);
-        playden::steam::InstallService installs(install_runner, install_sessions,
-            playden::steam::DiscoverInstallVolumes(playden::steam::ConsoleVolumeCandidates(paths.title_root)));
+        // A console-formatted M.2's root belongs to root: Playden's folder there is made as root.
+        auto install_volumes = playden::steam::DiscoverInstallVolumes(
+            playden::steam::ConsoleVolumeCandidates(paths.title_root),
+            [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); });
+        for (const auto& volume : install_volumes)
+            playden::app::AppendLogLine(log_root, "install.log", "volume id=" + volume.id + " root=" + volume.games_root +
+                                        " writable=" + (volume.available ? "1" : "0"));
+        playden::steam::InstallService installs(install_runner, install_sessions, std::move(install_volumes));
         playden::steam::CmClient cloud_cm(paths.trust_store, library_storage);
         cloud_cm.SetOwner("cloud");
         cloud_cm.SetSharedSession(steam_cm);

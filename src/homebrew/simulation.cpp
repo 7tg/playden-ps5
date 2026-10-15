@@ -1212,7 +1212,7 @@ void Simulation::UpdateVolumes(const std::vector<LiveVolume>& volumes, const std
         volume.id = live_volume.id;
         volume.label = live_volume.label;
         volume.available = live_volume.available;
-        volume.writable = live_volume.available;
+        volume.writable = live_volume.available && live_volume.writable;
         volume.capacity_known = live_volume.total_bytes.has_value() && live_volume.free_bytes.has_value();
         if (volume.capacity_known) {
             volume.capacity_bytes = *live_volume.total_bytes;
@@ -2866,7 +2866,7 @@ void Simulation::rebuild_view() {
                         item.value = format_bytes(free) + " free";
                     else
                         item.value = "Free space unknown";
-                    item.subtitle = !volume->available ? "Disconnected" : !volume->writable ? "Read-only" : "Available";
+                    item.subtitle = !volume->available ? "Disconnected" : !volume->writable ? "No write access" : "Available";
                     item.enabled = volume->available && volume->writable;
                     item.selected = volume->id == (live() && picking_install_volume_ ? install_target() : selected_volume_id_);
                 }

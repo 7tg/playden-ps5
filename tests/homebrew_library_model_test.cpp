@@ -344,18 +344,21 @@ void live_install_volumes() {
                                false, {}, false, false, {}}), "library loaded");
     model.UpdateVolumes({{"internal", "Console storage", true, std::nullopt, std::nullopt},
                          {"m2", "M.2 SSD", true, 2'000, 500},
-                         {"usb0", "USB drive", false, std::nullopt, std::nullopt}}, "internal");
+                         {"usb0", "USB drive", false, std::nullopt, std::nullopt},
+                         {"ext0", "Extended storage", true, 4'000, 3'000, false}}, "internal");
     model.UpdateAppDetails(43, 400, 800, true);
     model.UpdateInstalls({{43, JobState::Downloading, 100, 400, {}, "m2"}},
                          {{42, 600, "internal", true}, {44, 0, "usb0", false}});
 
     const auto& volumes = model.state().volumes;
-    check(volumes.size() == 3 && model.state().default_volume_id == "internal", "volumes and default projected");
+    check(volumes.size() == 4 && model.state().default_volume_id == "internal", "volumes and default projected");
     check(!volumes[0].capacity_known && volumes[0].games_bytes == 600 && volumes[0].used_bytes == 600
               && volumes[0].reserved_bytes == 0, "a drive without a space report counts finished installs");
     check(volumes[1].capacity_known && volumes[1].capacity_bytes == 2'000 && volumes[1].used_bytes == 1'500
               && volumes[1].reserved_bytes == 800, "a reported drive uses its own figures plus full install reservations");
     check(!volumes[2].available, "an absent drive stays listed as unavailable");
+    check(volumes[3].available && !volumes[3].writable && volumes[3].capacity_known && volumes[3].capacity_bytes == 4'000,
+          "an attached drive Playden can't write to keeps its space report");
 
     // Settings shows the default and changes it through the install service.
     model.action("l1");
@@ -365,6 +368,9 @@ void live_install_volumes() {
     const auto* usb = find_row(model, "volume-usb0");
     check(has_row(model, "volume-internal") && has_row(model, "volume-m2") && usb && !usb->enabled,
           "the picker lists every drive and disables an absent one");
+    const auto* locked = find_row(model, "volume-ext0");
+    check(locked && !locked->enabled && locked->subtitle == "No write access" && usb->subtitle == "Disconnected",
+          "an attached drive Playden can't write to is told apart from an absent one");
     const auto* m2 = find_row(model, "volume-m2");
     check(m2 && m2->value.find("free") != std::string::npos, "a reported drive shows its free space");
     activate(model, "volume-m2");

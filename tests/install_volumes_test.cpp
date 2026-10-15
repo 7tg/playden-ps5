@@ -41,6 +41,35 @@ int main() {
   CHECK(volumes[2].id == "locked");
   if (::geteuid() != 0) CHECK(!volumes[2].available);  // root ignores the permission bits
 
+  // A drive whose root only root may write (a console-formatted M.2, issue #57): the folders are
+  // made with root rights and left open to the app user, which then writes there itself.
+  int root_calls = 0;
+  const auto locked_mode = std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec;
+  const AsRoot as_root = [&](const std::function<bool()>& work) {
+    ++root_calls;
+    std::filesystem::permissions(base / "locked", std::filesystem::perms::owner_all);
+    const bool ok = work();
+    std::filesystem::permissions(base / "locked", locked_mode);
+    return ok;
+  };
+  const auto rooted = DiscoverInstallVolumes(candidates, as_root);
+  CHECK(rooted.size() == 3 && rooted[1].available && rooted[2].id == "locked" && rooted[2].available);
+  CHECK(root_calls == (::geteuid() != 0 ? 1 : 0));  // only the drive the app user could not write
+  if (::geteuid() != 0) {
+    for (const auto& folder : {base / "locked" / "playden", base / "locked" / "playden" / "games"})
+      CHECK((std::filesystem::status(folder).permissions() & std::filesystem::perms::all) == std::filesystem::perms::all);
+    CHECK(!std::filesystem::exists(base / "locked" / "playden" / "games" / ".playden-probe"));
+  }
+  // Without root rights the drive stays offered but unavailable.
+  std::filesystem::create_directories(base / "locked2");
+  std::filesystem::permissions(base / "locked2", locked_mode);
+  const auto refused = DiscoverInstallVolumes(
+      {candidates[0], {"locked2", "Locked", (base / "locked2").string(), (base / "locked2" / "playden" / "games").string()}},
+      [](const std::function<bool()>&) { return false; });
+  CHECK(refused.size() == 2);
+  if (::geteuid() != 0) CHECK(!refused[1].available && !std::filesystem::exists(base / "locked2" / "playden"));
+  std::filesystem::permissions(base / "locked2", std::filesystem::perms::owner_all);
+
   // A folder on the same filesystem as its parent is an empty mount point, not a drive:
   // it is skipped and nothing is created inside it.
   std::filesystem::create_directories(base / "unmounted");

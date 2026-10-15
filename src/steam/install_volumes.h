@@ -3,6 +3,7 @@
 #include "steam/install_service.h"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -21,10 +22,17 @@ struct VolumeCandidate {
   bool require_mount_point = false;
 };
 
+// Runs `work` with root rights and reports whether both succeeded.
+using AsRoot = std::function<bool(const std::function<bool()>& work)>;
+
 // Candidates whose mount exists (and is mounted, when required), with `available` set when Playden could create games_root and
 // write a probe file there. The first candidate is the primary volume and is always returned,
-// marked available (its folder is created on first install).
-std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates);
+// marked available (its folder is created on first install). A console-formatted drive's root
+// belongs to root (issue #57): when the app user cannot create games_root, `as_root` creates
+// the missing folders, open to everyone (0777) like an exFAT drive's, so games are still
+// written by the app user.
+std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates,
+                                                  const AsRoot& as_root = {});
 
 // Candidate drives for the PS5 title: console storage under the verified title
 // root, then extended storage and USB drives. Use the stable root after a grant.

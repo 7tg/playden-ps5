@@ -73,9 +73,10 @@ struct LiveCompletedDownload {
 struct LiveVolume {
     std::string id;
     std::string label;
-    bool available = true;
+    bool available = true;   // the drive is attached
     std::optional<std::uint64_t> total_bytes;
     std::optional<std::uint64_t> free_bytes;
+    bool writable = true;    // Playden can make its games folder there
 };
 // The compatibility kit in use, for Settings > About. Every field is empty when no kit is usable.
 struct LiveKitInfo {

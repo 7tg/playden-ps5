@@ -1109,12 +1109,12 @@ void Controller::TickInstalls() {
   if (snapshot.revision == install_revision_ && !account_changed && !space_due && !licenses_due) return;
   {
     std::vector<LiveVolume> volumes;
+    // Only attached drives are listed; one Playden can't write to is still attached, and its
+    // space is still readable (the query falls back from a missing games folder to the drive).
     for (const auto& volume : snapshot.volumes) {
-      LiveVolume live{volume.id, volume.label, volume.available, std::nullopt, std::nullopt};
-      if (volume.available) {
-        const auto space = steam::QueryVolumeSpace(volume.games_root);
-        if (space) { live.total_bytes = space->total_bytes; live.free_bytes = space->free_bytes; }
-      }
+      LiveVolume live{volume.id, volume.label, true, std::nullopt, std::nullopt, volume.available};
+      const auto space = steam::QueryVolumeSpace(volume.games_root);
+      if (space) { live.total_bytes = space->total_bytes; live.free_bytes = space->free_bytes; }
       volumes.push_back(std::move(live));
     }
     model_.SetFreeSpaceSupported(steam::VolumeSpaceSupported());
