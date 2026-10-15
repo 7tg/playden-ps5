@@ -935,6 +935,9 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
 
   std::map<std::uint32_t, std::vector<std::uint32_t>> package_apps;
   for (std::size_t start = 0; start < packages.size(); start += kPicsBatch) {
+    // Each batch gets its own deadline: an account with thousands of licenses needs hundreds of
+    // batches, more than one deadline covers (issue #47). A stalled batch still times out.
+    if (start > 0) session.Rebind(Clock::now() + std::chrono::milliseconds(hooks_.deadline_ms), cancel);
     const std::vector<cm::PackageRequest> batch(
         packages.begin() + static_cast<std::ptrdiff_t>(start),
         packages.begin() + static_cast<std::ptrdiff_t>(std::min(start + kPicsBatch, packages.size())));

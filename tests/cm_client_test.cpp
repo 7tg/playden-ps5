@@ -8,6 +8,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -64,6 +65,8 @@ struct Script {
   std::map<std::uint32_t, std::vector<std::vector<std::uint8_t>>> on_emsg;
   std::vector<std::vector<std::uint8_t>> raw_sent;
   std::chrono::milliseconds pics_delay{0};
+  // When set, answers each PICS request instead of on_pics.
+  std::function<std::vector<std::uint8_t>(const cm::Frame&)> pics_reply;
 
   void Queue(std::vector<std::uint8_t> frame, std::chrono::milliseconds delay = 0ms) {
     inbox.emplace_back(std::chrono::steady_clock::now() + delay, std::move(frame));
@@ -87,7 +90,9 @@ class FakeTransport final : public MessageTransport {
     assert(cm::DecodeFrame(message.data(), message.size(), &frame));
     if (frame.emsg == cm::kEMsgClientLogon)
       for (const auto& reply : script_->on_logon) script_->Queue(reply);
-    if (frame.emsg == cm::kEMsgClientPICSProductInfoRequest)
+    if (frame.emsg == cm::kEMsgClientPICSProductInfoRequest && script_->pics_reply)
+      script_->Queue(script_->pics_reply(frame), script_->pics_delay);
+    else if (frame.emsg == cm::kEMsgClientPICSProductInfoRequest)
       for (const auto& reply : script_->on_pics) script_->Queue(reply, script_->pics_delay);
     if (frame.emsg == cm::kEMsgServiceMethodCallFromClient)
       for (const auto& reply : script_->on_service) script_->Queue(reply);
@@ -264,6 +269,41 @@ void SilentServerTimesOut() {
   const auto start = std::chrono::steady_clock::now();
   assert(client.FetchAcquisitionDates(Session(), cancel).error == CmError::kTimeout);
   assert(std::chrono::steady_clock::now() - start < 1s);
+}
+
+// Thousands of licenses take hundreds of PICS batches (issue #47): each batch has its own deadline, so
+// batches that together take longer than one deadline still finish.
+void EveryPackageBatchGetsItsOwnDeadline() {
+  auto script = std::make_shared<Script>();
+  // Package 200 plus 100 more that Steam leaves out: three batches of at most 50.
+  proto::Writer licenses;
+  proto::Writer owned;
+  owned.AddVarint(1, 200);
+  owned.AddFixed32(2, 1500000000);
+  licenses.AddMessage(2, owned);
+  for (std::uint32_t id = 1000; id < 1100; ++id) {
+    proto::Writer license;
+    license.AddVarint(1, id);
+    licenses.AddMessage(2, license);
+  }
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9)),
+                      ServerFrame(cm::kEMsgClientLicenseList, licenses.bytes())};
+  script->pics_reply = [](const cm::Frame& request) {
+    return ServerFrame(cm::kEMsgClientPICSProductInfoResponse, Fixture("pics_response_part2.pb"), std::nullopt,
+                       request.header.jobid_source);
+  };
+  script->pics_delay = 200ms;
+  auto client = MakeClient(script, 500);
+  std::atomic<bool> cancel{false};
+  const auto start = std::chrono::steady_clock::now();
+  const auto result = client.FetchAcquisitionDates(Session(), cancel);
+  assert(std::chrono::steady_clock::now() - start > 500ms);
+  assert(result.ok() && result.skipped_packages == 100);
+  assert(result.owned_apps == (std::set<std::uint32_t>{20, 30}));
+  std::lock_guard<std::mutex> lock(script->mutex);
+  assert(std::count_if(script->sent.begin(), script->sent.end(), [](const cm::Frame& frame) {
+           return frame.emsg == cm::kEMsgClientPICSProductInfoRequest;
+         }) == 3);
 }
 
 void CancelStopsWaiting() {
@@ -618,6 +658,8 @@ int main(int argc, char** argv) {
   JobErrorResultFailsTheBatch();
   ResetCmBackoff();
   SilentServerTimesOut();
+  ResetCmBackoff();
+  EveryPackageBatchGetsItsOwnDeadline();
   ResetCmBackoff();
   CancelStopsWaiting();
   ResetCmBackoff();
