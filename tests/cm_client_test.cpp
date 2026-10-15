@@ -15,6 +15,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 using namespace playden;
@@ -304,6 +305,69 @@ void EveryPackageBatchGetsItsOwnDeadline() {
   assert(std::count_if(script->sent.begin(), script->sent.end(), [](const cm::Frame& frame) {
            return frame.emsg == cm::kEMsgClientPICSProductInfoRequest;
          }) == 3);
+}
+
+// Package 0 is the base license on older accounts and holds Valve's games (issue #58): its apps and depots count.
+std::vector<std::uint8_t> PackageBuffer(std::uint32_t package_id, const std::vector<std::uint32_t>& apps,
+                                        const std::vector<std::uint32_t>& depots) {
+  std::vector<std::uint8_t> kv = {1, 0, 0, 0};
+  auto text = [&](const std::string& value) {
+    kv.insert(kv.end(), value.begin(), value.end());
+    kv.push_back(0);
+  };
+  auto section = [&](const std::string& name) {
+    kv.push_back(0);
+    text(name);
+  };
+  auto ids = [&](const char* name, const std::vector<std::uint32_t>& values) {
+    section(name);
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      kv.push_back(2);
+      text(std::to_string(index));
+      for (int shift = 0; shift < 32; shift += 8) kv.push_back(static_cast<std::uint8_t>(values[index] >> shift));
+    }
+    kv.push_back(8);
+  };
+  section(std::to_string(package_id));
+  ids("appids", apps);
+  ids("depotids", depots);
+  kv.push_back(8);  // ends the package section
+  kv.push_back(8);  // and the root
+  return kv;
+}
+
+void PackageZeroCounts() {
+  auto script = std::make_shared<Script>();
+  proto::Writer licenses;
+  licenses.AddVarint(1, 1);
+  for (const auto& [id, created] : {std::pair<std::uint32_t, std::uint32_t>{0, 1240000000}, {8538, 1300000000}}) {
+    proto::Writer license;
+    license.AddVarint(1, id);
+    license.AddFixed32(2, created);
+    license.AddVarint(7, 0x200);
+    licenses.AddMessage(2, license);
+  }
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9)),
+                      ServerFrame(cm::kEMsgClientLicenseList, licenses.bytes())};
+  script->pics_reply = [](const cm::Frame& request) {
+    proto::Writer body;
+    for (const auto& [id, apps, depots] :
+         {std::tuple<std::uint32_t, std::vector<std::uint32_t>, std::vector<std::uint32_t>>{0, {440, 220}, {441, 232251}},
+          {8538, {440}, {232251, 232253}}}) {
+      proto::Writer package;
+      package.AddVarint(1, id);
+      package.AddBytes(5, PackageBuffer(id, apps, depots));
+      body.AddMessage(3, package);
+    }
+    return ServerFrame(cm::kEMsgClientPICSProductInfoResponse, body.bytes(), std::nullopt, request.header.jobid_source);
+  };
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  const auto result = client.FetchAcquisitionDates(Session(), cancel);
+  assert(result.ok() && result.skipped_packages == 0);
+  assert(result.owned_apps == (std::set<std::uint32_t>{220, 440}));
+  assert(result.owned_depots == (std::set<std::uint32_t>{441, 232251, 232253}));
+  assert(result.acquired_at.at(440) == 1240000000u && result.acquired_at.at(220) == 1240000000u);
 }
 
 void CancelStopsWaiting() {
@@ -689,6 +753,7 @@ int main(int argc, char** argv) {
   // A token one test refused stays refused for the process, so every test starts clean.
   ResetCmBackoff();
   AcquisitionDatesFromGzipMultiLicensesAndMultipartPics();
+  PackageZeroCounts();
   ResetCmBackoff();
   RejectedLogonIsReportedWithoutDates();
   ResetCmBackoff();

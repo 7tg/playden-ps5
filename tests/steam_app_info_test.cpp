@@ -290,6 +290,44 @@ void TestSelectDepots() {
   CHECK((Ids(selected) == U32s{101, 106}));
 }
 
+// A partial grant must not install as if complete (issue #58): Team Fortress 2's content depot has
+// no oslist or language and comes from a license the account's other one lacks.
+void TestMissingBaseDepots() {
+  AppInfo app;
+  app.app_id = 440;
+  DepotInfo content;
+  content.id = 441;
+  content.manifest_gid = 1;
+  content.size = 31'000'000'000ull;
+  DepotInfo binaries = content;
+  binaries.id = 232251;
+  binaries.os_list = "windows";
+  binaries.size = 584'000'000ull;
+  DepotInfo extra = content;
+  extra.id = 450;
+  extra.size = 100'000'000ull;
+  app.depots = {content, binaries, extra};
+  std::vector<DepotInfo> selected;
+  std::string reason;
+
+  const std::set<std::uint32_t> partial{232251};
+  CHECK(SelectDepots(app, {440}, partial, &selected, &reason));
+  CHECK((Ids(selected) == U32s{232251}));
+  CHECK((MissingBaseDepots(app, partial, selected) == U32s{441, 450}));
+
+  const std::set<std::uint32_t> full{441, 232251};
+  CHECK(SelectDepots(app, {440}, full, &selected, &reason));
+  CHECK((Ids(selected) == U32s{441, 232251}));
+  // An unowned depot smaller than the game is an extra, not the game.
+  CHECK(MissingBaseDepots(app, full, selected).empty());
+  // Unknown licenses, or appinfo without sizes, never block an install.
+  CHECK(MissingBaseDepots(app, std::nullopt, selected).empty());
+  AppInfo sizeless = app;
+  for (DepotInfo& depot : sizeless.depots) depot.size = 0;
+  CHECK(SelectDepots(sizeless, {440}, partial, &selected, &reason));
+  CHECK(MissingBaseDepots(sizeless, partial, selected).empty());
+}
+
 void TestEligibleLaunches() {
   const auto app = ParseAppInfo(kApp, Buffer());
   CHECK(app);
@@ -375,6 +413,7 @@ int main() {
   TestParse();
   TestParseDefaultsAndFailures();
   TestSelectDepots();
+  TestMissingBaseDepots();
   TestEligibleLaunches();
   TestWindowsArguments();
   TestRelativeGamePath();

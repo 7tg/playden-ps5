@@ -60,8 +60,10 @@ bool ValidEndpoint(const std::string& endpoint) {
   });
 }
 
+// Package 0 counts: older accounts hold Valve's games there (Team Fortress 2's content, issue #58), and the
+// reference reads every package in the license list.
 bool OwnedActiveLicense(const cm::License& license, std::uint32_t account_id) {
-  return license.package_id != 0 && (license.flags & kUnavailableLicense) == 0 &&
+  return (license.flags & kUnavailableLicense) == 0 &&
          (license.owner_id == 0 || license.owner_id == account_id) &&
          (license.minute_limit <= 0 || license.minutes_used < license.minute_limit);
 }

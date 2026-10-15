@@ -94,6 +94,14 @@ bool SelectDepots(const AppInfo& app, const std::set<std::uint32_t>& owned_apps,
                   const std::optional<std::set<std::uint32_t>>& owned_depots,
                   std::vector<DepotInfo>* selected, std::string* reason);
 
+// Depots that look like the game itself but the account's licenses do not grant: no oslist, no
+// language, not DLC, with a public manifest, and together larger than the selected depots. Empty
+// when nothing is missing or the licenses are unknown. Installing the rest would look complete
+// but not start (issue #58).
+std::vector<std::uint32_t> MissingBaseDepots(const AppInfo& app,
+                                             const std::optional<std::set<std::uint32_t>>& owned_depots,
+                                             const std::vector<DepotInfo>& selected);
+
 // Windows launch entries usable on the public branch, default type first, then by id.
 bool EligibleLaunches(const AppInfo& app, const std::set<std::uint32_t>& owned_apps,
                       std::vector<AppLaunch>* launches, std::string* reason);

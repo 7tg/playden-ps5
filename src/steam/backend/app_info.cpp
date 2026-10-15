@@ -430,6 +430,26 @@ bool SelectDepots(const AppInfo& app, const std::set<std::uint32_t>& owned_apps,
   return true;
 }
 
+std::vector<std::uint32_t> MissingBaseDepots(const AppInfo& app,
+                                             const std::optional<std::set<std::uint32_t>>& owned_depots,
+                                             const std::vector<DepotInfo>& selected) {
+  if (!owned_depots) return {};
+  std::uint64_t selected_size = 0;
+  for (const DepotInfo& depot : selected) selected_size += depot.size;
+  std::vector<std::uint32_t> missing;
+  std::uint64_t missing_size = 0;
+  for (const DepotInfo& depot : app.depots) {
+    if (owned_depots->count(depot.id) != 0 || depot.depot_from_app || depot.shared_install || depot.is_dlc ||
+        !depot.os_list.empty() || !depot.language.empty() || !depot.manifest_gid || *depot.manifest_gid == 0)
+      continue;
+    missing.push_back(depot.id);
+    missing_size += depot.size;
+  }
+  // An unowned extra (a bonus or edition depot) is smaller than the game; old appinfo has no sizes.
+  if (missing_size == 0 || missing_size <= selected_size) return {};
+  return missing;
+}
+
 bool EligibleLaunches(const AppInfo& app, const std::set<std::uint32_t>& owned_apps,
                       std::vector<AppLaunch>* launches, std::string* reason) {
   std::vector<AppLaunch> eligible;

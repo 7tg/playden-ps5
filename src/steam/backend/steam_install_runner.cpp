@@ -124,12 +124,22 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
     result.failure = "No Windows content to install.";
     return result;
   }
+  if (const auto missing = MissingBaseDepots(*app, entitlements.owned_depots, target.depots); !missing.empty()) {
+    std::string ids;
+    for (const auto depot : missing) ids += (ids.empty() ? "" : " ") + std::to_string(depot);
+    log("depots", "partial", ("unowned=" + ids).c_str());
+    result.failure = "Steam didn't grant access to part of this game.";
+    return result;
+  }
   // Keep Steam's listing order: it is the depot mounting order.
   std::vector<DepotInfo> ordered;
   for (const auto& depot : app->depots)
     for (const auto& selected : target.depots)
       if (selected.id == depot.id) ordered.push_back(selected);
   target.depots = ordered;
+  std::string selected_ids;
+  for (const auto& depot : target.depots) selected_ids += (selected_ids.empty() ? "" : " ") + std::to_string(depot.id);
+  log("depots", "selected", selected_ids.c_str());
   if (step) step(InstallStep::kDownloading);
   const auto outcome = installer_.Run(session, target, cancel, [&](const InstallProgress& state) {
     if (progress) progress(state.download_done, state.download_total, state.held_bytes);
