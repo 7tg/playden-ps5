@@ -1,0 +1,857 @@
+#include "update/update_service.h"
+
+#include <pthread.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cstdio>
+#include <utility>
+
+#include "steam/backend/json.h"
+#include "update/app_swap.h"
+#include "update/file_ops.h"
+#include "update/zip_extract.h"
+
+namespace playden::update {
+
+struct UpdateService::Shared {
+  mutable std::mutex mutex;
+  UpdateSnapshot snapshot;
+  std::atomic<bool> cancel{false};
+  std::atomic<bool> busy{false};
+  std::function<void()> queued;  // one job asked for while another ran (under mutex)
+  bool thread_started = false;
+  pthread_t thread{};
+};
+
+namespace {
+
+void* RunJob(void* opaque) {
+  std::unique_ptr<std::function<void()>> work(static_cast<std::function<void()>*>(opaque));
+  (*work)();
+  return nullptr;
+}
+
+std::string Quote(const std::string& text) {
+  std::string out = "\"";
+  for (char c : text) {
+    if (c == '\n') { out += "\\n"; continue; }
+    if (c == '"' || c == '\\') out += '\\';
+    if (static_cast<unsigned char>(c) >= 0x20) out += c;
+    else out += ' ';
+  }
+  return out + "\"";
+}
+
+std::string Gigabytes(std::uint64_t bytes) {
+  char text[32];
+  std::snprintf(text, sizeof text, "%.1f GB", static_cast<double>(bytes) / 1e9);
+  return text;
+}
+
+// An app file's mode on the console: executables 0755 (as the FTP deploy tool sets them),
+// everything else as the zip has it.
+std::optional<unsigned> AppMode(const std::string& relative, unsigned zip_mode) {
+  const auto slash = relative.rfind('/');
+  const std::string name = slash == std::string::npos ? relative : relative.substr(slash + 1);
+  const auto ends = [&](const char* suffix) {
+    const std::string tail = suffix;
+    return name.size() > tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0;
+  };
+  if (name == "eboot.bin" || ends(".prx") || ends(".elf")) return 0755u;
+  return zip_mode;
+}
+
+}  // namespace
+
+const char* UpdatePhaseName(UpdatePhase phase) {
+  switch (phase) {
+    case UpdatePhase::kIdle: return "idle";
+    case UpdatePhase::kChecking: return "checking";
+    case UpdatePhase::kUpToDate: return "up-to-date";
+    case UpdatePhase::kAvailable: return "available";
+    case UpdatePhase::kDownloading: return "downloading";
+    case UpdatePhase::kUnpacking: return "unpacking";
+    case UpdatePhase::kStaged: return "staged";
+    case UpdatePhase::kFailed: return "failed";
+  }
+  return "?";
+}
+
+UpdateService::UpdateService(UpdateConfig config) : config_(std::move(config)), shared_(std::make_shared<Shared>()) {
+  if (!config_.as_root) config_.as_root = [](const std::function<bool()>& work) { return work(); };
+  if (!config_.now) config_.now = [] { return static_cast<std::int64_t>(time(nullptr)); };
+  shared_->snapshot.current = config_.current;
+}
+
+UpdateService::~UpdateService() { Shutdown(); }
+
+void UpdateService::Log(const std::string& line) const {
+  if (config_.log) config_.log("self-update: " + line);
+}
+
+void UpdateService::Set(const std::function<void(UpdateSnapshot&)>& change) {
+  std::lock_guard<std::mutex> lock(shared_->mutex);
+  change(shared_->snapshot);
+  ++shared_->snapshot.revision;
+}
+
+UpdateSnapshot UpdateService::Snapshot() const {
+  std::lock_guard<std::mutex> lock(shared_->mutex);
+  return shared_->snapshot;
+}
+
+bool UpdateService::Busy() const { return shared_->busy; }
+
+void UpdateService::AcknowledgeFinished() {
+  Set([](UpdateSnapshot& s) {
+    s.finished_message.clear();
+    s.finished_failed = false;
+    s.whats_new = false;
+  });
+}
+
+std::string UpdateService::PageFor(const std::string& tag) const {
+  return config_.releases_page.empty() ? std::string() : config_.releases_page + "/tag/" + tag;
+}
+
+// The running version's notes, saved when the update to it was confirmed; without them, its page.
+void UpdateService::LoadCurrentNotes() {
+  std::string notes, url;
+  std::string text;
+  if (ReadSmallFile(config_.work_root + "/release-notes.json", &text, 64 << 10)) {
+    if (const auto saved = steam::json::Parse(text); saved && saved->is_object()) {
+      const auto* version = saved->Find("version");
+      if (version && version->is_string() && ParseVersion(version->text()) == config_.current) {
+        if (const auto* value = saved->Find("notes"); value && value->is_string()) notes = value->text();
+        if (const auto* value = saved->Find("url"); value && value->is_string()) url = value->text();
+      }
+    }
+  }
+  if (url.empty()) url = PageFor("v" + config_.current.ToString());
+  Set([&](UpdateSnapshot& s) {
+    s.current_notes = notes;
+    s.current_notes_url = url;
+  });
+}
+
+void UpdateService::Fail(const std::string& message, const std::string& detail) {
+  Log("failed: " + message + (detail.empty() ? "" : " (" + detail + ")"));
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kFailed;
+    s.error = message;
+    s.part.clear();
+  });
+}
+
+std::string UpdateService::StatePath() const { return config_.work_root + "/state.json"; }
+
+bool UpdateService::SaveState(const std::string& phase, const std::string& extra) {
+  const std::string text = "{\"phase\":" + Quote(phase) + extra + "}\n";
+  const bool ok = WriteFileAtomically(StatePath(), text);
+  if (!ok) Log("cannot save " + StatePath());
+  return ok;
+}
+
+std::string UpdateService::StagedFields() const {
+  const auto snapshot = Snapshot();
+  return ",\"version\":" + Quote(staged_version_.ToString()) + ",\"from\":" + Quote(config_.current.ToString()) +
+         ",\"stage\":" + Quote(staged_folder_) + ",\"kit\":" + Quote(staged_kit_) + ",\"kit_id\":" +
+         Quote(staged_kit_id_) + ",\"notes\":" + Quote(snapshot.notes) + ",\"notes_url\":" + Quote(snapshot.notes_url);
+}
+
+bool UpdateService::PrepareWorkRoot() {
+  if (IsFolder(config_.work_root) && access(config_.work_root.c_str(), W_OK) == 0) return true;
+  config_.as_root([&] { return MakeFolders(config_.work_root) && chmod(config_.work_root.c_str(), 0777) == 0; });
+  const bool ok = IsFolder(config_.work_root) && access(config_.work_root.c_str(), W_OK) == 0;
+  if (!ok) Log("cannot create " + config_.work_root);
+  return ok;
+}
+
+bool UpdateService::RemoveOwnedTree(const std::string& path) {
+  RemoveTree(path);
+  if (Exists(path)) config_.as_root([&] { RemoveTree(path); return true; });
+  return !Exists(path);
+}
+
+void UpdateService::Run(std::function<void()> work) {
+  {
+    // A job asked for while another runs waits for it (the startup check behind the cleanup of a
+    // confirmed update, an install behind a check); a third request replaces nothing.
+    std::lock_guard<std::mutex> lock(shared_->mutex);
+    if (shared_->busy) {
+      if (!shared_->queued) shared_->queued = std::move(work);
+      return;
+    }
+    shared_->busy = true;
+  }
+  if (shared_->thread_started) {
+    pthread_join(shared_->thread, nullptr);
+    shared_->thread_started = false;
+  }
+  shared_->cancel = false;
+  auto shared = shared_;
+  auto* job = new std::function<void()>([shared, work = std::move(work)] {
+    work();
+    for (;;) {
+      std::function<void()> next;
+      {
+        std::lock_guard<std::mutex> lock(shared->mutex);
+        next = std::move(shared->queued);
+        shared->queued = nullptr;
+        if (!next) {
+          shared->busy = false;
+          return;
+        }
+      }
+      if (!shared->cancel) next();
+    }
+  });
+  pthread_attr_t attributes;
+  pthread_attr_init(&attributes);
+  pthread_attr_setstacksize(&attributes, config_.worker_stack_bytes);
+  const int rc = pthread_create(&shared_->thread, &attributes, RunJob, job);
+  pthread_attr_destroy(&attributes);
+  if (rc != 0) {
+    delete job;
+    {
+      std::lock_guard<std::mutex> lock(shared_->mutex);
+      shared_->busy = false;
+      shared_->queued = nullptr;
+    }
+    Fail("Playden could not start the update.", "pthread_create " + std::to_string(rc));
+    return;
+  }
+  shared_->thread_started = true;
+}
+
+void UpdateService::Shutdown() {
+  shared_->cancel = true;
+  if (shared_->thread_started) {
+    pthread_join(shared_->thread, nullptr);
+    shared_->thread_started = false;
+  }
+}
+
+void UpdateService::Cancel() { shared_->cancel = true; }
+
+void UpdateService::RequestRollback() {
+  Set([&](UpdateSnapshot& s) {
+    if (!s.previous.empty() && s.phase != UpdatePhase::kDownloading && s.phase != UpdatePhase::kUnpacking)
+      s.rollback_requested = true;
+  });
+}
+
+std::optional<UpdateService::Backup> UpdateService::LatestBackup() const {
+  std::optional<Backup> latest;
+  std::string latest_name;
+  for (const auto& name : ListFolder(config_.work_root + "/backup")) {
+    const auto dash = name.rfind('-');
+    const auto version = dash == std::string::npos ? std::nullopt : ParseVersion(name.substr(0, dash));
+    const std::string path = config_.work_root + "/backup/" + name;
+    if (!version || !Exists(path + "/eboot.bin")) continue;
+    // Names end in the swap time; the newest has the largest.
+    const auto stamp = name.substr(dash + 1);
+    if (!latest || stamp.size() > latest_name.size() || (stamp.size() == latest_name.size() && stamp > latest_name)) {
+      latest = Backup{path, *version};
+      latest_name = stamp;
+    }
+  }
+  return latest;
+}
+
+void UpdateService::FindPrevious() {
+  const auto backup = LatestBackup();
+  Set([&](UpdateSnapshot& s) {
+    s.previous = backup && backup->version != config_.current ? backup->version.ToString() : std::string();
+  });
+}
+
+void UpdateService::RequestRestart() {
+  Set([&](UpdateSnapshot& s) {
+    if (s.phase == UpdatePhase::kStaged) s.restart_requested = true;
+  });
+}
+
+DownloadOptions UpdateService::Downloads(const std::string& part) {
+  DownloadOptions options;
+  options.fetch = config_.fetch;
+  options.user_agent = "Playden/" + config_.current.ToString();
+  options.hash_file = config_.hash_file;
+  options.cancel = &shared_->cancel;
+  options.wait_before_retry = config_.wait_before_retry;
+  options.log = [this](const std::string& line) { Log(line); };
+  if (!part.empty())
+    options.progress = [this, part](std::uint64_t done, std::uint64_t total) {
+      Set([&](UpdateSnapshot& s) { s.part = part; s.done = done; s.total = total; });
+    };
+  return options;
+}
+
+std::string UpdateService::ReadyKit(const KitPart& kit) const {
+  if (!config_.verify_kit) return {};
+  const std::string installed = config_.kits_root + "/" + kit.kit_id;
+  const std::string staged = config_.kits_root + "/.next-" + kit.kit_id + "-" + kit.revision;
+  for (const auto& folder : {installed, staged}) {
+    const auto sha = config_.verify_kit(folder);
+    if (sha && *sha == kit.manifest_sha256) return folder;
+  }
+  return {};
+}
+
+void UpdateService::Start() {
+  FindPrevious();
+  LoadCurrentNotes();
+  std::string text;
+  if (!ReadSmallFile(StatePath(), &text)) return;
+  const auto state = steam::json::Parse(text);
+  if (!state || !state->is_object()) {
+    Log("unreadable state, removed");
+    unlink(StatePath().c_str());
+    return;
+  }
+  const auto field = [&](const char* name) -> std::string {
+    const auto* value = state->Find(name);
+    return value && value->is_string() ? value->text() : std::string();
+  };
+  const std::string phase = field("phase");
+  if (phase == "applied") {
+    ConfirmApplied(text);
+    return;
+  }
+  if (phase == "staged") {
+    const auto version = ParseVersion(field("version"));
+    const std::string stage = field("stage");
+    const std::string kit = field("kit");
+    const bool kit_present = kit.empty() || (config_.verify_kit && config_.verify_kit(kit));
+    if (version && config_.current < *version && !stage.empty() && Exists(stage + "/eboot.bin") && kit_present) {
+      staged_folder_ = stage;
+      staged_version_ = *version;
+      staged_kit_ = kit;
+      staged_kit_id_ = field("kit_id");
+      Log("update " + version->ToString() + " is staged at " + stage + (kit.empty() ? "" : " with kit " + kit));
+      Set([&](UpdateSnapshot& s) {
+        s.phase = UpdatePhase::kStaged;
+        s.available = *version;
+        s.notes = field("notes");
+        s.notes_url = field("notes_url");
+      });
+      return;
+    }
+    Log("staged update no longer applies, removed");
+    RemoveOwnedTree(stage);
+    if (!kit.empty()) RemoveOwnedTree(kit);
+    unlink(StatePath().c_str());
+  }
+}
+
+void UpdateService::ConfirmApplied(const std::string& text) {
+  const auto state = steam::json::Parse(text);
+  const auto field = [&](const char* name) -> std::string {
+    const auto* value = state->Find(name);
+    return value && value->is_string() ? value->text() : std::string();
+  };
+  const auto version = ParseVersion(field("version"));
+  const std::string backup = field("backup");
+  const std::string previous_kit = field("previous_kit");
+  const std::string kit_id = field("kit_id");
+  const bool rolled_back = field("rolled_back") == "yes";
+  if (version && *version == config_.current) {
+    Log((rolled_back ? "going back to " : "update to ") + version->ToString() + " confirmed");
+    if (!rolled_back) {
+      // Kept for Settings › Release notes until the next update.
+      WriteFileAtomically(config_.work_root + "/release-notes.json",
+                          "{\"version\":" + Quote(version->ToString()) + ",\"notes\":" + Quote(field("notes")) +
+                              ",\"url\":" + Quote(field("notes_url")) + "}\n");
+      LoadCurrentNotes();
+    }
+    Set([&](UpdateSnapshot& s) {
+      s.whats_new = !rolled_back;
+      s.finished_message = rolled_back ? "Playden went back to version " + version->ToString() + "."
+                                       : "Playden was updated to " + version->ToString() + ".";
+      s.finished_failed = false;
+    });
+    // Only the app user's own leftovers go now. The previous app and kit stay to go back by hand;
+    // older ones are root-owned and are removed at the next update's quit, when nothing else runs.
+    if (!rolled_back) unlink((config_.work_root + "/declined-version").c_str());
+    Run([this] {
+      // Normally done at quit; again here in case the process died right after the swap.
+      config_.as_root([&] {
+        return RefreshRegisteredCopies(config_.installed_root + "/sce_sys", config_.appmeta_root,
+                                       config_.registered_app_root, [this](const std::string& line) { Log(line); });
+      });
+      RemoveTree(config_.work_root + "/stage");
+      RemoveTree(config_.work_root + "/downloads");
+      RemoveTree(config_.work_root + "/replaced");
+      // A kit left by going back: its files are the app user's; only its folder in the root-owned
+      // kits folder needs root, for one rmdir.
+      for (const auto& name : ListFolder(config_.kits_root)) {
+        if (name.compare(0, 10, ".replaced-") != 0) continue;
+        const std::string path = config_.kits_root + "/" + name;
+        RemoveTree(path);
+        if (Exists(path)) config_.as_root([&] { return rmdir(path.c_str()) == 0; });
+        if (Exists(path)) Log("could not remove " + path);
+      }
+      unlink(StatePath().c_str());
+    });
+    return;
+  }
+  Log((rolled_back ? "going back to " : "update to ") + field("version") + " did not take effect; running " +
+      config_.current.ToString());
+  // The swap was interrupted (the executable moves last, so this version still runs): put back the
+  // entries that were replaced, then the kit this version uses.
+  const std::string stage = field("stage");
+  if (!backup.empty() && !stage.empty() && IsFolder(backup))
+    config_.as_root([&] {
+      const bool undone = UndoSwap(config_.installed_root, stage, backup, [this](const std::string& line) { Log(line); });
+      rmdir(backup.c_str());  // empty now, unless something could not move back
+      return undone;
+    });
+  if (!previous_kit.empty() && !kit_id.empty() && Exists(previous_kit)) {
+    const std::string installed_kit = config_.kits_root + "/" + kit_id;
+    // The kit that replaced it goes back where it came from (a staged kit stays ready for a retry).
+    std::string displaced = field("next_kit");
+    if (displaced.empty() || Exists(displaced))
+      displaced = config_.kits_root + "/.failed-" + kit_id + "-" + std::to_string(config_.now());
+    const bool restored = config_.as_root([&] {
+      const bool moved_aside = Exists(installed_kit);
+      if (moved_aside && rename(installed_kit.c_str(), displaced.c_str()) != 0) return false;
+      if (rename(previous_kit.c_str(), installed_kit.c_str()) == 0) return true;
+      if (moved_aside) rename(displaced.c_str(), installed_kit.c_str());  // keep a working kit in place
+      return false;
+    });
+    Log(restored ? "previous kit restored" : "previous kit could not be restored");
+    if (restored && displaced.find("/.failed-") != std::string::npos) RemoveOwnedTree(displaced);
+  }
+  Set([&](UpdateSnapshot& s) {
+    s.finished_message = (rolled_back ? "Going back to Playden " : "The update to Playden ") + field("version") +
+                         " did not finish. Playden " + config_.current.ToString() + " is still installed.";
+    s.finished_failed = true;
+  });
+  unlink(StatePath().c_str());
+  FindPrevious();
+}
+
+void UpdateService::Check(bool user_asked) {
+  {
+    std::lock_guard<std::mutex> lock(shared_->mutex);
+    const auto phase = shared_->snapshot.phase;
+    if (phase == UpdatePhase::kDownloading || phase == UpdatePhase::kUnpacking || phase == UpdatePhase::kStaged)
+      return;
+  }
+  Run([this, user_asked] { DoCheck(user_asked); });
+}
+
+void UpdateService::Install() {
+  Run([this] {
+    if (!release_ || !manifest_) DoCheck(false);
+    if (Snapshot().phase != UpdatePhase::kAvailable) return;
+    DoInstall();
+  });
+}
+
+void UpdateService::DoCheck(bool user_asked) {
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kChecking;
+    s.user_check = user_asked;
+    s.error.clear();
+  });
+  auto options = Downloads("");
+  options.max_attempts = 2;
+  std::string error;
+  const bool local = !config_.local_release_dir.empty() && Exists(config_.local_release_dir + "/release.json");
+  const auto read_local = [&](const std::string& name) -> std::optional<std::string> {
+    std::string text;
+    if (ReadSmallFile(config_.local_release_dir + "/" + name, &text, 2 << 20)) return text;
+    error = "cannot read " + name;
+    return std::nullopt;
+  };
+  if (local) Log("reading the release from " + config_.local_release_dir);
+  const auto body = local ? read_local("release.json")
+                          : FetchSmall(config_.latest_release_url, 2 << 20, options, "application/vnd.github+json", &error);
+  if (!body) return Fail("Playden could not reach GitHub to look for updates.", error);
+  const auto release = ParseRelease(*body, &error);
+  if (!release) return Fail("The latest release on GitHub could not be read.", error);
+  if (release->draft || release->prerelease || !(config_.current < release->version)) {
+    Log("up to date: running " + config_.current.ToString() + ", latest " + release->tag);
+    Set([&](UpdateSnapshot& s) {
+      s.phase = UpdatePhase::kUpToDate;
+      s.available = release->version;
+    });
+    return;
+  }
+  const auto* asset = release->Find(kUpdateManifestAsset);
+  if (!asset) return Fail("Release " + release->tag + " has no update information. Install it by hand.", "no asset");
+  const auto manifest_text = local ? read_local(kUpdateManifestAsset)
+                                   : FetchSmall(asset->url, 256 << 10, options, "application/octet-stream", &error);
+  if (!manifest_text) return Fail("Playden could not read the update information.", error);
+  const auto manifest = ParseUpdateManifest(*manifest_text, &error);
+  if (!manifest) return Fail("The update information of " + release->tag + " is not valid.", error);
+  if (manifest->app_version != release->version || manifest->title_id != config_.title_id)
+    return Fail("The update information does not match release " + release->tag + ".", "version or title");
+  if (config_.current < manifest->min_from)
+    return Fail("Playden " + release->version.ToString() + " cannot update from this version. Install it by hand.",
+                "min_from " + manifest->min_from.ToString());
+  const auto* app = release->Find(manifest->app_asset);
+  const auto* kit = release->Find(manifest->kit.asset);
+  // A release whose kit did not change may leave the kit zip out; it is needed only when the
+  // console has no copy of that kit.
+  const bool kit_needed = ReadyKit(manifest->kit).empty();
+  if (!app || (kit_needed && !kit)) return Fail("Release " + release->tag + " is missing a download.", "asset");
+  if (app->sha256.empty() || (kit_needed && kit->sha256.empty()))
+    return Fail("Release " + release->tag + " has no checksums. Install it by hand.", "digest");
+  release_ = *release;
+  manifest_ = *manifest;
+  Log("update " + release->tag + " available: app " + std::to_string(app->size) + " bytes, kit " +
+      (kit_needed ? std::to_string(kit->size) + " bytes" : "already installed"));
+  std::string declined;
+  ReadSmallFile(config_.work_root + "/declined-version", &declined, 64);
+  const auto declined_version = ParseVersion(declined.substr(0, declined.find('\n')));
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kAvailable;
+    s.quiet = declined_version && *declined_version == release->version;
+    s.available = release->version;
+    s.notes = manifest->notes;
+    s.notes_url = release->page.empty() ? PageFor(release->tag) : release->page;
+    s.kit_needed = kit_needed;
+    s.download_bytes = app->size + (kit_needed ? kit->size : 0);
+  });
+}
+
+void UpdateService::DoInstall() {
+  const auto& release = *release_;
+  const auto& manifest = *manifest_;
+  if (!PrepareWorkRoot() || !MakeFolders(config_.work_root + "/downloads"))
+    return Fail("Playden could not create its update folder.", config_.work_root);
+  const auto* app = release.Find(manifest.app_asset);
+  const auto* kit = release.Find(manifest.kit.asset);
+  std::string kit_folder = ReadyKit(manifest.kit);
+  const bool kit_needed = kit_folder.empty();
+  // Zip, unpacked files and some room to spare.
+  if (!app || (kit_needed && !kit)) return Fail("Release " + release.tag + " is missing a download.", "asset");
+  const std::uint64_t needed = app->size * 3 + (kit_needed ? kit->size * 4 : 0);
+  if (config_.free_bytes) {
+    const auto free = config_.free_bytes(config_.work_root);
+    if (free && *free < needed)
+      return Fail("The update needs " + Gigabytes(needed) + " of free space; " + Gigabytes(*free) + " is free.",
+                  "free space");
+  }
+  if (kit_needed) {
+    if (!StageKit(release, manifest)) return;
+    kit_folder = ReadyKit(manifest.kit);
+  }
+  if (!StageApp(release, manifest)) return;
+  staged_version_ = release.version;
+  // The installed kit already matches: nothing to swap for it.
+  staged_kit_ = kit_folder == config_.kits_root + "/" + manifest.kit.kit_id ? std::string() : kit_folder;
+  staged_kit_id_ = manifest.kit.kit_id;
+  if (!SaveState("staged", StagedFields())) return Fail("Playden could not save the update state.", StatePath());
+  Log("update " + release.version.ToString() + " staged");
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kStaged;
+    s.part.clear();
+  });
+}
+
+bool UpdateService::StageKit(const Release& release, const UpdateManifest& manifest) {
+  const auto* asset = release.Find(manifest.kit.asset);
+  const std::string local_zip = config_.local_release_dir + "/" + asset->name;
+  const bool local = !config_.local_release_dir.empty() && Exists(local_zip);
+  const std::string zip = local ? local_zip : config_.work_root + "/downloads/" + asset->name;
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kDownloading;
+    s.part = "kit";
+    s.done = 0;
+    s.total = asset->size;
+  });
+  const auto download = local ? DownloadResult{true, false, {}}
+                              : DownloadAsset(asset->url, asset->size, asset->sha256, zip, Downloads("kit"));
+  if (!download.ok) {
+    if (download.cancelled) {
+      Set([](UpdateSnapshot& s) { s.phase = UpdatePhase::kAvailable; s.part.clear(); });
+      return false;
+    }
+    Fail("The kit download failed.", download.error);
+    return false;
+  }
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kUnpacking;
+    s.part = "kit";
+    s.done = 0;
+    s.total = 0;
+  });
+  const std::string staging = config_.kits_root + "/.staging-" + manifest.kit.kit_id + "-" + manifest.kit.revision;
+  RemoveOwnedTree(staging);
+  config_.as_root([&] { return MakeFolders(staging) && chmod(staging.c_str(), 0777) == 0; });
+  if (!IsFolder(staging) || access(staging.c_str(), W_OK) != 0) {
+    Fail("Playden could not create the kit folder.", staging);
+    return false;
+  }
+  ZipExtractOptions unzip;
+  unzip.inner_prefix = manifest.kit.prefix;
+  unzip.cancel = &shared_->cancel;
+  unzip.fix_mode = [this](const std::string& path, unsigned mode) {
+    return config_.as_root([&] { return chmod(path.c_str(), mode) == 0; });
+  };
+  unzip.log = [this](const std::string& line) { Log(line); };
+  unzip.progress = [this](std::uint64_t done, std::uint64_t total) {
+    Set([&](UpdateSnapshot& s) { s.done = done; s.total = total; });
+  };
+  const auto unpacked = ExtractZip(zip, staging, unzip);
+  if (!unpacked.ok) {
+    RemoveOwnedTree(staging);
+    if (unpacked.cancelled) {
+      Set([](UpdateSnapshot& s) { s.phase = UpdatePhase::kAvailable; s.part.clear(); });
+      return false;
+    }
+    Fail("The kit could not be unpacked.", unpacked.error);
+    return false;
+  }
+  Log("kit unpacked: " + std::to_string(unpacked.files) + " files, " + std::to_string(unpacked.rewritten) +
+      " written again, " + std::to_string(unpacked.mode_fixed) + " root-owned given their mode");
+  const auto sha = config_.verify_kit ? config_.verify_kit(staging) : std::nullopt;
+  if (!sha || *sha != manifest.kit.manifest_sha256) {
+    RemoveOwnedTree(staging);
+    Fail("The new kit did not pass its check.", sha ? "manifest " + *sha : "not a complete kit");
+    return false;
+  }
+  // Ready next to the installed kit; it replaces it when Playden quits for the update.
+  const std::string final_folder = config_.kits_root + "/.next-" + manifest.kit.kit_id + "-" + manifest.kit.revision;
+  const std::string replaced = final_folder + ".old";
+  const bool moved = config_.as_root([&] {
+    if (Exists(final_folder) && rename(final_folder.c_str(), replaced.c_str()) != 0) return false;
+    return rename(staging.c_str(), final_folder.c_str()) == 0;
+  });
+  RemoveOwnedTree(replaced);
+  if (!moved) {
+    RemoveOwnedTree(staging);
+    Fail("Playden could not put the new kit in place.", final_folder);
+    return false;
+  }
+  if (!local) unlink(zip.c_str());
+  return true;
+}
+
+bool UpdateService::StageApp(const Release& release, const UpdateManifest& manifest) {
+  const auto* asset = release.Find(manifest.app_asset);
+  const std::string local_zip = config_.local_release_dir + "/" + asset->name;
+  const bool local = !config_.local_release_dir.empty() && Exists(local_zip);
+  const std::string zip = local ? local_zip : config_.work_root + "/downloads/" + asset->name;
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kDownloading;
+    s.part = "app";
+    s.done = 0;
+    s.total = asset->size;
+  });
+  const auto download = local ? DownloadResult{true, false, {}}
+                              : DownloadAsset(asset->url, asset->size, asset->sha256, zip, Downloads("app"));
+  if (!download.ok) {
+    if (download.cancelled) {
+      Set([](UpdateSnapshot& s) { s.phase = UpdatePhase::kAvailable; s.part.clear(); });
+      return false;
+    }
+    Fail("The Playden download failed.", download.error);
+    return false;
+  }
+  Set([&](UpdateSnapshot& s) {
+    s.phase = UpdatePhase::kUnpacking;
+    s.part = "app";
+    s.done = 0;
+    s.total = 0;
+  });
+  const std::string stage = config_.work_root + "/stage/" + release.version.ToString();
+  RemoveOwnedTree(stage);
+  if (!MakeFolders(stage)) {
+    Fail("Playden could not create its update folder.", stage);
+    return false;
+  }
+  ZipExtractOptions unzip;
+  unzip.inner_prefix = manifest.app_prefix;
+  unzip.cancel = &shared_->cancel;
+  unzip.fix_mode = [this](const std::string& path, unsigned mode) {
+    return config_.as_root([&] { return chmod(path.c_str(), mode) == 0; });
+  };
+  unzip.mode_for = AppMode;
+  unzip.log = [this](const std::string& line) { Log(line); };
+  unzip.progress = [this](std::uint64_t done, std::uint64_t total) {
+    Set([&](UpdateSnapshot& s) { s.done = done; s.total = total; });
+  };
+  const auto unpacked = ExtractZip(zip, stage, unzip);
+  if (!unpacked.ok) {
+    RemoveOwnedTree(stage);
+    if (unpacked.cancelled) {
+      Set([](UpdateSnapshot& s) { s.phase = UpdatePhase::kAvailable; s.part.clear(); });
+      return false;
+    }
+    Fail("The Playden download could not be unpacked.", unpacked.error);
+    return false;
+  }
+  std::string param_text;
+  const auto param = ReadSmallFile(stage + "/sce_sys/param.json", &param_text)
+                         ? steam::json::Parse(param_text)
+                         : std::nullopt;
+  const auto* title = param && param->is_object() ? param->Find("titleId") : nullptr;
+  const auto* content = param && param->is_object() ? param->Find("contentVersion") : nullptr;
+  const auto content_version = content && content->is_string() ? ParseVersion(content->text()) : std::nullopt;
+  if (!title || !title->is_string() || title->text() != config_.title_id || !content_version ||
+      *content_version != release.version || !Exists(stage + "/eboot.bin")) {
+    RemoveOwnedTree(stage);
+    Fail("The downloaded Playden is not version " + release.version.ToString() + ".", "param.json");
+    return false;
+  }
+  if (!local) unlink(zip.c_str());
+  staged_folder_ = stage;
+  return true;
+}
+
+// Puts the newest backup's app and the previous kit back, as one transaction, when Playden quits.
+bool UpdateService::RollBackAtQuit() {
+  const auto backup = LatestBackup();
+  if (!backup) return false;
+  const std::string stamp = std::to_string(config_.now());
+  const std::string replaced = config_.work_root + "/replaced/" + config_.current.ToString() + "-" + stamp;
+  // The kit that update replaced: ".previous-<kit_id>-<time>" with the backup's time. An update
+  // that kept the kit left none, and going back keeps the installed kit.
+  const std::string backup_stamp = backup->path.substr(backup->path.rfind('-') + 1);
+  std::string previous_kit, kit_id;
+  for (const auto& name : ListFolder(config_.kits_root)) {
+    const std::string suffix = "-" + backup_stamp;
+    if (name.compare(0, 10, ".previous-") != 0 || name.size() <= 10 + suffix.size() ||
+        name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+      continue;
+    kit_id = name.substr(10, name.size() - 10 - suffix.size());
+    previous_kit = config_.kits_root + "/" + name;
+  }
+  const std::string installed_kit = kit_id.empty() ? std::string() : config_.kits_root + "/" + kit_id;
+  const std::string replaced_kit = config_.kits_root + "/.replaced-" + kit_id + "-" + stamp;
+  const auto log = [this](const std::string& line) { Log(line); };
+  // Saved before anything moves: if the process dies part way, the next start puts it back.
+  const std::string going_back = ",\"version\":" + Quote(backup->version.ToString()) + ",\"from\":" +
+                                 Quote(config_.current.ToString()) + ",\"rolled_back\":\"yes\"";
+  if (!SaveState("applied", going_back + ",\"backup\":" + Quote(replaced) + ",\"stage\":" + Quote(backup->path) +
+                                ",\"kit_id\":" + Quote(kit_id) + ",\"previous_kit\":" +
+                                Quote(previous_kit.empty() ? std::string() : replaced_kit) + ",\"next_kit\":" +
+                                Quote(previous_kit))) {
+    Log("going back failed: cannot save the state");
+    return false;
+  }
+  SwapResult swap;
+  bool kit_swapped = false;
+  config_.as_root([&] {
+    if (!previous_kit.empty() && Exists(installed_kit)) {
+      if (rename(installed_kit.c_str(), replaced_kit.c_str()) != 0) {
+        swap.error = "cannot move the current kit aside";
+        return false;
+      }
+      if (rename(previous_kit.c_str(), installed_kit.c_str()) != 0) {
+        rename(replaced_kit.c_str(), installed_kit.c_str());
+        swap.error = "cannot put the previous kit back";
+        return false;
+      }
+      kit_swapped = true;
+    }
+    MakeFolders(config_.work_root + "/replaced");
+    swap = RestoreApp(config_.installed_root, backup->path, replaced, log);
+    if (!swap.ok) {
+      if (kit_swapped) {
+        rename(installed_kit.c_str(), previous_kit.c_str());
+        rename(replaced_kit.c_str(), installed_kit.c_str());
+        kit_swapped = false;
+      }
+      return false;
+    }
+    if (!RefreshRegisteredCopies(config_.installed_root + "/sce_sys", config_.appmeta_root,
+                                 config_.registered_app_root, log))
+      Log("some Home screen copies were not refreshed");
+    // The version left behind is not kept: going back is one step. Its kit is the app user's files;
+    // they are removed on the next start, so Playden reopens at once.
+    RemoveTree(backup->path);
+    return true;
+  });
+  if (!swap.ok) {
+    Log("going back failed: " + swap.error);
+    unlink(StatePath().c_str());
+    return false;
+  }
+  SaveState("applied", going_back);
+  WriteFileAtomically(config_.work_root + "/declined-version", config_.current.ToString() + "\n");
+  Log("went back to " + backup->version.ToString() + (kit_swapped ? " with the previous kit" : ""));
+  return true;
+}
+
+bool UpdateService::ApplyAtQuit() {
+  if (Snapshot().rollback_requested) return RollBackAtQuit();
+  if (!Snapshot().restart_requested || staged_folder_.empty()) return false;
+  const std::string stamp = std::to_string(config_.now());
+  const std::string backup = config_.work_root + "/backup/" + config_.current.ToString() + "-" + stamp;
+  const std::string installed_kit = staged_kit_id_.empty() ? std::string() : config_.kits_root + "/" + staged_kit_id_;
+  const std::string previous_kit = config_.kits_root + "/.previous-" + staged_kit_id_ + "-" + stamp;
+  const auto log = [this](const std::string& line) { Log(line); };
+  const auto applied = [&](bool kit_moved) {
+    return ",\"version\":" + Quote(staged_version_.ToString()) + ",\"from\":" + Quote(config_.current.ToString()) +
+           ",\"backup\":" + Quote(backup) + ",\"stage\":" + Quote(staged_folder_) + ",\"notes\":" +
+           Quote(Snapshot().notes) + ",\"notes_url\":" + Quote(Snapshot().notes_url) + ",\"kit_id\":" +
+           Quote(staged_kit_id_) + ",\"previous_kit\":" + Quote(kit_moved ? previous_kit : std::string()) +
+           ",\"next_kit\":" + Quote(kit_moved ? staged_kit_ : std::string());
+  };
+  // Saved before anything moves: if the process dies part way, the next start sees which version
+  // runs and finishes or undoes the swap.
+  if (!SaveState("applied", applied(!staged_kit_.empty()))) {
+    Log("swap failed: cannot save the state");
+    return false;
+  }
+  SwapResult swap;
+  bool kit_swapped = false;
+  config_.as_root([&] {
+    // One previous version is kept. Older backups and kits are mostly root-owned (copied over FTP):
+    // they go now, as root, while no other thread runs.
+    for (const auto& name : ListFolder(config_.work_root + "/backup")) RemoveTree(config_.work_root + "/backup/" + name);
+    // Its kit goes too, whether or not this update brings a new one: going back from this update
+    // restores only the kit this update replaces.
+    for (const auto& name : ListFolder(config_.kits_root))
+      if (name.compare(0, 10, ".previous-") == 0) RemoveTree(config_.kits_root + "/" + name);
+    // One transaction: the kit first, then the app; a failed app swap puts the kit back.
+    if (!staged_kit_.empty()) {
+      if (!Exists(staged_kit_)) {
+        swap.error = "staged kit is missing";
+        return false;
+      }
+      if (Exists(installed_kit) && rename(installed_kit.c_str(), previous_kit.c_str()) != 0) {
+        swap.error = "cannot move the installed kit aside";
+        return false;
+      }
+      if (rename(staged_kit_.c_str(), installed_kit.c_str()) != 0) {
+        rename(previous_kit.c_str(), installed_kit.c_str());
+        swap.error = "cannot move the new kit in";
+        return false;
+      }
+      kit_swapped = true;
+    }
+    MakeFolders(config_.work_root + "/backup");
+    swap = SwapApp(config_.installed_root, staged_folder_, backup, log);
+    if (!swap.ok) {
+      if (kit_swapped) {
+        rename(installed_kit.c_str(), staged_kit_.c_str());
+        if (Exists(previous_kit)) rename(previous_kit.c_str(), installed_kit.c_str());
+        kit_swapped = false;
+      }
+      return false;
+    }
+    if (!RefreshRegisteredCopies(config_.installed_root + "/sce_sys", config_.appmeta_root,
+                                 config_.registered_app_root, log))
+      Log("some Home screen copies were not refreshed");
+    return true;
+  });
+  if (!swap.ok) {
+    Log("swap failed: " + swap.error);
+    SaveState("staged", StagedFields());  // still staged: the next quit tries again
+    return false;
+  }
+  RemoveOwnedTree(staged_folder_);
+  SaveState("applied", applied(kit_swapped && Exists(previous_kit)));
+  Log("swapped to " + staged_version_.ToString() + " (" + std::to_string(swap.moved) + " entries" +
+      (kit_swapped ? ", new kit" : "") + "), backup " + backup);
+  return true;
+}
+
+}  // namespace playden::update

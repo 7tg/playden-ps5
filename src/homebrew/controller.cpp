@@ -179,6 +179,7 @@ void Controller::Tick() {
   TickStoreDetails();
   lap(4);
   TickInstalls();
+  TickSelfUpdate();
   lap(5);
   TickCloud();
   lap(6);
@@ -1294,4 +1295,61 @@ void Controller::Apply(const steam::SteamEvent& event) {
     }
   }
 }
+void Controller::TickSelfUpdate() {
+  if (!self_update_) return;
+  for (const auto& request : model_.TakeSelfUpdateRequests()) {
+    if (request == "check") self_update_->Check(true);
+    else if (request == "install") self_update_->Install();
+    else if (request == "cancel") self_update_->Cancel();
+    else if (request == "restart") self_update_->RequestRestart();
+    else if (request == "rollback") self_update_->RequestRollback();
+    else if (request == "acknowledge") self_update_->AcknowledgeFinished();
+  }
+  const auto snapshot = self_update_->Snapshot();
+  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  const bool downloading = snapshot.phase == update::UpdatePhase::kDownloading;
+  if (downloading) {
+    if (self_update_rate_part_ != snapshot.part) {
+      self_update_rate_.Reset();
+      self_update_rate_part_ = snapshot.part;
+    }
+    self_update_rate_.Record(snapshot.done, now);
+  } else if (!self_update_rate_part_.empty()) {
+    self_update_rate_.Reset();
+    self_update_rate_part_.clear();
+  }
+  if (snapshot.revision == self_update_revision_ && !downloading) {
+    model_.UpdateSelfUpdate(model_.state().self_update);  // lets a waiting prompt show
+    return;
+  }
+  self_update_revision_ = snapshot.revision;
+  LiveSelfUpdate live;
+  live.phase = update::UpdatePhaseName(snapshot.phase);
+  live.current = snapshot.current.ToString();
+  live.available = snapshot.available.ToString();
+  live.notes = snapshot.notes;
+  live.part = snapshot.part;
+  live.done = snapshot.done;
+  live.total = snapshot.total;
+  if (downloading) {
+    const auto estimate = self_update_rate_.Estimate(now, snapshot.done, snapshot.total);
+    live.bytes_per_second = estimate.bytes_per_second;
+    live.eta_seconds = estimate.eta_seconds;
+  }
+  live.download_bytes = snapshot.download_bytes;
+  live.kit_needed = snapshot.kit_needed;
+  live.user_check = snapshot.user_check;
+  live.error = snapshot.error;
+  live.previous = snapshot.previous;
+  live.notes_url = snapshot.notes_url;
+  live.current_notes = snapshot.current_notes;
+  live.current_notes_url = snapshot.current_notes_url;
+  live.whats_new = snapshot.whats_new;
+  live.quiet = snapshot.quiet;
+  live.finished_message = snapshot.finished_message;
+  live.finished_failed = snapshot.finished_failed;
+  model_.UpdateSelfUpdate(live);
+}
+
 }

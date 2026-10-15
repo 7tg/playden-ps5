@@ -86,6 +86,30 @@ struct LiveKitInfo {
     bool source_dirty = false;             // built from uncommitted changes
     std::string unavailable_reason;        // why no kit is in use
 };
+// Live: Playden's own update (update/update_service.h), projected for Settings, Downloads and prompts.
+struct LiveSelfUpdate {
+    std::string phase = "idle";  // idle, checking, up-to-date, available, downloading, unpacking, staged, failed
+    std::string current;         // "0.2.0"
+    std::string available;       // the newer version, when known
+    std::string notes;
+    std::string part;            // "kit" or "app" while downloading or unpacking
+    std::uint64_t done = 0;
+    std::uint64_t total = 0;
+    std::optional<std::uint64_t> bytes_per_second;
+    std::optional<int> eta_seconds;
+    std::uint64_t download_bytes = 0;
+    bool kit_needed = false;
+    bool user_check = false;     // the last check was asked for in Settings
+    std::string error;
+    std::string previous;        // the version "go back" restores; empty when none is kept
+    std::string notes_url;       // the available release's page
+    std::string current_notes;   // the running version's release notes, when Playden updated to it
+    std::string current_notes_url;
+    bool whats_new = false;      // the previous run updated Playden: show its release notes once
+    bool quiet = false;          // the available version is one the player went back from: no dialog
+    std::string finished_message;  // the previous run's update result, shown once
+    bool finished_failed = false;
+};
 // Live: what Game settings needs to choose a game's program, projected from the runtime host.
 struct LiveGameSetup {
     std::vector<playden::runtime::GameProgram> programs;  // the game folder's Windows programs
@@ -290,6 +314,10 @@ struct Job {
     std::uint64_t held_bytes = 0;  // live: installed bytes already on the drive
     std::int64_t finished_at = 0;  // live: when a Downloaded job finished (Unix seconds), 0 unknown
     bool checking_licenses = false;  // live: a slow Steam license check before the download starts
+    // A job that is not a game's (the Playden update): its title and the words for its stage and state.
+    std::string title;
+    std::string stage_text;
+    std::string state_text;
 };
 
 struct Volume {
@@ -315,6 +343,7 @@ struct ModalEntry {
     bool destructive = false;
     std::string body;  // explanatory text; empty uses the simulation's default wording
     std::string setting_id;  // Game settings picker: the catalogue setting being chosen
+    std::string link;  // a web page the dialog shows as a QR code with its address (release notes)
 };
 
 struct Navigation {
@@ -394,6 +423,7 @@ struct State {
     std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
     std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
     LiveKitInfo kit;                                    // live: the compatibility kit in use
+    LiveSelfUpdate self_update;                         // live: Playden's own update
     std::vector<LiveKeptBottle> kept_bottles;           // live: saves kept from uninstalled games
     LiveSavesJob saves_job;                             // live: the Saves tab's running check or Sync all
     std::map<GameId, std::uint64_t> save_sizes;         // live: Windows user folders of games without Steam Cloud
@@ -542,6 +572,11 @@ public:
     // The game runtime could not start (raw: its log reason; empty: it runs). Shown on every screen
     // until it is fixed, with the reason under Settings › Runtime status (#64).
     void UpdateRuntimeProblem(const std::string& raw);
+    // Live mode: Playden's own update, and what the player asked of it: "check" (from Settings),
+    // "install", "cancel", "restart" (apply at quit; quit follows), "rollback" (put the previous
+    // version back at quit; quit follows) and "acknowledge" (a finished update's message was shown).
+    void UpdateSelfUpdate(const LiveSelfUpdate& update);
+    [[nodiscard]] std::vector<std::string> TakeSelfUpdateRequests();
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
@@ -621,6 +656,13 @@ private:
     ViewData route_view_;
     std::string last_error_;
     std::string pending_destructive_action_;
+    std::vector<std::string> self_update_requests_;
+    std::string self_update_prompted_;   // "available 0.3.0" or "staged 0.3.0": each prompt shows once
+    std::string pending_update_prompt_;  // a prompt waiting for the open dialog to close
+    void show_update_prompt();
+    void sync_self_update_job();
+    void request_self_update_restart(const std::string& request = "restart");
+    void open_release_notes(bool after_update);
     std::string selected_volume_id_;
     // Live: the drive chosen in the install sheet for this one install (empty: the default drive),
     // and whether the open storage picker chooses it rather than the default.

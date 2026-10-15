@@ -22,6 +22,7 @@ These are compiled into Playden's PS5 package (`FAKE77031`) or copied into it.
 | zstd (decompression) | 1.5.6 | BSD-3-Clause | [facebook/zstd](https://github.com/facebook/zstd) |
 | LZMA SDK (decoder) | 24.09 | Public domain | [7-zip.org/sdk](https://www.7-zip.org/sdk.html) |
 | stb_image | 2.30 | MIT or public domain | [nothings/stb](https://github.com/nothings/stb) |
+| miniz (zip reading, for updates) | 3.0.2 | MIT, Copyright 2013-2014 RAD Game Tools and Valve Software, 2010-2014 Rich Geldreich and Tenacious Software LLC | [richgel999/miniz](https://github.com/richgel999/miniz) |
 | utf8proc | 2.11.3 | MIT, with Unicode data under the Unicode license | [JuliaStrings/utf8proc](https://github.com/JuliaStrings/utf8proc) |
 | QR Code generator | `3c6d0b3` | MIT, Copyright (c) Project Nayuki | [nayuki/QR-Code-generator](https://github.com/nayuki/QR-Code-generator) |
 | compiler-rt builtins | 18.1.8 | Apache-2.0 WITH LLVM-exception | [llvm/llvm-project](https://github.com/llvm/llvm-project) |

@@ -1083,6 +1083,12 @@ class Render::Impl
 
     void update_qr_cache(const State &state)
     {
+        const std::string link = state.navigation.modals.empty() ? std::string() : state.navigation.modals.back().link;
+        if (link != link_qr_url_)
+        {
+            link_qr_url_ = link;
+            link_qr_ = link.empty() ? QrMatrix{} : encode_qr(link);
+        }
         const bool usable = state.account.authentication == AuthState::Waiting &&
                             !state.account.challenge_url.empty();
         if (!usable) {
@@ -1119,24 +1125,29 @@ class Render::Impl
 
     bool draw_encoded_qr(float x, float y, int available_side)
     {
-        const QrLayout layout = qr_layout(cached_qr_, available_side);
+        return draw_qr_matrix(scene_, cached_qr_, x, y, available_side);
+    }
+
+    bool draw_qr_matrix(gfx::DrawList &list, const QrMatrix &matrix, float x, float y, int available_side)
+    {
+        const QrLayout layout = qr_layout(matrix, available_side);
         if (layout.module_pixels <= 0)
             return false;
         const float x0 = x + static_cast<float>(layout.offset_pixels);
         const float y0 = y + static_cast<float>(layout.offset_pixels);
-        scene_.rounded_rect({x0, y0, static_cast<float>(layout.side_pixels),
+        list.rounded_rect({x0, y0, static_cast<float>(layout.side_pixels),
                              static_cast<float>(layout.side_pixels)},
                             0.0F, kText);
-        for (int row = 0; row < cached_qr_.size(); ++row) {
-            for (int column = 0; column < cached_qr_.size();) {
-                if (!cached_qr_.at(column, row)) {
+        for (int row = 0; row < matrix.size(); ++row) {
+            for (int column = 0; column < matrix.size();) {
+                if (!matrix.at(column, row)) {
                     ++column;
                     continue;
                 }
                 int end = column + 1;
-                while (end < cached_qr_.size() && cached_qr_.at(end, row))
+                while (end < matrix.size() && matrix.at(end, row))
                     ++end;
-                scene_.rounded_rect(
+                list.rounded_rect(
                     {x0 + static_cast<float>((kQrQuietZoneModules + column) * layout.module_pixels),
                      y0 + static_cast<float>((kQrQuietZoneModules + row) * layout.module_pixels),
                      static_cast<float>((end - column) * layout.module_pixels),
@@ -1785,13 +1796,16 @@ class Render::Impl
                 draw_poster(*game, {116.0F, 196.0F, 132.0F, 198.0F}, false, -1.0F, false);
             else
                 scene_.rounded_rect({116.0F, 196.0F, 132.0F, 198.0F}, 8.0F, kMuted.with_alpha(0.25F));
-            const std::string title = game == nullptr ? "Unknown game" : game->title;
+            const std::string title = !primary->title.empty() ? primary->title
+                                      : game == nullptr       ? "Unknown game" : game->title;
             dynamic_text(title, 282.0F, 238.0F, 36.0F, kText, 750.0F);
-            ui::text(scene_, fonts_.semibold, job_stage_label(primary->stage), 282.0F, 278.0F,
-                     24.0F, primary->state == JobState::Failed ? kRed :
+            ui::text(scene_, fonts_.semibold,
+                     primary->stage_text.empty() ? job_stage_label(primary->stage) : primary->stage_text.c_str(),
+                     282.0F, 278.0F, 24.0F, primary->state == JobState::Failed ? kRed :
                             primary->state == JobState::Paused ? kAmber : kAccent);
-            ui::text(scene_, fonts_.regular, job_state_label(primary->state), 1038.0F, 278.0F,
-                     22.0F, kSecondary, gfx::Align::right);
+            ui::text(scene_, fonts_.regular,
+                     primary->state_text.empty() ? job_state_label(primary->state) : primary->state_text.c_str(),
+                     1038.0F, 278.0F, 22.0F, kSecondary, gfx::Align::right);
             const float progress = primary->total_bytes == 0 ? 0.0F :
                 static_cast<float>(primary->completed_bytes) / static_cast<float>(primary->total_bytes);
             ui::ProgressBar bar;
@@ -1855,10 +1869,11 @@ class Render::Impl
             const Game* game = game_by_id(state, job->game_id);
             const gfx::Rect row{96.0F, row_y, 1000.0F, 92.0F};
             scene_.rounded_rect(row, 8.0F, kPanel);
-            dynamic_text(game == nullptr ? std::string_view("Unknown game") : std::string_view(game->title),
+            dynamic_text(!job->title.empty() ? std::string_view(job->title)
+                         : game == nullptr  ? std::string_view("Unknown game") : std::string_view(game->title),
                          122.0F, row_y + 42.0F, 30.0F, kText, 560.0F);
             const bool finished = job->state == JobState::Downloaded;
-            std::string state_text = job_state_label(job->state);
+            std::string state_text = job->state_text.empty() ? job_state_label(job->state) : job->state_text;
             if (finished && job->finished_at > 0 && !state.simulation_mode)
             {
                 // Short enough to stay clear of the size on the right.
@@ -2871,6 +2886,11 @@ class Render::Impl
     void draw_modal_overlay(const ModalEntry &modal, const ViewData &view)
     {
         overlay_.rounded_rect({0.0F, 0.0F, kWidth, kHeight}, 0.0F, gfx::Color::rgb(0x000000, 0.72F));
+        if (!modal.link.empty())
+        {
+            draw_link_modal(modal, view);
+            return;
+        }
         // Three buttons need the wide panel or their labels are cut.
         const float width = modal.destructive && view.rows.size() < 3 ? 820.0F : 960.0F;
         const gfx::Rect panel{(kWidth - width) * 0.5F, 254.0F, width, 500.0F};
@@ -2905,6 +2925,62 @@ class Render::Impl
                        control_focus("modal-" + view.rows[index].key, static_cast<int>(index) == view.focused_row),
                        !view.rows[index].enabled, toggle ? (view.rows[index].selected ? "On" : "Off") : "", false,
                        kPanel);
+        }
+    }
+
+    // A dialog with a web page (release notes): the title, the text, then a strip with the page as a
+    // QR code and its address (the console has no browser), then the buttons. The panel's height
+    // follows the text, so a short note gives a short dialog.
+    void draw_link_modal(const ModalEntry &modal, const ViewData &view)
+    {
+        constexpr float width = 1080.0F, pad = 56.0F, qr_side = 232.0F, strip_gap = 40.0F;
+        constexpr float body_size = 25.0F, body_line = 35.0F, address_size = 21.0F, address_line = 28.0F;
+        const float inner = width - 2.0F * pad;
+        const float address_w = inner - qr_side - strip_gap;
+        std::string address = modal.link;
+        if (address.rfind("https://", 0) == 0) address.erase(0, 8);
+
+        const int body_lines = modal.body.empty() ? 0 :
+            std::min(10, static_cast<int>(fonts_.regular.font->wrap(modal.body, body_size, inner).size()));
+        const int address_lines =
+            std::min(3, std::max(1, static_cast<int>(fonts_.regular.font->wrap(address, address_size, address_w).size())));
+        constexpr float title_h = 60.0F;
+        const float body_h = body_lines * body_line;
+        const float height = pad + title_h + (body_lines ? 28.0F + body_h : 0.0F) + 36.0F + qr_side + 40.0F + 68.0F + pad;
+        const gfx::Rect panel{(kWidth - width) * 0.5F, std::round((kHeight - height) * 0.5F), width, height};
+        overlay_.shadow(panel, 16.0F, 40.0F, gfx::Color::rgb(0x000000, 0.65F));
+        overlay_.rounded_rect(panel, 16.0F, kPanel);
+
+        float y = panel.y + pad;
+        ui::text(overlay_, fonts_.display, fit(fonts_.display, modal.title, 48.0F, inner), panel.x + pad, y + 46.0F,
+                 48.0F, kText);
+        y += title_h;
+        if (body_lines)
+        {
+            ui::paragraph(overlay_, fonts_.regular, modal.body, panel.x + pad, y + 28.0F + 26.0F, body_size, inner,
+                          body_line, kSecondary, 10);
+            y += 28.0F + body_h;
+        }
+        y += 36.0F;
+        // The strip: the code, then what it is and where it leads, centred on the code.
+        if (!draw_qr_matrix(overlay_, link_qr_, panel.x + pad, y, static_cast<int>(qr_side)))
+            overlay_.rounded_rect({panel.x + pad, y, qr_side, qr_side}, 12.0F, kMuted.with_alpha(0.25F));
+        const float text_x = panel.x + pad + qr_side + strip_gap;
+        const float block_h = 30.0F + 14.0F + address_lines * address_line;
+        const float block_y = y + (qr_side - block_h) * 0.5F;
+        ui::text(overlay_, fonts_.semibold, "Scan for the full release notes", text_x, block_y + 24.0F, 26.0F, kText);
+        ui::paragraph(overlay_, fonts_.regular, address, text_x, block_y + 30.0F + 14.0F + 21.0F, address_size,
+                      address_w, address_line, kSecondary, 3);
+        y += qr_side + 40.0F;
+
+        const std::size_t count = std::max<std::size_t>(1, view.rows.size());
+        const float button_width = (inner - (count - 1) * 16.0F) / count;
+        for (std::size_t index = 0; index < view.rows.size(); ++index)
+        {
+            const gfx::Rect button{panel.x + pad + index * (button_width + 16.0F), y, button_width, 68.0F};
+            mac_button(overlay_, button, overlay_label(view.rows[index]), view.rows[index].dangerous,
+                       control_focus("modal-" + view.rows[index].key, static_cast<int>(index) == view.focused_row),
+                       !view.rows[index].enabled, "", false, kPanel);
         }
     }
 
@@ -3511,6 +3587,9 @@ class Render::Impl
     std::string cached_qr_url_;
     QrMatrix cached_qr_;
     std::string cached_qr_error_;
+    // The open dialog's link (release notes), drawn as a QR code.
+    std::string link_qr_url_;
+    QrMatrix link_qr_;
     std::vector<const Game *> visible_grid_games_;
     const State *current_state_ = nullptr;
     bool simulation_tabs_ = true;

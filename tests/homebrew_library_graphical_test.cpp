@@ -97,6 +97,46 @@ int main(int argc,char** argv) {
     assert(model.action("cross") && model.state().navigation.route==Route::Details);
     capture("details.png");
     {
+      // Playden's own update: the offer with its release page as a QR code, the download on
+      // Downloads, and "What's new" after the update.
+      Simulation updating({}, {}, ModelMode::Live);
+      updating.SetWallClock(1700000000);
+      updating.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
+      assert(updating.UpdateLibrary({backend.games,false,{},false,false,{}}));
+      auto capture_update=[&](const char* name) {
+        for(int i=0;i<16;++i) renderer.draw(updating,1920,1080);
+        assert(renderer.capture_png(output/name,1920,1080));
+      };
+      LiveSelfUpdate offer;
+      offer.current="0.2.0"; offer.phase="available"; offer.available="0.3.0";
+      offer.notes="Playden updates itself from GitHub releases. Downloads resume after a restart, and the Saves tab "
+                  "shows which games are in sync.";
+      offer.notes_url="https://github.com/leolobato/playden-ps5/releases/tag/v0.3.0";
+      offer.download_bytes=486'000'000; offer.kit_needed=true;
+      updating.UpdateSelfUpdate(offer);
+      assert(!updating.state().navigation.modals.empty() && !updating.state().navigation.modals.back().link.empty());
+      capture_update("update-available.png");
+      assert(updating.action("cross"));
+      offer.phase="downloading"; offer.part="kit"; offer.done=208'000'000; offer.total=437'000'000;
+      offer.bytes_per_second=26'400'000; offer.eta_seconds=8;
+      updating.UpdateSelfUpdate(offer);
+      for(int i=0;i<4 && updating.state().navigation.route!=Route::Downloads;++i) assert(updating.action("r1"));
+      capture_update("update-downloading.png");
+      LiveSelfUpdate fresh;
+      fresh.current="0.3.0"; fresh.current_notes=offer.notes;
+      fresh.current_notes_url=offer.notes_url;
+      fresh.finished_message="Playden was updated to 0.3.0."; fresh.whats_new=true;
+      updating.UpdateSelfUpdate(fresh);
+      assert(updating.state().navigation.modals.back().title=="What's new in Playden 0.3.0");
+      capture_update("whats-new.png");
+      assert(updating.action("cross") && updating.state().navigation.modals.empty());
+      fresh.finished_message.clear(); fresh.whats_new=false; fresh.current_notes.clear();
+      updating.UpdateSelfUpdate(fresh);
+      for(int i=0;i<4 && updating.state().navigation.route!=Route::Settings;++i) assert(updating.action("r1"));
+      assert(updating.action("focus:settings-release-notes") && updating.action("cross"));
+      capture_update("release-notes-short.png");
+    }
+    {
       // An installed, prepared game: Play is the same height as the other actions,
       // in either state, and the uninstall dialog's choice fits its button.
       Simulation live({}, {}, ModelMode::Live);

@@ -10,6 +10,8 @@
 #include "steam/install_service.h"
 #include "steam/cloud_service.h"
 #include "homebrew/runtime_host.hpp"
+#include "steam/download_rate.h"
+#include "update/update_service.h"
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -33,6 +35,8 @@ class Controller {
   void Shutdown();
   // Steam store descriptions, genres and controller support for the games the player opens.
   void SetStoreDetails(steam::StoreDetailsService* store_details) { store_details_ = store_details; }
+  // Playden's own update: the controller passes the player's requests on and shows its state.
+  void SetSelfUpdate(update::UpdateService* self_update) { self_update_ = self_update; }
   Controller(const Controller&) = delete;
   Controller& operator=(const Controller&) = delete;
  private:
@@ -52,6 +56,11 @@ class Controller {
   steam::StoreDetailsService* store_details_ = nullptr;
   std::optional<GameId> requested_store_detail_;
   void TickInstalls();
+  void TickSelfUpdate();
+  update::UpdateService* self_update_ = nullptr;
+  std::uint64_t self_update_revision_ = ~0ull;
+  steam::DownloadRate self_update_rate_;
+  std::string self_update_rate_part_;
   void TickCloud();
   void TickRuntime();
   Simulation& model_;

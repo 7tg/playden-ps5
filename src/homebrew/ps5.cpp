@@ -18,6 +18,7 @@
 #include "runtime/artifact_hash.h"
 #include "runtime/kit_admission.h"
 #include "runtime/kit_trust.h"
+#include "update/update_service.h"
 #include "homebrew/input_adapter.hpp"
 #include "homebrew/usb_keyboard.hpp"
 #include "core/input.hpp"
@@ -46,6 +47,7 @@
 #include <memory>
 #include <optional>
 #include <sys/stat.h>
+#include <unistd.h>
 
 extern "C" void playden_release_splash(void);
 // The native signer requires every referenced export to resolve, including
@@ -297,6 +299,51 @@ int main() {
         playden::LocalSessionRepository cloud_sessions(paths.steam_state_root);
         playden::steam::CloudService cloud(cloud_runner, cloud_sessions);
         simulation.SetLogDirectory(paths.log_root);
+        // Playden's own update: it looks for a newer release on GitHub at startup, stages it on
+        // request, and swaps the app (and kit) when Playden quits for it. Start() runs before the
+        // runtime admits the kit: an update that did not take puts the previous kit back.
+        playden::steam::HttpClient update_http(paths.trust_store);
+        playden::update::UpdateConfig update_config;
+        update_config.latest_release_url = "https://api.github.com/repos/leolobato/playden-ps5/releases/latest";
+        update_config.releases_page = "https://github.com/leolobato/playden-ps5/releases";
+        update_config.title_id = PLAYDEN_PS5_TITLE_ID;
+        update_config.installed_root = std::string("/data/homebrew/") + PLAYDEN_PS5_TITLE_ID;
+        update_config.work_root = "/data/playden/self-update";
+        update_config.kits_root = "/data/playden/kits";
+        update_config.appmeta_root = std::string("/user/appmeta/") + PLAYDEN_PS5_TITLE_ID;
+        update_config.registered_app_root = std::string("/user/app/") + PLAYDEN_PS5_TITLE_ID;
+        update_config.current = playden::update::CurrentVersion();
+        update_config.fetch = [&update_http](const playden::steam::HttpRequest& request, const std::atomic<bool>& cancel) {
+            return update_http.Perform(request, cancel);
+        };
+        update_config.hash_file = [](const std::string& path) { return playden::runtime::HashArtifactFile(path); };
+        // Which kit a folder holds. A newer kit may use a schema or contract this build can't judge;
+        // its bytes are vouched for by GitHub's digest and the per-file checks, and the new Playden
+        // admits it at startup. Only a kit whose files don't match its own manifest is refused.
+        update_config.verify_kit = [](const std::string& root) -> std::optional<std::string> {
+            namespace rt = playden::runtime;
+            const auto result = rt::VerifyInstalledKit(root, rt::DevelopmentKitAdmission());
+            if (result.manifest_sha256.empty() || result.status == rt::KitManifestStatus::kIntegrityFailure)
+                return std::nullopt;
+            if (result.status != rt::KitManifestStatus::kVerified)
+                playden::app::AppendLogLine(log_root, "update.log", "self-update: kit " + root + " status=" +
+                    std::to_string(static_cast<int>(result.status)) + " (" + result.reason + ") accepted by digest");
+            return result.manifest_sha256;
+        };
+        // The title's folders under /data and /user are root-owned: renames there need root briefly.
+        update_config.as_root = [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); };
+        update_config.free_bytes = [](const std::string& path) -> std::optional<std::uint64_t> {
+            const auto space = playden::steam::QueryVolumeSpace(path);
+            if (!space) return std::nullopt;
+            return space->free_bytes;
+        };
+        update_config.log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "update.log", line); };
+        update_config.local_release_dir = paths.title_root + "/dev/update-local";
+        playden::update::UpdateService self_update(std::move(update_config));
+        playden::app::AppendLogLine(log_root, "update.log",
+                                    "self-update: Playden " + playden::update::CurrentVersion().ToString() + " started");
+        self_update.Start();
+        self_update.Check(false);
         // "Export as recipe" writes next to the logs, which are read over FTP already.
         simulation.SetRecipeExportTarget(paths.log_root, playden::ps5::ConsoleFirmwareVersion().value_or(""));
         // Per-game runtime: private bottles and PS5 titles from the admitted kit.
@@ -421,6 +468,7 @@ int main() {
                                                runtime_host.get());
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
+        services.SetSelfUpdate(&self_update);
         // Without its runtime Playden still lists and downloads games; say why nothing can start.
         if (!native_access.runtime_ready) simulation.UpdateRuntimeProblem(native_access.error);
 #endif
@@ -519,6 +567,27 @@ int main() {
 #if !PLAYDEN_UI_SIMULATION
         services.Shutdown();
         artwork.Shutdown();
+        self_update.Shutdown();
+        if (self_update.Snapshot().restart_requested || self_update.Snapshot().rollback_requested) {
+            // The relaunch payload starts first: it waits until Playden has gone, then opens it again.
+            std::string elf, error;
+            if (FILE* file = std::fopen((paths.title_root + "/self-update-relaunch.elf").c_str(), "rb")) {
+                char buffer[4096];
+                std::size_t n;
+                while ((n = std::fread(buffer, 1, sizeof buffer, file)) > 0) elf.append(buffer, n);
+                std::fclose(file);
+            }
+            const std::string request = "/data/playden/self-update/relaunch-title";
+            FILE* title = std::fopen(request.c_str(), "w");
+            const bool requested = title && std::fputs(PLAYDEN_PS5_TITLE_ID "\n", title) >= 0;
+            if (title) std::fclose(title);
+            const bool sent = !elf.empty() && requested && playden::ps5::SendToPayloadLoader(elf, &error);
+            playden::app::AppendLogLine(log_root, "update.log", std::string("self-update: relaunch payload ") +
+                                                                    (sent ? "sent" : "not sent: " + (elf.empty() ? std::string("missing") : error)));
+            const bool swapped = self_update.ApplyAtQuit();
+            playden::app::AppendLogLine(log_root, "update.log", std::string("self-update: quit ") +
+                                                                    (swapped ? "with the new files in place" : "without changing the app"));
+        }
 #endif
     }
     display.close();

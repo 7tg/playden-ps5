@@ -124,8 +124,28 @@ the `playden-ps5-<version>` folder, which holds `tools/`.
 3. Install the runtime kit (next section).
 4. Start Playden and sign in to Steam.
 
-To update later, run the same command without `--install`. It copies only the changed files, keeps a backup of what
-it replaced, and puts those three folders' modes right if they changed.
+### Update Playden
+
+From the release after 0.2.0, Playden updates itself from this repository's GitHub releases:
+
+- **Check:** at startup, and with Settings › About › Playden updates › Check now. When a newer release is out,
+  Playden offers it once, with its notes, its download size, and a QR code for its release page on GitHub.
+- **Download:** Download and install fetches the new app and, when the release has a new one, the runtime kit. You
+  can follow the download on the Downloads screen and keep using Playden meanwhile.
+- **Restart:** when the update is ready, Restart Playden closes Playden, puts the new version and kit in place, and
+  opens Playden again. If it doesn't open by itself (the payload loader on port 9021 isn't running), open it from
+  the Home screen. On that first start Playden shows what's new in the version; Settings › About › Release notes
+  shows it again later.
+
+The previous app and kit are kept until the next update, in `/data/playden/self-update/backup/` and
+`/data/playden/kits/.previous-*`. Settings › About › **Go back to Playden <version>** puts them back: Playden
+closes, swaps the previous version and its kit in, and opens again. If the swap does not take and the previous
+version opens again, it says so and puts its kit back. If the new version itself fails to start, nothing can report it: reinstall Playden over FTP as
+described above (your games, sign-in and settings are kept), and put the previous kit folder back in place of
+`hl2-fw1360-dev1` if the new kit is at fault.
+
+You can also update by hand: run the install command without `--install`. It copies only the changed files, keeps a
+backup of what it replaced, and puts those three folders' modes right if they changed.
 
 ### Install the runtime kit
 

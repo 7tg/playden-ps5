@@ -23,6 +23,13 @@ struct RootFileOps {
 bool WriteRootOwnedFile(const std::filesystem::path& directory, const std::string& name,
                         const std::string& contents, const RootFileOps& ops, std::string* error);
 
+// Runs work with root's effective UID. Every root raise in Playden goes through one lock (this and
+// WriteTitleAllowList): two threads that each saved and restored the effective UID on their own
+// could interleave, and one would "restore" root for good or drop it under the other's work.
+// Nested calls run as root already. Returns false when root can't be raised or the app user can't
+// be restored.
+bool WithRoot(const std::function<bool()>& work);
+
 // runtime::kTitleRuleAllowList on the console, as root.
 bool WriteTitleAllowList(const std::string& contents, std::string* error);
 }  // namespace playden::ps5

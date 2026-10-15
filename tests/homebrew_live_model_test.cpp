@@ -405,6 +405,172 @@ void live_download_telemetry() {
     }
 }
 
+
+// Playden's own update: the prompts, the Downloads job, the Settings row and the requests.
+void live_self_update(const std::filesystem::path& base) {
+    using namespace playden::homebrew;
+    std::filesystem::create_directories(base);
+    auto model = make_live(base);
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(model.UpdateLibrary({{}, false, {}, false, true, 100}), "update: library delivered");
+    for (int i = 0; i < 6 && model.state().navigation.route != Route::Settings; ++i) model.action("r1");
+    check(model.state().navigation.route == Route::Settings, "update: settings open");
+    LiveSelfUpdate update;
+    update.current = "0.2.0";
+    model.UpdateSelfUpdate(update);
+    check(find_row(model, "settings-update") && find_row(model, "settings-update")->value == "Check now",
+          "update: Settings offers a check");
+    activate(model, "settings-update");
+    check(model.TakeSelfUpdateRequests() == std::vector<std::string>{"check"}, "update: the row asks for a check");
+
+    update.phase = "checking";
+    update.user_check = true;
+    model.UpdateSelfUpdate(update);
+    update.phase = "up-to-date";
+    update.available = "0.2.0";
+    model.UpdateSelfUpdate(update);
+    check(std::any_of(model.state().notices.begin(), model.state().notices.end(),
+                      [](const Notice& notice) { return notice.id == "self-update-check"; }),
+          "update: a check from Settings says Playden is up to date");
+
+    // A newer release: one prompt, with the download size.
+    update.phase = "available";
+    update.available = "0.3.0";
+    update.download_bytes = 500000000;
+    update.kit_needed = true;
+    update.notes = "New things.";
+    model.UpdateSelfUpdate(update);
+    check(!model.state().navigation.modals.empty() &&
+              model.state().navigation.modals.back().title == "Playden 0.3.0 is available" &&
+              model.state().navigation.modals.back().body.find("compatibility kit") != std::string::npos,
+          "update: a newer release is offered");
+    check(model.action("cross") && model.state().navigation.modals.empty() &&
+              model.TakeSelfUpdateRequests() == std::vector<std::string>{"install"},
+          "update: Download and install asks for the install");
+    model.UpdateSelfUpdate(update);
+    check(model.state().navigation.modals.empty(), "update: the same release is offered once");
+
+    // Downloading and unpacking show on Downloads.
+    update.phase = "downloading";
+    update.part = "kit";
+    update.done = 100;
+    update.total = 400;
+    model.UpdateSelfUpdate(update);
+    const auto job = std::find_if(model.state().jobs.begin(), model.state().jobs.end(),
+                                  [](const Job& item) { return item.id == "playden-update"; });
+    check(job != model.state().jobs.end() && job->title == "Playden 0.3.0" &&
+              job->stage_text == "Downloading the compatibility kit" && job->completed_bytes == 100,
+          "update: the download shows on Downloads");
+    check(find_row(model, "settings-update")->value == "25%", "update: Settings shows the progress");
+    model.UpdateInstalls({}, {});
+    check(std::any_of(model.state().jobs.begin(), model.state().jobs.end(),
+                      [](const Job& item) { return item.id == "playden-update"; }),
+          "update: game downloads refreshing keep the update job");
+    update.phase = "unpacking";
+    update.part = "app";
+    model.UpdateSelfUpdate(update);
+    check(model.state().jobs.back().stage_text == "Unpacking Playden", "update: unpacking shows too");
+
+    // Staged: the restart prompt; Restart asks to apply at quit and quits.
+    update.phase = "staged";
+    model.UpdateSelfUpdate(update);
+    check(!model.state().navigation.modals.empty() &&
+              model.state().navigation.modals.back().title == "Playden 0.3.0 is ready",
+          "update: a staged update asks for a restart");
+    check(model.action("cross") && model.state().quit_requested &&
+              model.TakeSelfUpdateRequests() == std::vector<std::string>{"restart"},
+          "update: Restart Playden applies the update at quit");
+
+    // Go back: offered when a previous version is kept, confirmed, then Playden quits for it.
+    auto going_back = make_live(base);
+    going_back.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(going_back.UpdateLibrary({{}, false, {}, false, true, 100}), "update: library delivered");
+    for (int i = 0; i < 6 && going_back.state().navigation.route != Route::Settings; ++i) going_back.action("r1");
+    LiveSelfUpdate kept;
+    kept.current = "0.3.0";
+    kept.previous = "0.2.0";
+    going_back.UpdateSelfUpdate(kept);
+    check(find_row(going_back, "settings-update-back") &&
+              find_row(going_back, "settings-update-back")->title == "Go back to Playden 0.2.0",
+          "update: Settings offers going back");
+    activate(going_back, "settings-update-back");
+    check(!going_back.state().navigation.modals.empty() &&
+              going_back.state().navigation.modals.back().title == "Go back to Playden 0.2.0?" &&
+              going_back.state().navigation.modals.back().focused_action == 1,
+          "update: going back asks first, with Cancel focused");
+    check(going_back.action("left") && going_back.action("cross") && going_back.state().quit_requested &&
+              going_back.TakeSelfUpdateRequests() == std::vector<std::string>{"rollback"},
+          "update: Go back puts the previous version back at quit");
+
+    // A version the player went back from is listed in Settings but not offered in a dialog.
+    auto declined = make_live(base);
+    declined.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(declined.UpdateLibrary({{}, false, {}, false, true, 100}), "update: library delivered");
+    LiveSelfUpdate quiet;
+    quiet.current = "0.2.0";
+    quiet.phase = "available";
+    quiet.available = "0.2.1";
+    quiet.quiet = true;
+    declined.UpdateSelfUpdate(quiet);
+    check(declined.state().navigation.modals.empty(), "update: no dialog for a version gone back from");
+
+    // After an update: "What's new" with the notes and the release page as a QR link, once; the notes
+    // stay in Settings › Release notes.
+    auto updated = make_live(base);
+    updated.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(updated.UpdateLibrary({{}, false, {}, false, true, 100}), "update: library delivered");
+    for (int i = 0; i < 6 && updated.state().navigation.route != Route::Settings; ++i) updated.action("r1");
+    LiveSelfUpdate fresh;
+    fresh.current = "0.3.0";
+    fresh.current_notes = "Faster downloads.";
+    fresh.current_notes_url = "https://github.com/o/r/releases/tag/v0.3.0";
+    fresh.finished_message = "Playden was updated to 0.3.0.";
+    fresh.whats_new = true;
+    updated.UpdateSelfUpdate(fresh);
+    check(!updated.state().navigation.modals.empty() &&
+              updated.state().navigation.modals.back().title == "What's new in Playden 0.3.0" &&
+              updated.state().navigation.modals.back().body.find("Faster downloads.") != std::string::npos &&
+              updated.state().navigation.modals.back().link == fresh.current_notes_url,
+          "update: what's new opens with the notes and the release page");
+    check(updated.TakeSelfUpdateRequests() == std::vector<std::string>{"acknowledge"}, "update: what's new is acknowledged");
+    check(updated.action("cross") && updated.state().navigation.modals.empty(), "update: OK closes what's new");
+    fresh.finished_message.clear();
+    fresh.whats_new = false;
+    updated.UpdateSelfUpdate(fresh);
+    check(updated.state().navigation.modals.empty(), "update: what's new shows once");
+    check(find_row(updated, "settings-release-notes") != nullptr, "update: Settings lists the release notes");
+    activate(updated, "settings-release-notes");
+    check(!updated.state().navigation.modals.empty() &&
+              updated.state().navigation.modals.back().title == "Playden 0.3.0 release notes" &&
+              updated.state().navigation.modals.back().link == fresh.current_notes_url,
+          "update: the release notes open from Settings");
+
+    // A failed install says why; the previous run's result shows once.
+    auto failing = make_live(base);
+    failing.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(failing.UpdateLibrary({{}, false, {}, false, true, 100}), "update: library delivered");
+    for (int i = 0; i < 6 && failing.state().navigation.route != Route::Settings; ++i) failing.action("r1");
+    LiveSelfUpdate step;
+    step.current = "0.2.0";
+    step.phase = "downloading";
+    failing.UpdateSelfUpdate(step);
+    step.phase = "failed";
+    step.error = "The kit download failed.";
+    failing.UpdateSelfUpdate(step);
+    check(!failing.state().navigation.modals.empty() &&
+              failing.state().navigation.modals.back().title == "Playden update stopped" &&
+              failing.state().navigation.modals.back().body == "The kit download failed.",
+          "update: a failed install is reported");
+    check(failing.action("cross") && failing.state().navigation.modals.empty(), "update: OK closes the report");
+    step.phase = "idle";
+    step.finished_message = "Playden was updated to 0.3.0.";
+    failing.UpdateSelfUpdate(step);
+    check(failing.TakeSelfUpdateRequests() == std::vector<std::string>{"acknowledge"} &&
+              std::any_of(failing.state().notices.begin(), failing.state().notices.end(),
+                          [](const Notice& notice) { return notice.id == "self-update-finished"; }),
+          "update: the finished update is announced once");
+}
+
 } // namespace
 
 int main() {
@@ -421,6 +587,7 @@ int main() {
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);
     account_commands_dispatch_refresh_and_switch_barriers(base);
+    live_self_update(base);
 
     std::filesystem::remove_all(base, error);
     std::cout << "homebrew_live_model_test passed\n";

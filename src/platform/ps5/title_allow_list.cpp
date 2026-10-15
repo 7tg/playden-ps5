@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <mutex>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -76,8 +77,25 @@ bool WriteRootOwnedFile(const std::filesystem::path& directory, const std::strin
   return true;
 }
 
+namespace {
+std::recursive_mutex& RootLock() {
+  static std::recursive_mutex lock;
+  return lock;
+}
+}  // namespace
+
+bool WithRoot(const std::function<bool()>& work) {
+  std::lock_guard<std::recursive_mutex> lock(RootLock());
+  const uid_t user = ::geteuid();
+  if (user == 0) return work();
+  if (::seteuid(0) != 0) return false;
+  const bool ok = work();
+  return ::seteuid(user) == 0 && ok;
+}
+
 bool WriteTitleAllowList(const std::string& contents, std::string* error) {
   const std::filesystem::path list = runtime::kTitleRuleAllowList;
+  std::lock_guard<std::recursive_mutex> lock(RootLock());
   const uid_t user = ::geteuid();
   RootFileOps ops;
   ops.raise = [] { return ::seteuid(0) == 0; };

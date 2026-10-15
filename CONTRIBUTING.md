@@ -90,7 +90,8 @@ scripts/build-homebrew-ps5.sh
 ```
 
 The first script builds the root helper that gives the title access to `/data`. The second builds the launcher
-title `FAKE77031` into `build/homebrew-ps5/dist/FAKE77031`. Neither script contacts a console.
+title `FAKE77031` into `build/homebrew-ps5/dist/FAKE77031`, with the two small payloads it sends to the payload
+loader (the title remover and the self-update's relaunch payload). Neither script contacts a console.
 
 The build checks the pinned revisions and hashes. If it stops with a mismatch, do not edit the hash: find out why
 the input changed. The PS5 build is reproducible, so the same sources give the same `eboot.bin` in any checkout.
@@ -238,6 +239,36 @@ longer apply. Rebuilding the runtime and the kit follows prospero-win's `docs/WI
 - Add or update tests with each change. Run the host tests before you send a change.
 - A build or upload is not console acceptance. Say what you ran on a console, and keep the logs.
 - Commit subjects under 60 characters. In the body, use `-` bullets that describe the visible behaviour.
+
+## Publish a release
+
+Playden updates itself from the latest GitHub release (`releases/latest`, which leaves out drafts and
+pre-releases), so every release needs its update manifest:
+
+1. Raise the version in `CMakeLists.txt` (`project(PlaydenLauncher VERSION …)`) and build the PS5 package. The
+   version becomes `param.json`'s `contentVersion` and the version Playden compares.
+2. Make the two zips as before: `playden-ps5-<version>.zip` (with the `FAKE77031` folder inside
+   `playden-ps5-<version>/`) and `playden-kit-h-<revision>.zip` (with the kit folder inside
+   `playden-kit-h-<revision>/`).
+3. Write the manifest:
+
+   ```sh
+   python3 tools/write_update_manifest.py --app-zip playden-ps5-<version>.zip \
+       --kit-zip playden-kit-h-<revision>.zip --kit-revision <revision> --min-from <oldest version> \
+       --notes "A short summary of the release." --out playden-update.json
+   ```
+
+   `--notes` is the summary the update dialog shows: plain text (no Markdown) of at most 400 characters, such as the
+   first line of the release notes. The dialog links to the release page, as a QR code, for the full notes. The tool
+   refuses a kit that `dependencies.lock.json` does not pin. `--min-from` is the oldest version that can update
+   to this one; older versions are told to install by hand.
+4. Attach `playden-update.json` and both zips to the release, then publish it. GitHub records each file's SHA-256,
+   and Playden checks the downloads against it. If the kit did not change, the kit zip may be left out: consoles
+   that already have that kit download only the app.
+
+To try an update on a console without publishing, put `release.json` (from `--release-json`, with
+`--allow-other-kit` for a test kit), `playden-update.json` and the zips in `/data/homebrew/FAKE77031/dev/update-local/`.
+Playden then reads the release from there instead of GitHub. Delete the folder afterwards.
 
 ## Maintainer notes
 

@@ -453,6 +453,9 @@ std::string action_label(const std::string& key) {
         {"account-last-sync", "Last library sync"}, {"account-sync", "Sync now"},
         {"account-recover", "Reconnect account"}, {"account-switch", "Switch account"},
         {"account-reauth", "Sign in again"}, {"job-resume-all", "Resume all"}, {"job-clear-completed", "Clear completed"}, {"collection-new", "New collection"}, {"collection-manage", "Manage collections"},
+        {"about-version", "Version"}, {"self-update-install", "Download and install"},
+        {"self-update-restart", "Restart Playden"}, {"self-update-cancel", "Cancel update"},
+        {"self-update-back-confirm", "Go back"}, {"release-notes-ok", "OK"},
         {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
         {"about-kit", "Compatibility kit"}, {"about-kit-source", "Built from"},
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
@@ -840,6 +843,148 @@ void Simulation::UpdateRuntimeProblem(const std::string& raw) {
     rebuild_view();
 }
 
+void Simulation::UpdateSelfUpdate(const LiveSelfUpdate& update) {
+    if (!live()) return;
+    const LiveSelfUpdate before = state_.self_update;
+    const bool changed = before.phase != update.phase || before.done != update.done || before.total != update.total ||
+                         before.available != update.available || before.error != update.error ||
+                         before.part != update.part || before.current != update.current ||
+                         before.bytes_per_second != update.bytes_per_second || before.previous != update.previous ||
+                         before.quiet != update.quiet || before.current_notes_url != update.current_notes_url ||
+                         before.whats_new != update.whats_new ||
+                         !update.finished_message.empty();
+    if (!changed) {
+        show_update_prompt();
+        return;
+    }
+    state_.self_update = update;
+    if (!update.finished_message.empty() && update.whats_new) {
+        // Updated: the release notes open once, as a dialog, when nothing else is open.
+        pending_update_prompt_ = "whats-new";
+        state_.self_update.finished_message.clear();
+        self_update_requests_.push_back("acknowledge");
+    } else if (!update.finished_message.empty()) {
+        push_notice({"self-update-finished", update.finished_message, "", false, kLiveNoticeSeconds * 2,
+                     update.finished_failed, "", false});
+        state_.self_update.finished_message.clear();
+        self_update_requests_.push_back("acknowledge");
+    }
+    if (update.phase == "available" && update.quiet) {
+        self_update_prompted_ = "available " + update.available;  // Settings still lists it
+    } else if (update.phase == "available" && self_update_prompted_ != "available " + update.available) {
+        self_update_prompted_ = "available " + update.available;
+        pending_update_prompt_ = "available";
+    } else if (update.phase == "staged" && self_update_prompted_ != "staged " + update.available) {
+        self_update_prompted_ = "staged " + update.available;
+        pending_update_prompt_ = "staged";
+    } else if (update.phase == "failed" && before.phase != "failed") {
+        // A check that ran on its own fails quietly; what the player started says why it stopped.
+        if (update.user_check || before.phase == "downloading" || before.phase == "unpacking")
+            show_alert("Playden update stopped", update.error);
+    } else if (update.phase == "up-to-date" && before.phase == "checking" && update.user_check) {
+        push_notice({"self-update-check", "Playden is up to date", "", false, kLiveNoticeSeconds, false,
+                     "Version " + update.current});
+    }
+    sync_self_update_job();
+    show_update_prompt();
+    rebuild_view();
+}
+
+std::vector<std::string> Simulation::TakeSelfUpdateRequests() {
+    auto requests = std::move(self_update_requests_);
+    self_update_requests_.clear();
+    return requests;
+}
+
+// The update's prompts wait, like alerts, until no other dialog, sheet or keyboard is open.
+void Simulation::show_update_prompt() {
+    const auto route = state_.navigation.route;
+    if (pending_update_prompt_.empty() || !state_.navigation.modals.empty() || state_.editor.active ||
+        route == Route::Startup || route == Route::SignIn || route == Route::Session)
+        return;
+    const auto& update = state_.self_update;
+    if (pending_update_prompt_ == "available" && update.phase == "available") {
+        ModalEntry prompt{"confirmation", "Playden " + update.available + " is available", state_.navigation.focus_key,
+                          {"self-update-install", "ready-later"}, 0, false};
+        prompt.body = (update.notes.empty() ? std::string() : update.notes + "\n\n") + "The download is " +
+                      format_bytes(update.download_bytes) +
+                      (update.kit_needed ? ", with a new compatibility kit." : ".") +
+                      " You can keep using Playden while it downloads.";
+        prompt.link = update.notes_url;
+        open_modal(std::move(prompt));
+    } else if (pending_update_prompt_ == "staged" && update.phase == "staged") {
+        ModalEntry prompt{"confirmation", "Playden " + update.available + " is ready", state_.navigation.focus_key,
+                          {"self-update-restart", "ready-later"}, 0, false};
+        prompt.body = "Restart Playden to finish the update. It closes and opens again by itself; if it doesn't, "
+                      "open it from the Home screen.";
+        open_modal(std::move(prompt));
+    } else if (pending_update_prompt_ == "whats-new" || pending_update_prompt_ == "release-notes") {
+        open_release_notes(pending_update_prompt_ == "whats-new");
+    }
+    pending_update_prompt_.clear();
+}
+
+// The update shows on Downloads while it downloads, unpacks and waits for the restart.
+void Simulation::sync_self_update_job() {
+    state_.jobs.erase(std::remove_if(state_.jobs.begin(), state_.jobs.end(),
+                                     [](const Job& job) { return job.kind == "self-update"; }),
+                      state_.jobs.end());
+    const auto& update = state_.self_update;
+    if (update.phase != "downloading" && update.phase != "unpacking" && update.phase != "staged") return;
+    const bool kit = update.part == "kit";
+    Job job;
+    job.id = "playden-update";
+    job.kind = "self-update";
+    job.queue_order = -1;
+    job.title = "Playden " + update.available;
+    if (update.phase == "downloading") {
+        job.state = JobState::Downloading;
+        job.stage_text = kit ? "Downloading the compatibility kit" : "Downloading Playden";
+        job.state_text = "Downloading";
+        job.bytes_per_second = update.bytes_per_second;
+        job.eta_seconds = update.eta_seconds;
+    } else if (update.phase == "unpacking") {
+        job.state = JobState::Verifying;
+        job.stage_text = kit ? "Unpacking the compatibility kit" : "Unpacking Playden";
+        job.state_text = "Unpacking";
+    } else {
+        job.state = JobState::Downloaded;
+        job.stage_text = "Restart Playden to finish";
+        job.state_text = "Ready · restart Playden";
+    }
+    job.completed_bytes = update.phase == "staged" ? update.download_bytes : update.done;
+    job.total_bytes = update.phase == "staged" ? update.download_bytes : update.total;
+    state_.jobs.push_back(std::move(job));
+}
+
+// The running version's release notes, with its release page as a QR code: once after an update
+// ("What's new"), and from Settings › About › Release notes.
+void Simulation::open_release_notes(bool after_update) {
+    const auto& update = state_.self_update;
+    ModalEntry notes{"confirmation",
+                     (after_update ? "What's new in Playden " : "Playden ") + update.current +
+                         (after_update ? std::string() : std::string(" release notes")),
+                     state_.navigation.focus_key, {"release-notes-ok"}, 0, false};
+    notes.body = (after_update ? "Playden was updated to " + update.current + ".\n\n" : std::string()) +
+                 (update.current_notes.empty() ? std::string("What changed in this version is on its release page.")
+                                               : update.current_notes);
+    notes.link = update.current_notes_url;
+    open_modal(std::move(notes));
+}
+
+void Simulation::request_self_update_restart(const std::string& request) {
+    const bool busy = std::any_of(state_.runtime_games.begin(), state_.runtime_games.end(), [](const auto& entry) {
+        const auto& game = entry.second;
+        return game.status == "Preparing" || !game.uninstall_status.empty() || game.maintenance_running;
+    });
+    if (busy) {
+        show_alert("Restart Playden later", "A game is being prepared or removed. Restart Playden from Settings when it is done.");
+        return;
+    }
+    self_update_requests_.push_back(request);
+    state_.quit_requested = true;
+}
+
 void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games) {
     if (!live()) return;
     state_.runtime = runtime;
@@ -1053,6 +1198,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         installations.push_back({game.game_id, game.volume_id, game.install_bytes, game.available,
                                  state_.runtime_games.count(game.game_id) && state_.runtime_games.at(game.game_id).ready, false});
     state_.jobs = std::move(projected);
+    sync_self_update_job();
     state_.installations = std::move(installations);
     apply_live_volume_usage();
     rebuild_view();
@@ -2783,6 +2929,7 @@ void Simulation::rebuild_view() {
             else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account.authentication); item.subtitle = state_.account.error; item.enabled = false; }
             else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account.last_sync == 0 ? "Never" : std::to_string(state_.account.last_sync); item.enabled = false; }
             else if (action_key.rfind("open-game:", 0) == 0) item.title = "Open game";
+            else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + state_.self_update.current : "Simulated"; item.enabled = false; }
             else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? "Live service model" : "UI comparison fixture"; item.enabled = false; }
             else if (action_key == "about-framework") { item.kind = RowKind::Status; item.value = "Homebrew native model + Hui"; item.enabled = false; }
             else if (action_key == "about-platform") { item.kind = RowKind::Status; item.value = "Host / PS5 homebrew"; item.enabled = false; }
@@ -3124,10 +3271,11 @@ void Simulation::rebuild_view() {
             const auto& job = *job_pointer;
             if (job.state == JobState::Cancelled) continue;
             const auto* game = find_game(state_, job.game_id);
-            auto& item = row("job-" + job.id, RowKind::Job, game ? game->title : job.id, "job-action");
+            auto& item = row("job-" + job.id, RowKind::Job, !job.title.empty() ? job.title : game ? game->title : job.id,
+                             "job-action");
             item.game_id = job.game_id;
             item.subtitle = job.failure;
-            item.value = job_state_name(job.state);
+            item.value = !job.state_text.empty() ? job.state_text : job_state_name(job.state);
             item.progress = job.total_bytes == 0 ? 0.0F : static_cast<float>(job.completed_bytes) / static_cast<float>(job.total_bytes);
         }
         if (view_.rows.empty()) row("downloads-empty", RowKind::Status, "No active downloads", "");
@@ -3322,6 +3470,41 @@ void Simulation::rebuild_view() {
             controller.subtitle = "Test the buttons and sticks";
         }
         section = "About";
+        if (live()) {
+            const auto& update = state_.self_update;
+            auto& item = add("settings-update", RowKind::Action, "Playden updates", "self-update");
+            if (update.phase == "checking") {
+                item.value = "Checking…";
+                item.subtitle = "Looking for a newer Playden on GitHub";
+            } else if (update.phase == "available") {
+                item.value = update.available + " available";
+                item.subtitle = "Download " + format_bytes(update.download_bytes);
+            } else if (update.phase == "downloading" || update.phase == "unpacking") {
+                item.value = update.total ? std::to_string(update.done * 100 / update.total) + "%" : "Working…";
+                item.subtitle = update.phase == "downloading" ? "Downloading Playden " + update.available
+                                                               : "Unpacking Playden " + update.available;
+            } else if (update.phase == "staged") {
+                item.value = update.available + " ready";
+                item.subtitle = "Restart Playden to finish the update";
+            } else if (update.phase == "failed") {
+                item.value = "Check again";
+                item.subtitle = update.error;
+            } else {
+                item.value = "Check now";
+                item.subtitle = update.phase == "up-to-date" ? "Version " + update.current + " is the latest"
+                                                              : "Version " + update.current;
+            }
+        }
+        if (live() && !state_.self_update.previous.empty() && state_.self_update.phase != "downloading" &&
+            state_.self_update.phase != "unpacking") {
+            auto& back = add("settings-update-back", RowKind::Action, "Go back to Playden " + state_.self_update.previous,
+                             "self-update-back");
+            back.subtitle = "Put the previous version and its compatibility kit back";
+        }
+        if (live() && !state_.self_update.current_notes_url.empty()) {
+            auto& notes = add("settings-release-notes", RowKind::Action, "Release notes", "self-update-notes");
+            notes.subtitle = "What changed in Playden " + state_.self_update.current;
+        }
         add("settings-about", RowKind::Action, "About", "about").subtitle = "Playden for PlayStation 5";
         auto& logs = add("settings-logs", RowKind::Action, "Logs", live() ? "logs-pick" : "logs");
         if (live()) {
@@ -4155,6 +4338,13 @@ void Simulation::activate() {
         }
     } else if (action_name == "install-estimate-retry") {
         state_.notices.push_back({"estimate", "Fixture estimate is still unavailable", "install-estimate-retry", true, 0});
+    } else if (action_name == "job-action" && selected.key == "job-playden-update") {
+        const auto& phase = state_.self_update.phase;
+        std::vector<std::string> actions;
+        if (phase == "staged") actions.push_back("self-update-restart");
+        else actions.push_back("self-update-cancel");
+        actions.push_back("cancel");
+        open_modal({"job-actions", "Playden update", selected.key, std::move(actions), 0, false});
     } else if (action_name == "job-action") {
         const auto id = selected.key.substr(4);
         const auto* job = find_job(state_, id);
@@ -4908,8 +5098,31 @@ void Simulation::activate() {
     else if (action_name == "simulation-controls") open_modal({"simulation-controls", "Simulation controls", state_.navigation.focus_key,
         {"advance-clock", "inject-download-failed", "inject-verification-failed", "inject-uninstall-failed", "inject-storage-disconnect", "inject-storage-reconnect", "inject-controller-disconnect", "inject-controller-reconnect", "inject-launch-failure", "inject-stop-failure", "inject-runtime-failed", "inject-save-failure", "inject-logs-loading", "inject-logs-empty", "inject-logs-failure", "inject-logs-ready", "inject-delayed-art", "inject-failed-art", "inject-library-refresh", "inject-startup-loading", "cancel"}, 0, false});
     else if (action_name == "about") open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", state_.navigation.focus_key,
-        {"about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 0, false});
+        {"about-version", "about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 0, false});
     else if (action_name == "about-back") close_modal();
+    else if (live() && action_name == "self-update") {
+        const auto& phase = state_.self_update.phase;
+        if (phase == "available") { pending_update_prompt_ = "available"; show_update_prompt(); }
+        else if (phase == "staged") { pending_update_prompt_ = "staged"; show_update_prompt(); }
+        else if (phase == "downloading" || phase == "unpacking") {
+            state_.navigation.route = Route::Downloads;
+            state_.navigation.focus_key = "job-playden-update";
+        } else if (phase != "checking") self_update_requests_.push_back("check");
+    }
+    else if (live() && action_name == "self-update-install") { close_modal(); self_update_requests_.push_back("install"); }
+    else if (live() && action_name == "self-update-cancel") { close_modal(); self_update_requests_.push_back("cancel"); }
+    else if (live() && action_name == "self-update-restart") { close_modal(); request_self_update_restart(); }
+    else if (live() && action_name == "self-update-notes") open_release_notes(false);
+    else if (action_name == "release-notes-ok") close_modal();
+    else if (live() && action_name == "self-update-back") {
+        ModalEntry confirm{"confirmation", "Go back to Playden " + state_.self_update.previous + "?",
+                           state_.navigation.focus_key, {"self-update-back-confirm", "cancel"}, 1, false};
+        confirm.body = "Playden closes, puts version " + state_.self_update.previous +
+                       " and its compatibility kit back, and opens again. If it doesn't open by itself, open it from the "
+                       "Home screen.";
+        open_modal(std::move(confirm));
+    }
+    else if (live() && action_name == "self-update-back-confirm") { close_modal(); request_self_update_restart("rollback"); }
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
         {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "cancel"}, 0, false});
     else if (action_name.rfind("scenario-", 0) == 0) { state_.navigation.modals.clear(); scenario(action_name.substr(9)); }

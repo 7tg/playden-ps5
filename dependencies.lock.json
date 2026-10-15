@@ -24,6 +24,20 @@
     "payload_sdk": "ps5_payload_sdk",
     "source": "tools/title-remover/main.c; build with scripts/build-title-remover.sh (reproducible; sent by Playden to the payload loader on 127.0.0.1:9021)"
   },
+  "miniz": {
+    "version": "3.0.2",
+    "source": "https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip (amalgamated miniz.c/miniz.h)",
+    "files": {
+      "miniz.c": "0fcdc9888cb3a29ca8f176bac087e5fe6c7258a6ab06b1c271c1e109a11d3740",
+      "miniz.h": "295d1a0041aea09609598c0f1f35c1977ca05ad662acbadcfdaac44c140af37b"
+    },
+    "purpose": "Reads release zips for Playden's self-update; writing APIs left out"
+  },
+  "self_update_relaunch": {
+    "sha256": "e32c635cca2d67b0a94b388e17711748c9f4955238a02914135b432d529396e2",
+    "payload_sdk": "ps5_payload_sdk",
+    "source": "tools/self-update-relaunch/main.c; build with scripts/build-self-update-relaunch.sh (reproducible; sent by Playden to the payload loader on 127.0.0.1:9021 when it quits to finish an update)"
+  },
   "ps5_opengl": {
     "version": "1.0.0",
     "source_revision": "e9c1104e83e9466637b7f79c350ee164bf772459",
