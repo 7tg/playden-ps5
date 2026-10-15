@@ -536,6 +536,8 @@ void InstallService::Run() {
           if (job.view.failure == kWaitingForSteam) job.view.failure.clear();
           job.rate.Reset();
           job.view.bytes_per_second.reset(); job.view.eta_seconds.reset();
+          job.view.step = InstallStep::kStarting;
+          job.view.step_since = std::chrono::steady_clock::now();
           next = job.view.id;
           next_root = RootOn(job.view.volume_id, job.view.id);
           active_ = next;
@@ -578,6 +580,14 @@ void InstallService::Run() {
                                    job->view.total_bytes = total;
                                    job->view.held_bytes = held;
                                    ++revision_;  // progress only; the registry is unchanged
+                                 }
+                               },
+                               [this, id = *next](InstallStep step) {
+                                 std::lock_guard<std::mutex> lock(mutex_);
+                                 if (auto* job = Find(id); job && job->view.step != step) {
+                                   job->view.step = step;
+                                   job->view.step_since = std::chrono::steady_clock::now();
+                                   ++revision_;
                                  }
                                });
     }

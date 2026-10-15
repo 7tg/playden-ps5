@@ -1025,6 +1025,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         job.completed_bytes = live_job.done_bytes;
         job.total_bytes = live_job.total_bytes;
         job.held_bytes = live_job.held_bytes;
+        job.checking_licenses = live_job.state == JobState::Downloading && live_job.checking_licenses;
         job.failure = live_job.failure;
         job.volume_id = live_job.volume_id;
         if (live_job.state == JobState::Downloading) {
@@ -5313,6 +5314,16 @@ bool Simulation::action(const std::string& logical_action) {
             if (!job && state_.navigation.focus_key.rfind("job-", 0) == 0) job = find_job(state_, state_.navigation.focus_key.substr(4));
             if (!job) job = find_job(state_, "job-1");
             if (job) { job->state = JobState::Failed; job->retry_stage = wanted_stage; job->stage = job->retry_stage; job->failure = injected == "verification-failed" ? "Verification failed" : "Download failed"; }
+        } else if (injected == "checking-licenses") {
+            const auto active = std::find_if(state_.jobs.begin(), state_.jobs.end(), [](const Job& value) {
+                return value.stage == JobStage::Download && value.state != JobState::Downloaded;
+            });
+            if (active != state_.jobs.end()) {
+                active->state = JobState::Downloading;
+                active->checking_licenses = true;
+                active->completed_bytes = 0;
+                active->total_bytes = 0;
+            }
         } else if (injected == "uninstall-failed") {
             const auto job = std::find_if(state_.jobs.begin(), state_.jobs.end(), [](const Job& value) { return value.kind == "uninstall" && value.state != JobState::Downloaded; });
             if (job != state_.jobs.end()) { job->state = JobState::Failed; job->stage = JobStage::Uninstall; job->retry_stage = JobStage::Uninstall; job->failure = "Uninstall failed"; }

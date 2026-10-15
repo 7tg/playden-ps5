@@ -5,6 +5,7 @@
 #include "steam/download_rate.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -28,6 +29,8 @@ struct InstallRequest {
 std::vector<InstallRequest> ParseInstallRequests(const std::string& text);
 
 enum class InstallJobState { kQueued, kRunning, kPaused, kFailed };
+// What a running install is doing before its first progress report.
+enum class InstallStep { kStarting, kCheckingLicenses, kDownloading };
 
 // A place games can be installed: a folder on one drive. `available` means the folder exists and
 // Playden can write to it now; installs recorded on a volume that is absent stay listed.
@@ -48,6 +51,8 @@ struct InstallJobView {
   std::string volume_id;
   std::optional<std::uint64_t> bytes_per_second;
   std::optional<int> eta_seconds;
+  InstallStep step = InstallStep::kStarting;  // while running
+  std::chrono::steady_clock::time_point step_since{};
 };
 
 struct InstalledGame {
@@ -99,7 +104,8 @@ class InstallRunner {
   };
   virtual Result Install(const StoredSession& session, GameId id, const std::string& root,
                          const std::atomic<bool>& cancel,
-                         const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress) = 0;
+                         const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress,
+                         const std::function<void(InstallStep)>& step) = 0;
   virtual bool Remove(const std::string& root) = 0;
 };
 

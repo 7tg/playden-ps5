@@ -71,7 +71,8 @@ const char* InstallFailureText(InstallError error) {
 
 InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, GameId id, const std::string& root,
                                                   const std::atomic<bool>& cancel,
-                                                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress) {
+                                                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
+                                                  const std::function<void(InstallStep)>& step) {
   Result result;
   current_app_.store(id);
   installer_.SetTuning(tuning_ ? tuning_() : DownloadTuning{});
@@ -100,7 +101,9 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
   target.app_id = id;
   target.install_root = root;
   std::string reason;
-  // Like the reference, only depots this account's licenses grant are installed.
+  // Like the reference, only depots this account's licenses grant are installed. Accounts with
+  // thousands of licenses take a minute here (issue #47), so the player sees this step.
+  if (step) step(InstallStep::kCheckingLicenses);
   const auto entitlements = cm_.FetchAcquisitionDates(session, cancel);
   if (cancel.load()) {
     result.canceled = true;
@@ -127,6 +130,7 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
     for (const auto& selected : target.depots)
       if (selected.id == depot.id) ordered.push_back(selected);
   target.depots = ordered;
+  if (step) step(InstallStep::kDownloading);
   const auto outcome = installer_.Run(session, target, cancel, [&](const InstallProgress& state) {
     if (progress) progress(state.download_done, state.download_total, state.held_bytes);
   });

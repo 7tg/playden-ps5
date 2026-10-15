@@ -1104,7 +1104,8 @@ void Controller::TickInstalls() {
   const auto now = std::chrono::steady_clock::now();
   const bool account_changed = model_.state().account_generation != install_generation_;
   const bool space_due = now - volume_refreshed_at_ >= std::chrono::seconds(10);
-  if (snapshot.revision == install_revision_ && !account_changed && !space_due) return;
+  const bool licenses_due = licenses_notice_at_ && now >= *licenses_notice_at_;
+  if (snapshot.revision == install_revision_ && !account_changed && !space_due && !licenses_due) return;
   {
     std::vector<LiveVolume> volumes;
     for (const auto& volume : snapshot.volumes) {
@@ -1123,7 +1124,16 @@ void Controller::TickInstalls() {
   install_revision_ = snapshot.revision;
   install_generation_ = model_.state().account_generation;
   std::vector<LiveInstallJob> jobs;
+  // A license check that takes a while shows as its own step (issue #47); a quick one never shows.
+  constexpr auto kLicensesNoticeDelay = std::chrono::seconds(3);
+  licenses_notice_at_.reset();
   for (const auto& job : snapshot.jobs) {
+    bool checking_licenses = false;
+    if (job.state == steam::InstallJobState::kRunning && job.step == steam::InstallStep::kCheckingLicenses) {
+      const auto notice_at = job.step_since + kLicensesNoticeDelay;
+      checking_licenses = now >= notice_at;
+      if (!checking_licenses) licenses_notice_at_ = notice_at;
+    }
     JobState state = JobState::Queued;
     switch (job.state) {
       case steam::InstallJobState::kQueued: state = JobState::Queued; break;
@@ -1132,7 +1142,7 @@ void Controller::TickInstalls() {
       case steam::InstallJobState::kFailed: state = JobState::Failed; break;
     }
     jobs.push_back({job.id, state, job.done_bytes, job.total_bytes, job.failure, job.volume_id,
-                    job.bytes_per_second, job.eta_seconds, job.held_bytes});
+                    job.bytes_per_second, job.eta_seconds, job.held_bytes, checking_licenses});
   }
   std::vector<LiveInstalledGame> installed;
   for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes, game.volume_id, game.available});

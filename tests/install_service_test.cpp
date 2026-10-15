@@ -42,6 +42,7 @@ class Sessions final : public SessionRepository {
 class Runner final : public InstallRunner {
  public:
   std::atomic<bool> block{false};
+  std::atomic<bool> checking_licenses{false};  // holds the run in the license check
   bool telemetry = false;
   std::uint64_t held = 0;  // bytes the fake install reports on disk
   std::atomic<int> installs{0};
@@ -51,13 +52,22 @@ class Runner final : public InstallRunner {
   std::vector<std::string> removed;
   std::vector<std::string> install_roots;
   Result Install(const StoredSession&, GameId, const std::string& root, const std::atomic<bool>& cancel,
-                 const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress) override {
+                 const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
+                 const std::function<void(InstallStep)>& step) override {
     ++installs;
     {
       std::lock_guard<std::mutex> lock(mutex);
       install_roots.push_back(root);
     }
     if (unreachable > 0) { --unreachable; return {false, false, "Could not reach Steam.", 0, true}; }
+    if (checking_licenses) {
+      step(InstallStep::kCheckingLicenses);
+      while (checking_licenses) {
+        if (cancel) return {false, true, {}, 0};
+        std::this_thread::sleep_for(1ms);
+      }
+      step(InstallStep::kDownloading);
+    }
     if (telemetry) { progress(9000000000ull, 10000000000ull, held); progress(9100000000ull, 10000000000ull, held); }
     else progress(10, 100, held);
     while (block) {
@@ -283,7 +293,28 @@ void UnreachableSteamWaits(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
 }
 
+// A running job reports its step, so a slow license check can show before the download starts (issue #47).
+void RunningJobReportsItsStep(const std::filesystem::path& root) {
+  std::filesystem::remove_all(root);
+  Sessions sessions;
+  Runner runner;
+  runner.checking_licenses = true;
+  InstallService service(runner, sessions, root.string());
+  const auto before = std::chrono::steady_clock::now();
+  service.Install(70);
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
+    const auto* job = JobOf(s, 70);
+    return job && job->step == InstallStep::kCheckingLicenses;
+  });
+  const auto checking = service.Snapshot();
+  CHECK(JobOf(checking, 70)->state == InstallJobState::kRunning && JobOf(checking, 70)->step_since >= before);
+  runner.checking_licenses = false;
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, 70); });
+  std::filesystem::remove_all(root);
+}
+
 int main() {
+  RunningJobReportsItsStep(std::filesystem::temp_directory_path() / ("playden-step-service-" + std::to_string(::getpid())));
   SpaceAdmission(std::filesystem::temp_directory_path() / ("playden-space-service-" + std::to_string(::getpid())));
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));
   UnreachableSteamWaits(std::filesystem::temp_directory_path() / ("playden-unreachable-service-" + std::to_string(::getpid())));

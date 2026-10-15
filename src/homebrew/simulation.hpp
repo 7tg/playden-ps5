@@ -54,6 +54,7 @@ struct LiveInstallJob {
     std::optional<std::uint64_t> bytes_per_second;
     std::optional<int> eta_seconds;
     std::uint64_t held_bytes = 0;  // installed bytes already on the drive
+    bool checking_licenses = false;  // a slow Steam license check before the download starts
 };
 struct LiveInstalledGame {
     GameId game_id = 0;
@@ -288,6 +289,7 @@ struct Job {
     bool completion_applied = false;
     std::uint64_t held_bytes = 0;  // live: installed bytes already on the drive
     std::int64_t finished_at = 0;  // live: when a Downloaded job finished (Unix seconds), 0 unknown
+    bool checking_licenses = false;  // live: a slow Steam license check before the download starts
 };
 
 struct Volume {

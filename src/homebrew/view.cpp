@@ -1551,6 +1551,8 @@ class Render::Impl
     {
         if (status.job != nullptr)
         {
+            if (status.job->checking_licenses)
+                return "Checking licenses";
             if (status.job->state == JobState::Downloading && status.job->total_bytes > 0)
                 return std::to_string(static_cast<int>(100.0 * status.job->completed_bytes / status.job->total_bytes)) +
                        "% · " + job_state_label(status.job->state);
@@ -1802,12 +1804,21 @@ class Render::Impl
             bar.set_bounds({282.0F, 302.0F, 756.0F, 12.0F});
             bar.set_value(std::clamp(progress, 0.0F, 1.0F), true);
             bar.draw(canvas);
-            const std::string bytes = byte_count(primary->completed_bytes) + " / " +
-                                      byte_count(primary->total_bytes);
-            ui::text(scene_, fonts_.regular, bytes, 282.0F, 352.0F, 22.0F, kText);
-            ui::text(scene_, fonts_.regular, FormatDownloadRate(primary->state == JobState::Downloading ? primary->bytes_per_second : std::nullopt,
-                                         primary->state == JobState::Downloading ? primary->eta_seconds : std::nullopt), 1038.0F,
-                     352.0F, 22.0F, kSecondary, gfx::Align::right);
+            if (primary->checking_licenses)
+            {
+                // Large accounts take a minute here, before Steam gives the download size (issue #47).
+                spinner(292.0F, 345.0F, 9.0F, kBlue);
+                ui::text(scene_, fonts_.regular, "Checking your Steam licenses…", 314.0F, 352.0F, 22.0F, kText);
+            }
+            else
+            {
+                const std::string bytes = byte_count(primary->completed_bytes) + " / " +
+                                          byte_count(primary->total_bytes);
+                ui::text(scene_, fonts_.regular, bytes, 282.0F, 352.0F, 22.0F, kText);
+                ui::text(scene_, fonts_.regular, FormatDownloadRate(primary->state == JobState::Downloading ? primary->bytes_per_second : std::nullopt,
+                                             primary->state == JobState::Downloading ? primary->eta_seconds : std::nullopt), 1038.0F,
+                         352.0F, 22.0F, kSecondary, gfx::Align::right);
+            }
             const bool card_focused = route_focus_ && state.navigation.focus_key == "job-" + primary->id;
             focus_ring(scene_, active_card, control_focus("job-" + primary->id, card_focused));
             if (card_focused)
