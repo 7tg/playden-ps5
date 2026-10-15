@@ -3,7 +3,7 @@
 Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-15.
 
 > [!NOTE]
-> This release uses **kit H r8**, where OpenGL games draw through Mesa (Zink on Vulkan). Every game marked **H** was
+> This release uses **kit H r9**, where OpenGL games draw through Mesa (Zink on Vulkan). Every game marked **H** was
 > checked on kit H (the revision where the column names one). Balatro was not, so its result is from kit C, which drew OpenGL through ps5-opengl instead.
 
 Did you test a game? [Open a test report](../../issues/new?template=test-report.yml), even when it works.
@@ -110,6 +110,7 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 
 | Kit | What changed for games |
 | --- | --- |
+| H r9 | Wine builds more of the Direct3D 9 effects that games compile while they run, so DoDonPachi Resurrection starts and Star Wars: Empire at War shows its menus. No Recreate bottle needed. |
 | H r8 | Games see the console's memory, about 12 GB, and a page file of the same size. Before, they saw almost none, so games that check free memory at start-up stopped (Fallout: New Vegas). No Recreate bottle needed. |
 | H r6 | Bottles have the .NET Framework registry entries and files that Wine Mono's installer writes, so .NET lookups of the Framework folder work. Recreate bottle for games set up on an earlier kit. |
 | H r4 | Wine Mono ships with the kit, so .NET programs start instead of being refused (ENSLAVED). |

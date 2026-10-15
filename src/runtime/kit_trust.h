@@ -12,7 +12,7 @@ namespace playden::runtime {
 inline constexpr const char* kDevelopmentKitId = "hl2-fw1360-dev1";
 inline constexpr const char* kDevelopmentKitRoot = "/data/playden/kits/hl2-fw1360-dev1";
 inline constexpr const char* kExpectedKitManifestSha256 =
-    "bcbf77d8780ad7c6337663e83a774db8a5daaef997a5c6aeb678d89378356e61";
+    "a8390b0264ea6486d14846c1e1b5c09af6b7e02281b53dae21a26d8617f9a87b";
 
 // What this build accepts from a kit, on any console firmware.
 KitAdmissionConfig DevelopmentKitAdmission();

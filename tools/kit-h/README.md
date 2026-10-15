@@ -69,12 +69,18 @@ template bottle what Wine Mono's support MSI writes when Wine installs it, which
 them mscoree's `LoadLibraryShim` fails (Antichamber). Install the MSI once with kit H's host Wine on an x86_64 Linux host
 (the commands are in `update_r6.py`; Rosetta can't run wow64 Wine), then run `update_r6.py` on the Mac on a copy of r5's
 inputs and spec. It takes only what the MSI accounts for and checks each file against the MSI's hashes or the runtime's
-builtins. Bottles made from an earlier template need Recreate bottle. Kit H r8 (the kit this release uses; runtime
+builtins. Bottles made from an earlier template need Recreate bottle. Kit H r8 (runtime
 `13fa077-kit-h-r8`; r7 was a development kit and was not released) is r6 with Wine patch 0603: Windows memory queries
 report the title's direct-memory budget instead of about zero, so Fallout: New Vegas starts. Build the cross PRXs with
 `build_wine_ps5.sh` on 13fa077 into the same `wine-ps5` work folder as before (assert messages keep the source path, so
 another folder name changes every PRX), then run `update_r8.py` on a copy of r6's inputs and spec with
-`PLAYDEN_CROSS_PRX` at that build's `prx/sce_module`. Only `ntdll.prx` changes, so bottles need no Recreate. RADV (`libvulkan.prx`) comes
+`PLAYDEN_CROSS_PRX` at that build's `prx/sce_module`. Only `ntdll.prx` changes, so bottles need no Recreate. Kit H r9
+(the kit this release uses; runtime `d069101-kit-h-r9`) is r8 with Wine patches 0959-0963: vkd3d-shader builds the D3DX
+effects that DoDonPachi Resurrection and Star Wars: Empire at War compile at runtime. Build with `build_wine_ps5.sh` on
+d069101 into the same `wine-ps5` folder (every cross PRX must still be r8's), strip the build's `pe/*/wined3d.dll` with
+`*-mingw32-strip -s`, then run `update_r9.py` on a copy of r8's inputs and spec with `PLAYDEN_CROSS_PE` at those PE files.
+Only `wined3d.dll` changes, in the runtime and the template, and Wine loads the runtime's builtin, so bottles need no
+Recreate. RADV (`libvulkan.prx`) comes
 from [PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan) 8aee3af / [PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa)
 01d7057, the same as kit G r2. OpenGL games under Zink need at least PS5_Mesa f2ee389.
 
