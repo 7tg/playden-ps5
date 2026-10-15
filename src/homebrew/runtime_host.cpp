@@ -55,6 +55,10 @@ constexpr int kMaxPreparationSteps = 64;
 // the worker made at most this long ago.
 constexpr auto kLaunchPollInterval = std::chrono::seconds(2);
 constexpr std::int64_t kPreflightFreshMs = 5000;
+// The console's process list could not show whether the title runs (the reason is in
+// runtime.log). Closing the game cannot help when no game runs; a restart usually does.
+constexpr char kActivityUnknown[] =
+    "The PS5 could not tell Playden whether the game is running. Restart the PS5, then try again.";
 
 std::string InstallId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id); }
 
@@ -1484,6 +1488,11 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     // Re-ensure the staged title (idempotent for a matching title; it also
     // repairs directory modes from earlier builds) before resuming.
     if (existing->state == rt::PreparationState::kPreparing || existing->state == rt::PreparationState::kRegistering) {
+      // Only when the next step can run: each step stops while the title may run, and a
+      // folder rebuilt here (one the player deleted, say) would put the title back on Home.
+      const auto activity = c.coordinator->Activity(existing->title_id);
+      if (activity == rt::NativeActivity::kUnknown) return kActivityUnknown;
+      if (activity != rt::NativeActivity::kStopped) return "Close the game first.";
       const auto staged = c.installer->StageTitle(*existing);
       Log("resume title check state=" + std::to_string(static_cast<int>(staged.state)) + " code=" + staged.code +
           " message=" + staged.message);
@@ -1794,7 +1803,7 @@ std::string RuntimeHost::MaintenanceRefusal(Composition& c, const rt::RuntimeIns
   if (!pending.ok) return "The launch record cannot be read; restart Playden.";
   if (pending.session) return "Close the game first.";
   const auto activity = c.coordinator->Activity(record.title_id);
-  if (activity == rt::NativeActivity::kUnknown) return "The PS5 can't tell whether the game is running. Try again.";
+  if (activity == rt::NativeActivity::kUnknown) return kActivityUnknown;
   if (activity != rt::NativeActivity::kStopped) return "Close the game first.";
   return {};
 }
@@ -1957,8 +1966,7 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
   }
   const auto activity = c.coordinator->Activity(record.title_id);
   if (activity == rt::NativeActivity::kActive) return "Close the game before uninstalling it.";
-  if (activity != rt::NativeActivity::kStopped)
-    return "Playden cannot tell whether the game is running. Close it and try again.";
+  if (activity != rt::NativeActivity::kStopped) return kActivityUnknown;
   const bool resuming = record.state == rt::PreparationState::kRemoving && record.journal &&
                         record.journal->operation.rfind("remove", 0) == 0;
   // The game's name for the kept bottle, read before its title folder goes.
@@ -2206,8 +2214,10 @@ void RuntimeHost::Run() {
       if (kit_reason.empty()) kit_reason = "No verified compatibility kit is installed.";
       c.installer = std::make_unique<UnavailablePackageInstaller>(kit_reason);
     }
+    auto native = config_.native;
+    if (!native.log) native.log = [this](const std::string& line) { Log(line); };
     c.coordinator = std::make_unique<ps5::Ps5NativeCoordinator>(
-        c.records, *c.installer, c.registry, config_.homebrew_root, config_.native);
+        c.records, *c.installer, c.registry, config_.homebrew_root, std::move(native));
     c.owner = std::make_unique<rt::SettingsPublicationOwner>(c.records, *c.installer, *c.coordinator);
     c.service = std::make_unique<rt::RuntimeInstallService>(
         c.records, *c.installer, *c.coordinator,

@@ -3,6 +3,9 @@
 #include "platform/ps5/title_registry.h"
 #include "runtime/install_service.h"
 #include <filesystem>
+#include <map>
+#include <memory>
+#include <mutex>
 
 namespace playden::ps5 {
 struct TitleSourceObservation {
@@ -17,6 +20,8 @@ TitleSourceObservation ReadTitleSource(const std::filesystem::path& homebrew_roo
 struct NativeCoordinatorOperations {
   std::function<TitleDatabaseObservation(const std::string&)> database;
   std::function<runtime::NativeActivity(const std::string&)> activity;
+  // Receives why the default activity reader could not tell whether a title runs.
+  std::function<void(const std::string&)> log;
 };
 class Ps5NativeCoordinator final : public runtime::NativeCoordinator {
  public:
@@ -41,4 +46,8 @@ class Ps5NativeCoordinator final : public runtime::NativeCoordinator {
   std::filesystem::path root_;
   NativeCoordinatorOperations operations_;
 };
+// The default activity reader: an unknown result is logged when its reason changes,
+// and once more when the title's activity is known again.
+std::function<runtime::NativeActivity(const std::string&)> LoggedTitleActivity(
+    std::function<void(const std::string&)> log);
 }  // namespace playden::ps5

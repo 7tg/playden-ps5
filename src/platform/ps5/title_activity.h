@@ -17,9 +17,11 @@ struct TitleActivityApi {
 std::optional<std::vector<std::int32_t>> DecodeTitleActivityProcessIds(const std::vector<std::uint8_t>& bytes);
 // A positively identified target is active; stopped requires complete valid
 // identities twice with unchanged enclosing inventories. Unknown never authorizes edits.
-runtime::NativeActivity QueryTitleActivity(const std::string& title_id, const TitleActivityApi& api);
+// An unknown result says why in `reason`, when given.
+runtime::NativeActivity QueryTitleActivity(const std::string& title_id, const TitleActivityApi& api,
+                                           std::string* reason = nullptr);
 // Read-only native boundary. Host builds always return unknown. FW13.60 native
 // ABI/API qualification is required before production uses this for mutation.
-using TitleActivityTrace = std::function<void(const std::string&)>;
-runtime::NativeActivity ReadTitleActivity(const std::string& title_id, const TitleActivityTrace& trace = {});
+// An unknown result says why in `reason`, with the first failed kernel call.
+runtime::NativeActivity ReadTitleActivity(const std::string& title_id, std::string* reason = nullptr);
 }  // namespace playden::ps5

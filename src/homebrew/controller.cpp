@@ -1050,6 +1050,9 @@ void Controller::TickUninstalls() {
     facts.has_title = std::any_of(snapshot.installs.begin(), snapshot.installs.end(),
                                   [id](const RuntimeInstallView& view) { return view.app_id == id; });
     facts.removing = snapshot.removing_app == id;
+    facts.removal_started = std::any_of(snapshot.installs.begin(), snapshot.installs.end(), [id](const RuntimeInstallView& view) {
+      return view.app_id == id && view.state == runtime::PreparationState::kRemoving;
+    });
     facts.removals_handled = snapshot.removals_handled;
     if (const auto failure = snapshot.removal_failures.find(id); failure != snapshot.removal_failures.end())
       facts.removal_failure = failure->second;

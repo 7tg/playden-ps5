@@ -533,6 +533,24 @@ void ResumesInterruptedCaptureFromSavedRequest(bool tamper_backup = false) {
     auto bytes = Read(backup); bytes[0] = bytes[0] == 'X' ? 'Y' : 'X';
     Write(backup, bytes, 0600);
   }
+  if (!tamper_backup) {
+    // While the console cannot tell whether the title runs, the resume stops before it
+    // rebuilds a title folder the player deleted (ShadowMount would put it back on Home).
+    CHECK(failed.installs[0].state == PreparationState::kPreparing ||
+          failed.installs[0].state == PreparationState::kRegistering);
+    const auto title = fixture.root / "data/homebrew/FAKE78001", aside = fixture.root / "title-aside";
+    fs::rename(title, aside);
+    fixture.activity->store(static_cast<int>(NativeActivity::kUnknown));
+    const auto asked = host.Snapshot().revision;
+    host.Prepare(Hl2());
+    WaitFor(host, [asked](const RuntimeSnapshot& s) {
+      return s.revision > asked && !s.preparing_app && s.refusals.count(220) &&
+             s.refusals.at(220).find("Restart the PS5") != std::string::npos;
+    });
+    CHECK(!fs::exists(title) && fixture.registry_mutations == 0);
+    fs::rename(aside, title);
+    fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  }
   const auto before = host.Snapshot().revision;
   host.Prepare(Hl2());
   WaitFor(host, [before](const RuntimeSnapshot& s) { return s.revision > before && !s.refusals.count(220); });

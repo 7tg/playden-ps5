@@ -85,10 +85,12 @@ UninstallAction UninstallFlow::Advance(GameId id, const UninstallFacts& facts) {
       }
     } else {
       if (facts.removing || facts.removals_handled <= entry.removals_before) return {};
+      // A refusal before the removal began changed nothing: there is no removal for Retry to continue.
       if (facts.has_title)
         return Stop(id, "The PS5 title could not be removed: " +
                             (facts.removal_failure.empty() ? std::string("unknown reason.") : facts.removal_failure) +
-                            " The game stays installed; Retry on its PS5 title continues.");
+                            (facts.removal_started ? " The game stays installed; Retry on its PS5 title continues."
+                                                   : " The game stays installed."));
       entry.step = UninstallStep::kRemoveDownload;
     }
   }

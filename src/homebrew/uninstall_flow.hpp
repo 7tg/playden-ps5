@@ -28,6 +28,7 @@ struct UninstallAction {
 struct UninstallFacts {
   bool has_title = false;            // an install record exists (Ready, failed or being removed)
   bool removing = false;             // the runtime is removing it now
+  bool removal_started = false;      // its record holds a removal journal that Retry continues
   std::uint64_t removals_handled = 0;
   std::string removal_failure;       // the runtime's latest removal refusal or failure
   bool saves_moving = false;         // a Cloud transfer runs for the game

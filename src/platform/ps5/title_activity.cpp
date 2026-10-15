@@ -1,6 +1,8 @@
 #include "platform/ps5/title_activity.h"
 #include "platform/ps5/title_runtime.h"
 #include <algorithm>
+#include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <set>
 #if defined(__PROSPERO__)
@@ -34,78 +36,118 @@ std::optional<std::vector<std::int32_t>> DecodeTitleActivityProcessIds(const std
   }
   return InventoryValid(pids) ? std::optional<std::vector<std::int32_t>>(std::move(pids)) : std::nullopt;
 }
-runtime::NativeActivity QueryTitleActivity(const std::string& title, const TitleActivityApi& api) {
+runtime::NativeActivity QueryTitleActivity(const std::string& title, const TitleActivityApi& api, std::string* reason) {
   using runtime::NativeActivity;
-  if (!ValidTitleId(title) || !api.processes || !api.identity) return NativeActivity::kUnknown;
-  auto first = api.processes(); if (!first || !InventoryValid(*first)) return NativeActivity::kUnknown;
+  const auto unknown = [reason](std::string why) {
+    if (reason) *reason = std::move(why);
+    return NativeActivity::kUnknown;
+  };
+  if (!ValidTitleId(title) || !api.processes || !api.identity) return unknown("no title id or process reader");
+  auto first = api.processes(); if (!first || !InventoryValid(*first)) return unknown("process list unreadable");
   std::sort(first->begin(), first->end());
   std::vector<ProcessTitleIdentity> identities(first->size());
-  bool complete = true;
-  auto valid_identity = [](const std::optional<ProcessTitleIdentity>& value) {
+  // The first process whose identity cannot be trusted, and how many there are.
+  std::string untrusted; unsigned untrusted_count = 0;
+  auto valid_identity = [&](std::int32_t pid, const std::optional<ProcessTitleIdentity>& value) {
     // FW13.60 PID 1 has app_id zero and a valid system title. A successful
     // title identity is authoritative regardless of app_id; only an untitled
     // identity requires app_id zero. Failed calls never become non-apps.
-    return value && ((value->app_id == 0 && value->title_id.empty()) || ValidTitleId(value->title_id));
+    if (value && ((value->app_id == 0 && value->title_id.empty()) || ValidTitleId(value->title_id))) return true;
+    if (!untrusted_count++)
+      untrusted = "pid=" + std::to_string(pid) + (value ? " app_id=" + std::to_string(value->app_id) +
+                                                          " title=\"" + value->title_id + "\" is not a title"
+                                                        : std::string(" identity unavailable"));
+    return false;
+  };
+  const auto untrusted_reason = [&] {
+    return untrusted + (untrusted_count > 1 ? " (+" + std::to_string(untrusted_count - 1) + " more)" : std::string());
   };
   for (std::size_t i = 0; i < first->size(); ++i) {
     const auto pid = (*first)[i]; if (pid == 0) continue; // Kernel cannot be a user title.
     auto identity = api.identity(pid);
-    if (!valid_identity(identity)) { complete = false; continue; }
+    if (!valid_identity(pid, identity)) continue;
     if (identity->title_id == title) return NativeActivity::kActive;
     identities[i] = *identity;
   }
-  if (!complete) return NativeActivity::kUnknown;
-  auto second = api.processes(); if (!second || !InventoryValid(*second)) return NativeActivity::kUnknown;
-  std::sort(second->begin(), second->end()); if (*first != *second) return NativeActivity::kUnknown;
+  if (untrusted_count) return unknown(untrusted_reason());
+  auto second = api.processes(); if (!second || !InventoryValid(*second)) return unknown("process list unreadable");
+  std::sort(second->begin(), second->end()); if (*first != *second) return unknown("process list changed");
+  std::string changed;
   for (std::size_t i = 0; i < second->size(); ++i) {
-    if ((*second)[i] == 0) continue;
-    auto identity = api.identity((*second)[i]);
-    if (!valid_identity(identity)) { complete = false; continue; }
+    const auto pid = (*second)[i]; if (pid == 0) continue;
+    auto identity = api.identity(pid);
+    if (!valid_identity(pid, identity)) continue;
     if (identity->title_id == title) return NativeActivity::kActive;
-    if (identity->app_id != identities[i].app_id || identity->title_id != identities[i].title_id) complete = false;
+    if (changed.empty() && (identity->app_id != identities[i].app_id || identity->title_id != identities[i].title_id))
+      changed = "pid=" + std::to_string(pid) + " identity changed";
   }
-  if (!complete) return NativeActivity::kUnknown;
-  auto final = api.processes(); if (!final || !InventoryValid(*final)) return NativeActivity::kUnknown;
+  if (untrusted_count) return unknown(untrusted_reason());
+  if (!changed.empty()) return unknown(changed);
+  auto final = api.processes(); if (!final || !InventoryValid(*final)) return unknown("process list unreadable");
   std::sort(final->begin(), final->end());
-  return *first == *final ? NativeActivity::kStopped : NativeActivity::kUnknown;
+  return *first == *final ? NativeActivity::kStopped : unknown("process list changed");
 }
-runtime::NativeActivity ReadTitleActivity(const std::string& title, const TitleActivityTrace& trace) {
-  if (!ValidTitleId(title)) return runtime::NativeActivity::kUnknown;
+runtime::NativeActivity ReadTitleActivity(const std::string& title, std::string* reason) {
+  if (!ValidTitleId(title)) {
+    if (reason) *reason = "no title id";
+    return runtime::NativeActivity::kUnknown;
+  }
 #if defined(__PROSPERO__)
   // Same 96-byte AppInfo layout used by the title-scoped elevation helper.
   struct AppInfo { std::uint32_t app_id; std::uint64_t reserved; char title_id[14]; char padding[0x3c]; };
   static_assert(sizeof(AppInfo) == 96 && offsetof(AppInfo, title_id) == 16);
   static_assert(offsetof(kinfo_proc, ki_pid) == 72 && offsetof(kinfo_proc, ki_structsize) == 0);
+  // The first kernel call that failed, for an unknown result's reason.
+  std::string failed;
+  const auto unknown = [&](const std::string& why) {
+    if (reason) *reason = failed.empty() ? why : why + "; " + failed;
+    return runtime::NativeActivity::kUnknown;
+  };
   using GetInfo = int (*)(int, AppInfo*); GetInfo get_info = nullptr;
   if (sceKernelDlsym(0x2001, "sceKernelGetAppInfo", reinterpret_cast<void**>(&get_info)) != 0 || !get_info)
-    return runtime::NativeActivity::kUnknown;
-  auto identity = [get_info, &trace](std::int32_t pid) -> std::optional<ProcessTitleIdentity> {
+    return unknown("sceKernelGetAppInfo is not available");
+  auto identity = [get_info, &failed](std::int32_t pid) -> std::optional<ProcessTitleIdentity> {
     AppInfo value{};
     const auto rc = get_info(pid, &value);
     const auto* end = static_cast<const char*>(std::memchr(value.title_id, 0, sizeof(value.title_id)));
-    if (trace) trace("identity pid=" + std::to_string(pid) + " rc=" + std::to_string(static_cast<std::uint32_t>(rc)) +
-        " app_id=" + std::to_string(value.app_id) + " title=" + (end ? std::string(value.title_id, end - value.title_id) : "<unterminated>"));
-    if (rc != 0) return std::nullopt;
-    if (!end) return std::nullopt;
+    if (rc != 0 || !end) {
+      if (failed.empty()) {
+        char code[16]; std::snprintf(code, sizeof(code), "0x%08x", static_cast<unsigned>(rc));
+        failed = "sceKernelGetAppInfo pid=" + std::to_string(pid) + " rc=" + code + (end ? "" : " title unterminated");
+      }
+      return std::nullopt;
+    }
     return ProcessTitleIdentity{value.app_id, std::string(value.title_id, static_cast<std::size_t>(end - value.title_id))};
   };
   const auto self_pid = ::getpid(); auto self = self_pid > 0 ? identity(self_pid) : std::nullopt;
-  if (!self || !self->app_id || !ValidTitleId(self->title_id)) return runtime::NativeActivity::kUnknown;
+  if (!self || !self->app_id || !ValidTitleId(self->title_id)) return unknown("Playden's own identity unavailable");
   TitleActivityApi api; api.identity = identity;
-  api.processes = [self_pid, &trace]() -> std::optional<std::vector<std::int32_t>> {
+  api.processes = [self_pid, &failed]() -> std::optional<std::vector<std::int32_t>> {
+    const auto fail = [&failed](const std::string& why) {
+      if (failed.empty()) failed = why;
+      return std::nullopt;
+    };
     int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0}; std::size_t length = 0;
-    if (::sysctl(mib, 4, nullptr, &length, nullptr, 0) != 0 || !length || length > kMaxBytes) return std::nullopt;
+    if (::sysctl(mib, 4, nullptr, &length, nullptr, 0) != 0)
+      return fail("sysctl size errno=" + std::to_string(errno));
+    if (!length || length > kMaxBytes) return fail("sysctl size bytes=" + std::to_string(length));
     std::vector<std::uint8_t> bytes(length);
-    if (::sysctl(mib, 4, bytes.data(), &length, nullptr, 0) != 0 || length > bytes.size() || !length) return std::nullopt;
+    if (::sysctl(mib, 4, bytes.data(), &length, nullptr, 0) != 0)
+      return fail("sysctl errno=" + std::to_string(errno));
+    if (length > bytes.size() || !length) return fail("sysctl bytes=" + std::to_string(length));
     bytes.resize(length); auto pids = DecodeTitleActivityProcessIds(bytes);
-    if (trace) trace("snapshot bytes=" + std::to_string(bytes.size()) + " processes=" + (pids ? std::to_string(pids->size()) : "invalid"));
+    if (!pids) return fail("process records malformed bytes=" + std::to_string(length));
     // Qualify the snapshot's PID field against this independently known PID.
-    if (!pids || std::find(pids->begin(), pids->end(), self_pid) == pids->end()) return std::nullopt;
+    if (std::find(pids->begin(), pids->end(), self_pid) == pids->end())
+      return fail("process list lacks Playden's pid=" + std::to_string(self_pid));
     return pids;
   };
-  return QueryTitleActivity(title, api);
+  std::string query_reason;
+  const auto activity = QueryTitleActivity(title, api, &query_reason);
+  return activity == runtime::NativeActivity::kUnknown ? unknown(query_reason) : activity;
 #else
-  (void)title; (void)trace; return runtime::NativeActivity::kUnknown;
+  if (reason) *reason = "not a PS5 build";
+  return runtime::NativeActivity::kUnknown;
 #endif
 }
 }  // namespace playden::ps5

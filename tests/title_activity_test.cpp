@@ -32,10 +32,16 @@ int main() {
   api.identity = [&](int pid) { return std::optional<ProcessTitleIdentity>({pid == 201 ? 123u : 0u,
       pid == 201 ? (++identities == 1 ? "FAKE78002" : "FAKE78001") : ""}); };
   CHECK(QueryTitleActivity("FAKE78001", api) == NativeActivity::kActive);
+  std::string reason;
   api.identity = [](int) { return std::optional<ProcessTitleIdentity>{}; };
-  CHECK(QueryTitleActivity("FAKE78002", api) == NativeActivity::kUnknown);
-  api.identity = [](int) { return std::optional<ProcessTitleIdentity>({123, ""}); };
-  CHECK(QueryTitleActivity("FAKE78002", api) == NativeActivity::kUnknown);
+  CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kUnknown);
+  CHECK(reason == "pid=100 identity unavailable (+1 more)");
+  api.identity = [](int pid) { return std::optional<ProcessTitleIdentity>({pid == 201 ? 123u : 0u, ""}); };
+  CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kUnknown);
+  CHECK(reason == "pid=201 app_id=123 title=\"\" is not a title");
+  // An untrusted identity does not hide a positively identified target.
+  api.identity = [](int pid) { return std::optional<ProcessTitleIdentity>({pid == 201 ? 123u : 7u, pid == 201 ? "FAKE78001" : ""}); };
+  CHECK(QueryTitleActivity("FAKE78001", api) == NativeActivity::kActive);
   api.identity = [](int) { return std::optional<ProcessTitleIdentity>({0, "FAKE78001"}); };
   CHECK(QueryTitleActivity("FAKE78001", api) == NativeActivity::kActive);
   // FW13.60 PID 1 is a successful titled system identity with app_id zero.
@@ -45,10 +51,14 @@ int main() {
   api.identity = [](int) { return std::optional<ProcessTitleIdentity>({0, ""}); };
   unsigned reads = 0;
   api.processes = [&] { return std::optional<std::vector<std::int32_t>>({{100, ++reads == 1 ? 201 : 202}}); };
-  CHECK(QueryTitleActivity("FAKE78002", api) == NativeActivity::kUnknown);
+  CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kUnknown && reason == "process list changed");
+  unsigned calls = 0;
+  api.processes = [] { return std::optional<std::vector<std::int32_t>>({{100, 201}}); };
+  api.identity = [&](int pid) { return std::optional<ProcessTitleIdentity>({0u, pid == 201 && ++calls == 2 ? "NPXS45095" : ""}); };
+  CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kUnknown && reason == "pid=201 identity changed");
   api.processes = [] { return std::optional<std::vector<std::int32_t>>({{100, 100}}); };
-  CHECK(QueryTitleActivity("FAKE78002", api) == NativeActivity::kUnknown);
+  CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kUnknown && reason == "process list unreadable");
   CHECK(QueryTitleActivity("../unsafe", api) == NativeActivity::kUnknown);
-  CHECK(ReadTitleActivity("FAKE78002") == NativeActivity::kUnknown);
+  CHECK(ReadTitleActivity("FAKE78002", &reason) == NativeActivity::kUnknown && reason == "not a PS5 build");
   std::puts("title activity tests passed");
 }

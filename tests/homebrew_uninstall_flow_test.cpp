@@ -55,7 +55,20 @@ int main() {
   titled.removal_failure = "Close the game before uninstalling it.";
   action = flow.Advance(43, titled);
   CHECK(action.kind == Kind::kStop && action.reason.find("Close the game") != std::string::npos);
+  // A refusal before the removal began has no removal for Retry to continue.
+  CHECK(action.reason.find("Retry") == std::string::npos);
   CHECK(!flow.Step(43));
+
+  // A removal that stopped partway is continued by Retry.
+  CHECK(flow.Begin(47, false, false));
+  titled = {};
+  titled.has_title = true;
+  CHECK(flow.Advance(47, titled).kind == Kind::kRemoveTitle);
+  titled.removals_handled = 1;
+  titled.removal_started = true;
+  titled.removal_failure = "The console has not confirmed that the PS5 title is gone.";
+  action = flow.Advance(47, titled);
+  CHECK(action.kind == Kind::kStop && action.reason.find("Retry on its PS5 title continues") != std::string::npos);
 
   // A game without a PS5 title goes straight to the download.
   CHECK(flow.Begin(44, false, false));

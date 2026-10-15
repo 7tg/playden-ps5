@@ -59,7 +59,34 @@ Ps5NativeCoordinator::Ps5NativeCoordinator(runtime::InstallRecordStore& records,
     TitleRegistry& registry, std::filesystem::path root, NativeCoordinatorOperations operations)
     : records_(records), package_(package), registry_(registry), root_(std::move(root)), operations_(std::move(operations)) {
   if (!operations_.database) operations_.database = ReadNativeTitleDatabase;
-  if (!operations_.activity) operations_.activity = [](const auto& title) { return ReadTitleActivity(title); };
+  if (!operations_.activity) operations_.activity = LoggedTitleActivity(operations_.log);
+}
+std::function<runtime::NativeActivity(const std::string&)> LoggedTitleActivity(
+    std::function<void(const std::string&)> log) {
+  struct Reasons { std::mutex mutex; std::map<std::string, std::string> unknown; };
+  auto reasons = std::make_shared<Reasons>();
+  return [log = std::move(log), reasons](const std::string& title) {
+    std::string reason;
+    const auto activity = ReadTitleActivity(title, &reason);
+    if (!log) return activity;
+    std::string line;
+    {
+      std::lock_guard<std::mutex> lock(reasons->mutex);
+      const auto found = reasons->unknown.find(title);
+      if (activity == runtime::NativeActivity::kUnknown) {
+        if (found == reasons->unknown.end() || found->second != reason) {
+          reasons->unknown[title] = reason;
+          line = "title activity unknown title=" + title + " reason=" + reason;
+        }
+      } else if (found != reasons->unknown.end()) {
+        reasons->unknown.erase(found);
+        line = std::string("title activity known again title=") + title +
+               (activity == runtime::NativeActivity::kActive ? " active" : " stopped");
+      }
+    }
+    if (!line.empty()) log(line);
+    return activity;
+  };
 }
 runtime::NativeTitleAvailability Ps5NativeCoordinator::Availability(const std::string& title) {
   if (!IsPlaydenGameTitle(title)) return {};

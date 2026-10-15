@@ -120,5 +120,11 @@ int main() {
   CHECK(!native.Query(record).available);
   CHECK(native.Activity("../unsafe") == NativeActivity::kUnknown);
   std::filesystem::remove_all(temporary);
+  // The default reader logs an unknown result once per reason, not on every check.
+  std::vector<std::string> lines;
+  const auto logged = LoggedTitleActivity([&](const std::string& line) { lines.push_back(line); });
+  CHECK(logged("FAKE78001") == NativeActivity::kUnknown && logged("FAKE78001") == NativeActivity::kUnknown);
+  CHECK(logged("FAKE78002") == NativeActivity::kUnknown);
+  CHECK(lines.size() == 2 && lines[0] == "title activity unknown title=FAKE78001 reason=not a PS5 build");
   std::puts("native coordinator tests passed");
 }
