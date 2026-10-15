@@ -2022,7 +2022,7 @@ bool RegistryEqual(std::string_view left, std::string_view right) {
 }
 
 std::string RegistryIdentity(const RegistryValue& value) {
-  auto identity = RegistryHeader(value.key) + "\n" + value.name;
+  auto identity = RegistryHeader(value.key) + "\n" + (value.default_value ? "@" : "\"" + value.name);
   std::transform(identity.begin(), identity.end(), identity.begin(), AsciiLower);
   return identity;
 }
@@ -2039,14 +2039,15 @@ bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>
   std::string text = *user_reg;
   std::set<std::string> identities;
   for (const auto& value : values) {
-    if (value.key.empty() || value.name.empty() || value.name.find('"') != std::string::npos ||
+    if (value.key.empty() || (!value.default_value && value.name.empty()) ||
+        (value.default_value && !value.name.empty()) || value.name.find('"') != std::string::npos ||
         HasControl(value.key) || HasControl(value.name) || HasControl(value.data))
       return fail("bad registry value");
     if (!identities.insert(RegistryIdentity(value)).second) return fail("duplicate registry value");
   }
   for (const auto& value : values) {
     const auto header = RegistryHeader(value.key);
-    const auto line_prefix = "\"" + value.name + "\"=";
+    const auto line_prefix = value.default_value ? std::string("@=") : "\"" + value.name + "\"=";
     std::size_t section = std::string::npos;
     std::size_t body = std::string::npos;
     std::size_t end = text.size();
@@ -2095,11 +2096,27 @@ bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>
       at = newline + 1;
     }
     if (line != std::string::npos) {
-      auto line_end = text.find('\n', line);
-      const auto terminator = line_end == std::string::npos ? std::string() :
-                              (line_end > line && text[line_end - 1] == '\r' ? "\r\n" : "\n");
-      line_end = line_end == std::string::npos ? text.size() : line_end + 1;
+      auto at = line;
+      std::size_t line_end = line;
+      std::string logical, terminator;
+      while (true) {
+        const auto newline = text.find('\n', at);
+        auto content_end = std::min(newline, end);
+        terminator = newline == std::string::npos || newline >= end ? std::string() : "\n";
+        if (content_end > at && text[content_end - 1] == '\r') {
+          --content_end;
+          if (!terminator.empty()) terminator = "\r\n";
+        }
+        const bool continuation = content_end > at && text[content_end - 1] == '\\';
+        logical += text.substr(at, content_end - at - (continuation ? 1 : 0));
+        line_end = newline == std::string::npos || newline >= end ? end : newline + 1;
+        if (!continuation) break;
+        if (line_end >= end) return fail("unterminated registry assignment");
+        at = line_end;
+        while (at < end && (text[at] == ' ' || text[at] == '\t')) ++at;
+      }
       const auto existing_prefix = text.substr(line, line_prefix.size());
+      if (!value.data.empty() && logical == existing_prefix + value.data) continue;
       text.replace(line, line_end - line,
                    value.data.empty() ? std::string() : existing_prefix + value.data + terminator);
     } else if (!value.data.empty()) {
@@ -2161,6 +2178,62 @@ bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string&
 bool ApplyBottleRegistryValues(const std::vector<RegistryValue>& values, const std::string& prefix_dir,
                                std::int64_t unix_time, const std::string& hive, std::string* reason) {
   return ApplyRegistryFileValues(values, prefix_dir, unix_time, reason, hive);
+}
+
+bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefix_dir,
+                        std::int64_t unix_time, std::string* reason) {
+  const auto fail = [&](const char* why) { if (reason) *reason = why; return false; };
+  auto directory = ManagedDirectory::Open(runtime_dir, DirectoryPolicy::kApprovedTree);
+  if (!directory) return fail("cannot open kit media metadata");
+  for (const auto* child : {"share", "wine", "media-build"}) {
+    auto next = directory->OpenChild(child, DirectoryPolicy::kApprovedTree);
+    if (!next) return errno == ENOENT ? true : fail("cannot open kit media metadata");
+    directory = std::move(next);
+  }
+  std::string text;
+  const auto state = ReadRegularAt(*directory, "media-registry.json", 1024 * 1024,
+                                   &text);
+  if (state == RelativeRead::kMissing) return true;
+  if (state != RelativeRead::kPresent) return fail("cannot read kit media metadata");
+  const auto root = storage_json::Parse(text);
+  const auto* schema = root ? root->Find("schema") : nullptr;
+  const auto* entries = root ? root->Find("values") : nullptr;
+  if (!schema || schema->text() != "playden-media-registry/1" || !entries || !entries->is_array() ||
+      entries->array().empty()) return fail("invalid kit media metadata");
+  std::vector<RegistryValue> values;
+  bool native = false, wow = false;
+  for (const auto& entry : entries->array()) {
+    const auto* key = entry.Find("key"), *name = entry.Find("name"), *data = entry.Find("data");
+    if (!key || !key->is_string() || !name || !name->is_string() || !data || !data->is_string() || data->text().empty())
+      return fail("invalid kit media value");
+    const std::string base = "Software\\Classes\\";
+    if (key->text().compare(0, base.size(), base) != 0) return fail("media value outside Classes");
+    if (key->text().compare(base.size(), 12, "Wow6432Node\\") == 0) wow = true;
+    else native = true;
+    values.push_back({key->text(), name->text(), data->text(), name->text().empty()});
+  }
+  if (!native || !wow) return fail("media metadata lacks both registry views");
+  if (!ApplyBottleRegistryValues(values, prefix_dir, unix_time, "system.reg", reason)) return false;
+  // Once a prefix exists, Wine loads a builtin DLL only through its file in system32 or syswow64 (kit bottles never
+  // run wineboot), so a bottle made from an earlier template also needs winegstreamer.dll itself. An existing copy
+  // is kept: Wine loads the runtime's builtin through it.
+  constexpr std::size_t kMaxMediaDllBytes = 64u * 1024u * 1024u;
+  for (const auto& [arch, folder] : {std::pair{"x86_64-windows", "system32"}, std::pair{"i386-windows", "syswow64"}}) {
+    auto bottle = ManagedDirectory::Open(std::filesystem::path(prefix_dir) / "drive_c/windows" / folder,
+                                         DirectoryPolicy::kApprovedTree);
+    if (!bottle) return fail("cannot open the bottle's windows folders");
+    struct stat existing {};
+    if (bottle->InspectChild("winegstreamer.dll", &existing)) continue;
+    if (errno != ENOENT) return fail("cannot inspect the bottle's winegstreamer.dll");
+    auto source = ManagedDirectory::Open(std::filesystem::path(runtime_dir) / "lib/wine" / arch,
+                                         DirectoryPolicy::kApprovedTree);
+    std::string dll;
+    if (!source || ReadRegularAt(*source, "winegstreamer.dll", kMaxMediaDllBytes, &dll) != RelativeRead::kPresent)
+      return fail("the kit's winegstreamer.dll is missing");
+    if (!WriteAtomicAt(*bottle, "winegstreamer.dll", dll, 0644, false, false, false))
+      return fail("cannot copy winegstreamer.dll into the bottle");
+  }
+  return true;
 }
 
 bool ParseUe3InstallGuid(std::string_view install_info, std::string* guid) {

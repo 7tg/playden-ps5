@@ -92,6 +92,7 @@ struct RegistryValue {
   std::string key;   // e.g. Software\Wine\AppDefaults\hl2.exe (single backslashes)
   std::string name;  // e.g. Version
   std::string data;  // Wine's text form: "\"win7\"" or "dword:00000078"; empty removes
+  bool default_value = false;  // Wine uses @= for a key's unnamed value
 };
 
 struct GameRecipe {
@@ -296,6 +297,11 @@ bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string&
 // backed up to <hive>.playden-backup first, replaced atomically, untouched when nothing changes.
 bool ApplyBottleRegistryValues(const std::vector<RegistryValue>& values, const std::string& prefix_dir,
                                std::int64_t unix_time, const std::string& hive, std::string* reason);
+
+// Merge the staged kit media values into a stopped bottle, and copy the kit's winegstreamer.dll into its system32
+// and syswow64 when missing (Wine finds a builtin only through that file). Older kits without the file are unchanged.
+bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefix_dir,
+                        std::int64_t unix_time, std::string* reason);
 
 // The <InstallGuidString> of an Unreal Engine 3 (UDK) Binaries/InstallInfo.xml: exactly one,
 // a 36-character 8-4-4-4-12 hex GUID once surrounding whitespace is trimmed.

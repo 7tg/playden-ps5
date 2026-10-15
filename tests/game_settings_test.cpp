@@ -517,6 +517,19 @@ int main(int argc, char** argv) {
     std::filesystem::remove_all(eula_root);
   }
 
+  // Wine REG_BINARY continuations form one logical assignment. Equal values keep their original bytes.
+  std::string binary_hive = "WINE REGISTRY Version 2\n\n[Software\\\\Classes\\\\Media]\n"
+      "\"FilterData\"=hex:01,02,\\\n  03,04\n\"keep\"=\"yes\"\n";
+  const auto binary_original = binary_hive;
+  CHECK(ApplyRegistryValues(&binary_hive, {{"Software\\Classes\\Media", "FilterData", "hex:01,02,03,04"}}, 1, &reason));
+  CHECK(binary_hive == binary_original);
+  CHECK(ApplyRegistryValues(&binary_hive, {{"Software\\Classes\\Media", "FilterData", "hex:05,06"}}, 1, &reason));
+  CHECK(binary_hive.find("03,04") == std::string::npos && binary_hive.find("hex:05,06\n") != std::string::npos);
+  CHECK(binary_hive.find("\"keep\"=\"yes\"") != std::string::npos);
+  const auto binary_updated = binary_hive;
+  CHECK(ApplyRegistryValues(&binary_hive, {{"Software\\Classes\\Media", "FilterData", "hex:05,06"}}, 2, &reason));
+  CHECK(binary_hive == binary_updated);
+
   // A Steam install script's Registry section goes into the bottle (Fallout: New Vegas's launcher
   // offers only "Install" without it); its Run Process entries are not run.
   {
@@ -807,6 +820,54 @@ int main(int argc, char** argv) {
   CHECK(BuildEffectiveSettings(nested, nullptr, {{"frame_limit", "30"}}, dxvk_kit, &settings, &error));
   CHECK(!ApplyGameSettings(nested, settings, apply_target, prospero, &reason));
   CHECK(!std::filesystem::exists(outside / "dxvk.conf"));
+
+  // Fresh and existing bottles converge on both media views; repeating does not rewrite either hive or backup.
+  const auto media_runtime = root / "media-runtime";
+  std::filesystem::create_directories(media_runtime / "share/wine/media-build");
+  const auto media_manifest = media_runtime / "share/wine/media-build/media-registry.json";
+  const std::string media_json = R"({"schema":"playden-media-registry/1","values":[
+    {"key":"Software\\Classes\\CLSID\\{317df618-5e5a-468a-9f15-d827a9a08162}\\InprocServer32","name":"","data":"\"C:\\windows\\system32\\winegstreamer.dll\""},
+    {"key":"Software\\Classes\\Wow6432Node\\CLSID\\{317df618-5e5a-468a-9f15-d827a9a08162}\\InprocServer32","name":"","data":"\"C:\\windows\\syswow64\\winegstreamer.dll\""}]})";
+  std::ofstream(media_manifest) << media_json;
+  for (const auto* arch : {"x86_64-windows", "i386-windows"}) {
+    std::filesystem::create_directories(media_runtime / "lib/wine" / arch);
+    std::ofstream(media_runtime / "lib/wine" / arch / "winegstreamer.dll") << "builtin " << arch;
+  }
+  std::string upgraded;
+  for (const auto* kind : {"old", "fresh"}) {
+    const auto bottle = root / kind;
+    std::filesystem::create_directory(bottle);
+    std::filesystem::permissions(bottle, std::filesystem::perms::owner_all);
+    const std::string original = upgraded.empty()
+        ? "WINE REGISTRY Version 2\n\n[Software\\\\Game]\n\"keep\"=\"yes\"\n" : upgraded;
+    std::ofstream(bottle / "system.reg") << original;
+    for (const auto* folder : {"system32", "syswow64"}) std::filesystem::create_directories(bottle / "drive_c/windows" / folder);
+    // A fresh bottle's template already has the DLL; it is kept as it is.
+    if (std::string(kind) == "fresh") std::ofstream(bottle / "drive_c/windows/syswow64/winegstreamer.dll") << "template";
+    CHECK(ApplyMediaRegistry(media_runtime.string(), bottle.string(), 123, &reason));
+    CHECK(ReadText(bottle / "drive_c/windows/system32/winegstreamer.dll") == "builtin x86_64-windows");
+    CHECK(ReadText(bottle / "drive_c/windows/syswow64/winegstreamer.dll") ==
+          (std::string(kind) == "old" ? "builtin i386-windows" : "template"));
+    const auto after = ReadText(bottle / "system.reg");
+    CHECK(after.find("@=\"C:") != std::string::npos && after.find("Wow6432Node") != std::string::npos);
+    CHECK(after.find("\"keep\"=\"yes\"") != std::string::npos);
+    if (std::string(kind) == "old") CHECK(ReadText(bottle / "system.reg.playden-backup") == original);
+    else CHECK(!std::filesystem::exists(bottle / "system.reg.playden-backup"));
+    if (upgraded.empty()) upgraded = after;
+    else CHECK(after == upgraded);
+    const auto stamp = std::filesystem::last_write_time(bottle / "system.reg");
+    CHECK(ApplyMediaRegistry(media_runtime.string(), bottle.string(), 999, &reason));
+    CHECK(ReadText(bottle / "system.reg") == after && std::filesystem::last_write_time(bottle / "system.reg") == stamp);
+    if (std::string(kind) == "old") CHECK(ReadText(bottle / "system.reg.playden-backup") == original);
+    else CHECK(!std::filesystem::exists(bottle / "system.reg.playden-backup"));
+  }
+  std::ofstream(media_manifest) << R"({"schema":"playden-media-registry/1","values":[]})";
+  CHECK(!ApplyMediaRegistry(media_runtime.string(), (root / "old").string(), 123, &reason));
+  CHECK(ReadText(root / "old/system.reg") == upgraded);
+  std::filesystem::remove(media_manifest);
+  CHECK(ApplyMediaRegistry(media_runtime.string(), (root / "old").string(), 123, &reason));
+  std::filesystem::create_symlink(root / "old/system.reg", media_manifest);
+  CHECK(!ApplyMediaRegistry(media_runtime.string(), (root / "old").string(), 123, &reason));
 
   // An oversized registry file is rejected before backup or replacement.
   const auto prefix = root / "prefix";

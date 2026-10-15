@@ -766,8 +766,27 @@ void PlaysReadyTitleThroughHandoff() {
     return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
   }, 60);
 
+  // A kit update adds media metadata after this bottle was made. The next Play merges it before handoff.
+  const auto media = kit.view.root / kit.view.runtime.path / "share/wine/media-build/media-registry.json";
+  const auto hive = fixture.root / "data/playden/games/steam-220/library/prefixes/game/system.reg";
+  CHECK(Read(hive).find("winegstreamer") == std::string::npos);
+  Write(media, R"({"schema":"playden-media-registry/1","values":[
+    {"key":"Software\\Classes\\CLSID\\media\\InprocServer32","name":"","data":"\"winegstreamer.dll\""},
+    {"key":"Software\\Classes\\Wow6432Node\\CLSID\\media\\InprocServer32","name":"","data":"\"winegstreamer.dll\""}]})", 0644);
+  // The bottle predates the media DLLs as well; the same Play copies them in.
+  const auto windows = fixture.root / "data/playden/games/steam-220/library/prefixes/game/drive_c/windows";
+  for (const auto* arch : {"x86_64-windows", "i386-windows"})
+    Write(kit.view.root / kit.view.runtime.path / "lib/wine" / arch / "winegstreamer.dll", std::string("dll ") + arch, 0644);
+  for (const auto* folder : {"system32", "syswow64"}) std::filesystem::create_directories(windows / folder);
+
   host.Play(220);
   const auto prepared = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  const auto upgraded_hive = Read(hive);
+  CHECK(upgraded_hive.find("@=\"winegstreamer.dll\"") != std::string::npos &&
+        upgraded_hive.find("Wow6432Node") != std::string::npos);
+  CHECK(Read(hive.string() + ".playden-backup") == "WINE REGISTRY Version 2\n");
+  CHECK(Read(windows / "system32/winegstreamer.dll") == "dll x86_64-windows");
+  CHECK(Read(windows / "syswow64/winegstreamer.dll") == "dll i386-windows");
   CHECK(prepared.launch && prepared.launch->app_id == 220 && prepared.launch->title_id == "FAKE78001");
   // Cloud saves under Windows folders use this game's private bottle.
   CHECK(prepared.installs[0].prefix_root == "/data/playden/games/steam-220/library/prefixes/game");
@@ -821,6 +840,7 @@ void PlaysReadyTitleThroughHandoff() {
   host.Play(220);
   WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
   CHECK(host.Handoff());
+  CHECK(Read(hive) == upgraded_hive);
   CHECK(launches.size() == 2 && launches[1].second[0] != launches[0].second[0]);
   CHECK(!host.Snapshot().play_refusals.count(220));
   // The system closes Playden when the game starts. If the game is then closed

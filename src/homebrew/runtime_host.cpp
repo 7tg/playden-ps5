@@ -388,6 +388,13 @@ void RuntimeHost::SetSteamAccount(std::string account_name, std::uint64_t steam_
 }
 
 std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstall& record) {
+  if (c.kit) {
+    std::string reason;
+    if (!rt::ApplyMediaRegistry((c.kit->view.root / c.kit->view.runtime.path).string(),
+                               (HostPath(record.data_root) / "library/prefixes/game").string(),
+                               config_.unix_time(), &reason))
+      return "The bottle's media registrations could not be updated: " + reason + ".";
+  }
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
     if (candidate.app_id == record.app_id && candidate.id == record.recipe_id) recipe = &candidate;
