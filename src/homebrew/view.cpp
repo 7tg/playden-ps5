@@ -1551,7 +1551,7 @@ class Render::Impl
     {
         if (status.job != nullptr)
         {
-            if (status.job->checking_licenses)
+            if (status.job->state == JobState::Downloading && status.job->checking_licenses)
                 return "Checking licenses";
             if (status.job->state == JobState::Downloading && status.job->total_bytes > 0)
                 return std::to_string(static_cast<int>(100.0 * status.job->completed_bytes / status.job->total_bytes)) +
@@ -1804,7 +1804,7 @@ class Render::Impl
             bar.set_bounds({282.0F, 302.0F, 756.0F, 12.0F});
             bar.set_value(std::clamp(progress, 0.0F, 1.0F), true);
             bar.draw(canvas);
-            if (primary->checking_licenses)
+            if (primary->state == JobState::Downloading && primary->checking_licenses)
             {
                 // Large accounts take a minute here, before Steam gives the download size (issue #47).
                 spinner(292.0F, 345.0F, 9.0F, kBlue);

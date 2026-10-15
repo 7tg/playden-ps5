@@ -590,7 +590,16 @@ CmError CmClient::Acquire(const StoredSession& stored, const std::atomic<bool>& 
     if (opened != CmError::kNone) CloseSession(lease);
     return opened;
   }
-  lease->hold = std::unique_lock<std::mutex>(shared_->mutex_);
+  // Another call (a library license scan can take a minute) may hold the session: waiting for it
+  // stays cancelable, and this call's deadline starts once it has the session.
+  const auto wait_start = Clock::now();
+  lease->hold = std::unique_lock<std::mutex>(shared_->mutex_, std::try_to_lock);
+  while (!lease->hold.owns_lock()) {
+    if (cancel.load(std::memory_order_acquire)) return CmError::kCanceled;
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    lease->hold.try_lock();
+  }
+  deadline += Clock::now() - wait_start;
   const std::string key = std::to_string(stored.steam_id) + ":" + stored.refresh_token;
   if (shared_->session_ && key == shared_->key_ && shared_->session_->usable()) {
     shared_->session_->Rebind(deadline, cancel);

@@ -456,6 +456,47 @@ void SharedSessionLogsOnAgainForNewCredentials() {
   assert(CountSent(script, cm::kEMsgClientLogon) == 2 && CountSent(script, cm::kEMsgClientLogOff) == 0);
 }
 
+// A call waiting while another holds the shared session (a long library license scan, issue #47)
+// can be canceled, and its deadline starts only once it has the session.
+void WaitingForTheSharedSessionIsCancelableAndUntimed() {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9))};
+  script->on_service = {ServerFrame(cm::kEMsgServiceMethodResponse, {}, std::nullopt, 1)};
+  auto shared = MakeCmSharedSession();
+  auto holder = MakeClient(script);
+  auto waiter = MakeClient(script);
+  holder.SetSharedSession(shared);
+  waiter.SetSharedSession(shared);
+  std::atomic<bool> held{false};
+  std::atomic<bool> no_cancel{false};
+  std::thread scan([&] {
+    assert(holder.WithServiceSession(Session(), 3000, no_cancel, [&](const CmClient::ServiceCall&, std::uint64_t) {
+      held = true;
+      std::this_thread::sleep_for(600ms);
+      return CmError::kNone;
+    }) == CmError::kNone);
+  });
+  while (!held) std::this_thread::sleep_for(1ms);
+
+  std::atomic<bool> cancel{false};
+  std::thread canceler([&cancel] {
+    std::this_thread::sleep_for(50ms);
+    cancel = true;
+  });
+  const auto start = std::chrono::steady_clock::now();
+  assert(Ping(waiter, cancel) == CmError::kCanceled);
+  assert(std::chrono::steady_clock::now() - start < 300ms);
+  canceler.join();
+
+  // Waits out the rest of the scan, longer than its own 200 ms deadline, then still gets its answer.
+  const auto result = waiter.WithServiceSession(Session(), 200, no_cancel, [](const CmClient::ServiceCall& call, std::uint64_t) {
+    std::vector<std::uint8_t> reply;
+    return call("Cloud.Ping#1", {}, &reply, nullptr);
+  });
+  assert(result == CmError::kNone);
+  scan.join();
+}
+
 void WithoutKeepAliveEachCallLogsOnAgain() {
   auto script = std::make_shared<Script>();
   script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9))};
@@ -680,6 +721,8 @@ int main(int argc, char** argv) {
   SharedSessionServesEveryClientWithOneLogon();
   ResetCmBackoff();
   SharedSessionLogsOnAgainForNewCredentials();
+  ResetCmBackoff();
+  WaitingForTheSharedSessionIsCancelableAndUntimed();
   ResetCmBackoff();
   WithoutKeepAliveEachCallLogsOnAgain();
   ResetCmBackoff();

@@ -5396,6 +5396,7 @@ void Simulation::advance_jobs() {
     if (active->state == JobState::Downloading) {
         const auto* volume = find_volume(state_, active->volume_id);
         if (!volume || !volume->available) { active->state = JobState::Interrupted; active->failure = "Storage disconnected"; return; }
+        if (active->checking_licenses) return;  // an injected license check holds the transfer
         active->completed_bytes = std::min(active->total_bytes, active->completed_bytes + kTransferPerTick);
         if (active->completed_bytes >= active->total_bytes) { active->stage = JobStage::Verify; active->state = JobState::Verifying; active->stage_ticks = 0; }
     } else if (active->state == JobState::Verifying) {

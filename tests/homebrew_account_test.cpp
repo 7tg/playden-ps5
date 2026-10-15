@@ -3,7 +3,9 @@
 #include <cassert>
 #include <chrono>
 #include <condition_variable>
+#include <filesystem>
 #include <functional>
+#include <unistd.h>
 #include <mutex>
 #include <thread>
 
@@ -74,6 +76,19 @@ class CacheFixture final : public LibraryRepository {
     if(fail_clear)return Result<void>::Failure(StorageError::kRemoveFailed,"failure");
     value.reset();return Result<void>::Success();
   }
+};
+// Holds an install in its license check until released.
+class LicenseCheckRunner final : public InstallRunner {
+ public:
+  std::atomic<bool> release{false};
+  Result Install(const StoredSession&,GameId,const std::string&,const std::atomic<bool>& cancel,
+                 const std::function<void(std::uint64_t,std::uint64_t,std::uint64_t)>&,
+                 const std::function<void(InstallStep)>& step) override {
+    step(InstallStep::kCheckingLicenses);
+    while (!release && !cancel) std::this_thread::sleep_for(1ms);
+    return {false,true,{},0};
+  }
+  bool Remove(const std::string&) override { return true; }
 };
 void Wait(Controller& controller,const std::function<bool()>& predicate) {
   const auto deadline = std::chrono::steady_clock::now()+4s;
@@ -324,4 +339,31 @@ void ShutdownClearsLibraryBeforeSession() {
   assert(!repo.Load().value() && !cache.value);
 }
 }
-int main() { CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }
+// A license check shows only once it has run for a few seconds, even with no other install change (issue #47).
+void SlowLicenseCheckShowsAfterAFewSeconds() {
+  const auto root=std::filesystem::temp_directory_path()/("playden-license-check-"+std::to_string(::getpid()));
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root);
+  {
+    Simulation model({}, {},ModelMode::Live); Repository repo; repo.value=Session(); Backend backend;
+    LicenseCheckRunner runner;
+    InstallService installs(runner,repo,root.string());
+    Controller controller(model,backend,repo,nullptr,nullptr,nullptr,&installs);
+    const auto job=[&]() -> const Job* {
+      for (const auto& value : model.state().jobs) if (value.game_id==70) return &value;
+      return nullptr;
+    };
+    const auto start=std::chrono::steady_clock::now();
+    installs.Install(70);
+    Wait(controller,[&]{return job() && job()->state==JobState::Downloading;});
+    assert(!job()->checking_licenses);
+    const auto checking=[&]{ return job() && job()->checking_licenses; };
+    for (auto deadline=start+6s; !checking() && std::chrono::steady_clock::now()<deadline; std::this_thread::sleep_for(5ms))
+      controller.Tick();
+    assert(checking() && std::chrono::steady_clock::now()-start>=3s);
+    runner.release=true;
+    controller.Shutdown();
+  }
+  std::filesystem::remove_all(root);
+}
+int main() { SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }

@@ -1120,7 +1120,7 @@ void Controller::TickInstalls() {
     model_.UpdateVolumes(volumes, snapshot.default_volume_id);
     volume_refreshed_at_ = now;
   }
-  if (snapshot.revision == install_revision_ && !account_changed) return;
+  if (snapshot.revision == install_revision_ && !account_changed && !licenses_due) return;
   install_revision_ = snapshot.revision;
   install_generation_ = model_.state().account_generation;
   std::vector<LiveInstallJob> jobs;
