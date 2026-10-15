@@ -12,6 +12,9 @@ export PATH=$task/wrappers:$PATH LLVM_CONFIG=/usr/bin/llvm-config-18 TZ=UTC
 export LC_ALL=en_US.UTF-8
 : "${PROSPERO_FREETYPE_TARBALL:?set it to freetype-2.13.3.tar.xz}"
 export PROSPERO_FREETYPE_TARBALL
+# PLAYDEN_MEDIA_WORK: tools/build_media_ps5.py's work folder; when set, Wine links the static media backend from its root/.
+media=()
+[ -n "${PLAYDEN_MEDIA_WORK:-}" ] && media=(--media-root "$PLAYDEN_MEDIA_WORK/root")
 sdk=$root/.deps/ps5-native-app-boilerplate/.deps/native/ps5-payload-sdk
 cd "$root"
 # Upstream #388: schannel through a static GnuTLS (libgnutls.prx) and a pinned CA bundle.
@@ -19,7 +22,7 @@ PS5_PAYLOAD_SDK=$sdk PROSPERO_WINE_PS5_WORK=$out/wine-ps5 sh tools/build_tls_ps5
 sh tools/build_wine_ps5.sh --source "$root/.deps/wine/source" \
     --host-tools "$root/.deps/wine-host/build" --foundation "$root/.deps/ps5-native-app-boilerplate" \
     --prx-foundation "$task/prx-foundation" --radv "$task/radv-g" --jobs 14 \
-    --work "$out/wine-ps5" > "$logs/cross-build.log" 2>&1
+    --work "$out/wine-ps5" "${media[@]}" > "$logs/cross-build.log" 2>&1
 sh tools/build_wowprospero.sh --build "$root/.deps/wine-host/build" --source "$root/.deps/wine-host/source" --jobs 14 \
     > "$logs/wowprospero-build.log" 2>&1
 stubs=$out/wow64native-stubs

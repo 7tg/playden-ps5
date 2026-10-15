@@ -31,6 +31,8 @@ The scripts read these environment variables. The defaults fit a plain checkout.
 | `PLAYDEN_BUILD` | `stage_kit_h.py`: the build folder that holds kits A and F | `build/` |
 | `PLAYDEN_KIT_F` | `make_spec.py`: kit F's build, whose spec kit H starts from | `build/kit-f` |
 | `PLAYDEN_MESA_ARTIFACTS` | `stage_kit_h.py`: the output of `tools/build_mesa_zink.sh` | `~/mesa-zink/work/artifacts` |
+| `PLAYDEN_MEDIA_WORK` | `build_cross.sh`, `stage_kit_h.py`: pinned media manifests and `root/` static archives; unset builds and stages without the media backend | none |
+| `PLAYDEN_MEDIA_REGISTRATION` | `stage_kit_h.py`: matching disposable-prefix registry and DLL hash evidence | none, required with `PLAYDEN_MEDIA_WORK` |
 | `PS5_NATIVE_FOUNDATION` | `make_shell.sh`: the prospero-foundation checkout | `third_party/prospero-foundation` |
 
 ## What does the work
@@ -83,6 +85,60 @@ Only `wined3d.dll` changes, in the runtime and the template, and Wine loads the 
 Recreate. RADV (`libvulkan.prx`) comes
 from [PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan) 8aee3af / [PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa)
 01d7057, the same as kit G r2. OpenGL games under Zink need at least PS5_Mesa f2ee389.
+
+## Media backend
+
+Wine's `winegstreamer` can be built with a static GStreamer/FFmpeg backend. Media Foundation, DirectShow and the WMA
+decoder DMO (`wmadmod`, which XAudio2 uses for xWMA) need it. Build the pinned
+LGPL dependencies with prospero-win's `tools/build_media_ps5.py`, then set
+`PLAYDEN_MEDIA_WORK` to its work directory. `build_cross.sh` passes its `root/` to
+`tools/build_wine_ps5.sh --media-root`. Both PE architectures and all static support
+libraries need the builder's file-prefix mapping; stripping debug sections alone
+leaves `__FILE__` paths in diagnostics.
+
+Register the matching i386 and x86_64 `winegstreamer.dll` in a disposable native x86
+Wine prefix using each architecture's `regsvr32.exe`. Preserve `system-before.reg`,
+`system-after.reg` and `dll-sha256.json` (keys `i386-windows` and `x86_64-windows`),
+and set `PLAYDEN_MEDIA_REGISTRATION` to that directory. With both set, `stage_kit_h.py FULL_COMMIT`
+includes the backend; without them it leaves `winegstreamer` out. Staging validates the PRX's
+native import audit, both DLL architectures and registration hashes, both media
+registry views, dependency/archive hashes and license hashes before copying inputs.
+Host devices and other unrelated registry changes are excluded.
+
+The runtime includes `share/wine/licenses/media/` with each component's license text
+and `source-manifest.json` (pinned source releases, checksums and linked archives),
+plus `share/wine/THIRD_PARTY` and neutral build provenance in `share/wine/media-build/`.
+FFmpeg configurations with `--enable-gpl` or `--enable-nonfree` are rejected. Use only
+LGPL GStreamer plugin sets. Package with the matching runtime revision's
+`tools/package_playden_kit.py` in strict mode: omit `--development-build-paths`.
+A release requires zero build-path exceptions. Decoder probes alone do not qualify
+the kit for playback capability.
+
+Kit H r10 is r9 with the media backend (Wine patches 0480-0482 and 0964). Build `build_wine_ps5.sh` on the
+prospero-win commit with `--media-root` (or `build_cross.sh` with `PLAYDEN_MEDIA_WORK` set). Keep r9's build `report.json`:
+the media build maps build paths out of every module, so every cross PRX and PE module differs from r9's and is replaced.
+Strip the build's PE modules except `winegstreamer.dll` with `*-mingw32-strip -s` (the registration records that DLL's
+hash), register `winegstreamer.dll` as above, then run `update_r10.py --kit NEW_KIT --from-kit R9_KIT --cross WINE_WORK
+--registration REGISTRATION_DIR --media-work MEDIA_WORK --base-report R9_REPORT --revision FULL_COMMIT` on a copy of r9's
+inputs and spec, where the absolute archive paths in `media-flags.json` resolve. Staging stops before it writes when the
+build's Wine commit or patch list is not r9's plus those four patches, or when the build makes a module r9 lacks (besides
+`winegstreamer`; `rtworkq.dll` is now cross-built). `--name r10-dev-YYYYMMDD.N` stages a development kit with the same checks.
+
+Install a matching Playden app with the kit. On the next Play, Playden merges the
+kit's media COM/parser values into the stopped bottle's `system.reg`, in both the
+64-bit and WoW64 registry views. It backs up and atomically replaces the hive,
+preserves unrelated values, and leaves the file untouched when the values already
+match. It also copies the kit's `winegstreamer.dll` into the bottle's `system32` and
+`syswow64` when missing: once a prefix exists, Wine loads a builtin DLL only through its
+file there, and kit bottles never run wineboot. Existing bottles get the backend
+without Recreate bottle (Fallout 4's r9 bottle plays its xWMA sound after one Play).
+Older kits without the media metadata keep working.
+
+For a game that cannot handle the backend, add `PW_MEDIA_DISABLE=1` to Playden's
+Environment variables setting. Playden writes it as a `[debug] env` line, which every
+kit H title shell accepts. The runtime then rejects media creation, so games that
+check errors can skip movies; a game that ignores errors can still fail (Metal Wolf
+Chaos XD crashes with it). Remove the switch when testing actual video and audio.
 
 ## Not done yet
 

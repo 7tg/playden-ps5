@@ -12,8 +12,11 @@
 # Usage: stage_kit_h.py REVISION
 # PLAYDEN_KIT_WORK: the VM build folder (default ~/playden-kit). PLAYDEN_BUILD: the Playden build folder holding kits A and F
 # (default build/ next to this script). PLAYDEN_KIT_DIR: where kit H is staged (default build/kit-h). PLAYDEN_MESA_ARTIFACTS:
-# tools/build_mesa_zink.sh's artifacts (default ~/mesa-zink/work/artifacts).
+# tools/build_mesa_zink.sh's artifacts (default ~/mesa-zink/work/artifacts). PLAYDEN_MEDIA_WORK and PLAYDEN_MEDIA_REGISTRATION:
+# set both to stage the static media backend (README.md, Media backend); unset leaves winegstreamer out, as before.
 import hashlib, json, os, shutil, subprocess, sys
+from media_staging import validate_media, stage_media
+from mesa_staging import validate_licenses, stage_licenses
 from pathlib import Path
 
 revision = sys.argv[1]
@@ -31,9 +34,15 @@ inputs = here / 'inputs'
 out = inputs / 'runtime/wine'
 template = inputs / 'template/game'
 shell = inputs / 'titles' / f'any-{revision[:7]}'
+media = 'PLAYDEN_MEDIA_WORK' in os.environ
+if media:
+    registration = Path(os.environ['PLAYDEN_MEDIA_REGISTRATION'])
+    media_work = Path(os.environ['PLAYDEN_MEDIA_WORK'])
+    media_evidence = validate_media(cross, registration, media_work)
+mesa_manifest = validate_licenses(mesa)
 assert not out.exists() and not template.exists(), 'inputs exist'
 assert shell.is_dir(), shell
-PACKAGE_RELEASE_SKIPS = {'winex11.drv', 'winegstreamer.dll', 'wpcap.dll', 'sane.ds', 'gphoto2.ds'}
+PACKAGE_RELEASE_SKIPS = {'winex11.drv', 'wpcap.dll', 'sane.ds', 'gphoto2.ds'} | (set() if media else {'winegstreamer.dll'})
 def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 
 # --- runtime
@@ -41,6 +50,7 @@ reference = M / 'kit-f/inputs/runtime/wine'
 keys = {str(p.relative_to(reference)): p.stat().st_mode & 0o7777 for p in reference.rglob('*') if p.is_file()}
 added = {}
 for prx in sorted((cross / 'prx/sce_module').glob('*.prx')):
+    if prx.name == 'winegstreamer.prx' and not media: continue
     rel = f'lib/wine/x86_64-unix/{prx.name}'
     if rel not in keys: keys[rel] = added[rel] = 0o755
 for d in ('lib/wine/i386-windows', 'lib/wine/x86_64-windows', 'share/wine/nls'):
@@ -48,6 +58,9 @@ for d in ('lib/wine/i386-windows', 'lib/wine/x86_64-windows', 'share/wine/nls'):
         rel = f'{d}/{p.name}'
         if p.is_file() and rel not in keys and not p.name.endswith('.a') and p.name not in PACKAGE_RELEASE_SKIPS:
             keys[rel] = added[rel] = 0o644
+for arch in ('i386-windows', 'x86_64-windows') if media else ():
+    rel = f'lib/wine/{arch}/winegstreamer.dll'
+    if rel not in keys: keys[rel] = added[rel] = 0o644
 ca = cross / 'prx/ca-certificates.crt'
 if ca.is_file():
     keys['share/wine/ca-certificates.crt'] = added['share/wine/ca-certificates.crt'] = 0o644
@@ -77,11 +90,9 @@ for rel, mode in sorted(keys.items()):
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target); target.chmod(mode)
 assert not missing, missing
-cross_pe = sorted(str(p.relative_to(cross / 'pe')) for p in (cross / 'pe').glob('*-windows/*') if p.is_file())
+cross_pe = sorted(str(p.relative_to(cross / 'pe')) for p in (cross / 'pe').glob('*-windows/*')
+                  if p.is_file() and p.name not in PACKAGE_RELEASE_SKIPS)
 assert all(sources[f'lib/wine/{name}'].startswith(str(cross / 'pe')) for name in cross_pe), cross_pe
-inventory = {f'wine/{p.relative_to(out)}': sha(p) for p in sorted(out.rglob('*')) if p.is_file()}
-(inputs / 'runtime-inventory.json').write_text(json.dumps(inventory, indent=1, sort_keys=True) + '\n')
-
 # --- template
 kit_a = M / 'kit-a-6a77259/inputs'
 subprocess.run(['cp', '-a', str(kit_a / 'template'), str(inputs / 'template')], check=True)
@@ -113,6 +124,9 @@ for name in ('hidclass.sys', 'hidparse.sys', 'winebus.sys', 'winehid.sys', 'wine
     shutil.copyfile(out / 'lib/wine/i386-windows' / name, target); target.chmod(0o644)
     files.append({'template_path': str(target.relative_to(template)), 'runtime_source': f'lib/wine/i386-windows/{name}',
                   'before_sha256': None, 'after_sha256': sha(target)})
+media_record = stage_media(out, template, cross, registration, media_work, files, media_evidence) if media else None
+inventory = {f'wine/{p.relative_to(out)}': sha(p) for p in sorted(out.rglob('*')) if p.is_file()}
+(inputs / 'runtime-inventory.json').write_text(json.dumps(inventory, indent=1, sort_keys=True) + '\n')
 (inputs / 'template-substitutions.json').write_text(json.dumps(
     {'schema': 'playden-template-substitution/1', 'base_preparation': 'hl2-fresh-v16-neutral-6a77259',
      'runtime_artifact_revision': f'{revision[:7]}-kit-h-r1', 'added_to_kit_a_set': template_added,
@@ -120,7 +134,7 @@ for name in ('hidclass.sys', 'hidparse.sys', 'winebus.sys', 'winehid.sys', 'wine
     indent=1) + '\n')
 
 # --- Mesa WGL/Zink in the title shell
-manifest = json.loads((mesa / 'manifest.json').read_text())
+manifest = mesa_manifest
 zink = shell / 'win/mesa-zink'
 assert not zink.exists()
 for arch in ('i386-windows', 'x86_64-windows'):
@@ -128,12 +142,13 @@ for arch in ('i386-windows', 'x86_64-windows'):
     for dll in sorted((mesa / arch).iterdir()):
         shutil.copyfile(dll, zink / arch / dll.name); (zink / arch / dll.name).chmod(0o644)
 shutil.copyfile(mesa / 'manifest.json', shell / 'win/mesa-zink-manifest.json')
+stage_licenses(mesa, shell, manifest)
 
 (inputs / 'stage-record.json').write_text(json.dumps(
     {'base': 'kit F runtime key set; kit A template', 'prospero_win': revision,
      'artifact_revision': f'{revision[:7]}-kit-h-r1', 'added_to_key_set': sorted(added), 'cross_pe_modules': cross_pe,
      'template_added': template_added, 'mesa_commit': manifest.get('mesa_commit'),
-     'mesa_files': sorted(str(p.relative_to(shell)) for p in zink.rglob('*') if p.is_file())}, indent=1) + '\n')
+     'media': media_record, 'mesa_files': sorted(str(p.relative_to(shell)) for p in zink.rglob('*') if p.is_file())}, indent=1) + '\n')
 print('runtime', len(inventory), 'files; added', sorted(added))
 print('template', len(files), 'substitutions; added', template_added)
 print('mesa', sorted(str(p.relative_to(shell)) for p in zink.rglob('*') if p.is_file()))
