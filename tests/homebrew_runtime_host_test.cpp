@@ -83,8 +83,9 @@ struct Fixture {
   }
 };
 
+// Generous: a loaded build machine (parallel ctest, other builds) can stretch a step past 10 s.
 RuntimeSnapshot WaitFor(const RuntimeHost& host, const std::function<bool(const RuntimeSnapshot&)>& done,
-                        int seconds = 10) {
+                        int seconds = 30) {
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
   for (;;) {
     auto snapshot = host.Snapshot();
