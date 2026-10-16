@@ -839,7 +839,7 @@ void Simulation::UpdateRuntimeProblem(const std::string& raw) {
                                         [](const Notice& notice) { return notice.id == "runtime"; }),
                          state_.notices.end());
     if (!words.empty())
-        state_.notices.push_back({"runtime", "Games can't start · see Settings › Runtime status", "", true, 0});
+        state_.notices.push_back({"runtime", "Games can't start · see Runtime status in Settings", "", true, 0});
     rebuild_view();
 }
 

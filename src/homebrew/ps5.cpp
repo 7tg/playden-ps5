@@ -436,6 +436,7 @@ int main() {
             };
             // An any-title kit's helper serves the game titles listed here (root-owned).
             config.write_title_allow_list = playden::ps5::WriteTitleAllowList;
+            config.hold_effective_uid = playden::ps5::HoldEffectiveUid;
             // Play: start a prepared title with its session argument. LncUtil is
             // resolved through the system service module (its static imports are null).
             config.launch_title = [](const std::string& title, const std::vector<std::string>& arguments) {

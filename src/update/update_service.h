@@ -146,6 +146,8 @@ class UpdateService {
   std::string StagedFields() const;
   bool PrepareWorkRoot();
   bool RemoveOwnedTree(const std::string& path);
+  void RemoveEmptyReplacedKits();
+  void CleanUpLeftovers();
 
   UpdateConfig config_;
   std::shared_ptr<Shared> shared_;

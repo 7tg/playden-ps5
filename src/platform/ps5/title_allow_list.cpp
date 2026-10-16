@@ -93,6 +93,10 @@ bool WithRoot(const std::function<bool()>& work) {
   return ::seteuid(user) == 0 && ok;
 }
 
+std::shared_ptr<void> HoldEffectiveUid() {
+  return std::make_shared<std::unique_lock<std::recursive_mutex>>(RootLock());
+}
+
 bool WriteTitleAllowList(const std::string& contents, std::string* error) {
   const std::filesystem::path list = runtime::kTitleRuleAllowList;
   std::lock_guard<std::recursive_mutex> lock(RootLock());

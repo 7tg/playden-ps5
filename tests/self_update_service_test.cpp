@@ -7,8 +7,12 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 using namespace playden::update;
 using playden::steam::HttpRequest;
@@ -213,14 +217,36 @@ int main() {
     CHECK(Read(kits + "/.previous-kitid-1000/manifest.json") == std::string(64, 'b'));
 
     // The new version starts: the update is confirmed and old files are cleaned up.
-    UpdateService next(fixture.Config({0, 3, 0}));
+    std::vector<std::thread::id> raised;
+    std::mutex raised_mutex;
+    const auto record_root = [&](UpdateConfig config) {
+      config.as_root = [&](const std::function<bool()>& work) {
+        {
+          std::lock_guard<std::mutex> lock(raised_mutex);
+          raised.push_back(std::this_thread::get_id());
+        }
+        return work();
+      };
+      return config;
+    };
+    const auto root_only_on_this_thread = [&] {
+      std::lock_guard<std::mutex> lock(raised_mutex);
+      for (const auto& id : raised) CHECK(id == std::this_thread::get_id());
+    };
+    UpdateService next(record_root(fixture.Config({0, 3, 0})));
     next.Start();
+    // Root is process-wide: it is raised only while Start runs, before the runtime and the UI start,
+    // and the confirm is complete by then, so a start closed early does not confirm again.
+    CHECK(!raised.empty());
+    root_only_on_this_thread();
+    CHECK(!Exists(fixture.root + "/playden/self-update/state.json"));
     next.Check(false);  // queued behind the cleanup, not dropped
     CHECK(next.Snapshot().finished_message == "Playden was updated to 0.3.0." && !next.Snapshot().finished_failed);
     // What's new: the release notes travel with the update and stay for Settings.
     CHECK(next.Snapshot().whats_new && next.Snapshot().current_notes == "New things." &&
           next.Snapshot().current_notes_url == "https://github.com/o/r/releases/tag/v0.3.0");
     Wait(next);
+    root_only_on_this_thread();  // the worker's cleanup never raised root
     CHECK(Exists(fixture.root + "/playden/self-update/backup/0.2.0-1000"));  // newest backup kept
     CHECK(!Exists(fixture.root + "/playden/self-update/state.json"));
     CHECK(Exists(kits + "/kitid") && Exists(kits + "/.previous-kitid-1000") && !Exists(kits + "/.previous-kitid-1"));
@@ -244,16 +270,34 @@ int main() {
     CHECK(Read(kits + "/kitid/manifest.json") == std::string(64, 'b') && !Exists(kits + "/.previous-kitid-1000"));
     CHECK(ListFolder(fixture.root + "/playden/self-update/backup").empty());
     CHECK(Read(fixture.root + "/user/appmeta/FAKE77031/param.json") == "old param");
-    UpdateService back(fixture.Config({0, 2, 0}));
+    UpdateService back(record_root(fixture.Config({0, 2, 0})));
     back.Start();
     CHECK(back.Snapshot().finished_message == "Playden went back to version 0.2.0." && back.Snapshot().previous.empty());
+    CHECK(!Exists(fixture.root + "/playden/self-update/state.json"));
     Wait(back);
+    root_only_on_this_thread();
     CHECK(!Exists(fixture.root + "/playden/self-update/replaced"));
     for (const auto& name : ListFolder(kits)) CHECK(name.rfind(".replaced-", 0) != 0);  // removed on this start
     // The version gone back from is still found, but quietly.
     back.Check(false);
     Wait(back);
     CHECK(back.Snapshot().phase == UpdatePhase::kAvailable && back.Snapshot().quiet);
+    back.Shutdown();
+
+    // A start closed before its cleanup finished: the next start, with no state left, cleans up
+    // without confirming again; an empty kit folder left by going back goes during Start.
+    const std::string work = fixture.root + "/playden/self-update";
+    Put(work + "/stage/eboot.bin", "stage");
+    Put(work + "/downloads/playden-ps5-0.3.0.zip", "zip");
+    Put(kits + "/.replaced-kitid-5/runtime/wine.bin", "files");
+    CHECK(MakeFolders(kits + "/.replaced-kitid-6"));
+    UpdateService resumed(record_root(fixture.Config({0, 2, 0})));
+    resumed.Start();
+    CHECK(!Exists(kits + "/.replaced-kitid-6") && resumed.Snapshot().finished_message.empty());
+    Wait(resumed);
+    root_only_on_this_thread();
+    CHECK(!Exists(work + "/stage") && !Exists(work + "/downloads") && !Exists(kits + "/.replaced-kitid-5"));
+    CHECK(Exists(kits + "/kitid/manifest.json"));
     RemoveTree(fixture.root);
   }
   // A staged update survives a restart without a swap, and a swap that did not take is reported.

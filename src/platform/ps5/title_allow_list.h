@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <sys/types.h>
 
@@ -29,6 +30,12 @@ bool WriteRootOwnedFile(const std::filesystem::path& directory, const std::strin
 // Nested calls run as root already. Returns false when root can't be raised or the app user can't
 // be restored.
 bool WithRoot(const std::function<bool()>& work);
+
+// Keeps root from being raised (by WithRoot on any other thread) until the returned token is
+// released. The runtime worker holds one around each batch of work: its ownership checks compare
+// against the effective UID, so a root raise elsewhere in the middle of them refuses Playden's own
+// folders. Work on the holding thread may still use WithRoot.
+std::shared_ptr<void> HoldEffectiveUid();
 
 // runtime::kTitleRuleAllowList on the console, as root.
 bool WriteTitleAllowList(const std::string& contents, std::string* error);

@@ -271,6 +271,34 @@ void NoKitRefusesPreparationWithoutDurableEffects() {
   CHECK(fs::is_empty(fixture.root / "data/homebrew"));
 }
 
+// Root is process-wide on the console: while the worker starts up or works through a batch it holds
+// the effective UID, so a root raise elsewhere (an update's cleanup) can't fail its ownership checks.
+// Waiting for work, it holds nothing.
+void HoldsEffectiveUidWhileWorking() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  std::atomic<int> holds{0};
+  std::atomic<bool> admitted_while_held{false};
+  config.hold_effective_uid = [&holds]() -> std::shared_ptr<void> {
+    ++holds;
+    return std::shared_ptr<void>(nullptr, [&holds](void*) { --holds; });
+  };
+  config.admit_kit = [&](std::string* reason) -> std::optional<RuntimeKit> {
+    admitted_while_held = holds > 0;
+    *reason = "No verified compatibility kit is installed.";
+    return std::nullopt;
+  };
+  RuntimeHost host(std::move(config));
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).status == RuntimeHostStatus::kReady);
+  CHECK(admitted_while_held);
+  host.Prepare(Hl2());
+  CHECK(WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; }).refusals.count(220));
+  for (int i = 0; i < 200 && holds != 0; ++i) usleep(5000);
+  CHECK(holds == 0);  // idle: root may be raised again
+  host.Shutdown();
+}
+
 // A preparation asked for before the runtime is ready is published as queued until the worker
 // takes it, so Play and Recreate bottle wait instead of reporting it lost.
 void QueuedPreparationIsPublishedUntilTaken() {
@@ -1962,6 +1990,7 @@ int main(int argc, char** argv) {
   g_runtime_dir = argv[1];
   NoKitRefusesPreparationWithoutDurableEffects();
   QueuedPreparationIsPublishedUntilTaken();
+  HoldsEffectiveUidWhileWorking();
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();

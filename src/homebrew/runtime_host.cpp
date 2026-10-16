@@ -586,6 +586,13 @@ std::size_t RuntimeHost::LeftoverRequests(Composition& c, bool remove) {
 }
 
 bool RuntimeHost::Handoff() {
+  {
+    std::lock_guard<std::mutex> lock(launch_mutex_);
+    if (!launch_ || launch_->Snapshot().state != rt::LaunchState::kReadyToHandoff) return false;
+  }
+  // The handoff writes the launch journal, whose ownership checks need the app user's effective
+  // UID: root raised elsewhere waits until it is done. Taken before launch_mutex_, like the worker.
+  const auto held = config_.hold_effective_uid ? config_.hold_effective_uid() : nullptr;
   rt::LaunchResult result;
   std::string install_id;
   {
@@ -2199,6 +2206,8 @@ std::string RuntimeHost::DeleteKept(Composition& c, std::uint32_t app) {
 }
 
 void RuntimeHost::Run() {
+  const auto hold = [this] { return config_.hold_effective_uid ? config_.hold_effective_uid() : nullptr; };
+  auto startup_hold = hold();
   auto unavailable = [this](std::string reason) {
     Publish([&](RuntimeSnapshot& s) { s.status = RuntimeHostStatus::kUnavailable; s.reason = std::move(reason); });
   };
@@ -2370,6 +2379,7 @@ void RuntimeHost::Run() {
       });
     }
   }
+  startup_hold.reset();
   for (;;) {
     std::vector<RuntimePrepareRequest> requests;
     std::vector<std::uint32_t> plays;
@@ -2389,7 +2399,8 @@ void RuntimeHost::Run() {
       const auto ready = [this] {
         return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty() ||
                cleanup_requested_ || measure_requested_ || !activity_requests_.empty() || title_names_changed_ ||
-               (!remove_requests_.empty() && !snapshot_.handoff_ready) || !kept_delete_requests_.empty() ||
+               (!remove_requests_.empty() && !snapshot_.handoff_ready) ||
+               (!kept_delete_requests_.empty() && !snapshot_.handoff_ready) ||
                !scan_requests_.empty() ||
                (!maintenance_requests_.empty() && !snapshot_.handoff_ready);
       };
@@ -2400,7 +2411,7 @@ void RuntimeHost::Run() {
       plays.swap(play_requests_);
       // Removal changes install records that Handoff reads, like preparation.
       if (!snapshot_.handoff_ready) removals.swap(remove_requests_);
-      kept_deletes.swap(kept_delete_requests_);
+      if (!snapshot_.handoff_ready) kept_deletes.swap(kept_delete_requests_);
       scans.swap(scan_requests_);
       // Maintenance changes the bottle and install record, like removal.
       if (!snapshot_.handoff_ready) maintenance.swap(maintenance_requests_);
@@ -2413,6 +2424,7 @@ void RuntimeHost::Run() {
       names_changed = title_names_changed_;
       title_names_changed_ = false;
     }
+    const auto batch_hold = hold();
     if (names_changed && composition) PublishInstalls(*composition);
     for (const auto& [app, install_path] : scans) {
       const auto kit = composition && composition->kit
@@ -2460,6 +2472,19 @@ void RuntimeHost::Run() {
           s.play_refusals[app] = s.reason.empty() ? "The runtime services are unavailable." : s.reason;
           ++s.plays_handled;
         });
+      }
+    }
+    {
+      // A handoff that became ready during this pass waits for this batch's hold on the effective
+      // UID (and its launch check expires): long work goes back to the queue, so the batch ends now.
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (snapshot_.handoff_ready) {
+        remove_requests_.insert(remove_requests_.begin(), removals.begin(), removals.end());
+        kept_delete_requests_.insert(kept_delete_requests_.begin(), kept_deletes.begin(), kept_deletes.end());
+        maintenance_requests_.insert(maintenance_requests_.begin(), maintenance.begin(), maintenance.end());
+        removals.clear();
+        kept_deletes.clear();
+        maintenance.clear();
       }
     }
     for (const auto& [app, delete_saves] : removals) {

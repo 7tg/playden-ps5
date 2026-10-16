@@ -168,6 +168,33 @@ bool UpdateService::PrepareWorkRoot() {
   return ok;
 }
 
+// A kit left by going back: its files are the app user's, removed by CleanUpLeftovers, but its folder
+// sits in the root-owned kits folder. The empty folder goes as root here, at startup, before the
+// runtime and the UI run (root is process-wide).
+void UpdateService::RemoveEmptyReplacedKits() {
+  for (const auto& name : ListFolder(config_.kits_root)) {
+    if (name.compare(0, 10, ".replaced-") != 0) continue;
+    const std::string path = config_.kits_root + "/" + name;
+    if (!IsFolder(path) || !ListFolder(path).empty()) continue;
+    if (rmdir(path.c_str()) != 0) config_.as_root([&] { return rmdir(path.c_str()) == 0; });
+    if (Exists(path)) Log("could not remove " + path);
+  }
+}
+
+// The app user's leftovers of a confirmed update, on the worker and without root: the stage, the
+// downloads, the replaced entries and the files of a kit left by going back.
+void UpdateService::CleanUpLeftovers() {
+  std::vector<std::string> paths;
+  for (const char* name : {"/stage", "/downloads", "/replaced"})
+    if (Exists(config_.work_root + name)) paths.push_back(config_.work_root + name);
+  for (const auto& name : ListFolder(config_.kits_root))
+    if (name.compare(0, 10, ".replaced-") == 0) paths.push_back(config_.kits_root + "/" + name);
+  if (paths.empty()) return;
+  Run([paths] {
+    for (const auto& path : paths) RemoveTree(path);
+  });
+}
+
 bool UpdateService::RemoveOwnedTree(const std::string& path) {
   RemoveTree(path);
   if (Exists(path)) config_.as_root([&] { RemoveTree(path); return true; });
@@ -302,8 +329,12 @@ std::string UpdateService::ReadyKit(const KitPart& kit) const {
 void UpdateService::Start() {
   FindPrevious();
   LoadCurrentNotes();
+  RemoveEmptyReplacedKits();
   std::string text;
-  if (!ReadSmallFile(StatePath(), &text)) return;
+  if (!ReadSmallFile(StatePath(), &text)) {
+    CleanUpLeftovers();  // what a start closed before its cleanup finished left behind
+    return;
+  }
   const auto state = steam::json::Parse(text);
   if (!state || !state->is_object()) {
     Log("unreadable state, removed");
@@ -374,26 +405,17 @@ void UpdateService::ConfirmApplied(const std::string& text) {
     // Only the app user's own leftovers go now. The previous app and kit stay to go back by hand;
     // older ones are root-owned and are removed at the next update's quit, when nothing else runs.
     if (!rolled_back) unlink((config_.work_root + "/declined-version").c_str());
-    Run([this] {
-      // Normally done at quit; again here in case the process died right after the swap.
-      config_.as_root([&] {
-        return RefreshRegisteredCopies(config_.installed_root + "/sce_sys", config_.appmeta_root,
-                                       config_.registered_app_root, [this](const std::string& line) { Log(line); });
-      });
-      RemoveTree(config_.work_root + "/stage");
-      RemoveTree(config_.work_root + "/downloads");
-      RemoveTree(config_.work_root + "/replaced");
-      // A kit left by going back: its files are the app user's; only its folder in the root-owned
-      // kits folder needs root, for one rmdir.
-      for (const auto& name : ListFolder(config_.kits_root)) {
-        if (name.compare(0, 10, ".replaced-") != 0) continue;
-        const std::string path = config_.kits_root + "/" + name;
-        RemoveTree(path);
-        if (Exists(path)) config_.as_root([&] { return rmdir(path.c_str()) == 0; });
-        if (Exists(path)) Log("could not remove " + path);
-      }
-      unlink(StatePath().c_str());
+    // Normally done at quit; again here in case the process died right after the swap. Root is
+    // process-wide, so it is raised now, while Start runs before the runtime and the UI: raised from
+    // the worker it failed the runtime's ownership checks at the same time ("Games can't start").
+    config_.as_root([&] {
+      return RefreshRegisteredCopies(config_.installed_root + "/sce_sys", config_.appmeta_root,
+                                     config_.registered_app_root, [this](const std::string& line) { Log(line); });
     });
+    // Confirmed: a start closed before the cleanup below finishes does not confirm again; the next
+    // start finds the leftovers without a state and cleans them up.
+    unlink(StatePath().c_str());
+    CleanUpLeftovers();
     return;
   }
   Log((rolled_back ? "going back to " : "update to ") + field("version") + " did not take effect; running " +

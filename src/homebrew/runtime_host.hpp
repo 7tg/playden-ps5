@@ -85,6 +85,10 @@ struct RuntimeHostConfig {
   std::function<std::int64_t()> unix_time;
   // Diagnostic lines (no credentials): startup, each preparation step and refusals.
   std::function<void(const std::string&)> log;
+  // Held around startup and each batch of work on the worker: while the token lives, nothing
+  // else may raise root, which is process-wide and would fail the worker's ownership checks
+  // (ps5::HoldEffectiveUid). Empty holds nothing.
+  std::function<std::shared_ptr<void>()> hold_effective_uid;
   // Receives each prepared title's newest wrapper session log (bounded tail) at
   // startup. The wrapper writes it inside the private bottle tree, which only
   // the app user can read.
