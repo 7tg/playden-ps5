@@ -617,6 +617,44 @@ int main() {
     }
   }
   {
+    // A game whose folder is missing from a present drive stays listed, unavailable, and is
+    // saved again; it is available once its folder is back, and Uninstall can forget it.
+    std::filesystem::rename(second / "800", second / "800.aside");
+    {
+      Runner multi;
+      InstallService missing(multi, sessions, volumes);
+      bool listed = false;
+      for (const auto& game : missing.Snapshot().installed)
+        if (game.id == 800) listed = !game.available && game.volume_id == "m2" && game.install_bytes > 0;
+      CHECK(listed);
+      missing.SetDefaultVolume("internal");  // any save writes the registry again
+      missing.SetDefaultVolume("m2");
+      missing.Install(900);
+      AwaitAt(__LINE__, missing, [](const InstallSnapshot& s) { return Installed(s, 900); });
+    }
+    std::filesystem::rename(second / "800.aside", second / "800");
+    {
+      Runner multi;
+      InstallService back(multi, sessions, volumes);
+      bool available = false;
+      for (const auto& game : back.Snapshot().installed)
+        if (game.id == 800) available = game.available;
+      CHECK(available);
+    }
+    std::filesystem::rename(second / "800", second / "800.aside");
+    {
+      Runner multi;
+      InstallService forget(multi, sessions, volumes);
+      forget.Uninstall(800);
+      AwaitAt(__LINE__, forget, [](const InstallSnapshot& s) { return !Installed(s, 800); });
+    }
+    {
+      Runner multi;
+      InstallService after(multi, sessions, volumes);
+      CHECK(!Installed(after.Snapshot(), 800));
+    }
+  }
+  {
     // A remembered default whose drive is now absent falls back to the primary volume.
     auto without_m2 = volumes;
     without_m2[1].available = false;

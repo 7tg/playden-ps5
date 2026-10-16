@@ -237,6 +237,11 @@ void InstallService::Scan() {
       }
       job.view.volume_id = entry.volume_id;
       jobs_.push_back(job);
+    } else if (entry.install_bytes > 0) {
+      // The drive is there but the game's folder isn't (moved aside or renamed): keep the game
+      // listed as unavailable, so it comes back with its folder instead of being forgotten at
+      // the next save.
+      installed_.push_back({entry.id, entry.install_bytes, root, entry.volume_id, false});
     }
   }
   std::sort(installed_.begin(), installed_.end(),
@@ -457,7 +462,10 @@ void InstallService::Cancel(GameId id) {
 void InstallService::Uninstall(GameId id) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto found = std::find_if(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; });
-  if (found == installed_.end() || !found->available) return;  // nothing can be deleted on an absent drive
+  if (found == installed_.end()) return;
+  // Nothing can be deleted on an absent drive. A game whose folder is missing from a present
+  // drive is forgotten (its removal finds nothing to delete).
+  if (const auto* volume = FindVolume(found->volume_id); !found->available && (!volume || !volume->available)) return;
   const auto root = RootOn(found->volume_id, id);
   installed_.erase(found);
   if (!root.empty()) removals_.push_back(root);

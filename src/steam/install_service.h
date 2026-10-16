@@ -60,7 +60,7 @@ struct InstalledGame {
   std::uint64_t install_bytes = 0;
   std::string root;
   std::string volume_id;
-  bool available = true;  // false while the game's volume is absent
+  bool available = true;  // false while the game's volume, or its folder on that volume, is missing
   std::int64_t finished_at = 0;  // Unix seconds the install finished (its record's time); 0 unknown
 };
 
