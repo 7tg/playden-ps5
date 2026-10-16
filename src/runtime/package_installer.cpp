@@ -340,24 +340,35 @@ bool MarkerEquals(const fs::path& path, const std::string& expected) {
   return bytes && *bytes == expected;
 }
 
-// Whether a marker names this install: its schema, kind, install id and title id.
-// The kit, runtime and recipe lines say which kit made the folder; they decide
-// whether the title needs Update (TitleCurrent), not whose folder it is.
-bool MarkerIdentifies(const fs::path& path, const RuntimeInstall& record, const char* kind) {
+// Whether a marker holds every wanted line.
+bool MarkerHasLines(const fs::path& path, const std::vector<std::string>& wanted) {
   const auto bytes = ReadBounded(path, 4096);
   if (!bytes) return false;
-  const std::string wanted[] = {"schema=1", std::string("kind=") + kind, "install_id=" + record.install_id,
-                                "title_id=" + record.title_id};
-  bool seen[4] = {};
+  std::vector<bool> seen(wanted.size());
   std::size_t start = 0;
   while (start < bytes->size()) {
     auto end = bytes->find('\n', start);
     if (end == std::string::npos) end = bytes->size();
     const auto line = bytes->substr(start, end - start);
-    for (std::size_t i = 0; i < 4; ++i) seen[i] = seen[i] || line == wanted[i];
+    for (std::size_t i = 0; i < wanted.size(); ++i) seen[i] = seen[i] || line == wanted[i];
     start = end + 1;
   }
-  return seen[0] && seen[1] && seen[2] && seen[3];
+  return std::find(seen.begin(), seen.end(), false) == seen.end();
+}
+
+// Whether a marker names this install: its schema, kind, install id and title id.
+// The kit, runtime and recipe lines say which kit made the folder; they decide
+// whether the title needs Update (TitleCurrent), not whose folder it is.
+bool MarkerIdentifies(const fs::path& path, const RuntimeInstall& record, const char* kind) {
+  return MarkerHasLines(path, {"schema=1", std::string("kind=") + kind, "install_id=" + record.install_id,
+                               "title_id=" + record.title_id});
+}
+
+// Whether a staging folder's marker was written by an earlier install of this game.
+// The folder is named after the install id; the title id, kit and recipe can change
+// between installs (a reinstall can get another title), so they are not compared.
+bool StageMarkerNamesInstall(const fs::path& path, const RuntimeInstall& record, const std::string& kind) {
+  return MarkerHasLines(path, {"schema=1", "kind=" + kind, "install_id=" + record.install_id});
 }
 
 const playden::steam::json::Value* Required(
@@ -1118,8 +1129,13 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   if (staging_exists) {
     if (stage_kind == "template" && !IsPrivateDirectory(staging))
       return Failed("staging-collision", "existing bottle staging has wrong owner or permissions");
-    if (!MarkerEquals(staging / kStageOwner, expected_stage))
+    // An earlier install of this game (another kit, title or recipe) can leave its
+    // incomplete staging behind; it is ours and holds nothing published.
+    const bool current = MarkerEquals(staging / kStageOwner, expected_stage);
+    if (!current && !StageMarkerNamesInstall(staging / kStageOwner, record, stage_kind))
       return Failed("staging-collision", "staging path is not owned by this install");
+    if (!current && operations_.log)
+      operations_.log("package stage=" + stage_kind + " reclaims staging left by an earlier install");
     // RuntimeInstallService has already established stopped activity. Only our
     // identity-marked incomplete staging directory is eligible for cleanup.
     if (!RemoveTreeNoFollow(staging.string()))

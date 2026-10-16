@@ -741,6 +741,39 @@ void EmptyUnmarkedStagingIsReclaimed() {
   CHECK(std::filesystem::exists(stray_staging / "unknown"));
 }
 
+// Staging left by an earlier install of the same game (another kit and title) is
+// reclaimed; staging marked for another install is still refused.
+void EarlierInstallStagingIsReclaimed() {
+  Fixture fixture;
+  auto installer = fixture.Installer();
+  const auto staging = fixture.host_data / ("playden/staging/title-" + Record().install_id);
+  Write(staging / ".playden-stage-owner",
+        "schema=1\nkind=title\ninstall_id=" + Record().install_id + "\ntitle_id=FAKE78002\nkit_id=old-kit\n", 0600);
+  Write(staging / "eboot.bin", "old shell", 0600);
+  CHECK(installer.StageTitle(Record()).state == PackageActionState::kComplete);
+  CHECK(!std::filesystem::exists(staging));
+  CHECK(Read(fixture.host_data / "homebrew/FAKE78001/eboot.bin") != "old shell");
+
+  Fixture other;
+  auto refusing = other.Installer();
+  const auto other_staging = other.host_data / ("playden/staging/title-" + Record().install_id);
+  Write(other_staging / ".playden-stage-owner",
+        "schema=1\nkind=title\ninstall_id=install-other\ntitle_id=FAKE78001\n", 0600);
+  Write(other_staging / "eboot.bin", "keep", 0600);
+  CHECK(refusing.StageTitle(Record()).code == "staging-collision");
+  CHECK(Read(other_staging / "eboot.bin") == "keep");
+
+  Fixture bottle;
+  auto copier = bottle.Installer();
+  const auto bottle_staging = bottle.host_data / ("playden/staging/bottle-" + Record().install_id);
+  Write(bottle_staging / ".playden-stage-owner",
+        "schema=1\nkind=template\ninstall_id=" + Record().install_id + "\nkit_id=old-kit\n", 0600);
+  CHECK(::chmod(bottle_staging.c_str(), 0700) == 0);
+  CHECK(copier.StageTitle(Record()).state == PackageActionState::kComplete);
+  CHECK(copier.CopyTemplate(Record()).state == PackageActionState::kComplete);
+  CHECK(!std::filesystem::exists(bottle_staging));
+}
+
 void LateSyncFailureIsReestablishedOnRetry() {
   Fixture fixture;
   fixture.fail_title_post_rename_once = true;
@@ -1081,6 +1114,7 @@ int main() {
   FixedTitleRefreshesToAnyTitleShell();
   CreatedFoldersIgnoreUmask();
   EmptyUnmarkedStagingIsReclaimed();
+  EarlierInstallStagingIsReclaimed();
   CollisionsTraversalSymlinksAndModesFailClosed();
   RestartDoesNotRecopyOrDestroyMutableFiles();
   CorruptPublicationAndInvalidDriveTableAreRejected();
