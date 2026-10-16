@@ -391,6 +391,15 @@ void RuntimeHost::SetSteamAccount(std::string account_name, std::uint64_t steam_
   steam_id_ = steam_id;
 }
 
+// A kit replaced after startup (an upload with --replace) keeps this Playden on the old kit's paths,
+// which are gone: say so instead of failing on the first missing file.
+std::string RuntimeHost::KitReplaced(const Composition& c) const {
+  if (!c.kit || c.kit->manifest_sha256.empty() || !config_.package_operations.hash_file) return {};
+  const auto current = config_.package_operations.hash_file(c.kit->view.root / "manifest.json");
+  if (current && *current == c.kit->manifest_sha256) return {};
+  return "The compatibility kit changed while Playden was running. Quit Playden and start it again.";
+}
+
 std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstall& record) {
   if (c.kit) {
     std::string reason;
@@ -1018,6 +1027,8 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
       result = rt::LaunchResult::Failure(rt::LaunchError::kPersistence, "Play is unavailable.");
     } else if (!record) {
       result = rt::LaunchResult::Failure(rt::LaunchError::kNotFound, "This game has no PS5 title yet.");
+    } else if (const auto replaced = KitReplaced(c); !replaced.empty()) {
+      result = rt::LaunchResult::Failure(rt::LaunchError::kPreflight, replaced);
     } else {
       // Settings changed since the title's publication take effect now, while nothing of
       // the game runs: Home and Playden then start the same published profile.
@@ -1303,6 +1314,7 @@ void RuntimeHost::PublishRecipes(const Composition& c) {
 
 std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest& request, bool* awaiting) {
   if (!c.kit) return Snapshot().kit_reason;
+  if (const auto replaced = KitReplaced(c); !replaced.empty()) return replaced;
   // Where the time before the first step goes: the recipe, the reservation and the title's metadata.
   const auto began = std::chrono::steady_clock::now();
   const auto elapsed_ms = [&began] {
@@ -1830,6 +1842,7 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
   for (const auto& candidate : c.repository.Snapshot())
     if (candidate.app_id == app) record = candidate;
   if (!record) return "This game has no PS5 title yet.";
+  if (const auto replaced = KitReplaced(c); !replaced.empty()) return replaced;
   if (const auto refused = MaintenanceRefusal(c, *record); !refused.empty()) {
     // Settings saved while the game runs reach it on the next Play from Playden.
     if (action == RuntimeMaintenance::kApplySettings) return "Changes apply the next time Playden starts the game.";

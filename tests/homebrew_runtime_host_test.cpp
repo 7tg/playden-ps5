@@ -971,6 +971,56 @@ void PlaysReadyTitleThroughHandoff() {
 
 // A game Playden ships no recipe for is prepared from Steam's launch options; the
 // generated recipe is saved and read back after a restart.
+// A kit replaced while Playden runs (an upload with --replace) leaves the admitted paths behind:
+// Play, preparation and maintenance say to restart Playden instead of failing on a missing file.
+void ReplacedKitAsksForRestart() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.session_data_root = fixture.root / "data";
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  auto kit = SyntheticKit(fixture.root / "kit");
+  Write(fixture.root / "kit/manifest.json", "{\"kit\":\"first\"}", 0644);
+  kit.manifest_sha256 = *HashArtifactFile(fixture.root / "kit/manifest.json");
+  config.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  std::vector<std::string> launches;
+  config.launch_title = [&launches](const std::string& title, const std::vector<std::string>&) {
+    launches.push_back(title);
+    return TitleResult{true, 0, "launch"};
+  };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+  }, 60);
+
+  Write(fixture.root / "kit/manifest.json", "{\"kit\":\"second\"}", 0644);
+  const auto handled = host.Snapshot().plays_handled;
+  host.Play(220);
+  const auto refused = WaitFor(host, [handled](const RuntimeSnapshot& s) { return s.plays_handled > handled; }, 30);
+  CHECK(refused.play_refusals.count(220) &&
+        refused.play_refusals.at(220).find("Quit Playden and start it again") != std::string::npos);
+  CHECK(!refused.handoff_ready && launches.empty());
+  host.Prepare(Hl2());
+  const auto held = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; }, 30);
+  CHECK(held.refusals.at(220).find("changed while Playden was running") != std::string::npos);
+}
+
 void PreparesGameWithoutShippedRecipe() {
   Fixture fixture;
   auto config = fixture.Config();
@@ -1926,6 +1976,7 @@ int main(int argc, char** argv) {
   RetryAfterKitRespinBindsTheNewArtifacts();
   RepairsBottleRegistryModes();
   PlaysReadyTitleThroughHandoff();
+  ReplacedKitAsksForRestart();
   MaintainsReadyTitle();
   SettingsSavedDuringPrepareReachReadyTitle();
   KitRespinKeepsWaitingSettingsUpdate();
