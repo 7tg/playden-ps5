@@ -5,7 +5,7 @@ Run it on the two release zips before publishing a GitHub release, and attach it
 release next to them:
 
     python3 tools/write_update_manifest.py --app-zip playden-ps5-0.3.0.zip \\
-        --kit-zip playden-kit-h-r9.zip --kit-revision r9 --min-from 0.2.0 \\
+        --kit-zip playden-kit-0.10.zip --kit-revision 0.10 --min-from 0.2.0 \\
         --notes "Faster downloads and simpler game settings." --out playden-update.json
 
 It reads the app's version and title id from the zip's sce_sys/param.json and the kit's id and
@@ -73,7 +73,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app-zip", required=True, type=pathlib.Path)
     parser.add_argument("--kit-zip", required=True, type=pathlib.Path)
-    parser.add_argument("--kit-revision", required=True, help='the kit revision, e.g. "r9"')
+    parser.add_argument("--kit-revision", required=True, help='the kit version, e.g. "0.10"')
     parser.add_argument("--min-from", required=True, help="oldest Playden version that can update to this one")
     parser.add_argument("--notes", default="", help=f"a plain-text summary for the update dialog, at most {MAX_NOTES} characters")
     parser.add_argument("--lock", type=pathlib.Path,
