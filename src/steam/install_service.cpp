@@ -42,9 +42,11 @@ std::vector<InstallRequest> ParseInstallRequests(const std::string& text) {
   return requests;
 }
 
-std::vector<CompletedDownload> CompletedDownloads(const std::vector<InstalledGame>& installed,
-                                                  const std::vector<std::pair<GameId, std::int64_t>>& dismissed,
-                                                  std::int64_t now) {
+namespace {
+// Every install Completed would list, newest first, without the `kMaxCompleted` cap.
+std::vector<CompletedDownload> AllCompletedDownloads(const std::vector<InstalledGame>& installed,
+                                                     const std::vector<std::pair<GameId, std::int64_t>>& dismissed,
+                                                     std::int64_t now) {
   std::vector<CompletedDownload> completed;
   for (const auto& game : installed) {
     if (game.finished_at <= 0 || game.finished_at > now || now - game.finished_at > kCompletedDays * 24 * 60 * 60) continue;
@@ -54,6 +56,14 @@ std::vector<CompletedDownload> CompletedDownloads(const std::vector<InstalledGam
   std::stable_sort(completed.begin(), completed.end(), [](const CompletedDownload& left, const CompletedDownload& right) {
     return left.finished_at > right.finished_at;
   });
+  return completed;
+}
+}  // namespace
+
+std::vector<CompletedDownload> CompletedDownloads(const std::vector<InstalledGame>& installed,
+                                                  const std::vector<std::pair<GameId, std::int64_t>>& dismissed,
+                                                  std::int64_t now) {
+  auto completed = AllCompletedDownloads(installed, dismissed, now);
   if (completed.size() > kMaxCompleted) completed.resize(kMaxCompleted);
   return completed;
 }
@@ -323,7 +333,9 @@ void InstallService::DismissCompleted(GameId id) {
 
 void InstallService::ClearCompleted() {
   std::lock_guard<std::mutex> lock(mutex_);
-  for (const auto& completed : CompletedDownloads(installed_, dismissed_, WallNow())) Dismiss(completed.id);
+  // Every finished download, not only the `kMaxCompleted` the list shows: the older ones would
+  // move up into the list.
+  for (const auto& completed : AllCompletedDownloads(installed_, dismissed_, WallNow())) Dismiss(completed.id);
   SaveDismissed();
   ++revision_;
 }

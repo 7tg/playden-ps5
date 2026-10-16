@@ -270,6 +270,23 @@ void CompletedDownloadsList(const std::filesystem::path& root) {
     CHECK(text.find("71\t") == 0 && text.find("70\t") == std::string::npos);
   }
   std::filesystem::remove_all(root);
+
+  // Clear dismisses every finished download, not only the `kMaxCompleted` the list shows.
+  {
+    Runner runner;
+    InstallService service(runner, sessions, root.string());
+    const GameId count = kMaxCompleted + 3;
+    for (GameId id = 100; id < 100 + count; ++id) service.Install(id);
+    AwaitAt(__LINE__, service, [count](const InstallSnapshot& s) {
+      for (GameId id = 100; id < 100 + count; ++id)
+        if (!Installed(s, id)) return false;
+      return true;
+    });
+    CHECK(service.Snapshot().completed.size() == kMaxCompleted);
+    service.ClearCompleted();
+    CHECK(service.Snapshot().completed.empty());
+  }
+  std::filesystem::remove_all(root);
 }
 
 // A download that cannot reach Steam keeps its place and waits instead of failing.
