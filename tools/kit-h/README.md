@@ -1,6 +1,6 @@
 # Kit H build scripts (record)
 
-These are the scripts that built runtime kit H, the kit this release uses. They are kept as a record. **not** a turnkey build yet: read this first.
+These are the scripts that built runtime kit H and kit 0.10, the kit this release uses. They are kept as a record. **not** a turnkey build yet: read this first.
 
 ## What they need
 
@@ -77,7 +77,7 @@ report the title's direct-memory budget instead of about zero, so Fallout: New V
 `build_wine_ps5.sh` on 13fa077 into the same `wine-ps5` work folder as before (assert messages keep the source path, so
 another folder name changes every PRX), then run `update_r8.py` on a copy of r6's inputs and spec with
 `PLAYDEN_CROSS_PRX` at that build's `prx/sce_module`. Only `ntdll.prx` changes, so bottles need no Recreate. Kit H r9
-(the kit this release uses; runtime `d069101-kit-h-r9`) is r8 with Wine patches 0959-0963: vkd3d-shader builds the D3DX
+(runtime `d069101-kit-h-r9`) is r8 with Wine patches 0959-0963: vkd3d-shader builds the D3DX
 effects that DoDonPachi Resurrection and Star Wars: Empire at War compile at runtime. Build with `build_wine_ps5.sh` on
 d069101 into the same `wine-ps5` folder (every cross PRX must still be r8's), strip the build's `pe/*/wined3d.dll` with
 `*-mingw32-strip -s`, then run `update_r9.py` on a copy of r8's inputs and spec with `PLAYDEN_CROSS_PE` at those PE files.
@@ -111,18 +111,22 @@ plus `share/wine/THIRD_PARTY` and neutral build provenance in `share/wine/media-
 FFmpeg configurations with `--enable-gpl` or `--enable-nonfree` are rejected. Use only
 LGPL GStreamer plugin sets. Package with the matching runtime revision's
 `tools/package_playden_kit.py` in strict mode: omit `--development-build-paths`.
-A release requires zero build-path exceptions. Decoder probes alone do not qualify
+The media files must add no build-path exceptions (kit 0.10 has four, all in the
+prebuilt Wine Mono and Mesa DLLs, so it is packaged with `--development-build-paths` as r9 was). Decoder probes alone do not qualify
 the kit for playback capability.
 
-Kit H r10 is r9 with the media backend (Wine patches 0480-0482 and 0964). Build `build_wine_ps5.sh` on the
-prospero-win commit with `--media-root` (or `build_cross.sh` with `PLAYDEN_MEDIA_WORK` set). Keep r9's build `report.json`:
-the media build maps build paths out of every module, so every cross PRX and PE module differs from r9's and is replaced.
-Strip the build's PE modules except `winegstreamer.dll` with `*-mingw32-strip -s` (the registration records that DLL's
-hash), register `winegstreamer.dll` as above, then run `update_r10.py --kit NEW_KIT --from-kit R9_KIT --cross WINE_WORK
---registration REGISTRATION_DIR --media-work MEDIA_WORK --base-report R9_REPORT --revision FULL_COMMIT` on a copy of r9's
-inputs and spec, where the absolute archive paths in `media-flags.json` resolve. Staging stops before it writes when the
-build's Wine commit or patch list is not r9's plus those four patches, or when the build makes a module r9 lacks (besides
-`winegstreamer`; `rtworkq.dll` is now cross-built). `--name r10-dev-YYYYMMDD.N` stages a development kit with the same checks.
+Kit 0.10 (the first stable kit, runtime `cd3de27-kit-0.10`) is r9 with the media backend (Wine patches 0480-0482) and
+the fixes in patches 0964, 0965, 0970-0972, 0980 and 0981. Build `build_tls_ps5.sh` and `build_wine_ps5.sh` on prospero-win
+cd3de27 in a fresh work folder with `--media-root` (or `build_cross.sh` with `PLAYDEN_MEDIA_WORK` set). Keep r9's build
+`report.json`: the media build maps build paths out of every module, so every cross PRX and PE module differs from r9's
+and is replaced. Strip the build's PE modules except `winegstreamer.dll` with `*-mingw32-strip -s` (the registration
+records that DLL's hash), register `winegstreamer.dll` as above on a real x86-64 machine (32-bit Wine does not run under
+Rosetta), then run `update_r10.py --kit NEW_KIT --from-kit R9_KIT --cross WINE_WORK --registration REGISTRATION_DIR
+--media-work MEDIA_WORK --base-report R9_REPORT --revision FULL_COMMIT` on a copy of r9's inputs and spec, where the
+absolute archive paths in `media-flags.json` resolve. Staging stops before it writes when the build's Wine commit or patch
+list is not r9's plus those patches, or when the build makes a module r9 lacks (besides `winegstreamer`; `rtworkq.dll` is
+now cross-built). `--name 0.10-dev.YYYYMMDD.N` stages a development kit with the same checks. Package with the pinned
+prospero-win's `tools/package_playden_kit.py` (its `REQUIRED_PROVENANCE` names cd3de27).
 
 Install a matching Playden app with the kit. On the next Play, Playden merges the
 kit's media COM/parser values into the stopped bottle's `system.reg`, in both the

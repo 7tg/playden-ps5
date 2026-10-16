@@ -305,17 +305,20 @@ class NormalMediaStagingTests(unittest.TestCase):
 
 
 class R10UpdateTests(unittest.TestCase):
-    """r9 -> r10: the build is r9's plus the media patches, and every cross module replaces r9's."""
+    """r9 -> 0.10: the build is r9's plus the kit's patches, and every cross module replaces r9's."""
     BASE_PATCHES = ['0958-ntdll-honor-wine-cpu-topology-s-processor-count.patch', '0963-vkd3d-shader-hlsl.patch']
 
     def kit(self, root, extra_patch=False, new_module=False, skip_ntdll=False):
         cross, registration, media, _, _ = NormalMediaStagingTests().fixture(root)
-        previous, here = root / 'r9', root / 'r10'
+        previous, here = root / 'r9', root / '0.10'
         runtime, template = here / 'inputs/runtime/wine', here / 'inputs/template/game'
         files = []
         modules = [('x86_64-unix', 'ntdll.prx', None, True), ('x86_64-unix', 'libgnutls.prx', None, False),
                    ('i386-windows', 'rtworkq.dll', 'syswow64', True), ('x86_64-windows', 'rtworkq.dll', 'system32', True),
                    ('x86_64-windows', 'wined3d.dll', 'system32', False)]
+        modules += [('x86_64-unix', 'win32u.prx', None, True), ('x86_64-unix', 'wineserver.prx', None, True)]
+        modules += [(arch, name, None, True) for arch in ('i386-windows', 'x86_64-windows')
+                    for name in ('kernelbase.dll', 'xaudio2_7.dll')]
         for arch, name, folder, rebuilt in modules:
             old = runtime / 'lib/wine' / arch / name
             old.parent.mkdir(parents=True, exist_ok=True)
@@ -355,12 +358,15 @@ class R10UpdateTests(unittest.TestCase):
     def test_stages_media_and_the_rebuilt_modules(self):
         with tempfile.TemporaryDirectory() as directory:
             here, previous, cross, registration, media, base = self.kit(Path(directory))
-            result = module.stage(here, previous, cross, registration, media, base, 'c' * 40, 'r10-dev-20261015.1')
-            self.assertEqual(sorted(result['changed']), ['lib/wine/i386-windows/rtworkq.dll',
-                             'lib/wine/x86_64-unix/ntdll.prx', 'lib/wine/x86_64-windows/rtworkq.dll'])
+            result = module.stage(here, previous, cross, registration, media, base, 'c' * 40, '0.10-dev.20261015.1')
+            self.assertEqual(sorted(result['changed']), [
+                'lib/wine/i386-windows/kernelbase.dll', 'lib/wine/i386-windows/rtworkq.dll',
+                'lib/wine/i386-windows/xaudio2_7.dll', 'lib/wine/x86_64-unix/ntdll.prx', 'lib/wine/x86_64-unix/win32u.prx',
+                'lib/wine/x86_64-unix/wineserver.prx', 'lib/wine/x86_64-windows/kernelbase.dll',
+                'lib/wine/x86_64-windows/rtworkq.dll', 'lib/wine/x86_64-windows/xaudio2_7.dll'])
             self.assertEqual(sorted(result['template_changed']), ['drive_c/windows/system32/rtworkq.dll',
                                                                   'drive_c/windows/syswow64/rtworkq.dll'])
-            self.assertEqual(result['wine_patches'][-1], '0964-ntdll-ps5-retire-thread-alert-kqueues')
+            self.assertEqual(result['wine_patches'][-1], '0981-win32u-register-builtin-classes-without-waiting')
             runtime = here / 'inputs/runtime/wine/lib/wine'
             self.assertEqual((runtime / 'x86_64-unix/ntdll.prx').read_bytes(), b'r10 ntdll.prx')
             self.assertEqual((runtime / 'x86_64-windows/wined3d.dll').read_bytes(), b'r9 wined3d.dll')
@@ -368,10 +374,10 @@ class R10UpdateTests(unittest.TestCase):
             self.assertEqual((here / 'inputs/template/game/drive_c/windows/syswow64/rtworkq.dll').read_bytes(),
                              b'r10 rtworkq.dll')
             spec = json.loads((here / 'kit-spec.json').read_text())
-            self.assertEqual(spec['runtime']['artifact_revision'], 'ccccccc-kit-h-r10-dev-20261015.1')
+            self.assertEqual(spec['runtime']['artifact_revision'], 'ccccccc-kit-0.10-dev.20261015.1')
             self.assertFalse(spec['sources']['media']['playback_verified'])
             record = json.loads((here / 'inputs/stage-record.json').read_text())
-            self.assertEqual(record['r10']['base_runtime'], 'b9b0aa5-kit-h-r9')
+            self.assertEqual(record['0.10']['base_runtime'], 'b9b0aa5-kit-h-r9')
             self.assertIn('i386-windows/winegstreamer.dll', record['cross_pe_modules'])
             inventory = json.loads((here / 'inputs/runtime-inventory.json').read_text())
             self.assertEqual(inventory['wine/lib/wine/x86_64-unix/ntdll.prx'], module.sha(runtime / 'x86_64-unix/ntdll.prx'))
@@ -390,8 +396,9 @@ class R10UpdateTests(unittest.TestCase):
     def test_rejects_a_base_other_than_r9_and_bad_names(self):
         with tempfile.TemporaryDirectory() as directory:
             here, previous, cross, registration, media, base = self.kit(Path(directory))
-            with self.assertRaisesRegex(ValueError, 'name is r10'):
-                module.stage(here, previous, cross, registration, media, base, 'c' * 40, 'r11')
+            for name in ('r10', '0.11', '0.10-dev-20261015.1'):
+                with self.assertRaisesRegex(ValueError, 'name is 0.10'):
+                    module.stage(here, previous, cross, registration, media, base, 'c' * 40, name)
             module.write_json(here / 'kit-spec.json', {'runtime': {'artifact_revision': 'x-kit-h-r8'}})
             with self.assertRaisesRegex(ValueError, 'starts from r9'):
                 module.stage(here, previous, cross, registration, media, base, 'c' * 40)
