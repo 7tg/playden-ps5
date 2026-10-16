@@ -3104,8 +3104,13 @@ void Simulation::rebuild_view() {
             if (state_.library.favorites.contains(game->id)) item.badge = "Favorite";
             if (game->art_failed) item.subtitle = "Artwork unavailable";
         }
-        if (view_.rows.empty()) row(state_.library.query.empty() ? "library-empty" : "clear-search", RowKind::Action,
-                                    state_.library.query.empty() ? "Connect Steam" : "Clear search", state_.library.query.empty() ? "connect" : "clear-search");
+        // An empty grid offers the way back to the games it hides; Connect Steam is only for a missing catalog.
+        if (view_.rows.empty()) {
+            if (!state_.library.query.empty()) row("clear-search", RowKind::Action, "Clear search", "clear-search");
+            else if (!state_.library.filters.empty()) row("library-empty", RowKind::Action, "Reset filters", "filters-reset");
+            else if (!state_.games.empty() && state_.library.scope != "all") row("library-empty", RowKind::Action, "Show all games", "library-show-all");
+            else row("library-empty", RowKind::Action, "Connect Steam", "connect");
+        }
         // The footer shows five legends; with a search applied, Circle clears it in place of Square Favorite.
         view_.legends = state_.library.query.empty()
             ? std::vector<std::string>{"Cross Open", "Square Favorite", "Options Actions", "Triangle Filters", "Touchpad Search"}
@@ -4252,6 +4257,7 @@ void Simulation::activate() {
     else if (action_name == "qr-cancel" || action_name == "editor-cancel" || action_name == "cancel") cancel();
     else if (action_name == "editor-done") commit_editor();
     else if (action_name == "clear-search") { state_.library.query.clear(); reconcile_library_selection(state_); }
+    else if (action_name == "library-show-all") { state_.library.scope = "all"; reconcile_library_selection(state_); save_profile(); }
     else if (action_name == "open-game") {
         if (live()) force_organization_selection_ = true;
         state_.navigation.detail_origin = state_.navigation.route;

@@ -782,6 +782,43 @@ void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
           "external wall clock cannot alter deterministic simulation time");
 }
 
+void live_empty_filter_keeps_the_signed_in_account() {
+    // The Playable filter keeps only games the player rated; with no ratings the grid is empty,
+    // and its only row must undo the filter rather than start a new Steam sign-in.
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    model.TakeServiceActions();
+    check(model.action("r1") && model.action("triangle"),"live filter modal opens");
+    activate(model,"filter-compat-playable");
+    check(model.visible_games().empty(),"no rated game passes the Playable filter");
+    const auto* empty=find_row(model,"library-empty");
+    check(empty!=nullptr && empty->action=="filters-reset" && empty->title=="Reset filters",
+          "a filtered-out library offers Reset filters, not Connect Steam");
+    activate(model,"library-empty");
+    const auto actions=model.TakeServiceActions();
+    check(std::find(actions.begin(),actions.end(),ServiceAction::BeginQr)==actions.end() &&
+          model.state().account.authentication==AuthState::SignedIn,"resetting filters keeps the Steam sign-in");
+    check(model.state().library.filters.empty() && model.visible_games().size()==1 &&
+          model.state().navigation.focus_key=="game-42","reset filters shows the library again");
+
+    // An empty scope offers the whole library back.
+    check(model.action("left") && model.action("down") && model.state().navigation.focus_key=="rail-favorites" &&
+          model.action("cross"),"Favorites scope opens");
+    check(model.visible_games().empty(),"no favorites yet");
+    empty=find_row(model,"library-empty");
+    check(empty!=nullptr && empty->action=="library-show-all","an empty scope offers Show all games");
+    activate(model,"library-empty");
+    check(model.state().library.scope=="all" && model.visible_games().size()==1 &&
+          model.state().account.authentication==AuthState::SignedIn,"Show all games returns to every game");
+
+    // Without a catalog there is nothing to show yet, so Connect Steam stays.
+    auto signed_out=make_live();
+    check(signed_out.action("r1"),"library opens before sign-in");
+    empty=find_row(signed_out,"library-empty");
+    check(empty==nullptr || empty->action=="connect","a missing catalog still offers Connect Steam");
+}
+
 void live_filters_only_use_available_facts() {
     auto model=make_live();
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
@@ -1502,6 +1539,7 @@ int main() {
     live_cloud_saves();
     live_saves_tab();
     live_filters_only_use_available_facts();
+    live_empty_filter_keeps_the_signed_in_account();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();
     rejects_invalid_snapshots_transactionally_and_leaves_simulation_alone();
