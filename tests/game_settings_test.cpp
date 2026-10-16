@@ -861,6 +861,19 @@ int main(int argc, char** argv) {
     if (std::string(kind) == "old") CHECK(ReadText(bottle / "system.reg.playden-backup") == original);
     else CHECK(!std::filesystem::exists(bottle / "system.reg.playden-backup"));
   }
+  // A missing kit DLL fails before the registry is touched.
+  {
+    const auto bare = root / "bare";
+    std::filesystem::create_directory(bare);
+    std::filesystem::permissions(bare, std::filesystem::perms::owner_all);
+    const std::string hive = "WINE REGISTRY Version 2\n";
+    std::ofstream(bare / "system.reg") << hive;
+    for (const auto* folder : {"system32", "syswow64"}) std::filesystem::create_directories(bare / "drive_c/windows" / folder);
+    std::filesystem::rename(media_runtime / "lib/wine/i386-windows/winegstreamer.dll", root / "held.dll");
+    CHECK(!ApplyMediaRegistry(media_runtime.string(), bare.string(), 123, &reason));
+    CHECK(ReadText(bare / "system.reg") == hive && !std::filesystem::exists(bare / "system.reg.playden-backup"));
+    std::filesystem::rename(root / "held.dll", media_runtime / "lib/wine/i386-windows/winegstreamer.dll");
+  }
   std::ofstream(media_manifest) << R"({"schema":"playden-media-registry/1","values":[]})";
   CHECK(!ApplyMediaRegistry(media_runtime.string(), (root / "old").string(), 123, &reason));
   CHECK(ReadText(root / "old/system.reg") == upgraded);

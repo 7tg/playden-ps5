@@ -403,10 +403,12 @@ std::string RuntimeHost::KitReplaced(const Composition& c) const {
 std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstall& record) {
   if (c.kit) {
     std::string reason;
+    // Media support is an upgrade for older bottles, not a condition to play: a game that doesn't use it
+    // still starts, and the next Play tries again.
     if (!rt::ApplyMediaRegistry((c.kit->view.root / c.kit->view.runtime.path).string(),
                                (HostPath(record.data_root) / "library/prefixes/game").string(),
                                config_.unix_time(), &reason))
-      return "The bottle's media registrations could not be updated: " + reason + ".";
+      Log("media upgrade app=" + std::to_string(record.app_id) + " skipped: " + reason);
   }
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)

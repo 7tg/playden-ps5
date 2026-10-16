@@ -2213,10 +2213,9 @@ bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefi
     values.push_back({key->text(), name->text(), data->text(), name->text().empty()});
   }
   if (!native || !wow) return fail("media metadata lacks both registry views");
-  if (!ApplyBottleRegistryValues(values, prefix_dir, unix_time, "system.reg", reason)) return false;
-  // Once a prefix exists, Wine loads a builtin DLL only through its file in system32 or syswow64 (kit bottles never
-  // run wineboot), so a bottle made from an earlier template also needs winegstreamer.dll itself. An existing copy
-  // is kept: Wine loads the runtime's builtin through it.
+  // The DLLs go in first, so a failure leaves the registry as it was. Once a prefix exists, Wine loads a builtin DLL
+  // only through its file in system32 or syswow64 (kit bottles never run wineboot), so a bottle made from an earlier
+  // template also needs winegstreamer.dll itself. An existing copy is kept: Wine loads the runtime's builtin through it.
   constexpr std::size_t kMaxMediaDllBytes = 64u * 1024u * 1024u;
   for (const auto& [arch, folder] : {std::pair{"x86_64-windows", "system32"}, std::pair{"i386-windows", "syswow64"}}) {
     auto bottle = ManagedDirectory::Open(std::filesystem::path(prefix_dir) / "drive_c/windows" / folder,
@@ -2233,6 +2232,7 @@ bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefi
     if (!WriteAtomicAt(*bottle, "winegstreamer.dll", dll, 0644, false, false, false))
       return fail("cannot copy winegstreamer.dll into the bottle");
   }
+  if (!ApplyBottleRegistryValues(values, prefix_dir, unix_time, "system.reg", reason)) return false;
   return true;
 }
 
