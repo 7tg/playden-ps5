@@ -464,9 +464,10 @@ void InstallService::Uninstall(GameId id) {
   const auto found = std::find_if(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; });
   if (found == installed_.end()) return;
   // Nothing can be deleted on an absent drive. A game whose folder is missing from a present
-  // drive is forgotten (its removal finds nothing to delete).
-  if (const auto* volume = FindVolume(found->volume_id); !found->available && (!volume || !volume->available)) return;
-  const auto root = RootOn(found->volume_id, id);
+  // drive is only forgotten: whatever its path names now isn't this install, so nothing is removed.
+  const auto* volume = FindVolume(found->volume_id);
+  if (!found->available && (!volume || !volume->available)) return;
+  const auto root = found->available ? RootOn(found->volume_id, id) : std::string();
   installed_.erase(found);
   if (!root.empty()) removals_.push_back(root);
   Publish();

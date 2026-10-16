@@ -368,7 +368,15 @@ bool MarkerIdentifies(const fs::path& path, const RuntimeInstall& record, const 
 // The folder is named after the install id; the title id, kit and recipe can change
 // between installs (a reinstall can get another title), so they are not compared.
 bool StageMarkerNamesInstall(const fs::path& path, const RuntimeInstall& record, const std::string& kind) {
-  return MarkerHasLines(path, {"schema=1", "kind=" + kind, "install_id=" + record.install_id});
+  // Strict: a marker with a repeated or malformed line names no install.
+  const auto bytes = ReadBounded(path, 4096);
+  if (!bytes) return false;
+  const auto values = ParseMarker(*bytes);
+  const auto value = [&](const char* key) {
+    const auto found = values.find(key);
+    return found == values.end() ? std::string() : found->second;
+  };
+  return value("schema") == "1" && value("kind") == kind && value("install_id") == record.install_id;
 }
 
 const playden::steam::json::Value* Required(

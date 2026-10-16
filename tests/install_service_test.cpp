@@ -647,6 +647,9 @@ int main() {
       InstallService forget(multi, sessions, volumes);
       forget.Uninstall(800);
       AwaitAt(__LINE__, forget, [](const InstallSnapshot& s) { return !Installed(s, 800); });
+      // Its path names no install now, so nothing is removed.
+      std::lock_guard<std::mutex> lock(multi.mutex);
+      CHECK(multi.removed.empty());
     }
     {
       Runner multi;

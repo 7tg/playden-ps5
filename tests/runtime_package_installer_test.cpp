@@ -763,6 +763,16 @@ void EarlierInstallStagingIsReclaimed() {
   CHECK(refusing.StageTitle(Record()).code == "staging-collision");
   CHECK(Read(other_staging / "eboot.bin") == "keep");
 
+  // A marker that names two installs (a repeated install_id line) names neither.
+  Fixture twice;
+  auto strict = twice.Installer();
+  const auto twice_staging = twice.host_data / ("playden/staging/title-" + Record().install_id);
+  Write(twice_staging / ".playden-stage-owner",
+        "schema=1\nkind=title\ninstall_id=install-other\ninstall_id=" + Record().install_id + "\n", 0600);
+  Write(twice_staging / "eboot.bin", "keep", 0600);
+  CHECK(strict.StageTitle(Record()).code == "staging-collision");
+  CHECK(Read(twice_staging / "eboot.bin") == "keep");
+
   Fixture bottle;
   auto copier = bottle.Installer();
   const auto bottle_staging = bottle.host_data / ("playden/staging/bottle-" + Record().install_id);
