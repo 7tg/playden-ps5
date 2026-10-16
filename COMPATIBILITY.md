@@ -1,6 +1,6 @@
 # Compatibility
 
-Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-16.
+Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-17.
 
 > [!NOTE]
 > Every game below was checked on runtime kit **0.10**, the first stable kit. OpenGL games draw through Mesa (Zink on
@@ -62,6 +62,7 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | [Project Warlock](https://store.steampowered.com/app/893680) | ✅ Works | 0.10 | Unity · D3D11 · 64-bit | Plays the first level with the sticks. The D-pad does not move the menu focus. |
 | [STAR WARS Knights of the Old Republic II: The Sith Lords](https://store.steampowered.com/app/208580) | ✅ Works | 0.10 | Odyssey · OpenGL · 32-bit | New game, cutscenes and the prologue with the controller. |
 | [BULLET SOUL](https://store.steampowered.com/app/544580) | ✅ Works | 0.10 | — · D3D9 · 32-bit | Set Game settings › Program = `BulletSoulWin.exe`, then Recreate bottle: Playden picks the launcher, which the controller cannot use. Then it plays with the stick. |
+| [BULLET SOUL INFINITE BURST](https://store.steampowered.com/app/545060) | ✅ Works | 0.10 | — · D3D9 · 32-bit | Plays with the controller. |
 | [REPLACED](https://store.steampowered.com/app/1663850) | ✅ Works | 0.10 | Unity · D3D11 · 64-bit | Cloud saves restore; Continue loads the save and the character moves. |
 | [SENRAN KAGURA Peach Ball](https://store.steampowered.com/app/1074080) | ✅ Works | 0.10 | — · D3D11 · 64-bit | Title menu and the story scenes with the controller. |
 | [Brütal Legend](https://store.steampowered.com/app/225260) | ✅ Works | 0.10 | Buddha · D3D9 · 32-bit | Plays with the controller. |
