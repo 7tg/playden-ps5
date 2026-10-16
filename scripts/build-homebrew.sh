@@ -20,7 +20,7 @@ elif [[ ${1:-} == --prepare-fonts-only ]]; then
     shift
 fi
 
-# The submodule must be exactly the pinned commit of the feat/playden-ps5 fork, without local edits.
+# The submodule must be exactly the pinned commit of its fork's main, without local edits.
 if [[ ! -e $hui_source/.git ]]; then
     printf 'ps5-homebrew-ui not found at %s: run git submodule update --init third_party/ps5-homebrew-ui\n' "$hui_source" >&2
     exit 1
@@ -31,7 +31,7 @@ if [[ $actual_revision != "$revision" ]]; then
     exit 1
 fi
 if [[ -n $(git -C "$hui_source" status --porcelain --untracked-files=all) ]]; then
-    printf 'ps5-homebrew-ui has local changes; commit them on its feat/playden-ps5 branch first\n' >&2
+    printf 'ps5-homebrew-ui has local changes; commit them on its main branch first\n' >&2
     git -C "$hui_source" status --short >&2
     exit 1
 fi

@@ -57,7 +57,7 @@ scripts/fetch-deps.sh
 ```
 
 `--recursive` checks out the submodules in `third_party/`. Most of them are forks that carry our patches on a
-`feat/playden-ps5` branch (see [Dependencies](#dependencies)).
+`main` branch (see [Dependencies](#dependencies)).
 
 `scripts/fetch-deps.sh` downloads the prebuilt PS5 toolchain pieces into `deps/`: two PS5 payload SDK releases, the
 ps5-opengl SDK and the LLVM compiler-rt builtins. It checks every download against the SHA-256 in
@@ -173,21 +173,21 @@ Game bottles are private to their titles. When Playden starts, it copies the new
 
 | Location | What | How it is pinned |
 | --- | --- | --- |
-| `third_party/<fork>` | Patched projects: `prospero-win`, `ps5-homebrew-ui`, `ps5-opengl`, `prospero-foundation`, `PS5-Lapy-JB-Daemon` | Submodule commit on the fork's `feat/playden-ps5` branch |
+| `third_party/<fork>` | Patched projects: `prospero-win`, `ps5-homebrew-ui`, `ps5-opengl`, `prospero-foundation`, `PS5-Lapy-JB-Daemon` | Submodule commit on the fork's `main` branch |
 | `third_party/ps5-native-app-boilerplate` | Native title tooling | Submodule commit (upstream) |
 | `third_party/{stb,sqlite3,zstd,lzma-sdk,…}` | Small vendored sources | File hashes in `dependencies.lock.json` |
 | `deps/` | Prebuilt SDKs and builtins | Download hashes in `dependencies.lock.json` |
 
-To see our commits in a fork, run `git log --oneline upstream/main..feat/playden-ps5` in its submodule (after
+To see our commits in a fork, run `git log --oneline upstream/main..main` in its submodule (after
 `git remote add upstream <upstream URL>` and a fetch).
 
 ### Change a forked dependency
 
-1. Work in the submodule on its `feat/playden-ps5` branch:
+1. Work in the submodule on its `main` branch:
 
    ```sh
    cd third_party/prospero-win
-   git switch feat/playden-ps5
+   git switch main
    # edit, test, commit
    ```
 
@@ -196,23 +196,23 @@ To see our commits in a fork, run `git log --oneline upstream/main..feat/playden
    change with it.
 3. Push the fork branch before you push Playden, so the pin is fetchable. For prospero-win, the fork is
    [leolobato/prospero-win](https://github.com/leolobato/prospero-win).
-4. Send the change upstream when it is useful there. When upstream merges it, rebase `feat/playden-ps5` onto
+4. Send the change upstream when it is useful there. When upstream merges it, rebase the fork's `main` onto
    upstream and drop the commit from our branch.
 
-Commits on `feat/playden-ps5` are temporary patches that wait for upstream. Larger work can sit on its own
-fork branch based on `feat/playden-ps5` (for example `feat/74-media-backend`) until it is ready to merge there.
+Commits on a fork's `main` are temporary patches that wait for upstream. Larger work can sit on its own
+fork branch based on the fork's `main` (for example `feat/74-media-backend`) until it is ready to merge there.
 
 To send a change upstream, branch from `upstream/main` and replay only that change. Leave out fork-only commits
 and anything that names Playden: our console paths (`/data/playden-*`), profile `[environment]` support, kit
 pins and links to our issues or notes. Follow upstream's `CONTRIBUTING.md` and pull request template, and run its
 CI checks (`make all`, `make sanitize`) on Linux.
 
-To take a new upstream version, merge or rebase upstream into `feat/playden-ps5`, test, and move the pin.
+To take a new upstream version, merge or rebase upstream into the fork's `main`, test, and move the pin.
 
 ### Patch a downloaded dependency
 
 The downloads in `deps/` are used unmodified. If one needs a patch, turn it into a fork: add its source as a
-submodule on a `feat/playden-ps5` branch, add a build step that writes the result into `deps/`, and pin the result
+submodule on a `main` branch, add a build step that writes the result into `deps/`, and pin the result
 in `dependencies.lock.json`. You can attach the built result to the fork as a release, so others download it
 instead of building it.
 
@@ -227,7 +227,7 @@ To write or change a Wine patch:
 2. Make your change there with normal git tools.
 3. Export it with `git format-patch` into prospero-win's `wine/patches/`, with the next free number.
 4. Check the series: `tools/build_wine_ps5.sh --check-patches` in prospero-win.
-5. Commit only the patch file on `feat/playden-ps5`.
+5. Commit only the patch file on the fork's `main`.
 
 When prospero-win moves to a newer Wine, merge it into our branch and refresh only our patch files if they no
 longer apply. Rebuilding the runtime and the kit follows prospero-win's `docs/WINE_PS5_BUILD.md` (Linux host).

@@ -260,7 +260,7 @@ Playden would not exist without these projects.
 
 ### Projects we carry patches for
 
-We keep a fork of each, with our changes on a `feat/playden-ps5` branch, and send fixes upstream.
+I keep a fork of each, with Playden's changes on the fork's `main` branch, and send fixes upstream.
 
 | Project | What it does for Playden |
 | --- | --- |

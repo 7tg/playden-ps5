@@ -5,7 +5,7 @@
 set(PLAYDEN_HOMEBREW_UI_REVISION "0a6fb4b851da86cd4e9512aae3abf1352a96086a")
 set(PLAYDEN_HUI_SOURCE_DIR
     "${CMAKE_SOURCE_DIR}/third_party/ps5-homebrew-ui" CACHE PATH
-    "ps5-homebrew-ui checkout (the pinned feat/playden-ps5 submodule)")
+    "ps5-homebrew-ui checkout (the pinned submodule, from its fork's main)")
 set(PLAYDEN_HOMEBREW_UI_SOURCE_DIR "${PLAYDEN_HUI_SOURCE_DIR}" CACHE PATH
     "Compatibility alias for PLAYDEN_HUI_SOURCE_DIR" FORCE)
 set(PLAYDEN_STB_IMAGE_INCLUDE_DIR
@@ -39,7 +39,7 @@ execute_process(
     OUTPUT_VARIABLE actual_hui_changes OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY)
 if(NOT actual_hui_changes STREQUAL "")
-    message(FATAL_ERROR "ps5-homebrew-ui has local changes; commit them on its feat/playden-ps5 branch")
+    message(FATAL_ERROR "ps5-homebrew-ui has local changes; commit them on its main branch")
 endif()
 
 # Every source/header that can enter the Hui libraries or platform front ends triggers a fresh

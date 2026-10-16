@@ -17,7 +17,7 @@
       "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.42/ps5-payload-sdk.zip",
       "sha256": "8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da"
     },
-    "source": "third_party/PS5-Lapy-JB-Daemon submodule, fork branch feat/playden-ps5 at owned_title_revision; build with scripts/build-lapy-helper.sh"
+    "source": "third_party/PS5-Lapy-JB-Daemon submodule, fork branch main at owned_title_revision; build with scripts/build-lapy-helper.sh"
   },
   "title_remover": {
     "sha256": "b39725072337816d4c6d2b159849df5e5a3d86505b7450357d774cc8d8f90ca0",
@@ -44,7 +44,7 @@
     "sdk_url": "https://github.com/blackbearreloaded/ps5-opengl/releases/download/v1.0.0/ps5-opengl-sdk-1.0.0.tar.gz",
     "sdk_sha256": "f93643c04c843d56143b00951df1f8042ea7706ae9f19e4e9abf158e1ead77c5",
     "libPS5OpenGL_sha256": "11ab03a347cf75e143c7aa896ff0fd94714ded471a92146aa0f2aba82722ae95",
-    "source": "third_party/ps5-opengl submodule, fork branch feat/playden-ps5 (v1.0.0 dce7491 plus the legacy varying-linkage fix; native-app files unchanged)"
+    "source": "third_party/ps5-opengl submodule, fork branch main (v1.0.0 dce7491 plus the legacy varying-linkage fix; native-app files unchanged)"
   },
   "ps5_native_app_boilerplate": {
     "revision": "f98de734b68b0b980d38ff03a330066afd6ae16d",
@@ -125,7 +125,7 @@
   },
   "homebrew_ui": {
     "revision": "0a6fb4b851da86cd4e9512aae3abf1352a96086a",
-    "source": "third_party/ps5-homebrew-ui submodule, fork branch feat/playden-ps5: upstream 4b3fbb7 plus the latin-glyph, macOS OpenGL 4.1 and CFF SDF commits (not yet upstream)",
+    "source": "third_party/ps5-homebrew-ui submodule, fork branch main: upstream 4b3fbb7 plus the latin-glyph, macOS OpenGL 4.1 and CFF SDF commits (not yet upstream)",
     "stb_image": {
       "source": "Vendored third_party/stb/stb_image.h (stb v2.30)",
       "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
@@ -183,7 +183,7 @@
     "status": "development-source; release kit and native acceptance pending",
     "retained_runtime_artifact_revision": "bceed2d-kit-h-r1",
     "upstream_url": "https://github.com/mpereiraesaa/prospero-win.git",
-    "branch": "feat/playden-ps5",
+    "branch": "main",
     "note": "Rebased onto upstream b510eb3 on 2026-10-08. Any-title shell on fixed kit B (25a967d). Firmware 13.60 uses the authorized no-drop fallback; games retain root recovery. Runtime remains bea2be5. Same tree as kit C's shell revision 850e62c (history squashed; the old commits are on backup/playden-ps5-850e62c). 33130a9 adds publication metadata schema 3 (game_root.unowned) for game folders on exFAT drives. a9ce0d0 pins the packager to the kit D runtime built from 8ff88bf (rebased forks, direct-memory heap). Test branch feat/upstream-2026-10-10 (2026-10-10): rebased onto upstream ce890c0 (Mesa WGL/Zink OpenGL, PS5 OpenGL SDK path removed); patch 0663 dropped, ours renumbered 0950-0955; 3f8f559 pins the packager to the kit G runtime f29127a. Rebased again onto upstream 644e32e (kit H): our 0602 and the translator fallback 063f851 dropped for upstream #678/#677, patch 0956 keeps a window's pixel format with Mesa's WGL; 77231eb pins the packager to the kit H runtime bceed2d. 03b6495 (feat/playden-ps5) adds only test, documentation and allowlist fixes on top of ab3b29e. 13fa077 adds Wine patch 0603 (upstream PR #688: Windows memory queries report the title's direct-memory budget) and ea6e6ee pins the packager to the kit H r8 runtime built from 13fa077."
   },
   "prospero_bottle_preparation": {

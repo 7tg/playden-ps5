@@ -41,7 +41,7 @@ The font licenses are shipped next to the fonts, in `assets/fonts/` of the packa
 
 The runtime kit is a separate download. It carries these components. The kit release lists the exact source
 revisions it was built from and includes their license texts in `LICENSES/`, and our changes are on the
-`feat/playden-ps5` branches of the forks.
+`main` branches of the forks.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
