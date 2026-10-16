@@ -176,7 +176,7 @@
     }
   },
   "prospero_win": {
-    "revision": "ab29b97c12e70415920a9b2fda19bd172ecdc9c3",
+    "revision": "7887257024dbe16fe3ea0e8b559aad400a53af3a",
     "url": "https://github.com/leolobato/prospero-win.git",
     "default_source": "third_party/prospero-win",
     "published": false,
