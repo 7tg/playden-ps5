@@ -355,6 +355,17 @@ ui::Button legend_button(std::string_view legend, std::size_t index)
     return index == 0 ? ui::Button::cross : ui::Button::circle;
 }
 
+// The glyph already names the button, so "Cross Open" reads "Open" beside it.
+const char *legend_text(const std::string &legend)
+{
+    for (const std::string_view button : {"Cross ", "Circle ", "Square ", "Triangle ", "Options ", "Touchpad "})
+    {
+        if (legend.rfind(button, 0) == 0)
+            return legend.c_str() + button.size();
+    }
+    return legend.c_str();
+}
+
 ui::Status progress_status(const ViewRow &row)
 {
     if (row.dangerous || row.badge.find("Failed") != std::string::npos)
@@ -2784,7 +2795,7 @@ class Render::Impl
                     shoulder = labels[index].substr(6);
                     continue;
                 }
-                hints.push_back({legend_button(labels[index], index), labels[index].c_str()});
+                hints.push_back({legend_button(labels[index], index), legend_text(labels[index])});
             }
             // Circle is already spoken for by "Circle …" legends ("Circle Clear search") and Back/Cancel ones.
             const bool has_back = std::any_of(labels.begin(), labels.end(), [](const std::string &label) {
