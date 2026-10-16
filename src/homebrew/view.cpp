@@ -965,6 +965,18 @@ class Render::Impl
         }
     }
 
+    // An arrow rising from a tray: upload.
+    void upload_icon(float cx, float cy, float size, float width, gfx::Color ink)
+    {
+        const float half = size * 0.5F;
+        scene_.line(cx, cy + half * 0.4F, cx, cy - half, width, ink);
+        scene_.line(cx, cy - half, cx - half * 0.6F, cy - half * 0.4F, width, ink);
+        scene_.line(cx, cy - half, cx + half * 0.6F, cy - half * 0.4F, width, ink);
+        scene_.line(cx - half, cy + half * 0.3F, cx - half, cy + half, width, ink);
+        scene_.line(cx - half, cy + half, cx + half, cy + half, width, ink);
+        scene_.line(cx + half, cy + half, cx + half, cy + half * 0.3F, width, ink);
+    }
+
     // The macOS `ActionButton`: primary is filled with the accent, the others are outlined;
     // focus adds the ring and glow and lifts the button slightly.
     void mac_button(gfx::DrawList &list, const gfx::Rect &rect, std::string_view label, bool primary,
@@ -2187,8 +2199,12 @@ class Render::Impl
                 stats_.focused_control_key = row.key;
             return control_focus(row.key, focused);
         };
-        // Chips, then Sync all at the right.
+        // Chips, then Upload all (when games wait for the account) and Sync all at the right.
         float x = kSafeX;
+        float sync_left = 1824.0F;
+        for (const ViewRow &row : view.rows)
+            if (row.key == "saves-sync-all")
+                sync_left = 1824.0F - fonts_.display.measure(row.title, 26.0F) - 74.0F;
         std::vector<const ViewRow *> games;
         for (const ViewRow &row : view.rows)
         {
@@ -2209,6 +2225,20 @@ class Render::Impl
                          row.selected ? kBackground.with_alpha(0.65F) : kSecondary);
                 pill_focus_ring(chip, amount);
                 x += chip.w + 12.0F;
+            }
+            else if (row.key == "saves-upload-all")
+            {
+                const float label = fonts_.display.measure(row.title, 26.0F);
+                const float count = fonts_.semibold.measure(row.value, 20.0F);
+                const gfx::Rect button{sync_left - 12.0F - label - count - 86.0F, 186.0F, label + count + 86.0F, 48.0F};
+                const float amount = focus_of(row);
+                focus_glow(scene_, button, amount, true);
+                scene_.bordered_rect(button, 8.0F, kText.with_alpha(0.06F), 1.5F, kText.with_alpha(0.5F));
+                upload_icon(button.x + 26.0F, button.cy(), 18.0F, 2.0F, kText);
+                ui::text(scene_, fonts_.display, row.title, button.x + 48.0F, button.cy() + 9.0F, 26.0F, kText);
+                ui::text(scene_, fonts_.semibold, row.value, button.x + 48.0F + label + 12.0F, button.cy() + 7.0F, 20.0F,
+                         kSecondary);
+                focus_ring(scene_, button, amount, true);
             }
             else if (row.key == "saves-sync-all")
             {

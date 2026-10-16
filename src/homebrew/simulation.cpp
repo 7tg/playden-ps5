@@ -437,6 +437,7 @@ std::string action_label(const std::string& key) {
         {"log-launch", "Launch log"}, {"log-cloud", "Cloud saves log"}, {"logs-refresh", "Refresh"},
         {"cloud-sync", "Cloud saves"}, {"cloud-choose", "Cloud saves"}, {"cloud-use-cloud", "Use Cloud saves"},
         {"cloud-use-local", "Use console saves"}, {"cloud-confirm-account", "Use this account"},
+        {"cloud-confirm-account-all", "Upload all"},
         {"saves-delete-confirm", "Delete saves"}, {"manage-saves", "Manage saves"}, {"saves-leftover-confirm", "Remove"}, {"saves-quit-anyway", "Play without syncing"},
         {"install-confirm", "Install"}, {"storage-picker", "Change storage"},
         {"value-edit", "Edit…"}, {"value-reset", "Reset to recipe"}, {"override-add", "Add an override…"},
@@ -3329,6 +3330,8 @@ void Simulation::rebuild_view() {
             chip.value = std::to_string(counts[index]);
             chip.selected = static_cast<int>(index) == state_.navigation.saves_filter;
         }
+        if (const auto awaiting = saves_awaiting_account(); job.kind == SavesJobKind::None && !awaiting.empty())
+            row("saves-upload-all", RowKind::Action, "Upload all", "saves-upload-all").value = std::to_string(awaiting.size());
         auto& sync_all = row("saves-sync-all", RowKind::Action, job.kind == SavesJobKind::None ? "Sync all" : "Stop", "saves-sync-all");
         sync_all.selected = job.kind != SavesJobKind::None;
         sync_all.enabled = !job.stopping && (job.kind != SavesJobKind::None || counts[0] > counts[3]);
@@ -3369,6 +3372,8 @@ void Simulation::rebuild_view() {
         if (view_.rows.size() == kSavesFilters.size() + 1)
             row("saves-empty", RowKind::Status, all.empty() ? "No saves on this console yet" : "Nothing here", "").enabled = false;
         view_.legends = {"Cross Open", job.kind == SavesJobKind::None ? "Triangle Sync all" : "Triangle Stop", "Circle Back", "L1/R1 Sections"};
+        if (job.kind == SavesJobKind::None && !saves_awaiting_account().empty())
+            view_.legends.insert(view_.legends.begin() + 2, "Square Upload all");
     } else if (state_.navigation.route == Route::SaveDetails) {
         const auto id = state_.navigation.save_id;
         const auto* game = find_game(state_, id);
@@ -3992,6 +3997,30 @@ void Simulation::open_saves() {
     if (live()) pending_cloud_requests_.push_back({CloudRequestKind::QuickCheck, 0});
 }
 
+// Games whose saves were never uploaded to this Steam account and wait only for the player to
+// confirm it ("Not in Cloud yet"); Upload all confirms them together.
+std::vector<GameId> Simulation::saves_awaiting_account() const {
+    std::vector<GameId> out;
+    for (const auto id : save_games(false)) {
+        const auto cloud = state_.cloud.find(id);
+        if (cloud != state_.cloud.end() && cloud->second.status == CloudStatus::NeedsAccount && !cloud->second.queued &&
+            !cloud->second.after_play)
+            out.push_back(id);
+    }
+    return out;
+}
+
+void Simulation::ask_upload_all() {
+    const auto count = saves_awaiting_account().size();
+    if (count == 0 || state_.saves_job.kind != SavesJobKind::None) return;
+    ModalEntry confirm{"confirmation", count == 1 ? "Upload saves to this Steam account?" : "Upload all saves to this Steam account?",
+                       state_.navigation.focus_key, {"cloud-confirm-account-all", "cancel"}, 0, false};
+    confirm.body = "Playden has not synced " + (count == 1 ? std::string("1 game's saves") : std::to_string(count) + " games' saves") +
+                   " for " + (state_.account.display_name.empty() ? std::string("this account") : state_.account.display_name) +
+                   " before. Confirm to upload this console's saves to its Steam Cloud.";
+    open_modal(std::move(confirm));
+}
+
 std::vector<GameId> Simulation::save_games(bool filtered) const {
     std::set<GameId> ids;
     for (const auto& installation : state_.installations) ids.insert(installation.game_id);
@@ -4029,7 +4058,9 @@ std::vector<GameId> Simulation::save_games(bool filtered) const {
 // reaches the tab bar.
 bool Simulation::move_saves(int delta_x, int delta_y) {
     if (view_.rows.empty()) return true;
-    const auto chip = [](const ViewRow& item) { return item.key.rfind("saves-filter-", 0) == 0 || item.key == "saves-sync-all"; };
+    const auto chip = [](const ViewRow& item) {
+        return item.key.rfind("saves-filter-", 0) == 0 || item.key == "saves-upload-all" || item.key == "saves-sync-all";
+    };
     const int current = std::clamp(view_.focused_row, 0, static_cast<int>(view_.rows.size()) - 1);
     int chips = 0;
     while (chips < static_cast<int>(view_.rows.size()) && chip(view_.rows[static_cast<std::size_t>(chips)])) ++chips;
@@ -4390,6 +4421,11 @@ void Simulation::activate() {
     } else if (live() && action_name == "saves-sync-all") {
         pending_cloud_requests_.push_back({state_.saves_job.kind == SavesJobKind::None ? CloudRequestKind::SyncAll
                                                                                      : CloudRequestKind::StopJob, 0});
+    } else if (live() && action_name == "saves-upload-all") {
+        ask_upload_all();
+    } else if (live() && action_name == "cloud-confirm-account-all") {
+        for (const auto id : saves_awaiting_account()) pending_cloud_requests_.push_back({CloudRequestKind::ConfirmAccount, id});
+        close_modal();
     } else if (live() && action_name == "manage-saves") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         state_.navigation.modals.clear();
@@ -5509,6 +5545,8 @@ bool Simulation::action(const std::string& logical_action) {
             if (state_.library.favorites.contains(state_.navigation.selected_game_id)) state_.library.favorites.erase(state_.navigation.selected_game_id);
             else state_.library.favorites.insert(state_.navigation.selected_game_id);
             save_profile();
+        } else if (live() && state_.navigation.modals.empty() && state_.navigation.route == Route::Saves) {
+            ask_upload_all();
         }
     } else if (logical_action.rfind("inject:", 0) == 0) {
         auto injected = logical_action.substr(7);

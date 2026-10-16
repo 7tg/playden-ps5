@@ -59,6 +59,11 @@ bool has_row(const Simulation& model, const std::string& key) {
                        [&key](const auto& row) { return row.key == key; });
 }
 
+bool has_legend(const Simulation& model, const std::string& legend) {
+    const auto& legends = model.view().legends;
+    return std::find(legends.begin(), legends.end(), legend) != legends.end();
+}
+
 void activate(Simulation& model, const std::string& key) {
     check(model.action("focus:" + key), "requested row exists");
     check(model.action("cross"), "requested row activates");
@@ -1271,6 +1276,59 @@ const playden::homebrew::ViewRow* saves_row(const Simulation& model, const std::
     return nullptr;
 }
 
+// Games never uploaded to this Steam account are confirmed together; choices stay per game.
+void live_saves_upload_all() {
+    using playden::homebrew::LiveCloudGame;
+    using playden::homebrew::LiveSavesJob;
+    using playden::homebrew::SavesJobKind;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Alpha"), game(43, "Beta"), game(44, "Gamma")}, false, {}, false, false, {}}),
+          "upload all: library loaded");
+    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 100'000'000}, {44, 100'000'000}});
+    model.action("l1");
+    model.action("l1");
+    model.TakeCloudRequests();
+
+    LiveCloudGame conflict{42, CloudStatus::Conflict, "Both changed."};
+    LiveCloudGame synced{43, CloudStatus::Synced, "1 save uploaded"};
+    model.UpdateCloud({conflict, synced});
+    check(!saves_row(model, "saves-upload-all") && !has_legend(model, "Square Upload all"),
+          "upload all: hidden while no game waits for the account");
+
+    LiveCloudGame first{43, CloudStatus::NeedsAccount, "Confirm this Steam account."};
+    LiveCloudGame second{44, CloudStatus::NeedsAccount, "Confirm this Steam account."};
+    model.UpdateCloud({first, second});
+    check(saves_row(model, "saves-upload-all") && saves_row(model, "saves-upload-all")->value == "2" &&
+              has_legend(model, "Square Upload all"),
+          "upload all: offered with the number of games");
+    check(model.action("focus:saves-filter-4"), "upload all: focus the last filter");
+    model.action("right");
+    check(model.state().navigation.focus_key == "saves-upload-all", "upload all: sits between the chips and Sync all");
+    model.action("right");
+    check(model.state().navigation.focus_key == "saves-sync-all", "upload all: Sync all follows it");
+
+    // One confirmation, then one request per waiting game; the conflict is left for the player.
+    model.action("square");
+    check(!model.state().navigation.modals.empty() &&
+              model.state().navigation.modals.back().title == "Upload all saves to this Steam account?" &&
+              model.state().navigation.modals.back().body.find("2 games' saves for Synthetic") != std::string::npos,
+          "upload all: Square asks once for every game");
+    check(model.TakeCloudRequests().empty(), "upload all: nothing is sent before the confirmation");
+    activate(model, "cloud-confirm-account-all");
+    auto requests = model.TakeCloudRequests();
+    check(requests.size() == 2 && requests[0].kind == CloudRequestKind::ConfirmAccount && requests[0].game_id == 43 &&
+              requests[1].kind == CloudRequestKind::ConfirmAccount && requests[1].game_id == 44,
+          "upload all: confirms each waiting game");
+    check(model.state().navigation.modals.empty(), "upload all: the dialog closes");
+
+    // Not while Sync all runs.
+    model.UpdateSavesJob({SavesJobKind::SyncAll, 0, 3, 42, false});
+    check(!saves_row(model, "saves-upload-all"), "upload all: hidden while Sync all runs");
+    model.action("square");
+    check(model.state().navigation.modals.empty(), "upload all: Square does nothing while Sync all runs");
+}
+
 void live_saves_tab() {
     using playden::homebrew::LiveCloudGame;
     using playden::homebrew::LiveSavesJob;
@@ -1538,6 +1596,7 @@ int main() {
     live_log_viewer();
     live_cloud_saves();
     live_saves_tab();
+    live_saves_upload_all();
     live_filters_only_use_available_facts();
     live_empty_filter_keeps_the_signed_in_account();
     projects_only_owned_facts_and_delivery_status();

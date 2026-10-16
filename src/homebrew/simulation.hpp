@@ -782,6 +782,8 @@ private:
     bool move_saves(int delta_x, int delta_y);
     // The Saves tab's games, in name order, after the filter when `filtered`.
     [[nodiscard]] std::vector<GameId> save_games(bool filtered) const;
+    [[nodiscard]] std::vector<GameId> saves_awaiting_account() const;
+    void ask_upload_all();
     void open_saves();
     void settle_quit_sync(GameId id, std::optional<CloudStatus> status);
     void change_route(int delta);
