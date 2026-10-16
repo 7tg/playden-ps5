@@ -1360,11 +1360,23 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       return refused;
   }
   // Reservations survive a failed allow-list or metadata write. Complete these
-  // prerequisites again before a fresh start, keeping already-bound artifacts.
+  // prerequisites again before a fresh start. Nothing is published yet, so a
+  // reservation bound to an earlier kit's artifacts is bound to this kit's.
   const auto initialize_reserved = [&](rt::RuntimeInstall& record) -> std::string {
-    if (record.artifacts.empty()) {
-      for (const auto& artifact : c.kit->view.artifacts)
-        record.artifacts.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
+    std::vector<rt::RuntimeArtifactIdentity> current;
+    for (const auto& artifact : c.kit->view.artifacts)
+      current.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
+    const bool bound_current =
+        record.artifacts.size() == current.size() &&
+        std::all_of(current.begin(), current.end(), [&](const rt::RuntimeArtifactIdentity& wanted) {
+          return std::any_of(record.artifacts.begin(), record.artifacts.end(), [&](const auto& bound) {
+            return bound.artifact_id == wanted.artifact_id && bound.identity == wanted.identity &&
+                   bound.sha256 == wanted.sha256;
+          });
+        });
+    if (!bound_current) {
+      if (!record.artifacts.empty()) Log("prepare rebinds app=" + std::to_string(record.app_id) + " to the kit's artifacts");
+      record.artifacts = std::move(current);
       const auto bound = c.repository.Update(record);
       if (!bound.ok()) return "The kit artifacts could not be recorded: " + bound.message();
     }

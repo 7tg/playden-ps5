@@ -666,6 +666,61 @@ void RefreshesInstalledTitleToRespunKit() {
   again.Shutdown();
 }
 
+// A preparation that failed under one kit and is retried under a rebuilt kit binds
+// the new kit's artifacts, so validation compares the title with the kit it came from.
+void RetryAfterKitRespinBindsTheNewArtifacts() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  config.uuid = []() -> std::optional<std::string> { return std::string("00000000-0000-4000-8000-000000000001"); };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  {
+    const auto kit = SyntheticKit(fixture.root / "kit");
+    auto first = config;
+    first.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+    first.package_operations.free_bytes = [](const fs::path&) { return std::optional<std::uint64_t>(0); };
+    RuntimeHost host(first);
+    CHECK(host.Start());
+    host.Prepare(Hl2());
+    const auto failed = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kFailed;
+    }, 60);
+    CHECK(failed.installs[0].state == PreparationState::kFailed);
+    host.Shutdown();
+  }
+  const auto rebuilt = SyntheticKit(fixture.root / "kit-rebuilt", "native", "kit-1", 'd', "runtime-neutral", "rev-neutral");
+  auto second = config;
+  second.admit_kit = [rebuilt](std::string*) { return std::optional<RuntimeKit>(rebuilt); };
+  second.package_operations.free_space_unverifiable = true;
+  RuntimeHost host(second);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() &&
+           (s.installs[0].state == PreparationState::kReady || s.refusals.count(220) ||
+            (s.installs[0].state == PreparationState::kFailed &&
+             s.installs[0].failure.find("free space") == std::string::npos));
+  }, 60);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Retry refused: %s\n", done.refusals.at(220).c_str());
+  if (done.installs[0].state != PreparationState::kReady)
+    std::fprintf(stderr, "Retry state=%d step=%s failure=%s\n", static_cast<int>(done.installs[0].state),
+                 done.installs[0].step.c_str(), done.installs[0].failure.c_str());
+  CHECK(done.installs[0].state == PreparationState::kReady);
+  CHECK(Read(fixture.root / "data/homebrew/FAKE78001/win/wine/lib/core.prx") == "runtime-neutral");
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json").find(*HashArtifactBytes("runtime-neutral")) !=
+        std::string::npos);
+  host.Shutdown();
+}
+
 // A game run that leaves the bottle registry wider than admission accepts
 // (Wine saving with umask 0) is reported at startup, and Prepare repairs it.
 void RepairsBottleRegistryModes() {
@@ -1868,6 +1923,7 @@ int main(int argc, char** argv) {
   ResumesInterruptedCaptureFromSavedRequest();
   ResumesInterruptedCaptureFromSavedRequest(true);
   RefreshesInstalledTitleToRespunKit();
+  RetryAfterKitRespinBindsTheNewArtifacts();
   RepairsBottleRegistryModes();
   PlaysReadyTitleThroughHandoff();
   MaintainsReadyTitle();
