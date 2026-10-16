@@ -43,6 +43,12 @@ std::string FormatDownloadRate(std::optional<std::uint64_t> rate, std::optional<
 }
 
 namespace {
+// "Go back to Playden <previous>" is for development: release builds (NDEBUG) don't offer it.
+#ifdef NDEBUG
+constexpr bool kOfferGoBack = false;
+#else
+constexpr bool kOfferGoBack = true;
+#endif
 
 constexpr std::uint64_t kTransferPerTick = 67'108'864;
 constexpr std::int64_t kFixtureClock = 1'760'000'000;
@@ -3500,8 +3506,8 @@ void Simulation::rebuild_view() {
                                                               : "Version " + update.current;
             }
         }
-        if (live() && !state_.self_update.previous.empty() && state_.self_update.phase != "downloading" &&
-            state_.self_update.phase != "unpacking") {
+        if (kOfferGoBack && live() && !state_.self_update.previous.empty() &&
+            state_.self_update.phase != "downloading" && state_.self_update.phase != "unpacking") {
             auto& back = add("settings-update-back", RowKind::Action, "Go back to Playden " + state_.self_update.previous,
                              "self-update-back");
             back.subtitle = "Put the previous version and its compatibility kit back";
@@ -5128,7 +5134,7 @@ void Simulation::activate() {
                        "Home screen.";
         open_modal(std::move(confirm));
     }
-    else if (live() && action_name == "self-update-back-confirm") { close_modal(); request_self_update_restart("rollback"); }
+    else if (kOfferGoBack && live() && action_name == "self-update-back-confirm") { close_modal(); request_self_update_restart("rollback"); }
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
         {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "cancel"}, 0, false});
     else if (action_name.rfind("scenario-", 0) == 0) { state_.navigation.modals.clear(); scenario(action_name.substr(9)); }
