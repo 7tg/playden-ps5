@@ -492,6 +492,7 @@ struct ViewData {
     };
     std::vector<Shelf> shelves;
     std::vector<std::string> legends;
+    std::string footer;  // a sheet's pinned footer note (Installed games: the selection or the batch)
     int focused_row = 0;
     int focused_action = 0;
     std::size_t total_count = 0;
@@ -709,6 +710,22 @@ private:
     std::vector<GameId> pending_activity_requests_;
     bool uninstall_delete_saves_ = false;  // the uninstall dialog's choice
     std::set<GameId> kept_selected_;  // the kept game data manager's checked games
+    // Installed games (Settings > Storage): the checked games and the list's order.
+    std::set<GameId> installed_selected_;
+    bool installed_by_played_ = false;  // false: largest first; true: never played, then the oldest
+    // The games the player uninstalled together from the list, while the list stays open: their
+    // size when confirmed and how each ended ("" while it runs, "Uninstalled" or the stop reason).
+    struct UninstallBatch {
+        std::vector<GameId> ids;
+        std::map<GameId, std::uint64_t> bytes;
+        std::map<GameId, std::string> stopped;
+        std::set<GameId> uninstalled;
+    };
+    std::optional<UninstallBatch> uninstall_batch_;
+    std::map<GameId, std::string> installed_stops_;  // why games stopped in the batch last shown
+    std::string installed_list_focus_;  // the game row the focus left for the footer
+    std::string installed_message_;  // the list's note when a confirmed uninstall could not start
+    bool rebuilding_overlay_ = false;  // rebuild_view is building the screen under an open sheet
     struct StoreFacts { std::string description; std::vector<std::string> genres; std::string controller_support; };
     std::map<GameId, StoreFacts> store_facts_;  // live: from the Steam store, applied over library refreshes
     std::vector<GameId> ready_prompts_;  // games to announce as ready to play, oldest first
@@ -794,6 +811,15 @@ private:
     void advance_jobs();
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;
     [[nodiscard]] std::vector<std::string> kept_manager_actions() const;
+    // Installed games list: its games in the chosen order (those a running batch uninstalled
+    // included), why a game cannot be picked now (empty when it can), and the list's refresh.
+    [[nodiscard]] std::vector<GameId> installed_list() const;
+    [[nodiscard]] std::string installed_blocker(GameId id) const;
+    [[nodiscard]] std::vector<std::string> installed_manager_actions() const;
+    void refresh_installed_manager();
+    [[nodiscard]] bool installed_list_open() const;
+    [[nodiscard]] bool uninstall_batch_done() const;
+    void move_installed_manager(int delta_x, int delta_y);
     [[nodiscard]] std::vector<std::string> collection_sheet_actions(const std::string& sheet) const;
     void refresh_collection_sheets(const std::string& focus = {});
     void refresh_game_settings();

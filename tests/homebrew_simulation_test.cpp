@@ -706,15 +706,27 @@ void t13_settings_sections_rail(const std::filesystem::path& fixtures, const std
     simulation.action("left");
     check(simulation.state().navigation.settings_rail_focused, "T13 Left moves to the section rail");
     simulation.action("down");
-    check(section() == "Library" && simulation.state().navigation.focus_key == "settings-storage",
+    check(section() == "Storage" && simulation.state().navigation.focus_key == "settings-storage",
           "T13 Down on the rail switches to the next section's first row");
     simulation.action("cross");
     check(!simulation.state().navigation.settings_rail_focused && simulation.state().navigation.focus_key == "settings-storage",
           "T13 Cross on the rail enters the section without activating its row");
     simulation.action("down");
     simulation.action("down");
+    check(section() == "Storage" && simulation.state().navigation.focus_key == "settings-runtime",
+          "T13 Down on a section's last row stays in the section");
+    simulation.action("up");
+    check(section() == "Storage" && simulation.state().navigation.focus_key == "settings-storage" &&
+              !simulation.state().navigation.tabs_focused, "T13 Up stops on the section's first row");
+    simulation.action("up");
+    check(simulation.state().navigation.focus_key == "settings-storage" && simulation.state().navigation.tabs_focused,
+          "T13 Up on a section's first row goes to the tab bar, not the previous section");
+    simulation.action("down");
+    simulation.action("left");
+    simulation.action("down");
+    simulation.action("right");
     check(section() == "Display" && simulation.state().navigation.focus_key == "settings-motion",
-          "T13 Down past a section's last row continues into the next section");
+          "T13 the rail moves to the next section");
     simulation.action("left");
     simulation.action("right");
     check(!simulation.state().navigation.settings_rail_focused && simulation.state().navigation.focus_key == "settings-motion",

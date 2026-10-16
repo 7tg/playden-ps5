@@ -103,6 +103,59 @@ int main() {
   flow.TakeSyncRequests();
   flow.SyncDispatched(48);
   CHECK(flow.CloudSettled(48, CloudStatus::Unsupported).kind == Kind::kNone && flow.Step(48) == UninstallStep::kRemoveTitle);
+
+  // Two uninstalls: one PS5 title removal at a time, because the runtime counts removals for all games together.
+  CHECK(flow.Begin(60, false, false) && flow.Begin(61, false, false));
+  UninstallFacts both;
+  both.has_title = true;
+  both.removals_handled = 5;
+  CHECK(flow.Advance(60, both).kind == Kind::kRemoveTitle);
+  CHECK(flow.Advance(61, both).kind == Kind::kNone && flow.Step(61) == UninstallStep::kRemoveTitle);
+  // The first removal finishes while the second game is still queued: it must not read that as its own result.
+  UninstallFacts first_done;
+  first_done.removals_handled = 6;
+  both.removals_handled = 6;
+  CHECK(flow.Advance(61, both).kind == Kind::kNone);
+  CHECK(flow.Advance(60, first_done).kind == Kind::kRemoveDownload);
+  // Now the second removal goes, and only its own completion moves it on.
+  action = flow.Advance(61, both);
+  CHECK(action.kind == Kind::kRemoveTitle);
+  CHECK(flow.Advance(61, both).kind == Kind::kNone && flow.Step(61) == UninstallStep::kRemoveTitle);
+  both.removing = true;
+  CHECK(flow.Advance(61, both).kind == Kind::kNone);
+  UninstallFacts second_done;
+  second_done.removals_handled = 7;
+  CHECK(flow.Advance(61, second_done).kind == Kind::kRemoveDownload);
+  CHECK(!flow.Step(60) && !flow.Step(61));
+
+  // A stopped removal frees the slot for the waiting game.
+  CHECK(flow.Begin(62, false, false) && flow.Begin(63, false, false));
+  UninstallFacts stuck;
+  stuck.has_title = true;
+  CHECK(flow.Advance(62, stuck).kind == Kind::kRemoveTitle);
+  CHECK(flow.Advance(63, stuck).kind == Kind::kNone);
+  stuck.removals_handled = 1;
+  CHECK(flow.Advance(62, stuck).kind == Kind::kStop);
+  stuck.removals_handled = 0;
+  CHECK(flow.Advance(63, stuck).kind == Kind::kRemoveTitle);
+  UninstallFacts done;
+  done.removals_handled = 1;
+  CHECK(flow.Advance(63, done).kind == Kind::kRemoveDownload);
+
+  // One game's Cloud conflict stops only that game; the other goes on to its removal.
+  CHECK(flow.Begin(64, false, true) && flow.Begin(65, false, true));
+  CHECK(flow.TakeSyncRequests() == std::vector<GameId>({64, 65}));
+  flow.SyncDispatched(64);
+  flow.SyncDispatched(65);
+  CHECK(flow.CloudSettled(64, CloudStatus::Conflict).kind == Kind::kStop);
+  CHECK(!flow.Step(64) && flow.Step(65) == UninstallStep::kSync);
+  CHECK(flow.CloudSettled(65, CloudStatus::Synced).kind == Kind::kNone);
+  UninstallFacts after_sync;
+  after_sync.has_title = true;
+  CHECK(flow.Advance(65, after_sync).kind == Kind::kRemoveTitle);
+  after_sync = {};
+  after_sync.removals_handled = 1;
+  CHECK(flow.Advance(65, after_sync).kind == Kind::kRemoveDownload && !flow.Step(65));
   std::puts("uninstall flow tests passed");
   return 0;
 }

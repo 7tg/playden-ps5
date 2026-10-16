@@ -48,10 +48,26 @@ template<class F> void Wait(Controller& controller,F predicate) {
   do {controller.Tick();if(predicate())return;std::this_thread::sleep_for(1ms);}while(std::chrono::steady_clock::now()<until);
   assert(false && "persistence integration deadline");
 }
+// Settings: Up and Down stay in a section; another section is reached through the rail.
+static void enter_settings_section(playden::homebrew::Simulation& model, int index) {
+  using playden::homebrew::Route;
+  if (model.state().navigation.route != Route::Settings || !model.state().navigation.modals.empty()) return;
+  const auto& rows = model.view().rows;
+  const std::string wanted = rows[static_cast<std::size_t>(index)].section;
+  const auto here = [&] { return rows[static_cast<std::size_t>(model.view().focused_row)].section; };
+  if (here() == wanted) return;
+  std::vector<std::string> order;
+  for (const auto& row : rows) if (order.empty() || order.back() != row.section) order.push_back(row.section);
+  const auto position = [&](const std::string& section) { return std::find(order.begin(), order.end(), section) - order.begin(); };
+  model.action("left");
+  for (int step = 0; step < 16 && here() != wanted; ++step) model.action(position(here()) < position(wanted) ? "down" : "up");
+  model.action("right");
+}
 void Choose(Simulation& model,const std::string& action) {
   const auto& rows=model.view().rows;
   const auto found=std::find_if(rows.begin(),rows.end(),[&](const ViewRow& r){return r.action==action;});assert(found!=rows.end());
   const int index=static_cast<int>(found-rows.begin());
+  enter_settings_section(model,index);
   for(int n=0;n<80 && model.view().focused_row!=index;++n)assert(model.action(model.view().focused_row<index?"down":"up"));
   assert(model.view().focused_row==index && model.action("cross"));
 }

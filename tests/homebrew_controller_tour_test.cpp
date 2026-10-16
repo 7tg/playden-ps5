@@ -16,11 +16,27 @@ static void require(bool okay, const char* message) {
 static void press(Simulation& simulation, const char* key) {
     require(simulation.action(key), key);
 }
+// Settings: Up and Down stay in a section; another section is reached through the rail.
+static void enter_settings_section(playden::homebrew::Simulation& model, int index) {
+  using playden::homebrew::Route;
+  if (model.state().navigation.route != Route::Settings || !model.state().navigation.modals.empty()) return;
+  const auto& rows = model.view().rows;
+  const std::string wanted = rows[static_cast<std::size_t>(index)].section;
+  const auto here = [&] { return rows[static_cast<std::size_t>(model.view().focused_row)].section; };
+  if (here() == wanted) return;
+  std::vector<std::string> order;
+  for (const auto& row : rows) if (order.empty() || order.back() != row.section) order.push_back(row.section);
+  const auto position = [&](const std::string& section) { return std::find(order.begin(), order.end(), section) - order.begin(); };
+  model.action("left");
+  for (int step = 0; step < 16 && here() != wanted; ++step) model.action(position(here()) < position(wanted) ? "down" : "up");
+  model.action("right");
+}
 static void choose(Simulation& simulation, const std::string& key) {
     const auto& rows = simulation.view().rows;
     const auto target = std::find_if(rows.begin(), rows.end(), [&](const ViewRow& row) { return row.key == key; });
     if (target == rows.end()) { std::fprintf(stderr, "Unreachable controller row %s in %s\n", key.c_str(), simulation.view().surface.c_str()); std::exit(1); }
     const int index = static_cast<int>(std::distance(rows.begin(), target));
+    enter_settings_section(simulation, index);
     for (int count = 0; count < 100 && simulation.view().focused_row != index; ++count)
         press(simulation, simulation.view().focused_row < index ? "down" : "up");
     require(simulation.state().navigation.focus_key == key, "navigation reaches requested visible row");

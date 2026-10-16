@@ -41,6 +41,21 @@ struct Cache final : LibraryRepository {
 };
 }
 
+// Settings: Up and Down stay in a section; another section is reached through the rail.
+static void enter_settings_section(playden::homebrew::Simulation& model, int index) {
+  using playden::homebrew::Route;
+  if (model.state().navigation.route != Route::Settings || !model.state().navigation.modals.empty()) return;
+  const auto& rows = model.view().rows;
+  const std::string wanted = rows[static_cast<std::size_t>(index)].section;
+  const auto here = [&] { return rows[static_cast<std::size_t>(model.view().focused_row)].section; };
+  if (here() == wanted) return;
+  std::vector<std::string> order;
+  for (const auto& row : rows) if (order.empty() || order.back() != row.section) order.push_back(row.section);
+  const auto position = [&](const std::string& section) { return std::find(order.begin(), order.end(), section) - order.begin(); };
+  model.action("left");
+  for (int step = 0; step < 16 && here() != wanted; ++step) model.action(position(here()) < position(wanted) ? "down" : "up");
+  model.action("right");
+}
 int main(int argc,char** argv) {
   using namespace playden::homebrew;
   if(argc!=2) return 2;
@@ -212,6 +227,68 @@ int main(int argc,char** argv) {
       assert(live.action("cross"));
       assert(live.action("focus:kept-toggle-43") && live.action("cross"));
       capture_live("kept-manager.png");
+      // Settings > Storage: the default drive's usage above the rows, then the installed games list.
+      while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
+      live.UpdateVolumes({{"internal","Console storage",true,825'000'000'000ull,512'000'000'000ull}}, "internal");
+      live.UpdateInstalls({}, {{42, 62'700'000'000ull, "internal"}, {43, 8'400'000'000ull, "internal"},
+                               {44, 1'200'000'000ull, "internal"}});
+      LiveRuntimeGame playing; playing.game_id=44; playing.status="Ready"; playing.ready=true; playing.play_status="Playing";
+      LiveRuntimeGame titled=ready; titled.uninstall_status.clear();
+      live.UpdateRuntime(RuntimeState::Ready, {titled, playing});
+      assert(live.action("focus:settings-storage"));
+      capture_live("settings-storage-drive.png");
+      assert(live.action("focus:settings-installed"));
+      capture_live("settings-storage.png");
+      assert(live.action("cross"));
+      assert(live.action("focus:installed-toggle-43") && live.action("cross"));
+      capture_live("installed-games.png");
+      // A batch: one game stops on Cloud, the other is uninstalled; the list shows how each went.
+      assert(live.action("focus:installed-toggle-42") && live.action("cross"));
+      assert(live.action("focus:installed-selection-uninstall") && live.action("cross"));
+      capture_live("installed-games-confirm.png");
+      assert(live.action("focus:confirm-destructive") && live.action("cross"));
+      titled.uninstall_status="Removing PS5 title…";
+      live.UpdateRuntime(RuntimeState::Ready, {titled, playing});
+      capture_live("installed-games-progress.png");
+      live.NotifyUninstallStopped(43, "Cloud saves could not be synced. Fix them in Saves, then try again.");
+      titled.uninstall_status.clear();
+      live.UpdateRuntime(RuntimeState::Ready, {playing});
+      live.UpdateInstalls({}, {{43, 8'400'000'000ull, "internal"}, {44, 1'200'000'000ull, "internal"}});
+      capture_live("installed-games-done.png");
+      // With every Storage row shown the list scrolls; back on the first row the usage card shows again.
+      while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
+      live.SetRuntimeLeftovers(1);
+      assert(live.action("focus:settings-runtime"));
+      capture_live("settings-storage-bottom.png");
+      while(live.state().navigation.focus_key!="settings-storage") assert(live.action("up"));
+      capture_live("settings-storage-top-again.png");
+      // A drive without a space report that is disconnected: one line and its state.
+      live.UpdateVolumes({{"internal","USB drive",false,{},{}}}, "internal");
+      capture_live("settings-storage-unknown.png");
+    }
+    {
+      // A long list: Sort and Select all stay on top and the footer stays visible mid-list.
+      Simulation many({}, {}, ModelMode::Live);
+      many.SetWallClock(1700000000);
+      many.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
+      std::vector<playden::GameSummary> summaries;
+      std::vector<LiveInstalledGame> installed;
+      for(int index=0; index<56; ++index) {
+        playden::GameSummary summary{static_cast<playden::GameId>(5000+index),"Synthetic game "+std::to_string(index+1),{},{},{}};
+        if(index%3) summary.last_played_unix_seconds=1700000000-static_cast<std::uint64_t>(index)*86400*5;
+        summaries.push_back(summary);
+        installed.push_back({static_cast<playden::GameId>(5000+index), (60ull-index)*700'000'000ull, "internal"});
+      }
+      assert(many.UpdateLibrary({summaries,false,{},false,false,{}}));
+      many.UpdateVolumes({{"internal","M.2 SSD",true,1'000'200'000'000ull,90'300'000'000ull}}, "internal");
+      many.UpdateInstalls({}, installed);
+      while(many.state().navigation.route!=Route::Settings) assert(many.action("r1"));
+      assert(many.action("focus:settings-installed") && many.action("cross"));
+      assert(many.action("focus:installed-toggle-5003") && many.action("cross"));
+      assert(many.action("focus:installed-toggle-5005") && many.action("cross"));
+      for(int step=0; step<14; ++step) assert(many.action("down"));
+      for(int i=0;i<24;++i) renderer.draw(many,1920,1080);
+      assert(renderer.capture_png(output/"installed-games-long.png",1920,1080));
     }
     {
       // Rate and remaining time share the downloaded-size baseline, aligned to the card's right edge.
@@ -258,6 +335,7 @@ int main(int argc,char** argv) {
         const auto& rows=model.view().rows;
         const auto target=std::find_if(rows.begin(),rows.end(),[](const ViewRow& row){return row.action=="toggle-motion";});
         assert(target!=rows.end());const int index=static_cast<int>(target-rows.begin());
+        enter_settings_section(model,index);
         for(int n=0;n<80 && model.view().focused_row!=index;++n)assert(model.action(model.view().focused_row<index?"down":"up"));
         assert(model.view().focused_row==index && model.action("cross"));
         bridge.FlushAndShutdown();

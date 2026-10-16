@@ -205,6 +205,10 @@ Installation* find_installation(State& state, GameId id) {
     return found == state.installations.end() ? nullptr : &*found;
 }
 
+const Installation* find_installation(const State& state, GameId id) {
+    return find_installation(const_cast<State&>(state), id);
+}
+
 bool is_installed(const State& state, GameId id) {
     const auto found = std::find_if(state.installations.begin(), state.installations.end(),
                                     [id](const Installation& installation) { return installation.game_id == id; });
@@ -299,6 +303,9 @@ constexpr const char* uninstall_body_kept = "The game's files and its PS5 title 
                                             "settings are kept, and installing the game again brings them back.";
 constexpr const char* uninstall_body_deleted = "The game's files, its PS5 title and its saves and settings on this console are "
                                                "deleted.";
+constexpr const char* uninstall_batch_body_kept = "Their files and PS5 titles are removed from this console. Their saves and "
+                                                  "settings are kept, and installing a game again brings them back.";
+constexpr const char* uninstall_batch_body_deleted = "Their files, PS5 titles and saves and settings on this console are deleted.";
 
 // The name kept game data is shown with: the game's name, else the library's, else its app id.
 std::string kept_name(const State& state, const LiveKeptBottle& kept) {
@@ -439,7 +446,7 @@ std::string action_label(const std::string& key) {
         {"cloud-use-local", "Use console saves"}, {"cloud-confirm-account", "Use this account"},
         {"cloud-confirm-account-all", "Upload all"},
         {"saves-delete-confirm", "Delete saves"}, {"manage-saves", "Manage saves"}, {"saves-leftover-confirm", "Remove"}, {"saves-quit-anyway", "Play without syncing"},
-        {"install-confirm", "Install"}, {"storage-picker", "Change storage"},
+        {"install-confirm", "Install"}, {"storage-picker", "Change storage"}, {"installed-close", "Close"}, {"installed-show-all", "Show all games"},
         {"value-edit", "Edit…"}, {"value-reset", "Reset to recipe"}, {"override-add", "Add an override…"},
         {"unlock-setting", "Change anyway"}, {"export-recipe", "Export as recipe"}, {"program-scan", "Looking for programs…"},
         {"preset-picker", "Preset"}, {"game-settings", "Game settings"}, {"game-maintenance", "Maintenance"}, {"runtime-check-again", "Check again"}, {"reset-settings", "Reset all to preset"}, {"clear-shader-cache", "Clear shader cache"},
@@ -762,6 +769,133 @@ std::vector<std::string> Simulation::kept_manager_actions() const {
     return actions;
 }
 
+std::vector<GameId> Simulation::installed_list() const {
+    struct Entry { GameId id; std::uint64_t bytes; std::optional<std::int64_t> played; std::string title; };
+    std::vector<Entry> entries;
+    const auto add = [&](GameId id, std::uint64_t bytes) {
+        const auto* game = find_game(state_, id);
+        entries.push_back({id, bytes, game ? game->last_played : std::nullopt,
+                           game ? (game->folded_title.empty() ? game->title : game->folded_title) : std::to_string(id)});
+    };
+    for (const auto& installation : state_.installations) add(installation.game_id, installation.installed_bytes);
+    // As on macOS: largest first, or never played first and then the longest unplayed; ties by title.
+    std::sort(entries.begin(), entries.end(), [this](const Entry& left, const Entry& right) {
+        if (installed_by_played_) {
+            if (left.played.has_value() != right.played.has_value()) return !left.played.has_value();
+            if (left.played && *left.played != *right.played) return *left.played < *right.played;
+        } else if (left.bytes != right.bytes) {
+            return left.bytes > right.bytes;
+        }
+        return left.title != right.title ? left.title < right.title : left.id < right.id;
+    });
+    std::vector<GameId> ids;
+    for (const auto& entry : entries) ids.push_back(entry.id);
+    return ids;
+}
+
+std::string Simulation::installed_blocker(GameId id) const {
+    const auto runtime = state_.runtime_games.find(id);
+    const LiveRuntimeGame* game = runtime == state_.runtime_games.end() ? nullptr : &runtime->second;
+    if (game && !game->uninstall_status.empty()) return game->uninstall_status;
+    if (pending_uninstalls_.contains(id)) return "Uninstalling…";
+    if (game && (game->activity == TitleActivity::Running || game->play_status == "Playing" || game->play_status == "Starting…"))
+        return "Playing";
+    if (std::any_of(state_.jobs.begin(), state_.jobs.end(), [id](const Job& job) {
+            return job.game_id == id && job.state != JobState::Downloaded && job.state != JobState::Cancelled;
+        }))
+        return "In Downloads";
+    if (game && (game->status == "Preparing" || game->maintenance_running)) return "Busy";
+    return {};
+}
+
+bool Simulation::uninstall_batch_done() const {
+    return uninstall_batch_ && uninstall_batch_->uninstalled.size() + uninstall_batch_->stopped.size() >= uninstall_batch_->ids.size();
+}
+
+// The list: Sort and Select all, the games, then the footer's Uninstall selected and Close. While
+// a batch runs it lists only the batch's games, with Close (and Show all games once all are done).
+std::vector<std::string> Simulation::installed_manager_actions() const {
+    std::vector<std::string> actions;
+    if (uninstall_batch_) {
+        for (const auto id : uninstall_batch_->ids) actions.push_back("installed-step-" + std::to_string(id));
+        if (uninstall_batch_done()) actions.push_back("installed-show-all");
+        actions.push_back("installed-close");
+        return actions;
+    }
+    actions = {"installed-sort", "installed-select-all"};
+    for (const auto id : installed_list()) actions.push_back("installed-toggle-" + std::to_string(id));
+    actions.push_back("installed-selection-uninstall");
+    actions.push_back("installed-close");
+    return actions;
+}
+
+// Where a key of the Installed games list sits: 0 Sort and Select all, 1 the games, 2 the footer.
+static int installed_part(const std::string& key) {
+    if (key == "installed-sort" || key == "installed-select-all") return 0;
+    if (key.rfind("installed-toggle-", 0) == 0 || key.rfind("installed-step-", 0) == 0) return 1;
+    return 2;
+}
+
+// The footer's buttons go side by side: Left/Right move between them, Up returns to the game the
+// focus left, and Down from the last game reaches them.
+void Simulation::move_installed_manager(int delta_x, int delta_y) {
+    auto& modal = state_.navigation.modals.back();
+    const auto& keys = modal.action_keys;
+    const int current = std::clamp(modal.focused_action, 0, static_cast<int>(keys.size()) - 1);
+    const int part = installed_part(keys[static_cast<std::size_t>(current)]);
+    int first_footer = static_cast<int>(keys.size());
+    for (int index = 0; index < static_cast<int>(keys.size()); ++index)
+        if (installed_part(keys[static_cast<std::size_t>(index)]) == 2) { first_footer = index; break; }
+    int target = current;
+    if (part == 2) {
+        if (delta_x != 0) target = std::clamp(current + (delta_x > 0 ? 1 : -1), first_footer, static_cast<int>(keys.size()) - 1);
+        else if (delta_y < 0 && first_footer > 0) {
+            const auto back = std::find(keys.begin(), keys.end(), installed_list_focus_);
+            target = back != keys.end() ? static_cast<int>(back - keys.begin()) : first_footer - 1;
+        }
+    } else if (delta_y != 0) {
+        target = current + delta_y;
+        if (target >= first_footer) {
+            installed_list_focus_ = keys[static_cast<std::size_t>(current)];
+            target = current == first_footer - 1 ? first_footer : first_footer - 1;
+        }
+        target = std::clamp(target, 0, static_cast<int>(keys.size()) - 1);
+    }
+    modal.focused_action = target;
+    state_.navigation.focus_key = keys[static_cast<std::size_t>(target)];
+}
+
+// The open Installed games list follows the installs, jobs and runtime: games that are gone or
+// can't be picked now leave the selection, and with no game left the list closes.
+void Simulation::refresh_installed_manager() {
+    std::erase_if(installed_selected_, [this](GameId id) { return !find_installation(state_, id) || !installed_blocker(id).empty(); });
+    auto& modals = state_.navigation.modals;
+    for (std::size_t index = 0; index < modals.size(); ++index) {
+        auto& modal = modals[index];
+        if (modal.id != "installed-games") continue;
+        auto actions = installed_manager_actions();
+        if (!uninstall_batch_ && actions.size() == 4) {
+            if (index + 1 == modals.size()) close_modal();
+            break;
+        }
+        const auto focused = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+        modal.action_keys = std::move(actions);
+        const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), focused);
+        if (found != modal.action_keys.end()) {
+            modal.focused_action = static_cast<int>(found - modal.action_keys.begin());
+        } else {
+            // The focused game went away: the nearest game left takes the focus, else Close.
+            int first = -1, last = -1;
+            for (int key = 0; key < static_cast<int>(modal.action_keys.size()); ++key)
+                if (installed_part(modal.action_keys[static_cast<std::size_t>(key)]) == 1) { if (first < 0) first = key; last = key; }
+            const auto close = std::find(modal.action_keys.begin(), modal.action_keys.end(), "installed-close");
+            modal.focused_action = first >= 0 ? std::clamp(modal.focused_action, first, last)
+                                              : static_cast<int>(close - modal.action_keys.begin());
+        }
+        if (index + 1 == modals.size()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+    }
+}
+
 std::vector<GameId> Simulation::TakeKeptDeleteRequests() {
     auto requests = std::move(pending_kept_delete_requests_);
     pending_kept_delete_requests_.clear();
@@ -781,6 +915,15 @@ std::vector<GameId> Simulation::TakeActivityRequests() {
 }
 
 void Simulation::NotifyUninstallStopped(GameId id, const std::string& reason) {
+    // A game the open Installed games list uninstalls says why in its row instead.
+    if (uninstall_batch_ && installed_list_open() &&
+        std::find(uninstall_batch_->ids.begin(), uninstall_batch_->ids.end(), id) != uninstall_batch_->ids.end()) {
+        uninstall_batch_->stopped[id] = reason;
+        pending_uninstalls_.erase(id);
+        refresh_installed_manager();
+        rebuild_view();
+        return;
+    }
     const auto* game = find_game(state_, id);
     push_notice({"uninstall-" + std::to_string(id), "Uninstall stopped", "", false, kLiveNoticeSeconds * 2, true,
                  (game ? game->title : std::string("A game")) + " · " + reason});
@@ -1034,6 +1177,7 @@ void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRunti
     }
     show_ready_prompt();
     open_settings_after_prepare();
+    refresh_installed_manager();
     rebuild_view();
 }
 
@@ -1156,8 +1300,15 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
             push_notice({"install-" + std::to_string(job.game_id), "Download failed", "", false, kLiveNoticeSeconds * 2, true,
                          title(job.game_id) + (job.failure.empty() ? std::string() : " · " + job.failure), false});
         }
+        const bool batch_open = uninstall_batch_ && installed_list_open();
         for (const auto id : live_installed_ids_) {
             if (installed_ids.contains(id) || job_states.contains(id) || !pending_uninstalls_.contains(id)) continue;
+            // The open Installed games list says so in the game's row.
+            if (batch_open && std::find(uninstall_batch_->ids.begin(), uninstall_batch_->ids.end(), id) != uninstall_batch_->ids.end()) {
+                uninstall_batch_->stopped.erase(id);
+                uninstall_batch_->uninstalled.insert(id);
+                continue;
+            }
             push_notice({"install-" + std::to_string(id), "Game uninstalled", "", false, kLiveNoticeSeconds, false, title(id)});
         }
     }
@@ -1208,6 +1359,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
     sync_self_update_job();
     state_.installations = std::move(installations);
     apply_live_volume_usage();
+    refresh_installed_manager();
     rebuild_view();
 }
 
@@ -2505,7 +2657,14 @@ std::vector<const Game*> Simulation::visible_games() const {
     return filtered_games(state_);
 }
 
+bool Simulation::installed_list_open() const {
+    return std::any_of(state_.navigation.modals.begin(), state_.navigation.modals.end(),
+                       [](const ModalEntry& modal) { return modal.id == "installed-games"; });
+}
+
 void Simulation::rebuild_view() {
+    // An uninstall batch lives while its list is open; later stops are notices again.
+    if (!rebuilding_overlay_ && uninstall_batch_ && !installed_list_open()) uninstall_batch_.reset();
     const bool has_overlay = state_.editor.active || !state_.navigation.modals.empty();
     if (has_overlay) {
         const auto editor = state_.editor;
@@ -2514,8 +2673,14 @@ void Simulation::rebuild_view() {
         const int selected_index = state_.navigation.selected_index;
         const GameId selected_game_id = state_.navigation.selected_game_id;
         state_.editor.active = false;
+        // Settings under a sheet shows the section of the row that opened it.
+        if (state_.navigation.route == Route::Settings && !modals.empty() &&
+            modals.front().opener_focus_key.rfind("settings-", 0) == 0)
+            state_.navigation.focus_key = modals.front().opener_focus_key;
         state_.navigation.modals.clear();
+        rebuilding_overlay_ = true;
         rebuild_view();
+        rebuilding_overlay_ = false;
         route_view_ = view_;
         state_.editor = editor;
         state_.navigation.modals = modals;
@@ -2630,6 +2795,33 @@ void Simulation::rebuild_view() {
         if (modal.id == "storage" && live() && picking_install_volume_) {
             const auto* fallback = find_volume(state_, selected_volume_id_);
             view_.subtitle = "For this game only." + (fallback ? " Other games still install to " + fallback->label + "." : std::string());
+        }
+        if (modal.id == "installed-games") {
+            if (!uninstall_batch_) {
+                view_.subtitle = !installed_message_.empty() ? installed_message_
+                    : "Choose games to uninstall. Their saves and settings are kept unless you choose to delete them.";
+                std::uint64_t bytes = 0;
+                for (const auto& installation : state_.installations)
+                    if (installed_selected_.contains(installation.game_id)) bytes += installation.installed_bytes;
+                view_.footer = installed_selected_.empty() ? std::string("Select games to uninstall")
+                    : std::to_string(installed_selected_.size()) + " selected · " + format_bytes(bytes);
+            } else {
+                view_.subtitle = uninstall_batch_done() ? "Finished uninstalling." : "Uninstalling the selected games.";
+                const auto& batch = *uninstall_batch_;
+                const auto ended = batch.uninstalled.size() + batch.stopped.size();
+                if (ended < batch.ids.size()) {
+                    view_.footer = "Uninstalling " + std::to_string(ended + 1) + " of " + std::to_string(batch.ids.size()) + "…";
+                } else {
+                    std::uint64_t freed = 0;
+                    for (const auto id : batch.uninstalled) freed += batch.bytes.at(id);
+                    std::vector<std::string> parts;
+                    if (!batch.uninstalled.empty())
+                        parts.push_back(std::to_string(batch.uninstalled.size()) + " uninstalled" +
+                                        (freed > 0 ? " · about " + format_bytes(freed) + " freed" : std::string()));
+                    if (!batch.stopped.empty()) parts.push_back(std::to_string(batch.stopped.size()) + " stopped");
+                    for (const auto& part : parts) view_.footer += (view_.footer.empty() ? "" : " · ") + part;
+                }
+            }
         }
         if (modal.id == "kept-data")
             view_.subtitle = "Saves and settings kept when a game was uninstalled. Installing a game again brings its saves "
@@ -2880,6 +3072,76 @@ void Simulation::rebuild_view() {
             }
             else if (action_key == "quit-to-home") item.dangerous = true;  // the dialog's primary action
             else if (action_key == "saves-delete-confirm" || action_key == "saves-leftover-confirm") item.dangerous = true;
+            else if (action_key == "installed-sort") {
+                item.title = "Sort by";
+                item.value = installed_by_played_ ? "Last played" : "Size";
+            }
+            else if (action_key == "installed-select-all") {
+                std::size_t choosable = 0, chosen = 0;
+                for (const auto id : installed_list())
+                    if (find_installation(state_, id) && installed_blocker(id).empty()) {
+                        ++choosable;
+                        chosen += installed_selected_.contains(id) ? 1 : 0;
+                    }
+                item.title = choosable > 0 && chosen == choosable ? "Clear selection" : "Select all";
+                item.enabled = choosable > 0;
+            }
+            else if (action_key.rfind("installed-toggle-", 0) == 0) {
+                const auto id = static_cast<GameId>(std::strtoull(action_key.c_str() + 17, nullptr, 10));
+                const auto* game = find_game(state_, id);
+                const auto* installation = find_installation(state_, id);
+                item.kind = RowKind::Toggle;
+                item.game_id = id;
+                item.title = game && !game->title.empty() ? game->title : "Steam app " + std::to_string(id);
+                item.selected = installed_selected_.contains(id);
+                item.value = installation ? format_bytes(installation->installed_bytes) : std::string();
+                const auto blocker = installed_blocker(id);
+                const auto stopped = installed_stops_.find(id);
+                if (!blocker.empty()) {
+                    item.subtitle = blocker;
+                    item.enabled = false;
+                } else if (stopped != installed_stops_.end()) {
+                    // Stopped in the batch just shown: the reason stays until the list closes.
+                    item.subtitle = "Stopped: " + stopped->second;
+                    item.tone = "problem";
+                } else {
+                    const auto when = game && game->last_played ? time_ago(state_.clock_ticks, *game->last_played) : std::string();
+                    item.subtitle = !game || !game->last_played ? "Never played" : when.empty() ? "Played" : "Played " + when;
+                    // With games on more than one drive, each row names its drive.
+                    std::set<std::string> drives;
+                    for (const auto& other : state_.installations) drives.insert(other.volume_id);
+                    if (drives.size() > 1 && installation)
+                        if (const auto* volume = find_volume(state_, installation->volume_id))
+                            item.subtitle = volume->label + " · " + item.subtitle;
+                }
+            }
+            else if (action_key.rfind("installed-step-", 0) == 0 && uninstall_batch_) {
+                // A game of the running batch: how far its uninstall is, then how it ended.
+                const auto id = static_cast<GameId>(std::strtoull(action_key.c_str() + 15, nullptr, 10));
+                const auto* game = find_game(state_, id);
+                const auto& batch = *uninstall_batch_;
+                item.kind = RowKind::Status;
+                item.game_id = id;
+                item.title = game && !game->title.empty() ? game->title : "Steam app " + std::to_string(id);
+                item.value = format_bytes(batch.bytes.count(id) ? batch.bytes.at(id) : 0);
+                const auto runtime = state_.runtime_games.find(id);
+                if (batch.uninstalled.contains(id)) {
+                    item.subtitle = "Uninstalled";
+                    item.tone = "good";
+                } else if (const auto stopped = batch.stopped.find(id); stopped != batch.stopped.end()) {
+                    item.subtitle = "Stopped: " + stopped->second;
+                    item.tone = "problem";
+                } else if (runtime != state_.runtime_games.end() && !runtime->second.uninstall_status.empty()) {
+                    item.subtitle = runtime->second.uninstall_status;
+                } else {
+                    item.subtitle = "Waiting";
+                }
+            }
+            else if (action_key == "installed-selection-uninstall") {
+                item.title = "Uninstall selected";
+                item.dangerous = true;
+                item.enabled = !installed_selected_.empty();
+            }
             else if (action_key == "kept-select-all") {
                 const bool all = !state_.kept_bottles.empty() && kept_selected_.size() == state_.kept_bottles.size();
                 item.title = all ? "Clear selection" : "Select all";
@@ -3023,6 +3285,11 @@ void Simulation::rebuild_view() {
         else if (modal.id == "preset-picker") view_.legends = {"Cross Use this preset", "L1/R1 Jump", "Circle Back"};
         else if (modal.id == "button-mapping") view_.legends = {"Cross Change", "L1/R1 Jump", "Circle Back"};
         else if (modal.id == "game-maintenance") view_.legends = {"Cross Select", "L1/R1 Jump", "Circle Cancel"};
+        else if (modal.id == "installed-games")
+            // The batch's rows only report; Cross does something only on its buttons.
+            view_.legends = !uninstall_batch_ ? std::vector<std::string>{"Cross Select", "Triangle Uninstall", "Circle Close"}
+                : installed_part(state_.navigation.focus_key) == 2 ? std::vector<std::string>{"Cross Choose", "Circle Close"}
+                                                                  : std::vector<std::string>{"Circle Close"};
         else if (!modal.setting_id.empty()) view_.legends = {"Cross Select", "Triangle Reset", "L1/R1 Jump", "Circle Back"};
     } else if (state_.navigation.route == Route::Startup) {
         view_.title = "Welcome to Playden";
@@ -3431,20 +3698,6 @@ void Simulation::rebuild_view() {
         if (state_.account.authentication != AuthState::SignedOut)
             add("settings-signout", RowKind::Action, "Sign out", "signout-confirm").dangerous = true;
         section = "Library";
-        auto& storage = add("settings-storage", RowKind::Action, "Library and storage", "storage-manager");
-        if (live()) {
-            const auto* volume = find_volume(state_, selected_volume_id_);
-            storage.title = "Games storage";
-            storage.value = volume ? volume->label : "";
-            storage.subtitle = "Where new games are installed";
-            if (state_.volumes.empty()) { storage.kind = RowKind::Status; storage.action.clear(); storage.enabled = false; storage.subtitle = "Storage is unavailable"; }
-        }
-        auto& runtime = add("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
-        runtime.value = state_.runtime == RuntimeState::Ready ? (live() ? "Ready" : "Ready — simulated") : state_.runtime == RuntimeState::Checking ? (live() ? "Checking" : "Checking — simulated") : state_.runtime == RuntimeState::Failed ? (live() ? "Failed" : "Failed — simulated") : (live() ? "Unavailable" : "Unavailable — simulated");
-        if (live()) {
-            runtime.subtitle = state_.runtime_problem.empty() ? "Games run through prospero-win" : state_.runtime_problem;
-            runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
-        }
         if (live()) {
             auto& suffix = add("settings-title-store", RowKind::Toggle, "Store name in PS5 titles", "toggle-title-store");
             suffix.selected = state_.title_store_suffix;
@@ -3453,6 +3706,28 @@ void Simulation::rebuild_view() {
             cloud.selected = state_.cloud_saves_auto;
             cloud.subtitle = state_.cloud_saves_auto ? "Before Play, after each game and when Playden starts."
                                                      : "Off: saves move only when you choose Sync in Saves.";
+        }
+        section = "Storage";
+        auto& storage = add("settings-storage", RowKind::Action, "Library and storage", "storage-picker");
+        if (live()) {
+            const auto* volume = find_volume(state_, selected_volume_id_);
+            storage.title = "Games storage";
+            storage.value = volume ? volume->label : "";
+            storage.subtitle = "Where new games are installed";
+            if (state_.volumes.empty()) { storage.kind = RowKind::Status; storage.action.clear(); storage.enabled = false; storage.subtitle = "Storage is unavailable"; }
+        }
+        if (live()) {
+            // Installed games: one row that opens the list, sorted by size or last played, where
+            // the player picks games to uninstall together.
+            auto& installed = add("settings-installed", RowKind::Action, "Installed games", "installed-manage");
+            installed.subtitle = "Uninstall games you no longer play to free up space";
+            if (state_.installations.empty()) {
+                installed.kind = RowKind::Status; installed.action.clear(); installed.enabled = false; installed.value = "None";
+            } else {
+                std::uint64_t bytes = 0;
+                for (const auto& item : state_.installations) bytes += item.installed_bytes;
+                installed.value = kept_count(state_.installations.size()) + " · " + format_bytes(bytes);
+            }
         }
         if (live()) {
             // Saves and settings kept from uninstalled games: one row that opens the manager,
@@ -3472,6 +3747,12 @@ void Simulation::rebuild_view() {
             auto& leftovers = add("settings-runtime-cleanup", RowKind::Action, "Unused game settings data", "runtime-cleanup");
             leftovers.value = std::to_string(state_.runtime_leftover_requests);
             leftovers.subtitle = "Left by interrupted or finished preparations. Clean up removes only what no game is using.";
+        }
+        auto& runtime = add("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
+        runtime.value = state_.runtime == RuntimeState::Ready ? (live() ? "Ready" : "Ready — simulated") : state_.runtime == RuntimeState::Checking ? (live() ? "Checking" : "Checking — simulated") : state_.runtime == RuntimeState::Failed ? (live() ? "Failed" : "Failed — simulated") : (live() ? "Unavailable" : "Unavailable — simulated");
+        if (live()) {
+            runtime.subtitle = state_.runtime_problem.empty() ? "Games run through prospero-win" : state_.runtime_problem;
+            runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
         }
         section = "Display";
         auto& motion = add("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion");
@@ -3879,6 +4160,7 @@ void Simulation::move(int delta_x, int delta_y) {
             state_.log_offset = std::clamp(state_.log_offset + delta, 0, std::max(0, static_cast<int>(state_.log_lines.size()) - 8));
             return;
         }
+        if (modal.id == "installed-games") { move_installed_manager(delta_x, delta_y); return; }
         const int delta = delta_y != 0 ? delta_y : delta_x;
         modal.focused_action = std::clamp(modal.focused_action + delta, 0, static_cast<int>(modal.action_keys.size()) - 1);
         state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
@@ -3945,16 +4227,25 @@ void Simulation::move_content(int delta_x, int delta_y) {
 
 // Settings sections, as on macOS: Left moves to the section rail, Up/Down there switches
 // section (focusing its first row), Right or Cross returns to the rows. Up/Down on the rows
-// crosses into the next section so every row stays reachable in order.
+// stay in the focused section; Up on its first row goes to the tab bar.
 bool Simulation::move_settings(int delta_x, int delta_y) {
     if (view_.rows.empty()) return true;
     const int current = std::clamp(view_.focused_row, 0, static_cast<int>(view_.rows.size()) - 1);
     if (!state_.navigation.settings_rail_focused) {
         if (delta_x < 0) { state_.navigation.settings_rail_focused = true; return true; }
-        // A rail-only section (Quit Playden) has no card to move onto from the rows.
+        // Up and Down stay in the focused section: the rail (or the tab bar above the first row)
+        // is the way to another one. A rail-only section (Quit Playden) has no card to move onto.
         if (delta_y != 0) {
-            const int target = std::clamp(current + delta_y, 0, static_cast<int>(view_.rows.size()) - 1);
-            if (view_.rows[static_cast<std::size_t>(target)].rail_only) return true;
+            const auto& section = view_.rows[static_cast<std::size_t>(current)].section;
+            int first = current, last = current;
+            while (first > 0 && view_.rows[static_cast<std::size_t>(first - 1)].section == section) --first;
+            while (last + 1 < static_cast<int>(view_.rows.size()) && view_.rows[static_cast<std::size_t>(last + 1)].section == section) ++last;
+            const int target = std::clamp(current + delta_y, first, last);
+            if (target != current && !view_.rows[static_cast<std::size_t>(target)].rail_only) {
+                state_.navigation.selected_index = target;
+                state_.navigation.focus_key = view_.rows[static_cast<std::size_t>(target)].key;
+            }
+            return true;
         }
         return delta_x > 0;
     }
@@ -4321,9 +4612,9 @@ void Simulation::activate() {
         }
     } else if (action_name == "context") open_modal({"context", "Game actions", "details-more", details_context_actions(), 0, false});
     else if (action_name == "install") open_modal({"install", "Install game", "details-install", {"install-confirm", "install-estimate-retry", "storage-picker", "cancel"}, 0, false});
-    else if (action_name == "storage-picker" || action_name == "storage-manager") {
+    else if (action_name == "storage-picker") {
         // From the install sheet the choice is for that install only; Settings changes the default.
-        picking_install_volume_ = live() && action_name == "storage-picker";
+        picking_install_volume_ = live() && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "install";
         std::vector<std::string> actions;
         for (const auto& volume : state_.volumes) actions.push_back("volume-" + volume.id);
         actions.push_back("cancel");
@@ -4710,8 +5001,11 @@ void Simulation::activate() {
         // The dialog says what happens to the saves with the current choice.
         if (!state_.navigation.modals.empty()) {
             auto& body = state_.navigation.modals.back().body;
-            const std::string_view from = uninstall_delete_saves_ ? uninstall_body_kept : uninstall_body_deleted;
-            const std::string_view to = uninstall_delete_saves_ ? uninstall_body_deleted : uninstall_body_kept;
+            const bool batch = pending_destructive_action_ == "installed-selection-uninstall";
+            const std::string_view kept = batch ? uninstall_batch_body_kept : uninstall_body_kept;
+            const std::string_view deleted = batch ? uninstall_batch_body_deleted : uninstall_body_deleted;
+            const std::string_view from = uninstall_delete_saves_ ? kept : deleted;
+            const std::string_view to = uninstall_delete_saves_ ? deleted : kept;
             if (const auto at = body.find(from); at != std::string::npos) body.replace(at, from.size(), to);
         }
     } else if (live() && action_name == "quit-to-home") {
@@ -4742,6 +5036,107 @@ void Simulation::activate() {
         if (game && find_game(state_, game)) {
             state_.navigation.selected_game_id = game;
             open_game_settings();
+        }
+    } else if (live() && action_name == "installed-manage") {
+        if (state_.installations.empty()) return;
+        installed_selected_.clear();
+        uninstall_batch_.reset();
+        installed_message_.clear();
+        installed_stops_.clear();
+        installed_list_focus_.clear();
+        auto actions = installed_manager_actions();
+        // Focus starts on the first game; Sort and Select all are above it.
+        open_modal({"installed-games", "Installed games", state_.navigation.focus_key, std::move(actions), 2, false});
+    } else if (action_name == "installed-close") {
+        close_modal();
+    } else if (live() && action_name == "installed-show-all") {
+        // The finished batch gives way to the list of what is installed now; a stopped game keeps
+        // its reason there and can be chosen again.
+        if (uninstall_batch_) installed_stops_ = uninstall_batch_->stopped;
+        uninstall_batch_.reset();
+        refresh_installed_manager();
+        if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "installed-games") {
+            auto& list = state_.navigation.modals.back();
+            const auto game = std::find_if(list.action_keys.begin(), list.action_keys.end(),
+                                           [](const std::string& key) { return key.rfind("installed-toggle-", 0) == 0; });
+            list.focused_action = game == list.action_keys.end() ? 0 : static_cast<int>(game - list.action_keys.begin());
+            state_.navigation.focus_key = list.action_keys[static_cast<std::size_t>(list.focused_action)];
+        }
+    } else if (live() && action_name == "installed-sort") {
+        installed_by_played_ = !installed_by_played_;
+        refresh_installed_manager();
+    } else if (live() && action_name == "installed-select-all") {
+        std::vector<GameId> choosable;
+        for (const auto id : installed_list())
+            if (find_installation(state_, id) && installed_blocker(id).empty()) choosable.push_back(id);
+        const bool all = !choosable.empty() && std::all_of(choosable.begin(), choosable.end(),
+                                                           [this](GameId id) { return installed_selected_.contains(id); });
+        if (all) installed_selected_.clear();
+        else installed_selected_.insert(choosable.begin(), choosable.end());
+    } else if (live() && action_name.rfind("installed-toggle-", 0) == 0) {
+        const auto id = static_cast<GameId>(std::strtoull(action_name.c_str() + 17, nullptr, 10));
+        if (find_installation(state_, id) && installed_blocker(id).empty() && !installed_selected_.erase(id)) installed_selected_.insert(id);
+    } else if (live() && action_name == "installed-selection-uninstall") {
+        if (installed_selected_.empty()) return;
+        std::vector<std::string> names;
+        std::uint64_t bytes = 0;
+        bool any_title = false;
+        for (const auto id : installed_list()) {
+            if (!installed_selected_.contains(id)) continue;
+            const auto* game = find_game(state_, id);
+            names.push_back(game && !game->title.empty() ? game->title : "Steam app " + std::to_string(id));
+            if (const auto* installation = find_installation(state_, id)) bytes += installation->installed_bytes;
+            const auto runtime_game = state_.runtime_games.find(id);
+            any_title = any_title || (runtime_game != state_.runtime_games.end() && runtime_game->second.has_title);
+        }
+        // "A, B and C", or "A, B, C and 2 more".
+        std::string listed;
+        const auto shown = names.size() > 3 ? std::size_t{3} : names.size();
+        for (std::size_t index = 0; index < shown; ++index)
+            listed += (index == 0 ? "" : index + 1 == shown && names.size() <= 3 ? " and " : ", ") + names[index];
+        if (names.size() > 3) listed += " and " + std::to_string(names.size() - 3) + " more";
+        pending_destructive_action_ = action_name;
+        uninstall_delete_saves_ = false;
+        ModalEntry confirmation{"confirmation", "Uninstall " + kept_count(names.size()) + "?", state_.navigation.focus_key,
+                                any_title ? std::vector<std::string>{"cancel", "uninstall-delete-saves", "confirm-destructive"}
+                                          : std::vector<std::string>{"cancel", "confirm-destructive"},
+                                0, true};
+        confirmation.body = listed + ". Frees about " + format_bytes(bytes) + ". ";
+        confirmation.body += any_title ? uninstall_batch_body_kept
+                                       : "Their files are removed from this console. You can install them again from Steam.";
+        confirmation.body += " Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its row says why.";
+        open_modal(std::move(confirmation));
+    } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_ == "installed-selection-uninstall") {
+        GameId first = 0;
+        installed_message_.clear();
+        for (const auto id : installed_list()) {
+            if (!installed_selected_.contains(id) || !installed_blocker(id).empty()) continue;
+            const auto* installation = find_installation(state_, id);
+            if (!installation) continue;
+            if (!uninstall_batch_) uninstall_batch_.emplace();
+            auto& batch = *uninstall_batch_;
+            pending_install_requests_.push_back({InstallRequestKind::Uninstall, id, {}, uninstall_delete_saves_});
+            pending_uninstalls_.insert(id);
+            if (std::find(batch.ids.begin(), batch.ids.end(), id) == batch.ids.end()) batch.ids.push_back(id);
+            batch.bytes[id] = installation->installed_bytes;
+            batch.stopped.erase(id);
+            installed_stops_.erase(id);
+            if (first == 0) first = id;
+        }
+        // Every checked game started running or downloading while the dialog was open.
+        if (first == 0) installed_message_ = "None of the selected games can be uninstalled now.";
+        installed_selected_.clear();
+        uninstall_delete_saves_ = false;
+        pending_destructive_action_.clear();
+        close_modal();  // back to the list, which shows how each game goes
+        refresh_installed_manager();
+        if (first != 0 && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "installed-games") {
+            auto& list = state_.navigation.modals.back();
+            const auto found = std::find(list.action_keys.begin(), list.action_keys.end(), "installed-step-" + std::to_string(first));
+            if (found != list.action_keys.end()) {
+                list.focused_action = static_cast<int>(found - list.action_keys.begin());
+                state_.navigation.focus_key = *found;
+            }
         }
     } else if (live() && action_name == "kept-manage") {
         if (state_.kept_bottles.empty()) return;
@@ -5478,6 +5873,26 @@ bool Simulation::action(const std::string& logical_action) {
         pending_cloud_requests_.push_back({state_.saves_job.kind == SavesJobKind::None ? CloudRequestKind::SyncAll
                                                                                      : CloudRequestKind::StopJob, 0});
     else if (logical_action == "search") { if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) start_editor("Search", state_.library.query); }
+    else if (logical_action == "triangle" && !state_.editor.active && !state_.navigation.modals.empty() &&
+             state_.navigation.modals.back().id == "installed-games") {
+        // Triangle is Uninstall selected from anywhere in the list; the batch view has nothing to start.
+        auto& list = state_.navigation.modals.back();
+        const auto at = std::find(list.action_keys.begin(), list.action_keys.end(), "installed-selection-uninstall");
+        if (live() && at != list.action_keys.end() && !installed_selected_.empty()) {
+            const int was = list.focused_action;
+            const auto key = state_.navigation.focus_key;
+            list.focused_action = static_cast<int>(at - list.action_keys.begin());
+            state_.navigation.focus_key = *at;
+            rebuild_view();
+            activate();
+            // The dialog returns to the row the player was on.
+            auto& modals = state_.navigation.modals;
+            const auto list_at = std::find_if(modals.begin(), modals.end(), [](const ModalEntry& modal) { return modal.id == "installed-games"; });
+            if (list_at != modals.end()) list_at->focused_action = was;
+            if (modals.back().id == "confirmation") modals.back().opener_focus_key = key;
+            else state_.navigation.focus_key = key;
+        }
+    }
     else if (logical_action == "triangle" && !state_.editor.active && !state_.navigation.modals.empty() &&
              (state_.navigation.modals.back().id == "game-settings" || !state_.navigation.modals.back().setting_id.empty())) {
         // Triangle returns the focused setting (or the open picker's setting) to the preset value.

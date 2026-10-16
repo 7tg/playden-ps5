@@ -1948,55 +1948,60 @@ class Render::Impl
                 break;
             }
             ++drawn;
-            const std::uint64_t unused = volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes);
-            const std::uint64_t free = unused - std::min(volume.reserved_bytes, unused);
-            const float fraction = volume.capacity_bytes == 0 ? 0.0F :
-                static_cast<float>(volume.used_bytes) / static_cast<float>(volume.capacity_bytes);
-            const float reserved = volume.capacity_bytes == 0 ? 0.0F :
-                static_cast<float>(volume.reserved_bytes) / static_cast<float>(volume.capacity_bytes);
-            ui::text(scene_, fonts_.display, volume.label, 1200.0F, y, 30.0F, kText);
-            const bool is_default = !state.simulation_mode && volume.id == state.default_volume_id;
-            ui::text(scene_, fonts_.regular,
-                     volume.available ? (volume.writable ? (is_default ? "Default · Available" : "Available") : "No write access")
-                                      : "Disconnected",
-                     1784.0F, y, 22.0F, volume.available && volume.writable ? kSecondary : kAmber,
-                     gfx::Align::right);
-            if (!volume.capacity_known)
-            {
-                // A failed space query leaves capacity unknown: show only what Playden knows.
-                ui::text(scene_, fonts_.regular, "Used by games  " + short_size(volume.games_bytes),
-                         1200.0F, y + 42.0F, 22.0F, kSecondary);
-                // Space held for queued downloads, only when there is some.
-                if (volume.reserved_bytes > 0)
-                    ui::text(scene_, fonts_.regular, "Reserved by queue  " + short_size(volume.reserved_bytes),
-                             1784.0F, y + 42.0F, 22.0F, kSecondary, gfx::Align::right);
-                y += step;
-                continue;
-            }
-            const float bar_x = 1200.0F;
-            const float bar_y = y + 28.0F;
-            const float bar_w = 584.0F;
-            scene_.rounded_rect({bar_x, bar_y, bar_w, 12.0F}, 6.0F, kText.with_alpha(0.14F));
-            scene_.rounded_rect({bar_x, bar_y, bar_w * std::clamp(fraction, 0.0F, 1.0F), 12.0F},
-                                5.0F, volume.available ? kAccent : kMuted);
-            scene_.rounded_rect({bar_x + bar_w * std::clamp(fraction, 0.0F, 1.0F), bar_y,
-                                 bar_w * std::clamp(reserved, 0.0F, 1.0F - std::clamp(fraction, 0.0F, 1.0F)), 12.0F},
-                                5.0F, volume.available ? kAmber : kMuted);
-            ui::text(scene_, fonts_.regular, "Capacity  " + short_size(volume.capacity_bytes),
-                     1200.0F, y + 76.0F, 22.0F, kSecondary);
-            ui::text(scene_, fonts_.regular, "Used  " + short_size(volume.used_bytes),
-                     1200.0F, y + 106.0F, 22.0F, kSecondary);
-            if (volume.reserved_bytes > 0)
-                ui::text(scene_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes),
-                         1784.0F, y + 76.0F, 22.0F, kSecondary, gfx::Align::right);
-            ui::text(scene_, fonts_.semibold, "Free  " + short_size(free),
-                     1784.0F, y + 106.0F, 22.0F, volume.available ? kText : kMuted,
-                     gfx::Align::right);
+            draw_volume_usage(volume, !state.simulation_mode && volume.id == state.default_volume_id, 1200.0F, y, 584.0F);
             y += step;
         }
         if (any_unreported)
             ui::text(scene_, fonts_.regular, "Free space unavailable for some drives",
                      1200.0F, 912.0F, 22.0F, kMuted);
+    }
+
+    // A drive's bar: used space, then space reserved for queued downloads, over its capacity.
+    void draw_usage_bar(const Volume &volume, float x, float y, float width)
+    {
+        const float fraction = volume.capacity_bytes == 0 ? 0.0F :
+            static_cast<float>(volume.used_bytes) / static_cast<float>(volume.capacity_bytes);
+        const float reserved = volume.capacity_bytes == 0 ? 0.0F :
+            static_cast<float>(volume.reserved_bytes) / static_cast<float>(volume.capacity_bytes);
+        scene_.rounded_rect({x, y, width, 12.0F}, 6.0F, kText.with_alpha(0.14F));
+        scene_.rounded_rect({x, y, width * std::clamp(fraction, 0.0F, 1.0F), 12.0F}, 5.0F,
+                            volume.available ? kAccent : kMuted);
+        scene_.rounded_rect({x + width * std::clamp(fraction, 0.0F, 1.0F), y,
+                             width * std::clamp(reserved, 0.0F, 1.0F - std::clamp(fraction, 0.0F, 1.0F)), 12.0F},
+                            5.0F, volume.available ? kAmber : kMuted);
+    }
+
+    // One drive's usage: its name and state, then a bar of used and reserved space with the
+    // figures under it; without a space report only what Playden knows. `y` is the name's baseline.
+    void draw_volume_usage(const Volume &volume, bool is_default, float x, float y, float width)
+    {
+        const float right = x + width;
+        ui::text(scene_, fonts_.display, volume.label, x, y, 30.0F, kText);
+        ui::text(scene_, fonts_.regular,
+                 volume.available ? (volume.writable ? (is_default ? "Default · Available" : "Available") : "No write access")
+                                  : "Disconnected",
+                 right, y, 22.0F, volume.available && volume.writable ? kSecondary : kAmber, gfx::Align::right);
+        if (!volume.capacity_known)
+        {
+            // A failed space query leaves capacity unknown: show only what Playden knows.
+            ui::text(scene_, fonts_.regular, "Used by games  " + short_size(volume.games_bytes), x, y + 42.0F, 22.0F,
+                     kSecondary);
+            // Space held for queued downloads, only when there is some.
+            if (volume.reserved_bytes > 0)
+                ui::text(scene_, fonts_.regular, "Reserved by queue  " + short_size(volume.reserved_bytes), right,
+                         y + 42.0F, 22.0F, kSecondary, gfx::Align::right);
+            return;
+        }
+        const std::uint64_t unused = volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes);
+        const std::uint64_t free = unused - std::min(volume.reserved_bytes, unused);
+        draw_usage_bar(volume, x, y + 28.0F, width);
+        ui::text(scene_, fonts_.regular, "Capacity  " + short_size(volume.capacity_bytes), x, y + 76.0F, 22.0F, kSecondary);
+        ui::text(scene_, fonts_.regular, "Used  " + short_size(volume.used_bytes), x, y + 106.0F, 22.0F, kSecondary);
+        if (volume.reserved_bytes > 0)
+            ui::text(scene_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes), right, y + 76.0F, 22.0F,
+                     kSecondary, gfx::Align::right);
+        ui::text(scene_, fonts_.semibold, "Free  " + short_size(free), right, y + 106.0F, 22.0F,
+                 volume.available ? kText : kMuted, gfx::Align::right);
     }
 
     // The macOS Settings screen: a rail of sections, then the focused section's rows, each
@@ -2040,7 +2045,18 @@ class Render::Impl
             if (view.rows[static_cast<std::size_t>(index)].section == current &&
                 !view.rows[static_cast<std::size_t>(index)].rail_only)
                 rows.push_back(index);
-        const auto height = [&](const ViewRow &row) { return row.subtitle.empty() ? 92.0F : 118.0F; };
+        // Games storage carries the default drive's usage under its title.
+        const Volume *usage = nullptr;
+        if (current == "Storage" && !state.volumes.empty())
+        {
+            const auto found = std::find_if(state.volumes.begin(), state.volumes.end(),
+                                            [&state](const Volume &volume) { return volume.id == state.default_volume_id; });
+            usage = found != state.volumes.end() ? &*found : &state.volumes.front();
+        }
+        const auto drive_row = [&](const ViewRow &row) { return usage != nullptr && row.key == "settings-storage"; };
+        const auto height = [&](const ViewRow &row) {
+            return drive_row(row) ? (usage->capacity_known ? 186.0F : 160.0F) : row.subtitle.empty() ? 92.0F : 118.0F;
+        };
         float offset = 0.0F;
         {
             // Eased to the focused row like Home; with the focus on the rail the list stays where it was.
@@ -2068,6 +2084,8 @@ class Render::Impl
             const ViewRow &row = view.rows[static_cast<std::size_t>(index)];
             const float h = height(row);
             const gfx::Rect card{left, y, width, h};
+            // The title, summary and control sit in the row's usual height; the drive's bar goes below.
+            const gfx::Rect head{left, y, width, drive_row(row) ? 118.0F : h};
             const bool is_focused = route_focus_ && !rail && index == focused;
             if (is_focused)
                 stats_.focused_control_key = row.key;
@@ -2078,7 +2096,7 @@ class Render::Impl
             if (row.dangerous)
                 scene_.bordered_rect(card, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kRed.with_alpha(0.35F));
             const gfx::Color title_ink = !row.enabled ? kMuted : row.dangerous ? kRed : kText;
-            const float title_y = row.subtitle.empty() ? card.cy() + 11.0F : card.y + 50.0F;
+            const float title_y = row.subtitle.empty() ? head.cy() + 11.0F : card.y + 50.0F;
             ui::text(scene_, fonts_.display, fit(fonts_.display, row.title, 30.0F, 760.0F), card.x + 30.0F, title_y,
                      30.0F, title_ink);
             if (!row.subtitle.empty())
@@ -2087,7 +2105,7 @@ class Render::Impl
             const float right = card.x + card.w - 30.0F;
             if (row.kind == RowKind::Toggle)
             {
-                const gfx::Rect track{right - 84.0F, card.cy() - 22.0F, 84.0F, 44.0F};
+                const gfx::Rect track{right - 84.0F, head.cy() - 22.0F, 84.0F, 44.0F};
                 scene_.rounded_rect(track, 22.0F, row.selected ? kAccent : kText.with_alpha(0.15F));
                 scene_.circle(row.selected ? track.x + track.w - 22.0F : track.x + 22.0F, track.cy(), 18.0F,
                               row.selected ? kBackground : kSecondary);
@@ -2095,7 +2113,7 @@ class Render::Impl
             else if (!row.enabled || row.kind == RowKind::Status)
             {
                 if (!row.value.empty())
-                    ui::text(scene_, fonts_.display, row.value, right, card.cy() + 9.0F, 26.0F, kMuted,
+                    ui::text(scene_, fonts_.display, row.value, right, head.cy() + 9.0F, 26.0F, kMuted,
                              gfx::Align::right);
             }
             else
@@ -2103,12 +2121,39 @@ class Render::Impl
                 // "Manage ›" on macOS; the chevron is drawn, as the console fonts lack it.
                 const std::string label = row.value.empty() ? std::string(row.dangerous ? "Review" : "Open") : row.value;
                 const float pill = fonts_.display.measure(label, 26.0F) + 64.0F;
-                const gfx::Rect button{right - pill, card.cy() - 28.0F, pill, 56.0F};
+                const gfx::Rect button{right - pill, head.cy() - 28.0F, pill, 56.0F};
                 scene_.bordered_rect(button, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kText.with_alpha(0.2F));
                 ui::text(scene_, fonts_.display, label, button.x + 22.0F, button.cy() + 9.0F, 26.0F, kText);
                 const float chevron = button.x + button.w - 26.0F;
                 scene_.line(chevron - 3.0F, button.cy() - 6.0F, chevron + 2.5F, button.cy(), 2.2F, kText);
                 scene_.line(chevron + 2.5F, button.cy(), chevron - 3.0F, button.cy() + 6.0F, 2.2F, kText);
+            }
+            if (drive_row(row))
+            {
+                const float bar_x = card.x + 30.0F, bar_w = card.w - 60.0F;
+                float line_y = card.y + 132.0F;
+                std::string line;
+                if (usage->capacity_known)
+                {
+                    const std::uint64_t unused = usage->capacity_bytes - std::min(usage->used_bytes, usage->capacity_bytes);
+                    const std::uint64_t free = unused - std::min(usage->reserved_bytes, unused);
+                    draw_usage_bar(*usage, bar_x, card.y + 116.0F, bar_w);
+                    line = short_size(usage->used_bytes) + " used · " +
+                           (usage->reserved_bytes > 0 ? short_size(usage->reserved_bytes) + " reserved · " : std::string()) +
+                           short_size(free) + " free of " + short_size(usage->capacity_bytes);
+                    line_y = card.y + 162.0F;
+                }
+                else
+                {
+                    // Without a space report, only what Playden knows (as in Downloads).
+                    line = short_size(usage->games_bytes) + " used by games" +
+                           (usage->reserved_bytes > 0 ? " · " + short_size(usage->reserved_bytes) + " reserved" : std::string());
+                }
+                ui::text(scene_, fonts_.regular, line, bar_x, line_y, 22.0F, kSecondary);
+                // A drive that is gone or read-only says so, as in Downloads.
+                if (!usage->available || !usage->writable)
+                    ui::text(scene_, fonts_.regular, usage->available ? "No write access" : "Disconnected", bar_x + bar_w,
+                             line_y, 22.0F, kAmber, gfx::Align::right);
             }
             focus_ring(scene_, card, amount);
             y += h + 24.0F;
@@ -3031,7 +3076,7 @@ class Render::Impl
     {
         static const std::map<std::string, std::string> names = {
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
-            {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"},
+            {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
             {"job-actions", "Downloads"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
             {"filters", "Library"}, {"logs-controls", "Logs"}, {"setting-value", "Settings"}, {"diagnostics", "Settings"},
             {"notices", "Notifications"}, {"qr-controls", "Sign in"}, {"session-controls", "Simulation"},
@@ -3053,7 +3098,8 @@ class Render::Impl
                           view.surface == "choice-picker" || view.surface == "preset-picker" ||
                           view.surface == "button-mapping" || view.surface == "game-maintenance" ||
                           view.surface == "controller" || view.surface == "logs" ||
-                          view.surface == "storage" || view.surface == "install" || view.surface == "kept-data";
+                          view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" ||
+                          view.surface == "installed-games";
         const float width = overlay_transition_.panel_width(wide ? 960.0F : 640.0F);
         const gfx::Rect panel{kWidth - width + (1.0F - ease) * width, 0.0F, width, kHeight};
         overlay_.shadow({panel.x - 18.0F, 0.0F, panel.w + 18.0F, panel.h}, 0.0F, 36.0F,
@@ -3071,6 +3117,8 @@ class Render::Impl
             draw_log_overlay(view, {panel.x + 40.0F, 246.0F, panel.w - 80.0F, 710.0F});
         else if (view.surface == "controller")
             draw_controller_overlay(view, {panel.x + 40.0F, 236.0F, panel.w - 80.0F, 720.0F});
+        else if (view.surface == "installed-games")
+            draw_installed_games_sheet(view, panel);
         else
             draw_overlay_rows(view, {panel.x + 40.0F, view.surface == "install" ? 414.0F : 292.0F,
                                      panel.w - 80.0F, view.surface == "install" ? 528.0F : 650.0F});
@@ -3413,7 +3461,77 @@ class Render::Impl
         return {};
     }
 
-    void draw_overlay_rows(const ViewData &view, const gfx::Rect &bounds)
+    // Installed games: Sort and Select all pinned on top, the games scrolling under them, and a
+    // footer with the selection (or the batch) and Uninstall selected / Show all games / Close.
+    void draw_installed_games_sheet(const ViewData &view, const gfx::Rect &panel)
+    {
+        ViewData head = view, list = view;
+        head.rows.clear();
+        list.rows.clear();
+        head.focused_row = list.focused_row = -1;
+        std::vector<const ViewRow *> footer;
+        int footer_focus = -1;
+        for (int index = 0; index < static_cast<int>(view.rows.size()); ++index)
+        {
+            const ViewRow &row = view.rows[static_cast<std::size_t>(index)];
+            const bool focused = index == view.focused_row;
+            if (row.key == "installed-sort" || row.key == "installed-select-all")
+            {
+                if (focused) head.focused_row = static_cast<int>(head.rows.size());
+                head.rows.push_back(row);
+            }
+            else if (row.key.rfind("installed-toggle-", 0) == 0 || row.key.rfind("installed-step-", 0) == 0)
+            {
+                if (focused) list.focused_row = static_cast<int>(list.rows.size());
+                list.rows.push_back(row);
+            }
+            else
+            {
+                if (focused) footer_focus = static_cast<int>(footer.size());
+                footer.push_back(&row);
+            }
+        }
+        const float x = panel.x + 40.0F, w = panel.w - 80.0F;
+        const float head_h = head.rows.empty() ? 0.0F : head.rows.size() * 84.0F;
+        if (!head.rows.empty())
+            draw_overlay_rows(head, {x, 292.0F, w, head_h - 12.0F}, false);
+        // The list scrolls between the pinned rows and the footer and never draws under either.
+        constexpr float footer_top = 934.0F;
+        const float list_top = 292.0F + head_h + (head.rows.empty() ? 0.0F : 12.0F);
+        const float clip_top = head.rows.empty() ? list_top - 32.0F : list_top - 10.0F;
+        overlay_.push_clip({panel.x, clip_top, panel.w, footer_top - 8.0F - clip_top});
+        draw_overlay_rows(list, {x, list_top, w, footer_top - 40.0F - list_top});
+        overlay_.pop_clip();
+        overlay_.rounded_rect({panel.x, footer_top - 8.0F, panel.w, 1.0F}, 0.0F, kText.with_alpha(0.10F));
+        // Buttons from the right edge, in order; the note fills the space left of them.
+        float right = x + w;
+        std::vector<gfx::Rect> buttons(footer.size());
+        for (int index = static_cast<int>(footer.size()) - 1; index >= 0; --index)
+        {
+            const float button_w = fonts_.display.measure(footer[static_cast<std::size_t>(index)]->title, 26.0F) + 56.0F;
+            buttons[static_cast<std::size_t>(index)] = {right - button_w, footer_top + 14.0F, button_w, 60.0F};
+            right -= button_w + 16.0F;
+        }
+        if (!view.footer.empty())
+            ui::text(overlay_, fonts_.regular, fit(fonts_.regular, view.footer, 23.0F, right - x - 16.0F), x + 8.0F,
+                     footer_top + 52.0F, 23.0F, kSecondary);
+        for (std::size_t index = 0; index < footer.size(); ++index)
+        {
+            const ViewRow &row = *footer[index];
+            const gfx::Rect &rect = buttons[index];
+            const float amount = control_focus("sheet-" + row.key, static_cast<int>(index) == footer_focus);
+            focus_glow(overlay_, rect, amount);
+            overlay_.rounded_rect(rect, 8.0F, kPanel);
+            overlay_.bordered_rect(rect, 8.0F, kText.with_alpha(0.04F), 2.0F,
+                                   (row.dangerous && row.enabled ? kRed : kText).with_alpha(row.enabled ? 0.35F : 0.12F));
+            ui::text(overlay_, fonts_.display, row.title, rect.cx(), rect.cy() + 10.0F, 26.0F,
+                     !row.enabled ? kMuted : row.dangerous ? kRed : kText, gfx::Align::center);
+            focus_ring(overlay_, rect, amount);
+        }
+    }
+
+    // `scrolls` false: rows pinned in place (a sheet's fixed header), leaving the list's scroll alone.
+    void draw_overlay_rows(const ViewData &view, const gfx::Rect &bounds, bool scrolls = true)
     {
         const bool settings_sheet = view.surface == "game-settings" || view.surface == "choice-picker" ||
                                     view.surface == "preset-picker" || view.surface == "button-mapping" ||
@@ -3425,9 +3543,9 @@ class Render::Impl
                 return 54.0F + 12.0F;
             if (row.kind == RowKind::Heading || row.kind == RowKind::Separator)
                 return 54.0F;
-            const bool checkbox = (view.surface == "kept-data" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
+            const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
-            const bool described = (settings_sheet || checkbox) && !row.subtitle.empty();
+            const bool described = (settings_sheet || checkbox || view.surface == "installed-games") && !row.subtitle.empty();
             return (described ? 96.0F : 72.0F) + 12.0F;
         };
         std::vector<float> tops;
@@ -3438,13 +3556,13 @@ class Render::Impl
             total += pitch(row);
         }
         const std::string scroll_key = view.surface + "\n" + view.title;
-        if (scroll_key != sheet_scroll_key_)
+        if (scrolls && scroll_key != sheet_scroll_key_)
         {
             sheet_scroll_key_ = scroll_key;
             sheet_scroll_ = sheet_scroll_target_ = 0.0F;
         }
         const float limit = std::max(0.0F, total - 12.0F - bounds.h);
-        if (view.focused_row >= 0 && static_cast<std::size_t>(view.focused_row) < view.rows.size())
+        if (scrolls && view.focused_row >= 0 && static_cast<std::size_t>(view.focused_row) < view.rows.size())
         {
             const auto focused = static_cast<std::size_t>(view.focused_row);
             const float context = 48.0F;  // part of the next row stays visible
@@ -3455,11 +3573,15 @@ class Render::Impl
             else if (bottom > sheet_scroll_target_ + bounds.h)
                 sheet_scroll_target_ = bottom - bounds.h;
         }
-        sheet_scroll_target_ = std::clamp(sheet_scroll_target_, 0.0F, limit);
-        sheet_scroll_ = current_state_ && current_state_->reduced_motion ? sheet_scroll_target_
-            : sheet_scroll_ + (sheet_scroll_target_ - sheet_scroll_) * std::min(1.0F, frame_dt_ * 14.0F);
-        if (std::fabs(sheet_scroll_target_ - sheet_scroll_) < 0.5F)
-            sheet_scroll_ = sheet_scroll_target_;
+        if (scrolls)
+        {
+            sheet_scroll_target_ = std::clamp(sheet_scroll_target_, 0.0F, limit);
+            sheet_scroll_ = current_state_ && current_state_->reduced_motion ? sheet_scroll_target_
+                : sheet_scroll_ + (sheet_scroll_target_ - sheet_scroll_) * std::min(1.0F, frame_dt_ * 14.0F);
+            if (std::fabs(sheet_scroll_target_ - sheet_scroll_) < 0.5F)
+                sheet_scroll_ = sheet_scroll_target_;
+        }
+        const float scroll = scrolls ? sheet_scroll_ : 0.0F;
         // The clip reaches the panel's edges (the rows sit 40 px in) so a focused row's glow and
         // zoom are never cut; above and below it leaves room for the glow too.
         overlay_.push_clip({bounds.x - 40.0F, bounds.y - 32.0F, bounds.w + 80.0F, bounds.h + 64.0F});
@@ -3467,7 +3589,7 @@ class Render::Impl
         for (int index = 0; index < static_cast<int>(view.rows.size()); ++index)
         {
             const ViewRow &row = view.rows[static_cast<std::size_t>(index)];
-            float y = bounds.y + tops[static_cast<std::size_t>(index)] - sheet_scroll_;
+            float y = bounds.y + tops[static_cast<std::size_t>(index)] - scroll;
             if (y + pitch(row) < bounds.y - 32.0F || y > bounds.y + bounds.h + 32.0F)
                 continue;
             if (settings_sheet && row.kind == RowKind::Heading)
@@ -3494,9 +3616,9 @@ class Render::Impl
             // Game settings rows carry an effect line under the name (or the reason a row is
             // disabled), an accent dot when the player changed the value, and a tag.
             // Kept game data: each game is a checkbox row with its kept date under the name.
-            const bool checkbox = (view.surface == "kept-data" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
+            const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
-            const bool described = (settings_sheet || checkbox) && !row.subtitle.empty() && row.kind != RowKind::Heading;
+            const bool described = (settings_sheet || checkbox || view.surface == "installed-games") && !row.subtitle.empty() && row.kind != RowKind::Heading;
             const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F : 72.0F};
             const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
             focus_glow(overlay_, rect, amount);
@@ -3518,7 +3640,7 @@ class Render::Impl
                     overlay_.line(box.x + 12.0F, box.y + 20.0F, box.x + 22.0F, box.y + 8.0F, 3.0F, theme_.on_primary);
                 }
                 else
-                    overlay_.bordered_rect(box, 6.0F, kPanel.with_alpha(0.0F), 2.0F, kText.with_alpha(0.45F));
+                    overlay_.bordered_rect(box, 6.0F, kPanel.with_alpha(0.0F), 2.0F, kText.with_alpha(row.enabled ? 0.45F : 0.18F));
                 name_x += 44.0F;
             }
             if (row.modified)
@@ -3526,11 +3648,13 @@ class Render::Impl
                 overlay_.circle(name_x + 5.0F, name_y - 9.0F, 5.0F, kAccent);
                 name_x += 20.0F;
             }
-            const std::string label = fit(fonts_.display, overlay_label(row), 28.0F, rect.w - 64.0F - value_width);
-            ui::text(overlay_, fonts_.display, label, name_x, name_y, 28.0F, ink);
+            // Game names may need a fallback face (Greek, CJK, Arabic).
+            const ui::FontRef &face = font_for(overlay_label(row), fonts_.display);
+            const std::string label = fit(face, overlay_label(row), 28.0F, rect.w - 64.0F - value_width);
+            ui::text(overlay_, face, label, name_x, name_y, 28.0F, ink);
             if (settings_sheet && !row.badge.empty() && row.kind != RowKind::Heading)
             {
-                const float tag_x = name_x + fonts_.display.measure(label, 28.0F) + 14.0F;
+                const float tag_x = name_x + face.measure(label, 28.0F) + 14.0F;
                 const float tag_w = fonts_.semibold.measure(ui::upper(row.badge), 13.0F) + 16.0F;
                 if (tag_x + tag_w < rect.x + rect.w - 40.0F - value_width)
                 {
@@ -3540,7 +3664,8 @@ class Render::Impl
             }
             if (described)
                 ui::text(overlay_, fonts_.regular, fit(fonts_.regular, row.subtitle, 19.0F, rect.w - 72.0F - value_width),
-                         checkbox ? name_x : rect.x + 24.0F, rect.y + 74.0F, 19.0F, row.enabled ? kSecondary : kMuted);
+                         checkbox ? name_x : rect.x + 24.0F, rect.y + 74.0F, 19.0F,
+                         row.tone == "problem" ? kRed : row.tone == "good" ? kGreen : row.enabled ? kSecondary : kMuted);
             if (!value.empty())
                 ui::text(overlay_, fonts_.regular, fit(fonts_.regular, value, 22.0F, value_width), rect.x + rect.w - 24.0F,
                          described ? rect.y + 52.0F : rect.cy() + 8.0F, 22.0F,

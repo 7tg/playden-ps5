@@ -22,6 +22,8 @@ private Windows environment and its own tile on the PS5 Home screen.
 - **Your whole Steam library.** Search, sort, favorites, collections, ratings and notes, with cover art and store
   details. The library works offline from a cache.
 - **Downloads from Steam.** Queue games and watch progress.
+- **Storage at a glance.** Settings › Storage shows how much space is used and lists installed games by size or
+  last played. Select several games and uninstall them together; saves are kept unless you choose otherwise.
 - **Each game is its own PS5 app.** It gets a tile on the Home screen, so you can start it without Playden.
 - **A private Windows environment per game** ("bottle"), so games do not share settings or files.
 - **Steam Cloud saves.** Playden checks your Cloud saves before a game starts and syncs them after it ends. If the

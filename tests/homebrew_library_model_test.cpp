@@ -1003,11 +1003,319 @@ void live_uninstall_removes_title_and_keeps_saves() {
     check(model.state().navigation.focus_key == "settings-kept", "focus stays on the row");
 }
 
+std::vector<std::string> installed_order(const Simulation& model) {
+    std::vector<std::string> order;
+    for (const auto& key : model.state().navigation.modals.back().action_keys)
+        if (key.rfind("installed-toggle-", 0) == 0) order.push_back(key.substr(17));
+    return order;
+}
+
+void live_storage_section_and_installed_games() {
+    using playden::homebrew::InstallRequestKind;
+    using playden::homebrew::JobState;
+    using playden::homebrew::LiveInstallJob;
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RuntimeState;
+    constexpr std::int64_t now = 1'800'000'000;
+    constexpr std::int64_t day = 86'400;
+    constexpr std::uint64_t gb = 1'000'000'000;
+    auto model = make_live();
+    model.SetWallClock(now);
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    model.UpdateVolumes({{"internal", "Console storage", true, 800 * gb, 500 * gb}}, "internal");
+
+    // Nothing installed: the Storage rows say so, and leftovers stay hidden.
+    model.action("l1");
+    check(model.state().navigation.route == Route::Settings, "Settings opens");
+    const auto section_of = [&model](const std::string& key) {
+        const auto* row = find_row(model, key);
+        return row ? row->section : std::string("missing");
+    };
+    for (const auto* key : {"settings-storage", "settings-installed", "settings-kept", "settings-runtime"})
+        check(section_of(key) == "Storage", "the storage rows are in the Storage section");
+    check(section_of("settings-title-store") == "Library" && section_of("settings-cloud-saves") == "Library",
+          "Library keeps its two toggles");
+    check(find_row(model, "settings-storage")->action == "storage-picker", "Games storage opens the drive picker");
+    std::vector<std::string> order;
+    for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
+    check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept", "settings-runtime"},
+          "Storage lists its rows in order, without the hidden cleanup row");
+    std::vector<std::string> sections;
+    for (const auto& row : model.view().rows)
+        if (sections.empty() || sections.back() != row.section) sections.push_back(row.section);
+    check(sections == std::vector<std::string>{"Account", "Library", "Storage", "Display", "About", "Quit Playden"},
+          "the rail order is Account, Library, Storage, Display, About, Quit");
+    const auto* empty = find_row(model, "settings-installed");
+    check(empty && !empty->enabled && empty->value == "None", "nothing installed says None");
+    check(find_row(model, "settings-kept")->value == "None" && !has_row(model, "settings-runtime-cleanup"),
+          "kept data says None and the cleanup row is hidden");
+    model.SetRuntimeLeftovers(1);
+    order.clear();
+    for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
+    check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept",
+                                            "settings-runtime-cleanup", "settings-runtime"},
+          "unused settings data sits before Runtime status when there is some");
+    model.SetRuntimeLeftovers(0);
+    // The Settings drive picker changes the default, not one install's drive.
+    activate(model, "settings-storage");
+    check(model.state().navigation.modals.back().id == "storage" &&
+              model.state().navigation.modals.back().title == "Choose storage", "Games storage opens the default picker");
+    model.action("circle");
+    // Up and Down stay in the section; the rail moves to another one.
+    check(model.action("focus:settings-storage"), "Games storage is focused");
+    model.action("up");
+    check(model.state().navigation.focus_key == "settings-storage" &&
+              model.view().rows[static_cast<std::size_t>(model.view().focused_row)].section == "Storage",
+          "Up on Storage's first row does not leave the section");
+    if (model.state().navigation.tabs_focused) model.action("down");
+    check(model.action("focus:settings-runtime"), "Runtime status is focused");
+    model.action("down");
+    check(model.state().navigation.focus_key == "settings-runtime", "Down on Storage's last row stays on it");
+    model.action("left");
+    model.action("down");
+    model.action("right");
+    check(model.state().navigation.focus_key == "settings-motion", "the rail moves to the next section");
+
+    const auto played = [&](playden::GameId id, std::string title, std::optional<std::int64_t> days) {
+        auto summary = game(id, std::move(title));
+        if (days) summary.last_played_unix_seconds = static_cast<std::uint64_t>(now - *days * day);
+        return summary;
+    };
+    check(model.UpdateLibrary({{played(10, "Alpha", 10), played(11, "Beta", std::nullopt), played(12, "Gamma", 100),
+                                played(13, "Delta", 1), played(14, "Echo", 50), played(15, "Foxtrot", 30),
+                                played(16, "Golf", 20)}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({LiveInstallJob{15, JobState::Queued, 0, gb, {}, "internal"}},
+                         {{10, 5 * gb, "internal"}, {11, 20 * gb, "internal"}, {12, 5 * gb, "internal"},
+                          {13, 1 * gb, "internal"}, {14, 2 * gb, "internal"}, {15, 3 * gb, "internal"},
+                          {16, 4 * gb, "internal"}});
+    LiveRuntimeGame titled; titled.game_id = 10; titled.status = "Ready"; titled.ready = true; titled.has_title = true;
+    LiveRuntimeGame running; running.game_id = 14; running.status = "Ready"; running.ready = true; running.play_status = "Playing";
+    LiveRuntimeGame preparing; preparing.game_id = 16; preparing.status = "Preparing";
+    model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
+    const auto* entry = find_row(model, "settings-installed");
+    check(entry && entry->enabled && entry->value == "7 games · 40.0 GB", "the row counts installed games and size");
+
+    // Largest first, ties by title; then never played first and the longest unplayed after.
+    activate(model, "settings-installed");
+    check(model.state().navigation.modals.back().id == "installed-games", "the row opens the installed games list");
+    check(model.state().navigation.focus_key == "installed-toggle-11", "focus starts on the first game");
+    check(installed_order(model) == std::vector<std::string>{"11", "10", "12", "16", "15", "14", "13"}, "sorted by size");
+    check(find_row(model, "installed-sort")->value == "Size", "the sort row names the order");
+    const auto* alpha = find_row(model, "installed-toggle-10");
+    check(alpha && alpha->kind == RowKind::Toggle && alpha->title == "Alpha" && alpha->value == "5.0 GB" &&
+              alpha->subtitle == "Played 10 days ago" && alpha->enabled && !alpha->selected,
+          "a game row shows its size and when it was last played");
+    check(find_row(model, "installed-toggle-11")->subtitle == "Never played", "a game never played says so");
+    activate(model, "installed-sort");
+    check(find_row(model, "installed-sort")->value == "Last played" && model.state().navigation.focus_key == "installed-sort",
+          "Sort switches to last played and keeps the focus");
+    check(installed_order(model) == std::vector<std::string>{"11", "12", "14", "15", "16", "10", "13"},
+          "never played first, then the oldest");
+    activate(model, "installed-sort");
+
+    // Games that can't go now say why and can't be checked.
+    const auto* echo = find_row(model, "installed-toggle-14");
+    const auto* foxtrot = find_row(model, "installed-toggle-15");
+    const auto* golf = find_row(model, "installed-toggle-16");
+    check(echo && !echo->enabled && echo->subtitle == "Playing", "a running game is blocked");
+    check(foxtrot && !foxtrot->enabled && foxtrot->subtitle == "In Downloads", "a game with a download is blocked");
+    check(golf && !golf->enabled && golf->subtitle == "Busy", "a game being prepared is blocked");
+    activate(model, "installed-toggle-14");
+    check(!find_row(model, "installed-toggle-14")->selected, "a blocked game can't be checked");
+    check(!find_row(model, "installed-selection-uninstall")->enabled, "nothing to uninstall until a game is checked");
+    activate(model, "installed-select-all");
+    for (const auto* key : {"installed-toggle-10", "installed-toggle-11", "installed-toggle-12", "installed-toggle-13"})
+        check(find_row(model, key)->selected, "Select all checks every game that can go");
+    for (const auto* key : {"installed-toggle-14", "installed-toggle-15", "installed-toggle-16"})
+        check(!find_row(model, key)->selected, "Select all skips blocked games");
+    check(find_row(model, "installed-select-all")->title == "Clear selection", "with all checked it clears instead");
+    check(model.view().footer == "4 selected · 31.0 GB", "the footer names how many and how much");
+    // A game that starts running leaves the selection.
+    running.game_id = 13;
+    model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
+    check(!find_row(model, "installed-toggle-13")->selected && find_row(model, "installed-toggle-13")->subtitle == "Playing",
+          "a game that becomes blocked leaves the selection");
+    running.game_id = 14;
+    model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
+    activate(model, "installed-select-all");
+    activate(model, "installed-select-all");
+    check(!find_row(model, "installed-toggle-10")->selected, "Clear selection unchecks every game");
+
+    // A batch of three: the confirmation names them and the space, with the saves choice.
+    activate(model, "installed-toggle-10");
+    activate(model, "installed-toggle-11");
+    activate(model, "installed-toggle-12");
+    activate(model, "installed-selection-uninstall");
+    const auto& confirm = model.state().navigation.modals.back();
+    check(confirm.destructive && confirm.title == "Uninstall 3 games?", "the confirmation counts the games");
+    check(confirm.body.find("Beta, Alpha and Gamma. Frees about 30.0 GB.") == 0, "it names them and the space freed");
+    check(confirm.body.find("Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its "
+                            "row says why.") != std::string::npos, "Cloud is synced first, and a failure keeps that game");
+    const auto* saves = find_row(model, "uninstall-delete-saves");
+    check(saves && !saves->selected, "deleting saves is a choice, off by default");
+    activate(model, "uninstall-delete-saves");
+    check(model.state().navigation.modals.back().body.find("saves and settings on this console are deleted") != std::string::npos,
+          "the dialog says the saves go when the choice is on");
+    activate(model, "cancel");
+    check(model.TakeInstallRequests().empty() && model.state().navigation.modals.back().id == "installed-games",
+          "Cancel uninstalls nothing and returns to the list");
+    activate(model, "installed-selection-uninstall");
+    activate(model, "confirm-destructive");
+    auto requests = model.TakeInstallRequests();
+    check(requests.size() == 3 && requests[0].game_id == 11 && requests[1].game_id == 10 && requests[2].game_id == 12 &&
+              std::all_of(requests.begin(), requests.end(), [](const auto& request) {
+                  return request.kind == InstallRequestKind::Uninstall && !request.delete_saves;
+              }),
+          "each checked game is uninstalled, keeping its saves");
+    check(model.state().navigation.modals.size() == 1 && model.state().navigation.modals.back().id == "installed-games",
+          "the list stays open as the progress view");
+    // While the batch runs the list shows only its games, in the batch's order, as status rows.
+    check(model.state().navigation.modals.back().action_keys ==
+              std::vector<std::string>{"installed-step-11", "installed-step-10", "installed-step-12", "installed-close"},
+          "the batch view lists only the batch's games, then Close");
+    check(!has_row(model, "installed-sort") && !has_row(model, "installed-select-all") &&
+              !has_row(model, "installed-toggle-13"), "Sort, Select all and the other games are hidden");
+    check(model.state().navigation.focus_key == "installed-step-11", "focus is on the batch's first game");
+    check(model.view().footer == "Uninstalling 1 of 3…", "the footer says how far the batch is");
+    check(model.view().subtitle == "Uninstalling the selected games.", "the header says what the list shows");
+    const auto* waiting = find_row(model, "installed-step-12");
+    check(waiting && waiting->kind == RowKind::Status && waiting->subtitle == "Waiting" && waiting->value == "5.0 GB",
+          "a game not started yet waits, without a checkbox");
+    const auto batch_notices = model.state().notices.size();
+    check(!model.action("triangle") || model.TakeInstallRequests().empty(), "Triangle starts nothing in the batch view");
+    titled.uninstall_status = "Syncing saves…";
+    model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
+    check(find_row(model, "installed-step-10")->subtitle == "Syncing saves…", "a row shows its game's uninstall step");
+
+    // One stops on Cloud: its row says why, without a notice.
+    const auto notices = batch_notices;
+    model.NotifyUninstallStopped(12, "Cloud saves could not be synced.");
+    check(model.state().notices.size() == notices && model.state().navigation.modals.back().id == "installed-games",
+          "a stop in the batch posts no notice");
+    const auto* stopped = find_row(model, "installed-step-12");
+    check(stopped && stopped->subtitle == "Stopped: Cloud saves could not be synced." && stopped->tone == "problem",
+          "the stopped game shows the reason");
+    check(model.view().footer == "Uninstalling 2 of 3…", "a stop counts as done");
+    check(!has_row(model, "installed-show-all"), "Show all games waits for the batch to finish");
+
+    // The other two finish: their rows say so and the totals count only them.
+    titled.uninstall_status.clear();
+    model.UpdateRuntime(RuntimeState::Ready, {running, preparing});
+    model.UpdateInstalls({LiveInstallJob{15, JobState::Queued, 0, gb, {}, "internal"}},
+                         {{12, 5 * gb, "internal"}, {13, 1 * gb, "internal"}, {14, 2 * gb, "internal"},
+                          {15, 3 * gb, "internal"}, {16, 4 * gb, "internal"}});
+    check(model.state().notices.size() == notices, "the batch posts no Game uninstalled notices");
+    const auto* gone = find_row(model, "installed-step-11");
+    check(gone && gone->subtitle == "Uninstalled" && gone->tone == "good" && gone->value == "20.0 GB", "an uninstalled game says so");
+    check(model.view().footer == "2 uninstalled · about 25.0 GB freed · 1 stopped", "the totals count freed space and stops");
+    check(model.state().navigation.modals.back().action_keys.size() == 5 && has_row(model, "installed-show-all") &&
+              find_row(model, "installed-show-all")->title == "Show all games",
+          "a finished batch offers Show all games beside Close");
+    check(model.view().subtitle == "Finished uninstalling.", "the header says the batch is done");
+    check(model.view().legends == std::vector<std::string>{"Circle Close"}, "a status row offers no Cross");
+    check(model.action("focus:installed-show-all"), "Show all games is focused");
+    check(model.view().legends == std::vector<std::string>{"Cross Choose", "Circle Close"}, "a footer button offers Cross");
+
+    // Show all games returns to the installed games; the stopped one keeps its reason and can go again.
+    activate(model, "installed-show-all");
+    check(installed_order(model) == std::vector<std::string>{"12", "16", "15", "14", "13"},
+          "the full list shows what is installed now, without the uninstalled games");
+    check(model.state().navigation.focus_key == "installed-toggle-12", "focus is on the first game");
+    check(find_row(model, "installed-toggle-12")->enabled &&
+              find_row(model, "installed-toggle-12")->subtitle == "Stopped: Cloud saves could not be synced.",
+          "the stopped game says why and can be chosen");
+    activate(model, "installed-toggle-12");
+    check(model.view().footer == "1 selected · 5.0 GB", "the footer sums the selection");
+    activate(model, "installed-selection-uninstall");
+    check(model.state().navigation.modals.back().title == "Uninstall 1 game?", "the retry asks for the one game");
+    activate(model, "confirm-destructive");
+    requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].game_id == 12, "the stopped game is uninstalled again");
+    check(model.view().footer == "Uninstalling 1 of 1…" && find_row(model, "installed-step-12")->subtitle == "Waiting",
+          "the retry is a batch of its own");
+    model.UpdateInstalls({LiveInstallJob{15, JobState::Queued, 0, gb, {}, "internal"}},
+                         {{13, 1 * gb, "internal"}, {14, 2 * gb, "internal"}, {15, 3 * gb, "internal"},
+                          {16, 4 * gb, "internal"}});
+    check(model.view().footer == "1 uninstalled · about 5.0 GB freed", "the retry's totals");
+    activate(model, "installed-show-all");
+    check(!has_row(model, "installed-toggle-12"), "the uninstalled game leaves the list");
+
+    // The footer is reached from the last game and left again; Left/Right move between its buttons.
+    check(model.action("focus:installed-toggle-13"), "the last game is focused");
+    model.action("down");
+    check(model.state().navigation.focus_key == "installed-selection-uninstall", "Down from the last game reaches the footer");
+    model.action("right");
+    check(model.state().navigation.focus_key == "installed-close", "Right moves to Close");
+    model.action("down");
+    check(model.state().navigation.focus_key == "installed-close", "Down in the footer stays");
+    model.action("up");
+    check(model.state().navigation.focus_key == "installed-toggle-13", "Up returns to the game the focus left");
+    check(model.action("focus:installed-toggle-16"), "a game mid-list is focused");
+    model.action("up");
+    model.action("up");
+    check(model.state().navigation.focus_key == "installed-sort", "Up from the first game reaches the pinned Sort row");
+
+    // Triangle is Uninstall selected from anywhere in the list, and nothing without a selection.
+    check(model.action("focus:installed-toggle-16"), "a game is focused");
+    model.action("triangle");
+    check(model.state().navigation.modals.back().id == "installed-games" && model.TakeInstallRequests().empty(),
+          "Triangle does nothing with nothing checked");
+    activate(model, "installed-toggle-13");
+    check(model.action("focus:installed-toggle-16"), "a game is focused");
+    model.action("triangle");
+    check(model.state().navigation.modals.back().title == "Uninstall 1 game?", "Triangle opens the confirmation");
+    activate(model, "cancel");
+    check(model.state().navigation.focus_key == "installed-toggle-16", "cancelling returns to the row the player was on");
+    activate(model, "installed-toggle-13");
+
+    // Every checked game became blocked while the dialog was open: nothing goes, and the list says so.
+    model.action("circle");
+    activate(model, "settings-installed");
+    activate(model, "installed-toggle-13");
+    activate(model, "installed-selection-uninstall");
+    running.game_id = 13;
+    model.UpdateRuntime(RuntimeState::Ready, {running, preparing});
+    activate(model, "confirm-destructive");
+    check(model.TakeInstallRequests().empty() && model.view().subtitle == "None of the selected games can be uninstalled now.",
+          "without a batch the list says nothing could go");
+
+    // Closing the list ends the batch: later stops are notices again.
+    const auto* close = find_row(model, "installed-close");
+    check(close && close->title == "Close", "the list closes with Close");
+    activate(model, "installed-close");
+    check(model.state().navigation.modals.empty(), "the list closes");
+    check(find_row(model, "settings-installed")->value == "4 games · 10.0 GB", "the Settings row follows");
+    model.NotifyUninstallStopped(13, "Cloud saves could not be synced.");
+    check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Uninstall stopped",
+          "after the list closes a stop is told as before");
+    model.action("circle");
+
+    // Without a batch the list follows the installs, and closes when none is left.
+    model.UpdateRuntime(RuntimeState::Ready, {});
+    model.UpdateVolumes({{"internal", "Console storage", true, 800 * gb, 500 * gb}, {"usb0", "USB drive", true, {}, {}}},
+                        "internal");
+    model.UpdateInstalls({}, {{12, 5 * gb, "internal"}, {13, 1 * gb, "usb0"}});
+    activate(model, "settings-installed");
+    check(installed_order(model) == std::vector<std::string>{"12", "13"}, "the list shows what is installed now");
+    check(find_row(model, "installed-toggle-13")->subtitle == "USB drive · Played yesterday" &&
+              find_row(model, "installed-toggle-12")->subtitle == "Console storage · Played 100 days ago",
+          "with games on two drives each row names its drive");
+    check(model.action("focus:installed-toggle-13"), "the last game is focused");
+    model.UpdateInstalls({}, {{12, 5 * gb, "internal"}});
+    check(installed_order(model) == std::vector<std::string>{"12"}, "the list follows an uninstall that finished");
+    check(model.state().navigation.focus_key == "installed-toggle-12", "focus moves to the nearest game, not the footer");
+    model.UpdateInstalls({}, {});
+    check(model.state().navigation.modals.empty(), "the list closes when nothing is installed");
+    entry = find_row(model, "settings-installed");
+    check(entry && entry->value == "None" && !entry->enabled, "nothing installed says None");
+}
+
 void live_settings_focus_stays_near_a_removed_row() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
     model.SetRuntimeLeftovers(2);
+    model.UpdateVolumes({{"internal", "Console storage", true, {}, {}}}, "internal");
     model.action("l1");
     activate(model, "settings-runtime-cleanup");
     check(!model.TakeRuntimeCleanupRequest() && !model.state().navigation.modals.empty() &&
@@ -1021,7 +1329,7 @@ void live_settings_focus_stays_near_a_removed_row() {
     const auto& rows = model.view().rows;
     const auto focused = rows[static_cast<std::size_t>(model.view().focused_row)];
     check(!has_row(model, "settings-runtime-cleanup"), "the cleaned row is gone");
-    check(focused.section == "Library" && !focused.rail_only && !model.state().navigation.settings_rail_focused,
+    check(focused.section == "Storage" && !focused.rail_only && !model.state().navigation.settings_rail_focused,
           "focus moves to the nearest row in the same section, not the rail");
     check(focused.enabled, "a row that can be chosen is preferred");
 }
@@ -1584,6 +1892,7 @@ int main() {
     live_ready_to_play_quits_to_home();
     live_details_focus_moves_to_play_once_enabled();
     live_settings_focus_stays_near_a_removed_row();
+    live_storage_section_and_installed_games();
     preparation_steps_read_as_player_words();
     live_install_requests_and_projection();
     live_install_volumes();

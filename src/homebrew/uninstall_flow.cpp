@@ -79,6 +79,9 @@ UninstallAction UninstallFlow::Advance(GameId id, const UninstallFacts& facts) {
       } else {
         // Saves must not move, and the title must not run, while it is removed.
         if (facts.saves_moving || facts.session_active) return {};
+        // The runtime counts removals for all games together, so only one may be in flight to tell whose finished.
+        for (const auto& [other_id, other] : entries_)
+          if (other_id != id && other.remove_sent) return {};
         entry.remove_sent = true;
         entry.removals_before = facts.removals_handled;
         return {UninstallAction::Kind::kRemoveTitle, entry.delete_saves, {}};
