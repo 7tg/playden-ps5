@@ -448,7 +448,8 @@ void TestScripts() {
       "\t\t\t\"command 1\"\t\t\"/i \\\"%INSTALLDIR%\\\\_CommonRedist\\\\PhysX\\\\9.13.0604\\\\PhysX.msi\\\" /quiet /norestart\"\n"
       "\t\t}\n\t\t\"DirectX\"\n\t\t{\n\t\t\t\"process 1\"\t\"%INSTALLDIR%\\\\DirectX\\\\DXSETUP.exe\"\n\t\t}\n"
       "\t\t\"Launcher\"\n\t\t{\n\t\t\t\"process 1\"\t\"%INSTALLDIR%\\\\Setup.exe\"\n\t\t}\n"
-      "\t\t\"Lang\"\n\t\t{\n\t\t\t\"process 1\"\t\"%LANGUAGE%.exe\"\n\t\t}\n\t}\n}\n";
+      "\t\t\"Lang\"\n\t\t{\n\t\t\t\"process 1\"\t\"%LANGUAGE%.exe\"\n\t\t}\n\t}\n}\n"
+      "\"kvsignatures\"\n{\n\t\"InstallScript\"\t\t\"8ed8c256\"\n}\n";
   std::vector<RedistEntry> entries;
   std::string reason;
   CHECK(ParseRunProcess(script, "Z:\\data\\games\\696180", &entries, &reason));
@@ -466,6 +467,12 @@ void TestScripts() {
   CHECK(ClassifyRedist(outside, "Z:\\data\\games\\696180", &package) == RedistAction::kNotRun);
   RedistEntry climbing{"X", "msiexec", "/i Z:\\data\\games\\696180\\..\\x.msi", ""};
   CHECK(ClassifyRedist(climbing, "Z:\\data\\games\\696180", &package) == RedistAction::kNotRun);
+  // Steam's signature block after the script doesn't hide its sections.
+  InstallScriptValues values;
+  CHECK(ParseInstallScript("\"InstallScript\" { \"Registry\" { \"HKEY_LOCAL_MACHINE\\\\Software\\\\Studio\" { \"string\" { "
+                           "\"Path\" \"%INSTALLDIR%\" } } } } \"kvsignatures\" { \"InstallScript\" \"00\" }",
+                           "Z:\\games\\1", &values, &reason));
+  CHECK(values.machine.size() == 2);
   RedistEntry direct{"X", "Z:\\data\\games\\696180\\redist\\x.msi", "", ""};
   CHECK(ClassifyRedist(direct, "Z:\\data\\games\\696180", &package) == RedistAction::kMsi && package == "redist/x.msi");
 }
@@ -480,7 +487,8 @@ void TestInstall() {
             "\"HasRunKey\" \"HKEY_LOCAL_MACHINE\\\\Software\\\\Valve\\\\Steam\\\\Apps\\\\42\" "
             "\"process 1\" \"msiexec\" "
             "\"command 1\" \"/i \\\"%INSTALLDIR%\\\\_CommonRedist\\\\Sample\\\\1.0\\\\sample.msi\\\" /quiet\" } "
-            "\"VC\" { \"process 1\" \"%INSTALLDIR%\\\\_CommonRedist\\\\vcredist_x86.exe\" } } }");
+            "\"VC\" { \"process 1\" \"%INSTALLDIR%\\\\_CommonRedist\\\\vcredist_x86.exe\" } } } "
+            "\"kvsignatures\" { \"InstallScript\" \"00\" }");
   WriteText(game / "_CommonRedist/Sample/1.0/sample.msi", SamplePackage());
   WriteText(game / "data/deep/installscript.vdf", "\"InstallScript\" { \"Run Process\" { \"Ignored\" { \"process 1\" \"x.exe\" } } }");
   WriteText(prefix / "system.reg",

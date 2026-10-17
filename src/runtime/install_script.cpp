@@ -84,6 +84,14 @@ std::string RegistryString(std::string_view text) {
   return out + "\"";
 }
 
+// The top level is "InstallScript" { ... } (any case), often followed by Steam's "kvsignatures"
+// block; a lone section of another name or a bare section list is read the same way.
+const steam::VdfNode* ScriptSection(const steam::VdfNode& root) {
+  if (const auto* script = root.Find("InstallScript"); script && script->is_dict) return script;
+  if (root.children.size() == 1 && root.children.front().second.is_dict) return &root.children.front().second;
+  return &root;
+}
+
 bool ReadScript(const std::filesystem::path& path, std::string* text) {
   const int file = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
   if (file < 0) return false;
@@ -112,10 +120,7 @@ bool ParseInstallScript(std::string_view text, const std::string& install_dir, I
   while (!utf8.empty() && utf8.back() == '\0') utf8.pop_back();
   const auto root = steam::ParseVdf(utf8);
   if (!root) return fail("not a valid install script");
-  // The top level is "InstallScript" { ... } (any case); a bare section list is read the same way.
-  const steam::VdfNode* script = root->children.size() == 1 && root->children.front().second.is_dict
-                                     ? &root->children.front().second
-                                     : &*root;
+  const auto* script = ScriptSection(*root);
   const auto* registry = script->Find("Registry");
   if (!registry) return true;
   for (const auto& [path, key] : registry->children) {
@@ -168,9 +173,7 @@ bool ParseRunProcess(std::string_view text, const std::string& install_dir, std:
   while (!utf8.empty() && utf8.back() == '\0') utf8.pop_back();
   const auto root = steam::ParseVdf(utf8);
   if (!root) return fail("not a valid install script");
-  const steam::VdfNode* script = root->children.size() == 1 && root->children.front().second.is_dict
-                                     ? &root->children.front().second
-                                     : &*root;
+  const auto* script = ScriptSection(*root);
   const auto* run = script->Find("Run Process");
   if (!run) return true;
   for (const auto& [name, node] : run->children) {
