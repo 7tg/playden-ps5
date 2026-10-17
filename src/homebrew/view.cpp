@@ -2846,14 +2846,14 @@ class Render::Impl
         }
     }
 
-    void draw_footer(ui::Canvas &, const ViewData &view)
+    // The hint row for the view's legends. `shoulder` adds L1/R1 (Sections unless a legend gives
+    // them another job, "L1/R1 Jump").
+    std::vector<ui::Hint> legend_hints(const ViewData &view, std::string &shoulder, bool with_shoulder)
     {
-        std::vector<std::string> fallback;
-        const std::vector<std::string> &labels = view.legends.empty() ? fallback : view.legends;
+        const std::vector<std::string> &labels = view.legends;
         std::vector<ui::Hint> hints;
-        hints.reserve(std::max<std::size_t>(labels.size(), 2));
-        // L1/R1 switch sections unless the view gives them another job ("L1/R1 Jump").
-        std::string shoulder = "Sections";
+        hints.reserve(std::max<std::size_t>(labels.size(), 2) + 1);
+        shoulder = "Sections";
         if (labels.empty())
         {
             hints.push_back({ui::Button::cross, "Select"});
@@ -2880,7 +2880,13 @@ class Render::Impl
             if (!has_back)
                 hints.push_back({ui::Button::circle, "Back"});
         }
-        hints.push_back({ui::Button::l1, shoulder.c_str(), ui::Button::r1});
+        if (with_shoulder)
+            hints.push_back({ui::Button::l1, shoulder.c_str(), ui::Button::r1});
+        return hints;
+    }
+
+    void draw_hint_row(gfx::DrawList &list, const std::vector<ui::Hint> &hints, float x)
+    {
         ui::HintLayout layout;
         layout.size = 38.0F;
         layout.text_size = 22.0F;
@@ -2888,8 +2894,17 @@ class Render::Impl
         layout.item_gap = 28.0F;
         layout.font = &fonts_.semibold;
         ui::GlyphStyle glyphs = ui::GlyphStyle::mono(kText, kBackground);
-        ui::draw_hints(scene_, fonts_, glyphs, hints.data(), static_cast<int>(hints.size()), 96.0F,
-                       false, layout);
+        ui::draw_hints(list, fonts_, glyphs, hints.data(), static_cast<int>(hints.size()), x, false, layout);
+    }
+
+    void draw_footer(ui::Canvas &, const ViewData &view)
+    {
+        // The Installed games sheet shows its own hints; the bar behind it would only repeat them, dimmed.
+        if (view.surface != "installed-games")
+        {
+            std::string shoulder;
+            draw_hint_row(scene_, legend_hints(view, shoulder, true), 96.0F);
+        }
         if (view.show_simulation_label)
         {
             scene_.rounded_rect({1652.0F, 989.0F, 172.0F, 34.0F}, 17.0F, kText.with_alpha(0.08F));
@@ -3496,7 +3511,8 @@ class Render::Impl
         if (!head.rows.empty())
             draw_overlay_rows(head, {x, 292.0F, w, head_h - 12.0F}, false);
         // The list scrolls between the pinned rows and the footer and never draws under either.
-        constexpr float footer_top = 934.0F;
+        // The footer's buttons sit above the sheet's hint row.
+        constexpr float footer_top = 870.0F;
         const float list_top = 292.0F + head_h + (head.rows.empty() ? 0.0F : 12.0F);
         const float clip_top = head.rows.empty() ? list_top - 32.0F : list_top - 10.0F;
         overlay_.push_clip({panel.x, clip_top, panel.w, footer_top - 8.0F - clip_top});
@@ -3528,6 +3544,9 @@ class Render::Impl
                      !row.enabled ? kMuted : row.dangerous ? kRed : kText, gfx::Align::center);
             focus_ring(overlay_, rect, amount);
         }
+        // L1/R1 do nothing here, so the row leaves them out.
+        std::string shoulder;
+        draw_hint_row(overlay_, legend_hints(view, shoulder, false), x + 8.0F);
     }
 
     // `scrolls` false: rows pinned in place (a sheet's fixed header), leaving the list's scroll alone.
