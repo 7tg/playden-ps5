@@ -275,7 +275,7 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
               std::vector<std::pair<playden::homebrew::GameId, MaintenanceKind>>{{220, MaintenanceKind::ApplySettings}},
           "closing the sheet asks for the settings to be applied");
     check(has_notice(model, "settings-saved"), "closing the sheet announces the change");
-    activate(model, "details-more");
+    check(model.state().navigation.modals.back().id == "context", "closing Game settings returns to Game actions");
     check(find_row(model, "game-settings")->subtitle == "Changes apply on next launch",
           "the More menu says unpublished changes wait for the next launch");
 
@@ -363,9 +363,12 @@ void live_program_change_applies_like_other_settings(const std::filesystem::path
     check(find_row(model, "setting-launch_option")->badge.empty() &&
               find_row(model, "setting-launch_option")->value == "FalloutNV.exe",
           "program: the Program row is an ordinary setting");
-    check(model.action("circle") && model.state().navigation.modals.empty(), "program: closing the sheet asks nothing");
+    check(model.action("circle") && model.state().navigation.modals.size() == 1 &&
+              model.state().navigation.modals.back().id == "context",
+          "program: closing the sheet asks nothing");
     check(model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
           "program: closing the sheet applies the new program");
+    model.action("circle");
     activate(model, "details-play");
     check(model.state().navigation.modals.empty() && model.TakeRuntimePlayRequests() == std::vector<GameId>{22380},
           "program: Play starts at once");
@@ -378,7 +381,7 @@ void live_program_change_applies_like_other_settings(const std::filesystem::path
           "picker: the choice is named by its program, not its id, and applies on next launch");
     activate(model, "value-reset");
     check(find_row(model, "setting-launch_option")->value == "Fallout: New Vegas", "program: reset goes back to Steam's");
-    check(model.action("circle") && model.state().navigation.modals.empty() &&
+    check(model.action("circle") && model.state().navigation.modals.back().id == "context" &&
               model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
           "program: the reset applies the same way");
 }

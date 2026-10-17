@@ -350,6 +350,7 @@ void t08_nested_settings_restore_openers(const std::filesystem::path& fixtures,
     check(simulation.action("focus:setting-resolution") && simulation.action("triangle"), "T08 triangle resets");
     check(!simulation.state().game_settings.at(900001).overrides.count("resolution"), "T08 reset removes the override");
     simulation.action("circle");
+    simulation.action("circle");  // Game settings returned to Game actions
     simulation.action("details:900002");
     activate(simulation, "details-more");
     activate(simulation, "game-settings");
@@ -412,7 +413,7 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
     check(toast != simulation.state().notices.end() && toast->message == "Settings saved · Mouse-driven game"
               && toast->detail == "1 change applies on next launch",
           "T08b closing the sheet announces what changed");
-    activate(simulation, "details-more");
+    check(simulation.state().navigation.modals.back().id == "context", "T08b closing Game settings returns to Game actions");
     activate(simulation, "game-settings");
     // dxvk.conf rows appear when the kit reads dxvk.conf.
     rt::KitCapabilities kit;
@@ -440,7 +441,6 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
     check(!find_row(simulation, "clear-shader-cache"), "T08b maintenance is not in the settings sheet");
     // Maintenance lives on the game page, each action behind a confirmation.
     simulation.action("circle");
-    activate(simulation, "details-more");
     activate(simulation, "game-maintenance");
     check(find_row(simulation, "maintenance-shader") && find_row(simulation, "maintenance-shader")->badge == "Game must be closed",
           "T08b maintenance lists clear shader cache");
@@ -457,6 +457,8 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
                       [](const playden::homebrew::Notice& notice) { return notice.id == "maintenance-900001"; }),
           "T08b clear shader cache reports");
     // Games without a recipe still get a usable sheet.
+    simulation.action("circle");
+    check(simulation.state().navigation.modals.back().id == "context", "T08b closing Maintenance returns to Game actions");
     simulation.action("circle");
     simulation.action("details:900003");
     activate(simulation, "details-more");

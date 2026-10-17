@@ -80,7 +80,8 @@ int main(int argc, char** argv) {
     press(simulation, "circle");
     require(simulation.state().navigation.focus_key == "setting-extra_arguments", "keyboard Cancel restores exact modal opener");
     press(simulation, "circle");
-    choose(simulation, "details-more");
+    require(!simulation.state().navigation.modals.empty() && simulation.state().navigation.modals.back().id == "context" &&
+            simulation.state().navigation.focus_key == "game-settings", "Circle on Game settings returns to Game actions");
     choose(simulation, "note");
     choose(simulation, "rating-playable");
     require(simulation.state().library.ratings.at(game) == Compatibility::Playable, "rating reachable through controller");

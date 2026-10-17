@@ -4447,10 +4447,8 @@ void Simulation::open_game_settings() {
         if (const auto found = state_.runtime_games.find(state_.navigation.selected_game_id); found != state_.runtime_games.end())
             found->second.activity = TitleActivity::Unknown;
     }
-    const bool from_menu = !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "context";
-    if (from_menu) close_modal();
-    open_modal({"game-settings", "Game settings", from_menu ? "details-more" : state_.navigation.focus_key,
-                game_settings_actions(), 0, false});
+    // From Game actions it opens on top of that sheet, so Circle returns there.
+    open_modal({"game-settings", "Game settings", state_.navigation.focus_key, game_settings_actions(), 0, false});
 }
 
 void Simulation::activate() {
@@ -5300,10 +5298,8 @@ void Simulation::activate() {
             if (const auto found = state_.runtime_games.find(state_.navigation.selected_game_id); found != state_.runtime_games.end())
                 found->second.activity = TitleActivity::Unknown;
         }
-        const bool from_menu = !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "context";
-        if (from_menu) close_modal();
-        open_modal({"game-maintenance", "Maintenance", from_menu ? "details-more" : state_.navigation.focus_key,
-                    maintenance_actions(), 0, false});
+        // From Game actions it opens on top of that sheet, so Circle returns there.
+        open_modal({"game-maintenance", "Maintenance", state_.navigation.focus_key, maintenance_actions(), 0, false});
     } else if (action_name.rfind("maintenance-", 0) == 0) {
         const auto game = state_.navigation.selected_game_id;
         std::string refusal;
