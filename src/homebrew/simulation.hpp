@@ -23,7 +23,10 @@ using GameId = playden::GameId;
 
 enum class Route { Startup, SignIn, Home, Library, Downloads, Settings, Details, Session, Saves, SaveDetails };
 enum class ModelMode { Simulation, Live };
-enum class ServiceAction { BeginQr, CancelQr, SignOut, SwitchAccount, RefreshLibrary, Reauthenticate };
+// UsePassword/UseQr switch the sign-in screen's method; BeginPassword and SubmitCode carry the form's
+// secrets, which the controller takes with TakeSignInCredentials and TakeGuardCode.
+enum class ServiceAction { BeginQr, CancelQr, SignOut, SwitchAccount, RefreshLibrary, Reauthenticate,
+                           UsePassword, UseQr, BeginPassword, SubmitCode };
 enum class AuthState { SignedOut, Restoring, Waiting, Expired, Failed, Cancelled, Syncing, SigningOut, SignedIn, Offline };
 enum class JobState { Queued, Downloading, Pausing, Paused, Verifying, Downloaded, Failed, Cancelled, Interrupted };
 enum class JobStage { Download, Verify, Install, Uninstall };
@@ -206,6 +209,28 @@ struct CloudRequest {
 enum class Compatibility { Untested, Works, Playable, Broken };
 enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, Profile, Status, Separator };
 
+// The sign-in screen: the QR code, or the account name and password form and its Steam Guard steps.
+enum class SignInStep { Qr, Password, Submitting, Approval, EmailCode, AuthenticatorCode };
+struct SignInForm {
+    SignInStep step = SignInStep::Qr;
+    std::string account_name;
+    std::string password;        // never saved, shown or snapshotted; cleared after submit, cancel or leaving
+    std::string code;            // the Steam Guard code being typed
+    std::string email_domain;    // where Steam sent the email code or approval
+    bool code_allowed = false;   // Approval: a typed code works too
+    bool code_is_email = false;  // the code Steam takes is the emailed one
+    bool code_entry = false;     // Approval: the player chose to type a code
+    bool code_rejected = false;  // the last code was wrong
+    bool code_sent = false;      // waiting for Steam to check the code
+    std::string error;           // why the last password sign-in failed
+};
+// A password as the screen shows it: one dot per character.
+std::string mask_secret(std::string_view value);
+struct SignInCredentials {
+    std::string account_name;
+    std::string password;
+};
+
 struct Account {
     std::string id;
     std::string display_name;
@@ -224,6 +249,14 @@ struct AccountUpdate {
     std::string challenge_url;
     std::string error;
     bool clear_library = false;
+    // Waiting and Failed: the sign-in screen's step and its Steam Guard prompt.
+    SignInStep sign_in = SignInStep::Qr;
+    std::string email_domain;
+    bool code_allowed = false;
+    bool code_is_email = false;
+    bool code_rejected = false;
+    // Authenticated by a sign-in (not a restore): whether it used the password, remembered for next time.
+    std::optional<bool> signed_in_with_password;
 };
 
 struct LibraryUpdate {
@@ -380,6 +413,10 @@ struct EditorState {
     std::size_t caret = 0;
     bool shifted = false;
     bool symbols = false;
+    bool secret = false;    // a password: shown as dots, never snapshotted
+    bool revealed = false;  // the keyboard's Show key; reset each time the editor opens
+    std::uint64_t serial = 0;  // tells each opened editor apart (the PS5 offers each one to its system keyboard)
+    bool system_keyboard = false;  // the PS5's keyboard is (about to be) open for it: Playden's own is not drawn
     int focus_row = 0;
     int focus_key = 0;
 };
@@ -430,6 +467,8 @@ struct State {
     std::map<GameId, std::uint64_t> save_sizes;         // live: Windows user folders of games without Steam Cloud
     Navigation navigation;
     EditorState editor;
+    SignInForm sign_in;
+    bool sign_in_password = false;    // preference: the last sign-in used the account name and password
     std::vector<Notice> notices;
     // Per-game settings: preset and player overrides (see runtime/game_settings.h).
     std::map<GameId, playden::runtime::GameSettingsRecord> game_settings;
@@ -530,6 +569,12 @@ public:
     bool action(const std::string& logical_action);
     void controller_sample(ControllerState sample);
     void text(const std::string& utf8);
+    // The PS5 system keyboard's accepted text replaces the open editor's value and commits it, as Done does.
+    void SubmitEditorText(std::string utf8);
+    void SetSystemKeyboardOpen(bool open) { state_.editor.system_keyboard = open && state_.editor.active; }
+    // The PS5 offers every field to its system keyboard: fields open with Playden's keyboard hidden
+    // until that one is refused (SetSystemKeyboardOpen(false)).
+    void SetSystemKeyboardAvailable(bool available) { system_keyboard_available_ = available; }
     void tick(int ticks = 1);
     void SetControllerConnected(bool connected);
     void SetWallClock(std::int64_t unix_seconds);
@@ -614,6 +659,9 @@ public:
     void PreferencesSaveResult(std::uint64_t revision, playden::StorageError error);
     bool TakePersistenceRetryRequest();
     [[nodiscard]] std::vector<ServiceAction> TakeServiceActions();
+    // The password sign-in's secrets, handed over once; the form keeps no copy of the password.
+    [[nodiscard]] std::optional<SignInCredentials> TakeSignInCredentials();
+    [[nodiscard]] std::optional<std::string> TakeGuardCode();
     // Presets and recipes for the Game settings sheet (runtime/presets.json, runtime/recipes/).
     void SetSettingsData(std::vector<playden::runtime::SettingsPreset> presets,
                          std::vector<playden::runtime::GameRecipe> recipes);
@@ -695,6 +743,10 @@ private:
     std::uint64_t next_collection_serial_ = 1;
     std::uint64_t next_job_serial_ = 1;
     std::vector<ServiceAction> pending_service_actions_;
+    std::optional<SignInCredentials> pending_credentials_;
+    std::optional<std::string> pending_guard_code_;
+    std::uint64_t editor_serial_ = 0;
+    bool system_keyboard_available_ = false;
     std::vector<InstallRequest> pending_install_requests_;
     std::vector<GameId> pending_runtime_prepare_requests_;
     std::vector<GameId> pending_runtime_play_requests_;
@@ -806,7 +858,15 @@ private:
     void change_route(int delta);
     void open_modal(ModalEntry modal);
     void close_modal();
-    void start_editor(std::string purpose, std::string value);
+    void start_editor(std::string purpose, std::string value, bool secret = false);
+    // Sign-in screen: opened in the remembered method, its actions, and the form's secrets wiped.
+    void open_sign_in(bool reauthenticate = false);
+    bool sign_in_action(const std::string& action_name);
+    void submit_fixture_sign_in();
+    void clear_sign_in_secrets();
+    void set_route_focus(std::string key);
+    // Steam Guard codes: five characters, uppercase.
+    void normalize_editor();
     void commit_editor();
     void advance_jobs();
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;

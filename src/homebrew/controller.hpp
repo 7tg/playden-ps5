@@ -41,7 +41,12 @@ class Controller {
   Controller& operator=(const Controller&) = delete;
  private:
   enum class Phase { Idle, Restore, SignIn, ClearLibrary, ClearOrganization, SignOut };
+  // A new sign-in in the given method; without one, in the method the last sign-in used.
   void Begin();
+  void Begin(bool password);
+  // The sign-in screen's method changed: a QR sign-in starts, or the password form waits for input.
+  void UseMethod(bool password);
+  void BeginPassword();
   void SignOut(bool switch_account);
   void Reauthenticate();
   void Restore();
@@ -50,7 +55,8 @@ class Controller {
   void AdvanceOrganizationClear();
   void Apply(const steam::SteamEvent& event);
   void Update(AuthState state, const std::string& error = {}, bool clear = false,
-              const std::string& challenge = {});
+              const std::string& challenge = {}, SignInStep step = SignInStep::Qr,
+              const steam::SteamEvent* prompt = nullptr);
   void TickAppDetails();
   void TickStoreDetails();
   steam::StoreDetailsService* store_details_ = nullptr;
@@ -207,6 +213,9 @@ class Controller {
   // A QR sign-in for an account that is already signed in: its library and organization stay, and
   // a cancel or failure goes back to the saved sign-in.
   bool reauthenticating_ = false;
+  // The current sign-in uses the account name and password (the form, or its request).
+  bool password_sign_in_ = false;
+  bool begin_password_after_clear_ = false;
   std::array<std::int64_t, 9> tick_us_{};
 };
 }

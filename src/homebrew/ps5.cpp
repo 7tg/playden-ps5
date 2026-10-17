@@ -15,6 +15,7 @@
 #include "homebrew/title_icon.hpp"
 #include "platform/ps5/title_allow_list.h"
 #include "platform/ps5/console_services.h"
+#include "platform/ps5/system_keyboard.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/kit_admission.h"
 #include "runtime/kit_trust.h"
@@ -172,6 +173,7 @@ std::vector<playden::steam::InstallRequest> take_install_requests(bool runtime_r
 int main() {
     // Before the title's /data grant: a title whose credentials changed may fail to load system modules.
     const int keyboard_module = sceSysmoduleLoadModule(kKeyboardModule);
+    const int system_keyboard_module = playden::ps5::SystemKeyboard::Preload();
     const auto native_access = playden::ps5::PrepareNativeStartup(PLAYDEN_PS5_TITLE_ID);
     hui::ps5::Display display;
     if (display.width() <= 0 && !display.open(3840, 2160)) {
@@ -503,8 +505,17 @@ int main() {
         int keyboard_user = -1;
         sceUserServiceGetInitialUser(&keyboard_user);
         playden::app::AppendLogLine(log_root, "launch.log", "keyboard preload status=" + std::to_string(keyboard_module));
+        char system_keyboard_line[64];
+        std::snprintf(system_keyboard_line, sizeof(system_keyboard_line), "system keyboard preload status=0x%08x",
+                      unsigned(system_keyboard_module));
+        playden::app::AppendLogLine(log_root, "launch.log", system_keyboard_line);
         UsbKeyboard keyboard;
         playden::homebrew::KeyboardInput keyboard_input;
+        // Text fields open the system keyboard, so Remote Play's keyboard can type into them;
+        // Playden's own keyboard stays for a field the system keyboard refused.
+        playden::ps5::SystemKeyboard system_keyboard;
+        std::uint64_t offered_editor = 0;
+        simulation.SetSystemKeyboardAvailable(system_keyboard_module == 0);
         hui::InputTracker tracker;
         std::array<hui::PadSample, 64> samples{};
         bool presented = false;
@@ -519,12 +530,50 @@ int main() {
                 simulation.SetControllerConnected(input.connected);
                 was_connected = input.connected;
             }
-            dispatch(simulation, input);
-            // A USB keyboard types into the open text box and also moves around Playden.
+            const auto& editor = simulation.state().editor;
+            // The frame the dialog closes in carries the press that closed it (Done, Enter, Escape): it
+            // does not reach Playden, or it would also press the row under the field.
+            bool dialog_closed = false;
+            if (system_keyboard.active()) {
+                // The field went away (a sign-in finished, for example): so does the dialog.
+                if (!editor.active || editor.serial != offered_editor) system_keyboard.Close();
+                const auto state = system_keyboard.Poll();
+                dialog_closed = state != playden::ps5::SystemKeyboard::State::kOpen;
+                if (dialog_closed) simulation.SetSystemKeyboardOpen(false);
+                if (state == playden::ps5::SystemKeyboard::State::kAccepted) {
+                    simulation.SubmitEditorText(system_keyboard.Take());
+                    // A value the field refused (a duplicate name, say) leaves it open: offer it again.
+                    if (simulation.state().editor.active) {
+                        offered_editor = 0;
+                        simulation.SetSystemKeyboardOpen(true);
+                    }
+                }
+                else if (state == playden::ps5::SystemKeyboard::State::kCancelled && editor.active) simulation.action("circle");
+                if (state != playden::ps5::SystemKeyboard::State::kOpen)
+                    playden::app::AppendLogLine(log_root, "launch.log", "system keyboard closed state=" + std::to_string(static_cast<int>(state)));
+            } else if (editor.active && editor.serial != offered_editor && !input.is_held(hui::Action::confirm) &&
+                       !input.is_held(hui::Action::menu)) {
+                offered_editor = editor.serial;
+                std::string refused;
+                const bool opened = system_keyboard.Open(editor.purpose, editor.value, editor.secret, &refused);
+                simulation.SetSystemKeyboardOpen(opened);
+                playden::app::AppendLogLine(log_root, "launch.log", (opened ? std::string("system keyboard open") : "system keyboard refused") +
+                                                                        (refused.empty() ? std::string() : " " + refused));
+            }
             keyboard.open(keyboard_user, now, log_root);
-            for (const auto& command : keyboard_input.Update(keyboard.read(), simulation.state().editor.active, now)) {
-                if (!command.text.empty()) simulation.text(command.text);
-                else simulation.action(command.action);
+            // A field waiting for the button that opened it to come up already belongs to the system keyboard.
+            const bool awaiting_dialog = editor.active && editor.system_keyboard && editor.serial != offered_editor;
+            if (system_keyboard.active() || awaiting_dialog || dialog_closed) {
+                // The dialog owns input; keys typed meanwhile go to it, not to Playden. The USB keyboard's
+                // state is still followed, so a key held across the close is not read as a new press.
+                keyboard_input.Follow(keyboard.read());
+            } else {
+                dispatch(simulation, input);
+                // A USB keyboard types into the open text box and also moves around Playden.
+                for (const auto& command : keyboard_input.Update(keyboard.read(), simulation.state().editor.active, now)) {
+                    if (!command.text.empty()) simulation.text(command.text);
+                    else simulation.action(command.action);
+                }
             }
             simulation.controller_sample(playden::homebrew::diagnostic_sample(input));
             const auto dispatched = hui::sys::monotonic_us();

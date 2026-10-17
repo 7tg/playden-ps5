@@ -152,6 +152,50 @@ void TestOptionalSchemaFieldsKeepPresence() {
   assert(!response.refresh_token.has_value());
 }
 
+void TestCredentialMessages(const std::string& root) {
+  auth::GetPasswordRsaPublicKeyRequest key_request;
+  key_request.account_name = "synthetic_account";
+  ExpectGoldenEncode(root + "/rsa_key_request.pb", key_request);
+
+  auth::GetPasswordRsaPublicKeyResponse key;
+  assert(auth::Decode(ReadFile(root + "/rsa_key_response.pb"), &key).ok());
+  assert(key.publickey_mod == "c3a1f0");
+  assert(key.publickey_exp == "010001");
+  assert(key.timestamp == 1700000000000000ULL);
+
+  auth::BeginAuthSessionViaCredentialsRequest begin;
+  begin.device_details.device_friendly_name = "Playden Synthetic Device";
+  begin.device_details.platform_type = auth::PlatformType::kSteamClient;
+  begin.account_name = "synthetic_account";
+  begin.encrypted_password = "c3ludGhldGlj";
+  begin.encryption_timestamp = 1700000000000000ULL;
+  ExpectGoldenEncode(root + "/credentials_request.pb", begin);
+
+  auth::BeginAuthSessionViaCredentialsResponse session;
+  assert(auth::Decode(ReadFile(root + "/credentials_response.pb"), &session).ok());
+  assert(session.client_id == 0x0102030405060708ULL);
+  assert(session.request_id == std::vector<std::uint8_t>({0x10, 0x20, 0x30, 0x40, 0x50}));
+  assert(session.interval == 0.1f);
+  assert(session.allowed_confirmations.size() == 2);
+  assert(session.allowed_confirmations[0].confirmation_type == auth::GuardType::kDeviceConfirmation);
+  assert(session.allowed_confirmations[1].confirmation_type == auth::GuardType::kEmailCode);
+  assert(session.allowed_confirmations[1].associated_message == "example.invalid");
+  assert(session.steam_id == 76561197960287930ULL);
+  assert(session.weak_token == "synthetic.weak.token");
+  assert(session.extended_error_message == "synthetic extended error");
+
+  auth::UpdateAuthSessionWithSteamGuardCodeRequest code;
+  code.client_id = 0x0102030405060708ULL;
+  code.steam_id = 76561197960287930ULL;
+  code.code = "AB12C";
+  code.code_type = auth::GuardType::kEmailCode;
+  ExpectGoldenEncode(root + "/guard_code_request.pb", code);
+
+  // steamid is a varint in this response (fixed64 in the guard code request).
+  const std::vector<std::uint8_t> fixed_steam_id = {0x29, 1, 0, 0, 0, 0, 0, 0, 0};
+  assert(auth::Decode(fixed_steam_id, &session).error == proto::DecodeError::kWrongWireType);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -164,6 +208,7 @@ int main(int argc, char** argv) {
   TestDecodeFailureDoesNotPublishPartialSecrets();
   TestNestedDepthLimitIsEnforced(root);
   TestOptionalSchemaFieldsKeepPresence();
+  TestCredentialMessages(root);
   std::puts("auth_messages_test passed");
   return 0;
 }

@@ -13,6 +13,7 @@ These are compiled into Playden's PS5 package (`FAKE77031`) or copied into it.
 | ps5-homebrew-ui | fork `0a6fb4b` | GPL-3.0 | [blackbearreloaded/ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui), our fork in `third_party/ps5-homebrew-ui` |
 | ps5-opengl (`libPS5OpenGL`) | 1.0.0, fork `7234923` | GPL-3.0 | [blackbearreloaded/ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl), our fork in `third_party/ps5-opengl` |
 | ps5-native-app-boilerplate (build tools and `libc.prx`) | `f98de73` | GPL-3.0 | [blackbearreloaded/ps5-native-app-boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate) |
+| ProsperoStore's system keyboard (adapted in `src/platform/ps5/system_keyboard.cpp` and `common_dialog_stub.cpp`) | `f73ec17` | GPL-3.0 | [blackbearreloaded/ProsperoStore](https://github.com/blackbearreloaded/ProsperoStore) |
 | ps5-payload-sdk | v0.43 (v0.42 for the root helper) | GPL-3.0 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) |
 | PS5-Lapy-JB-Daemon (root helper, `lapy.elf`) | fork `66ab4f1` | MIT, Copyright (c) 2026 Arksama (Team PHU) | [mpereiraesaa/PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon), our fork in `third_party/PS5-Lapy-JB-Daemon` |
 | curl | 8.22.0, with a PS5 non-blocking patch | curl license (MIT-style) | [curl.se](https://curl.se/) |

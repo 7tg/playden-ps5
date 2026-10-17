@@ -289,7 +289,219 @@ void Restoration() {
   }
 }
 }
+// Password sign-in. The modulus is synthetic: any odd 2048-bit value encrypts.
+const std::string kModulus = "c" + std::string(510, '3') + "5";
+HttpResponse Key(std::uint64_t timestamp = 1700000000000000ULL) {
+  proto::Writer w; w.AddString(1, kModulus); w.AddString(2, "010001"); w.AddVarint(3, timestamp);
+  return Reply(w);
+}
+HttpResponse BeginCredentials(std::vector<std::pair<int, std::string>> confirmations, float interval = 0.1F) {
+  proto::Writer w; w.AddVarint(1, 123); w.AddString(2, "synthetic-request");
+  std::uint32_t bits; std::memcpy(&bits, &interval, sizeof(bits)); w.AddFixed32(3, bits);
+  for (const auto& [type, message] : confirmations) {
+    proto::Writer c; c.AddVarint(1, static_cast<std::uint64_t>(type)); if (!message.empty()) c.AddString(2, message);
+    w.AddMessage(4, c);
+  }
+  w.AddVarint(5, 76561198000000001ULL);
+  return Reply(w);
+}
+HttpResponse Empty(int result = 1) { proto::Writer w; return Reply(w, result); }
+// The protobuf bytes a request carried, from its query string (GET) or form body (POST).
+std::string Sent(const HttpRequest& request) {
+  std::string form = request.method == HttpMethod::kGet ? request.url.substr(request.url.find('?') + 1)
+                                                        : std::string(request.body.begin(), request.body.end());
+  form = form.substr(std::strlen("input_protobuf_encoded="));
+  std::string b64;
+  for (std::size_t i = 0; i < form.size(); ++i) {
+    if (form[i] == '%') { const auto hex = form.substr(i + 1, 2); b64 += hex == "2B" ? '+' : hex == "2F" ? '/' : '='; i += 2; }
+    else b64 += form[i];
+  }
+  const std::string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out; unsigned bits = 0, count = 0;
+  for (char c : b64) {
+    if (c == '=') break;
+    bits = (bits << 6) | static_cast<unsigned>(alphabet.find(c)); count += 6;
+    if (count >= 8) { count -= 8; out += static_cast<char>((bits >> count) & 0xff); }
+  }
+  return out;
+}
+struct Guard {
+  std::vector<GuardPrompt> prompts;
+  std::deque<std::optional<std::string>> codes;
+  GuardPromptCallback Prompt() { return [this](const GuardPrompt& p) { prompts.push_back(p); }; }
+  GuardCodeSource Code() {
+    return [this]() -> std::optional<std::string> {
+      if (codes.empty()) return std::nullopt;
+      auto c = codes.front(); codes.pop_front(); return c;
+    };
+  }
+};
+AuthResult SignIn(Fixture& f, Guard& g, std::string* password_after = nullptr) {
+  AuthClient c(f.Hooks());
+  playden::steam::Credentials credentials{"synthetic_account", "hunter2-synthetic"};
+  auto r = c.AuthenticateCredentials(credentials, f.cancel, g.Prompt(), g.Code());
+  if (password_after) *password_after = credentials.password;
+  return r;
+}
+constexpr int kDeviceConfirmation = 4, kEmailCode = 2, kDeviceCode = 3;
+void CredentialsWithoutGuard() {
+  Fixture f; Guard g; std::string left = "?";
+  f.replies = {Key(), BeginCredentials({}), Success()};
+  auto r = SignIn(f, g, &left);
+  assert(r.error == AuthError::kNone && r.session && r.session->steam_id == 76561198000000001ULL);
+  assert(left.empty() && g.prompts.empty() && f.requests.size() == 3);
+  const auto& key = f.requests[0];
+  assert(key.method == HttpMethod::kGet && key.body.empty());
+  assert(key.url.rfind("https://api.steampowered.com/IAuthenticationService/GetPasswordRSAPublicKey/v1/?input_protobuf_encoded=", 0) == 0);
+  assert(Sent(key).find("synthetic_account") != std::string::npos);
+  const auto& begin = f.requests[1];
+  assert(begin.method == HttpMethod::kPost &&
+         begin.url == "https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1/");
+  const auto sent = Sent(begin);
+  assert(sent.find("synthetic_account") != std::string::npos && sent.find("Playden (PS5)") != std::string::npos);
+  // Only the encrypted password goes out.
+  for (const auto& request : f.requests) {
+    assert(Sent(request).find("hunter2-synthetic") == std::string::npos);
+    assert(request.url.find("hunter2") == std::string::npos);
+  }
+  assert(f.waits == std::vector<std::uint32_t>({1000}));
+}
+void CredentialsEmailCode() {
+  Fixture f; Guard g;
+  g.codes = {std::nullopt, std::string("WRONG"), std::nullopt, std::string("AB12C")};
+  f.replies = {Key(), BeginCredentials({{kEmailCode, "example.invalid"}}), Empty(65), Empty(), Success()};
+  auto r = SignIn(f, g);
+  assert(r.error == AuthError::kNone && r.session);
+  assert(g.prompts.size() == 2);
+  assert(g.prompts[0].kind == GuardPromptKind::kEmailCode && g.prompts[0].email_domain == "example.invalid" &&
+         !g.prompts[0].code_rejected);
+  assert(g.prompts[1].kind == GuardPromptKind::kEmailCode && g.prompts[1].code_rejected &&
+         g.prompts[1].email_domain == "example.invalid");
+  // No polling while it waits for a code: one check, then the wrong code, then a check, the right code and a poll.
+  assert(f.waits == std::vector<std::uint32_t>({250, 250, 1000}));
+  assert(f.requests.size() == 5);
+  assert(f.requests[2].url.find("UpdateAuthSessionWithSteamGuardCode") != std::string::npos);
+  const auto update = Sent(f.requests[3]);
+  assert(update.find("AB12C") != std::string::npos && update.back() == kEmailCode);
+}
+void CredentialsAuthenticatorCode() {
+  Fixture f; Guard g; g.codes = {std::string("XY34Z")};
+  f.replies = {Key(), BeginCredentials({{kDeviceCode, ""}}), Empty(), Success()};
+  auto r = SignIn(f, g);
+  assert(r.error == AuthError::kNone);
+  assert(g.prompts.size() == 1 && g.prompts[0].kind == GuardPromptKind::kAuthenticatorCode &&
+         g.prompts[0].email_domain.empty());
+  const auto update = Sent(f.requests[2]);
+  assert(update.find("XY34Z") != std::string::npos && update.back() == kDeviceCode);
+  // A code Steam already took (DuplicateRequest) is accepted as well.
+  Fixture d; Guard dg; dg.codes = {std::string("XY34Z")};
+  d.replies = {Key(), BeginCredentials({{kDeviceCode, ""}}), Empty(29), Success()};
+  assert(SignIn(d, dg).error == AuthError::kNone);
+}
+void CredentialsApproval() {
+  {
+    Fixture f; Guard g;
+    f.replies = {Key(), BeginCredentials({{kDeviceConfirmation, ""}, {kDeviceCode, ""}}), Empty(), Success()};
+    auto r = SignIn(f, g);
+    assert(r.error == AuthError::kNone);
+    assert(g.prompts.size() == 1 && g.prompts[0].kind == GuardPromptKind::kApproval && g.prompts[0].code_allowed &&
+           g.prompts[0].code_kind == GuardPromptKind::kAuthenticatorCode);
+    assert(f.waits == std::vector<std::uint32_t>({1000, 1000}) && f.requests.size() == 4);
+  }
+  {
+    // Approval offered, a code typed instead after one poll.
+    Fixture f; Guard g; g.codes = {std::nullopt, std::string("XY34Z")};
+    f.replies = {Key(), BeginCredentials({{kDeviceConfirmation, ""}, {kDeviceCode, ""}}), Empty(), Empty(), Success()};
+    auto r = SignIn(f, g);
+    assert(r.error == AuthError::kNone && f.requests.size() == 5);
+    assert(f.requests[3].url.find("UpdateAuthSessionWithSteamGuardCode") != std::string::npos);
+  }
+  {
+    // Approval only, without a code: email domain shown for an email confirmation.
+    Fixture f; Guard g; g.codes = {std::string("IGNORED")};
+    f.replies = {Key(), BeginCredentials({{5, "example.invalid"}}), Success()};
+    assert(SignIn(f, g).error == AuthError::kNone && f.requests.size() == 3);
+    assert(g.prompts.size() == 1 && g.prompts[0].kind == GuardPromptKind::kApproval && !g.prompts[0].code_allowed &&
+           g.prompts[0].email_domain == "example.invalid");
+  }
+}
+void CredentialsFailures() {
+  for (auto [result, expected] : {std::pair{5, AuthError::kInvalidPassword}, std::pair{84, AuthError::kRateLimited},
+                                  std::pair{63, AuthError::kSignInRefused}, std::pair{27, AuthError::kSignInTimedOut}}) {
+    Fixture f; Guard g; std::string left = "?";
+    f.replies = {Key(), Empty(result)};
+    assert(SignIn(f, g, &left).error == expected && left.empty() && g.prompts.empty());
+    Fixture k; Guard kg; k.replies = {Empty(result)};
+    assert(SignIn(k, kg, &left).error == expected && left.empty());
+  }
+  {
+    Fixture f; Guard g; std::string left = "?";
+    auto bad = Key(); bad.body = {0xff}; f.replies = {bad};
+    assert(SignIn(f, g, &left).error == AuthError::kProtocol && left.empty());
+    proto::Writer w; w.AddString(1, "zz"); w.AddString(2, "010001"); w.AddVarint(3, 1);
+    Fixture h; h.replies = {Reply(w)}; assert(SignIn(h, g, &left).error == AuthError::kProtocol && h.requests.size() == 1);
+  }
+  {
+    // A guard type Playden cannot answer (machine token) refuses the sign-in.
+    Fixture f; Guard g; f.replies = {Key(), BeginCredentials({{6, ""}})};
+    assert(SignIn(f, g).error == AuthError::kSignInRefused && g.prompts.empty());
+  }
+  {
+    // A wrong code that Steam refuses differently ends the sign-in.
+    Fixture f; Guard g; g.codes = {std::string("AB12C")};
+    f.replies = {Key(), BeginCredentials({{kEmailCode, "example.invalid"}}), Empty(84)};
+    assert(SignIn(f, g).error == AuthError::kRateLimited);
+  }
+  {
+    // Polls that Steam stops (session expired) time out.
+    Fixture f; Guard g; f.replies = {Key(), BeginCredentials({{kDeviceConfirmation, ""}}), Empty(9)};
+    assert(SignIn(f, g).error == AuthError::kSignInTimedOut);
+  }
+  {
+    Fixture f; Guard g; std::string left = "?";
+    AuthClient c(f.Hooks());
+    playden::steam::Credentials empty{"synthetic_account", ""};
+    assert(c.AuthenticateCredentials(empty, f.cancel, g.Prompt(), g.Code()).error == AuthError::kProtocol);
+    playden::steam::Credentials nameless{"", "secret"};
+    assert(c.AuthenticateCredentials(nameless, f.cancel, g.Prompt(), g.Code()).error == AuthError::kProtocol &&
+           nameless.password.empty() && f.requests.empty());
+  }
+}
+void CredentialsCancelAndDeadline() {
+  {
+    Fixture f; Guard g; std::string left = "?"; f.cancel = true;
+    assert(SignIn(f, g, &left).error == AuthError::kCanceled && f.requests.empty() && left.empty());
+  }
+  {
+    Fixture f; Guard g; f.cancel_on_response = true; f.replies = {Key()};
+    assert(SignIn(f, g).error == AuthError::kCanceled && f.requests.size() == 1);
+  }
+  for (int guard : {kEmailCode, kDeviceConfirmation}) {
+    // Waiting for a code, or polling for approval.
+    Fixture f; Guard g; f.cancel_on_wait = true; f.replies = {Key(), BeginCredentials({{guard, ""}})};
+    assert(SignIn(f, g).error == AuthError::kCanceled && f.requests.size() == 2 && g.prompts.size() == 1);
+  }
+  {
+    // A code never arrives: the sign-in times out after ten minutes without polling Steam.
+    Fixture f; Guard g; f.replies = {Key(), BeginCredentials({{kEmailCode, "example.invalid"}})};
+    assert(SignIn(f, g).error == AuthError::kSignInTimedOut && f.requests.size() == 2 && f.clock >= 600000);
+  }
+  {
+    // Approval never arrives.
+    Fixture f; Guard g; f.replies = {Key(), BeginCredentials({{kDeviceConfirmation, ""}})};
+    for (int i = 0; i < 700; ++i) f.replies.push_back(Empty());
+    assert(SignIn(f, g).error == AuthError::kSignInTimedOut && f.clock >= 600000 && f.requests.size() < 700);
+  }
+  {
+    // The approved account must be the one that signed in.
+    Fixture f; Guard g; f.replies = {Key(), BeginCredentials({}), Success(Token("76561198000000002"), Token("76561198000000002"))};
+    assert(SignIn(f, g).error == AuthError::kProtocol);
+  }
+}
+
 int main() {
+  CredentialsWithoutGuard(); CredentialsEmailCode(); CredentialsAuthenticatorCode(); CredentialsApproval();
+  CredentialsFailures(); CredentialsCancelAndDeadline();
   QrSuccessAndReplacement(); FailuresAndDeadline(); HeadersAndTokens(); DeadlineAndCancellationEdges(); Restoration(); AccountNames(); FailedReplacementKeepsSavedSession();
   std::cout << "auth_client_test passed\n";
 }

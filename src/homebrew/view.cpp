@@ -1192,6 +1192,42 @@ class Render::Impl
                  20.0F, kBackground.with_alpha(0.78F), gfx::Align::center);
     }
 
+    // Beside the account name and password form: what the current step waits for, and what Playden keeps.
+    void draw_password_panel(const State &state)
+    {
+        const SignInForm &form = state.sign_in;
+        const gfx::Rect panel{1036.0F, 224.0F, 640.0F, 430.0F};
+        scene_.rounded_rect(panel, 14.0F, kPanel);
+        const char *title = "Account name and password";
+        const char *detail = "Playden sends your password to Steam, encrypted, and keeps only Steam's sign-in token. "
+                             "It never saves your password.";
+        if (form.step == SignInStep::Submitting)
+        {
+            title = "Signing in";
+            detail = "Waiting for Steam to check your account name and password.";
+        }
+        else if (form.step == SignInStep::Approval && !form.code_entry)
+        {
+            title = "Check your phone";
+            detail = form.code_allowed ? "Approve the sign-in in the Steam Mobile app, or type its code instead."
+                                       : "Approve the sign-in when Steam asks you to.";
+        }
+        else if (form.step != SignInStep::Password)
+        {
+            title = "Steam Guard";
+            detail = "Steam asks for a code to confirm that it is you. Codes have five letters or digits.";
+        }
+        ui::text(scene_, fonts_.display, title, panel.x + 48.0F, panel.y + 96.0F, 40.0F, kText);
+        ui::paragraph(scene_, fonts_.regular, detail, panel.x + 48.0F, panel.y + 156.0F, 25.0F,
+                      panel.w - 96.0F, 36.0F, kSecondary, 6);
+        if (state.simulation_mode)
+        {
+            scene_.rounded_rect({1185.0F, 678.0F, 292.0F, 42.0F}, 21.0F, kAmber.with_alpha(0.18F));
+            ui::text(scene_, fonts_.semibold, "SIMULATED SIGN-IN", 1331.0F, 706.0F, 18.0F, kAmber,
+                     gfx::Align::center);
+        }
+    }
+
     void draw_sign_in(ui::Canvas &, const ViewData &view, const State &state)
     {
         section_label("Connect Steam", 96.0F, 78.0F);
@@ -1200,6 +1236,11 @@ class Render::Impl
         constexpr float qr_x = 1116.0F;
         constexpr float qr_y = 224.0F;
         constexpr int qr_side = 430;
+        if (state.sign_in.step != SignInStep::Qr && state.account.authentication != AuthState::Syncing)
+        {
+            draw_password_panel(state);
+            return;
+        }
         if (state.simulation_mode && state.account.challenge_url.empty()) {
             draw_simulated_qr(qr_x, qr_y, static_cast<float>(qr_side));
         } else if (state.account.authentication == AuthState::Waiting &&
@@ -2918,7 +2959,9 @@ class Render::Impl
         ui::Canvas overlay{overlay_, fonts_, renderer_.glass_texture(), clock_};
         if (state.editor.active)
         {
-            draw_editor_overlay(overlay, state);
+            // The PS5's own keyboard is on screen instead.
+            if (!state.editor.system_keyboard)
+                draw_editor_overlay(overlay, state);
             return;
         }
         if (!state.navigation.modals.empty())
@@ -2957,6 +3000,29 @@ class Render::Impl
         }
     }
 
+    // A password's keyboard: the bottom row gains a Show (or Hide) key between space and backspace,
+    // where the simulation expects it.
+    static std::vector<ui::KeyboardLayout> secret_layouts(bool revealed)
+    {
+        const auto key = [](ui::KeyKind kind, int span) {
+            ui::KeyboardKey result;
+            result.kind = kind;
+            result.span = span;
+            if (kind == ui::KeyKind::space)
+                result.text = " ";
+            return result;
+        };
+        ui::KeyboardKey show;
+        show.label = revealed ? "Hide" : "Show";
+        ui::KeyboardLayout letters = ui::KeyboardLayout::letters();
+        letters.rows.back() = {key(ui::KeyKind::shift, 2), key(ui::KeyKind::layout, 1), key(ui::KeyKind::space, 2), show,
+                               key(ui::KeyKind::backspace, 2), key(ui::KeyKind::done, 2)};
+        ui::KeyboardLayout symbols = ui::KeyboardLayout::symbols();
+        symbols.rows.back() = {key(ui::KeyKind::layout, 2), key(ui::KeyKind::space, 3), show,
+                               key(ui::KeyKind::backspace, 2), key(ui::KeyKind::done, 2)};
+        return {letters, symbols};
+    }
+
     void draw_editor_overlay(ui::Canvas &canvas, const State &state)
     {
         overlay_.rounded_rect({0.0F, 0.0F, kWidth, kHeight}, 0.0F, gfx::Color::rgb(0x000000, 0.68F));
@@ -2966,16 +3032,25 @@ class Render::Impl
                  476.0F, 188.0F, 46.0F, kText);
         ui::Painter painter(overlay_, fonts_, theme_, renderer_.glass_texture());
         const gfx::Rect field{476.0F, 232.0F, 968.0F, 76.0F};
-        painter.field(field, state.editor.value, false,
+        const bool masked = state.editor.secret && !state.editor.revealed;
+        const std::string shown = masked ? mask_secret(state.editor.value) : state.editor.value;
+        painter.field(field, shown, false,
                       {0.0F, 0.0F, false});
         const std::size_t caret = std::min(state.editor.caret, state.editor.value.size());
+        const std::string_view typed = std::string_view(state.editor.value).substr(0, caret);
         const float caret_x = field.x + 22.0F +
-                              fonts_.regular.measure(std::string_view(state.editor.value).substr(0, caret),
-                                                     24.0F);
+                              (masked ? fonts_.regular.measure(mask_secret(typed), 24.0F) : fonts_.regular.measure(typed, 24.0F));
         overlay_.rounded_rect({std::min(caret_x, field.x + field.w - 24.0F), field.y + 18.0F,
                                2.0F, field.h - 36.0F},
                               1.0F, kAccent);
         keyboard_.style.reduced_motion = state.reduced_motion;
+        const int layouts = !state.editor.secret ? 0 : state.editor.revealed ? 2 : 1;
+        if (layouts != keyboard_layouts_)
+        {
+            keyboard_layouts_ = layouts;
+            keyboard_.set_layouts(layouts == 0 ? std::vector<ui::KeyboardLayout>{ui::KeyboardLayout::letters(), ui::KeyboardLayout::symbols()}
+                                               : secret_layouts(layouts == 2));
+        }
         keyboard_.set_length(static_cast<int>(state.editor.value.size()));
         keyboard_.set_shift(state.editor.shifted ? ui::KeyboardShift::lock : ui::KeyboardShift::off);
         keyboard_.set_layout(state.editor.symbols ? 1 : 0);
@@ -3769,6 +3844,7 @@ class Render::Impl
     ui::GridView grid_;
     ui::ListView list_;
     ui::Keyboard keyboard_;
+    int keyboard_layouts_ = 0;  // 0 the default layouts, 1 a password's (Show), 2 a revealed password's (Hide)
     std::array<std::uint32_t, 8> art_{};
     std::uint32_t hero_ = 0;
     std::string cached_qr_url_;

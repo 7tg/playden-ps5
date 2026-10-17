@@ -176,6 +176,35 @@ void TitleStoreSuffixPersistsAndVersionOneStillLoads() {
         "automatic Cloud saves off survives restart");
 }
 
+void SignInMethodPersistsAndVersionThreeOpensQr() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  playden::Preferences preferences;
+  preferences.steam_sign_in_password = true;
+  preferences.cloud_saves_auto = true;
+  Check(store.Save(preferences).ok(), "sign-in method preference saves");
+  const auto saved = storage.Read("preferences.conf");
+  Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()) ==
+                          "version=4\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n",
+        "version 4 format");
+  const auto loaded = store.Load();
+  Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.steam_sign_in_password &&
+            loaded.preferences.cloud_saves_auto,
+        "password sign-in survives restart");
+  const std::string version_three = "version=3\nreduce_motion=1\ntitle_store_suffix=1\ncloud_saves_auto=1\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(version_three.begin(), version_three.end())).ok(),
+        "version 3 fixture is written");
+  const auto three = store.Load();
+  Check(three.status == playden::PreferencesLoadStatus::kLoaded && three.preferences.reduce_motion &&
+            three.preferences.title_store_suffix && three.preferences.cloud_saves_auto &&
+            !three.preferences.steam_sign_in_password,
+        "version 3 preferences load and sign in with the QR code");
+  const std::string bad = "version=4\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=2\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(bad.begin(), bad.end())).ok(), "bad fixture is written");
+  Check(store.Load().status == playden::PreferencesLoadStatus::kDefaultCorrupt, "bad sign-in value is corrupt");
+}
+
 void CorruptPreferencesRestoreDefaultsWithVisibleDiagnostic() {
   TemporaryDirectory directory;
   playden::Storage storage(directory.path());
@@ -219,6 +248,7 @@ int main() {
   PreferencesPersistAcrossStoreInstances();
   CorruptPreferencesRestoreDefaultsWithVisibleDiagnostic();
   TitleStoreSuffixPersistsAndVersionOneStillLoads();
+  SignInMethodPersistsAndVersionThreeOpensQr();
 
   if (failures != 0) {
     std::fprintf(stderr, "%d preference test assertion(s) failed\n", failures);

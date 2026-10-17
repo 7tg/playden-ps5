@@ -130,4 +130,9 @@ std::vector<KeyboardCommand> KeyboardInput::Update(const KeyboardReport& report,
     return commands;
 }
 
+void KeyboardInput::Follow(const KeyboardReport& report) {
+    held_ = report.connected ? report.keys : std::vector<std::uint16_t>{};
+    repeating_ = 0;
+}
+
 }  // namespace playden::homebrew

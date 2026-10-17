@@ -1,6 +1,7 @@
 #include "homebrew/controller.hpp"
 #include "diagnostics/redaction.h"
 #include "steam/install_volumes.h"
+#include "steam/secret.h"
 #include <chrono>
 
 namespace playden::homebrew {
@@ -51,32 +52,91 @@ void Controller::Shutdown() {
   phase_ = Phase::Idle;
   Update(AuthState::SignedOut,{},true);
 }
-void Controller::Update(AuthState state,const std::string& error,bool clear,const std::string& challenge) {
+void Controller::Update(AuthState state,const std::string& error,bool clear,const std::string& challenge,
+                        SignInStep step,const steam::SteamEvent* prompt) {
   AccountUpdate update;
   update.authentication = state;
   update.id = clear ? std::string{} : model_.state().account.id;
   update.display_name = clear ? std::string{} : model_.state().account.display_name;
   update.error = error; update.challenge_url = challenge; update.clear_library = clear;
+  update.sign_in = step;
+  if (prompt) {
+    update.email_domain = prompt->email_domain;
+    update.code_allowed = prompt->code_allowed;
+    update.code_is_email = prompt->code_is_email;
+    update.code_rejected = prompt->kind == steam::SteamEventKind::kCodeRejected;
+  }
   model_.UpdateAccount(std::move(update));
 }
-void Controller::Begin() {
+void Controller::Begin() { Begin(model_.state().sign_in_password); }
+void Controller::Begin(bool password) {
   if (retry_saved_session_) {
     if (phase_ == Phase::Idle) Restore();
     return;
   }
-  if (phase_ == Phase::SignOut || phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization) { begin_after_clear_ = true; return; }
+  if (phase_ == Phase::SignOut || phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization) {
+    begin_after_clear_ = true; begin_password_after_clear_ = password; return;
+  }
   if(!model_.state().account.id.empty() && established_auth_==AuthState::Offline) { Restore();return; }
-  if(!model_.state().account.id.empty() && established_auth_==AuthState::SignedIn) { SignOut(true);return; }
+  if(!model_.state().account.id.empty() && established_auth_==AuthState::SignedIn) {
+    SignOut(true); begin_password_after_clear_ = password; return;
+  }
   if(library_) library_->Reset();
   if(persistence_) persistence_->Reset();
   phase_ = Phase::SignIn;
+  password_sign_in_ = password;
+  if (password) {
+    // The form waits for the player; nothing runs until Sign in.
+    if (request_) service_->Cancel(request_);
+    request_ = 0;
+    Update(AuthState::Waiting,{},true,{},SignInStep::Password);
+    return;
+  }
   request_ = service_->BeginQrSignIn();
   Update(AuthState::Waiting,{},true);
+}
+void Controller::UseMethod(bool password) {
+  if (phase_ != Phase::SignIn) { Begin(password); return; }
+  password_sign_in_ = password;
+  if (password) {
+    if (request_) service_->Cancel(request_);
+    request_ = 0;
+    Update(AuthState::Waiting,{},!reauthenticating_,{},SignInStep::Password);
+  } else {
+    request_ = service_->BeginQrSignIn();
+    Update(AuthState::Waiting,{},!reauthenticating_);
+  }
+}
+void Controller::BeginPassword() {
+  auto credentials = model_.TakeSignInCredentials();
+  if (!credentials) return;
+  const bool ready = phase_ == Phase::SignIn || (phase_ == Phase::Idle && model_.state().account.id.empty());
+  if (!ready || credentials->account_name.empty() || credentials->password.empty()) {
+    steam::ZeroizeSecret(credentials->password);
+    Update(model_.state().account.authentication == AuthState::Failed ? AuthState::Failed : AuthState::Waiting,
+           {},false,{},SignInStep::Password);
+    return;
+  }
+  if (phase_ == Phase::Idle) {
+    if(library_) library_->Reset();
+    if(persistence_) persistence_->Reset();
+  }
+  phase_ = Phase::SignIn;
+  password_sign_in_ = true;
+  request_ = service_->BeginCredentialSignIn(std::move(credentials->account_name), std::move(credentials->password));
+  steam::ZeroizeSecret(credentials->password);
+  Update(AuthState::Waiting,{},!reauthenticating_,{},SignInStep::Submitting);
 }
 void Controller::Reauthenticate() {
   if (phase_ != Phase::Idle || model_.state().account.id.empty()) return;
   reauthenticating_ = true;
   phase_ = Phase::SignIn;
+  password_sign_in_ = model_.state().sign_in_password;
+  if (password_sign_in_) {
+    request_ = 0;
+    Update(AuthState::Waiting,{},false,{},SignInStep::Password);
+    return;
+  }
   request_ = service_->BeginQrSignIn();
   Update(AuthState::Waiting);
 }
@@ -89,6 +149,7 @@ void Controller::SignOut(bool switch_account) {
   if(phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization || phase_==Phase::SignOut) return;
   retry_saved_session_ = false;
   begin_after_clear_ = switch_account;
+  begin_password_after_clear_ = model_.state().sign_in_password;
   request_ = 0;
   if(library_) { phase_=Phase::ClearLibrary;library_->Clear(); }
   else BeginOrganizationClear();
@@ -127,8 +188,17 @@ void Controller::Tick() {
       std::chrono::system_clock::now().time_since_epoch()).count());
   for (const auto action : model_.TakeServiceActions()) {
     switch (action) {
-      case ServiceAction::BeginQr: Begin(); break;
+      case ServiceAction::BeginQr: Begin(false); break;
       case ServiceAction::Reauthenticate: Reauthenticate(); break;
+      case ServiceAction::UsePassword: UseMethod(true); break;
+      case ServiceAction::UseQr: UseMethod(false); break;
+      case ServiceAction::BeginPassword: BeginPassword(); break;
+      case ServiceAction::SubmitCode:
+        if (auto code = model_.TakeGuardCode()) {
+          if (phase_ == Phase::SignIn && password_sign_in_ && request_) service_->SubmitGuardCode(std::move(*code));
+          steam::ZeroizeSecret(*code);
+        }
+        break;
       case ServiceAction::CancelQr:
         // Stop automatic retries while preserving the need to restore the
         // saved account when the user chooses Connect again.
@@ -138,6 +208,14 @@ void Controller::Tick() {
           service_->Cancel(request_);
           reauthenticating_ = false;
           Restore();
+          break;
+        }
+        if (phase_ == Phase::SignIn && !request_) {
+          // The password form, with nothing sent to Steam yet.
+          phase_ = Phase::Idle;
+          if(library_) library_->Reset();
+          if(persistence_) persistence_->Reset();
+          Update(AuthState::Cancelled,{},!retry_saved_session_);
           break;
         }
         if (phase_ == Phase::SignIn || phase_ == Phase::Restore) {
@@ -1227,9 +1305,22 @@ void Controller::Apply(const steam::SteamEvent& event) {
       if (phase_ == Phase::SignIn) Update(AuthState::Waiting,{},false,event.challenge_url);
       break;
     case steam::SteamEventKind::kAwaitingApproval:
-      break;  // The preceding challenge remains on screen; do not erase it.
+      // QR: the preceding challenge remains on screen; do not erase it.
+      if (phase_ == Phase::SignIn && password_sign_in_) Update(AuthState::Waiting,{},false,{},SignInStep::Approval,&event);
+      break;
+    case steam::SteamEventKind::kNeedsEmailCode:
+    case steam::SteamEventKind::kNeedsAuthenticatorCode:
+    case steam::SteamEventKind::kCodeRejected:
+      if (phase_ == Phase::SignIn && password_sign_in_)
+        Update(AuthState::Waiting,{},false,{},
+               event.kind == steam::SteamEventKind::kNeedsEmailCode ||
+                       (event.kind == steam::SteamEventKind::kCodeRejected && event.code_is_email)
+                   ? SignInStep::EmailCode : SignInStep::AuthenticatorCode,
+               &event);
+      break;
     case steam::SteamEventKind::kOfflineSession:
     case steam::SteamEventKind::kAuthenticated: {
+      const bool signed_in = phase_ == Phase::SignIn && event.kind == steam::SteamEventKind::kAuthenticated;
       phase_ = Phase::Idle;
       retry_saved_session_ = false;
       reauthenticating_ = false;
@@ -1240,6 +1331,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       update.id = std::to_string(event.steam_id); update.display_name = event.account_name;
       update.clear_library = model_.state().account.id!=update.id;
       if(!library_) update.error = "Library sync is unavailable. Try again later.";
+      if (signed_in) update.signed_in_with_password = password_sign_in_;
       model_.UpdateAccount(std::move(update));
       if(persistence_) persistence_->Activate(event.steam_id);
       if(runtime_) runtime_->SetSteamAccount(event.account_name, event.steam_id);
@@ -1254,7 +1346,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       if(runtime_) runtime_->SetSteamAccount({}, 0);
       const bool begin = begin_after_clear_; begin_after_clear_ = false;
       Update(AuthState::SignedOut,{},true);
-      if (begin) Begin();
+      if (begin) Begin(begin_password_after_clear_);
       break;
     }
     case steam::SteamEventKind::kCanceled:
@@ -1262,6 +1354,12 @@ void Controller::Apply(const steam::SteamEvent& event) {
       if (reauthenticating_) { reauthenticating_ = false; Restore(); break; }
       Update(AuthState::Cancelled,{},!retry_saved_session_); break;
     case steam::SteamEventKind::kFailure: {
+      if (reauthenticating_ && phase_ == Phase::SignIn && password_sign_in_ && event.error != steam::AuthError::kCanceled) {
+        // A refused password (or code) is worth showing: the form stays, and Cancel returns to the saved sign-in.
+        request_ = 0;
+        Update(AuthState::Failed,diagnostics::AuthMessage(event.error),false,{},SignInStep::Password);
+        break;
+      }
       if (reauthenticating_ && phase_ == Phase::SignIn) {
         // The new QR sign-in failed or expired: keep using the saved one.
         reauthenticating_ = false;
@@ -1271,6 +1369,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       }
       const bool restoring = phase_ == Phase::Restore;
       const bool clearing = phase_ == Phase::SignOut;
+      const bool password = phase_ == Phase::SignIn && password_sign_in_;
       phase_ = Phase::Idle; begin_after_clear_ = false;
       if (restoring && event.error == steam::AuthError::kPersistence) {
         // A busy/private storage probe is not a revoked Steam credential. Keep
@@ -1293,7 +1392,8 @@ void Controller::Apply(const steam::SteamEvent& event) {
       }
       else if (event.error == steam::AuthError::kCanceled) Update(AuthState::Cancelled,{},true);
       else if (event.error == steam::AuthError::kExpired) Update(AuthState::Expired,diagnostics::AuthMessage(event.error),true);
-      else Update(AuthState::Failed,diagnostics::AuthMessage(event.error),true);
+      else Update(AuthState::Failed,diagnostics::AuthMessage(event.error),true,{},
+                  password ? SignInStep::Password : SignInStep::Qr);
       break;
     }
   }

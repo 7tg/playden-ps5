@@ -1,6 +1,7 @@
 #pragma once
 
 #include "steam/auth_backend.h"
+#include "steam/backend/auth_messages.h"
 #include "steam/backend/http_client.h"
 #include <functional>
 #include <memory>
@@ -44,10 +45,20 @@ class AuthClient final : public AuthBackend {
                             const ChallengeCallback& challenge) override;
   AuthResult Restore(const StoredSession& session,
                      const std::atomic<bool>& cancel) override;
+  AuthResult AuthenticateCredentials(Credentials& credentials, const std::atomic<bool>& cancel,
+                                     const GuardPromptCallback& prompt, const GuardCodeSource& code) override;
  private:
+  // get: the message goes in the query string (GetPasswordRSAPublicKey); otherwise it is the form body.
   AuthError Post(const char* method, const std::vector<std::uint8_t>& message,
                  const std::atomic<bool>& cancel, std::uint32_t timeout_ms,
-                 bool restoring, std::vector<std::uint8_t>* body);
+                 bool restoring, std::vector<std::uint8_t>* body, bool get = false);
+  // One PollAuthSessionStatus round. Updates client_id when Steam replaces it.
+  AuthError Poll(std::uint64_t* client_id, const std::vector<std::uint8_t>& request_id,
+                 const std::atomic<bool>& cancel, std::uint32_t timeout_ms,
+                 auth::PollAuthSessionStatusResponse* approval);
+  // Checks the approved tokens and renews a missing access token.
+  AuthResult Approved(auth::PollAuthSessionStatusResponse approval, std::uint64_t started,
+                      std::uint64_t lifetime_ms, const std::atomic<bool>& cancel);
   AuthResult Renew(const StoredSession& session, const std::atomic<bool>& cancel,
                    std::uint32_t timeout_ms, bool restoring);
   AuthResult Restored(const char* path, const StoredSession& before, AuthResult result);

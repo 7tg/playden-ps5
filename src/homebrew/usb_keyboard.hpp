@@ -35,6 +35,9 @@ struct KeyboardCommand {
 class KeyboardInput {
 public:
     std::vector<KeyboardCommand> Update(const KeyboardReport& report, bool editing, std::uint64_t now_us);
+    // Another owner (the system keyboard) reads the keys: remember which are down, so none of them
+    // reads as a new press afterwards, and stop any repeat.
+    void Follow(const KeyboardReport& report);
 
 private:
     std::vector<std::uint16_t> held_;

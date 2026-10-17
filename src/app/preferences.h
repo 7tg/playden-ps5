@@ -14,6 +14,8 @@ struct Preferences {
   // uninstall. Off (the default, so a fresh install never changes Cloud saves unasked) leaves only
   // the Sync actions the player chooses.
   bool cloud_saves_auto = false;
+  // The sign-in screen opens on the account name and password form: the last sign-in used it.
+  bool steam_sign_in_password = false;
 };
 
 enum class PreferencesLoadStatus {

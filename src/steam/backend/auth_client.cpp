@@ -1,5 +1,6 @@
 #include "steam/backend/auth_client.h"
 #include "steam/backend/auth_messages.h"
+#include "steam/backend/password_crypto.h"
 #include "steam/backend/token_fingerprint.h"
 
 #include <algorithm>
@@ -12,6 +13,11 @@
 namespace playden::steam {
 namespace {
 constexpr std::uint64_t kLifetimeMs = 300000;
+// A password sign-in may wait for the player to fetch an email or open the Steam app, twice after a
+// wrong code: it gets longer than a QR code.
+constexpr std::uint64_t kCredentialLifetimeMs = 600000;
+// How often a sign-in that waits only for a typed code checks for one (it does not poll Steam).
+constexpr std::uint32_t kCodeCheckMs = 250;
 constexpr std::size_t kBodyLimit = 65536;
 constexpr std::uint32_t kRequestTimeoutMs = 10000;
 
@@ -91,10 +97,20 @@ bool ValidToken(const std::string& token, std::uint64_t id, std::uint64_t now) {
   const auto claims = InspectTokenClaims(token);
   return claims && claims->steam_id == id && claims->expires_at_unix_seconds > now;
 }
-std::uint32_t Remaining(std::uint64_t start, const AuthClientHooks& hooks) {
+std::uint32_t Remaining(std::uint64_t start, const AuthClientHooks& hooks,
+                        std::uint64_t lifetime = kLifetimeMs) {
   const auto elapsed = hooks.monotonic_ms() - start;
-  return elapsed >= kLifetimeMs ? 0 : static_cast<std::uint32_t>(kLifetimeMs - elapsed);
+  return elapsed >= lifetime ? 0 : static_cast<std::uint32_t>(lifetime - elapsed);
 }
+std::uint32_t PollInterval(float interval) {
+  return static_cast<std::uint32_t>(std::min<double>(kLifetimeMs,
+      std::ceil(std::max<double>(interval, 1.0) * 1000.0)));
+}
+// Clears the password however the sign-in ends.
+struct PasswordWipe {
+  std::string& password;
+  ~PasswordWipe() { ZeroizeSecret(password); }
+};
 }
 
 AuthClient::AuthClient(std::string ca_bundle)
@@ -103,17 +119,23 @@ AuthClient::AuthClient(AuthClientHooks hooks) : hooks_(std::move(hooks)) {}
 
 AuthError AuthClient::Post(const char* method, const std::vector<std::uint8_t>& message,
                           const std::atomic<bool>& cancel, std::uint32_t timeout_ms,
-                          bool restoring, std::vector<std::uint8_t>* body) {
+                          bool restoring, std::vector<std::uint8_t>* body, bool get) {
   body->clear();
   if (cancel.load()) return AuthError::kCanceled;
   if (!timeout_ms) return AuthError::kExpired;
   if (message.size() > kBodyLimit) return AuthError::kProtocol;
   HttpRequest req;
-  req.method = HttpMethod::kPost;
+  req.method = get ? HttpMethod::kGet : HttpMethod::kPost;
   req.url = std::string("https://api.steampowered.com/IAuthenticationService/") + method + "/v1/";
-  req.headers = {{"Content-Type", "application/x-www-form-urlencoded"}, {"User-Agent", "Playden/1.0"}};
   req.timeout_ms = std::min(timeout_ms, kRequestTimeoutMs); req.max_response_bytes = kBodyLimit;
-  const auto form = FormBase64(message); req.body.assign(form.begin(), form.end());
+  const auto form = FormBase64(message);
+  if (get) {
+    req.headers = {{"User-Agent", "Playden/1.0"}};
+    req.url += "?" + form;
+  } else {
+    req.headers = {{"Content-Type", "application/x-www-form-urlencoded"}, {"User-Agent", "Playden/1.0"}};
+    req.body.assign(form.begin(), form.end());
+  }
   HttpResponse response;
   if (hooks_.perform) response = hooks_.perform(req, cancel);
   else {
@@ -174,46 +196,192 @@ AuthResult AuthClient::AuthenticateQr(const std::atomic<bool>& cancel,
   if (!auth::Decode(response,&session).ok() || !session.client_id || session.request_id.empty() ||
       session.request_id.size() > 1024 || !ChallengeValid(session.challenge_url) ||
       !std::isfinite(session.interval) || session.interval <= 0) return Failure(AuthError::kProtocol);
-  const auto interval = static_cast<std::uint32_t>(std::min<double>(kLifetimeMs,
-      std::ceil(std::max<double>(session.interval,1.0) * 1000.0)));
+  const auto interval = PollInterval(session.interval);
   challenge(session.challenge_url);
   while (!cancel.load()) {
     const auto remaining = Remaining(started,hooks_);
     if (!remaining) return Failure(AuthError::kExpired);
     if (!hooks_.wait(std::min(interval, remaining),cancel) || cancel.load()) return Failure(AuthError::kCanceled);
     if (!Remaining(started,hooks_)) return Failure(AuthError::kExpired);
-    auth::PollAuthSessionStatusRequest poll;
-    poll.client_id = session.client_id; poll.request_id = session.request_id;
-    if (!auth::Encode(poll,&request).ok()) return Failure(AuthError::kProtocol);
-    error = Post("PollAuthSessionStatus",request,cancel,Remaining(started,hooks_),false,&response);
+    auth::PollAuthSessionStatusResponse approval;
+    error = Poll(&session.client_id, session.request_id, cancel, Remaining(started,hooks_), &approval);
     if (error != AuthError::kNone) return Failure(error);
     if (!Remaining(started,hooks_)) return Failure(AuthError::kExpired);
-    auth::PollAuthSessionStatusResponse approval;
-    if (!auth::Decode(response,&approval).ok()) return Failure(AuthError::kProtocol);
-    if (approval.new_client_id) {
-      if (!*approval.new_client_id) return Failure(AuthError::kProtocol);
-      session.client_id = *approval.new_client_id;
-    }
     if (approval.new_challenge_url) {
       if (!ChallengeValid(*approval.new_challenge_url)) return Failure(AuthError::kProtocol);
       challenge(*approval.new_challenge_url);
     }
     if (cancel.load()) return Failure(AuthError::kCanceled);
     if (approval.refresh_token.empty()) continue;
-    const auto claims = InspectTokenClaims(approval.refresh_token);
-    const auto now = hooks_.unix_seconds();
-    if (!claims || claims->expires_at_unix_seconds <= now || !AccountNameValid(approval.account_name))
-      return Failure(AuthError::kProtocol);
-    StoredSession stored{claims->steam_id, approval.account_name, std::move(approval.refresh_token),
-                         std::move(approval.access_token), std::nullopt};
-    if (stored.access_token.empty()) {
-      auto renewed = Renew(stored,cancel,Remaining(started,hooks_),false);
-      if (cancel.load()) return Failure(AuthError::kCanceled);
-      if (!Remaining(started,hooks_)) return Failure(AuthError::kExpired);
-      return renewed;
+    return Approved(std::move(approval), started, kLifetimeMs, cancel);
+  }
+  return Failure(AuthError::kCanceled);
+}
+
+AuthError AuthClient::Poll(std::uint64_t* client_id, const std::vector<std::uint8_t>& request_id,
+                          const std::atomic<bool>& cancel, std::uint32_t timeout_ms,
+                          auth::PollAuthSessionStatusResponse* approval) {
+  auth::PollAuthSessionStatusRequest poll;
+  poll.client_id = *client_id; poll.request_id = request_id;
+  std::vector<std::uint8_t> request, response;
+  if (!auth::Encode(poll,&request).ok()) return AuthError::kProtocol;
+  const auto error = Post("PollAuthSessionStatus",request,cancel,timeout_ms,false,&response);
+  if (error != AuthError::kNone) return error;
+  if (!auth::Decode(response,approval).ok()) return AuthError::kProtocol;
+  if (approval->new_client_id) {
+    if (!*approval->new_client_id) return AuthError::kProtocol;
+    *client_id = *approval->new_client_id;
+  }
+  return AuthError::kNone;
+}
+
+AuthResult AuthClient::Approved(auth::PollAuthSessionStatusResponse approval, std::uint64_t started,
+                                std::uint64_t lifetime_ms, const std::atomic<bool>& cancel) {
+  const auto claims = InspectTokenClaims(approval.refresh_token);
+  const auto now = hooks_.unix_seconds();
+  if (!claims || claims->expires_at_unix_seconds <= now || !AccountNameValid(approval.account_name))
+    return Failure(AuthError::kProtocol);
+  StoredSession stored{claims->steam_id, approval.account_name, std::move(approval.refresh_token),
+                       std::move(approval.access_token), std::nullopt};
+  if (stored.access_token.empty()) {
+    auto renewed = Renew(stored,cancel,Remaining(started,hooks_,lifetime_ms),false);
+    if (cancel.load()) return Failure(AuthError::kCanceled);
+    if (!Remaining(started,hooks_,lifetime_ms)) return Failure(AuthError::kExpired);
+    return renewed;
+  }
+  if (!ValidToken(stored.access_token,stored.steam_id,now)) return Failure(AuthError::kProtocol);
+  return {AuthError::kNone,std::move(stored)};
+}
+
+AuthResult AuthClient::AuthenticateCredentials(Credentials& credentials, const std::atomic<bool>& cancel,
+                                               const GuardPromptCallback& prompt, const GuardCodeSource& code) {
+  PasswordWipe wipe{credentials.password};
+  if (cancel.load()) return Failure(AuthError::kCanceled);
+  if (!hooks_.monotonic_ms || !hooks_.unix_seconds || !hooks_.wait || !prompt || !code ||
+      !AccountNameValid(credentials.account_name) || credentials.password.empty())
+    return Failure(AuthError::kProtocol);
+  const auto started = hooks_.monotonic_ms();
+  auto remaining = [&] { return Remaining(started, hooks_, kCredentialLifetimeMs); };
+  // Steam's refusals of the password, the account or the device; the QR code may still work.
+  auto refused = [&](AuthError error) {
+    if (error != AuthError::kRejected) return error == AuthError::kExpired ? AuthError::kSignInTimedOut : error;
+    if (last_eresult_ == 5) return AuthError::kInvalidPassword;
+    if (last_eresult_ == 84) return AuthError::kRateLimited;
+    return AuthError::kSignInRefused;
+  };
+  auth::GetPasswordRsaPublicKeyRequest key_request;
+  key_request.account_name = credentials.account_name;
+  std::vector<std::uint8_t> request, response;
+  if (!auth::Encode(key_request, &request).ok()) return Failure(AuthError::kProtocol);
+  auto error = Post("GetPasswordRSAPublicKey", request, cancel, remaining(), false, &response, true);
+  if (error != AuthError::kNone) return Failure(refused(error));
+  auth::GetPasswordRsaPublicKeyResponse key;
+  if (!auth::Decode(response, &key).ok() || !key.timestamp) return Failure(AuthError::kProtocol);
+  auth::BeginAuthSessionViaCredentialsRequest begin;
+  begin.device_details.device_friendly_name = "Playden (PS5)";
+  begin.account_name = credentials.account_name;
+  begin.encryption_timestamp = key.timestamp;
+  auto encrypted = EncryptPassword(key.publickey_mod, key.publickey_exp, credentials.password);
+  ZeroizeSecret(credentials.password);
+  if (!encrypted) return Failure(AuthError::kProtocol);
+  begin.encrypted_password = std::move(*encrypted);
+  if (!auth::Encode(begin, &request).ok()) return Failure(AuthError::kProtocol);
+  error = Post("BeginAuthSessionViaCredentials", request, cancel, remaining(), false, &response);
+  if (error != AuthError::kNone) return Failure(refused(error));
+  if (!remaining()) return Failure(AuthError::kSignInTimedOut);
+  auth::BeginAuthSessionViaCredentialsResponse session;
+  if (!auth::Decode(response, &session).ok() || !session.client_id || !session.steam_id ||
+      session.request_id.empty() || session.request_id.size() > 1024 ||
+      !std::isfinite(session.interval) || session.interval <= 0) return Failure(AuthError::kProtocol);
+
+  // As the Steam client: approval in the app when offered (a typed code works meanwhile), else a code.
+  bool approval = false, none = session.allowed_confirmations.empty();
+  std::optional<GuardPromptKind> code_kind;
+  std::string email_domain;
+  for (const auto& confirmation : session.allowed_confirmations) {
+    switch (confirmation.confirmation_type) {
+      case auth::GuardType::kNone: none = true; break;
+      case auth::GuardType::kDeviceConfirmation: approval = true; break;
+      case auth::GuardType::kDeviceCode: code_kind = GuardPromptKind::kAuthenticatorCode; break;
+      case auth::GuardType::kEmailCode:
+        if (!code_kind) code_kind = GuardPromptKind::kEmailCode;
+        email_domain = confirmation.associated_message.substr(0, 253);
+        break;
+      case auth::GuardType::kEmailConfirmation:
+        approval = true;
+        if (email_domain.empty()) email_domain = confirmation.associated_message.substr(0, 253);
+        break;
+      default: break;
     }
-    if (!ValidToken(stored.access_token,stored.steam_id,now)) return Failure(AuthError::kProtocol);
-    return {AuthError::kNone,std::move(stored)};
+  }
+  if (!none && !approval && !code_kind) return Failure(AuthError::kSignInRefused);
+  GuardPrompt shown;
+  if (!none) {
+    if (approval) {
+      shown.kind = GuardPromptKind::kApproval;
+      shown.code_allowed = code_kind.has_value();
+      if (code_kind) shown.code_kind = *code_kind;
+    } else {
+      shown.kind = *code_kind;
+    }
+    if (shown.kind == GuardPromptKind::kEmailCode || (shown.kind == GuardPromptKind::kApproval &&
+        (!shown.code_allowed || shown.code_kind == GuardPromptKind::kEmailCode)))
+      shown.email_domain = email_domain;
+    prompt(shown);
+  }
+  // A sign-in that waits only for a typed code polls Steam once the code is accepted.
+  bool polling = none || approval;
+  const auto interval = PollInterval(session.interval);
+  while (!cancel.load()) {
+    if (!remaining()) return Failure(AuthError::kSignInTimedOut);
+    if (code_kind) {
+      if (auto typed = code()) {
+        auth::UpdateAuthSessionWithSteamGuardCodeRequest update;
+        update.client_id = session.client_id;
+        update.steam_id = session.steam_id;
+        update.code = std::move(*typed);
+        update.code_type = *code_kind == GuardPromptKind::kEmailCode ? auth::GuardType::kEmailCode
+                                                                      : auth::GuardType::kDeviceCode;
+        ZeroizeSecret(*typed);
+        const bool usable = !update.code.empty() && update.code.size() <= 16;
+        std::vector<std::uint8_t> code_request;
+        if (usable && !auth::Encode(update, &code_request).ok()) return Failure(AuthError::kProtocol);
+        ZeroizeSecret(update.code);
+        error = usable ? Post("UpdateAuthSessionWithSteamGuardCode", code_request, cancel, remaining(), false, &response)
+                       : AuthError::kRejected;
+        if (usable) std::fill(code_request.begin(), code_request.end(), std::uint8_t{0});
+        // DuplicateRequest (29): Steam already took this code.
+        if (error == AuthError::kNone || (error == AuthError::kRejected && last_eresult_ == 29)) {
+          polling = true;
+        } else if (error == AuthError::kRejected && (!usable || last_eresult_ == 65 || last_eresult_ == 88)) {
+          // A wrong code: the same sign-in asks again.
+          GuardPrompt again;
+          again.kind = *code_kind;
+          again.email_domain = *code_kind == GuardPromptKind::kEmailCode ? email_domain : std::string{};
+          again.code_rejected = true;
+          prompt(again);
+          continue;
+        } else {
+          return Failure(refused(error));
+        }
+      }
+    }
+    const auto left = remaining();
+    if (!left) return Failure(AuthError::kSignInTimedOut);
+    if (!hooks_.wait(std::min(polling ? interval : kCodeCheckMs, left), cancel) || cancel.load())
+      return Failure(AuthError::kCanceled);
+    if (!polling) continue;
+    if (!remaining()) return Failure(AuthError::kSignInTimedOut);
+    auth::PollAuthSessionStatusResponse approved;
+    error = Poll(&session.client_id, session.request_id, cancel, remaining(), &approved);
+    if (error != AuthError::kNone) return Failure(refused(error));
+    if (cancel.load()) return Failure(AuthError::kCanceled);
+    if (approved.refresh_token.empty()) continue;
+    auto result = Approved(std::move(approved), started, kCredentialLifetimeMs, cancel);
+    if (result.error == AuthError::kExpired) result.error = AuthError::kSignInTimedOut;
+    if (result.error == AuthError::kNone && result.session && result.session->steam_id != session.steam_id)
+      return Failure(AuthError::kProtocol);
+    return result;
   }
   return Failure(AuthError::kCanceled);
 }

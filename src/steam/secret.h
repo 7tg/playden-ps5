@@ -1,0 +1,14 @@
+#pragma once
+
+#include <string>
+
+namespace playden::steam {
+
+// Overwrites a secret's bytes before clearing it; std::string::clear() leaves them in memory.
+inline void ZeroizeSecret(std::string& secret) {
+  volatile char* bytes = secret.data();
+  for (std::size_t i = 0; i < secret.size(); ++i) bytes[i] = 0;
+  secret.clear();
+}
+
+}  // namespace playden::steam

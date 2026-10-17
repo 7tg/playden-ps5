@@ -14,7 +14,10 @@ namespace playden::steam {
 using RequestId = std::uint64_t;
 enum class SteamEventKind {
   kChallenge,
-  kAwaitingApproval,
+  kAwaitingApproval,  // QR: the code is shown; password: approve in the Steam app (code_allowed: or type a code)
+  kNeedsEmailCode,
+  kNeedsAuthenticatorCode,
+  kCodeRejected,      // the typed code was wrong; the same sign-in waits for another (code_is_email says which)
   kAuthenticated,
   kOfflineSession,
   kSignedOut,
@@ -29,6 +32,10 @@ struct SteamEvent {
   std::string challenge_url;
   std::uint64_t steam_id = 0;
   std::string account_name;
+  // Password sign-in's Steam Guard prompts.
+  std::string email_domain;
+  bool code_allowed = false;
+  bool code_is_email = false;
 };
 
 // Commands enqueue work and invalidate older results without doing storage or
@@ -41,20 +48,26 @@ class SteamService {
   SteamService(const SteamService&) = delete;
   SteamService& operator=(const SteamService&) = delete;
   RequestId BeginQrSignIn();
+  // The password is moved in and overwritten once the worker has encrypted it, or when the sign-in is
+  // replaced or canceled first.
+  RequestId BeginCredentialSignIn(std::string account_name, std::string password);
+  // A Steam Guard code for the current password sign-in; ignored when none is running.
+  void SubmitGuardCode(std::string code);
   RequestId RestoreSession();
   void Cancel(RequestId request);
   void SignOut();
   std::vector<SteamEvent> Pump(std::size_t max_events);
 
  private:
-  enum class Operation { kBegin, kRestore, kClear };
+  enum class Operation { kBegin, kRestore, kClear, kCredentials };
   struct Job {
     Operation operation;
     RequestId request;
     std::uint64_t generation;
     std::shared_ptr<std::atomic<bool>> cancel;
+    std::shared_ptr<Credentials> credentials;  // kCredentials; wiped when the last copy goes
   };
-  RequestId Submit(Operation operation);
+  RequestId Submit(Operation operation, std::shared_ptr<Credentials> credentials = nullptr);
   bool Current(const Job& job) const;
   void Emit(const Job& job, SteamEvent event);
   void Run();
@@ -66,6 +79,7 @@ class SteamService {
   std::deque<Job> pending_;
   std::shared_ptr<std::atomic<bool>> cancel_;
   std::deque<SteamEvent> events_;
+  std::optional<std::string> guard_code_;  // for the current request only
   RequestId request_ = 0;
   std::uint64_t generation_ = 0;
   bool stopping_ = false;

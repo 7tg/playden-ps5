@@ -945,6 +945,156 @@ void t52_recipe_values_in_game_settings(const std::filesystem::path& fixtures, c
     check(simulation.known_problem(900003), "T52 a refused game shows Known problems");
 }
 
+void type_into(playden::homebrew::Simulation& simulation, const std::string& key, const std::string& text) {
+    activate(simulation, key);
+    check(simulation.state().editor.active, "sign-in field opens the keyboard");
+    simulation.action("clear");
+    simulation.text(text);
+    simulation.action("done");
+}
+
+void t15_password_sign_in(const std::filesystem::path& fixtures, const std::filesystem::path& profile) {
+    using playden::homebrew::SignInStep;
+    playden::homebrew::Simulation simulation(fixtures, profile);
+    simulation.scenario("signed-out");
+    simulation.action("cross");
+    check(simulation.state().sign_in.step == SignInStep::Qr, "T15 the QR code is the default method");
+    check(find_row(simulation, "signin-password-mode") != nullptr, "T15 the QR screen offers the password form");
+    activate(simulation, "signin-password-mode");
+    check(simulation.state().sign_in.step == SignInStep::Password && find_row(simulation, "signin-account") &&
+              find_row(simulation, "signin-password") && find_row(simulation, "signin-qr-mode"),
+          "T15 the password form has its fields and the way back");
+    check(!find_row(simulation, "signin-submit")->enabled, "T15 Sign in waits for both fields");
+    type_into(simulation, "signin-account", "email");
+    check(!find_row(simulation, "signin-submit")->enabled, "T15 Sign in still waits for the password");
+
+    // The password shows as dots in the form, the keyboard and the snapshot; Show reveals it on the keyboard only.
+    activate(simulation, "signin-password");
+    check(simulation.state().editor.secret && !simulation.state().editor.revealed, "T15 the password field is secret");
+    simulation.text("p\xc3\xa4ss");
+    check(simulation.view().subtitle == "\u2022\u2022\u2022\u2022", "T15 the keyboard shows dots");
+    check(simulation.snapshot().find("p\xc3\xa4ss") == std::string::npos &&
+              simulation.snapshot().find("<redacted>") != std::string::npos,
+          "T15 the snapshot redacts the password");
+    for (int i = 0; i < 6; ++i) simulation.action("down");
+    for (int i = 0; i < 9; ++i) simulation.action("left");
+    for (int i = 0; i < 3; ++i) simulation.action("right");
+    simulation.action("cross");
+    check(simulation.state().editor.revealed && simulation.view().subtitle == "p\xc3\xa4ss", "T15 Show reveals the password");
+    simulation.action("cross");
+    check(!simulation.state().editor.revealed, "T15 Hide masks it again");
+    simulation.action("right"); simulation.action("right");
+    check(simulation.state().editor.focus_key == 5, "T15 a password's bottom row has six keys");
+    simulation.action("done");
+    check(find_row(simulation, "signin-password")->value == "\u2022\u2022\u2022\u2022", "T15 the form shows dots");
+    simulation.action("r1");
+    check(simulation.state().navigation.route == playden::homebrew::Route::SignIn &&
+              !simulation.state().sign_in.password.empty(),
+          "T15 R1 does not leave the password form");
+    simulation.action("route:home");
+    check(simulation.state().sign_in.password.empty(), "T15 leaving by route wipes the password");
+    simulation.scenario("signed-out");
+    simulation.action("cross");
+    activate(simulation, "signin-password-mode");
+    check(simulation.state().sign_in.account_name == "email", "T15 the account name stays");
+    type_into(simulation, "signin-password", "p\xc3\xa4ss");
+    check(simulation.snapshot().find("p\xc3\xa4ss") == std::string::npos, "T15 the form's password is not snapshotted");
+    activate(simulation, "signin-password");
+    check(!simulation.state().editor.revealed, "T15 reopening the field masks it");
+    simulation.action("circle");
+    check(find_row(simulation, "signin-submit")->enabled, "T15 Sign in is enabled with both fields");
+
+    // Email code: a wrong code asks again; the right one signs in and is remembered.
+    activate(simulation, "signin-submit");
+    check(simulation.state().sign_in.step == SignInStep::EmailCode && simulation.state().sign_in.password.empty(),
+          "T15 Steam asks for an email code and the password is gone");
+    check(simulation.view().subtitle == "Enter the code sent to …@example.invalid.", "T15 the email prompt names the domain");
+    type_into(simulation, "guard-code", "0 0-0000");
+    check(simulation.state().sign_in.code == "00000", "T15 codes keep five letters or digits");
+    activate(simulation, "guard-submit");
+    check(simulation.state().sign_in.code_rejected && simulation.view().subtitle.rfind("That code was not right.", 0) == 0,
+          "T15 a wrong code shows inline");
+    type_into(simulation, "guard-code", "ab12c");
+    activate(simulation, "guard-submit");
+    check(simulation.state().account.authentication == playden::homebrew::AuthState::Syncing &&
+              simulation.state().sign_in_password,
+          "T15 the right code signs in and remembers the password method");
+
+    // The next sign-in opens the form; the toggle goes back to QR.
+    simulation.scenario("signed-out");
+    simulation.action("focus:startup-connect"); simulation.action("cross");
+    check(simulation.state().sign_in.step == SignInStep::Password, "T15 the remembered method opens");
+    activate(simulation, "signin-qr-mode");
+    check(simulation.state().sign_in.step == SignInStep::Qr &&
+              simulation.state().account.authentication == playden::homebrew::AuthState::Waiting,
+          "T15 Use QR code instead shows the QR code");
+    activate(simulation, "signin-password-mode");
+
+    // Authenticator code and approval with a code allowed.
+    type_into(simulation, "signin-account", "mobile");
+    type_into(simulation, "signin-password", "pw");
+    activate(simulation, "signin-submit");
+    check(simulation.state().sign_in.step == SignInStep::AuthenticatorCode &&
+              simulation.view().subtitle == "Enter the code from the Steam Mobile app.",
+          "T15 Steam asks for the app's code");
+    activate(simulation, "guard-cancel");
+    check(simulation.state().navigation.route == playden::homebrew::Route::Startup, "T15 Cancel leaves the sign-in");
+    simulation.action("focus:startup-connect"); simulation.action("cross");
+    type_into(simulation, "signin-account", "approve");
+    type_into(simulation, "signin-password", "pw");
+    activate(simulation, "signin-submit");
+    check(simulation.state().sign_in.step == SignInStep::Approval && find_row(simulation, "guard-use-code") &&
+              simulation.view().subtitle == "Approve the sign-in in the Steam Mobile app.",
+          "T15 approval waits, with a code allowed");
+    activate(simulation, "guard-use-code");
+    check(find_row(simulation, "guard-code") && simulation.state().navigation.focus_key == "guard-code",
+          "T15 Type a code instead opens the code field");
+
+    // Cancel clears the password; a refused password returns to the form with the reason.
+    simulation.action("circle");
+    simulation.action("focus:startup-connect"); simulation.action("cross");
+    type_into(simulation, "signin-account", "wrong");
+    type_into(simulation, "signin-password", "secret");
+    simulation.action("circle");
+    check(simulation.state().sign_in.password.empty(), "T15 Cancel clears the password");
+    simulation.action("focus:startup-connect"); simulation.action("cross");
+    check(find_row(simulation, "signin-password")->value.empty() &&
+              simulation.state().sign_in.account_name == "wrong",
+          "T15 the form comes back with the name only");
+    type_into(simulation, "signin-password", "secret");
+    activate(simulation, "signin-submit");
+    check(simulation.state().sign_in.step == SignInStep::Password && simulation.state().sign_in.password.empty() &&
+              simulation.view().subtitle.find("did not accept") != std::string::npos,
+          "T15 a refused password shows why");
+}
+
+// The PS5's system keyboard: each opened field is offered once, and its accepted text commits like Done.
+void t16_system_keyboard_text(const std::filesystem::path& fixtures, const std::filesystem::path& profile) {
+    using playden::homebrew::SignInStep;
+    playden::homebrew::Simulation simulation(fixtures, profile);
+    simulation.scenario("signed-out");
+    simulation.action("cross");
+    activate(simulation, "signin-password-mode");
+    activate(simulation, "signin-account");
+    const auto first = simulation.state().editor.serial;
+    simulation.SubmitEditorText("email");
+    check(!simulation.state().editor.active && simulation.state().sign_in.account_name == "email" &&
+              simulation.state().navigation.focus_key == "signin-password",
+          "T16 accepted text commits the field");
+    activate(simulation, "signin-password");
+    check(simulation.state().editor.serial != first && simulation.state().editor.secret,
+          "T16 each field opens with a new serial and says it is secret");
+    simulation.SubmitEditorText("hunter2");
+    check(simulation.state().sign_in.password == "hunter2" && simulation.state().editor.value.empty(),
+          "T16 the password is taken and the editor keeps no copy");
+    activate(simulation, "signin-submit");
+    activate(simulation, "guard-code");
+    simulation.SubmitEditorText("ab 12c9");
+    check(simulation.state().sign_in.code == "AB12C", "T16 codes are normalized from the system keyboard too");
+    simulation.SubmitEditorText("ignored");
+    check(simulation.state().sign_in.code == "AB12C", "T16 text with no open field is ignored");
+}
+
 int main(int argc, char** argv) {
     check(argc == 2, "fixture directory argument is required");
     const std::filesystem::path fixtures(argv[1]);
@@ -987,6 +1137,10 @@ int main(int argc, char** argv) {
     t13_settings_sections_rail(fixtures, profile);
     clean();
     t14_tab_bar_from_the_top_of_a_page(fixtures, profile);
+    clean();
+    t15_password_sign_in(fixtures, profile);
+    clean();
+    t16_system_keyboard_text(fixtures, profile);
     clean();
     public_contract_and_snapshot(fixtures, profile);
     std::error_code error;

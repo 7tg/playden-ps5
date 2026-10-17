@@ -121,6 +121,121 @@ Status Decode(const std::uint8_t* data, std::size_t size,
   return {};
 }
 
+Status Encode(const GetPasswordRsaPublicKeyRequest& message,
+              std::vector<std::uint8_t>* output) {
+  Writer writer;
+  writer.AddString(1, message.account_name);
+  return WriterStatus(writer, output);
+}
+
+Status Decode(const std::uint8_t* data, std::size_t size,
+              GetPasswordRsaPublicKeyResponse* message,
+              proto::DecodeLimits limits) {
+  if (message == nullptr) return {DecodeError::kInvalidArgument, 0};
+  GetPasswordRsaPublicKeyResponse decoded;
+  Reader reader(data, size, limits);
+  Field field;
+  while (reader.Next(&field)) {
+    if (field.number == 1 || field.number == 2) {
+      if (!HasWire(field, WireType::kLengthDelimited))
+        return WrongWire(field);
+      if (field.number == 1)
+        decoded.publickey_mod = field.AsString();
+      else
+        decoded.publickey_exp = field.AsString();
+    } else if (field.number == 3) {
+      if (!HasWire(field, WireType::kVarint)) return WrongWire(field);
+      decoded.timestamp = field.value;
+    }
+  }
+  if (!reader.ok()) return reader.status();
+  *message = std::move(decoded);
+  return {};
+}
+
+Status Encode(const BeginAuthSessionViaCredentialsRequest& message,
+              std::vector<std::uint8_t>* output) {
+  Writer device;
+  EncodeDeviceDetails(message.device_details, &device);
+  Writer writer;
+  writer.AddString(1, message.device_details.device_friendly_name);
+  writer.AddString(2, message.account_name);
+  writer.AddString(3, message.encrypted_password);
+  writer.AddVarint(4, message.encryption_timestamp);
+  writer.AddVarint(5, message.remember_login ? 1 : 0);
+  writer.AddVarint(6, static_cast<std::uint64_t>(message.device_details.platform_type));
+  writer.AddVarint(7, static_cast<std::uint64_t>(message.persistence));
+  writer.AddString(8, message.website_id);
+  writer.AddMessage(9, device);
+  return WriterStatus(writer, output);
+}
+
+Status Decode(const std::uint8_t* data, std::size_t size,
+              BeginAuthSessionViaCredentialsResponse* message,
+              proto::DecodeLimits limits) {
+  if (message == nullptr) return {DecodeError::kInvalidArgument, 0};
+  BeginAuthSessionViaCredentialsResponse decoded;
+  Reader reader(data, size, limits);
+  Field field;
+  while (reader.Next(&field)) {
+    switch (field.number) {
+      case 1:
+      case 5:
+        if (!HasWire(field, WireType::kVarint)) return WrongWire(field);
+        (field.number == 1 ? decoded.client_id : decoded.steam_id) = field.value;
+        break;
+      case 2:
+        if (!HasWire(field, WireType::kLengthDelimited))
+          return WrongWire(field);
+        decoded.request_id.assign(field.data, field.data + field.size);
+        break;
+      case 3: {
+        if (!HasWire(field, WireType::kFixed32)) return WrongWire(field);
+        const std::uint32_t bits = static_cast<std::uint32_t>(field.value);
+        std::memcpy(&decoded.interval, &bits, sizeof(bits));
+        break;
+      }
+      case 4: {
+        if (!HasWire(field, WireType::kLengthDelimited))
+          return WrongWire(field);
+        Reader child;
+        if (!reader.Submessage(field, &child)) return reader.status();
+        AllowedConfirmation confirmation;
+        const Status status = DecodeAllowedConfirmation(&child, &confirmation);
+        if (!status.ok()) return status;
+        decoded.allowed_confirmations.push_back(std::move(confirmation));
+        break;
+      }
+      case 6:
+      case 7:
+      case 8: {
+        if (!HasWire(field, WireType::kLengthDelimited))
+          return WrongWire(field);
+        auto& target = field.number == 6 ? decoded.weak_token
+                     : field.number == 7 ? decoded.agreement_session_url
+                                         : decoded.extended_error_message;
+        target = field.AsString();
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  if (!reader.ok()) return reader.status();
+  *message = std::move(decoded);
+  return {};
+}
+
+Status Encode(const UpdateAuthSessionWithSteamGuardCodeRequest& message,
+              std::vector<std::uint8_t>* output) {
+  Writer writer;
+  writer.AddVarint(1, message.client_id);
+  writer.AddFixed64(2, message.steam_id);
+  writer.AddString(3, message.code);
+  writer.AddVarint(4, static_cast<std::uint64_t>(message.code_type));
+  return WriterStatus(writer, output);
+}
+
 Status Encode(const PollAuthSessionStatusRequest& message,
               std::vector<std::uint8_t>* output) {
   Writer writer;

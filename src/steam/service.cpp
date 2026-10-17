@@ -1,4 +1,5 @@
 #include "steam/service.h"
+#include "steam/secret.h"
 #include <algorithm>
 
 namespace playden::steam {
@@ -31,8 +32,10 @@ SteamService::~SteamService() {
   worker_.join();
 }
 
-RequestId SteamService::Submit(Operation operation) {
+RequestId SteamService::Submit(Operation operation, std::shared_ptr<Credentials> credentials) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (guard_code_) ZeroizeSecret(*guard_code_);
+  guard_code_.reset();
   if (cancel_) cancel_->store(true);
   cancel_ = std::make_shared<std::atomic<bool>>(false);
   active_ = true;
@@ -47,13 +50,27 @@ RequestId SteamService::Submit(Operation operation) {
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
         [](const Job& job) { return job.operation != Operation::kClear; }), pending_.end());
   }
-  pending_.push_back({operation, request_, generation_, cancel_});
+  pending_.push_back({operation, request_, generation_, cancel_, std::move(credentials)});
   wake_.notify_one();
   return request_;
 }
 
 RequestId SteamService::BeginQrSignIn() { return Submit(Operation::kBegin); }
 RequestId SteamService::RestoreSession() { return Submit(Operation::kRestore); }
+RequestId SteamService::BeginCredentialSignIn(std::string account_name, std::string password) {
+  std::shared_ptr<Credentials> credentials(new Credentials{std::move(account_name), std::move(password)},
+                                           [](Credentials* c) { ZeroizeSecret(c->password); delete c; });
+  ZeroizeSecret(password);
+  return Submit(Operation::kCredentials, std::move(credentials));
+}
+void SteamService::SubmitGuardCode(std::string code) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (active_) {
+    if (guard_code_) ZeroizeSecret(*guard_code_);
+    guard_code_ = std::move(code);
+  }
+  ZeroizeSecret(code);
+}
 void SteamService::SignOut() { Submit(Operation::kClear); }
 
 void SteamService::Cancel(RequestId request) {
@@ -63,6 +80,8 @@ void SteamService::Cancel(RequestId request) {
   cancel_->store(true);
   ++generation_;
   events_.clear();
+  if (guard_code_) ZeroizeSecret(*guard_code_);
+  guard_code_.reset();
   pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
       [](const Job& job) { return job.operation != Operation::kClear; }), pending_.end());
   SteamEvent event;
@@ -114,6 +133,7 @@ void SteamService::Run() {
     }
     try { Execute(*job); }
     catch (...) { Emit(*job, Failure(AuthError::kProtocol)); }
+    if (job->credentials) ZeroizeSecret(job->credentials->password);
   }
 }
 
@@ -159,6 +179,29 @@ void SteamService::Execute(const Job& job) {
     restore_identity = loaded.value()->steam_id;
     restore_account_name = loaded.value()->account_name;
     result = backend_.Restore(*loaded.value(), *job.cancel);
+  } else if (job.operation == Operation::kCredentials) {
+    if (!job.credentials) { Emit(job, Failure(AuthError::kProtocol)); return; }
+    result = backend_.AuthenticateCredentials(*job.credentials, *job.cancel,
+        [this, &job](const GuardPrompt& prompt) {
+          SteamEvent event;
+          event.kind = prompt.code_rejected ? SteamEventKind::kCodeRejected
+                     : prompt.kind == GuardPromptKind::kApproval ? SteamEventKind::kAwaitingApproval
+                     : prompt.kind == GuardPromptKind::kEmailCode ? SteamEventKind::kNeedsEmailCode
+                                                                  : SteamEventKind::kNeedsAuthenticatorCode;
+          event.email_domain = prompt.email_domain.substr(0, 253);
+          event.code_allowed = prompt.kind != GuardPromptKind::kApproval || prompt.code_allowed;
+          const auto code_kind = prompt.kind == GuardPromptKind::kApproval ? prompt.code_kind : prompt.kind;
+          event.code_is_email = event.code_allowed && code_kind == GuardPromptKind::kEmailCode;
+          Emit(job, std::move(event));
+        },
+        [this, &job]() -> std::optional<std::string> {
+          std::lock_guard<std::mutex> lock(mutex_);
+          if (stopping_ || job.generation != generation_ || !guard_code_) return std::nullopt;
+          auto code = std::move(*guard_code_);
+          guard_code_.reset();
+          return code;
+        });
+    ZeroizeSecret(job.credentials->password);
   } else {
     result = backend_.AuthenticateQr(*job.cancel, [this, &job](const std::string& url) {
       if (url.empty() || url.size() > 4096) return;

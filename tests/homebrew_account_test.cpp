@@ -55,6 +55,37 @@ class Backend final : public AuthBackend {
     return {error,error == AuthError::kNone ? std::optional<StoredSession>(Session()) : std::nullopt};
   }
   AuthResult Restore(const StoredSession& s,const std::atomic<bool>&) override { return {error,error == AuthError::kNone ? std::optional<StoredSession>(s) : std::nullopt}; }
+  // Password sign-in by account name: "wrong" is refused, "email-user" needs an email code ("WRONG" is
+  // rejected), "approve" waits for approval (or an app code); any other name signs in.
+  std::atomic<int> credential_calls{0};
+  std::atomic<bool> credential_canceled{false};
+  std::mutex seen_mutex;
+  std::string password_seen;
+  AuthResult AuthenticateCredentials(Credentials& c,const std::atomic<bool>& cancel,const GuardPromptCallback& prompt,
+                                     const GuardCodeSource& code) override {
+    ++credential_calls;
+    { std::lock_guard<std::mutex> lock(seen_mutex); password_seen=c.password; }
+    ZeroizeSecret(c.password);
+    if (c.account_name=="wrong") return {AuthError::kInvalidPassword,{}};
+    GuardPrompt shown;
+    if (c.account_name=="approve") { shown.kind=GuardPromptKind::kApproval; shown.code_allowed=true; }
+    else if (c.account_name=="email-user") { shown.kind=GuardPromptKind::kEmailCode; shown.email_domain="example.invalid"; }
+    else return {AuthError::kNone,Session()};
+    prompt(shown);
+    const auto deadline=std::chrono::steady_clock::now()+3s;
+    while (!cancel && !approve && std::chrono::steady_clock::now()<deadline) {
+      if (auto typed=code()) {
+        if (*typed=="WRONG") {
+          GuardPrompt again; again.kind=GuardPromptKind::kEmailCode; again.email_domain="example.invalid"; again.code_rejected=true;
+          prompt(again); continue;
+        }
+        return {AuthError::kNone,Session()};
+      }
+      std::this_thread::sleep_for(1ms);
+    }
+    if (cancel) { credential_canceled=true; return {AuthError::kCanceled,{}}; }
+    return {AuthError::kNone,Session()};
+  }
 };
 class LibraryBackendFixture final : public LibraryBackend {
  public:
@@ -110,6 +141,110 @@ void OpenSettings(Simulation& model) {
 }
 void SignOut(Simulation& model) { OpenSettings(model); Choose(model,"signout-confirm"); Choose(model,"confirm-destructive"); }
 void Connect(Simulation& model) { Choose(model,"connect"); }
+// Opens a sign-in field, types into it and commits it.
+void Type(Simulation& model,const std::string& action,const std::string& text) {
+  Choose(model,action); assert(model.state().editor.active);
+  assert(model.action("clear")); model.text(text); assert(model.action("done")); assert(!model.state().editor.active);
+}
+void PasswordSignIn(Simulation& model,const std::string& account,const std::string& password) {
+  Type(model,"signin-account",account); Type(model,"signin-password",password); Choose(model,"signin-submit");
+}
+void PasswordSignInWithGuardCode() {
+  Simulation model({}, {},ModelMode::Live); Repository repo; Backend backend;
+  Controller controller(model,backend,repo);
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedOut;});
+  // QR first, as before; the row below switches to the password form and stops the QR sign-in.
+  Connect(model); Wait(controller,[&]{return !model.state().account.challenge_url.empty();});
+  assert(model.state().sign_in.step==SignInStep::Qr);
+  Choose(model,"signin-password-mode"); controller.Tick();
+  assert(model.state().sign_in.step==SignInStep::Password && model.state().navigation.focus_key=="signin-account");
+  Wait(controller,[&]{return backend.calls==1;});
+  // Sign in stays disabled until both fields are filled.
+  Type(model,"signin-account","email-user");
+  const auto submit=std::find_if(model.view().rows.begin(),model.view().rows.end(),[](const ViewRow& r){return r.key=="signin-submit";});
+  assert(submit!=model.view().rows.end() && !submit->enabled);
+  Type(model,"signin-password","hunter2-fixture");
+  assert(model.snapshot().find("hunter2")==std::string::npos);
+  Choose(model,"signin-submit");
+  assert(model.state().sign_in.password.empty() && model.state().sign_in.step==SignInStep::Submitting);
+  Wait(controller,[&]{return model.state().sign_in.step==SignInStep::EmailCode;});
+  { std::lock_guard<std::mutex> lock(backend.seen_mutex); assert(backend.password_seen=="hunter2-fixture"); }
+  assert(model.state().sign_in.email_domain=="example.invalid" && model.state().navigation.focus_key=="guard-code");
+  assert(model.view().subtitle=="Enter the code sent to …@example.invalid.");
+  // Codes are five characters, uppercase, from the on-screen or a USB keyboard alike.
+  Type(model,"guard-code","wrong!x"); assert(model.state().sign_in.code=="WRONG");
+  Choose(model,"guard-submit");
+  Wait(controller,[&]{return model.state().sign_in.code_rejected;});
+  assert(model.state().sign_in.code.empty() && model.view().subtitle.rfind("That code was not right.",0)==0);
+  Type(model,"guard-code","ab12c"); Choose(model,"guard-submit");
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedIn;});
+  assert(model.state().sign_in_password && model.ExportPreferences().steam_sign_in_password);
+  assert(repo.Load().value() && backend.credential_calls==1);
+  // After a sign-out, Connect opens the password form without starting a QR sign-in.
+  SignOut(model);
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedOut;});
+  Connect(model); controller.Tick();
+  assert(model.state().navigation.route==Route::SignIn && model.state().sign_in.step==SignInStep::Password);
+  assert(model.state().sign_in.account_name=="email-user" && model.state().navigation.focus_key=="signin-password");
+  std::this_thread::sleep_for(20ms); controller.Tick();
+  assert(backend.calls==1 && model.state().account.authentication==AuthState::Waiting);
+  // A QR sign-in remembers QR again.
+  Choose(model,"signin-qr-mode"); backend.approve=true;
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedIn;});
+  assert(!model.state().sign_in_password && backend.calls==2);
+  controller.Shutdown();
+}
+void PasswordFailuresAndCancel() {
+  Simulation model({}, {},ModelMode::Live); Repository repo; Backend backend;
+  Controller controller(model,backend,repo);
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedOut;});
+  Connect(model); Choose(model,"signin-password-mode"); controller.Tick();
+  // A refused password returns to the form with the reason; the name stays and the password goes.
+  PasswordSignIn(model,"wrong","bad-password");
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::Failed;});
+  assert(model.state().navigation.route==Route::SignIn && model.state().sign_in.step==SignInStep::Password);
+  assert(model.state().sign_in.account_name=="wrong" && model.state().sign_in.password.empty());
+  assert(model.view().subtitle.find("did not accept the account name or password")!=std::string::npos);
+  assert(model.state().navigation.focus_key=="signin-password" && !model.state().sign_in_password);
+  // Approval in the app, with a code allowed; Cancel stops the sign-in and wipes the form.
+  PasswordSignIn(model,"approve","pw");
+  Wait(controller,[&]{return model.state().sign_in.step==SignInStep::Approval;});
+  assert(model.state().sign_in.code_allowed && model.view().subtitle=="Approve the sign-in in the Steam Mobile app.");
+  Choose(model,"guard-use-code");
+  assert(model.state().sign_in.code_entry && model.state().navigation.focus_key=="guard-code");
+  // A wrong typed code keeps the approval: the screen says both still work.
+  Type(model,"guard-code","wrong"); Choose(model,"guard-submit");
+  Wait(controller,[&]{return model.state().sign_in.code_rejected;});
+  assert(model.state().sign_in.step==SignInStep::Approval && model.state().sign_in.code_entry);
+  assert(model.view().subtitle.find("also approve")!=std::string::npos);
+  // Tab switching does not leave the sign-in half done.
+  assert(model.action("r1") && model.state().navigation.route==Route::SignIn);
+  Choose(model,"guard-cancel"); controller.Tick();
+  Wait(controller,[&]{return backend.credential_canceled.load();});
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::Cancelled;});
+  assert(model.state().navigation.route==Route::Startup && model.state().sign_in.password.empty());
+  // Approval arriving from the phone.
+  Connect(model); Choose(model,"signin-password-mode"); controller.Tick();
+  PasswordSignIn(model,"approve","pw");
+  Wait(controller,[&]{return model.state().sign_in.step==SignInStep::Approval;});
+  backend.approve=true;
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedIn;});
+  assert(model.state().sign_in_password);
+  // Signing in again opens the remembered form; a refused password keeps the form, Cancel keeps the account.
+  backend.approve=false;
+  OpenSettings(model); Choose(model,"account"); Choose(model,"account-reauth"); controller.Tick();
+  assert(model.state().sign_in.step==SignInStep::Password && model.state().account.id=="12345");
+  PasswordSignIn(model,"wrong","bad");
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::Failed;});
+  assert(model.state().navigation.route==Route::SignIn && model.state().account.id=="12345");
+  Choose(model,"signin-qr-mode"); controller.Tick();
+  Wait(controller,[&]{return !model.state().account.challenge_url.empty();});
+  assert(model.state().account.id=="12345");
+  Choose(model,"qr-cancel"); controller.Tick();
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedIn;});
+  assert(repo.clears==0 && model.state().account.id=="12345");
+  controller.Shutdown();
+}
 void ChallengeAndCancel() {
   Simulation model({}, {},ModelMode::Live); Repository repo; Backend backend; backend.ignore_cancel=true;
   Controller controller(model,backend,repo);
@@ -366,4 +501,4 @@ void SlowLicenseCheckShowsAfterAFewSeconds() {
   }
   std::filesystem::remove_all(root);
 }
-int main() { SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }
+int main() { PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }

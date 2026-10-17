@@ -78,6 +78,15 @@ int main() {
     CHECK(Typed(input.Update(Keys({0x28}), true, now += 1000000)).empty());
     CHECK(Typed(input.Update(Keys({}), true, now += 20000)).empty());
 
+    // Keys the system keyboard read: Enter held when it closes is not a new press, and a held
+    // letter does not keep repeating.
+    CHECK(Typed(input.Update(Keys({0x07}), true, now += 20000)) == "d");
+    input.Follow(Keys({0x07, 0x28}));
+    CHECK(Typed(input.Update(Keys({0x07, 0x28}), false, now += 1000000)).empty());
+    CHECK(Typed(input.Update(Keys({}), false, now += 20000)).empty());
+    CHECK(Typed(input.Update(Keys({0x28}), false, now += 20000)) == "<cross>");
+    CHECK(Typed(input.Update(Keys({}), false, now += 20000)).empty());
+
     // Elsewhere the keys move around Playden, as in the desktop build.
     CHECK(Typed(input.Update(Keys({0x51}), false, now += 20000)) == "<down>");
     CHECK(Typed(input.Update(Keys({}), false, now += 20000)).empty());

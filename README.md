@@ -5,7 +5,7 @@
 **Play your Steam library's Windows games on a jailbroken PS5.**
 
 Playden is a launcher that runs on the PS5, adapted from [Playden for macOS](https://github.com/leolobato/playden).
-You sign in to Steam with a QR code, browse your library, download games, and play them. The Windows games run through
+You sign in to Steam with a QR code or your account name and password, browse your library, download games, and play them. The Windows games run through
 [prospero-win](https://github.com/mpereiraesaa/prospero-win), a port of Wine to the PS5. Each game gets its own
 private Windows environment and its own tile on the PS5 Home screen.
 
@@ -18,7 +18,9 @@ private Windows environment and its own tile on the PS5 Home screen.
 
 ## Features
 
-- **Steam sign-in with a QR code.** Approve the sign-in in the Steam mobile app. No password typed on the console.
+- **Steam sign-in with a QR code** (approve it in the Steam mobile app), **or with your account name and password.**
+  Steam Guard email codes, Steam Mobile app codes and approval in the app are supported. The sign-in screen opens on
+  the method you used last.
 - **Your whole Steam library.** Search, sort, favorites, collections, ratings and notes, with cover art and store
   details. The library works offline from a cache.
 - **Downloads from Steam.** Queue games and watch progress.
@@ -58,7 +60,8 @@ you sign in:
   does not support third-party clients. We know of no account problems from this, but the risk is yours to accept.
 - **Your Steam session stays on the console.** Playden stores a Steam sign-in token on the PS5, **without encryption**.
   On a jailbroken console, anyone with file access (for example through FTP) can read it. Signing out in Playden
-  deletes the token from the console.
+  deletes the token from the console. If you sign in with your password, Playden sends it to Steam encrypted with
+  Steam's key and never saves it; only the token stays.
 - **It writes to your Steam Cloud saves.** Playden uploads saves after you play. A bug can overwrite good saves with
   older or broken ones. Back up saves you care about. When Playden shows a conflict, read it before you choose.
 - **It needs a jailbroken console with root-level helpers.** A running game can get elevated rights on the console.

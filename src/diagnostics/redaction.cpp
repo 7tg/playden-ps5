@@ -11,6 +11,12 @@ const char* AuthMessage(steam::AuthError error) {
     case steam::AuthError::kCredentialsRevoked: return "The saved Steam session is no longer valid. Sign in again.";
     case steam::AuthError::kPersistence: return "Account storage is unavailable. Retry when storage is available.";
     case steam::AuthError::kNoSession: return "Sign in to Steam to connect your library.";
+    case steam::AuthError::kInvalidPassword:
+      return "Steam did not accept the account name or password. Check them and try again.";
+    case steam::AuthError::kRateLimited:
+      return "Steam is limiting sign-in attempts. Wait a while before you try again, or use the QR code.";
+    case steam::AuthError::kSignInRefused: return "Steam did not allow this sign-in. Try the QR code instead.";
+    case steam::AuthError::kSignInTimedOut: return "The sign-in timed out. Try again.";
   }
   return "Steam sign-in failed.";
 }
@@ -19,6 +25,9 @@ std::string AuthRecord(const steam::SteamEvent& event) {
   switch (event.kind) {
     case steam::SteamEventKind::kChallenge: kind="challenge"; break;
     case steam::SteamEventKind::kAwaitingApproval: kind="awaiting-approval"; break;
+    case steam::SteamEventKind::kNeedsEmailCode: kind="needs-email-code"; break;
+    case steam::SteamEventKind::kNeedsAuthenticatorCode: kind="needs-authenticator-code"; break;
+    case steam::SteamEventKind::kCodeRejected: kind="code-rejected"; break;
     case steam::SteamEventKind::kAuthenticated: kind="authenticated"; break;
     case steam::SteamEventKind::kOfflineSession: kind="offline-session"; break;
     case steam::SteamEventKind::kSignedOut: kind="signed-out"; break;

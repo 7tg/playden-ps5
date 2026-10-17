@@ -58,6 +58,16 @@ function(playden_add_homebrew_ps5_title)
 		file(COPY_FILE "${gl_sdk}/lib/${name}" "${out}/stubs/${name}" ONLY_IF_DIFFERENT)
 		list(APPEND link_stubs "${out}/stubs/${name}")
 	endforeach()
+	# The system keyboard needs sceCommonDialogInitialize, which the SDK has no stub for: a
+	# link-only library named after the system module turns it into an import.
+	set(common_dialog_stub "${out}/stubs/libSceCommonDialog.so")
+	add_custom_command(OUTPUT "${common_dialog_stub}"
+		COMMAND "${CMAKE_CXX_COMPILER}" -O2 -fPIC -fno-exceptions -fno-rtti
+			-c "${CMAKE_SOURCE_DIR}/src/platform/ps5/common_dialog_stub.cpp" -o "${out}/common_dialog_stub.o"
+		COMMAND "${sdk}/bin/prospero-lld" --shared -soname libSceCommonDialog.sprx
+			-o "${common_dialog_stub}" "${out}/common_dialog_stub.o"
+		DEPENDS "${CMAKE_SOURCE_DIR}/src/platform/ps5/common_dialog_stub.cpp" VERBATIM)
+	list(APPEND link_stubs "${common_dialog_stub}")
 
 	add_library(playden_ps5_runtime OBJECT
 		"${boilerplate}/tooling/native/app_crt.cpp"
@@ -76,7 +86,7 @@ function(playden_add_homebrew_ps5_title)
         --wrap=openat --wrap=mkdirat)
 
 	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp src/homebrew/usb_keyboard.cpp src/platform/ps5/title_runtime.cpp
-        src/platform/ps5/native_startup.cpp src/platform/ps5/console_services.cpp
+        src/platform/ps5/native_startup.cpp src/platform/ps5/console_services.cpp src/platform/ps5/system_keyboard.cpp
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/display_egl.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/pad.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/system.cpp")
@@ -151,7 +161,7 @@ function(playden_add_homebrew_ps5_title)
 			${PLAYDEN_STEAM_LINK_ARCHIVES} ${title_database_archives}
 			--end-group --as-needed ${link_stubs}
 		WORKING_DIRECTORY "${out}/link"
-		DEPENDS playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui playden_homebrew_model ${title_database_targets}
+		DEPENDS "${common_dialog_stub}" playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui playden_homebrew_model ${title_database_targets}
 			playden_homebrew_qr playden_homebrew_controller playden_local_session_repository playden_auth_diagnostics
 			playden_homebrew_artwork_cache playden_homebrew_artwork playden_persistence_controller playden_persistence_service playden_preferences playden_library_controller playden_library_service playden_steam_library playden_steam_cm playden_steam_cm_codec playden_depot_codec
 			playden_library playden_self_update playden_miniz playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_diagnostic_log playden_storage playden_native_access playden_managed_directory playden_runtime_steamworks playden_runtime_artifact_hash playden_runtime_settings_storage playden_runtime_private_directories playden_runtime_session_reconciler playden_runtime_launch_service playden_runtime_install_service playden_runtime_installs playden_game_paths

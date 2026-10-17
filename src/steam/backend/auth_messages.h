@@ -28,6 +28,11 @@ enum class GuardType : std::int32_t {
   kLegacyMachineAuth = 7,
 };
 
+enum class SessionPersistence : std::int32_t {
+  kEphemeral = 0,
+  kPersistent = 1,
+};
+
 enum class TokenRenewalType : std::int32_t {
   kNone = 0,
   kAllow = 1,
@@ -56,6 +61,47 @@ struct BeginAuthSessionViaQrResponse {
   float interval = 0;
   std::vector<AllowedConfirmation> allowed_confirmations;
   std::int32_t version = 0;
+};
+
+// Sent as a GET: the key encrypts the account's password for BeginAuthSessionViaCredentials.
+struct GetPasswordRsaPublicKeyRequest {
+  std::string account_name;
+};
+
+struct GetPasswordRsaPublicKeyResponse {
+  std::string publickey_mod;  // hex
+  std::string publickey_exp;  // hex
+  std::uint64_t timestamp = 0;
+};
+
+// The device's friendly name and platform are also sent at the top level, as the Steam client does.
+struct BeginAuthSessionViaCredentialsRequest {
+  DeviceDetails device_details;
+  std::string account_name;
+  std::string encrypted_password;  // base64
+  std::uint64_t encryption_timestamp = 0;
+  bool remember_login = true;
+  SessionPersistence persistence = SessionPersistence::kPersistent;
+  std::string website_id = "Client";
+};
+
+struct BeginAuthSessionViaCredentialsResponse {
+  std::uint64_t client_id = 0;
+  std::vector<std::uint8_t> request_id;
+  float interval = 0;
+  std::vector<AllowedConfirmation> allowed_confirmations;
+  std::uint64_t steam_id = 0;
+  std::string weak_token;
+  std::string agreement_session_url;
+  std::string extended_error_message;
+};
+
+// Its response carries nothing Playden uses; success is the X-EResult header.
+struct UpdateAuthSessionWithSteamGuardCodeRequest {
+  std::uint64_t client_id = 0;
+  std::uint64_t steam_id = 0;
+  std::string code;
+  GuardType code_type = GuardType::kUnknown;
 };
 
 struct PollAuthSessionStatusRequest {
@@ -91,6 +137,21 @@ proto::Status Encode(const BeginAuthSessionViaQrRequest& message,
 proto::Status Decode(const std::uint8_t* data, std::size_t size,
                      BeginAuthSessionViaQrResponse* message,
                      proto::DecodeLimits limits = {});
+
+proto::Status Encode(const GetPasswordRsaPublicKeyRequest& message,
+                     std::vector<std::uint8_t>* output);
+proto::Status Decode(const std::uint8_t* data, std::size_t size,
+                     GetPasswordRsaPublicKeyResponse* message,
+                     proto::DecodeLimits limits = {});
+
+proto::Status Encode(const BeginAuthSessionViaCredentialsRequest& message,
+                     std::vector<std::uint8_t>* output);
+proto::Status Decode(const std::uint8_t* data, std::size_t size,
+                     BeginAuthSessionViaCredentialsResponse* message,
+                     proto::DecodeLimits limits = {});
+
+proto::Status Encode(const UpdateAuthSessionWithSteamGuardCodeRequest& message,
+                     std::vector<std::uint8_t>* output);
 
 proto::Status Encode(const PollAuthSessionStatusRequest& message,
                      std::vector<std::uint8_t>* output);

@@ -12,6 +12,7 @@
 #include "homebrew/storage_sim.hpp"
 #include "steam/install_volumes.h"
 #include "steam/backend/json.h"
+#include "steam/secret.h"
 
 #include <cstring>
 #include <algorithm>
@@ -676,6 +677,25 @@ void Simulation::push_notice(Notice notice) {
 bool Simulation::live_notices_visible() const noexcept {
     return state_.navigation.modals.empty() && !state_.editor.active &&
            state_.navigation.route != Route::Startup && state_.navigation.route != Route::SignIn;
+}
+
+std::string mask_secret(std::string_view value) {
+    std::string masked;
+    for (const char c : value)
+        if ((static_cast<unsigned char>(c) & 0xC0) != 0x80) masked += "\u2022";
+    return masked;
+}
+
+std::optional<SignInCredentials> Simulation::TakeSignInCredentials() {
+    auto credentials = std::move(pending_credentials_);
+    pending_credentials_.reset();
+    return credentials;
+}
+
+std::optional<std::string> Simulation::TakeGuardCode() {
+    auto code = std::move(pending_guard_code_);
+    pending_guard_code_.reset();
+    return code;
 }
 
 std::vector<ServiceAction> Simulation::TakeServiceActions() {
@@ -1501,10 +1521,51 @@ void Simulation::UpdateAccount(AccountUpdate update) {
     state_.account.challenge_expiry = 0;
     state_.library_syncing = update.authentication == AuthState::Syncing;
 
+    if (update.signed_in_with_password && *update.signed_in_with_password != state_.sign_in_password) {
+        state_.sign_in_password = *update.signed_in_with_password;
+        save_profile();
+    }
     if (update.authentication == AuthState::Waiting || update.authentication == AuthState::Expired || update.authentication == AuthState::Failed) {
         state_.navigation.route = Route::SignIn;
-        state_.navigation.focus_key = update.authentication == AuthState::Expired ? "qr-refresh"
-            : update.authentication == AuthState::Failed ? "qr-retry" : "qr-cancel";
+        auto& form = state_.sign_in;
+        if (update.sign_in == SignInStep::Qr) {
+            if (form.step != SignInStep::Qr) clear_sign_in_secrets();
+            form.step = SignInStep::Qr;
+            form.error.clear();
+            set_route_focus(update.authentication == AuthState::Expired ? "qr-refresh"
+                            : update.authentication == AuthState::Failed ? "qr-retry" : "qr-cancel");
+        } else if (update.authentication != AuthState::Waiting) {
+            // A failed password sign-in returns to the form, with the reason and the account name kept.
+            clear_sign_in_secrets();
+            form.step = SignInStep::Password;
+            form.code_entry = false;
+            form.error = state_.account.error;
+            state_.account.error.clear();
+            set_route_focus(form.account_name.empty() ? "signin-account" : "signin-password");
+        } else {
+            // A code typed instead of approving was wrong: approval in the app still works, so say both.
+            const bool approval = update.code_rejected && form.step == SignInStep::Approval && form.code_entry;
+            form.step = approval ? SignInStep::Approval : update.sign_in;
+            form.error.clear();
+            if (form.step == SignInStep::Password) {
+                const auto& focus = state_.editor.active ? state_.editor.opener_focus_key : state_.navigation.focus_key;
+                if (focus.rfind("signin-", 0) != 0 || focus == "signin-cancel")
+                    set_route_focus(form.account_name.empty() ? "signin-account" : "signin-password");
+            } else if (form.step == SignInStep::Submitting) {
+                set_route_focus("signin-cancel");
+            } else {
+                steam::ZeroizeSecret(form.code);
+                form.email_domain = update.email_domain;
+                form.code_allowed = update.code_allowed;
+                form.code_is_email = update.code_is_email;
+                form.code_allowed = form.code_allowed || approval;
+                form.code_entry = approval;
+                form.code_sent = false;
+                form.code_rejected = update.code_rejected;
+                set_route_focus(form.step == SignInStep::Approval && !form.code_entry
+                                    ? (form.code_allowed ? "guard-use-code" : "guard-cancel") : "guard-code");
+            }
+        }
     } else if (update.authentication == AuthState::SignedIn || update.authentication == AuthState::Offline) {
         if (state_.navigation.route == Route::Startup || state_.navigation.route == Route::SignIn) state_.navigation.route = Route::Home;
         state_.navigation.focus_key = state_.games.empty() ? "home-library" : game_key(state_.games.front().id);
@@ -1514,6 +1575,12 @@ void Simulation::UpdateAccount(AccountUpdate update) {
     } else if (update.authentication == AuthState::Restoring) {
         state_.navigation.route = Route::Startup;
         state_.navigation.focus_key = "startup-loading";
+    }
+    if (state_.navigation.route != Route::SignIn) {
+        // Leaving the sign-in screen: a sign-in field still open closes, and nothing secret stays.
+        if (state_.editor.active && state_.editor.opener_focus_key.rfind("signin-", 0) == 0) state_.editor.active = false;
+        if (state_.editor.active && state_.editor.opener_focus_key.rfind("guard-", 0) == 0) state_.editor.active = false;
+        clear_sign_in_secrets();
     }
     rebuild_view();
 }
@@ -1716,7 +1783,7 @@ playden::OrganizationSnapshot Simulation::ExportOrganization() const {
 }
 
 playden::Preferences Simulation::ExportPreferences() const {
-    return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto};
+    return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -1940,6 +2007,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.reduced_motion = loaded.preferences.reduce_motion;
         state_.title_store_suffix = loaded.preferences.title_store_suffix;
         state_.cloud_saves_auto = loaded.preferences.cloud_saves_auto;
+        state_.sign_in_password = loaded.preferences.steam_sign_in_password;
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
     }
@@ -2015,7 +2083,8 @@ bool Simulation::record_live_persistence() {
     const bool preferences_changed = force_preferences_reset_ ||
                                      (after_preferences.reduce_motion != captured_preferences_.reduce_motion ||
                                       after_preferences.title_store_suffix != captured_preferences_.title_store_suffix ||
-                                      after_preferences.cloud_saves_auto != captured_preferences_.cloud_saves_auto);
+                                      after_preferences.cloud_saves_auto != captured_preferences_.cloud_saves_auto ||
+                                      after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password);
 
     if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
         apply_organization_snapshot(captured_organization_);
@@ -2036,6 +2105,7 @@ bool Simulation::record_live_persistence() {
                 state_.reduced_motion = captured_preferences_.reduce_motion;
                 state_.title_store_suffix = captured_preferences_.title_store_suffix;
                 state_.cloud_saves_auto = captured_preferences_.cloud_saves_auto;
+                state_.sign_in_password = captured_preferences_.steam_sign_in_password;
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
                 force_organization_selection_ = false;
@@ -2519,6 +2589,9 @@ bool Simulation::scenario(const std::string& name) {
     } else if (name == "qr-approved") {
         if (state_.account.authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) {
             if (state_.account.id.empty()) { state_.account.id = "fixture-connected"; state_.account.display_name = "Connected fixture account"; }
+            if (state_.sign_in.step != SignInStep::Qr) state_.sign_in_password = true;
+            clear_sign_in_secrets();
+            state_.sign_in.step = SignInStep::Qr;
             state_.account.authentication = AuthState::Syncing;
             state_.navigation.route = Route::SignIn;
             state_.navigation.focus_key = "sync-status";
@@ -2667,7 +2740,8 @@ void Simulation::rebuild_view() {
     if (!rebuilding_overlay_ && uninstall_batch_ && !installed_list_open()) uninstall_batch_.reset();
     const bool has_overlay = state_.editor.active || !state_.navigation.modals.empty();
     if (has_overlay) {
-        const auto editor = state_.editor;
+        // Only the flag is set aside: a copy of the editor would keep a password in memory.
+        const bool editor_active = state_.editor.active;
         const auto modals = state_.navigation.modals;
         const auto focus = state_.navigation.focus_key;
         const int selected_index = state_.navigation.selected_index;
@@ -2682,7 +2756,7 @@ void Simulation::rebuild_view() {
         rebuild_view();
         rebuilding_overlay_ = false;
         route_view_ = view_;
-        state_.editor = editor;
+        state_.editor.active = editor_active;
         state_.navigation.modals = modals;
         state_.navigation.focus_key = focus;
         state_.navigation.selected_index = selected_index;
@@ -2703,7 +2777,7 @@ void Simulation::rebuild_view() {
 
     if (state_.editor.active) {
         view_.title = state_.editor.purpose;
-        view_.subtitle = state_.editor.value;
+        view_.subtitle = state_.editor.secret && !state_.editor.revealed ? mask_secret(state_.editor.value) : state_.editor.value;
         if (state_.editor.purpose == "Search") view_.subtitle += " · " + std::to_string(visible_games().size()) + " results";
         row("keyboard-done", RowKind::Action, "Done", "editor-done");
         row("keyboard-cancel", RowKind::Action, "Cancel", "editor-cancel");
@@ -3305,6 +3379,42 @@ void Simulation::rebuild_view() {
             row("startup-connect", RowKind::Action, "Connect Steam", "connect");
             row("startup-skip", RowKind::Action, "Skip for now", "skip");
         }
+    } else if (state_.navigation.route == Route::SignIn && state_.sign_in.step != SignInStep::Qr &&
+               state_.account.authentication != AuthState::Syncing) {
+        view_.title = "Connect Steam";
+        const auto& form = state_.sign_in;
+        const bool code_step = form.step == SignInStep::EmailCode || form.step == SignInStep::AuthenticatorCode ||
+                               (form.step == SignInStep::Approval && form.code_entry);
+        if (form.step == SignInStep::Password) {
+            view_.subtitle = form.error.empty() ? "Sign in with your Steam account name and password." : form.error;
+            row("signin-account", RowKind::Action, "Account name", "signin-account").value = form.account_name;
+            row("signin-password", RowKind::Action, "Password", "signin-password").value = mask_secret(form.password);
+            row("signin-submit", RowKind::Action, "Sign in", "signin-submit").enabled =
+                !form.account_name.empty() && !form.password.empty();
+            row("signin-qr-mode", RowKind::Action, "Use QR code instead", "signin-qr-mode");
+        } else if (form.step == SignInStep::Submitting) {
+            view_.subtitle = "Signing in to Steam…";
+            row("signin-cancel", RowKind::Action, "Cancel", "signin-cancel");
+        } else if (code_step) {
+            const bool email = form.step == SignInStep::EmailCode || (form.step == SignInStep::Approval && form.code_is_email);
+            const std::string prompt = !email ? "Enter the code from the Steam Mobile app."
+                : form.email_domain.empty() ? "Enter the code Steam sent to your email."
+                : "Enter the code sent to …@" + form.email_domain + ".";
+            view_.subtitle = form.code_sent ? "Checking the code…" : form.code_rejected ? "That code was not right. " + prompt : prompt;
+            if (form.step == SignInStep::Approval && !form.code_sent)
+                view_.subtitle += " You can also approve the sign-in in the Steam Mobile app.";
+            row("guard-code", RowKind::Action, "Code", "guard-code").value = form.code;
+            row("guard-submit", RowKind::Action, "Submit", "guard-submit").enabled = form.code.size() == 5 && !form.code_sent;
+            row("guard-cancel", RowKind::Action, "Cancel", "guard-cancel");
+        } else {
+            view_.subtitle = !form.email_domain.empty() && !form.code_allowed
+                ? "Approve the sign-in from the email Steam sent to …@" + form.email_domain + "."
+                : "Approve the sign-in in the Steam Mobile app.";
+            if (form.code_allowed) row("guard-use-code", RowKind::Action, "Type a code instead", "guard-use-code");
+            row("guard-cancel", RowKind::Action, "Cancel", "guard-cancel");
+        }
+        if (!live() && (form.step == SignInStep::Approval || form.step == SignInStep::Submitting))
+            row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
     } else if (state_.navigation.route == Route::SignIn) {
         view_.title = "Connect Steam";
         view_.subtitle = state_.account.authentication == AuthState::Waiting
@@ -3317,6 +3427,8 @@ void Simulation::rebuild_view() {
         else if (state_.account.authentication == AuthState::Expired) row("qr-refresh", RowKind::Action, "Refresh code", "qr-refresh");
         else if (state_.account.authentication == AuthState::Failed) row("qr-retry", RowKind::Action, "Retry", "qr-retry");
         else row("qr-cancel", RowKind::Action, "Cancel", "qr-cancel");
+        if (state_.account.authentication != AuthState::Syncing)
+            row("signin-password-mode", RowKind::Action, "Sign in with account name and password", "signin-password-mode");
         if (!live() && state_.account.authentication != AuthState::Syncing) row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
     } else if (state_.navigation.route == Route::Home) {
         view_.title = "Home";
@@ -4005,12 +4117,15 @@ std::string Simulation::next_job_id() {
     }
 }
 
-void Simulation::start_editor(std::string purpose, std::string value) {
+void Simulation::start_editor(std::string purpose, std::string value, bool secret) {
     const auto opener = state_.navigation.focus_key;
     editing_setting_id_.clear();
     editing_append_ = false;
     state_.editor = {};
     state_.editor.active = true;
+    state_.editor.secret = secret;
+    state_.editor.serial = ++editor_serial_;
+    state_.editor.system_keyboard = system_keyboard_available_;
     state_.editor.purpose = std::move(purpose);
     state_.editor.value = value;
     state_.editor.original = std::move(value);
@@ -4019,7 +4134,168 @@ void Simulation::start_editor(std::string purpose, std::string value) {
     state_.navigation.focus_key = "keyboard-done";
 }
 
+void Simulation::set_route_focus(std::string key) {
+    if (state_.editor.active) state_.editor.opener_focus_key = std::move(key);
+    else state_.navigation.focus_key = std::move(key);
+}
+
+void Simulation::clear_sign_in_secrets() {
+    steam::ZeroizeSecret(state_.sign_in.password);
+    steam::ZeroizeSecret(state_.sign_in.code);
+    if (state_.editor.secret) {
+        steam::ZeroizeSecret(state_.editor.value);
+        steam::ZeroizeSecret(state_.editor.original);
+        state_.editor.caret = 0;
+    }
+}
+
+void Simulation::normalize_editor() {
+    if (state_.editor.purpose != "Steam Guard code") return;
+    std::string code;
+    for (const char c : state_.editor.value) {
+        if (std::isalnum(static_cast<unsigned char>(c)) && code.size() < 5)
+            code += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    state_.editor.value = std::move(code);
+    state_.editor.caret = std::min(state_.editor.caret, state_.editor.value.size());
+}
+
+void Simulation::open_sign_in(bool reauthenticate) {
+    const bool password = state_.sign_in_password;
+    clear_sign_in_secrets();
+    const auto name = state_.sign_in.account_name;
+    state_.sign_in = {};
+    state_.sign_in.account_name = name;
+    state_.sign_in.step = password ? SignInStep::Password : SignInStep::Qr;
+    state_.account.authentication = AuthState::Waiting;
+    state_.account.challenge_url.clear();
+    state_.account.error.clear();
+    state_.navigation.route = Route::SignIn;
+    state_.navigation.focus_key = password ? (name.empty() ? "signin-account" : "signin-password") : "qr-cancel";
+    if (live()) queue_service_action(reauthenticate ? ServiceAction::Reauthenticate
+                                     : password ? ServiceAction::UsePassword : ServiceAction::BeginQr);
+    else if (!password) scenario("qr-waiting");
+}
+
+bool Simulation::sign_in_action(const std::string& action_name) {
+    auto& form = state_.sign_in;
+    if (action_name == "signin-password-mode" || action_name == "signin-qr-mode") {
+        const bool password = action_name == "signin-password-mode";
+        clear_sign_in_secrets();
+        const auto name = form.account_name;
+        form = {};
+        form.account_name = name;
+        form.step = password ? SignInStep::Password : SignInStep::Qr;
+        state_.account.authentication = AuthState::Waiting;
+        state_.account.challenge_url.clear();
+        state_.account.error.clear();
+        state_.navigation.focus_key = password ? (name.empty() ? "signin-account" : "signin-password") : "qr-cancel";
+        if (live()) queue_service_action(password ? ServiceAction::UsePassword : ServiceAction::UseQr);
+        else if (!password) scenario("qr-waiting");
+    } else if (action_name == "signin-account") {
+        start_editor("Account name", form.account_name);
+    } else if (action_name == "signin-password") {
+        start_editor("Password", form.password, true);
+    } else if (action_name == "signin-submit") {
+        if (form.step != SignInStep::Password || form.account_name.empty() || form.password.empty()) return true;
+        form.error.clear();
+        if (!live()) { submit_fixture_sign_in(); return true; }
+        if (pending_credentials_) steam::ZeroizeSecret(pending_credentials_->password);
+        pending_credentials_ = SignInCredentials{form.account_name, form.password};
+        steam::ZeroizeSecret(form.password);
+        form.step = SignInStep::Submitting;
+        state_.account.authentication = AuthState::Waiting;
+        state_.account.error.clear();
+        state_.navigation.focus_key = "signin-cancel";
+        queue_service_action(ServiceAction::BeginPassword);
+    } else if (action_name == "guard-code") {
+        start_editor("Steam Guard code", form.code);
+    } else if (action_name == "guard-use-code") {
+        form.code_entry = true;
+        steam::ZeroizeSecret(form.code);
+        state_.navigation.focus_key = "guard-code";
+    } else if (action_name == "guard-submit") {
+        if (form.code.size() != 5 || form.code_sent) return true;
+        form.code_rejected = false;
+        if (!live()) { submit_fixture_sign_in(); return true; }
+        if (pending_guard_code_) steam::ZeroizeSecret(*pending_guard_code_);
+        pending_guard_code_ = form.code;
+        form.code_sent = true;
+        state_.navigation.focus_key = "guard-cancel";
+        queue_service_action(ServiceAction::SubmitCode);
+    } else if (action_name == "signin-cancel" || action_name == "guard-cancel") {
+        cancel();
+    } else {
+        return false;
+    }
+    return true;
+}
+
+// Fixture mode scripts Steam's answers by account name: "wrong" (password refused), "limited" (rate
+// limit), "email" and "mobile" (a code; 00000 is refused), "approve" (approval in the app, or a code);
+// any other name signs in.
+void Simulation::submit_fixture_sign_in() {
+    auto& form = state_.sign_in;
+    auto succeed = [this] {
+        clear_sign_in_secrets();
+        state_.sign_in_password = true;
+        scenario("qr-approved");
+    };
+    if (form.step == SignInStep::Password) {
+        const auto& name = form.account_name;
+        if (name == "wrong" || name == "limited") {
+            clear_sign_in_secrets();
+            state_.account.authentication = AuthState::Failed;
+            form.error = name == "wrong" ? "Steam did not accept the account name or password. Check them and try again."
+                                         : "Steam is limiting sign-in attempts. Wait a while before you try again, or use the QR code.";
+            state_.navigation.focus_key = "signin-password";
+        } else if (name == "email" || name == "mobile" || name == "approve") {
+            steam::ZeroizeSecret(form.password);
+            form.step = name == "email" ? SignInStep::EmailCode : name == "mobile" ? SignInStep::AuthenticatorCode : SignInStep::Approval;
+            form.email_domain = name == "email" ? "example.invalid" : "";
+            form.code_allowed = true;
+            form.code_is_email = name == "email";
+            state_.navigation.focus_key = form.step == SignInStep::Approval ? "guard-use-code" : "guard-code";
+        } else {
+            succeed();
+        }
+        return;
+    }
+    if (form.code == "00000") {
+        steam::ZeroizeSecret(form.code);
+        form.code_rejected = true;
+        if (form.step == SignInStep::Approval) form.step = form.code_is_email ? SignInStep::EmailCode : SignInStep::AuthenticatorCode;
+        form.code_entry = false;
+        state_.navigation.focus_key = "guard-code";
+        return;
+    }
+    succeed();
+}
+
 void Simulation::commit_editor() {
+    if (state_.navigation.route == Route::SignIn &&
+        (state_.editor.purpose == "Account name" || state_.editor.purpose == "Password" ||
+         state_.editor.purpose == "Steam Guard code")) {
+        auto& form = state_.sign_in;
+        std::string next;
+        if (state_.editor.purpose == "Account name") {
+            form.account_name = trimmed(state_.editor.value);
+            next = form.account_name.empty() ? "signin-account" : "signin-password";
+        } else if (state_.editor.purpose == "Password") {
+            steam::ZeroizeSecret(form.password);
+            form.password = state_.editor.value;
+            next = form.password.empty() ? "signin-password" : form.account_name.empty() ? "signin-account" : "signin-submit";
+        } else {
+            form.code = state_.editor.value;
+            next = form.code.size() == 5 ? "guard-submit" : "guard-code";
+        }
+        if (state_.editor.secret) { steam::ZeroizeSecret(state_.editor.value); steam::ZeroizeSecret(state_.editor.original); }
+        state_.editor.active = false;
+        state_.editor.secret = false;
+        state_.editor.revealed = false;
+        state_.navigation.focus_key = next;
+        return;
+    }
     if (state_.editor.purpose == "Search") { state_.library.query = state_.editor.value; reconcile_library_selection(state_); }
     else if (!editing_setting_id_.empty()) {
         if (!can_change_game_settings()) return;
@@ -4102,7 +4378,13 @@ void Simulation::cancel() {
         state_.navigation.settings_rail_focused = false;
         return;
     }
-    if (state_.editor.active) { state_.editor.active = false; state_.navigation.focus_key = state_.editor.opener_focus_key; return; }
+    if (state_.editor.active) {
+        if (state_.editor.secret) { steam::ZeroizeSecret(state_.editor.value); steam::ZeroizeSecret(state_.editor.original); }
+        state_.editor.active = false;
+        state_.editor.revealed = false;
+        state_.navigation.focus_key = state_.editor.opener_focus_key;
+        return;
+    }
     // An applied search is undone before Circle leaves the Library.
     if (state_.navigation.route == Route::Library && state_.navigation.modals.empty() && !state_.library.query.empty()) {
         state_.library.query.clear();
@@ -4124,6 +4406,12 @@ void Simulation::cancel() {
     }
     if (state_.navigation.route == Route::SignIn) {
         if (live()) queue_service_action(ServiceAction::CancelQr);
+        clear_sign_in_secrets();
+        if (pending_credentials_) steam::ZeroizeSecret(pending_credentials_->password);
+        pending_credentials_.reset();
+        if (pending_guard_code_) steam::ZeroizeSecret(*pending_guard_code_);
+        pending_guard_code_.reset();
+        state_.sign_in.error.clear();
         cancelled_challenge_generation_ = challenge_generation_;
         state_.account.authentication = AuthState::Cancelled;
         state_.navigation.route = Route::Startup;
@@ -4149,7 +4437,8 @@ int route_tab(Route route) {
 void Simulation::move(int delta_x, int delta_y) {
     if (state_.editor.active) {
         state_.editor.focus_row = std::clamp(state_.editor.focus_row + delta_y, 0, 4);
-        const int max_key = state_.editor.focus_row == 4 ? (state_.editor.symbols ? 3 : 4) : 9;
+        // A password's bottom row has a Show key between space and backspace.
+        const int max_key = state_.editor.focus_row == 4 ? (state_.editor.symbols ? 3 : 4) + (state_.editor.secret ? 1 : 0) : 9;
         state_.editor.focus_key = std::clamp(state_.editor.focus_key + delta_x, 0, max_key);
         return;
     }
@@ -4270,6 +4559,8 @@ bool Simulation::move_settings(int delta_x, int delta_y) {
 
 void Simulation::change_route(int delta) {
     if (state_.editor.active || !state_.navigation.modals.empty()) return;
+    // The password form and its Steam Guard steps are left with Cancel, which stops the sign-in and wipes them.
+    if (state_.navigation.route == Route::SignIn && state_.sign_in.step != SignInStep::Qr) return;
     constexpr Route routes[] = {Route::Home, Route::Library, Route::Downloads, Route::Saves, Route::Settings};
     constexpr int count = static_cast<int>(std::size(routes));
     auto found = std::find(std::begin(routes), std::end(routes), state_.navigation.route);
@@ -4485,12 +4776,15 @@ void Simulation::activate() {
             }
             state_.editor.value.insert(state_.editor.caret, 1, inserted); ++state_.editor.caret;
             if (state_.editor.shifted) state_.editor.shifted = false;
+            normalize_editor();
         } else if ((!state_.editor.symbols && state_.editor.focus_key == 0)) state_.editor.shifted = !state_.editor.shifted;
         else {
             const int offset = state_.editor.symbols ? 0 : 1;
-            const int special = state_.editor.focus_key - offset;
+            int special = state_.editor.focus_key - offset;
+            if (state_.editor.secret && special == 2) { state_.editor.revealed = !state_.editor.revealed; return; }
+            if (state_.editor.secret && special > 2) --special;
             if (special == 0) state_.editor.symbols = !state_.editor.symbols;
-            else if (special == 1) { state_.editor.value.insert(state_.editor.caret, " "); ++state_.editor.caret; }
+            else if (special == 1) { state_.editor.value.insert(state_.editor.caret, " "); ++state_.editor.caret; normalize_editor(); }
             else if (special == 2 && state_.editor.caret > 0) {
                 const auto prior = previous_caret(state_.editor.value, state_.editor.caret);
                 state_.editor.value.erase(prior, state_.editor.caret - prior); state_.editor.caret = prior;
@@ -4564,7 +4858,10 @@ void Simulation::activate() {
                                 action_name.rfind("override-remove-", 0) == 0 || action_name == "value-reset" ||
                                 action_name == "unlock-setting" || action_name == "reset-settings";
     if (edits_settings && !can_change_game_settings()) return;
-    if (action_name == "connect" || action_name == "qr-retry" || action_name == "qr-refresh") {
+    if (sign_in_action(action_name)) return;
+    if (action_name == "connect") open_sign_in();
+    else if (action_name == "qr-retry" || action_name == "qr-refresh") {
+        state_.sign_in.step = SignInStep::Qr;
         if (live()) {
             queue_service_action(ServiceAction::BeginQr);
             state_.account.authentication = AuthState::Waiting;
@@ -5613,12 +5910,11 @@ void Simulation::activate() {
     }
     else if (action_name == "account-recover") {
         state_.navigation.modals.clear();
-        if (live()) { queue_service_action(ServiceAction::BeginQr); state_.account.authentication = AuthState::Waiting; state_.account.challenge_url.clear(); state_.account.error.clear(); state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel"; }
-        else scenario("qr-waiting");
+        open_sign_in();
     }
     else if (action_name == "account-reauth") {
         state_.navigation.modals.clear();
-        if (live()) { queue_service_action(ServiceAction::Reauthenticate); state_.account.authentication = AuthState::Waiting; state_.account.challenge_url.clear(); state_.account.error.clear(); state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel"; }
+        if (live()) open_sign_in(true);
     }
     else if (action_name == "account-switch") { pending_destructive_action_ = "account-switch"; open_modal({"confirmation", "Switch account? Current account cache will be cleared.", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true}); }
 }
@@ -5641,7 +5937,9 @@ bool Simulation::action(const std::string& logical_action) {
     else if (logical_action == "r2") state_.controller.r2 = 1.0F;
     else if (logical_action == "options") state_.controller.options = true;
     if (live()) {
-        if (logical_action == "connect" || logical_action == "qr-retry" || logical_action == "qr-refresh") {
+        if (logical_action == "connect") { open_sign_in(); rebuild_view(); return true; }
+        if (logical_action == "qr-retry" || logical_action == "qr-refresh") {
+            state_.sign_in.step = SignInStep::Qr;
             queue_service_action(ServiceAction::BeginQr);
             state_.account.authentication = AuthState::Waiting;
             state_.account.challenge_url.clear(); state_.account.error.clear();
@@ -5777,6 +6075,7 @@ bool Simulation::action(const std::string& logical_action) {
         else if (route == "settings") state_.navigation.route = Route::Settings;
         else if (route == "saves") state_.navigation.route = Route::Saves;
         else { last_error_ = "Unknown route: " + route; return false; }
+        clear_sign_in_secrets();
         state_.navigation.modals.clear(); state_.editor.active = false; state_.navigation.focus_key.clear(); rebuild_view(); return true;
     }
     if (logical_action.rfind("select:", 0) == 0 || logical_action.rfind("details:", 0) == 0) {
@@ -5828,15 +6127,16 @@ bool Simulation::action(const std::string& logical_action) {
         if (state_.editor.active && state_.editor.caret > 0) { const auto prior = previous_caret(state_.editor.value, state_.editor.caret); state_.editor.value.erase(prior, state_.editor.caret - prior); state_.editor.caret = prior; }
         rebuild_view(); return true;
     }
-    if (logical_action == "clear") { if (state_.editor.active) { state_.editor.value.clear(); state_.editor.caret = 0; } rebuild_view(); return true; }
-    if (logical_action == "space") { if (state_.editor.active) { state_.editor.value.insert(state_.editor.caret, " "); ++state_.editor.caret; } rebuild_view(); return true; }
+    if (logical_action == "clear") { if (state_.editor.active) { steam::ZeroizeSecret(state_.editor.value); state_.editor.caret = 0; } rebuild_view(); return true; }
+    if (logical_action == "space") { if (state_.editor.active) { state_.editor.value.insert(state_.editor.caret, " "); ++state_.editor.caret; normalize_editor(); } rebuild_view(); return true; }
+    if (logical_action == "reveal") { if (state_.editor.active && state_.editor.secret) state_.editor.revealed = !state_.editor.revealed; rebuild_view(); return true; }
     if (logical_action == "shift") { if (state_.editor.active) state_.editor.shifted = !state_.editor.shifted; rebuild_view(); return true; }
     if (logical_action == "symbols") { if (state_.editor.active) state_.editor.symbols = !state_.editor.symbols; rebuild_view(); return true; }
     if (logical_action == "caret-left") { if (state_.editor.active) state_.editor.caret = previous_caret(state_.editor.value, state_.editor.caret); rebuild_view(); return true; }
     if (logical_action == "caret-right") { if (state_.editor.active) state_.editor.caret = next_caret(state_.editor.value, state_.editor.caret); rebuild_view(); return true; }
     if (state_.editor.active && logical_action == "l1") { state_.editor.caret = previous_caret(state_.editor.value, state_.editor.caret); rebuild_view(); return true; }
     if (state_.editor.active && logical_action == "r1") { state_.editor.caret = next_caret(state_.editor.value, state_.editor.caret); rebuild_view(); return true; }
-    if (state_.editor.active && logical_action == "triangle") { state_.editor.value.clear(); state_.editor.caret = 0; rebuild_view(); return true; }
+    if (state_.editor.active && logical_action == "triangle") { steam::ZeroizeSecret(state_.editor.value); state_.editor.caret = 0; rebuild_view(); return true; }
     // Options presses Done, so a game controller or a USB keyboard's Options key can finish the text without moving to Done.
     if (state_.editor.active && logical_action == "options") { commit_editor(); rebuild_view(); return true; }
     if (state_.editor.active && (logical_action == "l2" || logical_action == "r2" || logical_action == "search")) return true;
@@ -6046,7 +6346,19 @@ void Simulation::text(const std::string& utf8) {
     if (!state_.editor.active) return;
     state_.editor.value.insert(state_.editor.caret, utf8);
     state_.editor.caret += utf8.size();
+    normalize_editor();
     rebuild_view();
+}
+
+void Simulation::SubmitEditorText(std::string utf8) {
+    if (state_.editor.active) {
+        if (state_.editor.secret) steam::ZeroizeSecret(state_.editor.value);
+        state_.editor.value = utf8;
+        state_.editor.caret = state_.editor.value.size();
+        normalize_editor();
+        action("done");
+    }
+    steam::ZeroizeSecret(utf8);
 }
 
 void Simulation::controller_sample(ControllerState sample) {
@@ -6142,7 +6454,8 @@ std::string Simulation::snapshot() const {
            << "\",\"context\":\"" << json::escape(state_.log_context) << "\",\"count\":" << state_.log_lines.size()
            << ",\"offset\":" << state_.log_offset << "}"
            << ",\"editor\":{\"active\":" << (state_.editor.active ? "true" : "false") << ",\"value\":\""
-           << json::escape(state_.editor.value) << "\",\"original\":\"" << json::escape(state_.editor.original)
+           << (state_.editor.secret ? std::string("<redacted>") : json::escape(state_.editor.value)) << "\",\"original\":\""
+           << (state_.editor.secret ? std::string("<redacted>") : json::escape(state_.editor.original))
            << "\",\"caret\":" << state_.editor.caret << "},\"scroll_offsets\":{";
     bool first = true;
     for (const auto& [key, value] : state_.navigation.scroll_offsets) {

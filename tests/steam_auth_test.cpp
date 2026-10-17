@@ -58,6 +58,37 @@ class Backend : public AuthBackend {
     ++calls;if(restore_gate)restore_gate->ArriveAndWait();
     return {result,result==AuthError::kNone?std::optional<StoredSession>(session):std::nullopt};
   }
+  // Password sign-in: asks for an email code (approval with an app code when approval is set), rejects
+  // "WRONG" and signs in with any other code.
+  std::string password_seen, account_seen;
+  bool approval=false;
+  AuthResult AuthenticateCredentials(Credentials& credentials,const std::atomic<bool>& cancel,
+                                     const GuardPromptCallback& prompt,const GuardCodeSource& code) override {
+    ++calls;password_seen=credentials.password;account_seen=credentials.account_name;
+    ZeroizeSecret(credentials.password);
+    GuardPrompt shown;
+    shown.kind=approval?GuardPromptKind::kApproval:GuardPromptKind::kEmailCode;
+    shown.code_allowed=approval;shown.email_domain=approval?"":"example.invalid";
+    prompt(shown);
+    while(!cancel.load()){
+      if(auto typed=code()){
+        if(*typed=="WRONG"){GuardPrompt again;again.kind=GuardPromptKind::kEmailCode;again.email_domain="example.invalid";again.code_rejected=true;prompt(again);continue;}
+        if(result!=AuthError::kNone)return {result,std::nullopt};
+        return {AuthError::kNone,Session(7)};
+      }
+      std::this_thread::sleep_for(1ms);
+    }
+    return {AuthError::kCanceled,std::nullopt};
+  }
+};
+// Holds the first QR sign-in at a gate, so later commands queue behind it.
+class Recording : public Backend {
+ public:
+  Gate* gate=nullptr;
+  AuthResult AuthenticateQr(const std::atomic<bool>& cancel,const ChallengeCallback& challenge) override {
+    if(gate)gate->ArriveAndWait();
+    return Backend::AuthenticateQr(cancel,challenge);
+  }
 };
 SteamEvent WaitEvent(SteamService& service,SteamEventKind kind) {
   auto deadline=std::chrono::steady_clock::now()+3s;
@@ -187,6 +218,60 @@ int main(){
     auto service=std::make_unique<SteamService>(backend,store);
     service->BeginQrSignIn();gate.Wait();service->SignOut();gate.Release();service.reset();
     Check(!store.Load().value(),"shutdown dropped signout barrier");
+  }
+  {
+    // Password sign-in: email code, a wrong code, then the right one; the session is saved as for QR.
+    Store store;Backend backend;SteamService service(backend,store);
+    std::string password="fixture-password";
+    auto id=service.BeginCredentialSignIn("fixture-account",password);
+    auto e=WaitEvent(service,SteamEventKind::kNeedsEmailCode);
+    Check(e.request_id==id&&e.email_domain=="example.invalid"&&e.code_allowed&&e.code_is_email,"email prompt");
+    Check(backend.password_seen=="fixture-password"&&backend.account_seen=="fixture-account","credentials not handed over");
+    service.SubmitGuardCode("WRONG");
+    e=WaitEvent(service,SteamEventKind::kCodeRejected);
+    Check(e.code_is_email&&e.email_domain=="example.invalid","rejected prompt");
+    service.SubmitGuardCode("AB12C");
+    e=WaitEvent(service,SteamEventKind::kAuthenticated);
+    Check(e.request_id==id&&e.steam_id==7&&store.saves==1,"password sign-in not saved");
+  }
+  {
+    // Approval with a typed code allowed.
+    Store store;Backend backend;backend.approval=true;SteamService service(backend,store);
+    service.BeginCredentialSignIn("fixture-account","fixture-password");
+    auto e=WaitEvent(service,SteamEventKind::kAwaitingApproval);
+    Check(e.code_allowed&&!e.code_is_email,"approval prompt");
+    service.SubmitGuardCode("XY34Z");WaitEvent(service,SteamEventKind::kAuthenticated);
+  }
+  {
+    // Codes go only to the running sign-in: one sent before it, or after a cancel, is dropped.
+    Store store;Backend backend;SteamService service(backend,store);
+    service.SubmitGuardCode("EARLY");
+    auto id=service.BeginCredentialSignIn("fixture-account","fixture-password");
+    WaitEvent(service,SteamEventKind::kNeedsEmailCode);
+    std::this_thread::sleep_for(20ms);
+    Check(service.Pump(64).empty(),"a stale code reached the sign-in");
+    service.Cancel(id);
+    Check(WaitEvent(service,SteamEventKind::kCanceled).request_id==id,"cancel lost");
+    service.SubmitGuardCode("LATE");
+    std::this_thread::sleep_for(20ms);
+    Check(service.Pump(64).empty()&&store.saves==0,"canceled password sign-in continued");
+  }
+  {
+    // A failed password sign-in reports the backend's error and leaves storage alone.
+    Store store;store.value=Session();Backend backend;backend.result=AuthError::kRateLimited;SteamService service(backend,store);
+    service.BeginCredentialSignIn("fixture-account","fixture-password");
+    WaitEvent(service,SteamEventKind::kNeedsEmailCode);service.SubmitGuardCode("AB12C");
+    Check(WaitEvent(service,SteamEventKind::kFailure).error==AuthError::kRateLimited,"rate limit lost");
+    Check(store.saves==0&&store.clears==0,"failed password sign-in changed storage");
+  }
+  {
+    // A queued password sign-in replaced before it runs never reaches the backend.
+    Store store;Recording backend;Gate gate;backend.gate=&gate;SteamService service(backend,store);
+    service.BeginQrSignIn();gate.Wait();
+    service.BeginCredentialSignIn("fixture-account","fixture-password");
+    service.BeginQrSignIn();gate.Release();
+    WaitEvent(service,SteamEventKind::kAuthenticated);
+    Check(backend.password_seen.empty(),"replaced password sign-in ran");
   }
   std::cout<<"steam_auth_test passed\n";
 }

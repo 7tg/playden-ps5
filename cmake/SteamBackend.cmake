@@ -17,7 +17,8 @@ else()
 endif()
 
 add_library(playden_steam_auth STATIC
-    "${CMAKE_SOURCE_DIR}/src/steam/backend/auth_client.cpp")
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/auth_client.cpp"
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/password_crypto.cpp")
 target_include_directories(playden_steam_auth PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_steam_auth PUBLIC cxx_std_17)
 target_link_libraries(playden_steam_auth PUBLIC
@@ -229,6 +230,9 @@ function(playden_register_steam_backend_tests)
         add_executable(auth_client_test "${CMAKE_SOURCE_DIR}/tests/auth_client_test.cpp")
         target_link_libraries(auth_client_test PRIVATE playden_steam_auth)
         add_test(NAME auth_client COMMAND auth_client_test)
+        add_executable(password_crypto_test "${CMAKE_SOURCE_DIR}/tests/password_crypto_test.cpp")
+        target_link_libraries(password_crypto_test PRIVATE playden_steam_auth)
+        add_test(NAME password_crypto COMMAND password_crypto_test)
 
         foreach(test_name cm_messages cm_client)
             add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
