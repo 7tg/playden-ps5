@@ -69,12 +69,14 @@ add_library(playden_steam_cm_codec STATIC
     "${CMAKE_SOURCE_DIR}/src/runtime/prospero_profile.cpp"
     "${CMAKE_SOURCE_DIR}/src/runtime/game_settings.cpp"
     "${CMAKE_SOURCE_DIR}/src/runtime/install_script.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/msi_package.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/redist_install.cpp"
     "${CMAKE_SOURCE_DIR}/src/runtime/game_probe.cpp")
 target_include_directories(playden_steam_cm_codec PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_include_directories(playden_steam_cm_codec PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
 target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
 target_link_libraries(playden_steam_cm_codec PUBLIC playden_game_paths playden_steam_protocol playden_managed_directory
-    playden_runtime_steamworks)
+    playden_runtime_steamworks playden_runtime_artifact_hash playden_miniz)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
@@ -514,6 +516,10 @@ if(BUILD_TESTING)
     add_test(NAME prospero_profile COMMAND prospero_profile_test "${CMAKE_SOURCE_DIR}/fixtures/prospero-win-profiles")
     add_test(NAME game_settings COMMAND game_settings_test "${CMAKE_SOURCE_DIR}")
     add_test(NAME game_probe COMMAND game_probe_test)
+    add_executable(runtime_redist_test tests/runtime_redist_test.cpp)
+    target_link_libraries(runtime_redist_test PRIVATE playden_steam_cm_codec)
+    target_compile_features(runtime_redist_test PRIVATE cxx_std_20)
+    add_test(NAME runtime_redist COMMAND runtime_redist_test)
     add_executable(runtime_steamworks_test tests/runtime_steamworks_test.cpp)
     target_link_libraries(runtime_steamworks_test PRIVATE playden_runtime_steamworks)
     add_test(NAME runtime_steamworks COMMAND runtime_steamworks_test "${CMAKE_SOURCE_DIR}/runtime/steamworks")

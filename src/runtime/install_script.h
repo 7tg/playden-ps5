@@ -41,4 +41,20 @@ struct InstallScriptResult {
 InstallScriptResult ApplyInstallScripts(const std::string& game_root, const std::string& install_dir,
                                         const std::string& prefix_dir, std::int64_t unix_time);
 
+// A redistributable an install script runs on the game's first start ("Run Process" entry).
+struct RedistEntry {
+  std::string name;         // the entry's name ("PhysX")
+  std::string process;      // "process 1", %INSTALLDIR% replaced
+  std::string command;      // "command 1", %INSTALLDIR% replaced
+  std::string has_run_key;  // "HasRunKey", e.g. HKEY_LOCAL_MACHINE\Software\Valve\Steam\Apps\696180
+};
+
+// The Run Process entries of one install script (only the first process of each); entries
+// naming another %TOKEN% or non-ASCII text are left out.
+bool ParseRunProcess(std::string_view text, const std::string& install_dir, std::vector<RedistEntry>* entries,
+                     std::string* reason);
+
+// Reads an install script file (at most 1 MiB, no symlink).
+bool ReadInstallScript(const std::string& path, std::string* text);
+
 }  // namespace playden::runtime

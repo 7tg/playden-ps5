@@ -9,6 +9,7 @@
 #include "runtime/settings_publication_journal.h"
 #include "runtime/dotnet_heap.h"
 #include "runtime/install_script.h"
+#include "runtime/redist_install.h"
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
 #include "runtime/steam_stub.h"
@@ -508,6 +509,16 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
           (script.ok ? std::string() : " failed=" + script.message));
     }
     if (!script.ok) return "The game's install script could not be applied: " + script.message + ".";
+    // The redistributables those scripts run (PhysX and the like): packages Playden can install
+    // go into the bottle once; a package that fails is logged and the game still starts.
+    const auto redist = rt::InstallRedistributables(root.string(), *install_dir,
+                                                    (HostPath(record.data_root) / "library/prefixes/game").string(),
+                                                    config_.unix_time());
+    for (const auto& outcome : redist.outcomes)
+      if (outcome.result != "already" && outcome.result != "covered")
+        Log("redist app=" + std::to_string(record.app_id) + " script=" + outcome.script + " name=" + outcome.name +
+            " result=" + outcome.result + " detail=" + outcome.detail +
+            (outcome.files ? " files=" + std::to_string(outcome.files) : std::string()));
   }
   // Registry values the recipe carries (docs/community-recipes.md), written the way an install script's are.
   if (!recipe->registry.empty()) {

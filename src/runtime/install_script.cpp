@@ -158,6 +158,44 @@ bool ParseInstallScript(std::string_view text, const std::string& install_dir, I
   return true;
 }
 
+bool ParseRunProcess(std::string_view text, const std::string& install_dir, std::vector<RedistEntry>* entries,
+                     std::string* reason) {
+  const auto fail = [&](const char* why) {
+    if (reason) *reason = why;
+    return false;
+  };
+  auto utf8 = ScriptText(text);
+  while (!utf8.empty() && utf8.back() == '\0') utf8.pop_back();
+  const auto root = steam::ParseVdf(utf8);
+  if (!root) return fail("not a valid install script");
+  const steam::VdfNode* script = root->children.size() == 1 && root->children.front().second.is_dict
+                                     ? &root->children.front().second
+                                     : &*root;
+  const auto* run = script->Find("Run Process");
+  if (!run) return true;
+  for (const auto& [name, node] : run->children) {
+    if (!node.is_dict) continue;
+    RedistEntry entry;
+    entry.name = name;
+    bool usable = Ascii(name);
+    for (const auto& [field, value] : node.children) {
+      if (value.is_dict) continue;
+      const auto key = Lower(field);
+      std::string* target = key == "process 1" ? &entry.process : key == "command 1" ? &entry.command
+                          : key == "hasrunkey" ? &entry.has_run_key : nullptr;
+      if (!target) continue;
+      if (!Substitute(value.value, install_dir, target) || !Ascii(*target)) usable = false;
+    }
+    if (usable && !entry.process.empty()) entries->push_back(std::move(entry));
+  }
+  return true;
+}
+
+bool ReadInstallScript(const std::string& path, std::string* text) {
+  text->clear();
+  return ReadScript(path, text);
+}
+
 InstallScriptResult ApplyInstallScripts(const std::string& game_root, const std::string& install_dir,
                                         const std::string& prefix_dir, std::int64_t unix_time) {
   InstallScriptResult result;
