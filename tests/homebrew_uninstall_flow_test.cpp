@@ -71,6 +71,19 @@ int main() {
   action = flow.Advance(SteamId(47), titled);
   CHECK(action.kind == Kind::kStop && action.reason.find("Retry on its PS5 title continues") != std::string::npos);
 
+  // A failed removal keeps the download even when the runtime lists no title: its install list
+  // is empty when its registry could not be written, while the PS5 title is still there.
+  CHECK(flow.Begin(SteamId(49), false, false));
+  titled = {};
+  titled.has_title = true;
+  CHECK(flow.Advance(SteamId(49), titled).kind == Kind::kRemoveTitle);
+  UninstallFacts unlisted;
+  unlisted.removals_handled = 1;
+  unlisted.removal_failure = "The removal could not be recorded: runtime install registry could not be written";
+  action = flow.Advance(SteamId(49), unlisted);
+  CHECK(action.kind == Kind::kStop && action.reason.find("could not be recorded") != std::string::npos);
+  CHECK(!flow.Step(SteamId(49)));
+
   // A game without a PS5 title goes straight to the download.
   CHECK(flow.Begin(SteamId(44), false, false));
   CHECK(flow.Advance(SteamId(44), UninstallFacts{}).kind == Kind::kRemoveDownload);

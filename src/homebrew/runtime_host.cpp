@@ -1240,7 +1240,11 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
     }
     installs.push_back(std::move(view));
   }
-  Publish([&](RuntimeSnapshot& s) { s.installs = std::move(installs); });
+  const bool known = composition.repository.Loaded();
+  Publish([&](RuntimeSnapshot& s) {
+    s.installs = std::move(installs);
+    s.installs_known = known;
+  });
   PublishPrepared(&composition);
 }
 
@@ -3196,6 +3200,17 @@ void RuntimeHost::PublishKeptBottles(Composition& c) {
 // scan root, unregister the title through the one-shot remover, keep or delete the
 // bottle, then drop the record once the console no longer lists the title.
 std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delete_saves, bool moving) {
+  // After a failed write the records are unknown until read again, and an empty list would read
+  // as "no PS5 title": the game's files would then be deleted under a title that still exists.
+  if (!c.repository.Loaded()) {
+    const auto loaded = c.repository.Load();
+    PublishInstalls(c);
+    if (!loaded.ok()) {
+      Log("remove records unavailable: " + loaded.message());
+      return "Playden's records of PS5 titles cannot be read: " + loaded.message() + ".";
+    }
+    Log("remove records read again installs=" + std::to_string(c.repository.Snapshot().size()));
+  }
   std::optional<rt::RuntimeInstall> found;
   for (const auto& record : c.repository.Snapshot())
     if (record.runtime_number == app) found = record;

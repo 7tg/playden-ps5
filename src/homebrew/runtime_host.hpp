@@ -268,6 +268,9 @@ struct RuntimeSnapshot {
   std::string kit_reason;  // why preparation is unavailable
   std::optional<RuntimeKit> kit;  // the admitted kit, for display
   std::vector<RuntimeInstallView> installs;
+  // False while the PS5 title records could not be read (after a failed write): `installs` is then
+  // empty, which does not mean that no game has a PS5 title.
+  bool installs_known = true;
   // Below, games are named by runtime number (RuntimeHost::RuntimeNumberFor): a Steam game's app ID.
   // The games of the other numbers, for the fields that carry no GameId.
   std::map<std::uint32_t, GameId> runtime_games;

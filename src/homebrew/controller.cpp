@@ -1388,7 +1388,10 @@ void Controller::TickUninstalls() {
   for (const auto id : ids) {
     if (IsNumber(snapshot, snapshot.preparing_app, id)) continue;  // its title is removed once the preparation ends
     UninstallFacts facts;
-    facts.has_title = std::any_of(snapshot.installs.begin(), snapshot.installs.end(),
+    // Unknown records count as a title: the removal reads them again, and the game's files stay
+    // while they can't be read.
+    facts.has_title = !snapshot.installs_known ||
+                      std::any_of(snapshot.installs.begin(), snapshot.installs.end(),
                                   [id](const RuntimeInstallView& view) { return view.game == id; });
     facts.removing = IsNumber(snapshot, snapshot.removing_app, id);
     facts.removal_started = std::any_of(snapshot.installs.begin(), snapshot.installs.end(), [id](const RuntimeInstallView& view) {

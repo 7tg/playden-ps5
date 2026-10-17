@@ -213,6 +213,8 @@ class RuntimeInstallRepository {
 
   RepositoryResult<void> Load();
   RepositoryResult<void> Save();
+  // False before Load, and after a write whose outcome is unknown until the registry is read again.
+  bool Loaded() const { return loaded_; }
   std::vector<RuntimeInstall> Snapshot() const;
   std::optional<RuntimeInstall> Find(const std::string& install_id) const;
   RepositoryResult<RuntimeInstall> Reserve(const ReserveRequest& request);

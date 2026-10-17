@@ -2563,6 +2563,27 @@ void RemovesTitleKeepingSaves() {
     host.DeleteKeptBottle(220);
     WaitFor(host, [](const RuntimeSnapshot& s) { return s.kept_bottles.empty(); });
     CHECK(!fs::exists(kept));
+
+    // A removal whose record cannot be written (a full drive) changes nothing, and the next
+    // one reads the records again instead of taking the empty list for "no PS5 title".
+    prepare(host);
+    CHECK(fixture.registered);
+    const auto records = config.state_root / "installs.json";
+    fs::rename(records, config.state_root / "installs.aside");
+    fs::create_directory(records);  // the record can be neither replaced nor read
+    removed = remove(host, false);
+    CHECK(removed.removal_failures.at(220).find("could not be recorded") != std::string::npos);
+    CHECK(fixture.registered && fs::is_directory(bottle));
+    // The empty list is published as unknown, so an uninstall still asks for the removal.
+    CHECK(removed.installs.empty() && !removed.installs_known);
+    removed = remove(host, false);
+    CHECK(removed.removal_failures.at(220).find("cannot be read") != std::string::npos);
+    CHECK(fixture.registered && fs::is_directory(bottle));
+    fs::remove(records);
+    fs::rename(config.state_root / "installs.aside", records);
+    removed = remove(host, false);
+    CHECK(!removed.removal_failures.count(220) && removed.installs.empty() && removed.installs_known);
+    CHECK(!fixture.registered && !fs::exists(bottle) && fs::is_directory(kept));
     host.Shutdown();
   }
 }
