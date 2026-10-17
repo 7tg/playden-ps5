@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 namespace playden::runtime {
 namespace {
@@ -76,7 +77,8 @@ std::optional<std::string> HashArtifactFile(const std::filesystem::path& path) {
       !S_ISREG(before.st_mode) || before.st_size < 0) return std::nullopt;
   Hash hash;
   if (!hash.Start()) return std::nullopt;
-  std::array<unsigned char, 64 * 1024> buffer{};
+  // On the heap: the console's worker threads have small stacks.
+  std::vector<unsigned char> buffer(64 * 1024);
   std::uint64_t total = 0;
   for (;;) {
     const auto count = read(file.get(), buffer.data(), buffer.size());

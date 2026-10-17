@@ -294,16 +294,18 @@ std::string Package(const std::vector<TableSpec>& tables, const std::vector<std:
 // A package like NVIDIA's legacy PhysX one: a 32-bit loader in Vendor\Common (added to PATH),
 // an engine in Vendor\Engine\v1 found through a registry value, a 64-bit feature turned on by
 // VersionNT64, a feature left off, and files in the two-block cabinet above.
-std::string SamplePackage() {
+enum class Variant { kNormal, kWrongSize, kUncompressed };
+
+std::string SamplePackage(Variant variant = Variant::kNormal) {
   std::vector<TableSpec> tables;
   tables.push_back({"Property", {{"Property", 's'}, {"Value", 's'}},
                     {{"ProductCode", "{11111111-2222-3333-4444-555555555555}"}, {"ProductName", "Sample Runtime"},
-                     {"ProductVersion", "1.2.3"}, {"P_VERSION", "7"}}});
+                     {"ProductVersion", "1.2.3"}, {"P_VERSION", "7"}, {"D_FIXED", "C:\\Fixed\\Place\\"}}});
   tables.push_back({"Directory", {{"Directory", 's'}, {"Directory_Parent", 's'}, {"DefaultDir", 's'}},
                     {{"TARGETDIR", "", "SourceDir"}, {"ProgramFilesFolder", "TARGETDIR", "."},
                      {"D_VENDOR", "ProgramFilesFolder", "vendor~1|Vendor Runtime"}, {"D_COMMON", "D_VENDOR", "Common"},
                      {"D_ENGINE", "D_VENDOR", "Engine"}, {"D_V1", "D_ENGINE", "v1~1|v1"},
-                     {"D_DESKTOP", "DesktopFolder", "Sample"}}});
+                     {"D_DESKTOP", "DesktopFolder", "Sample"}, {"D_FIXED", "ProgramFilesFolder", "Wrong"}}});
   tables.push_back({"Feature", {{"Feature", 's'}, {"Feature_Parent", 's'}, {"Level", 'i'}},
                     {{"F_Main", "", "1"}, {"F_64", "", "0"}, {"F_Off", "", "0"}, {"F_Child", "F_Off", "1"}}});
   tables.push_back({"Condition", {{"Feature_", 's'}, {"Level", 'i'}, {"Condition", 's'}},
@@ -323,7 +325,8 @@ std::string SamplePackage() {
   tables.push_back({"File",
                     {{"File", 's'}, {"Component_", 's'}, {"FileName", 's'}, {"FileSize", 'l'}, {"Version", 's'},
                      {"Language", 's'}, {"Attributes", 'i'}, {"Sequence", 'i'}},
-                    {{"first", "C_LOADER", "loader~1.dll|Loader.dll", "10", "", "", "512", "1"},
+                    {{"first", "C_LOADER", "loader~1.dll|Loader.dll", variant == Variant::kWrongSize ? "9" : "10", "", "",
+                      variant == Variant::kUncompressed ? "8192" : "512", "1"},
                      {"second", "C_ENGINE", "Core.dll", "10", "", "", "512", "2"},
                      {"empty", "C_ENGINE", "Empty.dat", "0", "", "", "512", "3"},
                      {"off", "C_OFF", "Off.dll", "10", "", "", "512", "4"},
@@ -340,7 +343,9 @@ std::string SamplePackage() {
                      {"r5", "2", "SOFTWARE\\Vendor", "Blob", "#x0102", "C_REG"},
                      {"r6", "2", "SOFTWARE\\Vendor\\Engines", "1.0", "#5", "C_ENGINE"},
                      {"r7", "1", "Software\\Vendor", "User", "[#first]", "C_REG"},
-                     {"r8", "2", "SOFTWARE\\Vendor", "Hidden", "x", "C_OFF"}}});
+                     {"r8", "2", "SOFTWARE\\Vendor", "Hidden", "x", "C_OFF"},
+                     {"r9", "2", "SOFTWARE\\Vendor", "Fixed", "[D_FIXED]", "C_REG"},
+                     {"r10", "2", "SOFTWARE\\Vendor", "Bad\"Name", "x", "C_REG"}}});
   tables.push_back({"Environment", {{"Environment", 's'}, {"Name", 's'}, {"Value", 's'}, {"Component_", 's'}},
                     {{"e1", "=-*PATH", "[D_COMMON];[~]", "C_ENV"}, {"e2", "=-*OTHER", "x", "C_ENV"}}});
   tables.push_back({"CustomAction", {{"Action", 's'}, {"Type", 'i'}, {"Source", 's'}, {"Target", 's'}},
@@ -378,6 +383,18 @@ void TestConditions() {
   CHECK(EvaluateMsiCondition("&Feature = 3", properties) == false);
   CHECK(!EvaluateMsiCondition("VersionNT >", properties).has_value());
   CHECK(!EvaluateMsiCondition("(VersionNT", properties).has_value());
+  // A property set to "0" is set; an integer against missing text compares false (but <>).
+  CHECK(EvaluateMsiCondition("Zero", {{"Zero", "0"}}) == true);
+  CHECK(EvaluateMsiCondition("0", properties) == false);
+  CHECK(EvaluateMsiCondition("Missing < 1", properties) == false);
+  CHECK(EvaluateMsiCondition("Missing <> 1", properties) == true);
+  CHECK(EvaluateMsiCondition("Name = 1", properties) == false);
+  // Deep nesting is refused rather than recursing without bound.
+  std::string deep;
+  for (int index = 0; index < 1000; ++index) deep += "NOT ";
+  CHECK(!EvaluateMsiCondition(deep + "VersionNT", properties).has_value());
+  CHECK(!EvaluateMsiCondition(std::string(1000, '(') + "VersionNT" + std::string(1000, ')'), properties).has_value());
+  CHECK(EvaluateMsiCondition("((NOT (VersionNT = 0)))", properties) == true);
 }
 
 void TestCabinet() {
@@ -400,6 +417,12 @@ void TestCabinet() {
   CHECK(reason == "LZX cabinets are not supported");
   CHECK(!ExtractCabinet(TwoBlockCabinet(), [](const std::string&, std::string_view) { return false; }, &reason));
   CHECK(!ExtractCabinet("MSCF", [](const std::string&, std::string_view) { return true; }, &reason));
+  // Members that overlap are refused: "second" moved to offset 5.
+  auto overlapping = TwoBlockCabinet();
+  const auto second = overlapping.find("second") - 16 + 4;
+  overlapping[second] = 5;
+  CHECK(!ExtractCabinet(overlapping, [](const std::string&, std::string_view) { return true; }, &reason));
+  CHECK(reason == "damaged cabinet: members overlap");
 }
 
 void TestPlan() {
@@ -429,7 +452,11 @@ void TestPlan() {
   CHECK(!FindValue(plan.machine, "Software\\Wow6432Node\\Vendor", "Blob"));
   const auto* user = FindValue(plan.user, "Software\\Vendor", "User");
   CHECK(user && user->data == "\"C:\\\\Program Files (x86)\\\\Vendor Runtime\\\\Common\\\\Loader.dll\"");
-  CHECK(plan.skipped_registry == 2);  // the binary value and the OTHER variable
+  // A directory the Property table sets keeps that place.
+  const auto* fixed = FindValue(plan.machine, "Software\\Wow6432Node\\Vendor", "Fixed");
+  CHECK(fixed && fixed->data == "\"C:\\\\Fixed\\\\Place\\\\\"");
+  CHECK(plan.unsupported_files == 0);
+  CHECK(plan.skipped_registry == 3);  // the binary value, the quoted name and the OTHER variable
   CHECK((plan.path_prepend == std::vector<std::string>{"C:\\Program Files (x86)\\Vendor Runtime\\Common\\"}));
   CHECK(plan.path_append.empty());
 }
@@ -473,6 +500,10 @@ void TestScripts() {
                            "\"Path\" \"%INSTALLDIR%\" } } } } \"kvsignatures\" { \"InstallScript\" \"00\" }",
                            "Z:\\games\\1", &values, &reason));
   CHECK(values.machine.size() == 2);
+  RedistEntry rooted{"X", "msiexec", "/i Z:\\data\\games\\696180\\\\tmp\\x.msi", ""};
+  CHECK(ClassifyRedist(rooted, "Z:\\data\\games\\696180", &package) == RedistAction::kNotRun);
+  RedistEntry dotted{"X", "msiexec", "/i Z:\\data\\games\\696180\\.\\x.msi", ""};
+  CHECK(ClassifyRedist(dotted, "Z:\\data\\games\\696180", &package) == RedistAction::kNotRun);
   RedistEntry direct{"X", "Z:\\data\\games\\696180\\redist\\x.msi", "", ""};
   CHECK(ClassifyRedist(direct, "Z:\\data\\games\\696180", &package) == RedistAction::kMsi && package == "redist/x.msi");
 }
@@ -528,6 +559,14 @@ void TestInstall() {
   const auto again = InstallRedistributables(game.string(), "Z:\\games\\42", prefix.string(), 1700000200);
   CHECK(again.outcomes.size() == 2 && again.outcomes[0].result == "already");
   CHECK(ReadText(prefix / "system.reg") == system);
+  // A package whose cabinet doesn't match its file list, or that keeps files beside it, fails and isn't recorded.
+  for (const auto variant : {Variant::kWrongSize, Variant::kUncompressed}) {
+    std::filesystem::remove(prefix / ".playden-redist");
+    WriteText(game / "_CommonRedist/Sample/1.0/sample.msi", SamplePackage(variant));
+    const auto refused = InstallRedistributables(game.string(), "Z:\\games\\42", prefix.string(), 1700000250);
+    CHECK(refused.outcomes.size() == 2 && refused.outcomes[0].result == "failed");
+    CHECK(!std::filesystem::exists(prefix / ".playden-redist"));
+  }
   // A damaged package fails alone.
   std::filesystem::remove(prefix / ".playden-redist");
   WriteText(game / "_CommonRedist/Sample/1.0/sample.msi", "broken");
@@ -559,9 +598,12 @@ void TestPhysxPackage() {
   CHECK(cabinet);
   // PLAYDEN_TEST_PHYSX_FILES may name a folder with the members another tool extracted.
   const char* reference = std::getenv("PLAYDEN_TEST_PHYSX_FILES");
+  std::map<std::string, std::uint32_t> listed;
+  for (const auto& file : plan.files) listed[file.member] = file.size;
   std::size_t count = 0, loader = 0, compared = 0;
   CHECK(ExtractCabinet(*cabinet, [&](const std::string& name, std::string_view data) {
     ++count;
+    CHECK(!listed.count(name) || listed[name] == data.size());  // the installer checks this
     if (name == "FILE_COMMON_PhysXLoader_dll") loader = data.size();
     if (reference && *reference) {
       CHECK(ReadText(std::filesystem::path(reference) / name) == data);

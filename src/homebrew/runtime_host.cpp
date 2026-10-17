@@ -514,10 +514,17 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     const auto redist = rt::InstallRedistributables(root.string(), *install_dir,
                                                     (HostPath(record.data_root) / "library/prefixes/game").string(),
                                                     config_.unix_time());
+    // Names and reasons come from the game's files: one line each, whatever they hold.
+    const auto field = [](std::string text) {
+      if (text.size() > 240) text.resize(240);
+      for (auto& value : text)
+        if (static_cast<unsigned char>(value) < 0x20 || value == 0x7f) value = '?';
+      return text;
+    };
     for (const auto& outcome : redist.outcomes)
       if (outcome.result != "already" && outcome.result != "covered")
-        Log("redist app=" + std::to_string(record.app_id) + " script=" + outcome.script + " name=" + outcome.name +
-            " result=" + outcome.result + " detail=" + outcome.detail +
+        Log("redist app=" + std::to_string(record.app_id) + " script=" + field(outcome.script) + " name=" +
+            field(outcome.name) + " result=" + outcome.result + " detail=" + field(outcome.detail) +
             (outcome.files ? " files=" + std::to_string(outcome.files) : std::string()));
   }
   // Registry values the recipe carries (docs/community-recipes.md), written the way an install script's are.

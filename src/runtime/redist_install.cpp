@@ -126,7 +126,15 @@ bool InsideGame(const std::string& windows_path, const std::string& install_dir,
     return false;
   auto rest = windows_path.substr(base.size() + 1);
   std::replace(rest.begin(), rest.end(), '\\', '/');
-  if (rest.empty() || rest.find("..") != std::string::npos) return false;
+  // Strictly below the game folder: no root, empty, "." or ".." part, and no drive.
+  if (rest.empty() || rest.front() == '/' || rest.back() == '/' || rest.find(':') != std::string::npos) return false;
+  for (std::size_t at = 0; at <= rest.size();) {
+    auto end = rest.find('/', at);
+    if (end == std::string::npos) end = rest.size();
+    const auto part = rest.substr(at, end - at);
+    if (part.empty() || part == "." || part == "..") return false;
+    at = end + 1;
+  }
   *relative = rest;
   return true;
 }
@@ -254,8 +262,13 @@ bool InstallPackage(const std::filesystem::path& package_path, const std::filesy
   }
   MsiInstallPlan plan;
   if (!ReadMsiPackage(package, &plan, reason)) return false;
+  if (plan.unsupported_files) {
+    *reason = std::to_string(plan.unsupported_files) + " of the package's files are stored in a way Playden can't install";
+    return false;
+  }
   std::map<std::string, std::vector<const MsiFile*>> wanted;  // member → files
   for (const auto& file : plan.files) wanted[file.member].push_back(&file);
+  std::set<const MsiFile*> delivered;
   const auto drive = prefix / "drive_c";
   for (std::size_t index = 0; index < plan.cabinets.size(); ++index) {
     const auto& cabinet = plan.cabinets[index];
@@ -278,6 +291,10 @@ bool InstallPackage(const std::filesystem::path& package_path, const std::filesy
       if (found == wanted.end()) return true;
       for (const auto* file : found->second) {
         if (file->cabinet != index) continue;
+        if (data.size() != file->size || !delivered.insert(file).second) {
+          failure = "the package's copy of C:\\" + file->target + " is not the size it lists";
+          return false;
+        }
         const auto slash = file->target.rfind('/');
         const auto folder = slash == std::string::npos ? std::string() : file->target.substr(0, slash);
         const auto name = slash == std::string::npos ? file->target : file->target.substr(slash + 1);
@@ -294,6 +311,10 @@ bool InstallPackage(const std::filesystem::path& package_path, const std::filesy
       if (!failure.empty()) *reason = failure;
       return false;
     }
+  }
+  if (delivered.size() != plan.files.size()) {
+    *reason = std::to_string(plan.files.size() - delivered.size()) + " of the package's files are missing from its cabinets";
+    return false;
   }
   auto machine = plan.machine;
   if (!plan.path_prepend.empty() || !plan.path_append.empty()) {

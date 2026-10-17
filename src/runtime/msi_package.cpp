@@ -149,7 +149,9 @@ bool Compound::Open(std::string_view data, std::string* reason) {
     difat = U32(data, static_cast<std::size_t>(at) + sector_size_ - 4);
   }
   fat_.clear();
+  std::set<std::uint32_t> fat_seen;
   for (const auto sector : fat_list) {
+    if (!fat_seen.insert(sector).second) return fail("damaged package");
     const std::uint64_t at = (static_cast<std::uint64_t>(sector) + 1) * sector_size_;
     if (at + sector_size_ > data.size()) return fail("damaged package");
     for (std::size_t index = 0; index < sector_size_ / 4; ++index)
@@ -159,7 +161,7 @@ bool Compound::Open(std::string_view data, std::string* reason) {
   const auto whole_chain = [&](std::uint32_t start, std::string* out) {
     out->clear();
     for (std::uint32_t sector = start, steps = 0; sector != kEndOfChain; ++steps) {
-      if (sector >= fat_.size() || steps > fat_.size()) return false;
+      if (sector >= fat_.size() || steps > total_sectors || out->size() + sector_size_ > data.size()) return false;
       const std::uint64_t at = (static_cast<std::uint64_t>(sector) + 1) * sector_size_;
       if (at + sector_size_ > data.size()) return false;
       out->append(data.substr(static_cast<std::size_t>(at), sector_size_));
@@ -315,7 +317,7 @@ bool Database::ReadColumns(const std::string& stream, const std::vector<ColumnIn
   table->columns.clear();
   for (const auto* column : stored) table->columns.push_back(column->name);
   table->rows.assign(count, std::vector<Cell>(stored.size()));
-  std::size_t at = 0;
+  std::size_t at = 0, text_bytes = 0;
   for (std::size_t column = 0; column < stored.size(); ++column) {
     const bool binary = (stored[column]->type & ~kTypeNullable) == (kTypeString | kTypeValid);
     const bool text = (stored[column]->type & kTypeString) && !binary;
@@ -327,6 +329,8 @@ bool Database::ReadColumns(const std::string& stream, const std::vector<ColumnIn
             : U16(stream, at);
         cell.null = id == 0;
         cell.text = String(id);
+        // Cells copy pooled strings: a table repeating one long string must not multiply it without bound.
+        if ((text_bytes += cell.text.size()) > kMaxStreamBytes / 4) return false;
       } else if (widths[column] == 2) {
         const auto raw = U16(stream, at);
         cell.null = raw == 0;
@@ -444,15 +448,22 @@ class ConditionParser {
   }
   bool Negation(bool* value) {
     if (Keyword("NOT")) {
-      if (!Negation(value)) return false;
+      if (++depth_ > kMaxDepth) return false;
+      const bool ok = Negation(value);
+      --depth_;
+      if (!ok) return false;
       *value = !*value;
       return true;
     }
     return Comparison(value);
   }
+  // As Windows Installer: a bare property is true when it has a value ("0" included), a bare
+  // integer when it isn't 0; values compare as integers when both are, else an integer against
+  // text is false (only <> holds) and text compares as text.
   struct Operand {
     std::string text;
-    bool integer = false;
+    bool integer = false;   // the text is an integer
+    bool literal = false;   // an integer written in the condition
     long long number = 0;
   };
   static Operand Classify(std::string text, bool literal_string) {
@@ -484,6 +495,7 @@ class ConditionParser {
       std::size_t end = at_ + 1;
       while (end < text_.size() && std::isdigit(static_cast<unsigned char>(text_[end]))) ++end;
       *operand = Classify(std::string(text_.substr(at_, end - at_)), false);
+      operand->literal = true;
       at_ = end;
       return !operand->text.empty() && operand->text != "-";
     }
@@ -504,12 +516,15 @@ class ConditionParser {
     *operand = Classify(state || found == properties_.end() ? std::string() : found->second, false);
     return true;
   }
-  static bool Truth(const Operand& operand) { return operand.integer ? operand.number != 0 : !operand.text.empty(); }
+  static bool Truth(const Operand& operand) { return operand.literal ? operand.number != 0 : !operand.text.empty(); }
   bool Comparison(bool* value) {
     Space();
     if (at_ < text_.size() && text_[at_] == '(') {
       ++at_;
-      if (!Implication(value)) return false;
+      if (++depth_ > kMaxDepth) return false;
+      const bool ok = Implication(value);
+      --depth_;
+      if (!ok) return false;
       Space();
       if (at_ >= text_.size() || text_[at_] != ')') return false;
       ++at_;
@@ -541,6 +556,10 @@ class ConditionParser {
     at_ = probe + op.size();
     Operand right;
     if (!Value(&right)) return false;
+    if ((left.literal && !right.integer) || (right.literal && !left.integer)) {
+      *value = op == "<>";
+      return true;
+    }
     if (left.integer && right.integer) {
       const auto a = left.number, b = right.number;
       *value = op == "=" ? a == b : op == "<>" ? a != b : op == "<" ? a < b : op == ">" ? a > b
@@ -554,9 +573,11 @@ class ConditionParser {
            : op == "<<" ? a.rfind(b, 0) == 0 : (a.size() >= b.size() && a.compare(a.size() - b.size(), b.size(), b) == 0);
     return true;
   }
+  static constexpr int kMaxDepth = 32;  // the console's worker stacks are small
   std::string_view text_;
   const std::map<std::string, std::string>& properties_;
   std::size_t at_ = 0;
+  int depth_ = 0;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -599,6 +620,24 @@ std::optional<std::string> StandardFolder(const std::string& name) {
   return std::nullopt;
 }
 
+// "C:\\a\\b\\" as a path below drive_c ("a/b"); nullopt for another drive or a ".." part.
+std::optional<std::string> DrivePath(const std::string& windows) {
+  if (windows.size() < 3 || (windows[0] != 'C' && windows[0] != 'c') || windows[1] != ':' || windows[2] != '\\' ||
+      !Ascii(windows))
+    return std::nullopt;
+  std::string out;
+  for (std::size_t at = 3; at < windows.size();) {
+    auto end = windows.find('\\', at);
+    if (end == std::string::npos) end = windows.size();
+    const auto part = windows.substr(at, end - at);
+    at = end + 1;
+    if (part.empty() || part == ".") continue;
+    if (part == ".." || part.find('/') != std::string::npos || part.find(':') != std::string::npos) return std::nullopt;
+    out += (out.empty() ? "" : "/") + part;
+  }
+  return out;
+}
+
 bool PerUserFolder(const std::string& name) {
   static const std::set<std::string> kFolders = {
       "AppDataFolder", "LocalAppDataFolder", "PersonalFolder", "DesktopFolder", "ProgramMenuFolder",
@@ -619,6 +658,7 @@ class PlanBuilder {
                    const std::string& data, bool default_value);
   const Database& database_;
   std::map<std::string, std::string> properties_;
+  std::map<std::string, std::string> declared_;  // the Property table as written
   std::map<std::string, std::pair<std::string, std::string>> directory_rows_;  // key → parent, name
   std::map<std::string, std::optional<std::string>> directories_;              // resolved, relative to drive_c
   std::map<std::string, std::string> file_paths_;                              // File key → Windows path
@@ -630,6 +670,12 @@ std::optional<std::string> PlanBuilder::Directory(const std::string& key, int de
   if (const auto found = directories_.find(key); found != directories_.end()) return found->second;
   std::optional<std::string> result;
   const auto row = directory_rows_.find(key);
+  // A directory the Property table sets ("INSTALLDIR" = "C:\\Vendor\\") is placed there.
+  if (const auto declared = declared_.find(key); declared != declared_.end())
+    if (const auto placed = DrivePath(declared->second)) {
+      directories_[key] = placed;
+      return placed;
+    }
   if (const auto standard = StandardFolder(key)) {
     result = standard;
   } else if (PerUserFolder(key) || row == directory_rows_.end() || depth > 64) {
@@ -719,7 +765,7 @@ bool PlanBuilder::Build(MsiInstallPlan* plan, std::string* reason) {
                  {"UILevel", "2"}};
   for (const auto& row : property.rows) {
     const auto& name = At(property, row, "Property");
-    if (!name.null) properties_[name.text] = At(property, row, "Value").text;
+    if (!name.null) properties_[name.text] = declared_[name.text] = At(property, row, "Value").text;
   }
   properties_["ALLUSERS"] = "1";
   plan->product_code = properties_["ProductCode"];
@@ -791,9 +837,14 @@ bool PlanBuilder::Build(MsiInstallPlan* plan, std::string* reason) {
     const auto attributes = At(file, row, "Attributes").number;
     const auto disk = std::find_if(media_rows.begin(), media_rows.end(),
                                    [&](const auto& media_row) { return media_row.first >= sequence; });
-    if (!folder || name.empty() || name.find('/') != std::string::npos || name.find('\\') != std::string::npos ||
-        disk == media_rows.end() || disk->second.empty() || (attributes & 0x2000)) {
-      ++plan->skipped_files;
+    if (!folder) {
+      ++plan->skipped_files;  // a per-user folder
+      continue;
+    }
+    if (name.empty() || name == "." || name == ".." || name.find('/') != std::string::npos ||
+        name.find('\\') != std::string::npos || !Ascii(name) || disk == media_rows.end() || disk->second.empty() ||
+        (attributes & 0x2000)) {
+      ++plan->unsupported_files;  // uncompressed beside the package, or a name the bottle can't hold
       continue;
     }
     const bool embedded = disk->second[0] == '#';
@@ -848,7 +899,10 @@ bool PlanBuilder::Build(MsiInstallPlan* plan, std::string* reason) {
     } else {
       data = WineString(Format(value, &multi));
     }
-    if (multi || !Ascii(key) || !Ascii(name) || !Ascii(data) || key.empty()) {
+    // Wine's registry text can't take these unescaped in a key or value name.
+    if (multi || !Ascii(key) || !Ascii(name) || !Ascii(data) || key.empty() || name.find('"') != std::string::npos ||
+        name.find('\\') != std::string::npos || key.find('[') != std::string::npos || key.find(']') != std::string::npos ||
+        key.find('"') != std::string::npos) {
       ++plan->skipped_registry;
       continue;
     }
@@ -983,6 +1037,12 @@ bool ExtractCabinet(std::string_view cabinet, const std::function<bool(const std
     for (const auto& member : members)
       if (member.folder == folder_index) wanted.push_back(&member);
     std::sort(wanted.begin(), wanted.end(), [](const Member* a, const Member* b) { return a->offset < b->offset; });
+    for (std::size_t index = 0; index < wanted.size(); ++index) {
+      if (wanted[index]->size > kMaxStreamBytes) return fail("a cabinet member is too large");
+      if (index + 1 < wanted.size() &&
+          static_cast<std::uint64_t>(wanted[index]->offset) + wanted[index]->size > wanted[index + 1]->offset)
+        return fail("damaged cabinet: members overlap");
+    }
     std::size_t next = 0;
     std::string current;  // the member being collected
     std::uint64_t position = 0;  // bytes of the folder produced so far

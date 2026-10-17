@@ -44,13 +44,14 @@ struct MsiInstallPlan {
   // Folders (Windows paths) the package adds to the machine-wide PATH.
   std::vector<std::string> path_prepend;
   std::vector<std::string> path_append;
-  std::size_t skipped_files = 0;     // under a folder this reader doesn't place, or uncompressed
+  std::size_t skipped_files = 0;      // under a per-user folder, which this installer leaves alone
+  std::size_t unsupported_files = 0;  // uncompressed beside the package, or a name the bottle can't hold
   std::size_t skipped_registry = 0;  // binary or multi-string values, HKEY_USERS
   std::size_t custom_actions = 0;    // not run
 };
 
-// Reads a package. false with a reason for a file that is not a readable package; a package
-// whose files sit uncompressed beside it is read, with those files counted in skipped_files.
+// Reads a package. false with a reason for a file that is not a readable package; files it
+// can't install are counted (skipped_files, unsupported_files) for the caller to judge.
 bool ReadMsiPackage(std::string_view package, MsiInstallPlan* plan, std::string* reason);
 
 // One stream of the package by its decoded name ("media1.cab"); nullopt when missing.
