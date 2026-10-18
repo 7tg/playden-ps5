@@ -14,10 +14,45 @@ SteamEvent Failure(AuthError error) {
 bool StructurallyValid(const StoredSession& session) {
   return session.steam_id != 0 && !session.refresh_token.empty();
 }
+const char* ErrorName(AuthError error) {
+  switch (error) {
+    case AuthError::kNone: return "none";
+    case AuthError::kCanceled: return "canceled";
+    case AuthError::kExpired: return "expired";
+    case AuthError::kRejected: return "rejected";
+    case AuthError::kNetwork: return "network";
+    case AuthError::kProtocol: return "protocol";
+    case AuthError::kCredentialsRevoked: return "credentials-revoked";
+    case AuthError::kPersistence: return "persistence";
+    case AuthError::kNoSession: return "no-session";
+    case AuthError::kInvalidPassword: return "invalid-password";
+    case AuthError::kRateLimited: return "rate-limited";
+    case AuthError::kSignInRefused: return "sign-in-refused";
+    case AuthError::kSignInTimedOut: return "sign-in-timed-out";
+  }
+  return "unknown";
+}
 }
 
-SteamService::SteamService(AuthBackend& backend, SessionRepository& repository)
-    : backend_(backend), repository_(repository), worker_([this] { Run(); }) {}
+const char* EventName(SteamEventKind kind) {
+  switch (kind) {
+    case SteamEventKind::kChallenge: return "challenge";
+    case SteamEventKind::kAwaitingApproval: return "awaiting-approval";
+    case SteamEventKind::kNeedsEmailCode: return "needs-email-code";
+    case SteamEventKind::kNeedsAuthenticatorCode: return "needs-authenticator-code";
+    case SteamEventKind::kCodeRejected: return "code-rejected";
+    case SteamEventKind::kAuthenticated: return "authenticated";
+    case SteamEventKind::kOfflineSession: return "offline-session";
+    case SteamEventKind::kSignedOut: return "signed-out";
+    case SteamEventKind::kCanceled: return "canceled";
+    case SteamEventKind::kFailure: return "failure";
+  }
+  return "unknown";
+}
+
+SteamService::SteamService(AuthBackend& backend, SessionRepository& repository,
+                           std::function<void(const std::string&)> log)
+    : backend_(backend), repository_(repository), log_(std::move(log)), worker_([this] { Run(); }) {}
 
 SteamService::~SteamService() {
   {
@@ -90,6 +125,7 @@ void SteamService::Cancel(RequestId request) {
   event.generation = generation_;
   event.error = AuthError::kCanceled;
   events_.push_back(std::move(event));
+  if (log_) log_("request=" + std::to_string(request) + " event=canceled by=player");
 }
 
 bool SteamService::Current(const Job& job) const {
@@ -97,16 +133,36 @@ bool SteamService::Current(const Job& job) const {
   return !stopping_ && job.generation == generation_ && !job.cancel->load();
 }
 
+void SteamService::Log(const Job& job, const std::string& line) const {
+  if (!log_) return;
+  const char* operation = job.operation == Operation::kBegin       ? "qr"
+                          : job.operation == Operation::kRestore     ? "restore"
+                          : job.operation == Operation::kCredentials ? "password"
+                                                                     : "sign-out";
+  log_("request=" + std::to_string(job.request) + " op=" + operation + " " + line);
+}
+
 void SteamService::Emit(const Job& job, SteamEvent event) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (stopping_ || job.generation != generation_ || job.cancel->load()) return;
-  if (event.kind == SteamEventKind::kAuthenticated || event.kind == SteamEventKind::kOfflineSession ||
-      event.kind == SteamEventKind::kSignedOut || event.kind == SteamEventKind::kFailure ||
-      event.kind == SteamEventKind::kCanceled) active_ = false;
-  event.request_id = job.request;
-  event.generation = job.generation;
-  if (events_.size() == kMaxEvents) events_.pop_front();
-  events_.push_back(std::move(event));
+  std::string line = std::string("event=") + EventName(event.kind);
+  if (event.error != AuthError::kNone) line += std::string(" error=") + ErrorName(event.error);
+  if (event.kind == SteamEventKind::kAwaitingApproval || event.kind == SteamEventKind::kCodeRejected)
+    line += event.code_allowed ? " code_allowed=1" : " code_allowed=0";
+  bool delivered = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!stopping_ && job.generation == generation_ && !job.cancel->load()) {
+      if (event.kind == SteamEventKind::kAuthenticated || event.kind == SteamEventKind::kOfflineSession ||
+          event.kind == SteamEventKind::kSignedOut || event.kind == SteamEventKind::kFailure ||
+          event.kind == SteamEventKind::kCanceled) active_ = false;
+      event.request_id = job.request;
+      event.generation = job.generation;
+      if (events_.size() == kMaxEvents) events_.pop_front();
+      events_.push_back(std::move(event));
+      delivered = true;
+    }
+  }
+  // Undelivered: a newer command or a cancel replaced this request, so nobody waits for its result.
+  Log(job, delivered ? line : line + " dropped=superseded");
 }
 
 std::vector<SteamEvent> SteamService::Pump(std::size_t max_events) {
@@ -138,6 +194,7 @@ void SteamService::Run() {
 }
 
 void SteamService::Execute(const Job& job) {
+  Log(job, "start");
   if (job.operation == Operation::kClear) {
     const auto cleared = repository_.Clear();
     if (!cleared.ok()) { Emit(job, Failure(AuthError::kPersistence)); return; }
@@ -214,7 +271,10 @@ void SteamService::Execute(const Job& job) {
       Emit(job, std::move(event));
     });
   }
-  if (!Current(job)) return;
+  if (!Current(job)) {
+    Log(job, std::string("result=") + ErrorName(result.error) + " dropped=superseded");
+    return;
+  }
   if (result.error != AuthError::kNone) {
     if (job.operation == Operation::kRestore && result.error == AuthError::kNetwork) {
       SteamEvent event;
@@ -255,6 +315,8 @@ void SteamService::Execute(const Job& job) {
   if (stale) {
     const auto cleared = repository_.Clear();
     if (!cleared.ok()) { std::lock_guard<std::mutex> lock(mutex_); restore_blocked_ = true; }
+    Log(job, std::string("session saved=") + (saved.ok() ? "1" : "0") + " dropped=superseded cleared=" +
+                 (cleared.ok() ? "1" : "0"));
     return;
   }
   if (!saved.ok()) { Emit(job, Failure(AuthError::kPersistence)); return; }

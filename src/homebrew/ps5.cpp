@@ -474,7 +474,9 @@ int main() {
                 playden::app::AppendLogLine(paths.log_root, "runtime.log", "runtime worker could not start");
         }
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud,
-                                               runtime_host.get());
+                                               runtime_host.get(), [](const std::string& line) {
+            playden::app::AppendLogLine(log_root, "auth.log", "sign-in " + line);
+        });
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
         services.SetSelfUpdate(&self_update);

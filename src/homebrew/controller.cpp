@@ -8,12 +8,13 @@ namespace playden::homebrew {
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
                        LibraryService* library_service, app::PersistenceService* persistence_service,
                        steam::AppDetailsService* app_details, steam::InstallService* installs,
-                       steam::CloudService* cloud, RuntimeHost* runtime)
+                       steam::CloudService* cloud, RuntimeHost* runtime,
+                       std::function<void(const std::string&)> auth_log)
     : model_(model), app_details_(app_details), installs_(installs), cloud_(cloud), runtime_(runtime),
-      library_service_(library_service) {
+      library_service_(library_service), auth_log_(std::move(auth_log)) {
   if (model_.state().simulation_mode) return;
   if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
-  service_ = std::make_unique<steam::SteamService>(backend,repository);
+  service_ = std::make_unique<steam::SteamService>(backend,repository,auth_log_);
   phase_ = Phase::Restore;
   Update(AuthState::Restoring,{},true);
   if(persistence_service) persistence_=std::make_unique<app::PersistenceController>(model_,*persistence_service);
@@ -1295,10 +1296,21 @@ void Controller::SubmitPrepare(GameId id, bool announce) {
   runtime_->Prepare(std::move(request));
 }
 void Controller::Apply(const steam::SteamEvent& event) {
-  if (event.generation < generation_) return;
+  const auto ignore = [&](const char* reason) {
+    if (auth_log_)
+      auth_log_("request=" + std::to_string(event.request_id) + " event=" + steam::EventName(event.kind) +
+                " ignored=" + reason + " phase=" + std::to_string(static_cast<int>(phase_)) +
+                " current=" + std::to_string(request_));
+  };
+  if (event.generation < generation_) return ignore("old-generation");
   if (phase_ == Phase::SignOut) {
-    if (event.kind != steam::SteamEventKind::kSignedOut && event.kind != steam::SteamEventKind::kFailure) return;
-  } else if (phase_ == Phase::Idle || phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization || event.request_id != request_) return;
+    if (event.kind != steam::SteamEventKind::kSignedOut && event.kind != steam::SteamEventKind::kFailure)
+      return ignore("signing-out");
+  } else if (phase_ == Phase::Idle || phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization) {
+    return ignore("phase");
+  } else if (event.request_id != request_) {
+    return ignore("other-request");
+  }
   generation_ = event.generation;
   switch (event.kind) {
     case steam::SteamEventKind::kChallenge:

@@ -532,7 +532,10 @@ int main(int argc, char** argv) {
         cloud = std::make_unique<playden::steam::CloudService>(*cloud_runner, *cloud_sessions);
         simulation.SetLogDirectory(options->data_directory / "logs");
         simulation.SetRecipeExportTarget(options->data_directory / "logs", "");
-        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get(),cloud.get());
+        services = std::make_unique<playden::homebrew::Controller>(simulation, *auth, *sessions,library_service.get(),persistence.get(),app_details.get(),installs.get(),cloud.get(),
+            nullptr, [log_directory](const std::string& line) {
+                playden::app::AppendLogLine(log_directory, "auth.log", "sign-in " + line);
+            });
         store_details = std::make_unique<playden::steam::StoreDetailsService>(playden::homebrew::StoreFetch(PLAYDEN_HOMEBREW_CA_BUNDLE));
         services->SetStoreDetails(store_details.get());
     }

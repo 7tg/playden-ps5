@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -37,13 +38,18 @@ struct SteamEvent {
   bool code_allowed = false;
   bool code_is_email = false;
 };
+// The event's name in auth.log ("awaiting-approval", "authenticated", ...).
+const char* EventName(SteamEventKind kind);
 
 // Commands enqueue work and invalidate older results without doing storage or
 // network I/O on the caller. Backend and repository must outlive this service.
 // SignedOut is emitted only after Clear succeeds; failure is explicit.
 class SteamService {
  public:
-  SteamService(AuthBackend& backend, SessionRepository& repository);
+  // log: optional one-line report of each sign-in step and result (auth.log). It names the step,
+  // the event and the error only: never tokens, account names or email addresses.
+  SteamService(AuthBackend& backend, SessionRepository& repository,
+               std::function<void(const std::string&)> log = {});
   ~SteamService();
   SteamService(const SteamService&) = delete;
   SteamService& operator=(const SteamService&) = delete;
@@ -72,8 +78,10 @@ class SteamService {
   void Emit(const Job& job, SteamEvent event);
   void Run();
   void Execute(const Job& job);
+  void Log(const Job& job, const std::string& line) const;
   AuthBackend& backend_;
   SessionRepository& repository_;
+  std::function<void(const std::string&)> log_;
   mutable std::mutex mutex_;
   std::condition_variable wake_;
   std::deque<Job> pending_;

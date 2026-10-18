@@ -27,7 +27,8 @@ class Controller {
   Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
              LibraryService* library_service = nullptr, app::PersistenceService* persistence_service = nullptr,
              steam::AppDetailsService* app_details = nullptr, steam::InstallService* installs = nullptr,
-             steam::CloudService* cloud = nullptr, RuntimeHost* runtime = nullptr);
+             steam::CloudService* cloud = nullptr, RuntimeHost* runtime = nullptr,
+             std::function<void(const std::string&)> auth_log = {});
   ~Controller();
   void Tick();
   // Microseconds each part of the last Tick took, for slow-frame diagnostics.
@@ -200,6 +201,7 @@ class Controller {
   std::optional<GameId> requested_detail_;
   std::uint64_t requested_generation_ = 0;
   std::unique_ptr<steam::SteamService> service_;
+  std::function<void(const std::string&)> auth_log_;  // sign-in steps and results (auth.log)
   LibraryService* library_service_ = nullptr;
   std::unique_ptr<app::LibraryController> library_;
   std::unique_ptr<app::PersistenceController> persistence_;

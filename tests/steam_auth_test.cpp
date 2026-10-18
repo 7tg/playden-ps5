@@ -3,6 +3,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <future>
+#include <functional>
+#include <string>
+#include <vector>
 
 using namespace playden;
 using namespace playden::steam;
@@ -105,7 +108,51 @@ SteamEvent WaitEvent(SteamService& service,SteamEventKind kind) {
   std::cerr<<"event deadline exceeded waiting="<<static_cast<int>(kind)<<" last="<<last_kind<<'\n';
   std::exit(1);
 }
+// The service's log lines, collected from its worker.
+class Lines {
+ public:
+  std::function<void(const std::string&)> Sink() { return [this](const std::string& line){ std::lock_guard<std::mutex> lock(m); lines.push_back(line); }; }
+  bool Has(const std::string& part) const {
+    std::lock_guard<std::mutex> lock(m);
+    for(const auto& line:lines) if(line.find(part)!=std::string::npos) return true;
+    return false;
+  }
+  bool WaitFor(const std::string& part) const {
+    auto deadline=std::chrono::steady_clock::now()+3s;
+    while(std::chrono::steady_clock::now()<deadline){ if(Has(part)) return true; std::this_thread::sleep_for(1ms); }
+    return false;
+  }
+ private:
+  mutable std::mutex m; std::vector<std::string> lines;
+};
 int main(){
+  {
+    // Each step of a password sign-in is logged, without the account, password or tokens.
+    Store store;Backend backend;backend.approval=true;Lines log;SteamService service(backend,store,log.Sink());
+    auto id=service.BeginCredentialSignIn("fixture-account","fixture-password");
+    WaitEvent(service,SteamEventKind::kAwaitingApproval);
+    service.SubmitGuardCode("WRONG");WaitEvent(service,SteamEventKind::kCodeRejected);
+    service.SubmitGuardCode("12345");WaitEvent(service,SteamEventKind::kAuthenticated);
+    const auto prefix="request="+std::to_string(id)+" op=password ";
+    Check(log.Has(prefix+"start")&&log.Has(prefix+"event=awaiting-approval code_allowed=1")&&
+          log.Has(prefix+"event=code-rejected")&&log.Has(prefix+"event=authenticated"),"password sign-in steps logged");
+    Check(!log.Has("fixture-account")&&!log.Has("fixture-password")&&!log.Has("fixture-refresh-secret")&&
+          !log.Has("fixture-access-secret")&&!log.Has("example.invalid"),"log leaked account data");
+  }
+  {
+    // A result that arrives after a newer command replaced its request says it was dropped.
+    Store store;Backend backend;Gate gate;backend.begin_gate=&gate;Lines log;SteamService service(backend,store,log.Sink());
+    auto first=service.BeginQrSignIn();gate.Wait();service.Cancel(first);gate.Release();
+    WaitEvent(service,SteamEventKind::kCanceled);
+    Check(log.WaitFor("request="+std::to_string(first)+" op=qr result=none dropped=superseded"),"dropped result logged");
+    Check(log.Has("request="+std::to_string(first)+" event=canceled by=player"),"cancel logged");
+  }
+  {
+    // A restore with no saved session logs why the player sees sign-in.
+    Store store;Backend backend;Lines log;SteamService service(backend,store,log.Sink());
+    service.RestoreSession();WaitEvent(service,SteamEventKind::kFailure);
+    Check(log.WaitFor("op=restore event=failure error=no-session"),"restore failure logged");
+  }
   {
     Store store;Backend backend;SteamService service(backend,store);
     auto id=service.BeginQrSignIn();auto e=WaitEvent(service,SteamEventKind::kAuthenticated);
