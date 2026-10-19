@@ -1442,10 +1442,15 @@ void MaintainsReadyTitle() {
   CHECK(!fs::exists(game / "hl2.dxvk-cache") && Read(game / "hl2.exe") == "existing-game");
 
   // Backups copy the Windows user folders; the newest three are kept.
+  // A file with another link (here the bottle's registry linked into the profile) is not copied.
   Write(data / "library/prefixes/game/drive_c/users/prospero/Documents/save.dat", "progress", 0600);
+  const auto linked = data / "library/prefixes/game/drive_c/users/prospero/Documents/linked.reg";
+  CHECK(link((data / "library/prefixes/game/user.reg").c_str(), linked.c_str()) == 0);
   for (int index = 0; index < 4; ++index, ++now) CHECK(maintain(RuntimeMaintenance::kBackupSaves).maintenance.at(220).ok);
   const auto backups = fixture.root / "data/playden/games/steam-220.saves";
   CHECK(Read(backups / "1760000003/users/prospero/Documents/save.dat") == "progress");
+  CHECK(!fs::exists(backups / "1760000003/users/prospero/Documents/linked.reg"));
+  CHECK(unlink(linked.c_str()) == 0);
   CHECK(!fs::exists(backups / "1760000000") && fs::exists(backups / "1760000001"));
   result = host.Snapshot();
   CHECK(result.installs[0].save_backups == 3 && result.installs[0].latest_save_backup == 1760000003);
@@ -1455,6 +1460,12 @@ void MaintainsReadyTitle() {
   CHECK(result.maintenance.at(220).ok);
   struct stat info{};
   CHECK(stat((data / "library/prefixes/game/user.reg").c_str(), &info) == 0 && (info.st_mode & 0777) == 0600);
+  // A kit without bottle-profile-shared keeps the bottle private: its way and its saves.
+  for (const auto* folder : {"", "library", "library/prefixes", "library/prefixes/game", "library/prefixes/game/drive_c/users"})
+    CHECK(lstat((data / folder).c_str(), &info) == 0 && (info.st_mode & 07777) == 0700);
+  CHECK(lstat((data / "library/prefixes/game/drive_c/users/prospero/Documents/save.dat").c_str(), &info) == 0 &&
+        (info.st_mode & 07777) == 0600);
+  CHECK(lstat(backups.c_str(), &info) == 0 && (info.st_mode & 07777) == 0700);
 
   // An update interrupted after its arm keeps its journal: Play waits, and Resume (Prepare)
   // finishes the saved request instead of making a new one.
@@ -1603,7 +1614,8 @@ void ModdedGameFolderStillPlays() {
 // mod. With a kit that admits unowned folders, each way back republishes it unowned: the
 // startup pass (route 0), or with the title busy at startup, Repair (1), a settings update (2),
 // Update (3) or Play (4). Owned 0755 folders that were tightened open up again (route 0), but
-// never while the publication stays owned (5: the republication is refused).
+// never while the publication stays owned (5: the republication is refused). Such a game
+// played before, so it still plays, Repairs and Updates under its owned publication (5).
 void OwnedPublicationOpenedUpRecovers(int route) {
   Fixture fixture;
   auto config = fixture.Config();
@@ -1665,8 +1677,26 @@ void OwnedPublicationOpenedUpRecovers(int route) {
     RuntimeHost host(config);
     CHECK(host.Start());
     WaitFor(host, Started);
-    CHECK(logged("startup unowned app=220 failed: "));
+    CHECK(logged("startup unowned app=220 deferred: "));
     CHECK(Read(metadata).find("schema=2\n") != std::string::npos && mode(game) == 0755);
+    const auto maintain = [&host](RuntimeMaintenance action) {
+      const auto before = host.Snapshot().maintenance_handled;
+      host.Maintain(220, action);
+      return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60).maintenance.at(220);
+    };
+    const auto repaired = maintain(RuntimeMaintenance::kRepair);
+    if (!repaired.ok) std::fprintf(stderr, "route 5 Repair refused: %s\n", repaired.message.c_str());
+    CHECK(repaired.ok && repaired.message.find("could not be published for mods") != std::string::npos);
+    const auto before = host.Snapshot().prepares_handled;
+    host.Prepare(Hl2());
+    const auto updated = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before; }, 60);
+    CHECK(updated.refusals.count(220) && updated.refusals.at(220) == "This game is already prepared.");
+    host.Play(220);
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+    if (done.play_refusals.count(220)) std::fprintf(stderr, "route 5 Play refused: %s\n", done.play_refusals.at(220).c_str());
+    CHECK(done.handoff_ready && host.Handoff());
+    CHECK(Read(metadata).find("schema=2\n") != std::string::npos && mode(game) == 0755);
+    CHECK(Read(game / "GInput.asi") == "mod-plugin");
     host.Shutdown();
     return;
   }
@@ -2743,10 +2773,10 @@ void MovedGameStartupKeepsSteamAccount() {
   host.Shutdown();
 }
 
-// A moved game whose publication can't be redone (here its saved settings went back to an older
-// revision than the title's) would be stuck: Play says to press Update, and Update prepares it
-// again from its new folder, as Recreate bottle does, keeping its saves.
-void StuckMovedGamePreparesAgainOnUpdate() {
+// A moved game whose publication can't be redone (here its saved settings are older than its
+// title's) is not prepared again behind the player's back: Play and Update refuse, name the
+// confirmed way out (Recreate bottle), and change nothing.
+void StuckMovedGameOffersRecreateBottle() {
   Fixture fixture;
   GamesMove move;
   const auto kit = SyntheticKit(fixture.root / "kit");
@@ -2757,9 +2787,9 @@ void StuckMovedGamePreparesAgainOnUpdate() {
     GameSettingsRecord saved; saved.revision = revision->load(); saved.overrides = {{"resolution", "1280x720"}};
     return saved;
   };
-  config.removal_poll_interval = std::chrono::milliseconds(1);
-  config.unregister_title = [&fixture](const std::string&, const std::string&) {
-    fixture.registered = false; fixture.submitted = false;
+  bool unregistered = false;
+  config.unregister_title = [&unregistered](const std::string&, const std::string&) {
+    unregistered = true;
     return TitleRemoverResult{true, 0, "answered"};
   };
   PrepareThenMoveGames(fixture, config, move);
@@ -2771,23 +2801,22 @@ void StuckMovedGamePreparesAgainOnUpdate() {
   CHECK(host.Start());
   WaitFor(host, Started);
   CHECK(move.Logged("startup moved app=220 failed: ") && move.Done() == 0);
+  const auto records_before = Read(fixture.root / "data/runtime-state/installs.json");
+  CHECK(records_before.find("moved_from") != std::string::npos);
+  const auto title = host.Snapshot().installs.at(0).title_id;
   host.Play(220);
   const auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
   CHECK(played.play_refusals.count(220) &&
-        played.play_refusals.at(220).find("Press Update on the game page") != std::string::npos);
+        played.play_refusals.at(220).find("Use Maintenance > Recreate bottle on the game page") != std::string::npos);
   const auto before = host.Snapshot().prepares_handled;
   host.Prepare({220, std::string(kNewGames) + "/220", "internal", "Half-Life \"2\""});
   const auto done = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before; }, 60);
-  if (done.refusals.count(220)) std::fprintf(stderr, "Update refused: %s\n", done.refusals.at(220).c_str());
-  CHECK(!done.refusals.count(220));
-  CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
-  CHECK(move.Logged("prepare again app=220 because: ") && move.Done() == 1);
-  const auto records = Read(fixture.root / "data/runtime-state/installs.json");
-  CHECK(records.find(R"("install_path":"/data/playden-games/220")") != std::string::npos &&
-        records.find("moved_from") == std::string::npos);
+  CHECK(done.refusals.count(220) &&
+        done.refusals.at(220).find("Use Maintenance > Recreate bottle on the game page") != std::string::npos);
+  CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady && done.installs[0].title_id == title);
+  CHECK(!move.Logged("prepare again app=220") && move.Done() == 0 && !unregistered);
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json") == records_before);
   CHECK(Read(save) == "player-save" && !fs::exists(fixture.root / "data/playden/games/steam-220.kept"));
-  const auto descriptor = Read(fixture.root / "data/homebrew" / done.installs[0].title_id / "game-launch.json");
-  CHECK(descriptor.find(R"("game_root":"/data/playden-games/220")") != std::string::npos);
   host.Shutdown();
 }
 
@@ -2974,6 +3003,256 @@ void MovedGameMissingAtNewRootKeepsTheMove() {
   host.Shutdown();
 }
 
+// bottle-profile-shared: the bottle's way to its user profile is 0711 and the profile is open to FTP.
+RuntimeKit SharedProfileKit(const fs::path& kit) {
+  auto admitted = SyntheticKit(kit);
+  admitted.capabilities.push_back(kKitBottleProfileShared);
+  std::sort(admitted.capabilities.begin(), admitted.capabilities.end());
+  return admitted;
+}
+unsigned ModeOf(const fs::path& path) {
+  struct stat info{};
+  CHECK(lstat(path.c_str(), &info) == 0);
+  return static_cast<unsigned>(info.st_mode & 07777);
+}
+// The six folders on the way from the data root to the profile.
+std::vector<fs::path> ProfileWay(const fs::path& data) {
+  const auto bottle = data / "library/prefixes/game";
+  return {data, data / "library", data / "library/prefixes", bottle, bottle / "drive_c", bottle / "drive_c/users"};
+}
+
+// A prepared HL2 title with a kit that the test can swap, Play from Playden and a working remover.
+struct ProfileRun {
+  Fixture fixture;
+  RuntimeKit kit;
+  unsigned uuids = 0;
+  std::vector<std::vector<std::string>> launches;
+  RuntimeHostConfig config;
+  const fs::path data = fixture.root / "data/playden/games/steam-220";
+  const fs::path profile = data / "library/prefixes/game/drive_c/users/prospero";
+  explicit ProfileRun(bool shared) {
+    kit = shared ? SharedProfileKit(fixture.root / "kit") : SyntheticKit(fixture.root / "kit");
+    config = fixture.Config();
+    config.host_namespace_prefix = fixture.root;
+    config.session_data_root = fixture.root / "data";
+    config.package_paths.console_data_root = "/data";
+    config.package_paths.host_data_root = fixture.root / "data";
+    config.package_operations.hash_file = HashArtifactFile;
+    config.package_operations.hash_bytes = HashArtifactBytes;
+    config.package_operations.free_space_unverifiable = true;
+    config.package_operations.validate_bottle = [](const fs::path& bottle) {
+      return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+    };
+    config.admit_kit = [this](std::string*) { return std::optional<RuntimeKit>(kit); };
+    config.uuid = [this]() -> std::optional<std::string> {
+      ++uuids;
+      char id[37];
+      std::snprintf(id, sizeof(id), "00000000-0000-4000-8000-%012u", uuids);
+      return std::string(id);
+    };
+    config.unix_time = [] { return std::int64_t{1760000000}; };
+    config.launch_title = [this](const std::string&, const std::vector<std::string>& arguments) {
+      launches.push_back(arguments);
+      return TitleResult{true, 0, "launch"};
+    };
+    config.removal_confirm_polls = 3;
+    config.removal_poll_interval = std::chrono::milliseconds(1);
+    config.unregister_title = [this](const std::string&, const std::string&) {
+      fixture.registered = false; fixture.submitted = false;
+      return TitleRemoverResult{true, 0, "answered"};
+    };
+    Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  }
+  RuntimeSnapshot Prepare(RuntimeHost& host) {
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) ||
+          (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+    CHECK(!done.refusals.count(220) && done.installs.size() == 1);
+    return done;
+  }
+  RuntimeSnapshot Maintain(RuntimeHost& host, RuntimeMaintenance action) {
+    const auto before = host.Snapshot().maintenance_handled;
+    host.Maintain(220, action);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  }
+  // Play from Playden up to the handoff; returns the session it starts.
+  std::string Play(RuntimeHost& host) {
+    const auto handled = host.Snapshot().plays_handled;
+    host.Play(220);
+    const auto played = WaitFor(host, [handled](const RuntimeSnapshot& s) {
+      return s.handoff_ready || s.plays_handled > handled;
+    }, 30);
+    if (!played.handoff_ready && played.play_refusals.count(220))
+      std::fprintf(stderr, "Play refused: %s\n", played.play_refusals.at(220).c_str());
+    WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+    CHECK(host.Handoff());
+    return launches.back().at(0).substr(std::string("session=").size());
+  }
+  // The title's wrapper records the session in the private data root.
+  void Session(const std::string& id, const std::string& phase) {
+    const auto sessions = data / "logs/sessions";
+    fs::create_directories(sessions);
+    CHECK(chmod((data / "logs").c_str(), 0700) == 0 && chmod(sessions.c_str(), 0700) == 0);
+    Write(sessions / (id + ".json"),
+          R"({"schema_version":1,"session_id":")" + id +
+              R"(","install_id":"steam-220","title_id":"FAKE78001","origin":"playden","settings_revision":0,)"
+              R"("runtime_bundle_id":"wine-wow64","phase":")" + phase + "\"}\n", 0600);
+  }
+};
+
+// Whether the linked publication verifier (the pinned kit's) admits a 0711 data root. One from
+// before bottle-profile-shared refuses it, and with it every start check of a shared bottle:
+// those checks wait for the pin that brings the capability.
+bool VerifierAdmitsSharedBottle() {
+  static const bool admits = [] {
+    ProfileRun run(false);
+    {
+      RuntimeHost host(run.config);
+      CHECK(host.Start());
+      run.Prepare(host);
+      host.Shutdown();
+    }
+    CHECK(chmod(run.data.c_str(), 0711) == 0);
+    FilesystemPackageInstaller installer(run.kit.view, run.config.package_paths, run.config.package_operations);
+    auto record = Record();
+    record.title_id = "FAKE78001";
+    record.data_root = "/data/playden/games/steam-220";
+    const bool ok = installer.AdmissionDiagnostic(record) == "ok";
+    if (!ok)
+      std::fprintf(stderr, "note: the linked publication verifier refuses 0711 bottles; "
+                           "bottle-profile-shared start checks are skipped until the kit pin admits them\n");
+    return ok;
+  }();
+  return admits;
+}
+
+// A kit with bottle-profile-shared makes the bottle's way 0711 and its profile 0777/0666. Saves
+// Wine makes (0600, umask 077) are opened again at Play and when the session ends; Repair keeps
+// the modes, backups stay private, and saves kept across an uninstall come back open.
+void SharedProfileKitOpensSaves() {
+  if (!VerifierAdmitsSharedBottle()) return;
+  ProfileRun run(true);
+  RuntimeHost host(run.config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  auto ready = run.Prepare(host);
+  CHECK(ready.installs[0].admission == "ok");
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0711);
+  for (const auto* folder : {".playden-control", "library/profiles", "library/input"}) CHECK(ModeOf(run.data / folder) == 0700);
+  CHECK(ModeOf(run.data / "library/prefixes/game/user.reg") == 0600);
+  for (const auto* folder : {"", "AppData", "AppData/Roaming", "Documents", "Saved Games"})
+    CHECK(ModeOf(run.profile / folder) == 0777);
+
+  // Between sessions (from Home, or over FTP) Wine left a private save: Play opens it first.
+  const auto game = run.profile / "AppData/Roaming/Game";
+  Write(game / "save.dat", "first", 0600);
+  CHECK(chmod(game.c_str(), 0700) == 0);
+  const auto session = run.Play(host);
+  CHECK(ModeOf(game) == 0777 && ModeOf(game / "save.dat") == 0666);
+  // The game saves while it runs; once its session ends the new save is opened too.
+  run.Session(session, "running");
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kRunning; }, 30);
+  Write(game / "later.dat", "second", 0600);
+  run.Session(session, "exited");
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kExited; }, 30);
+  CHECK(ModeOf(game / "later.dat") == 0666);
+  CHECK(ModeOf(run.data / "logs/sessions") == 0700 && ModeOf(run.data / "library/prefixes/game/user.reg") == 0600);
+
+  // Repair keeps the modes and the start check passes.
+  auto result = run.Maintain(host, RuntimeMaintenance::kRepair);
+  CHECK(result.maintenance.at(220).ok);
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0711);
+  // Backups live in Playden's private backup folder.
+  result = run.Maintain(host, RuntimeMaintenance::kBackupSaves);
+  CHECK(result.maintenance.at(220).ok);
+  const auto backups = run.fixture.root / "data/playden/games/steam-220.saves";
+  CHECK(ModeOf(backups) == 0700 && ModeOf(backups / "1760000000/users/prospero/AppData/Roaming/Game/save.dat") == 0600);
+
+  // Uninstalled keeping saves, prepared again: the saves come back open.
+  const auto removals = host.Snapshot().removals_handled;
+  host.Remove(220, false);
+  auto removed = WaitFor(host, [removals](const RuntimeSnapshot& s) { return s.removals_handled > removals; }, 30);
+  CHECK(removed.installs.empty() && removed.kept_bottles.size() == 1);
+  const auto kept = run.fixture.root / "data/playden/games/steam-220.kept";
+  CHECK(ModeOf(kept / "library/prefixes/game/drive_c/users/prospero/AppData/Roaming/Game/save.dat") == 0666);
+  ready = run.Prepare(host);
+  CHECK(ready.kept_bottles.empty() && Read(game / "save.dat") == "first");
+  CHECK(ModeOf(game) == 0777 && ModeOf(game / "save.dat") == 0666 && ModeOf(game / "later.dat") == 0666);
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0711);
+  host.Shutdown();
+}
+
+// A bottle made before the kit had bottle-profile-shared (all 0700) is opened when Playden starts
+// with the new kit, and again by Repair and by the first Play if it was tightened since.
+void ExistingBottleOpensWithSharedKit() {
+  if (!VerifierAdmitsSharedBottle()) return;
+  ProfileRun run(false);
+  {
+    RuntimeHost host(run.config);
+    CHECK(host.Start());
+    run.Prepare(host);
+    host.Shutdown();
+  }
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0700);
+  Write(run.profile / "Documents/My Games/settings.ini", "[video]\n", 0600);
+  run.kit = SharedProfileKit(run.fixture.root / "kit");
+  const auto tighten = [&run] {
+    for (const auto& folder : ProfileWay(run.data)) CHECK(chmod(folder.c_str(), 0700) == 0);
+    CHECK(chmod((run.profile / "Documents/My Games/settings.ini").c_str(), 0600) == 0);
+  };
+  RuntimeHost host(run.config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0711);
+  CHECK(ModeOf(run.profile / "Documents/My Games") == 0777 && ModeOf(run.profile / "Documents/My Games/settings.ini") == 0666);
+  tighten();
+  CHECK(run.Maintain(host, RuntimeMaintenance::kRepair).maintenance.at(220).ok);
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0711);
+  CHECK(ModeOf(run.profile / "Documents/My Games/settings.ini") == 0666);
+  tighten();
+  run.Play(host);
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0711);
+  CHECK(ModeOf(run.profile / "Documents/My Games/settings.ini") == 0666);
+  host.Shutdown();
+}
+
+// Without the capability nothing opens: Wine's saves stay as they are after Play and after a
+// session. A bottle a capable kit opened (then a kit downgrade) fails the strict start check
+// until Repair, or the next Play, puts its way back to 0700; the profile keeps its modes.
+void KitWithoutSharedProfileKeepsBottlePrivate() {
+  ProfileRun run(false);
+  RuntimeHost host(run.config);
+  CHECK(host.Start());
+  run.Prepare(host);
+  const auto save = run.profile / "Saved Games/Game/save.dat";
+  Write(save, "save", 0600);
+  CHECK(chmod(save.parent_path().c_str(), 0700) == 0);
+  const auto session = run.Play(host);
+  run.Session(session, "exited");
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kExited; }, 30);
+  CHECK(ModeOf(save) == 0600 && ModeOf(save.parent_path()) == 0700 && ModeOf(run.profile) == 0700);
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0700);
+
+  const auto open_up = [&run, &save] {
+    for (const auto& folder : ProfileWay(run.data)) CHECK(chmod(folder.c_str(), 0711) == 0);
+    CHECK(chmod(run.profile.c_str(), 0777) == 0 && chmod(save.c_str(), 0666) == 0);
+  };
+  open_up();
+  auto result = run.Maintain(host, RuntimeMaintenance::kRepair);
+  if (!result.maintenance.at(220).ok) std::fprintf(stderr, "Repair: %s\n", result.maintenance.at(220).message.c_str());
+  CHECK(result.maintenance.at(220).ok && result.installs[0].admission == "ok");
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0700);
+  CHECK(ModeOf(run.profile) == 0777 && ModeOf(save) == 0666);
+  open_up();
+  run.Play(host);
+  for (const auto& folder : ProfileWay(run.data)) CHECK(ModeOf(folder) == 0700);
+  CHECK(ModeOf(save) == 0666);
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -3007,13 +3286,16 @@ int main(int argc, char** argv) {
   KitRespinKeepsWaitingSettingsUpdate();
   RemovesTitleKeepingSaves();
   PreparesGameInstalledAgainElsewhere();
+  SharedProfileKitOpensSaves();
+  ExistingBottleOpensWithSharedKit();
+  KitWithoutSharedProfileKeepsBottlePrivate();
   ShippedRecipePreparesWithAnotherKitsRecipe();
   ShippedRecipeRequirementsFollowTheKit(false);
   ShippedRecipeRequirementsFollowTheKit(true);
   MigrationRewritesInstallPathsAndRepublishes();
   MovedModdedGameRepublishesUnowned();
   MovedGameStartupKeepsSteamAccount();
-  StuckMovedGamePreparesAgainOnUpdate();
+  StuckMovedGameOffersRecreateBottle();
   PlayBeforeRepublishRepublishesFirst();
   MigrationSkipsRecordsOutsideOldPrefix();
   RestartDuringRepublishResumes();

@@ -2,6 +2,10 @@
 #include "platform/managed_directory.h"
 #include <cerrno>
 #include <cstring>
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 namespace playden::runtime {
 namespace fs = std::filesystem;
 namespace {
@@ -13,18 +17,30 @@ bool SafeRelative(const fs::path& path) {
     if (part.empty() || part == "." || part == "..") return false;
   return true;
 }
+bool Traversable(const PrivateTraversal& traversal, const fs::path& path) {
+  for (const auto& folder : traversal.folders)
+    if (folder == path) return true;
+  return false;
 }
-bool IsPrivateDirectory(const fs::path& directory) {
-  return ManagedDirectory::Open(directory, DirectoryPolicy::kPrivate).has_value();
+DirectoryPolicy PolicyFor(const PrivateTraversal& traversal, const fs::path& path) {
+  return Traversable(traversal, path) ? DirectoryPolicy::kPrivateTraversable : DirectoryPolicy::kPrivate;
 }
-bool IsPrivateDirectoryTree(const fs::path& private_root, const fs::path& directory) {
+}
+bool IsPrivateDirectory(const fs::path& directory, bool traversable) {
+  return ManagedDirectory::Open(directory, traversable ? DirectoryPolicy::kPrivateTraversable
+                                                       : DirectoryPolicy::kPrivate).has_value();
+}
+bool IsPrivateDirectoryTree(const fs::path& private_root, const fs::path& directory,
+                            const PrivateTraversal& traversal) {
   const auto relative = directory.lexically_relative(private_root);
   if (directory != private_root && !SafeRelative(relative)) return false;
-  auto current = ManagedDirectory::Open(private_root, DirectoryPolicy::kPrivate);
+  auto current = ManagedDirectory::Open(private_root, PolicyFor(traversal, private_root));
   if (!current) return false;
   if (directory != private_root) {
+    fs::path path = private_root;
     for (const auto& part : relative) {
-      auto next = current->OpenChild(part.string(), DirectoryPolicy::kPrivate);
+      path /= part;
+      auto next = current->OpenChild(part.string(), PolicyFor(traversal, path));
       if (!next) return false;
       current = std::move(next);
     }
@@ -32,7 +48,8 @@ bool IsPrivateDirectoryTree(const fs::path& private_root, const fs::path& direct
   return current->Validate();
 }
 bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_root,
-                              const fs::path& directory, std::string* error) {
+                              const fs::path& directory, std::string* error,
+                              const PrivateTraversal& traversal) {
   if (error) error->clear();
   const auto fail = [&](const std::string& message) {
     if (error) *error = message;
@@ -41,6 +58,8 @@ bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_
   const auto relative = directory.lexically_relative(boundary);
   const auto private_relative = private_root.lexically_relative(boundary);
   const auto within = directory.lexically_relative(private_root);
+  if (traversal.created_mode != 0700 && traversal.created_mode != 0711)
+    return fail("traversal folders must be created 0700 or 0711");
   if (!SafeRelative(relative) || !SafeRelative(private_relative) ||
       (directory != private_root && !SafeRelative(within)))
     return fail("private directory is outside its trusted boundary");
@@ -53,8 +72,11 @@ bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_
     if (path == private_root) in_private = true;
     // Shared parents it creates above the private root are 0777, so FTP and other
     // apps can write beside them; existing ones keep their mode.
-    auto next = in_private ? current->OpenChild(part.string(), DirectoryPolicy::kPrivate, true)
-                           : current->OpenChild(part.string(), DirectoryPolicy::kApprovedTree, true, 0777);
+    const auto policy = PolicyFor(traversal, path);
+    auto next = !in_private ? current->OpenChild(part.string(), DirectoryPolicy::kApprovedTree, true, 0777)
+                : policy == DirectoryPolicy::kPrivateTraversable
+                    ? current->OpenChild(part.string(), policy, true, traversal.created_mode)
+                    : current->OpenChild(part.string(), policy, true);
     if (!next)
       return fail("cannot open/create private directory (wrong owner or permissions): " + path.string() + ": " + strerror(errno));
     // Flush the directory and its parent entry before journaled preparation.
@@ -64,5 +86,174 @@ bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_
     current = std::move(next);
   }
   return current->Validate();
+}
+namespace {
+#if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
+constexpr bool kDescriptorRelative = false;  // as ManagedDirectory: no *at calls on the console
+#else
+constexpr bool kDescriptorRelative = true;
+#endif
+bool SameEntry(const struct stat& a, const struct stat& b) {
+  return a.st_dev == b.st_dev && a.st_ino == b.st_ino && (a.st_mode & S_IFMT) == (b.st_mode & S_IFMT);
+}
+// A child opened without following a link: relative to its folder where *at calls exist, else
+// by path, checked to be the entry lstat saw, in a folder its path still names. -1 with
+// *stop: the folder's path names another folder now, so nothing more is opened through it.
+int OpenEntry(int folder, const struct stat& folder_info, const fs::path& folder_path, const char* name, bool by_path,
+              int extra_flags, bool* stop) {
+  const int flags = O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC | extra_flags;
+  *stop = false;
+  if (!by_path) return ::openat(folder, name, flags);
+  struct stat parent{}, before{}, opened{};
+  if (::lstat(folder_path.c_str(), &parent) != 0 || !SameEntry(parent, folder_info)) {
+    *stop = true;
+    errno = ESTALE;
+    return -1;
+  }
+  const auto path = folder_path / name;
+  if (::lstat(path.c_str(), &before) != 0) return -1;
+  if (S_ISLNK(before.st_mode)) { errno = ELOOP; return -1; }
+  const int fd = ::open(path.c_str(), flags);
+  if (fd >= 0 && (::fstat(fd, &opened) != 0 || !SameEntry(opened, before))) {
+    ::close(fd);
+    errno = ESTALE;
+    return -1;
+  }
+  return fd;
+}
+constexpr int kSharedTreeDepth = 64;
+constexpr std::size_t kSharedTreeEntries = 200000;
+struct Walk {
+  bool by_path;
+  const SharedTreeOptions& options;
+  std::size_t entries = 0;
+  SharedTreeResult* result;
+};
+// Takes fd. Folders of other owners are not entered. False: a folder could not be listed, or
+// the walk found a folder's path changed under it.
+bool ShareFolder(int fd, const fs::path& path, int depth, Walk& walk) {
+  auto* result = walk.result;
+  struct stat info{};
+  if (::fstat(fd, &info) != 0 || !S_ISDIR(info.st_mode)) { ::close(fd); return false; }
+  if (info.st_uid != ::geteuid()) { ::close(fd); ++result->skipped; return true; }
+  if ((info.st_mode & 07777) != 0777) {
+    if (::fchmod(fd, 0777) != 0) { ::close(fd); ++result->skipped; return true; }
+    ++result->changed;
+  }
+  const int listing_fd = ::dup(fd);
+  DIR* listing = listing_fd >= 0 ? ::fdopendir(listing_fd) : nullptr;
+  if (!listing) {
+    if (listing_fd >= 0) ::close(listing_fd);
+    ::close(fd);
+    return false;
+  }
+  bool ok = true;
+  for (;;) {
+    errno = 0;
+    const auto* entry = ::readdir(listing);
+    if (!entry) { ok = errno == 0; break; }
+    const std::string name = entry->d_name;
+    if (name == "." || name == "..") continue;
+    if (++walk.entries > kSharedTreeEntries) { result->truncated = true; break; }
+    if (entry->d_type == DT_LNK) continue;
+    if (walk.options.before_open) walk.options.before_open(path / name);
+    // O_NOFOLLOW: a link swapped in is refused, never followed.
+    bool stop = false;
+    const int child = OpenEntry(fd, info, path, name.c_str(), walk.by_path, 0, &stop);
+    if (stop) { result->changed_under = true; ok = false; break; }
+    if (child < 0) {
+      if (errno != ELOOP && errno != EMLINK) ++result->skipped;
+      continue;
+    }
+    struct stat opened{};
+    if (::fstat(child, &opened) != 0) { ::close(child); ++result->skipped; continue; }
+    if (S_ISDIR(opened.st_mode)) {
+      if (depth + 1 > kSharedTreeDepth) { ::close(child); result->truncated = true; break; }
+      if (!ShareFolder(child, path / name, depth + 1, walk)) { ok = false; break; }
+      if (result->truncated) break;
+      continue;
+    }
+    // A file with another link is someone else's too (a private file linked in): left alone.
+    if (S_ISREG(opened.st_mode) && opened.st_nlink != 1) {
+      ++result->linked;
+    } else if (S_ISREG(opened.st_mode) && opened.st_uid == ::geteuid()) {
+      const mode_t wanted = 0666 | (opened.st_mode & 0111);
+      if ((opened.st_mode & 07777) != wanted) {
+        if (::fchmod(child, wanted) == 0) ++result->changed;
+        else ++result->skipped;
+      }
+    }
+    ::close(child);
+  }
+  ::closedir(listing);
+  ::close(fd);
+  return ok;
+}
+}  // namespace
+bool DescriptorRelativeOpens() { return kDescriptorRelative; }
+int OpenFolderNoFollow(const fs::path& path) {
+  struct stat before{}, opened{};
+  if (::lstat(path.c_str(), &before) != 0) return -1;
+  if (S_ISLNK(before.st_mode)) { errno = ELOOP; return -1; }
+  if (!S_ISDIR(before.st_mode)) { errno = ENOTDIR; return -1; }
+  const int fd = ::open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd >= 0 && (::fstat(fd, &opened) != 0 || !SameEntry(opened, before))) {
+    ::close(fd);
+    errno = ESTALE;
+    return -1;
+  }
+  return fd;
+}
+int OpenChildFolderNoFollow(int parent_fd, const fs::path& parent_path, const std::string& name, bool by_path) {
+  struct stat parent{};
+  if (name.empty() || name == "." || name == ".." || name.find('/') != std::string::npos) { errno = EINVAL; return -1; }
+  if (::fstat(parent_fd, &parent) != 0) return -1;
+  bool stop = false;
+  const int fd = OpenEntry(parent_fd, parent, parent_path, name.c_str(), by_path, O_DIRECTORY, &stop);
+  struct stat opened{};
+  // O_DIRECTORY|O_NOFOLLOW on a link may say ENOTDIR (macOS): it is still a link.
+  if (fd < 0 && errno == ENOTDIR && !by_path && ::fstatat(parent_fd, name.c_str(), &opened, AT_SYMLINK_NOFOLLOW) == 0 &&
+      S_ISLNK(opened.st_mode))
+    errno = ELOOP;
+  if (fd >= 0 && (::fstat(fd, &opened) != 0 || !S_ISDIR(opened.st_mode))) {
+    ::close(fd);
+    errno = ENOTDIR;
+    return -1;
+  }
+  return fd;
+}
+bool SetTraversableMode(const fs::path& folder, mode_t mode) {
+  if (mode != 0700 && mode != 0711) { errno = EINVAL; return false; }
+  struct stat before{};
+  if (::lstat(folder.c_str(), &before) != 0) return errno == ENOENT;
+  const auto current = before.st_mode & 07777;
+  if (!S_ISDIR(before.st_mode) || before.st_uid != ::geteuid() || (current != 0700 && current != 0711) ||
+      current == mode)
+    return true;
+  const int fd = ::open(folder.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return false;
+  struct stat opened{};
+  const bool same = ::fstat(fd, &opened) == 0 && opened.st_dev == before.st_dev && opened.st_ino == before.st_ino &&
+                    opened.st_uid == ::geteuid();
+  const bool changed = same && ::fchmod(fd, mode) == 0 && ::fsync(fd) == 0;
+  const int error = errno;
+  ::close(fd);
+  errno = error;
+  return changed;
+}
+SharedTreeResult OpenTreeToEveryone(const fs::path& root, const SharedTreeOptions& options) {
+  SharedTreeResult result;
+  struct stat before{};
+  if (::lstat(root.c_str(), &before) != 0) { result.ok = errno == ENOENT; return result; }
+  if (!S_ISDIR(before.st_mode) || before.st_uid != ::geteuid()) return result;
+  const int fd = ::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  struct stat opened{};
+  if (fd < 0 || ::fstat(fd, &opened) != 0 || opened.st_dev != before.st_dev || opened.st_ino != before.st_ino) {
+    if (fd >= 0) ::close(fd);
+    return result;
+  }
+  Walk walk{options.by_path || !kDescriptorRelative, options, 0, &result};
+  result.ok = ShareFolder(fd, root, 0, walk);
+  return result;
 }
 }

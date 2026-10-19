@@ -63,6 +63,9 @@ constexpr std::int64_t kPreflightFreshMs = 5000;
 constexpr char kActivityUnknown[] =
     "The PS5 could not tell Playden whether the game is running. Restart the PS5, then try again.";
 
+// A moved game whose publication can't be redone: Recreate bottle (confirmed) prepares it again.
+constexpr char kRecreateHint[] = " Use Maintenance > Recreate bottle on the game page to prepare it again.";
+
 std::string InstallId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id); }
 
 // Why the kit cannot run a recipe Playden ships (its requirements), for the player; empty when it
@@ -966,21 +969,39 @@ void RuntimeHost::OpenGameFolders(const Composition& c, const rt::RuntimeInstall
     return;
   const auto working = WorkingFolder(record.launch_working_directory, record.launch_path, record.launch_in_install_root);
   auto folder = HostPath(record.install_path);
-  const auto open_up = [this](const std::filesystem::path& path) {
+  // Each folder through its descriptor, never through a link (the walk stops at one).
+  const auto open_up = [this](int fd, const std::filesystem::path& path) {
     struct stat info{};
-    if (lstat(path.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != geteuid() ||
-        (info.st_mode & 07777) != 0755)
+    if (fstat(fd, &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != geteuid() || (info.st_mode & 07777) != 0755)
       return;
-    const bool opened = chmod(path.c_str(), 0777) == 0;
+    const bool opened = fchmod(fd, 0777) == 0;
     Log("game folder mode 0755 -> 0777 path=" + path.string() + (opened ? "" : " failed errno=" + std::to_string(errno)));
   };
-  open_up(folder);
-  if (working.empty() || working == ".") return;
-  for (const auto& part : std::filesystem::path(working)) {
-    if (part.empty() || part == "." || part == ".." || part.is_absolute()) return;
-    folder /= part;
-    open_up(folder);
-  }
+  const auto refused = [this](const std::filesystem::path& path) {
+    Log("game folder open stops path=" + path.string() + " errno=" + std::to_string(errno) +
+        (errno == ELOOP ? " (a link)" : ""));
+  };
+  int fd = rt::OpenFolderNoFollow(folder);
+  if (fd < 0) return refused(folder);
+  open_up(fd, folder);
+  if (!working.empty() && working != ".")
+    for (const auto& part : std::filesystem::path(working)) {
+      if (part.empty() || part == "." || part == ".." || part.is_absolute()) break;
+      const int child = rt::OpenChildFolderNoFollow(fd, folder, part.string());
+      close(fd);
+      fd = child;
+      folder /= part;
+      if (fd < 0) return refused(folder);
+      open_up(fd, folder);
+    }
+  close(fd);
+}
+
+void RuntimeHost::SettleBottle(Composition& c, const rt::RuntimeInstall& record, const char* when) {
+  const auto settled = c.installer->SettleBottleModes(record);
+  if (settled.state != rt::PackageActionState::kComplete)
+    Log(std::string("bottle modes ") + when + " install=" + record.install_id + " code=" + settled.code + " " +
+        settled.message);
 }
 
 std::string RuntimeHost::UnlinkDxvkConfig(const rt::RuntimeInstall& record) {
@@ -1042,9 +1063,37 @@ std::string RuntimeHost::UnlinkDxvkConfig(const rt::RuntimeInstall& record) {
 }
 
 std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
-                                           bool steam_account_known, bool* prepare_again) {
+                                           bool steam_account_known, bool* prepare_again,
+                                           std::string* upgrade_deferred) {
   if (published) *published = false;
   if (prepare_again) *prepare_again = false;
+  if (upgrade_deferred) upgrade_deferred->clear();
+  // A recipe this kit cannot run is refused before the game's files or bottle change.
+  if (c.kit)
+    for (const auto& candidate : c.recipes)
+      if (candidate.app_id == record.app_id && candidate.id == record.recipe_id)
+        if (const auto lacks = KitLacksForRecipe(candidate, c.kit->view); !lacks.empty()) return lacks;
+  // Only the unowned upgrade of a game that did not move, with no newer settings: the game
+  // played under its owned publication, which stays when the upgrade fails.
+  const auto saved_revision = config_.settings_record
+      ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{}).revision : 0;
+  const bool upgrade_only = record.moved_from.empty() && saved_revision <= record.settings_revision &&
+                            NeedsUnownedPublication(c, record);
+  auto refused = PublishSavedSettings(c, record, published, steam_account_known, prepare_again);
+  if (refused.empty() || !upgrade_only) return refused;
+  Log("settings update app=" + std::to_string(record.app_id) + " unowned upgrade deferred, owned publication kept: " +
+      refused);
+  if (prepare_again) *prepare_again = false;
+  if (upgrade_deferred) *upgrade_deferred = refused;
+  // One that left a journal waits for recovery like any other update (Play refuses it).
+  const auto current = c.records.Find(record.install_id);
+  if (!current || current->journal) return refused;
+  // As before the upgrade existed: Play brings the Steam files in line; startup leaves them.
+  return steam_account_known ? ApplySteamworks(c, *current, true) : std::string{};
+}
+
+std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
+                                              bool steam_account_known, bool* prepare_again) {
   // Refusals only a new preparation gets past (the title's recipe or settings can't be published again).
   const auto again = [prepare_again](std::string message) {
     if (prepare_again) *prepare_again = true;
@@ -1052,11 +1101,6 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   };
   const auto saved = config_.settings_record ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{})
                                              : rt::GameSettingsRecord{};
-  // A recipe this kit cannot run is refused before the game's files or bottle change.
-  if (c.kit)
-    for (const auto& candidate : c.recipes)
-      if (candidate.app_id == record.app_id && candidate.id == record.recipe_id)
-        if (const auto lacks = KitLacksForRecipe(candidate, c.kit->view); !lacks.empty()) return lacks;
   // A game whose folder moved (RuntimeInstall::moved_from) is published again at its revision, so
   // its descriptor, profile and dxvk.conf name the new folder.
   const bool moved = !record.moved_from.empty();
@@ -1372,16 +1416,16 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
           settings = RepublishSettings(c, *record, nullptr, true, &again);
           Publish([&](RuntimeSnapshot& s) { s.play_progress.erase(app_id); });
           if (!settings.empty())
-            settings = "This game could not be updated for Playden 0.5: " + settings +
-                       (again ? " Press Update on the game page to prepare it again." : "");
+            settings = "This game could not be updated for Playden 0.5: " + settings + (again ? kRecreateHint : "");
           Log("play moved app=" + std::to_string(app_id) + " " + (settings.empty() ? "republished" : settings));
         }
       } else if (idle) {
-        bool again = false;
-        settings = RepublishSettings(c, *record, nullptr, true, &again);
-        if (again && NeedsUnownedPublication(c, *record))
-          settings += " Press Update on the game page to prepare it again.";
+        settings = RepublishSettings(c, *record);
       }
+      // Saves the game wrote and FTP edits made since, once nothing of the bottle is held and
+      // only when Play goes ahead: a refused Play changes no modes.
+      if (idle && settings.empty())
+        if (const auto current = c.records.Find(record->install_id)) SettleBottle(c, *current, "play");
       result = settings.empty() ? c.launch->Request(record->install_id)
                                 : rt::LaunchResult::Failure(rt::LaunchError::kPreflight, settings);
     }
@@ -1425,6 +1469,11 @@ bool RuntimeHost::PollLaunch(Composition& c) {
   }
   if (pending && (snapshot.state == rt::LaunchState::kExited || snapshot.state == rt::LaunchState::kFailed)) {
     const auto finished = c.launch->Finish();
+    // The saves the game just wrote are Wine's (0600): opened to FTP again.
+    if (finished.accepted && c.kit && rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).bottle_profile_shared)
+      if (const auto record = c.records.Find(snapshot.install_id);
+          record && c.coordinator->Activity(record->title_id) == rt::NativeActivity::kStopped)
+        SettleBottle(c, *record, "session");
     Log("play finished install=" + snapshot.install_id + " session=" + snapshot.session_id + " state=" +
         std::to_string(static_cast<int>(snapshot.state)) + " code=" + snapshot.code + " exit=" +
         (snapshot.exit_code ? std::to_string(*snapshot.exit_code) : std::string("unknown")) +
@@ -1849,29 +1898,21 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         changed = true;
       }
       // A game whose folder moved in 0.5 is published again for the new folder first, and an
-      // owned publication again as unowned.
+      // owned publication again as unowned. A moved game whose publication can't be redone
+      // (settings older than its title, a recipe Playden no longer has) stays as it is: the way
+      // out is the player's confirmed choice.
       if (!existing->moved_from.empty() || NeedsUnownedPublication(c, *existing)) {
         bool again = false;
-        if (const auto refused = RepublishSettings(c, *existing, nullptr, true, &again); !refused.empty()) {
-          if (!again) return refused;
-          // Its publication can't be redone (settings older than its title, a recipe Playden no
-          // longer has): it is prepared again, as Recreate bottle does. The title goes, the bottle
-          // is kept for its saves, and a new title is made from the game's folder.
-          Log("prepare again app=" + std::to_string(request.app_id) + " because: " + refused);
-          if (const auto removed = RunRemove(c, request.app_id, false); !removed.empty())
-            return "The game could not be prepared again: " + removed;
-          PublishKeptBottles(c);
-          const auto left = c.repository.Snapshot();
-          if (std::any_of(left.begin(), left.end(),
-                          [&](const rt::RuntimeInstall& record) { return record.app_id == request.app_id; }))
-            return "The game's old PS5 title is still being removed. Press Update again.";
-          return RunPrepare(c, request, awaiting);
-        }
+        std::string deferred;
+        if (const auto refused = RepublishSettings(c, *existing, nullptr, true, &again, &deferred); !refused.empty())
+          return again ? refused + kRecreateHint : refused;
         const auto install_id = existing->install_id;
         existing = c.records.Find(install_id);
         if (!existing) return "The game's install record is missing.";
-        changed = true;
+        if (deferred.empty()) changed = true;
       }
+      // A refreshed title may now admit the kit's modes for its bottle.
+      SettleBottle(c, *existing, "update");
       if (const auto unlinked = UnlinkDxvkConfig(*existing); !unlinked.empty()) return unlinked;
       auto admission = c.installer->AdmissionDiagnostic(*existing);
       if (admission != "ok") {
@@ -2183,7 +2224,10 @@ std::optional<KeptBottleView> ReadKeptMarker(const std::filesystem::path& kept, 
 
 // Copies a saves tree into a private bottle: directories 0700, files keep their
 // owner bits, links are skipped (Wine links point outside the bottle).
-bool CopySavesTree(const std::filesystem::path& from, const std::filesystem::path& to, std::string* error) {
+// Files with another link are skipped (logged): their content may be another file's (a private
+// one linked into the profile), which the copy would make the profile's own.
+bool CopySavesTree(const std::filesystem::path& from, const std::filesystem::path& to, std::string* error,
+                   const std::function<void(const std::string&)>& log) {
   struct stat info{};
   if (lstat(to.c_str(), &info) != 0) {
     if (mkdir(to.c_str(), 0700) != 0) { *error = "cannot create " + to.filename().string(); return false; }
@@ -2197,13 +2241,24 @@ bool CopySavesTree(const std::filesystem::path& from, const std::filesystem::pat
     if (lstat(source.c_str(), &info) != 0) continue;
     if (S_ISLNK(info.st_mode)) continue;
     if (S_ISDIR(info.st_mode)) {
-      if (!CopySavesTree(source, target, error)) return false;
+      if (!CopySavesTree(source, target, error, log)) return false;
       continue;
     }
     if (!S_ISREG(info.st_mode)) continue;
+    if (info.st_nlink != 1) {
+      log("saves copy skips " + source.string() + ": it has " + std::to_string(info.st_nlink) + " links");
+      continue;
+    }
+    const int input = open(source.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat opened{};
+    if (input >= 0 && (fstat(input, &opened) != 0 || opened.st_ino != info.st_ino || opened.st_dev != info.st_dev ||
+                       opened.st_nlink != 1)) {
+      close(input);
+      log("saves copy skips " + source.string() + ": it changed while being copied");
+      continue;
+    }
     const auto temporary = target.parent_path() / ("." + target.filename().string() + ".restore");
     unlink(temporary.c_str());
-    const int input = open(source.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     const int output = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
                             (info.st_mode & 0700) | 0600);
     bool ok = input >= 0 && output >= 0;
@@ -2296,13 +2351,17 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
       // A game whose folder moved fails the check until it is published again, just below.
       if (admission != "ok" && record->moved_from.empty() && !unowned_upgrade)
         return "The PS5 title still fails its start check: " + admission;
-      if (auto refused = RepublishSettings(c, *record); !refused.empty()) return refused;
+      std::string deferred;
+      if (auto refused = RepublishSettings(c, *record, nullptr, true, nullptr, &deferred); !refused.empty())
+        return refused;
       if (!record->moved_from.empty() || unowned_upgrade)
         if (const auto current = c.records.Find(record->install_id))
           if (const auto checked = c.installer->AdmissionDiagnostic(*current); checked != "ok")
-            return "The PS5 title still fails its start check: " + checked;
+            return (deferred.empty() ? std::string() : "The game folder could not be published for mods: " + deferred + " ") +
+                   "The PS5 title still fails its start check: " + checked;
       *ok = true;
       if (const auto current = c.records.Find(record->install_id)) OpenGameFolders(c, *current);
+      if (!deferred.empty()) return "Repaired, but the game folder could not be published for mods: " + deferred;
       if (!c.installer->TitleCurrent(*record) || !c.installer->TitleMetadataCurrent(*record))
         return "Repaired. The PS5 title also has an update: press Update on the game page.";
       return "Repaired. The game's start files and settings are in place.";
@@ -2320,7 +2379,8 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
       RemoveTreeNoFollow(staging, error);
       if (mkdir(staging.c_str(), 0700) != 0) return "The backup folder could not be made.";
       std::string reason;
-      if (!CopySavesTree(users, staging / "users", &reason) || rename(staging.c_str(), target.c_str()) != 0) {
+      if (!CopySavesTree(users, staging / "users", &reason, [this](const std::string& line) { Log(line); }) ||
+          rename(staging.c_str(), target.c_str()) != 0) {
         RemoveTreeNoFollow(staging, error);
         Log("maintenance backup failed app=" + std::to_string(app) + " " + reason);
         return "The saves could not be backed up" + (reason.empty() ? std::string(".") : ": " + reason + ".");
@@ -2627,10 +2687,13 @@ std::string RuntimeHost::RestoreKeptSaves(Composition& c, std::uint32_t app) {
   if (lstat(from.c_str(), &info) == 0 && S_ISDIR(info.st_mode)) {
     if (lstat(to.parent_path().c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
       return "The game's new bottle has no drive C for its kept saves.";
-    if (!CopySavesTree(from, to, &reason)) {
+    if (!CopySavesTree(from, to, &reason, [this](const std::string& line) { Log(line); })) {
       Log("restore kept saves failed app=" + std::to_string(app) + " " + reason);
       return "The saves kept from the previous install could not be brought back: " + reason;
     }
+    // The restored profile is opened to FTP like the rest (bottle-profile-shared); the copy is private.
+    if (c.kit && rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).bottle_profile_shared)
+      SettleBottle(c, *record, "restore");
   }
   {
     const int fd = open((bottle / kRestoredMarker).c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
@@ -2697,6 +2760,7 @@ void RuntimeHost::Run() {
         else Log("recipe " + recipe.id + " refused kit=" + c.kit->view.kit_id + " " + lacks);
       }
       installer->AcceptShippedRecipes(std::move(shipped));
+      installer->ShareBottleProfiles(rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).bottle_profile_shared);
       c.installer = std::move(installer);
     } else {
       if (kit_reason.empty()) kit_reason = "No verified compatibility kit is installed.";
@@ -2708,7 +2772,8 @@ void RuntimeHost::Run() {
         c.records, *c.installer, c.registry, config_.homebrew_root, std::move(native));
     c.owner = std::make_unique<rt::SettingsPublicationOwner>(
         c.records, *c.installer, *c.coordinator,
-        c.kit && rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned);
+        c.kit && rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned,
+        config_.host_namespace_prefix);
     c.service = std::make_unique<rt::RuntimeInstallService>(
         c.records, *c.installer, *c.coordinator,
         [&c](const rt::RuntimeInstall& record) {
@@ -2801,6 +2866,16 @@ void RuntimeHost::Run() {
         std::lock_guard<std::mutex> lock(mutex_);
         launch_poll_ = true;
       }
+      // Games started from Home (and Playden's, which close Playden) left Wine's 0600 saves: with
+      // bottle-profile-shared they are opened to FTP again once their title is stopped.
+      if (c.kit && rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).bottle_profile_shared) {
+        const auto began = std::chrono::steady_clock::now();
+        std::size_t settled = 0;
+        for (const auto& record : c.repository.Snapshot())
+          if (MaintenanceRefusal(c, record).empty()) { SettleBottle(c, record, "startup"); ++settled; }
+        Log("startup bottle profiles settled=" + std::to_string(settled) + " ms=" +
+            std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count()));
+      }
       // Games whose folder moved with the games root (0.5) start from Home only once their
       // publication names the new folder: republished now, busy titles wait for Play.
       // So are games published owned while the kit admits unowned folders (folders opened for
@@ -2811,9 +2886,12 @@ void RuntimeHost::Run() {
         if (!moved && !NeedsUnownedPublication(c, record)) continue;
         const auto busy = c.kit ? MaintenanceRefusal(c, record) : std::string("no verified kit");
         bool published = false;
-        const auto refused = busy.empty() ? RepublishSettings(c, record, &published, false) : busy;
+        std::string deferred;
+        const auto refused = busy.empty() ? RepublishSettings(c, record, &published, false, nullptr, &deferred) : busy;
         Log(std::string(moved ? "startup moved app=" : "startup unowned app=") + std::to_string(record.app_id) + " " +
-            (published ? std::string("republished") : (busy.empty() ? "failed: " : "waits: ") + refused));
+            (published ? std::string("republished")
+             : !deferred.empty() ? "deferred: " + deferred
+                                 : (busy.empty() ? "failed: " : "waits: ") + refused));
       }
       FinishGamesMove(c);
       // Settings saved while Playden was closed, or before a title was stopped, are published

@@ -249,9 +249,10 @@ bool BoundToRecord(const WrapperSession &session, const RuntimeInstall &record) 
 }
 
 std::optional<ManagedDirectory> Child(ManagedDirectory directory,
-                                      std::initializer_list<const char *> parts) {
+                                      std::initializer_list<const char *> parts,
+                                      DirectoryPolicy policy = DirectoryPolicy::kPrivate) {
   for (const auto *part : parts) {
-    auto child = directory.OpenChild(part, DirectoryPolicy::kPrivate);
+    auto child = directory.OpenChild(part, policy);
     if (!child) return std::nullopt;
     directory = std::move(*child);
   }
@@ -502,14 +503,15 @@ std::optional<ManagedDirectory> FilesystemReconcileSessionSource::OpenSessions(
     return std::nullopt;
   }
   const auto mapped = host_data_root_ / "playden/games" / record.install_id;
-  auto game = ManagedDirectory::Open(mapped, DirectoryPolicy::kPrivate);
+  // The data root, library, prefixes and the bottle may be 0711 (bottle-profile-shared).
+  auto game = ManagedDirectory::Open(mapped, DirectoryPolicy::kPrivateTraversable);
   if (!game)
     {
     *failure = SourceFailure("session-root-unavailable",
                          "managed game root is unavailable or unsafe");
     return std::nullopt;
   }
-  auto marker_root = ManagedDirectory::Open(mapped, DirectoryPolicy::kPrivate);
+  auto marker_root = ManagedDirectory::Open(mapped, DirectoryPolicy::kPrivateTraversable);
   if (!marker_root)
     {
     *failure = SourceFailure("session-root-unavailable",
@@ -517,7 +519,7 @@ std::optional<ManagedDirectory> FilesystemReconcileSessionSource::OpenSessions(
     return std::nullopt;
   }
   auto bottle = Child(std::move(*marker_root),
-                      {"library", "prefixes", "game"});
+                      {"library", "prefixes", "game"}, DirectoryPolicy::kPrivateTraversable);
   if (!bottle || !MarkerMatches(*bottle, record))
     {
     *failure = SourceFailure("session-owner-invalid",

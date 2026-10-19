@@ -170,6 +170,87 @@ void ForeignOwnershipWhenPrivileged(DirectoryBackend backend) {
   CHECK(::chown((f.root / "foreign-dir").c_str(), 0, static_cast<gid_t>(-1)) == 0);
   CHECK(!approved->Validate());
 }
+
+// kPrivateTraversable admits 0700 and 0711 only, owned by the user; it opens
+// private children, and a kPrivate parent never opens it.
+void PrivateTraversableAccepts0711Only(DirectoryBackend backend) {
+  Fixture f;
+  const auto mode = [](const fs::path& path) {
+    struct stat info{};
+    CHECK(::lstat(path.c_str(), &info) == 0);
+    return info.st_mode & 07777;
+  };
+  const auto chain = f.root / "chain";
+  fs::create_directory(chain);
+  for (mode_t admitted : {0700, 0711}) {
+    CHECK(::chmod(chain.c_str(), admitted) == 0);
+    auto opened = ManagedDirectory::Open(chain, DirectoryPolicy::kPrivateTraversable, backend);
+    CHECK(opened && opened->policy() == DirectoryPolicy::kPrivateTraversable && opened->root() == chain);
+  }
+  for (mode_t refused : {0755, 0751, 0701, 0710, 0733, 0777, 0500}) {
+    CHECK(::chmod(chain.c_str(), refused) == 0);
+    CHECK(!ManagedDirectory::Open(chain, DirectoryPolicy::kPrivateTraversable, backend) && errno == EACCES);
+  }
+  CHECK(::chmod(chain.c_str(), 0711) == 0);
+  CHECK(!ManagedDirectory::Open(chain, DirectoryPolicy::kPrivate, backend));
+  auto root = ManagedDirectory::Open(f.root, DirectoryPolicy::kApprovedTree, backend);
+  CHECK(root);
+  auto traversable = root->OpenChild("chain", DirectoryPolicy::kPrivateTraversable);
+  CHECK(traversable && traversable->root() == chain);
+  CHECK(!root->OpenChild("chain", DirectoryPolicy::kPrivate) && errno == EACCES);
+
+  // Created 0711 or 0700 whatever the umask; other modes are refused before mkdir.
+  const auto previous = ::umask(077);
+  auto library = traversable->OpenChild("library", DirectoryPolicy::kPrivateTraversable, true, 0711);
+  CHECK(library && mode(chain / "library") == 0711 && library->root() == chain);
+  auto closed = traversable->OpenChild("closed", DirectoryPolicy::kPrivateTraversable, true, 0700);
+  CHECK(closed && mode(chain / "closed") == 0700);
+  CHECK(!traversable->OpenChild("wide", DirectoryPolicy::kPrivateTraversable, true, 0755) && errno == EINVAL);
+  CHECK(!traversable->OpenChild("wide", DirectoryPolicy::kPrivate, true, 0711) && errno == EINVAL);
+  CHECK(!fs::exists(chain / "wide"));
+  ::umask(previous);
+
+  // A traversable folder opens kPrivate children (exactly 0700) but no other policy.
+  auto profiles = library->OpenChild("profiles", DirectoryPolicy::kPrivate, true);
+  CHECK(profiles && mode(chain / "library/profiles") == 0700 && profiles->root() == chain);
+  CHECK(!library->OpenChild("public", DirectoryPolicy::kApprovedTree, true) && errno == EINVAL);
+  CHECK(!library->OpenChild("public", DirectoryPolicy::kUnownedTree, true) && errno == EINVAL);
+  CHECK(!fs::exists(chain / "library/public"));
+  // A kPrivate folder stays strict: no traversable child, even an existing 0711 one.
+  fs::create_directory(chain / "library/profiles/open");
+  CHECK(::chmod((chain / "library/profiles/open").c_str(), 0711) == 0);
+  CHECK(!profiles->OpenChild("open", DirectoryPolicy::kPrivateTraversable) && errno == EINVAL);
+  CHECK(!profiles->OpenChild("open", DirectoryPolicy::kPrivate) && errno == EACCES);
+  CHECK(!profiles->OpenChild("made", DirectoryPolicy::kPrivateTraversable, true, 0711));
+  CHECK(!fs::exists(chain / "library/profiles/made"));
+
+  // Mode drift is caught by Validate, also between the two admitted modes (identity).
+  CHECK(::chmod((chain / "library").c_str(), 0755) == 0);
+  CHECK(!library->Validate() && !profiles->Validate());
+  CHECK(!traversable->OpenChild("library", DirectoryPolicy::kPrivateTraversable) && errno == EACCES);
+  CHECK(::chmod((chain / "library").c_str(), 0700) == 0);
+  CHECK(!library->Validate());
+  auto reopened = traversable->OpenChild("library", DirectoryPolicy::kPrivateTraversable);
+  CHECK(reopened && reopened->Validate());
+
+  // Renames into a traversable folder admit 0700 or 0711 folders; into kPrivate, 0700 only.
+  CHECK(::chmod((chain / "closed").c_str(), 0711) == 0);
+  CHECK(::chmod((chain / "library").c_str(), 0711) == 0);
+  reopened = traversable->OpenChild("library", DirectoryPolicy::kPrivateTraversable);
+  auto private_profiles = reopened ? reopened->OpenChild("profiles", DirectoryPolicy::kPrivate) : std::nullopt;
+  CHECK(private_profiles);
+  CHECK(!traversable->RenameChild("closed", *private_profiles, "moved") && errno == EACCES);
+  CHECK(traversable->RenameChild("closed", *reopened, "game"));
+  CHECK(mode(chain / "library/game") == 0711);
+
+  if (::geteuid() == 0) {  // Wrong owner, in privileged CI only.
+    fs::create_directory(f.root / "foreign");
+    CHECK(::chmod((f.root / "foreign").c_str(), 0711) == 0);
+    CHECK(::chown((f.root / "foreign").c_str(), 1, static_cast<gid_t>(-1)) == 0);
+    CHECK(!ManagedDirectory::Open(f.root / "foreign", DirectoryPolicy::kPrivateTraversable, backend));
+    CHECK(!root->OpenChild("foreign", DirectoryPolicy::kPrivateTraversable));
+  }
+}
 }
 
 // kUnownedTree is used for game folders on drives without owners or permissions.
@@ -211,6 +292,7 @@ int main() {
     RejectPolicyAndIdentityDrift(backend, true);
     RenameAdmission(backend);
     ForeignOwnershipWhenPrivileged(backend);
+    PrivateTraversableAccepts0711Only(backend);
     UnownedTreeOperations(backend);
   }
   std::printf("managed directory: %zu backends, identity, policy and file operations pass\n", backends.size());

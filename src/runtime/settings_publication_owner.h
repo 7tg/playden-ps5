@@ -9,9 +9,10 @@ enum class PublicationControlStep { kOwnerArmed, kDirectorySynced, kLockSynced, 
 class SettingsPublicationOwner {
  public:
   // unowned_game_roots: the admitted kit has game-root-unowned; captures publish every game
-  // folder unowned (CaptureSettingsPublicationOperation).
+  // folder unowned (CaptureSettingsPublicationOperation). host_namespace_prefix: where Request
+  // reads the committed publication (a same-revision update only replaces an owned one).
   SettingsPublicationOwner(InstallRecordStore& records, PackageInstaller& package, NativeCoordinator& native,
-                           bool unowned_game_roots = false);
+                           bool unowned_game_roots = false, std::filesystem::path host_namespace_prefix = {});
   // Persist the exact requested plan in the existing
   // private OWNER request directory, then arm OWNER before control/capture.
   // Pre-arm orphans never resume implicitly. Ready updates retain their current
@@ -49,5 +50,6 @@ class SettingsPublicationOwner {
   PackageInstaller& package_;
   NativeCoordinator& native_;
   bool unowned_game_roots_ = false;
+  std::filesystem::path host_namespace_prefix_;
 };
 }  // namespace playden::runtime

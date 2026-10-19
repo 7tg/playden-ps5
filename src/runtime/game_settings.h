@@ -42,6 +42,7 @@ struct KitCapabilities {
   bool shared_sections = false;  // Wine maps unaligned shared PE sections as private copies (patch 0602)
   bool title_any_id = false;     // one title shell for every game; no fixed set of titles
   bool game_root_unowned = false;  // games start from drives that record no file owners (exFAT)
+  bool bottle_profile_shared = false;  // the bottle's 4 folders to its user profile may be 0711
   bool opengl_zink = false;        // OpenGL games draw through Mesa's Zink, not the PS5 OpenGL SDK
   bool wine_mono = false;          // .NET programs start on the kit's Wine Mono
   bool vkd3d_proton = false;       // the kit's runtime carries vkd3d-proton's Direct3D 12 DLLs
@@ -410,6 +411,9 @@ inline constexpr const char* kKitTitleAnyId = "title-any-id";
 // Runtime ability: launch admission accepts a game folder on a drive that records no file
 // owners or permissions, such as an exFAT USB disk (publication metadata schema 3).
 inline constexpr const char* kKitGameRootUnowned = "game-root-unowned";
+// Runtime ability: launch admission accepts 0711 as well as 0700 for the bottle's way to its user
+// profile (games/<id>, library, library/prefixes, library/prefixes/game), so FTP can reach the saves.
+inline constexpr const char* kKitBottleProfileShared = "bottle-profile-shared";
 // Runtime ability: OpenGL games draw through Mesa's WGL/Zink on Vulkan (prospero-win upstream #463-#465)
 // instead of the PS5 OpenGL SDK, which had the 120 Hz output and the OpenGL worker thread.
 inline constexpr const char* kKitOpenGLZink = "opengl-zink";

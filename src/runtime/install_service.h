@@ -83,6 +83,13 @@ public:
   virtual PackageActionResult RepairBottle(const RuntimeInstall &) {
     return {PackageActionState::kFailed, "repair-unsupported", "this package layer cannot repair bottles"};
   }
+  // Sets the bottle's way to its user profile (data root, library, library/prefixes, the bottle,
+  // drive_c, drive_c/users) to the kit's mode: 0711 when the kit has bottle-profile-shared, which
+  // then also opens the profile (drive_c/users/prospero) to FTP, else 0700. The title must be
+  // stopped, and no directory of the bottle held open across it (a mode change reads as ESTALE).
+  virtual PackageActionResult SettleBottleModes(const RuntimeInstall &) {
+    return {PackageActionState::kComplete, {}, {}};
+  }
   // Whether a staged title was made from the admitted kit (cheap marker check).
   virtual bool TitleCurrent(const RuntimeInstall &) { return true; }
   virtual PackageActionResult WriteTitleMetadata(const RuntimeInstall &, const std::string &,

@@ -559,7 +559,9 @@ void CompletePublicationAndFreshInspection() {
                       "playden/games/install-hl2/library/prefixes/game";
   CHECK(Read(bottle / "dosdevices/.pw-symlinks") == "c:\t../drive_c\nz:\t/\n");
   CHECK(!std::filesystem::is_symlink(bottle / "dosdevices/c:"));
-  for (const auto& path : {bottle, bottle / "drive_c", bottle / "drive_c/windows", bottle / "dosdevices"}) {
+  for (const auto& path : {bottle, bottle / "drive_c", bottle / "drive_c/windows", bottle / "dosdevices",
+                           bottle / "drive_c/users", bottle.parent_path(), bottle.parent_path().parent_path(),
+                           bottle.parent_path().parent_path().parent_path()}) {
     struct stat info{};
     CHECK(::lstat(path.c_str(), &info) == 0);
     CHECK(info.st_uid == ::geteuid());
@@ -605,6 +607,217 @@ void CompletePublicationAndFreshInspection() {
   CHECK(!installer.InspectOwnership(other).manifest_matches);
   std::filesystem::remove(title / ".playden-title-owner");
   CHECK(!installer.InspectOwnership(record).manifest_matches);
+}
+
+unsigned ModeOf(const std::filesystem::path& path) {
+  struct stat info{};
+  CHECK(::lstat(path.c_str(), &info) == 0);
+  return static_cast<unsigned>(info.st_mode & 07777);
+}
+
+// With bottle-profile-shared the bottle's way to its user profile is 0711 (others pass through,
+// never list) and the profile itself is open to FTP (0777/0666). Playden's own checks admit
+// 0711 there whatever the kit; the other private folders stay 0700.
+void SharedProfileBottleModes() {
+  Fixture fixture;
+  Write(fixture.kit / "template/bottle/drive_c/users/prospero/Documents/kit.ini", "kit", 0644);
+  fixture.view.files.push_back({"template/bottle/drive_c/users/prospero/Documents/kit.ini", 3,
+                                *TestHash(fixture.kit / "template/bottle/drive_c/users/prospero/Documents/kit.ini"), 0644});
+  auto record = Record();
+  record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
+                      {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
+  auto installer = fixture.Installer();
+  installer.ShareBottleProfiles(true);
+  const auto game = fixture.host_data / "playden/games/install-hl2";
+  const auto bottle = game / "library/prefixes/game";
+  const auto profile = bottle / "drive_c/users/prospero";
+  // The title metadata makes the data root first, before there is a title: 0700, until the
+  // bottle (made after the title) settles it.
+  std::filesystem::create_directories(fixture.host_data);
+  const auto metadata = installer.WriteTitleMetadata(record, R"({"titleId":"FAKE78001"})", std::nullopt);
+  if (metadata.state != PackageActionState::kComplete) std::fprintf(stderr, "%s\n", metadata.message.c_str());
+  CHECK(metadata.state == PackageActionState::kComplete);
+  CHECK(ModeOf(game) == 0700 && ModeOf(game / "title-metadata") == 0700);
+  CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  for (const auto& path : {game, game / "library", game / "library/prefixes", bottle, bottle / "drive_c",
+                           bottle / "drive_c/users"})
+    CHECK(ModeOf(path) == 0711);
+  for (const auto& path : {bottle / "drive_c/windows", bottle / "dosdevices"}) CHECK(ModeOf(path) == 0700);
+  CHECK(ModeOf(bottle / "drive_c/windows/system.reg") == 0600);
+  for (const char* folder : {"", "AppData", "AppData/LocalLow", "AppData/Roaming", "Documents", "Saved Games"})
+    CHECK(ModeOf(profile / folder) == 0777);
+  CHECK(ModeOf(profile / "Documents/kit.ini") == 0666 && Read(profile / "Documents/kit.ini") == "kit");
+  CHECK(installer.ValidateArtifacts(record).state == PackageActionState::kComplete);
+  CHECK(installer.Inspect(record).mutable_bottle_owned);
+  // The linked verifier is the pinned kit's: one before bottle-profile-shared refuses a 0711 data
+  // root, so the publication is checked only where it admits one.
+  const auto published = installer.PublishProfile(record);
+  if (published.state == PackageActionState::kComplete) {
+    CHECK(installer.Inspect(record).profile_published);
+  } else {
+    CHECK(published.code == "publication-verification");
+    std::fprintf(stderr, "note: the linked publication verifier refuses 0711 bottles; publication not checked\n");
+  }
+  for (const auto& path : {game / ".playden-control", game / "library/profiles", game / "library/input"})
+    if (std::filesystem::exists(path)) CHECK(ModeOf(path) == 0700);
+
+  // Wine (umask 077) saves 0600 in 0700 folders; settling opens them again. Links are never
+  // followed, a file with another link (a private one linked in) is left alone, and the
+  // registry stays private.
+  Write(profile / "AppData/Roaming/Game/save.dat", "save", 0600);
+  CHECK(::chmod((profile / "AppData/Roaming/Game").c_str(), 0700) == 0);
+  Write(profile / "AppData/Roaming/Game/tool.exe", "tool", 0700);
+  Write(fixture.temporary.path / "outside/secret", "secret", 0600);
+  CHECK(::chmod((fixture.temporary.path / "outside").c_str(), 0700) == 0);
+  std::filesystem::create_directory_symlink(fixture.temporary.path / "outside", profile / "Desktop/outside");
+  std::filesystem::create_symlink(fixture.temporary.path / "outside/secret", profile / "Desktop/secret");
+  CHECK(::chmod((bottle / "user.reg").c_str(), 0600) == 0);
+  CHECK(::link((bottle / "user.reg").c_str(), (profile / "Documents/user.reg").c_str()) == 0);
+  fixture.logs.clear();
+  CHECK(installer.SettleBottleModes(record).state == PackageActionState::kComplete);
+  CHECK(ModeOf(profile / "Documents/user.reg") == 0600);
+  CHECK(std::any_of(fixture.logs.begin(), fixture.logs.end(),
+                    [](const std::string& line) { return line.find(" linked=1 ") != std::string::npos; }));
+  CHECK(::unlink((profile / "Documents/user.reg").c_str()) == 0);
+  CHECK(ModeOf(profile / "AppData/Roaming/Game") == 0777);
+  CHECK(ModeOf(profile / "AppData/Roaming/Game/save.dat") == 0666);
+  CHECK(ModeOf(profile / "AppData/Roaming/Game/tool.exe") == 0766);  // execute bits kept
+  CHECK(ModeOf(fixture.temporary.path / "outside") == 0700 && ModeOf(fixture.temporary.path / "outside/secret") == 0600);
+  CHECK(ModeOf(bottle / "user.reg") == 0600 && ModeOf(game / "title-metadata") == 0700);
+
+  // A kit without the capability admits only 0700: Repair puts the way back, and leaves the
+  // profile (no kit checks below the bottle) as the player had it.
+  auto strict = fixture.Installer();
+  CHECK(strict.Inspect(record).mutable_bottle_owned);
+  CHECK(strict.RepairBottle(record).state == PackageActionState::kComplete);
+  for (const auto& path : {game, game / "library", game / "library/prefixes", bottle, bottle / "drive_c",
+                           bottle / "drive_c/users"})
+    CHECK(ModeOf(path) == 0700);
+  CHECK(ModeOf(profile) == 0777 && ModeOf(profile / "AppData/Roaming/Game/save.dat") == 0666);
+  // A 0700 bottle (made before the capability) opens on Repair with the capable kit.
+  CHECK(installer.RepairBottle(record).state == PackageActionState::kComplete);
+  CHECK(ModeOf(game) == 0711 && ModeOf(bottle / "drive_c/users") == 0711);
+  // Other modes on the way are not private: refused, never chmodded.
+  CHECK(::chmod((game / "library").c_str(), 0755) == 0);
+  CHECK(installer.SettleBottleModes(record).code == "repair-ownership");
+  CHECK(ModeOf(game / "library") == 0755);
+}
+
+// The console walks by path: the same profile opens, a hard link stays private, and a folder
+// swapped for another mid-walk (its path names something else) ends the walk there.
+void SharedTreeWalksByPath() {
+  TemporaryDirectory temporary;
+  const auto root = temporary.path / "profile";
+  Write(root / "AppData/Roaming/Game/save.dat", "save", 0600);
+  Write(root / "Documents/notes.txt", "notes", 0600);
+  Write(temporary.path / "private/secret", "secret", 0600);
+  CHECK(::link((temporary.path / "private/secret").c_str(), (root / "Documents/secret").c_str()) == 0);
+  SharedTreeOptions options;
+  options.by_path = true;
+  auto opened = OpenTreeToEveryone(root, options);
+  CHECK(opened.ok && !opened.changed_under && opened.linked == 1);
+  CHECK(ModeOf(root / "AppData/Roaming/Game") == 0777 && ModeOf(root / "AppData/Roaming/Game/save.dat") == 0666);
+  CHECK(ModeOf(root / "Documents/notes.txt") == 0666 && ModeOf(temporary.path / "private/secret") == 0600);
+
+  // Documents is moved away (and an outside folder put in its place) while the walk is in it.
+  Write(root / "Documents/later.txt", "later", 0600);
+  Write(temporary.path / "outside/inside.txt", "outside", 0600);
+  for (const auto& folder : {root / "Documents", temporary.path / "outside"}) CHECK(::chmod(folder.c_str(), 0700) == 0);
+  bool swapped = false;
+  options.before_open = [&](const std::filesystem::path& entry) {
+    if (swapped || entry.parent_path() != root / "Documents") return;
+    swapped = true;
+    std::filesystem::rename(root / "Documents", temporary.path / "moved-documents");
+    std::filesystem::rename(temporary.path / "outside", root / "Documents");
+  };
+  opened = OpenTreeToEveryone(root, options);
+  CHECK(swapped && !opened.ok && opened.changed_under);
+  CHECK(ModeOf(root / "Documents") == 0700 && ModeOf(root / "Documents/inside.txt") == 0600);
+
+  // Folder by folder (OpenGameFolders): a link component is refused, whatever it points at.
+  std::filesystem::create_directories(temporary.path / "game/bin");
+  std::filesystem::create_directory_symlink(temporary.path / "game/bin", temporary.path / "game/link");
+  const int game = OpenFolderNoFollow(temporary.path / "game");
+  CHECK(game >= 0);
+  for (const bool by_path : {true, false}) {
+    if (!by_path && !DescriptorRelativeOpens()) continue;  // the console's build has no *at calls
+    errno = 0;
+    CHECK(OpenChildFolderNoFollow(game, temporary.path / "game", "link", by_path) < 0 && errno == ELOOP);
+    const int bin = OpenChildFolderNoFollow(game, temporary.path / "game", "bin", by_path);
+    CHECK(bin >= 0);
+    if (bin >= 0) ::close(bin);
+  }
+  if (game >= 0) ::close(game);
+  errno = 0;
+  CHECK(OpenFolderNoFollow(temporary.path / "game/link") < 0 && errno == ELOOP);
+}
+
+// Titles keep the shell they were made with after a kit swap: an older shell admits only a
+// 0700 way to the profile, so a capable kit settles a title it did not make to 0700, and to
+// 0711 once Update made the title its own.
+void SharedProfileWaitsForCurrentTitle() {
+  Fixture fixture;
+  std::filesystem::create_directories(fixture.host_data);
+  auto record = Record();
+  for (const auto& artifact : fixture.view.artifacts)
+    record.artifacts.push_back({artifact.artifact_id, artifact.identity, artifact.sha256});
+  const auto game = fixture.host_data / "playden/games/install-hl2";
+  const auto bottle = game / "library/prefixes/game";
+  const auto way = {game, game / "library", game / "library/prefixes", bottle, bottle / "drive_c", bottle / "drive_c/users"};
+  {
+    auto installer = fixture.Installer();
+    CHECK(installer.WriteTitleMetadata(record, R"({"titleId":"FAKE78001"})", std::nullopt).state ==
+          PackageActionState::kComplete);
+    CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+    CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  }
+  for (const auto& path : way) CHECK(ModeOf(path) == 0700);
+  Write(bottle / "drive_c/users/prospero/Documents/save.dat", "save", 0600);
+  // The respun kit has bottle-profile-shared; the title is the old kit's.
+  Write(fixture.kit / "titles/variant/eboot.bin", "shared-profile-shell", 0755);
+  for (auto& file : fixture.view.files)
+    if (file.path == "titles/variant/eboot.bin") {
+      file.size = std::string("shared-profile-shell").size();
+      file.sha256 = *TestHash(fixture.kit / file.path);
+    }
+  fixture.view.files_sha256 = std::string(64, 'b');
+  auto capable = fixture.Installer();
+  capable.ShareBottleProfiles(true);
+  CHECK(!capable.TitleCurrent(record));
+  CHECK(capable.SettleBottleModes(record).state == PackageActionState::kComplete);
+  CHECK(capable.RepairBottle(record).state == PackageActionState::kComplete);
+  CHECK(capable.CopyTemplate(record).state == PackageActionState::kComplete);
+  for (const auto& path : way) CHECK(ModeOf(path) == 0700);
+  CHECK(ModeOf(bottle / "drive_c/users/prospero/Documents/save.dat") == 0600);
+  // A 0711 way left by the capable kit before a downgrade goes back to 0700 for the old shell.
+  CHECK(::chmod(game.c_str(), 0711) == 0);
+  CHECK(capable.SettleBottleModes(record).state == PackageActionState::kComplete && ModeOf(game) == 0700);
+  // Update refreshes the title from this kit; the next settle opens the way and the profile.
+  const auto refreshed = capable.RefreshTitle(record);
+  if (refreshed.state != PackageActionState::kComplete) std::fprintf(stderr, "refresh: %s\n", refreshed.message.c_str());
+  CHECK(refreshed.state == PackageActionState::kComplete && capable.TitleCurrent(record));
+  CHECK(capable.SettleBottleModes(record).state == PackageActionState::kComplete);
+  for (const auto& path : way) CHECK(ModeOf(path) == 0711);
+  CHECK(ModeOf(bottle / "drive_c/users/prospero/Documents/save.dat") == 0666);
+}
+
+// Without the capability every folder Playden makes in the bottle is 0700, as before.
+void UnsharedBottleStaysPrivate() {
+  Fixture fixture;
+  auto installer = fixture.Installer();
+  const auto record = Record();
+  CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  const auto game = fixture.host_data / "playden/games/install-hl2";
+  const auto bottle = game / "library/prefixes/game";
+  for (const auto& path : {game, game / "library", game / "library/prefixes", bottle, bottle / "drive_c",
+                           bottle / "drive_c/users", bottle / "drive_c/users/prospero",
+                           bottle / "drive_c/users/prospero/AppData/Roaming"})
+    CHECK(ModeOf(path) == 0700);
+  Write(bottle / "drive_c/users/prospero/Documents/save.dat", "save", 0600);
+  CHECK(installer.SettleBottleModes(record).state == PackageActionState::kComplete);
+  CHECK(installer.RepairBottle(record).state == PackageActionState::kComplete);
+  CHECK(ModeOf(bottle / "drive_c/users/prospero/Documents/save.dat") == 0600 && ModeOf(game) == 0700);
 }
 
 void CancelAndSpaceFailuresAreBounded() {
@@ -1226,6 +1439,10 @@ int main() {
   CommittedReceiptIsRequired();
   LegacyDescriptorOnlyBindsHistoricalRoot();
   CompletePublicationAndFreshInspection();
+  SharedProfileBottleModes();
+  UnsharedBottleStaysPrivate();
+  SharedTreeWalksByPath();
+  SharedProfileWaitsForCurrentTitle();
   CancelAndSpaceFailuresAreBounded();
   UnreadableFreeSpaceRequiresExplicitMode();
   SyncFailureNeverPublishesWatchedTitle();

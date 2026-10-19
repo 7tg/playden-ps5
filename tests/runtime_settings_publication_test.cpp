@@ -1127,5 +1127,49 @@ int main() {
     if (!remove) CHECK(stat(t.DxvkPath().c_str(), &info) == 0 && (info.st_mode & 07777) == 0644);
     CHECK(LoadSettingsPublicationOperation(t.control).operation->dxvk_before.bytes == shipped);
   }
+  // A Ready update at the same revision only replaces an owned publication (schema 2) when the
+  // kit admits unowned game folders: one already unowned (or a game that did not move, with a
+  // kit that doesn't) is refused before anything is written.
+  {
+    Test t; const auto owner_root = t.root / "owner"; fs::create_directory(owner_root); CHECK(chmod(owner_root.c_str(), 0700) == 0);
+    const auto requests = t.root / "requests"; fs::create_directory(requests); CHECK(chmod(requests.c_str(), 0700) == 0);
+    playden::Storage storage(owner_root.string());
+    auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
+    RuntimeInstallRepository repository(storage, "installs.json", availability); SeedOwner(repository, t.operation.install, false);
+    auto ready = *repository.Find(t.operation.install.install_id);
+    ready.state = PreparationState::kReady; ready.journal.reset(); ready.last_failure.reset();
+    CHECK(repository.Update(ready).ok());
+    RepositoryInstallRecordStore records(repository); OwnerPackage package; OwnerNative native; native.records = &records;
+    const auto profiles = t.paths.metadata.parent_path();
+    fs::create_directories(profiles); CHECK(chmod(profiles.c_str(), 0700) == 0);
+    const auto publish = [&](const std::string& bytes) {
+      { std::ofstream(t.paths.metadata, std::ios::trunc) << bytes; }
+      CHECK(chmod(t.paths.metadata.c_str(), 0600) == 0);
+    };
+    PwTitlePublicationMetadata unowned_metadata{};
+    CHECK(pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(t.operation.metadata_bytes.data()),
+                                              t.operation.metadata_bytes.size(), &unowned_metadata) == PW_OK);
+    CHECK(unowned_metadata.game_root_unowned == 0);
+    unowned_metadata.schema_version = 3; unowned_metadata.game_root_unowned = 1;
+    const auto unowned_bytes = SerializePublicationMetadata(unowned_metadata); CHECK(unowned_bytes);
+    SettingsPublicationRequest request;
+    request.transaction_id = "00000000-0000-7000-8000-000000000009"; request.kit_id = t.operation.kit_id;
+    request.install = ready; request.plan = t.operation.plan; request.registry_unix_time = 1760000000;
+    CHECK(request.plan.settings_revision == ready.settings_revision);
+    SettingsPublicationOwner capable(records, package, native, true, t.root);
+    publish(*unowned_bytes);
+    CHECK(PublishedGameRootUnowned(ready, t.root) == std::optional<bool>(true));
+    CHECK(capable.Request(request, requests).code == "publication-request-owner");
+    publish(t.operation.metadata_bytes);
+    CHECK(PublishedGameRootUnowned(ready, t.root) == std::optional<bool>(false));
+    SettingsPublicationOwner strict(records, package, native, false, t.root);
+    CHECK(strict.Request(request, requests).code == "publication-request-owner");
+    CHECK(!repository.Find(ready.install_id)->journal && fs::is_empty(requests));
+    // The owned one is published again as unowned: the request is armed.
+    const auto armed = capable.Request(request, requests);
+    if (armed.state != PackageActionState::kComplete) std::fprintf(stderr, "same-revision request: %s %s\n", armed.code.c_str(), armed.message.c_str());
+    CHECK(armed.state == PackageActionState::kComplete);
+    CHECK(repository.Find(ready.install_id)->journal->operation == "settings-request");
+  }
   std::puts("settings publication coordinator tests passed");
 }

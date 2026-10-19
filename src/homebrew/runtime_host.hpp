@@ -355,9 +355,14 @@ class RuntimeHost {
   // (NeedsUnownedPublication), is published again at its revision.
   // steam_account_known false (at startup): the Steam emulator's files wait for Play.
   // *prepare_again: refused for a reason only a new preparation gets past (recipe or settings).
+  // The unowned upgrade alone (not moved, no newer settings) never refuses: its failure is in
+  // *upgrade_deferred and the owned publication stays, as it played before.
   std::string RepublishSettings(Composition& composition, const runtime::RuntimeInstall& record,
                                 bool* published = nullptr, bool steam_account_known = true,
-                                bool* prepare_again = nullptr);
+                                bool* prepare_again = nullptr, std::string* upgrade_deferred = nullptr);
+  // RepublishSettings without the upgrade's fallback.
+  std::string PublishSavedSettings(Composition& composition, const runtime::RuntimeInstall& record,
+                                   bool* published, bool steam_account_known, bool* prepare_again);
   // A Ready game published owned (schema 2, before 0.5 or by a kit before 0.10) while the kit
   // admits unowned game folders: published again as unowned, so folders the player opened pass.
   bool NeedsUnownedPublication(const Composition& composition, const runtime::RuntimeInstall& record);
@@ -390,6 +395,10 @@ class RuntimeHost {
   void OpenGameFolders(const Composition& composition, const runtime::RuntimeInstall& record);
   // A dxvk.conf with more than one link fails the title's start check; it becomes a copy of its own.
   std::string UnlinkDxvkConfig(const runtime::RuntimeInstall& record);
+  // The bottle's way to its user profile takes the kit's mode, and with bottle-profile-shared its
+  // profile is opened to FTP again (files Wine made since are 0600). Only for a stopped title,
+  // while no ManagedDirectory of the bottle is open. Failures are logged; the start check decides.
+  void SettleBottle(Composition& composition, const runtime::RuntimeInstall& record, const char* when);
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);

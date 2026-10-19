@@ -41,18 +41,23 @@ PublicationPaths OperationPaths(const SettingsPublicationOperation& operation, c
 }
 // A Ready update publishes a newer revision, or the same one again when the game folder
 // moved (RuntimeInstall::moved_from): its publication must then name the new folder. With a
-// kit that admits unowned folders, an owned publication is also published again as unowned.
-bool UpdateRevisionAllowed(const RuntimeInstall& current, std::uint64_t requested, bool unowned_game_roots) {
-  return requested > current.settings_revision ||
-      (requested == current.settings_revision && (!current.moved_from.empty() || unowned_game_roots));
+// kit that admits unowned folders, a committed owned publication (schema 2) is also published
+// again as unowned; one already unowned, or unreadable, is not.
+bool UpdateRevisionAllowed(const RuntimeInstall& current, std::uint64_t requested, bool unowned_game_roots,
+                           const std::filesystem::path& prefix) {
+  if (requested > current.settings_revision) return true;
+  if (requested != current.settings_revision) return false;
+  if (!current.moved_from.empty()) return true;
+  return unowned_game_roots && PublishedGameRootUnowned(current, prefix) == std::optional<bool>(false);
 }
 bool MatchingJournal(const RuntimeInstall& r, const SettingsPublicationOperation& o) {
   return r.journal && r.journal->operation == "settings-publication" && r.journal->operation_id == o.transaction_id;
 }
 }
 SettingsPublicationOwner::SettingsPublicationOwner(InstallRecordStore& records, PackageInstaller& package,
-    NativeCoordinator& native, bool unowned_game_roots)
-    : records_(records), package_(package), native_(native), unowned_game_roots_(unowned_game_roots) {}
+    NativeCoordinator& native, bool unowned_game_roots, std::filesystem::path host_namespace_prefix)
+    : records_(records), package_(package), native_(native), unowned_game_roots_(unowned_game_roots),
+      host_namespace_prefix_(std::move(host_namespace_prefix)) {}
 PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationRequest& request,
     const std::filesystem::path& directory) {
   std::string reason; auto expected = EncodeSettingsPublicationRequest(request, &reason);
@@ -60,7 +65,7 @@ PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationR
   const bool update = current && current->state == PreparationState::kReady;
   const bool armed = current && current->journal && current->journal->operation == "settings-request";
   if (!expected || !current || !SameRuntimeInstallIdentity(*current, request.install) ||
-      (update ? !UpdateRevisionAllowed(*current, request.plan.settings_revision, unowned_game_roots_) :
+      (update ? !UpdateRevisionAllowed(*current, request.plan.settings_revision, unowned_game_roots_, host_namespace_prefix_) :
                 request.plan.settings_revision != current->settings_revision) ||
       (update ? !ReadyCaptureAllowed(*current, request.transaction_id) :
                 current->state != PreparationState::kPreparing || !current->journal ||
@@ -110,7 +115,7 @@ PackageActionResult SettingsPublicationOwner::ResumeRequested(const RuntimeInsta
   auto loaded = LoadSettingsPublicationRequest(directory, current->journal->operation_id);
   if (loaded.state != PublicationRecoveryState::kValid || !loaded.request ||
       !SameRuntimeInstallIdentity(loaded.request->install, *current) ||
-      (current->state == PreparationState::kReady ? !UpdateRevisionAllowed(*current, loaded.request->plan.settings_revision, unowned_game_roots_) :
+      (current->state == PreparationState::kReady ? !UpdateRevisionAllowed(*current, loaded.request->plan.settings_revision, unowned_game_roots_, prefix) :
                                                   loaded.request->plan.settings_revision != current->settings_revision))
     return Failure("publication-request-unavailable", "Requested plan is missing, altered or does not match OWNER; preserve all evidence.");
   const auto& request = *loaded.request;
@@ -142,7 +147,7 @@ PackageActionResult SettingsPublicationOwner::InitializeControl(const RuntimeIns
     return Failure("publication-control-conflict", "An existing OWNER operation cannot be replaced by control initialization.");
   const auto canonical = std::filesystem::path(record.data_root);
   const auto data_path = prefix.empty() ? canonical : prefix / canonical.relative_path();
-  auto data = platform::ManagedDirectory::Open(data_path, platform::DirectoryPolicy::kPrivate);
+  auto data = platform::ManagedDirectory::Open(data_path, platform::DirectoryPolicy::kPrivateTraversable);
   if (!data) return Failure("publication-control-data", "Existing owned private bottle data root is unavailable.");
   struct stat info{};
   const bool exists = data->InspectChild(".playden-control", &info);

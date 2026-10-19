@@ -26,9 +26,15 @@ bool SameIdentity(const struct stat& a, const struct stat& b) {
          (a.st_mode & (S_IFMT | 07777)) == (b.st_mode & (S_IFMT | 07777));
 }
 
-bool Private(const struct stat& info, uid_t uid) {
+bool PrivateFamily(DirectoryPolicy policy) {
+  return policy == DirectoryPolicy::kPrivate || policy == DirectoryPolicy::kPrivateTraversable;
+}
+
+// kPrivateTraversable also admits 0711: others may enter, but not list or write.
+bool Private(const struct stat& info, uid_t uid, DirectoryPolicy policy = DirectoryPolicy::kPrivate) {
+  const auto mode = info.st_mode & 07777;
   return S_ISDIR(info.st_mode) && info.st_uid == uid &&
-         (info.st_mode & 07777) == 0700;
+         (mode == 0700 || (policy == DirectoryPolicy::kPrivateTraversable && mode == 0711));
 }
 
 bool Ordinary(const struct stat& info) {
@@ -117,14 +123,14 @@ std::optional<ManagedDirectory> ManagedDirectory::Open(
 #endif
       next = ::open(absolute.c_str(), kDirectoryFlags);
     if (next < 0) return false;
-    const bool is_private = policy == DirectoryPolicy::kPrivate && absolute == path;
+    const auto check = PrivateFamily(policy) && absolute == path ? policy : DirectoryPolicy::kApprovedTree;
     bool valid = ::fstat(next, &after) == 0;
     if (valid && !SameIdentity(before, after)) valid = Refuse(ESTALE);
-    if (valid && is_private && !Private(after, result.uid_)) valid = Refuse(EACCES);
+    if (valid && PrivateFamily(check) && !Private(after, result.uid_, check)) valid = Refuse(EACCES);
     if (!valid) { ClosePreservingError(next); return false; }
     ClosePreservingError(result.fd_);
     result.fd_ = next;
-    result.observations_.push_back({absolute, after, is_private});
+    result.observations_.push_back({absolute, after, check});
     return true;
   };
   if (!observe(current, current)) return std::nullopt;
@@ -147,7 +153,7 @@ bool ManagedDirectory::Validate() const {
     if (::lstat(observation.path.c_str(), &current) != 0) return false;
     if (!SameIdentity(observation.identity, current)) return Refuse(ESTALE);
     if (!S_ISDIR(current.st_mode)) return Refuse(ENOTDIR);
-    if (observation.private_directory && !Private(current, uid_)) return Refuse(EACCES);
+    if (PrivateFamily(observation.check) && !Private(current, uid_, observation.check)) return Refuse(EACCES);
   }
   return true;
 }
@@ -187,7 +193,9 @@ std::optional<ManagedDirectory> ManagedDirectory::OpenChild(
     const std::string& name, DirectoryPolicy policy, bool create, mode_t created_mode) const {
   if (!ValidName(name) || !Validate()) return std::nullopt;
   if ((created_mode & ~0777) != 0 || (policy == DirectoryPolicy::kPrivate && created_mode != 0700) ||
-      (policy_ == DirectoryPolicy::kPrivate && policy != DirectoryPolicy::kPrivate)) {
+      (policy == DirectoryPolicy::kPrivateTraversable && created_mode != 0700 && created_mode != 0711) ||
+      (policy_ == DirectoryPolicy::kPrivate && policy != DirectoryPolicy::kPrivate) ||
+      (policy_ == DirectoryPolicy::kPrivateTraversable && !PrivateFamily(policy))) {
     errno = EINVAL;
     return std::nullopt;
   }
@@ -228,7 +236,7 @@ std::optional<ManagedDirectory> ManagedDirectory::OpenChild(
     errno = S_ISLNK(before.st_mode) ? ELOOP : ENOTDIR;
     return std::nullopt;
   }
-  if (policy == DirectoryPolicy::kPrivate && !Private(before, uid_)) {
+  if (PrivateFamily(policy) && !Private(before, uid_, policy)) {
     errno = EACCES;
     return std::nullopt;
   }
@@ -237,12 +245,12 @@ std::optional<ManagedDirectory> ManagedDirectory::OpenChild(
   if (child.fd_ < 0 || ::fstat(child.fd_, &after) != 0) return std::nullopt;
   if (!SameIdentity(before, after)) { errno = ESTALE; return std::nullopt; }
   child.path_ = path_ / name;
-  child.root_ = policy == DirectoryPolicy::kPrivate && policy_ != policy ? child.path_ : root_;
+  child.root_ = PrivateFamily(policy) && !PrivateFamily(policy_) ? child.path_ : root_;
   child.policy_ = policy;
   child.backend_ = backend_;
   child.uid_ = uid_;
   child.observations_ = observations_;
-  child.observations_.push_back({child.path_, after, policy == DirectoryPolicy::kPrivate});
+  child.observations_.push_back({child.path_, after, PrivateFamily(policy) ? policy : DirectoryPolicy::kApprovedTree});
   if (!child.Validate()) return std::nullopt;
   return child;
 }
@@ -292,7 +300,7 @@ bool ManagedDirectory::RenameChild(const std::string& from,
                        destination.policy_ == DirectoryPolicy::kUnownedTree;
   if (!InspectChild(from, &source)) return false;
   if (!unowned && source.st_uid != uid_) return Refuse(EACCES);
-  if (S_ISDIR(source.st_mode) && destination.policy_ == DirectoryPolicy::kPrivate && !Private(source, uid_))
+  if (S_ISDIR(source.st_mode) && PrivateFamily(destination.policy_) && !Private(source, uid_, destination.policy_))
     return Refuse(EACCES);
   if (destination.InspectChild(to, &target)) {
     if (!replace_existing || S_ISDIR(target.st_mode)) return Refuse(EEXIST);

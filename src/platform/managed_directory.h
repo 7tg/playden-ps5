@@ -9,7 +9,7 @@
 namespace playden::platform {
 
 enum class DirectoryBackend { kDescriptorRelative, kAbsolutePath };
-enum class DirectoryPolicy { kApprovedTree, kPrivate, kUnownedTree };
+enum class DirectoryPolicy { kApprovedTree, kPrivate, kPrivateTraversable, kUnownedTree };
 
 // Operations assume a stable managed namespace and coordinated writers. The
 // absolute-path backend checks components and observed identities, but is NOT a
@@ -18,7 +18,11 @@ enum class DirectoryPolicy { kApprovedTree, kPrivate, kUnownedTree };
 // that context without reconciling its identity. No process CWD is changed.
 //
 // kPrivate requires current-EUID ownership and mode 0700 from the selected root
-// downward; ancestors above that root may be public. kApprovedTree accepts
+// downward; ancestors above that root may be public. kPrivateTraversable is
+// kPrivate that also admits 0711 (others may pass through, never list), for the
+// bottle's way to its user profile. A kPrivate folder only opens kPrivate
+// children; a kPrivateTraversable one opens kPrivate or kPrivateTraversable
+// children; neither opens other policies. kApprovedTree accepts
 // existing directory ownership/modes, then refuses identity/owner/mode drift.
 // kUnownedTree is kApprovedTree for a filesystem that records no owner or
 // permissions (exFAT: every entry shows the mount owner and 0777): file
@@ -47,7 +51,8 @@ class ManagedDirectory {
   ManagedDirectory& operator=(const ManagedDirectory&) = delete;
 
   // A folder it creates gets created_mode exactly (umask ignored); an existing
-  // folder is never chmodded. kPrivate children are always created 0700.
+  // folder is never chmodded. kPrivate children are always created 0700,
+  // kPrivateTraversable ones 0700 or 0711.
   std::optional<ManagedDirectory> OpenChild(const std::string& name,
                                            DirectoryPolicy policy,
                                            bool create = false,
@@ -85,7 +90,7 @@ class ManagedDirectory {
   struct Observation {
     std::filesystem::path path;
     struct stat identity;
-    bool private_directory = false;
+    DirectoryPolicy check = DirectoryPolicy::kApprovedTree;  // kPrivate*: mode rechecked
   };
   ManagedDirectory() = default;
   bool ValidName(const std::string& name) const;

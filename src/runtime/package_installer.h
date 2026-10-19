@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/install_service.h"
+#include "runtime/private_directories.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -164,6 +165,10 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   // The recipes Playden ships (runtime/recipes) besides the kit's own. A record
   // prepared with one of them resolves whatever recipe the kit carries.
   void AcceptShippedRecipes(std::vector<std::string> recipe_ids);
+  // The kit has bottle-profile-shared: bottles of titles made from it are made and repaired with
+  // their way to the user profile 0711 and the profile open to FTP (0777/0666); titles of older
+  // kits keep 0700 until Update. Reads always admit 0711.
+  void ShareBottleProfiles(bool shared) { profile_shared_ = shared; }
 
   PackageStatus Inspect(const RuntimeInstall& record) override;
   // The title's owner marker instead of its files and folder modes; the bottle,
@@ -183,7 +188,9 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   bool TitleCurrent(const RuntimeInstall& record) override;
   std::string AdmissionDiagnostic(const RuntimeInstall& record) override;
   std::string QuickAdmission(const RuntimeInstall& record) override;
+  // Also settles the bottle's modes (SettleBottleModes).
   PackageActionResult RepairBottle(const RuntimeInstall& record) override;
+  PackageActionResult SettleBottleModes(const RuntimeInstall& record) override;
   // Replaces changed title files (temp, fsync, rename) and rewrites the title
   // and bottle owner markers. Refuses unless each existing marker equals the
   // new one except for the kit's files_sha256, and the record's artifacts are
@@ -207,6 +214,12 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   // Exact file contents and modes only, whatever the marker and folder modes say.
   bool TitleFilesMatch(const RuntimeInstall& record, const ResolvedPaths& paths) const;
   bool BottleOwned(const RuntimeInstall& record, const ResolvedPaths& paths) const;
+  // The bottle chain's traversal folders (data root, library, library/prefixes, the bottle), with
+  // the mode new ones get (0711 when shared). Checks admit 0700 and 0711 either way.
+  PrivateTraversal BottleTraversal(const ResolvedPaths& paths, bool shared = false) const;
+  // The bottle's way to its profile is 0711 and the profile open: the kit has
+  // bottle-profile-shared and the record's title was made from it (an older shell demands 0700).
+  bool ProfileShared(const RuntimeInstall& record, const ResolvedPaths& paths) const;
   bool ArtifactsMatch(const RuntimeInstall& record, const ResolvedPaths& paths) const;
   bool PublicationMatches(const RuntimeInstall& record, const ResolvedPaths& paths,
                           std::uint64_t* revision) const;
@@ -230,6 +243,7 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   PackageInstallPaths paths_;
   PackageInstallerOperations operations_;
   std::vector<std::string> shipped_recipe_ids_;
+  bool profile_shared_ = false;
 };
 
 }  // namespace playden::runtime

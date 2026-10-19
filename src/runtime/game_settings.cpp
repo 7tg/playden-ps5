@@ -2296,7 +2296,8 @@ static bool ApplyRegistryFileValues(const std::vector<RegistryValue>& values, co
     return false;
   };
   if (values.empty()) return true;
-  auto directory = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kPrivate);
+  // The bottle may be 0711 (bottle-profile-shared).
+  auto directory = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kPrivateTraversable);
   if (!directory) return fail("cannot read the bottle's " + hive);
   std::string original;
   constexpr std::size_t kMaxRegistryBytes = 32u * 1024u * 1024u;
@@ -2516,7 +2517,7 @@ Ue3EulaResult AcceptUe3Eula(const std::string& game_root, const std::vector<std:
                                           {"Software\\Wow6432Node\\" + key, "EULAAccepted", "dword:00000001"}};
   std::string before, reason;
   {
-    auto directory = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kPrivate);
+    auto directory = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kPrivateTraversable);
     if (directory) ReadRegularAt(*directory, "system.reg", 32u * 1024u * 1024u, &before, nullptr, true);
   }
   auto intended = before;
@@ -2554,6 +2555,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.shared_sections = has(kKitSharedSections);
   kit.title_any_id = has(kKitTitleAnyId);
   kit.game_root_unowned = has(kKitGameRootUnowned);
+  kit.bottle_profile_shared = has(kKitBottleProfileShared);
   kit.opengl_zink = has(kKitOpenGLZink);
   kit.wine_mono = has(kKitWineMono);
   kit.vkd3d_proton = has(kKitVkd3dProton);

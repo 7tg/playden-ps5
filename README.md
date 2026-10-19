@@ -169,6 +169,21 @@ The kit is built on a **Linux x86-64 machine or VM** from prospero-win, Wine, Me
 see [Build the kit](CONTRIBUTING.md#build-the-kit). The scripts are a record of how we built it, not a turnkey build
 yet, so most people should use the release download.
 
+### Saves and game configs over FTP
+
+Each game's Windows user folder holds its saves and most of its `.ini` configs:
+
+```text
+/data/playden/games/steam-<Steam app ID>/library/prefixes/game/drive_c/users/prospero/
+```
+
+For Half-Life 2 that is `steam-220`. Look in `AppData/Roaming`, `AppData/Local`, `Documents` and `Saved Games`.
+
+This needs the next runtime kit (it has the `bottle-profile-shared` capability); kit 0.10 keeps the whole folder
+private. With it, you can read and write everything in `prospero`. The folders above it can be entered but not
+listed, so type the full path in your FTP client instead of browsing to it. New saves a game writes are private
+at first. Playden opens them to FTP when it starts, when a game it started ends, and before it starts a game.
+
 ## Build from source
 
 ### What you need

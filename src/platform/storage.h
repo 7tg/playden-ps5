@@ -123,6 +123,10 @@ class Storage {
   // Missing files are already removed and therefore succeed.
   Result<void> Remove(const std::string& relative_path) const;
 
+  // Journal operations also admit a 0711 root (others may pass through, never
+  // list): a bottle whose way to its user profile is open. Parents stay 0700.
+  Storage& AllowTraversableRoot() { traversable_root_ = true; return *this; }
+
  private:
   Result<std::string> Resolve(const std::string& relative_path) const;
   Result<void> WriteAtomicImpl(const std::string& relative_path,
@@ -132,6 +136,7 @@ class Storage {
                                  const Bytes& bytes, bool replace_existing) const;
 
   std::string root_;
+  bool traversable_root_ = false;
 };
 
 }  // namespace playden
