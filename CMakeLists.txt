@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(PlaydenLauncher VERSION 0.4.0 LANGUAGES C CXX)
+project(PlaydenLauncher VERSION 0.5.0 LANGUAGES C CXX)
 
 option(PLAYDEN_UI_SIMULATION "Package selected PS5 UI with developer simulation fixtures" OFF)
 option(PLAYDEN_PLATFORM_PS5 "Build a PS5 native title" OFF)
