@@ -1481,6 +1481,8 @@ void live_ready_to_play_quits_to_home() {
     prompted.NotifyReadyToPlay(42);
     check(prompted.state().navigation.modals.size() == open_before, "the prompt waits for the open sheet");
     check(prompted.action("circle"), "the sheet closes");
+    check(prompted.state().navigation.modals.empty(), "the prompt waits for its game's page");
+    check(prompted.action("details:42"), "the announced game's page opens");
     check(!prompted.state().navigation.modals.empty(), "then the prompt shows");
     const auto& prompt = prompted.state().navigation.modals.back();
     check(prompt.title == "Synthetic is ready to play" && prompt.action_keys[static_cast<std::size_t>(prompt.focused_action)] == "quit-to-home",
@@ -1490,6 +1492,8 @@ void live_ready_to_play_quits_to_home() {
     check(prompted.state().navigation.modals.empty() && !prompted.state().quit_requested, "Later closes it, once per game");
     // A game that stopped waiting (the check found it registered) is not announced.
     prompted.NotifyReadyToPlay(43);
+    check(prompted.state().navigation.modals.empty(), "a background game does not interrupt another game's page");
+    check(prompted.action("details:43"), "the other game's page opens");
     check(!prompted.state().navigation.modals.empty(), "another game is announced");
     activate(prompted, "quit-to-home");
     requests = prompted.TakeCloudRequests();
@@ -1504,6 +1508,35 @@ void live_ready_to_play_quits_to_home() {
     dropped.UpdateRuntime(RuntimeState::Ready, {ready});
     dropped.NotifyReadyToPlay(42);
     check(dropped.state().navigation.modals.empty(), "a Ready game needs no prompt");
+}
+
+void live_ready_prompt_matches_the_open_game() {
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RuntimeState;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(1684930, "CULTIC"), game(548430, "Deep Rock Galactic")}, false, {}, false, false, {}}),
+          "library loaded");
+    model.UpdateInstalls({}, {{1684930, 100}, {548430, 100}});
+    LiveRuntimeGame cultic; cultic.game_id = 1684930; cultic.awaiting_registration = true; cultic.has_title = true;
+    auto deep_rock = cultic; deep_rock.game_id = 548430;
+    model.UpdateRuntime(RuntimeState::Ready, {cultic, deep_rock});
+    check(model.action("details:1684930"), "CULTIC page opens");
+    model.NotifyReadyToPlay(548430);
+    check(model.state().navigation.modals.empty(), "Deep Rock Galactic readiness stays queued on CULTIC's page");
+    model.NotifyReadyToPlay(1684930);
+    check(model.state().navigation.modals.size() == 1 &&
+              model.state().navigation.modals.back().title == "CULTIC is ready to play",
+          "the current game's readiness is not blocked by an earlier background game");
+    activate(model, "ready-later");
+    check(model.state().navigation.modals.empty(), "Later does not expose a background game's prompt");
+    check(model.action("details:548430"), "Deep Rock Galactic page opens");
+    check(model.state().navigation.modals.size() == 1 &&
+              model.state().navigation.modals.back().title == "Deep Rock Galactic is ready to play",
+          "the deferred prompt names the game on its own page");
+    activate(model, "quit-to-home");
+    const auto requests = model.TakeCloudRequests();
+    check(requests.size() == 1 && requests[0].game_id == 548430, "Play syncs the game named in the prompt");
 }
 
 void live_play_does_the_next_useful_thing() {
@@ -1890,6 +1923,7 @@ int main() {
     live_play_does_the_next_useful_thing();
     live_store_details_fill_the_description();
     live_ready_to_play_quits_to_home();
+    live_ready_prompt_matches_the_open_game();
     live_details_focus_moves_to_play_once_enabled();
     live_settings_focus_stays_near_a_removed_row();
     live_storage_section_and_installed_games();

@@ -1219,8 +1219,8 @@ void Simulation::NotifyReadyToPlay(GameId id) {
 }
 
 // "<game> is ready to play": a dialog, because notifications take no input. It waits
-// until no other dialog, sheet or keyboard is open, and is dropped once the game no
-// longer waits for the PS5. Play quits to the Home screen without asking again.
+// for its own game's page with no dialog, sheet or keyboard open, and is dropped
+// once the game no longer waits for the PS5. Play quits to Home without asking again.
 void Simulation::show_ready_prompt() {
     if (!live() || ready_prompts_.empty()) return;
     std::erase_if(ready_prompts_, [this](GameId id) {
@@ -1229,10 +1229,12 @@ void Simulation::show_ready_prompt() {
     });
     const auto route = state_.navigation.route;
     if (ready_prompts_.empty() || !state_.navigation.modals.empty() || state_.editor.active ||
-        route == Route::Startup || route == Route::SignIn || route == Route::Session)
+        route != Route::Details)
         return;
-    const auto id = ready_prompts_.front();
-    ready_prompts_.erase(ready_prompts_.begin());
+    const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+    const auto pending = std::find(ready_prompts_.begin(), ready_prompts_.end(), id);
+    if (pending == ready_prompts_.end()) return;
+    ready_prompts_.erase(pending);
     ready_prompt_game_ = id;
     const auto* game = find_game(state_, id);
     ModalEntry prompt{"confirmation", (game ? game->title : std::string("Your game")) + " is ready to play",
@@ -6110,6 +6112,7 @@ bool Simulation::action(const std::string& logical_action) {
             const auto job = std::find_if(state_.jobs.begin(), state_.jobs.end(), [id](const Job& value) { return value.game_id == id && value.state != JobState::Cancelled; });
             if (job != state_.jobs.end()) state_.navigation.focus_key = "job-" + job->id;
         }
+        show_ready_prompt();
         save_profile(); rebuild_view(); return true;
     }
     if (logical_action.rfind("focus:", 0) == 0) {
