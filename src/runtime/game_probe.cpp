@@ -177,7 +177,10 @@ void AddImports(const PeFacts& facts, std::set<std::string>* apis) {
 }
 
 // Engines known only by a name inside the program: SIL (FTL) reads SIL_WINDOWS_* settings.
-constexpr std::pair<const char*, const char*> kEngineMarks[] = {{"sil_windows_use_", "sil"}};
+// An XNA game names the framework among its .NET assembly references; Wine Mono runs it on FNA, which draws
+// through SDL and OpenGL (Celeste).
+constexpr std::pair<const char*, const char*> kEngineMarks[] = {{"sil_windows_use_", "sil"},
+                                                                {"microsoft.xna.framework", "xna"}};
 
 void ScanNames(const std::string& path, std::set<std::string>* apis, std::string* engine = nullptr) {
   Program program(path);
@@ -293,6 +296,11 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
     probe.engine = "gamemaker";
   } else if (Find(here, Lower(stem) + ".pck", false)) {
     probe.engine = "godot";
+  } else if (Find(here, "libhl.dll", false) || Find(here, "hlboot.dat", false)) {
+    // HashLink (Heaps: Dead Cells) loads its graphics library at run time, from a .hdll next to the program.
+    probe.engine = "hashlink";
+    if (Find(here, "directx.hdll", false)) probe.apis.insert("d3d11");
+    if (Find(here, "sdl.hdll", false)) probe.apis.insert("opengl");
   } else if (Find(here, "love.dll", false)) {
     probe.engine = "love";  // LÖVE draws with OpenGL through SDL, which it loads at run time
   } else if (Find(here, "nw.dll", false)) {
@@ -344,6 +352,12 @@ GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime
     out.graphics = "dxvk";
     out.arguments = "{resolution}";
     out.resolution_arguments = "-w {w} -h {h}";
+  } else if (probe.engine == "hashlink") {
+    // Dead Cells: Automatic graphics stopped with "Failed to initialize DirectX driver"; DXVK draws it.
+    out.graphics = has("d3d11") ? "dxvk" : "opengl";
+  } else if (probe.engine == "xna") {
+    // Automatic graphics leave FNA without a GL pixel format ("No matching GL pixel format available").
+    out.graphics = "opengl";
   } else if (probe.engine == "love" || probe.engine == "sil") {
     // SIL (FTL) draws with OpenGL though its program also names Direct3D 11; under DXVK it
     // quits right after setting up video.
@@ -397,7 +411,7 @@ std::string DetectedLabel(const std::string& summary) {
   for (const auto& [id, name] : std::initializer_list<std::pair<const char*, const char*>>{
            {"unity", "Unity"}, {"unity-il2cpp", "Unity"}, {"unity-legacy", "Unity"}, {"unreal", "Unreal Engine"}, {"source", "Source"},
            {"gamemaker", "GameMaker"}, {"godot", "Godot"}, {"love", "L\xC3\x96VE"}, {"nwjs", "NW.js"}, {"sil", "SIL"},
-           {"idtech3", "id Tech 3"}})
+           {"idtech3", "id Tech 3"}, {"hashlink", "HashLink"}, {"xna", "XNA"}})
     if (facts.count(id)) engine = name;
   std::string api;
   if (graphics == "opengl") api = "OpenGL";

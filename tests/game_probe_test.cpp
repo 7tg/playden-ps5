@@ -254,6 +254,26 @@ int main() {
     const auto source = DefaultsFor(ProbeGame(root.string(), "hl2.exe"));
     CHECK(source.graphics == "dxvk" && source.resolution_arguments == "-w {w} -h {h}");
   }
+  {  // HashLink (Dead Cells): the graphics library is a .hdll beside the program, loaded at run time.
+    const auto root = fresh();
+    WritePe(root / "deadcells.exe", {true, {"libhl.dll", "KERNEL32.dll"}});
+    Touch(root / "libhl.dll");
+    Touch(root / "directx.hdll");
+    Touch(root / "sdl.hdll");
+    const auto hashlink = DefaultsFor(ProbeGame(root.string(), "deadcells.exe"));
+    CHECK(hashlink.graphics == "dxvk" && hashlink.summary == "hashlink,d3d11,opengl graphics=dxvk");
+    CHECK(DetectedLabel(hashlink.summary) == "HashLink \xC2\xB7 Direct3D 11");
+    fs::remove(root / "directx.hdll");
+    CHECK(DefaultsFor(ProbeGame(root.string(), "deadcells.exe")).graphics == "opengl");
+  }
+  {  // XNA (Celeste): a .NET program naming the framework runs on Wine Mono's FNA, which draws with OpenGL.
+    const auto root = fresh();
+    WritePe(root / "Celeste.exe", {false, {"mscoree.dll"}, true, false, "Microsoft.Xna.Framework.Game"});
+    RuntimeAbilities mono;
+    mono.wine_mono = true;
+    const auto xna = DefaultsFor(ProbeGame(root.string(), "Celeste.exe"), mono);
+    CHECK(xna.refusal.empty() && xna.graphics == "opengl" && DetectedLabel(xna.summary) == "XNA \xC2\xB7 OpenGL");
+  }
   {  // LÖVE (Balatro): OpenGL, found through love.dll beside the program.
     const auto root = fresh();
     WritePe(root / "Balatro.exe", {true, {"love.dll", "lua51.dll", "KERNEL32.dll"}});
