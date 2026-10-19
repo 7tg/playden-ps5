@@ -2006,6 +2006,37 @@ void live_download_reorder_reaches_service() {
           "Move up sends the order change to the download service");
 }
 
+void live_sign_in_on_full_storage_offers_uninstall() {
+    auto model = make_live();
+    constexpr std::uint64_t gb = 1'000'000'000;
+    model.UpdateVolumes({{"internal", "Console storage", true, 800 * gb, 0}}, "internal");
+    model.UpdateInstalls({}, {{12, 5 * gb, "internal"}, {13, 1 * gb, "internal"}});
+    playden::homebrew::AccountUpdate full;
+    full.authentication = AuthState::Failed;
+    full.error = "Playden can't save your sign-in.";
+    full.storage_full = true;
+    model.UpdateAccount(full);
+    check(model.view().title == "Console storage is full", "a sign-in that can't be saved says storage is full");
+    const auto* installed = find_row(model, "signin-installed");
+    check(installed && installed->enabled && installed->value == "2 games · 6.0 GB" && has_row(model, "qr-retry"),
+          "it offers the installed games and Retry");
+    check(model.state().navigation.focus_key == "signin-installed", "the installed games are focused");
+    activate(model, "signin-installed");
+    check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Installed games",
+          "the list opens to uninstall from");
+    model.UpdateAccount(full);
+    check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Installed games",
+          "the retry every few seconds leaves the open list alone");
+    model.action("circle");
+
+    playden::homebrew::AccountUpdate busy;
+    busy.authentication = AuthState::Failed;
+    busy.error = "Account storage is unavailable. Retrying your saved sign-in…";
+    model.UpdateAccount(busy);
+    check(model.view().title == "Connect Steam" && !has_row(model, "signin-installed"),
+          "other storage trouble keeps the usual screen");
+}
+
 int main() {
     live_download_reorder_reaches_service();
     live_play_does_the_next_useful_thing();
@@ -2014,6 +2045,7 @@ int main() {
     live_ready_prompt_matches_the_open_game();
     live_details_focus_moves_to_play_once_enabled();
     live_settings_focus_stays_near_a_removed_row();
+    live_sign_in_on_full_storage_offers_uninstall();
     live_storage_section_and_installed_games();
     preparation_steps_read_as_player_words();
     live_install_requests_and_projection();

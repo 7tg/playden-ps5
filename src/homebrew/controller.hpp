@@ -50,14 +50,15 @@ class Controller {
   void BeginPassword();
   void SignOut(bool switch_account);
   void Reauthenticate();
-  void Restore();
+  // quiet: an automatic retry keeps the failure on screen instead of showing Restoring.
+  void Restore(bool quiet = false);
   void AdvanceClear();
   void BeginOrganizationClear();
   void AdvanceOrganizationClear();
   void Apply(const steam::SteamEvent& event);
   void Update(AuthState state, const std::string& error = {}, bool clear = false,
               const std::string& challenge = {}, SignInStep step = SignInStep::Qr,
-              const steam::SteamEvent* prompt = nullptr);
+              const steam::SteamEvent* prompt = nullptr, bool storage_full = false);
   void TickAppDetails();
   void TickStoreDetails();
   steam::StoreDetailsService* store_details_ = nullptr;

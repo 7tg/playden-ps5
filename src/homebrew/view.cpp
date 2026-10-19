@@ -1230,7 +1230,8 @@ class Render::Impl
 
     void draw_sign_in(ui::Canvas &, const ViewData &view, const State &state)
     {
-        section_label("Connect Steam", 96.0F, 78.0F);
+        const bool storage_full = state.account.authentication == AuthState::Failed && state.account.storage_full;
+        section_label(storage_full ? "Console storage" : "Connect Steam", 96.0F, 78.0F);
         draw_title(view, 96.0F, 272.0F, 720.0F);
         draw_actions(view, 96.0F, 594.0F, 540.0F);
         constexpr float qr_x = 1116.0F;
@@ -1253,6 +1254,9 @@ class Render::Impl
         } else if (state.account.authentication == AuthState::Expired) {
             draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
                                 "QR code expired", "Refresh to continue");
+        } else if (storage_full) {
+            draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
+                                "Storage is full", "Uninstall games to sign in");
         } else if (state.account.authentication == AuthState::Failed) {
             draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
                                 "Connection failed", "Retry the connection");
@@ -1278,6 +1282,11 @@ class Render::Impl
         {
             status = "Challenge expired";
             color = kAmber;
+        }
+        else if (storage_full)
+        {
+            status = "Console storage is full · Retrying";
+            color = kRed;
         }
         else if (state.account.authentication == AuthState::Failed)
         {

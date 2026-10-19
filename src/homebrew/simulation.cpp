@@ -1536,6 +1536,12 @@ void Simulation::clear_account_specific_state() {
 void Simulation::UpdateAccount(AccountUpdate update) {
     if (!live()) return;
     if (update.clear_library) clear_account_specific_state();
+    // The saved sign-in is retried every few seconds; a repeat of the same failure leaves the
+    // screen, its focus and any open list alone.
+    const bool repeat = update.authentication == AuthState::Failed && state_.account.authentication == AuthState::Failed &&
+                        update.sign_in == SignInStep::Qr && state_.sign_in.step == SignInStep::Qr &&
+                        update.error == state_.account.error && update.storage_full == state_.account.storage_full;
+    state_.account.storage_full = update.authentication == AuthState::Failed && update.storage_full;
     state_.account.authentication = update.authentication;
     state_.account.id = std::move(update.id);
     state_.account.display_name = std::move(update.display_name);
@@ -1548,7 +1554,9 @@ void Simulation::UpdateAccount(AccountUpdate update) {
         state_.sign_in_password = *update.signed_in_with_password;
         save_profile();
     }
-    if (update.authentication == AuthState::Waiting || update.authentication == AuthState::Expired || update.authentication == AuthState::Failed) {
+    if (repeat) {
+        // Nothing changed.
+    } else if (update.authentication == AuthState::Waiting || update.authentication == AuthState::Expired || update.authentication == AuthState::Failed) {
         state_.navigation.route = Route::SignIn;
         auto& form = state_.sign_in;
         if (update.sign_in == SignInStep::Qr) {
@@ -1556,7 +1564,8 @@ void Simulation::UpdateAccount(AccountUpdate update) {
             form.step = SignInStep::Qr;
             form.error.clear();
             set_route_focus(update.authentication == AuthState::Expired ? "qr-refresh"
-                            : update.authentication == AuthState::Failed ? "qr-retry" : "qr-cancel");
+                            : update.authentication != AuthState::Failed ? "qr-cancel"
+                            : state_.account.storage_full && !state_.installations.empty() ? "signin-installed" : "qr-retry");
         } else if (update.authentication != AuthState::Waiting) {
             // A failed password sign-in returns to the form, with the reason and the account name kept.
             clear_sign_in_secrets();
@@ -3442,6 +3451,22 @@ void Simulation::rebuild_view() {
         }
         if (!live() && (form.step == SignInStep::Approval || form.step == SignInStep::Submitting))
             row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
+    } else if (state_.navigation.route == Route::SignIn && state_.account.authentication == AuthState::Failed &&
+               state_.account.storage_full) {
+        // The saved sign-in keeps being retried; uninstalling games here gives it the room it needs.
+        view_.title = "Console storage is full";
+        view_.subtitle = state_.account.error;
+        auto& installed = row("signin-installed", RowKind::Action, "Installed games", "installed-manage");
+        installed.subtitle = "Uninstall games you no longer play to free up space";
+        if (state_.installations.empty()) {
+            installed.kind = RowKind::Status; installed.action.clear(); installed.enabled = false; installed.value = "None";
+            installed.subtitle = "Free up space in the PS5's Settings > Storage";
+        } else {
+            std::uint64_t bytes = 0;
+            for (const auto& item : state_.installations) bytes += item.installed_bytes;
+            installed.value = kept_count(state_.installations.size()) + " · " + format_bytes(bytes);
+        }
+        row("qr-retry", RowKind::Action, "Retry", "qr-retry");
     } else if (state_.navigation.route == Route::SignIn) {
         view_.title = "Connect Steam";
         view_.subtitle = state_.account.authentication == AuthState::Waiting

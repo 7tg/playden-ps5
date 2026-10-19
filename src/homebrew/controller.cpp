@@ -54,13 +54,14 @@ void Controller::Shutdown() {
   Update(AuthState::SignedOut,{},true);
 }
 void Controller::Update(AuthState state,const std::string& error,bool clear,const std::string& challenge,
-                        SignInStep step,const steam::SteamEvent* prompt) {
+                        SignInStep step,const steam::SteamEvent* prompt,bool storage_full) {
   AccountUpdate update;
   update.authentication = state;
   update.id = clear ? std::string{} : model_.state().account.id;
   update.display_name = clear ? std::string{} : model_.state().account.display_name;
   update.error = error; update.challenge_url = challenge; update.clear_library = clear;
   update.sign_in = step;
+  update.storage_full = storage_full;
   if (prompt) {
     update.email_domain = prompt->email_domain;
     update.code_allowed = prompt->code_allowed;
@@ -141,10 +142,12 @@ void Controller::Reauthenticate() {
   request_ = service_->BeginQrSignIn();
   Update(AuthState::Waiting);
 }
-void Controller::Restore() {
+void Controller::Restore(bool quiet) {
   if(library_) library_->Reset();
   phase_=Phase::Restore;request_=service_->RestoreSession();
-  Update(AuthState::Restoring);
+  // A retry every few seconds that flipped to Restoring and back would move the screen and close
+  // the focus of a list opened from it (Installed games on a full console storage).
+  if (!quiet) Update(AuthState::Restoring);
 }
 void Controller::SignOut(bool switch_account) {
   if(phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization || phase_==Phase::SignOut) return;
@@ -240,7 +243,7 @@ void Controller::Tick() {
     }
   }
   if (retry_saved_session_ && phase_ == Phase::Idle &&
-      std::chrono::steady_clock::now() >= retry_saved_session_at_) Restore();
+      std::chrono::steady_clock::now() >= retry_saved_session_at_) Restore(true);
   auto mark = std::chrono::steady_clock::now();
   const auto lap = [&](std::size_t index) {
     const auto now = std::chrono::steady_clock::now();
@@ -1395,7 +1398,18 @@ void Controller::Apply(const steam::SteamEvent& event) {
         // account state, retry the saved session, and never start QR sign-in.
         retry_saved_session_ = true;
         retry_saved_session_at_ = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-        Update(AuthState::Failed, "Account storage is unavailable. Retrying your saved sign-in…");
+        // A full console storage refuses the refreshed sign-in until games are uninstalled; the query
+        // holds back the space the PS5 keeps, so none left means writes fail.
+        std::optional<steam::VolumeSpace> space;
+        if (installs_) {
+          const auto volumes = installs_->Snapshot().volumes;
+          if (!volumes.empty()) space = steam::QueryVolumeSpace(volumes.front().games_root, steam::kConsoleSystemReserve);
+        }
+        if (space && space->free_bytes == 0)
+          Update(AuthState::Failed, "Playden can't save your sign-in. Uninstall games to free up space; it signs in again on its own.",
+                 false, {}, SignInStep::Qr, nullptr, true);
+        else
+          Update(AuthState::Failed, "Account storage is unavailable. Retrying your saved sign-in…");
         break;
       }
       retry_saved_session_ = false;

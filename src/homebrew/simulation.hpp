@@ -240,6 +240,7 @@ struct Account {
     std::int64_t last_sync = 0;
     bool cache_available = false;
     std::string error;
+    bool storage_full = false;  // Failed: the sign-in can't be saved until console storage has room
 };
 
 struct AccountUpdate {
@@ -257,6 +258,7 @@ struct AccountUpdate {
     bool code_rejected = false;
     // Authenticated by a sign-in (not a restore): whether it used the password, remembered for next time.
     std::optional<bool> signed_in_with_password;
+    bool storage_full = false;  // Failed: console storage is full
 };
 
 struct LibraryUpdate {
