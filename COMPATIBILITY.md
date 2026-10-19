@@ -143,7 +143,7 @@ Development builds carry the version they lead to, such as `0.11-dev.20261020.1`
 | Kit | What changed for games |
 | --- | --- |
 | 0.10 | First stable kit. Windows video and audio decoding through GStreamer and FFmpeg, so games play their movies and compressed audio (Fallout 4, Bulletstorm, Metal Wolf Chaos XD). Source games (Portal 2, Team Fortress 2, Black Mesa) no longer hang at start-up with the controller. Call of Juarez Gunslinger's audio no longer freezes the game. A game that crashes now quits instead of freezing. |
-| 0.11 (in development) | Direct3D 12 through vkd3d-proton: Playden turns it on for games that only use Direct3D 12, and Game settings › Direct3D 12 turns it on for others (Unity and Unreal games then get `-force-d3d12` or `-dx12`). 64-bit games can reserve more address space (Cyberpunk 2077). |
+| 0.11 (in development) | Direct3D 12 through vkd3d-proton: Playden turns it on for games that use Direct3D 12, except Unity and Unreal games, where Game settings › Direct3D 12 turns it on (they then get `-force-d3d12` or `-dx12`). 64-bit games can reserve more address space (Cyberpunk 2077). |
 | Earlier | Test kits before the first stable release, named by letter and revision (D to H r9). Kit 0.10 follows H r9: games set up on H r6 or later need nothing, and games set up earlier need Recreate bottle. |
 
 To see which kit your console has, run the [log script](tools/collect_logs.py): it prints the kit version.
@@ -154,9 +154,8 @@ To see which kit your console has, run the [log script](tools/collect_logs.py): 
   runs inside the translator too.
 - **New games can stay at *Waiting for the PS5*** when ShadowMountPlus stops registering titles. Reload
   ShadowMountPlus.
-- **Direct3D 12 games** need a kit with vkd3d-proton (0.11 or later). Playden turns it on for games that only use
-  Direct3D 12. For games that can also use Direct3D 11, set Game settings › Graphics = DXVK and Direct3D 12 =
-  vkd3d-proton. Its own variables (`VKD3D_DEBUG`, `VKD3D_CONFIG`, …) go in Environment variables.
+- **Direct3D 12 games** need a kit with vkd3d-proton (0.11 or later). Playden turns it on for games that use
+  Direct3D 12, except Unity and Unreal games: for those, set Game settings › Direct3D 12 = vkd3d-proton. Its own variables (`VKD3D_DEBUG`, `VKD3D_CONFIG`, …) go in Environment variables.
 - **Denuvo Anti-Tamper** games (for example Hi-Fi RUSH) cannot run, and support is not planned.
 - **Kernel anti-cheat** games (for example Easy Anti-Cheat or BattlEye in kernel mode) cannot run.
 - Games that need a **third-party launcher or account** (EA app, Ubisoft Connect, Rockstar) are not supported yet.

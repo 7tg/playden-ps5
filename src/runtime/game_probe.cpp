@@ -356,8 +356,10 @@ GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime
   } else if (probe.engine == "godot") {
     out.graphics = "opengl";
     out.arguments = "--rendering-driver opengl3";
-  } else if (has("d3d12") && !older_direct3d && runtime.vkd3d_proton) {
-    // vkd3d-proton presents through DXVK's dxgi, so the game gets DXVK as well.
+  } else if (has("d3d12") && runtime.vkd3d_proton) {
+    // vkd3d-proton presents through DXVK's dxgi, so the game gets DXVK as well. A game that also imports an
+    // older Direct3D still asks for Direct3D 12 first (Mina the Hollower with d3d9, Ghosts 'n Goblins with d3d11)
+    // and falls back to software rendering or stops on Wine's own; one that picks the older one still gets DXVK.
     out.graphics = "dxvk";
     out.d3d12 = "vkd3d-proton";
   } else if (direct3d || probe.engine == "gamemaker") {
@@ -399,6 +401,9 @@ std::string DetectedLabel(const std::string& summary) {
     if (facts.count(id)) engine = name;
   std::string api;
   if (graphics == "opengl") api = "OpenGL";
+  else if (graphics == "dxvk" && facts.count("d3d12") && engine != "Unity" && engine != "Unreal Engine")
+    // Direct3D 12 also loads dxgi; a game that names both 11 and 12 can draw with either.
+    api = facts.count("d3d11") ? "Direct3D 11 and 12" : "Direct3D 12";
   else if (graphics == "dxvk")
     api = facts.count("unity-legacy") ? "Direct3D 9"
               : facts.count("d3d11") || facts.count("dxgi") || engine == "Unity" || engine == "Unreal Engine" ||

@@ -198,6 +198,11 @@ int main() {
     // Direct3D 12 games load dxgi too; that doesn't make them Direct3D 11 games.
     const auto twelve_dxgi = DefaultsFor(ProbeGame(root.string(), "TwelveDxgi.exe"), vkd3d);
     CHECK(twelve_dxgi.refusal.empty() && twelve_dxgi.graphics == "dxvk" && twelve_dxgi.d3d12 == "vkd3d-proton");
+    // An older Direct3D next to it is a fallback: the game still asks for Direct3D 12 first.
+    WritePe(root / "TwelveNine.exe", {true, {"d3d9.dll", "dxgi.dll", "d3d12.dll"}});
+    const auto twelve_nine = DefaultsFor(ProbeGame(root.string(), "TwelveNine.exe"), vkd3d);
+    CHECK(twelve_nine.refusal.empty() && twelve_nine.graphics == "dxvk" && twelve_nine.d3d12 == "vkd3d-proton");
+    CHECK(DefaultsFor(ProbeGame(root.string(), "TwelveNine.exe")).d3d12.empty());
     KitCapabilities vkd3d_kit;
     vkd3d_kit.vkd3d_proton = true;
     CHECK(GameProgramRefusal(root.string(), "Twelve.exe", vkd3d_kit, false).empty());
@@ -470,6 +475,8 @@ int main() {
   // The player's words for what was found.
   CHECK(DetectedLabel("unity-il2cpp,d3d11,d3d12 graphics=dxvk") == "Unity \xC2\xB7 Direct3D 11");
   CHECK(DetectedLabel("d3d9 graphics=dxvk") == "Direct3D 9");
+  CHECK(DetectedLabel("d3d12,d3d9,dxgi graphics=dxvk") == "Direct3D 12");
+  CHECK(DetectedLabel("d3d11,d3d12,dxgi,vulkan graphics=dxvk") == "Direct3D 11 and 12");
   CHECK(DetectedLabel("godot,opengl,vulkan graphics=opengl") == "Godot \xC2\xB7 OpenGL");
   CHECK(DetectedLabel("unknown graphics=auto").empty() && DetectedLabel("").empty());
 
