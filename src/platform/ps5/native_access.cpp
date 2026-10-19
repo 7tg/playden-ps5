@@ -257,25 +257,29 @@ NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
   if (grant_code != 0)
     return LauncherFallback(NativeFailure("native data grant", grant_code),
                             &stable);
+  // From here the grant succeeded: a failure is about the data, not the grant.
+  auto granted_fallback = [&](const std::string& error) {
+    auto result = LauncherFallback(error, &stable);
+    result.granted = true;
+    return result;
+  };
 
   std::string path_error;
   if (!ValidatePaths(ops_, stable, options_.known_fresh_state,
                      StubState::kReadable, &path_error)) {
-    return LauncherFallback("stable launcher source is invalid: " + path_error,
-                            &stable);
+    return granted_fallback("stable launcher source is invalid: " + path_error);
   }
 
   std::string stable_identity;
   if (!ops_.read_source_identity(ops_.context, stable_root.c_str(),
                                  &stable_identity) ||
       stable_identity.empty() || stable_identity != source_identity_) {
-    return LauncherFallback("stable launcher source identity does not match",
-                            &stable);
+    return granted_fallback("stable launcher source identity does not match");
   }
 
   runtime_error.clear();
   if (!ValidateRuntimeData(ops_, options_, &runtime_error))
-    return LauncherFallback(runtime_error, &stable);
+    return granted_fallback(runtime_error);
 
   NativeAccessResult result;
   result.launcher_ready = true;

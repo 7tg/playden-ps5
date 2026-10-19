@@ -250,6 +250,9 @@ build/homebrew-host/playden-homebrew --simulation --scenario signed-out
   Reload ShadowMountPlus.
   Until the game is registered, its Cloud saves are not synced before its first launch.
 - If every game hangs on its loading spinner, the ELF loader has stopped. Reload it.
+- If Playden opens on **Root access is missing**, it could not get the root access it needs to reach its data in
+  `/data`, so it can't show your games, download or play. Load kstuff and the autoloader (the ELF loader must
+  run too), then open Playden again. The screen's startup error is worth quoting in a report.
 - Some controller games show a mouse pointer in a corner of the screen.
 - Playden can crash if you open a game page in the first seconds after start-up.
 - 32-bit games can run through an x86 translator, which is slower than native. For 32-bit OpenGL games this

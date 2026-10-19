@@ -91,6 +91,7 @@ int sceSysmoduleGetModuleHandleInternal(uint32_t id, int32_t* handle);
 int sceKernelDlsym(int32_t handle, const char* name, void** address);
 int sceUserServiceGetForegroundUser(uint32_t* user_id);
 int sceUserServiceGetInitialUser(int* user_id);
+int sceUserServiceInitialize(const void* parameters);
 }
 
 namespace {
@@ -171,6 +172,38 @@ std::vector<playden::steam::InstallRequest> take_install_requests(bool runtime_r
     std::remove(request_path.c_str());
     return requests;
 }
+
+// Without the root grant Playden can't reach /data, so no service starts: this screen shows
+// until the player quits to Home. A new grant needs a single-threaded title, so it can't be
+// retried once the display is open: opening Playden again is the retry.
+void show_root_access_missing(hui::ps5::Display& display, const playden::ps5::NativeAccessResult& access) {
+    // granted: the grant ran but its data (/data/playden) failed; the screen says so.
+    const char* what = access.granted ? "runtime data unusable after the grant" : "root access missing";
+    hui::sys::log("Playden %s: %s", what, access.error.c_str());
+    playden::app::AppendLogLine("/app0/logs", "launch.log", std::string(what) + ": " + access.error);
+    // The pad belongs to a user; the bootstrap may have stopped before UserService started.
+    sceUserServiceInitialize(nullptr);
+    playden::homebrew::Simulation simulation({}, {}, playden::homebrew::ModelMode::Live);
+    simulation.ShowRootAccessMissing(access.error, access.granted);
+    playden::homebrew::Render renderer(access.launcher_ready ? access.paths.assets_root : std::string("/app0/assets"));
+    hui::ps5::Pad pad;
+    pad.open();
+    hui::InputTracker tracker;
+    std::array<hui::PadSample, 64> samples{};
+    bool presented = false;
+    while (!simulation.state().quit_requested) {
+        const auto count = pad.read(samples);
+        dispatch(simulation, tracker.update(std::span<const hui::PadSample>(samples.data(), count),
+                                            hui::sys::monotonic_us()));
+        renderer.draw(simulation, display.width(), display.height(), 1.0F / 60.0F);
+        if (!display.swap()) break;
+        if (!presented) {
+            hui::sys::hide_splash_screen();
+            presented = true;
+        }
+        pad.tick(1.0F / 60.0F);
+    }
+}
 }  // namespace
 
 int main() {
@@ -182,9 +215,17 @@ int main() {
     if (display.width() <= 0 && !display.open(3840, 2160)) {
         hui::sys::log("Playden Hui display failed"); hui::sys::park();
     }
-    if (!native_access.launcher_ready) {
-        hui::sys::log("Playden launcher paths unavailable: %s", native_access.error.c_str());
-        hui::sys::park();
+#if PLAYDEN_UI_SIMULATION
+    // Fixtures need only the package.
+    const bool root_access_missing = !native_access.launcher_ready;
+#else
+    const bool root_access_missing = !native_access.runtime_ready;
+#endif
+    if (root_access_missing) {
+        show_root_access_missing(display, native_access);
+        display.close();
+        hui::sys::quit();
+        return 0;
     }
     const auto& paths = native_access.paths;
     title_root = paths.title_root;
@@ -508,8 +549,6 @@ int main() {
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
         services.SetSelfUpdate(&self_update);
-        // Without its runtime Playden still lists and downloads games; say why nothing can start.
-        if (!native_access.runtime_ready) simulation.UpdateRuntimeProblem(native_access.error);
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer(paths.assets_root);

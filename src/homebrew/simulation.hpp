@@ -477,6 +477,10 @@ struct State {
     SessionState session = SessionState::Idle;
     RuntimeState runtime = RuntimeState::Unavailable;
     std::string runtime_problem;  // why games can't be prepared or played, in words a person can act on
+    // Live: started without the root grant, so only the "Root access is missing" screen shows.
+    bool root_access_missing = false;
+    std::string root_access_detail;  // the startup error, shortened
+    bool root_access_granted = false;  // the grant succeeded; its data in /data/playden failed
     LogState log_state = LogState::Ready;
     std::vector<std::string> log_lines;
     int log_offset = 0;
@@ -625,6 +629,10 @@ public:
     void UpdateRuntimeProblem(const std::string& raw);
     // Live mode: a one-line note from startup's data layout move (a step held back this start).
     void ShowLayoutNotice(const std::string& text);
+    // Live mode: startup got no root grant (raw: NativeAccessResult::error). Shows only the
+    // "Root access is missing" screen; its one action quits to Home (quit_requested).
+    // granted: the grant succeeded but Playden can't use /data/playden (other words, same screen).
+    void ShowRootAccessMissing(const std::string& raw, bool granted = false);
     // Live mode: Playden's own update, and what the player asked of it: "check" (from Settings),
     // "install", "cancel", "restart" (apply at quit; quit follows), "rollback" (put the previous
     // version back at quit; quit follows) and "acknowledge" (a finished update's message was shown).

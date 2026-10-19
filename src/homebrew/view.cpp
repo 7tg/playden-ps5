@@ -1060,6 +1060,20 @@ class Render::Impl
     void draw_startup(ui::Canvas &, const ViewData &view, const State &state)
     {
         section_label("Playden", 96.0F, 78.0F);
+        if (state.root_access_missing)
+        {
+            // No artwork or account here: the problem, the startup error and the way out.
+            draw_title(view, 96.0F, 292.0F, 1180.0F);
+            float y = 470.0F;
+            for (const ViewRow &row : view.rows)
+                if (row.kind == RowKind::Status)
+                {
+                    ui::paragraph(scene_, fonts_.regular, row.title, 96.0F, y, 22.0F, 1180.0F, 30.0F, kAmber, 2);
+                    y += 92.0F;
+                }
+            draw_actions(view, 96.0F, y, 560.0F);
+            return;
+        }
         draw_title(view, 96.0F, 292.0F, 720.0F);
         if (state.startup_loading)
         {
@@ -2949,6 +2963,15 @@ class Render::Impl
 
     void draw_footer(ui::Canvas &, const ViewData &view)
     {
+        // "Root access is missing" has one action: no Back or Sections.
+        if (current_state_ && current_state_->root_access_missing)
+        {
+            std::vector<ui::Hint> hints;
+            for (std::size_t index = 0; index < view.legends.size(); ++index)
+                hints.push_back({legend_button(view.legends[index], index), legend_text(view.legends[index])});
+            draw_hint_row(scene_, hints, 96.0F);
+            return;
+        }
         // The Installed games sheet shows its own hints; the bar behind it would only repeat them, dimmed.
         if (view.surface != "installed-games")
         {

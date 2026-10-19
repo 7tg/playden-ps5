@@ -96,6 +96,13 @@ int main(int argc,char** argv) {
       assert(renderer.capture_png(output/name,1920,1080));
     };
     capture("home.png");
+    {
+      Simulation missing({}, {}, ModelMode::Live);
+      missing.ShowRootAccessMissing("native data grant failed (code 2); helper stage=request status=unavailable error=2");
+      for(int i=0;i<16;++i) renderer.draw(missing,1920,1080);
+      assert(renderer.capture_png(output/"root-access-missing.png",1920,1080));
+      assert(renderer.diagnostics().focused_control_key=="root-quit");
+    }
     assert(model.action("r1") && model.state().navigation.route==Route::Library);
     capture("library.png");
     assert(model.action("search"));model.text("CAFÉ");assert(model.action("done"));

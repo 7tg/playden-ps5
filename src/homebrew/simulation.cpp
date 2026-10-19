@@ -1019,6 +1019,28 @@ void Simulation::ShowLayoutNotice(const std::string& text) {
     rebuild_view();
 }
 
+void Simulation::ShowRootAccessMissing(const std::string& raw, bool granted) {
+    if (!live()) return;
+    // One short line: the first failure and the helper's diagnostic are enough to report. The
+    // unused fallback launcher's path check is left out.
+    constexpr std::size_t kDetailLimit = 140;
+    std::string detail = raw;
+    if (const auto from = detail.find("; launcher paths unavailable: "); from != std::string::npos) {
+        const auto to = detail.find("; ", from + 2);
+        detail.erase(from, to == std::string::npos ? std::string::npos : to - from);
+    }
+    if (detail.size() > kDetailLimit) detail = detail.substr(0, kDetailLimit - 1) + "…";
+    state_.root_access_missing = true;
+    state_.root_access_granted = granted;
+    state_.root_access_detail = std::move(detail);
+    state_.notices.clear();
+    state_.navigation.modals.clear();
+    state_.editor.active = false;
+    state_.navigation.route = Route::Startup;
+    state_.navigation.focus_key = "root-quit";
+    rebuild_view();
+}
+
 void Simulation::UpdateSelfUpdate(const LiveSelfUpdate& update) {
     if (!live()) return;
     const LiveSelfUpdate before = state_.self_update;
@@ -3172,6 +3194,12 @@ void Simulation::rebuild_view() {
                     if (runtime->maintenance_running) item.value = "Working…";
                     else if (!runtime->maintenance_message.empty()) item.subtitle = runtime->maintenance_message;
                 }
+                // A title waiting for recovery: only Recreate bottle (or the title's Resume) gets it out.
+                if ((kind == MaintenanceKind::Repair || kind == MaintenanceKind::ClearShaderCache ||
+                     kind == MaintenanceKind::BackupSaves) && runtime && runtime->status == "Needs recovery") {
+                    item.enabled = false;
+                    item.subtitle = "Finish the PS5 title's recovery first, or use Recreate bottle.";
+                }
             } else if (action_key.rfind("volume-", 0) == 0) {
                 item.kind = RowKind::Volume;
                 if (const auto* volume = find_volume(state_, action_key.substr(7))) {
@@ -3408,6 +3436,20 @@ void Simulation::rebuild_view() {
                 : installed_part(state_.navigation.focus_key) == 2 ? std::vector<std::string>{"Cross Choose", "Circle Close"}
                                                                   : std::vector<std::string>{"Circle Close"};
         else if (!modal.setting_id.empty()) view_.legends = {"Cross Select", "Triangle Reset", "L1/R1 Jump", "Circle Back"};
+    } else if (state_.navigation.route == Route::Startup && state_.root_access_missing) {
+        if (state_.root_access_granted) {
+            view_.title = "Playden can't start";
+            view_.subtitle = "Playden has root access but can't use its data in /data/playden. "
+                             "Restart Playden; if it stays, check that folder's permissions over FTP.";
+        } else {
+            view_.title = "Root access is missing";
+            view_.subtitle = "Without it, Playden can't reach its data, so it can't show your games, download or play. "
+                             "Load kstuff and the autoloader, then open Playden again.";
+        }
+        if (!state_.root_access_detail.empty())
+            row("root-detail", RowKind::Status, "Startup error: " + state_.root_access_detail, "").enabled = false;
+        row("root-quit", RowKind::Action, "Quit to Home", "root-quit");
+        view_.legends = {"Cross Quit to Home"};
     } else if (state_.navigation.route == Route::Startup) {
         view_.title = "Welcome to Playden";
         view_.subtitle = live() ? "Connect Steam to load your library." : "Browse the local UI fixture or connect a simulated Steam account.";
@@ -6037,6 +6079,12 @@ bool Simulation::action(const std::string& logical_action) {
     else if (logical_action == "l2") state_.controller.l2 = 1.0F;
     else if (logical_action == "r2") state_.controller.r2 = 1.0F;
     else if (logical_action == "options") state_.controller.options = true;
+    // Without the root grant nothing else runs: Cross (or the action itself) quits to Home.
+    if (state_.root_access_missing) {
+        if (logical_action != "cross" && logical_action != "root-quit") return false;
+        state_.quit_requested = true;
+        return true;
+    }
     if (live()) {
         if (logical_action == "connect") { open_sign_in(); rebuild_view(); return true; }
         if (logical_action == "qr-retry" || logical_action == "qr-refresh") {
@@ -6796,11 +6844,13 @@ std::vector<std::string> Simulation::details_context_actions() const {
                          !game_prepared(state_.navigation.selected_game_id);
     // An installed game not set up yet (a refusal from before Playden restarted is not kept) sets
     // itself up first, so Game settings is there before Play is pressed once (#46).
-    const bool unprepared = live() && is_installed(state_, state_.navigation.selected_game_id) &&
-                            !game_prepared(state_.navigation.selected_game_id);
-    if (refused || unprepared) actions.insert(actions.begin(), "game-settings");
-    if (game_prepared(state_.navigation.selected_game_id))
+    // Maintenance is there for every installed game, whatever its state (a title waiting for
+    // recovery gets out through Recreate bottle); rows that can't run say why.
+    const bool installed = live() && is_installed(state_, state_.navigation.selected_game_id);
+    if (installed || game_prepared(state_.navigation.selected_game_id))
         actions.insert(actions.begin(), {"game-settings", "game-maintenance"});
+    else if (refused)
+        actions.insert(actions.begin(), "game-settings");
     // A title waiting for the PS5 is ready to play from Home; asking the console again is a side action.
     const auto runtime = state_.runtime_games.find(state_.navigation.selected_game_id);
     if (live() && runtime != state_.runtime_games.end() && runtime->second.awaiting_registration &&

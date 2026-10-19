@@ -283,7 +283,7 @@ void InvalidOrMissingStableSourceNeverFallsBackAfterGrant() {
   wrong.stable_identity_after_grant = "foreign-package";
   NativeAccessBootstrap wrong_bootstrap(Ops(wrong), Options());
   const auto mismatched = wrong_bootstrap.Prepare();
-  CHECK(!mismatched.launcher_ready && !mismatched.runtime_ready);
+  CHECK(!mismatched.launcher_ready && !mismatched.runtime_ready && mismatched.granted);
   CHECK(mismatched.paths.title_root.empty());
   CHECK(mismatched.error.find("identity") != std::string::npos);
 
@@ -455,7 +455,7 @@ void StableTitleWithoutManagedAccessIsNotRuntimeReady() {
 
   const auto result = bootstrap.Prepare();
 
-  CHECK(result.launcher_ready && !result.runtime_ready);
+  CHECK(result.launcher_ready && !result.runtime_ready && !result.granted);
   CHECK(result.paths.title_root == kStableRoot);
   CHECK(result.error.find("grant") != std::string::npos);
   CHECK(fake.grants == 1);
@@ -468,11 +468,21 @@ void PostGrantStableTitleSupportsLauncherWithoutManagedAccess() {
 
   const auto result = bootstrap.Prepare();
 
-  CHECK(result.launcher_ready && !result.runtime_ready);
+  // The grant ran: the screen blames the data, not the grant.
+  CHECK(result.launcher_ready && !result.runtime_ready && result.granted);
   CHECK(result.paths.title_root == kStableRoot);
   CHECK(result.error.find("runtime data") != std::string::npos);
   CHECK(fake.paths.find(kAppRoot) == fake.paths.end());
   CHECK(fake.grants == 1);
+
+  // A runtime root that is there but not writable.
+  auto read_only = OrdinaryLauncher();
+  read_only.read_only.insert(kRuntimeRoot);
+  NativeAccessBootstrap read_only_bootstrap(Ops(read_only), Options());
+  const auto unwritable = read_only_bootstrap.Prepare();
+  CHECK(unwritable.launcher_ready && !unwritable.runtime_ready && unwritable.granted);
+  CHECK(unwritable.error.find("inaccessible") != std::string::npos);
+  CHECK(read_only.grants == 1);
 }
 
 void WritableManagedParentAllowsFirstRuntimeDirectoryCreation() {

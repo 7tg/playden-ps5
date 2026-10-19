@@ -248,6 +248,37 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
     activate(model, "details-more");
     check(find_row(model, "game-settings") && find_row(model, "game-maintenance"),
           "a prepared game's More menu offers Game settings and Maintenance");
+    // A title waiting for recovery keeps Maintenance: Recreate bottle is the way out.
+    {
+        auto recovering = runtime;
+        recovering.status = "Needs recovery";
+        recovering.ready = recovering.prepared = false;
+        recovering.activity = TitleActivity::Stopped;
+        model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {recovering});
+        activate(model, "cancel");
+        activate(model, "details-more");
+        check(find_row(model, "game-maintenance") != nullptr, "a title needing recovery still offers Maintenance");
+        activate(model, "game-maintenance");
+        model.TakeActivityRequests();
+        model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {recovering});  // the console's answer
+        const auto* recreate = find_row(model, "maintenance-recreate");
+        check(recreate && recreate->enabled, "Recreate bottle can run while the title waits for recovery");
+        for (const char* key : {"maintenance-repair", "maintenance-shader", "maintenance-backup"}) {
+            const auto* blocked = find_row(model, key);
+            check(blocked && !blocked->enabled &&
+                      blocked->subtitle == "Finish the PS5 title's recovery first, or use Recreate bottle.",
+                  "Repair, Clear shader cache and Back up saves wait for the title's recovery");
+        }
+        for (const char* key : {"maintenance-repair", "maintenance-shader", "maintenance-backup"}) {
+            (void)model.action(std::string("focus:") + key);
+            (void)model.action("cross");
+        }
+        check(model.TakeMaintenanceRequests().empty(), "the rows waiting for recovery start nothing");
+        const auto* reset = find_row(model, "maintenance-reset");
+        check(reset && reset->subtitle.find("recovery") == std::string::npos, "Reset settings is unchanged during recovery");
+        activate(model, "cancel");
+        model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    }
 
     activate(model, "game-settings");
     check(model.TakeActivityRequests() == std::vector<playden::homebrew::GameId>{220}, "the sheet asks whether the game runs");
@@ -574,9 +605,74 @@ void live_self_update(const std::filesystem::path& base) {
           "update: the finished update is announced once");
 }
 
+// Without the root grant only "Root access is missing" shows; its one action quits to Home.
+void live_root_access_missing() {
+    Simulation model({}, {}, ModelMode::Live);
+    const std::string error = "native data grant failed (code 2); helper stage=request status=unavailable error=2";
+    model.ShowRootAccessMissing(error);
+    const auto& view = model.view();
+    check(model.state().navigation.route == Route::Startup && view.title == "Root access is missing",
+          "root access: the screen shows its title");
+    check(view.subtitle.find("Load kstuff and the autoloader, then open Playden again.") != std::string::npos,
+          "root access: the body says how to fix it");
+    const auto detail = std::find_if(view.rows.begin(), view.rows.end(),
+                                     [](const auto& row) { return row.key == "root-detail"; });
+    check(detail != view.rows.end() && detail->title == "Startup error: " + error && !detail->enabled,
+          "root access: the startup error is a detail line");
+    check(view.focused_row >= 0 && view.rows[static_cast<std::size_t>(view.focused_row)].key == "root-quit" &&
+              view.rows[static_cast<std::size_t>(view.focused_row)].title == "Quit to Home",
+          "root access: Quit to Home has focus");
+    // Nothing else is reachable: no sign-in, Settings, search or tabs.
+    for (const char* name : {"connect", "options", "circle", "triangle", "r1", "search", "route:settings", "down"})
+        check(!model.action(name), "root access: other actions do nothing");
+    check(model.TakeServiceActions().empty() && !model.state().quit_requested && !model.state().editor.active &&
+              model.state().navigation.modals.empty() && model.state().navigation.route == Route::Startup,
+          "root access: no service action, dialog or route change");
+    check(model.action("cross") && model.state().quit_requested, "root access: Cross quits to Home");
+
+    Simulation long_error({}, {}, ModelMode::Live);
+    long_error.ShowRootAccessMissing(std::string(400, 'x'));
+    const auto& rows = long_error.view().rows;
+    const auto shortened = std::find_if(rows.begin(), rows.end(), [](const auto& row) { return row.key == "root-detail"; });
+    check(shortened != rows.end() && shortened->title.size() < 200 && shortened->title.find("…") != std::string::npos,
+          "root access: a long startup error is shortened");
+
+    // Without the grant the FTP-made stubs fail the fallback's check too: that clause is left out.
+    Simulation stubs({}, {}, ModelMode::Live);
+    stubs.ShowRootAccessMissing("native data grant failed (code 13); launcher paths unavailable: existing Steam state "
+                                "root is inaccessible; helper stage=target_preflight status=16 error=16");
+    check(stubs.state().root_access_detail ==
+              "native data grant failed (code 13); helper stage=target_preflight status=16 error=16",
+          "root access: the helper diagnostic survives, the fallback path check does not");
+
+    // The grant ran but its data failed: same screen, other words, no kstuff advice.
+    Simulation granted({}, {}, ModelMode::Live);
+    const std::string data_error = "managed runtime data root is inaccessible";
+    granted.ShowRootAccessMissing(data_error, true);
+    const auto& data_view = granted.view();
+    check(data_view.title == "Playden can't start", "root access: a data failure after the grant has its own title");
+    check(data_view.subtitle == "Playden has root access but can't use its data in /data/playden. "
+                                "Restart Playden; if it stays, check that folder's permissions over FTP.",
+          "root access: the body points at /data/playden");
+    check(data_view.subtitle.find("kstuff") == std::string::npos, "root access: no kstuff advice after the grant");
+    const auto data_detail = std::find_if(data_view.rows.begin(), data_view.rows.end(),
+                                          [](const auto& row) { return row.key == "root-detail"; });
+    check(data_detail != data_view.rows.end() && data_detail->title == "Startup error: " + data_error,
+          "root access: the data failure keeps its detail line");
+    check(data_view.focused_row >= 0 && data_view.rows[static_cast<std::size_t>(data_view.focused_row)].key == "root-quit",
+          "root access: the data failure keeps Quit to Home");
+    check(!granted.action("connect") && granted.action("cross") && granted.state().quit_requested,
+          "root access: the data failure only quits to Home");
+
+    Simulation fixture({}, {}, ModelMode::Simulation);
+    fixture.ShowRootAccessMissing(error);
+    check(!fixture.state().root_access_missing, "root access: the fixture model ignores it");
+}
+
 } // namespace
 
 int main() {
+    live_root_access_missing();
     live_download_telemetry();
     const auto base = std::filesystem::canonical(std::filesystem::temp_directory_path())
         / ("playden-homebrew-live-model-test-" + std::to_string(getpid()));
