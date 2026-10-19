@@ -7,6 +7,7 @@
 #include "steam/backend/json.h"
 
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <cerrno>
 #include <charconv>
@@ -673,7 +674,49 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
   ReplaceAll(&resolution_arguments, "{w}", resolution.substr(0, x));
   ReplaceAll(&resolution_arguments, "{h}", x == std::string::npos ? "" : resolution.substr(x + 1));
   ReplaceAll(&arguments, "{resolution}", resolution_arguments);
-  if (out.launch && !out.launch->arguments.empty()) arguments += " " + out.launch->arguments;
+  std::string launch_arguments = out.launch ? out.launch->arguments : std::string();
+  // A generated recipe picks the graphics API in Required arguments; a Steam launch option that picks one too is
+  // dropped from it, or the engine stops: Severed Steel's "-noraytracing -d3d12" next to "-dx11" ends in "-d3d12,
+  // -d3d11, -vulkan, and -opengl are mutually exclusive". Required arguments stay the one place to change it.
+  if (IsGeneratedRecipeId(recipe.id) && !launch_arguments.empty()) {
+    static const std::vector<std::vector<std::string>> api_words = {
+        {"-d3d11", "-dx11", "-d3d12", "-dx12", "-d3d10", "-dx10", "-vulkan", "-opengl", "-opengl4"},
+        {"-force-d3d9", "-force-d3d11", "-force-d3d12", "-force-vulkan", "-force-glcore", "-force-gles",
+         "-force-d3d11-no-singlethreaded"}};
+    const auto lower = [](std::string word) {
+      std::transform(word.begin(), word.end(), word.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+      return word;
+    };
+    // Words split at spaces outside double quotes, so a quoted value stays one word and is never matched.
+    const auto words_of = [&](const std::string& text) {
+      std::vector<std::string> words;
+      std::string word;
+      bool quoted = false;
+      for (const char c : text) {
+        if (c == '"') quoted = !quoted;
+        if (c == ' ' && !quoted) {
+          if (!word.empty()) words.push_back(std::move(word));
+          word.clear();
+        } else {
+          word += c;
+        }
+      }
+      if (!word.empty()) words.push_back(std::move(word));
+      return words;
+    };
+    const auto required_words = words_of(required.value);
+    for (const auto& family : api_words) {
+      const auto in_family = [&](const std::string& word) {
+        return std::find(family.begin(), family.end(), lower(word)) != family.end();
+      };
+      if (std::none_of(required_words.begin(), required_words.end(), in_family)) continue;
+      std::string kept;
+      for (const auto& word : words_of(launch_arguments))
+        if (!in_family(word)) kept += (kept.empty() ? "" : " ") + word;
+      launch_arguments = kept;
+    }
+  }
+  if (!launch_arguments.empty()) arguments += " " + launch_arguments;
   const auto& extra = out.values["extra_arguments"].value;
   if (!extra.empty()) arguments += " " + extra;
   out.arguments = CollapseSpaces(arguments);

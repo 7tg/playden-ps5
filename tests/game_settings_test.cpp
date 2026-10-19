@@ -1292,6 +1292,31 @@ int main(int argc, char** argv) {
                                    &settings, &error));
       CHECK(settings.arguments == "-force-d3d11 -dx11");
     }
+    // A Steam launch option that picks the API too is dropped from it: Required arguments decide (Severed Steel's
+    // "-noraytracing -d3d12" next to "-dx11" stopped Unreal). Its other words stay.
+    {
+      auto unreal = generated;
+      unreal.arguments = "-dx11";
+      CHECK(!unreal.launch_entries.empty());
+      unreal.launch_entries[0].arguments = "-noraytracing -D3D12";
+      CHECK(BuildEffectiveSettings(unreal, nullptr, {}, vkd3d_kit, &settings, &error));
+      CHECK(settings.arguments == "-dx11 -noraytracing");
+      // A quoted value is one word: a switch inside it is the game's text, not a launch option.
+      unreal.launch_entries[0].arguments = "-d3d12 -title \"Use -d3d12 mode\"";
+      CHECK(BuildEffectiveSettings(unreal, nullptr, {}, vkd3d_kit, &settings, &error));
+      CHECK(settings.arguments == "-dx11 -title \"Use -d3d12 mode\"");
+      unreal.launch_entries[0].arguments = "-noraytracing -D3D12";
+      CHECK(BuildEffectiveSettings(unreal, nullptr, {{"d3d12", "vkd3d-proton"}}, vkd3d_kit, &settings, &error));
+      CHECK(settings.arguments == "-dx12 -noraytracing");
+      unreal.arguments.clear();
+      CHECK(BuildEffectiveSettings(unreal, nullptr, {}, vkd3d_kit, &settings, &error));
+      CHECK(settings.arguments == "-noraytracing -D3D12");
+      auto shipped = unreal;
+      shipped.id = hl2.id;
+      shipped.arguments = "-dx11";
+      CHECK(BuildEffectiveSettings(shipped, nullptr, {{"unlock.graphics", "on"}}, vkd3d_kit, &settings, &error));
+      CHECK(settings.arguments == "-dx11 -noraytracing -D3D12");
+    }
     CHECK(KitCapabilitiesFromManifest({kKitVkd3dProton}, false).vkd3d_proton &&
           !KitCapabilitiesFromManifest({kKitDxvk}, false).vkd3d_proton);
     // A locked row keeps the recipe's value until the player changes it anyway.
