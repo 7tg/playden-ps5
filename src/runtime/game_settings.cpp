@@ -237,7 +237,7 @@ std::vector<SettingDefinition> BuildCatalogue() {
   }
   {
     auto folder = Text("program_folder", "Program folder",
-                       "Folder the program starts in, inside the game folder. Empty: the program's own folder.",
+                       "Folder the program starts in, inside the game folder; . is the game folder itself. Empty: the program's own folder.",
                        "[application] working_directory", T::kAdvanced);
     list.push_back(std::move(folder));
   }
@@ -630,11 +630,13 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
   auto& own_arguments = out.values["program_arguments"];
   if (launch) {
     if (folder.source == ValueSource::kUser) {
+      // "." is the game folder itself; empty is the program's own folder.
       const auto relative = steam::RelativeGamePath(folder.value, true);
       launch->working_directory = !relative || *relative == "." ? std::string() : *relative;
+      launch->in_install_root = relative && *relative == "." && !folder.value.empty();
     } else {
-      folder.value = launch->working_directory;
-      folder.source = launch->working_directory.empty() ? ValueSource::kPlayden : ValueSource::kRecipe;
+      folder.value = launch->working_directory.empty() && launch->in_install_root ? "." : launch->working_directory;
+      folder.source = folder.value.empty() ? ValueSource::kPlayden : ValueSource::kRecipe;
     }
     if (own_arguments.source == ValueSource::kUser) {
       launch->arguments = own_arguments.value;
@@ -786,15 +788,9 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   if (!root) return fail("install folder cannot be mapped for Wine");
   const auto executable = steam::RelativeGamePath(settings.launch->executable);
   if (!executable) return fail("launch executable is not a game path");
-  std::string working;
-  if (settings.launch->working_directory.empty()) {
-    const auto slash = executable->rfind('/');
-    working = slash == std::string::npos ? std::string() : executable->substr(0, slash);
-  } else {
-    const auto relative = steam::RelativeGamePath(settings.launch->working_directory, true);
-    if (!relative) return fail("launch working folder is not a game path");
-    working = *relative;
-  }
+  const auto folder = LaunchWorkingFolder(*settings.launch);
+  if (!folder) return fail("launch working folder is not a game path");
+  const auto& working = *folder;
   const auto value = [&](const char* id) -> const std::string& { return settings.values.at(id).value; };
   const auto on = [&](const char* id) { return value(id) == "on" ? "true" : "false"; };
 
@@ -1110,6 +1106,11 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
         !StringField(item, "working_directory", &entry.working_directory, false) ||
         !StringField(item, "arguments", &entry.arguments, false))
       return fail("launch entry needs id, label and executable");
+    if (const auto* root_folder = item.get("in_install_root")) {
+      const auto value = root_folder->boolean();
+      if (!value) return fail("launch entry in_install_root must be true or false");
+      entry.in_install_root = *value && entry.working_directory.empty();
+    }
     if (HasControl(entry.arguments)) return fail("launch entry arguments contain a control character");
     out.launch_entries.push_back(std::move(entry));
   }
@@ -1246,7 +1247,7 @@ std::string SerializeGameRecipe(const GameRecipe& recipe) {
     if (index) text += ",";
     text += "{\"id\":" + quoted(entry.id) + ",\"label\":" + quoted(entry.label) + ",\"executable\":" +
             quoted(entry.executable) + ",\"working_directory\":" + quoted(entry.working_directory) +
-            ",\"arguments\":" + quoted(entry.arguments) + "}";
+            ",\"arguments\":" + quoted(entry.arguments) + (entry.in_install_root ? ",\"in_install_root\":true" : "") + "}";
   }
   text += "],\"arguments\":" + quoted(recipe.arguments) + ",\"resolution_arguments\":" +
           quoted(recipe.resolution_arguments) + ",\"dll_overrides\":" + quoted(recipe.dll_overrides) +
@@ -1434,6 +1435,19 @@ std::optional<std::string> GameInsteadOf(const std::string& install_root, const 
 
 }  // namespace
 
+std::optional<std::string> LaunchWorkingFolder(const LaunchEntry& launch) {
+  const auto executable = steam::RelativeGamePath(launch.executable);
+  if (!executable) return std::nullopt;
+  if (launch.working_directory.empty()) {
+    if (launch.in_install_root) return std::string();
+    const auto slash = executable->rfind('/');
+    return slash == std::string::npos ? std::string() : executable->substr(0, slash);
+  }
+  const auto relative = steam::RelativeGamePath(launch.working_directory, true);
+  if (!relative) return std::nullopt;
+  return *relative == "." ? std::string() : *relative;
+}
+
 bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std::vector<LaunchEntry>& launches,
                         const std::string& install_root, GameRecipe* recipe, std::string* reason,
                         const KitCapabilities& kit, const RecipeChoices& choices, bool* refusal_soft,
@@ -1469,13 +1483,20 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
       }
   }
   int steam_entries = 0;
-  for (const auto& [launch, chosen] : candidates) {
+  // Steam's own entries are the last ones; the player's program and the game found instead of a
+  // launcher come before them.
+  const auto first_steam = candidates.size() - launches.size();
+  for (std::size_t index = 0; index < candidates.size(); ++index) {
+    const auto& [launch, chosen] = candidates[index];
     const auto relative = steam::RelativeGamePath(launch.executable);
     if (!relative || relative->size() < 4 || LowerAscii(relative->substr(relative->size() - 4)) != ".exe") continue;
     if (HasControl(launch.arguments) || launch.arguments.size() > kProsperoMaxArgumentBytes / 2 ||
         !SplitProsperoArguments(launch.arguments, nullptr))
       continue;
     std::string working;
+    // Steam starts an entry that names no folder in the install root (Slay the Spire runs
+    // jre/bin/javaw.exe -jar desktop-1.0.jar); other programs start in their own folder.
+    bool in_install_root = index >= first_steam;
     if (!launch.working_directory.empty()) {
       const auto directory = steam::RelativeGamePath(launch.working_directory, true);
       if (!directory) continue;
@@ -1506,6 +1527,7 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
       on_disk = probe.unreal_program;
       const auto folder = on_disk->rfind('/');
       working = folder == std::string::npos ? std::string() : on_disk->substr(0, folder);
+      in_install_root = false;
     }
     const auto architecture = ExecutableArchitecture(install_root + "/" + *on_disk);
     if (architecture.empty()) continue;
@@ -1537,6 +1559,8 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
     if (entry.label.size() > 120) entry.label.resize(120);
     entry.executable = *on_disk;
     entry.working_directory = working;
+    // Only when it differs from the program's own folder, so recipes of games in the root stay as they were.
+    entry.in_install_root = in_install_root && working.empty() && on_disk->find('/') != std::string::npos;
     entry.arguments = CollapseSpaces(launch.arguments);
     out.launch_entries.push_back(std::move(entry));
   }
@@ -1671,17 +1695,9 @@ std::optional<ManagedDirectory> OpenSafeParent(const std::string& path,
 
 std::optional<ManagedDirectory> OpenLaunchDirectory(const LaunchEntry& launch,
                                                      const std::string& install_root) {
-  const auto executable = steam::RelativeGamePath(launch.executable);
-  if (!executable) return std::nullopt;
-  std::string working;
-  if (launch.working_directory.empty()) {
-    const auto slash = executable->rfind('/');
-    working = slash == std::string::npos ? std::string() : executable->substr(0, slash);
-  } else {
-    const auto relative = steam::RelativeGamePath(launch.working_directory, true);
-    if (!relative) return std::nullopt;
-    working = *relative;
-  }
+  const auto folder = LaunchWorkingFolder(launch);
+  if (!folder) return std::nullopt;
+  const auto& working = *folder;
   auto directory = ManagedDirectory::Open(install_root, DirectoryPolicy::kApprovedTree);
   if (!directory) return std::nullopt;
   for (std::size_t start = 0; start < working.size();) {
@@ -2698,7 +2714,8 @@ std::string SerializeCommunityRecipe(const CommunityRecipe& community) {
     const auto& entry = recipe.launch_entries[index];
     text += std::string(index ? "," : "") + "\n    {\"id\": " + quoted(entry.id) + ", \"label\": " + quoted(entry.label) +
             ", \"executable\": " + quoted(entry.executable) + ", \"working_directory\": " +
-            quoted(entry.working_directory) + ", \"arguments\": " + quoted(entry.arguments) + "}";
+            quoted(entry.working_directory) + ", \"arguments\": " + quoted(entry.arguments) +
+            (entry.in_install_root ? ", \"in_install_root\": true" : "") + "}";
   }
   text += "\n  ],\n  \"arguments\": " + quoted(recipe.arguments) + ",\n  \"resolution_arguments\": " +
           quoted(recipe.resolution_arguments) + ",\n  \"dll_overrides\": " + quoted(recipe.dll_overrides) +

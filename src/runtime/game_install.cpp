@@ -87,6 +87,7 @@ bool NormalizeLaunchPaths(RuntimeInstall& record) {
   if (!executable || !working) return false;
   record.launch_path = *executable;
   record.launch_working_directory = *working == "." ? "" : *working;
+  record.launch_in_install_root = record.launch_in_install_root && record.launch_working_directory.empty();
   return true;
 }
 
@@ -175,6 +176,7 @@ bool ValidRecord(const RuntimeInstall& record) {
       !IsRelativeLaunchPath(record.launch_path) ||
       !IsBoundedText(record.launch_arguments, kMaxLaunchArgumentsBytes, true) ||
       (!record.launch_working_directory.empty() && !IsRelativeLaunchPath(record.launch_working_directory)) ||
+      (record.launch_in_install_root && !record.launch_working_directory.empty()) ||
       !IsAbsoluteNormalizedPath(record.install_path) || !IsSimpleId(record.volume_id) ||
       record.artifacts.size() > kMaxArtifacts) return false;
   for (const auto& artifact : record.artifacts)
@@ -215,6 +217,9 @@ std::optional<RuntimeInstall> ParseRecord(const JsonValue& value, RepositoryErro
   const auto* artifacts = Required(value, "artifacts", JsonValue::Type::kArray);
   const auto* failure = value.Find("last_failure");
   const auto* journal = value.Find("journal");
+  // Added later: records without it start the program in its own folder, as before.
+  const auto* in_install_root = value.Find("launch_in_install_root");
+  if (in_install_root && !in_install_root->is_bool()) return std::nullopt;
   if (!install_id || !title_id || !app_id || !data_root || !profile || !bundle || !recipe ||
       !recipe_version || !revision || !exit_policy || !launch_entry_id || !launch ||
       !launch_arguments || !launch_working_directory || !install_path || !volume ||
@@ -234,6 +239,7 @@ std::optional<RuntimeInstall> ParseRecord(const JsonValue& value, RepositoryErro
   record.launch_entry_id = launch_entry_id->text(); record.launch_path = launch->text();
   record.launch_arguments = launch_arguments->text();
   record.launch_working_directory = launch_working_directory->text();
+  record.launch_in_install_root = in_install_root && in_install_root->boolean();
   record.install_path = install_path->text();
   record.volume_id = volume->text(); record.state = *parsed_state;
   for (const auto& entry : artifacts->array()) {
@@ -273,6 +279,7 @@ void WriteRecord(TextOutput& output, const RuntimeInstall& record) {
   StringField(output, "launch_path", record.launch_path);
   StringField(output, "launch_arguments", record.launch_arguments);
   StringField(output, "launch_working_directory", record.launch_working_directory);
+  if (record.launch_in_install_root) output << "\"launch_in_install_root\":true,";
   StringField(output, "install_path", record.install_path); StringField(output, "volume_id", record.volume_id);
   StringField(output, "state", StateName(record.state)); output << "\"artifacts\":[";
   for (std::size_t i = 0; i < record.artifacts.size(); ++i) {
@@ -443,6 +450,7 @@ RepositoryResult<RuntimeInstall> RuntimeInstallRepository::Reserve(const Reserve
   candidate.launch_entry_id = request.launch_entry_id; candidate.launch_path = request.launch_path;
   candidate.launch_arguments = request.launch_arguments;
   candidate.launch_working_directory = request.launch_working_directory;
+  candidate.launch_in_install_root = request.launch_in_install_root;
   candidate.install_path = request.install_path;
   candidate.volume_id = request.volume_id;
   if (!NormalizeLaunchPaths(candidate))

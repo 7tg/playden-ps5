@@ -1690,6 +1690,71 @@ void PreparesGameOnUnownedDrive() {
 
 // Selaco (issue 52): Steam lists only .bat files, so Playden refuses it, but the program the
 // player picks in Game settings prepares and starts; later settings updates keep that program.
+void SteamEntryWithoutFolderStartsInInstallRoot() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/646570";
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  // Slay the Spire: Steam starts jre/bin/javaw.exe -jar desktop-1.0.jar in the install root.
+  Write(game / "jre/bin/javaw.exe", pe, 0644);
+  Write(game / "desktop-1.0.jar", "jar", 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0 && chmod((game / "jre").c_str(), 0755) == 0 && chmod((game / "jre/bin").c_str(), 0755) == 0);
+  GameSettingsRecord saved;
+  config.settings_record = [&](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  RuntimePrepareRequest request{646570, "/data/homebrew/FAKE77031/games/646570", "internal", "Slay the Spire"};
+  request.launches = {{"", "Play", "jre\\bin\\javaw.exe", "", "-jar desktop-1.0.jar"}};
+  const auto profile = fixture.root / "data/playden/games/steam-646570/library/profiles/playden-steam-646570.profile";
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(request);
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+  }, 60);
+  if (done.refusals.count(646570)) std::fprintf(stderr, "refused: %s\n", done.refusals.at(646570).c_str());
+  CHECK(!done.installs.empty() && done.installs[0].launch_in_install_root && done.installs[0].launch_working_directory.empty());
+  CHECK(Read(profile).find("working_directory = Z:\\data\\homebrew\\FAKE77031\\games\\646570\n") != std::string::npos);
+  // The program's own folder, chosen in Game settings, reaches the title and the record; "." goes back to the game folder.
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  const auto apply = [&](std::uint64_t revision) {
+    saved.revision = revision;
+    const auto before = host.Snapshot().maintenance_handled;
+    host.Maintain(646570, RuntimeMaintenance::kApplySettings);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  };
+  saved.overrides = {{"program_folder", "jre/bin"}};
+  auto applied = apply(1);
+  if (!applied.maintenance.at(646570).ok) std::fprintf(stderr, "apply: %s\n", applied.maintenance.at(646570).message.c_str());
+  CHECK(applied.maintenance.at(646570).ok && !applied.installs[0].launch_in_install_root &&
+        applied.installs[0].launch_working_directory == "jre/bin");
+  CHECK(Read(profile).find("working_directory = Z:\\data\\homebrew\\FAKE77031\\games\\646570\\jre\\bin\n") != std::string::npos);
+  saved.overrides = {{"program_folder", "."}};
+  applied = apply(2);
+  CHECK(applied.maintenance.at(646570).ok && applied.installs[0].launch_in_install_root &&
+        applied.installs[0].launch_working_directory.empty());
+  CHECK(Read(profile).find("working_directory = Z:\\data\\homebrew\\FAKE77031\\games\\646570\n") != std::string::npos);
+  host.Shutdown();
+}
+
 void PreparesProgramChosenInSettings() {
   Fixture fixture;
   auto config = fixture.Config();
@@ -1999,6 +2064,7 @@ int main(int argc, char** argv) {
   PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();
   PreparesProgramChosenInSettings();
+  SteamEntryWithoutFolderStartsInInstallRoot();
   PreparesUdkGameWithEulaAccepted();
   ResumesInterruptedCaptureFromSavedRequest();
   ResumesInterruptedCaptureFromSavedRequest(true);

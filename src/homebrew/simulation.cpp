@@ -2976,7 +2976,8 @@ void Simulation::rebuild_view() {
                     else if (!settings_values.launch) item.subtitle = "Pick the game's program from its folder.";
                 }
                 else if (id.rfind("button.", 0) == 0) item.value = binding_label(value.value);
-                else if (id == "program_folder") item.value = value.value.empty() ? "Program's folder" : value.value;
+                else if (id == "program_folder")
+                    item.value = value.value.empty() ? "Program's folder" : value.value == "." ? "Game folder" : value.value;
                 else if (definition->kind == rt::SettingKind::kText) item.value = value.value.empty() ? "Empty" : value.value;
                 else item.value = choice_label(*definition, value.value);
                 item.badge = value.unlocked ? "Changed anyway" : value.locked ? "Required by this game"

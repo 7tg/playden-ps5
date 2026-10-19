@@ -50,6 +50,20 @@ int main() {
   }
   auto request_extra = *request_bytes; request_extra.push_back(0);
   CHECK(!DecodeSettingsPublicationRequest(request_extra, &reason));
+  {
+    // A program that starts in the install root is a version 2 request; others keep the version 1 bytes.
+    auto rooted = request;
+    rooted.install.launch_working_directory.clear(); rooted.plan.launch_entry.working_directory.clear();
+    rooted.install.launch_in_install_root = rooted.plan.launch_entry.in_install_root = true;
+    auto rooted_bytes = EncodeSettingsPublicationRequest(rooted, &reason); CHECK(rooted_bytes);
+    CHECK(std::string(rooted_bytes->begin() + 4, rooted_bytes->begin() + 9) == "PWRQ2");
+    CHECK(std::string(request_bytes->begin() + 4, request_bytes->begin() + 9) == "PWRQ1");
+    auto rooted_back = DecodeSettingsPublicationRequest(*rooted_bytes, &reason); CHECK(rooted_back);
+    CHECK(rooted_back->install.launch_in_install_root && rooted_back->plan.launch_entry.in_install_root);
+    CHECK(EncodeSettingsPublicationRequest(*rooted_back, &reason) == rooted_bytes);
+    rooted.plan.launch_entry.in_install_root = false;
+    CHECK(!EncodeSettingsPublicationRequest(rooted, &reason));
+  }
   auto invalid_request = request; ++invalid_request.plan.settings_revision;
   CHECK(!EncodeSettingsPublicationRequest(invalid_request, &reason));
   invalid_request = request; invalid_request.transaction_id = "00000000-0000-0000-0000-000000000000";
@@ -61,6 +75,19 @@ int main() {
   auto encoded = EncodeSettingsPublicationOperation(*frozen, &reason); CHECK(encoded);
   auto decoded = DecodeSettingsPublicationOperation(*encoded, &reason); CHECK(decoded);
   CHECK(EncodeSettingsPublicationOperation(*decoded, &reason) == encoded);
+  {
+    // Starting in the install root survives a restart: version 3 decodes and encodes to the same bytes and digest.
+    auto rooted = Fixture();
+    rooted.install.launch_in_install_root = rooted.plan.launch_entry.in_install_root = true;
+    auto rooted_frozen = FreezeSettingsPublicationOperation(rooted, &reason); CHECK(rooted_frozen);
+    auto rooted_bytes = EncodeSettingsPublicationOperation(*rooted_frozen, &reason); CHECK(rooted_bytes);
+    CHECK(std::string(rooted_bytes->begin() + 4, rooted_bytes->begin() + 9) == "PWOP3");
+    CHECK(std::string(encoded->begin() + 4, encoded->begin() + 9) == "PWOP2");
+    auto rooted_back = DecodeSettingsPublicationOperation(*rooted_bytes, &reason); CHECK(rooted_back);
+    CHECK(rooted_back->install.launch_in_install_root && rooted_back->plan.launch_entry.in_install_root &&
+          rooted_back->plan_sha256 == rooted_frozen->plan_sha256);
+    CHECK(EncodeSettingsPublicationOperation(*rooted_back, &reason) == rooted_bytes);
+  }
   auto publication = RebuildFrozenProfilePublication(*decoded, &reason); CHECK(publication);
   CHECK(publication->profile_references_validated && publication->profile_bytes == decoded->plan.profile_bytes);
   CHECK(publication->input_presets.size() == 1 && publication->input_presets[0].filename == "gamepad.input");

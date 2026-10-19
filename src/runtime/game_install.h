@@ -67,6 +67,8 @@ struct RuntimeInstall {
   std::string launch_path;
   std::string launch_arguments;
   std::string launch_working_directory;
+  // With no working directory: the program starts in the install root, not its own folder.
+  bool launch_in_install_root = false;
   std::string install_path;
   std::string volume_id;
   PreparationState state = PreparationState::kDownloaded;
@@ -94,6 +96,7 @@ struct ReserveRequest {
   std::string launch_path;
   std::string launch_arguments;
   std::string launch_working_directory;
+  bool launch_in_install_root = false;
   std::string install_path;
   std::string volume_id;
   std::vector<std::string> kit_title_variants;

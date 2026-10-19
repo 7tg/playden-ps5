@@ -11,6 +11,7 @@ void CommitLaunch(RuntimeInstall* record, const RuntimeInstall& published) {
   record->launch_entry_id = published.launch_entry_id;
   record->launch_path = published.launch_path;
   record->launch_working_directory = published.launch_working_directory;
+  record->launch_in_install_root = published.launch_in_install_root;
   record->launch_arguments = published.launch_arguments;
 }
 PackageActionResult Failure(const char* code, const char* message) {

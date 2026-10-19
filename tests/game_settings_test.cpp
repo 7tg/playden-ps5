@@ -1181,10 +1181,34 @@ int main(int argc, char** argv) {
     CHECK(generated.launch_entries[0].working_directory == "Bin");
     CHECK(generated.launch_entries[0].arguments == "-windowed -nosplash");
     CHECK(generated.launch_entries[1].executable == "Bin/Tool.exe" && generated.launch_entries[1].label == "Tool.exe");
+    // A Steam entry that names no folder starts in the install root, as on Steam; one that names a folder starts there.
+    CHECK(generated.launch_entries[1].working_directory.empty() && generated.launch_entries[1].in_install_root);
+    CHECK(!generated.launch_entries[0].in_install_root);
+    CHECK(LaunchWorkingFolder(generated.launch_entries[1]) == std::string());
     // The recipe round-trips through its JSON form.
     GameRecipe reread;
     CHECK(ParseGameRecipe(SerializeGameRecipe(generated), &reread, &reason));
-    CHECK(SerializeGameRecipe(reread) == SerializeGameRecipe(generated));
+    CHECK(SerializeGameRecipe(reread) == SerializeGameRecipe(generated) && reread.launch_entries[1].in_install_root);
+    {
+      // The Program folder row shows it as the game folder; "." chooses it, empty the program's own folder.
+      EffectiveSettings root_settings;
+      SettingsError root_error;
+      CHECK(BuildEffectiveSettings(generated, nullptr, {{"launch_option", "launch-2"}}, KitCapabilities{},
+                                   &root_settings, &root_error));
+      CHECK(root_settings.values.at("program_folder").value == "." && root_settings.launch->in_install_root);
+      CHECK(BuildEffectiveSettings(generated, nullptr, {{"launch_option", "launch-2"}, {"program_folder", ""}},
+                                   KitCapabilities{}, &root_settings, &root_error));
+      CHECK(!root_settings.launch->in_install_root && LaunchWorkingFolder(*root_settings.launch) == std::string("Bin"));
+      CHECK(BuildEffectiveSettings(generated, nullptr, {{"program_folder", "."}}, KitCapabilities{},
+                                   &root_settings, &root_error));
+      CHECK(root_settings.launch->working_directory.empty() && root_settings.launch->in_install_root);
+      // A player's program starts in its own folder.
+      GameRecipe chosen;
+      RecipeChoices choices;
+      choices.program = "Bin/Tool.exe";
+      CHECK(GenerateGameRecipe(4246, "Chosen", {}, game_root.string(), &chosen, &reason, KitCapabilities{}, choices));
+      CHECK(!chosen.launch_entries.front().in_install_root);
+    }
     // The launch entry's own arguments reach the profile, before the player's.
     EffectiveSettings generated_settings;
     SettingsError generated_error;

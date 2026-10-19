@@ -83,9 +83,16 @@ struct LaunchEntry {
   std::string id;
   std::string label;
   std::string executable;         // relative to the install root, '/' or '\' separated
-  std::string working_directory;  // relative to the install root; empty = executable's folder
+  std::string working_directory;  // relative to the install root; empty = executable's folder (see below)
   std::string arguments;          // this entry's own arguments, after the recipe's
+  // With an empty working_directory: start in the install root instead, as Steam does for an
+  // entry that names no folder.
+  bool in_install_root = false;
 };
+
+// The folder an entry starts in, relative to the install root ("" is the root itself); nothing
+// when its paths leave the game folder.
+std::optional<std::string> LaunchWorkingFolder(const LaunchEntry& launch);
 
 // One value Playden owns in the bottle's user.reg (HKEY_CURRENT_USER). An empty data
 // removes the value, so the game inherits Wine's default again.

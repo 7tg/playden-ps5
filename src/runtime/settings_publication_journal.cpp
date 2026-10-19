@@ -63,7 +63,12 @@ template<class C, class T> void Presence(C& c, std::optional<T>& value) {
   if (!c.ok || present > 1) { c.ok = false; return; }
   if constexpr (C::reading) { if (present) value.emplace(); else value.reset(); }
 }
-template<class C> void IdentityPayload(C& c, RuntimeInstall& r, SettingsLaunchPlan& p) {
+// Version 3 of an operation (2 of a request) adds where a program without a working folder starts; it is
+// written only when that is the install root, so the bytes of every other publication are unchanged.
+bool StartsInInstallRoot(const RuntimeInstall& r, const SettingsLaunchPlan& p) {
+  return r.launch_in_install_root || p.launch_entry.in_install_root;
+}
+template<class C> void IdentityPayload(C& c, RuntimeInstall& r, SettingsLaunchPlan& p, bool with_root) {
   c.U32(r.schema_version); c.Text(r.install_id, 64); c.Text(r.title_id, 9); c.U32(r.app_id);
   c.Text(r.data_root, 511); c.Text(r.default_profile_id, 64); c.Text(r.runtime_bundle_id, 64);
   c.Text(r.recipe_id, 64); c.Text(r.recipe_version, 64); c.U64(r.settings_revision); c.Text(r.exit_policy, 15);
@@ -86,11 +91,17 @@ template<class C> void IdentityPayload(C& c, RuntimeInstall& r, SettingsLaunchPl
   for (auto& value : p.registry) { c.Text(value.key, 1024); c.Text(value.name, 64); c.Text(value.data, 128); }
   c.Text(p.launch_entry.id, 128); c.Text(p.launch_entry.label, 1024);
   c.Text(p.launch_entry.executable, 1024); c.Text(p.launch_entry.working_directory, 1024);
+  if (with_root) {
+    unsigned flags = (r.launch_in_install_root ? 1u : 0u) | (p.launch_entry.in_install_root ? 2u : 0u); c.U32(flags);
+    if (flags == 0 || flags > 3) c.ok = false;
+    if constexpr (C::reading) { r.launch_in_install_root = flags & 1u; p.launch_entry.in_install_root = flags & 2u; }
+  }
 }
 template<class C> void Payload(C& c, SettingsPublicationOperation& o) {
-  std::string magic = "PWOP2"; c.Text(magic, 5); if (magic != "PWOP2") c.ok = false;
+  std::string magic = StartsInInstallRoot(o.install, o.plan) ? "PWOP3" : "PWOP2"; c.Text(magic, 5);
+  if (magic != "PWOP2" && magic != "PWOP3") c.ok = false;
   c.U32(o.schema); c.Text(o.transaction_id, 36); c.Text(o.kit_id, 64); c.U64(o.previous_revision);
-  IdentityPayload(c, o.install, o.plan);
+  IdentityPayload(c, o.install, o.plan, magic == "PWOP3");
   c.Text(o.descriptor_bytes, 8192); c.Text(o.catalog_bytes, 8192); c.Text(o.metadata_bytes, 32768);
   c.Text(o.previous_receipt_bytes, 8192); c.Text(o.previous_metadata_bytes, 32768);
   std::uint64_t registry_time = static_cast<std::uint64_t>(o.registry_unix_time); c.U64(registry_time);
@@ -154,7 +165,8 @@ bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
       p.profile_id != r.default_profile_id || p.settings_revision != r.settings_revision ||
       o.previous_revision > p.settings_revision || p.launch_entry_id != r.launch_entry_id ||
       p.launch_entry.id != r.launch_entry_id || NormalRelative(p.launch_entry.executable) != NormalRelative(r.launch_path) ||
-      NormalRelative(p.launch_entry.working_directory) != NormalRelative(r.launch_working_directory))
+      NormalRelative(p.launch_entry.working_directory) != NormalRelative(r.launch_working_directory) ||
+      p.launch_entry.in_install_root != r.launch_in_install_root)
     return Reject(reason, "Frozen OWNER record and launch plan disagree.");
   if (!PayloadBytes(o)) return Reject(reason, "Frozen operation exceeds field or total bounds.");
   const bool has_previous = !o.previous_receipt_bytes.empty();
@@ -197,6 +209,7 @@ bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
   std::string expected_exe = r.install_path + "/" + NormalRelative(r.launch_path);
   std::string expected_working = r.install_path;
   if (!r.launch_working_directory.empty()) expected_working += "/" + NormalRelative(r.launch_working_directory);
+  else if (r.launch_in_install_root) {}
   else if (expected_exe.find_last_of('/') != std::string::npos) expected_working = expected_exe.substr(0, expected_exe.find_last_of('/'));
   if (!CanonicalPath(executable) || !CanonicalPath(working) || executable != expected_exe || working != expected_working ||
       o.catalog_bytes != p.profile_id + ".profile\n")
@@ -292,9 +305,10 @@ bool FrozenValid(const SettingsPublicationOperation& o, std::string* reason) {
 }
 namespace {
 template<class C> void RequestPayload(C& c, SettingsPublicationRequest& r) {
-  std::string magic = "PWRQ1"; c.Text(magic, 5); if (magic != "PWRQ1") c.ok = false;
+  std::string magic = StartsInInstallRoot(r.install, r.plan) ? "PWRQ2" : "PWRQ1"; c.Text(magic, 5);
+  if (magic != "PWRQ1" && magic != "PWRQ2") c.ok = false;
   c.U32(r.schema); c.Text(r.transaction_id, 36); c.Text(r.kit_id, 64);
-  IdentityPayload(c, r.install, r.plan);
+  IdentityPayload(c, r.install, r.plan, magic == "PWRQ2");
   auto time = static_cast<std::uint64_t>(r.registry_unix_time); c.U64(time);
   if (time > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) c.ok = false;
   if constexpr (C::reading) { if (c.ok) r.registry_unix_time = static_cast<std::int64_t>(time); }
@@ -307,7 +321,8 @@ bool RequestValid(const SettingsPublicationRequest& q, std::string* reason) {
       p.recipe_version != r.recipe_version || p.profile_id != r.default_profile_id ||
       p.settings_revision != r.settings_revision || p.launch_entry_id != r.launch_entry_id ||
       p.launch_entry.id != r.launch_entry_id || NormalRelative(p.launch_entry.executable) != NormalRelative(r.launch_path) ||
-      NormalRelative(p.launch_entry.working_directory) != NormalRelative(r.launch_working_directory))
+      NormalRelative(p.launch_entry.working_directory) != NormalRelative(r.launch_working_directory) ||
+      p.launch_entry.in_install_root != r.launch_in_install_root)
     return Reject(reason, "Requested OWNER identity and settings plan disagree.");
   PwGameProfile profile{};
   if (pw_game_profile_parse(reinterpret_cast<const uint8_t*>(p.profile_bytes.data()), p.profile_bytes.size(), &profile) != PW_OK ||

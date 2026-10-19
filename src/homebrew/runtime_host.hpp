@@ -146,7 +146,8 @@ struct RuntimeInstallView {
   std::uint64_t settings_revision = 0;
   std::string launch_entry_id;
   std::string launch_path;               // its program, relative to the install root
-  std::string launch_working_directory;  // its folder; empty: the program's own
+  std::string launch_working_directory;  // its folder; empty: the program's own, or the install root:
+  bool launch_in_install_root = false;    // a Steam entry that names no folder starts there
   // Save backups kept for the game, and when the newest was made (Unix time).
   std::size_t save_backups = 0;
   std::int64_t latest_save_backup = 0;

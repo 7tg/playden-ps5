@@ -742,6 +742,7 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
     view.launch_entry_id = record.launch_entry_id;
     view.launch_path = record.launch_path;
     view.launch_working_directory = record.launch_working_directory;
+    view.launch_in_install_root = record.launch_in_install_root;
     std::error_code error;
     for (std::filesystem::directory_iterator it(SaveBackupRoot(record.install_id), error), end; !error && it != end;
          it.increment(error)) {
@@ -821,8 +822,9 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
 
 // With no working folder set, the profile runs the program from its own folder
 // (prospero_profile.cpp), so that is where dxvk.conf goes.
-static std::string WorkingFolder(const std::string& working, std::string program) {
+static std::string WorkingFolder(const std::string& working, std::string program, bool in_install_root) {
   if (!working.empty() && working != ".") return working;
+  if (in_install_root) return {};
   std::replace(program.begin(), program.end(), '\\', '/');
   const auto slash = program.rfind('/');
   return slash == std::string::npos ? std::string() : program.substr(0, slash);
@@ -886,7 +888,8 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
     if (rt::BuildEffectiveSettings(*recipe, preset, saved.overrides, kit, &desired, &ignored) && desired.launch) {
       const auto& launch = *desired.launch;
       if (launch.id != record.launch_entry_id || !same(launch.executable, record.launch_path) ||
-          !same(launch.working_directory, record.launch_working_directory)) {
+          !same(launch.working_directory, record.launch_working_directory) ||
+          launch.in_install_root != record.launch_in_install_root) {
         const auto root = HostPath(record.install_path).string();
         const auto architecture = rt::GameProgramArchitecture(root, launch.executable);
         if (architecture.empty())
@@ -896,7 +899,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
           return refusal;
         // Checked here, before a publication starts: one that fails part way leaves the title
         // waiting for recovery.
-        const auto folder = WorkingFolder(launch.working_directory, launch.executable);
+        const auto folder = WorkingFolder(launch.working_directory, launch.executable, launch.in_install_root);
         struct stat folder_info{};
         if (!folder.empty() && (lstat((HostPath(record.install_path) / folder).c_str(), &folder_info) != 0 ||
                                 !S_ISDIR(folder_info.st_mode)))
@@ -904,12 +907,14 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
         const auto records_ownership = platform::RecordsOwnership(HostPath(record.install_path));
         if (records_ownership && *records_ownership)
           if (const auto refused = TightenWorkingFolder(HostPath(record.install_path),
-                                                        WorkingFolder(launch.working_directory, launch.executable));
+                                                        WorkingFolder(launch.working_directory, launch.executable,
+                                                                      launch.in_install_root));
               !refused.empty())
             return refused;
         next.launch_entry_id = launch.id;
         next.launch_path = launch.executable;
         next.launch_working_directory = launch.working_directory == "." ? std::string() : launch.working_directory;
+        next.launch_in_install_root = launch.in_install_root && next.launch_working_directory.empty();
         // The recipe stays the one the game was prepared with: its graphics and engine arguments
         // came from the first program's files, and only a preparation sees Steam's launch options.
         Log("program switch app=" + std::to_string(record.app_id) + " from=" + record.launch_entry_id + ":" +
@@ -934,7 +939,8 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   } else {
     overrides.erase("program");
   }
-  overrides["program_folder"] = next.launch_working_directory;
+  // "." is the install root, empty the program's own folder (BuildEffectiveSettings).
+  overrides["program_folder"] = next.launch_in_install_root ? std::string(".") : next.launch_working_directory;
   input.preset = preset;
   input.kit = kit;
   input.target = {next.default_profile_id, next.install_path};
@@ -1422,7 +1428,8 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     }
   }
   if (existing) {
-    if (const auto refused = tighten_working(WorkingFolder(existing->launch_working_directory, existing->launch_path));
+    if (const auto refused = tighten_working(WorkingFolder(existing->launch_working_directory, existing->launch_path,
+                                                                 existing->launch_in_install_root));
         !refused.empty())
       return refused;
   }
@@ -1615,7 +1622,8 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         if (!refusal.empty()) return refusal;
       }
     }
-    if (const auto refused = tighten_working(WorkingFolder(launch.working_directory, launch.executable)); !refused.empty())
+    if (const auto refused = tighten_working(WorkingFolder(launch.working_directory, launch.executable, launch.in_install_root));
+        !refused.empty())
       return refused;
     rt::ReserveRequest reserve;
     reserve.install_id = InstallId(request.app_id);
@@ -1628,6 +1636,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     reserve.launch_entry_id = launch.id;
     reserve.launch_path = launch.executable;
     reserve.launch_working_directory = launch.working_directory;
+    reserve.launch_in_install_root = launch.in_install_root;
     reserve.install_path = request.install_path;
     reserve.volume_id = request.volume_id;
     // Titles removed during this run go last: a kit with fixed titles still gets one back.
@@ -1912,7 +1921,8 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
       return published ? "Settings applied." : "Settings are up to date.";
     }
     case RuntimeMaintenance::kClearShaderCache: {
-      rt::LaunchEntry launch{record->launch_entry_id, {}, record->launch_path, record->launch_working_directory, {}};
+      rt::LaunchEntry launch{record->launch_entry_id, {}, record->launch_path, record->launch_working_directory, {},
+                             record->launch_in_install_root};
       std::string reason;
       if (!rt::ClearShaderCache(launch, HostPath(record->install_path).string(), &reason))
         return "The shader cache could not be cleared: " + reason + ".";

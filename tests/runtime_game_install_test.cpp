@@ -390,9 +390,21 @@ void LaunchPathsUseTheSharedSteamPathContract() {
     request.launch_working_directory = path;
     CHECK(repository.Reserve(request).error() == RepositoryError::kInvalidRecord);
   }
+  // Starting in the install root is kept across a restart; it only holds without a working folder.
+  request.install_id = "install-root";
+  request.launch_working_directory = ".";
+  request.launch_in_install_root = true;
+  CHECK(repository.Reserve(request).ok());
+  request.install_id = "install-root-folder";
+  request.launch_working_directory = "bin";
+  auto with_folder = repository.Reserve(request);
+  CHECK(with_folder.ok() && !with_folder.value().launch_in_install_root);
   RuntimeInstallRepository restarted(storage, "runtime-installs.json", Free);
   CHECK(restarted.Load().ok());
   CHECK(restarted.Find("install-hl2")->launch_path == "bin/Game.exe");
+  CHECK(!restarted.Find("install-hl2")->launch_in_install_root);
+  CHECK(restarted.Find("install-root")->launch_in_install_root &&
+        restarted.Find("install-root")->launch_working_directory.empty());
 }
 
 void JournalSyncFailureRequiresReloadBeforeFurtherEffects() {
