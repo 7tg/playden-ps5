@@ -248,11 +248,11 @@ void live_120hz_waits_for_the_title_update(const std::filesystem::path& base) {
     activate(model, "game-settings");
     activate(model, "section-more");
     const auto* refresh = find_row(model, "setting-refresh");
-    check(refresh && !refresh->enabled && refresh->subtitle == "Update this game to use it.",
+    check(refresh && !refresh->enabled && refresh->subtitle == "Play this game once to update its runtime first.",
           "120 Hz output waits for the title's Update");
     activate(model, "setting-frame_limit");
     const auto* limit_120 = find_row(model, "choice-1");
-    check(limit_120 && limit_120->title == "120" && !limit_120->enabled && limit_120->subtitle == "Update this game to use it.",
+    check(limit_120 && limit_120->title == "120" && !limit_120->enabled && limit_120->subtitle == "Play this game once to update its runtime first.",
           "Frame limit 120 waits for the title's Update");
     check(find_row(model, "choice-2") && find_row(model, "choice-2")->enabled, "Frame limit 60 stays available");
     check(model.action("circle"), "close the Frame limit picker");

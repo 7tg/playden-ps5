@@ -394,17 +394,17 @@ int main(int argc, char** argv) {
     CHECK(KitForTitleRuntime(display, true).display_120hz);
     CHECK(!KitForTitleRuntime(KitCapabilities{}, false).display_120hz_needs_update);
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", "60"}}, stale, &shown, &error));
-    CHECK(!shown.values.at("refresh").available && shown.values.at("refresh").reason == "Update this game to use it.");
+    CHECK(!shown.values.at("refresh").available && shown.values.at("refresh").reason == "Play this game once to update its runtime first.");
     CHECK(shown.values.at("frame_limit").available && Value(shown, "frame_limit") == "60");
     CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
     CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("refresh") == std::string::npos);
     CHECK(CheckProsperoProfile(profile.text, &reason));  // the old key set
     CHECK(RenderDxvkConfig(shown).find("\ndxgi.maxFrameRate = 60\nd3d9.maxFrameRate = 60\n") != std::string::npos);
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "40"}}, stale, &shown, &error));
-    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Update this game to use it.");
+    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Play this game once to update its runtime first.");
     CHECK(RenderDxvkConfig(shown).find("maxFrameRate") == std::string::npos);
     CHECK(BuildEffectiveSettings(opengl, nullptr, {{"refresh", "120"}, {"frame_limit", "60"}}, stale, &shown, &error));
-    CHECK(!shown.values.at("frame_limit").available && shown.values.at("frame_limit").reason == "Update this game to use it.");
+    CHECK(!shown.values.at("frame_limit").available && shown.values.at("frame_limit").reason == "Play this game once to update its runtime first.");
     CHECK(RenderProsperoProfile(opengl, shown, target, &profile, &reason));
     CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("\nrefresh = 60\n") != std::string::npos);
     CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, stale, &shown, &error));

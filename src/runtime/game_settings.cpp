@@ -376,7 +376,7 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   } else if (id == "frame_limit" || id == "vsync" || id == "frame_latency" || id == "reported_vram" ||
              id == "reported_gpu") {
     if (id == "frame_limit" && !dxvk && graphics == "opengl" && kit.display_120hz_needs_update)
-      return "Update this game to use it.";
+      return "Play this game once to update its runtime first.";
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
     // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, DXVK applies
@@ -423,7 +423,7 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   }
   if (id == "refresh") {
     if (!display_graphics) return "Only with DXVK or OpenGL.";
-    if (kit.display_120hz_needs_update) return "Update this game to use it.";
+    if (kit.display_120hz_needs_update) return "Play this game once to update its runtime first.";
     if (!kit.display_120hz) return "Needs a runtime kit with 120 Hz output.";
   }
   if (id == "pointer_speed") {
@@ -480,7 +480,7 @@ std::string SettingChoiceUnavailable(const EffectiveSettings& settings, std::str
   if (!settings.display_120hz) {
     // Without a runtime that paces it, the cap is DXVK's maxFrameRate: 30 and 60 as before.
     if (!high) return {};
-    return settings.display_120hz_needs_update ? "Update this game to use it." : "Needs a runtime kit with 120 Hz output.";
+    return settings.display_120hz_needs_update ? "Play this game once to update its runtime first." : "Needs a runtime kit with 120 Hz output.";
   }
   const auto refresh = settings.values.find("refresh");
   const bool at_120 = refresh != settings.values.end() && refresh->second.available && refresh->second.value == "120";
