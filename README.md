@@ -34,7 +34,8 @@ private Windows environment and its own tile on the PS5 Home screen.
 - **Per-game settings.** Graphics, frame rate, resolution, controller mapping, and how the game starts: pick any
   program from the game folder, edit its arguments and library overrides, or try a game Playden flagged anyway. A
   game's settings can be exported as a recipe ([format](docs/community-recipes.md)).
-- **Graphics.** Direct3D 8–11 through [DXVK](https://github.com/doitsujin/dxvk), OpenGL through Mesa's Zink, and
+- **Graphics.** Direct3D 8–11 through [DXVK](https://github.com/doitsujin/dxvk), Direct3D 12 through
+  [vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton) (kit 0.11 and later), OpenGL through Mesa's Zink, and
   Vulkan, all on the PS5 GPU's Vulkan driver.
 - **Gamepad support.** XInput, DirectInput, Raw Input, Windows.Gaming.Input and the Windows multimedia joystick API,
   with rumble. Games see the DualSense as an Xbox controller.
@@ -287,6 +288,7 @@ I keep a fork of each, with Playden's changes on the fork's `main` branch, and s
 
 - [Wine](https://www.winehq.org/) — runs Windows programs.
 - [DXVK](https://github.com/doitsujin/dxvk) — turns Direct3D 8–11 into Vulkan.
+- [vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton) — turns Direct3D 12 into Vulkan (kit 0.11 and later).
 - [PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa) and [PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan) —
   [Mesa](https://mesa3d.org/) for the PS5: RADV, the AMD Vulkan driver, for the PS5 GPU, and Zink with WGL, which
   runs Windows OpenGL games on top of Vulkan.
