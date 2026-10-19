@@ -78,7 +78,8 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         "[display] desktop", T::kBasic,
                         {{"1280x720", "1280×720", "Smoother frame rate in heavy scenes. Softer on a 4K TV."},
                          {"1920x1080", "1920×1080", "Full HD."},
-                         {"2560x1440", "2560×1440", "Sharper image. May drop below 60 fps."}},
+                         {"2560x1440", "2560×1440", "Sharper image. May drop below 60 fps."},
+                         {"3840x2160", "3840×2160", "The TV's own size. For light games; heavy ones run slowly."}},
                         "1920x1080"));
   list.push_back(Choice("controller", "Controller", "How the game sees your DualSense.", "[input] mode", T::kBasic,
                         {{"xinput", "Xbox controller", "For games with controller support."},

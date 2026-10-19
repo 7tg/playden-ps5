@@ -835,7 +835,8 @@ int main(int argc, char** argv) {
   CHECK(!ParseProfileSidecar(R"({"schema_version":1,"profile":"x","game":{"name":"X","steam_appid":4294967296},"checks":[{}]})", &community, &reason));
 
   // Bad player values are rejected before saving; stale ones never block a launch.
-  CHECK(!ValidateSettingValue(hl2, "resolution", "3840x2160", &reason));
+  CHECK(!ValidateSettingValue(hl2, "resolution", "5120x2880", &reason));
+  CHECK(ValidateSettingValue(hl2, "resolution", "3840x2160", &reason));  // the TV's own size
   CHECK(!ValidateSettingValue(hl2, "extra_arguments", "-a \"b", &reason));
   CHECK(!ValidateSettingValue(hl2, "extra_arguments", "{resolution}", &reason));
   CHECK(!ValidateSettingValue(hl2, "library_overrides", "d3d9", &reason));
