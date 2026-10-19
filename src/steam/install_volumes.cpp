@@ -8,6 +8,7 @@ extern "C" int sceKernelDlsym(int, const char*, void**);
 #include <sys/statvfs.h>
 #endif
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -131,6 +132,11 @@ std::optional<VolumeSpace> detail::VolumeSpaceFromBlocks(std::int64_t block_size
   return VolumeSpace{blocks * unit, available * unit};
 }
 
+VolumeSpace detail::WithoutConsoleReserve(VolumeSpace space, std::uint64_t reserve) {
+  space.free_bytes -= std::min(space.free_bytes, reserve);
+  return space;
+}
+
 bool detail::VolumeMountMatches(const std::string& path, const std::string& mount) {
   const auto root = ExternalRoot(path);
   return root.empty() || mount == root;
@@ -165,7 +171,7 @@ std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_ro
   };
 }
 
-std::optional<VolumeSpace> QueryVolumeSpace(const std::string& path) {
+std::optional<VolumeSpace> QueryVolumeSpace(const std::string& path, std::uint64_t console_reserve) {
   std::string directory = QueryPath(path);
   if (directory.empty()) return std::nullopt;
   const auto external_root = ExternalRoot(directory);
@@ -195,7 +201,10 @@ std::optional<VolumeSpace> QueryVolumeSpace(const std::string& path) {
     return std::nullopt;
   if (info.f_bsize > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
     return std::nullopt;
-  return detail::VolumeSpaceFromBlocks(static_cast<std::int64_t>(info.f_bsize), info.f_blocks, info.f_bavail);
+  const auto space = detail::VolumeSpaceFromBlocks(static_cast<std::int64_t>(info.f_bsize), info.f_blocks, info.f_bavail);
+  // Console storage (no external drive root) keeps space for the system.
+  if (space && external_root.empty()) return detail::WithoutConsoleReserve(*space, console_reserve);
+  return space;
 #else
   struct statvfs info {};
   const bool ok = fstatvfs(fd, &info) == 0;

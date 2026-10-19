@@ -44,6 +44,11 @@ struct VolumeSpace {
 };
 
 inline constexpr std::uint64_t kInstallSpaceMargin = 64ull * 1024 * 1024;
+// Console storage refuses writes (ENOSPC) while statfs still reports about 5.3 GB available: the PS5 keeps that
+// for itself. Free space there leaves out a reserve: the system's share for Playden's own writes (preparations,
+// updates), and more for downloads, so a finished one still leaves room to prepare the game and save.
+inline constexpr std::uint64_t kConsoleSystemReserve = 6ull * 1024 * 1024 * 1024;
+inline constexpr std::uint64_t kConsoleStorageReserve = 8ull * 1024 * 1024 * 1024;
 
 // Space a download still needs: its install estimate less what it already holds on disk, which
 // the drive's free space already reflects. Without a report (not started this session) the
@@ -55,7 +60,8 @@ inline std::uint64_t PendingInstallBytes(std::optional<std::uint64_t> estimate, 
 
 // Total and available bytes for the directory's drive, or nothing if it cannot be verified.
 // Missing destination directories use an existing ancestor, without leaving an external root.
-std::optional<VolumeSpace> QueryVolumeSpace(const std::string& path);
+std::optional<VolumeSpace> QueryVolumeSpace(const std::string& path,
+                                           std::uint64_t console_reserve = kConsoleStorageReserve);
 
 // False when the platform has no way to read free space (a console whose libkernel lacks the
 // query). Installs then go ahead unchecked, as before free space was readable, and a full drive
@@ -67,6 +73,8 @@ namespace detail {
 std::optional<VolumeSpace> VolumeSpaceFromBlocks(std::int64_t block_size, std::uint64_t blocks,
                                                std::int64_t available_blocks);
 bool VolumeMountMatches(const std::string& path, const std::string& mount);
+// Space on console storage, less a reserve.
+VolumeSpace WithoutConsoleReserve(VolumeSpace space, std::uint64_t reserve);
 }  // namespace detail
 
 }  // namespace playden::steam

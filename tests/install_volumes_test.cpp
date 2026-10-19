@@ -96,6 +96,10 @@ int main() {
   CHECK(missing && missing->total_bytes == space->total_bytes);
   CHECK(!std::filesystem::exists(base / "absent"));
   CHECK(!QueryVolumeSpace(""));
+  // Console storage leaves out what the PS5 keeps for itself; never below zero.
+  CHECK(detail::WithoutConsoleReserve({100ull << 30, 20ull << 30}, kConsoleStorageReserve).free_bytes == 12ull << 30);
+  CHECK(detail::WithoutConsoleReserve({100ull << 30, 5ull << 30}, kConsoleStorageReserve).free_bytes == 0 &&
+        detail::WithoutConsoleReserve({100ull << 30, 5ull << 30}, kConsoleStorageReserve).total_bytes == 100ull << 30);
   CHECK(QueryVolumeSpace(base.string() + "//./"));
   CHECK(!QueryVolumeSpace(base.string() + "/../games"));
   CHECK(QueryVolumeSpace("."));

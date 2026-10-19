@@ -348,7 +348,7 @@ int main() {
         // The title's folders under /data and /user are root-owned: renames there need root briefly.
         update_config.as_root = [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); };
         update_config.free_bytes = [](const std::string& path) -> std::optional<std::uint64_t> {
-            const auto space = playden::steam::QueryVolumeSpace(path);
+            const auto space = playden::steam::QueryVolumeSpace(path, playden::steam::kConsoleSystemReserve);
             if (!space) return std::nullopt;
             return space->free_bytes;
         };
@@ -397,7 +397,7 @@ int main() {
             config.package_operations.hash_file = rt::HashArtifactFile;
             config.package_operations.hash_bytes = rt::HashArtifactBytes;
             config.package_operations.free_bytes = [](const std::filesystem::path& path) -> std::optional<std::uint64_t> {
-                const auto space = playden::steam::QueryVolumeSpace(path.string());
+                const auto space = playden::steam::QueryVolumeSpace(path.string(), playden::steam::kConsoleSystemReserve);
                 return space ? std::optional<std::uint64_t>{space->free_bytes} : std::nullopt;
             };
             config.package_operations.free_space_unverifiable = !playden::steam::VolumeSpaceSupported();
