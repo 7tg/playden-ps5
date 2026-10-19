@@ -364,6 +364,29 @@ int main(int argc, char** argv) {
       if (value.name == "VKD3D_FRAME_RATE") vkd3d_rate = value.data;
     CHECK(vkd3d_rate.empty());
 
+    // One pacer: a Frame limit replaces frame-rate variables the player typed in Environment variables, both
+    // vkd3d-proton's (bottle environment) and DXVK's (profile); with Off they apply as before.
+    const auto bottle_rate = [](const EffectiveSettings& values) {
+      for (const auto& value : RenderBottleEnvironment(values))
+        if (value.name == "VKD3D_FRAME_RATE") return value.data;
+      return std::string();
+    };
+    CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"}, {"frame_limit", "60"},
+        {"environment", "VKD3D_FRAME_RATE=30; DXVK_FRAME_RATE=30"}}, display, &shown, &error));
+    CHECK(bottle_rate(shown).empty());
+    CHECK(RenderProsperoProfile(d3d12, shown, target, &profile, &reason));
+    CHECK(profile.text.find("DXVK_FRAME_RATE") == std::string::npos && profile.text.find("\nframe_rate = 60\n") != std::string::npos);
+    CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"}, {"frame_limit", "30"},
+        {"environment", "VKD3D_FRAME_RATE=60; DXVK_FRAME_RATE=60"}}, display, &shown, &error));
+    CHECK(bottle_rate(shown) == "\"30\"");
+    CHECK(RenderProsperoProfile(d3d12, shown, target, &profile, &reason));
+    CHECK(profile.text.find("DXVK_FRAME_RATE") == std::string::npos);
+    CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"},
+        {"environment", "VKD3D_FRAME_RATE=60; DXVK_FRAME_RATE=60"}}, display, &shown, &error));
+    CHECK(bottle_rate(shown) == "\"60\"");
+    CHECK(RenderProsperoProfile(d3d12, shown, target, &profile, &reason));
+    CHECK(profile.text.find("env = DXVK_FRAME_RATE=60\n") != std::string::npos);
+
     // Mixed versions: the kit has the capability, the game's title still runs an older runtime. Frame limit keeps
     // its DXVK behaviour, 120 Hz waits for Update, and the profile has no frame_rate an older runtime would refuse.
     const auto stale = KitForTitleRuntime(display, false);
@@ -387,6 +410,10 @@ int main(int argc, char** argv) {
     CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, stale, &shown, &error));
     for (const auto& value : RenderBottleEnvironment(shown))
       CHECK(value.name != "VKD3D_FRAME_RATE" || value.data.empty());
+    // An older runtime keeps the player's variables, as before.
+    CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"frame_limit", "60"}, {"environment", "VKD3D_FRAME_RATE=30"}}, stale,
+                                 &shown, &error));
+    CHECK(bottle_rate(shown) == "\"30\"");
     // Without the capability: 30 and 60 through maxFrameRate, 120 and 40 need a newer kit.
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "120"}}, dxvk_kit, &shown, &error));
     CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Needs a runtime kit with 120 Hz output.");
@@ -400,7 +427,28 @@ int main(int argc, char** argv) {
     CHECK(shown.values.at("vsync").reason == "The PS5 display always waits for the TV; VSync cannot be turned off yet.");
   }
 
-  // A record saved while the OpenGL worker thread row existed still loads, without it.
+  // A record saved while the OpenGL worker thread row existed still loads, without it, and so do settings data
+  // written for that build: the earlier presets.json, and a recipe that sets or locks the row.
+  {
+    std::vector<SettingsPreset> old_presets;
+    CHECK(ParseSettingsPresets(R"({"presets":[{"id":"playden-default","name":"Playden default","settings":{}},
+        {"id":"opengl-game","name":"OpenGL game","settings":{"refresh":"60","opengl_thread":"off"}}]})",
+        &old_presets, &reason));
+    CHECK(old_presets.size() == 2 &&
+          old_presets[1].settings == (std::map<std::string, std::string>{{"refresh", "60"}}));
+    // Other unknown settings are still refused.
+    CHECK(!ParseSettingsPresets(R"({"presets":[{"id":"x","name":"X","settings":{"opengl_threads":"off"}}]})",
+                                &old_presets, &reason));
+    GameRecipe old_recipe;
+    CHECK(ParseGameRecipe(R"({"recipe_id":"old","recipe_version":1,"app_id":70,
+        "launch_entries":[{"id":"game","label":"Game","executable":"hl.exe"}],"graphics":"opengl",
+        "defaults":{"opengl_thread":"on","refresh":"60"},"locked":["opengl_thread","graphics"]})", &old_recipe, &reason));
+    CHECK(old_recipe.defaults == (std::map<std::string, std::string>{{"refresh", "60"}}) &&
+          old_recipe.locked == (std::set<std::string>{"graphics"}));
+    CHECK(!ParseGameRecipe(R"({"recipe_id":"old","recipe_version":1,"app_id":70,
+        "launch_entries":[{"id":"game","label":"Game","executable":"hl.exe"}],"locked":["opengl_threads"]})",
+        &old_recipe, &reason));
+  }
   {
     GameSettingsRecord old_record;
     CHECK(ParseGameSettingsRecord(R"({"preset":"opengl-game","overrides":{"opengl_thread":"on","refresh":"120"}})",
@@ -770,6 +818,15 @@ int main(int argc, char** argv) {
   CHECK(CommunityPresetSupported(needs_volume, KitCapabilitiesFromManifest({kKitAudioVolume}, false)));
   needs_volume.requires_prospero_win.push_back("profile-environment");
   CHECK(!CommunityPresetSupported(needs_volume, KitCapabilitiesFromManifest({kKitAudioVolume}, false)));
+  // 120 Hz output counts for a game whose title runs a display-120hz runtime.
+  {
+    auto needs_display = community;
+    needs_display.requires_prospero_win.push_back("display-120hz");
+    const auto display = KitCapabilitiesFromManifest({kKitDxvk, kKitDisplay120Hz}, false);
+    CHECK(CommunityPresetSupported(needs_display, display));
+    CHECK(!CommunityPresetSupported(needs_display, KitCapabilitiesFromManifest({kKitDxvk}, false)));
+    CHECK(!CommunityPresetSupported(needs_display, KitForTitleRuntime(display, false)));
+  }
   CHECK(BuildEffectiveSettings(hl2, &community.preset, {}, KitCapabilities{}, &settings, &error));
   CHECK(settings.values.at("controller").value == "keyboard");
   CHECK(!ParseProfileSidecar(R"({"schema_version":2,"profile":"x","game":{"name":"X"},"checks":[{}]})", &community, &reason));

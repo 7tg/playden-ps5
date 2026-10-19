@@ -426,7 +426,8 @@ bool ParseCommunityRecipe(std::string_view json, CommunityRecipe* community, std
 
 // Whether the kit's runtime has every newer profile feature the sidecar declares in
 // requires.prospero_win: the kit capability names without "settings-" (profile-environment,
-// input-tuning, input-wheel, audio-volume; see prospero-win-profiles SIDECARS.md). Other entries
+// input-tuning, input-wheel, audio-volume; see prospero-win-profiles SIDECARS.md) and display-120hz, which needs the
+// game's own title on such a runtime: pass the kit as KitForTitleRuntime gives it for the game. Other entries
 // (pull requests, versions) are not checked.
 bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit);
 

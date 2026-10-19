@@ -32,6 +32,10 @@ namespace storage_json = steam::json;
 using platform::DirectoryPolicy;
 using platform::ManagedDirectory;
 
+// Rows this build no longer has. Settings data written for an earlier build (presets, recipes) may still name them;
+// they are dropped where read, so the file still loads.
+bool RetiredSetting(std::string_view id) { return id == "opengl_thread"; }
+
 SettingDefinition Choice(std::string id, std::string label, std::string effect, std::string also_called,
                          SettingTier tier, std::vector<SettingChoice> choices, std::string playden_default,
                          int phase = 1, ApplyMode apply = ApplyMode::kNextLaunch) {
@@ -351,6 +355,14 @@ std::string SoftwareFrameLimit(const EffectiveSettings& settings) {
   if (!settings.display_120hz) return limit.value;
   const auto& refresh = OptionalValue(settings, "refresh");
   return limit.value == "30" && refresh.available && refresh.value == "120" ? limit.value : std::string();
+}
+
+// Whether Frame limit owns the game's frame cap: a cap set on a display-120hz runtime. One pacer at a time, so a
+// DXVK_FRAME_RATE or VKD3D_FRAME_RATE the player typed in Environment variables is then left out; with Off, or on an
+// older runtime, they apply as before.
+bool FrameLimitOwnsCap(const EffectiveSettings& settings) {
+  const auto& limit = OptionalValue(settings, "frame_limit");
+  return settings.display_120hz && limit.available && limit.value != "off";
 }
 
 std::string Unavailable(const SettingDefinition& definition, const std::string& graphics, const KitCapabilities& kit,
@@ -944,6 +956,7 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
       while (!item.empty() && item.front() == ' ') item.erase(0, 1);
       while (!item.empty() && item.back() == ' ') item.pop_back();
       if (!settings.environment_as_debug_env && IsProsperoEnvironmentEntry(name, item)) continue;
+      if (name == "DXVK_FRAME_RATE" && FrameLimitOwnsCap(settings)) continue;
       if (!IsProsperoDebugEnvEntry(name, item) || count == kProsperoMaxDebugEnvEntries) continue;
       lines += "env = " + name + "=" + item + "\n";
       ++count;
@@ -984,6 +997,7 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
       while (!name.empty() && name.back() == ' ') name.pop_back();
       while (!item.empty() && item.front() == ' ') item.erase(0, 1);
       while (!item.empty() && item.back() == ' ') item.pop_back();
+      if (name == "DXVK_FRAME_RATE" && FrameLimitOwnsCap(settings)) continue;
       if (!IsProsperoEnvironmentEntry(name, item) || environment_count == kProsperoMaxEnvironmentEntries) continue;
       environment_lines += name + " = " + item + "\n";
       ++environment_count;
@@ -1192,10 +1206,12 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
     out.launch_entries.push_back(std::move(entry));
   }
   if (!StringMap(root->get("defaults"), &out.defaults)) return fail("defaults must map setting ids to strings");
+  for (auto it = out.defaults.begin(); it != out.defaults.end();) it = RetiredSetting(it->first) ? out.defaults.erase(it) : std::next(it);
   if (!StringMap(root->get("requirements"), &out.requirements)) return fail("requirements must map names to strings");
   if (const auto* locked = root->get("locked")) {
     if (!locked->array()) return fail("locked must be a list");
     for (const auto& item : *locked->array()) {
+      if (item.string() && RetiredSetting(*item.string())) continue;
       if (!item.string() || !FindSetting(*item.string())) return fail("locked names an unknown setting");
       out.locked.insert(*item.string());
     }
@@ -1246,6 +1262,7 @@ bool ParseSettingsPresets(std::string_view text, std::vector<SettingsPreset>* pr
         !StringField(item, "try_when", &preset.try_when, false) ||
         !StringField(item, "short_hint", &preset.short_hint, false) || !StringMap(item.get("settings"), &preset.settings))
       return fail("preset needs id, name and string settings");
+    for (auto it = preset.settings.begin(); it != preset.settings.end();) it = RetiredSetting(it->first) ? preset.settings.erase(it) : std::next(it);
     for (const auto& [id, value] : preset.settings) {
       // Presets bundle choices and button bindings; launch entries, graphics and free text
       // belong to the recipe or the player.
@@ -2238,10 +2255,13 @@ std::vector<RegistryValue> RenderBottleEnvironment(const EffectiveSettings& sett
       while (!item.empty() && item.back() == ' ') item.pop_back();
       if (IsBottleEnvironmentEntry(name, item)) listed[name] = item;
     }
-  // Frame limit 30 at 120 Hz output is vkd3d-proton's own limiter, since the display cannot pace it. It wins over a
-  // VKD3D_FRAME_RATE typed in Environment variables, as the row the player sees.
-  if (settings.display_120hz && settings.vkd3d_proton)
-    if (const auto limit = SoftwareFrameLimit(settings); !limit.empty()) listed["VKD3D_FRAME_RATE"] = limit;
+  // A Frame limit on a display-120hz runtime replaces a VKD3D_FRAME_RATE typed in Environment variables: the display
+  // paces the cap, or, for 30 at 120 Hz output, vkd3d-proton's own limiter does.
+  if (FrameLimitOwnsCap(settings)) {
+    listed.erase("VKD3D_FRAME_RATE");
+    if (settings.vkd3d_proton)
+      if (const auto limit = SoftwareFrameLimit(settings); !limit.empty()) listed["VKD3D_FRAME_RATE"] = limit;
+  }
   std::vector<RegistryValue> values;
   for (const char* name : kBottleEnvironmentNames) {
     const auto found = listed.find(name);
@@ -2955,6 +2975,8 @@ bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabil
     else if (feature == "input-tuning") { if (!kit.input_tuning) return false; }
     else if (feature == "input-wheel") { if (!kit.input_wheel) return false; }
     else if (feature == "audio-volume") { if (!kit.audio_volume) return false; }
+    // A runtime name, not a settings one: 120 Hz output counts only for a title on that runtime (KitForTitleRuntime).
+    else if (feature == "display-120hz") { if (!kit.display_120hz) return false; }
     // Legacy PR references are informational sidecar provenance. Unknown feature
     // names or version requirements need verified support before a preset is shown.
     else if (feature.size() < 2 || feature.front() != '#' ||
