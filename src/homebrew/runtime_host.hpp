@@ -121,6 +121,13 @@ struct RuntimeHostConfig {
   std::function<std::int64_t()> now_ms;
   // How long a started title may take to report its session before Play gives up.
   std::int64_t launch_evidence_wait_ms = 60000;
+  // The 0.5 layout's games move (runtime/layout_migration.h), finished on the worker.
+  // moved_games_root: the old and new games root (console paths) while the journal is at
+  // "games-moved"; nothing otherwise. finish_games_move: called once every moved Ready game is
+  // republished; false keeps the move pending for the next start. Empty: LoadLayoutJournal and
+  // MarkLayoutDone on state_root.
+  std::function<std::optional<std::pair<std::string, std::string>>()> moved_games_root;
+  std::function<bool(std::string* error)> finish_games_move;
   // SQLite and the native readers run on this worker. PS5 std::thread stacks are
   // too small for them, so the worker uses an explicit stack size.
   std::size_t stack_bytes = 1024 * 1024;
@@ -254,7 +261,12 @@ struct RuntimeSnapshot {
   std::uint64_t maintenance_handled = 0;
   // Bytes in each game's Windows user folders (installed and kept), from the latest MeasureSaves.
   std::map<std::uint32_t, std::uint64_t> save_bytes;
+  // What Play does before the launch is requested, per Steam app, while it runs: a game whose
+  // folder moved in Playden 0.5 is republished first (kPlayUpdatingForLayout).
+  std::map<std::uint32_t, std::string> play_progress;
 };
+
+inline constexpr const char* kPlayUpdatingForLayout = "Updating this game for Playden 0.5…";
 
 // A downloaded game to prepare. The game files stay at install_path.
 struct RuntimePrepareRequest {
@@ -341,6 +353,10 @@ class RuntimeHost {
   // whether an update ran. The title keeps the launch entry it was prepared with.
   std::string RepublishSettings(Composition& composition, const runtime::RuntimeInstall& record,
                                 bool* published = nullptr);
+  // The 0.5 games move: rewrites the records and Cloud indexes under the old games root at startup,
+  // and marks the move done once no moved Ready game is left to republish.
+  void MoveGameRecords(Composition& composition);
+  void FinishGamesMove(Composition& composition);
   // Empty when the game's Ready title is stopped with no launch pending, otherwise why not.
   std::string MaintenanceRefusal(Composition& composition, const runtime::RuntimeInstall& record);
   // Runs one maintenance action; empty message on refusal means none; *ok tells success.

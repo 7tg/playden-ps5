@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <string>
 #include <unistd.h>
 #include <unordered_map>
@@ -485,6 +486,48 @@ void RegistryRejectsSymlinksAndDoesNotTouchOldTemporaryFiles() {
 
 }  // namespace
 
+// The 0.5 games move: records under the old root are rewritten together, keep the old path as
+// their mark (written only when set), and an invalid one leaves every record as it was.
+void MovedRecordsRewriteTogetherAndKeepTheirMark() {
+  CHECK(RebaseInstallPath("/data/homebrew/FAKE77031/games/220", "/data/homebrew/FAKE77031/games", "/data/playden-games") ==
+        std::optional<std::string>("/data/playden-games/220"));
+  CHECK(RebaseInstallPath("/data/homebrew/FAKE77031/games", "/data/homebrew/FAKE77031/games/", "/data/playden-games") ==
+        std::optional<std::string>("/data/playden-games"));
+  CHECK(!RebaseInstallPath("/data/homebrew/FAKE77031/games-old/1", "/data/homebrew/FAKE77031/games", "/data/playden-games"));
+  CHECK(!RebaseInstallPath("/mnt/usb1/games/1", "/data/homebrew/FAKE77031/games", "/data/playden-games"));
+
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path);
+  CHECK(storage.EnsureRootDirectory().ok());
+  RuntimeInstallRepository repository(storage, "installs.json", Free);
+  CHECK(repository.Load().ok());
+  auto first = Request("install-a"); first.install_path = "/data/homebrew/FAKE77031/games/220";
+  auto second = Request("install-b"); second.app_id = 400; second.install_path = "/data/homebrew/FAKE77031/games/400";
+  CHECK(repository.Reserve(first).ok() && repository.Reserve(second).ok());
+  const auto unmarked = storage.ReadDurable("installs.json", 1 << 20);
+  CHECK(unmarked.ok() && std::string(unmarked.value().begin(), unmarked.value().end()).find("moved_from") == std::string::npos);
+
+  auto a = *repository.Find("install-a"), b = *repository.Find("install-b");
+  a.moved_from = a.install_path; a.install_path = "/data/playden-games/220";
+  b.moved_from = b.install_path; b.install_path = "/data/playden-games/400";
+  auto invalid = b; invalid.moved_from = invalid.install_path;  // the mark must name another place
+  CHECK(!repository.UpdateAll({a, invalid}).ok());
+  CHECK(repository.Find("install-a")->install_path == "/data/homebrew/FAKE77031/games/220");
+  auto renamed = b; renamed.data_root = "/data/playden/games/other";
+  CHECK(!repository.UpdateAll({a, renamed}).ok());
+  CHECK(repository.UpdateAll({a, b}).ok());
+
+  RuntimeInstallRepository restarted(storage, "installs.json", Free);
+  CHECK(restarted.Load().ok());
+  CHECK(restarted.Find("install-a")->install_path == "/data/playden-games/220" &&
+        restarted.Find("install-a")->moved_from == "/data/homebrew/FAKE77031/games/220");
+  CHECK(restarted.Find("install-b")->moved_from == "/data/homebrew/FAKE77031/games/400");
+  auto cleared = *restarted.Find("install-a"); cleared.moved_from.clear();
+  CHECK(restarted.Update(cleared).ok());
+  RuntimeInstallRepository again(storage, "installs.json", Free);
+  CHECK(again.Load().ok() && again.Find("install-a")->moved_from.empty() && !again.Find("install-b")->moved_from.empty());
+}
+
 int main() {
   JournalSyncFailureRequiresReloadBeforeFurtherEffects();
   JournalUpdateSyncFailureReconcilesPublishedState();
@@ -500,6 +543,7 @@ int main() {
   DescriptorIdentifiersMatchTheNativeGrammar();
   RecordLimitDoesNotPublishAnUnreadableRepository();
   LaunchPathsUseTheSharedSteamPathContract();
+  MovedRecordsRewriteTogetherAndKeepTheirMark();
   std::puts("runtime_game_install_test: all assertions passed");
   return EXIT_SUCCESS;
 }

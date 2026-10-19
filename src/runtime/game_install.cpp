@@ -188,6 +188,8 @@ bool ValidRecord(const RuntimeInstall& record) {
   if (record.journal &&
       (!IsSimpleId(record.journal->operation_id) || !IsSimpleId(record.journal->operation) ||
        !IsSimpleId(record.journal->step))) return false;
+  if (!record.moved_from.empty() &&
+      (!IsAbsoluteNormalizedPath(record.moved_from) || record.moved_from == record.install_path)) return false;
   return true;
 }
 
@@ -262,6 +264,10 @@ std::optional<RuntimeInstall> ParseRecord(const JsonValue& value, RepositoryErro
     if (!operation_id || !operation || !step) return std::nullopt;
     record.journal = PreparationJournal{operation_id->text(), operation->text(), step->text()};
   }
+  if (const auto* moved = value.Find("moved_from")) {
+    if (!moved->is_string() || moved->text().empty()) return std::nullopt;
+    record.moved_from = moved->text();
+  }
   if (!ValidRecord(record)) return std::nullopt;
   return record;
 }
@@ -297,6 +303,7 @@ void WriteRecord(TextOutput& output, const RuntimeInstall& record) {
     StringField(output, "operation", record.journal->operation);
     StringField(output, "step", record.journal->step, false); output << '}'; }
   else output << "null";
+  if (!record.moved_from.empty()) { output << ','; StringField(output, "moved_from", record.moved_from, false); }
   output << '}';
 }
 
@@ -314,6 +321,15 @@ bool SameRuntimeInstallIdentity(const RuntimeInstall& a, const RuntimeInstall& b
   return ValidateRuntimeInstallRecord(a) && ValidateRuntimeInstallRecord(b) &&
       a.schema_version == b.schema_version && a.install_id == b.install_id && a.title_id == b.title_id &&
       a.app_id == b.app_id && a.data_root == b.data_root && a.install_path == b.install_path;
+}
+
+std::optional<std::string> RebaseInstallPath(const std::string& path, std::string from, std::string to) {
+  while (from.size() > 1 && from.back() == '/') from.pop_back();
+  while (to.size() > 1 && to.back() == '/') to.pop_back();
+  if (from.empty() || to.empty() || path.compare(0, from.size(), from) != 0) return std::nullopt;
+  if (path.size() == from.size()) return to;
+  if (path[from.size()] != '/') return std::nullopt;
+  return to + path.substr(from.size());
 }
 
 RuntimeInstallRepository::RuntimeInstallRepository(Storage& storage, std::string relative_path,
@@ -506,6 +522,28 @@ RepositoryResult<void> RuntimeInstallRepository::Update(const RuntimeInstall& re
   found->second = std::move(normalized);
   const auto persisted = Persist();
   if (!persisted.ok()) { found->second = previous; return persisted; }
+  return RepositoryResult<void>::Success();
+}
+
+RepositoryResult<void> RuntimeInstallRepository::UpdateAll(const std::vector<RuntimeInstall>& records) {
+  if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
+  std::unordered_map<std::string, RuntimeInstall> next = installs_;
+  for (const auto& record : records) {
+    const auto found = next.find(record.install_id);
+    if (found == next.end()) return Failure(RepositoryError::kNotFound, "runtime install does not exist");
+    auto normalized = record;
+    if (!NormalizeLaunchPaths(normalized) || !ValidRecord(normalized))
+      return Failure(RepositoryError::kInvalidRecord, "runtime install record is invalid");
+    const auto& current = found->second;
+    if (record.title_id != current.title_id || record.app_id != current.app_id ||
+        record.data_root != current.data_root || record.schema_version != current.schema_version)
+      return Failure(RepositoryError::kConflict, "runtime install identity is immutable");
+    found->second = std::move(normalized);
+  }
+  auto previous = std::move(installs_);
+  installs_ = std::move(next);
+  const auto persisted = Persist();
+  if (!persisted.ok()) { installs_ = std::move(previous); return persisted; }
   return RepositoryResult<void>::Success();
 }
 

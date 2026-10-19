@@ -9,6 +9,7 @@
 #include "runtime/settings_publication_journal.h"
 #include "runtime/dotnet_heap.h"
 #include "runtime/install_script.h"
+#include "runtime/layout_migration.h"
 #include "runtime/redist_install.h"
 #include "runtime/settings_publication_owner.h"
 #include "runtime/session_storage.h"
@@ -79,6 +80,72 @@ std::string KitLacksForRecipe(const rt::GameRecipe& recipe, const rt::VerifiedKi
 bool AwaitingRegistration(const rt::RuntimeInstall& record) {
   return record.journal && (record.journal->step == "register" || record.journal->step == "await-native") &&
          (!record.last_failure || record.last_failure->code == "registration-uncertain");
+}
+
+// Rewrites the game_root= and prefix_root= lines of each <saves>/<id>/cloud-index.txt (the format
+// steam/backend/cloud_sync.cpp WriteIndex writes) that lie inside `from` to the same place inside
+// `to`, so a moved game keeps its quick-check index. Idempotent; returns how many changed.
+std::size_t RebaseCloudIndexes(const std::filesystem::path& saves, const std::string& from, const std::string& to) {
+  constexpr off_t kMaxIndexBytes = 16 * 1024 * 1024;
+  std::size_t changed = 0;
+  std::error_code error;
+  for (std::filesystem::directory_iterator it(saves, error), end; !error && it != end; it.increment(error)) {
+    std::error_code type_error;
+    if (it->is_symlink(type_error) || !it->is_directory(type_error)) continue;
+    const auto path = it->path() / "cloud-index.txt";
+    const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) continue;
+    struct stat info{};
+    std::string text;
+    if (fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size <= kMaxIndexBytes) {
+      text.resize(static_cast<std::size_t>(info.st_size));
+      std::size_t done = 0;
+      while (done < text.size()) {
+        const auto count = read(fd, text.data() + done, text.size() - done);
+        if (count <= 0) break;
+        done += static_cast<std::size_t>(count);
+      }
+      text.resize(done);
+    }
+    close(fd);
+    if (text.rfind("version=1\n", 0) != 0) continue;
+    std::string rewritten;
+    bool any = false;
+    for (std::size_t start = 0; start < text.size();) {
+      auto stop = text.find('\n', start);
+      stop = stop == std::string::npos ? text.size() : stop + 1;
+      std::string line = text.substr(start, stop - start);
+      start = stop;
+      for (const char* key : {"game_root=", "prefix_root="}) {
+        const std::string_view name(key);
+        if (line.compare(0, name.size(), name) != 0) continue;
+        const bool newline = !line.empty() && line.back() == '\n';
+        const auto value = line.substr(name.size(), line.size() - name.size() - (newline ? 1 : 0));
+        if (const auto moved = rt::RebaseInstallPath(value, from, to)) {
+          line = std::string(name) + *moved + (newline ? "\n" : "");
+          any = true;
+        }
+      }
+      rewritten += line;
+    }
+    if (!any) continue;
+    const auto temporary = path.string() + ".playden-partial";
+    const int out = open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, info.st_mode & 0777);
+    if (out < 0) continue;
+    std::size_t written = 0;
+    while (written < rewritten.size()) {
+      const auto count = write(out, rewritten.data() + written, rewritten.size() - written);
+      if (count <= 0) break;
+      written += static_cast<std::size_t>(count);
+    }
+    const bool ok = written == rewritten.size() && fsync(out) == 0;
+    if (close(out) != 0 || !ok || rename(temporary.c_str(), path.c_str()) != 0) {
+      unlink(temporary.c_str());
+      continue;
+    }
+    ++changed;
+  }
+  return changed;
 }
 }  // namespace
 
@@ -245,6 +312,8 @@ struct RuntimeHost::Composition {
   std::unique_ptr<rt::LaunchService> launch;
   // Last worker preflight per install, with its time, for Handoff.
   std::map<std::string, std::pair<rt::LaunchPreflight, std::int64_t>> preflights;
+  // The old and new games root while the 0.5 games move is unfinished.
+  std::optional<std::pair<std::string, std::string>> games_move;
 };
 
 RuntimeHost::RuntimeHost(RuntimeHostConfig config) : config_(std::move(config)) {
@@ -255,6 +324,14 @@ RuntimeHost::RuntimeHost(RuntimeHostConfig config) : config_(std::move(config)) 
       return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now().time_since_epoch()).count());
     };
+  if (!config_.moved_games_root)
+    config_.moved_games_root = [state = config_.state_root]() -> std::optional<std::pair<std::string, std::string>> {
+      const auto journal = rt::LoadLayoutJournal(state);
+      if (!journal || journal->step != "games-moved") return std::nullopt;
+      return std::make_pair(journal->from, journal->to);
+    };
+  if (!config_.finish_games_move)
+    config_.finish_games_move = [state = config_.state_root](std::string* error) { return rt::MarkLayoutDone(state, error); };
   application_thread_ = pthread_self();
 }
 RuntimeHost::~RuntimeHost() { Shutdown(); }
@@ -876,9 +953,14 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
     for (const auto& candidate : c.recipes)
       if (candidate.app_id == record.app_id && candidate.id == record.recipe_id)
         if (const auto lacks = KitLacksForRecipe(candidate, c.kit->view); !lacks.empty()) return lacks;
+  // A game whose folder moved (RuntimeInstall::moved_from) is published again at its revision, so
+  // its descriptor, profile and dxvk.conf name the new folder.
+  const bool moved = !record.moved_from.empty();
   // "Steam features" only swaps the game's own files, so it follows the saved value at once.
-  if (saved.revision <= record.settings_revision) return ApplySteamworks(c, record);
+  if (saved.revision <= record.settings_revision && !moved) return ApplySteamworks(c, record);
   if (!c.kit) return "No verified compatibility kit is installed.";
+  if (saved.revision < record.settings_revision)
+    return "The game's saved settings are older than its PS5 title's; prepare it again.";
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
     if (candidate.app_id == record.app_id && candidate.id == record.recipe_id &&
@@ -989,11 +1071,52 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   const auto resumed = c.owner->ResumeRequested(*armed, c.request_directory, config_.host_namespace_prefix);
   Log("settings update resume app=" + std::to_string(record.app_id) + " state=" +
       std::to_string(static_cast<int>(resumed.state)) + " code=" + resumed.code + " message=" + resumed.message);
+  // The title's start check now finds the new folder.
+  if (moved && resumed.state == rt::PackageActionState::kComplete)
+    if (const auto current = c.records.Find(record.install_id))
+      c.admission[record.install_id] = c.installer->QuickAdmission(*current);
   PublishInstalls(c, record.install_id);
   // A failed update keeps its journal, so Play waits until Resume on the PS5 title finishes it.
   if (resumed.state != rt::PackageActionState::kComplete) return "The settings could not be applied: " + resumed.message;
   if (published) *published = true;
+  if (moved) FinishGamesMove(c);
   return {};
+}
+
+void RuntimeHost::MoveGameRecords(Composition& c) {
+  c.games_move = config_.moved_games_root ? config_.moved_games_root() : std::nullopt;
+  if (!c.games_move) return;
+  const auto& [from, to] = *c.games_move;
+  // Records on other drives (USB, M.2) stay; the ones under the old root name the new one and
+  // keep the old one until a publication names the new folder.
+  std::vector<rt::RuntimeInstall> moved;
+  for (auto record : c.repository.Snapshot()) {
+    const auto path = rt::RebaseInstallPath(record.install_path, from, to);
+    if (!path) continue;
+    record.moved_from = record.install_path;
+    record.install_path = *path;
+    moved.push_back(std::move(record));
+  }
+  if (!moved.empty()) {
+    const auto written = c.repository.UpdateAll(moved);
+    Log("layout move records=" + std::to_string(moved.size()) + " from=" + from + " to=" + to + " " +
+        (written.ok() ? std::string("rewritten") : "failed: " + written.message()));
+    // Nothing is marked done while the records still name the old root.
+    if (!written.ok()) { c.games_move.reset(); return; }
+  }
+  const auto indexes = RebaseCloudIndexes(HostPath(to) / ".playden-saves", from, to);
+  if (indexes) Log("layout move cloud indexes=" + std::to_string(indexes));
+}
+
+void RuntimeHost::FinishGamesMove(Composition& c) {
+  if (!c.games_move) return;
+  // Games not prepared yet (or failed) keep their mark; their next preparation publishes the new folder.
+  for (const auto& record : c.repository.Snapshot())
+    if (!record.moved_from.empty() && record.state == rt::PreparationState::kReady) return;
+  std::string error;
+  const bool done = config_.finish_games_move && config_.finish_games_move(&error);
+  Log(std::string("layout move ") + (done ? "done" : "not marked done: " + error));
+  if (done) c.games_move.reset();
 }
 
 // Fresh facts for one launch, from the package layer, the bottle's start check
@@ -1120,7 +1243,22 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
                record->state == rt::PreparationState::kReady &&
                c.coordinator->Activity(record->title_id) == rt::NativeActivity::kStopped;
       }
-      const auto settings = idle ? RepublishSettings(c, *record) : std::string();
+      std::string settings;
+      if (!record->moved_from.empty()) {
+        // Its folder moved in 0.5: the title starts only once its publication names the new one.
+        if (!idle) {
+          auto busy = MaintenanceRefusal(c, *record);
+          settings = "This game needs an update for Playden 0.5 first: " + (busy.empty() ? "Close the game first." : busy);
+        } else {
+          Publish([&](RuntimeSnapshot& s) { s.play_progress[app_id] = kPlayUpdatingForLayout; });
+          settings = RepublishSettings(c, *record);
+          Publish([&](RuntimeSnapshot& s) { s.play_progress.erase(app_id); });
+          if (!settings.empty()) settings = "This game could not be updated for Playden 0.5: " + settings;
+          Log("play moved app=" + std::to_string(app_id) + " " + (settings.empty() ? "republished" : settings));
+        }
+      } else if (idle) {
+        settings = RepublishSettings(c, *record);
+      }
       result = settings.empty() ? c.launch->Request(record->install_id)
                                 : rt::LaunchResult::Failure(rt::LaunchError::kPreflight, settings);
     }
@@ -1579,6 +1717,14 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         if (refreshed.state != rt::PackageActionState::kComplete) return refreshed.message;
         changed = true;
       }
+      // A game whose folder moved in 0.5 is published again for the new folder first.
+      if (!existing->moved_from.empty()) {
+        if (const auto refused = RepublishSettings(c, *existing); !refused.empty()) return refused;
+        const auto install_id = existing->install_id;
+        existing = c.records.Find(install_id);
+        if (!existing) return "The game's install record is missing.";
+        changed = true;
+      }
       auto admission = c.installer->AdmissionDiagnostic(*existing);
       if (admission != "ok") {
         const auto repaired = c.installer->RepairBottle(*existing);
@@ -1992,8 +2138,13 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
           " code=" + repaired.code + " admission=" + admission);
       PublishInstalls(c, record->install_id);
       if (repaired.state != rt::PackageActionState::kComplete) return "The bottle could not be repaired: " + repaired.message;
-      if (admission != "ok") return "The PS5 title still fails its start check: " + admission;
+      // A game whose folder moved fails the check until it is published again, just below.
+      if (admission != "ok" && record->moved_from.empty()) return "The PS5 title still fails its start check: " + admission;
       if (auto refused = RepublishSettings(c, *record); !refused.empty()) return refused;
+      if (!record->moved_from.empty())
+        if (const auto current = c.records.Find(record->install_id))
+          if (const auto checked = c.installer->AdmissionDiagnostic(*current); checked != "ok")
+            return "The PS5 title still fails its start check: " + checked;
       *ok = true;
       if (!c.installer->TitleCurrent(*record) || !c.installer->TitleMetadataCurrent(*record))
         return "Repaired. The PS5 title also has an update: press Update on the game page.";
@@ -2420,6 +2571,7 @@ void RuntimeHost::Run() {
       // Startup only reads durable state. Records with a journal wait for an
       // explicit recovery action; nothing resumes, registers or rebuilds here.
       Log("startup records loaded installs=" + std::to_string(c.repository.Snapshot().size()));
+      MoveGameRecords(c);
       LoadGeneratedRecipes(c);
       Log("startup generated recipes loaded");
       PublishInstalls(c);
@@ -2490,13 +2642,25 @@ void RuntimeHost::Run() {
         std::lock_guard<std::mutex> lock(mutex_);
         launch_poll_ = true;
       }
+      // Games whose folder moved with the games root (0.5) start from Home only once their
+      // publication names the new folder: republished now, busy titles wait for Play.
+      for (const auto& record : c.repository.Snapshot()) {
+        if (record.moved_from.empty() || record.state != rt::PreparationState::kReady) continue;
+        const auto busy = c.kit ? MaintenanceRefusal(c, record) : std::string("no verified kit");
+        bool published = false;
+        const auto refused = busy.empty() ? RepublishSettings(c, record, &published) : busy;
+        Log("startup moved app=" + std::to_string(record.app_id) + " " +
+            (published ? std::string("republished") : (busy.empty() ? "failed: " : "waits: ") + refused));
+      }
+      FinishGamesMove(c);
       // Settings saved while Playden was closed, or before a title was stopped, are published
       // now, so a start from the PS5 Home screen uses them too. Busy titles wait for Play.
       if (c.kit)
         for (const auto& record : c.repository.Snapshot()) {
           // Only newer settings: the Steam account is not known yet, so Steam files wait for Play.
           const auto saved = config_.settings_record ? config_.settings_record(record.app_id) : std::nullopt;
-          if (!saved || saved->revision <= record.settings_revision || !MaintenanceRefusal(c, record).empty()) continue;
+          if (!saved || saved->revision <= record.settings_revision || !record.moved_from.empty() ||
+              !MaintenanceRefusal(c, record).empty()) continue;
           bool published = false;
           const auto refused = RepublishSettings(c, record, &published);
           if (published || !refused.empty())
@@ -2698,6 +2862,8 @@ void RuntimeHost::Run() {
           s.refusals.erase(request.app_id);
         });
         refusal = RunPrepare(*composition, request, &awaiting);
+        // A resumed publication of a moved game may have been the last the 0.5 move waited for.
+        FinishGamesMove(*composition);
         // A game prepared again gets back the saves it kept when it was uninstalled,
         // before it can first be started (from Home, while it waits for registration).
         if (refusal.empty()) refusal = RestoreKeptSaves(*composition, request.app_id);

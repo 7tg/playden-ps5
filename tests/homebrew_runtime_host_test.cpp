@@ -1,6 +1,7 @@
 #include "homebrew/runtime_host.hpp"
 #include "platform/managed_directory.h"
 #include "platform/storage.h"
+#include "runtime/layout_migration.h"
 #include "runtime/artifact_hash.h"
 
 #include <algorithm>
@@ -2227,6 +2228,337 @@ void ShippedRecipeRequirementsFollowTheKit(bool template_audio_ps5) {
   host.Shutdown();
 }
 
+// The 0.5 layout moves /data/homebrew/FAKE77031/games to /data/playden-games in one rename at
+// startup. The runtime host then rewrites the records and republishes each moved Ready game, so
+// its descriptor, profile and dxvk.conf name the new folder and it starts from Home again.
+struct GamesMove {
+  std::mutex mutex;
+  std::optional<std::pair<std::string, std::string>> journal;  // at "games-moved"
+  int done = 0;
+  std::vector<std::string> lines;
+  void Wire(RuntimeHostConfig& config) {
+    config.moved_games_root = [this] { std::lock_guard<std::mutex> lock(mutex); return journal; };
+    config.finish_games_move = [this](std::string*) {
+      std::lock_guard<std::mutex> lock(mutex);
+      journal.reset(); ++done;
+      return true;
+    };
+    config.log = [this](const std::string& line) { std::lock_guard<std::mutex> lock(mutex); lines.push_back(line); };
+  }
+  bool Logged(const std::string& prefix) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) { return line.rfind(prefix, 0) == 0; });
+  }
+  int Done() { std::lock_guard<std::mutex> lock(mutex); return done; }
+};
+constexpr const char* kOldGames = "/data/homebrew/FAKE77031/games";
+constexpr const char* kNewGames = "/data/playden-games";
+
+RuntimeHostConfig MoveConfig(Fixture& fixture, const RuntimeKit& kit, unsigned* uuids, GamesMove& move) {
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.session_data_root = fixture.root / "data";
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  config.uuid = [uuids]() -> std::optional<std::string> {
+    char id[37]; std::snprintf(id, sizeof(id), "00000000-0000-4000-8000-%012u", ++*uuids);
+    return std::string(id);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.settings_record = [](std::uint32_t) -> std::optional<GameSettingsRecord> {
+    GameSettingsRecord saved; saved.revision = 1; saved.overrides = {{"resolution", "1280x720"}};
+    return saved;
+  };
+  config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
+  move.Wire(config);
+  return config;
+}
+
+// HL2 prepared under the old games root, with an install script and a Cloud index; then the
+// startup rename moves the tree, and the journal says so.
+void PrepareThenMoveGames(Fixture& fixture, const RuntimeHostConfig& config, GamesMove& move) {
+  const auto old_games = fixture.root / "data/homebrew/FAKE77031/games";
+  Write(old_games / "220/hl2.exe", "existing-game", 0644);
+  CHECK(chmod((old_games / "220").c_str(), 0755) == 0);
+  Write(old_games / "220/installscript.vdf",
+        "\"InstallScript\"\n{\n \"Registry\"\n {\n  \"HKEY_LOCAL_MACHINE\\\\SOFTWARE\\\\Valve\\\\HL2\"\n  {\n"
+        "   \"string\"\n   {\n    \"Installed Path\" \"%INSTALLDIR%\\\\\"\n   }\n  }\n }\n}\n", 0644);
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto ready = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (ready.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", ready.refusals.at(220).c_str());
+    CHECK(!ready.refusals.count(220) && ready.installs[0].settings_revision == 1);
+    host.Shutdown();
+  }
+  const auto system_reg = Read(fixture.root / "data/playden/games/steam-220/library/prefixes/game/system.reg");
+  CHECK(system_reg.find("FAKE77031\\\\games\\\\220") != std::string::npos);
+  Write(old_games / ".playden-saves/220/cloud-index.txt",
+        "version=1\naccount=a\nchange=7\ngame_root=/data/homebrew/FAKE77031/games/220\n"
+        "prefix_root=/data/playden/games/steam-220/library/prefixes/game\nrule\tg\t1\tsave\t*\tsave/\n"
+        "file\tg\t3\t5\tsave/game_root=/data/homebrew/FAKE77031/games/220\n", 0644);
+  fs::rename(old_games, fixture.root / "data/playden-games");
+  std::lock_guard<std::mutex> lock(move.mutex);
+  move.journal = std::make_pair(std::string(kOldGames), std::string(kNewGames));
+}
+
+// What the moved game's published files and record name after the move finished.
+void CheckRepublishedAtNewRoot(Fixture& fixture) {
+  const auto records = Read(fixture.root / "data/runtime-state/installs.json");
+  CHECK(records.find(R"("install_path":"/data/playden-games/220")") != std::string::npos);
+  CHECK(records.find("moved_from") == std::string::npos && records.find("FAKE77031") == std::string::npos);
+  const auto descriptor = Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json");
+  CHECK(descriptor.find(R"("game_root":"/data/playden-games/220")") != std::string::npos);
+  CHECK(descriptor.find(R"("settings_revision":1)") != std::string::npos);
+  const auto profiles = fixture.root / "data/playden/games/steam-220/library/profiles";
+  const auto profile = Read(profiles / "playden-steam-220.profile");
+  CHECK(profile.find("playden-games") != std::string::npos && profile.find("FAKE77031") == std::string::npos);
+  CHECK(profile.find("desktop = 1280x720") != std::string::npos);  // the saved settings are kept
+  // The metadata keeps paths in hex.
+  const auto hex = [](const std::string& text) {
+    std::string out;
+    for (const unsigned char c : text) { char pair[3]; std::snprintf(pair, sizeof(pair), "%02x", c); out += pair; }
+    return out;
+  };
+  const auto metadata = Read(profiles / ".playden-publication");
+  CHECK(metadata.find("dxvk.path_hex=" + hex("/data/playden-games/220/dxvk.conf") + "\n") != std::string::npos);
+  // The install script's path follows the folder (ApplySteamworks runs in the republication).
+  const auto system_reg = Read(fixture.root / "data/playden/games/steam-220/library/prefixes/game/system.reg");
+  CHECK(system_reg.find("playden-games\\\\220") != std::string::npos && system_reg.find("FAKE77031") == std::string::npos);
+}
+
+void MigrationRewritesInstallPathsAndRepublishes() {
+  Fixture fixture;
+  GamesMove move;
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  PrepareThenMoveGames(fixture, config, move);
+  const auto registrations = fixture.registry_mutations;
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(started.installs.size() == 1 && started.installs[0].state == PreparationState::kReady);
+  CHECK(started.installs[0].admission == "ok" && started.installs[0].settings_revision == 1);
+  CHECK(move.Logged("startup moved app=220 republished") && move.Done() == 1);
+  CheckRepublishedAtNewRoot(fixture);
+  // No new registration: the title stays the one Home lists.
+  CHECK(fixture.registry_mutations == registrations);
+  // The Cloud index follows the game folder; the bottle (prefix_root) did not move.
+  const auto index = Read(fixture.root / "data/playden-games/.playden-saves/220/cloud-index.txt");
+  CHECK(index == "version=1\naccount=a\nchange=7\ngame_root=/data/playden-games/220\n"
+                 "prefix_root=/data/playden/games/steam-220/library/prefixes/game\nrule\tg\t1\tsave\t*\tsave/\n"
+                 "file\tg\t3\t5\tsave/game_root=/data/homebrew/FAKE77031/games/220\n");
+  // Play passes the title's whole start check.
+  host.Play(220);
+  const auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+  if (played.play_refusals.count(220)) std::fprintf(stderr, "Play refused: %s\n", played.play_refusals.at(220).c_str());
+  CHECK(played.handoff_ready);
+  host.Shutdown();
+  // Nothing is left to do on the next start.
+  RuntimeHost again(config);
+  CHECK(again.Start());
+  WaitFor(again, Started);
+  CHECK(move.Done() == 1);
+  again.Shutdown();
+}
+
+// A moved game whose title was busy at startup is republished by Play first, which says so.
+void PlayBeforeRepublishRepublishesFirst() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  auto config = MoveConfig(fixture, kit, &uuids, move);
+  std::vector<std::string> progress;
+  std::shared_ptr<RuntimeHost*> current = std::make_shared<RuntimeHost*>(nullptr);
+  const auto log = config.log;
+  config.log = [log, current, &progress](const std::string& line) {
+    log(line);
+    // Settings update requests run inside Play's republication; its progress text is up meanwhile.
+    if (line.rfind("settings update request app=220", 0) == 0 && *current) {
+      const auto shared = (*current)->Shared();
+      if (const auto found = shared->play_progress.find(220); found != shared->play_progress.end())
+        progress.push_back(found->second);
+    }
+  };
+  PrepareThenMoveGames(fixture, config, move);
+  fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+  RuntimeHost host(config);
+  *current = &host;
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(move.Logged("startup moved app=220 waits: Close the game first.") && move.Done() == 0);
+  // The mark is durable; the published descriptor still names the old folder.
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json").find(R"("moved_from":"/data/homebrew/FAKE77031/games/220")") !=
+        std::string::npos);
+  CHECK(started.installs[0].state == PreparationState::kReady);
+  CHECK(Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json").find(kOldGames) != std::string::npos);
+  // While it runs, Play says why it can't update the game.
+  host.Play(220);
+  const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.play_refusals.count(220) != 0; });
+  CHECK(refused.play_refusals.at(220) == "This game needs an update for Playden 0.5 first: Close the game first.");
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  host.Play(220);
+  const auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(played.play_progress.empty() && !played.play_refusals.count(220));
+  CHECK(progress == std::vector<std::string>{kPlayUpdatingForLayout});
+  CHECK(move.Logged("play moved app=220 republished") && move.Done() == 1);
+  CheckRepublishedAtNewRoot(fixture);
+  CHECK(host.Handoff());
+  *current = nullptr;
+  host.Shutdown();
+}
+
+// USB and M.2 installs, and folders that only share the old root's spelling, keep their paths.
+void MigrationSkipsRecordsOutsideOldPrefix() {
+  Fixture fixture;
+  auto config = fixture.Config();  // no kit: the records are rewritten all the same
+  // The real layout journal on state_root (no injected callbacks).
+  fs::create_directories(config.state_root); CHECK(chmod(config.state_root.c_str(), 0700) == 0);
+  const std::vector<std::pair<std::uint32_t, std::string>> games = {
+      {400, "/mnt/usb1/playden-games/400"}, {500, "/mnt/ext1/playden-games/500"},
+      {600, "/data/homebrew/FAKE77031/games-old/600"}, {700, "/data/homebrew/FAKE77031/games"},
+      {220, "/data/homebrew/FAKE77031/games/220"}};
+  {
+    playden::Storage storage(config.state_root.string());
+    RuntimeInstallRepository repository(storage, "installs.json", [](const std::string&) {
+      return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree};
+    });
+    CHECK(repository.Load().ok());
+    int title = 1;
+    for (const auto& [app, path] : games) {
+      auto record = Record();
+      ReserveRequest request;
+      request.install_id = "steam-" + std::to_string(app); request.app_id = app;
+      request.default_profile_id = record.default_profile_id; request.runtime_bundle_id = record.runtime_bundle_id;
+      request.recipe_id = record.recipe_id; request.recipe_version = record.recipe_version;
+      request.launch_entry_id = record.launch_entry_id; request.launch_path = record.launch_path;
+      request.install_path = path; request.volume_id = record.volume_id;
+      char id[10]; std::snprintf(id, sizeof(id), "FAKE78%03d", title++);
+      request.kit_title_variants = {id};
+      CHECK(repository.Reserve(request).ok());
+    }
+  }
+  {
+    // A trailing slash on the old root is ignored.
+    const std::string journal = std::string(R"({"step":"games-moved","from":")") + kOldGames + R"(/","to":")" + kNewGames +
+                                R"(","postponed":0})";
+    CHECK(playden::Storage(config.state_root.string()).WriteDurable(kLayoutJournal, playden::Bytes(journal.begin(), journal.end())).ok());
+  }
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  host.Shutdown();
+  playden::Storage storage(config.state_root.string());
+  RuntimeInstallRepository repository(storage, "installs.json", {});
+  CHECK(repository.Load().ok());
+  std::map<std::uint32_t, RuntimeInstall> records;
+  for (const auto& record : repository.Snapshot()) records[record.app_id] = record;
+  CHECK(records.size() == 5);
+  for (const std::uint32_t app : {400u, 500u, 600u}) {
+    CHECK(records[app].moved_from.empty());
+    CHECK(records[app].install_path == std::find_if(games.begin(), games.end(), [app](const auto& g) { return g.first == app; })->second);
+  }
+  CHECK(records[700].install_path == kNewGames && records[700].moved_from == "/data/homebrew/FAKE77031/games");
+  CHECK(records[220].install_path == "/data/playden-games/220" && records[220].moved_from == "/data/homebrew/FAKE77031/games/220");
+  // None was Ready, so nothing waits for a republication; the marks stay for their preparation.
+  const auto finished = LoadLayoutJournal(config.state_root);
+  CHECK(finished && finished->step == "done");
+}
+
+// The mark survives restarts: a start that can't republish (busy title) and one interrupted in
+// the middle of the republication both leave the move to the next one, which finishes it.
+void RestartDuringRepublishResumes() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  auto config = MoveConfig(fixture, kit, &uuids, move);
+  PrepareThenMoveGames(fixture, config, move);
+  fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    WaitFor(host, Started);
+    CHECK(move.Logged("startup moved app=220 waits:") && move.Done() == 0);
+    host.Shutdown();
+  }
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json").find("moved_from") != std::string::npos);
+  // The next start's republication is cut off after its request is saved: the console stops
+  // answering whether the title runs.
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  auto interrupted = config;
+  const auto log = config.log;
+  auto activity = fixture.activity;
+  interrupted.log = [log, activity](const std::string& line) {
+    log(line);
+    if (line.rfind("settings update request app=220", 0) == 0) activity->store(static_cast<int>(NativeActivity::kUnknown));
+  };
+  {
+    RuntimeHost host(interrupted);
+    CHECK(host.Start());
+    const auto started = WaitFor(host, Started);
+    CHECK(move.Logged("startup moved app=220 failed:") && move.Done() == 0);
+    CHECK(started.installs[0].recovery_pending);
+    host.Shutdown();
+  }
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json").find("moved_from") != std::string::npos);
+  // Restarted: the saved request is recovery, which Update resumes; Play says what is missing.
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  CHECK(move.Done() == 0);
+  host.Play(220);
+  const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.play_refusals.count(220) != 0; });
+  CHECK(refused.play_refusals.at(220).rfind("This game needs an update for Playden 0.5 first: ", 0) == 0);
+  host.Prepare({220, "/data/playden-games/220", "internal", "Half-Life \"2\""});
+  const auto resumed = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && s.prepares_handled > 0 && !s.installs.empty() && !s.installs[0].recovery_pending;
+  }, 60);
+  if (resumed.refusals.count(220)) std::fprintf(stderr, "Resume refused: %s\n", resumed.refusals.at(220).c_str());
+  CHECK(!resumed.refusals.count(220) && resumed.installs[0].state == PreparationState::kReady);
+  CHECK(move.Done() == 1);
+  CheckRepublishedAtNewRoot(fixture);
+  host.Play(220);
+  CHECK(WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30).handoff_ready);
+  CHECK(host.Handoff());
+  host.Shutdown();
+}
+
+// A moved game whose folder is gone from the new place is not published over: it keeps its mark
+// and the move stays unfinished.
+void MovedGameMissingAtNewRootKeepsTheMove() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  PrepareThenMoveGames(fixture, config, move);
+  fs::remove_all(fixture.root / "data/playden-games/220");
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  CHECK(move.Logged("startup moved app=220 failed:") && move.Done() == 0);
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json").find("moved_from") != std::string::npos);
+  CHECK(Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json").find(kOldGames) != std::string::npos);
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -2260,6 +2592,11 @@ int main(int argc, char** argv) {
   ShippedRecipePreparesWithAnotherKitsRecipe();
   ShippedRecipeRequirementsFollowTheKit(false);
   ShippedRecipeRequirementsFollowTheKit(true);
+  MigrationRewritesInstallPathsAndRepublishes();
+  PlayBeforeRepublishRepublishesFirst();
+  MigrationSkipsRecordsOutsideOldPrefix();
+  RestartDuringRepublishResumes();
+  MovedGameMissingAtNewRootKeepsTheMove();
   std::puts("runtime host tests passed");
   return 0;
 }

@@ -26,6 +26,21 @@ inline void FillProfilePublication(const SettingsLaunchPlan& plan, ProfilePublic
   }
 }
 
+// A game folder that moved as a whole (the 0.5 layout, RuntimeInstall::moved_from): its
+// committed publication names `from`, the install record names `to`. The publication that
+// replaces it checks the old one with the game folder at `to`.
+struct GameRootMove {
+  std::string from, to;
+};
+// The record's move, while it is marked; nothing otherwise.
+std::optional<GameRootMove> GameRootMoveOf(const RuntimeInstall& record);
+// The committed publication a moved game folder left, checked like the title checks it, except
+// the game folder (descriptor game_root, profile paths, dxvk.path), which names move.from and is
+// checked at move.to. Profile, catalog and metadata in the private data root are hash-checked.
+PackageActionResult VerifyMovedPublication(const RuntimeInstall& record, const GameRootMove& move,
+    const std::string& receipt_bytes, const std::string& metadata_bytes,
+    const std::filesystem::path& host_namespace_prefix = {});
+
 enum class PublicationStep {
   kOwnerBlocked, kJournalDurable, kPendingDurable, kFilesApplied,
   kPendingVerified, kCommitDurable, kCommitVerified, kPreviousArchived,
@@ -55,6 +70,9 @@ struct PublicationDependencies {
   // record is durably Ready at its revision). Missing callback refuses retirement.
   std::function<PackageActionResult(const SettingsPublicationOperation& previous,
                                    const SettingsPublicationOperation& next)> authorize_retirement;
+  // Set while the record is marked moved: the journal being retired then names the old game
+  // folder and is checked with VerifyMovedPublication instead of verify_files.
+  std::optional<GameRootMove> moved_root;
   // Optional diagnostic fault seam after durable effects. False stops the call;
   // caller must reconstruct/reload. Production leaves this empty.
   std::function<bool(PublicationStep)> after_step;
@@ -92,9 +110,10 @@ PackageActionResult ApplyPendingPublicationFiles(const SettingsPublicationOperat
 // prior committed complete set; live dxvk.conf and user.reg must equal their frozen
 // before-snapshots. Leftover files at new destinations are not refused (the apply
 // writes over them). Never writes.
+// With moved, a previous publication that names moved->from is checked with VerifyMovedPublication.
 PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperation& operation,
     const PublicationPaths& paths, int borrowed_publisher_fd,
-    const std::filesystem::path& host_namespace_prefix = {});
+    const std::filesystem::path& host_namespace_prefix = {}, const GameRootMove* moved = nullptr);
 // Builds and freezes one operation from the exact supplied plan and live before
 // snapshots. Caller independently approves reserved OWNER/package provenance,
 // positively stopped activity and the borrowed exclusive lease. Control/lock
@@ -102,5 +121,6 @@ PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperat
 Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(
     const RuntimeInstall& record, const SettingsLaunchPlan& plan, const std::string& kit_id,
     const std::string& transaction_id, std::int64_t registry_unix_time,
-    int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {});
+    int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {},
+    const GameRootMove* moved = nullptr);
 }  // namespace playden::runtime

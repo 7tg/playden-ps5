@@ -247,7 +247,7 @@ target_include_directories(playden_homebrew_runtime_host PUBLIC "${CMAKE_SOURCE_
 target_link_libraries(playden_homebrew_runtime_host PUBLIC playden_native_coordinator playden_runtime_settings_publication
     playden_runtime_installs playden_runtime_install_service playden_runtime_package_installer
     playden_runtime_private_directories playden_runtime_launch_service playden_runtime_session_reconciler
-    playden_storage playden_steam_cm_codec playden_runtime_steamworks)
+    playden_storage playden_steam_cm_codec playden_runtime_steamworks playden_runtime_layout_migration)
 
 add_library(playden_homebrew_artwork STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/artwork.cpp"

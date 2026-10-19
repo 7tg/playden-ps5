@@ -75,6 +75,11 @@ struct RuntimeInstall {
   std::vector<RuntimeArtifactIdentity> artifacts;
   std::optional<RuntimeFailure> last_failure;
   std::optional<PreparationJournal> journal;
+  // Set when the game folder moved with the games root (the 0.5 layout): its earlier
+  // install_path, which the committed publication still names. The game needs a
+  // republication against install_path; a committed publication clears it. Stored only
+  // when set, so older readers (which ignore unknown keys) are unaffected.
+  std::string moved_from;
 };
 
 // Shared OWNER record validation; this grants no filesystem ownership or readiness.
@@ -83,6 +88,9 @@ bool ValidateRuntimeInstallRecord(const RuntimeInstall& record);
 // artifacts, recipe and launch fields are not compared (a kit respin may change
 // them). State, revision, journal and failure are checked separately.
 bool SameRuntimeInstallIdentity(const RuntimeInstall& first, const RuntimeInstall& second);
+// path with its leading `from` replaced by `to`, when path is from or inside it (whole
+// path components: /a/games-old is not inside /a/games); nothing otherwise.
+std::optional<std::string> RebaseInstallPath(const std::string& path, std::string from, std::string to);
 
 struct ReserveRequest {
   std::string install_id;
@@ -193,6 +201,8 @@ class RuntimeInstallRepository {
   RepositoryResult<RuntimeInstall> Reserve(const ReserveRequest& request);
   RepositoryResult<RuntimeInstall> Adopt(const LegacyInstall& legacy);
   RepositoryResult<void> Update(const RuntimeInstall& record);
+  // Several updates in one durable write: all of them or none.
+  RepositoryResult<void> UpdateAll(const std::vector<RuntimeInstall>& records);
   RepositoryResult<void> EraseAfterUnregister(const std::string& install_id);
   // Same, with the caller's fresh observation instead of the availability query:
   // removal confirms with the console inventory and the source folder while

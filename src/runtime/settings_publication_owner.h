@@ -33,7 +33,9 @@ class SettingsPublicationOwner {
   // coordinator rechecks ownership/receipt and reconciles durable Ready.
   PackageActionResult Resume(const RuntimeInstall& record,
       const std::filesystem::path& host_namespace_prefix = {});
-  PublicationDependencies Dependencies(const std::filesystem::path& host_namespace_prefix = {});
+  // With moved (the record's GameRootMoveOf), the previous publication may name the old game folder.
+  PublicationDependencies Dependencies(const std::filesystem::path& host_namespace_prefix = {},
+                                       std::optional<GameRootMove> moved = std::nullopt);
  private:
   PackageActionResult Block(const SettingsPublicationOperation& operation);
   PackageActionResult Reconcile(const SettingsPublicationOperation& operation);

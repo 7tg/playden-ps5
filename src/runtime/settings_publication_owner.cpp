@@ -39,6 +39,11 @@ PublicationPaths OperationPaths(const SettingsPublicationOperation& operation, c
           map("/data/homebrew/" + operation.install.title_id + "/game-launch.json"),
           map(profiles + ".playden-publication")};
 }
+// A Ready update publishes a newer revision, or the same one again when the game folder
+// moved (RuntimeInstall::moved_from): its publication must then name the new folder.
+bool UpdateRevisionAllowed(const RuntimeInstall& current, std::uint64_t requested) {
+  return requested > current.settings_revision || (requested == current.settings_revision && !current.moved_from.empty());
+}
 bool MatchingJournal(const RuntimeInstall& r, const SettingsPublicationOperation& o) {
   return r.journal && r.journal->operation == "settings-publication" && r.journal->operation_id == o.transaction_id;
 }
@@ -52,7 +57,7 @@ PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationR
   const bool update = current && current->state == PreparationState::kReady;
   const bool armed = current && current->journal && current->journal->operation == "settings-request";
   if (!expected || !current || !SameRuntimeInstallIdentity(*current, request.install) ||
-      (update ? request.plan.settings_revision <= current->settings_revision :
+      (update ? !UpdateRevisionAllowed(*current, request.plan.settings_revision) :
                 request.plan.settings_revision != current->settings_revision) ||
       (update ? !ReadyCaptureAllowed(*current, request.transaction_id) :
                 current->state != PreparationState::kPreparing || !current->journal ||
@@ -102,7 +107,7 @@ PackageActionResult SettingsPublicationOwner::ResumeRequested(const RuntimeInsta
   auto loaded = LoadSettingsPublicationRequest(directory, current->journal->operation_id);
   if (loaded.state != PublicationRecoveryState::kValid || !loaded.request ||
       !SameRuntimeInstallIdentity(loaded.request->install, *current) ||
-      (current->state == PreparationState::kReady ? loaded.request->plan.settings_revision <= current->settings_revision :
+      (current->state == PreparationState::kReady ? !UpdateRevisionAllowed(*current, loaded.request->plan.settings_revision) :
                                                   loaded.request->plan.settings_revision != current->settings_revision))
     return Failure("publication-request-unavailable", "Requested plan is missing, altered or does not match OWNER; preserve all evidence.");
   const auto& request = *loaded.request;
@@ -111,7 +116,7 @@ PackageActionResult SettingsPublicationOwner::ResumeRequested(const RuntimeInsta
   // Capture durably freezes snapshots/backups. Publication reacquires the
   // qualified lease, verifies prior committed semantics and rechecks OWNER
   // before any effects. The Ready request arm blocks Play during this handoff.
-  auto dependencies = Dependencies(prefix);
+  auto dependencies = Dependencies(prefix, GameRootMoveOf(*current));
   return PublishSettingsOperation(prepared.value(), OperationPaths(prepared.value(), prefix), dependencies);
 }
 PackageActionResult SettingsPublicationOwner::InitializeControl(const RuntimeInstall& record, const std::string& transaction,
@@ -267,7 +272,9 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   // rest is the durable record's.
   auto snapshot = *current; snapshot.settings_revision = record.settings_revision;
   CommitLaunch(&snapshot, record);
-  auto captured = CaptureSettingsPublicationOperation(snapshot, plan, kit, transaction, time, lease->fd(), prefix);
+  const auto moved = GameRootMoveOf(*current);
+  auto captured = CaptureSettingsPublicationOperation(snapshot, plan, kit, transaction, time, lease->fd(), prefix,
+                                                      moved ? &*moved : nullptr);
   if (!captured.ok()) return captured;
   if (!lease->Validate(*control, "publication.lock"))
     return fail("The publication lock changed before the capture was saved.");
@@ -339,7 +346,7 @@ PackageActionResult SettingsPublicationOwner::Resume(const RuntimeInstall& recor
   const PublicationPaths paths{map(profiles + operation->plan.profile_id + ".profile"), map(profiles + "profiles.lst"),
       map(operation->install.data_root + "/library/input"),
       map("/data/homebrew/" + operation->install.title_id + "/game-launch.json"), map(profiles + ".playden-publication")};
-  auto dependencies = Dependencies(prefix);
+  auto dependencies = Dependencies(prefix, GameRootMoveOf(*current));
   return PublishSettingsOperation(*operation, paths, dependencies);
 }
 PackageActionResult SettingsPublicationOwner::Persist(const RuntimeInstall& record) {
@@ -388,7 +395,8 @@ PackageActionResult SettingsPublicationOwner::Reconcile(const SettingsPublicatio
   if (!o.previous_receipt_bytes.empty()) {
     record->state = PreparationState::kReady; record->settings_revision = o.plan.settings_revision;
     CommitLaunch(&*record, o.install);
-    record->journal.reset(); record->last_failure.reset();
+    // Built from the record's install_path: a moved game folder is now the one published.
+    record->journal.reset(); record->last_failure.reset(); record->moved_from.clear();
     return Persist(*record);
   }
   auto status = native_.QueryOwnership(o.install);
@@ -419,7 +427,7 @@ PackageActionResult SettingsPublicationOwner::Reconcile(const SettingsPublicatio
   }
   record->state = PreparationState::kReady; record->settings_revision = o.plan.settings_revision;
   CommitLaunch(&*record, o.install);
-  record->journal.reset(); record->last_failure.reset();
+  record->journal.reset(); record->last_failure.reset(); record->moved_from.clear();
   return Persist(*record);
 }
 PackageActionResult SettingsPublicationOwner::AuthorizeRetirement(const SettingsPublicationOperation& previous,
@@ -428,17 +436,24 @@ PackageActionResult SettingsPublicationOwner::AuthorizeRetirement(const Settings
   // Retiring the previous journal needs only that it was committed: the record is
   // Ready at its revision with this update's request armed. Ownership is checked
   // once, by Block, before this apply changes anything.
-  if (!record || !SameRuntimeInstallIdentity(*record, previous.install) || !SameRuntimeInstallIdentity(*record, next.install) ||
+  // The journal of a game folder that moved names the old folder.
+  auto earlier = previous.install;
+  if (const auto moved = record ? GameRootMoveOf(*record) : std::nullopt; moved && earlier.install_path == moved->from)
+    earlier.install_path = moved->to;
+  if (!record || !SameRuntimeInstallIdentity(*record, earlier) || !SameRuntimeInstallIdentity(*record, next.install) ||
       !ReadyCaptureAllowed(*record, next.transaction_id) ||
       record->settings_revision != previous.plan.settings_revision)
     return Failure("publication-retirement-owner", "Previous operation lacks a coherent durable Ready OWNER record.");
   return {PackageActionState::kComplete, {}, {}};
 }
-PublicationDependencies SettingsPublicationOwner::Dependencies(const std::filesystem::path& prefix) {
-  PublicationDependencies deps; deps.host_namespace_prefix = prefix;
+PublicationDependencies SettingsPublicationOwner::Dependencies(const std::filesystem::path& prefix,
+                                                               std::optional<GameRootMove> moved) {
+  PublicationDependencies deps; deps.host_namespace_prefix = prefix; deps.moved_root = moved;
   deps.activity = [this](const RuntimeInstall& r) { return native_.Activity(r.title_id); };
   deps.block_owner = [this](const auto& o) { return Block(o); };
-  deps.preflight = [prefix](const auto& o, const auto& paths, int fd) { return PreflightSettingsPublication(o, paths, fd, prefix); };
+  deps.preflight = [prefix, moved](const auto& o, const auto& paths, int fd) {
+    return PreflightSettingsPublication(o, paths, fd, prefix, moved ? &*moved : nullptr);
+  };
   deps.apply_files = [prefix](const auto& o, const auto& paths, int fd) { return ApplyPendingPublicationFiles(o, paths, fd, prefix); };
   deps.verify_files = [prefix](const auto& o, const auto& paths, int fd, bool committed) {
     return VerifySettingsPublicationFiles(o, paths, fd, committed, prefix);
