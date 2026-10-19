@@ -313,20 +313,21 @@ int main(int argc, char** argv) {
       CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Only with 120 Hz output.");
       CHECK(SettingChoiceUnavailable(shown, "frame_limit", rate) == "Only with 120 Hz output.");
       CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
-      CHECK(profile.text.find("\nrefresh = 60\nframe_rate = 0\n") != std::string::npos);
+      CHECK(profile.text.find("\nrefresh = 60\n") != std::string::npos && profile.text.find("frame_rate") == std::string::npos);
     }
-    // Off is no cap; 60 and 30 at 60 Hz output are paced by the display as well.
+    // Off is no cap, the runtime's default, so the profile has no frame_rate and every runtime reads it; 60 and 30 at
+    // 60 Hz output are paced by the display as well.
     CHECK(BuildEffectiveSettings(hl2, nullptr, {}, display, &shown, &error));
     CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
-    CHECK(profile.text.find("\nrefresh = 60\nframe_rate = 0\n") != std::string::npos);
+    CHECK(profile.text.find("\nrefresh = 60\n") != std::string::npos && profile.text.find("frame_rate") == std::string::npos);
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "30"}}, display, &shown, &error));
     CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
     CHECK(profile.text.find("\nframe_rate = 30\n") != std::string::npos && RenderDxvkConfig(shown).find("maxFrameRate") == std::string::npos);
     // 30 at 120 Hz output takes four vblanks, which the display cannot pace: DXVK's limiter does it, and the profile
-    // asks for no cap.
+    // has no frame_rate.
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, display, &shown, &error));
     CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
-    CHECK(profile.text.find("\nrefresh = 120\nframe_rate = 0\n") != std::string::npos);
+    CHECK(profile.text.find("\nrefresh = 120\n") != std::string::npos && profile.text.find("frame_rate") == std::string::npos);
     CHECK(RenderDxvkConfig(shown).find("\ndxgi.maxFrameRate = 30\nd3d9.maxFrameRate = 30\n") != std::string::npos);
     bool frame_rate_env = false;
     for (const auto& value : RenderBottleEnvironment(shown))
@@ -355,7 +356,7 @@ int main(int argc, char** argv) {
       if (value.name == "VKD3D_FRAME_RATE") vkd3d_rate = value.data;
     CHECK(vkd3d_rate == "\"30\"");
     CHECK(RenderProsperoProfile(d3d12, shown, target, &profile, &reason));
-    CHECK(profile.text.find("\nshow_fps = false\nrefresh = 120\nframe_rate = 0\n") != std::string::npos);
+    CHECK(profile.text.find("\nshow_fps = false\nrefresh = 120\n\n[input]") != std::string::npos);
     // Paced by the display at 60: no VKD3D_FRAME_RATE.
     CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"}, {"frame_limit", "60"}}, display, &shown, &error));
     vkd3d_rate.clear();
@@ -533,7 +534,7 @@ int main(int argc, char** argv) {
   CHECK(profile.text.find("\n[audio]\nvolume = 50\n") != std::string::npos);
   CHECK(!CheckProsperoProfile(profile.text, &reason));                // a released runtime refuses both
   CHECK(CheckProsperoProfile(profile.text, &reason,
-                             {.input_tuning = true, .input_wheel = true, .audio_section = true, .display_frame_rate = true}));
+                             {.input_tuning = true, .input_wheel = true, .audio_section = true}));
   CHECK(BuildEffectiveSettings(hl2, nullptr, {{"volume", "100"}, {"wheel_stick", "none"}}, all_kit, &settings, &error));
   CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
   CHECK(profile.text.find("[audio]") == std::string::npos && profile.text.find("wheel") == std::string::npos);

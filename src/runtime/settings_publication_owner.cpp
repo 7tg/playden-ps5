@@ -1,5 +1,6 @@
 #include "runtime/settings_publication_owner.h"
 #include "runtime/publication_contract.h"
+#include "runtime/artifact_hash.h"
 #include "platform/managed_file_lock.h"
 #include "platform/storage.h"
 #include <cerrno>
@@ -45,13 +46,17 @@ PublicationPaths OperationPaths(const SettingsPublicationOperation& operation, c
 // A Ready update publishes a newer revision, or the same one again when the game folder
 // moved (RuntimeInstall::moved_from): its publication must then name the new folder. With a
 // kit that admits unowned folders, a committed owned publication (schema 2) is also published
-// again as unowned; one already unowned, or unreadable, is not.
-bool UpdateRevisionAllowed(const RuntimeInstall& current, std::uint64_t requested, bool unowned_game_roots,
+// again as unowned; one already unowned, or unreadable, is not. The same revision is also
+// published again when the title moved to another runtime and the same settings now make
+// another profile (RuntimeHost::RepublishSettings, force). Never an older revision.
+bool UpdateRevisionAllowed(const RuntimeInstall& current, const SettingsLaunchPlan& plan, bool unowned_game_roots,
                            const std::filesystem::path& prefix) {
-  if (requested > current.settings_revision) return true;
-  if (requested != current.settings_revision) return false;
+  if (plan.settings_revision > current.settings_revision) return true;
+  if (plan.settings_revision != current.settings_revision) return false;
   if (!current.moved_from.empty()) return true;
-  return unowned_game_roots && PublishedGameRootUnowned(current, prefix) == std::optional<bool>(false);
+  if (unowned_game_roots && PublishedGameRootUnowned(current, prefix) == std::optional<bool>(false)) return true;
+  const auto published = PublishedProfileDigest(current, prefix);
+  return published && HashArtifactBytes(plan.profile_bytes) != published;
 }
 bool MatchingJournal(const RuntimeInstall& r, const SettingsPublicationOperation& o) {
   return r.journal && r.journal->operation == "settings-publication" && r.journal->operation_id == o.transaction_id;
@@ -68,7 +73,7 @@ PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationR
   const bool update = current && current->state == PreparationState::kReady;
   const bool armed = current && current->journal && current->journal->operation == "settings-request";
   if (!expected || !current || !SameRuntimeInstallIdentity(*current, request.install) ||
-      (update ? !UpdateRevisionAllowed(*current, request.plan.settings_revision, unowned_game_roots_, host_namespace_prefix_) :
+      (update ? !UpdateRevisionAllowed(*current, request.plan, unowned_game_roots_, host_namespace_prefix_) :
                 request.plan.settings_revision != current->settings_revision) ||
       (update ? !ReadyCaptureAllowed(*current, request.transaction_id) :
                 current->state != PreparationState::kPreparing || !current->journal ||
@@ -118,7 +123,7 @@ PackageActionResult SettingsPublicationOwner::ResumeRequested(const RuntimeInsta
   auto loaded = LoadSettingsPublicationRequest(directory, current->journal->operation_id);
   if (loaded.state != PublicationRecoveryState::kValid || !loaded.request ||
       !SameRuntimeInstallIdentity(loaded.request->install, *current) ||
-      (current->state == PreparationState::kReady ? !UpdateRevisionAllowed(*current, loaded.request->plan.settings_revision, unowned_game_roots_, prefix) :
+      (current->state == PreparationState::kReady ? !UpdateRevisionAllowed(*current, loaded.request->plan, unowned_game_roots_, prefix) :
                                                   loaded.request->plan.settings_revision != current->settings_revision))
     return Failure("publication-request-unavailable", "Requested plan is missing, altered or does not match OWNER; preserve all evidence.");
   const auto& request = *loaded.request;

@@ -882,13 +882,13 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   // written: it was the PS5 OpenGL SDK's, and runtimes default it to off.
   if (settings.values.at("refresh").available || settings.graphics == "opengl")
     text += "refresh = " + value("refresh") + "\n";
-  // Only for a title whose runtime takes it: an older runtime refuses the whole profile for this key.
+  // Only a cap the display paces, for a title whose runtime takes it: an older runtime refuses the whole profile for
+  // this key. No cap is the runtime's default (0), so uncapped profiles stay readable by every runtime; 30 at 120 Hz
+  // output is left to the software limiters (RenderDxvkConfig, RenderBottleEnvironment).
   const auto& limit = OptionalValue(settings, "frame_limit");
-  const bool frame_rate = settings.display_120hz && limit.available;
-  if (frame_rate) {
-    const bool paced = limit.value != "off" && SoftwareFrameLimit(settings).empty();
-    text += "frame_rate = " + (paced ? limit.value : std::string("0")) + "\n";
-  }
+  const bool frame_rate =
+      settings.display_120hz && limit.available && limit.value != "off" && SoftwareFrameLimit(settings).empty();
+  if (frame_rate) text += "frame_rate = " + limit.value + "\n";
 
   text += "\n[input]\n";
   if (value("controller_preset") != "none") text += "preset = " + value("controller_preset") + "\n";

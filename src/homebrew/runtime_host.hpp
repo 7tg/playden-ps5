@@ -500,14 +500,17 @@ class RuntimeHost {
   // The unowned upgrade alone (not moved, no newer settings) never refuses: its failure is in
   // *upgrade_deferred and the owned publication stays, as it played before.
   // `code`: the publication's failure code when the publication itself refused (empty otherwise).
+  // With force, the settings are published again even when the title already has their revision:
+  // after Update moved the title to another runtime, which may take different profile keys (120 Hz
+  // output). Nothing is published when they write the same profile and dxvk.conf as before.
   std::string RepublishSettings(Composition& composition, const runtime::RuntimeInstall& record,
                                 bool* published = nullptr, bool steam_account_known = true,
                                 bool* prepare_again = nullptr, std::string* upgrade_deferred = nullptr,
-                                std::string* code = nullptr);
+                                std::string* code = nullptr, bool force = false);
   // RepublishSettings without the upgrade's fallback.
   std::string PublishSavedSettings(Composition& composition, const runtime::RuntimeInstall& record,
                                    bool* published, bool steam_account_known, bool* prepare_again,
-                                   std::string* code = nullptr);
+                                   std::string* code = nullptr, bool force = false);
   // A Ready game published owned (schema 2, before 0.6 or by a kit before 0.10) while the kit
   // admits unowned game folders: published again as unowned, so folders the player opened pass.
   bool NeedsUnownedPublication(const Composition& composition, const runtime::RuntimeInstall& record);

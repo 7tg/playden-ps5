@@ -190,6 +190,16 @@ std::optional<bool> PublishedGameRootUnowned(const RuntimeInstall& r, const std:
     return std::nullopt;
   return m.game_root_unowned != 0;
 }
+std::optional<std::string> PublishedProfileDigest(const RuntimeInstall& r, const std::filesystem::path& prefix) {
+  if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())) return std::nullopt;
+  auto profiles = ManagedDirectory::Open(Map(prefix, r.data_root + "/library/profiles"), DirectoryPolicy::kPrivate);
+  auto bytes = profiles ? ReadPublicationFile(*profiles, ".playden-publication", 32768) : std::nullopt;
+  PwTitlePublicationMetadata m{};
+  if (!bytes || !bytes->present || pw_title_publication_metadata_parse(
+          reinterpret_cast<const uint8_t*>(bytes->bytes.data()), bytes->bytes.size(), &m) != PW_OK)
+    return std::nullopt;
+  return std::string(m.profile_sha256);
+}
 std::optional<GameRootMove> GameRootMoveOf(const RuntimeInstall& record) {
   if (record.moved_from.empty() || record.moved_from == record.install_path) return std::nullopt;
   return GameRootMove{record.moved_from, record.install_path};

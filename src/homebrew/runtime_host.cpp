@@ -1529,7 +1529,7 @@ std::string RuntimeHost::UnlinkDxvkConfig(const rt::RuntimeInstall& record) {
 
 std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
                                            bool steam_account_known, bool* prepare_again,
-                                           std::string* upgrade_deferred, std::string* code) {
+                                           std::string* upgrade_deferred, std::string* code, bool force) {
   if (published) *published = false;
   if (code) code->clear();
   if (prepare_again) *prepare_again = false;
@@ -1540,10 +1540,11 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
       if (RecipeFits(candidate, record) && candidate.id == record.recipe_id)
         if (const auto lacks = KitLacksForRecipe(candidate, c.kit->view); !lacks.empty()) return lacks;
   // Only the unowned upgrade of a game that did not move, with no newer settings: the game
-  // played under its owned publication, which stays when the upgrade fails.
+  // played under its owned publication, which stays when the upgrade fails. A forced publication
+  // (another runtime) reports its refusal instead.
   const auto saved_revision = config_.settings_record
       ? config_.settings_record(GameOf(record)).value_or(rt::GameSettingsRecord{}).revision : 0;
-  const bool upgrade_only = record.moved_from.empty() && saved_revision <= record.settings_revision &&
+  const bool upgrade_only = !force && record.moved_from.empty() && saved_revision <= record.settings_revision &&
                             NeedsUnownedPublication(c, record);
   // A game folder that isn't there (a stale record, an unplugged drive) can't be published, and
   // arming the request first would leave a journal on the record: nothing is armed for it.
@@ -1556,7 +1557,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
       return {};
     }
   }
-  auto refused = PublishSavedSettings(c, record, published, steam_account_known, prepare_again, code);
+  auto refused = PublishSavedSettings(c, record, published, steam_account_known, prepare_again, code, force);
   if (refused.empty() || !upgrade_only) return refused;
   Log("settings update app=" + std::to_string(record.runtime_number) + " unowned upgrade deferred, owned publication kept: " +
       refused);
@@ -1570,16 +1571,19 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
 }
 
 std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
-                                              bool steam_account_known, bool* prepare_again, std::string* code) {
+                                              bool steam_account_known, bool* prepare_again, std::string* code,
+                                              bool force) {
   if (code) code->clear();
   // Refusals only a new preparation gets past (the title's recipe or settings can't be published again).
   const auto again = [prepare_again](std::string message) {
     if (prepare_again) *prepare_again = true;
     return message;
   };
-  const auto saved = config_.settings_record
-                         ? config_.settings_record(GameOf(record)).value_or(rt::GameSettingsRecord{})
-                                             : rt::GameSettingsRecord{};
+  auto saved = config_.settings_record
+                   ? config_.settings_record(GameOf(record)).value_or(rt::GameSettingsRecord{})
+                   : rt::GameSettingsRecord{};
+  // A forced publication keeps the title's revision: the settings are the same, the runtime is not.
+  if (force) saved.revision = std::max(saved.revision, record.settings_revision);
   // A game whose folder moved (RuntimeInstall::moved_from) is published again at its revision, so
   // its descriptor, profile and dxvk.conf name the new folder.
   const bool moved = !record.moved_from.empty();
@@ -1587,7 +1591,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   const bool unowned_upgrade = !moved && NeedsUnownedPublication(c, record);
   if (unowned_upgrade) Log("settings update app=" + std::to_string(record.runtime_number) + " publishes the game folder unowned");
   // "Steam features" only swaps the game's own files, so it follows the saved value at once.
-  if (saved.revision <= record.settings_revision && !moved && !unowned_upgrade)
+  if (!force && saved.revision <= record.settings_revision && !moved && !unowned_upgrade)
     return ApplyPreparationSteps(c, record, steam_account_known);
   if (!c.kit) return "No verified compatibility kit is installed.";
   if (saved.revision < record.settings_revision)
@@ -1691,6 +1695,26 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   if (plan.app_id != record.runtime_number || plan.recipe_id != record.recipe_id || plan.recipe_version != record.recipe_version ||
       plan.launch_entry_id != next.launch_entry_id || plan.profile_id != record.default_profile_id)
     return again("The settings no longer match this game's PS5 title; prepare it again.");
+  // A forced publication runs only when the new runtime changes what the settings write (120 Hz output), so a
+  // respin that changes nothing there keeps its publication, registration and bottle as they are.
+  if (force) {
+    // POSIX reads, as elsewhere here: the PS5 libc++ has no locale support for file streams.
+    const auto read = [](const std::filesystem::path& path) {
+      std::string bytes;
+      const int fd = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+      if (fd < 0) return bytes;
+      char chunk[4096];
+      for (ssize_t count; (count = ::read(fd, chunk, sizeof(chunk))) > 0;)
+        bytes.append(chunk, static_cast<std::size_t>(count));
+      close(fd);
+      return bytes;
+    };
+    const auto profile = HostPath(record.data_root) / "library/profiles" / (plan.profile_id + ".profile");
+    const auto config = HostPath(record.install_path) / WorkingFolder(next.launch_working_directory, next.launch_path,
+                                                                                 next.launch_in_install_root) /
+                        "dxvk.conf";
+    if (read(profile) == plan.profile_bytes && read(config) == plan.dxvk_config) return {};
+  }
   const auto transaction = config_.uuid();
   if (!transaction) return "No secure random source for the settings update.";
   rt::SettingsPublicationRequest request;
@@ -2582,7 +2606,10 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         const auto written = WriteTitleMetadata(c, *existing, request.title_name);
         if (written.state != rt::PackageActionState::kComplete) return written.message;
       }
-      if (!c.installer->TitleCurrent(*existing) || !metadata_current) {
+      // A title that moves to the kit's runtime gets its settings published again below: the profile
+      // was built for the runtime it had, and the new one may take more keys (120 Hz output) or fewer.
+      const bool runtime_refresh = !c.installer->TitleCurrent(*existing);
+      if (runtime_refresh || !metadata_current) {
         // Same kit id and recipe; title files changed (a new wrapper build) or
         // the runtime was rebuilt (same artifacts, new bytes). The registration
         // and publication stay as they are. A rebuilt runtime is copied into the
@@ -2664,6 +2691,15 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       PublishInstalls(c);
       if (admission != "ok") return "The PS5 title still fails its start check: " + admission;
       OpenGameFolders(c, *existing);
+      if (runtime_refresh) {
+        const auto refreshed_record = c.records.Find(existing->install_id);
+        if (!refreshed_record) return "The game's install record is missing.";
+        bool republished = false;
+        const auto refused = RepublishSettings(c, *refreshed_record, &republished, true, nullptr, nullptr, nullptr, true);
+        Log("runtime refresh republish app=" + std::to_string(request.runtime_number) + " published=" +
+            std::to_string(republished) + (refused.empty() ? std::string() : " refused=" + refused));
+        if (!refused.empty()) return refused;
+      }
       return changed ? std::string{} : "This game is already prepared.";
     }
     if (existing->install_path != request.install_path)
