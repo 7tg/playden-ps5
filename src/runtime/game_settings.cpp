@@ -174,6 +174,11 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"auto", "Automatic", ""}, {"gdi", "GDI", "2D only."}, {"dxvk", "DXVK", "Direct3D 9-11 on Vulkan."},
                          {"opengl", "OpenGL", ""}},
                         "auto"));
+  list.push_back(Choice("d3d12", "Direct3D 12", "What draws a Direct3D 12 game.", "d3d12.dll · d3d12core.dll",
+                        T::kCompatibility,
+                        {{"wine", "Wine", "Wine's own Direct3D 12."},
+                         {"vkd3d-proton", "vkd3d-proton", "Direct3D 12 on Vulkan, as in Proton. Experimental."}},
+                        "wine"));
   list.push_back(Choice("steam_features", "Steam features", "How the game reaches Steam without the Steam client.",
                         "steam_api.dll · steam_api64.dll", T::kCompatibility,
                         {{"emulate", "Offline emulation", "Playden's Steam emulator answers the game."},
@@ -367,6 +372,11 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
     if (overlay == values.end() || overlay->second.value != "on") return "Turn the performance overlay on first.";
   }
   if (id == "scaling" && dxvk) return "Not available with DXVK output yet.";
+  // vkd3d-proton presents through DXVK's dxgi, which only the DXVK overrides load.
+  if (id == "d3d12") {
+    if (!kit.vkd3d_proton) return "Needs a runtime kit with vkd3d-proton.";
+    if (!dxvk) return "Only available with DXVK.";
+  }
   if ((id == "refresh" || id == "opengl_thread") && graphics != "opengl") return "Only available with OpenGL.";
   // Zink has no output rate or worker thread of its own; the runtime logs these as ignored.
   if ((id == "refresh" || id == "opengl_thread") && kit.opengl_zink)
@@ -471,7 +481,8 @@ bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::st
       auto item = entry.substr(equals + 1);
       while (!name.empty() && name.back() == ' ') name.remove_suffix(1);
       while (!item.empty() && item.front() == ' ') item.remove_prefix(1);
-      if (!IsProsperoEnvironmentEntry(name, item) && !IsProsperoDebugEnvEntry(name, item))
+      if (!IsProsperoEnvironmentEntry(name, item) && !IsProsperoDebugEnvEntry(name, item) &&
+          !IsBottleEnvironmentEntry(name, item))
         return fail(std::string(name) + " is not an allowed variable");
       if (!names.insert(std::string(name)).second) return fail(std::string(name) + " appears twice");
       if (++count > kProsperoMaxEnvironmentEntries) return fail("at most 8 variables");
@@ -685,6 +696,24 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     for (const auto& entry : SplitDllOverrides(overrides_row.value))
       if (entry != kDxvkOverrides) list += (list.empty() ? "" : ";") + entry;
     if (out.graphics == "dxvk") list = list.empty() ? std::string(kDxvkOverrides) : kDxvkOverrides + (";" + list);
+    overrides_row.value = list;
+  }
+  // vkd3d-proton's entry follows the Direct3D 12 row the same way, whoever wrote the list.
+  out.vkd3d_proton = out.values["d3d12"].value == "vkd3d-proton";
+  // It also brings DXVK's dxgi, which it presents through, when no other entry names dxgi.
+  if (out.vkd3d_proton || overrides_row.value.find(kVkd3dProtonOverrides) != std::string::npos ||
+      overrides_row.value.find(kVkd3dProtonDxgiOverrides) != std::string::npos) {
+    std::string list;
+    bool dxgi = false;
+    for (const auto& entry : SplitDllOverrides(overrides_row.value)) {
+      if (entry == kVkd3dProtonOverrides || entry == kVkd3dProtonDxgiOverrides) continue;
+      list += (list.empty() ? "" : ";") + entry;
+      auto names = "," + entry.substr(0, entry.find('=')) + ",";
+      for (auto& c : names) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+      dxgi = dxgi || names.find(",dxgi,") != std::string::npos;
+    }
+    if (out.vkd3d_proton)
+      list += (list.empty() ? "" : ";") + std::string(dxgi ? kVkd3dProtonOverrides : kVkd3dProtonDxgiOverrides);
     overrides_row.value = list;
   }
   out.dll_overrides = overrides_row.value;
@@ -1978,6 +2007,55 @@ bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root
   return true;
 }
 
+namespace {
+constexpr const char* kBottleEnvironmentNames[] = {
+    "VKD3D_CONFIG",          "VKD3D_DEBUG",          "VKD3D_DISABLE_EXTENSIONS",   "VKD3D_FEATURE_LEVEL",
+    "VKD3D_FRAME_RATE",      "VKD3D_LOG_FILE",       "VKD3D_SHADER_CACHE_PATH",    "VKD3D_SHADER_DEBUG",
+    "VKD3D_SHADER_MODEL",    "VKD3D_SWAPCHAIN_IMAGES", "VKD3D_SWAPCHAIN_LATENCY_FRAMES",
+    "VKD3D_SWAPCHAIN_PRESENT_MODE"};
+}  // namespace
+
+bool IsBottleEnvironmentEntry(std::string_view name, std::string_view value) {
+  if (std::find(std::begin(kBottleEnvironmentNames), std::end(kBottleEnvironmentNames), name) ==
+          std::end(kBottleEnvironmentNames) ||
+      value.empty() || value.size() >= 128)
+    return false;
+  for (const unsigned char c : value)
+    if (c < 0x20 || c > 0x7e || c == '"' || c == '\'') return false;
+  return true;
+}
+
+std::vector<RegistryValue> RenderBottleEnvironment(const EffectiveSettings& settings) {
+  std::map<std::string, std::string> listed;
+  const auto& environment = settings.values.at("environment");
+  if (environment.available)
+    for (std::size_t start = 0; start <= environment.value.size();) {
+      const auto end = std::min(environment.value.find(';', start), environment.value.size());
+      std::string entry = environment.value.substr(start, end - start);
+      start = end + 1;
+      const auto equals = entry.find('=');
+      if (equals == std::string::npos) continue;
+      std::string name = entry.substr(0, equals), item = entry.substr(equals + 1);
+      while (!name.empty() && name.front() == ' ') name.erase(0, 1);
+      while (!name.empty() && name.back() == ' ') name.pop_back();
+      while (!item.empty() && item.front() == ' ') item.erase(0, 1);
+      while (!item.empty() && item.back() == ' ') item.pop_back();
+      if (IsBottleEnvironmentEntry(name, item)) listed[name] = item;
+    }
+  std::vector<RegistryValue> values;
+  for (const char* name : kBottleEnvironmentNames) {
+    const auto found = listed.find(name);
+    std::string data;
+    if (found != listed.end()) {
+      data = "\"";
+      for (const char c : found->second) data += c == '\\' ? std::string("\\\\") : std::string(1, c);
+      data += "\"";
+    }
+    values.push_back({"Environment", name, data});
+  }
+  return values;
+}
+
 std::vector<RegistryValue> RenderRegistryValues(const EffectiveSettings& settings) {
   std::vector<RegistryValue> values;
   const auto& version = settings.values.at("windows_version");
@@ -2236,6 +2314,71 @@ bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefi
   return true;
 }
 
+bool ApplyD3D12Library(const std::string& runtime_dir, const std::string& template_dir, const std::string& prefix_dir,
+                       bool vkd3d_proton, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  constexpr std::size_t kMaxD3D12DllBytes = 64u * 1024u * 1024u;
+  // Left next to the DLLs while they are vkd3d-proton's, so switching back restores them whichever kit put them there.
+  constexpr const char* kMarker = ".playden-vkd3d-proton";
+  using Directory = decltype(ManagedDirectory::Open(std::filesystem::path(), DirectoryPolicy::kApprovedTree));
+  struct Folder {
+    Directory bottle;
+    std::vector<std::pair<const char*, std::string>> writes;
+    bool marked = false;
+  };
+  // Everything is read first, so a missing or unreadable file changes nothing.
+  std::vector<Folder> folders;
+  for (const auto& [arch, folder] : {std::pair{"x86_64-windows", "system32"}, std::pair{"i386-windows", "syswow64"}}) {
+    Folder plan;
+    plan.bottle = ManagedDirectory::Open(std::filesystem::path(prefix_dir) / "drive_c/windows" / folder,
+                                         DirectoryPolicy::kApprovedTree);
+    if (!plan.bottle) {
+      if (errno == ENOENT) continue;  // no bottle yet: the next Play puts them in
+      return fail("cannot open the bottle's windows folders");
+    }
+    struct stat marker {};
+    plan.marked = plan.bottle->InspectChild(kMarker, &marker);
+    if (!plan.marked && errno != ENOENT) return fail("cannot inspect the bottle's vkd3d-proton marker");
+    auto source = ManagedDirectory::Open(std::filesystem::path(runtime_dir) / "lib/vkd3d-proton" / arch,
+                                         DirectoryPolicy::kApprovedTree);
+    if (!source && vkd3d_proton) return fail("the kit has no vkd3d-proton");
+    Directory original;
+    for (const char* name : {"d3d12.dll", "d3d12core.dll"}) {
+      std::string ours, current, wanted;
+      if (source && ReadRegularAt(*source, name, kMaxD3D12DllBytes, &ours) != RelativeRead::kPresent)
+        return fail(std::string("the kit's vkd3d-proton ") + name + " is missing");
+      const auto state = ReadRegularAt(*plan.bottle, name, kMaxD3D12DllBytes, &current);
+      if (state == RelativeRead::kError) return fail(std::string("cannot read the bottle's ") + name);
+      if (vkd3d_proton) {
+        wanted = std::move(ours);
+      } else {
+        // Bottles switched before the marker existed are recognized by the current kit's bytes.
+        if (!plan.marked && (!source || state != RelativeRead::kPresent || current != ours)) continue;
+        if (!original)
+          original = ManagedDirectory::Open(std::filesystem::path(template_dir) / "drive_c/windows" / folder,
+                                            DirectoryPolicy::kApprovedTree);
+        if (!original || ReadRegularAt(*original, name, kMaxD3D12DllBytes, &wanted) != RelativeRead::kPresent)
+          return fail(std::string("the kit template's ") + name + " is missing");
+      }
+      if (state != RelativeRead::kPresent || current != wanted) plan.writes.emplace_back(name, std::move(wanted));
+    }
+    folders.push_back(std::move(plan));
+  }
+  for (auto& plan : folders) {
+    for (const auto& [name, data] : plan.writes)
+      if (!WriteAtomicAt(*plan.bottle, name, data, 0644, false, false, true))
+        return fail(std::string("cannot copy ") + name + " into the bottle");
+    if (vkd3d_proton && !plan.marked && !WriteAtomicAt(*plan.bottle, kMarker, "", 0644, false, false, true))
+      return fail("cannot mark the bottle's vkd3d-proton files");
+    if (!vkd3d_proton && plan.marked && !plan.bottle->RemoveRegularFile(kMarker))
+      return fail("cannot remove the bottle's vkd3d-proton marker");
+  }
+  return true;
+}
+
 bool ParseUe3InstallGuid(std::string_view install_info, std::string* guid) {
   static constexpr std::string_view open = "<InstallGuidString>", close = "</InstallGuidString>";
   const auto start = install_info.find(open);
@@ -2342,6 +2485,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.game_root_unowned = has(kKitGameRootUnowned);
   kit.opengl_zink = has(kKitOpenGLZink);
   kit.wine_mono = has(kKitWineMono);
+  kit.vkd3d_proton = has(kKitVkd3dProton);
   kit.registry = bottle_access;
   return kit;
 }

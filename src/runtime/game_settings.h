@@ -44,6 +44,7 @@ struct KitCapabilities {
   bool game_root_unowned = false;  // games start from drives that record no file owners (exFAT)
   bool opengl_zink = false;        // OpenGL games draw through Mesa's Zink, not the PS5 OpenGL SDK
   bool wine_mono = false;          // .NET programs start on the kit's Wine Mono
+  bool vkd3d_proton = false;       // the kit's runtime carries vkd3d-proton's Direct3D 12 DLLs
 };
 
 struct SettingChoice {
@@ -165,6 +166,8 @@ struct EffectiveSettings {
   // The runtime reads [debug] env lines (Zink kits). With [environment] as well, a variable [environment] does not
   // take (PW_, GALLIUM_, ZINK_, VK_) still goes there.
   bool debug_env_lines = false;
+  // Direct3D 12 through vkd3d-proton: ApplyD3D12Library puts its DLLs in the bottle before the game starts.
+  bool vkd3d_proton = false;
 };
 
 // The launch entry id of a program the player chose from the game folder.
@@ -283,6 +286,15 @@ bool ClearShaderCache(const LaunchEntry& launch, const std::string& install_root
 // edit the bottle.
 std::vector<RegistryValue> RenderRegistryValues(const EffectiveSettings& settings);
 
+// vkd3d-proton's own variables (VKD3D_DEBUG, VKD3D_CONFIG, ...), which neither profile section takes. Environment
+// variables accepts them and they reach the game through the bottle's HKEY_CURRENT_USER\Environment, which Wine adds
+// to the environment of the program it starts.
+bool IsBottleEnvironmentEntry(std::string_view name, std::string_view value);
+
+// The bottle's Environment values for those variables: each one Environment variables lists is set, every other one
+// is removed, so a variable taken out of the row leaves the bottle as well.
+std::vector<RegistryValue> RenderBottleEnvironment(const EffectiveSettings& settings);
+
 // Applies values to Wine's user.reg text, keeping every other line. Sections Playden adds
 // carry the given Unix time. Returns false for text that is not a Wine registry file.
 bool ApplyRegistryValues(std::string* user_reg, const std::vector<RegistryValue>& values, std::int64_t unix_time,
@@ -302,6 +314,14 @@ bool ApplyBottleRegistryValues(const std::vector<RegistryValue>& values, const s
 // and syswow64 when missing (Wine finds a builtin only through that file). Older kits without the file are unchanged.
 bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefix_dir,
                         std::int64_t unix_time, std::string* reason);
+
+// Puts the Direct3D 12 DLLs a game asked for in the stopped bottle's system32 and syswow64: vkd3d-proton's from
+// <runtime_dir>/lib/vkd3d-proton when vkd3d_proton is set (the profile's overrides then load them as native), and
+// otherwise the kit template's own copies back, but only where vkd3d-proton was put (a marker file next to the DLLs,
+// or the current kit's bytes), so bottles that never used it are not touched. Every file is read before any is
+// written, and files that already match are not rewritten. A bottle that does not exist yet is left for later.
+bool ApplyD3D12Library(const std::string& runtime_dir, const std::string& template_dir, const std::string& prefix_dir,
+                       bool vkd3d_proton, std::string* reason);
 
 // The <InstallGuidString> of an Unreal Engine 3 (UDK) Binaries/InstallInfo.xml: exactly one,
 // a 36-character 8-4-4-4-12 hex GUID once surrounding whitespace is trimmed.
@@ -389,6 +409,9 @@ inline constexpr const char* kKitOpenGLZink = "opengl-zink";
 // Runtime ability: the kit carries Wine Mono (at mono/wine-mono-<version>) and its template bottle points
 // Wine's mscoree at it, so .NET and mixed C++/CLI programs can start.
 inline constexpr const char* kKitWineMono = "wine-mono";
+// Runtime ability: the kit's runtime carries vkd3d-proton's d3d12.dll and d3d12core.dll at
+// lib/vkd3d-proton/<arch>-windows, for games that draw with Direct3D 12 (with DXVK's dxgi).
+inline constexpr const char* kKitVkd3dProton = "vkd3d-proton";
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the

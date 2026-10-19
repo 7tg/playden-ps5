@@ -495,6 +495,34 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     Log("ue3 eula app=" + std::to_string(record.app_id) + " guid=" + (eula.guid.empty() ? "-" : eula.guid) +
         " written=" + (eula.written ? "1" : "0") + (eula.ok ? std::string() : " failed=" + eula.message));
   if (!eula.ok) return "The game's EULA could not be marked accepted: " + eula.message + ".";
+  // Direct3D 12 through vkd3d-proton: its DLLs go into the bottle, where the profile's overrides load them.
+  if (c.kit) {
+    std::string reason;
+    if (!rt::ApplyD3D12Library((c.kit->view.root / c.kit->view.runtime.path).string(),
+                               (c.kit->view.root / c.kit->view.template_path).string(),
+                               (HostPath(record.data_root) / "library/prefixes/game").string(), settings.vkd3d_proton,
+                               &reason)) {
+      Log("d3d12 app=" + std::to_string(record.app_id) + " vkd3d-proton=" + (settings.vkd3d_proton ? "1" : "0") +
+          " failed=" + reason);
+      return std::string(settings.vkd3d_proton ? "vkd3d-proton could not be set up: "
+                                               : "Wine's Direct3D 12 could not be put back: ") + reason + ".";
+    } else if (settings.vkd3d_proton) {
+      Log("d3d12 app=" + std::to_string(record.app_id) + " vkd3d-proton=1");
+    }
+  }
+  // vkd3d-proton's variables reach the game through the bottle's Environment key. Some change how it draws, so a
+  // bottle that exists but cannot take them stops the start; one not made yet gets them on the next Play.
+  {
+    const auto prefix = (HostPath(record.data_root) / "library/prefixes/game").string();
+    struct stat hive {};
+    std::string reason;
+    if (::lstat((prefix + "/user.reg").c_str(), &hive) == 0 &&
+        !rt::ApplyBottleRegistryValues(rt::RenderBottleEnvironment(settings), prefix, config_.unix_time(), "user.reg",
+                                       &reason)) {
+      Log("bottle environment app=" + std::to_string(record.app_id) + " failed=" + reason);
+      return "The game's vkd3d-proton variables could not be written: " + reason + ".";
+    }
+  }
   // Registry keys Steam's install script writes on a game's first start (Fallout: New Vegas's
   // launcher wants its install path there).
   if (const auto install_dir = rt::ProsperoWindowsPath(record.install_path)) {

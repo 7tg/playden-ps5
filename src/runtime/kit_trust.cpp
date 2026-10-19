@@ -13,7 +13,7 @@ KitAdmissionConfig DevelopmentKitAdmission() {
   config.known_capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386", kKitSharedSections,
                                 kKitTitleAnyId, kKitGameRootUnowned, kKitOpenGLZink,
                                 kKitAudioVolume, kKitDxvkConfig, kKitDxvkPresent, kKitInputTuning,
-                                kKitInputWheel, kKitEnvironment, kKitWineMono};
+                                kKitInputWheel, kKitEnvironment, kKitWineMono, kKitVkd3dProton};
   std::sort(config.known_capabilities.begin(), config.known_capabilities.end());
   return config;
 }

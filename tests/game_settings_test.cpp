@@ -882,6 +882,101 @@ int main(int argc, char** argv) {
   std::filesystem::create_symlink(root / "old/system.reg", media_manifest);
   CHECK(!ApplyMediaRegistry(media_runtime.string(), (root / "old").string(), 123, &reason));
 
+  // vkd3d-proton's DLLs go into both windows folders of the bottle and come out again, replaced by the template's,
+  // without touching a bottle whose files were never vkd3d-proton's.
+  {
+    const auto vkd3d_runtime = root / "vkd3d-runtime", vkd3d_template = root / "vkd3d-template";
+    const auto vkd3d_bottle = root / "vkd3d-bottle", untouched = root / "vkd3d-untouched";
+    const std::vector<std::pair<std::string, std::string>> folders = {{"x86_64-windows", "system32"},
+                                                                      {"i386-windows", "syswow64"}};
+    for (const auto& [arch, folder] : folders)
+      for (const auto* name : {"d3d12.dll", "d3d12core.dll"}) {
+        std::filesystem::create_directories(vkd3d_runtime / "lib/vkd3d-proton" / arch);
+        std::ofstream(vkd3d_runtime / "lib/vkd3d-proton" / arch / name) << "vkd3d-proton " << arch << " " << name;
+        for (const auto& prefix : {vkd3d_template, vkd3d_bottle, untouched}) {
+          std::filesystem::create_directories(prefix / "drive_c/windows" / folder);
+          std::ofstream(prefix / "drive_c/windows" / folder / name) << (prefix == untouched ? "older " : "fake ") << name;
+        }
+      }
+    const auto dll = [&](const std::filesystem::path& prefix, const std::string& folder, const char* name) {
+      return ReadText(prefix / "drive_c/windows" / folder / name);
+    };
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), true, &reason));
+    for (const auto& [arch, folder] : folders)
+      CHECK(dll(vkd3d_bottle, folder, "d3d12core.dll") == "vkd3d-proton " + arch + " d3d12core.dll");
+    const auto stamp = std::filesystem::last_write_time(vkd3d_bottle / "drive_c/windows/system32/d3d12.dll");
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), true, &reason));
+    CHECK(std::filesystem::last_write_time(vkd3d_bottle / "drive_c/windows/system32/d3d12.dll") == stamp);
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), false, &reason));
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), untouched.string(), false, &reason));
+    for (const auto& [arch, folder] : folders) {
+      CHECK(dll(vkd3d_bottle, folder, "d3d12.dll") == "fake d3d12.dll");
+      CHECK(dll(untouched, folder, "d3d12core.dll") == "older d3d12core.dll");
+    }
+    // A game whose bottle is not there yet starts without error; the next Play puts the DLLs in.
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), (root / "vkd3d-no-bottle").string(), true,
+                            &reason));
+    for (const auto& [arch, folder] : folders)
+      CHECK(!std::filesystem::exists(vkd3d_bottle / "drive_c/windows" / folder / ".playden-vkd3d-proton"));
+    // A bottle switched by an earlier kit's vkd3d-proton is switched back through its marker, whatever the kit now holds.
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), true, &reason));
+    CHECK(std::filesystem::exists(vkd3d_bottle / "drive_c/windows/syswow64/.playden-vkd3d-proton"));
+    std::ofstream(vkd3d_runtime / "lib/vkd3d-proton/x86_64-windows/d3d12.dll") << "newer vkd3d-proton";
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), false, &reason));
+    CHECK(dll(vkd3d_bottle, "system32", "d3d12.dll") == "fake d3d12.dll");
+    CHECK(!std::filesystem::exists(vkd3d_bottle / "drive_c/windows/system32/.playden-vkd3d-proton"));
+    // Nothing is written when a file it needs is missing.
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), true, &reason));
+    std::filesystem::rename(vkd3d_template / "drive_c/windows/syswow64/d3d12core.dll", root / "held-core.dll");
+    CHECK(!ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), false, &reason) &&
+          reason.find("template") != std::string::npos);
+    CHECK(dll(vkd3d_bottle, "system32", "d3d12.dll") == "newer vkd3d-proton");
+    std::filesystem::rename(root / "held-core.dll", vkd3d_template / "drive_c/windows/syswow64/d3d12core.dll");
+    // Without the kit's DLLs, turning it on fails, and turning it off still restores a marked bottle.
+    std::filesystem::remove_all(vkd3d_runtime / "lib/vkd3d-proton");
+    CHECK(!ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), true, &reason) &&
+          reason.find("no vkd3d-proton") != std::string::npos);
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), vkd3d_bottle.string(), false, &reason));
+    CHECK(dll(vkd3d_bottle, "system32", "d3d12.dll") == "fake d3d12.dll");
+    CHECK(dll(vkd3d_bottle, "syswow64", "d3d12core.dll") == "fake d3d12core.dll");
+    CHECK(ApplyD3D12Library(vkd3d_runtime.string(), vkd3d_template.string(), untouched.string(), false, &reason));
+    CHECK(dll(untouched, "system32", "d3d12.dll") == "older d3d12.dll");
+  }
+
+  // vkd3d-proton's variables go through the bottle's Environment key: set while Environment variables lists them,
+  // removed after, and a bottle that never had them keeps its user.reg untouched.
+  {
+    const auto env_bottle = root / "env-bottle";
+    std::filesystem::create_directory(env_bottle);
+    std::filesystem::permissions(env_bottle, std::filesystem::perms::owner_all);
+    const std::string hive = "WINE REGISTRY Version 2\n;; All keys relative to REGISTRY\\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n";
+    std::ofstream(env_bottle / "user.reg") << hive;
+    ::chmod((env_bottle / "user.reg").c_str(), 0600);
+    KitCapabilities env_kit;
+    env_kit.environment = true;
+    EffectiveSettings env_settings;
+    SettingsError env_error;
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {}, env_kit, &env_settings, &env_error));
+    CHECK(ApplyBottleRegistryValues(RenderBottleEnvironment(env_settings), env_bottle.string(), 100, "user.reg", &reason));
+    CHECK(ReadText(env_bottle / "user.reg") == hive && !std::filesystem::exists(env_bottle / "user.reg.playden-backup"));
+    CHECK(!ValidateSettingValue(hl2, "environment", "VKD3D_NOPE=1", &reason));
+    CHECK(!ValidateSettingValue(hl2, "environment", "VKD3D_DEBUG=\"x\"", &reason));
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"environment", "VKD3D_DEBUG=warn; VKD3D_LOG_FILE=C:\\vkd3d.log;DXVK_LOG_LEVEL=info"}},
+                                 env_kit, &env_settings, &env_error));
+    ProsperoProfile env_profile;
+    CHECK(RenderProsperoProfile(hl2, env_settings, target, &env_profile, &reason));
+    CHECK(env_profile.text.find("VKD3D") == std::string::npos && env_profile.text.find("DXVK_LOG_LEVEL") != std::string::npos);
+    CHECK(ApplyBottleRegistryValues(RenderBottleEnvironment(env_settings), env_bottle.string(), 100, "user.reg", &reason));
+    auto text = ReadText(env_bottle / "user.reg");
+    CHECK(text.find("[Environment] 100\n") != std::string::npos);
+    CHECK(text.find("\"VKD3D_DEBUG\"=\"warn\"\n") != std::string::npos);
+    CHECK(text.find("\"VKD3D_LOG_FILE\"=\"C:\\\\vkd3d.log\"\n") != std::string::npos);
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"environment", "VKD3D_CONFIG=no_upload_hvv"}}, env_kit, &env_settings, &env_error));
+    CHECK(ApplyBottleRegistryValues(RenderBottleEnvironment(env_settings), env_bottle.string(), 200, "user.reg", &reason));
+    text = ReadText(env_bottle / "user.reg");
+    CHECK(text.find("VKD3D_DEBUG") == std::string::npos && text.find("\"VKD3D_CONFIG\"=\"no_upload_hvv\"") != std::string::npos);
+  }
+
   // An oversized registry file is rejected before backup or replacement.
   const auto prefix = root / "prefix";
   std::filesystem::create_directory(prefix);
@@ -1146,6 +1241,40 @@ int main(int argc, char** argv) {
     CHECK(BuildEffectiveSettings(generated, nullptr, {{"dll_overrides", saved}, {"graphics", "opengl"}}, KitCapabilities{},
                                  &settings, &error));
     CHECK(settings.graphics == "opengl" && settings.dll_overrides == "dinput8=n,b");
+    // Direct3D 12 through vkd3d-proton needs the kit's DLLs and DXVK's dxgi. Its overrides follow the row after the
+    // DXVK ones, in the recipe's list or the player's, and go away with it.
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"d3d12", "vkd3d-proton"}}, KitCapabilities{}, &settings, &error));
+    CHECK(!settings.values.at("d3d12").available && settings.values.at("d3d12").value == "wine" && !settings.vkd3d_proton);
+    KitCapabilities vkd3d_kit;
+    vkd3d_kit.vkd3d_proton = true;
+    CHECK(BuildEffectiveSettings(generated, nullptr, {}, vkd3d_kit, &settings, &error));
+    CHECK(settings.values.at("d3d12").available && !settings.vkd3d_proton && settings.dll_overrides == kDxvkOverrides);
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"d3d12", "vkd3d-proton"}}, vkd3d_kit, &settings, &error));
+    CHECK(settings.vkd3d_proton && settings.dll_overrides == std::string(kDxvkOverrides) + ";" + kVkd3dProtonOverrides);
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"d3d12", "vkd3d-proton"}, {"dll_overrides", "dinput8=n,b"}}, vkd3d_kit,
+                                 &settings, &error));
+    CHECK(settings.dll_overrides == saved + ";" + kVkd3dProtonOverrides);
+    const auto with_vkd3d = settings.dll_overrides;
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"dll_overrides", with_vkd3d}}, vkd3d_kit, &settings, &error));
+    CHECK(!settings.vkd3d_proton && settings.dll_overrides == saved);
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"d3d12", "vkd3d-proton"}, {"dll_overrides", with_vkd3d}}, vkd3d_kit,
+                                 &settings, &error));
+    CHECK(settings.dll_overrides == with_vkd3d);
+    CHECK(BuildEffectiveSettings(generated, nullptr, {{"d3d12", "vkd3d-proton"}, {"graphics", "opengl"}}, vkd3d_kit,
+                                 &settings, &error));
+    CHECK(!settings.values.at("d3d12").available && !settings.vkd3d_proton && settings.dll_overrides.empty());
+    // A recipe whose own list does not load DXVK's dxgi gets it with vkd3d-proton; a dxgi the player chose stays.
+    KitCapabilities vkd3d_dxvk_kit = vkd3d_kit;
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"d3d12", "vkd3d-proton"}}, vkd3d_dxvk_kit, &settings, &error));
+    CHECK(settings.dll_overrides == std::string("d3d9=n;") + kVkd3dProtonDxgiOverrides);
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"d3d12", "vkd3d-proton"}, {"dll_overrides", "d3d9=n;DXGI=b"}},
+                                 vkd3d_dxvk_kit, &settings, &error));
+    CHECK(settings.dll_overrides == std::string("d3d9=n;DXGI=b;") + kVkd3dProtonOverrides);
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"dll_overrides", std::string("d3d9=n;") + kVkd3dProtonDxgiOverrides}},
+                                 vkd3d_dxvk_kit, &settings, &error));
+    CHECK(!settings.vkd3d_proton && settings.dll_overrides == "d3d9=n");
+    CHECK(KitCapabilitiesFromManifest({kKitVkd3dProton}, false).vkd3d_proton &&
+          !KitCapabilitiesFromManifest({kKitDxvk}, false).vkd3d_proton);
     // A locked row keeps the recipe's value until the player changes it anyway.
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"graphics", "opengl"}}, KitCapabilities{}, &settings, &error));
     CHECK(settings.graphics == "dxvk" && settings.values.at("graphics").locked && !settings.values.at("graphics").unlocked);

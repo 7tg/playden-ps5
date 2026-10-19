@@ -1,10 +1,10 @@
 # Compatibility
 
-Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-17.
+Games tested on a PS5 on firmware 13.60, plus community test reports (linked in the notes) on other firmware. Last updated 2026-10-19.
 
 > [!NOTE]
-> Every game below was checked on runtime kit **0.10**, the first stable kit. OpenGL games draw through Mesa (Zink on
-> Vulkan). See [Kits](#kits) for what each kit version changes.
+> Games were checked on runtime kit **0.10**, the first stable kit, unless the Kit column names a newer one.
+> OpenGL games draw through Mesa (Zink on Vulkan). See [Kits](#kits) for what each kit version changes.
 
 Did you test a game? [Open a test report](../../issues/new?template=test-report.yml), even when it works.
 
@@ -18,7 +18,7 @@ Did you test a game? [Open a test report](../../issues/new?template=test-report.
 | ⛔ Refused | Playden refuses to prepare it and tells you why. For .NET and shared-section refusals, Game settings › Known problems › Try anyway prepares it anyway. |
 
 The **Kit** column is the newest runtime kit the game was checked on. The **Graphics** column is what the game
-uses: Direct3D 8–11 goes through DXVK to Vulkan.
+uses: Direct3D 8–11 goes through DXVK to Vulkan, and Direct3D 12 through vkd3d-proton (from kit 0.11).
 
 ## Games
 
@@ -26,7 +26,8 @@ uses: Direct3D 8–11 goes through DXVK to Vulkan.
 | --- | --- | --- | --- | --- |
 | [STAR WARS: The Force Unleashed Ultimate Sith Edition](https://store.steampowered.com/app/32430) | ✅ Works | 0.10 | D3D9 · DXVK · 32-bit | In the game's own launcher, set Input Device to Xbox360 Controller (`IsKBAndMouse=FALSE`), then start `SWTFU.exe`. Loading a save and walking as Darth Vader with the controller work. Full campaign not tested. |
 | [IMMORTALITY](https://store.steampowered.com/app/1350200) | ✅ Works | 0.10 | Unity · D3D11 · DXVK · 64-bit | Default configuration. Controller menus, film-grid zoom/navigation, opening clip playback and scrubbing, pause/image mode, and face selection to a second clip verified. Bundled Bink DLLs handle video; this does not verify the missing MF backend. Limited opening test; audio synchronization, later clips and full playthrough untested. |
-| [Machinarium](https://store.steampowered.com/app/40700) | ✅ Works | 0.10 | DXVK · 32-bit DX9 | Select Machinarium_old_32bit_DX9.exe in Game settings > Program, then Recreate bottle. Verified menu, opening scene and first junkyard scene with native controller cursor/New Game input; no full playthrough. Current 64-bit executable crashes on a null D3D12 command allocator before Reset; DX9 bypasses it. |
+| [Machinarium](https://store.steampowered.com/app/40700) | ✅ Works | 0.11 (dev) | — · D3D12 · vkd3d-proton · 64-bit | Game settings › Program = `Machinarium.exe`, Graphics = DXVK, Direct3D 12 = **vkd3d-proton**. Title screen, menus, New Game, the opening cutscene and the first junkyard scene with the controller cursor. With Wine's own Direct3D 12 it crashes before the first frame; on kit 0.10, `Machinarium_old_32bit_DX9.exe` (Recreate bottle after switching) works instead. |
+| [Cyberpunk 2077](https://store.steampowered.com/app/1091500) | ✅ Works | 0.11 (dev) | REDengine 4 · D3D12 · vkd3d-proton · 64-bit | Game settings › Program = `bin/x64/Cyberpunk2077.exe` (the default launcher cannot start the game), Graphics = DXVK, Direct3D 12 = **vkd3d-proton**. The first start opens at 1024×768: set 1920×1080 in the game's Video settings. Intro, menus, character creation, the Nomad opening and walking in the garage with the controller; about 3 GB of video memory, no crash in a 13-minute session. Frame rate not measured yet. |
 | [Bulletstorm: Full Clip Edition](https://store.steampowered.com/app/501590) | ✅ Works | 0.10 | Unreal 3 · DXVK · 64-bit | The startup movies, the title screen and the menus work with the controller. Campaign › Continue plays the loading movie and reaches the prologue. Longer gameplay untested. |
 | [Fallout: New Vegas](https://store.steampowered.com/app/22380) | ✅ Works | 0.10 | Gamebryo · D3D9 · DXVK · 32-bit | Press Play once with the default program, the game's launcher, so it writes its settings. Then set Game settings › Program = `FalloutNV.exe`. The legal screen, the logos and the main menu (Continue, New, Load) work. Gameplay not tested yet. |
 | [DoDonPachi Resurrection](https://store.steampowered.com/app/464450) | ✅ Works | 0.10 | — · D3D9 · DXVK · 32-bit | Intro, title screen, menus, the attract demo and a stage with the controller work. |
@@ -136,5 +137,7 @@ To see which kit your console has, run the [log script](tools/collect_logs.py): 
   runs inside the translator too.
 - **New games can stay at *Waiting for the PS5*** when ShadowMountPlus stops registering titles. Reload
   ShadowMountPlus.
+- **Direct3D 12 games** need a kit with vkd3d-proton (0.11 or later): set Game settings › Graphics = DXVK and
+  Direct3D 12 = vkd3d-proton. Its own variables (`VKD3D_DEBUG`, `VKD3D_CONFIG`, …) go in Environment variables.
 - **Kernel anti-cheat** games (for example Easy Anti-Cheat or BattlEye in kernel mode) cannot run.
 - Games that need a **third-party launcher or account** (EA app, Ubisoft Connect, Rockstar) are not supported yet.

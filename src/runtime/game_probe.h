@@ -60,5 +60,9 @@ std::string DetectedLabel(const std::string& summary);
 
 // The DLL overrides that make a game use the bottle's DXVK instead of Wine's Direct3D.
 inline constexpr const char* kDxvkOverrides = "d3d8,d3d9,d3d10core,d3d11,dxgi=n";
+// The Direct3D 12 setting set to vkd3d-proton adds these after the DXVK ones (vkd3d-proton needs DXVK's dxgi).
+inline constexpr const char* kVkd3dProtonOverrides = "d3d12,d3d12core=n";
+// The same when the list does not already load a dxgi of its own choice.
+inline constexpr const char* kVkd3dProtonDxgiOverrides = "d3d12,d3d12core,dxgi=n";
 
 }  // namespace playden::runtime
