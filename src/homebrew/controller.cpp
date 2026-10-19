@@ -300,8 +300,10 @@ std::optional<steam::CloudLocation> Controller::CloudLocationFor(GameId id, bool
     // PS5 title waits for registration: the bottle is complete and the game runs from Home.
     if (runtime_) {
       const auto installs_shared = runtime_->Shared();
+      // A title made for another folder (its game moved drives) is about to be replaced: only check.
       for (const auto& view : installs_shared->installs)
-        if (view.app_id == id && (view.state == runtime::PreparationState::kReady || view.awaiting_registration))
+        if (view.app_id == id && (view.state == runtime::PreparationState::kReady || view.awaiting_registration) &&
+            (view.install_path.empty() || view.install_path == root->second))
           location.prefix_root = view.prefix_root;
     }
     // Not set up yet (or still being prepared): there is no bottle the game reads, so Cloud only
@@ -746,12 +748,23 @@ void Controller::TickRuntime() {
                         view->state == PreparationState::kRegistering) &&
                        !view->recovery_pending && !view->awaiting_registration);
     };
+    // A game installed again on another drive still has the title made for its old folder; Prepare
+    // makes it again for the new one.
+    const auto moved = [this](const RuntimeInstallView* view) {
+      if (view && view->moving) return true;  // a move that stopped part way: Prepare finishes it
+      if (!view || view->install_path.empty() || view->recovery_pending) return false;
+      const auto root = game_roots_.find(view->app_id);
+      return root != game_roots_.end() && root->second != view->install_path;
+    };
     std::vector<GameId> direct;
     for (const auto id : plays) {
-      if (usable && game_roots_.count(id) && (unprepared(record_of(id)) || needs_work(record_of(id))) &&
+      if (usable && game_roots_.count(id) &&
+          (unprepared(record_of(id)) || needs_work(record_of(id)) || moved(record_of(id))) &&
           !play_after_prepare_.count(id)) {
         auto& pending = play_after_prepare_[id];
-        if (const auto* view = record_of(id); needs_work(view))
+        if (const auto* view = record_of(id); moved(view))
+          pending.words = "Preparing the game on its new drive…";
+        else if (needs_work(view))
           pending.words = !view->title_current ? "Updating runtime…" : "Repairing runtime…";
         auto_prepare_.erase(id);
         ++play_notes_revision_;
@@ -763,7 +776,11 @@ void Controller::TickRuntime() {
     // Finished downloads are prepared one at a time, never over a game that already has a record.
     if (prepared.status != RuntimeHostStatus::kStarting)
       for (auto it = auto_prepare_.begin(); it != auto_prepare_.end();) {
-        if (!usable || !game_roots_.count(*it) || record_of(*it)) { it = auto_prepare_.erase(it); continue; }
+        if (!usable || !game_roots_.count(*it) || (record_of(*it) && !moved(record_of(*it)))) {
+          it = auto_prepare_.erase(it);
+          continue;
+        }
+        if (cloud_busy_.count(*it)) { ++it; continue; }  // a move waits for saves in transit
         // A quit to Home waits for the running preparation; the next one would be cut off.
         if (prepared.preparing_app || model_.state().quit_waiting) break;
         play_after_prepare_.erase(*it);
@@ -849,6 +866,8 @@ void Controller::TickRuntime() {
       auto& pending = it->second;
       if (!pending.queued) {
         if (prepared.preparing_app && *prepared.preparing_app != id) { ++it; continue; }
+        // A move removes the old title and bottle: saves still in transit finish first.
+        if (moved(record_of(id)) && cloud_busy_.count(id)) { ++it; continue; }
         pending.queued = true;
         pending.refusal = refusal_of(id);
         pending.prepares_handled = prepared.prepares_handled;
@@ -858,7 +877,8 @@ void Controller::TickRuntime() {
         continue;
       }
       if (prepared.preparing_app == id) { pending.seen_preparing = true; ++it; continue; }
-      if (ready(record_of(id))) {
+      // A title still made for the game's old folder waits for the preparation that moves it.
+      if (ready(record_of(id)) && !moved(record_of(id))) {
         plays.push_back(id);
         it = play_after_prepare_.erase(it);
         ++play_notes_revision_;
@@ -962,6 +982,13 @@ void Controller::TickRuntime() {
       game.status = "Unavailable"; game.detail = snapshot.reason;
     } else if (snapshot.removing_app == id) {
       game.status = "Removing"; game.detail = "Removing the game's PS5 title";
+    } else if (snapshot.preparing_app == id && record && record->moving) {
+      // Prepare removes the title made for the game's old folder (installed again on another drive).
+      game.status = "Preparing"; game.detail = "Removing the PS5 title made for the game's old drive";
+    } else if (record && record->moving) {
+      // That removal stopped part way: Play or Prepare finishes the move, never an uninstall of the new download.
+      game.status = "Needs repair"; game.can_prepare = usable;
+      game.detail = "Play finishes moving the PS5 title to the game's new drive.";
     } else if (record && record->state == runtime::PreparationState::kRemoving) {
       game.status = "Removal incomplete"; game.can_prepare = true;
       game.detail = record->failure.empty() ? "Retry finishes removing the PS5 title, then uninstalls the game."

@@ -1477,6 +1477,102 @@ void KitRespinKeepsWaitingSettingsUpdate() {
 // scan root, the title is unregistered through the remover, the bottle is kept
 // (or deleted on request) and the record goes once the console no longer lists
 // the title. Every step is journaled and continues after a failure or restart.
+// A game installed again on another drive (its uninstall stopped part way and left the title):
+// Prepare removes the old title, keeping its saves, and prepares the game where it is now.
+void PreparesGameInstalledAgainElsewhere() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-0000000000") + (uuids < 10 ? "0" : "") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.removal_confirm_polls = 3;
+  config.removal_poll_interval = std::chrono::milliseconds(1);
+  std::vector<std::string> removed_titles;
+  bool remover_works = false;  // silent at first: the console never confirms
+  config.unregister_title = [&fixture, &removed_titles, &remover_works](const std::string& title, const std::string&) {
+    removed_titles.push_back(title);
+    if (!remover_works) return TitleRemoverResult{true, std::nullopt, "no answer"};
+    fixture.registered = false; fixture.submitted = false;
+    return TitleRemoverResult{true, 0, "answered"};
+  };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  const auto bottle = fixture.root / "data/playden/games/steam-220";
+  const auto save = fs::path("library/prefixes/game/drive_c/users/steamuser/AppData/Roaming/Game/save.dat");
+  const auto prepare = [](RuntimeHost& host, const RuntimePrepareRequest& request) {
+    const auto before = host.Snapshot().prepares_handled;
+    host.Prepare(request);
+    const auto done = WaitFor(host, [before](const RuntimeSnapshot& s) {
+      return !s.preparing_app && s.prepares_handled > before;
+    }, 60);
+    if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+    return done;
+  };
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  auto first = prepare(host, Hl2());
+  CHECK(!first.refusals.count(220) && first.installs.size() == 1 &&
+        first.installs[0].install_path == "/data/homebrew/FAKE77031/games/220");
+  Write(bottle / save, "player-save", 0600);
+  // The download went away with an uninstall that stopped; the game is on the USB drive now.
+  fs::remove_all(fixture.root / "data/homebrew/FAKE77031/games/220");
+  auto elsewhere = Hl2();
+  elsewhere.install_path = "/mnt/usb0/playden/games/220";
+  elsewhere.volume_id = "usb0";
+  // Not there yet: nothing is removed.
+  auto refused = prepare(host, elsewhere);
+  CHECK(refused.refusals.count(220) && refused.refusals.at(220).find("missing") != std::string::npos);
+  CHECK(removed_titles.empty() && refused.installs.size() == 1);
+  const auto usb = fixture.root / "mnt/usb0/playden/games/220";
+  Write(usb / "hl2.exe", "existing-game", 0644);
+  for (const auto& folder : {fixture.root / "mnt", fixture.root / "mnt/usb0", fixture.root / "mnt/usb0/playden",
+                             fixture.root / "mnt/usb0/playden/games", usb})
+    CHECK(chmod(folder.c_str(), 0755) == 0);
+  // The console doesn't confirm the old title is gone: the move waits, recorded as a move, so the
+  // game page offers to finish it rather than an uninstall.
+  const auto stopped = prepare(host, elsewhere);
+  CHECK(stopped.refusals.count(220) && stopped.refusals.at(220).find("Play tries again") != std::string::npos);
+  CHECK(stopped.installs.size() == 1 && stopped.installs[0].state == PreparationState::kRemoving &&
+        stopped.installs[0].moving);
+  remover_works = true;
+  const auto moved = prepare(host, elsewhere);
+  CHECK(!moved.refusals.count(220) && moved.installs.size() == 1 && !moved.installs[0].moving);
+  CHECK(moved.installs[0].install_path == "/mnt/usb0/playden/games/220");
+  CHECK(removed_titles.size() == 2 && removed_titles[1] == first.installs[0].title_id);
+  CHECK(Read(bottle / save) == "player-save" && moved.kept_bottles.empty());
+  // The move brought the saves back and says so in the bottle.
+  CHECK(fs::exists(bottle / ".playden-saves-restored"));
+  // A kept copy whose saves never came back (a preparation stopped before that, so no mark): an
+  // uninstall keeping saves leaves it as it is and sets the newer bottle aside beside it.
+  fs::remove(bottle / ".playden-saves-restored");
+  const auto kept = fixture.root / "data/playden/games/steam-220.kept";
+  Write(kept / save, "original-save", 0600);
+  const auto before = host.Snapshot().removals_handled;
+  host.Remove(220, false);
+  const auto removed = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.removals_handled > before; }, 30);
+  CHECK(!removed.removal_failures.count(220) && removed.installs.empty());
+  CHECK(Read(kept / save) == "original-save" && !fs::exists(bottle));
+  bool aside = false;
+  for (const auto& entry : fs::directory_iterator(fixture.root / "data/playden/games"))
+    aside |= entry.path().filename().string().rfind("steam-220.set-aside-", 0) == 0 &&
+             Read(entry.path() / save) == "player-save";
+  CHECK(aside);
+  host.Shutdown();
+}
+
 void RemovesTitleKeepingSaves() {
   Fixture fixture;
   auto config = fixture.Config();
@@ -2077,6 +2173,7 @@ int main(int argc, char** argv) {
   SettingsSavedDuringPrepareReachReadyTitle();
   KitRespinKeepsWaitingSettingsUpdate();
   RemovesTitleKeepingSaves();
+  PreparesGameInstalledAgainElsewhere();
   ShippedRecipePreparesWithAnotherKitsRecipe();
   ShippedRecipeRequirementsFollowTheKit(false);
   ShippedRecipeRequirementsFollowTheKit(true);

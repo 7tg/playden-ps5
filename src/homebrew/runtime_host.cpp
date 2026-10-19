@@ -725,6 +725,8 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
   for (const auto& record : composition.repository.Snapshot()) {
     RuntimeInstallView view;
     view.install_id = record.install_id; view.app_id = record.app_id; view.title_id = record.title_id;
+    view.install_path = record.install_path;
+    view.moving = record.journal && record.journal->operation == "remove-move";
     if (!record.data_root.empty()) view.prefix_root = record.data_root + "/library/prefixes/game";
     view.state = record.state;
     if (record.journal) view.step = record.journal->step;
@@ -1391,8 +1393,31 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   std::optional<rt::RuntimeInstall> existing;
   for (const auto& record : c.repository.Snapshot())
     if (record.app_id == request.app_id) existing = record;
-  if (existing && existing->state == rt::PreparationState::kRemoving)
+  // A title being removed because its game moved drives is finished here; any other removal by Uninstall.
+  const bool moving = existing && existing->state == rt::PreparationState::kRemoving && existing->journal &&
+                      existing->journal->operation == "remove-move";
+  if (existing && existing->state == rt::PreparationState::kRemoving && !moving)
     return "This game's PS5 title is still being removed. Uninstall the game again to finish.";
+  // RunRemove runs inline, so removals_handled (the controller's uninstall progress) does not move.
+  // A pending move finishes whatever the paths say now (the game may be back in its first folder).
+  if (existing && (moving || (!existing->journal && existing->install_path != request.install_path))) {
+    // Installed again on another drive (an uninstall that stopped part way can leave the title behind):
+    // the old title starts files that are no longer the game's. It goes, keeping its saves, and the
+    // game is prepared from where it is now; the saves come back after (RestoreKeptSaves), as with
+    // Recreate bottle: the Windows user folders, not the bottle's registry or other folders.
+    struct stat info{};
+    if (lstat(HostPath(request.install_path).c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
+      return "The game's folder is missing; download it again.";
+    Log("moved install app=" + std::to_string(request.app_id) + " title=" + existing->title_id + " from=" +
+        existing->install_path + " to=" + request.install_path);
+    // Recorded as a move, so a removal that stops part way is finished by the next Play or Prepare
+    // and never turns into an uninstall of the game's new download.
+    if (const auto removed = RunRemove(c, request.app_id, false, true); !removed.empty()) {
+      Log("moved install app=" + std::to_string(request.app_id) + " removal stopped: " + removed);
+      return "The game's old PS5 title could not be removed yet. Play tries again.";
+    }
+    existing.reset();
+  }
   rt::InstallServiceResult started = rt::InstallServiceResult::Success();
   bool game_root_owned = true;
   const auto tighten_working = [&](const std::string& working) -> std::string {
@@ -1706,6 +1731,8 @@ namespace {
 // Kept bottles: <games>/<install id>.kept, identified by this marker inside.
 constexpr char kKeptMarker[] = "playden-kept.json";
 constexpr char kKeptSuffix[] = ".kept";
+// In a bottle once its kept saves were brought back: a kept copy still beside it is then older.
+constexpr char kRestoredMarker[] = ".playden-saves-restored";
 // Save backups: <games>/<install id>.saves/<Unix time>/users, the newest few kept.
 constexpr char kSaveBackupSuffix[] = ".saves";
 constexpr std::size_t kSaveBackupsKept = 3;
@@ -2041,7 +2068,7 @@ void RuntimeHost::PublishKeptBottles(const Composition& c) {
 // removal continues where it stopped: retire the title folder out of ShadowMount's
 // scan root, unregister the title through the one-shot remover, keep or delete the
 // bottle, then drop the record once the console no longer lists the title.
-std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delete_saves) {
+std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delete_saves, bool moving) {
   std::optional<rt::RuntimeInstall> found;
   for (const auto& record : c.repository.Snapshot())
     if (record.app_id == app) found = record;
@@ -2080,9 +2107,15 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
     const auto operation = config_.uuid();
     if (!operation) return "No secure random source for the removal.";
     record.state = rt::PreparationState::kRemoving;
-    record.journal = rt::PreparationJournal{*operation, delete_saves ? "remove-saves" : "remove", "retire"};
+    record.journal = rt::PreparationJournal{*operation, delete_saves ? "remove-saves" : moving ? "remove-move" : "remove",
+                                            "retire"};
     record.last_failure.reset();
     if (auto failed = save("start"); !failed.empty()) return failed;
+  }
+  // An uninstall that deletes saves takes over a removal its game's move started (that one keeps them).
+  if (resuming && delete_saves && record.journal->operation == "remove-move") {
+    record.journal->operation = "remove-saves";
+    if (auto failed = save("adopt"); !failed.empty()) return failed;
   }
   delete_saves = record.journal->operation == "remove-saves";
   const auto fail = [&](const std::string& code, const std::string& message) {
@@ -2175,14 +2208,25 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
                            fsync(fd) == 0;
       if (fd >= 0) close(fd);
       if (!written) return fail("bottle-keep", "The game's saves could not be marked as kept.");
-      if (lstat(kept.c_str(), &info) == 0) {
-        // An older kept copy was never brought back; the newer bottle replaces it.
+      const bool restored = lstat((bottle / kRestoredMarker).c_str(), &info) == 0;
+      if (lstat(kept.c_str(), &info) == 0 && !restored) {
+        // The kept copy's saves were never brought back into this bottle (a preparation after a move or
+        // reinstall stopped before that): the kept copy holds them and stays. The newer bottle is set
+        // aside beside it, never deleted.
+        const auto aside = bottle.parent_path() / (record.install_id + ".set-aside-" + record.journal->operation_id);
+        Log("remove keeps the unrestored kept bottle install=" + record.install_id + "; newer bottle set aside");
+        if (rename(bottle.c_str(), aside.c_str()) != 0)
+          return fail("bottle-keep", "The game's newer bottle could not be set aside (error " + std::to_string(errno) + ").");
+      } else if (lstat(kept.c_str(), &info) == 0) {
+        // An older kept copy whose saves this bottle already has: the bottle replaces it.
         Log("remove replaces older kept bottle install=" + record.install_id);
         RemoveTreeNoFollow(kept, error);
         if (error) return fail("bottle-keep", "An older copy of the game's saves could not be replaced.");
-      }
-      if (rename(bottle.c_str(), kept.c_str()) != 0)
+        if (rename(bottle.c_str(), kept.c_str()) != 0)
+          return fail("bottle-keep", "The game's saves could not be kept (error " + std::to_string(errno) + ").");
+      } else if (rename(bottle.c_str(), kept.c_str()) != 0) {
         return fail("bottle-keep", "The game's saves could not be kept (error " + std::to_string(errno) + ").");
+      }
     }
     if (auto failed = advance("erase"); !failed.empty()) return failed;
   }
@@ -2192,6 +2236,16 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
   struct stat info{};
   confirmed.source_path = lstat(source.c_str(), &info) != 0 && errno == ENOENT ? rt::TitleAvailability::kFree
                                                                                : rt::TitleAvailability::kOccupied;
+  // Saves an uninstall deletes after a move had already kept them (it took over past the bottle step):
+  // gone before the record, so a failure keeps the journal and the next attempt deletes them again.
+  if (delete_saves) {
+    const auto kept = HostPath(record.data_root).parent_path() / (record.install_id + kKeptSuffix);
+    std::error_code error;
+    struct stat kept_info{};
+    if (lstat(kept.c_str(), &kept_info) == 0) RemoveTreeNoFollow(kept, error);
+    if (!error) RemoveTreeNoFollow(SaveBackupRoot(record.install_id), error);
+    if (error) return fail("bottle-delete", "The game's saves and settings could not be deleted: " + error.message());
+  }
   const auto erased = c.repository.EraseAfterUnregister(record.install_id, confirmed);
   if (!erased.ok()) return fail("erase", "The removal could not be completed: " + erased.message());
   // The title is gone; a stale entry would only let a later title with its ID start early.
@@ -2241,6 +2295,12 @@ std::string RuntimeHost::RestoreKeptSaves(Composition& c, std::uint32_t app) {
       Log("restore kept saves failed app=" + std::to_string(app) + " " + reason);
       return "The saves kept from the previous install could not be brought back: " + reason;
     }
+  }
+  {
+    const int fd = open((bottle / kRestoredMarker).c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+    const bool marked = fd >= 0 && fsync(fd) == 0;
+    if (fd >= 0) close(fd);
+    if (!marked) return "The saves were brought back, but that could not be recorded.";
   }
   std::error_code error;
   RemoveTreeNoFollow(kept, error);

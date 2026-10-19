@@ -124,6 +124,11 @@ struct RuntimeInstallView {
   std::string install_id;
   std::uint32_t app_id = 0;
   std::string title_id;
+  // The game folder the title starts (console path). When the game is installed again on another
+  // drive it no longer matches, and Prepare makes the title again.
+  std::string install_path;
+  // Its title is being removed to follow the game to another drive; Prepare finishes that.
+  bool moving = false;
   // The game's private bottle (console path); Cloud saves under Windows
   // folders live here.
   std::string prefix_root;
@@ -347,7 +352,9 @@ class RuntimeHost {
                                    const std::string& session_id);
   void RunPlay(Composition& composition, std::uint32_t app_id);
   // Removes a game's PS5 title; empty when it has none left, otherwise why not.
-  std::string RunRemove(Composition& composition, std::uint32_t app_id, bool delete_saves);
+  // moving: the title goes because its game was installed again elsewhere (journal "remove-move"),
+  // so Prepare, not Uninstall, finishes a removal that stopped part way.
+  std::string RunRemove(Composition& composition, std::uint32_t app_id, bool delete_saves, bool moving = false);
   // Whether the console still lists the title (app.db or /user/app); unknown counts as listed.
   bool TitleListed(Composition& composition, const std::string& title_id);
   // Moves the saves of a kept bottle into the game's new bottle and drops the kept copy.
