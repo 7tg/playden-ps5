@@ -1273,6 +1273,24 @@ int main(int argc, char** argv) {
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"dll_overrides", std::string("d3d9=n;") + kVkd3dProtonDxgiOverrides}},
                                  vkd3d_dxvk_kit, &settings, &error));
     CHECK(!settings.vkd3d_proton && settings.dll_overrides == "d3d9=n");
+    // Generated Unity and Unreal recipes ask for Direct3D 12 while vkd3d-proton draws it; arguments the player typed
+    // stay as they are.
+    {
+      auto engine = generated;
+      engine.arguments = "-force-d3d11 -dx11";
+      CHECK(BuildEffectiveSettings(engine, nullptr, {}, vkd3d_kit, &settings, &error));
+      CHECK(settings.arguments == "-force-d3d11 -dx11");
+      CHECK(BuildEffectiveSettings(engine, nullptr, {{"d3d12", "vkd3d-proton"}}, vkd3d_kit, &settings, &error));
+      CHECK(settings.arguments == "-force-d3d12 -dx12");
+      CHECK(BuildEffectiveSettings(engine, nullptr, {{"d3d12", "vkd3d-proton"}, {"arguments", "-dx11"}}, vkd3d_kit,
+                                   &settings, &error));
+      CHECK(settings.arguments == "-dx11");
+      auto shipped = engine;
+      shipped.id = hl2.id;
+      CHECK(BuildEffectiveSettings(shipped, nullptr, {{"d3d12", "vkd3d-proton"}, {"unlock.graphics", "on"}}, vkd3d_kit,
+                                   &settings, &error));
+      CHECK(settings.arguments == "-force-d3d11 -dx11");
+    }
     CHECK(KitCapabilitiesFromManifest({kKitVkd3dProton}, false).vkd3d_proton &&
           !KitCapabilitiesFromManifest({kKitDxvk}, false).vkd3d_proton);
     // A locked row keeps the recipe's value until the player changes it anyway.

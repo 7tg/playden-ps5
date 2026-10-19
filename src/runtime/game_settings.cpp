@@ -659,6 +659,13 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
   // get Vulkan instead. A player's Extra arguments still come last and win.
   if (kit.opengl_zink && recipe.detected.rfind("godot", 0) == 0)
     ReplaceAll(&arguments, "--rendering-driver opengl3", "--rendering-driver vulkan");
+  // Generated recipes ask Unity and Unreal for Direct3D 11, which DXVK draws. With Direct3D 12 on vkd3d-proton they
+  // ask for Direct3D 12 instead (CULTIC stays black on 11). Arguments the player typed are left as they are.
+  if (IsGeneratedRecipeId(recipe.id) && required.source != ValueSource::kUser &&
+      out.values["d3d12"].value == "vkd3d-proton") {
+    ReplaceAll(&arguments, "-force-d3d11", "-force-d3d12");
+    ReplaceAll(&arguments, "-dx11", "-dx12");
+  }
   std::string resolution_arguments = recipe.resolution_arguments;
   const auto& resolution = out.values["resolution"].value;
   const auto x = resolution.find('x');
