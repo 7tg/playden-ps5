@@ -315,7 +315,9 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
 GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime) {
   GameDefaults out;
   const auto has = [&](const char* api) { return probe.apis.count(api) != 0; };
-  const bool direct3d = has("d3d8") || has("d3d9") || has("d3d10") || has("d3d11") || has("dxgi");
+  // Direct3D 12 also loads dxgi, so dxgi alone doesn't mean an older Direct3D the game can fall back to.
+  const bool older_direct3d = has("d3d8") || has("d3d9") || has("d3d10") || has("d3d11");
+  const bool direct3d = older_direct3d || has("dxgi");
   // Soft refusals: the detection is broad (a .NET launcher in front of a native game), so the
   // engine defaults below are still worked out for a player who tries anyway.
   std::string soft;
@@ -354,14 +356,14 @@ GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime
   } else if (probe.engine == "godot") {
     out.graphics = "opengl";
     out.arguments = "--rendering-driver opengl3";
+  } else if (has("d3d12") && !older_direct3d && runtime.vkd3d_proton) {
+    // vkd3d-proton presents through DXVK's dxgi, so the game gets DXVK as well.
+    out.graphics = "dxvk";
+    out.d3d12 = "vkd3d-proton";
   } else if (direct3d || probe.engine == "gamemaker") {
     out.graphics = "dxvk";
   } else if (has("opengl")) {
     out.graphics = "opengl";
-  } else if (has("d3d12") && runtime.vkd3d_proton) {
-    // vkd3d-proton presents through DXVK's dxgi, so the game gets DXVK as well.
-    out.graphics = "dxvk";
-    out.d3d12 = "vkd3d-proton";
   } else if (has("d3d12")) {
     out.refusal = "This game needs Direct3D 12, which this runtime kit can't draw yet.";
   }

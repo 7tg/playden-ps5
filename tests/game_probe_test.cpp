@@ -173,6 +173,7 @@ int main() {
     WritePe(root / "Net.exe", {false, {"mscoree.dll"}});
     WritePe(root / "Clr.exe", {true, {"KERNEL32.dll"}, true});
     WritePe(root / "Twelve.exe", {true, {"d3d12.dll"}});
+    WritePe(root / "TwelveDxgi.exe", {true, {"dxgi.dll", "d3d12.dll"}});
     CHECK(DefaultsFor(ProbeGame(root.string(), "Stub.exe")).refusal.find("Steam DRM") != std::string::npos);
     CHECK(DefaultsFor(ProbeGame(root.string(), "Net.exe")).refusal.find(".NET") != std::string::npos);
     CHECK(DefaultsFor(ProbeGame(root.string(), "Clr.exe")).refusal.find(".NET") != std::string::npos);
@@ -194,6 +195,9 @@ int main() {
     vkd3d.vkd3d_proton = true;
     const auto twelve = DefaultsFor(ProbeGame(root.string(), "Twelve.exe"), vkd3d);
     CHECK(twelve.refusal.empty() && twelve.graphics == "dxvk" && twelve.d3d12 == "vkd3d-proton");
+    // Direct3D 12 games load dxgi too; that doesn't make them Direct3D 11 games.
+    const auto twelve_dxgi = DefaultsFor(ProbeGame(root.string(), "TwelveDxgi.exe"), vkd3d);
+    CHECK(twelve_dxgi.refusal.empty() && twelve_dxgi.graphics == "dxvk" && twelve_dxgi.d3d12 == "vkd3d-proton");
     KitCapabilities vkd3d_kit;
     vkd3d_kit.vkd3d_proton = true;
     CHECK(GameProgramRefusal(root.string(), "Twelve.exe", vkd3d_kit, false).empty());
