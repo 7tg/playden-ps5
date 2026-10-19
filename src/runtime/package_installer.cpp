@@ -17,6 +17,7 @@
 #include <set>
 #include <vector>
 #include <system_error>
+#include <thread>
 #include <utility>
 
 #include <sys/stat.h>
@@ -1293,10 +1294,36 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     return Failed("destination-collision", "final package path already exists");
   if (!SyncAncestors(final.parent_path()))
     return Failed("sync-failed", "destination parent was not durably synced before rename");
-  fs::rename(staging, final, error);
-  if (error)
-    return Failed("atomic-rename-failed",
-                  "package staging and destination must support one atomic rename");
+  // Retry brief filesystem contention without recopying the durable staging tree.
+  // Cross-volume moves must still fail: copying into the watched title is not atomic.
+  constexpr int kRenameAttempts = 4;
+  for (int attempt = 1; attempt <= kRenameAttempts; ++attempt) {
+    if (operations_.canceled && operations_.canceled()) return Canceled();
+    if (attempt > 1) {
+      if (!PathComponentsHaveNoSymlink(paths_.host_data_root, final_parent_relative, true))
+        return Failed("destination-invalid", "final destination contains a symbolic link");
+      if (ExistsNoThrow(final, &final_known) || !final_known)
+        return Failed("destination-collision", "final package path appeared or became unavailable during rename retry");
+    }
+    error.clear();
+    if (operations_.rename_path) operations_.rename_path(staging, final, error);
+    else fs::rename(staging, final, error);
+    if (!error) break;
+    const std::string detail = "errno=" + std::to_string(error.value()) + " category=" + error.category().name() +
+                               " message=" + error.message();
+    if (operations_.log)
+      operations_.log("package rename stage=" + stage_kind + " install=" + record.install_id +
+                      " attempt=" + std::to_string(attempt) + " from=" + staging.string() +
+                      " to=" + final.string() + " " + detail);
+    const bool transient = error == std::errc::device_or_resource_busy || error == std::errc::interrupted ||
+                           error == std::errc::resource_unavailable_try_again;
+    if (!transient || attempt == kRenameAttempts)
+      return Failed("atomic-rename-failed",
+                    std::string(error == std::errc::cross_device_link
+                                    ? "package staging and destination must be on the same filesystem"
+                                    : "package staging rename failed") + " (" + detail + ")");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100 * attempt));
+  }
   if (!SyncTree(final, false) || !SyncAncestors(final.parent_path()) ||
       !SyncAncestors(staging.parent_path()))
     return Failed("sync-failed", "atomic package rename was not durably synced");

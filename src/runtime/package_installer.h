@@ -136,6 +136,8 @@ struct PackageInstallerOperations {
   // Optional test/platform seam. With no override, the implementation uses
   // open(2)+fsync(2). `directory` distinguishes directory durability barriers.
   std::function<bool(const std::filesystem::path&, bool directory)> sync_path;
+  // Optional test/platform seam for the atomic staging rename; defaults to filesystem::rename.
+  std::function<void(const std::filesystem::path&, const std::filesystem::path&, std::error_code&)> rename_path;
   // Optional: one line per package copy and title check with its file count and the
   // time spent in each part, for measuring preparation on the console.
   std::function<void(const std::string&)> log;

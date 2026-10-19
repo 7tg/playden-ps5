@@ -178,6 +178,8 @@ struct Fixture {
   bool publish_public_profile = false;
   bool fail_publication = false;
   bool legacy_descriptor = false;
+  std::function<void(const std::filesystem::path&, const std::filesystem::path&, std::error_code&)> rename_path;
+  std::vector<std::string> logs;
 
   Fixture() {
     Write(kit / "titles/variant/eboot.bin", "native", 0755);
@@ -248,6 +250,8 @@ struct Fixture {
 
   FilesystemPackageInstaller Installer(bool inject_sync = true) {
     PackageInstallerOperations operations;
+    operations.rename_path = rename_path;
+    operations.log = [&](const std::string& message) { logs.push_back(message); };
     operations.hash_file = TestHash;
     operations.hash_bytes = TestHashBytes;
     operations.free_bytes = [&](const std::filesystem::path&) {
@@ -299,6 +303,76 @@ struct Fixture {
     return FilesystemPackageInstaller(view, paths, std::move(operations));
   }
 };
+
+void TransientRenameFailuresKeepTheStagedPackage() {
+  for (const auto failure : {std::errc::device_or_resource_busy, std::errc::interrupted,
+                            std::errc::resource_unavailable_try_again}) {
+    for (const bool bottle : {false, true}) {
+      Fixture fixture;
+      int attempts = 0;
+      std::uintmax_t stage_inode = 0;
+      fixture.rename_path = [&](const auto& source, const auto& destination, std::error_code& error) {
+        struct stat info{};
+        CHECK(::stat(source.c_str(), &info) == 0);
+        if (++attempts == 1) stage_inode = info.st_ino;
+        CHECK(stage_inode == info.st_ino);
+        if (attempts < 3) error = std::make_error_code(failure);
+        else std::filesystem::rename(source, destination, error);
+      };
+      auto installer = fixture.Installer();
+      const auto result = bottle ? installer.CopyTemplate(Record()) : installer.StageTitle(Record());
+      CHECK(result.state == PackageActionState::kComplete);
+      const auto final = fixture.host_data / (bottle ? "playden/games/install-hl2/library/prefixes/game" : "homebrew/FAKE78001");
+      CHECK(std::filesystem::is_regular_file(final / (bottle ? "drive_c/windows/system.reg" : "eboot.bin")));
+      CHECK(attempts == 3);
+      CHECK(std::any_of(fixture.logs.begin(), fixture.logs.end(), [&](const auto& line) {
+        return line.find("errno=" + std::to_string(static_cast<int>(failure))) != std::string::npos;
+      }));
+    }
+  }
+}
+
+void RenameFailuresReportTheActualCondition() {
+  for (const auto failure : {std::errc::cross_device_link, std::errc::no_space_on_device,
+                            std::errc::permission_denied, std::errc::file_exists,
+                            std::errc::no_such_file_or_directory, std::errc::device_or_resource_busy}) {
+    Fixture fixture;
+    int attempts = 0;
+    fixture.rename_path = [&](const auto&, const auto&, std::error_code& error) {
+      ++attempts;
+      error = std::make_error_code(failure);
+    };
+    auto installer = fixture.Installer();
+    const auto result = installer.StageTitle(Record());
+    CHECK(result.state == PackageActionState::kFailed);
+    CHECK(result.code == "atomic-rename-failed");
+    CHECK(result.message.find("errno=" + std::to_string(static_cast<int>(failure))) != std::string::npos);
+    CHECK(result.message.find(std::make_error_code(failure).message()) != std::string::npos);
+    CHECK((result.message.find("same filesystem") != std::string::npos) == (failure == std::errc::cross_device_link));
+    CHECK(attempts == (failure == std::errc::device_or_resource_busy ? 4 : 1));
+    CHECK(!std::filesystem::exists(fixture.host_data / "homebrew/FAKE78001"));
+    CHECK(std::filesystem::is_regular_file(fixture.host_data / "playden/staging/title-install-hl2/eboot.bin"));
+  }
+}
+
+void RenameRetryRespectsCancellationAndCollisions() {
+  for (const bool cancel : {false, true}) {
+    Fixture fixture;
+    int attempts = 0;
+    fixture.rename_path = [&](const auto&, const auto& destination, std::error_code& error) {
+      ++attempts;
+      if (cancel) fixture.canceled = true;
+      else Write(destination / "foreign", "keep me");
+      error = std::make_error_code(std::errc::device_or_resource_busy);
+    };
+    auto installer = fixture.Installer();
+    const auto result = installer.StageTitle(Record());
+    CHECK(result.state == (cancel ? PackageActionState::kCanceled : PackageActionState::kFailed));
+    CHECK(result.code == (cancel ? "canceled" : "destination-collision"));
+    CHECK(attempts == 1);
+    if (!cancel) CHECK(Read(fixture.host_data / "homebrew/FAKE78001/foreign") == "keep me");
+  }
+}
 
 void LegacyDescriptorOnlyBindsHistoricalRoot() {
   for (const auto* root : {"/mnt/games/220", "/data/homebrew/FAKE78001/games/220"}) {
@@ -1118,6 +1192,9 @@ int main() {
   UnreadableFreeSpaceRequiresExplicitMode();
   SyncFailureNeverPublishesWatchedTitle();
   NativeFsyncFallbackPublishesAtomically();
+  TransientRenameFailuresKeepTheStagedPackage();
+  RenameFailuresReportTheActualCondition();
+  RenameRetryRespectsCancellationAndCollisions();
   LateSyncFailureIsReestablishedOnRetry();
   PrivateTitleFoldersAreRepublished();
   AnyTitleVariantServesEveryTitle();
