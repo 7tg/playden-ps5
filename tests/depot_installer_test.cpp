@@ -507,6 +507,35 @@ void ParallelMergedAndFullyResumed(const std::filesystem::path& root) {
   CHECK(Read(resumed / "game.exe") == "MZ-executable-second-chunk");
 }
 
+// A depot borrowed from another app the account doesn't own: its key is refused, and the game installs without it.
+void BorrowedDepotRefusedIsSkipped(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  auto hooks = world.Hooks();
+  bool asked_optional = false;
+  hooks.access = [&](const StoredSession&, std::uint32_t, const std::vector<DepotRequest>& depots,
+                     const std::atomic<bool>&) {
+    DepotAccessResult result;
+    result.error = CmError::kNone;
+    for (const auto& depot : depots) {
+      if (depot.optional) {
+        asked_optional = true;
+        result.skipped.push_back(depot.depot_id);
+        continue;
+      }
+      result.grants.push_back({depot.depot_id, depot.manifest_gid, kKey, 77});
+    }
+    return result;
+  };
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  auto target = Target(root);
+  target.depots[1].depot_from_app = 877620;
+  const auto outcome = installer.Run({}, target, cancel);
+  CHECK(outcome.error == InstallError::kNone && asked_optional);
+  CHECK(outcome.skipped_depots == std::vector<std::uint32_t>{442});
+  CHECK(Read(root / "data/level.dat") == "level-one");
+}
+
 void TuningFileDefaultsAndValidation(const std::filesystem::path& root) {
   std::filesystem::create_directories(root);
   const auto path = (root / "tuning").string();
@@ -981,6 +1010,7 @@ int main() {
   FileCreationAheadIsBounded(base / "ahead");
   TuningFileDefaultsAndValidation(base / "tuning");
   ParallelMergedAndFullyResumed(base / "parallel-merged");
+  BorrowedDepotRefusedIsSkipped(base / "borrowed-depot");
   CountsActualUsefulCompressedBytes(base / "actual-compressed");
   StorageFailureEndsStats(base / "storage-stats");
   StatsAndRemovalLogs(base / "removal");

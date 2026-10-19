@@ -67,6 +67,7 @@ struct InstallOutcome {
   InstallError error = InstallError::kProtocol;
   InstallProgress progress;
   std::string detail;  // short and identifier-free
+  std::vector<std::uint32_t> skipped_depots;  // borrowed depots the account was refused, installed without
 };
 
 // Seams for tests; the defaults use CmClient, CdnClient and the real filesystem.

@@ -811,6 +811,10 @@ DepotAccessResult CmClient::FetchDepotAccess(const StoredSession& stored, std::u
       return finish(call);
     cm::DepotKeyResponse key;
     if (!cm::DecodeDepotKeyResponse(reply, &key)) return finish(CmError::kProtocol);
+    if (key.eresult == cm::kEResultAccessDenied && depot.optional) {
+      result.skipped.push_back(depot.depot_id);
+      continue;
+    }
     if (key.eresult != cm::kEResultOk) {
       result.detail = "depot key refused eresult=" + std::to_string(key.eresult);
       return finish(CmError::kRejected);

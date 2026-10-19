@@ -729,6 +729,10 @@ void DepotAccessReturnsKeysAndManifestCodes() {
   }
   auto refused = MakeClient(DepotScript(cm::kEResultAccessDenied, 1));
   assert(refused.FetchDepotAccess(Session(), 440, {{441, 11}}, cancel).error == CmError::kRejected);
+  // A depot borrowed from another app the account doesn't own is skipped, not a refusal (Slay the Spire's 877621).
+  auto borrowed = MakeClient(DepotScript(cm::kEResultAccessDenied, 1));
+  const auto skipped = borrowed.FetchDepotAccess(Session(), 440, {{441, 11, true}}, cancel);
+  assert(skipped.ok() && skipped.grants.empty() && skipped.skipped == std::vector<std::uint32_t>{441});
   auto no_code = MakeClient(DepotScript(cm::kEResultOk, 0));
   assert(no_code.FetchDepotAccess(Session(), 440, {{441, 11}}, cancel).error == CmError::kRejected);
 }

@@ -335,7 +335,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   std::vector<DepotRequest> requests;
   for (const auto& depot : target.depots) {
     if (!depot.manifest_gid || *depot.manifest_gid == 0) return fail(InstallError::kProtocol, "depot without manifest");
-    requests.push_back({depot.id, *depot.manifest_gid});
+    requests.push_back({depot.id, *depot.manifest_gid, depot.depot_from_app.has_value()});
   }
   const auto access = hooks_.access(session, target.app_id, requests, cancel);
   if (!access.ok()) {
@@ -343,7 +343,9 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     outcome.detail = access.detail.empty() ? "depot access failed" : access.detail;
     return outcome;
   }
-  if (access.grants.size() != requests.size()) return fail(InstallError::kProtocol, "incomplete depot access");
+  if (access.grants.empty() || access.grants.size() + access.skipped.size() != requests.size())
+    return fail(InstallError::kProtocol, "incomplete depot access");
+  outcome.skipped_depots = access.skipped;
 
   stats.access_ms = Milliseconds(Clock::now() - phase_start);
   phase_start = Clock::now();

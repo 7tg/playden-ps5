@@ -75,6 +75,9 @@ struct AppInfoBuffers {
 struct DepotRequest {
   std::uint32_t depot_id = 0;
   std::uint64_t manifest_gid = 0;
+  // A depot the game borrows from another app (depotfromapp): an account that doesn't own that app is
+  // refused its key, and the game installs without it.
+  bool optional = false;
 };
 struct DepotGrant {
   std::uint32_t depot_id = 0;
@@ -84,7 +87,8 @@ struct DepotGrant {
 };
 struct DepotAccessResult {
   CmError error = CmError::kProtocol;
-  std::vector<DepotGrant> grants;  // one per requested depot, in request order
+  std::vector<DepotGrant> grants;  // one per requested depot, in request order, except skipped ones
+  std::vector<std::uint32_t> skipped;  // optional depots whose key the account was refused
   std::string detail;              // which step refused, with Steam's result code
   bool ok() const { return error == CmError::kNone; }
 };

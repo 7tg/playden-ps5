@@ -144,12 +144,19 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
   const auto outcome = installer_.Run(session, target, cancel, [&](const InstallProgress& state) {
     if (progress) progress(state.download_done, state.download_total, state.held_bytes);
   });
+  if (!outcome.skipped_depots.empty()) {
+    std::string skipped;
+    for (const auto id : outcome.skipped_depots) skipped += (skipped.empty() ? "" : " ") + std::to_string(id);
+    log("depots", "skipped", ("borrowed-refused=" + skipped).c_str());
+  }
   log("install", InstallErrorName(outcome.error), outcome.detail.c_str());
   result.ok = outcome.error == InstallError::kNone;
   if (result.ok) {
     // What the Steamworks emulator needs later, while the licenses are at hand: installed depots and owned DLC.
     std::vector<std::uint32_t> depots, dlc;
-    for (const auto& depot : target.depots) depots.push_back(depot.id);
+    for (const auto& depot : target.depots)
+      if (std::find(outcome.skipped_depots.begin(), outcome.skipped_depots.end(), depot.id) == outcome.skipped_depots.end())
+        depots.push_back(depot.id);
     for (const auto app_id : app->dlc_app_ids)
       if (entitlements.owned_apps.count(app_id)) dlc.push_back(app_id);
     if (!runtime::WriteSteamworksFacts(root, depots, dlc)) log("steamworks_facts", "write-failed", root.c_str());
