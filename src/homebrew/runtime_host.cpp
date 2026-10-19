@@ -932,7 +932,7 @@ std::string RuntimeHost::ApplyPreparationSteps(Composition& c, const rt::Runtime
       if (candidate.id == files.saved->preset_id) preset = &candidate;
   rt::SettingsError error;
   static const std::map<std::string, std::string> none;
-  const auto kit = c.kit ? rt::KitCapabilitiesFromManifest(c.kit->capabilities, true) : rt::KitCapabilities{};
+  const auto kit = TitleKit(c, record);
   if (!rt::BuildEffectiveSettings(*files.recipe, preset, files.saved ? files.saved->overrides : none, kit, &files.settings,
                                   &error))
     return {};  // publication reports invalid settings
@@ -1196,11 +1196,22 @@ void RuntimeHost::ClearWork() {
   Publish([](RuntimeSnapshot& s) { s.work_progress.reset(); });
 }
 
+// Whether the install is bound to exactly the installed kit's runtime artifacts.
+static bool ArtifactsBound(const auto& kit_artifacts, const rt::RuntimeInstall& record) {
+  return record.artifacts.size() == kit_artifacts.size() &&
+         std::all_of(kit_artifacts.begin(), kit_artifacts.end(), [&](const auto& artifact) {
+           return std::any_of(record.artifacts.begin(), record.artifacts.end(), [&](const auto& bound) {
+             return bound.artifact_id == artifact.artifact_id && bound.identity == artifact.identity &&
+                    bound.sha256 == artifact.sha256;
+           });
+         });
+}
+
 void RuntimeHost::PublishInstalls(const Composition& composition, const std::string& only) {
-  std::map<std::string, bool> checked;
+  std::map<std::string, std::pair<bool, bool>> checked;  // title_current, runtime_current
   if (!only.empty()) {
     std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& view : snapshot_.installs) checked[view.install_id] = view.title_current;
+    for (const auto& view : snapshot_.installs) checked[view.install_id] = {view.title_current, view.runtime_current};
   }
   std::vector<RuntimeInstallView> installs;
   for (const auto& record : composition.repository.Snapshot()) {
@@ -1218,11 +1229,14 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
       view.failure = record.last_failure->message;
       view.failure_code = record.last_failure->code;
     }
-    if (const auto kept = checked.find(record.install_id); !only.empty() && record.install_id != only && kept != checked.end())
-      view.title_current = kept->second;
-    else if (record.state == rt::PreparationState::kReady && composition.kit)
-      view.title_current = composition.installer->TitleCurrent(record) &&
-                           composition.installer->TitleMetadataCurrent(record) && TitleNameCurrent(record);
+    if (const auto kept = checked.find(record.install_id); !only.empty() && record.install_id != only && kept != checked.end()) {
+      view.title_current = kept->second.first;
+      view.runtime_current = kept->second.second;
+    } else if (record.state == rt::PreparationState::kReady && composition.kit) {
+      const bool files_current = composition.installer->TitleCurrent(record);
+      view.title_current = files_current && composition.installer->TitleMetadataCurrent(record) && TitleNameCurrent(record);
+      view.runtime_current = files_current && ArtifactsBound(composition.kit->view.artifacts, record);
+    }
     if (const auto found = composition.admission.find(record.install_id); found != composition.admission.end())
       view.admission = found->second;
     view.settings_revision = record.settings_revision;
@@ -1246,6 +1260,17 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
     s.installs_known = known;
   });
   PublishPrepared(&composition);
+}
+
+bool RuntimeHost::TitleRuntimeCurrent(const Composition& c, const rt::RuntimeInstall& record) const {
+  return c.kit && c.installer->TitleCurrent(record) && ArtifactsBound(c.kit->view.artifacts, record);
+}
+
+rt::KitCapabilities RuntimeHost::TitleKit(const Composition& c, const rt::RuntimeInstall& record) const {
+  if (!c.kit) return {};
+  const auto kit = rt::KitCapabilitiesFromManifest(c.kit->capabilities, true);
+  // The title's markers are read only when the kit has something an older runtime would refuse.
+  return kit.display_120hz ? rt::KitForTitleRuntime(kit, TitleRuntimeCurrent(c, record)) : kit;
 }
 
 // The complete OWNER protocol for the publish-profile step: persist the exact
@@ -1280,7 +1305,7 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
                                          : rt::GameSettingsRecord{};
   for (const auto& preset : c.presets)
     if (preset.id == input.record.preset_id) input.preset = &preset;
-  input.kit = rt::KitCapabilitiesFromManifest(c.kit->capabilities, true);
+  input.kit = TitleKit(c, record);
   input.target = {record.default_profile_id, record.install_path};
   input.runtime_dir = config_.runtime_dir;
   rt::SettingsLaunchPlan plan;
@@ -1576,7 +1601,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   const rt::SettingsPreset* preset = nullptr;
   for (const auto& candidate : c.presets)
     if (candidate.id == saved.preset_id) preset = &candidate;
-  const auto kit = rt::KitCapabilitiesFromManifest(c.kit->capabilities, true);
+  const auto kit = TitleKit(c, record);
   // Another program or folder chosen in Game settings: the PS5 title and the bottle stay, and
   // the install record names the new program when this publication commits (Reconcile), so a
   // crash in between resumes with it. Callers run this only while the game is stopped.

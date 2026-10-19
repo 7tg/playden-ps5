@@ -3628,7 +3628,8 @@ void Simulation::rebuild_view() {
             overrides.erase(modal.setting_id);
             rt::EffectiveSettings base;
             rt::SettingsError ignored;
-            if (rt::BuildEffectiveSettings(RecipeFor(settings_game), preset_for(settings_game), overrides, kit_, &base, &ignored))
+            if (rt::BuildEffectiveSettings(RecipeFor(settings_game), preset_for(settings_game), overrides, kit_for(settings_game),
+                                           &base, &ignored))
                 inherited = base.values.at(modal.setting_id);
         }
         if (modal.id == "game-settings" || modal.id == "game-maintenance") {
@@ -8101,6 +8102,11 @@ const rt::GameRecipe& Simulation::RecipeFor(GameId id) const {
     return recipe;
 }
 
+rt::KitCapabilities Simulation::kit_for(GameId id) const {
+    const auto runtime = state_.runtime_games.find(id);
+    return rt::KitForTitleRuntime(kit_, runtime == state_.runtime_games.end() || runtime->second.runtime_current);
+}
+
 const rt::SettingsPreset* Simulation::preset_for(GameId id) const {
     const auto record = state_.game_settings.find(id);
     const std::string wanted = record == state_.game_settings.end() || record->second.preset_id.empty()
@@ -8115,7 +8121,7 @@ bool Simulation::EffectiveSettingsFor(GameId id, rt::EffectiveSettings* settings
     static const std::map<std::string, std::string> none;
     rt::SettingsError error;
     return rt::BuildEffectiveSettings(RecipeFor(id), preset_for(id), record == state_.game_settings.end() ? none : record->second.overrides,
-                                      kit_, settings, &error);
+                                      kit_for(id), settings, &error);
 }
 
 std::vector<std::string> Simulation::game_settings_actions() const {
@@ -8255,7 +8261,7 @@ void Simulation::build_preset_comparison(GameId id, const std::string& preset_id
     rt::EffectiveSettings current, after;
     rt::SettingsError error;
     if (!chosen || !EffectiveSettingsFor(id, &current) ||
-        !rt::BuildEffectiveSettings(RecipeFor(id), chosen, kept_start_choices(id), kit_, &after, &error))
+        !rt::BuildEffectiveSettings(RecipeFor(id), chosen, kept_start_choices(id), kit_for(id), &after, &error))
         return;
     ViewData::Comparison comparison;
     comparison.title = chosen->name;
@@ -8514,7 +8520,7 @@ void Simulation::set_game_setting(const std::string& id, const std::string& valu
     rt::EffectiveSettings base;
     rt::SettingsError error;
     // Choosing the inherited value removes the override, so the row is no longer "changed".
-    const bool inherited = rt::BuildEffectiveSettings(RecipeFor(game), preset_for(game), overrides, kit_, &base, &error)
+    const bool inherited = rt::BuildEffectiveSettings(RecipeFor(game), preset_for(game), overrides, kit_for(game), &base, &error)
         && base.values.at(id).value == value;
     if (inherited) record.overrides.erase(id);
     else record.overrides[id] = value;

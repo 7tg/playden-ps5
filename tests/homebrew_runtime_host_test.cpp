@@ -1895,6 +1895,80 @@ void KitWithoutUnownedRootsKeepsTightening() {
   host.Shutdown();
 }
 
+// A kit with 120 Hz output over a title still running an earlier kit's runtime: until Update, the title's profile
+// has no frame_rate (its runtime would refuse the whole profile) and Frame limit stays DXVK's. After Update the
+// display paces it.
+void StaleTitleWaitsForUpdateBefore120Hz() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  const auto profile = fixture.root / "data/playden/games/steam-220/library/profiles/playden-steam-220.profile";
+  GameSettingsRecord saved;
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
+  Write(game / "hl2.exe", "existing-game", 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  {
+    auto kit = SyntheticKit(fixture.root / "kit");
+    kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
+    auto first = config;
+    first.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+    RuntimeHost host(first);
+    CHECK(host.Start());
+    host.Prepare(Hl2());
+    const auto ready = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+    }, 60);
+    CHECK(ready.installs[0].title_current && ready.installs[0].runtime_current);
+    host.Shutdown();
+  }
+  auto respun = SyntheticKit(fixture.root / "kit-respun", "native-2", "kit-1", 'c');
+  respun.capabilities = {"display-120hz", "dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
+  config.admit_kit = [respun](std::string*) { return std::optional<RuntimeKit>(respun); };
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(!started.installs[0].title_current && !started.installs[0].runtime_current);
+  const auto apply = [&host] {
+    const auto before = host.Snapshot().maintenance_handled;
+    host.Maintain(220, RuntimeMaintenance::kApplySettings);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  };
+  saved.revision = 1;
+  saved.overrides = {{"refresh", "120"}, {"frame_limit", "60"}};
+  auto result = apply();
+  if (!result.maintenance.at(220).ok) std::fprintf(stderr, "stale apply: %s\n", result.maintenance.at(220).message.c_str());
+  CHECK(result.maintenance.at(220).ok && result.installs[0].settings_revision == 1);
+  CHECK(Read(profile).find("frame_rate") == std::string::npos && Read(profile).find("refresh") == std::string::npos);
+  CHECK(Read(game / "dxvk.conf").find("dxgi.maxFrameRate = 60") != std::string::npos);
+
+  host.Prepare(Hl2());
+  result = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && (s.installs[0].title_current || s.refusals.count(220));
+  }, 60);
+  CHECK(!result.refusals.count(220) && result.installs[0].runtime_current);
+  saved.revision = 2;
+  result = apply();
+  if (!result.maintenance.at(220).ok) std::fprintf(stderr, "updated apply: %s\n", result.maintenance.at(220).message.c_str());
+  CHECK(result.maintenance.at(220).ok && result.installs[0].settings_revision == 2);
+  CHECK(Read(profile).find("\nrefresh = 120\nframe_rate = 60\n") != std::string::npos);
+  CHECK(!fs::exists(game / "dxvk.conf") || Read(game / "dxvk.conf").find("maxFrameRate") == std::string::npos);
+  host.Shutdown();
+}
+
 // A kit respin while a settings update waits for recovery (#5): the title is still this
 // install's, so Update first finishes the saved update, and the title only reports that
 // it needs Update (not current) until a second Update refreshes it.
@@ -4667,6 +4741,7 @@ int main(int argc, char** argv) {
   for (int route = 0; route <= 5; ++route) OwnedPublicationOpenedUpRecovers(route);
   SettingsSavedDuringPrepareReachReadyTitle();
   KitRespinKeepsWaitingSettingsUpdate();
+  StaleTitleWaitsForUpdateBefore120Hz();
   RemovesTitleKeepingSaves();
   PreparesGameInstalledAgainElsewhere();
   SharedProfileKitOpensSaves();

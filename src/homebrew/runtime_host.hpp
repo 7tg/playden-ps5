@@ -168,6 +168,9 @@ struct RuntimeInstallView {
   bool awaiting_registration = false;
   // False when a Ready title was made from an earlier kit; Prepare updates it.
   bool title_current = true;
+  // Whether the title runs the installed kit's runtime (its files and artifacts are the kit's). Unlike title_current,
+  // a new game name or icon does not count. Settings only the newer runtime takes (120 Hz output) wait for Update.
+  bool runtime_current = true;
   // Publication admission result for Ready titles ("ok" or the refusal); a
   // refusal means the next start would be refused, and Prepare repairs it.
   std::string admission = "ok";
@@ -553,6 +556,13 @@ class RuntimeHost {
   std::string InstallScriptsStep(const GameFiles& files);                        // and redistributables
   // The Steam app ID the game's emulator uses.
   SteamworksAppView SteamworksAppFor(const GameFiles& files) const;
+  // Whether the install's title runs the installed kit's runtime: its owner markers name this kit
+  // (PackageInstaller::TitleCurrent) and its bound artifacts are the kit's. A title made from an earlier kit runs
+  // that kit's runtime until Update.
+  bool TitleRuntimeCurrent(const Composition& composition, const runtime::RuntimeInstall& record) const;
+  // The installed kit's capabilities as this install's title can use them (runtime::KitForTitleRuntime): profile
+  // keys only a newer runtime takes are left out until Update. Use it wherever a profile is built for the title.
+  runtime::KitCapabilities TitleKit(const Composition& composition, const runtime::RuntimeInstall& record) const;
   // Empty while the kit on disk is the one admitted at startup; otherwise what to tell the player.
   std::string KitReplaced(const Composition& composition) const;
   // Makes an owned, world-writable folder from root down to working 0755 (dxvk.conf goes there).

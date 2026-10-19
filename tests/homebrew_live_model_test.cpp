@@ -221,6 +221,53 @@ bool has_notice(const Simulation& model, const std::string& id) {
     return std::any_of(notices.begin(), notices.end(), [&id](const auto& notice) { return notice.id == id; });
 }
 
+// 120 Hz output needs the game's title on a runtime that takes it: a title waiting for Update says so, and Frame
+// limit choices that need 120 Hz output are disabled with their reason.
+void live_120hz_waits_for_the_title_update(const std::filesystem::path& base) {
+    std::filesystem::create_directories(base);
+    auto model = make_live(base);
+    model.SetGameSettingsFile(base / "display-settings.json");
+    model.SetSettingsData({{"playden-default", "Playden default", "Most games", "", {}}}, {});
+    model.SetKitCapabilities(playden::runtime::KitCapabilitiesFromManifest({"dxvk", "display-120hz"}, true));
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    playden::GameSummary game;
+    game.id = SteamId(220);
+    game.title = "Half-Life 2";
+    check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "display game library delivered");
+    model.UpdateInstalls({}, {{SteamId(220), 1024, "internal", true}});
+    playden::homebrew::LiveRuntimeGame runtime;
+    runtime.game_id = SteamId(220);
+    runtime.status = "Update available";
+    runtime.prepared = runtime.has_title = true;
+    runtime.runtime_current = false;
+    runtime.launch_entry_id = "game";
+    runtime.activity = playden::homebrew::TitleActivity::Stopped;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(model.action("details:220"), "open the display game's details");
+    activate(model, "details-more");
+    activate(model, "game-settings");
+    activate(model, "section-more");
+    const auto* refresh = find_row(model, "setting-refresh");
+    check(refresh && !refresh->enabled && refresh->subtitle == "Update this game to use it.",
+          "120 Hz output waits for the title's Update");
+    activate(model, "setting-frame_limit");
+    const auto* limit_120 = find_row(model, "choice-1");
+    check(limit_120 && limit_120->title == "120" && !limit_120->enabled && limit_120->subtitle == "Update this game to use it.",
+          "Frame limit 120 waits for the title's Update");
+    check(find_row(model, "choice-2") && find_row(model, "choice-2")->enabled, "Frame limit 60 stays available");
+    check(model.action("circle"), "close the Frame limit picker");
+
+    runtime.status = "Ready";
+    runtime.ready = true;
+    runtime.runtime_current = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    refresh = find_row(model, "setting-refresh");
+    check(refresh && refresh->enabled, "an updated title offers 120 Hz output");
+    activate(model, "setting-frame_limit");
+    const auto* at_60 = find_row(model, "choice-1");
+    check(at_60 && !at_60->enabled && at_60->subtitle == "Only with 120 Hz output.", "Frame limit 120 needs 120 Hz output");
+}
+
 // A prepared game's settings and maintenance: rows that need the game closed wait for the
 // console's answer, a closed sheet asks for the settings to be applied, and maintenance
 // requests go to the runtime after a confirmation.
@@ -879,6 +926,7 @@ int main() {
 
     settings_survive_account_restore_and_cache_action_is_honest(base);
     live_settings_follow_the_prepared_title(base);
+    live_120hz_waits_for_the_title_update(base / "display");
     live_program_change_applies_like_other_settings(base);
     live_imported_game_steam_app_id(base);
     live_imported_program_seeds_once(base);
