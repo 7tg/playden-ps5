@@ -280,7 +280,8 @@ int main(int argc, char** argv) {
   godot.detected = "godot,d3d12,dxgi,opengl,vulkan graphics=opengl";
   godot.arguments = "--rendering-driver opengl3";
   CHECK(BuildEffectiveSettings(godot, nullptr, {}, zink, &settings, &error));
-  CHECK(settings.arguments == "--rendering-driver vulkan");
+  CHECK(settings.arguments == "--rendering-driver vulkan" &&
+        settings.values.at("arguments").value == "--rendering-driver vulkan");
   CHECK(BuildEffectiveSettings(godot, nullptr, {}, KitCapabilities{}, &settings, &error));
   CHECK(settings.arguments == "--rendering-driver opengl3");
   auto gdi = hl2;
@@ -1279,9 +1280,9 @@ int main(int argc, char** argv) {
       auto engine = generated;
       engine.arguments = "-force-d3d11 -dx11";
       CHECK(BuildEffectiveSettings(engine, nullptr, {}, vkd3d_kit, &settings, &error));
-      CHECK(settings.arguments == "-force-d3d11 -dx11");
+      CHECK(settings.arguments == "-force-d3d11 -dx11" && settings.values.at("arguments").value == "-force-d3d11 -dx11");
       CHECK(BuildEffectiveSettings(engine, nullptr, {{"d3d12", "vkd3d-proton"}}, vkd3d_kit, &settings, &error));
-      CHECK(settings.arguments == "-force-d3d12 -dx12");
+      CHECK(settings.arguments == "-force-d3d12 -dx12" && settings.values.at("arguments").value == "-force-d3d12 -dx12");
       CHECK(BuildEffectiveSettings(engine, nullptr, {{"d3d12", "vkd3d-proton"}, {"arguments", "-dx11"}}, vkd3d_kit,
                                    &settings, &error));
       CHECK(settings.arguments == "-dx11");

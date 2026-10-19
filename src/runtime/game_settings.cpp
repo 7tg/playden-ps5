@@ -653,19 +653,20 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     required.value = recipe.arguments;
     required.source = recipe.arguments.empty() ? ValueSource::kPlayden : ValueSource::kRecipe;
   }
-  std::string arguments = required.value;
+  // The row shows what the game is started with, so these swaps rewrite the recipe's value itself.
   // Godot 4 cannot open its OpenGL window under Mesa's WGL/Zink on the PS5 (Slay the Spire 2), but its Vulkan
   // renderer runs on RADV directly, at full rate. Generated recipes for Godot ask for opengl3; on a Zink kit they
-  // get Vulkan instead. A player's Extra arguments still come last and win.
+  // get Vulkan instead, also in arguments the player typed. A player's Extra arguments still come last and win.
   if (kit.opengl_zink && recipe.detected.rfind("godot", 0) == 0)
-    ReplaceAll(&arguments, "--rendering-driver opengl3", "--rendering-driver vulkan");
+    ReplaceAll(&required.value, "--rendering-driver opengl3", "--rendering-driver vulkan");
   // Generated recipes ask Unity and Unreal for Direct3D 11, which DXVK draws. With Direct3D 12 on vkd3d-proton they
   // ask for Direct3D 12 instead (CULTIC stays black on 11). Arguments the player typed are left as they are.
   if (IsGeneratedRecipeId(recipe.id) && required.source != ValueSource::kUser &&
       out.values["d3d12"].value == "vkd3d-proton") {
-    ReplaceAll(&arguments, "-force-d3d11", "-force-d3d12");
-    ReplaceAll(&arguments, "-dx11", "-dx12");
+    ReplaceAll(&required.value, "-force-d3d11", "-force-d3d12");
+    ReplaceAll(&required.value, "-dx11", "-dx12");
   }
+  std::string arguments = required.value;
   std::string resolution_arguments = recipe.resolution_arguments;
   const auto& resolution = out.values["resolution"].value;
   const auto x = resolution.find('x');
