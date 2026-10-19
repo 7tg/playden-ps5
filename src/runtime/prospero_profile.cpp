@@ -310,6 +310,8 @@ bool CheckProsperoProfile(std::string_view text, std::string* reason, ProsperoPr
         if (!OneOf(value, {"true", "false"})) return bad("not true or false");
       } else if (key == "refresh") {
         if (value != "60" && value != "120") return bad("not 60 or 120");
+      } else if (features.display_frame_rate && key == "frame_rate") {
+        if (!OneOf(value, {"0", "120", "60", "40", "30"})) return bad("not 0, 120, 60, 40 or 30");
       } else {
         return fail("unknown [display] key " + key);
       }

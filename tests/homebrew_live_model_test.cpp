@@ -297,7 +297,7 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
     check(find_row(model, "setting-locale") && !find_row(model, "setting-locale")->enabled,
           "unbuilt rows stay listed and disabled");
     check(model.action("focus:setting-frame_limit") &&
-              find_row(model, "setting-frame_limit")->subtitle.find("Also called dxgi.maxFrameRate") != std::string::npos,
+              find_row(model, "setting-frame_limit")->subtitle.find("Also called [display] frame_rate · dxgi.maxFrameRate") != std::string::npos,
           "the focused row names its technical keys");
 
     activate(model, "setting-resolution");

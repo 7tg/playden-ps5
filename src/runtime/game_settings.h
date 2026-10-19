@@ -48,6 +48,10 @@ struct KitCapabilities {
   bool opengl_zink = false;        // OpenGL games draw through Mesa's Zink, not the PS5 OpenGL SDK
   bool wine_mono = false;          // .NET programs start on the kit's Wine Mono
   bool vkd3d_proton = false;       // the kit's runtime carries vkd3d-proton's Direct3D 12 DLLs
+  // [display] refresh on every graphics path and [display] frame_rate (paced by the display). Counts only for a title
+  // that runs this kit's runtime: an older runtime refuses a profile with frame_rate (KitForTitleRuntime).
+  bool display_120hz = false;
+  bool display_120hz_needs_update = false;  // the kit has it, but the game's title still runs an older runtime
 };
 
 struct SettingChoice {
@@ -189,6 +193,10 @@ struct EffectiveSettings {
   bool debug_env_lines = false;
   // Direct3D 12 through vkd3d-proton: ApplyD3D12Library puts its DLLs in the bottle before the game starts.
   bool vkd3d_proton = false;
+  // The title's runtime honors [display] refresh on every graphics path and paces [display] frame_rate itself
+  // (KitCapabilities::display_120hz); without it Frame limit is DXVK's maxFrameRate, as before.
+  bool display_120hz = false;
+  bool display_120hz_needs_update = false;
 };
 
 // The launch entry id of a program the player chose from the game folder.
@@ -211,6 +219,10 @@ bool IsGraphicsDllOverride(const GameRecipe& recipe, const std::string& entry);
 bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* preset,
                             const std::map<std::string, std::string>& overrides, const KitCapabilities& kit,
                             EffectiveSettings* settings, SettingsError* error);
+
+// Why one choice of a row cannot apply with the other effective values (Frame limit 120 and 40 need 120 Hz output),
+// or empty when it can. BuildEffectiveSettings turns such a saved choice into the Playden default, with this reason.
+std::string SettingChoiceUnavailable(const EffectiveSettings& settings, std::string_view id, std::string_view value);
 
 // Checks one player value for one setting; used by the UI before saving an override.
 bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::string_view value, std::string* reason);
@@ -450,11 +462,20 @@ inline constexpr const char* kKitWineMono = "wine-mono";
 // Runtime ability: the kit's runtime carries vkd3d-proton's d3d12.dll and d3d12core.dll at
 // lib/vkd3d-proton/<arch>-windows, for games that draw with Direct3D 12 (with DXVK's dxgi).
 inline constexpr const char* kKitVkd3dProton = "vkd3d-proton";
+// The runtime honors [display] refresh = 60|120 on every graphics path (Wine reports the rate it asked for) and
+// [display] frame_rate = 0|120|60|40|30, which the display paces. Runtimes without it refuse a profile with frame_rate.
+inline constexpr const char* kKitDisplay120Hz = "display-120hz";
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the
 // stopped bottle's user.reg (decision D2); it is not a kit property.
 KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capabilities, bool bottle_access);
+
+// The installed kit's capabilities for one game's title. A prepared title keeps its own copy of the runtime until
+// Update, so a capability that adds profile keys counts only when the title runs this kit's runtime
+// (title_runtime_current: the title's owner markers name this kit, PackageInstaller::TitleCurrent). Otherwise
+// display_120hz is off and display_120hz_needs_update says why.
+KitCapabilities KitForTitleRuntime(KitCapabilities kit, bool title_runtime_current);
 
 // Everything one game's settings put on disk for its next launch.
 struct SettingsLaunchPlan {

@@ -3768,6 +3768,8 @@ void Simulation::rebuild_view() {
                 item.kind = definition->kind == rt::SettingKind::kText ? RowKind::Text : RowKind::Choice;
                 item.title = definition->label;
                 item.subtitle = value.available ? definition->effect : value.reason;
+                // A saved choice that cannot apply now (Frame limit 120 at 60 Hz) fell back; the row says why.
+                if (value.available && !value.locked && !value.reason.empty()) item.subtitle = value.reason;
                 if (modal.id == "button-mapping") item.subtitle.clear();  // the sheet title says it once
                 if (id == "graphics" && value.source == rt::ValueSource::kRecipe) {
                     const auto detected = rt::DetectedLabel(RecipeFor(settings_game).detected);
@@ -3862,6 +3864,11 @@ void Simulation::rebuild_view() {
                     value = choice.value;
                     item.title = choice.label;
                     item.subtitle = choice.explanation;
+                    // A choice the other settings rule out (Frame limit 120 without 120 Hz output) says why.
+                    if (auto why = rt::SettingChoiceUnavailable(settings_values, modal.setting_id, value); !why.empty()) {
+                        item.subtitle = std::move(why);
+                        item.enabled = false;
+                    }
                 }
                 const bool button = modal.setting_id.rfind("button.", 0) == 0;
                 const auto& current = settings_values.values.at(modal.setting_id);

@@ -379,7 +379,7 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
     const auto* graphics = find_row(simulation, "setting-graphics");
     check(graphics && graphics->enabled && graphics->badge == "Required by this game", "T08b graphics is locked by the recipe");
     const auto* scaling = find_row(simulation, "setting-scaling");
-    check(scaling && !scaling->enabled && scaling->subtitle == "Not available with DXVK output yet.", "T08b scaling shows its reason");
+    check(scaling && !scaling->enabled && scaling->subtitle == "DXVK games always fit the screen and keep their shape.", "T08b scaling shows its reason");
     activate(simulation, "setting-graphics");
     check(simulation.state().navigation.modals.back().title == "Change anyway?", "T08b a locked row asks before it changes");
     simulation.action("circle");

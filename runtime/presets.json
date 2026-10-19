@@ -35,8 +35,7 @@
       "try_when": "Older engines that draw with OpenGL, such as id Tech and GoldSrc games.",
       "short_hint": "Older engines",
       "settings": {
-        "refresh": "60",
-        "opengl_thread": "off"
+        "refresh": "60"
       }
     }
   ]

@@ -103,9 +103,12 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         "fps", 2));
   list.push_back(Text("extra_arguments", "Extra arguments", "Added after the arguments the game needs.",
                       "[application] arguments", T::kBasic));
+  // With a display-120hz runtime the display paces the cap ([display] frame_rate); otherwise DXVK does.
   list.push_back(Choice("frame_limit", "Frame limit", "Caps the frame rate for steadier motion and less heat.",
-                        "dxgi.maxFrameRate · d3d9.maxFrameRate", T::kBasic,
-                        {{"off", "Off", "No cap."}, {"30", "30", ""}, {"60", "60", ""}}, "off", 2));
+                        "[display] frame_rate · dxgi.maxFrameRate · d3d9.maxFrameRate", T::kBasic,
+                        {{"off", "Off", "No cap."}, {"120", "120", ""}, {"60", "60", ""}, {"40", "40", ""},
+                         {"30", "30", ""}},
+                        "off", 2));
   list.push_back(Choice("vsync", "VSync", "Waits for the TV before showing a frame. Stops tearing, adds some delay.",
                         "dxgi.syncInterval · d3d9.presentInterval", T::kBasic,
                         {{"game", "Game default", "The game's own setting."},
@@ -166,10 +169,15 @@ std::vector<SettingDefinition> BuildCatalogue() {
   list.push_back(Choice("window_view", "Window view", "Show only game windows, or the whole Windows desktop.",
                         "[display] view", T::kCompatibility,
                         {{"window", "Game windows", ""}, {"desktop", "Entire desktop", ""}}, "window"));
-  list.push_back(Choice("refresh", "120 Hz output", "Sends 120 frames per second to the TV when it supports it.",
-                        "[display] refresh", T::kCompatibility, {{"60", "60 Hz", ""}, {"120", "120 Hz", ""}}, "60"));
-  list.push_back(Choice("opengl_thread", "OpenGL worker thread", "Runs OpenGL work on a second thread.",
-                        "[display] opengl_thread", T::kCompatibility, {{"off", "Off", ""}, {"on", "On", ""}}, "off"));
+  list.push_back(Choice("refresh", "120 Hz output",
+                        "Sends up to 120 frames per second to a 120 Hz TV. Some older games run too fast at 120 Hz: "
+                        "if so, set it back to 60 Hz.",
+                        "[display] refresh", T::kCompatibility,
+                        {{"60", "60 Hz", "The TV refreshes 60 times a second."},
+                         {"120", "120 Hz", "Needs a TV with 120 Hz and the PS5's 120 Hz output on."}},
+                        "60"));
+  // "OpenGL worker thread" ([display] opengl_thread) was the PS5 OpenGL SDK's; Zink has none, so the row is gone.
+  // Saved values for it are dropped when the record loads (RecordFromValue).
   list.push_back(Choice("graphics", "Graphics", "How Direct3D is drawn on the PS5 GPU.", "[application] graphics",
                         T::kCompatibility,
                         {{"auto", "Automatic", ""}, {"gdi", "GDI", "2D only."}, {"dxvk", "DXVK", "Direct3D 9-11 on Vulkan."},
@@ -334,16 +342,34 @@ const EffectiveValue& OptionalValue(const EffectiveSettings& settings, const cha
   return found == settings.values.end() ? missing : found->second;
 }
 
+// The Frame limit a software limiter applies (DXVK's maxFrameRate, vkd3d-proton's VKD3D_FRAME_RATE), or empty. That
+// is every cap without a display-120hz runtime; with one, the display paces the cap ([display] frame_rate) and only 30
+// at 120 Hz output, four vblanks a frame, is left to software. Never both: two pacers at one rate miss vblanks.
+std::string SoftwareFrameLimit(const EffectiveSettings& settings) {
+  const auto& limit = OptionalValue(settings, "frame_limit");
+  if (!limit.available || limit.value == "off") return {};
+  if (!settings.display_120hz) return limit.value;
+  const auto& refresh = OptionalValue(settings, "refresh");
+  return limit.value == "30" && refresh.available && refresh.value == "120" ? limit.value : std::string();
+}
+
 std::string Unavailable(const SettingDefinition& definition, const std::string& graphics, const KitCapabilities& kit,
                         const std::map<std::string, EffectiveValue>& values) {
   const auto& id = definition.id;
   const bool dxvk = graphics == "dxvk";
-  if (id == "frame_limit" || id == "vsync" || id == "frame_latency" || id == "reported_vram" || id == "reported_gpu") {
+  const bool display_graphics = dxvk || graphics == "opengl";
+  // A display-120hz runtime paces the frame limit itself on every Vulkan path (DXVK, vkd3d-proton, Zink).
+  if (id == "frame_limit" && kit.display_120hz) {
+    if (!display_graphics) return "Only with DXVK or OpenGL.";
+  } else if (id == "frame_limit" || id == "vsync" || id == "frame_latency" || id == "reported_vram" ||
+             id == "reported_gpu") {
+    if (id == "frame_limit" && !dxvk && graphics == "opengl" && kit.display_120hz_needs_update)
+      return "Update this game to use it.";
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
     // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, DXVK applies
-    // latency and VRAM, VSync off does not change the 60 Hz pacing.
-    if (id == "vsync" && !kit.dxvk_present) return "The PS5 display paces frames at 60 Hz; VSync cannot be turned off yet.";
+    // latency and VRAM, VSync off does not change the display's pacing.
+    if (id == "vsync" && !kit.dxvk_present) return "The PS5 display always waits for the TV; VSync cannot be turned off yet.";
   }
   if ((id == "windows_version" || id == "text_scale") && !kit.registry)
     return "Needs a verified runtime kit with access to the game's bottle.";
@@ -366,22 +392,28 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   // Wine reads WINE_CPU_TOPOLOGY from the [environment] section; [debug] env does not take WINE_ names.
   if (id == "cpu_topology" && !kit.environment) return "Needs a prospero-win update that reads [environment].";
   if (id == "performance_overlay" && graphics == "gdi") return "Only available with DXVK or OpenGL.";
+  // DXVK's overlay is drawn by its Direct3D 9-11 presenter, not by vkd3d-proton's swapchain. The Direct3D 12 row comes
+  // later in the catalogue, so its value here is not checked yet: the same test it gets below.
+  const auto d3d12 = values.find("d3d12");
+  const bool vkd3d_proton = kit.vkd3d_proton && dxvk && d3d12 != values.end() && d3d12->second.value == "vkd3d-proton";
+  if ((id == "performance_overlay" || id == "overlay_detail") && vkd3d_proton) return "Not shown for Direct3D 12 games.";
   if (id == "overlay_detail") {
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
     const auto overlay = values.find("performance_overlay");
     if (overlay == values.end() || overlay->second.value != "on") return "Turn the performance overlay on first.";
   }
-  if (id == "scaling" && dxvk) return "Not available with DXVK output yet.";
+  if (id == "scaling" && dxvk) return "DXVK games always fit the screen and keep their shape.";
   // vkd3d-proton presents through DXVK's dxgi, which only the DXVK overrides load.
   if (id == "d3d12") {
     if (!kit.vkd3d_proton) return "Needs a runtime kit with vkd3d-proton.";
     if (!dxvk) return "Only available with DXVK.";
   }
-  if ((id == "refresh" || id == "opengl_thread") && graphics != "opengl") return "Only available with OpenGL.";
-  // Zink has no output rate or worker thread of its own; the runtime logs these as ignored.
-  if ((id == "refresh" || id == "opengl_thread") && kit.opengl_zink)
-    return "Not available with this runtime: OpenGL now draws through Zink.";
+  if (id == "refresh") {
+    if (!display_graphics) return "Only with DXVK or OpenGL.";
+    if (kit.display_120hz_needs_update) return "Update this game to use it.";
+    if (!kit.display_120hz) return "Needs a runtime kit with 120 Hz output.";
+  }
   if (id == "pointer_speed") {
     const auto stick = values.find("pointer_stick");
     if (stick == values.end() || stick->second.value == "none") return "Choose a pointer stick first.";
@@ -428,6 +460,22 @@ bool IsUnlockKey(std::string_view key) {
   if (key.size() <= prefix.size() || key.substr(0, prefix.size()) != prefix) return false;
   const auto* definition = FindSetting(key.substr(prefix.size()));
   return definition != nullptr;
+}
+
+std::string SettingChoiceUnavailable(const EffectiveSettings& settings, std::string_view id, std::string_view value) {
+  if (id != "frame_limit" || value == "off") return {};
+  const bool high = value == "120" || value == "40";
+  if (!settings.display_120hz) {
+    // Without a runtime that paces it, the cap is DXVK's maxFrameRate: 30 and 60 as before.
+    if (!high) return {};
+    return settings.display_120hz_needs_update ? "Update this game to use it." : "Needs a runtime kit with 120 Hz output.";
+  }
+  const auto refresh = settings.values.find("refresh");
+  const bool at_120 = refresh != settings.values.end() && refresh->second.available && refresh->second.value == "120";
+  if (high && !at_120) return "Only with 120 Hz output.";
+  // 30 at 120 Hz takes four vblanks per frame, which the display cannot pace; DXVK's and vkd3d-proton's limiters can.
+  if (value == "30" && at_120 && settings.graphics != "dxvk") return "At 120 Hz output, only with DXVK.";
+  return {};
 }
 
 bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::string_view value, std::string* reason) {
@@ -563,6 +611,8 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
   out.graphics = out.values["graphics"].value;
   out.environment_as_debug_env = !kit.environment && kit.opengl_zink;
   out.debug_env_lines = kit.opengl_zink;
+  out.display_120hz = kit.display_120hz;
+  out.display_120hz_needs_update = kit.display_120hz_needs_update;
 
   // A controller preset (runtime/input/<name>.input) brings its own mode, pointer stick and speed. Rows set less
   // deliberately than the preset show the preset's values, so the sheet tells the truth and Pointer speed can be tuned.
@@ -589,6 +639,16 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     value.available = false;
     value.reason = reason;
     value.value = definition.playden_default;
+  }
+  // A choice that needs other values (Frame limit 120 needs 120 Hz output) falls back to the default, and the row
+  // says why. The refresh row comes after Frame limit in the catalogue, so this runs once every row is resolved.
+  for (const char* id : {"frame_limit"}) {
+    auto& value = out.values[id];
+    if (!value.available) continue;
+    auto reason = SettingChoiceUnavailable(out, id, value.value);
+    if (reason.empty()) continue;
+    value.value = FindSetting(id)->playden_default;
+    value.reason = std::move(reason);
   }
 
   // The program: the chosen launch entry, or a program the player picked in the game folder.
@@ -818,9 +878,16 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   // own DXVK_HUD=fps would override it, so show_fps stays false.
   const bool hud_in_config = settings.values.at("overlay_detail").available;
   text += std::string("show_fps = ") + (hud_in_config ? "false" : on("performance_overlay")) + "\n";
-  if (settings.graphics == "opengl") {
+  // An OpenGL game always names its rate, as before (60 unless the runtime takes 120 Hz). opengl_thread is no longer
+  // written: it was the PS5 OpenGL SDK's, and runtimes default it to off.
+  if (settings.values.at("refresh").available || settings.graphics == "opengl")
     text += "refresh = " + value("refresh") + "\n";
-    text += std::string("opengl_thread = ") + on("opengl_thread") + "\n";
+  // Only for a title whose runtime takes it: an older runtime refuses the whole profile for this key.
+  const auto& limit = OptionalValue(settings, "frame_limit");
+  const bool frame_rate = settings.display_120hz && limit.available;
+  if (frame_rate) {
+    const bool paced = limit.value != "off" && SoftwareFrameLimit(settings).empty();
+    text += "frame_rate = " + (paced ? limit.value : std::string("0")) + "\n";
   }
 
   text += "\n[input]\n";
@@ -932,6 +999,7 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   features.input_tuning = tuned_deadzone || tuned_rumble || tuned_triggers;
   features.input_wheel = wheel;
   features.audio_section = audio_section;
+  features.display_frame_rate = frame_rate;
   if (!CheckProsperoProfile(text, &why, features)) return fail("generated profile is invalid: " + why);
   *profile = {target.id, std::move(text)};
   return true;
@@ -942,9 +1010,8 @@ constexpr const char* kDxvkHeader = "# Generated by Playden from this game's set
 std::string RenderDxvkConfig(const EffectiveSettings& settings) {
   const auto option = [&](const char* id) -> const EffectiveValue& { return settings.values.at(id); };
   std::string text;
-  const auto& limit = option("frame_limit");
-  if (limit.available && limit.value != "off")
-    text += "dxgi.maxFrameRate = " + limit.value + "\nd3d9.maxFrameRate = " + limit.value + "\n";
+  if (const auto limit = SoftwareFrameLimit(settings); !limit.empty())
+    text += "dxgi.maxFrameRate = " + limit + "\nd3d9.maxFrameRate = " + limit + "\n";
   const auto& vsync = option("vsync");
   if (vsync.available && vsync.value != "game") {
     const char* interval = vsync.value == "on" ? "1" : "0";
@@ -2171,6 +2238,10 @@ std::vector<RegistryValue> RenderBottleEnvironment(const EffectiveSettings& sett
       while (!item.empty() && item.back() == ' ') item.pop_back();
       if (IsBottleEnvironmentEntry(name, item)) listed[name] = item;
     }
+  // Frame limit 30 at 120 Hz output is vkd3d-proton's own limiter, since the display cannot pace it. It wins over a
+  // VKD3D_FRAME_RATE typed in Environment variables, as the row the player sees.
+  if (settings.display_120hz && settings.vkd3d_proton)
+    if (const auto limit = SoftwareFrameLimit(settings); !limit.empty()) listed["VKD3D_FRAME_RATE"] = limit;
   std::vector<RegistryValue> values;
   for (const char* name : kBottleEnvironmentNames) {
     const auto found = listed.find(name);
@@ -2592,8 +2663,8 @@ namespace playden::runtime {
 
 const std::vector<std::string>& SettingsKitCapabilityNames() {
   // Sorted, as a kit manifest lists them.
-  static const std::vector<std::string> names = {kKitAudioVolume, kKitDxvkConfig,  kKitDxvkPresent,
-                                                 kKitInputTuning, kKitInputWheel,  kKitEnvironment};
+  static const std::vector<std::string> names = {kKitDisplay120Hz, kKitAudioVolume, kKitDxvkConfig, kKitDxvkPresent,
+                                                 kKitInputTuning,  kKitInputWheel,  kKitEnvironment};
   return names;
 }
 
@@ -2617,7 +2688,16 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.opengl_zink = has(kKitOpenGLZink);
   kit.wine_mono = has(kKitWineMono);
   kit.vkd3d_proton = has(kKitVkd3dProton);
+  kit.display_120hz = has(kKitDisplay120Hz);
   kit.registry = bottle_access;
+  return kit;
+}
+
+KitCapabilities KitForTitleRuntime(KitCapabilities kit, bool title_runtime_current) {
+  if (!title_runtime_current && kit.display_120hz) {
+    kit.display_120hz = false;
+    kit.display_120hz_needs_update = true;
+  }
   return kit;
 }
 

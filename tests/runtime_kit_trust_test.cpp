@@ -1,3 +1,4 @@
+#include "runtime/game_settings.h"
 #include "runtime/kit_admission.h"
 #include "runtime/kit_trust.h"
 #include "steam/backend/json.h"
@@ -37,6 +38,8 @@ int main(int argc, char** argv) {
   for (const auto& item : Get(kit, "capabilities").array())
     CHECK(std::find(config.known_capabilities.begin(), config.known_capabilities.end(), item.text()) !=
           config.known_capabilities.end());
+  // A kit with 120 Hz output is admitted with that capability, not as an ignored one.
+  CHECK(std::count(config.known_capabilities.begin(), config.known_capabilities.end(), kKitDisplay120Hz) == 1);
 
   const std::filesystem::path root = argv[2];
   if (!std::filesystem::exists(root / "manifest.json")) {

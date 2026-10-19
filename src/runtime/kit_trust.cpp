@@ -13,7 +13,8 @@ KitAdmissionConfig DevelopmentKitAdmission() {
   config.known_capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386", kKitSharedSections,
                                 kKitTitleAnyId, kKitGameRootUnowned, kKitBottleProfileShared, kKitOpenGLZink,
                                 kKitAudioVolume, kKitDxvkConfig, kKitDxvkPresent, kKitInputTuning,
-                                kKitInputWheel, kKitEnvironment, kKitWineMono, kKitVkd3dProton};
+                                kKitInputWheel, kKitEnvironment, kKitWineMono, kKitVkd3dProton,
+                                kKitDisplay120Hz};
   std::sort(config.known_capabilities.begin(), config.known_capabilities.end());
   return config;
 }

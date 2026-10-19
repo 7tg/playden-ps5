@@ -168,6 +168,13 @@ int main(int argc, char** argv) {
   CHECK(!CheckProsperoProfile(base + "graphics = gdi\n", &reason));                         // duplicate key
   CHECK(!CheckProsperoProfile(base + "[display]\ndesktop = 4096x2160\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[display]\nrefresh = 90\n", &reason));
+  // [display] frame_rate needs a display-120hz runtime; older ones refuse the key. opengl_thread still parses.
+  CHECK(!CheckProsperoProfile(base + "[display]\nframe_rate = 60\n", &reason));
+  for (const char* rate : {"0", "120", "60", "40", "30"})
+    CHECK(CheckProsperoProfile(base + "[display]\nrefresh = 120\nframe_rate = " + rate + "\n", &reason,
+                               {.display_frame_rate = true}));
+  CHECK(!CheckProsperoProfile(base + "[display]\nframe_rate = 50\n", &reason, {.display_frame_rate = true}));
+  CHECK(CheckProsperoProfile(base + "[display]\nopengl_thread = true\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[input]\nmouse_speed = 0\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[input]\nrumble = 50\n", &reason));                 // released runtimes refuse it
   CHECK(CheckProsperoProfile(base + "[input]\nstick_deadzone = 50\nrumble = 0\n", &reason, {.input_tuning = true}));
