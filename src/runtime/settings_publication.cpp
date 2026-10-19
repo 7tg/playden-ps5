@@ -47,6 +47,12 @@ bool OwnedGameDirectory(const struct stat& info, bool unowned) {
   return S_ISDIR(info.st_mode) && (unowned || (info.st_uid == geteuid() &&
       ((info.st_mode & 07777) == 0700 || (info.st_mode & 07777) == 0755)));
 }
+// The operation publishes its game folder unowned (metadata schema 3).
+bool PublishesUnowned(const SettingsPublicationOperation& o) {
+  PwTitlePublicationMetadata m{};
+  return pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(o.metadata_bytes.data()),
+      o.metadata_bytes.size(), &m) == PW_OK && m.game_root_unowned != 0;
+}
 // Reads a regular file (never through a symbolic link) up to maximum bytes, and
 // syncs it so what an apply builds on is durable. The file read is the one that
 // was statted (same device, inode and size); owner, mode, link count and times
@@ -141,13 +147,34 @@ bool NamesMovedRoot(const GameRootMove* moved, const std::string& title_id, cons
   const auto root = LiveGameRoot(title_id, prefix);
   return root && *root == moved->from;
 }
+// An owned publication (schema 2) that an unowned one replaces. The player may have opened the
+// game folder since (mods over FTP), which the owned rule refuses, so it is checked as a folder
+// moved onto itself, with the unowned rule (VerifyMovedPublication).
+bool OwnedReplacedByUnowned(const std::string& previous_metadata, bool unowned) {
+  PwTitlePublicationMetadata m{};
+  return unowned && !previous_metadata.empty() &&
+      pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(previous_metadata.data()),
+                                          previous_metadata.size(), &m) == PW_OK && m.game_root_unowned == 0;
+}
+GameRootMove InPlace(const RuntimeInstall& r) { return {r.install_path, r.install_path}; }
+}
+std::optional<bool> PublishedGameRootUnowned(const RuntimeInstall& r, const std::filesystem::path& prefix) {
+  if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())) return std::nullopt;
+  auto profiles = ManagedDirectory::Open(Map(prefix, r.data_root + "/library/profiles"), DirectoryPolicy::kPrivate);
+  auto bytes = profiles ? ReadPublicationFile(*profiles, ".playden-publication", 32768) : std::nullopt;
+  PwTitlePublicationMetadata m{};
+  if (!bytes || !bytes->present || pw_title_publication_metadata_parse(
+          reinterpret_cast<const uint8_t*>(bytes->bytes.data()), bytes->bytes.size(), &m) != PW_OK)
+    return std::nullopt;
+  return m.game_root_unowned != 0;
 }
 std::optional<GameRootMove> GameRootMoveOf(const RuntimeInstall& record) {
   if (record.moved_from.empty() || record.moved_from == record.install_path) return std::nullopt;
   return GameRootMove{record.moved_from, record.install_path};
 }
 PackageActionResult VerifyMovedPublication(const RuntimeInstall& r, const GameRootMove& move,
-    const std::string& receipt_bytes, const std::string& metadata_bytes, const std::filesystem::path& prefix) {
+    const std::string& receipt_bytes, const std::string& metadata_bytes, const std::filesystem::path& prefix,
+    bool unowned) {
   const auto refuse = [](const char* message) { return Failure("publication-moved", message); };
   if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal()))
     return refuse("Invalid canonical namespace.");
@@ -194,7 +221,7 @@ PackageActionResult VerifyMovedPublication(const RuntimeInstall& r, const GameRo
   const auto moved_working = RebaseInstallPath(working, move.from, move.to);
   struct stat info{};
   if (!moved_working || lstat(Map(prefix, *moved_working).c_str(), &info) != 0 ||
-      !OwnedGameDirectory(info, m.game_root_unowned != 0))
+      !OwnedGameDirectory(info, unowned || m.game_root_unowned != 0))
     return refuse("The moved game's working folder is missing at its new place.");
   return {PackageActionState::kComplete, {}, {}};
 }
@@ -241,10 +268,14 @@ PackageActionResult PublishSettingsOperation(const SettingsPublicationOperation&
         Map(deps.host_namespace_prefix, "/data/homebrew/" + previous.install.title_id + "/game-launch.json"),
         Map(deps.host_namespace_prefix, profile_root + ".playden-publication")};
       // A journal left by a game folder that moved names the old folder, which no longer exists.
-      result = deps.moved_root && previous.install.install_path == deps.moved_root->from
-          ? VerifyMovedPublication(o.install, *deps.moved_root, previous.committed_receipt_bytes, previous.metadata_bytes,
-                                   deps.host_namespace_prefix)
-          : deps.verify_files(previous, previous_paths, lease->fd(), true);
+      if (deps.moved_root && previous.install.install_path == deps.moved_root->from)
+        result = VerifyMovedPublication(o.install, *deps.moved_root, previous.committed_receipt_bytes, previous.metadata_bytes,
+                                        deps.host_namespace_prefix, PublishesUnowned(o));
+      else if (OwnedReplacedByUnowned(previous.metadata_bytes, PublishesUnowned(o)))
+        result = VerifyMovedPublication(o.install, InPlace(o.install), previous.committed_receipt_bytes,
+                                        previous.metadata_bytes, deps.host_namespace_prefix, true);
+      else
+        result = deps.verify_files(previous, previous_paths, lease->fd(), true);
       if (!Complete(result)) return result;
       result = deps.authorize_retirement(previous, o); if (!Complete(result)) return result;
       if (!ArchiveSettingsPublicationOperation(control, previous).ok() || !held())
@@ -570,7 +601,12 @@ PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperat
   // apply's leftovers (presets switched A -> B -> A, an interrupted first setup) are
   // Playden's own files and are written over.
   if (!initial && NamesMovedRoot(moved, o.install.title_id, prefix)) {
-    auto checked = VerifyMovedPublication(o.install, *moved, o.previous_receipt_bytes, o.previous_metadata_bytes, prefix);
+    auto checked = VerifyMovedPublication(o.install, *moved, o.previous_receipt_bytes, o.previous_metadata_bytes, prefix,
+                                          desired.game_root_unowned != 0);
+    if (!Complete(checked)) return {PackageActionState::kFailed, "publication-preflight-previous", checked.message};
+  } else if (!initial && OwnedReplacedByUnowned(o.previous_metadata_bytes, desired.game_root_unowned != 0)) {
+    auto checked = VerifyMovedPublication(o.install, InPlace(o.install), o.previous_receipt_bytes, o.previous_metadata_bytes,
+                                          prefix, true);
     if (!Complete(checked)) return {PackageActionState::kFailed, "publication-preflight-previous", checked.message};
   } else if (!initial) {
     const auto host = prefix.string(); PwTitlePublicationPlatform platform{};
@@ -620,7 +656,8 @@ PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperat
 }
 Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const RuntimeInstall& r,
     const SettingsLaunchPlan& plan, const std::string& kit_id, const std::string& transaction,
-    std::int64_t unix_time, int borrowed, const std::filesystem::path& prefix, const GameRootMove* moved) {
+    std::int64_t unix_time, int borrowed, const std::filesystem::path& prefix, const GameRootMove* moved,
+    bool unowned_game_roots) {
   auto fail = [](const std::string& message) {
     return Result<SettingsPublicationOperation>::Failure(StorageError::kInvalidData, message);
   };
@@ -660,12 +697,17 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
   auto hash = [&](auto& target, const std::string& bytes) {
     auto digest = HashArtifactBytes(bytes); return digest && bind(target, *digest);
   };
-  // A game folder on a drive that records no owner or permissions (exFAT) is
-  // published as schema 3 so the kit's launch admission accepts it.
-  const auto records_ownership = platform::RecordsOwnership(Map(prefix, working));
-  if (!records_ownership) return fail("The game's working directory cannot be checked.");
-  PwTitlePublicationMetadata m{}; m.schema_version = *records_ownership ? 2 : 3;
-  m.game_root_unowned = *records_ownership ? 0 : 1; m.settings_revision = plan.settings_revision;
+  // Schema 3 (game_root_unowned) lets the kit's launch admission accept a game folder of any
+  // owner and mode: every folder when the kit can, else one on a drive that records no owner
+  // or permissions (exFAT).
+  bool unowned = unowned_game_roots;
+  if (!unowned) {
+    const auto records_ownership = platform::RecordsOwnership(Map(prefix, working));
+    if (!records_ownership) return fail("The game's working directory cannot be checked.");
+    unowned = !*records_ownership;
+  }
+  PwTitlePublicationMetadata m{}; m.schema_version = unowned ? 3 : 2;
+  m.game_root_unowned = unowned ? 1 : 0; m.settings_revision = plan.settings_revision;
   if (!bind(m.install_id, r.install_id) || !bind(m.title_id, r.title_id) || !bind(m.data_root, r.data_root) ||
       !bind(m.profile_id, plan.profile_id) || !bind(m.runtime_bundle_id, r.runtime_bundle_id) ||
       !bind(m.recipe_id, plan.recipe_id) || !bind(m.recipe_version, plan.recipe_version) || !bind(m.kit_id, kit_id) ||
@@ -727,10 +769,15 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
     auto profiles = library->OpenChild("profiles", DirectoryPolicy::kPrivate);
     auto prior = profiles ? ReadPublicationFile(*profiles, ".playden-publication", 32768) : std::nullopt;
     if (prior && prior->present && NamesMovedRoot(moved, r.title_id, prefix)) {
-      auto checked = VerifyMovedPublication(r, *moved, receipt.bytes, prior->bytes, prefix);
+      auto checked = VerifyMovedPublication(r, *moved, receipt.bytes, prior->bytes, prefix, unowned);
       if (!Complete(checked) || pw_title_publication_parse(reinterpret_cast<const uint8_t*>(receipt.bytes.data()),
                                                            receipt.bytes.size(), &parsed) != PW_OK)
         return fail("Before state is not the verified publication of the moved game folder: " + checked.message);
+    } else if (prior && prior->present && OwnedReplacedByUnowned(prior->bytes, unowned)) {
+      auto checked = VerifyMovedPublication(r, InPlace(r), receipt.bytes, prior->bytes, prefix, true);
+      if (!Complete(checked) || pw_title_publication_parse(reinterpret_cast<const uint8_t*>(receipt.bytes.data()),
+                                                           receipt.bytes.size(), &parsed) != PW_OK)
+        return fail("Before state is not the verified publication of this game folder: " + checked.message);
     } else if (pw_title_publication_parse(reinterpret_cast<const uint8_t*>(receipt.bytes.data()), receipt.bytes.size(), &parsed) != PW_OK ||
         parsed.phase != PW_TITLE_PUBLICATION_COMMITTED || !prior || !prior->present ||
         pw_title_publication_read_descriptor(("/data/homebrew/" + r.title_id + "/game-launch.json").c_str(), r.title_id.c_str(),

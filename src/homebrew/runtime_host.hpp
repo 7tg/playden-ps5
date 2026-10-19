@@ -351,8 +351,16 @@ class RuntimeHost {
   // Steam files, then a journaled settings update (profile, dxvk.conf, registry). Call only
   // while the title is stopped. Empty on success or when nothing changed; *published says
   // whether an update ran. The title keeps the launch entry it was prepared with.
+  // A moved game, or an owned publication with a kit that admits unowned folders
+  // (NeedsUnownedPublication), is published again at its revision.
+  // steam_account_known false (at startup): the Steam emulator's files wait for Play.
+  // *prepare_again: refused for a reason only a new preparation gets past (recipe or settings).
   std::string RepublishSettings(Composition& composition, const runtime::RuntimeInstall& record,
-                                bool* published = nullptr);
+                                bool* published = nullptr, bool steam_account_known = true,
+                                bool* prepare_again = nullptr);
+  // A Ready game published owned (schema 2, before 0.5 or by a kit before 0.10) while the kit
+  // admits unowned game folders: published again as unowned, so folders the player opened pass.
+  bool NeedsUnownedPublication(const Composition& composition, const runtime::RuntimeInstall& record);
   // The 0.5 games move: rewrites the records and Cloud indexes under the old games root at startup,
   // and marks the move done once no moved Ready game is left to republish.
   void MoveGameRecords(Composition& composition);
@@ -364,7 +372,9 @@ class RuntimeHost {
   std::filesystem::path SaveBackupRoot(const std::string& install_id) const;
   // Puts the game's steam_api DLLs in the state its "Steam features" setting asks for. Call
   // only while the game is stopped; empty on success, otherwise why not (for the player).
-  std::string ApplySteamworks(Composition& composition, const runtime::RuntimeInstall& record);
+  // steam_account_known false: the emulator's files (which name the account) are left as they are.
+  std::string ApplySteamworks(Composition& composition, const runtime::RuntimeInstall& record,
+                              bool steam_account_known = true);
   // Empty while the kit on disk is the one admitted at startup; otherwise what to tell the player.
   std::string KitReplaced(const Composition& composition) const;
   // Makes an owned, world-writable folder from root down to working 0755 (dxvk.conf goes there).
@@ -373,6 +383,13 @@ class RuntimeHost {
   // (relative to the root; empty: none) before anything is written; empty, or which can't be written.
   // Call before any ManagedDirectory of the operation is opened.
   std::string EnsureWritable(const std::string& install_path, const std::string& working);
+  // Once the game is published unowned (kit with game-root-unowned): opens what older Playdens
+  // tightened, the folders from the game root down to its working folder that the app user owns
+  // and that are 0755 become 0777, so FTP can write into them (mods). Folders of other users are
+  // left alone. Call after the publication, while none of its ManagedDirectory objects is open.
+  void OpenGameFolders(const Composition& composition, const runtime::RuntimeInstall& record);
+  // A dxvk.conf with more than one link fails the title's start check; it becomes a copy of its own.
+  std::string UnlinkDxvkConfig(const runtime::RuntimeInstall& record);
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);

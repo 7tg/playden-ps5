@@ -144,8 +144,15 @@ RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native"
        ImmutableArtifactLocation::kStagedTitle, "win/wine/lib/core.prx"},
       {"recipe", "steam-220-hl2-v1-1", *HashArtifactFile(kit / "recipes/hl2.json"),
        ImmutableArtifactLocation::kKit, "recipes/hl2.json"}};
-  admitted.capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
+  admitted.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", "wow64_i386"};
   return admitted;
+}
+// A kit before 0.10: game folders must be the app user's and 0700/0755, except on drives
+// that record no owners, which it can't start games from.
+RuntimeKit WithoutUnownedRoots(RuntimeKit kit) {
+  kit.capabilities.erase(std::remove(kit.capabilities.begin(), kit.capabilities.end(), "game-root-unowned"),
+                         kit.capabilities.end());
+  return kit;
 }
 // The same kit with one shell for every game: its own param.json names the template title.
 RuntimeKit AnyTitleKit(const fs::path& kit) {
@@ -481,8 +488,11 @@ void PreparesExistingDownloadToReady() {
   CHECK(Read(game / "bin/steam_api.dll") == "unchanged-original-dll");
   CHECK(Read(game / "hl2/save/quick.sav") == "existing-player-save");
   CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001/games"));
+  // The game folder stays world-writable (mods over FTP): the kit admits it as it is.
   struct stat game_info{};
-  CHECK(stat(game.c_str(), &game_info) == 0 && (game_info.st_mode & 07777) == 0755);
+  CHECK(stat(game.c_str(), &game_info) == 0 && (game_info.st_mode & 07777) == 0777);
+  const auto metadata = Read(fixture.root / "data/playden/games/steam-220/library/profiles/.playden-publication");
+  CHECK(metadata.find("schema=3\n") != std::string::npos && metadata.find("game_root.unowned=1\n") != std::string::npos);
   // The staged title is readable by ShadowMount but not writable by others.
   struct stat title_info{};
   for (const auto* relative : {"data/homebrew/FAKE78001", "data/homebrew/FAKE78001/sce_sys"})
@@ -617,10 +627,12 @@ void ResumesInterruptedCaptureFromSavedRequest(bool tamper_backup = false) {
   const auto kit = SyntheticKit(fixture.root / "kit");
   config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  const auto staged = fixture.root / "data/homebrew/FAKE78001";
   unsigned uuids = 0;
-  // Called just before capture: the first attempt sees a world-writable folder.
-  config.uuid = [&uuids, game]() -> std::optional<std::string> {
-    if (++uuids == 1) CHECK(chmod(game.c_str(), 0777) == 0);
+  // Called just before capture: the first attempt sees a world-writable PS5 title folder,
+  // which the capture's preflight refuses (game folders may be anything).
+  config.uuid = [&uuids, staged]() -> std::optional<std::string> {
+    if (++uuids == 1) CHECK(chmod(staged.c_str(), 0777) == 0);
     return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
   };
   config.unix_time = [] { return std::int64_t{1760000000}; };
@@ -632,6 +644,7 @@ void ResumesInterruptedCaptureFromSavedRequest(bool tamper_backup = false) {
   const auto failed = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); }, 60);
   CHECK(failed.installs.size() == 1 && failed.installs[0].state != PreparationState::kReady);
   CHECK(failed.installs[0].recovery_pending);
+  CHECK(chmod(staged.c_str(), 0755) == 0);
   // The saved request the journal names is in use: never leftover, never removed.
   CHECK(failed.leftover_requests == 0);
   host.CleanUpRequests();
@@ -1352,22 +1365,23 @@ void MaintainsReadyTitle() {
     return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
   };
   auto kit = SyntheticKit(fixture.root / "kit");
-  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  kit.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
   config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
   unsigned uuids = 0;
-  bool loosen_next = false;  // the next armed update's capture sees a world-writable game folder
+  bool loosen_next = false;  // the next armed update's capture sees a world-writable PS5 title folder
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  const auto staged = fixture.root / "data/homebrew/FAKE78001";
   config.uuid = [&uuids]() -> std::optional<std::string> {
     ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
   };
   // Logged once the update is armed and before its capture: the seam for an interruption.
   unsigned full_inspections = 0, ownership_inspections = 0;
-  config.log = [&loosen_next, game, &full_inspections, &ownership_inspections](const std::string& line) {
+  config.log = [&loosen_next, staged, &full_inspections, &ownership_inspections](const std::string& line) {
     if (line.rfind("package inspect ownership ", 0) == 0) ++ownership_inspections;
     else if (line.rfind("package inspect ", 0) == 0) ++full_inspections;
     if (loosen_next && line.rfind("settings update request", 0) == 0 && line.find(" state=0 ") != std::string::npos) {
       loosen_next = false;
-      CHECK(chmod(game.c_str(), 0777) == 0);
+      CHECK(chmod(staged.c_str(), 0777) == 0);
     }
   };
   std::int64_t now = 1760000000;
@@ -1453,7 +1467,7 @@ void MaintainsReadyTitle() {
   host.Play(220);
   result = WaitFor(host, [plays](const RuntimeSnapshot& s) { return s.plays_handled > plays; }, 30);
   CHECK(result.play_refusals.count(220) && launches.empty());
-  CHECK(chmod(game.c_str(), 0755) == 0);
+  CHECK(chmod(staged.c_str(), 0755) == 0);
   host.Prepare(Hl2());
   result = WaitFor(host, [](const RuntimeSnapshot& s) {
     return !s.preparing_app && !s.installs.empty() && (!s.installs[0].recovery_pending || s.refusals.count(220));
@@ -1474,6 +1488,274 @@ void MaintainsReadyTitle() {
   CHECK(full_inspections == 1 && ownership_inspections == 2);
   CHECK(host.Snapshot().installs[0].settings_revision == 3);
   CHECK(Read(profile).find("desktop = 2560x1440") != std::string::npos && !fs::exists(game / "dxvk.conf"));
+  host.Shutdown();
+}
+
+// #73: files a player adds or changes over FTP (a mod, a world-writable folder) are theirs.
+// A kit that admits unowned game folders gets the folder as it is: Play, a settings update
+// and Repair all work, and the added files and modes stay.
+void ModdedGameFolderStillPlays() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  std::vector<std::string> launches;
+  config.launch_title = [&launches](const std::string& title, const std::vector<std::string>&) {
+    launches.push_back(title);
+    return TitleResult{true, 0, "launch"};
+  };
+  GameSettingsRecord saved;
+  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.as_root = [](const std::function<bool()>& work) { return work(); };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);  // prepared by an older Playden, which tightened it
+  const auto mode = [](const fs::path& path) {
+    struct stat info{};
+    CHECK(lstat(path.c_str(), &info) == 0);
+    return unsigned(info.st_mode & 07777);
+  };
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+
+  // The mod, as an FTP client leaves it: world-writable folders and files.
+  Write(game / "GInput.asi", "mod-plugin", 0666);
+  Write(game / "mods/GInput.ini", "mod-settings", 0666);
+  CHECK(chmod((game / "mods").c_str(), 0777) == 0);
+  CHECK(chmod(game.c_str(), 0777) == 0);
+  const auto mod_kept = [&] {
+    CHECK(Read(game / "GInput.asi") == "mod-plugin" && Read(game / "mods/GInput.ini") == "mod-settings");
+    CHECK(mode(game) == 0777 && mode(game / "mods") == 0777 && mode(game / "GInput.asi") == 0666);
+    CHECK(Read(game / "hl2.exe") == "existing-game");
+  };
+
+  const auto maintain = [&host](RuntimeMaintenance action) {
+    const auto before = host.Snapshot().maintenance_handled;
+    host.Maintain(220, action);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  };
+  // A settings update republishes into the opened-up folder. One the app user can't write
+  // (root's 0755 after an FTP upload; 0555 stands in for it) is opened up first.
+  if (geteuid() != 0) CHECK(chmod(game.c_str(), 0555) == 0);
+  saved.revision = 1;
+  saved.overrides = {{"frame_limit", "30"}};
+  auto result = maintain(RuntimeMaintenance::kApplySettings);
+  if (!result.maintenance.at(220).ok) std::fprintf(stderr, "Apply refused: %s\n", result.maintenance.at(220).message.c_str());
+  CHECK(result.maintenance.at(220).ok && result.installs[0].settings_revision == 1);
+  CHECK(Read(game / "dxvk.conf").find("maxFrameRate = 30") != std::string::npos);
+  mod_kept();
+  // Repair passes the start check and keeps the mod.
+  result = maintain(RuntimeMaintenance::kRepair);
+  if (!result.maintenance.at(220).ok) std::fprintf(stderr, "Repair refused: %s\n", result.maintenance.at(220).message.c_str());
+  CHECK(result.maintenance.at(220).ok);
+  mod_kept();
+  // Prepare again (Update) is not refused for the folder either.
+  host.Prepare(Hl2());
+  done = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); });
+  CHECK(done.refusals.at(220) == "This game is already prepared.");
+  mod_kept();
+  // A dxvk.conf hard-linked by hand fails the title's start check; Repair makes it a copy of its own.
+  const auto dxvk = Read(game / "dxvk.conf");
+  CHECK(link((game / "dxvk.conf").c_str(), (game / "dxvk-copy.conf").c_str()) == 0);
+  result = maintain(RuntimeMaintenance::kRepair);
+  if (!result.maintenance.at(220).ok) std::fprintf(stderr, "Repair refused: %s\n", result.maintenance.at(220).message.c_str());
+  CHECK(result.maintenance.at(220).ok);
+  struct stat linked{};
+  CHECK(lstat((game / "dxvk.conf").c_str(), &linked) == 0 && linked.st_nlink == 1);
+  CHECK(Read(game / "dxvk.conf") == dxvk && Read(game / "dxvk-copy.conf") == dxvk);
+  mod_kept();
+  // Play publishes newer settings first, then starts the game.
+  saved.revision = 2;
+  saved.overrides = {{"frame_limit", "60"}};
+  host.Play(220);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(host.Handoff() && launches.size() == 1);
+  CHECK(host.Snapshot().installs[0].settings_revision == 2);
+  CHECK(Read(game / "dxvk.conf").find("maxFrameRate = 60") != std::string::npos);
+  mod_kept();
+  host.Shutdown();
+}
+
+// A game an older Playden or kit published owned (schema 2), which the player then opened for a
+// mod. With a kit that admits unowned folders, each way back republishes it unowned: the
+// startup pass (route 0), or with the title busy at startup, Repair (1), a settings update (2),
+// Update (3) or Play (4). Owned 0755 folders that were tightened open up again (route 0), but
+// never while the publication stays owned (5: the republication is refused).
+void OwnedPublicationOpenedUpRecovers(int route) {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    char id[37]; std::snprintf(id, sizeof(id), "00000000-0000-4000-8000-%012u", ++uuids);
+    return std::string(id);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
+  GameSettingsRecord saved;
+  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  std::vector<std::string> lines;
+  std::mutex lines_mutex;
+  config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(lines_mutex); lines.push_back(line); };
+  const auto logged = [&](const std::string& prefix) {
+    std::lock_guard<std::mutex> lock(lines_mutex);
+    return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) { return line.rfind(prefix, 0) == 0; });
+  };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  CHECK(chmod(game.c_str(), 0777) == 0);
+  const auto metadata = fixture.root / "data/playden/games/steam-220/library/profiles/.playden-publication";
+  const auto mode = [](const fs::path& path) {
+    struct stat info{};
+    CHECK(lstat(path.c_str(), &info) == 0);
+    return unsigned(info.st_mode & 07777);
+  };
+  if (route == 5) saved.revision = 1;
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+    host.Shutdown();
+  }
+  CHECK(Read(metadata).find("schema=2\n") != std::string::npos && mode(game) == 0755);
+  Write(game / "GInput.asi", "mod-plugin", 0666);
+  if (route == 5) {
+    saved.revision = 0;  // older than the title's: the republication is refused
+    kit.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    WaitFor(host, Started);
+    CHECK(logged("startup unowned app=220 failed: "));
+    CHECK(Read(metadata).find("schema=2\n") != std::string::npos && mode(game) == 0755);
+    host.Shutdown();
+    return;
+  }
+  if (route != 0) CHECK(chmod(game.c_str(), 0777) == 0);  // opened over FTP
+  kit.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  if (route != 0) fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  if (route == 0) {
+    CHECK(logged("startup unowned app=220 republished"));
+  } else {
+    CHECK(logged("startup unowned app=220 waits: "));
+    CHECK(Read(metadata).find("schema=2\n") != std::string::npos);
+    fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  }
+  const auto maintain = [&host](RuntimeMaintenance action) {
+    const auto before = host.Snapshot().maintenance_handled;
+    host.Maintain(220, action);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60).maintenance.at(220);
+  };
+  bool played = false;
+  if (route == 1 || route == 2) {
+    if (route == 2) { saved.revision = 1; saved.overrides = {{"frame_limit", "30"}}; }
+    const auto result = maintain(route == 1 ? RuntimeMaintenance::kRepair : RuntimeMaintenance::kApplySettings);
+    if (!result.ok) std::fprintf(stderr, "route %d refused: %s\n", route, result.message.c_str());
+    CHECK(result.ok);
+  } else if (route == 3) {
+    const auto before = host.Snapshot().prepares_handled;
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before; }, 60);
+    if (done.refusals.count(220)) std::fprintf(stderr, "Update refused: %s\n", done.refusals.at(220).c_str());
+    CHECK(!done.refusals.count(220));
+  } else if (route == 4) {
+    host.Play(220);
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+    if (done.play_refusals.count(220)) std::fprintf(stderr, "Play refused: %s\n", done.play_refusals.at(220).c_str());
+    CHECK(done.handoff_ready && host.Handoff());
+    played = true;
+  }
+  const auto published = Read(metadata);
+  CHECK(published.find("schema=3\n") != std::string::npos && published.find("game_root.unowned=1\n") != std::string::npos);
+  CHECK(mode(game) == 0777 && Read(game / "GInput.asi") == "mod-plugin" && mode(game / "GInput.asi") == 0666);
+  if (!played) {
+    host.Play(220);
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+    if (done.play_refusals.count(220)) std::fprintf(stderr, "Play refused: %s\n", done.play_refusals.at(220).c_str());
+    CHECK(done.handoff_ready && host.Handoff());
+  }
+  host.Shutdown();
+}
+
+// A kit without game-root-unowned (before 0.10) keeps the old rule: an owned, world-writable
+// game folder is tightened to 0755 and published owned (metadata schema 2). A folder owned by
+// another user is refused; that needs root to set up, so it isn't tested here.
+void KitWithoutUnownedRootsKeepsTightening() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = WithoutUnownedRoots(SyntheticKit(fixture.root / "kit"));
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  config.uuid = [] { return std::optional<std::string>("00000000-0000-4000-8000-000000000001"); };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  CHECK(chmod(game.c_str(), 0777) == 0);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(220) ||
+        (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+  struct stat info{};
+  CHECK(stat(game.c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
+  const auto metadata = Read(fixture.root / "data/playden/games/steam-220/library/profiles/.playden-publication");
+  CHECK(metadata.find("schema=2\n") != std::string::npos && metadata.find("game_root.unowned") == std::string::npos);
   host.Shutdown();
 }
 
@@ -1825,11 +2107,7 @@ void PreparesGameOnUnownedDrive() {
     config.package_operations.validate_bottle = [](const fs::path& bottle) {
       return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
     };
-    auto kit = SyntheticKit(fixture.root / "kit");
-    if (capable) {
-      kit.capabilities.push_back("game-root-unowned");
-      std::sort(kit.capabilities.begin(), kit.capabilities.end());
-    }
+    auto kit = capable ? SyntheticKit(fixture.root / "kit") : WithoutUnownedRoots(SyntheticKit(fixture.root / "kit"));
     config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
     unsigned uuids = 0;
     config.uuid = [&uuids]() -> std::optional<std::string> {
@@ -2019,6 +2297,8 @@ void PreparesProgramChosenInSettings() {
   CHECK(Read(profile).find("working_directory = Z:\\data\\homebrew\\FAKE77031\\games\\1592280\\Elsewhere\n") !=
         std::string::npos);
   CHECK(applied.installs[0].launch_working_directory == "Elsewhere");
+  struct stat elsewhere{};  // an owned 0755 folder on the way to dxvk.conf opens for FTP
+  CHECK(stat((game / "Elsewhere").c_str(), &elsewhere) == 0 && (elsewhere.st_mode & 07777) == 0777);
   // Another program from the folder: the profile and the install record both name it.
   Write(game / "Other.exe", pe, 0644);
   saved.overrides = {{"program", "Other.exe"}, {"architecture", "pe64"}};
@@ -2307,7 +2587,7 @@ void PrepareThenMoveGames(Fixture& fixture, const RuntimeHostConfig& config, Gam
   Write(old_games / ".playden-saves/220/cloud-index.txt",
         "version=1\naccount=a\nchange=7\ngame_root=/data/homebrew/FAKE77031/games/220\n"
         "prefix_root=/data/playden/games/steam-220/library/prefixes/game\nrule\tg\t1\tsave\t*\tsave/\n"
-        "file\tg\t3\t5\tsave/game_root=/data/homebrew/FAKE77031/games/220\n", 0644);
+        "file\tg\t3\t5\tsave/game_root=/data/homebrew/FAKE77031/games/220\n", 0666);  // Cloud writes it under umask 0
   fs::rename(old_games, fixture.root / "data/playden-games");
   std::lock_guard<std::mutex> lock(move.mutex);
   move.journal = std::make_pair(std::string(kOldGames), std::string(kNewGames));
@@ -2358,7 +2638,10 @@ void MigrationRewritesInstallPathsAndRepublishes() {
   // No new registration: the title stays the one Home lists.
   CHECK(fixture.registry_mutations == registrations);
   // The Cloud index follows the game folder; the bottle (prefix_root) did not move.
-  const auto index = Read(fixture.root / "data/playden-games/.playden-saves/220/cloud-index.txt");
+  const auto index_path = fixture.root / "data/playden-games/.playden-saves/220/cloud-index.txt";
+  const auto index = Read(index_path);
+  struct stat index_info{};  // the rewrite keeps the file's mode, whatever the umask
+  CHECK(stat(index_path.c_str(), &index_info) == 0 && (index_info.st_mode & 07777) == 0666);
   CHECK(index == "version=1\naccount=a\nchange=7\ngame_root=/data/playden-games/220\n"
                  "prefix_root=/data/playden/games/steam-220/library/prefixes/game\nrule\tg\t1\tsave\t*\tsave/\n"
                  "file\tg\t3\t5\tsave/game_root=/data/homebrew/FAKE77031/games/220\n");
@@ -2374,6 +2657,138 @@ void MigrationRewritesInstallPathsAndRepublishes() {
   WaitFor(again, Started);
   CHECK(move.Done() == 1);
   again.Shutdown();
+}
+
+// A game an older Playden prepared (owned publication, schema 2) and the player then opened up
+// over FTP (#73): with a kit that admits unowned folders, the move republishes it unowned.
+void MovedModdedGameRepublishesUnowned() {
+  Fixture fixture;
+  GamesMove move;
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  PrepareThenMoveGames(fixture, config, move);
+  const auto profiles = fixture.root / "data/playden/games/steam-220/library/profiles";
+  CHECK(Read(profiles / ".playden-publication").find("schema=2\n") != std::string::npos);
+  const auto game = fixture.root / "data/playden-games/220";
+  Write(game / "GInput.asi", "mod-plugin", 0666);
+  CHECK(chmod(game.c_str(), 0777) == 0);
+  kit.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(started.installs.size() == 1 && started.installs[0].state == PreparationState::kReady);
+  CHECK(started.installs[0].admission == "ok");
+  CHECK(move.Logged("startup moved app=220 republished") && move.Done() == 1);
+  CheckRepublishedAtNewRoot(fixture);
+  const auto metadata = Read(profiles / ".playden-publication");
+  CHECK(metadata.find("schema=3\n") != std::string::npos && metadata.find("game_root.unowned=1\n") != std::string::npos);
+  struct stat info{};
+  CHECK(stat(game.c_str(), &info) == 0 && (info.st_mode & 07777) == 0777 && Read(game / "GInput.asi") == "mod-plugin");
+  host.Play(220);
+  const auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+  if (played.play_refusals.count(220)) std::fprintf(stderr, "Play refused: %s\n", played.play_refusals.at(220).c_str());
+  CHECK(played.handoff_ready);
+  host.Shutdown();
+}
+
+// The startup republication runs before the Steam account is known: the emulator's files keep
+// the account Play wrote, and Play rewrites them.
+void MovedGameStartupKeepsSteamAccount() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  auto config = MoveConfig(fixture, kit, &uuids, move);
+  config.settings_record = [](std::uint32_t) -> std::optional<GameSettingsRecord> {
+    GameSettingsRecord saved; saved.revision = 1; return saved;
+  };
+  const auto old_games = fixture.root / "data/homebrew/FAKE77031/games";
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  Write(old_games / "4242/Bin/Game.exe", pe, 0644);
+  Write(old_games / "4242/Bin/steam_api64.dll", pe + std::string("\0SteamUser021\0", 14), 0644);
+  RuntimePrepareRequest request{4242, std::string(kOldGames) + "/4242", "internal", "Example Game"};
+  request.launches = {{"", "", "bin\\game.exe", "", "-windowed"}};
+  {
+    RuntimeHost host(config);
+    host.SetSteamAccount("player", 76561198000000001ull);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(request);
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(4242) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (done.refusals.count(4242)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(4242).c_str());
+    CHECK(!done.refusals.count(4242) && done.installs[0].state == PreparationState::kReady);
+    host.Shutdown();
+  }
+  const auto user_ini = [&] { return Read(fixture.root / "data/playden-games/4242/Bin/steam_settings/configs.user.ini"); };
+  fs::rename(old_games, fixture.root / "data/playden-games");
+  CHECK(user_ini().find("account_name=player\n") != std::string::npos);
+  {
+    std::lock_guard<std::mutex> lock(move.mutex);
+    move.journal = std::make_pair(std::string(kOldGames), std::string(kNewGames));
+  }
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  CHECK(move.Logged("startup moved app=4242 republished") && move.Done() == 1);
+  CHECK(user_ini().find("account_name=player\n") != std::string::npos);
+  CHECK(user_ini().find("account_steamid=76561198000000001\n") != std::string::npos);
+  CHECK(move.Logged("steamworks app=4242 mode=emulate waits"));
+  host.Shutdown();
+}
+
+// A moved game whose publication can't be redone (here its saved settings went back to an older
+// revision than the title's) would be stuck: Play says to press Update, and Update prepares it
+// again from its new folder, as Recreate bottle does, keeping its saves.
+void StuckMovedGamePreparesAgainOnUpdate() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  auto config = MoveConfig(fixture, kit, &uuids, move);
+  auto revision = std::make_shared<std::atomic<std::uint64_t>>(1);
+  config.settings_record = [revision](std::uint32_t) -> std::optional<GameSettingsRecord> {
+    GameSettingsRecord saved; saved.revision = revision->load(); saved.overrides = {{"resolution", "1280x720"}};
+    return saved;
+  };
+  config.removal_poll_interval = std::chrono::milliseconds(1);
+  config.unregister_title = [&fixture](const std::string&, const std::string&) {
+    fixture.registered = false; fixture.submitted = false;
+    return TitleRemoverResult{true, 0, "answered"};
+  };
+  PrepareThenMoveGames(fixture, config, move);
+  const auto save = fixture.root / "data/playden/games/steam-220/library/prefixes/game/drive_c/users/steamuser/save.dat";
+  Write(save, "player-save", 0600);
+  revision->store(0);
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  CHECK(move.Logged("startup moved app=220 failed: ") && move.Done() == 0);
+  host.Play(220);
+  const auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+  CHECK(played.play_refusals.count(220) &&
+        played.play_refusals.at(220).find("Press Update on the game page") != std::string::npos);
+  const auto before = host.Snapshot().prepares_handled;
+  host.Prepare({220, std::string(kNewGames) + "/220", "internal", "Half-Life \"2\""});
+  const auto done = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before; }, 60);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Update refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220));
+  CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
+  CHECK(move.Logged("prepare again app=220 because: ") && move.Done() == 1);
+  const auto records = Read(fixture.root / "data/runtime-state/installs.json");
+  CHECK(records.find(R"("install_path":"/data/playden-games/220")") != std::string::npos &&
+        records.find("moved_from") == std::string::npos);
+  CHECK(Read(save) == "player-save" && !fs::exists(fixture.root / "data/playden/games/steam-220.kept"));
+  const auto descriptor = Read(fixture.root / "data/homebrew" / done.installs[0].title_id / "game-launch.json");
+  CHECK(descriptor.find(R"("game_root":"/data/playden-games/220")") != std::string::npos);
+  host.Shutdown();
 }
 
 // A moved game whose title was busy at startup is republished by Play first, which says so.
@@ -2585,6 +3000,9 @@ int main(int argc, char** argv) {
   PlaysReadyTitleThroughHandoff();
   ReplacedKitAsksForRestart();
   MaintainsReadyTitle();
+  ModdedGameFolderStillPlays();
+  KitWithoutUnownedRootsKeepsTightening();
+  for (int route = 0; route <= 5; ++route) OwnedPublicationOpenedUpRecovers(route);
   SettingsSavedDuringPrepareReachReadyTitle();
   KitRespinKeepsWaitingSettingsUpdate();
   RemovesTitleKeepingSaves();
@@ -2593,6 +3011,9 @@ int main(int argc, char** argv) {
   ShippedRecipeRequirementsFollowTheKit(false);
   ShippedRecipeRequirementsFollowTheKit(true);
   MigrationRewritesInstallPathsAndRepublishes();
+  MovedModdedGameRepublishesUnowned();
+  MovedGameStartupKeepsSteamAccount();
+  StuckMovedGamePreparesAgainOnUpdate();
   PlayBeforeRepublishRepublishesFirst();
   MigrationSkipsRecordsOutsideOldPrefix();
   RestartDuringRepublishResumes();

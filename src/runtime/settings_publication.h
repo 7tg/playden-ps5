@@ -37,8 +37,13 @@ std::optional<GameRootMove> GameRootMoveOf(const RuntimeInstall& record);
 // The committed publication a moved game folder left, checked like the title checks it, except
 // the game folder (descriptor game_root, profile paths, dxvk.path), which names move.from and is
 // checked at move.to. Profile, catalog and metadata in the private data root are hash-checked.
+// With unowned (the publication replacing it is unowned), the folder may have any owner and mode.
 PackageActionResult VerifyMovedPublication(const RuntimeInstall& record, const GameRootMove& move,
     const std::string& receipt_bytes, const std::string& metadata_bytes,
+    const std::filesystem::path& host_namespace_prefix = {}, bool unowned = false);
+// Whether the game's committed publication (its .playden-publication) admits the game folder
+// unowned (metadata schema 3); nothing when there is none or it can't be read.
+std::optional<bool> PublishedGameRootUnowned(const RuntimeInstall& record,
     const std::filesystem::path& host_namespace_prefix = {});
 
 enum class PublicationStep {
@@ -110,7 +115,8 @@ PackageActionResult ApplyPendingPublicationFiles(const SettingsPublicationOperat
 // prior committed complete set; live dxvk.conf and user.reg must equal their frozen
 // before-snapshots. Leftover files at new destinations are not refused (the apply
 // writes over them). Never writes.
-// With moved, a previous publication that names moved->from is checked with VerifyMovedPublication.
+// With moved, a previous publication that names moved->from is checked with VerifyMovedPublication;
+// so is an owned (schema 2) previous publication that an unowned one replaces, in place.
 PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperation& operation,
     const PublicationPaths& paths, int borrowed_publisher_fd,
     const std::filesystem::path& host_namespace_prefix = {}, const GameRootMove* moved = nullptr);
@@ -118,9 +124,12 @@ PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperat
 // snapshots. Caller independently approves reserved OWNER/package provenance,
 // positively stopped activity and the borrowed exclusive lease. Control/lock
 // already exist. Only immutable backup preparation may write; no live edits.
+// unowned_game_roots: the kit has the game-root-unowned capability, so every game folder is
+// published unowned (metadata schema 3): users may add or change files in it (mods).
+// Without it, only a folder on a drive that records no owners (exFAT) is.
 Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(
     const RuntimeInstall& record, const SettingsLaunchPlan& plan, const std::string& kit_id,
     const std::string& transaction_id, std::int64_t registry_unix_time,
     int borrowed_publisher_fd, const std::filesystem::path& host_namespace_prefix = {},
-    const GameRootMove* moved = nullptr);
+    const GameRootMove* moved = nullptr, bool unowned_game_roots = false);
 }  // namespace playden::runtime

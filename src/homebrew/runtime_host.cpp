@@ -138,7 +138,8 @@ std::size_t RebaseCloudIndexes(const std::filesystem::path& saves, const std::st
       if (count <= 0) break;
       written += static_cast<std::size_t>(count);
     }
-    const bool ok = written == rewritten.size() && fsync(out) == 0;
+    // The original's mode, whatever the umask took from it.
+    const bool ok = written == rewritten.size() && fchmod(out, info.st_mode & 0777) == 0 && fsync(out) == 0;
     if (close(out) != 0 || !ok || rename(temporary.c_str(), path.c_str()) != 0) {
       unlink(temporary.c_str());
       continue;
@@ -479,7 +480,7 @@ std::string RuntimeHost::KitReplaced(const Composition& c) const {
   return "The compatibility kit changed while Playden was running. Quit Playden and start it again.";
 }
 
-std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstall& record) {
+std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstall& record, bool steam_account_known) {
   if (c.kit) {
     std::string reason;
     // Media support is an upgrade for older bottles, not a condition to play: a game that doesn't use it
@@ -531,7 +532,11 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   if (!unpacked.ok) return unpacked.message;
   const bool emulate = settings.values.at("steam_features").value == "emulate";
   rt::SteamworksResult result;
-  if (emulate) {
+  // The emulator's files name the signed-in account; before it is known they keep what Play wrote.
+  const bool emulator_waits = emulate && !steam_account_known;
+  if (emulator_waits) {
+    Log("steamworks app=" + std::to_string(record.app_id) + " mode=emulate waits: the Steam account is not known yet");
+  } else if (emulate) {
     rt::SteamworksIdentity identity;
     identity.app_id = record.app_id;
     {
@@ -546,15 +551,17 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   } else {
     result = rt::RestoreSteamworks(root.string());
   }
-  std::string changed;
-  for (const auto& path : result.changed) changed += (changed.empty() ? "" : ",") + path;
-  Log("steamworks app=" + std::to_string(record.app_id) + " mode=" + (emulate ? "emulate" : "game") +
-      " found=" + std::to_string(result.found.size()) + " changed=" + (changed.empty() ? "-" : changed) +
-      (result.ok ? std::string() : " failed=" + result.message));
-  if (!result.ok) return result.message;
+  if (!emulator_waits) {
+    std::string changed;
+    for (const auto& path : result.changed) changed += (changed.empty() ? "" : ",") + path;
+    Log("steamworks app=" + std::to_string(record.app_id) + " mode=" + (emulate ? "emulate" : "game") +
+        " found=" + std::to_string(result.found.size()) + " changed=" + (changed.empty() ? "-" : changed) +
+        (result.ok ? std::string() : " failed=" + result.message));
+    if (!result.ok) return result.message;
+  }
   // A game from before Steamworks (no steam_api DLL) checks for Steam through steam.dll instead
   // (GUN: "Failed to find Steam."); emulation gives it the minimal one, the game's mode takes it away.
-  if (!emulate || result.found.empty()) {
+  if (!emulator_waits && (!emulate || result.found.empty())) {
     const auto emulator = config_.steamworks_dir.empty() ? config_.runtime_dir + "/steamworks" : config_.steamworks_dir;
     const auto legacy = emulate ? rt::ProvideLegacySteam(root.string(), emulator, programs)
                                 : rt::RemoveLegacySteam(root.string(), programs);
@@ -944,8 +951,105 @@ std::string RuntimeHost::EnsureWritable(const std::string& install_path, const s
   return rt::EnsureWritableFolders(folders, config_.as_root, [this](const std::string& line) { Log(line); });
 }
 
-std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInstall& record, bool* published) {
+bool RuntimeHost::NeedsUnownedPublication(const Composition& c, const rt::RuntimeInstall& record) {
+  if (!c.kit || record.state != rt::PreparationState::kReady || record.journal ||
+      !rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned)
+    return false;
+  return rt::PublishedGameRootUnowned(record, config_.host_namespace_prefix) == std::optional<bool>(false);
+}
+
+void RuntimeHost::OpenGameFolders(const Composition& c, const rt::RuntimeInstall& record) {
+  // Only under an unowned publication: an owned one fails the title's start check at 0777.
+  if (!c.kit || record.install_path.empty() ||
+      !rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned ||
+      rt::PublishedGameRootUnowned(record, config_.host_namespace_prefix) != std::optional<bool>(true))
+    return;
+  const auto working = WorkingFolder(record.launch_working_directory, record.launch_path, record.launch_in_install_root);
+  auto folder = HostPath(record.install_path);
+  const auto open_up = [this](const std::filesystem::path& path) {
+    struct stat info{};
+    if (lstat(path.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != geteuid() ||
+        (info.st_mode & 07777) != 0755)
+      return;
+    const bool opened = chmod(path.c_str(), 0777) == 0;
+    Log("game folder mode 0755 -> 0777 path=" + path.string() + (opened ? "" : " failed errno=" + std::to_string(errno)));
+  };
+  open_up(folder);
+  if (working.empty() || working == ".") return;
+  for (const auto& part : std::filesystem::path(working)) {
+    if (part.empty() || part == "." || part == ".." || part.is_absolute()) return;
+    folder /= part;
+    open_up(folder);
+  }
+}
+
+std::string RuntimeHost::UnlinkDxvkConfig(const rt::RuntimeInstall& record) {
+  if (record.install_path.empty()) return {};
+  const std::filesystem::path working(WorkingFolder(record.launch_working_directory, record.launch_path, record.launch_in_install_root));
+  if (working.is_absolute() ||
+      std::any_of(working.begin(), working.end(), [](const auto& part) { return part == ".."; }))
+    return {};
+  const auto path = HostPath(record.install_path) / working / "dxvk.conf";
+  struct stat info{};
+  if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_nlink <= 1) return {};
+  const auto failed = [&](const char* step) {
+    Log("dxvk.conf unlink app=" + std::to_string(record.app_id) + " failed at " + step + " errno=" + std::to_string(errno));
+    return std::string("The game's dxvk.conf has more than one link and could not be replaced by a copy.");
+  };
+  constexpr off_t kMaxBytes = 256 * 1024;
+  if (info.st_size > kMaxBytes) return failed("size");
+  std::string bytes;
+  {
+    const int in = open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat opened{};
+    if (in < 0) return failed("open");
+    if (fstat(in, &opened) != 0 || opened.st_ino != info.st_ino || opened.st_dev != info.st_dev) {
+      close(in);
+      return failed("identity");
+    }
+    char buffer[16384];
+    for (;;) {
+      const auto count = read(in, buffer, sizeof(buffer));
+      if (count < 0 && errno == EINTR) continue;
+      if (count < 0 || bytes.size() + static_cast<std::size_t>(std::max<ssize_t>(count, 0)) > std::size_t(kMaxBytes)) {
+        close(in);
+        return failed("read");
+      }
+      if (count == 0) break;
+      bytes.append(buffer, static_cast<std::size_t>(count));
+    }
+    close(in);
+  }
+  const auto temporary = path.parent_path() / ".dxvk.conf.playden-unlink";
+  unlink(temporary.c_str());
+  const int out = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (out < 0) return failed("create");
+  std::size_t written = 0;
+  while (written < bytes.size()) {
+    const auto count = write(out, bytes.data() + written, bytes.size() - written);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) break;
+    written += static_cast<std::size_t>(count);
+  }
+  const bool ok = written == bytes.size() && fchmod(out, info.st_mode & 0777) == 0 && fsync(out) == 0;
+  if (close(out) != 0 || !ok || rename(temporary.c_str(), path.c_str()) != 0) {
+    unlink(temporary.c_str());
+    return failed("write");
+  }
+  Log("dxvk.conf unlink app=" + std::to_string(record.app_id) + " links=" + std::to_string(info.st_nlink) +
+      " replaced by a copy path=" + path.string());
+  return {};
+}
+
+std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
+                                           bool steam_account_known, bool* prepare_again) {
   if (published) *published = false;
+  if (prepare_again) *prepare_again = false;
+  // Refusals only a new preparation gets past (the title's recipe or settings can't be published again).
+  const auto again = [prepare_again](std::string message) {
+    if (prepare_again) *prepare_again = true;
+    return message;
+  };
   const auto saved = config_.settings_record ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{})
                                              : rt::GameSettingsRecord{};
   // A recipe this kit cannot run is refused before the game's files or bottle change.
@@ -956,17 +1060,21 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   // A game whose folder moved (RuntimeInstall::moved_from) is published again at its revision, so
   // its descriptor, profile and dxvk.conf name the new folder.
   const bool moved = !record.moved_from.empty();
+  // So is an owned publication the kit can replace by an unowned one (folders opened for mods).
+  const bool unowned_upgrade = !moved && NeedsUnownedPublication(c, record);
+  if (unowned_upgrade) Log("settings update app=" + std::to_string(record.app_id) + " publishes the game folder unowned");
   // "Steam features" only swaps the game's own files, so it follows the saved value at once.
-  if (saved.revision <= record.settings_revision && !moved) return ApplySteamworks(c, record);
+  if (saved.revision <= record.settings_revision && !moved && !unowned_upgrade)
+    return ApplySteamworks(c, record, steam_account_known);
   if (!c.kit) return "No verified compatibility kit is installed.";
   if (saved.revision < record.settings_revision)
-    return "The game's saved settings are older than its PS5 title's; prepare it again.";
+    return again("The game's saved settings are older than its PS5 title's; prepare it again.");
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
     if (candidate.app_id == record.app_id && candidate.id == record.recipe_id &&
         std::to_string(candidate.version) == record.recipe_version)
       recipe = &candidate;
-  if (!recipe) return "Playden no longer knows how to start this game; prepare it again.";
+  if (!recipe) return again("Playden no longer knows how to start this game; prepare it again.");
   const rt::SettingsPreset* preset = nullptr;
   for (const auto& candidate : c.presets)
     if (candidate.id == saved.preset_id) preset = &candidate;
@@ -1002,7 +1110,9 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
         if (!folder.empty() && (lstat((HostPath(record.install_path) / folder).c_str(), &folder_info) != 0 ||
                                 !S_ISDIR(folder_info.st_mode)))
           return "The program folder " + folder + " chosen in Game settings is missing.";
-        const auto records_ownership = platform::RecordsOwnership(HostPath(record.install_path));
+        // A kit that admits unowned game folders gets them as they are (mods, FTP edits).
+        const auto records_ownership = kit.game_root_unowned ? std::optional<bool>(false)
+                                                             : platform::RecordsOwnership(HostPath(record.install_path));
         if (records_ownership && *records_ownership)
           if (const auto refused = TightenWorkingFolder(HostPath(record.install_path),
                                                         WorkingFolder(launch.working_directory, launch.executable,
@@ -1020,8 +1130,14 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
       }
     }
   }
+  // An unowned folder is published as it is, so one made over FTP (root's, 0755) is opened up
+  // before dxvk.conf is written into it, as preparation does.
+  if (kit.game_root_unowned) {
+    const auto working = WorkingFolder(next.launch_working_directory, next.launch_path, next.launch_in_install_root);
+    if (const auto unwritable = EnsureWritable(next.install_path, working); !unwritable.empty()) return unwritable;
+  }
   // SteamStub unpacking and the Steam emulator follow the program that starts now.
-  if (const auto steamworks = ApplySteamworks(c, next); !steamworks.empty()) return steamworks;
+  if (const auto steamworks = ApplySteamworks(c, next, steam_account_known); !steamworks.empty()) return steamworks;
   rt::SettingsLaunchInput input;
   input.recipe = recipe;
   input.record = saved;
@@ -1047,11 +1163,11 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   std::string reason;
   if (!rt::BuildSettingsLaunchPlan(input, &plan, &reason)) {
     Log("settings update plan refused app=" + std::to_string(record.app_id) + ": " + reason);
-    return "The settings could not be applied: " + reason;
+    return again("The settings could not be applied: " + reason);
   }
   if (plan.app_id != record.app_id || plan.recipe_id != record.recipe_id || plan.recipe_version != record.recipe_version ||
       plan.launch_entry_id != next.launch_entry_id || plan.profile_id != record.default_profile_id)
-    return "The settings no longer match this game's PS5 title; prepare it again.";
+    return again("The settings no longer match this game's PS5 title; prepare it again.");
   const auto transaction = config_.uuid();
   if (!transaction) return "No secure random source for the settings update.";
   rt::SettingsPublicationRequest request;
@@ -1079,6 +1195,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   // A failed update keeps its journal, so Play waits until Resume on the PS5 title finishes it.
   if (resumed.state != rt::PackageActionState::kComplete) return "The settings could not be applied: " + resumed.message;
   if (published) *published = true;
+  if (const auto current = c.records.Find(record.install_id)) OpenGameFolders(c, *current);
   if (moved) FinishGamesMove(c);
   return {};
 }
@@ -1251,13 +1368,19 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
           settings = "This game needs an update for Playden 0.5 first: " + (busy.empty() ? "Close the game first." : busy);
         } else {
           Publish([&](RuntimeSnapshot& s) { s.play_progress[app_id] = kPlayUpdatingForLayout; });
-          settings = RepublishSettings(c, *record);
+          bool again = false;
+          settings = RepublishSettings(c, *record, nullptr, true, &again);
           Publish([&](RuntimeSnapshot& s) { s.play_progress.erase(app_id); });
-          if (!settings.empty()) settings = "This game could not be updated for Playden 0.5: " + settings;
+          if (!settings.empty())
+            settings = "This game could not be updated for Playden 0.5: " + settings +
+                       (again ? " Press Update on the game page to prepare it again." : "");
           Log("play moved app=" + std::to_string(app_id) + " " + (settings.empty() ? "republished" : settings));
         }
       } else if (idle) {
-        settings = RepublishSettings(c, *record);
+        bool again = false;
+        settings = RepublishSettings(c, *record, nullptr, true, &again);
+        if (again && NeedsUnownedPublication(c, *record))
+          settings += " Press Update on the game page to prepare it again.";
       }
       result = settings.empty() ? c.launch->Request(record->install_id)
                                 : rt::LaunchResult::Failure(rt::LaunchError::kPreflight, settings);
@@ -1584,13 +1707,21 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       if (auto unwritable = EnsureWritable(request.install_path, working); !unwritable.empty()) return unwritable;
     return game_root_owned ? TightenWorkingFolder(HostPath(request.install_path), working) : std::string();
   };
-  // Settings publication writes dxvk.conf into the game folder and requires that
+  // A kit with game-root-unowned admits a game folder of any owner and mode (publication
+  // metadata schema 3), so files a user adds or changes over FTP (mods) are left as they are.
+  // Otherwise settings publication writes dxvk.conf into the game folder and requires that
   // folder to belong to the app user without group/other write access. Console
   // downloads are created world-writable; tighten an owned root to 0755. A root
   // owned by anyone else is refused, never taken over. A drive that records no
   // owners or permissions (exFAT) has nothing to check or tighten; the kit must
-  // then admit such folders (publication metadata schema 3).
-  {
+  // then admit such folders.
+  const bool unowned_kit = rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned;
+  if (unowned_kit) {
+    struct stat info{};
+    if (lstat(HostPath(request.install_path).c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
+      return "The game's folder is unavailable.";
+    game_root_owned = false;
+  } else {
     const auto root = config_.host_namespace_prefix.empty()
         ? std::filesystem::path(request.install_path)
         : config_.host_namespace_prefix / std::filesystem::path(request.install_path).relative_path();
@@ -1717,14 +1848,31 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         if (refreshed.state != rt::PackageActionState::kComplete) return refreshed.message;
         changed = true;
       }
-      // A game whose folder moved in 0.5 is published again for the new folder first.
-      if (!existing->moved_from.empty()) {
-        if (const auto refused = RepublishSettings(c, *existing); !refused.empty()) return refused;
+      // A game whose folder moved in 0.5 is published again for the new folder first, and an
+      // owned publication again as unowned.
+      if (!existing->moved_from.empty() || NeedsUnownedPublication(c, *existing)) {
+        bool again = false;
+        if (const auto refused = RepublishSettings(c, *existing, nullptr, true, &again); !refused.empty()) {
+          if (!again) return refused;
+          // Its publication can't be redone (settings older than its title, a recipe Playden no
+          // longer has): it is prepared again, as Recreate bottle does. The title goes, the bottle
+          // is kept for its saves, and a new title is made from the game's folder.
+          Log("prepare again app=" + std::to_string(request.app_id) + " because: " + refused);
+          if (const auto removed = RunRemove(c, request.app_id, false); !removed.empty())
+            return "The game could not be prepared again: " + removed;
+          PublishKeptBottles(c);
+          const auto left = c.repository.Snapshot();
+          if (std::any_of(left.begin(), left.end(),
+                          [&](const rt::RuntimeInstall& record) { return record.app_id == request.app_id; }))
+            return "The game's old PS5 title is still being removed. Press Update again.";
+          return RunPrepare(c, request, awaiting);
+        }
         const auto install_id = existing->install_id;
         existing = c.records.Find(install_id);
         if (!existing) return "The game's install record is missing.";
         changed = true;
       }
+      if (const auto unlinked = UnlinkDxvkConfig(*existing); !unlinked.empty()) return unlinked;
       auto admission = c.installer->AdmissionDiagnostic(*existing);
       if (admission != "ok") {
         const auto repaired = c.installer->RepairBottle(*existing);
@@ -1740,6 +1888,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       c.admission[existing->install_id] = admission;
       PublishInstalls(c);
       if (admission != "ok") return "The PS5 title still fails its start check: " + admission;
+      OpenGameFolders(c, *existing);
       return changed ? std::string{} : "This game is already prepared.";
     }
     if (existing->install_path != request.install_path)
@@ -1858,7 +2007,10 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   for (int steps = 0; steps < kMaxPreparationSteps && !Stopping(); ++steps) {
     const auto current = c.records.Find(install_id);
     if (!current) return "The preparation record disappeared.";
-    if (current->state == rt::PreparationState::kReady) return {};
+    if (current->state == rt::PreparationState::kReady) {
+      OpenGameFolders(c, *current);
+      return {};
+    }
     if (current->state != rt::PreparationState::kPreparing && current->state != rt::PreparationState::kRegistering)
       return current->last_failure ? current->last_failure->message : "Preparation stopped.";
     const auto before = current->journal ? current->journal->step : std::string{};
@@ -2127,10 +2279,13 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
       return "Shader cache cleared. Shaders compile again on the next start.";
     }
     case RuntimeMaintenance::kRepair: {
-      if (const auto unwritable = EnsureWritable(record->install_path,
-                                                 WorkingFolder(record->launch_working_directory, record->launch_path, record->launch_in_install_root));
-          !unwritable.empty())
+      // An owned publication with a kit that admits unowned folders fails the start check once
+      // the player opened the folder; it is published again as unowned, just below.
+      const bool unowned_upgrade = NeedsUnownedPublication(c, *record);
+      const auto working = WorkingFolder(record->launch_working_directory, record->launch_path, record->launch_in_install_root);
+      if (const auto unwritable = EnsureWritable(record->install_path, working); !unwritable.empty())
         return unwritable;
+      if (const auto unlinked = UnlinkDxvkConfig(*record); !unlinked.empty()) return unlinked;
       const auto repaired = c.installer->RepairBottle(*record);
       const auto admission = c.installer->AdmissionDiagnostic(*record);
       c.admission[record->install_id] = admission;
@@ -2139,13 +2294,15 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
       PublishInstalls(c, record->install_id);
       if (repaired.state != rt::PackageActionState::kComplete) return "The bottle could not be repaired: " + repaired.message;
       // A game whose folder moved fails the check until it is published again, just below.
-      if (admission != "ok" && record->moved_from.empty()) return "The PS5 title still fails its start check: " + admission;
+      if (admission != "ok" && record->moved_from.empty() && !unowned_upgrade)
+        return "The PS5 title still fails its start check: " + admission;
       if (auto refused = RepublishSettings(c, *record); !refused.empty()) return refused;
-      if (!record->moved_from.empty())
+      if (!record->moved_from.empty() || unowned_upgrade)
         if (const auto current = c.records.Find(record->install_id))
           if (const auto checked = c.installer->AdmissionDiagnostic(*current); checked != "ok")
             return "The PS5 title still fails its start check: " + checked;
       *ok = true;
+      if (const auto current = c.records.Find(record->install_id)) OpenGameFolders(c, *current);
       if (!c.installer->TitleCurrent(*record) || !c.installer->TitleMetadataCurrent(*record))
         return "Repaired. The PS5 title also has an update: press Update on the game page.";
       return "Repaired. The game's start files and settings are in place.";
@@ -2549,7 +2706,9 @@ void RuntimeHost::Run() {
     if (!native.log) native.log = [this](const std::string& line) { Log(line); };
     c.coordinator = std::make_unique<ps5::Ps5NativeCoordinator>(
         c.records, *c.installer, c.registry, config_.homebrew_root, std::move(native));
-    c.owner = std::make_unique<rt::SettingsPublicationOwner>(c.records, *c.installer, *c.coordinator);
+    c.owner = std::make_unique<rt::SettingsPublicationOwner>(
+        c.records, *c.installer, *c.coordinator,
+        c.kit && rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned);
     c.service = std::make_unique<rt::RuntimeInstallService>(
         c.records, *c.installer, *c.coordinator,
         [&c](const rt::RuntimeInstall& record) {
@@ -2644,12 +2803,16 @@ void RuntimeHost::Run() {
       }
       // Games whose folder moved with the games root (0.5) start from Home only once their
       // publication names the new folder: republished now, busy titles wait for Play.
+      // So are games published owned while the kit admits unowned folders (folders opened for
+      // mods). The Steam account is not known yet, so the emulator's files wait for Play.
       for (const auto& record : c.repository.Snapshot()) {
-        if (record.moved_from.empty() || record.state != rt::PreparationState::kReady) continue;
+        if (record.state != rt::PreparationState::kReady) continue;
+        const bool moved = !record.moved_from.empty();
+        if (!moved && !NeedsUnownedPublication(c, record)) continue;
         const auto busy = c.kit ? MaintenanceRefusal(c, record) : std::string("no verified kit");
         bool published = false;
-        const auto refused = busy.empty() ? RepublishSettings(c, record, &published) : busy;
-        Log("startup moved app=" + std::to_string(record.app_id) + " " +
+        const auto refused = busy.empty() ? RepublishSettings(c, record, &published, false) : busy;
+        Log(std::string(moved ? "startup moved app=" : "startup unowned app=") + std::to_string(record.app_id) + " " +
             (published ? std::string("republished") : (busy.empty() ? "failed: " : "waits: ") + refused));
       }
       FinishGamesMove(c);
@@ -2662,7 +2825,7 @@ void RuntimeHost::Run() {
           if (!saved || saved->revision <= record.settings_revision || !record.moved_from.empty() ||
               !MaintenanceRefusal(c, record).empty()) continue;
           bool published = false;
-          const auto refused = RepublishSettings(c, record, &published);
+          const auto refused = RepublishSettings(c, record, &published, false);
           if (published || !refused.empty())
             Log("startup settings app=" + std::to_string(record.app_id) + " " + (refused.empty() ? "applied" : refused));
         }

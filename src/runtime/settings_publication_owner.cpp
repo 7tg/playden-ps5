@@ -40,16 +40,19 @@ PublicationPaths OperationPaths(const SettingsPublicationOperation& operation, c
           map(profiles + ".playden-publication")};
 }
 // A Ready update publishes a newer revision, or the same one again when the game folder
-// moved (RuntimeInstall::moved_from): its publication must then name the new folder.
-bool UpdateRevisionAllowed(const RuntimeInstall& current, std::uint64_t requested) {
-  return requested > current.settings_revision || (requested == current.settings_revision && !current.moved_from.empty());
+// moved (RuntimeInstall::moved_from): its publication must then name the new folder. With a
+// kit that admits unowned folders, an owned publication is also published again as unowned.
+bool UpdateRevisionAllowed(const RuntimeInstall& current, std::uint64_t requested, bool unowned_game_roots) {
+  return requested > current.settings_revision ||
+      (requested == current.settings_revision && (!current.moved_from.empty() || unowned_game_roots));
 }
 bool MatchingJournal(const RuntimeInstall& r, const SettingsPublicationOperation& o) {
   return r.journal && r.journal->operation == "settings-publication" && r.journal->operation_id == o.transaction_id;
 }
 }
 SettingsPublicationOwner::SettingsPublicationOwner(InstallRecordStore& records, PackageInstaller& package,
-    NativeCoordinator& native) : records_(records), package_(package), native_(native) {}
+    NativeCoordinator& native, bool unowned_game_roots)
+    : records_(records), package_(package), native_(native), unowned_game_roots_(unowned_game_roots) {}
 PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationRequest& request,
     const std::filesystem::path& directory) {
   std::string reason; auto expected = EncodeSettingsPublicationRequest(request, &reason);
@@ -57,7 +60,7 @@ PackageActionResult SettingsPublicationOwner::Request(const SettingsPublicationR
   const bool update = current && current->state == PreparationState::kReady;
   const bool armed = current && current->journal && current->journal->operation == "settings-request";
   if (!expected || !current || !SameRuntimeInstallIdentity(*current, request.install) ||
-      (update ? !UpdateRevisionAllowed(*current, request.plan.settings_revision) :
+      (update ? !UpdateRevisionAllowed(*current, request.plan.settings_revision, unowned_game_roots_) :
                 request.plan.settings_revision != current->settings_revision) ||
       (update ? !ReadyCaptureAllowed(*current, request.transaction_id) :
                 current->state != PreparationState::kPreparing || !current->journal ||
@@ -107,7 +110,7 @@ PackageActionResult SettingsPublicationOwner::ResumeRequested(const RuntimeInsta
   auto loaded = LoadSettingsPublicationRequest(directory, current->journal->operation_id);
   if (loaded.state != PublicationRecoveryState::kValid || !loaded.request ||
       !SameRuntimeInstallIdentity(loaded.request->install, *current) ||
-      (current->state == PreparationState::kReady ? !UpdateRevisionAllowed(*current, loaded.request->plan.settings_revision) :
+      (current->state == PreparationState::kReady ? !UpdateRevisionAllowed(*current, loaded.request->plan.settings_revision, unowned_game_roots_) :
                                                   loaded.request->plan.settings_revision != current->settings_revision))
     return Failure("publication-request-unavailable", "Requested plan is missing, altered or does not match OWNER; preserve all evidence.");
   const auto& request = *loaded.request;
@@ -274,7 +277,7 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   CommitLaunch(&snapshot, record);
   const auto moved = GameRootMoveOf(*current);
   auto captured = CaptureSettingsPublicationOperation(snapshot, plan, kit, transaction, time, lease->fd(), prefix,
-                                                      moved ? &*moved : nullptr);
+                                                      moved ? &*moved : nullptr, unowned_game_roots_);
   if (!captured.ok()) return captured;
   if (!lease->Validate(*control, "publication.lock"))
     return fail("The publication lock changed before the capture was saved.");
