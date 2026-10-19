@@ -38,6 +38,7 @@ Simulation make_live() {
     return Simulation("fixtures-not-used", "profile-not-used.json", ModelMode::Live);
 }
 
+
 GameSummary game(playden::GameId id, std::string title, std::string art = {},
                  std::string description = {}) {
     GameSummary result;
@@ -1396,10 +1397,19 @@ void live_details_focus_moves_to_play_once_enabled() {
           "notes are skipped");
 }
 
+// Settings › Sync Cloud saves automatically, on (it starts off).
+void sync_automatically(Simulation& model) {
+    playden::PreferencesLoadResult loaded;
+    loaded.preferences.cloud_saves_auto = true;
+    check(model.ApplyPreferences(model.BeginPreferencesLoad(), loaded) && model.state().cloud_saves_auto,
+          "automatic Cloud saves on");
+}
+
 void live_ready_to_play_quits_to_home() {
     using playden::homebrew::LiveRuntimeGame;
     using playden::homebrew::RuntimeState;
     auto model = make_live();
+    sync_automatically(model);
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(model.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
     model.UpdateAppDetails(42, 300, 600, true);
@@ -1431,6 +1441,7 @@ void live_ready_to_play_quits_to_home() {
     check(model.state().quit_requested && model.state().navigation.modals.empty(), "Play quits to Home once saves are in step");
     // A choice or a failure lets the player play without syncing.
     auto choosing = make_live();
+    sync_automatically(choosing);
     choosing.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(choosing.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
     choosing.UpdateInstalls({}, {{42, 600'000'000}});
@@ -1446,6 +1457,7 @@ void live_ready_to_play_quits_to_home() {
     check(choosing.state().quit_requested, "Play without syncing quits");
     // The console refusing the sync (the title may run) does not leave Play waiting.
     auto refused = make_live();
+    sync_automatically(refused);
     refused.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(refused.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
     refused.UpdateInstalls({}, {{42, 600'000'000}});
@@ -1456,6 +1468,16 @@ void live_ready_to_play_quits_to_home() {
     check(!refused.state().quit_requested && refused.state().navigation.modals.back().title == "The game may still be running" &&
               has_row(refused, "saves-quit-anyway"),
           "a refused sync says why and offers Play without syncing");
+    // With automatic sync off, Play quits without moving saves.
+    auto manual = make_live();
+    manual.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(manual.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    manual.UpdateInstalls({}, {{42, 600'000'000}});
+    manual.UpdateRuntime(RuntimeState::Ready, {waiting});
+    manual.UpdateCloud({{42, CloudStatus::UpToDate, "Saves are up to date"}});
+    check(manual.action("details:42"), "details open");
+    activate(manual, "details-play");
+    check(manual.TakeCloudRequests().empty() && manual.state().quit_requested, "automatic sync off: Play quits at once");
     // A game without Steam Cloud quits at once.
     auto local = make_live();
     local.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
@@ -1469,6 +1491,7 @@ void live_ready_to_play_quits_to_home() {
 
     // The prompt: shown when nothing else is open, once per game, Play quits, Later closes.
     auto prompted = make_live();
+    sync_automatically(prompted);
     prompted.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(prompted.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
     prompted.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
@@ -1556,6 +1579,7 @@ void live_ready_prompt_matches_the_open_game() {
     using playden::homebrew::LiveRuntimeGame;
     using playden::homebrew::RuntimeState;
     auto model = make_live();
+    sync_automatically(model);
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(model.UpdateLibrary({{game(1684930, "CULTIC"), game(548430, "Deep Rock Galactic")}, false, {}, false, false, {}}),
           "library loaded");

@@ -538,8 +538,14 @@ void Controller::TickCloud() {
     }
     if (answered) {
       std::vector<steam::CloudLocation> locations;
+      // With automatic sync off, the check when Saves opens only looks: saves move when the player
+      // chooses Sync or Sync all.
+      const bool look_only = job.kind == steam::CloudJobKind::kQuickCheck && !model_.state().cloud_saves_auto;
       for (const auto id : job.ids)
-        if (const auto location = CloudLocationFor(id, true)) locations.push_back(*location);
+        if (auto location = CloudLocationFor(id, true)) {
+          if (look_only) location->check_only = true;
+          locations.push_back(*location);
+        }
       cloud_->StartJob(job.kind, std::move(locations));
       pending_job_.reset();
     }

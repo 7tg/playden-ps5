@@ -5350,11 +5350,12 @@ void Simulation::activate() {
     } else if (live() && action_name == "quit-to-home") {
         // Ready to play: ShadowMountPlus registers the title once Playden quits, and the
         // game appears on the Home screen. The dialog or Details already said so. Its saves
-        // sync first, as before any Play, unless the game has no Steam Cloud.
+        // sync first, as before any Play, unless the game has no Steam Cloud or automatic sync is off.
         const GameId id = !state_.navigation.modals.empty() && ready_prompt_game_ != 0
             ? ready_prompt_game_ : state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         const auto cloud = state_.cloud.find(id);
-        const bool syncs = id != 0 && state_.account.authentication == AuthState::SignedIn &&
+        // With automatic sync off, saves move only when the player chooses Sync in Saves.
+        const bool syncs = id != 0 && state_.cloud_saves_auto && state_.account.authentication == AuthState::SignedIn &&
                            (cloud == state_.cloud.end() || cloud->second.status != CloudStatus::Unsupported);
         state_.navigation.modals.clear();
         ready_prompt_game_ = 0;
