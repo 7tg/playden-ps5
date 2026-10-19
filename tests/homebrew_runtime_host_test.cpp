@@ -14,6 +14,8 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <thread>
 #include <atomic>
@@ -2986,7 +2988,83 @@ void RestartDuringRepublishResumes() {
 
 // A moved game whose folder is gone from the new place is not published over: it keeps its mark
 // and the move stays unfinished.
-void MovedGameMissingAtNewRootKeepsTheMove() {
+// A schema-2 (owned) game whose folder is gone (a stale record, an unplugged drive) is not
+// republished unowned: nothing is armed, so no journal waits on the record.
+void UnownedUpgradeSkippedWhenFolderMissing() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    char id[37]; std::snprintf(id, sizeof(id), "00000000-0000-4000-8000-%012u", ++uuids);
+    return std::string(id);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
+  GameSettingsRecord saved;
+  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  std::vector<std::string> lines;
+  std::mutex lines_mutex;
+  config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(lines_mutex); lines.push_back(line); };
+  const auto logged = [&](const std::string& prefix) {
+    std::lock_guard<std::mutex> lock(lines_mutex);
+    return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) { return line.find(prefix) != std::string::npos; });
+  };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  CHECK(chmod(game.c_str(), 0777) == 0);
+  const auto metadata = fixture.root / "data/playden/games/steam-220/library/profiles/.playden-publication";
+  const auto installs = fixture.root / "data/runtime-state/installs.json";
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+    host.Shutdown();
+  }
+  CHECK(Read(metadata).find("schema=2\n") != std::string::npos);
+  CHECK(Read(installs).find("\"journal\":{") == std::string::npos);
+  const auto published = Read(metadata);
+  const auto records = Read(installs);
+  fs::remove_all(game);
+  kit.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  CHECK(logged("unowned upgrade skipped: game folder missing ("));
+  CHECK(logged("startup unowned app=220 deferred: "));
+  CHECK(!logged("settings update request"));
+  CHECK(Read(installs).find("\"journal\":{") == std::string::npos && Read(installs) == records);
+  CHECK(Read(metadata) == published);
+  host.Play(220);
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+  CHECK(done.play_refusals.count(220) && done.play_refusals.at(220).find("installation volume is unavailable") != std::string::npos);
+  CHECK(!done.handoff_ready);
+  CHECK(!logged("settings update request"));
+  CHECK(Read(installs).find("\"journal\":{") == std::string::npos);
+  CHECK(Read(metadata) == published);
+  host.Shutdown();
+}
+
+// A moved Ready record whose folder is gone (the game was installed again elsewhere) can't be
+// republished: it keeps its mark (Uninstall or Recreate bottle clear it), and the move still finishes.
+void MovedGameMissingAtNewRootLetsTheMoveFinish() {
   Fixture fixture;
   GamesMove move;
   const auto kit = SyntheticKit(fixture.root / "kit");
@@ -2997,8 +3075,9 @@ void MovedGameMissingAtNewRootKeepsTheMove() {
   RuntimeHost host(config);
   CHECK(host.Start());
   WaitFor(host, Started);
-  CHECK(move.Logged("startup moved app=220 failed:") && move.Done() == 0);
-  CHECK(Read(fixture.root / "data/runtime-state/installs.json").find("moved_from") != std::string::npos);
+  CHECK(move.Logged("startup moved app=220 failed:") && move.Logged("layout move done") && move.Done() == 1);
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json").find(R"("moved_from":"/data/homebrew/FAKE77031/games/220")") !=
+        std::string::npos);
   CHECK(Read(fixture.root / "data/homebrew/FAKE78001/game-launch.json").find(kOldGames) != std::string::npos);
   host.Shutdown();
 }
@@ -3253,6 +3332,275 @@ void KitWithoutSharedProfileKeepsBottlePrivate() {
   host.Shutdown();
 }
 
+// A game published owned (schema 2) that then had settings updates committed under the same
+// kit (revision bumps, with registry edits that leave a registry backup and archived
+// operations in its control folder). A capable kit's startup unowned upgrade republishes it at
+// the same revision, after those committed operations (scenario 0).
+// When the control folder's last operation can't be read nor set aside (1: a link in its place),
+// the upgrade's capture is refused with the loader's reason, its request is dropped at once and
+// the game keeps playing under its owned publication: no recovery is needed. A last operation
+// that is gone (2) is not needed: the receipt and the publication prove the previous state.
+// A capture cut off while its request was armed (the lock held, as a game running from Home
+// holds it) leaves that request on the record (what an earlier build left on a console).
+// The next start drops it and tries the upgrade again (3; with the unreadable operation, 6: the
+// upgrade is deferred again and the game plays owned); Update resumes it (5), or, with the
+// unreadable operation, drops it and goes on as for any Ready game (4).
+// A last operation that no longer loads (7: another build's codec, trailing bytes; 9: its registry
+// backup lost its private mode) is set aside under its own name once the committed receipt and the
+// published metadata prove the previous publication, and the upgrade goes through; with a receipt
+// that doesn't (8), it stays, the upgrade is deferred and its request kept for Resume.
+void UnownedUpgradeAfterCommittedSettingsUpdates(int scenario) {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    char id[37]; std::snprintf(id, sizeof(id), "00000000-0000-4000-8000-%012u", ++uuids);
+    return std::string(id);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
+  GameSettingsRecord saved;
+  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  std::vector<std::string> lines;
+  std::mutex lines_mutex;
+  config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(lines_mutex); lines.push_back(line); };
+  const auto logged = [&](const std::string& text) {
+    std::lock_guard<std::mutex> lock(lines_mutex);
+    return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) { return line.find(text) != std::string::npos; });
+  };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  const auto metadata = fixture.root / "data/playden/games/steam-220/library/profiles/.playden-publication";
+  const auto control = fixture.root / "data/playden/games/steam-220/.playden-control";
+  const auto installs = fixture.root / "data/runtime-state/installs.json";
+  const auto requests = fixture.root / "data/runtime-state/requests";
+  const auto play = [&](RuntimeHost& host) {
+    host.Play(220);
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+    if (done.play_refusals.count(220)) std::fprintf(stderr, "Play refused: %s\n", done.play_refusals.at(220).c_str());
+    CHECK(done.handoff_ready && host.Handoff());
+  };
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+    CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+    const auto maintain = [&host](RuntimeMaintenance action) {
+      const auto before = host.Snapshot().maintenance_handled;
+      host.Maintain(220, action);
+      return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60).maintenance.at(220);
+    };
+    // Several committed updates: a registry edit (Windows version) and a DXVK setting.
+    saved.revision = 2; saved.overrides = {{"windows_version", "win7"}};
+    auto result = maintain(RuntimeMaintenance::kApplySettings);
+    if (!result.ok) std::fprintf(stderr, "update 2: %s\n", result.message.c_str());
+    CHECK(result.ok && result.message == "Settings applied.");
+    saved.revision = 3; saved.overrides = {{"windows_version", "winxp"}, {"frame_limit", "30"}};
+    result = maintain(RuntimeMaintenance::kApplySettings);
+    if (!result.ok) std::fprintf(stderr, "update 3: %s\n", result.message.c_str());
+    CHECK(result.ok && result.message == "Settings applied.");
+    saved.revision = 4; saved.overrides = {{"windows_version", "winxp"}, {"frame_limit", "60"}};
+    result = maintain(RuntimeMaintenance::kApplySettings);
+    if (!result.ok) std::fprintf(stderr, "update 4: %s\n", result.message.c_str());
+    CHECK(result.ok && result.message == "Settings applied.");
+    CHECK(host.Snapshot().installs[0].settings_revision == 4);
+    host.Shutdown();
+  }
+  const auto owned = Read(metadata);
+  CHECK(owned.find("schema=2\n") != std::string::npos);
+  CHECK(Read(installs).find("\"journal\":{") == std::string::npos);
+  const auto backup = control / "registry-backup-00000000-0000-4000-8000-000000000004.v1";
+  CHECK(fs::is_regular_file(control / "settings-operation.v1") && fs::is_regular_file(backup));
+  CHECK(fs::is_regular_file(control / "settings-operation-00000000-0000-4000-8000-000000000003.v1"));
+  const bool unreadable = scenario == 1 || scenario == 4 || scenario == 6;
+  const auto operation = Read(control / "settings-operation.v1");
+  if (unreadable) {
+    fs::rename(control / "settings-operation.v1", control / "settings-operation.saved.v1");
+    fs::create_symlink("settings-operation.saved.v1", control / "settings-operation.v1");
+  }
+  if (scenario == 2) fs::remove(control / "settings-operation.v1");
+  if (scenario == 9) CHECK(chmod(backup.c_str(), 0644) == 0);
+  const auto aside = control / "settings-operation.unreadable-1760000000.v1";
+  if (scenario == 7 || scenario == 8) Write(control / "settings-operation.v1", operation + "trailing", 0600);
+  const auto kept_unreadable = [&] {
+    const bool kept = logged("Existing frozen operation is corrupt or unavailable: Operation journal could not be inspected") &&
+           logged("(not set aside: ") && !logged("settings operation set aside") && !fs::exists(aside) &&
+           fs::is_symlink(control / "settings-operation.v1");
+    if (!kept) {
+      std::lock_guard<std::mutex> guard(lines_mutex);
+      for (const auto& line : lines) if (line.find("220") != std::string::npos) std::fprintf(stderr, "log: %s\n", line.c_str());
+      std::fprintf(stderr, "scenario %d: aside=%d symlink=%d\n", scenario, int(fs::exists(aside)), int(fs::is_symlink(control / "settings-operation.v1")));
+    }
+    return kept;
+  };
+  const auto receipt = Read(control / "publication-state.v1");
+  if (scenario == 8) Write(control / "publication-state.v1", "not a receipt", 0600);
+  kit.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", kKitDxvkConfig, "wow64_i386"};
+  const auto request = requests / "settings-request-00000000-0000-4000-8000-000000000005.v1";
+  const auto journaled = [&] { return Read(installs).find("\"journal\":{") != std::string::npos; };
+  const auto unowned_published = [&] {
+    const auto published = Read(metadata);
+    return published.find("schema=3\n") != std::string::npos && published.find("game_root.unowned=1\n") != std::string::npos;
+  };
+  if (scenario >= 3 && scenario <= 6) {
+    // The capture finds the lock held: its request stays armed on the record, nothing changed.
+    const int lock = open((control / "publication.lock").c_str(), O_RDONLY);
+    CHECK(lock >= 0 && flock(lock, LOCK_SH) == 0);
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    const auto started = WaitFor(host, Started);
+    CHECK(logged("startup unowned app=220 deferred: "));
+    CHECK(logged("unowned upgrade request 00000000-0000-4000-8000-000000000005 kept: "));
+    CHECK(started.installs[0].recovery_pending);
+    CHECK(journaled() && Read(installs).find("\"step\":\"capture-update\"") != std::string::npos);
+    CHECK(fs::is_regular_file(request) && Read(metadata) == owned);
+    if (scenario == 3 || scenario == 6) {
+      host.Shutdown();
+      CHECK(close(lock) == 0);
+      { std::lock_guard<std::mutex> guard(lines_mutex); lines.clear(); }
+      RuntimeHost restarted(config);
+      CHECK(restarted.Start());
+      WaitFor(restarted, Started);
+      CHECK(logged("unowned upgrade request 00000000-0000-4000-8000-000000000005 dropped: left by an earlier start"));
+      CHECK(!fs::exists(request));
+      if (scenario == 6) {
+        // The upgrade tried again is deferred again, with its reason, and its request dropped.
+        CHECK(kept_unreadable());
+        CHECK(logged("unowned upgrade request 00000000-0000-4000-8000-000000000006 dropped: "));
+        CHECK(logged("startup unowned app=220 deferred: "));
+        CHECK(!journaled() && Read(metadata) == owned);
+        CHECK(restarted.Snapshot().leftover_requests == 4);
+      } else {
+        CHECK(logged("startup unowned app=220 republished"));
+        CHECK(!journaled() && unowned_published());
+      }
+      CHECK(restarted.Snapshot().installs[0].settings_revision == 4 && !restarted.Snapshot().installs[0].recovery_pending);
+      play(restarted);
+      CHECK(!journaled() && (scenario == 6 ? Read(metadata) == owned : unowned_published()));
+      restarted.Shutdown();
+      return;
+    }
+    CHECK(close(lock) == 0);
+    // Update (Resume on the game page) takes the request up.
+    const auto before = host.Snapshot().prepares_handled;
+    host.Prepare(Hl2());
+    const auto updated = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before && !s.preparing_app; }, 60);
+    if (updated.refusals.count(220)) std::fprintf(stderr, "Update: %s\n", updated.refusals.at(220).c_str());
+    if (scenario == 5) {
+      // Resumed: the saved request completes as unowned.
+      CHECK(!updated.refusals.count(220));
+      CHECK(logged("publication resume journal=settings-request/capture-update state=0"));
+      CHECK(unowned_published());
+    } else {
+      // Its capture refused again, the request is dropped and the update goes on: the game is as
+      // before the upgrade existed.
+      CHECK(kept_unreadable());
+      CHECK(logged("unowned upgrade request 00000000-0000-4000-8000-000000000005 dropped: "));
+      CHECK(updated.refusals.count(220) && updated.refusals.at(220) == "This game is already prepared.");
+      CHECK(Read(metadata) == owned && !fs::exists(request));
+    }
+    CHECK(!journaled() && !updated.installs[0].recovery_pending && updated.installs[0].settings_revision == 4);
+    play(host);
+    host.Shutdown();
+    return;
+  }
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  if (scenario == 8) {
+    CHECK(logged("Existing frozen operation is corrupt or unavailable: Operation is truncated, malformed, altered or has trailing bytes. (kept: "));
+    CHECK(!logged("settings operation set aside"));
+    // Without a receipt that proves the committed publication nothing is touched, not even the
+    // request: the title can't pass its start check either way, and Resume keeps the evidence.
+    CHECK(logged("unowned upgrade request 00000000-0000-4000-8000-000000000005 kept: ") && logged("code=publication-discard-receipt"));
+    CHECK(logged("startup unowned app=220 deferred: "));
+    CHECK(journaled() && fs::exists(request) && Read(metadata) == owned);
+    CHECK(Read(control / "settings-operation.v1") == operation + "trailing" && !fs::exists(aside));
+    CHECK(host.Snapshot().installs[0].recovery_pending);
+    host.Shutdown();
+    return;
+  }
+  if (scenario == 7 || scenario == 9) {
+    CHECK(logged(std::string("settings operation set aside install=steam-220 as settings-operation.unreadable-1760000000.v1: ") +
+                 (scenario == 7 ? "Operation is truncated" : "Referenced registry backup is not valid")));
+    CHECK(Read(aside) == (scenario == 7 ? operation + "trailing" : operation));
+    CHECK(fs::is_regular_file(control / "settings-operation.v1") && Read(control / "settings-operation.v1") != Read(aside));
+    CHECK(Read(control / "publication-state.v1") != receipt);
+  }
+  if (scenario == 1) {
+    CHECK(kept_unreadable());
+    CHECK(logged("unowned upgrade request 00000000-0000-4000-8000-000000000005 dropped: "));
+    CHECK(logged("startup unowned app=220 deferred: "));
+    CHECK(!journaled() && !fs::exists(request) && Read(metadata) == owned);
+    // The preparation's and the committed updates' requests are the usual leftovers; the dropped
+    // one is gone.
+    CHECK(host.Snapshot().leftover_requests == 4 && !host.Snapshot().installs[0].recovery_pending);
+    // Play tries the upgrade again, drops its request again, and starts the game as before.
+    play(host);
+    CHECK(logged("unowned upgrade request 00000000-0000-4000-8000-000000000006 dropped: "));
+    CHECK(!journaled() && Read(metadata) == owned);
+    host.Shutdown();
+    return;
+  }
+  if (!logged("startup unowned app=220 republished")) {
+    std::lock_guard<std::mutex> guard(lines_mutex);
+    for (const auto& line : lines) if (line.find("app=220") != std::string::npos) std::fprintf(stderr, "log: %s\n", line.c_str());
+  }
+  CHECK(logged("startup unowned app=220 republished"));
+  CHECK(!journaled() && unowned_published());
+  CHECK(host.Snapshot().installs[0].settings_revision == 4 && !host.Snapshot().installs[0].recovery_pending);
+  play(host);
+  host.Shutdown();
+}
+
+// A moved game whose last operation no longer decodes (written by another build): the move's
+// republish sets it aside, since the committed receipt and the published metadata prove the
+// previous publication, and names the new folder.
+void MovedGameWithUnreadableOperationRepublishes() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  PrepareThenMoveGames(fixture, config, move);
+  const auto control = fixture.root / "data/playden/games/steam-220/.playden-control";
+  const auto operation = Read(control / "settings-operation.v1");
+  CHECK(!operation.empty());
+  Write(control / "settings-operation.v1", operation + "trailing", 0600);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(started.installs.size() == 1 && started.installs[0].state == PreparationState::kReady);
+  CHECK(move.Logged("settings operation set aside install=steam-220 as settings-operation.unreadable-1760000000.v1: Operation is truncated"));
+  CHECK(move.Logged("startup moved app=220 republished") && move.Done() == 1);
+  CHECK(Read(control / "settings-operation.unreadable-1760000000.v1") == operation + "trailing");
+  CHECK(fs::is_regular_file(control / "settings-operation.v1") && Read(control / "settings-operation.v1") != operation + "trailing");
+  CheckRepublishedAtNewRoot(fixture);
+  host.Play(220);
+  const auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
+  if (played.play_refusals.count(220)) std::fprintf(stderr, "Play refused: %s\n", played.play_refusals.at(220).c_str());
+  CHECK(played.handoff_ready);
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -3299,7 +3647,10 @@ int main(int argc, char** argv) {
   PlayBeforeRepublishRepublishesFirst();
   MigrationSkipsRecordsOutsideOldPrefix();
   RestartDuringRepublishResumes();
-  MovedGameMissingAtNewRootKeepsTheMove();
+  MovedGameMissingAtNewRootLetsTheMoveFinish();
+  UnownedUpgradeSkippedWhenFolderMissing();
+  for (int scenario = 0; scenario <= 9; ++scenario) UnownedUpgradeAfterCommittedSettingsUpdates(scenario);
+  MovedGameWithUnreadableOperationRepublishes();
   std::puts("runtime host tests passed");
   return 0;
 }

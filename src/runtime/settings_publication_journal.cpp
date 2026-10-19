@@ -495,6 +495,30 @@ static PublicationOperationLoad LoadOperationFile(const std::filesystem::path& c
 PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem::path& control) {
   return LoadOperationFile(control, kOperationName);
 }
+Result<std::string> SetAsideSettingsPublicationOperation(const std::filesystem::path& control, std::int64_t unix_time) {
+  auto fail = [](StorageError error, std::string message) { return Result<std::string>::Failure(error, std::move(message)); };
+  if (unix_time < 0) return fail(StorageError::kInvalidData, "Invalid set-aside time.");
+  auto directory = platform::ManagedDirectory::Open(control, platform::DirectoryPolicy::kPrivate);
+  if (!directory) return fail(StorageError::kOpenFailed, "Private control directory is unavailable.");
+  const auto active = LoadSettingsPublicationOperation(control);
+  if (active.state != PublicationRecoveryState::kCorrupt)
+    return fail(StorageError::kInvalidData, active.state == PublicationRecoveryState::kAbsent ? "No active journal to set aside." :
+        active.state == PublicationRecoveryState::kValid ? "The active journal loads; it is never set aside." :
+        "The active journal is unavailable, not unreadable: " + active.message);
+  for (unsigned attempt = 1; attempt <= 16; ++attempt) {
+    const auto name = "settings-operation.unreadable-" + std::to_string(unix_time) +
+        (attempt > 1 ? "." + std::to_string(attempt) : std::string()) + ".v1";
+    struct stat existing{};
+    if (directory->InspectChild(name, &existing)) continue;
+    if (errno != ENOENT) return fail(StorageError::kOpenFailed, "The set-aside name cannot be inspected.");
+    if (!directory->RenameChild(kOperationName, *directory, name, false))
+      return fail(StorageError::kRenameFailed, "The unreadable journal could not be set aside: " + std::string(strerror(errno)));
+    if (!directory->Sync() || LoadSettingsPublicationOperation(control).state != PublicationRecoveryState::kAbsent)
+      return fail(StorageError::kSyncFailed, "The journal's absence could not be verified after it was set aside.");
+    return Result<std::string>::Success(name);
+  }
+  return fail(StorageError::kOpenFailed, "No free set-aside name.");
+}
 Result<void> ArchiveSettingsPublicationOperation(const std::filesystem::path& control,
     const SettingsPublicationOperation& operation, const std::function<bool()>& after_rename) {
   std::string reason; auto expected = EncodeSettingsPublicationOperation(operation, &reason);

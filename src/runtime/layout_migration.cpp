@@ -211,7 +211,34 @@ std::optional<std::string> PendingJournal(const LayoutPaths& paths, const Layout
   RuntimeInstallRepository repository(storage, "installs.json", {});
   const auto loaded = repository.Load();
   if (!loaded.ok()) return "the install records can't be read (" + loaded.message() + ")";
+  // Only games inside the folder that moves can be stranded by it: installs on USB and M.2
+  // drives keep their paths, so their journals don't hold the move back.
+  // Records name console paths; the host folder is checked too.
+  const auto moving_host = paths.app_root / "games";
+  const auto moving = fs::path("/data") / moving_host.lexically_relative(paths.boundary);
+  // The game's folder on the host, when it sits inside the folder that moves.
+  const auto inside = [&](const std::string& install_path) -> std::optional<fs::path> {
+    for (const auto& root : {moving, moving_host}) {
+      const auto relative = fs::path(install_path).lexically_normal().lexically_relative(root);
+      if (!relative.empty() && *relative.begin() != "..") return moving_host / relative;
+    }
+    return std::nullopt;
+  };
   for (const auto& record : repository.Snapshot()) {
+    const auto folder = inside(record.install_path);
+    if (!folder) continue;
+    // A record whose folder is gone (the game was installed again elsewhere) can't be stranded.
+    if (Kind(*folder) != 1) {
+      Log(ops, "install " + record.install_id + " skipped: its folder " + folder->string() + " is missing");
+      continue;
+    }
+    // A game started or suspended from Home still uses its old paths, whatever Playden launched last.
+    if (ops.title_running && !record.title_id.empty()) {
+      const auto running = ops.title_running(record.title_id);
+      if (!running || *running)
+        return "the game " + record.title_id + " may still be running or suspended. Close it, and Playden moves "
+               "them the next time it starts";
+    }
     if (record.journal)
       return "install " + record.install_id + " has a pending " + record.journal->operation + " journal";
     // data_root is /data/playden/games/<id>; map it under this layout's boundary.

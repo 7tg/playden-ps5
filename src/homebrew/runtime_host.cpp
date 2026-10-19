@@ -920,6 +920,21 @@ static std::string WorkingFolder(const std::string& working, std::string program
   return slash == std::string::npos ? std::string() : program.substr(0, slash);
 }
 
+// The game root or its working folder when either isn't a folder (a stale record, an unplugged
+// drive): nothing can be published for it. root is the host path of the record's install_path.
+static std::optional<std::filesystem::path> MissingGameFolder(const std::filesystem::path& root,
+                                                              const rt::RuntimeInstall& record) {
+  const auto folder = WorkingFolder(record.launch_working_directory, record.launch_path, record.launch_in_install_root);
+  const auto working = folder.empty() ? root : root / folder;
+  struct stat info{};
+  const auto is_directory = [&info](const std::filesystem::path& path) {
+    return lstat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+  };
+  if (!is_directory(root)) return root;
+  if (!is_directory(working)) return working;
+  return std::nullopt;
+}
+
 // The folders from the game root down to the program's working folder (where dxvk.conf
 // goes) get the same treatment as the root: an owned, world-writable download folder
 // becomes 0755. Folders that don't exist yet, links and folders owned by anyone else are
@@ -959,6 +974,27 @@ bool RuntimeHost::NeedsUnownedPublication(const Composition& c, const rt::Runtim
       !rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned)
     return false;
   return rt::PublishedGameRootUnowned(record, config_.host_namespace_prefix) == std::optional<bool>(false);
+}
+
+bool RuntimeHost::DropUpgradeRequest(Composition& c, const std::string& install_id, const std::string& why) {
+  const auto current = c.records.Find(install_id);
+  if (!current || current->state != rt::PreparationState::kReady || !current->moved_from.empty() || !current->journal ||
+      current->journal->operation != "settings-request" || current->journal->step != "capture-update")
+    return false;
+  // Only the saved request tells the upgrade (its plan at the record's revision) from a newer
+  // settings update, whose request waits for Resume as before.
+  const auto loaded = rt::LoadSettingsPublicationRequest(c.request_directory, current->journal->operation_id);
+  if (loaded.state != rt::PublicationRecoveryState::kValid || !loaded.request ||
+      loaded.request->plan.settings_revision != current->settings_revision)
+    return false;
+  const auto dropped = c.owner->DiscardRequested(*current, c.request_directory, config_.host_namespace_prefix);
+  Log("settings update app=" + std::to_string(current->app_id) + " unowned upgrade request " + current->journal->operation_id +
+      (dropped.state == rt::PackageActionState::kComplete ? " dropped" : " kept") + ": " + why +
+      (dropped.code.empty() ? std::string{} : " code=" + dropped.code) +
+      (dropped.message.empty() ? std::string{} : " " + dropped.message));
+  if (dropped.state != rt::PackageActionState::kComplete) return false;
+  PublishInstalls(c, install_id);
+  return true;
 }
 
 void RuntimeHost::OpenGameFolders(const Composition& c, const rt::RuntimeInstall& record) {
@@ -1079,6 +1115,17 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
       ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{}).revision : 0;
   const bool upgrade_only = record.moved_from.empty() && saved_revision <= record.settings_revision &&
                             NeedsUnownedPublication(c, record);
+  // A game folder that isn't there (a stale record, an unplugged drive) can't be published, and
+  // arming the request first would leave a journal on the record: nothing is armed for it.
+  if (upgrade_only || !record.moved_from.empty()) {
+    if (const auto missing = MissingGameFolder(HostPath(record.install_path), record)) {
+      if (!upgrade_only) return "The moved game's working folder is missing at its new place (" + missing->string() + ").";
+      Log("settings update app=" + std::to_string(record.app_id) + " unowned upgrade skipped: game folder missing (" +
+          missing->string() + ")");
+      if (upgrade_deferred) *upgrade_deferred = "The game folder is missing.";
+      return {};
+    }
+  }
   auto refused = PublishSavedSettings(c, record, published, steam_account_known, prepare_again);
   if (refused.empty() || !upgrade_only) return refused;
   Log("settings update app=" + std::to_string(record.app_id) + " unowned upgrade deferred, owned publication kept: " +
@@ -1235,6 +1282,10 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   if (moved && resumed.state == rt::PackageActionState::kComplete)
     if (const auto current = c.records.Find(record.install_id))
       c.admission[record.install_id] = c.installer->QuickAdmission(*current);
+  // The upgrade alone is optional: one that failed before its publication began (the request
+  // arm is still on the record) is dropped, and the game keeps playing under its owned publication.
+  if (resumed.state != rt::PackageActionState::kComplete && unowned_upgrade && saved.revision == record.settings_revision)
+    DropUpgradeRequest(c, record.install_id, resumed.message);
   PublishInstalls(c, record.install_id);
   // A failed update keeps its journal, so Play waits until Resume on the PS5 title finishes it.
   if (resumed.state != rt::PackageActionState::kComplete) return "The settings could not be applied: " + resumed.message;
@@ -1272,8 +1323,12 @@ void RuntimeHost::MoveGameRecords(Composition& c) {
 void RuntimeHost::FinishGamesMove(Composition& c) {
   if (!c.games_move) return;
   // Games not prepared yet (or failed) keep their mark; their next preparation publishes the new folder.
+  // So does a Ready one whose folder is gone (installed again elsewhere): it can't be republished
+  // (RepublishSettings), and Uninstall or Recreate bottle clears its mark.
   for (const auto& record : c.repository.Snapshot())
-    if (!record.moved_from.empty() && record.state == rt::PreparationState::kReady) return;
+    if (!record.moved_from.empty() && record.state == rt::PreparationState::kReady &&
+        !MissingGameFolder(HostPath(record.install_path), record))
+      return;
   std::string error;
   const bool done = config_.finish_games_move && config_.finish_games_move(&error);
   Log(std::string("layout move ") + (done ? "done" : "not marked done: " + error));
@@ -1837,8 +1892,12 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       if (existing->journal) {
         const auto resumed = DrivePublication(c, *existing);
         PublishInstalls(c);
-        if (resumed.state != rt::PackageActionState::kComplete) return resumed.message;
-        return {};
+        if (resumed.state == rt::PackageActionState::kComplete) return {};
+        // An unowned upgrade's request that never reached its publication is dropped: the game
+        // keeps its owned publication, and the update goes on below as for any Ready game.
+        if (!DropUpgradeRequest(c, existing->install_id, resumed.message)) return resumed.message;
+        existing = c.records.Find(existing->install_id);
+        if (!existing) return "The game's install record is missing.";
       }
       bool changed = false;
       // Older titles carry the kit's generic name and icon: give them the game's.
@@ -2774,6 +2833,7 @@ void RuntimeHost::Run() {
         c.records, *c.installer, *c.coordinator,
         c.kit && rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).game_root_unowned,
         config_.host_namespace_prefix);
+    c.owner->SetLog([this](const std::string& line) { Log(line); });
     c.service = std::make_unique<rt::RuntimeInstallService>(
         c.records, *c.installer, *c.coordinator,
         [&c](const rt::RuntimeInstall& record) {
@@ -2876,6 +2936,13 @@ void RuntimeHost::Run() {
         Log("startup bottle profiles settled=" + std::to_string(settled) + " ms=" +
             std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count()));
       }
+      // An unowned upgrade's request cut off before its publication began (a crash, a capture
+      // refused on an earlier start) is dropped first: the game plays under its owned publication,
+      // and the pass below tries the upgrade again. Moved games and newer settings keep theirs.
+      for (const auto& record : c.repository.Snapshot())
+        if (record.state == rt::PreparationState::kReady && record.journal && record.moved_from.empty() &&
+            record.journal->operation == "settings-request" && record.journal->step == "capture-update")
+          DropUpgradeRequest(c, record.install_id, "left by an earlier start");
       // Games whose folder moved with the games root (0.6) start from Home only once their
       // publication names the new folder: republished now, busy titles wait for Play.
       // So are games published owned while the kit admits unowned folders (folders opened for

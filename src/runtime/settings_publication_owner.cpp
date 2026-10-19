@@ -1,6 +1,9 @@
 #include "runtime/settings_publication_owner.h"
+#include "runtime/publication_contract.h"
 #include "platform/managed_file_lock.h"
+#include "platform/storage.h"
 #include <cerrno>
+#include <cstring>
 #include <unistd.h>
 namespace playden::runtime {
 namespace {
@@ -127,6 +130,72 @@ PackageActionResult SettingsPublicationOwner::ResumeRequested(const RuntimeInsta
   auto dependencies = Dependencies(prefix, GameRootMoveOf(*current));
   return PublishSettingsOperation(prepared.value(), OperationPaths(prepared.value(), prefix), dependencies);
 }
+PackageActionResult SettingsPublicationOwner::DiscardRequested(const RuntimeInstall& record,
+    const std::filesystem::path& directory, const std::filesystem::path& prefix) {
+  if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal()))
+    return Failure("publication-discard-invalid", "Invalid discard namespace.");
+  auto current = records_.Find(record.install_id);
+  if (!current || !SameRuntimeInstallIdentity(*current, record) || current->settings_revision != record.settings_revision ||
+      current->state != PreparationState::kReady || !current->journal || !record.journal ||
+      current->journal->operation != "settings-request" || current->journal->step != "capture-update" ||
+      current->journal->operation_id != record.journal->operation_id ||
+      !IsSettingsPublicationTransactionId(current->journal->operation_id))
+    return Failure("publication-discard-owner", "The install record has no requested update to drop.");
+  const auto transaction = current->journal->operation_id;
+  const auto canonical = std::filesystem::path(current->data_root + "/.playden-control");
+  const auto control_path = prefix.empty() ? canonical : prefix / canonical.relative_path();
+  auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
+  auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher) : std::nullopt;
+  if (!lease) return Failure("publication-busy", "The publication lock is unavailable or held (the game may be running).");
+  // The committed publication the record plays under: another transaction, at the record's
+  // revision. A pending receipt, or one of this transaction, means the request got further
+  // than its capture (Block then also moved the journal on): nothing is dropped.
+  struct stat info{};
+  if (!control->InspectChild("publication-state.v1", &info) || !S_ISREG(info.st_mode) || info.st_size <= 0 || info.st_size > 8192)
+    return Failure("publication-discard-receipt", "The committed publication's receipt is missing or unreadable.");
+  auto read = Storage(control_path.string()).ReadDurable("publication-state.v1", 8192);
+  PwTitlePublication receipt{};
+  if (!read.ok() || pw_title_publication_parse(read.value().data(), read.value().size(), &receipt) != PW_OK ||
+      receipt.phase != PW_TITLE_PUBLICATION_COMMITTED || receipt.transaction_id == transaction ||
+      receipt.install_id != current->install_id || receipt.title_id != current->title_id ||
+      receipt.settings_revision != current->settings_revision)
+    return Failure("publication-discard-receipt", "The committed publication does not prove this request never applied.");
+  // An active journal of this transaction would mean the same; one that can't be read is the
+  // previous operation's (the record's journal proves this one never blocked OWNER).
+  auto active = LoadSettingsPublicationOperation(control_path);
+  if (active.operation && active.operation->transaction_id == transaction)
+    return Failure("publication-discard-conflict", "The requested operation already has an active journal.");
+  auto observed = records_.Find(record.install_id);
+  if (!observed || !SameRuntimeInstallIdentity(*observed, *current) || observed->state != current->state ||
+      observed->settings_revision != current->settings_revision || !observed->journal ||
+      observed->journal->operation != "settings-request" || observed->journal->operation_id != transaction ||
+      observed->journal->step != "capture-update" || !lease->Validate(*control, "publication.lock"))
+    return Failure("publication-discard-owner", "The install record or the publication lock changed while the request was dropped.");
+  current->journal.reset();
+  current->last_failure.reset();
+  auto saved = Persist(*current);
+  if (saved.state != PackageActionState::kComplete) return saved;
+  // This capture's registry backup and prepared intent are unreferenced too: each retry is a new
+  // transaction, so they would pile up (a backup copies user.reg). Only this transaction's, by name;
+  // RemoveRegularFile admits only an owned regular file, never a link. Best effort.
+  bool removed_any = false;
+  for (const auto& name : {"registry-backup-" + transaction + ".v1", "settings-intent-" + transaction + ".v1"}) {
+    struct stat leftover{};
+    if (!control->InspectChild(name, &leftover)) {
+      if (errno != ENOENT && log_) log_("settings request dropped install=" + current->install_id + ": " + name +
+                                        " stays (" + std::strerror(errno) + ")");
+      continue;
+    }
+    if (control->RemoveRegularFile(name)) removed_any = true;
+    else if (log_) log_("settings request dropped install=" + current->install_id + ": " + name + " stays (" +
+                        std::strerror(errno) + ")");
+  }
+  if (removed_any && !control->Sync() && log_)
+    log_("settings request dropped install=" + current->install_id + ": control folder sync failed");
+  // Unreferenced now; a request that stays is a leftover (RuntimeHost::LeftoverRequests).
+  auto removed = Storage(directory.string()).RemoveDurable("settings-request-" + transaction + ".v1");
+  return {PackageActionState::kComplete, {}, removed.ok() ? std::string{} : "The saved request stays as a leftover: " + removed.message()};
+}
 PackageActionResult SettingsPublicationOwner::InitializeControl(const RuntimeInstall& record, const std::string& transaction,
     const std::filesystem::path& prefix, const std::function<bool(PublicationControlStep)>& after_step) {
   if (!IsSettingsPublicationTransactionId(transaction) ||
@@ -240,12 +309,31 @@ Result<SettingsPublicationOperation> SettingsPublicationOwner::Prepare(const Run
   auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher) : std::nullopt;
   if (!lease)
     return fail("The publication lock is unavailable or held (the game may be running).");
+  // The loader's reason names the file and the check that refused it: a console start once
+  // failed here without the log saying which.
   auto recovered = LoadSettingsPublicationOperation(control_path);
+  // A Ready game's last operation that no longer loads (written by another build, damaged) is not
+  // needed: the committed receipt and the published metadata prove the previous state, as they do
+  // when the journal is absent. It is set aside under its own name, never deleted, and the
+  // publication goes on as if it were absent. One merely unavailable (a passing error) is not.
+  if (recovered.state == PublicationRecoveryState::kCorrupt && current->state == PreparationState::kReady &&
+      !(current->journal && current->journal->operation == "settings-publication")) {
+    const auto reason = recovered.message;
+    const auto verified = VerifyCommittedPublicationReceipt(*current, prefix);
+    if (verified.state != PackageActionState::kComplete)
+      return fail("Existing frozen operation is corrupt or unavailable: " + reason + " (kept: " + verified.message + ")");
+    if (!lease->Validate(*control, "publication.lock")) return fail("The publication lock changed before the journal was set aside.");
+    auto aside = SetAsideSettingsPublicationOperation(control_path, time);
+    if (!aside.ok())
+      return fail("Existing frozen operation is corrupt or unavailable: " + reason + " (not set aside: " + aside.message() + ")");
+    if (log_) log_("settings operation set aside install=" + current->install_id + " as " + aside.value() + ": " + reason);
+    recovered = LoadSettingsPublicationOperation(control_path);
+  }
   if (recovered.state == PublicationRecoveryState::kCorrupt || recovered.state == PublicationRecoveryState::kUnavailable)
-    return fail("Existing frozen operation is corrupt or unavailable.");
+    return fail("Existing frozen operation is corrupt or unavailable: " + recovered.message);
   auto intent = LoadPreparedSettingsPublicationOperation(control_path, transaction);
   if (intent.state == PublicationRecoveryState::kCorrupt || intent.state == PublicationRecoveryState::kUnavailable)
-    return fail("Prepared intent is corrupt or unavailable; preserve its evidence.");
+    return fail("Prepared intent is corrupt or unavailable; preserve its evidence: " + intent.message);
   if (intent.operation) {
     if (recovered.operation && recovered.operation->transaction_id == transaction) {
       std::string reason;

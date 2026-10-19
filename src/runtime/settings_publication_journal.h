@@ -81,6 +81,13 @@ struct PublicationOperationLoad {
 Result<void> CreateSettingsPublicationOperation(
     const std::filesystem::path& control_directory, const SettingsPublicationOperation& operation);
 PublicationOperationLoad LoadSettingsPublicationOperation(const std::filesystem::path& control_directory);
+// Moves an active settings-operation.v1 that no longer loads (LoadSettingsPublicationOperation:
+// kCorrupt, never kUnavailable, which may pass) to settings-operation.unreadable-<unix_time>[.N].v1,
+// never replacing a file and never deleting. The caller holds the publisher lease and has proven
+// the committed publication without it (its receipt and metadata). A journal that loads is never
+// set aside. Nothing reads the new name afterwards. Returns it.
+Result<std::string> SetAsideSettingsPublicationOperation(const std::filesystem::path& control_directory,
+    std::int64_t unix_time);
 // Caller must first verify committed semantics and durable Ready OWNER state
 // under its exclusive lease. Moves the exact journal to a transaction-specific
 // immutable archive without replacing a destination; preserves backups. Retry

@@ -158,6 +158,28 @@ bool OwnedReplacedByUnowned(const std::string& previous_metadata, bool unowned) 
 }
 GameRootMove InPlace(const RuntimeInstall& r) { return {r.install_path, r.install_path}; }
 }
+PackageActionResult VerifyCommittedPublicationReceipt(const RuntimeInstall& r, const std::filesystem::path& prefix) {
+  const auto refuse = [](const char* message) { return Failure("publication-receipt", message); };
+  if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())) return refuse("Invalid canonical namespace.");
+  const auto control = Map(prefix, r.data_root + "/.playden-control");
+  auto directory = ManagedDirectory::Open(control, DirectoryPolicy::kPrivate);
+  if (!directory) return refuse("Private publication control directory is unavailable.");
+  auto receipt = ReadReceipt(control, *directory);
+  if (!receipt.ok || receipt.absent) return refuse("The publication receipt is missing, corrupt or unavailable.");
+  PwTitlePublication parsed{};
+  if (pw_title_publication_parse(reinterpret_cast<const uint8_t*>(receipt.bytes.data()), receipt.bytes.size(), &parsed) != PW_OK ||
+      parsed.phase != PW_TITLE_PUBLICATION_COMMITTED || parsed.install_id != r.install_id || parsed.title_id != r.title_id ||
+      parsed.settings_revision != r.settings_revision)
+    return refuse("The publication receipt is not committed for this install at its revision.");
+  auto profiles = ManagedDirectory::Open(Map(prefix, r.data_root + "/library/profiles"), DirectoryPolicy::kPrivate);
+  auto metadata = profiles ? ReadPublicationFile(*profiles, ".playden-publication", 32768) : std::nullopt;
+  PwTitlePublicationMetadata m{};
+  if (!metadata || !metadata->present || HashArtifactBytes(metadata->bytes) != std::optional<std::string>(parsed.publication_sha256) ||
+      pw_title_publication_metadata_parse(reinterpret_cast<const uint8_t*>(metadata->bytes.data()), metadata->bytes.size(), &m) != PW_OK ||
+      m.install_id != r.install_id || m.title_id != r.title_id || m.data_root != r.data_root || m.settings_revision != r.settings_revision)
+    return refuse("The published metadata does not bind the committed receipt.");
+  return {PackageActionState::kComplete, {}, {}};
+}
 std::optional<bool> PublishedGameRootUnowned(const RuntimeInstall& r, const std::filesystem::path& prefix) {
   if (!prefix.empty() && (!prefix.is_absolute() || prefix != prefix.lexically_normal())) return std::nullopt;
   auto profiles = ManagedDirectory::Open(Map(prefix, r.data_root + "/library/profiles"), DirectoryPolicy::kPrivate);

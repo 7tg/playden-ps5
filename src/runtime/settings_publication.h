@@ -41,6 +41,12 @@ std::optional<GameRootMove> GameRootMoveOf(const RuntimeInstall& record);
 PackageActionResult VerifyMovedPublication(const RuntimeInstall& record, const GameRootMove& move,
     const std::string& receipt_bytes, const std::string& metadata_bytes,
     const std::filesystem::path& host_namespace_prefix = {}, bool unowned = false);
+// The committed publication a Ready game plays under: its receipt (publication-state.v1) is
+// committed, names this install at the record's revision and binds the published metadata
+// (.playden-publication), which names the same install. Read-only; the caller holds the
+// publisher lease. What the control folder's operation journal is not needed for.
+PackageActionResult VerifyCommittedPublicationReceipt(const RuntimeInstall& record,
+    const std::filesystem::path& host_namespace_prefix = {});
 // Whether the game's committed publication (its .playden-publication) admits the game folder
 // unowned (metadata schema 3); nothing when there is none or it can't be read.
 std::optional<bool> PublishedGameRootUnowned(const RuntimeInstall& record,

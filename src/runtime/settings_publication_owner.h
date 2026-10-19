@@ -22,6 +22,16 @@ class SettingsPublicationOwner {
   PackageActionResult ResumeRequested(const RuntimeInstall& record,
       const std::filesystem::path& request_directory,
       const std::filesystem::path& host_namespace_prefix = {});
+  // Drops a Ready update's request that never reached its publication: the record's journal is
+  // still settings-request/capture-update, so Block never ran and the committed publication (its
+  // receipt names another transaction, at the record's revision) is untouched. Under the
+  // publisher lease, so a running game (holding it shared) refuses. The record returns to Ready
+  // with no journal; the saved request is removed when it can be (a leftover otherwise). A
+  // capture's files of this transaction (its registry backup, its prepared intent) are removed
+  // too, best effort (logged); no later capture reads them. Other transactions' files stay.
+  PackageActionResult DiscardRequested(const RuntimeInstall& record,
+      const std::filesystem::path& request_directory,
+      const std::filesystem::path& host_namespace_prefix = {});
   // Creates (or adopts) only the private control directory and stable empty lock,
   // after a durable initial OWNER intent. The data root must already exist. A
   // matching interrupted intent resumes; symbolic links and malformed locks refuse.
@@ -29,6 +39,8 @@ class SettingsPublicationOwner {
   PackageActionResult InitializeControl(const RuntimeInstall& record, const std::string& transaction_id,
       const std::filesystem::path& host_namespace_prefix = {},
       const std::function<bool(PublicationControlStep)>& after_step = {});
+  // Lines worth the runtime log (an unreadable journal set aside); nothing by default.
+  void SetLog(std::function<void(const std::string&)> log) { log_ = std::move(log); }
   Result<SettingsPublicationOperation> Prepare(const RuntimeInstall& record, const SettingsLaunchPlan& plan,
       const std::string& kit_id, const std::string& transaction_id, std::int64_t registry_unix_time,
       const std::filesystem::path& host_namespace_prefix = {});
@@ -51,5 +63,6 @@ class SettingsPublicationOwner {
   NativeCoordinator& native_;
   bool unowned_game_roots_ = false;
   std::filesystem::path host_namespace_prefix_;
+  std::function<void(const std::string&)> log_;
 };
 }  // namespace playden::runtime

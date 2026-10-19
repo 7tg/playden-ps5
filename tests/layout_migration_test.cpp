@@ -81,13 +81,14 @@ bool Moved(const LayoutPaths& paths) {
 }
 
 // A valid install record; `journal` adds a pending operation.
-void WriteInstalls(const LayoutPaths& paths, bool journal) {
+void WriteInstalls(const LayoutPaths& paths, bool journal, const std::string& install_path = {}) {
   const std::string record =
       "{\"schema_version\":1,\"install_id\":\"i220\",\"title_id\":\"FAKE78001\",\"app_id\":220,"
       "\"data_root\":\"/data/playden/games/i220\",\"default_profile_id\":\"default\",\"runtime_bundle_id\":\"kit\","
       "\"recipe_id\":\"generic\",\"recipe_version\":\"1\",\"settings_revision\":1,\"exit_policy\":\"exit-title\","
       "\"launch_entry_id\":\"main\",\"launch_path\":\"game.exe\",\"launch_arguments\":\"\","
-      "\"launch_working_directory\":\"\",\"install_path\":\"" + (paths.app_root / "games" / "220").string() + "\","
+      "\"launch_working_directory\":\"\",\"install_path\":\"" +
+      (install_path.empty() ? (paths.app_root / "games" / "220").string() : install_path) + "\","
       "\"volume_id\":\"internal\",\"state\":\"preparing\",\"artifacts\":[],\"last_failure\":null,\"journal\":" +
       std::string(journal ? "{\"operation_id\":\"op1\",\"operation\":\"prepare\",\"step\":\"bottle\"}" : "null") + "}";
   const std::string text = "{\"schema_version\":1,\"reservations\":[{\"install_id\":\"i220\",\"title_id\":\"FAKE78001\"}],"
@@ -249,6 +250,22 @@ void PostponesGamesWhileLaunchPending() {
 
 // A pending session (StorageLaunchSessionJournal's format) whose game the console says has
 // ended no longer holds the move: that happens whenever Playden started the last game.
+// A game started or suspended from Home (no pending launch) also holds the move back while it runs.
+void RunningGameFromHomeHoldsTheMove() {
+  for (const bool running : {true, false}) {
+    auto f = Make(std::string("home-") + (running ? "running" : "stopped"));
+    WriteInstalls(f->paths, false);
+    std::vector<std::string> asked;
+    f->ops.title_running = [&asked, running](const std::string& title) {
+      asked.push_back(title);
+      return std::optional<bool>(running);
+    };
+    const auto result = MigrateLayout(f->paths, f->ops);
+    CHECK(result.games_moved == !running && Moved(f->paths) == !running);
+    CHECK(asked == std::vector<std::string>{"FAKE78001"});
+  }
+}
+
 void PendingLaunchOfStoppedGameMoves() {
   const auto hex = [](const std::string& text) {
     std::string out;
@@ -288,6 +305,18 @@ void PendingLaunchOfStoppedGameMoves() {
 }
 
 void PostponesGamesWhileJournalPending() {
+  // A pending journal of a game on another drive doesn't hold the move back.
+  {
+    auto usb = Make("pending-usb");
+    WriteInstalls(usb->paths, true, "/mnt/usb0/playden/games/220");
+    CHECK(MigrateLayout(usb->paths, usb->ops).games_moved && Moved(usb->paths));
+  }
+  // Nor does one of a record whose folder is gone (the game was installed again elsewhere).
+  {
+    auto stale = Make("pending-stale");
+    WriteInstalls(stale->paths, true, (stale->paths.app_root / "games" / "999").string());
+    CHECK(MigrateLayout(stale->paths, stale->ops).games_moved && Moved(stale->paths));
+  }
   auto f = Make("pending");
   WriteInstalls(f->paths, true);
   for (int start = 1; start <= kLayoutPostponeNoticeAfter; ++start) {
@@ -426,6 +455,7 @@ int main() {
   FreshInstallMakesSharedGamesFolder();
   PostponesGamesWhileLaunchPending();
   PendingLaunchOfStoppedGameMoves();
+  RunningGameFromHomeHoldsTheMove();
   MovesReadyGameWithCommittedPublication();
   RefusesToMergeIntoNonEmptyTarget();
   AbortsOnCrossDevice();

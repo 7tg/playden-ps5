@@ -366,6 +366,11 @@ class RuntimeHost {
   // A Ready game published owned (schema 2, before 0.6 or by a kit before 0.10) while the kit
   // admits unowned game folders: published again as unowned, so folders the player opened pass.
   bool NeedsUnownedPublication(const Composition& composition, const runtime::RuntimeInstall& record);
+  // The request of an unowned upgrade alone (same revision, the game not moved) that failed before
+  // its publication began: the record still carries the request arm, so the owned publication the
+  // game played under is intact. Dropped (true), the game plays as before; Play, Update, Repair and
+  // the next start try the upgrade again. Moved games and newer settings keep their request.
+  bool DropUpgradeRequest(Composition& composition, const std::string& install_id, const std::string& why);
   // The 0.6 games move: rewrites the records and Cloud indexes under the old games root at startup,
   // and marks the move done once no moved Ready game is left to republish.
   void MoveGameRecords(Composition& composition);
