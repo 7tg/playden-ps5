@@ -493,6 +493,7 @@ struct State {
     bool library_offline = false;
     bool screenshot_mode = false;
     bool quit_requested = false;
+    bool quit_waiting = false;  // a quit to Home waits for a preparation; no new one starts meanwhile
     bool simulation_mode = true;
     std::int64_t clock_ticks = 0;
 };
@@ -796,6 +797,7 @@ private:
     std::map<GameId, CloudStatus> settled_cloud_;  // each game's last settled Cloud state, for notices
     GameId ready_prompt_game_ = 0;  // the game the "ready to play" dialog is about
     GameId quit_sync_game_ = 0;     // Play quits to Home once this game's saves are in step
+    std::string quit_wait_title_;   // the dialog a quit to Home waits in while a game is prepared
     std::string live_log_topic_;
     GameId live_log_game_ = 0;
     bool details_primary_pending_ = false;  // live Details: move focus to the first action once known
@@ -855,6 +857,7 @@ private:
     void ask_upload_all();
     void open_saves();
     void settle_quit_sync(GameId id, std::optional<CloudStatus> status);
+    void quit_to_home();
     void change_route(int delta);
     void open_modal(ModalEntry modal);
     void close_modal();

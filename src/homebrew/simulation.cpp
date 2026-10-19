@@ -1191,6 +1191,18 @@ void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRunti
         }
     }
     state_.runtime_games = std::move(next);
+    // A quit to Home waiting for a preparation goes once nothing is prepared; Cancel drops it.
+    if (state_.quit_waiting) {
+        const bool waiting = !state_.navigation.modals.empty() && state_.navigation.modals.back().title == quit_wait_title_;
+        if (!waiting) {
+            state_.quit_waiting = false;
+        } else if (std::none_of(state_.runtime_games.begin(), state_.runtime_games.end(),
+                                [](const auto& entry) { return entry.second.status == "Preparing"; })) {
+            state_.quit_waiting = false;
+            state_.navigation.modals.clear();
+            state_.quit_requested = true;
+        }
+    }
     for (auto& installation : state_.installations) {
         const auto found = state_.runtime_games.find(installation.game_id);
         installation.runtime_ready = found != state_.runtime_games.end() && found->second.ready;
@@ -3569,6 +3581,18 @@ void Simulation::rebuild_view() {
                             play.subtitle = "Play quits to the PS5 Home screen, where the game appears";
                         }
                         play.enabled = enabled && value.uninstall_status.empty();
+                        // The runtime prepares one game at a time: a Play or Resume held behind another game's
+                        // preparation says so, instead of a greyed button with this game's old status.
+                        if (!play.enabled && value.uninstall_status.empty() && value.status != "Preparing") {
+                            const auto other = std::find_if(state_.runtime_games.begin(), state_.runtime_games.end(),
+                                [&](const auto& entry) { return entry.first != game->id && entry.second.status == "Preparing"; });
+                            if (other != state_.runtime_games.end()) {
+                                const auto* busy = find_game(state_, other->first);
+                                play.value = "Waiting";
+                                play.subtitle = "Waits for " + (busy ? busy->title : std::string("another game")) +
+                                                " to finish preparing";
+                            }
+                        }
                         // A copy or deletion with a known fraction shows a bar and its percentage; other steps
                         // only their words.
                         if (value.progress) {
@@ -4688,6 +4712,24 @@ void Simulation::UpdateSaveSizes(std::map<GameId, std::uint64_t> sizes) {
     rebuild_view();
 }
 
+// Quitting stops the game runtime, so a preparation still running would be cut off and its half-made
+// title left on the Home screen, where it fails to start. The quit waits for it in a dialog instead.
+void Simulation::quit_to_home() {
+    const auto preparing = std::find_if(state_.runtime_games.begin(), state_.runtime_games.end(),
+                                        [](const auto& entry) { return entry.second.status == "Preparing"; });
+    if (preparing == state_.runtime_games.end()) {
+        state_.quit_requested = true;
+        return;
+    }
+    const auto* game = find_game(state_, preparing->first);
+    const std::string name = game ? game->title : std::string("A game");
+    quit_wait_title_ = "Waiting for " + name;
+    state_.quit_waiting = true;
+    ModalEntry wait{"confirmation", quit_wait_title_, state_.navigation.focus_key, {"cancel"}, 0, false};
+    wait.body = name + " is being prepared. Playden quits to the PS5 Home screen once it is done, so it is not left half-made.";
+    open_modal(std::move(wait));
+}
+
 // Play on a game waiting for the PS5 quits to Home; first its saves sync. Quits once they are in
 // step; a choice, a failure or a refusal lets the player play without syncing.
 void Simulation::settle_quit_sync(GameId id, std::optional<CloudStatus> status) {
@@ -4699,7 +4741,7 @@ void Simulation::settle_quit_sync(GameId id, std::optional<CloudStatus> status) 
     if (!waiting) return;  // the player cancelled
     if (status && (*status == CloudStatus::Synced || *status == CloudStatus::UpToDate || *status == CloudStatus::Unsupported)) {
         state_.navigation.modals.clear();
-        state_.quit_requested = true;
+        quit_to_home();
         return;
     }
     auto& modal = state_.navigation.modals.back();
@@ -5070,7 +5112,7 @@ void Simulation::activate() {
     } else if (live() && action_name == "saves-quit-anyway") {
         quit_sync_game_ = 0;
         state_.navigation.modals.clear();
-        state_.quit_requested = true;
+        quit_to_home();
     } else if (live() && action_name == "cloud-sync") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (id != 0) pending_cloud_requests_.push_back({CloudRequestKind::Sync, id});
@@ -5317,7 +5359,7 @@ void Simulation::activate() {
         state_.navigation.modals.clear();
         ready_prompt_game_ = 0;
         if (!syncs) {
-            state_.quit_requested = true;
+            quit_to_home();
         } else {
             quit_sync_game_ = id;
             pending_cloud_requests_.push_back({CloudRequestKind::Sync, id});

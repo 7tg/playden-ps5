@@ -1500,6 +1500,48 @@ void live_ready_to_play_quits_to_home() {
     check(requests.size() == 1 && requests[0].game_id == 43, "Play in the prompt syncs the announced game");
     prompted.NotifyCloudAnswered(43, CloudStatus::Synced);
     check(prompted.state().quit_requested, "Play in the prompt quits to Home");
+    // Quitting would cut off another game's preparation: the quit waits for it in a dialog.
+    auto busy = make_live();
+    busy.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(busy.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    busy.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    LiveRuntimeGame preparing; preparing.game_id = 43; preparing.status = "Preparing";
+    busy.UpdateRuntime(RuntimeState::Ready, {waiting, preparing});
+    busy.UpdateCloud({{42, CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
+    check(busy.action("details:42"), "details open");
+    activate(busy, "details-play");
+    check(!busy.state().quit_requested && busy.state().quit_waiting &&
+              busy.state().navigation.modals.back().title == "Waiting for Other",
+          "Play waits for the other game's preparation");
+    LiveRuntimeGame prepared = preparing; prepared.status = "Ready"; prepared.ready = true;
+    busy.UpdateRuntime(RuntimeState::Ready, {waiting, preparing});
+    check(!busy.state().quit_requested, "still waiting while it prepares");
+    busy.UpdateRuntime(RuntimeState::Ready, {waiting, prepared});
+    check(busy.state().quit_requested && !busy.state().quit_waiting && busy.state().navigation.modals.empty(),
+          "Playden quits once the preparation is done");
+    auto cancelled = make_live();
+    cancelled.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(cancelled.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    cancelled.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    cancelled.UpdateRuntime(RuntimeState::Ready, {waiting, preparing});
+    cancelled.UpdateCloud({{42, CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
+    check(cancelled.action("details:42"), "details open");
+    activate(cancelled, "details-play");
+    activate(cancelled, "cancel");
+    cancelled.UpdateRuntime(RuntimeState::Ready, {waiting, prepared});
+    check(!cancelled.state().quit_requested && !cancelled.state().quit_waiting, "Cancel keeps Playden open");
+    // A game held behind another game's preparation says what it waits for.
+    auto held = make_live();
+    held.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(held.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    held.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    LiveRuntimeGame recovering; recovering.game_id = 42; recovering.status = "Needs recovery"; recovering.has_title = true;
+    held.UpdateRuntime(RuntimeState::Ready, {recovering, preparing});
+    check(held.action("details:42"), "details open");
+    const auto* held_play = find_row(held, "details-play");
+    check(held_play && !held_play->enabled && held_play->value == "Waiting" &&
+              held_play->subtitle == "Waits for Other to finish preparing",
+          "a held Resume names the game it waits for");
     auto dropped = make_live();
     dropped.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(dropped.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");

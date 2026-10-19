@@ -755,7 +755,8 @@ void Controller::TickRuntime() {
     if (prepared.status != RuntimeHostStatus::kStarting)
       for (auto it = auto_prepare_.begin(); it != auto_prepare_.end();) {
         if (!usable || !game_roots_.count(*it) || record_of(*it)) { it = auto_prepare_.erase(it); continue; }
-        if (prepared.preparing_app) break;
+        // A quit to Home waits for the running preparation; the next one would be cut off.
+        if (prepared.preparing_app || model_.state().quit_waiting) break;
         play_after_prepare_.erase(*it);
         model_.RequestRuntimePrepare(*it);
         auto_prepare_.erase(it);
