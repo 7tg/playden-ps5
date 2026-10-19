@@ -358,8 +358,12 @@ GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime
     out.graphics = "dxvk";
   } else if (has("opengl")) {
     out.graphics = "opengl";
+  } else if (has("d3d12") && runtime.vkd3d_proton) {
+    // vkd3d-proton presents through DXVK's dxgi, so the game gets DXVK as well.
+    out.graphics = "dxvk";
+    out.d3d12 = "vkd3d-proton";
   } else if (has("d3d12")) {
-    out.refusal = "This game needs Direct3D 12, which isn't supported on the PS5 yet.";
+    out.refusal = "This game needs Direct3D 12, which this runtime kit can't draw yet.";
   }
   if (out.refusal.empty() && !soft.empty()) {
     out.refusal = std::move(soft);

@@ -40,10 +40,11 @@ struct GameDefaults {
   std::string arguments;          // recipe arguments; may hold "{resolution}"
   std::string resolution_arguments;
   std::string environment;  // "NAME=value;..." the engine needs, for the Environment variables setting
+  std::string d3d12;        // the Direct3D 12 setting the game needs ("vkd3d-proton"), empty for the default
   std::string refusal;  // non-empty: the console cannot run this program; a sentence for the player
   // The refusal comes from a broad detection (.NET, a shared section) that a run could get
   // past, so the player may "Try anyway"; graphics and arguments are still filled in.
-  // SteamStub forms Playden can't unpack, NW.js and Direct3D 12 only are never soft.
+  // SteamStub forms Playden can't unpack, NW.js and Direct3D 12 only (on a kit without vkd3d-proton) are never soft.
   bool refusal_soft = false;
   std::string summary;  // e.g. "unity,d3d11 graphics=dxvk", for logs and the settings sheet
 };
@@ -51,6 +52,7 @@ struct GameDefaults {
 struct RuntimeAbilities {
   bool shared_sections = false;  // maps a shared section the console's pages can't hold as a private copy
   bool wine_mono = false;        // carries Wine Mono, so .NET programs start
+  bool vkd3d_proton = false;     // carries vkd3d-proton, so Direct3D 12 programs draw
 };
 GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime = {});
 

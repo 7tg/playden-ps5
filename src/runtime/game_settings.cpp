@@ -1447,6 +1447,7 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
     RuntimeAbilities abilities;
     abilities.shared_sections = kit.shared_sections;
     abilities.wine_mono = kit.wine_mono;
+    abilities.vkd3d_proton = kit.vkd3d_proton;
     const auto defaults = DefaultsFor(probe, abilities);
     if (!defaults.refusal.empty() && !(defaults.refusal_soft && choices.try_anyway)) {
       if (first_refusal.empty()) first_refusal = defaults.refusal, first_refusal_soft = defaults.refusal_soft;
@@ -1474,6 +1475,7 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
       // Most Steam games stop when the Steam client is missing; the emulator answers instead.
       out.defaults["steam_features"] = "emulate";
       if (!defaults.environment.empty()) out.defaults["environment"] = defaults.environment;
+      if (!defaults.d3d12.empty()) out.defaults["d3d12"] = defaults.d3d12;
 
     } else if (architecture != out.architecture) {
       continue;
@@ -1526,6 +1528,7 @@ std::string GameProgramRefusal(const std::string& install_root, const std::strin
   RuntimeAbilities abilities;
   abilities.shared_sections = kit.shared_sections;
   abilities.wine_mono = kit.wine_mono;
+  abilities.vkd3d_proton = kit.vkd3d_proton;
   const auto defaults = DefaultsFor(ProbeGame(install_root, *on_disk), abilities);
   return defaults.refusal_soft && try_anyway ? std::string() : defaults.refusal;
 }
@@ -1567,6 +1570,7 @@ std::vector<GameProgram> ListGamePrograms(const std::string& install_root, const
   RuntimeAbilities abilities;
   abilities.shared_sections = kit.shared_sections;
   abilities.wine_mono = kit.wine_mono;
+  abilities.vkd3d_proton = kit.vkd3d_proton;
   for (const auto& relative : found) {
     GameProgram program;
     program.path = relative;

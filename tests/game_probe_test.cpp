@@ -189,6 +189,23 @@ int main() {
     CHECK(GameProgramRefusal(root.string(), "Net.exe", kit, false).empty());
     CHECK(GameProgramRefusal(root.string(), "Net.exe", KitCapabilities{}, false).find(".NET") != std::string::npos);
     CHECK(DefaultsFor(ProbeGame(root.string(), "Twelve.exe")).refusal.find("Direct3D 12") != std::string::npos);
+    // A kit with vkd3d-proton draws it: DXVK for dxgi, and the Direct3D 12 setting on vkd3d-proton.
+    RuntimeAbilities vkd3d;
+    vkd3d.vkd3d_proton = true;
+    const auto twelve = DefaultsFor(ProbeGame(root.string(), "Twelve.exe"), vkd3d);
+    CHECK(twelve.refusal.empty() && twelve.graphics == "dxvk" && twelve.d3d12 == "vkd3d-proton");
+    KitCapabilities vkd3d_kit;
+    vkd3d_kit.vkd3d_proton = true;
+    CHECK(GameProgramRefusal(root.string(), "Twelve.exe", vkd3d_kit, false).empty());
+    GameRecipe twelve_recipe;
+    std::string twelve_reason;
+    CHECK(GenerateGameRecipe(1091500, "Twelve", {{"", "", "Twelve.exe", "", ""}}, root.string(), &twelve_recipe,
+                             &twelve_reason, vkd3d_kit));
+    CHECK(twelve_recipe.graphics == "dxvk" && twelve_recipe.defaults.at("d3d12") == "vkd3d-proton");
+    EffectiveSettings twelve_settings;
+    SettingsError twelve_error;
+    CHECK(BuildEffectiveSettings(twelve_recipe, nullptr, {}, vkd3d_kit, &twelve_settings, &twelve_error));
+    CHECK(twelve_settings.vkd3d_proton);
   }
   {  // A SteamStub variant Playden unpacks (BALL x PIT) is no reason to refuse; the recipe is made.
     const auto root = fresh();
