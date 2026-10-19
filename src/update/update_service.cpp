@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <utility>
 
@@ -287,8 +288,32 @@ std::optional<UpdateService::Backup> UpdateService::LatestBackup() const {
   return latest;
 }
 
+namespace {
+// 0.5.0 moved user data, logs and games out of the app folder; an older version finds none of it.
+constexpr Version kLayoutBoundary{0, 5, 0};
+}  // namespace
+
+std::string UpdateService::LayoutRefusal(const Version& to) const {
+  if (!(to < kLayoutBoundary)) return {};
+  if (!(config_.current < kLayoutBoundary)) return "this version uses the 0.5 data layout";
+  if (config_.layout_journal.empty()) return {};
+  // Moved (or being moved) when the move record is there; unknown counts as moved.
+  struct stat info{};
+  if (::lstat(config_.layout_journal.c_str(), &info) == 0) return "the 0.5 layout move record exists";
+  if (errno != ENOENT) return "the 0.5 layout move record can't be checked (errno=" + std::to_string(errno) + ")";
+  return {};
+}
+
 void UpdateService::FindPrevious() {
-  const auto backup = LatestBackup();
+  auto backup = LatestBackup();
+  if (backup) {
+    const auto refusal = LayoutRefusal(backup->version);
+    if (!refusal.empty()) {
+      Log("go back to " + backup->version.ToString() + " not offered: it can't read the 0.5 data layout (" +
+          refusal + ")");
+      backup.reset();
+    }
+  }
   Set([&](UpdateSnapshot& s) {
     s.previous = backup && backup->version != config_.current ? backup->version.ToString() : std::string();
   });
@@ -730,6 +755,10 @@ bool UpdateService::StageApp(const Release& release, const UpdateManifest& manif
 bool UpdateService::RollBackAtQuit() {
   const auto backup = LatestBackup();
   if (!backup) return false;
+  if (const auto refusal = LayoutRefusal(backup->version); !refusal.empty()) {
+    Log("going back refused: " + backup->version.ToString() + " can't read the 0.5 data layout (" + refusal + ")");
+    return false;
+  }
   const std::string stamp = std::to_string(config_.now());
   const std::string replaced = config_.work_root + "/replaced/" + config_.current.ToString() + "-" + stamp;
   // The kit that update replaced: ".previous-<kit_id>-<time>" with the backup's time. An update

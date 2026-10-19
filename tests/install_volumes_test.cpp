@@ -88,6 +88,13 @@ int main() {
   CHECK(!console.empty() && console[0].id == InstallService::kPrimaryVolumeId && console[0].games_root == "/app0/games");
   CHECK(!console[0].require_mount_point);
   for (std::size_t index = 1; index < console.size(); ++index) CHECK(console[index].require_mount_point);
+  // After the grant, console storage is the games root outside the app folder.
+  const auto granted = ConsoleVolumeCandidates("/data/homebrew/FAKE77031", "/data/playden-games");
+  CHECK(granted.size() == console.size() && granted[0].id == InstallService::kPrimaryVolumeId);
+  CHECK(granted[0].games_root == "/data/playden-games" && granted[0].mount == "/data" && !granted[0].require_mount_point);
+  CHECK(ConsoleVolumeCandidates("/data/homebrew/FAKE77031")[0].games_root == "/data/homebrew/FAKE77031/games");
+  for (std::size_t index = 1; index < granted.size(); ++index)
+    CHECK(granted[index].games_root == console[index].games_root);
 
   const auto space = QueryVolumeSpace(base.string());
   CHECK(space && space->total_bytes > 0 && space->free_bytes <= space->total_bytes);

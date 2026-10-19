@@ -34,9 +34,11 @@ using AsRoot = std::function<bool(const std::function<bool()>& work)>;
 std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandidate>& candidates,
                                                   const AsRoot& as_root = {});
 
-// Candidate drives for the PS5 title: console storage under the verified title
-// root, then extended storage and USB drives. Use the stable root after a grant.
-std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_root = "/app0");
+// Candidate drives for the PS5 title: console storage, then extended storage and
+// USB drives. Console storage is games_root (after the grant, the 0.5 layout's
+// /data/playden-games), or title_root/games when it is empty.
+std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_root = "/app0",
+                                                     const std::string& games_root = {});
 
 struct VolumeSpace {
   std::uint64_t total_bytes = 0;

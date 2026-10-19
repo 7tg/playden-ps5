@@ -26,8 +26,15 @@ NativePaths PathsAt(const std::string& root) {
           Join(root, "playden-data"), Join(root, "logs"), {}};
 }
 
+// Where Playden will keep its state: the stubs must be writable (or creatable).
+// Granted starts keep it outside the app folder (0.5 layout), so there the stubs
+// only need to be readable folders: over FTP they are root's and 0755.
+enum class StubState { kWritable, kReadable };
+
 bool ValidatePaths(const NativeAccessOps& ops, const NativePaths& paths,
-                   bool known_fresh_state, std::string* error) {
+                   bool known_fresh_state, StubState stubs, std::string* error) {
+  const auto stub_access = stubs == StubState::kWritable ? NativePathAccess::kReadWrite
+                                                          : NativePathAccess::kRead;
   if (ops.path_kind(ops.context, paths.title_root.c_str()) !=
           NativePathKind::kDirectory ||
       !ops.path_accessible(ops.context, paths.title_root.c_str(),
@@ -57,7 +64,7 @@ bool ValidatePaths(const NativeAccessOps& ops, const NativePaths& paths,
   }
   if (state == NativePathKind::kDirectory &&
       !ops.path_accessible(ops.context, paths.steam_state_root.c_str(),
-                           NativePathAccess::kReadWrite)) {
+                           stub_access)) {
     *error = "existing Steam state root is inaccessible";
     return false;
   }
@@ -68,12 +75,12 @@ bool ValidatePaths(const NativeAccessOps& ops, const NativePaths& paths,
     return false;
   }
   if (logs == NativePathKind::kDirectory &&
-      !ops.path_accessible(ops.context, paths.log_root.c_str(),
-                           NativePathAccess::kReadWrite)) {
+      !ops.path_accessible(ops.context, paths.log_root.c_str(), stub_access)) {
     *error = "existing log root is inaccessible";
     return false;
   }
-  if ((state == NativePathKind::kMissing || logs == NativePathKind::kMissing) &&
+  if (stubs == StubState::kWritable &&
+      (state == NativePathKind::kMissing || logs == NativePathKind::kMissing) &&
       !ops.path_accessible(ops.context, paths.title_root.c_str(),
                            NativePathAccess::kReadWrite)) {
     *error = "fresh Steam state or log root cannot be created";
@@ -126,7 +133,8 @@ NativeAccessResult NativeAccessBootstrap::LauncherFallback(
   if (stable && source_identity_captured_ && ops_.read_source_identity) {
     std::string path_error;
     std::string identity;
-    if (ValidatePaths(ops_, *stable, options_.known_fresh_state, &path_error) &&
+    if (ValidatePaths(ops_, *stable, options_.known_fresh_state,
+                      StubState::kWritable, &path_error) &&
         ops_.read_source_identity(ops_.context, stable->title_root.c_str(),
                                   &identity) &&
         !identity.empty() && identity == source_identity_) {
@@ -139,7 +147,8 @@ NativeAccessResult NativeAccessBootstrap::LauncherFallback(
 
   const NativePaths sandbox = PathsAt(options_.sandbox_root);
   std::string path_error;
-  if (!ValidatePaths(ops_, sandbox, options_.known_fresh_state, &path_error)) {
+  if (!ValidatePaths(ops_, sandbox, options_.known_fresh_state,
+                     StubState::kWritable, &path_error)) {
     result.error += "; launcher paths unavailable: " + path_error;
     return result;
   }
@@ -201,7 +210,8 @@ NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
     } else {
       std::string sandbox_error;
       if (!ValidatePaths(ops_, PathsAt(options_.sandbox_root),
-                         options_.known_fresh_state, &sandbox_error)) {
+                         options_.known_fresh_state, StubState::kReadable,
+                         &sandbox_error)) {
         return LauncherFallback("launcher source is invalid: " + sandbox_error);
       }
       if (!ops_.read_source_identity(ops_.context,
@@ -219,7 +229,8 @@ NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
   const NativePaths stable = PathsAt(stable_root);
   auto stable_title_ready = [&]() {
     std::string ignored;
-    if (!ValidatePaths(ops_, stable, options_.known_fresh_state, &ignored))
+    if (!ValidatePaths(ops_, stable, options_.known_fresh_state,
+                       StubState::kReadable, &ignored))
       return false;
     std::string identity;
     return ops_.read_source_identity(ops_.context, stable_root.c_str(),
@@ -248,7 +259,8 @@ NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
                             &stable);
 
   std::string path_error;
-  if (!ValidatePaths(ops_, stable, options_.known_fresh_state, &path_error)) {
+  if (!ValidatePaths(ops_, stable, options_.known_fresh_state,
+                     StubState::kReadable, &path_error)) {
     return LauncherFallback("stable launcher source is invalid: " + path_error,
                             &stable);
   }

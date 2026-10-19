@@ -997,7 +997,7 @@ void Simulation::UpdateRuntimeProblem(const std::string& raw) {
     if (!live()) return;
     std::string words;
     if (raw.find("data root") != std::string::npos)
-        words = "Playden can't use its game folder /data/playden. Make it writable (chmod 777 over FTP) and restart Playden.";
+        words = "Playden can't use its data folder /data/playden. Make it writable (chmod 777 over FTP) and restart Playden.";
     else if (raw.find("directory boundary") != std::string::npos)
         words = "The console's /data is mounted in a way Playden can't use. ShadowMountPlus 1.7beta4 or later does this: "
                 "load 1.7beta2 and restart Playden.";
@@ -1010,6 +1010,12 @@ void Simulation::UpdateRuntimeProblem(const std::string& raw) {
                          state_.notices.end());
     if (!words.empty())
         state_.notices.push_back({"runtime", "Games can't start · see Runtime status in Settings", "", true, 0});
+    rebuild_view();
+}
+
+void Simulation::ShowLayoutNotice(const std::string& text) {
+    if (!live() || text.empty()) return;
+    push_notice({"layout", text, "", false, kLiveNoticeSeconds * 2, false, ""});
     rebuild_view();
 }
 

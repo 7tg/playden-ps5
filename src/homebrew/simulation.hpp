@@ -623,6 +623,8 @@ public:
     // The game runtime could not start (raw: its log reason; empty: it runs). Shown on every screen
     // until it is fixed, with the reason under Settings › Runtime status (#64).
     void UpdateRuntimeProblem(const std::string& raw);
+    // Live mode: a one-line note from startup's data layout move (a step held back this start).
+    void ShowLayoutNotice(const std::string& text);
     // Live mode: Playden's own update, and what the player asked of it: "check" (from Settings),
     // "install", "cancel", "restart" (apply at quit; quit follows), "rollback" (put the previous
     // version back at quit; quit follows) and "acknowledge" (a finished update's message was shown).

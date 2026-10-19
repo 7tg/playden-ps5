@@ -187,7 +187,9 @@ int main() {
     }
     const auto& paths = native_access.paths;
     title_root = paths.title_root;
-    log_root = paths.log_root;
+    // After the grant, user data, logs and games live outside the app folder (0.5 layout).
+    log_root = playden::ps5::EffectiveLogRoot(paths);
+    const std::string user_root = playden::ps5::EffectiveUserRoot(paths);
     // Startup checkpoints: a launch that never shows its first frame can be told
     // apart from one that never opened the display.
     playden::app::AppendLogLine(log_root, "launch.log", "display open width=" + std::to_string(display.width()) +
@@ -217,18 +219,23 @@ int main() {
             if (playden::runtime::LoadSettingsData(paths.title_root + "/runtime", &presets, &recipes, &reason))
                 simulation.SetSettingsData(std::move(presets), std::move(recipes));
             else
-                playden::app::AppendLogLine(paths.log_root, "launch.log", "game settings data unavailable: " + reason);
+                playden::app::AppendLogLine(log_root, "launch.log", "game settings data unavailable: " + reason);
         }
 #if !PLAYDEN_UI_SIMULATION
         std::string settings_reason;
-        const auto settings_file = playden::runtime::PrepareGameSettingsStorage(paths.steam_state_root, &settings_reason);
+        const auto settings_file = playden::runtime::PrepareGameSettingsStorage(user_root, &settings_reason);
         if (!settings_file)
-            playden::app::AppendLogLine(paths.log_root, "launch.log",
+            playden::app::AppendLogLine(log_root, "launch.log",
                 "private game settings unavailable: " + settings_reason);
-        else playden::app::AppendLogLine(paths.log_root, "launch.log", "game settings storage initialized");
+        else playden::app::AppendLogLine(log_root, "launch.log", "game settings storage initialized");
+        // The layout move held something back this start: say so where the logs are read.
+        if (!native_access.notice.empty()) {
+            playden::app::AppendLogLine(log_root, "runtime.log", "layout notice: " + native_access.notice);
+            simulation.ShowLayoutNotice(native_access.notice);
+        }
         // An empty path disables live writes and surfaces a settings load error.
         simulation.SetGameSettingsFile(settings_file.value_or(std::filesystem::path{}));
-        playden::Storage auth_storage(paths.steam_state_root);
+        playden::Storage auth_storage(user_root);
         // One line per Steam CM logon or refusal, with Steam's result code (#51).
         playden::steam::SetCmLog([](const std::string& line) {
             playden::app::AppendLogLine(log_root, "steam-cm.log", line);
@@ -252,12 +259,12 @@ int main() {
             playden::app::AppendLogLine(log_root, "auth.log", std::string("restored path=") + path + " before " + before +
                 " after " + after);
         });
-        playden::LocalSessionRepository sessions(paths.steam_state_root, [](const std::string& diagnostic) {
+        playden::LocalSessionRepository sessions(user_root, [](const std::string& diagnostic) {
             playden::app::AppendLogLine(log_root, "storage.log", diagnostic);
         });
         playden::steam::LibraryClient owned_library(paths.trust_store);
-        playden::LocalSessionRepository library_sessions(paths.steam_state_root);
-        playden::Storage library_storage(paths.steam_state_root);
+        playden::LocalSessionRepository library_sessions(user_root);
+        playden::Storage library_storage(user_root);
         playden::steam::CmClient cm_client(paths.trust_store, library_storage);
         cm_client.SetOwner("library");
         cm_client.SetSharedSession(steam_cm);
@@ -271,7 +278,7 @@ int main() {
         details_cm.SetOwner("details");
         details_cm.SetSharedSession(steam_cm);
         playden::steam::CmAppDetailsSource details_source(details_cm);
-        playden::LocalSessionRepository details_sessions(paths.steam_state_root);
+        playden::LocalSessionRepository details_sessions(user_root);
         playden::steam::AppDetailsService app_details(details_source, details_sessions);
         playden::steam::CmClient install_cm(paths.trust_store, library_storage);
         install_cm.SetOwner("install");
@@ -294,10 +301,10 @@ int main() {
                 std::snprintf(line, sizeof(line), "app=%u step=%s result=%s detail=%s", app, step, category, detail);
             playden::app::AppendLogLine(log_root, "install.log", line);
         });
-        playden::LocalSessionRepository install_sessions(paths.steam_state_root);
+        playden::LocalSessionRepository install_sessions(user_root);
         // A console-formatted M.2's root belongs to root: Playden's folder there is made as root.
         auto install_volumes = playden::steam::DiscoverInstallVolumes(
-            playden::steam::ConsoleVolumeCandidates(paths.title_root),
+            playden::steam::ConsoleVolumeCandidates(paths.title_root, playden::ps5::EffectiveGamesRoot(paths)),
             [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); });
         for (const auto& volume : install_volumes)
             playden::app::AppendLogLine(log_root, "install.log", "volume id=" + volume.id + " root=" + volume.games_root +
@@ -311,9 +318,9 @@ int main() {
         cloud_runner.SetLog([](playden::GameId app, const char* event, const std::string& message) {
             playden::app::AppendLogLine(log_root, "cloud.log", "app=" + std::to_string(app) + " event=" + event + " " + message);
         });
-        playden::LocalSessionRepository cloud_sessions(paths.steam_state_root);
+        playden::LocalSessionRepository cloud_sessions(user_root);
         playden::steam::CloudService cloud(cloud_runner, cloud_sessions);
-        simulation.SetLogDirectory(paths.log_root);
+        simulation.SetLogDirectory(log_root);
         // Playden's own update: it looks for a newer release on GitHub at startup, stages it on
         // request, and swaps the app (and kit) when Playden quits for it. Start() runs before the
         // runtime admits the kit: an update that did not take puts the previous kit back.
@@ -327,6 +334,7 @@ int main() {
         update_config.kits_root = "/data/playden/kits";
         update_config.appmeta_root = std::string("/user/appmeta/") + PLAYDEN_PS5_TITLE_ID;
         update_config.registered_app_root = std::string("/user/app/") + PLAYDEN_PS5_TITLE_ID;
+        update_config.layout_journal = "/data/playden/runtime-state/layout-0.5.json";
         update_config.current = playden::update::CurrentVersion();
         update_config.fetch = [&update_http](const playden::steam::HttpRequest& request, const std::atomic<bool>& cancel) {
             return update_http.Perform(request, cancel);
@@ -360,7 +368,7 @@ int main() {
         self_update.Start();
         self_update.Check(false);
         // "Export as recipe" writes next to the logs, which are read over FTP already.
-        simulation.SetRecipeExportTarget(paths.log_root, playden::ps5::ConsoleFirmwareVersion().value_or(""));
+        simulation.SetRecipeExportTarget(log_root, playden::ps5::ConsoleFirmwareVersion().value_or(""));
         // Per-game runtime: private bottles and PS5 titles from the admitted kit.
         // Its worker owns OWNER records, native inventory and publication.
         std::unique_ptr<playden::homebrew::RuntimeHost> runtime_host;
@@ -478,7 +486,7 @@ int main() {
             };
             runtime_host = std::make_unique<playden::homebrew::RuntimeHost>(std::move(config));
             if (!runtime_host->Start())
-                playden::app::AppendLogLine(paths.log_root, "runtime.log", "runtime worker could not start");
+                playden::app::AppendLogLine(log_root, "runtime.log", "runtime worker could not start");
         }
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud,
                                                runtime_host.get(), [](const std::string& line) {

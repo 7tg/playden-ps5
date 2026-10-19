@@ -538,6 +538,46 @@ int main() {
     CHECK(!service.Snapshot().rollback_requested && !service.ApplyAtQuit());
     RemoveTree(fixture.root);
   }
+  // Going back never crosses 0.5.0: older versions can't read the data it moved out of the app.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("service-layout");
+    Installed(fixture.root);
+    Put(fixture.root + "/playden/self-update/backup/0.4.2-900/eboot.bin", "eboot 0.4.2");
+    UpdateService service(fixture.Config({0, 5, 0}));
+    service.Start();
+    CHECK(service.Snapshot().previous.empty());
+    service.RequestRollback();
+    CHECK(!service.Snapshot().rollback_requested && !service.ApplyAtQuit());
+    CHECK(Exists(fixture.root + "/playden/self-update/backup/0.4.2-900/eboot.bin"));
+    RemoveTree(fixture.root);
+  }
+  // This branch may still report a version below 0.5.0: the move record alone refuses going back.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("service-journal");
+    Installed(fixture.root);
+    Put(fixture.root + "/playden/self-update/backup/0.4.2-900/eboot.bin", "eboot 0.4.2");
+    const std::string journal = fixture.root + "/playden/runtime-state/layout-0.5.json";
+    Put(journal, "{\"step\":\"done\"}");
+    auto config = fixture.Config({0, 4, 0});
+    config.layout_journal = journal;
+    UpdateService refused(config);
+    refused.Start();
+    CHECK(refused.Snapshot().previous.empty());
+    refused.RequestRollback();
+    CHECK(!refused.Snapshot().rollback_requested && !refused.ApplyAtQuit());
+    CHECK(Exists(fixture.root + "/playden/self-update/backup/0.4.2-900/eboot.bin"));
+    CHECK(Read(fixture.root + "/homebrew/FAKE77031/eboot.bin") == "eboot 0.2.0");
+    // Without the record (never moved, or reverted) it is offered.
+    CHECK(unlink(journal.c_str()) == 0);
+    UpdateService offered(config);
+    offered.Start();
+    CHECK(offered.Snapshot().previous == "0.4.2");
+    offered.RequestRollback();
+    CHECK(offered.Snapshot().rollback_requested);
+    RemoveTree(fixture.root);
+  }
   // GitHub out of reach.
   {
     Fixture fixture;

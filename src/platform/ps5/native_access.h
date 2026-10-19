@@ -49,6 +49,13 @@ struct NativeAccessOptions {
   bool require_grant = false;
 };
 
+// Package paths: the title, its assets and trust store, and the stub
+// playden-data/logs folders. Granted starts need the stubs only as readable
+// folders; a launcher without the grant keeps its state there, so they must be
+// writable. After the grant, the
+// 0.5 layout move fills user_root, user_log_root and games_root (each at the
+// new place once its step has moved, else the old in-app one). Not granted:
+// they stay empty and the package paths are used.
 struct NativePaths {
   std::string title_root;
   std::string assets_root;
@@ -56,7 +63,21 @@ struct NativePaths {
   std::string steam_state_root;
   std::string log_root;
   std::string runtime_data_root;
+  std::string user_root;
+  std::string user_log_root;
+  std::string games_root;
 };
+
+// Where services keep user data, logs and console-storage games this start.
+inline const std::string& EffectiveUserRoot(const NativePaths& paths) {
+  return paths.user_root.empty() ? paths.steam_state_root : paths.user_root;
+}
+inline const std::string& EffectiveLogRoot(const NativePaths& paths) {
+  return paths.user_log_root.empty() ? paths.log_root : paths.user_log_root;
+}
+inline std::string EffectiveGamesRoot(const NativePaths& paths) {
+  return paths.games_root.empty() ? paths.title_root + "/games" : paths.games_root;
+}
 
 struct NativeAccessResult {
   bool launcher_ready = false;
@@ -65,6 +86,7 @@ struct NativeAccessResult {
   bool already_accessible = false;
   NativePaths paths;
   std::string error;
+  std::string notice;  // one line for the user about the data layout, when set
 };
 
 // Orders the portable parts of startup around the root-view change. Successful

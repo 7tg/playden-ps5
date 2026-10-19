@@ -26,6 +26,9 @@ struct UpdateConfig {
   std::string kits_root;                        // /data/playden/kits; the kit lives at <kits_root>/<kit_id>
   std::string appmeta_root;                     // /user/appmeta/FAKE77031
   std::string registered_app_root;              // /user/app/FAKE77031
+  // The 0.5 layout move's record (/data/playden/runtime-state/layout-0.5.json). While it exists,
+  // going back below 0.5.0 is refused whatever the current version. Empty: the version rule only.
+  std::string layout_journal;
   Version current;
   Fetch fetch;
   std::function<std::optional<std::string>(const std::string& path)> hash_file;
@@ -129,6 +132,8 @@ class UpdateService {
   void DoInstall();
   void ConfirmApplied(const std::string& state);
   bool RollBackAtQuit();
+  // Why going back to `to` is refused (it can't read the 0.5 data layout), or empty.
+  std::string LayoutRefusal(const Version& to) const;
   void FindPrevious();
   void LoadCurrentNotes();
   std::string PageFor(const std::string& tag) const;

@@ -1,5 +1,8 @@
 #include "platform/ps5/native_startup.h"
 #include "platform/ps5/native_access_posix.h"
+#include "platform/ps5/title_activity.h"
+#include "platform/ps5/title_allow_list.h"
+#include "runtime/layout_migration.h"
 #include <EGL/egl.h>
 #include "steam/backend/native_network.h"
 #include "app/diagnostic_log.h"
@@ -10,6 +13,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <vector>
 
 extern "C" int sceUserServiceInitialize(const void*);
 #if PLAYDEN_NATIVE_ACCESS_SOURCE
@@ -53,16 +57,16 @@ int PrepareGraphics(void* data) {
   return result;
 }
 
-void ReportSessionAccess(const std::string& root, const char* stage) {
-  const std::string file = root + "/playden-data/session.v1";
+void ReportSessionAccess(const std::string& state_root, const std::string& log_root, const char* stage) {
+  const std::string file = state_root + "/session.v1";
   struct stat metadata{};
   const int status = stat(file.c_str(), &metadata);
   const int status_error = status ? errno : 0;
   const int descriptor = open(file.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
   const int open_error = descriptor < 0 ? errno : 0;
   if (descriptor >= 0) close(descriptor);
-  app::AppendLogLine(root + "/logs", "native-startup.log",
-      std::string("session access stage=") + stage +
+  app::AppendLogLine(log_root, "native-startup.log",
+      std::string("session access stage=") + stage + " file=" + file +
       " uid=" + std::to_string(getuid()) + " euid=" + std::to_string(geteuid()) +
       " gid=" + std::to_string(getgid()) + " egid=" + std::to_string(getegid()) +
       " stat_error=" + std::to_string(status_error) +
@@ -70,6 +74,17 @@ void ReportSessionAccess(const std::string& root, const char* stage) {
       " file_gid=" + std::to_string(metadata.st_gid) +
       " mode=" + std::to_string(metadata.st_mode & 0777) +
       " open_error=" + std::to_string(open_error));
+}
+
+// After the grant, before the layout move has run this start: the session file
+// is at /data/playden/user once an earlier start moved it, else in the app folder.
+// The line stays in the app's logs: writing into /data/playden/logs before the
+// move would make that folder look taken.
+void ReportGrantedSessionAccess(const std::string& title_id, const char* stage) {
+  const std::string stable = "/data/homebrew/" + title_id;
+  struct stat metadata{};
+  const bool moved = stat("/data/playden/user/session.v1", &metadata) == 0;
+  ReportSessionAccess(moved ? "/data/playden/user" : stable + "/playden-data", stable + "/logs", stage);
 }
 
 int RequestData(void* data) {
@@ -91,7 +106,7 @@ int RequestData(void* data) {
   }
   if (helper.empty()) return ENOENT;
   const uid_t original_effective_uid = geteuid();
-  ReportSessionAccess("/app0", "before-grant");
+  ReportSessionAccess("/app0/playden-data", "/app0/logs", "before-grant");
   struct pw_lapy_elevation_diagnostics diagnostic{};
   const int grant = pw_lapy_elevation_request_at_detailed(
       static_cast<std::int32_t>(getpid()), helper.c_str(), &diagnostic);
@@ -100,7 +115,7 @@ int RequestData(void* data) {
       " status=" + (diagnostic.helper_status_valid ? std::to_string(diagnostic.helper_status) : "unavailable") +
       " error=" + std::to_string(diagnostic.error);
   if (grant != 0) return grant_error ? grant_error : EIO;
-  ReportSessionAccess("/data/homebrew/" + context.title_id, "after-grant");
+  ReportGrantedSessionAccess(context.title_id, "after-grant");
   // The filesystem grant must not change ownership of the launcher's private
   // session/settings files. Let the kernel clone/update the credential normally;
   // keep the granted root view and verify effective UID before services start.
@@ -110,7 +125,7 @@ int RequestData(void* data) {
     return restore_error;
   }
   if (geteuid() != original_effective_uid) return EACCES;
-  ReportSessionAccess("/data/homebrew/" + context.title_id, "after-uid-restore");
+  ReportGrantedSessionAccess(context.title_id, "after-uid-restore");
   // The helper may still be settling the process after its cooperative reply.
   struct timespec delay{1, 0};
   while (nanosleep(&delay, &delay) != 0)
@@ -138,7 +153,43 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
   auto result = bootstrap.Prepare();
   if (!result.runtime_ready && !context.grant_diagnostic.empty())
     result.error += "; " + context.grant_diagnostic;
-  const std::string logs = result.launcher_ready ? result.paths.log_root : "/app0/logs";
+  // The 0.5 layout: user data, logs and games leave the app folder once. Still
+  // single-threaded here, so the short root raises (the games rename, renames out of
+  // root-owned stub folders, creating /data/playden-games) affect no other thread.
+  std::vector<std::string> layout_lines;
+  if (result.runtime_ready && !result.paths.runtime_data_root.empty()) {
+    namespace fs = std::filesystem;
+    const fs::path data_root = result.paths.runtime_data_root;
+    runtime::LayoutPaths layout;
+    layout.app_root = result.paths.title_root;
+    layout.user_root = data_root / "user";
+    layout.log_root = data_root / "logs";
+    layout.games_root = data_root.parent_path() / "playden-games";
+    layout.state_root = data_root / "runtime-state";
+    layout.boundary = data_root.parent_path();
+    runtime::LayoutOps layout_ops;
+    layout_ops.as_root = [](const std::function<bool()>& work) { return WithRoot(work); };
+    layout_ops.log = [&layout_lines](const std::string& line) { layout_lines.push_back(line); };
+    // Read-only kernel process list: the game of a launch session left pending.
+    layout_ops.title_running = [&layout_lines](const std::string& title) -> std::optional<bool> {
+      std::string reason;
+      const auto activity = ReadTitleActivity(title, &reason);
+      if (activity == runtime::NativeActivity::kUnknown) {
+        layout_lines.push_back("title activity " + title + " unknown: " + reason);
+        return std::nullopt;
+      }
+      return activity == runtime::NativeActivity::kActive;
+    };
+    const auto moved = runtime::MigrateLayout(layout, layout_ops);
+    result.paths.user_root = moved.user_root.string();
+    result.paths.user_log_root = moved.log_root.string();
+    result.paths.games_root = moved.games_root.string();
+    result.notice = moved.notice;
+  }
+  const std::string logs = result.launcher_ready ? EffectiveLogRoot(result.paths) : "/app0/logs";
+  for (const auto& line : layout_lines) app::AppendLogLine(logs, "native-startup.log", line);
+  if (!result.paths.user_root.empty())
+    ReportSessionAccess(result.paths.user_root, logs, "after-layout");
   if (!context.grant_diagnostic.empty())
     app::AppendLogLine(logs, "native-startup.log", context.grant_diagnostic);
   app::AppendLogLine(logs, "native-startup.log",

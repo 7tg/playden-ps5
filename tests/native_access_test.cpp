@@ -158,6 +158,35 @@ void PathsRemainValidAfterGrant() {
   CHECK(original_identity < grant && grant < stable_identity);
 }
 
+// The bootstrap keeps the package paths; the startup move fills the split roots.
+void SplitRootsFallBackToPackagePaths() {
+  auto fake = OrdinaryLauncher();
+  NativeAccessBootstrap bootstrap(Ops(fake), Options());
+  auto result = bootstrap.Prepare();
+  CHECK(result.runtime_ready && result.notice.empty());
+  CHECK(result.paths.user_root.empty() && result.paths.user_log_root.empty() && result.paths.games_root.empty());
+  CHECK(playden::ps5::EffectiveUserRoot(result.paths) == std::string(kStableRoot) + "/playden-data");
+  CHECK(playden::ps5::EffectiveLogRoot(result.paths) == std::string(kStableRoot) + "/logs");
+  CHECK(playden::ps5::EffectiveGamesRoot(result.paths) == std::string(kStableRoot) + "/games");
+  result.paths.user_root = "/data/playden/user";
+  result.paths.user_log_root = "/data/playden/logs";
+  result.paths.games_root = "/data/playden-games";
+  CHECK(playden::ps5::EffectiveUserRoot(result.paths) == "/data/playden/user");
+  CHECK(playden::ps5::EffectiveLogRoot(result.paths) == "/data/playden/logs");
+  CHECK(playden::ps5::EffectiveGamesRoot(result.paths) == "/data/playden-games");
+  // The stub folders are still what the bootstrap validates.
+  CHECK(result.paths.steam_state_root == std::string(kStableRoot) + "/playden-data");
+  CHECK(result.paths.log_root == std::string(kStableRoot) + "/logs");
+
+  auto denied = OrdinaryLauncher();
+  denied.grant_result = 1;
+  NativeAccessBootstrap fallback(Ops(denied), Options());
+  const auto launcher = fallback.Prepare();
+  CHECK(launcher.launcher_ready && !launcher.runtime_ready);
+  CHECK(launcher.paths.user_root.empty() && launcher.paths.games_root.empty());
+  CHECK(playden::ps5::EffectiveGamesRoot(launcher.paths) == launcher.paths.title_root + "/games");
+}
+
 void DeferredUserServiceRunsAfterGrantAndBeforeReturning() {
   auto fake = OrdinaryLauncher();
   auto options = Options();
@@ -338,7 +367,8 @@ void PartialStableVisibilityStillRequestsGrant() {
   CHECK(result.paths.title_root == kStableRoot);
 }
 
-void FreshStateRequiresWritableParent() {
+// Only a launcher without the grant creates its state in the app folder.
+void FreshStateRequiresWritableParentWithoutGrant() {
   auto fake = OrdinaryLauncher();
   AddTree(fake, kStableRoot, false);
   fake.identities[kStableRoot] = fake.identities[kAppRoot];
@@ -346,7 +376,17 @@ void FreshStateRequiresWritableParent() {
   fake.read_only.insert(kStableRoot);
   fake.expose_stable_after_grant = false;
   NativeAccessBootstrap bootstrap(Ops(fake), Options(true));
-  CHECK(!bootstrap.Prepare().runtime_ready);
+  CHECK(bootstrap.Prepare().runtime_ready);
+
+  auto launcher = OrdinaryLauncher();
+  launcher.paths.erase(std::string(kAppRoot) + "/playden-data");
+  launcher.paths.erase(std::string(kAppRoot) + "/logs");
+  launcher.read_only.insert(kAppRoot);
+  launcher.grant_result = 13;
+  NativeAccessBootstrap fallback(Ops(launcher), Options(true));
+  const auto refused = fallback.Prepare();
+  CHECK(!refused.launcher_ready && !refused.runtime_ready && launcher.grants == 1);
+  CHECK(refused.error.find("cannot be created") != std::string::npos);
 
   auto populated = OrdinaryLauncher();
   AddTree(populated, kStableRoot);
@@ -356,6 +396,53 @@ void FreshStateRequiresWritableParent() {
   NativeAccessBootstrap complete(Ops(populated), Options());
   CHECK(complete.Prepare().runtime_ready);
   CHECK(populated.grants == 0);
+}
+
+// Stubs copied over FTP are root's and 0755: a granted start keeps nothing there.
+void RootOwnedStubsAllowGrantedStart() {
+  auto fake = OrdinaryLauncher();
+  for (const auto* root : {kAppRoot, kStableRoot}) {
+    fake.read_only.insert(std::string(root) + "/playden-data");
+    fake.read_only.insert(std::string(root) + "/logs");
+  }
+  auto options = Options();
+  options.require_grant = true;
+  NativeAccessBootstrap bootstrap(Ops(fake), options);
+
+  const auto result = bootstrap.Prepare();
+
+  CHECK(result.launcher_ready && result.runtime_ready && result.granted);
+  CHECK(result.paths.title_root == kStableRoot && fake.grants == 1);
+  CHECK(result.paths.runtime_data_root == kRuntimeRoot);
+  CHECK(result.error.empty());
+}
+
+// Without the grant the launcher keeps its state in the stubs: they must be writable.
+void NoGrantFallbackRequiresWritableStubs() {
+  auto fake = OrdinaryLauncher();
+  fake.read_only.insert(std::string(kAppRoot) + "/playden-data");
+  fake.read_only.insert(std::string(kAppRoot) + "/logs");
+  fake.grant_result = 13;
+  auto options = Options();
+  options.require_grant = true;
+  NativeAccessBootstrap bootstrap(Ops(fake), options);
+
+  const auto result = bootstrap.Prepare();
+
+  CHECK(!result.launcher_ready && !result.runtime_ready && fake.grants == 1);
+  CHECK(result.error.find("grant") != std::string::npos);
+  CHECK(result.error.find("inaccessible") != std::string::npos);
+
+  // A stable title that matches but whose stubs are read-only is no launcher either.
+  auto stable = OrdinaryLauncher();
+  AddTree(stable, kStableRoot);
+  stable.identities[kStableRoot] = stable.identities[kAppRoot];
+  stable.read_only.insert(std::string(kStableRoot) + "/playden-data");
+  stable.grant_result = 13;
+  NativeAccessBootstrap stable_bootstrap(Ops(stable), options);
+  const auto sandbox = stable_bootstrap.Prepare();
+  CHECK(sandbox.launcher_ready && !sandbox.runtime_ready);
+  CHECK(sandbox.paths.title_root == kAppRoot);
 }
 
 void StableTitleWithoutManagedAccessIsNotRuntimeReady() {
@@ -419,8 +506,11 @@ int main() {
   InaccessibleExistingStateIsRejectedBeforeGrant();
   PartialStableVisibilityStillRequestsGrant();
   StableTitleWithoutManagedAccessIsNotRuntimeReady();
-  FreshStateRequiresWritableParent();
+  FreshStateRequiresWritableParentWithoutGrant();
+  RootOwnedStubsAllowGrantedStart();
+  NoGrantFallbackRequiresWritableStubs();
   PostGrantStableTitleSupportsLauncherWithoutManagedAccess();
   WritableManagedParentAllowsFirstRuntimeDirectoryCreation();
+  SplitRootsFallBackToPackagePaths();
   std::puts("native_access_test passed");
 }
