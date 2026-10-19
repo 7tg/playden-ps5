@@ -1579,11 +1579,16 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
     if (prepare_again) *prepare_again = true;
     return message;
   };
-  auto saved = config_.settings_record
-                   ? config_.settings_record(GameOf(record)).value_or(rt::GameSettingsRecord{})
-                   : rt::GameSettingsRecord{};
-  // A forced publication keeps the title's revision: the settings are the same, the runtime is not.
-  if (force) saved.revision = std::max(saved.revision, record.settings_revision);
+  const auto stored = config_.settings_record ? config_.settings_record(GameOf(record)) : std::nullopt;
+  auto saved = stored.value_or(rt::GameSettingsRecord{});
+  // A forced publication republishes the title's own revision for another runtime, so it needs the saved settings of
+  // that revision or a newer one: Playden defaults standing in for a missing or unreadable record are not they.
+  if (force && (!stored || saved.revision < record.settings_revision)) {
+    Log("forced republish skipped app=" + std::to_string(record.runtime_number) + " saved=" +
+        (stored ? std::to_string(saved.revision) : std::string("none")) +
+        " title=" + std::to_string(record.settings_revision));
+    return {};
+  }
   // A game whose folder moved (RuntimeInstall::moved_from) is published again at its revision, so
   // its descriptor, profile and dxvk.conf name the new folder.
   const bool moved = !record.moved_from.empty();
@@ -2606,10 +2611,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         const auto written = WriteTitleMetadata(c, *existing, request.title_name);
         if (written.state != rt::PackageActionState::kComplete) return written.message;
       }
-      // A title that moves to the kit's runtime gets its settings published again below: the profile
-      // was built for the runtime it had, and the new one may take more keys (120 Hz output) or fewer.
-      const bool runtime_refresh = !c.installer->TitleCurrent(*existing);
-      if (runtime_refresh || !metadata_current) {
+      if (!c.installer->TitleCurrent(*existing) || !metadata_current) {
         // Same kit id and recipe; title files changed (a new wrapper build) or
         // the runtime was rebuilt (same artifacts, new bytes). The registration
         // and publication stay as they are. A rebuilt runtime is copied into the
@@ -2691,14 +2693,18 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       PublishInstalls(c);
       if (admission != "ok") return "The PS5 title still fails its start check: " + admission;
       OpenGameFolders(c, *existing);
-      if (runtime_refresh) {
-        const auto refreshed_record = c.records.Find(existing->install_id);
-        if (!refreshed_record) return "The game's install record is missing.";
+      // The profile was built for the runtime the title had then; the kit's may take more keys (120 Hz output) or
+      // fewer. Every Update that gets here publishes the saved settings again when they now write something else
+      // (nothing otherwise), so an Update that failed after its title refresh is finished by the next one.
+      {
+        const auto current = c.records.Find(existing->install_id);
+        if (!current) return "The game's install record is missing.";
         bool republished = false;
-        const auto refused = RepublishSettings(c, *refreshed_record, &republished, true, nullptr, nullptr, nullptr, true);
-        Log("runtime refresh republish app=" + std::to_string(request.runtime_number) + " published=" +
-            std::to_string(republished) + (refused.empty() ? std::string() : " refused=" + refused));
+        const auto refused = RepublishSettings(c, *current, &republished, true, nullptr, nullptr, nullptr, true);
+        Log("update republish app=" + std::to_string(request.runtime_number) + " published=" + std::to_string(republished) +
+            (refused.empty() ? std::string() : " refused=" + refused));
         if (!refused.empty()) return refused;
+        changed = changed || republished;
       }
       return changed ? std::string{} : "This game is already prepared.";
     }

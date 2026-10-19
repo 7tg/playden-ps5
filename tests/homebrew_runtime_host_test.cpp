@@ -814,7 +814,13 @@ void RefreshesInstalledTitleToRespunKit() {
   config.package_operations.validate_bottle = [](const fs::path& bottle) {
     return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
   };
-  config.uuid = []() -> std::optional<std::string> { return std::string("00000000-0000-4000-8000-000000000001"); };
+  // Every publication transaction takes a UUID: counting them shows that an Update which changes nothing the
+  // settings write starts none.
+  auto transactions = std::make_shared<int>(0);
+  config.uuid = [transactions]() -> std::optional<std::string> {
+    ++*transactions;
+    return std::string("00000000-0000-4000-8000-000000000001");
+  };
   config.unix_time = [] { return std::int64_t{1760000000}; };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
   Write(game / "hl2.exe", "existing-game", 0644);
@@ -834,6 +840,7 @@ void RefreshesInstalledTitleToRespunKit() {
   const auto bottle_reg = fixture.root / "data/playden/games/steam-220/library/prefixes/game/user.reg";
   const auto registry_before = Read(bottle_reg);
   const auto installs_before = Read(fixture.root / "data/runtime-state/installs.json");
+  const int transactions_before = *transactions;
   CHECK(fixture.registry_mutations == 2);
   {  // A different kit id is not a respin; it needs republication.
     const auto other = SyntheticKit(fixture.root / "kit-other", "native", "kit-2", 'b');
@@ -859,6 +866,7 @@ void RefreshesInstalledTitleToRespunKit() {
   }, 60);
   if (done.refusals.count(220)) std::fprintf(stderr, "Refresh refused: %s\n", done.refusals.at(220).c_str());
   CHECK(!done.refusals.count(220) && done.installs[0].state == PreparationState::kReady);
+  CHECK(*transactions == transactions_before && !done.installs[0].recovery_pending);
   CHECK(Read(fixture.root / "data/homebrew/FAKE78001/eboot.bin") == "native-2");
   CHECK(Read(bottle_reg) == registry_before);
   CHECK(Read(fixture.root / "data/runtime-state/installs.json") == installs_before);
@@ -880,6 +888,7 @@ void RefreshesInstalledTitleToRespunKit() {
   }, 60);
   if (up.refusals.count(220)) std::fprintf(stderr, "Upgrade refused: %s\n", up.refusals.at(220).c_str());
   CHECK(!up.refusals.count(220) && up.installs[0].state == PreparationState::kReady);
+  CHECK(*transactions == transactions_before);
   CHECK(Read(fixture.root / "data/homebrew/FAKE78001/win/wine/lib/core.prx") == "runtime-neutral");
   const auto upgraded_installs = Read(fixture.root / "data/runtime-state/installs.json");
   CHECK(upgraded_installs != installs_before &&
@@ -2001,6 +2010,104 @@ void StaleTitleWaitsForUpdateBefore120Hz() {
   CHECK(host.Start());
   const auto mismatched = WaitFor(host, Started);
   CHECK(mismatched.installs.size() == 1 && mismatched.installs[0].title_current && !mismatched.installs[0].runtime_current);
+  host.Shutdown();
+}
+
+// Prepares HL2 on a kit without 120 Hz output and publishes saved 120 Hz settings there (revision 1), then returns
+// the kit with 120 Hz output that the title is not updated to yet.
+RuntimeKit PrepareStaleFor120Hz(Fixture& fixture, RuntimeHostConfig config, GameSettingsRecord* saved) {
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  auto kit = SyntheticKit(fixture.root / "kit");
+  kit.capabilities = {"dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
+  config.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  host.Prepare(Hl2());
+  WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+  }, 60);
+  saved->revision = 1;
+  saved->overrides = {{"refresh", "120"}, {"frame_limit", "60"}};
+  const auto before = host.Snapshot().maintenance_handled;
+  host.Maintain(220, RuntimeMaintenance::kApplySettings);
+  const auto applied = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  CHECK(applied.maintenance.at(220).ok && applied.installs[0].settings_revision == 1);
+  host.Shutdown();
+  auto display = SyntheticKit(fixture.root / "kit-display", "native-2", "kit-1", 'c');
+  display.capabilities = {"display-120hz", "dxvk", "offline_bottle", "per_game_title", "wow64_i386"};
+  return display;
+}
+
+RuntimeSnapshot UpdateHl2(RuntimeHost& host) {
+  const auto before = host.Snapshot().prepares_handled;
+  host.Prepare(Hl2());
+  return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before && !s.preparing_app; }, 60);
+}
+
+// An Update that fails after the title was refreshed (here its start check) is finished by the next Update, even
+// though the title is current by then, after a Playden restart in between.
+void UpdateFinishesAFailedRepublish() {
+  Fixture fixture;
+  unsigned uuids = 0;
+  GameSettingsRecord saved;
+  auto config = DisplayConfig(fixture, &uuids, &saved);
+  const auto display = PrepareStaleFor120Hz(fixture, config, &saved);
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  const auto profile = fixture.root / "data/playden/games/steam-220/library/profiles/playden-steam-220.profile";
+  config.admit_kit = [display](std::string*) { return std::optional<RuntimeKit>(display); };
+  // A dxvk.conf Playden did not write: the title fails its start check after the refresh.
+  const auto published_config = Read(game / "dxvk.conf");
+  Write(game / "dxvk.conf", "dxgi.maxFrameRate = 50\n", 0644);
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    const auto failed = UpdateHl2(host);
+    CHECK(failed.refusals.count(220) && failed.installs[0].runtime_current);
+    CHECK(Read(profile).find("frame_rate") == std::string::npos);
+    host.Shutdown();
+  }
+  Write(game / "dxvk.conf", published_config, 0644);
+  const auto transactions = uuids;
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(started.installs[0].title_current);
+  const auto done = UpdateHl2(host);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Second Update refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220) && !done.installs[0].recovery_pending && done.installs[0].settings_revision == 1);
+  CHECK(Read(profile).find("\nrefresh = 120\nframe_rate = 60\n") != std::string::npos);
+  // One publication in all: either the saved request resumed, or a new one when the first left none behind.
+  CHECK(uuids - transactions <= 1);
+  // Another Update has nothing left to publish.
+  const auto again_transactions = uuids;
+  const auto again = UpdateHl2(host);
+  CHECK(again.refusals.count(220) && again.refusals.at(220) == "This game is already prepared.");
+  CHECK(uuids == again_transactions && !again.installs[0].recovery_pending);
+  host.Shutdown();
+}
+
+// Without the game's saved settings (missing or unreadable), Update publishes nothing: Playden defaults would replace
+// what the title has.
+void UpdateWithoutSavedSettingsKeepsThePublication() {
+  Fixture fixture;
+  unsigned uuids = 0;
+  GameSettingsRecord saved;
+  auto config = DisplayConfig(fixture, &uuids, &saved);
+  const auto display = PrepareStaleFor120Hz(fixture, config, &saved);
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  const auto profile = fixture.root / "data/playden/games/steam-220/library/profiles/playden-steam-220.profile";
+  const auto published = Read(profile);
+  const auto config_before = Read(game / "dxvk.conf");
+  config.admit_kit = [display](std::string*) { return std::optional<RuntimeKit>(display); };
+  config.settings_record = [](const playden::GameId&) -> std::optional<GameSettingsRecord> { return std::nullopt; };
+  const auto transactions = uuids;
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto done = UpdateHl2(host);
+  CHECK(!done.refusals.count(220) && done.installs[0].runtime_current && done.installs[0].settings_revision == 1);
+  CHECK(uuids == transactions && Read(profile) == published && Read(game / "dxvk.conf") == config_before);
   host.Shutdown();
 }
 
@@ -4803,6 +4910,8 @@ int main(int argc, char** argv) {
   KitRespinKeepsWaitingSettingsUpdate();
   StaleTitleWaitsForUpdateBefore120Hz();
   FreshPrepareOn120HzKitPublishesIt();
+  UpdateFinishesAFailedRepublish();
+  UpdateWithoutSavedSettingsKeepsThePublication();
   RemovesTitleKeepingSaves();
   PreparesGameInstalledAgainElsewhere();
   SharedProfileKitOpensSaves();
