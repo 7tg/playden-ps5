@@ -266,6 +266,16 @@ int main() {
     fs::remove(root / "directx.hdll");
     CHECK(DefaultsFor(ProbeGame(root.string(), "deadcells.exe")).graphics == "opengl");
   }
+  {  // Java (Slay the Spire): the Steam entry runs the bundled JRE; LWJGL draws with OpenGL.
+    const auto root = fresh();
+    WritePe(root / "jre/bin/javaw.exe", {true, {"KERNEL32.dll"}});
+    WritePe(root / "SlayTheSpire.exe", {true, {"KERNEL32.dll"}});
+    const auto java = DefaultsFor(ProbeGame(root.string(), "jre/bin/javaw.exe"));
+    CHECK(java.graphics == "opengl" && DetectedLabel(java.summary) == "Java \xC2\xB7 OpenGL");
+    CHECK(DefaultsFor(ProbeGame(root.string(), "SlayTheSpire.exe")).graphics == "opengl");
+    WritePe(root / "Native.exe", {true, {"d3d11.dll", "KERNEL32.dll"}});
+    CHECK(DefaultsFor(ProbeGame(root.string(), "Native.exe")).graphics == "dxvk");
+  }
   {  // XNA (Celeste): a .NET program naming the framework runs on Wine Mono's FNA, which draws with OpenGL.
     const auto root = fresh();
     WritePe(root / "Celeste.exe", {false, {"mscoree.dll"}, true, false, "Microsoft.Xna.Framework.Game"});

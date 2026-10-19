@@ -301,6 +301,13 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
     probe.engine = "hashlink";
     if (Find(here, "directx.hdll", false)) probe.apis.insert("d3d11");
     if (Find(here, "sdl.hdll", false)) probe.apis.insert("opengl");
+  } else if (lower_file == "java.exe" || lower_file == "javaw.exe" ||
+             (Find(here, "jre", true) && std::none_of(probe.apis.begin(), probe.apis.end(), [](const std::string& api) {
+                return api.rfind("d3d", 0) == 0 || api == "dxgi";
+              }))) {
+    // Java (a bundled JRE, or a packr launcher beside one): LWJGL and libGDX load OpenGL at run time (Slay the Spire).
+    // A program beside a JRE that names Direct3D itself is a native game with a Java side tool.
+    probe.engine = "java";
   } else if (Find(here, "love.dll", false)) {
     probe.engine = "love";  // LÖVE draws with OpenGL through SDL, which it loads at run time
   } else if (Find(here, "nw.dll", false)) {
@@ -358,7 +365,7 @@ GameDefaults DefaultsFor(const GameProbe& probe, const RuntimeAbilities& runtime
   } else if (probe.engine == "xna") {
     // Automatic graphics leave FNA without a GL pixel format ("No matching GL pixel format available").
     out.graphics = "opengl";
-  } else if (probe.engine == "love" || probe.engine == "sil") {
+  } else if (probe.engine == "love" || probe.engine == "sil" || probe.engine == "java") {
     // SIL (FTL) draws with OpenGL though its program also names Direct3D 11; under DXVK it
     // quits right after setting up video.
     out.graphics = "opengl";
@@ -411,7 +418,7 @@ std::string DetectedLabel(const std::string& summary) {
   for (const auto& [id, name] : std::initializer_list<std::pair<const char*, const char*>>{
            {"unity", "Unity"}, {"unity-il2cpp", "Unity"}, {"unity-legacy", "Unity"}, {"unreal", "Unreal Engine"}, {"source", "Source"},
            {"gamemaker", "GameMaker"}, {"godot", "Godot"}, {"love", "L\xC3\x96VE"}, {"nwjs", "NW.js"}, {"sil", "SIL"},
-           {"idtech3", "id Tech 3"}, {"hashlink", "HashLink"}, {"xna", "XNA"}})
+           {"idtech3", "id Tech 3"}, {"hashlink", "HashLink"}, {"xna", "XNA"}, {"java", "Java"}})
     if (facts.count(id)) engine = name;
   std::string api;
   if (graphics == "opengl") api = "OpenGL";
