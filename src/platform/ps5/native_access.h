@@ -53,7 +53,7 @@ struct NativeAccessOptions {
 // playden-data/logs folders. Granted starts need the stubs only as readable
 // folders; a launcher without the grant keeps its state there, so they must be
 // writable. After the grant, the
-// 0.5 layout move fills user_root, user_log_root and games_root (each at the
+// 0.6 layout move fills user_root, user_log_root and games_root (each at the
 // new place once its step has moved, else the old in-app one). Not granted:
 // they stay empty and the package paths are used.
 struct NativePaths {

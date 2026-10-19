@@ -21,7 +21,8 @@ from pathlib import Path
 import re
 import sys
 
-LOGS = "/data/homebrew/FAKE77031/logs"
+LOGS = "/data/playden/logs"
+OLD_LOGS = "/data/homebrew/FAKE77031/logs"  # before 0.6.0
 LINE = re.compile(r"^(\S+) app=(\d+) step=(\S+) result=(\S+) detail=(.*)$")
 METRIC = re.compile(r"\b([a-z_]+)=(\d+)\b")
 STAGES = ("fetch", "proc", "create", "write", "jrnl", "back")
@@ -104,7 +105,15 @@ def fetch_logs(host, port):
         ftp.login()
         # List first: zftpd answers 451, rather than 550, for an absent rotated log.
         listing = []
-        ftp.retrlines("LIST " + LOGS, listing.append)
+        logs = LOGS
+        for logs in (LOGS, OLD_LOGS):
+            listing = []
+            try:
+                ftp.retrlines("LIST " + logs, listing.append)
+            except ftplib.Error:
+                continue
+            if any(line.startswith("-") for line in listing):
+                break
         names = {line.split(None, 8)[8] for line in listing
                  if line.startswith("-") and len(line.split(None, 8)) == 9}
         for name in ("install.log.1", "install.log"):
@@ -112,7 +121,7 @@ def fetch_logs(host, port):
                 continue
             buffer = io.BytesIO()
             try:
-                ftp.retrbinary("RETR " + LOGS + "/" + name, buffer.write, 1 << 20)
+                ftp.retrbinary("RETR " + logs + "/" + name, buffer.write, 1 << 20)
             except ftplib.error_perm as error:
                 if str(error).startswith("550"):
                     continue

@@ -153,7 +153,7 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
   auto result = bootstrap.Prepare();
   if (!result.runtime_ready && !context.grant_diagnostic.empty())
     result.error += "; " + context.grant_diagnostic;
-  // The 0.5 layout: user data, logs and games leave the app folder once. Still
+  // The 0.6 layout: user data, logs and games leave the app folder once. Still
   // single-threaded here, so the short root raises (the games rename, renames out of
   // root-owned stub folders, creating /data/playden-games) affect no other thread.
   std::vector<std::string> layout_lines;

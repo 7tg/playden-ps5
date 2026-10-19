@@ -377,7 +377,7 @@ void RevertsTheMove() {
   // Never moved: nothing to do.
   CHECK(RevertLayout(f->paths, f->ops).complete);
   CHECK(MigrateLayout(f->paths, f->ops).games_moved);
-  Write(f->paths.log_root / "runtime-0.5.log", "new\n");
+  Write(f->paths.log_root / "runtime-0.6.log", "new\n");
   Write(f->paths.app_root / "logs" / "native-startup.log", "next start\n");
   const auto calls = f->root_calls;
   const auto reverted = RevertLayout(f->paths, f->ops);
@@ -387,13 +387,13 @@ void RevertsTheMove() {
   CHECK(Read(app / "playden-data" / "session.v1") == "credentials" && Mode(app / "playden-data" / "session.v1") == 0600);
   CHECK(Mode(app / "playden-data" / "game-settings-private") == 0700);
   CHECK(fs::exists(app / "games" / "220" / "game.exe") && !fs::exists(f->paths.games_root));
-  CHECK(fs::exists(app / "logs" / "runtime-0.5.log"));
+  CHECK(fs::exists(app / "logs" / "runtime-0.6.log"));
   CHECK(Read(app / "logs" / "native-startup.log") == "next start\n");
   CHECK(Read(app / "logs" / "native-startup.log.moved") == "pre-grant\n");
   CHECK(!fs::exists(app / "playden-data" / "MOVED.txt") && !fs::exists(app / "logs" / "MOVED.txt") &&
         !fs::exists(app / "games-MOVED.txt"));
   CHECK(!LoadLayoutJournal(f->paths.state_root));
-  // A later 0.5 start moves everything again.
+  // A later 0.6 start moves everything again.
   const auto again = MigrateLayout(f->paths, f->ops);
   CHECK(again.games_moved && again.notice.empty() && Moved(f->paths));
 }
@@ -406,7 +406,7 @@ void RevertKeepsConflictsAndJournal() {
   CHECK(!reverted.complete && reverted.error.find("session.v1") != std::string::npos);
   CHECK(Read(f->paths.user_root / "session.v1") == "credentials");
   CHECK(LoadLayoutJournal(f->paths.state_root)->step == "revert-user");
-  // A 0.5 start after the failed revert merges both places back.
+  // A 0.6 start after the failed revert merges both places back.
   fs::remove(f->paths.app_root / "playden-data" / "session.v1");
   const auto resumed = MigrateLayout(f->paths, f->ops);
   CHECK(resumed.games_moved && resumed.notice.empty() && Moved(f->paths));

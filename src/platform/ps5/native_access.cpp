@@ -27,7 +27,7 @@ NativePaths PathsAt(const std::string& root) {
 }
 
 // Where Playden will keep its state: the stubs must be writable (or creatable).
-// Granted starts keep it outside the app folder (0.5 layout), so there the stubs
+// Granted starts keep it outside the app folder (0.6 layout), so there the stubs
 // only need to be readable folders: over FTP they are root's and 0755.
 enum class StubState { kWritable, kReadable };
 

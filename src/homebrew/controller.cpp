@@ -1062,7 +1062,7 @@ void Controller::TickRuntime() {
                     play_queued_.empty() && !sync_before_play_.count(id);
     if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
     if (sync_before_play_.count(id)) game.play_status = "Checking saves…";
-    // Play's own work before the launch (a game moved in 0.5 is republished first).
+    // Play's own work before the launch (a game moved in 0.6 is republished first).
     if (const auto progress = snapshot.play_progress.find(id); progress != snapshot.play_progress.end()) {
       game.play_status = progress->second; game.can_play = false; game.can_prepare = false;
     }

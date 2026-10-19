@@ -23,9 +23,9 @@ import sys
 TITLE = "/data/homebrew/FAKE77031"
 SKIP = {".packaged"}
 SKIP_DIRS = {"logs"}
-# Playden runs as the app's own user (its root grant restores that user afterwards). It
-# writes its startup log and session in these, and creates games/, dev/ and other data in
-# the package folder itself, so all three must be writable by others.
+# Playden writes its early startup log (before its root grant) and keeps stub folders for
+# the data it moves out at startup in these, and creates dev/ in the package folder itself,
+# so all three must be writable by others.
 WRITABLE_DIRS = ("logs", "playden-data")
 
 
@@ -173,6 +173,8 @@ def main():
         replace(ftp, f"{TITLE}/{relative}", data, mode)
         print(f"deployed {relative} {hashlib.sha256(data).hexdigest()[:12]} {mode}")
     print(f"{len(changes)} files changed; backup in {args.backup}")
+    print("From 0.6.0, Playden moves its data at startup: user data to /data/playden/user, "
+          "logs to /data/playden/logs, games to /data/playden-games.")
     ftp.quit()
     return 0
 

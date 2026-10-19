@@ -486,7 +486,7 @@ void RegistryRejectsSymlinksAndDoesNotTouchOldTemporaryFiles() {
 
 }  // namespace
 
-// The 0.5 games move: records under the old root are rewritten together, keep the old path as
+// The 0.6 games move: records under the old root are rewritten together, keep the old path as
 // their mark (written only when set), and an invalid one leaves every record as it was.
 void MovedRecordsRewriteTogetherAndKeepTheirMark() {
   CHECK(RebaseInstallPath("/data/homebrew/FAKE77031/games/220", "/data/homebrew/FAKE77031/games", "/data/playden-games") ==

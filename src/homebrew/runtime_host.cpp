@@ -316,7 +316,7 @@ struct RuntimeHost::Composition {
   std::unique_ptr<rt::LaunchService> launch;
   // Last worker preflight per install, with its time, for Handoff.
   std::map<std::string, std::pair<rt::LaunchPreflight, std::int64_t>> preflights;
-  // The old and new games root while the 0.5 games move is unfinished.
+  // The old and new games root while the 0.6 games move is unfinished.
   std::optional<std::pair<std::string, std::string>> games_move;
 };
 
@@ -1406,17 +1406,17 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
       }
       std::string settings;
       if (!record->moved_from.empty()) {
-        // Its folder moved in 0.5: the title starts only once its publication names the new one.
+        // Its folder moved in 0.6: the title starts only once its publication names the new one.
         if (!idle) {
           auto busy = MaintenanceRefusal(c, *record);
-          settings = "This game needs an update for Playden 0.5 first: " + (busy.empty() ? "Close the game first." : busy);
+          settings = "This game needs an update for Playden 0.6 first: " + (busy.empty() ? "Close the game first." : busy);
         } else {
           Publish([&](RuntimeSnapshot& s) { s.play_progress[app_id] = kPlayUpdatingForLayout; });
           bool again = false;
           settings = RepublishSettings(c, *record, nullptr, true, &again);
           Publish([&](RuntimeSnapshot& s) { s.play_progress.erase(app_id); });
           if (!settings.empty())
-            settings = "This game could not be updated for Playden 0.5: " + settings + (again ? kRecreateHint : "");
+            settings = "This game could not be updated for Playden 0.6: " + settings + (again ? kRecreateHint : "");
           Log("play moved app=" + std::to_string(app_id) + " " + (settings.empty() ? "republished" : settings));
         }
       } else if (idle) {
@@ -1897,7 +1897,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         if (refreshed.state != rt::PackageActionState::kComplete) return refreshed.message;
         changed = true;
       }
-      // A game whose folder moved in 0.5 is published again for the new folder first, and an
+      // A game whose folder moved in 0.6 is published again for the new folder first, and an
       // owned publication again as unowned. A moved game whose publication can't be redone
       // (settings older than its title, a recipe Playden no longer has) stays as it is: the way
       // out is the player's confirmed choice.
@@ -2876,7 +2876,7 @@ void RuntimeHost::Run() {
         Log("startup bottle profiles settled=" + std::to_string(settled) + " ms=" +
             std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count()));
       }
-      // Games whose folder moved with the games root (0.5) start from Home only once their
+      // Games whose folder moved with the games root (0.6) start from Home only once their
       // publication names the new folder: republished now, busy titles wait for Play.
       // So are games published owned while the kit admits unowned folders (folders opened for
       // mods). The Steam account is not known yet, so the emulator's files wait for Play.
@@ -3103,7 +3103,7 @@ void RuntimeHost::Run() {
           s.refusals.erase(request.app_id);
         });
         refusal = RunPrepare(*composition, request, &awaiting);
-        // A resumed publication of a moved game may have been the last the 0.5 move waited for.
+        // A resumed publication of a moved game may have been the last the 0.6 move waited for.
         FinishGamesMove(*composition);
         // A game prepared again gets back the saves it kept when it was uninstalled,
         // before it can first be started (from Home, while it waits for registration).

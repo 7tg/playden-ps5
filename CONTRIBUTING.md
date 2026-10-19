@@ -22,7 +22,7 @@ This guide covers setup, builds, tests, running on a console, and how to change 
 1. Check the [compatibility list](COMPATIBILITY.md). If the game is there, report only what is new.
 2. Play the game from Playden or from its tile on the Home screen.
 3. If the game did not work, start Playden once more. When it starts, Playden copies the game's newest log to
-   `logs/title-<TITLE>.log`.
+   `/data/playden/logs/title-<TITLE>.log`.
 4. Collect the logs on your computer (Python 3, no packages needed). The PS5 must run an FTP server on port 2120,
    such as zftpd:
 
@@ -165,7 +165,9 @@ documented end to end yet.
 
 ### Logs
 
-Playden writes its logs to `/data/homebrew/FAKE77031/logs/` (`runtime.log`, `launch.log`, `cloud.log` and others).
+Playden writes its logs to `/data/playden/logs/` (`runtime.log`, `launch.log`, `cloud.log` and others). The first
+startup lines (`native-startup.log`), written before the root grant, stay in the app's own `logs/` folder. User data
+is in `/data/playden/user/` and games are in `/data/playden-games/`.
 Game bottles are private to their titles. When Playden starts, it copies the newest game session report to
 `logs/title-<TITLE>.log`.
 

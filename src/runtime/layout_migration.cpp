@@ -260,7 +260,7 @@ bool MoveEntries(const LayoutOps& ops, const fs::path& from, const fs::path& to,
 }
 
 std::string MovedText(const fs::path& to) {
-  return "Playden 0.5 moved this folder's contents to " + to.string() + "\n";
+  return "Playden 0.6 moved this folder's contents to " + to.string() + "\n";
 }
 }  // namespace
 

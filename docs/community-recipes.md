@@ -12,7 +12,7 @@ that say who tested it, where and how well. Playden reads the recipe part with
    overrides, other rows).
 2. Set the game's rating and note under **Compatibility and note**.
 3. In **Game settings > Advanced**, choose **Export as recipe**. Playden writes
-   `recipe-<app id>.json` next to its logs (`/app0/logs` on the console, `logs/`
+   `recipe-<app id>.json` next to its logs (`/data/playden/logs` on the console, `logs/`
    in the data folder on a Mac).
 4. Fill in `community.author`, check the file, and send it as a pull request to
    Playden's repository.

@@ -35,7 +35,7 @@ std::vector<InstallVolume> DiscoverInstallVolumes(const std::vector<VolumeCandid
                                                   const AsRoot& as_root = {});
 
 // Candidate drives for the PS5 title: console storage, then extended storage and
-// USB drives. Console storage is games_root (after the grant, the 0.5 layout's
+// USB drives. Console storage is games_root (after the grant, the 0.6 layout's
 // /data/playden-games), or title_root/games when it is empty.
 std::vector<VolumeCandidate> ConsoleVolumeCandidates(const std::string& title_root = "/app0",
                                                      const std::string& games_root = {});

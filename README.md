@@ -121,11 +121,20 @@ the `playden-ps5-<version>` folder, which holds `tools/`.
    python3 tools/console_title_deploy.py --host <PS5 IP> deploy --install FAKE77031 --backup backups/<name>
    ```
 
-   Copying the `FAKE77031` folder by hand with an FTP client or the web file manager also works, but then make
-   `/data/homebrew`, the `FAKE77031` folder and its `logs` and `playden-data` folders writable by everyone
-   (`chmod 777`). Playden writes there as the app's own user, and a folder created over FTP is usually 755: Playden
-   then stays on its splash screen and writes no logs, can't install games ("cannot create install folder"), or can't
-   finish preparing one ("package staging and destination must support one atomic rename").
+   Copying the `FAKE77031` folder by hand with an FTP client or the web file manager also works. You do not need to
+   `chmod` any folder: Playden checks the folders it writes to and fixes their permissions itself before it writes.
+   If it can't fix one, it names that folder.
+
+   From 0.6.0, Playden keeps its data outside the app folder and moves it there once, at startup:
+
+   - Your sign-in, settings and other user data: `/data/playden/user/`.
+   - Logs: `/data/playden/logs/`. The first startup lines, written before Playden gets its root access,
+     stay in `logs/` in the app folder.
+   - Downloaded games: `/data/playden-games/`. Each game's Windows folder, with its saves, stays under
+     `/data/playden/games/` (see [Saves and game configs over FTP](#saves-and-game-configs-over-ftp)).
+
+   The app folder keeps empty `playden-data` and `logs` folders, and a `MOVED.txt` in each old place says where
+   the data went.
 2. Wait about 10 seconds. ShadowMountPlus adds the Playden tile to the Home screen.
 3. Install the runtime kit (next section).
 4. Start Playden and sign in to Steam.
@@ -271,7 +280,7 @@ Every test helps, including games that work. To report one:
    ```
 
    It lists the games that have a log, the most recently run first, and asks which one to collect. The script
-   reads only Playden's logs, never your Steam sign-in. It hides your Steam account name and
+   reads only Playden's logs (`/data/playden/logs`), never your Steam sign-in. It hides your Steam account name and
    SteamIDs, and writes a zip with a summary of your firmware and kit versions.
 3. [Open a game test report](../../issues/new?template=test-report.yml) and attach the zip. See a
    [sample report](docs/sample-test-report.md) for what to fill in.

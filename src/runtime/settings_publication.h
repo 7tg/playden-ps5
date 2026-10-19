@@ -26,7 +26,7 @@ inline void FillProfilePublication(const SettingsLaunchPlan& plan, ProfilePublic
   }
 }
 
-// A game folder that moved as a whole (the 0.5 layout, RuntimeInstall::moved_from): its
+// A game folder that moved as a whole (the 0.6 layout, RuntimeInstall::moved_from): its
 // committed publication names `from`, the install record names `to`. The publication that
 // replaces it checks the old one with the game folder at `to`.
 struct GameRootMove {

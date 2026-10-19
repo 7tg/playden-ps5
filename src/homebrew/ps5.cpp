@@ -188,7 +188,7 @@ int main() {
     }
     const auto& paths = native_access.paths;
     title_root = paths.title_root;
-    // After the grant, user data, logs and games live outside the app folder (0.5 layout).
+    // After the grant, user data, logs and games live outside the app folder (0.6 layout).
     log_root = playden::ps5::EffectiveLogRoot(paths);
     const std::string user_root = playden::ps5::EffectiveUserRoot(paths);
     // Startup checkpoints: a launch that never shows its first frame can be told
@@ -344,7 +344,7 @@ int main() {
         update_config.kits_root = "/data/playden/kits";
         update_config.appmeta_root = std::string("/user/appmeta/") + PLAYDEN_PS5_TITLE_ID;
         update_config.registered_app_root = std::string("/user/app/") + PLAYDEN_PS5_TITLE_ID;
-        update_config.layout_journal = "/data/playden/runtime-state/layout-0.5.json";
+        update_config.layout_journal = "/data/playden/runtime-state/layout-0.6.json";
         update_config.current = playden::update::CurrentVersion();
         update_config.fetch = [&update_http](const playden::steam::HttpRequest& request, const std::atomic<bool>& cancel) {
             return update_http.Perform(request, cancel);

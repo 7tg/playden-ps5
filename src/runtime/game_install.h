@@ -75,7 +75,7 @@ struct RuntimeInstall {
   std::vector<RuntimeArtifactIdentity> artifacts;
   std::optional<RuntimeFailure> last_failure;
   std::optional<PreparationJournal> journal;
-  // Set when the game folder moved with the games root (the 0.5 layout): its earlier
+  // Set when the game folder moved with the games root (the 0.6 layout): its earlier
   // install_path, which the committed publication still names. The game needs a
   // republication against install_path; a committed publication clears it. Stored only
   // when set, so older readers (which ignore unknown keys) are unaffected.

@@ -1,5 +1,5 @@
 #pragma once
-// layout_migration.h - The 0.5.0 one-time move of user data, logs and games out of the app folder.
+// layout_migration.h - The 0.6.0 one-time move of user data, logs and games out of the app folder.
 // Copyright (c) 2026 Playden contributors
 // SPDX-License-Identifier: MIT
 #include <filesystem>
@@ -31,7 +31,7 @@ struct LayoutOps {
   std::function<std::optional<bool>(const std::string& title_id)> title_running;
 };
 
-inline constexpr const char* kLayoutJournal = "layout-0.5.json";
+inline constexpr const char* kLayoutJournal = "layout-0.6.json";
 // Pending-journal postponements of the games step before the user is told.
 inline constexpr int kLayoutPostponeNoticeAfter = 3;
 
@@ -72,7 +72,7 @@ struct RevertResult {
   std::string error;
 };
 
-// The reverse move, for a restore below 0.5.0. Entries that would replace an
+// The reverse move, for a restore below 0.6.0. Entries that would replace an
 // existing one stay in the new place, and the journal is kept so it can be retried.
 RevertResult RevertLayout(const LayoutPaths& paths, const LayoutOps& ops);
 

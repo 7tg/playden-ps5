@@ -2538,7 +2538,7 @@ void ShippedRecipeRequirementsFollowTheKit(bool template_audio_ps5) {
   host.Shutdown();
 }
 
-// The 0.5 layout moves /data/homebrew/FAKE77031/games to /data/playden-games in one rename at
+// The 0.6 layout moves /data/homebrew/FAKE77031/games to /data/playden-games in one rename at
 // startup. The runtime host then rewrites the records and republishes each moved Ready game, so
 // its descriptor, profile and dxvk.conf name the new folder and it starts from Home again.
 struct GamesMove {
@@ -2854,7 +2854,7 @@ void PlayBeforeRepublishRepublishesFirst() {
   // While it runs, Play says why it can't update the game.
   host.Play(220);
   const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.play_refusals.count(220) != 0; });
-  CHECK(refused.play_refusals.at(220) == "This game needs an update for Playden 0.5 first: Close the game first.");
+  CHECK(refused.play_refusals.at(220) == "This game needs an update for Playden 0.6 first: Close the game first.");
   fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
   host.Play(220);
   const auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
@@ -2969,7 +2969,7 @@ void RestartDuringRepublishResumes() {
   CHECK(move.Done() == 0);
   host.Play(220);
   const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.play_refusals.count(220) != 0; });
-  CHECK(refused.play_refusals.at(220).rfind("This game needs an update for Playden 0.5 first: ", 0) == 0);
+  CHECK(refused.play_refusals.at(220).rfind("This game needs an update for Playden 0.6 first: ", 0) == 0);
   host.Prepare({220, "/data/playden-games/220", "internal", "Half-Life \"2\""});
   const auto resumed = WaitFor(host, [](const RuntimeSnapshot& s) {
     return !s.preparing_app && s.prepares_handled > 0 && !s.installs.empty() && !s.installs[0].recovery_pending;

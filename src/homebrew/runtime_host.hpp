@@ -121,7 +121,7 @@ struct RuntimeHostConfig {
   std::function<std::int64_t()> now_ms;
   // How long a started title may take to report its session before Play gives up.
   std::int64_t launch_evidence_wait_ms = 60000;
-  // The 0.5 layout's games move (runtime/layout_migration.h), finished on the worker.
+  // The 0.6 layout's games move (runtime/layout_migration.h), finished on the worker.
   // moved_games_root: the old and new games root (console paths) while the journal is at
   // "games-moved"; nothing otherwise. finish_games_move: called once every moved Ready game is
   // republished; false keeps the move pending for the next start. Empty: LoadLayoutJournal and
@@ -262,11 +262,11 @@ struct RuntimeSnapshot {
   // Bytes in each game's Windows user folders (installed and kept), from the latest MeasureSaves.
   std::map<std::uint32_t, std::uint64_t> save_bytes;
   // What Play does before the launch is requested, per Steam app, while it runs: a game whose
-  // folder moved in Playden 0.5 is republished first (kPlayUpdatingForLayout).
+  // folder moved in Playden 0.6 is republished first (kPlayUpdatingForLayout).
   std::map<std::uint32_t, std::string> play_progress;
 };
 
-inline constexpr const char* kPlayUpdatingForLayout = "Updating this game for Playden 0.5…";
+inline constexpr const char* kPlayUpdatingForLayout = "Updating this game for Playden 0.6…";
 
 // A downloaded game to prepare. The game files stay at install_path.
 struct RuntimePrepareRequest {
@@ -363,10 +363,10 @@ class RuntimeHost {
   // RepublishSettings without the upgrade's fallback.
   std::string PublishSavedSettings(Composition& composition, const runtime::RuntimeInstall& record,
                                    bool* published, bool steam_account_known, bool* prepare_again);
-  // A Ready game published owned (schema 2, before 0.5 or by a kit before 0.10) while the kit
+  // A Ready game published owned (schema 2, before 0.6 or by a kit before 0.10) while the kit
   // admits unowned game folders: published again as unowned, so folders the player opened pass.
   bool NeedsUnownedPublication(const Composition& composition, const runtime::RuntimeInstall& record);
-  // The 0.5 games move: rewrites the records and Cloud indexes under the old games root at startup,
+  // The 0.6 games move: rewrites the records and Cloud indexes under the old games root at startup,
   // and marks the move done once no moved Ready game is left to republish.
   void MoveGameRecords(Composition& composition);
   void FinishGamesMove(Composition& composition);

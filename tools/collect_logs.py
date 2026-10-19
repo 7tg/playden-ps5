@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Collect Playden's logs from a PS5 over FTP into a zip for a test report.
 
-Reads only /data/homebrew/FAKE77031/logs and the active kit's manifest. It never reads
+Reads only /data/playden/logs (or the app's logs folder on 0.4.x and older) and the active kit's manifest. It never reads
 playden-data, which holds the Steam sign-in. The Steam account name and SteamIDs are
 replaced in every file unless --no-redact is given.
 
@@ -22,7 +22,8 @@ import re
 import sys
 import zipfile
 
-LOGS = "/data/homebrew/FAKE77031/logs"
+LOGS = "/data/playden/logs"
+OLD_LOGS = "/data/homebrew/FAKE77031/logs"  # before 0.6.0
 IDENTITY = "/data/homebrew/FAKE77031/playden-package.identity"
 KITS = "/data/playden/kits"
 TITLE_LOG = re.compile(r"^title-(FAKE\d{5})\.log$")
@@ -44,6 +45,18 @@ def listing(ftp, directory):
         if len(parts) >= 9 and line.startswith("-"):
             entries[parts[8]] = (int(parts[4]), " ".join(parts[5:8]))
     return entries
+
+
+def pick_logs(ftp):
+    """The logs folder to read and its files: the 0.6.0 one, else the app's old one."""
+    for directory in (LOGS, OLD_LOGS):
+        try:
+            entries = listing(ftp, directory)
+        except ftplib.Error:
+            continue
+        if entries:
+            return directory, entries
+    return LOGS, {}
 
 
 def folders(ftp, directory):
@@ -193,18 +206,18 @@ def main():
         sys.exit(f"could not connect to FTP at {args.host}:{args.port}: {error}\n"
                  "Is an FTP server (zftpd) running on the PS5?")
 
-    entries = listing(ftp, LOGS)
+    logs_dir, entries = pick_logs(ftp)
     title_logs, playden_logs = {}, {}
     for name in entries:
         if name.endswith(SKIP_SUFFIXES):
             continue
         match = TITLE_LOG.match(name)
         if match:
-            title_logs[match.group(1)] = fetch(ftp, f"{LOGS}/{name}").decode("utf-8", "replace")
+            title_logs[match.group(1)] = fetch(ftp, f"{logs_dir}/{name}").decode("utf-8", "replace")
         elif name.startswith("title-"):
             continue  # per-title extras such as registry dumps; taken with their title below
         else:
-            playden_logs[name] = fetch(ftp, f"{LOGS}/{name}").decode("utf-8", "replace")
+            playden_logs[name] = fetch(ftp, f"{logs_dir}/{name}").decode("utf-8", "replace")
 
     if args.list or not (args.all_titles or args.app is not None or args.title):
         rows = games(title_logs, {title: title_name(ftp, title) for title in title_logs})
@@ -233,7 +246,7 @@ def main():
         files[f"title-{title}.log"] = title_logs[title]
         for name in entries:
             if name.startswith(f"title-{title}.") and name != f"title-{title}.log":
-                files[name] = fetch(ftp, f"{LOGS}/{name}").decode("utf-8", "replace")
+                files[name] = fetch(ftp, f"{logs_dir}/{name}").decode("utf-8", "replace")
 
     info = {"collected": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
     try:
