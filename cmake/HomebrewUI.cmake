@@ -240,7 +240,8 @@ target_link_libraries(playden_homebrew_controller PUBLIC
     playden_homebrew_runtime_host playden_self_update)
 
 # Worker-owned per-game runtime composition (OWNER records, native inventory, kit layer).
-add_library(playden_homebrew_runtime_host STATIC "${CMAKE_SOURCE_DIR}/src/homebrew/runtime_host.cpp")
+add_library(playden_homebrew_runtime_host STATIC "${CMAKE_SOURCE_DIR}/src/homebrew/runtime_host.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/writable_folders.cpp")
 target_compile_features(playden_homebrew_runtime_host PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_runtime_host PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_homebrew_runtime_host PUBLIC playden_native_coordinator playden_runtime_settings_publication
@@ -419,6 +420,11 @@ if(BUILD_TESTING)
     add_executable(homebrew_runtime_host_test "${CMAKE_SOURCE_DIR}/tests/homebrew_runtime_host_test.cpp")
     target_link_libraries(homebrew_runtime_host_test PRIVATE playden_homebrew_runtime_host playden_runtime_artifact_hash)
     add_test(NAME homebrew_runtime_host COMMAND homebrew_runtime_host_test "${CMAKE_SOURCE_DIR}/runtime")
+    add_executable(runtime_writable_folders_test "${CMAKE_SOURCE_DIR}/tests/runtime_writable_folders_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/writable_folders.cpp")
+    target_compile_features(runtime_writable_folders_test PRIVATE cxx_std_20)
+    target_include_directories(runtime_writable_folders_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    add_test(NAME runtime_writable_folders COMMAND runtime_writable_folders_test)
     add_executable(homebrew_title_icon_test "${CMAKE_SOURCE_DIR}/tests/homebrew_title_icon_test.cpp")
     target_compile_features(homebrew_title_icon_test PRIVATE cxx_std_20)
     target_include_directories(homebrew_title_icon_test PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")

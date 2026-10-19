@@ -46,9 +46,12 @@ class ManagedDirectory {
   ManagedDirectory(const ManagedDirectory&) = delete;
   ManagedDirectory& operator=(const ManagedDirectory&) = delete;
 
+  // A folder it creates gets created_mode exactly (umask ignored); an existing
+  // folder is never chmodded. kPrivate children are always created 0700.
   std::optional<ManagedDirectory> OpenChild(const std::string& name,
                                            DirectoryPolicy policy,
-                                           bool create = false) const;
+                                           bool create = false,
+                                           mode_t created_mode = 0700) const;
   // Open/OpenChild never sync implicitly. After creation the caller must sync
   // the new directory and its parent before recording durable completion.
   bool Validate() const;

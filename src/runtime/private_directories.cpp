@@ -51,8 +51,10 @@ bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_
   for (const auto& part : relative) {
     path /= part;
     if (path == private_root) in_private = true;
-    auto next = current->OpenChild(part.string(), in_private ? DirectoryPolicy::kPrivate
-                                                           : DirectoryPolicy::kApprovedTree, true);
+    // Shared parents it creates above the private root are 0777, so FTP and other
+    // apps can write beside them; existing ones keep their mode.
+    auto next = in_private ? current->OpenChild(part.string(), DirectoryPolicy::kPrivate, true)
+                           : current->OpenChild(part.string(), DirectoryPolicy::kApprovedTree, true, 0777);
     if (!next)
       return fail("cannot open/create private directory (wrong owner or permissions): " + path.string() + ": " + strerror(errno));
     // Flush the directory and its parent entry before journaled preparation.

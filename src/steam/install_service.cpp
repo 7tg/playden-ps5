@@ -538,6 +538,7 @@ void InstallService::Run() {
   for (;;) {
     std::optional<GameId> next;
     std::string next_root;
+    std::string next_games_root;
     std::optional<std::string> removal;
     {
       std::unique_lock<std::mutex> lock(mutex_);
@@ -567,6 +568,7 @@ void InstallService::Run() {
           job.view.step_since = std::chrono::steady_clock::now();
           next = job.view.id;
           next_root = RootOn(job.view.volume_id, job.view.id);
+          next_games_root = volume->games_root;
           active_ = next;
           active_cancel_.store(false);
           Publish();
@@ -581,6 +583,21 @@ void InstallService::Run() {
       continue;
     }
     if (!next) continue;
+
+    // The volume's folder may have been made over FTP and not be writable by the app user.
+    if (folder_check_) {
+      const std::string unwritable = folder_check_(next_games_root);
+      if (!unwritable.empty()) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        active_.reset();
+        if (auto* job = Find(*next); job && job->view.state == InstallJobState::kRunning) {
+          job->view.state = InstallJobState::kFailed;
+          job->view.failure = unwritable;
+        }
+        Publish();
+        continue;
+      }
+    }
 
     InstallRunner::Result result;
     const auto session = sessions_.Load();

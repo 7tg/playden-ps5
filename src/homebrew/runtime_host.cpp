@@ -14,6 +14,7 @@
 #include "runtime/session_storage.h"
 #include "runtime/steam_stub.h"
 #include "runtime/steamworks.h"
+#include "runtime/writable_folders.h"
 #include "steam/backend/cloud_mapping.h"
 #include "steam/backend/json.h"
 
@@ -853,6 +854,19 @@ std::string RuntimeHost::TightenWorkingFolder(const std::filesystem::path& root,
   return {};
 }
 
+std::string RuntimeHost::EnsureWritable(const std::string& install_path, const std::string& working) {
+  std::vector<std::filesystem::path> folders;
+  for (const auto& folder : config_.writable_folders) folders.push_back(HostPath(folder));
+  if (!install_path.empty()) {
+    folders.push_back(HostPath(install_path));
+    const std::filesystem::path relative(working);
+    if (!working.empty() && working != "." && relative.is_relative() &&
+        std::none_of(relative.begin(), relative.end(), [](const auto& part) { return part == ".."; }))
+      folders.push_back(HostPath(install_path) / relative);
+  }
+  return rt::EnsureWritableFolders(folders, config_.as_root, [this](const std::string& line) { Log(line); });
+}
+
 std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInstall& record, bool* published) {
   if (published) *published = false;
   const auto saved = config_.settings_record ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{})
@@ -1092,6 +1106,10 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
       result = rt::LaunchResult::Failure(rt::LaunchError::kNotFound, "This game has no PS5 title yet.");
     } else if (const auto replaced = KitReplaced(c); !replaced.empty()) {
       result = rt::LaunchResult::Failure(rt::LaunchError::kPreflight, replaced);
+    } else if (const auto unwritable = EnsureWritable(record->install_path,
+                                                      WorkingFolder(record->launch_working_directory, record->launch_path, record->launch_in_install_root));
+               !unwritable.empty()) {
+      result = rt::LaunchResult::Failure(rt::LaunchError::kPreflight, unwritable);
     } else {
       // Settings changed since the title's publication take effect now, while nothing of
       // the game runs: Home and Playden then start the same published profile.
@@ -1390,6 +1408,8 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     if (pending.session && pending.session->install_id == InstallId(request.app_id))
       return "Close the game before updating or repairing its PS5 title.";
   }
+  // Before anything is written (or a managed folder opened): folders made over FTP may need a fix.
+  if (const auto unwritable = EnsureWritable(request.install_path, {}); !unwritable.empty()) return unwritable;
   std::optional<rt::RuntimeInstall> existing;
   for (const auto& record : c.repository.Snapshot())
     if (record.app_id == request.app_id) existing = record;
@@ -1421,6 +1441,9 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   rt::InstallServiceResult started = rt::InstallServiceResult::Success();
   bool game_root_owned = true;
   const auto tighten_working = [&](const std::string& working) -> std::string {
+    // The root was checked above; the working folder is known only now (it is where dxvk.conf goes).
+    if (!working.empty())
+      if (auto unwritable = EnsureWritable(request.install_path, working); !unwritable.empty()) return unwritable;
     return game_root_owned ? TightenWorkingFolder(HostPath(request.install_path), working) : std::string();
   };
   // Settings publication writes dxvk.conf into the game folder and requires that
@@ -1707,6 +1730,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         " ok=" + std::to_string(step.ok()) + " error=" + std::to_string(static_cast<int>(step.error())) +
         " state=" + (after_step ? std::to_string(static_cast<int>(after_step->state)) : std::string("-")) +
         " to=" + (after_step && after_step->journal ? after_step->journal->step : std::string{}) +
+        " code=" + (after_step && after_step->last_failure ? after_step->last_failure->code : std::string("-")) +
         " message=" + step.message);
     // A submitted registration is not polled: ShadowMountPlus registers titles only
     // while no title runs, Playden included. The console is asked once more right
@@ -1957,6 +1981,10 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
       return "Shader cache cleared. Shaders compile again on the next start.";
     }
     case RuntimeMaintenance::kRepair: {
+      if (const auto unwritable = EnsureWritable(record->install_path,
+                                                 WorkingFolder(record->launch_working_directory, record->launch_path, record->launch_in_install_root));
+          !unwritable.empty())
+        return unwritable;
       const auto repaired = c.installer->RepairBottle(*record);
       const auto admission = c.installer->AdmissionDiagnostic(*record);
       c.admission[record->install_id] = admission;

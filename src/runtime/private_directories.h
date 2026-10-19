@@ -5,7 +5,8 @@ namespace playden::runtime {
 // Creates directories as the current effective user, without credential changes.
 // boundary is an existing trusted directory; private_root and descendants must
 // belong to that user and have mode 0700. Existing foreign/public directories
-// in the private tree are rejected, never chmodded or taken over.
+// in the private tree are rejected, never chmodded or taken over. Missing
+// folders between boundary and private_root are created 0777.
 bool EnsurePrivateDirectories(const std::filesystem::path& boundary,
                               const std::filesystem::path& private_root,
                               const std::filesystem::path& directory,

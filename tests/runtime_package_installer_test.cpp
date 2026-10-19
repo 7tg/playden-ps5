@@ -12,6 +12,7 @@
 #include <memory>
 #endif
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -786,16 +787,53 @@ void PrivateTitleFoldersAreRepublished() {
   CHECK(installer.Inspect(Record()).manifest_matches);
 }
 
-// Console titles run with umask 0: folders the installer creates still get an
-// explicit mode that others cannot write.
+// Folders the installer creates get an explicit mode whatever the umask: the
+// shared staging parents are 0777, the title stays 0755.
 void CreatedFoldersIgnoreUmask() {
-  const auto previous = ::umask(0);
+  for (const mode_t mask : {mode_t{0}, mode_t{077}}) {
+    const auto previous = ::umask(mask);
+    Fixture fixture;
+    auto installer = fixture.Installer();
+    CHECK(installer.StageTitle(Record()).state == PackageActionState::kComplete);
+    ::umask(previous);
+    struct stat info{};
+    for (const auto* shared : {"playden", "playden/staging"})
+      CHECK(::stat((fixture.host_data / shared).c_str(), &info) == 0 && (info.st_mode & 07777) == 0777);
+    CHECK(::stat((fixture.host_data / "homebrew/FAKE78001").c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
+  }
+}
+
+// A rename refused by the title's parent names the folder and the errno.
+void RenameFailureReportsErrno() {
+  if (::geteuid() == 0) return;  // root ignores folder modes
   Fixture fixture;
+  const auto homebrew = fixture.host_data / "homebrew";
+  std::filesystem::create_directories(homebrew);
+  CHECK(::chmod(homebrew.c_str(), 0555) == 0);
   auto installer = fixture.Installer();
-  CHECK(installer.StageTitle(Record()).state == PackageActionState::kComplete);
-  ::umask(previous);
-  struct stat info{};
-  CHECK(::stat((fixture.host_data / "playden/staging").c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
+  const auto result = installer.StageTitle(Record());
+  CHECK(::chmod(homebrew.c_str(), 0755) == 0);
+  CHECK(result.state == PackageActionState::kFailed);
+  CHECK(result.code == "atomic-rename-failed");
+  CHECK(result.message.find("Playden can't write to " + homebrew.string() + " (permission denied)") != std::string::npos);
+  CHECK(result.message.find("errno=" + std::to_string(EACCES)) != std::string::npos);
+  CHECK(result.message.find(std::make_error_code(std::errc::permission_denied).message()) != std::string::npos);
+  CHECK(!std::filesystem::exists(homebrew / "FAKE78001"));
+}
+
+// A title parent that cannot be created is reported as unwritable, not as a collision.
+void UnwritableParentIsNotACollision() {
+  if (::geteuid() == 0) return;  // root ignores folder modes
+  Fixture fixture;
+  std::filesystem::create_directories(fixture.host_data / "playden/staging");
+  CHECK(::chmod(fixture.host_data.c_str(), 0555) == 0);
+  auto installer = fixture.Installer();
+  const auto result = installer.StageTitle(Record());
+  CHECK(::chmod(fixture.host_data.c_str(), 0755) == 0);
+  CHECK(result.state == PackageActionState::kFailed);
+  CHECK(result.code == "destination-unwritable");
+  CHECK(result.message.find((fixture.host_data / "homebrew").string()) != std::string::npos);
+  CHECK(result.message.find("errno=" + std::to_string(EACCES)) != std::string::npos);
 }
 
 // A staging folder left empty by a stop before its owner marker is reclaimed; one
@@ -1200,6 +1238,8 @@ int main() {
   AnyTitleVariantServesEveryTitle();
   FixedTitleRefreshesToAnyTitleShell();
   CreatedFoldersIgnoreUmask();
+  RenameFailureReportsErrno();
+  UnwritableParentIsNotACollision();
   EmptyUnmarkedStagingIsReclaimed();
   EarlierInstallStagingIsReclaimed();
   CollisionsTraversalSymlinksAndModesFailClosed();

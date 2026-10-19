@@ -330,7 +330,40 @@ void RunningJobReportsItsStep(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
 }
 
+// A folder check that names a problem fails the download before the runner starts; an empty answer proceeds.
+void FolderCheckGuardsDownloadStart(const std::filesystem::path& root) {
+  std::filesystem::remove_all(root);
+  Sessions sessions;
+  Runner runner;
+  InstallService service(runner, sessions, root.string());
+  std::mutex mutex;
+  std::string answer = "The folder /games is not writable.";
+  std::string checked;
+  service.SetFolderCheck([&](const std::string& games_root) {
+    std::lock_guard<std::mutex> lock(mutex);
+    checked = games_root;
+    return answer;
+  });
+  service.Install(90);
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
+    const auto* job = JobOf(s, 90);
+    return job && job->state == InstallJobState::kFailed;
+  });
+  CHECK(JobOf(service.Snapshot(), 90)->failure == "The folder /games is not writable.");
+  CHECK(runner.installs == 0);
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    CHECK(checked == root.string());
+    answer.clear();
+  }
+  service.Install(91);
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, 91); });
+  CHECK(runner.installs == 1);
+  std::filesystem::remove_all(root);
+}
+
 int main() {
+  FolderCheckGuardsDownloadStart(std::filesystem::temp_directory_path() / ("playden-foldercheck-service-" + std::to_string(::getpid())));
   RunningJobReportsItsStep(std::filesystem::temp_directory_path() / ("playden-step-service-" + std::to_string(::getpid())));
   SpaceAdmission(std::filesystem::temp_directory_path() / ("playden-space-service-" + std::to_string(::getpid())));
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));

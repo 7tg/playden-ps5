@@ -11,6 +11,7 @@
 #include "platform/ps5/title_runtime.h"
 #include "platform/ps5/native_startup.h"
 #include "runtime/settings_storage.h"
+#include "runtime/writable_folders.h"
 #include "homebrew/runtime_host.hpp"
 #include "homebrew/title_icon.hpp"
 #include "platform/ps5/title_allow_list.h"
@@ -310,6 +311,15 @@ int main() {
             playden::app::AppendLogLine(log_root, "install.log", "volume id=" + volume.id + " root=" + volume.games_root +
                                         " writable=" + (volume.available ? "1" : "0"));
         playden::steam::InstallService installs(install_runner, install_sessions, std::move(install_volumes));
+        // A games folder made over FTP is often root's and 0755: checked (and opened up) as a download starts.
+        // Only the games folder itself: the primary volume's parent is /data, never chmodded.
+        installs.SetFolderCheck([](const std::string& games_root) {
+            const std::filesystem::path root(games_root);
+            return playden::runtime::EnsureWritableFolders(
+                {root},
+                [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); },
+                [](const std::string& line) { playden::app::AppendLogLine(log_root, "install.log", line); });
+        });
         playden::steam::CmClient cloud_cm(paths.trust_store, library_storage);
         cloud_cm.SetOwner("cloud");
         cloud_cm.SetSharedSession(steam_cm);
@@ -378,6 +388,9 @@ int main() {
             config.boundary = "/data";
             config.state_root = std::filesystem::path(paths.runtime_data_root) / "runtime-state";
             config.homebrew_root = "/data/homebrew";
+            config.as_root = [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); };
+            config.writable_folders = {"/data/homebrew", "/data/playden", "/data/playden-games", "/data/playden/user",
+                                       "/data/playden/logs"};
             config.registry_transport = playden::ps5::ShadowMountPost;
             config.admit_kit = [](std::string* reason) -> std::optional<playden::homebrew::RuntimeKit> {
                 const auto firmware = playden::ps5::ConsoleFirmwareVersion();

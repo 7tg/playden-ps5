@@ -146,6 +146,9 @@ class InstallService {
   void DismissCompleted(GameId id);
   void ClearCompleted();
   InstallSnapshot Snapshot();
+  // Checks the volume's games folder (and may fix it) when a download starts; a non-empty answer
+  // fails the download with it as the message. Set before the first Install; empty: no check.
+  void SetFolderCheck(std::function<std::string(const std::string& games_root)> check) { folder_check_ = std::move(check); }
   void Shutdown();
 
   // The folder a game uses (or would use if installed now); empty if its volume is unknown.
@@ -174,6 +177,7 @@ class InstallService {
 
   InstallRunner& runner_;
   SessionRepository& sessions_;
+  std::function<std::string(const std::string&)> folder_check_;
   std::vector<InstallVolume> volumes_;
   std::string default_volume_id_;
   bool default_volume_saved_ = true;

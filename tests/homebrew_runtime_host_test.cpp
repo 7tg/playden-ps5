@@ -517,6 +517,87 @@ void PreparesExistingDownloadToReady() {
   host.Shutdown();
 }
 
+// A folder made over FTP belongs to root and is 0755, so the app user can't write into it
+// (#70): Prepare makes it 0777 as root first. Here 0555 stands in for it.
+RuntimeHostConfig WritableFoldersConfig(Fixture& fixture, const RuntimeKit& kit) {
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  config.uuid = [] { return std::optional<std::string>("00000000-0000-4000-8000-000000000001"); };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.writable_folders = {"/data/homebrew", "/data/playden", "/data/playden-games", "/data/playden/user",
+                             "/data/playden/logs"};
+  return config;
+}
+
+void PrepareFixesRootOwnedHomebrewFolder() {
+  if (geteuid() == 0) return;  // root writes anywhere
+  Fixture fixture;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  auto config = WritableFoldersConfig(fixture, kit);
+  std::atomic<int> raises{0};
+  config.as_root = [&raises](const std::function<bool()>& work) { ++raises; return work(); };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  const auto homebrew = fixture.root / "data/homebrew";
+  CHECK(chmod(homebrew.c_str(), 0555) == 0);
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(220) ||
+        (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220));
+  CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
+  CHECK(raises == 1);  // only the folder that failed its probe
+  struct stat info{};
+  CHECK(stat(homebrew.c_str(), &info) == 0 && (info.st_mode & 07777) == 0777);
+  CHECK(fs::is_regular_file(fixture.root / "data/homebrew/FAKE78001/game-launch.json"));
+  host.Shutdown();
+}
+
+void PrepareNamesUnfixableFolder() {
+  if (geteuid() == 0) return;  // root writes anywhere
+  Fixture fixture;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  auto config = WritableFoldersConfig(fixture, kit);
+  std::atomic<int> raises{0};
+  config.as_root = [&raises](const std::function<bool()>&) { ++raises; return false; };  // root refused
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  const auto homebrew = fixture.root / "data/homebrew";
+  CHECK(chmod(homebrew.c_str(), 0555) == 0);
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); }, 60);
+  CHECK(done.refusals.at(220) == "Playden can't write to " + homebrew.string() +
+                                 ". Make the folder writable over FTP (permissions 777), then try again.");
+  CHECK(raises == 1);
+  CHECK(done.installs.empty());
+  struct stat info{};
+  CHECK(stat(homebrew.c_str(), &info) == 0 && (info.st_mode & 07777) == 0555);
+  CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001"));
+  CHECK(!fs::exists(fixture.root / "data/playden"));
+  CHECK(fixture.registry_mutations == 0);
+  host.Shutdown();
+  CHECK(chmod(homebrew.c_str(), 0755) == 0);  // so the fixture can clean up
+}
+
 // A capture refused after control setup (the console's world-writable game
 // folder) leaves a settings-control journal. An explicit Prepare resumes the
 // saved request and reaches Ready with one registration.
@@ -2156,6 +2237,8 @@ int main(int argc, char** argv) {
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
   PreparesGameOnUnownedDrive();
+  PrepareFixesRootOwnedHomebrewFolder();
+  PrepareNamesUnfixableFolder();
   AnyTitleKitMakesTheGameItsOwnTitle();
   PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();

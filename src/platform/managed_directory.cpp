@@ -184,9 +184,10 @@ bool ManagedDirectory::InspectChild(const std::string& name, struct stat* result
 }
 
 std::optional<ManagedDirectory> ManagedDirectory::OpenChild(
-    const std::string& name, DirectoryPolicy policy, bool create) const {
+    const std::string& name, DirectoryPolicy policy, bool create, mode_t created_mode) const {
   if (!ValidName(name) || !Validate()) return std::nullopt;
-  if (policy_ == DirectoryPolicy::kPrivate && policy != DirectoryPolicy::kPrivate) {
+  if ((created_mode & ~0777) != 0 || (policy == DirectoryPolicy::kPrivate && created_mode != 0700) ||
+      (policy_ == DirectoryPolicy::kPrivate && policy != DirectoryPolicy::kPrivate)) {
     errno = EINVAL;
     return std::nullopt;
   }
@@ -202,6 +203,26 @@ std::optional<ManagedDirectory> ManagedDirectory::OpenChild(
       made = ::mkdir((path_ / name).c_str(), 0700);
     // No taking over an unexpected path that appeared during creation.
     if (made != 0 || !Validate() || !Inspect(name, &before)) return std::nullopt;
+    // Before the identity is recorded, so the new mode is the observed one.
+    if (S_ISDIR(before.st_mode) && before.st_uid == uid_ && (before.st_mode & 07777) != created_mode) {
+      // By descriptor, and only the folder just made: a swapped-in link is never followed.
+      int made_fd;
+#if !PLAYDEN_MANAGED_NATIVE
+      if (backend_ == DirectoryBackend::kDescriptorRelative)
+        made_fd = ::openat(fd_, name.c_str(), kDirectoryFlags);
+      else
+#endif
+        made_fd = ::open((path_ / name).c_str(), kDirectoryFlags);
+      if (made_fd < 0) return std::nullopt;
+      struct stat opened{};
+      bool changed = ::fstat(made_fd, &opened) == 0;
+      if (changed && (!S_ISDIR(opened.st_mode) || opened.st_dev != before.st_dev ||
+                      opened.st_ino != before.st_ino || opened.st_uid != uid_))
+        changed = Refuse(ESTALE);
+      if (changed) changed = ::fchmod(made_fd, created_mode) == 0;
+      ClosePreservingError(made_fd);
+      if (!changed || !Validate() || !Inspect(name, &before)) return std::nullopt;
+    }
   }
   if (!S_ISDIR(before.st_mode)) {
     errno = S_ISLNK(before.st_mode) ? ELOOP : ENOTDIR;

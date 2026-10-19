@@ -89,6 +89,12 @@ struct RuntimeHostConfig {
   // else may raise root, which is process-wide and would fail the worker's ownership checks
   // (ps5::HoldEffectiveUid). Empty holds nothing.
   std::function<std::shared_ptr<void>()> hold_effective_uid;
+  // Runs work with root raised (ps5::WithRoot), as UpdateConfig::as_root; used on the worker,
+  // whose batch hold keeps other threads from raising root meanwhile. Empty: folders can't be fixed.
+  std::function<bool(const std::function<bool()>& work)> as_root;
+  // Console folders Prepare, Repair and Play check (and fix with as_root) before writing, with the
+  // game's root and working folder (runtime/writable_folders.h). Missing ones are skipped.
+  std::vector<std::string> writable_folders;
   // Receives each prepared title's newest wrapper session log (bounded tail) at
   // startup. The wrapper writes it inside the private bottle tree, which only
   // the app user can read.
@@ -347,6 +353,10 @@ class RuntimeHost {
   std::string KitReplaced(const Composition& composition) const;
   // Makes an owned, world-writable folder from root down to working 0755 (dxvk.conf goes there).
   std::string TightenWorkingFolder(const std::filesystem::path& root, const std::string& working);
+  // Checks (and fixes, as root) config.writable_folders, the game's root and its working folder
+  // (relative to the root; empty: none) before anything is written; empty, or which can't be written.
+  // Call before any ManagedDirectory of the operation is opened.
+  std::string EnsureWritable(const std::string& install_path, const std::string& working);
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);

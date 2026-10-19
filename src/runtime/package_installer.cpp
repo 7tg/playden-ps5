@@ -724,9 +724,8 @@ FilesystemPackageInstaller::TemplateMappings() const {
 namespace {
 bool TitleDirectoriesPublished(const fs::path& title);
 
-// Creates the missing folders of path with an explicit mode: console titles run
-// with umask 0, so the default would leave them writable by everyone. Existing
-// folders are left as they are.
+// Creates the missing folders of path with an explicit mode, whatever the umask
+// (console titles run with umask 0). Existing folders are left as they are.
 void CreateDirectoriesWithMode(const fs::path& path, mode_t mode, std::error_code& error) {
   error.clear();
   std::vector<fs::path> missing;
@@ -1111,7 +1110,8 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   if (staging_parent_relative.empty() ||
       !PathComponentsHaveNoSymlink(paths_.host_data_root, staging_parent_relative, true))
     return Failed("staging-unavailable", "owned staging root is unavailable");
-  CreateDirectoriesWithMode(staging.parent_path(), 0755, error);
+  // /data/playden and its staging folder are shared parents: 0777 when created here.
+  CreateDirectoriesWithMode(staging.parent_path(), 0777, error);
   if (error)
     return Failed("staging-unavailable", "owned staging root is unavailable");
   if (!SyncAncestors(staging.parent_path()))
@@ -1288,9 +1288,13 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   } else {
     CreateDirectoriesWithMode(final.parent_path(), 0755, error);
   }
+  if (error)
+    return Failed("destination-unwritable", "Playden can't create " + final.parent_path().string() +
+                                                " (errno=" + std::to_string(error.value()) +
+                                                " message=" + error.message() + ")");
   bool final_known = false;
   const bool final_exists = ExistsNoThrow(final, &final_known);
-  if (error || !final_known || final_exists)
+  if (!final_known || final_exists)
     return Failed("destination-collision", "final package path already exists");
   if (!SyncAncestors(final.parent_path()))
     return Failed("sync-failed", "destination parent was not durably synced before rename");
@@ -1317,11 +1321,15 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
                       " to=" + final.string() + " " + detail);
     const bool transient = error == std::errc::device_or_resource_busy || error == std::errc::interrupted ||
                            error == std::errc::resource_unavailable_try_again;
+    const bool denied = error == std::errc::permission_denied || error == std::errc::operation_not_permitted;
     if (!transient || attempt == kRenameAttempts)
       return Failed("atomic-rename-failed",
                     std::string(error == std::errc::cross_device_link
                                     ? "package staging and destination must be on the same filesystem"
-                                    : "package staging rename failed") + " (" + detail + ")");
+                                    : denied ? "Playden can't write to " + final.parent_path().string() +
+                                                   " (permission denied)"
+                                             : "package staging rename into " + final.parent_path().string() +
+                                                   " failed") + " (" + detail + ")");
     std::this_thread::sleep_for(std::chrono::milliseconds(100 * attempt));
   }
   if (!SyncTree(final, false) || !SyncAncestors(final.parent_path()) ||
