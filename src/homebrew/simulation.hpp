@@ -629,7 +629,9 @@ public:
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
-    void UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id);
+    // default_volume_saved false: the drive choice couldn't be written and lasts until Playden closes.
+    void UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id,
+                       bool default_volume_saved = true);
     // False on a console that cannot read free space at all: installs are then allowed without it.
     void SetFreeSpaceSupported(bool supported) noexcept { free_space_supported_ = supported; }
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
@@ -716,6 +718,7 @@ private:
     void request_self_update_restart(const std::string& request = "restart");
     void open_release_notes(bool after_update);
     std::string selected_volume_id_;
+    bool default_volume_saved_ = true;  // last install-service report, so a failed save is said once
     // Live: the drive chosen in the install sheet for this one install (empty: the default drive),
     // and whether the open storage picker chooses it rather than the default.
     std::string install_volume_id_;

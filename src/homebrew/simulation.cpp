@@ -1397,7 +1397,8 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
     rebuild_view();
 }
 
-void Simulation::UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id) {
+void Simulation::UpdateVolumes(const std::vector<LiveVolume>& volumes, const std::string& default_volume_id,
+                               bool default_volume_saved) {
     if (!live()) return;
     std::vector<Volume> projected;
     for (const auto& live_volume : volumes) {
@@ -1416,6 +1417,14 @@ void Simulation::UpdateVolumes(const std::vector<LiveVolume>& volumes, const std
     state_.volumes = std::move(projected);
     selected_volume_id_ = default_volume_id;
     state_.default_volume_id = default_volume_id;
+    // Said once each time saving starts failing, not on every refresh.
+    if (!default_volume_saved && default_volume_saved_) {
+        const auto* volume = find_volume(state_, default_volume_id);
+        push_notice({"default-volume", "Install drive not saved", "", false, kLiveNoticeSeconds * 2, true,
+                     (volume ? volume->label : std::string("This drive")) +
+                         " is used until Playden closes · Console storage may be full"});
+    }
+    default_volume_saved_ = default_volume_saved;
     apply_live_volume_usage();
     rebuild_view();
 }

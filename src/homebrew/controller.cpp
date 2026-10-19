@@ -1207,7 +1207,7 @@ void Controller::TickInstalls() {
       volumes.push_back(std::move(live));
     }
     model_.SetFreeSpaceSupported(steam::VolumeSpaceSupported());
-    model_.UpdateVolumes(volumes, snapshot.default_volume_id);
+    model_.UpdateVolumes(volumes, snapshot.default_volume_id, snapshot.default_volume_saved);
     volume_refreshed_at_ = now;
   }
   if (snapshot.revision == install_revision_ && !account_changed && !licenses_due) return;

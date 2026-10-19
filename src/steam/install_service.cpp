@@ -271,6 +271,7 @@ void InstallService::Scan() {
 }
 
 void InstallService::SaveRegistry() {
+  if (!default_volume_saved_) SaveDefaultVolume();
   const auto& primary = volumes_.front().games_root;
   mkdir(primary.c_str(), 0777);
   const auto path = primary + "/" + kRegistry;
@@ -293,9 +294,13 @@ void InstallService::SaveDefaultVolume() {
   const auto path = primary + "/" + kDefaultVolume;
   const auto temporary = path + ".tmp";
   FILE* file = std::fopen(temporary.c_str(), "w");
-  if (!file) return;
-  std::fprintf(file, "%s\n", default_volume_id_.c_str());
-  if (std::fclose(file) == 0) std::rename(temporary.c_str(), path.c_str());
+  // A full disk refuses the write; the choice still holds for this session and is saved again
+  // with the registry.
+  bool saved = file && std::fprintf(file, "%s\n", default_volume_id_.c_str()) > 0;
+  if (file) saved = std::fclose(file) == 0 && saved;
+  saved = saved && std::rename(temporary.c_str(), path.c_str()) == 0;
+  if (!saved) std::remove(temporary.c_str());
+  default_volume_saved_ = saved;
 }
 
 void InstallService::SaveDismissed() {
@@ -514,6 +519,7 @@ InstallSnapshot InstallService::Snapshot() {
   snapshot.completed = CompletedDownloads(installed_, dismissed_, WallNow());
   snapshot.volumes = volumes_;
   snapshot.default_volume_id = default_volume_id_;
+  snapshot.default_volume_saved = default_volume_saved_;
   return snapshot;
 }
 

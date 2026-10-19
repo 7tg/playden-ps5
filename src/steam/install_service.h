@@ -88,6 +88,7 @@ struct InstallSnapshot {
   std::vector<CompletedDownload> completed;
   std::vector<InstallVolume> volumes;
   std::string default_volume_id;
+  bool default_volume_saved = true;  // false: the choice holds until Playden closes
 };
 
 // One game's install, run synchronously on the service worker. Implementations report progress
@@ -175,6 +176,7 @@ class InstallService {
   SessionRepository& sessions_;
   std::vector<InstallVolume> volumes_;
   std::string default_volume_id_;
+  bool default_volume_saved_ = true;
   std::mutex mutex_;
   std::condition_variable wake_;
   std::deque<Job> jobs_;

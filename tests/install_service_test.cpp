@@ -596,8 +596,11 @@ int main() {
 
     service.SetDefaultVolume("usb0");  // unavailable: ignored
     CHECK(service.Snapshot().default_volume_id == "internal");
+    // A refused write (a full disk) keeps the choice for the session and says it wasn't saved.
+    std::filesystem::permissions(primary, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
     service.SetDefaultVolume("m2");
-    CHECK(service.Snapshot().default_volume_id == "m2");
+    CHECK(service.Snapshot().default_volume_id == "m2" && !service.Snapshot().default_volume_saved);
+    std::filesystem::permissions(primary, std::filesystem::perms::owner_all);
     CHECK(service.RootFor(800) == (second / "800").string());
     CHECK(service.RootFor(100) == (primary / "100").string());
 
@@ -607,6 +610,8 @@ int main() {
       std::lock_guard<std::mutex> lock(multi.mutex);
       CHECK(multi.install_roots.size() == 1 && multi.install_roots[0] == (second / "800").string());
     }
+    // With room again, the next registry write saves the choice too, without choosing it again.
+    CHECK(service.Snapshot().default_volume_saved);
     for (const auto& game : service.Snapshot().installed) if (game.id == 800) CHECK(game.volume_id == "m2");
 
     service.Uninstall(500);  // its drive is absent: nothing to delete, the game stays listed

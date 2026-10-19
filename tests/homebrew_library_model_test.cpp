@@ -387,6 +387,19 @@ void live_install_volumes() {
     activate(model, "settings-storage");
     activate(model, "volume-m2");
     check(model.TakeInstallRequests().empty(), "choosing the current default sends nothing");
+    const auto unsaved = [&] {
+        const auto& modals = model.state().navigation.modals;
+        return std::count_if(modals.begin(), modals.end(), [](const auto& modal) { return modal.title == "Install drive not saved"; });
+    };
+    const std::vector<playden::homebrew::LiveVolume> live_volumes{{"internal", "Console storage", true, std::nullopt, std::nullopt},
+                                               {"m2", "M.2 SSD", true, 2'000, 500},
+                                               {"usb0", "USB drive", false, std::nullopt, std::nullopt},
+                                               {"ext0", "Extended storage", true, 4'000, 3'000, false}};
+    model.UpdateVolumes(live_volumes, "m2", false);
+    check(unsaved() == 1, "a drive choice that couldn't be saved is said");
+    model.UpdateVolumes(live_volumes, "m2", false);
+    check(unsaved() == 1, "and said once, not on every refresh");
+    model.action("circle");
 
     // Details show where a game is and where a new install goes.
     check(model.action("details:42"), "installed game opens");
