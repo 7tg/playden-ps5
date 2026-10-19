@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #include <sys/stat.h>
 #include <unistd.h>
@@ -285,6 +286,38 @@ int main() {
     Write(root / "bin/Balls.exe", newer);
     result = UnpackSteamStubPrograms(root.string(), {"bin/Balls.exe"});
     CHECK(result.ok && result.changed.size() == 1 && Read(root / "bin/Balls.exe.orig") == newer);
+  }
+  {  // On disk the program is unpacked in place a piece at a time; with pieces of two blocks (or of
+     // three) every variant comes out byte for byte as unpacked in memory.
+    const auto root = base / "chunked";
+    fx::Spec reloc;
+    reloc.reloc_into_bind = true;
+    fx::Spec pe32;
+    pe32.pe32 = true;
+    fx::Spec v30;
+    v30.header30 = 0xD0;
+    fx::Spec tls;
+    tls.tls = true;
+    fx::Spec plain_code;
+    plain_code.flags = 0x04;
+    const std::vector<std::string> wrapped = {fx::Build(), fx::Build(reloc), fx::Build(pe32), fx::Build(v30),
+                                              fx::Build(tls), fx::Build(plain_code), fx::Build21(),
+                                              fx::BuildOld(false), fx::BuildOld(true)};
+    for (const std::size_t chunk : {std::size_t{32}, std::size_t{48}, kSteamStubChunkBytes}) {
+      for (std::size_t i = 0; i < wrapped.size(); ++i) {
+        auto expected = wrapped[i];
+        std::string why;
+        CHECK(UnpackSteamStub(&expected, &why));
+        const auto name = "Game" + std::to_string(i) + ".exe";
+        Write(root / name, wrapped[i]);
+        const auto result = UnpackSteamStubPrograms(root.string(), {name}, chunk);
+        CHECK(result.ok && result.changed == std::vector<std::string>{name});
+        CHECK(Read(root / name) == expected && Read(root / (name + ".orig")) == wrapped[i]);
+        CHECK(!fs::exists(root / (".playden-" + name + ".tmp")) && !fs::exists(root / (".playden-" + name + ".orig.tmp")));
+        fs::remove(root / name);
+        fs::remove(root / (name + ".orig"));
+      }
+    }
   }
   {  // A variant Playden doesn't unpack stops with a sentence and leaves the files alone.
     const auto root = base / "refused";

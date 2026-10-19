@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <set>
+#include <vector>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -687,11 +688,12 @@ SteamStubInfo Inspect(const Reader& read, std::uint64_t file_size, Wrapper* out)
 
 // Whether ".bind" can go: the last section, nothing after its data in the file, and no
 // directory or relocation pointing into it.
-bool CanDropBind(const std::string& program, const Wrapper& wrapper) {
+// Whether .bind can go; nothing when the relocations could not be read.
+std::optional<bool> CanDropBind(const Reader& read, std::uint64_t file_size, const Wrapper& wrapper) {
   const auto& rows = wrapper.layout.rows;
   const Row& bind = rows[wrapper.bind];
   if (wrapper.bind + 1 != rows.size() || wrapper.bind == 0) return false;
-  if (static_cast<std::uint64_t>(bind.raw) + bind.raw_size != program.size()) return false;
+  if (static_cast<std::uint64_t>(bind.raw) + bind.raw_size != file_size) return false;
   const auto& directories = wrapper.layout.directories;
   for (std::size_t i = 0; i < directories.size(); ++i) {
     const auto [rva, size] = directories[i];
@@ -706,11 +708,12 @@ bool CanDropBind(const std::string& program, const Wrapper& wrapper) {
     if (row.Holds(relocations)) holder = &row;
   if (!holder) return false;
   const std::uint64_t start = static_cast<std::uint64_t>(holder->raw) + (relocations - holder->address);
-  if (start + size > program.size()) return false;
-  const auto* bytes = reinterpret_cast<const unsigned char*>(program.data());
+  if (start + size > file_size) return false;
   for (std::uint64_t at = start; at + 8 <= start + size;) {
-    const std::uint32_t page = U32(bytes + at);
-    const std::uint32_t block = U32(bytes + at + 4);
+    unsigned char block_header[8];
+    if (!read(at, block_header, sizeof(block_header))) return std::nullopt;
+    const std::uint32_t page = U32(block_header);
+    const std::uint32_t block = U32(block_header + 4);
     if (block < 8) break;
     if (page + 0x1000u > bind.address && page < bind.address + bind.span()) return false;
     at += block;
@@ -718,31 +721,150 @@ bool CanDropBind(const std::string& program, const Wrapper& wrapper) {
   return true;
 }
 
-// Whole regular file, not through a link, at most limit bytes, with its permission bits.
-enum class ReadStatus { kOk, kMissing, kTooLarge };
-ReadStatus ReadFile(const fs::path& path, std::size_t limit, std::string* bytes, mode_t* mode = nullptr) {
-  const int file = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-  if (file < 0) return ReadStatus::kMissing;
-  struct stat info {};
-  ReadStatus status = ReadStatus::kMissing;
-  if (::fstat(file, &info) == 0 && S_ISREG(info.st_mode)) {
-    if (static_cast<std::uint64_t>(info.st_size) > limit) {
-      status = ReadStatus::kTooLarge;
-    } else {
-      bytes->assign(static_cast<std::size_t>(info.st_size), '\0');
-      std::size_t done = 0;
-      while (done < bytes->size()) {
-        const auto count = ::read(file, bytes->data() + done, bytes->size() - done);
-        if (count < 0 && errno == EINTR) continue;
-        if (count <= 0) break;
-        done += static_cast<std::size_t>(count);
+// The program being unpacked: in memory, or a file changed in place a piece at a time, so a
+// large program never has to fit in the console's memory (Ghosts 'n Goblins Resurrection's is 100 MB).
+struct Image {
+  Reader read;
+  std::function<bool(std::uint64_t offset, const void* buffer, std::size_t size)> write;
+  std::function<bool(std::uint64_t size)> truncate;
+  std::uint64_t size = 0;
+};
+
+// Restores the program in image as it was built, chunk bytes at a time (a multiple of the AES block).
+bool Apply(Image& image, const Wrapper& wrapper, std::size_t chunk, std::string* why) {
+  const std::uint64_t code_at = wrapper.layout.rows[wrapper.code].raw;
+  std::vector<unsigned char> buffer(chunk), out(chunk);
+  if (wrapper.xor_size) {  // 2.0: XOR-chained dwords from the section's start
+    std::uint32_t key = wrapper.xor_key;
+    const std::size_t total = wrapper.xor_size / 4 * 4;
+    for (std::size_t at = 0; at < total; at += chunk) {
+      const std::size_t count = std::min(chunk, total - at);
+      if (!image.read(code_at + at, buffer.data(), count)) return false;
+      for (std::size_t i = 0; i < count; i += 4) {
+        const std::uint32_t stored = U32(buffer.data() + i);
+        const std::uint32_t value = stored ^ key;
+        for (int b = 0; b < 4; ++b) buffer[i + b] = static_cast<unsigned char>((value >> (8 * b)) & 0xff);
+        key = stored;
       }
-      if (done == bytes->size()) status = ReadStatus::kOk;
-      if (mode) *mode = info.st_mode & 07777;
+      if (!image.write(code_at + at, buffer.data(), count)) return false;
     }
   }
-  ::close(file);
-  return status;
+  if (wrapper.encrypted) {
+    unsigned char iv[kAesBlock];
+    mbedtls_aes_context aes;
+    mbedtls_aes_init(&aes);
+    bool ok = mbedtls_aes_setkey_dec(&aes, wrapper.key, 256) == 0 &&
+              mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, wrapper.iv, iv) == 0;
+    if (!ok) {
+      mbedtls_aes_free(&aes);
+      if (why) *why = "decryption failed";
+      return false;  // mbedtls refuses only a bad key, before any block is written
+    }
+    // CBC over first ‖ section data, written back one block later than it was read: plain
+    // block k (the code at offset 16k) comes from the section's block k-1 XOR block k-2 (first
+    // before the section). Going forward, the section's blocks are read before their place is
+    // written, and the two before each chunk are carried over; block 0 comes last, from first.
+    const std::size_t blocks = wrapper.code_size / kAesBlock;
+    const std::size_t per_chunk = chunk / kAesBlock;
+    unsigned char last1[kAesBlock], last2[kAesBlock];  // cipher blocks a-1 and a-2
+    std::memcpy(last2, wrapper.first, kAesBlock);
+    ok = blocks == 0 || image.read(code_at, last1, kAesBlock);
+    for (std::size_t a = 1; ok && a < blocks; a += per_chunk) {
+      const std::size_t count = std::min(per_chunk, blocks - a);
+      ok = image.read(code_at + a * kAesBlock, buffer.data(), count * kAesBlock);
+      const auto cipher = [&](std::size_t j) -> const unsigned char* {  // the section's block j, j >= a-2
+        return j + 1 == a ? last1 : j + 2 == a ? last2 : buffer.data() + (j - a) * kAesBlock;
+      };
+      for (std::size_t k = a; ok && k < a + count; ++k) {
+        unsigned char plain[kAesBlock];
+        ok = mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, cipher(k - 1), plain) == 0;
+        const unsigned char* previous = k >= 2 ? cipher(k - 2) : wrapper.first;
+        for (std::size_t i = 0; i < kAesBlock; ++i) out[(k - a) * kAesBlock + i] = plain[i] ^ previous[i];
+      }
+      if (!ok) break;
+      unsigned char next1[kAesBlock], next2[kAesBlock];
+      std::memcpy(next1, cipher(a + count - 1), kAesBlock);
+      std::memcpy(next2, cipher(a + count - 2), kAesBlock);
+      std::memcpy(last1, next1, kAesBlock);
+      std::memcpy(last2, next2, kAesBlock);
+      ok = image.write(code_at + a * kAesBlock, out.data(), count * kAesBlock);
+    }
+    unsigned char plain[kAesBlock];
+    ok = ok && mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, wrapper.first, plain) == 0;
+    mbedtls_aes_free(&aes);
+    if (!ok) return false;
+    for (std::size_t i = 0; i < kAesBlock; ++i) plain[i] ^= iv[i];
+    if (blocks && !image.write(code_at, plain, kAesBlock)) return false;
+  }
+
+  char field[8];
+  const auto put32 = [&](std::uint64_t at, std::uint32_t value) {
+    Put32(field, value);
+    return image.write(at, field, 4);
+  };
+  if (!put32(wrapper.layout.optional + 16, wrapper.original_entry)) return false;
+  if (!put32(wrapper.layout.optional + 64, 0)) return false;  // the checksum no longer matches; Steamless clears it too
+  for (const auto& [at, value] : wrapper.slots) {
+    for (int i = 0; i < 8; ++i) field[i] = static_cast<char>((value >> (8 * i)) & 0xff);
+    if (!image.write(at, field, 8)) return false;
+  }
+  const auto drop_bind = wrapper.keep_bind ? std::optional<bool>(false) : CanDropBind(image.read, image.size, wrapper);
+  if (!drop_bind) {
+    if (why) *why = "the program could not be read";
+    return false;
+  }
+  if (*drop_bind) {
+    const auto& rows = wrapper.layout.rows;
+    const Row& bind = rows[wrapper.bind];
+    const Row& last = rows[wrapper.bind - 1];
+    const std::uint32_t alignment = wrapper.layout.section_alignment ? wrapper.layout.section_alignment : 0x1000;
+    const std::uint64_t end = static_cast<std::uint64_t>(last.address) + (last.virtual_size ? last.virtual_size : last.raw_size);
+    if (!put32(wrapper.layout.optional + 56, static_cast<std::uint32_t>((end + alignment - 1) / alignment * alignment)))
+      return false;
+    Put16(field, static_cast<std::uint16_t>(rows.size() - 1));
+    if (!image.write(wrapper.layout.pe + 6, field, 2)) return false;
+    const char zeros[40] = {};
+    if (!image.write(bind.at, zeros, sizeof(zeros)) || !image.truncate(bind.raw)) return false;
+  }
+  return true;
+}
+
+// pread/pwrite of a whole range on an open file.
+bool ReadAt(int file, std::uint64_t offset, void* buffer, std::size_t size) {
+  auto* bytes = static_cast<unsigned char*>(buffer);
+  std::size_t done = 0;
+  while (done < size) {
+    const auto count = ::pread(file, bytes + done, size - done, static_cast<off_t>(offset + done));
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) return false;
+    done += static_cast<std::size_t>(count);
+  }
+  return true;
+}
+bool WriteAt(int file, std::uint64_t offset, const void* buffer, std::size_t size) {
+  const auto* bytes = static_cast<const unsigned char*>(buffer);
+  std::size_t done = 0;
+  while (done < size) {
+    const auto count = ::pwrite(file, bytes + done, size - done, static_cast<off_t>(offset + done));
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) return false;
+    done += static_cast<std::size_t>(count);
+  }
+  return true;
+}
+
+// A regular file, not through a link, with its size and permission bits; -1 when there is none.
+int OpenRegular(const fs::path& path, std::uint64_t* size, mode_t* mode = nullptr) {
+  const int file = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (file < 0) return -1;
+  struct stat info {};
+  if (::fstat(file, &info) != 0 || !S_ISREG(info.st_mode)) {
+    ::close(file);
+    return -1;
+  }
+  *size = static_cast<std::uint64_t>(info.st_size);
+  if (mode) *mode = info.st_mode & 07777;
+  return file;
 }
 
 std::optional<std::uint64_t> RegularSize(const fs::path& path) {
@@ -751,21 +873,46 @@ std::optional<std::uint64_t> RegularSize(const fs::path& path) {
   return static_cast<std::uint64_t>(info.st_size);
 }
 
-// Writes bytes to path through a temporary file in the same folder, synced, then renamed.
-bool WriteAtomic(const fs::path& path, const std::string& bytes, mode_t mode) {
-  const auto temporary = path.parent_path() / (".playden-" + path.filename().string() + ".tmp");
-  ::unlink(temporary.c_str());
-  const int file = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode);
-  if (file < 0) return false;
-  std::size_t done = 0;
-  bool ok = true;
-  while (ok && done < bytes.size()) {
-    const auto count = ::write(file, bytes.data() + done, bytes.size() - done);
-    if (count < 0 && errno == EINTR) continue;
-    if (count <= 0) ok = false;
-    else done += static_cast<std::size_t>(count);
+// Whether two regular files hold the same bytes, compared a chunk at a time.
+bool SameFile(const fs::path& a, const fs::path& b, std::size_t chunk) {
+  std::uint64_t size_a = 0, size_b = 0;
+  const int file_a = OpenRegular(a, &size_a);
+  const int file_b = file_a < 0 ? -1 : OpenRegular(b, &size_b);
+  bool same = file_a >= 0 && file_b >= 0 && size_a == size_b;
+  std::vector<unsigned char> left(chunk), right(chunk);
+  for (std::uint64_t at = 0; same && at < size_a; at += chunk) {
+    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(chunk, size_a - at));
+    same = ReadAt(file_a, at, left.data(), count) && ReadAt(file_b, at, right.data(), count) &&
+           std::memcmp(left.data(), right.data(), count) == 0;
   }
-  ok = ok && ::fchmod(file, mode) == 0 && ::fsync(file) == 0;
+  if (file_a >= 0) ::close(file_a);
+  if (file_b >= 0) ::close(file_b);
+  return same;
+}
+
+// Copies source into a new temporary file in target's folder, with mode; the open file (read and
+// write) or -1. The caller syncs it and renames it over target.
+int CopyToTemporary(int source, std::uint64_t size, const fs::path& temporary, mode_t mode, std::size_t chunk) {
+  ::unlink(temporary.c_str());
+  const int file = ::open(temporary.c_str(), O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode);
+  if (file < 0) return -1;
+  std::vector<unsigned char> buffer(chunk);
+  bool ok = true;
+  for (std::uint64_t at = 0; ok && at < size; at += chunk) {
+    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(chunk, size - at));
+    ok = ReadAt(source, at, buffer.data(), count) && WriteAt(file, at, buffer.data(), count);
+  }
+  if (!ok || ::fchmod(file, mode) != 0) {
+    ::close(file);
+    ::unlink(temporary.c_str());
+    return -1;
+  }
+  return file;
+}
+
+// Syncs and closes the temporary file, then renames it over path and syncs the folder.
+bool Commit(int file, const fs::path& temporary, const fs::path& path) {
+  bool ok = ::fsync(file) == 0;
   ok = ::close(file) == 0 && ok;
   if (!ok || ::rename(temporary.c_str(), path.c_str()) != 0) {
     ::unlink(temporary.c_str());
@@ -805,79 +952,39 @@ SteamStubInfo InspectSteamStub(const std::string& path) {
 }
 
 bool UnpackSteamStub(std::string* program, std::string* why) {
-  const Reader read = [&](std::uint64_t offset, void* buffer, std::size_t size) {
+  Image image;
+  image.read = [&](std::uint64_t offset, void* buffer, std::size_t size) {
     if (offset > program->size() || program->size() - offset < size) return false;
     std::memcpy(buffer, program->data() + offset, size);
     return true;
   };
+  image.write = [&](std::uint64_t offset, const void* buffer, std::size_t size) {
+    if (offset > program->size() || program->size() - offset < size) return false;
+    std::memcpy(program->data() + offset, buffer, size);
+    return true;
+  };
+  image.truncate = [&](std::uint64_t size) {
+    program->resize(static_cast<std::size_t>(size));
+    return true;
+  };
+  image.size = program->size();
   Wrapper wrapper;
-  const auto info = Inspect(read, program->size(), &wrapper);
+  const auto info = Inspect(image.read, image.size, &wrapper);
   if (info.kind != SteamStubKind::kSupported) {
     if (why) *why = info.kind == SteamStubKind::kNone ? "not wrapped" : info.detail;
     return false;
   }
-  if (wrapper.xor_size) {  // 2.0: XOR-chained dwords from the section's start
-    auto* data = reinterpret_cast<unsigned char*>(program->data()) + wrapper.layout.rows[wrapper.code].raw;
-    std::uint32_t key = wrapper.xor_key;
-    for (std::size_t at = 0; at + 4 <= wrapper.xor_size; at += 4) {
-      const std::uint32_t stored = U32(data + at);
-      const std::uint32_t value = stored ^ key;
-      for (int i = 0; i < 4; ++i) data[at + i] = static_cast<unsigned char>((value >> (8 * i)) & 0xff);
-      key = stored;
-    }
-  }
-  if (wrapper.encrypted) {
-    unsigned char iv[kAesBlock];
-    mbedtls_aes_context aes;
-    mbedtls_aes_init(&aes);
-    bool ok = mbedtls_aes_setkey_dec(&aes, wrapper.key, 256) == 0 &&
-              mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, wrapper.iv, iv) == 0;
-    // CBC over first ‖ section data, written back one block later than it was read: plain
-    // block k (the code at offset 16k) comes from the section's block k-1. Going from the
-    // end, each write lands on a block already decrypted; the last plain block is past the
-    // encrypted part and dropped.
-    auto* data = reinterpret_cast<unsigned char*>(program->data()) + wrapper.layout.rows[wrapper.code].raw;
-    const std::size_t blocks = wrapper.code_size / kAesBlock;
-    unsigned char plain[kAesBlock];
-    for (std::size_t k = blocks - 1; ok && k >= 1; --k) {
-      ok = mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, data + (k - 1) * kAesBlock, plain) == 0;
-      const unsigned char* previous = k >= 2 ? data + (k - 2) * kAesBlock : wrapper.first;
-      for (std::size_t i = 0; i < kAesBlock; ++i) data[k * kAesBlock + i] = plain[i] ^ previous[i];
-    }
-    ok = ok && mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, wrapper.first, plain) == 0;
-    mbedtls_aes_free(&aes);
-    if (!ok) {
-      if (why) *why = "decryption failed";
-      return false;  // mbedtls refuses only a bad key, before any block is written
-    }
-    for (std::size_t i = 0; i < kAesBlock; ++i) data[i] = plain[i] ^ iv[i];
-  }
-
-  char* bytes = program->data();
-  Put32(bytes + wrapper.layout.optional + 16, wrapper.original_entry);
-  Put32(bytes + wrapper.layout.optional + 64, 0);  // the checksum no longer matches; Steamless clears it too
-  for (const auto& [at, value] : wrapper.slots)
-    for (int i = 0; i < 8; ++i) bytes[at + i] = static_cast<char>((value >> (8 * i)) & 0xff);
-  if (!wrapper.keep_bind && CanDropBind(*program, wrapper)) {
-    const auto& rows = wrapper.layout.rows;
-    const Row& bind = rows[wrapper.bind];
-    const Row& last = rows[wrapper.bind - 1];
-    const std::uint32_t alignment = wrapper.layout.section_alignment ? wrapper.layout.section_alignment : 0x1000;
-    const std::uint64_t end = static_cast<std::uint64_t>(last.address) + (last.virtual_size ? last.virtual_size : last.raw_size);
-    Put32(bytes + wrapper.layout.optional + 56, static_cast<std::uint32_t>((end + alignment - 1) / alignment * alignment));
-    Put16(bytes + wrapper.layout.pe + 6, static_cast<std::uint16_t>(rows.size() - 1));
-    std::memset(bytes + bind.at, 0, 40);
-    program->resize(bind.raw);
-  }
-  return true;
+  return Apply(image, wrapper, kSteamStubChunkBytes, why);
 }
 
-SteamStubResult UnpackSteamStubPrograms(const std::string& install_root, const std::vector<std::string>& programs) {
+SteamStubResult UnpackSteamStubPrograms(const std::string& install_root, const std::vector<std::string>& programs,
+                                        std::size_t chunk_bytes) {
   SteamStubResult result;
   const auto fail = [&](std::string why) {
     result.message = std::move(why);
     return result;
   };
+  const std::size_t chunk = std::max<std::size_t>(chunk_bytes / kAesBlock, 2) * kAesBlock;
   const fs::path root(install_root);
   for (const auto& relative : std::set<std::string>(programs.begin(), programs.end())) {
     const auto path = root / relative;
@@ -890,21 +997,41 @@ SteamStubResult UnpackSteamStubPrograms(const std::string& install_root, const s
     result.found.push_back(relative);
     if (info.kind == SteamStubKind::kUnsupported)
       return fail("This game's program has Steam DRM in a form Playden can't unpack yet.");
-    std::string bytes;
+    std::uint64_t size = 0;
     mode_t mode = 0755;
-    const auto read = ReadFile(path, kSteamStubMaxProgramBytes, &bytes, &mode);
-    if (read == ReadStatus::kTooLarge) return fail("The game's program " + relative + " is too large for Playden to unpack.");
-    if (read != ReadStatus::kOk) return fail("Playden could not read the game's " + relative + ".");
+    const int source = OpenRegular(path, &size, &mode);
+    if (source < 0) return fail("Playden could not read the game's " + relative + ".");
     // A first unpack, or a newer wrapped program from a game update: keep it first.
-    bool kept = false;
-    if (RegularSize(orig) == bytes.size()) {
-      std::string previous;
-      kept = ReadFile(orig, kSteamStubMaxProgramBytes, &previous) == ReadStatus::kOk && previous == bytes;
+    if (RegularSize(orig) != size || !SameFile(orig, path, chunk)) {
+      const auto kept = path.parent_path() / (".playden-" + orig.filename().string() + ".tmp");
+      const int copy = CopyToTemporary(source, size, kept, mode, chunk);
+      if (copy < 0 || !Commit(copy, kept, orig)) {
+        ::close(source);
+        return fail("Playden could not keep a copy of the game's " + relative + ".");
+      }
     }
-    if (!kept && !WriteAtomic(orig, bytes, mode)) return fail("Playden could not keep a copy of the game's " + relative + ".");
+    // The unpacked program is made in a copy next to it, then takes its place.
+    const auto temporary = path.parent_path() / (".playden-" + path.filename().string() + ".tmp");
+    const int file = CopyToTemporary(source, size, temporary, mode, chunk);
+    ::close(source);
+    if (file < 0) return fail("Playden could not write the game's unpacked " + relative + ".");
+    Image image;
+    image.read = [&](std::uint64_t offset, void* buffer, std::size_t count) { return ReadAt(file, offset, buffer, count); };
+    image.write = [&](std::uint64_t offset, const void* buffer, std::size_t count) {
+      return WriteAt(file, offset, buffer, count);
+    };
+    image.truncate = [&](std::uint64_t length) { return ::ftruncate(file, static_cast<off_t>(length)) == 0; };
+    image.size = size;
+    Wrapper wrapper;
     std::string why;
-    if (!UnpackSteamStub(&bytes, &why)) return fail("Playden could not unpack the game's " + relative + ".");
-    if (!WriteAtomic(path, bytes, mode)) return fail("Playden could not write the game's unpacked " + relative + ".");
+    const bool unpacked = Inspect(image.read, image.size, &wrapper).kind == SteamStubKind::kSupported &&
+                          Apply(image, wrapper, chunk, &why);
+    if (!unpacked) {
+      ::close(file);
+      ::unlink(temporary.c_str());
+      return fail("Playden could not unpack the game's " + relative + ".");
+    }
+    if (!Commit(file, temporary, path)) return fail("Playden could not write the game's unpacked " + relative + ".");
     result.changed.push_back(relative);
   }
   result.ok = true;

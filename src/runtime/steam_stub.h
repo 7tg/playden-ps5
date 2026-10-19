@@ -32,8 +32,9 @@ SteamStubInfo InspectSteamStub(const std::string& path);
 // SteamStub program; program is then unchanged.
 bool UnpackSteamStub(std::string* program, std::string* why);
 
-// Largest program Playden unpacks (it is held in memory while it is rewritten).
-inline constexpr std::size_t kSteamStubMaxProgramBytes = 512u * 1024u * 1024u;
+// Programs on disk are unpacked in place this many bytes at a time, so a large one (Ghosts 'n Goblins
+// Resurrection's is 100 MB) never has to fit in Playden's memory.
+inline constexpr std::size_t kSteamStubChunkBytes = 1024u * 1024u;
 
 struct SteamStubResult {
   bool ok = false;
@@ -46,6 +47,7 @@ struct SteamStubResult {
 // original as <program>.orig, as the Steamworks swap does: idempotent, run while the game is
 // stopped; a newer wrapped program from a game update becomes the new .orig. A program that
 // is already unpacked and has its .orig counts as found.
-SteamStubResult UnpackSteamStubPrograms(const std::string& install_root, const std::vector<std::string>& programs);
+SteamStubResult UnpackSteamStubPrograms(const std::string& install_root, const std::vector<std::string>& programs,
+                                        std::size_t chunk_bytes = kSteamStubChunkBytes);
 
 }  // namespace playden::runtime
