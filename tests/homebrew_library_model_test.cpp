@@ -1039,8 +1039,17 @@ void live_storage_section_and_installed_games() {
     check(find_row(model, "settings-storage")->action == "storage-picker", "Games storage opens the drive picker");
     std::vector<std::string> order;
     for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
-    check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept", "settings-runtime"},
+    check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept",
+                                            "settings-runtime", "settings-downloads-slow"},
           "Storage lists its rows in order, without the hidden cleanup row");
+    // Downloads for slow networks (#29): off by default, a toggle saved with the preferences.
+    check(!find_row(model, "settings-downloads-slow")->selected && !model.ExportPreferences().downloads_slow_network,
+          "standard downloads by default");
+    activate(model, "settings-downloads-slow");
+    check(find_row(model, "settings-downloads-slow")->selected && model.ExportPreferences().downloads_slow_network,
+          "the toggle turns downloads for slow networks on");
+    activate(model, "settings-downloads-slow");
+    check(!model.ExportPreferences().downloads_slow_network, "and off again");
     std::vector<std::string> sections;
     for (const auto& row : model.view().rows)
         if (sections.empty() || sections.back() != row.section) sections.push_back(row.section);
@@ -1054,7 +1063,7 @@ void live_storage_section_and_installed_games() {
     order.clear();
     for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
     check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept",
-                                            "settings-runtime-cleanup", "settings-runtime"},
+                                            "settings-runtime-cleanup", "settings-runtime", "settings-downloads-slow"},
           "unused settings data sits before Runtime status when there is some");
     model.SetRuntimeLeftovers(0);
     // The Settings drive picker changes the default, not one install's drive.
@@ -1069,9 +1078,9 @@ void live_storage_section_and_installed_games() {
               model.view().rows[static_cast<std::size_t>(model.view().focused_row)].section == "Storage",
           "Up on Storage's first row does not leave the section");
     if (model.state().navigation.tabs_focused) model.action("down");
-    check(model.action("focus:settings-runtime"), "Runtime status is focused");
+    check(model.action("focus:settings-downloads-slow"), "Downloads for slow networks is focused");
     model.action("down");
-    check(model.state().navigation.focus_key == "settings-runtime", "Down on Storage's last row stays on it");
+    check(model.state().navigation.focus_key == "settings-downloads-slow", "Down on Storage's last row stays on it");
     model.action("left");
     model.action("down");
     model.action("right");

@@ -238,17 +238,9 @@ build/homebrew-host/playden-homebrew --simulation --scenario signed-out
 - Two game settings, "120 Hz output" and "OpenGL worker thread", are not available with this kit.
 - When you close a game from the PS5 menu, it can stay suspended. Pressing Play again resumes it instead of starting
   it again.
-- Downloads can be slow (about 1 MB/s) on some networks, far from a fast Steam server. Playden downloads 4 pieces at
-  the same time. To try 8, put a file named `download-tuning.txt` in `/data/homebrew/FAKE77031/dev/` over FTP, with
-  these two lines:
-
-  ```
-  slots=8
-  ahead=256
-  ```
-
-  The next download uses it. `slots` can be 1 to 8. On a fast connection 8 can be slower than 4; delete the file to
-  go back. ([#29](https://github.com/leolobato/playden-ps5/issues/29))
+- Downloads can be slow (about 1 MB/s) on some networks, far from a fast Steam server. Turn on Settings › Storage ›
+  **Downloads for slow networks**: Playden then downloads 8 pieces at the same time instead of 4. On a fast connection
+  it can be slower, so turn it off again if downloads get slower.
 
 See the [compatibility list](COMPATIBILITY.md) for what we know about each game.
 

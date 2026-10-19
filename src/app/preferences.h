@@ -16,6 +16,9 @@ struct Preferences {
   bool cloud_saves_auto = false;
   // The sign-in screen opens on the account name and password form: the last sign-in used it.
   bool steam_sign_in_password = false;
+  // Downloads for slow networks: 8 pieces at a time instead of 4. Far from a fast Steam server each piece waits
+  // long for its answer, and more of them in flight make up for it (#29); on a fast connection 4 is quicker.
+  bool downloads_slow_network = false;
 };
 
 enum class PreferencesLoadStatus {

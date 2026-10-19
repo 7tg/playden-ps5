@@ -142,6 +142,8 @@ struct UsbKeyboard {
 
 std::string title_root = "/app0";
 std::string log_root = "/app0/logs";
+// Settings › Downloads for slow networks, read by the install worker when a download starts.
+std::atomic<bool> downloads_slow_network{false};
 // Development requests are processed in file order on the first frame.
 std::vector<playden::steam::InstallRequest> take_install_requests(bool runtime_ready) {
     const std::string request_path = title_root + "/dev/install-request.txt";
@@ -277,7 +279,12 @@ int main() {
         playden::steam::CdnClient install_cdn(paths.trust_store);
         playden::steam::SteamInstallRunner install_runner(install_cm, install_cdn);
         install_runner.SetTuning([root = paths.title_root] {
-            return playden::steam::ReadDownloadTuning(root + "/dev/download-tuning.txt");
+            // A developer's tuning file wins over the setting.
+            const auto file = root + "/dev/download-tuning.txt";
+            if (::access(file.c_str(), F_OK) == 0) return playden::steam::ReadDownloadTuning(file);
+            playden::steam::DownloadTuning tuning;
+            if (downloads_slow_network.load()) tuning.slots = 8;
+            return tuning;
         });
         install_runner.SetLog([](playden::GameId app, const char* step, const char* category, const char* detail) {
             char line[640];
@@ -581,6 +588,7 @@ int main() {
             const auto dispatched = hui::sys::monotonic_us();
 #if !PLAYDEN_UI_SIMULATION
             services.Tick();
+            downloads_slow_network.store(simulation.state().downloads_slow_network);
 #endif
             const auto ticked = hui::sys::monotonic_us();
             if (simulation.state().quit_requested) break;

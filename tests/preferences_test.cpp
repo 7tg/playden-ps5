@@ -186,8 +186,9 @@ void SignInMethodPersistsAndVersionThreeOpensQr() {
   Check(store.Save(preferences).ok(), "sign-in method preference saves");
   const auto saved = storage.Read("preferences.conf");
   Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()) ==
-                          "version=4\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n",
-        "version 4 format");
+                          "version=5\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
+                          "downloads_slow_network=0\n",
+        "version 5 format");
   const auto loaded = store.Load();
   Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.steam_sign_in_password &&
             loaded.preferences.cloud_saves_auto,
@@ -200,6 +201,17 @@ void SignInMethodPersistsAndVersionThreeOpensQr() {
             three.preferences.title_store_suffix && three.preferences.cloud_saves_auto &&
             !three.preferences.steam_sign_in_password,
         "version 3 preferences load and sign in with the QR code");
+  preferences.downloads_slow_network = true;
+  Check(store.Save(preferences).ok() && store.Load().preferences.downloads_slow_network,
+        "downloads for slow networks survive restart");
+  const std::string version_four =
+      "version=4\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(version_four.begin(), version_four.end())).ok(),
+        "version 4 fixture is written");
+  const auto four = store.Load();
+  Check(four.status == playden::PreferencesLoadStatus::kLoaded && four.preferences.steam_sign_in_password &&
+            !four.preferences.downloads_slow_network,
+        "version 4 preferences load with standard downloads");
   const std::string bad = "version=4\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=2\n";
   Check(storage.WriteAtomic("preferences.conf", playden::Bytes(bad.begin(), bad.end())).ok(), "bad fixture is written");
   Check(store.Load().status == playden::PreferencesLoadStatus::kDefaultCorrupt, "bad sign-in value is corrupt");

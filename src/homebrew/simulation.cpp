@@ -1797,7 +1797,8 @@ playden::OrganizationSnapshot Simulation::ExportOrganization() const {
 }
 
 playden::Preferences Simulation::ExportPreferences() const {
-    return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password};
+    return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password,
+            state_.downloads_slow_network};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -2022,6 +2023,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.title_store_suffix = loaded.preferences.title_store_suffix;
         state_.cloud_saves_auto = loaded.preferences.cloud_saves_auto;
         state_.sign_in_password = loaded.preferences.steam_sign_in_password;
+        state_.downloads_slow_network = loaded.preferences.downloads_slow_network;
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
     }
@@ -2098,7 +2100,8 @@ bool Simulation::record_live_persistence() {
                                      (after_preferences.reduce_motion != captured_preferences_.reduce_motion ||
                                       after_preferences.title_store_suffix != captured_preferences_.title_store_suffix ||
                                       after_preferences.cloud_saves_auto != captured_preferences_.cloud_saves_auto ||
-                                      after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password);
+                                      after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password ||
+                                      after_preferences.downloads_slow_network != captured_preferences_.downloads_slow_network);
 
     if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
         apply_organization_snapshot(captured_organization_);
@@ -2120,6 +2123,7 @@ bool Simulation::record_live_persistence() {
                 state_.title_store_suffix = captured_preferences_.title_store_suffix;
                 state_.cloud_saves_auto = captured_preferences_.cloud_saves_auto;
                 state_.sign_in_password = captured_preferences_.steam_sign_in_password;
+                state_.downloads_slow_network = captured_preferences_.downloads_slow_network;
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
                 force_organization_selection_ = false;
@@ -3891,6 +3895,13 @@ void Simulation::rebuild_view() {
         if (live()) {
             runtime.subtitle = state_.runtime_problem.empty() ? "Games run through prospero-win" : state_.runtime_problem;
             runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
+        }
+        if (live()) {
+            auto& slow = add("settings-downloads-slow", RowKind::Toggle, "Downloads for slow networks", "toggle-downloads-slow");
+            slow.selected = state_.downloads_slow_network;
+            slow.subtitle = state_.downloads_slow_network
+                ? "8 pieces at a time. Turn it off if downloads got slower."
+                : "Off: 4 pieces at a time. Turn it on if downloads stay near 1 MB/s.";
         }
         section = "Display";
         auto& motion = add("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion");
@@ -5846,6 +5857,10 @@ void Simulation::activate() {
     else if (action_name == "toggle-motion") { state_.reduced_motion = !state_.reduced_motion; save_profile(); }
     else if (action_name == "toggle-title-store") { state_.title_store_suffix = !state_.title_store_suffix; save_profile(); }
     else if (action_name == "toggle-cloud-saves") { state_.cloud_saves_auto = !state_.cloud_saves_auto; save_profile(); }
+    else if (action_name == "toggle-downloads-slow") {
+        state_.downloads_slow_network = !state_.downloads_slow_network;
+        save_profile();
+    }
     else if (action_name == "launch") { state_.session_game_id = state_.navigation.selected_game_id; state_.session = SessionState::Preparing; state_.navigation.route = Route::Session; state_.navigation.focus_key = "session-return"; }
     else if (action_name == "runtime-status") open_modal({"runtime", "Runtime unavailable", "details-play", {"runtime-retry", "cancel"}, 0, false});
     else if (action_name == "return-game") state_.session = SessionState::Running;
