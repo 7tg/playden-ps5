@@ -1915,6 +1915,12 @@ class Render::Impl
             y += height + (heading ? 6.0F : 10.0F);
         }
         const float content = placed.empty() ? 0.0F : placed.back().y + placed.back().height;
+        // Focus on a drive (or its sheet) keeps the list where it is.
+        if (focus_bottom <= 0.0F)
+        {
+            focus_top = list_scrolls_["queue"].target + 12.0F;
+            focus_bottom = focus_top;
+        }
         // Room for the focus ring above and below the focused row.
         const float offset = list_scroll("queue", std::max(0.0F, focus_top - 12.0F), focus_bottom + 12.0F, viewport,
                                          content + 12.0F, state.reduced_motion);
@@ -2135,7 +2141,7 @@ class Render::Impl
         float x = first_x;
         if (begin > 0)
         {
-            const std::string earlier = "‹ " + std::to_string(begin);
+            const std::string earlier = "+" + std::to_string(begin);
             ui::text(scene_, fonts_.regular, earlier, first_x, baseline, 22.0F, kMuted);
             x += fonts_.regular.measure(earlier, 22.0F) + 28.0F;
         }
@@ -2165,7 +2171,7 @@ class Render::Impl
             x += drive.width + 40.0F;
         }
         if (index < drives.size())
-            ui::text(scene_, fonts_.regular, "+" + std::to_string(drives.size() - index) + " ›", 1824.0F, baseline, 22.0F, kMuted,
+            ui::text(scene_, fonts_.regular, "+" + std::to_string(drives.size() - index), 1824.0F, baseline, 22.0F, kMuted,
                      gfx::Align::right);
     }
 
