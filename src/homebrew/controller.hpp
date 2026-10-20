@@ -38,6 +38,8 @@ class Controller {
   void SetStoreDetails(steam::StoreDetailsService* store_details) { store_details_ = store_details; }
   // Playden's own update: the controller passes the player's requests on and shows its state.
   void SetSelfUpdate(update::UpdateService* self_update) { self_update_ = self_update; }
+  // Receives one line per shutdown step with how long it took, so a quit that hangs names the step.
+  void SetShutdownLog(std::function<void(const std::string&)> log) { shutdown_log_ = std::move(log); }
   // Counts changes to the account's Steam licenses (steam::CmLicenseChanges): the library refreshes
   // once they settle for `delay`, so a game added on another device shows up.
   void SetLicenseChanges(std::function<std::uint64_t()> changes,
@@ -73,6 +75,7 @@ class Controller {
   void TickInstalls();
   void TickSelfUpdate();
   void TickLicenseChanges();
+  std::function<void(const std::string&)> shutdown_log_;
   std::function<std::uint64_t()> license_changes_;
   std::chrono::steady_clock::duration license_refresh_delay_{};
   std::optional<std::uint64_t> seen_license_changes_;

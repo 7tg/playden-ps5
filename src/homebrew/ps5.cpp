@@ -568,6 +568,7 @@ int main() {
         services.SetSelfUpdate(&self_update);
         // A game bought or added to the library elsewhere: Steam pushes the new license list.
         services.SetLicenseChanges([steam_cm] { return playden::steam::CmLicenseChanges(*steam_cm); });
+        services.SetShutdownLog([](const std::string& line) { playden::app::AppendLogLine(log_root, "launch.log", line); });
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer(paths.assets_root);
@@ -710,9 +711,13 @@ int main() {
             pad.tick(1.0F / 60.0F);
         }
 #if !PLAYDEN_UI_SIMULATION
+        playden::app::AppendLogLine(log_root, "launch.log", "quit requested");
         services.Shutdown();
+        playden::app::AppendLogLine(log_root, "launch.log", "shutdown artwork start");
         artwork.Shutdown();
+        playden::app::AppendLogLine(log_root, "launch.log", "shutdown self-update start");
         self_update.Shutdown();
+        playden::app::AppendLogLine(log_root, "launch.log", "shutdown done");
         if (self_update.Snapshot().restart_requested || self_update.Snapshot().rollback_requested) {
             // The relaunch payload starts first: it waits until Playden has gone, then opens it again.
             std::string elf, error;

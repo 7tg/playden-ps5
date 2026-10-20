@@ -38,15 +38,22 @@ void Controller::Shutdown() {
         phase_!=Phase::ClearLibrary && phase_!=Phase::ClearOrganization && phase_!=Phase::SignOut) SignOut(false);
   }
   begin_after_clear_=false;
-  if(library_service_) {
-    library_service_->Shutdown();
-    library_->Tick();AdvanceClear();
-  }
-  if(persistence_) { persistence_->FlushAndShutdown();AdvanceOrganizationClear(); }
-  if(app_details_) app_details_->Shutdown();
-  if(installs_) installs_->Shutdown();
-  if(cloud_) cloud_->Shutdown();
-  if(runtime_) runtime_->Shutdown();
+  // Each step is logged before it starts and with its time after, so a hang shows where it stopped.
+  const auto step = [this](const char* name, const auto& work) {
+    if (shutdown_log_) shutdown_log_(std::string("shutdown ") + name + " start");
+    const auto started = std::chrono::steady_clock::now();
+    work();
+    if (shutdown_log_)
+      shutdown_log_(std::string("shutdown ") + name + " ms=" +
+                    std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started).count()));
+  };
+  if(library_service_) step("library", [&] { library_service_->Shutdown(); library_->Tick(); AdvanceClear(); });
+  if(persistence_) step("persistence", [&] { persistence_->FlushAndShutdown(); AdvanceOrganizationClear(); });
+  if(app_details_) step("details", [&] { app_details_->Shutdown(); });
+  if(installs_) step("installs", [&] { installs_->Shutdown(); });
+  if(cloud_) step("cloud", [&] { cloud_->Shutdown(); });
+  if(runtime_) step("runtime", [&] { runtime_->Shutdown(); });
   service_.reset();
   persistence_.reset();
   library_.reset();
