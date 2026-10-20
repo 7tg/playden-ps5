@@ -28,7 +28,6 @@
 #include <cstring>
 #include <ctime>
 #include <dirent.h>
-#include <fstream>
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/stat.h>
@@ -481,15 +480,20 @@ constexpr const char* kPreparedHistory = "prepared-history";
 
 void RuntimeHost::LoadPreparedHistory() {
   prepared_history_.clear();
-  std::ifstream in(config_.state_root / kPreparedHistory);
-  std::uint32_t app = 0;
-  long long finished = 0;
+  // stdio, not iostream: the console's libc has no locale-aware number parsing.
+  FILE* file = std::fopen((config_.state_root / kPreparedHistory).c_str(), "r");
+  if (!file) return;
+  char line[64];
   // Oldest first: a long file keeps its newest entries.
-  while (in >> app >> finished) {
-    if (app == 0 || finished <= 0) continue;
-    prepared_history_.push_back({app, static_cast<std::int64_t>(finished)});
+  while (std::fgets(line, sizeof(line), file)) {
+    char* end = nullptr;
+    const auto app = std::strtoul(line, &end, 10);
+    const auto finished = std::strtoll(end, nullptr, 10);
+    if (app == 0 || app > UINT32_MAX || finished <= 0) continue;
+    prepared_history_.push_back({static_cast<std::uint32_t>(app), static_cast<std::int64_t>(finished)});
     if (prepared_history_.size() > kMaxPrepared * 8) prepared_history_.erase(prepared_history_.begin());
   }
+  std::fclose(file);
 }
 
 void RuntimeHost::SavePreparedHistory() {
