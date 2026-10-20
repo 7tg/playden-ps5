@@ -12,6 +12,7 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include "steam_id.h"
 
 namespace {
 
@@ -51,14 +52,14 @@ void filtering_uses_real_fixture(const std::filesystem::path& fixtures)
     state.library.scope = "favorites";
     check(filtered_games(state).size() == 2, "Favorites scope uses persisted favorite IDs");
     state.library.scope = "hidden";
-    check(filtered_games(state).size() == 1 && filtered_games(state).front()->id == 900024,
+    check(filtered_games(state).size() == 1 && filtered_games(state).front()->id == SteamId(900024),
           "Hidden scope exposes only hidden games");
     state.library.scope = "collection-1";
     check(filtered_games(state).size() == 3, "collection scope uses its exact membership");
 
     state.library.scope = "all";
     state.library.query = "night orchard";
-    check(filtered_games(state).size() == 1 && filtered_games(state).front()->id == 900010,
+    check(filtered_games(state).size() == 1 && filtered_games(state).front()->id == SteamId(900010),
           "query matching is case insensitive");
     state.library.query.clear();
     state.library.filters = {"installed"};
@@ -67,9 +68,9 @@ void filtering_uses_real_fixture(const std::filesystem::path& fixtures)
     check(filtered_games(state).size() == 6, "genre token matches the fixture model");
     state.library.filters = {"controller-full"};
     check(filtered_games(state).size() == 8, "controller token matches the fixture model");
-    state.library.ratings[900001] = Compatibility::Works;
-    state.library.ratings[900002] = Compatibility::Playable;
-    state.library.ratings[900003] = Compatibility::Broken;
+    state.library.ratings[SteamId(900001)] = Compatibility::Works;
+    state.library.ratings[SteamId(900002)] = Compatibility::Playable;
+    state.library.ratings[SteamId(900003)] = Compatibility::Broken;
     state.library.filters = {"compat-playable"};
     check(filtered_games(state).size() == 2, "compatibility filter accepts Works and Playable only");
 
@@ -271,16 +272,16 @@ void live_unicode_query() {
     check(scopes.front()=="installed" && scopes[1]=="all","live scopes offer Installed now that installs are real");
     state.account.authentication=AuthState::SignedIn;
     for(const auto& [id,title]:std::vector<std::pair<playden::GameId,std::string>>{
-        {9,"Straße"},{8,"STRASSE"},{7,"CAFÉ: Beyond"},{6,"Αθήνα"},{5,"東京物語"},{4,std::string("bad\xff",4)}}) {
+        {SteamId(9),"Straße"},{SteamId(8),"STRASSE"},{SteamId(7),"CAFÉ: Beyond"},{SteamId(6),"Αθήνα"},{SteamId(5),"東京物語"},{SteamId(4),std::string("bad\xff",4)}}) {
         Game game;game.id=id;game.title=title;state.games.push_back(game);
     }
     state.library.query="strasse";
     auto result=filtered_games(state);
-    check(result.size()==2 && result[0]->id==8 && result[1]->id==9,"live Unicode folding expands sharp s with deterministic ID ties");
+    check(result.size()==2 && result[0]->id==SteamId(8) && result[1]->id==SteamId(9),"live Unicode folding expands sharp s with deterministic ID ties");
     state.library.query="café:";
-    check(filtered_games(state).size()==1 && filtered_games(state)[0]->id==7,"live accented case folding preserves punctuation");
+    check(filtered_games(state).size()==1 && filtered_games(state)[0]->id==SteamId(7),"live accented case folding preserves punctuation");
     state.library.query="ΑΘΉΝΑ";
-    check(filtered_games(state).size()==1 && filtered_games(state)[0]->id==6,"live Greek case folding");
+    check(filtered_games(state).size()==1 && filtered_games(state)[0]->id==SteamId(6),"live Greek case folding");
     state.library.query="東京";
     check(filtered_games(state).size()==1,"live exact CJK substring");
     state.library.query=std::string("bad\xff",4);
@@ -302,7 +303,7 @@ void continue_playing_ends_in_more(const std::filesystem::path& fixtures)
     for (int index = 0; index < 30; ++index)
     {
         Game game = base;
-        game.id = static_cast<GameId>(500000 + index);
+        game.id = static_cast<GameId>(SteamId(500000 + index));
         game.title = "Played " + std::to_string(index);
         game.playtime_minutes = 10;
         game.last_played = 1000 + index;
@@ -314,14 +315,14 @@ void continue_playing_ends_in_more(const std::filesystem::path& fixtures)
     const Shelf& continued = projected[0];
     check(continued.game_ids.size() == kShelfLimit && continued.more == 10 && shelf_cells(continued) == 21,
           "Continue playing shows 20 games and counts the rest");
-    check(continued.game_ids.front() == 500029, "the most recently played game comes first");
+    check(continued.game_ids.front() == SteamId(500029), "the most recently played game comes first");
     check(shelf_more_key(continued) == "shelf-continue-more", "the More cell has a stable focus key");
 
     state.navigation.route = Route::Home;
     state.navigation.home_shelf = 0;
     state.navigation.home_shelf_focus["continue"] = 19;
     move_browser(state, 1, 0);
-    check(state.navigation.home_shelf_focus["continue"] == 20 && state.navigation.selected_game_id == 0 &&
+    check(state.navigation.home_shelf_focus["continue"] == 20 && !state.navigation.selected_game_id.valid() &&
               state.navigation.focus_key == "shelf-continue-more",
           "Right after the 20th game focuses More, with no game selected");
     move_browser(state, 1, 0);

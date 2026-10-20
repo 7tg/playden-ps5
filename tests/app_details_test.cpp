@@ -6,6 +6,7 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::steam;
@@ -35,7 +36,7 @@ class Source final : public AppDetailsSource {
     }
     if (fail) return {};
     std::vector<AppDetails> result;
-    for (const auto id : ids) result.push_back({id, 0, true, id * 10ull, id * 100ull, true, {}});
+    for (const auto& id : ids) result.push_back({id, 0, true, *id.steam_app() * 10ull, *id.steam_app() * 100ull, true, {}});
     return result;
   }
 };
@@ -55,11 +56,11 @@ void RequestsAreDeduplicatedPerGeneration() {
   Sessions sessions;
   Source source;
   AppDetailsService service(source, sessions);
-  service.Request(7, 1);
-  service.Request(7, 1);
+  service.Request(SteamId(7), 1);
+  service.Request(SteamId(7), 1);
   const auto first = Await(service, 1);
-  assert(first[0].id == 7 && first[0].available && first[0].install_bytes == 700u && first[0].account_generation == 1);
-  service.Request(7, 1);
+  assert(first[0].id == SteamId(7) && first[0].available && first[0].install_bytes == 700u && first[0].account_generation == 1);
+  service.Request(SteamId(7), 1);
   std::this_thread::sleep_for(20ms);
   assert(service.Pump().empty());
   std::lock_guard<std::mutex> lock(source.mutex);
@@ -70,10 +71,10 @@ void NewGenerationDropsResultsAndRefetches() {
   Sessions sessions;
   Source source;
   AppDetailsService service(source, sessions);
-  service.Request(7, 1);
+  service.Request(SteamId(7), 1);
   Await(service, 1);
   service.Invalidate(2);
-  service.Request(7, 2);
+  service.Request(SteamId(7), 2);
   const auto again = Await(service, 1);
   assert(again[0].account_generation == 2);
 }
@@ -83,11 +84,11 @@ void FailuresAreRetryable() {
   Source source;
   source.fail = true;
   AppDetailsService service(source, sessions);
-  service.Request(9, 1);
+  service.Request(SteamId(9), 1);
   const auto failed = Await(service, 1);
   assert(!failed[0].available && !failed[0].reason.empty());
   source.fail = false;
-  service.Request(9, 1);
+  service.Request(SteamId(9), 1);
   const auto recovered = Await(service, 1);
   assert(recovered[0].available && recovered[0].download_bytes == 90u);
 }

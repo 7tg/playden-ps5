@@ -506,7 +506,7 @@ int main(int argc, char** argv) {
         install_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         install_cdn = std::make_unique<playden::steam::CdnClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
         install_runner = std::make_unique<playden::steam::SteamInstallRunner>(*install_cm, *install_cdn);
-        install_runner->SetLog([log_directory](playden::GameId app, const char* step, const char* category, const char* detail) {
+        install_runner->SetLog([log_directory](std::uint32_t app, const char* step, const char* category, const char* detail) {
             char line[640];
             if (std::string(step) == "install-removal")
                 std::snprintf(line, sizeof(line), "install-removal done app=%u %s", app, detail);
@@ -528,7 +528,7 @@ int main(int argc, char** argv) {
         cloud_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         cloud_http = std::make_unique<playden::steam::HttpClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
         cloud_runner = std::make_unique<playden::steam::SteamCloudRunner>(*cloud_cm, *cloud_http);
-        cloud_runner->SetLog([log_directory](playden::GameId app, const char* event, const std::string& message) {
+        cloud_runner->SetLog([log_directory](std::uint32_t app, const char* event, const std::string& message) {
             playden::app::AppendLogLine(log_directory, "cloud.log", "app=" + std::to_string(app) + " event=" + event + " " + message);
         });
         cloud_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());

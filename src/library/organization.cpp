@@ -107,8 +107,9 @@ bool ValidFilter(const std::string& value) {
   return value == "compat-playable";
 }
 
-bool AddGameId(std::set<GameId>& all_ids, GameId id) {
-  if (id == 0) return false;
+// Version 1 stores Steam app IDs only.
+bool AddGameId(std::set<GameId>& all_ids, const GameId& id) {
+  if (!id.steam_app()) return false;
   all_ids.insert(id);
   return all_ids.size() <= kMaximumGameIds;
 }
@@ -124,8 +125,8 @@ bool Validate(const OrganizationSnapshot& snapshot) {
   }
 
   std::set<GameId> game_ids;
-  for (GameId id : snapshot.favorites) if (!AddGameId(game_ids, id)) return false;
-  for (GameId id : snapshot.hidden) if (!AddGameId(game_ids, id)) return false;
+  for (const GameId& id : snapshot.favorites) if (!AddGameId(game_ids, id)) return false;
+  for (const GameId& id : snapshot.hidden) if (!AddGameId(game_ids, id)) return false;
   // Selection is one fixed-width scalar, independent of the annotation/member ID budget.
 
   std::set<std::string> collection_ids;
@@ -139,7 +140,7 @@ bool Validate(const OrganizationSnapshot& snapshot) {
         collection.members.size() > kMaximumGameIds) {
       return false;
     }
-    for (GameId id : collection.members) if (!AddGameId(game_ids, id)) return false;
+    for (const GameId& id : collection.members) if (!AddGameId(game_ids, id)) return false;
   }
   // "installed" is the Library rail of installed games; it is a scope, never a collection ID.
   if (!BuiltInScope(snapshot.scope) && snapshot.scope != "installed" && !collection_ids.count(snapshot.scope))
@@ -245,7 +246,7 @@ class Reader {
 
 bool WriteIds(Writer& writer, const std::set<GameId>& ids) {
   if (!writer.U32(static_cast<std::uint32_t>(ids.size()))) return false;
-  for (GameId id : ids) if (!writer.U32(id)) return false;
+  for (const GameId& id : ids) if (!writer.U32(*id.steam_app())) return false;
   return true;
 }
 
@@ -254,7 +255,7 @@ bool ReadIds(Reader& reader, std::set<GameId>& ids) {
   if (!reader.U32(count) || count > kMaximumGameIds) return false;
   for (std::uint32_t index = 0; index < count; ++index) {
     std::uint32_t id = 0;
-    if (!reader.U32(id) || id == 0 || !ids.insert(id).second) return false;
+    if (!reader.U32(id) || id == 0 || !ids.insert(GameId::Steam(id)).second) return false;
   }
   return true;
 }
@@ -300,7 +301,7 @@ Result<void> OrganizationStore::Save(
 
   Writer writer;
   bool okay = writer.Raw(kMagic.data(), kMagic.size()) && writer.U16(kVersion) &&
-              writer.U64(account_id) && writer.U32(snapshot.selected_game_id) &&
+              writer.U64(account_id) && writer.U32(snapshot.selected_game_id.steam_app().value_or(0)) &&
               WriteIds(writer, snapshot.favorites) && WriteIds(writer, snapshot.hidden) &&
               writer.U32(static_cast<std::uint32_t>(snapshot.collections.size()));
   for (const auto& collection : snapshot.collections) {
@@ -309,12 +310,12 @@ Result<void> OrganizationStore::Save(
   }
   okay = okay && writer.U32(static_cast<std::uint32_t>(snapshot.ratings.size()));
   for (const auto& rating : snapshot.ratings) {
-    okay = okay && writer.U32(rating.first) &&
+    okay = okay && writer.U32(*rating.first.steam_app()) &&
            writer.U8(static_cast<std::uint8_t>(rating.second));
   }
   okay = okay && writer.U32(static_cast<std::uint32_t>(snapshot.notes.size()));
   for (const auto& note : snapshot.notes)
-    okay = okay && writer.U32(note.first) && writer.String(note.second);
+    okay = okay && writer.U32(*note.first.steam_app()) && writer.String(note.second);
   okay = okay && writer.String(snapshot.query) && writer.String(snapshot.scope) &&
          writer.String(snapshot.sort) &&
          writer.U32(static_cast<std::uint32_t>(snapshot.filters.size()));
@@ -358,14 +359,16 @@ Result<std::optional<OrganizationSnapshot>> OrganizationStore::Load(
   Reader reader(bytes, kMagic.size(), payload_limit);
   std::uint16_t version = 0;
   std::uint64_t embedded_account = 0;
+  std::uint32_t selected_game_id = 0;
   OrganizationSnapshot snapshot;
   if (!reader.U16(version) || version != kVersion ||
       !reader.U64(embedded_account) || embedded_account != account_id ||
-      !reader.U32(snapshot.selected_game_id) ||
+      !reader.U32(selected_game_id) ||
       !ReadIds(reader, snapshot.favorites) || !ReadIds(reader, snapshot.hidden)) {
     return InvalidValue<std::optional<OrganizationSnapshot>>("identity or fields");
   }
   snapshot.schema_version = version;
+  snapshot.selected_game_id = GameId::Steam(selected_game_id);
 
   std::uint32_t collection_count = 0;
   if (!reader.U32(collection_count) || collection_count > kMaximumCollections)
@@ -391,7 +394,7 @@ Result<std::optional<OrganizationSnapshot>> OrganizationStore::Load(
     std::uint8_t rating = 0;
     if (!reader.U32(id) || id == 0 || !reader.U8(rating) ||
         rating > static_cast<std::uint8_t>(CompatibilityRating::kBroken) ||
-        !snapshot.ratings.emplace(id, static_cast<CompatibilityRating>(rating)).second) {
+        !snapshot.ratings.emplace(GameId::Steam(id), static_cast<CompatibilityRating>(rating)).second) {
       return InvalidValue<std::optional<OrganizationSnapshot>>("rating");
     }
   }
@@ -403,7 +406,7 @@ Result<std::optional<OrganizationSnapshot>> OrganizationStore::Load(
     std::uint32_t id = 0;
     std::string note;
     if (!reader.U32(id) || id == 0 || !reader.String(note, kMaximumNoteBytes) ||
-        !snapshot.notes.emplace(id, std::move(note)).second) {
+        !snapshot.notes.emplace(GameId::Steam(id), std::move(note)).second) {
       return InvalidValue<std::optional<OrganizationSnapshot>>("note");
     }
   }

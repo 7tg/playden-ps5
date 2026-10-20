@@ -11,6 +11,7 @@
 #include <iostream>
 #include <string>
 #include <unistd.h>
+#include "steam_id.h"
 
 namespace {
 
@@ -170,20 +171,20 @@ void settings_survive_account_restore_and_cache_action_is_honest(const std::file
     stored.revision = 3;
     stored.overrides["resolution"] = "1280x720";
     std::string reason;
-    check(playden::runtime::SaveGameSettingsFile(file.string(), {{220, stored}}, &reason), "seed live settings");
+    check(playden::runtime::SaveGameSettingsFile(file.string(), {{SteamId(220), stored}}, &reason), "seed live settings");
     auto model = make_live(base);
     model.SetGameSettingsFile(file);
     model.UpdateAccount({AuthState::Restoring, {}, {}, {}, {}, true});
-    check(model.state().game_settings.count(220) && model.state().game_settings.at(220) == stored,
+    check(model.state().game_settings.count(SteamId(220)) && model.state().game_settings.at(SteamId(220)) == stored,
           "initial account restore retains device game settings");
     model.UpdateAccount({AuthState::SignedOut, {}, {}, {}, {}, true});
     model.SetWallClock(100);
-    std::map<std::uint32_t, playden::runtime::GameSettingsRecord> loaded;
-    check(playden::runtime::LoadGameSettingsFile(file.string(), &loaded, &reason) && loaded.at(220) == stored,
+    std::map<playden::GameId, playden::runtime::GameSettingsRecord> loaded;
+    check(playden::runtime::LoadGameSettingsFile(file.string(), &loaded, &reason) && loaded.at(SteamId(220)) == stored,
           "sign-out does not erase settings from disk");
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
     playden::GameSummary game;
-    game.id = 220;
+    game.id = SteamId(220);
     game.title = "Half-Life 2";
     check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "settings game library delivered");
     {
@@ -191,7 +192,7 @@ void settings_survive_account_restore_and_cache_action_is_honest(const std::file
         corrupt << "malformed settings";
     }
     model.SetGameSettingsFile(file);
-    check(model.state().game_settings.count(220) && model.state().game_settings.at(220) == stored,
+    check(model.state().game_settings.count(SteamId(220)) && model.state().game_settings.at(SteamId(220)) == stored,
           "failed settings reload preserves the current records");
     model.action("r1");
     check(!model.state().navigation.modals.empty() &&
@@ -234,12 +235,12 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
     model.SetKitCapabilities(playden::runtime::KitCapabilitiesFromManifest({"settings-dxvk-config"}, true));
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
     playden::GameSummary game;
-    game.id = 220;
+    game.id = SteamId(220);
     game.title = "Half-Life 2";
     check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "prepared game library delivered");
-    model.UpdateInstalls({}, {{220, 1024, "internal", true}});
+    model.UpdateInstalls({}, {{SteamId(220), 1024, "internal", true}});
     playden::homebrew::LiveRuntimeGame runtime;
-    runtime.game_id = 220;
+    runtime.game_id = SteamId(220);
     runtime.status = "Ready";
     runtime.ready = runtime.prepared = runtime.has_title = true;
     runtime.launch_entry_id = "game";
@@ -281,7 +282,7 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
     }
 
     activate(model, "game-settings");
-    check(model.TakeActivityRequests() == std::vector<playden::homebrew::GameId>{220}, "the sheet asks whether the game runs");
+    check(model.TakeActivityRequests() == std::vector<playden::homebrew::GameId>{SteamId(220)}, "the sheet asks whether the game runs");
     activate(model, "section-more");
     const auto* version = find_row(model, "setting-windows_version");
     check(version && !version->enabled && version->subtitle == "Checking whether Half-Life 2 is running…",
@@ -303,7 +304,7 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
     activate(model, "choice-0");
     check(model.action("circle"), "close the settings sheet");
     check(model.TakeMaintenanceRequests() ==
-              std::vector<std::pair<playden::homebrew::GameId, MaintenanceKind>>{{220, MaintenanceKind::ApplySettings}},
+              std::vector<std::pair<playden::homebrew::GameId, MaintenanceKind>>{{SteamId(220), MaintenanceKind::ApplySettings}},
           "closing the sheet asks for the settings to be applied");
     check(has_notice(model, "settings-saved"), "closing the sheet announces the change");
     check(model.state().navigation.modals.back().id == "context", "closing Game settings returns to Game actions");
@@ -311,14 +312,14 @@ void live_settings_follow_the_prepared_title(const std::filesystem::path& base) 
           "the More menu says unpublished changes wait for the next launch");
 
     activate(model, "game-maintenance");
-    check(model.TakeActivityRequests() == std::vector<playden::homebrew::GameId>{220}, "maintenance asks whether the game runs");
+    check(model.TakeActivityRequests() == std::vector<playden::homebrew::GameId>{SteamId(220)}, "maintenance asks whether the game runs");
     check(!find_row(model, "maintenance-backup")->enabled, "maintenance waits for the console's answer");
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
     check(find_row(model, "maintenance-backup")->enabled, "maintenance is open while the game is stopped");
     activate(model, "maintenance-backup");
     activate(model, "confirm-destructive");
     check(model.TakeMaintenanceRequests() ==
-              std::vector<std::pair<playden::homebrew::GameId, MaintenanceKind>>{{220, MaintenanceKind::BackupSaves}},
+              std::vector<std::pair<playden::homebrew::GameId, MaintenanceKind>>{{SteamId(220), MaintenanceKind::BackupSaves}},
           "a confirmed maintenance action goes to the runtime");
     check(find_row(model, "maintenance-backup")->value == "Working…", "the running action shows its progress");
     runtime.maintenance = MaintenanceKind::BackupSaves;
@@ -352,10 +353,10 @@ void live_program_change_applies_like_other_settings(const std::filesystem::path
     model.SetSettingsData({{"playden-default", "Playden default", "Most games", "", {}}}, {});
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
     playden::GameSummary game;
-    game.id = 22380;
+    game.id = SteamId(22380);
     game.title = "Fallout: New Vegas";
     check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "program: library delivered");
-    model.UpdateInstalls({}, {{22380, 1024, "internal", true}});
+    model.UpdateInstalls({}, {{SteamId(22380), 1024, "internal", true}});
     // Prepared for a program picked earlier, so the recipe lists it first, as on the console.
     playden::runtime::GameRecipe recipe;
     recipe.id = playden::runtime::GeneratedRecipeId(22380);
@@ -366,13 +367,13 @@ void live_program_change_applies_like_other_settings(const std::filesystem::path
                              {"launch-1", "Fallout: New Vegas", "FalloutNVLauncher.exe", "", ""}};
     model.SetGeneratedRecipes({recipe});
     std::map<GameId, playden::homebrew::LiveGameSetup> setups;
-    setups[22380].scanned = true;
-    setups[22380].programs = {{"FalloutNV.exe", "pe32", "", false, ""},
+    setups[SteamId(22380)].scanned = true;
+    setups[SteamId(22380)].programs = {{"FalloutNV.exe", "pe32", "", false, ""},
                               {"FalloutNVLauncher.exe", "pe32", "", false, ""},
                               {"Redists/vcredist_x86.exe", "pe32", "", false, ""}};
     model.SetGameSetups(setups);
     playden::homebrew::LiveRuntimeGame runtime;
-    runtime.game_id = 22380;
+    runtime.game_id = SteamId(22380);
     runtime.status = "Ready";
     runtime.ready = runtime.prepared = runtime.has_title = runtime.can_play = true;
     runtime.launch_entry_id = "launch-1";
@@ -397,11 +398,11 @@ void live_program_change_applies_like_other_settings(const std::filesystem::path
     check(model.action("circle") && model.state().navigation.modals.size() == 1 &&
               model.state().navigation.modals.back().id == "context",
           "program: closing the sheet asks nothing");
-    check(model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
+    check(model.TakeMaintenanceRequests() == Requests{{SteamId(22380), MaintenanceKind::ApplySettings}},
           "program: closing the sheet applies the new program");
     model.action("circle");
     activate(model, "details-play");
-    check(model.state().navigation.modals.empty() && model.TakeRuntimePlayRequests() == std::vector<GameId>{22380},
+    check(model.state().navigation.modals.empty() && model.TakeRuntimePlayRequests() == std::vector<GameId>{SteamId(22380)},
           "program: Play starts at once");
 
     // Reset to recipe goes back to Steam's launch option, not the program the recipe lists first.
@@ -413,14 +414,14 @@ void live_program_change_applies_like_other_settings(const std::filesystem::path
     activate(model, "value-reset");
     check(find_row(model, "setting-launch_option")->value == "Fallout: New Vegas", "program: reset goes back to Steam's");
     check(model.action("circle") && model.state().navigation.modals.back().id == "context" &&
-              model.TakeMaintenanceRequests() == Requests{{22380, MaintenanceKind::ApplySettings}},
+              model.TakeMaintenanceRequests() == Requests{{SteamId(22380), MaintenanceKind::ApplySettings}},
           "program: the reset applies the same way");
 }
 
 void live_download_telemetry() {
     using namespace playden::homebrew;
     Simulation model({}, {}, ModelMode::Live);
-    LiveInstallJob job; job.game_id = 275390; job.state = JobState::Downloading;
+    LiveInstallJob job; job.game_id = SteamId(275390); job.state = JobState::Downloading;
     job.done_bytes = 100000000; job.total_bytes = 1000000000;
     job.bytes_per_second = 40055603; job.eta_seconds = 300;
     model.UpdateInstalls({job}, {});

@@ -139,7 +139,7 @@ struct RejectReadyStore final : InstallRecordStore {
 };
 void SeedOwner(RuntimeInstallRepository& repository, const RuntimeInstall& r, bool fixture_control_initialized = true) {
   CHECK(repository.Load().ok()); ReserveRequest request;
-  request.install_id = r.install_id; request.app_id = r.app_id; request.default_profile_id = r.default_profile_id;
+  request.install_id = r.install_id; request.runtime_number = r.runtime_number; request.default_profile_id = r.default_profile_id;
   request.runtime_bundle_id = r.runtime_bundle_id; request.recipe_id = r.recipe_id; request.recipe_version = r.recipe_version;
   request.settings_revision = r.settings_revision; request.launch_entry_id = r.launch_entry_id; request.launch_path = r.launch_path;
   request.launch_arguments = r.launch_arguments; request.launch_working_directory = r.launch_working_directory;

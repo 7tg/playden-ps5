@@ -1,4 +1,5 @@
 #include "runtime/game_settings.h"
+#include "steam_id.h"
 #include "runtime/game_probe.h"
 #include "runtime/install_script.h"
 #include "runtime/settings_publication.h"
@@ -999,10 +1000,10 @@ int main(int argc, char** argv) {
   // The per-game settings file round-trips reset records and tolerates junk entries without
   // truncating out-of-range app ids into valid keys.
   const auto file = (root / "game-settings.json").string();
-  std::map<std::uint32_t, GameSettingsRecord> records = {
-      {220, {"mouse-driven", {{"resolution", "1280x720"}}, UINT64_C(9007199254740993)}},
-      {400, {"", {}, std::numeric_limits<std::uint64_t>::max()}}};
-  std::map<std::uint32_t, GameSettingsRecord> loaded_records;
+  std::map<playden::GameId, GameSettingsRecord> records = {
+      {SteamId(220), {"mouse-driven", {{"resolution", "1280x720"}}, UINT64_C(9007199254740993)}},
+      {SteamId(400), {"", {}, std::numeric_limits<std::uint64_t>::max()}}};
+  std::map<playden::GameId, GameSettingsRecord> loaded_records;
   CHECK(LoadGameSettingsFile(file, &loaded_records, &reason) && loaded_records.empty());  // missing file
   const auto stale_temporary = file + ".playden-tmp-" + std::to_string(static_cast<long long>(::getpid()));
   std::ofstream(stale_temporary) << "stale";
@@ -1017,8 +1018,8 @@ int main(int argc, char** argv) {
   CHECK(ReadText(outside / "settings.json") == "foreign");
   std::ofstream(file) << R"({"version":1,"games":{"220":{"preset":"","overrides":{"vsync":"on"}},"221":{"preset":"bad","revision":-1,"overrides":{}},"222":{"preset":"bad","revision":1.5,"overrides":{}},"223":{"preset":"bad","revision":18446744073709551616,"overrides":{}},"4294967295":{"preset":"","revision":1,"overrides":{}},"4294967296":{"preset":"bad","revision":2,"overrides":{}},"x":{},"0":{}}})";
   CHECK(LoadGameSettingsFile(file, &loaded_records, &reason) && loaded_records.size() == 2);
-  CHECK(loaded_records.count(std::numeric_limits<std::uint32_t>::max()) == 1);
-  CHECK(loaded_records.count(220) == 1);
+  CHECK(loaded_records.count(SteamId(std::numeric_limits<std::uint32_t>::max())) == 1);
+  CHECK(loaded_records.count(SteamId(220)) == 1);
   std::ofstream(file) << "{";
   CHECK(!LoadGameSettingsFile(file, &loaded_records, &reason));
   const auto unreadable = root / "settings-directory";

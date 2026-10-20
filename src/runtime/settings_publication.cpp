@@ -218,7 +218,7 @@ PackageActionResult VerifyMovedPublication(const RuntimeInstall& r, const GameRo
   };
   if (pw_title_publication_read_descriptor(("/data/homebrew/" + r.title_id + "/game-launch.json").c_str(), r.title_id.c_str(),
         &platform, &descriptor, error, sizeof(error)) != PW_OK ||
-      descriptor.launch.app_id != r.app_id || descriptor.launch.install_id != r.install_id ||
+      descriptor.launch.app_id != r.runtime_number || descriptor.launch.install_id != r.install_id ||
       descriptor.launch.data_root != r.data_root || descriptor.launch.game_root != move.from ||
       descriptor_digest() != std::optional<std::string>(m.descriptor_sha256))
     return refuse("The moved game's descriptor does not match its publication.");
@@ -640,7 +640,7 @@ PackageActionResult PreflightSettingsPublication(const SettingsPublicationOperat
         o.previous_metadata_bytes.size(), &previous) != PW_OK ||
         pw_title_publication_read_descriptor(("/data/homebrew/" + o.install.title_id + "/game-launch.json").c_str(),
         o.install.title_id.c_str(), &platform, &descriptor, error, sizeof(error)) != PW_OK ||
-        descriptor.launch.app_id != o.install.app_id ||
+        descriptor.launch.app_id != o.install.runtime_number ||
         pw_title_publication_verify_locked(&descriptor, &platform, borrowed,
         reinterpret_cast<const uint8_t*>(o.previous_receipt_bytes.data()), o.previous_receipt_bytes.size(),
         hash->c_str(), &contents, error, sizeof(error)) != PW_OK)
@@ -691,7 +691,7 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
   o.transaction_id = transaction; o.registry_unix_time = unix_time;
   o.catalog_bytes = plan.profile_id + ".profile\n";
   // Schema 2 binds the recorded download root, which is independent of the native title.
-  o.descriptor_bytes = "{\"schema_version\":2,\"app_id\":" + std::to_string(r.app_id) +
+  o.descriptor_bytes = "{\"schema_version\":2,\"app_id\":" + std::to_string(r.runtime_number) +
       ",\"settings_revision\":" + std::to_string(plan.settings_revision);
   auto field = [&](const char* name, const std::string& value) {
     o.descriptor_bytes += ",\""; o.descriptor_bytes += name; o.descriptor_bytes += "\":\"";
@@ -804,7 +804,7 @@ Result<SettingsPublicationOperation> CaptureSettingsPublicationOperation(const R
     } else if (pw_title_publication_parse(reinterpret_cast<const uint8_t*>(receipt.bytes.data()), receipt.bytes.size(), &parsed) != PW_OK ||
         parsed.phase != PW_TITLE_PUBLICATION_COMMITTED || !prior || !prior->present ||
         pw_title_publication_read_descriptor(("/data/homebrew/" + r.title_id + "/game-launch.json").c_str(), r.title_id.c_str(),
-        &platform, &descriptor, error, sizeof(error)) != PW_OK || descriptor.launch.app_id != r.app_id ||
+        &platform, &descriptor, error, sizeof(error)) != PW_OK || descriptor.launch.app_id != r.runtime_number ||
         pw_title_publication_verify_locked(&descriptor, &platform, borrowed,
         reinterpret_cast<const uint8_t*>(receipt.bytes.data()), receipt.bytes.size(), parsed.publication_sha256,
         &contents, error, sizeof(error)) != PW_OK)

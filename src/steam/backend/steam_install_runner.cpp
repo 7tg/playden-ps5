@@ -8,7 +8,7 @@
 
 namespace playden::steam {
 
-void LogInstallTrace(const InstallLogFn& log, GameId app, const char* marker) {
+void LogInstallTrace(const InstallLogFn& log, std::uint32_t app, const char* marker) {
   if (!log) return;
   if (std::string(marker) == "journal-reset") log(app, "journal", "reset", "");
   else if (std::string(marker) == "journal-legacy") log(app, "journal", "legacy", "");
@@ -47,7 +47,7 @@ bool SteamInstallRunner::Remove(const std::string& root) {
   const bool ok = RemoveManagedInstall(root);
   const auto slash = root.rfind('/');
   const auto name = root.substr(slash == std::string::npos ? 0 : slash + 1);
-  GameId app = 0;
+  std::uint32_t app = 0;
   const auto parsed = std::from_chars(name.data(), name.data() + name.size(), app);
   if (log_ && app != 0 && parsed.ec == std::errc{} && parsed.ptr == name.data() + name.size())
     log_(app, "install-removal", "done", ok ? "ok=1" : "ok=0");
@@ -69,7 +69,7 @@ const char* InstallFailureText(InstallError error) {
   return "Install failed.";
 }
 
-InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, GameId id, const std::string& root,
+InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, std::uint32_t id, const std::string& root,
                                                   const std::atomic<bool>& cancel,
                                                   const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
                                                   const std::function<void(InstallStep)>& step) {

@@ -127,10 +127,10 @@ bool CheckedImageBytes(int width, int height, std::size_t& bytes) {
 
 // The game's own CDN art: its cover, its library hero and its logo, and nothing else.
 bool CanonicalKey(const ArtworkKey& key) {
-  if (key.account_generation == 0 || key.game_id == 0 ||
+  if (key.account_generation == 0 || !key.game_id.valid() ||
       key.source.size() > kMaxArtworkSourceBytes) return false;
   const std::string base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
-                           std::to_string(key.game_id) + "/";
+                           ToKey(key.game_id) + "/";
   for (const char* name : {"library_600x900.jpg", "library_hero.jpg", "logo.png"})
     if (key.source == base + name) return true;
   return false;

@@ -37,7 +37,7 @@ enum class InstallRequestKind { Install, Pause, Resume, DownloadNow, MoveUp, Mov
                                 DismissCompleted, ClearCompleted };
 struct InstallRequest {
     InstallRequestKind kind = InstallRequestKind::Install;
-    GameId game_id = 0;
+    GameId game_id;
     std::string volume_id;  // SetDefaultVolume; Install: this install's drive (empty: the default)
     bool delete_saves = false;  // Uninstall only: also delete the game's kept saves and settings
 };
@@ -48,7 +48,7 @@ enum class TitleActivity { Unknown, Stopped, Running };
 // Live install state projected from the real install service.
 std::string FormatDownloadRate(std::optional<std::uint64_t> bytes_per_second, std::optional<int> eta_seconds);
 struct LiveInstallJob {
-    GameId game_id = 0;
+    GameId game_id;
     JobState state = JobState::Queued;
     std::uint64_t done_bytes = 0;
     std::uint64_t total_bytes = 0;
@@ -60,14 +60,14 @@ struct LiveInstallJob {
     bool checking_licenses = false;  // a slow Steam license check before the download starts
 };
 struct LiveInstalledGame {
-    GameId game_id = 0;
+    GameId game_id;
     std::uint64_t install_bytes = 0;
     std::string volume_id;
     bool available = true;  // false while the game's drive is absent
 };
 // A recent finished download, listed in Downloads after the queue.
 struct LiveCompletedDownload {
-    GameId game_id = 0;
+    GameId game_id;
     std::uint64_t install_bytes = 0;
     std::string volume_id;
     std::int64_t finished_at = 0;  // Unix seconds
@@ -126,7 +126,7 @@ struct LiveGameSetup {
 };
 // Live per-game runtime (private bottle and PS5 title) state, projected from the runtime host.
 struct LiveRuntimeGame {
-    GameId game_id = 0;
+    GameId game_id;
     std::string status;   // short value, e.g. "Not prepared", "Preparing", "Ready"
     std::string detail;   // why, or what happens next
     bool can_prepare = false;
@@ -164,7 +164,7 @@ struct LiveRuntimeGame {
 };
 // A preparation that ended Ready, listed in Queue after the waiting games.
 struct LiveCompletedPreparation {
-    GameId game_id = 0;
+    GameId game_id;
     std::int64_t finished_at = 0;  // Unix seconds
     bool operator==(const LiveCompletedPreparation&) const = default;
 };
@@ -179,7 +179,7 @@ struct PreparationQueue {
 };
 // Saves and settings kept from an uninstalled game (its private bottle).
 struct LiveKeptBottle {
-    GameId game_id = 0;
+    GameId game_id;
     std::string name;
     std::int64_t kept_at = 0;
     std::uint64_t bytes = 0;
@@ -190,7 +190,7 @@ struct LiveKeptBottle {
 // saves deleted here that Cloud still has).
 enum class CloudStatus { None, Checking, Syncing, Synced, UpToDate, Conflict, NeedsAccount, Unsupported, Failed, Waiting };
 struct LiveCloudGame {
-    GameId game_id = 0;
+    GameId game_id;
     CloudStatus status = CloudStatus::None;
     std::string message;
     std::size_t local_files = 0;
@@ -213,7 +213,7 @@ enum class SavesJobKind { None, QuickCheck, SyncAll };
 struct LiveSavesJob {
     SavesJobKind kind = SavesJobKind::None;
     std::size_t done = 0, total = 0;
-    GameId current = 0;
+    GameId current;
     bool stopping = false;
 };
 // RemoveLocal deletes a game's saves on this console (backed up first); RemoveLeftover deletes an
@@ -222,7 +222,7 @@ struct LiveSavesJob {
 enum class CloudRequestKind { Sync, UseLocal, UseCloud, ConfirmAccount, RemoveLocal, RemoveLeftover, QuickCheck, SyncAll, StopJob };
 struct CloudRequest {
     CloudRequestKind kind = CloudRequestKind::Sync;
-    GameId game_id = 0;
+    GameId game_id;
 };
 enum class Compatibility { Untested, Works, Playable, Broken };
 enum class RowKind { Heading, Action, Toggle, Choice, Text, Game, Job, Volume, Profile, Status, Separator };
@@ -298,7 +298,7 @@ inline bool operator==(PersistenceLoadToken left, PersistenceLoadToken right) {
 }
 
 struct Game {
-    GameId id = 0;
+    GameId id;
     std::string title;
     std::string description;
     std::string source;
@@ -342,7 +342,7 @@ struct UserLibrary {
 };
 
 struct Installation {
-    GameId game_id = 0;
+    GameId game_id;
     std::string volume_id;
     std::uint64_t installed_bytes = 0;
     bool available = true;
@@ -352,7 +352,7 @@ struct Installation {
 
 struct Job {
     std::string id;
-    GameId game_id = 0;
+    GameId game_id;
     std::string kind = "install";
     int queue_order = 0;
     JobStage stage = JobStage::Download;
@@ -410,7 +410,7 @@ struct Navigation {
     std::vector<ModalEntry> modals;
     std::string focus_key = "startup-connect";
     std::map<std::string, int> scroll_offsets;
-    GameId selected_game_id = 0;
+    GameId selected_game_id;
     int selected_index = 0;
     int home_shelf = 0;
     std::map<std::string, int> home_shelf_focus;
@@ -424,7 +424,7 @@ struct Navigation {
     // Saves tab: the filter (0 All, 1 Needs you, 2 In sync, 3 This console only, 4 Not installed)
     // and the game its details page shows.
     int saves_filter = 0;
-    GameId save_id = 0;
+    GameId save_id;
 };
 
 struct EditorState {
@@ -509,7 +509,7 @@ struct State {
     std::vector<std::string> log_lines;
     int log_offset = 0;
     std::string log_context;
-    GameId session_game_id = 0;
+    GameId session_game_id;
     std::string session_error;
     bool reduced_motion = false;
     bool title_store_suffix = false;  // PS5 titles named "<game> (Steam)"
@@ -537,7 +537,7 @@ struct ViewRow {
     std::string value;
     std::string badge;
     std::string action;
-    GameId game_id = 0;
+    GameId game_id;
     float progress = 0.0F;
     bool enabled = true;
     bool selected = false;
@@ -767,8 +767,9 @@ private:
     bool picking_install_volume_ = false;
     bool free_space_supported_ = true;
     std::vector<playden::runtime::SettingsPreset> settings_presets_;
-    std::map<std::uint32_t, playden::runtime::GameRecipe> recipes_;
-    std::map<std::uint32_t, playden::runtime::GameRecipe> generated_recipes_;
+    // Shipped and generated recipes by game (runtime::RecipeGame).
+    std::map<GameId, playden::runtime::GameRecipe> recipes_;
+    std::map<GameId, playden::runtime::GameRecipe> generated_recipes_;
     mutable std::map<GameId, playden::runtime::GameRecipe> simulated_recipes_;
     playden::runtime::KitCapabilities kit_;
     std::set<std::string> expanded_settings_sections_;
@@ -835,8 +836,8 @@ private:
     std::map<GameId, StoreFacts> store_facts_;  // live: from the Steam store, applied over library refreshes
     std::vector<GameId> ready_prompts_;  // games to announce as ready to play, oldest first
     // settings_game: a game whose refusal Game settings can get past; the dialog offers it.
-    struct AlertPrompt { std::string title; std::string body; GameId settings_game = 0; };
-    GameId alert_settings_game_ = 0;  // the game the open failure dialog's "Game settings" opens
+    struct AlertPrompt { std::string title; std::string body; GameId settings_game; };
+    GameId alert_settings_game_;  // the game the open failure dialog's "Game settings" opens
     // Games refused at Prepare whose program or "Try anyway" the player changed since: their page
     // no longer shows the old refusal.
     std::set<GameId> rechosen_after_refusal_;
@@ -847,11 +848,11 @@ private:
     std::filesystem::path log_directory_;
     std::vector<CloudRequest> pending_cloud_requests_;
     std::map<GameId, CloudStatus> settled_cloud_;  // each game's last settled Cloud state, for notices
-    GameId ready_prompt_game_ = 0;  // the game the "ready to play" dialog is about
-    GameId quit_sync_game_ = 0;     // Play quits to Home once this game's saves are in step
+    GameId ready_prompt_game_;  // the game the "ready to play" dialog is about
+    GameId quit_sync_game_;     // Play quits to Home once this game's saves are in step
     std::string quit_wait_title_;   // the dialog a quit to Home waits in while a game is prepared
     std::string live_log_topic_;
-    GameId live_log_game_ = 0;
+    GameId live_log_game_;
     bool details_primary_pending_ = false;  // live Details: move focus to the first action once known
     // Settings: the last focused row, so focus stays nearby when that row goes away.
     int settings_focus_index_ = 0;
@@ -967,7 +968,7 @@ private:
     void apply_live_volume_usage();
     void push_notice(Notice notice);
     void show_ready_prompt();
-    void show_alert(std::string title, std::string body, GameId settings_game = 0);
+    void show_alert(std::string title, std::string body, GameId settings_game = {});
     void open_game_settings();
     void show_alert_prompt();
     void open_live_log(const std::string& topic, GameId game_id);

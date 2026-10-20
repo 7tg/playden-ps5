@@ -29,7 +29,7 @@ inline constexpr std::chrono::milliseconds kArtworkRetryDelay{15'000};
 
 struct ArtworkKey {
   std::uint64_t account_generation = 0;
-  GameId game_id = 0;
+  GameId game_id;
   std::string source;
 };
 

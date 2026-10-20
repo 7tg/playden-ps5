@@ -400,7 +400,7 @@ bool DescriptorMatches(const RuntimeInstall& record, std::string_view bytes) {
   const auto version = schema->AsUint64();
   if (version == 1) {
     if (parsed->object().size() != 11 ||
-        record.install_path != "/data/homebrew/" + record.title_id + "/games/" + std::to_string(record.app_id))
+        record.install_path != "/data/homebrew/" + record.title_id + "/games/" + std::to_string(record.runtime_number))
       return false;
   } else if (version == 2) {
     const auto* game_root = Required(*parsed, "game_root", Type::kString);
@@ -419,7 +419,7 @@ bool DescriptorMatches(const RuntimeInstall& record, std::string_view bytes) {
   const auto* recipe_version = Required(*parsed, "recipe_version", Type::kString);
   const auto* exit_policy = Required(*parsed, "exit_policy", Type::kString);
   return install && install->text() == record.install_id &&
-         title && title->text() == record.title_id && app && app->AsUint64() == record.app_id &&
+         title && title->text() == record.title_id && app && app->AsUint64() == record.runtime_number &&
          root && root->text() == record.data_root && profile &&
          profile->text() == record.default_profile_id && revision &&
          revision->AsUint64() == record.settings_revision && runtime &&
@@ -551,14 +551,25 @@ void FilesystemPackageInstaller::AcceptShippedRecipes(std::vector<std::string> r
 
 // The kit's own recipe at the kit's version, a recipe Playden ships (AcceptShippedRecipes)
 // or the one Playden generated for this game from Steam's launch options
-// (runtime::GeneratedRecipeId: "steam-<app id>-auto"). The kit's runtime and template
+// (playden::GeneratedRecipeId: "steam-<app id>-auto", "local-<uuid>-auto"). The kit's runtime and template
 // run any of them; only the launch entries and bottle values differ.
 bool FilesystemPackageInstaller::RecipeAccepted(const RuntimeInstall& record) const {
   if (record.recipe_id == kit_.recipe.id) return record.recipe_version == kit_.recipe.version;
   if (record.recipe_version.empty()) return false;
   if (std::find(shipped_recipe_ids_.begin(), shipped_recipe_ids_.end(), record.recipe_id) != shipped_recipe_ids_.end())
     return true;
-  return record.app_id != 0 && record.recipe_id == "steam-" + std::to_string(record.app_id) + "-auto";
+  if (record.runtime_number == 0) return false;
+  if (record.game != GameId{}) return record.game.valid() && record.recipe_id == playden::GeneratedRecipeId(record.game);
+  // A copy that doesn't carry its game (read back from a journal): the Steam game its number names,
+  // or, for a number from the allocator's range, a Local game's generated recipe.
+  if (record.recipe_id == playden::GeneratedRecipeId(GameId::Steam(record.runtime_number))) return true;
+  constexpr std::string_view kSuffix = "-auto";
+  const std::string_view id = record.recipe_id;
+  if (record.runtime_number < kFirstRuntimeNumber || record.runtime_number > kLastRuntimeNumber ||
+      id.size() <= kSuffix.size() || id.substr(id.size() - kSuffix.size()) != kSuffix)
+    return false;
+  const auto game = playden::ParseInstallId(id.substr(0, id.size() - kSuffix.size()));
+  return game && game->store == Store::kLocal;
 }
 
 std::optional<FilesystemPackageInstaller::ResolvedPaths>
@@ -936,7 +947,7 @@ bool FilesystemPackageInstaller::PublicationMatches(
   if (pw_title_publication_read_descriptor(canonical.c_str(), record.title_id.c_str(), &platform,
       &descriptor, error, sizeof(error)) != PW_OK) return false;
   const auto& launch = descriptor.launch;
-  if (launch.install_id != record.install_id || launch.title_id != record.title_id || launch.app_id != record.app_id ||
+  if (launch.install_id != record.install_id || launch.title_id != record.title_id || launch.app_id != record.runtime_number ||
       launch.data_root != record.data_root || launch.default_profile_id != record.default_profile_id ||
       launch.runtime_bundle_id != record.runtime_bundle_id || launch.recipe_id != record.recipe_id ||
       launch.recipe_version != record.recipe_version || launch.settings_revision != record.settings_revision ||

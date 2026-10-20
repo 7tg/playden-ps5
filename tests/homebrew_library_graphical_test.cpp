@@ -11,6 +11,7 @@
 #include <SDL.h>
 #include <cassert>
 #include <filesystem>
+#include "steam_id.h"
 
 namespace {
 using namespace playden;
@@ -75,10 +76,10 @@ int main(int argc,char** argv) {
     Simulation model({}, {},ModelMode::Live);
     model.SetWallClock(1700000000);
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
-    playden::GameSummary first{42,"Synthetic library title",{},"Known synthetic description","Example studio"};
+    playden::GameSummary first{SteamId(42),"Synthetic library title",{},"Known synthetic description","Example studio"};
     first.playtime_minutes=91; first.last_played_unix_seconds=1699827200;
     Sessions sessions;Backend backend;Cache cache;
-    backend.games={first,{43,"Café on the coast",{},{},{}},{44,"Αθήνα",{},{},{}}};
+    backend.games={first,{SteamId(43),"Café on the coast",{},{},{}},{SteamId(44),"Αθήνα",{},{},{}}};
     playden::LibraryService service(backend,sessions,&cache,[]{return 1700000000;});
     playden::app::LibraryController controller(model,service);
     auto settle=[&] {
@@ -106,7 +107,7 @@ int main(int argc,char** argv) {
     assert(model.action("r1") && model.state().navigation.route==Route::Library);
     capture("library.png");
     assert(model.action("search"));model.text("CAFÉ");assert(model.action("done"));
-    assert(model.visible_games().size()==1 && model.visible_games().front()->id==43);
+    assert(model.visible_games().size()==1 && model.visible_games().front()->id==SteamId(43));
     capture("search.png");
     assert(model.action("search"));model.text(" discarded");assert(model.action("circle"));
     assert(model.state().library.query=="CAFÉ" && model.visible_games().size()==1);
@@ -165,9 +166,9 @@ int main(int argc,char** argv) {
       live.SetWallClock(1700000000);
       live.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
       assert(live.UpdateLibrary({backend.games,false,{},false,false,{}}));
-      live.UpdateAppDetails(42, 300'000'000, 600'000'000, true);
-      live.UpdateInstalls({}, {{42, 600'000'000}});
-      LiveRuntimeGame ready; ready.game_id=42; ready.status="Ready"; ready.ready=true; ready.can_play=true; ready.has_title=true;
+      live.UpdateAppDetails(SteamId(42), 300'000'000, 600'000'000, true);
+      live.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
+      LiveRuntimeGame ready; ready.game_id= SteamId(42); ready.status="Ready"; ready.ready=true; ready.can_play=true; ready.has_title=true;
       live.UpdateRuntime(RuntimeState::Ready, {ready});
       assert(live.action("details:42"));
       auto capture_live=[&](const char* name) {
@@ -179,19 +180,19 @@ int main(int argc,char** argv) {
       live.UpdateRuntime(RuntimeState::Ready, {ready});
       capture_live("details-play-disabled.png");
       {
-        LiveRuntimeGame copying; copying.game_id=42; copying.status="Preparing"; copying.has_title=true;
+        LiveRuntimeGame copying; copying.game_id= SteamId(42); copying.status="Preparing"; copying.has_title=true;
         copying.detail="Copying the Windows environment"; copying.progress=0.42F;
         live.UpdateRuntime(RuntimeState::Ready, {copying});
         capture_live("details-preparing-progress.png");
       }
       {
         // Prepared and waiting for the PS5: Finish setup explains quitting to Home.
-        LiveRuntimeGame waiting; waiting.game_id=42; waiting.status="Waiting for the PS5"; waiting.has_title=true;
+        LiveRuntimeGame waiting; waiting.game_id= SteamId(42); waiting.status="Waiting for the PS5"; waiting.has_title=true;
         waiting.awaiting_registration=true; waiting.can_prepare=true;
         waiting.detail="Waiting for the PS5, which adds the game to Home when Playden quits";
         live.UpdateRuntime(RuntimeState::Ready, {waiting});
         capture_live("details-ready-to-play.png");
-        live.NotifyReadyToPlay(42);
+        live.NotifyReadyToPlay(SteamId(42));
         capture_live("ready-to-play-prompt.png");
         assert(live.action("focus:ready-later") && live.action("cross"));
       }
@@ -201,7 +202,7 @@ int main(int argc,char** argv) {
                {"Needs repair", "details-needs-repair.png"}, {"Needs recovery", "details-interrupted.png"},
                {"Failed", "details-failed.png"}, {"Registration pending", "details-not-confirmed.png"},
                {"Removal incomplete", "details-removing.png"}, {"No kit", "details-no-kit.png"}}) {
-        LiveRuntimeGame state; state.game_id=42; state.status=status;
+        LiveRuntimeGame state; state.game_id= SteamId(42); state.status=status;
         state.can_prepare=status!="No kit"; state.has_title=status!="No kit" && status!="Not prepared";
         if (status=="Needs recovery" || status=="Failed") state.detail="insufficient verified free space for package copy";
         live.UpdateRuntime(RuntimeState::Ready, {state});
@@ -219,7 +220,7 @@ int main(int argc,char** argv) {
       live.UpdateVolumes({{"internal","Internal",true,{},{}},{"usb0","USB drive",true,{},{}}}, "usb0");
       live.UpdateInstalls({}, {});
       live.UpdateRuntime(RuntimeState::Ready, {});
-      live.UpdateKeptBottles({{42, "Synthetic library title", 1700000000, 450'000'000}});
+      live.UpdateKeptBottles({{SteamId(42), "Synthetic library title", 1700000000, 450'000'000}});
       assert(live.action("details:42"));
       capture_live("details-kept.png");
       live.UpdateVolumes({{"internal","Console storage",true,674'000'000'000ull,156'000'000'000ull},
@@ -238,8 +239,8 @@ int main(int argc,char** argv) {
       assert(live.TakeInstallRequests().empty());
       assert(live.action("circle"));
       // Settings: kept game data is one row that opens the manager with a checkbox per game.
-      live.UpdateKeptBottles({{42, "Synthetic library title", 1700000000, 450'000'000},
-                              {43, "Café on the coast", 1699000000, 1'200'000'000}});
+      live.UpdateKeptBottles({{SteamId(42), "Synthetic library title", 1700000000, 450'000'000},
+                              {SteamId(43), "Café on the coast", 1699000000, 1'200'000'000}});
       while(live.state().navigation.route!=Route::Settings) assert(live.action("r1"));
       assert(live.action("focus:settings-kept"));
       capture_live("settings-kept.png");
@@ -249,9 +250,9 @@ int main(int argc,char** argv) {
       // Settings > Storage: the default drive's usage above the rows, then the installed games list.
       while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
       live.UpdateVolumes({{"internal","Console storage",true,825'000'000'000ull,512'000'000'000ull}}, "internal");
-      live.UpdateInstalls({}, {{42, 62'700'000'000ull, "internal"}, {43, 8'400'000'000ull, "internal"},
-                               {44, 1'200'000'000ull, "internal"}});
-      LiveRuntimeGame playing; playing.game_id=44; playing.status="Ready"; playing.ready=true; playing.play_status="Playing";
+      live.UpdateInstalls({}, {{SteamId(42), 62'700'000'000ull, "internal"}, {SteamId(43), 8'400'000'000ull, "internal"},
+                               {SteamId(44), 1'200'000'000ull, "internal"}});
+      LiveRuntimeGame playing; playing.game_id= SteamId(44); playing.status="Ready"; playing.ready=true; playing.play_status="Playing";
       LiveRuntimeGame titled=ready; titled.uninstall_status.clear();
       live.UpdateRuntime(RuntimeState::Ready, {titled, playing});
       assert(live.action("focus:settings-storage"));
@@ -269,10 +270,10 @@ int main(int argc,char** argv) {
       titled.uninstall_status="Removing PS5 title…";
       live.UpdateRuntime(RuntimeState::Ready, {titled, playing});
       capture_live("installed-games-progress.png");
-      live.NotifyUninstallStopped(43, "Cloud saves could not be synced. Fix them in Saves, then try again.");
+      live.NotifyUninstallStopped(SteamId(43), "Cloud saves could not be synced. Fix them in Saves, then try again.");
       titled.uninstall_status.clear();
       live.UpdateRuntime(RuntimeState::Ready, {playing});
-      live.UpdateInstalls({}, {{43, 8'400'000'000ull, "internal"}, {44, 1'200'000'000ull, "internal"}});
+      live.UpdateInstalls({}, {{SteamId(43), 8'400'000'000ull, "internal"}, {SteamId(44), 1'200'000'000ull, "internal"}});
       capture_live("installed-games-done.png");
       // With every Storage row shown the list scrolls; back on the first row the usage card shows again.
       while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
@@ -293,10 +294,10 @@ int main(int argc,char** argv) {
       std::vector<playden::GameSummary> summaries;
       std::vector<LiveInstalledGame> installed;
       for(int index=0; index<56; ++index) {
-        playden::GameSummary summary{static_cast<playden::GameId>(5000+index),"Synthetic game "+std::to_string(index+1),{},{},{}};
+        playden::GameSummary summary{static_cast<playden::GameId>(SteamId(5000+index)),"Synthetic game "+std::to_string(index+1),{},{},{}};
         if(index%3) summary.last_played_unix_seconds=1700000000-static_cast<std::uint64_t>(index)*86400*5;
         summaries.push_back(summary);
-        installed.push_back({static_cast<playden::GameId>(5000+index), (60ull-index)*700'000'000ull, "internal"});
+        installed.push_back({static_cast<playden::GameId>(SteamId(5000+index)), (60ull-index)*700'000'000ull, "internal"});
       }
       assert(many.UpdateLibrary({summaries,false,{},false,false,{}}));
       many.UpdateVolumes({{"internal","M.2 SSD",true,1'000'200'000'000ull,90'300'000'000ull}}, "internal");
@@ -314,7 +315,7 @@ int main(int argc,char** argv) {
       Simulation downloads({}, {}, ModelMode::Live);
       downloads.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
       assert(downloads.UpdateLibrary({backend.games,false,{},false,false,{}}));
-      LiveInstallJob job{42, JobState::Downloading, 47ULL << 30, 59ULL << 30, {}, "internal"};
+      LiveInstallJob job{SteamId(42), JobState::Downloading, 47ULL << 30, 59ULL << 30, {}, "internal"};
       job.bytes_per_second = 40'055'603; // 38.2 MiB/s in the UI's existing size convention.
       job.eta_seconds = 300;
       downloads.UpdateInstalls({job}, {});
@@ -327,7 +328,7 @@ int main(int argc,char** argv) {
       job.state = JobState::Paused;
       downloads.UpdateInstalls({job}, {});
       capture_download("download-rate-paused.png");
-      downloads.UpdateAppDetails(42, 25ULL << 30, 35ULL << 30, true);
+      downloads.UpdateAppDetails(SteamId(42), 25ULL << 30, 35ULL << 30, true);
       downloads.UpdateVolumes({{"internal", "Console storage", true, 100ULL << 30, 20ULL << 30}}, "internal");
       capture_download("download-reservation-over-capacity.png");
     }
@@ -348,7 +349,7 @@ int main(int argc,char** argv) {
         playden::app::PersistenceController bridge(model,persistence);bridge.Activate(123);
         persistence.WaitIdle();bridge.Tick();
         assert(model.OrganizationAccount()==123);
-        assert(model.action("square") && model.state().library.favorites.contains(43));
+        assert(model.action("square") && model.state().library.favorites.contains(SteamId(43)));
         assert(model.action("circle"));
         for(int n=0;n<4 && model.state().navigation.route!=Route::Settings;++n)assert(model.action("r1"));
         const auto& rows=model.view().rows;
@@ -365,10 +366,10 @@ int main(int argc,char** argv) {
       playden::app::PersistenceService persistence(preferences,organization);
       playden::app::PersistenceController bridge(restored,persistence);bridge.Activate(123);
       const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
-      while((!restored.state().library.favorites.contains(43) || !restored.state().reduced_motion) && std::chrono::steady_clock::now()<deadline) {
+      while((!restored.state().library.favorites.contains(SteamId(43)) || !restored.state().reduced_motion) && std::chrono::steady_clock::now()<deadline) {
         bridge.Tick();std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
-      assert(restored.state().reduced_motion && restored.state().library.favorites.contains(43));
+      assert(restored.state().reduced_motion && restored.state().library.favorites.contains(SteamId(43)));
       assert(restored.action("r1"));
       for(int i=0;i<16;++i)renderer.draw(restored,1920,1080);
       assert(renderer.capture_png(output/"restored.png",1920,1080));

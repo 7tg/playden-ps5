@@ -17,7 +17,7 @@ inline constexpr const char* kQueuePreparation = "preparation";
 // One game in a section. Downloads point at their job; preparations carry what their row says.
 struct QueueEntry {
     std::string key;  // the row's focus key: job-<id>, prep-<id>, prep-attn-<id>, prep-done-<id>-<time>
-    GameId game_id = 0;
+    GameId game_id;
     const Job* job = nullptr;
     std::string title;
     std::string status;  // the right-hand tag: "Up next", "Queued", "Waiting for the PS5", "Ready"

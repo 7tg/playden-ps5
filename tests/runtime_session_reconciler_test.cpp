@@ -48,7 +48,7 @@ RuntimeInstall ReadyInstall() {
   RuntimeInstall record;
   record.install_id = "install-hl2";
   record.title_id = "FAKE78001";
-  record.app_id = 220;
+  record.runtime_number = 220;
   record.data_root = "/data/playden/games/install-hl2";
   record.runtime_bundle_id = "prospero-win-e16ec8f";
   record.settings_revision = 17;
@@ -175,7 +175,7 @@ void ActualWrapperRecordsAreAccepted() {
     f.records.front().data_root = root.string();
     PwTitleLaunch launch{};
     launch.schema_version = 1;
-    launch.app_id = f.records.front().app_id;
+    launch.app_id = f.records.front().runtime_number;
     launch.settings_revision = f.records.front().settings_revision;
     const auto copy = [](auto& output, const std::string& input) {
       CHECK(input.size() < sizeof(output));

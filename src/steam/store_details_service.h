@@ -20,16 +20,16 @@ namespace playden::steam {
 // description and genres as plain text, and the controller support Steam lists
 // ("full", "partial", or empty).
 struct StoreDetails {
-  GameId id = 0;
+  GameId id;
   std::string description;
   std::vector<std::string> genres;
   std::string controller_support;
 };
 
 // The store's appdetails URL for one game, in English.
-std::string StoreDetailsUrl(GameId id);
+std::string StoreDetailsUrl(std::uint32_t app);
 // Parses a store appdetails response; nothing when it is not a successful answer for this game.
-std::optional<StoreDetails> ParseStoreDetails(GameId id, std::string_view body);
+std::optional<StoreDetails> ParseStoreDetails(std::uint32_t app, std::string_view body);
 
 // Fetches store details for games the player opens, one at a time on its own worker.
 // Each game is asked once per run; a failed answer is not retried until Forget.

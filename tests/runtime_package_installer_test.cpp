@@ -145,7 +145,7 @@ RuntimeInstall Record() {
   RuntimeInstall record;
   record.install_id = "install-hl2";
   record.title_id = "FAKE78001";
-  record.app_id = 220;
+  record.runtime_number = 220;
   record.data_root = "/data/playden/games/install-hl2";
   record.default_profile_id = "game";
   record.runtime_bundle_id = "wine-wow64";
@@ -491,7 +491,7 @@ void RealFilesystemInstallerAndOwnerRecoverPendingPublication() {
   playden::Storage storage(owner_root.string());
   auto availability = [](const std::string&) { return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree}; };
   RuntimeInstallRepository repository(storage, "installs.json", availability); CHECK(repository.Load().ok());
-  ReserveRequest request; request.install_id = record.install_id; request.app_id = record.app_id;
+  ReserveRequest request; request.install_id = record.install_id; request.runtime_number = record.runtime_number;
   request.default_profile_id = record.default_profile_id; request.runtime_bundle_id = record.runtime_bundle_id;
   request.recipe_id = record.recipe_id; request.recipe_version = record.recipe_version; request.settings_revision = record.settings_revision;
   request.launch_entry_id = record.launch_entry_id; request.launch_path = record.launch_path;
@@ -511,7 +511,7 @@ void RealFilesystemInstallerAndOwnerRecoverPendingPublication() {
   operations.publish_owned = [&](const RuntimeInstall& r, const PublicationPaths& paths, const ProfilePublication& publication) {
     ++publications;
     CHECK(!std::filesystem::exists(paths.profile.parent_path()) && !std::filesystem::exists(paths.input_directory));
-    SettingsLaunchPlan plan; plan.app_id = r.app_id; plan.recipe_id = r.recipe_id; plan.recipe_version = r.recipe_version;
+    SettingsLaunchPlan plan; plan.app_id = r.runtime_number; plan.recipe_id = r.recipe_id; plan.recipe_version = r.recipe_version;
     plan.profile_id = r.default_profile_id; plan.profile_bytes = publication.profile_bytes; plan.settings_revision = r.settings_revision;
     plan.launch_entry_id = r.launch_entry_id; plan.launch_entry = {r.launch_entry_id, "Play", r.launch_path, r.launch_arguments};
     auto prepared = owner->Prepare(r, plan, fixture.view.kit_id, "00000000-0000-7000-8000-000000000001", 1760000000, fixture.temporary.path);
@@ -1355,7 +1355,7 @@ void ShippedRecipeResolvesWithAnyKit() {
   Fixture fixture;
   auto installer = fixture.Installer();
   auto record = Record();
-  record.app_id = 292120; record.recipe_id = "steam-292120-ffxiii-v1"; record.recipe_version = "1";
+  record.runtime_number = 292120; record.recipe_id = "steam-292120-ffxiii-v1"; record.recipe_version = "1";
   record.artifacts = {{"runtime", "rev", fixture.view.artifacts[0].sha256},
                       {"recipe", "steam-220-hl2-v1-1", fixture.view.artifacts[1].sha256}};
   CHECK(installer.StageTitle(record).code == "kit-invalid");

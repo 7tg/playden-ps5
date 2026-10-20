@@ -67,6 +67,8 @@ struct StringBuilder {
     template <typename Integer>
         requires std::is_integral_v<Integer>
     StringBuilder& operator<<(Integer number) { value.append(std::to_string(number)); return *this; }
+    // A game's key; no game is written as 0, as the numeric app ID was.
+    StringBuilder& operator<<(const GameId& id) { value.append(id.valid() ? ToKey(id) : "0"); return *this; }
 };
 
 std::string read_file(const std::filesystem::path& path) {
@@ -88,6 +90,18 @@ std::uint64_t uint_value(const json::Value* value, std::uint64_t fallback = 0) {
     if (value) if (const auto number = value->number()) return static_cast<std::uint64_t>(*number);
     return fallback;
 }
+
+// Fixture and snapshot files name games by Steam app ID.
+GameId steam_value(const json::Value* value) {
+    const auto number = uint_value(value);
+    return number <= std::numeric_limits<std::uint32_t>::max() ? GameId::Steam(static_cast<std::uint32_t>(number)) : GameId{};
+}
+
+// The profile file names games by Steam app ID (0: none).
+std::string app_text(const GameId& id) { return std::to_string(id.steam_app().value_or(0)); }
+
+// The game a row key or action names; invalid (selects nothing) unless it is a canonical key.
+GameId key_id(std::string_view key) { return ParseKey(key).value_or(GameId{}); }
 
 bool bool_value(const json::Value* value, bool fallback = false) {
     if (value) if (const auto boolean = value->boolean()) return *boolean;
@@ -288,13 +302,13 @@ void reconcile_library_selection(State& state) {
         state.navigation.focus_key = game_key(state.navigation.selected_game_id);
     } else {
         state.navigation.selected_index = 0;
-        state.navigation.selected_game_id = 0;
+        state.navigation.selected_game_id = {};
         state.navigation.focus_key = state.library.query.empty() ? "library-empty" : "clear-search";
     }
     state.navigation.scroll_offsets["library-grid"] = state.navigation.selected_index / 6;
 }
 
-std::string game_key(GameId id) { return "game-" + std::to_string(id); }
+std::string game_key(GameId id) { return "game-" + ToKey(id); }
 
 std::vector<std::string> context_actions(bool live) {
     if (live) return {"favorite", "collection", "note", "hide", "uninstall", "cancel"};
@@ -313,7 +327,7 @@ constexpr const char* uninstall_batch_body_deleted = "Their files, PS5 titles an
 std::string kept_name(const State& state, const LiveKeptBottle& kept) {
     if (!kept.name.empty()) return kept.name;
     if (const auto* game = find_game(state, kept.game_id); game && !game->title.empty()) return game->title;
-    return "Steam app " + std::to_string(kept.game_id);
+    return "Steam app " + ToKey(kept.game_id);
 }
 
 std::string kept_count(std::size_t count) {
@@ -786,7 +800,7 @@ void Simulation::refresh_collection_sheets(const std::string& focus) {
 
 std::vector<std::string> Simulation::kept_manager_actions() const {
     std::vector<std::string> actions{"kept-select-all"};
-    for (const auto& kept : state_.kept_bottles) actions.push_back("kept-toggle-" + std::to_string(kept.game_id));
+    for (const auto& kept : state_.kept_bottles) actions.push_back("kept-toggle-" + ToKey(kept.game_id));
     actions.push_back("kept-selection-delete");
     actions.push_back("cancel");
     return actions;
@@ -798,7 +812,7 @@ std::vector<GameId> Simulation::installed_list() const {
     const auto add = [&](GameId id, std::uint64_t bytes) {
         const auto* game = find_game(state_, id);
         entries.push_back({id, bytes, game ? game->last_played : std::nullopt,
-                           game ? (game->folded_title.empty() ? game->title : game->folded_title) : std::to_string(id)});
+                           game ? (game->folded_title.empty() ? game->title : game->folded_title) : ToKey(id)});
     };
     for (const auto& installation : state_.installations) add(installation.game_id, installation.installed_bytes);
     // As on macOS: largest first, or never played first and then the longest unplayed; ties by title.
@@ -840,13 +854,13 @@ bool Simulation::uninstall_batch_done() const {
 std::vector<std::string> Simulation::installed_manager_actions() const {
     std::vector<std::string> actions;
     if (uninstall_batch_) {
-        for (const auto id : uninstall_batch_->ids) actions.push_back("installed-step-" + std::to_string(id));
+        for (const auto id : uninstall_batch_->ids) actions.push_back("installed-step-" + ToKey(id));
         if (uninstall_batch_done()) actions.push_back("installed-show-all");
         actions.push_back("installed-close");
         return actions;
     }
     actions = {"installed-sort", "installed-select-all"};
-    for (const auto id : installed_list()) actions.push_back("installed-toggle-" + std::to_string(id));
+    for (const auto id : installed_list()) actions.push_back("installed-toggle-" + ToKey(id));
     actions.push_back("installed-selection-uninstall");
     actions.push_back("installed-close");
     return actions;
@@ -948,7 +962,7 @@ void Simulation::NotifyUninstallStopped(GameId id, const std::string& reason) {
         return;
     }
     const auto* game = find_game(state_, id);
-    push_notice({"uninstall-" + std::to_string(id), "Uninstall stopped", "", false, kLiveNoticeSeconds * 2, true,
+    push_notice({"uninstall-" + ToKey(id), "Uninstall stopped", "", false, kLiveNoticeSeconds * 2, true,
                  (game ? game->title : std::string("A game")) + " · " + reason});
     pending_uninstalls_.erase(id);
     rebuild_view();
@@ -964,12 +978,12 @@ void Simulation::NotifyPlayStopped(GameId id, const std::string& reason) {
         rebuild_view();
         return;
     }
-    push_notice({"play-" + std::to_string(id), "Can't play", "", false, kLiveNoticeSeconds * 2, true, text});
+    push_notice({"play-" + ToKey(id), "Can't play", "", false, kLiveNoticeSeconds * 2, true, text});
     rebuild_view();
 }
 
 void Simulation::RequestRuntimePrepare(GameId id) {
-    if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+    if (id.valid()) pending_runtime_prepare_requests_.push_back(id);
 }
 
 void Simulation::UpdatePreparationQueue(PreparationQueue queue) {
@@ -1009,7 +1023,7 @@ void Simulation::prepare_next(GameId id) {
         prepare_next_asked_ = id;
     }
     state_.queue_expanded = kQueuePreparation;
-    state_.navigation.focus_key = "prep-" + std::to_string(id);
+    state_.navigation.focus_key = "prep-" + ToKey(id);
     const auto* game = find_game(state_, id);
     const auto& active = state_.preparation_queue.active;
     const auto* current = active ? find_game(state_, *active) : nullptr;
@@ -1258,7 +1272,7 @@ void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRunti
             const bool apply = *game.maintenance == MaintenanceKind::ApplySettings;
             const bool deferred = game.maintenance_message == "Changes apply the next time Playden starts the game.";
             if (!apply || (!game.maintenance_ok && !deferred))
-                push_notice({"maintenance-" + std::to_string(id), game.maintenance_ok ? title + ": done" : title + ": not done", "",
+                push_notice({"maintenance-" + ToKey(id), game.maintenance_ok ? title + ": done" : title + ": not done", "",
                              false, kLiveNoticeSeconds * (game.maintenance_ok ? 1 : 2), !game.maintenance_ok, game.maintenance_message});
         }
         // A Playden session ended: verbose or input logging lasts one session and goes back to Normal,
@@ -1270,7 +1284,7 @@ void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRunti
                 record->second.overrides.erase("logging");
                 ++record->second.revision;
                 save_profile();
-                push_notice({"verbose-logging-" + std::to_string(id), "Detailed logging is off again", "", false,
+                push_notice({"verbose-logging-" + ToKey(id), "Detailed logging is off again", "", false,
                              kLiveNoticeSeconds, false, title + " logs at the Normal level from its next start"});
             }
             if (game.prepared && record != state_.game_settings.end() && record->second.revision > game.settings_revision)
@@ -1363,7 +1377,7 @@ void Simulation::show_alert_prompt() {
     alert_prompts_.erase(alert_prompts_.begin());
     alert_settings_game_ = alert.settings_game;
     std::vector<std::string> actions = {"alert-ok"};
-    if (alert.settings_game) actions = {"alert-ok", "alert-settings"};
+    if (alert.settings_game.valid()) actions = {"alert-ok", "alert-settings"};
     ModalEntry prompt{"confirmation", std::move(alert.title), state_.navigation.focus_key, std::move(actions), 0, false};
     prompt.body = alert.body.empty() ? std::string(" ") : std::move(alert.body);
     open_modal(std::move(prompt));
@@ -1378,7 +1392,7 @@ void Simulation::UpdateCloud(const std::vector<LiveCloudGame>& games) {
         if (before != game.status && game.game_id != quit_sync_game_) {
             const auto* known = find_game(state_, game.game_id);
             const std::string title = known ? known->title : "A game";
-            const auto id = "cloud-" + std::to_string(game.game_id);
+            const auto id = "cloud-" + ToKey(game.game_id);
             if (game.status == CloudStatus::Synced && before != CloudStatus::None)
                 push_notice({id, "Cloud saves synced", "", false, kLiveNoticeSeconds, false, title + " · " + game.message});
             // A check the player did not start never opens a dialog: the Saves tab shows it.
@@ -1411,14 +1425,14 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         };
         for (const auto& [id, previous] : live_job_states_) {
             if (job_states.contains(id) || !installed_ids.contains(id)) continue;
-            push_notice({"install-" + std::to_string(id), "Download complete", "", false, kLiveNoticeSeconds, false, title(id)});
+            push_notice({"install-" + ToKey(id), "Download complete", "", false, kLiveNoticeSeconds, false, title(id)});
         }
         for (const auto& job : jobs) {
             const auto previous = live_job_states_.find(job.game_id);
             if (job.state != JobState::Failed || (previous != live_job_states_.end() && previous->second == JobState::Failed)) continue;
             // The queue carries on with the next game and Downloads keeps the failure with Resume, so the
             // player is told in a corner instead of a dialog that stops what they are doing.
-            push_notice({"install-" + std::to_string(job.game_id), "Download failed", "", false, kLiveNoticeSeconds * 2, true,
+            push_notice({"install-" + ToKey(job.game_id), "Download failed", "", false, kLiveNoticeSeconds * 2, true,
                          title(job.game_id) + (job.failure.empty() ? std::string() : " · " + job.failure), false});
         }
         const bool batch_open = uninstall_batch_ && installed_list_open();
@@ -1430,7 +1444,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
                 uninstall_batch_->uninstalled.insert(id);
                 continue;
             }
-            push_notice({"install-" + std::to_string(id), "Game uninstalled", "", false, kLiveNoticeSeconds, false, title(id)});
+            push_notice({"install-" + ToKey(id), "Game uninstalled", "", false, kLiveNoticeSeconds, false, title(id)});
         }
     }
     for (auto it = pending_uninstalls_.begin(); it != pending_uninstalls_.end();)
@@ -1442,7 +1456,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
     int order = 0;
     for (const auto& live_job : jobs) {
         Job job;
-        job.id = std::to_string(live_job.game_id);
+        job.id = ToKey(live_job.game_id);
         job.game_id = live_job.game_id;
         job.queue_order = order++;
         job.state = live_job.state;
@@ -1462,7 +1476,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
     for (const auto& finished : completed) {
         if (live_job_states_.contains(finished.game_id) || !live_installed_ids_.contains(finished.game_id)) continue;
         Job job;
-        job.id = std::to_string(finished.game_id);
+        job.id = ToKey(finished.game_id);
         job.game_id = finished.game_id;
         job.queue_order = order++;
         job.state = JobState::Downloaded;
@@ -1580,7 +1594,7 @@ void Simulation::clear_account_specific_state() {
     // Bottle settings belong to the installed game, independently of Steam sign-in.
     if (!live()) state_.game_settings.clear();
     state_.navigation.detail_id.reset();
-    state_.navigation.selected_game_id = 0;
+    state_.navigation.selected_game_id = {};
     state_.navigation.selected_index = 0;
     state_.navigation.home_shelf = 0;
     state_.navigation.home_shelf_focus.clear();
@@ -1588,7 +1602,7 @@ void Simulation::clear_account_specific_state() {
     state_.navigation.modals.clear();
     state_.editor = {};
     state_.session = SessionState::Idle;
-    state_.session_game_id = 0;
+    state_.session_game_id = {};
     state_.session_error.clear();
     state_.runtime = RuntimeState::Unavailable;
     state_.library_syncing = false;
@@ -1738,7 +1752,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
 
     std::set<GameId> identifiers;
     for (const auto& summary : update.games) {
-        if (summary.id == 0 || trimmed(summary.title).empty()
+        if (!summary.id.valid() || trimmed(summary.title).empty()
             || !identifiers.insert(summary.id).second
             || (summary.last_played_unix_seconds
                 && *summary.last_played_unix_seconds
@@ -1799,7 +1813,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             identity_retained = true;
             state_.navigation.selected_game_id = prior_id;
             state_.navigation.selected_index = static_cast<int>(std::distance(current_visible.begin(), retained));
-        } else if (prior_catalog_empty && prior_id != 0 && find_game(state_, prior_id)) {
+        } else if (prior_catalog_empty && prior_id.valid() && find_game(state_, prior_id)) {
             identity_retained = true;
             state_.navigation.selected_game_id = prior_id;
             state_.navigation.selected_index = 0;
@@ -1810,7 +1824,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             state_.editor.active = false;
         } else {
             state_.navigation.selected_index = 0;
-            state_.navigation.selected_game_id = 0;
+            state_.navigation.selected_game_id = {};
             state_.navigation.modals.clear();
             state_.editor.active = false;
         }
@@ -1829,13 +1843,13 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
                     state_.navigation.selected_index = static_cast<int>(std::distance(current_visible.begin(), visible_detail));
                 identity_retained = true;
             } else {
-                state_.navigation.detail_id = state_.navigation.selected_game_id == 0
+                state_.navigation.detail_id = !state_.navigation.selected_game_id.valid()
                     ? std::nullopt : std::optional<GameId>{state_.navigation.selected_game_id};
                 identity_retained = false;
             }
         }
 
-        if (state_.navigation.route == Route::Details && state_.navigation.selected_game_id == 0) {
+        if (state_.navigation.route == Route::Details && !state_.navigation.selected_game_id.valid()) {
             state_.navigation.route = state_.navigation.detail_origin == Route::Home
                 ? Route::Home : Route::Library;
             state_.navigation.detail_id.reset();
@@ -1846,7 +1860,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
         } else if (state_.navigation.route == Route::Library && state_.navigation.library_rail_focused) {
             state_.navigation.focus_key = prior_focus;
         } else if (state_.navigation.route == Route::Home || state_.navigation.route == Route::Library) {
-            state_.navigation.focus_key = state_.navigation.selected_game_id == 0
+            state_.navigation.focus_key = !state_.navigation.selected_game_id.valid()
                 ? (state_.library.query.empty() ? "library-empty" : "clear-search")
                 : game_key(state_.navigation.selected_game_id);
         } else if (state_.navigation.route == Route::Details) {
@@ -1928,7 +1942,7 @@ void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot
 void Simulation::reconcile_applied_organization_selection(GameId prior_selected_id) {
     if (state_.games.empty()) {
         if (!library_catalog_received_) return;
-        state_.navigation.selected_game_id = 0;
+        state_.navigation.selected_game_id = {};
         state_.navigation.selected_index = 0;
         if (state_.navigation.route == Route::Home) state_.navigation.focus_key = "home-library";
         else if (state_.navigation.route == Route::Library && !state_.navigation.library_rail_focused)
@@ -1953,7 +1967,7 @@ void Simulation::reconcile_applied_organization_selection(GameId prior_selected_
                                              static_cast<int>(visible.size()) - 1);
     };
     const auto library_item = visible_candidate(state_.navigation.selected_game_id);
-    const GameId library_candidate = library_item == visible.end() ? 0 : (*library_item)->id;
+    const GameId library_candidate = library_item == visible.end() ? GameId{} : (*library_item)->id;
     if (library_item != visible.end()) {
         const int index = static_cast<int>(std::distance(visible.begin(), library_item));
         state_.navigation.selected_index = index;
@@ -1961,7 +1975,7 @@ void Simulation::reconcile_applied_organization_selection(GameId prior_selected_
         state_.navigation.scroll_offsets["library-grid"] = index / 6;
     }
 
-    GameId home_candidate = 0;
+    GameId home_candidate;
     std::string home_more_key;  // the focused "More" cell, kept across library updates
     const auto projected = shelves(state_);
     auto locate_home = [&projected](GameId id) -> std::optional<std::pair<int, int>> {
@@ -1999,7 +2013,7 @@ void Simulation::reconcile_applied_organization_selection(GameId prior_selected_
     if (state_.navigation.route == Route::Library) {
         state_.navigation.selected_game_id = library_candidate;
         if (!state_.navigation.library_rail_focused)
-            state_.navigation.focus_key = library_candidate == 0
+            state_.navigation.focus_key = !library_candidate.valid()
                 ? (state_.library.query.empty() ? "library-empty" : "clear-search")
                 : game_key(library_candidate);
     } else if (state_.navigation.route == Route::Home ||
@@ -2008,7 +2022,7 @@ void Simulation::reconcile_applied_organization_selection(GameId prior_selected_
         state_.navigation.selected_game_id = home_candidate;
         if (state_.navigation.route == Route::Home)
             state_.navigation.focus_key = !home_more_key.empty() ? home_more_key
-                                          : home_candidate == 0 ? "home-library" : game_key(home_candidate);
+                                          : !home_candidate.valid() ? "home-library" : game_key(home_candidate);
     }
 }
 
@@ -2052,7 +2066,7 @@ bool Simulation::ApplyOrganization(std::uint64_t account, PersistenceLoadToken t
         });
     for (const auto& entry : organization_journal_)
         replay_organization_delta(merged, entry.before, entry.after, entry.reset, entry.selected);
-    if (!had_local_selection && loaded_base.selected_game_id == 0)
+    if (!had_local_selection && !loaded_base.selected_game_id.valid())
         merged.selected_game_id = captured_organization_.selected_game_id;
     if (!snapshot_within_model_bounds(merged)) {
         organization_load_pending_ = false;
@@ -2268,7 +2282,7 @@ void Simulation::load_fixtures() {
     if (const auto* values = root->get("games"); values && values->array()) {
         for (const auto& item : *values->array()) {
             Game game;
-            game.id = static_cast<GameId>(uint_value(item.get("id")));
+            game.id = steam_value(item.get("id"));
             game.title = string_value(item.get("title"));
             game.description = string_value(item.get("description"), "Description unavailable");
             game.source = string_value(item.get("source"));
@@ -2298,9 +2312,9 @@ void Simulation::load_fixtures() {
     }
     if (const auto* organization = root->get("organization")) {
         if (const auto* favorites = organization->get("favorites"); favorites && favorites->array())
-            for (const auto& id : *favorites->array()) state_.library.favorites.insert(static_cast<GameId>(uint_value(&id)));
+            for (const auto& id : *favorites->array()) state_.library.favorites.insert(steam_value(&id));
         if (const auto* hidden = organization->get("hidden"); hidden && hidden->array())
-            for (const auto& id : *hidden->array()) state_.library.hidden.insert(static_cast<GameId>(uint_value(&id)));
+            for (const auto& id : *hidden->array()) state_.library.hidden.insert(steam_value(&id));
         if (const auto* collections = organization->get("collections"); collections && collections->array()) {
             for (const auto& item : *collections->array()) {
                 Collection collection;
@@ -2308,7 +2322,7 @@ void Simulation::load_fixtures() {
                 collection.name = string_value(item.get("name"));
                 collection.pinned = bool_value(item.get("pinned"));
                 if (const auto* ids = item.get("game_ids"); ids && ids->array())
-                    for (const auto& id : *ids->array()) collection.members.insert(static_cast<GameId>(uint_value(&id)));
+                    for (const auto& id : *ids->array()) collection.members.insert(steam_value(&id));
                 state_.library.collections.push_back(std::move(collection));
                 ++next_collection_serial_;
             }
@@ -2320,7 +2334,7 @@ void Simulation::load_fixtures() {
     if (const auto* values = root->get("installations"); values && values->array()) {
         for (const auto& item : *values->array()) {
             Installation installation;
-            installation.game_id = static_cast<GameId>(uint_value(item.get("game_id")));
+            installation.game_id = steam_value(item.get("game_id"));
             installation.volume_id = string_value(item.get("volume_id"));
             installation.installed_bytes = uint_value(item.get("installed_bytes"));
             installation.available = bool_value(item.get("available"), true);
@@ -2355,7 +2369,7 @@ void Simulation::load_fixtures() {
         for (const auto& item : *values->array()) {
             Job job;
             job.id = string_value(item.get("id"));
-            job.game_id = static_cast<GameId>(uint_value(item.get("game_id")));
+            job.game_id = steam_value(item.get("game_id"));
             job.volume_id = string_value(item.get("volume_id"));
             job.kind = string_value(item.get("kind"), "install");
             job.queue_order = static_cast<int>(uint_value(item.get("order")));
@@ -2419,11 +2433,11 @@ void Simulation::load_profile() {
     state_.library.scope = string_value(root->get("scope"), state_.library.scope);
     if (const auto* favorites = root->get("favorites"); favorites && favorites->array()) {
         state_.library.favorites.clear();
-        for (const auto& id : *favorites->array()) state_.library.favorites.insert(static_cast<GameId>(uint_value(&id)));
+        for (const auto& id : *favorites->array()) state_.library.favorites.insert(steam_value(&id));
     }
     if (const auto* hidden = root->get("hidden"); hidden && hidden->array()) {
         state_.library.hidden.clear();
-        for (const auto& id : *hidden->array()) state_.library.hidden.insert(static_cast<GameId>(uint_value(&id)));
+        for (const auto& id : *hidden->array()) state_.library.hidden.insert(steam_value(&id));
     }
     state_.library.sort = string_value(root->get("sort"), state_.library.sort);
     if (const auto* filters = root->get("filters"); filters && filters->array()) {
@@ -2435,18 +2449,18 @@ void Simulation::load_profile() {
         for (const auto& item : *collections->array()) {
             Collection collection;
             collection.id = string_value(item.get("id")); collection.name = string_value(item.get("name")); collection.pinned = bool_value(item.get("pinned"));
-            if (const auto* members = item.get("members"); members && members->array()) for (const auto& id : *members->array()) collection.members.insert(static_cast<GameId>(uint_value(&id)));
+            if (const auto* members = item.get("members"); members && members->array()) for (const auto& id : *members->array()) collection.members.insert(steam_value(&id));
             state_.library.collections.push_back(std::move(collection));
             ++next_collection_serial_;
         }
     }
     if (const auto* ratings = root->get("ratings"); ratings && ratings->array()) {
         state_.library.ratings.clear();
-        for (const auto& item : *ratings->array()) state_.library.ratings[static_cast<GameId>(uint_value(item.get("id")))] = static_cast<Compatibility>(uint_value(item.get("value")));
+        for (const auto& item : *ratings->array()) state_.library.ratings[steam_value(item.get("id"))] = static_cast<Compatibility>(uint_value(item.get("value")));
     }
     if (const auto* notes = root->get("notes"); notes && notes->array()) {
         state_.library.notes.clear();
-        for (const auto& item : *notes->array()) state_.library.notes[static_cast<GameId>(uint_value(item.get("id")))] = string_value(item.get("value"));
+        for (const auto& item : *notes->array()) state_.library.notes[steam_value(item.get("id"))] = string_value(item.get("value"));
     }
     // Keep revision numbers lexical: the fixture reader's doubles cannot represent every uint64.
     playden::steam::json::Limits settings_limits;
@@ -2474,14 +2488,14 @@ void Simulation::load_profile() {
             if (const auto* overrides = value->Find("overrides"); overrides && overrides->is_object())
                 for (const auto& [id, text] : overrides->object())
                     if (text.is_string() && rt::FindSetting(id)) record.overrides[id] = text.text();
-            state_.game_settings[static_cast<GameId>(*app)] = std::move(record);
+            state_.game_settings[GameId::Steam(static_cast<std::uint32_t>(*app))] = std::move(record);
         }
     }
     if (const auto* jobs = root->get("jobs"); jobs && jobs->array()) {
         state_.jobs.clear();
         for (const auto& item : *jobs->array()) {
             Job job;
-            job.id = string_value(item.get("id")); job.kind = string_value(item.get("kind"), "install"); job.game_id = static_cast<GameId>(uint_value(item.get("game_id"))); job.queue_order = static_cast<int>(uint_value(item.get("order")));
+            job.id = string_value(item.get("id")); job.kind = string_value(item.get("kind"), "install"); job.game_id = steam_value(item.get("game_id")); job.queue_order = static_cast<int>(uint_value(item.get("order")));
             job.stage = static_cast<JobStage>(uint_value(item.get("stage"))); job.state = static_cast<JobState>(uint_value(item.get("state")));
             job.completed_bytes = uint_value(item.get("completed")); job.total_bytes = uint_value(item.get("total")); job.volume_id = string_value(item.get("volume"));
             job.failure = string_value(item.get("failure")); job.retry_stage = static_cast<JobStage>(uint_value(item.get("retry"))); job.stage_ticks = static_cast<int>(uint_value(item.get("stage_ticks")));
@@ -2497,7 +2511,7 @@ void Simulation::load_profile() {
     next_job_serial_ = std::max(next_job_serial_, uint_value(root->get("next_job_serial"), next_job_serial_));
     if (const auto* installations = root->get("installations"); installations && installations->array()) {
         state_.installations.clear();
-        for (const auto& item : *installations->array()) state_.installations.push_back({static_cast<GameId>(uint_value(item.get("game_id"))), string_value(item.get("volume")), uint_value(item.get("bytes")), bool_value(item.get("available"), true), bool_value(item.get("runtime")), bool_value(item.get("saves"), true)});
+        for (const auto& item : *installations->array()) state_.installations.push_back({steam_value(item.get("game_id")), string_value(item.get("volume")), uint_value(item.get("bytes")), bool_value(item.get("available"), true), bool_value(item.get("runtime")), bool_value(item.get("saves"), true)});
     }
     if (const auto* volumes = root->get("volumes"); volumes && volumes->array()) {
         for (const auto& item : *volumes->array()) {
@@ -2519,10 +2533,8 @@ void Simulation::load_profile() {
 bool Simulation::save_profile() {
     settings_save_failed_ = true;
     if (live() && !settings_load_failed_ && !game_settings_file_.empty() && state_.game_settings != saved_game_settings_) {
-        std::map<std::uint32_t, rt::GameSettingsRecord> records;
-        for (const auto& [id, record] : state_.game_settings) records[static_cast<std::uint32_t>(id)] = record;
         std::string reason;
-        if (rt::SaveGameSettingsFile(game_settings_file_.string(), records, &reason)) saved_game_settings_ = state_.game_settings;
+        if (rt::SaveGameSettingsFile(game_settings_file_.string(), state_.game_settings, &reason)) saved_game_settings_ = state_.game_settings;
         else push_notice({"settings-save-failed", "Game settings were not saved", "", false, kLiveNoticeSeconds, true, reason});
     }
     if (live()) {
@@ -2545,11 +2557,11 @@ bool Simulation::save_profile() {
     for (const auto id : state_.library.favorites) {
         if (!first) output += ',';
         first = false;
-        output += std::to_string(id);
+        output += app_text(id);
     }
     output += "],\"hidden\":[";
     first = true;
-    for (const auto id : state_.library.hidden) { if (!first) output += ','; first = false; output += std::to_string(id); }
+    for (const auto id : state_.library.hidden) { if (!first) output += ','; first = false; output += app_text(id); }
     output += "],\"sort\":\"" + json::escape(state_.library.sort) + "\",\"filters\":[";
     first = true;
     for (const auto& filter : state_.library.filters) { if (!first) output += ','; first = false; output += '"' + json::escape(filter) + '"'; }
@@ -2560,26 +2572,26 @@ bool Simulation::save_profile() {
         output += "{\"id\":\"" + json::escape(collection.id) + "\",\"name\":\"" + json::escape(collection.name)
             + "\",\"pinned\":" + (collection.pinned ? "true" : "false") + ",\"members\":[";
         bool first_member = true;
-        for (const auto id : collection.members) { if (!first_member) output += ','; first_member = false; output += std::to_string(id); }
+        for (const auto id : collection.members) { if (!first_member) output += ','; first_member = false; output += app_text(id); }
         output += "]}";
     }
     output += "],\"ratings\":[";
     first = true;
-    for (const auto& [id, rating] : state_.library.ratings) { if (!first) output += ','; first = false; output += "{\"id\":" + std::to_string(id) + ",\"value\":" + std::to_string(static_cast<int>(rating)) + '}'; }
+    for (const auto& [id, rating] : state_.library.ratings) { if (!first) output += ','; first = false; output += "{\"id\":" + app_text(id) + ",\"value\":" + std::to_string(static_cast<int>(rating)) + '}'; }
     output += "],\"notes\":[";
     first = true;
-    for (const auto& [id, note] : state_.library.notes) { if (!first) output += ','; first = false; output += "{\"id\":" + std::to_string(id) + ",\"value\":\"" + json::escape(note) + "\"}"; }
+    for (const auto& [id, note] : state_.library.notes) { if (!first) output += ','; first = false; output += "{\"id\":" + app_text(id) + ",\"value\":\"" + json::escape(note) + "\"}"; }
     output += "],\"game_settings\":[";
     first = true;
     for (const auto& [id, record] : state_.game_settings) {
         if (!first) output += ','; first = false;
-        output += "{\"game_id\":" + std::to_string(id) + ",\"settings\":" + rt::SerializeGameSettingsRecord(record) + "}";
+        output += "{\"game_id\":" + app_text(id) + ",\"settings\":" + rt::SerializeGameSettingsRecord(record) + "}";
     }
     output += "],\"jobs\":[";
     first = true;
     for (const auto& job : state_.jobs) {
         if (!first) output += ','; first = false;
-        output += "{\"id\":\"" + json::escape(job.id) + "\",\"kind\":\"" + json::escape(job.kind) + "\",\"game_id\":" + std::to_string(job.game_id)
+        output += "{\"id\":\"" + json::escape(job.id) + "\",\"kind\":\"" + json::escape(job.kind) + "\",\"game_id\":" + app_text(job.game_id)
             + ",\"order\":" + std::to_string(job.queue_order) + ",\"stage\":" + std::to_string(static_cast<int>(job.stage))
             + ",\"state\":" + std::to_string(static_cast<int>(job.state)) + ",\"completed\":" + std::to_string(job.completed_bytes)
             + ",\"total\":" + std::to_string(job.total_bytes) + ",\"volume\":\"" + json::escape(job.volume_id)
@@ -2594,7 +2606,7 @@ bool Simulation::save_profile() {
     first = true;
     for (const auto& installation : state_.installations) {
         if (!first) output += ','; first = false;
-        output += "{\"game_id\":" + std::to_string(installation.game_id) + ",\"volume\":\"" + json::escape(installation.volume_id)
+        output += "{\"game_id\":" + app_text(installation.game_id) + ",\"volume\":\"" + json::escape(installation.volume_id)
             + "\",\"bytes\":" + std::to_string(installation.installed_bytes) + ",\"available\":" + (installation.available ? "true" : "false")
             + ",\"runtime\":" + (installation.runtime_ready ? "true" : "false") + ",\"saves\":" + (installation.saves_present ? "true" : "false") + '}';
     }
@@ -2624,7 +2636,7 @@ bool Simulation::scenario(const std::string& name) {
         state_.account.authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Home;
         state_.navigation.selected_index = 0;
-        state_.navigation.selected_game_id = state_.games.empty() ? 0 : state_.games.front().id;
+        state_.navigation.selected_game_id = state_.games.empty() ? GameId{} : state_.games.front().id;
         state_.navigation.focus_key = state_.games.empty() ? "home-library" : game_key(state_.navigation.selected_game_id);
         const auto projected = playden::homebrew::shelves(state_);
         for (std::size_t index = 0; index < projected.size(); ++index) {
@@ -2709,7 +2721,7 @@ bool Simulation::scenario(const std::string& name) {
         state_.queue_expanded.clear();
         const auto job = [&](std::size_t game, int order, JobState job_state, std::uint64_t total, std::uint64_t done) {
             Job item;
-            item.id = "queue-" + std::to_string(state_.games[game].id);
+            item.id = "queue-" + ToKey(state_.games[game].id);
             item.game_id = state_.games[game].id;
             item.queue_order = order;
             item.state = job_state;
@@ -2789,7 +2801,7 @@ bool Simulation::scenario(const std::string& name) {
         state_.navigation.route = Route::Home;
     } else if (name == "empty") {
         state_.navigation.route = Route::Library;
-        state_.navigation.selected_game_id = 0;
+        state_.navigation.selected_game_id = {};
         state_.navigation.focus_key = "library-empty";
         state_.library.query.clear();
         state_.library.filters.insert("empty-fixture");
@@ -2801,11 +2813,11 @@ bool Simulation::scenario(const std::string& name) {
     } else if (name == "no-results") {
         state_.navigation.route = Route::Library;
         state_.library.query = "zzz-no-matches";
-        state_.navigation.selected_game_id = 0;
+        state_.navigation.selected_game_id = {};
         state_.navigation.focus_key = "clear-search";
     } else if (name == "delayed-art" || name == "failed-art") {
         state_.navigation.route = Route::Library;
-        state_.navigation.selected_game_id = name == "delayed-art" ? 900007 : 900008;
+        state_.navigation.selected_game_id = name == "delayed-art" ? GameId::Steam(900007) : GameId::Steam(900008);
         state_.navigation.focus_key = game_key(state_.navigation.selected_game_id);
         if (auto* game = const_cast<Game*>(find_game(state_, state_.navigation.selected_game_id))) {
             game->art_pending = name == "delayed-art";
@@ -2813,7 +2825,7 @@ bool Simulation::scenario(const std::string& name) {
         }
     } else if (name == "install-ready" || name == "unknown-size" || name == "insufficient-space") {
         state_.navigation.route = Route::Details;
-        state_.navigation.detail_id = name == "unknown-size" ? 900006 : 900012;
+        state_.navigation.detail_id = name == "unknown-size" ? GameId::Steam(900006) : GameId::Steam(900012);
         state_.navigation.selected_game_id = *state_.navigation.detail_id;
         state_.navigation.focus_key = "details-install";
         if (name == "insufficient-space") {
@@ -2842,13 +2854,13 @@ bool Simulation::scenario(const std::string& name) {
     } else if (name == "runtime-unavailable") {
         state_.runtime = RuntimeState::Unavailable;
         state_.navigation.route = Route::Details;
-        state_.navigation.detail_id = 900001;
-        state_.navigation.selected_game_id = 900001;
-        if (auto* installation = find_installation(state_, 900001)) installation->runtime_ready = false;
+        state_.navigation.detail_id = GameId::Steam(900001);
+        state_.navigation.selected_game_id = GameId::Steam(900001);
+        if (auto* installation = find_installation(state_, GameId::Steam(900001))) installation->runtime_ready = false;
         state_.navigation.focus_key = "details-play";
     } else if (name == "launch-failure" || name == "crash" || name == "stop-failure") {
         state_.navigation.route = Route::Session;
-        state_.session_game_id = 900001;
+        state_.session_game_id = GameId::Steam(900001);
         state_.session = name == "crash" ? SessionState::Crashed : SessionState::Failed;
         state_.session_error = name == "launch-failure" ? "Simulated launch failed" : (name == "crash" ? "Game exited unexpectedly" : "Game did not stop");
         state_.navigation.focus_key = name == "crash" ? "session-logs" : "session-retry";
@@ -2870,7 +2882,7 @@ bool Simulation::scenario(const std::string& name) {
         state_.games.reserve(root->array()->size());
         for (const auto& item : *root->array()) {
             Game game;
-            game.id = static_cast<GameId>(uint_value(item.get("id")));
+            game.id = steam_value(item.get("id"));
             game.title = string_value(item.get("title"));
             game.description = string_value(item.get("description"));
             game.source = "Steam / Windows";
@@ -2880,10 +2892,10 @@ bool Simulation::scenario(const std::string& name) {
         state_.library = {};
         state_.navigation.route = Route::Library;
         state_.navigation.selected_index = 0;
-        state_.navigation.selected_game_id = state_.games.empty() ? 0 : state_.games.front().id;
+        state_.navigation.selected_game_id = state_.games.empty() ? GameId{} : state_.games.front().id;
         state_.navigation.focus_key = game_key(state_.navigation.selected_game_id);
     } else if (name == "art-ready") {
-        if (auto found = std::find_if(state_.games.begin(), state_.games.end(), [](const Game& game) { return game.id == 900007; }); found != state_.games.end()) {
+        if (auto found = std::find_if(state_.games.begin(), state_.games.end(), [](const Game& game) { return game.id == GameId::Steam(900007); }); found != state_.games.end()) {
             found->art_pending = false;
             found->art_failed = false;
         }
@@ -3358,12 +3370,12 @@ void Simulation::rebuild_view() {
                 item.enabled = choosable > 0;
             }
             else if (action_key.rfind("installed-toggle-", 0) == 0) {
-                const auto id = static_cast<GameId>(std::strtoull(action_key.c_str() + 17, nullptr, 10));
+                const auto id = key_id(std::string_view(action_key).substr(17));
                 const auto* game = find_game(state_, id);
                 const auto* installation = find_installation(state_, id);
                 item.kind = RowKind::Toggle;
                 item.game_id = id;
-                item.title = game && !game->title.empty() ? game->title : "Steam app " + std::to_string(id);
+                item.title = game && !game->title.empty() ? game->title : "Steam app " + ToKey(id);
                 item.selected = installed_selected_.contains(id);
                 item.value = installation ? format_bytes(installation->installed_bytes) : std::string();
                 const auto blocker = installed_blocker(id);
@@ -3388,12 +3400,12 @@ void Simulation::rebuild_view() {
             }
             else if (action_key.rfind("installed-step-", 0) == 0 && uninstall_batch_) {
                 // A game of the running batch: how far its uninstall is, then how it ended.
-                const auto id = static_cast<GameId>(std::strtoull(action_key.c_str() + 15, nullptr, 10));
+                const auto id = key_id(std::string_view(action_key).substr(15));
                 const auto* game = find_game(state_, id);
                 const auto& batch = *uninstall_batch_;
                 item.kind = RowKind::Status;
                 item.game_id = id;
-                item.title = game && !game->title.empty() ? game->title : "Steam app " + std::to_string(id);
+                item.title = game && !game->title.empty() ? game->title : "Steam app " + ToKey(id);
                 item.value = format_bytes(batch.bytes.count(id) ? batch.bytes.at(id) : 0);
                 const auto runtime = state_.runtime_games.find(id);
                 if (batch.uninstalled.contains(id)) {
@@ -3419,7 +3431,7 @@ void Simulation::rebuild_view() {
                 item.enabled = !state_.kept_bottles.empty();
             }
             else if (action_key.rfind("kept-toggle-", 0) == 0) {
-                const auto id = static_cast<GameId>(std::strtoull(action_key.c_str() + 12, nullptr, 10));
+                const auto id = key_id(std::string_view(action_key).substr(12));
                 for (const auto& kept : state_.kept_bottles) {
                     if (kept.game_id != id) continue;
                     item.kind = RowKind::Toggle;
@@ -3679,7 +3691,7 @@ void Simulation::rebuild_view() {
             shelf.key = source.key; shelf.title = source.title;
             for (const auto id : source.game_ids) if (const auto* game = find_game(state_, id)) {
                 ViewRow item;
-                item.key = "shelf-" + shelf.key + "-game-" + std::to_string(id); item.kind = RowKind::Game; item.title = game->title; item.action = "open-game"; item.game_id = id;
+                item.key = "shelf-" + shelf.key + "-game-" + ToKey(id); item.kind = RowKind::Game; item.title = game->title; item.action = "open-game"; item.game_id = id;
                 shelf.items.push_back(std::move(item));
             }
             if (source.more > 0 && !shelf.items.empty()) {
@@ -3743,7 +3755,7 @@ void Simulation::rebuild_view() {
         }
         if (live() && game) {
             // Real install state: an install job, a finished install, or what Steam allows.
-            const auto* job = find_job(state_, std::to_string(game->id));
+            const auto* job = find_job(state_, ToKey(game->id));
             if (installed) {
                 if (!installation->available) {
                     const auto* volume = find_volume(state_, installation->volume_id);
@@ -3845,7 +3857,7 @@ void Simulation::rebuild_view() {
                     saves.value = format_bytes(kept.bytes);
                     saves.subtitle = "Installing the game again brings them back.";
                     saves.enabled = false;
-                    row("details-kept-delete", RowKind::Action, "Delete saves", "kept-delete-" + std::to_string(game->id)).dangerous = true;
+                    row("details-kept-delete", RowKind::Action, "Delete saves", "kept-delete-" + ToKey(game->id)).dangerous = true;
                 }
         }
         if (installed) {
@@ -4023,7 +4035,7 @@ void Simulation::rebuild_view() {
             std::string name = game ? game->title : std::string();
             if (name.empty())
                 for (const auto& kept : state_.kept_bottles) if (kept.game_id == id) name = kept_name(state_, kept);
-            auto& item = row("save-" + std::to_string(id), RowKind::Action, name.empty() ? "Steam app " + std::to_string(id) : name, "save-open");
+            auto& item = row("save-" + ToKey(id), RowKind::Action, name.empty() ? "Steam app " + ToKey(id) : name, "save-open");
             item.game_id = id;
             item.subtitle = facts.reason;
             item.value = facts.label;
@@ -4055,7 +4067,7 @@ void Simulation::rebuild_view() {
         for (const auto& item : state_.kept_bottles) if (item.game_id == id) kept = &item;
         const bool here = std::any_of(state_.installations.begin(), state_.installations.end(),
                                       [id](const Installation& item) { return item.game_id == id; });
-        view_.title = game ? game->title : kept ? kept_name(state_, *kept) : "Steam app " + std::to_string(id);
+        view_.title = game ? game->title : kept ? kept_name(state_, *kept) : "Steam app " + ToKey(id);
         const auto found = state_.cloud.find(id);
         const auto* cloud = found == state_.cloud.end() ? nullptr : &found->second;
         const auto facts = save_facts(cloud, here);
@@ -4333,7 +4345,7 @@ void Simulation::rebuild_view() {
         if (state_.navigation.route == Route::Library && view_.first_index > 0)
             view_.focused_row = std::clamp(state_.navigation.selected_index - static_cast<int>(view_.first_index), 0, static_cast<int>(view_.rows.size()) - 1);
         state_.navigation.focus_key = view_.rows[static_cast<std::size_t>(view_.focused_row)].key;
-        if (!has_overlay && view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id != 0)
+        if (!has_overlay && view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id.valid())
             state_.navigation.selected_game_id = view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id;
     }
     if (!has_overlay && state_.navigation.route == Route::Downloads && focused != view_.rows.end())
@@ -4364,11 +4376,11 @@ void Simulation::start_logs() {
     state_.log_lines.clear();
     state_.log_offset = 0;
     if (state_.navigation.route == Route::Session || state_.session != SessionState::Idle)
-        state_.log_context = "Session fixture · game " + std::to_string(state_.session_game_id);
+        state_.log_context = "Session fixture · game " + ToKey(state_.session_game_id);
     else if (state_.navigation.route == Route::Downloads)
-        state_.log_context = "Transfer fixture · game " + std::to_string(state_.navigation.selected_game_id);
-    else if (state_.navigation.selected_game_id != 0)
-        state_.log_context = "Game fixture · " + std::to_string(state_.navigation.selected_game_id);
+        state_.log_context = "Transfer fixture · game " + ToKey(state_.navigation.selected_game_id);
+    else if (state_.navigation.selected_game_id.valid())
+        state_.log_context = "Game fixture · " + ToKey(state_.navigation.selected_game_id);
     else state_.log_context = "Playden fixture diagnostics";
 }
 
@@ -4381,8 +4393,8 @@ void Simulation::open_live_log(const std::string& topic, GameId game_id) {
     live_log_topic_ = topic;
     live_log_game_ = game_id;
     std::vector<std::string> actions;
-    if (game_id != 0)
-        if (const auto* job = find_job(state_, std::to_string(game_id)); job && job->state == JobState::Failed)
+    if (game_id.valid())
+        if (const auto* job = find_job(state_, ToKey(game_id)); job && job->state == JobState::Failed)
             actions.push_back("job-retry-" + job->id);
     actions.push_back("logs-refresh");
     actions.push_back("logs-back");
@@ -4408,12 +4420,12 @@ void Simulation::load_live_log() {
         state_.log_context = "The log file could not be read";
         return;
     }
-    const std::string marker = "app=" + std::to_string(live_log_game_) + " ";
+    const std::string marker = "app=" + ToKey(live_log_game_) + " ";
     for (const auto& line : tail.lines)
-        if (live_log_game_ == 0 || line.find(marker) != std::string::npos) state_.log_lines.push_back(line);
+        if (!live_log_game_.valid() || line.find(marker) != std::string::npos) state_.log_lines.push_back(line);
     state_.log_state = LogState::Ready;
     std::string context;
-    if (live_log_game_ != 0) {
+    if (live_log_game_.valid()) {
         const auto* game = find_game(state_, live_log_game_);
         context = (game ? game->title : "This game") + std::string(" · ");
     }
@@ -4666,7 +4678,7 @@ void Simulation::commit_editor() {
         const bool from_game = std::any_of(state_.navigation.modals.begin(), state_.navigation.modals.end(),
                                            [](const ModalEntry& modal) { return modal.id == "collections"; });
         std::set<GameId> members;
-        if (from_game && state_.navigation.selected_game_id != 0) members.insert(state_.navigation.selected_game_id);
+        if (from_game && state_.navigation.selected_game_id.valid()) members.insert(state_.navigation.selected_game_id);
         const auto new_id = id;
         state_.library.collections.push_back({std::move(id), name, false, std::move(members)});
         state_.editor.active = false;
@@ -4744,7 +4756,7 @@ void Simulation::cancel() {
         state_.navigation.focus_key = "startup-connect";
     } else if (state_.navigation.route == Route::SaveDetails) {
         state_.navigation.route = Route::Saves;
-        state_.navigation.focus_key = "save-" + std::to_string(state_.navigation.save_id);
+        state_.navigation.focus_key = "save-" + ToKey(state_.navigation.save_id);
     } else if (state_.navigation.route == Route::Details || state_.navigation.route == Route::Session) {
         state_.navigation.route = state_.navigation.route == Route::Session ? Route::Details : state_.navigation.detail_origin;
         state_.navigation.focus_key = state_.navigation.route == Route::Details ? "details-play" : game_key(state_.navigation.selected_game_id);
@@ -4835,7 +4847,7 @@ void Simulation::move_content(int delta_x, int delta_y) {
     state_.navigation.selected_index = std::clamp(view_.focused_row + delta, 0, static_cast<int>(view_.rows.size()) - 1);
     const auto& selected = view_.rows[static_cast<std::size_t>(state_.navigation.selected_index)];
     state_.navigation.focus_key = selected.key;
-    if (selected.game_id != 0) state_.navigation.selected_game_id = selected.game_id;
+    if (selected.game_id.valid()) state_.navigation.selected_game_id = selected.game_id;
     if (state_.navigation.route == Route::Library) state_.navigation.scroll_offsets["library-grid"] = state_.navigation.selected_index / columns;
     if (state_.navigation.route == Route::Home) state_.navigation.scroll_offsets["home"] = state_.navigation.selected_index;
 }
@@ -4902,7 +4914,7 @@ void Simulation::change_route(int delta) {
 
 void Simulation::open_saves() {
     // Opening the tab checks what may have changed; the controller limits how often.
-    if (live()) pending_cloud_requests_.push_back({CloudRequestKind::QuickCheck, 0});
+    if (live()) pending_cloud_requests_.push_back({CloudRequestKind::QuickCheck, {}});
 }
 
 // Games whose saves were never uploaded to this Steam account and wait only for the player to
@@ -4940,7 +4952,7 @@ std::vector<GameId> Simulation::save_games(bool filtered) const {
         std::string name = game ? game->title : std::string();
         if (name.empty())
             for (const auto& kept : state_.kept_bottles) if (kept.game_id == id) name = kept_name(state_, kept);
-        if (name.empty()) name = "Steam app " + std::to_string(id);
+        if (name.empty()) name = "Steam app " + ToKey(id);
         if (filtered && state_.navigation.saves_filter != 0) {
             const auto cloud = state_.cloud.find(id);
             const bool installed = std::any_of(state_.installations.begin(), state_.installations.end(),
@@ -5037,11 +5049,11 @@ void Simulation::quit_to_home() {
 // Play on a game waiting for the PS5 quits to Home; first its saves sync. Quits once they are in
 // step; a choice, a failure or a refusal lets the player play without syncing.
 void Simulation::settle_quit_sync(GameId id, std::optional<CloudStatus> status) {
-    if (quit_sync_game_ == 0 || id != quit_sync_game_) return;
+    if (!quit_sync_game_.valid() || id != quit_sync_game_) return;
     const bool waiting = !state_.navigation.modals.empty() &&
                          state_.navigation.modals.back().action_keys.size() == 2 &&
                          state_.navigation.modals.back().action_keys.front() == "saves-quit-anyway";
-    quit_sync_game_ = 0;
+    quit_sync_game_ = {};
     if (!waiting) return;  // the player cancelled
     if (status && (*status == CloudStatus::Synced || *status == CloudStatus::UpToDate || *status == CloudStatus::Unsupported)) {
         state_.navigation.modals.clear();
@@ -5147,7 +5159,7 @@ void Simulation::activate() {
         state_.library.scope = scope;
         state_.navigation.library_rail_focused = false;
         const auto games = visible_games();
-        if (games.empty()) { state_.navigation.selected_game_id = 0; state_.navigation.focus_key = state_.library.query.empty() ? "library-empty" : "clear-search"; }
+        if (games.empty()) { state_.navigation.selected_game_id = {}; state_.navigation.focus_key = state_.library.query.empty() ? "library-empty" : "clear-search"; }
         else {
             state_.navigation.selected_index = std::min(state_.navigation.selected_index, static_cast<int>(games.size()) - 1);
             state_.navigation.selected_game_id = games[static_cast<std::size_t>(state_.navigation.selected_index)]->id;
@@ -5155,7 +5167,7 @@ void Simulation::activate() {
         }
         save_profile(); return;
     }
-    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id == 0 &&
+    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && !state_.navigation.selected_game_id.valid() &&
         state_.navigation.focus_key.rfind("shelf-", 0) == 0 && state_.navigation.focus_key.size() > 5 &&
         state_.navigation.focus_key.compare(state_.navigation.focus_key.size() - 5, 5, "-more") == 0) {
         // "More" at the end of Continue playing: every game in the Library, most recently played first.
@@ -5169,7 +5181,7 @@ void Simulation::activate() {
         state_.navigation.library_grid_column = 0;
         state_.navigation.scroll_offsets["library-grid"] = 0;
         const auto games = visible_games();
-        state_.navigation.selected_game_id = games.empty() ? 0 : games.front()->id;
+        state_.navigation.selected_game_id = games.empty() ? GameId{} : games.front()->id;
         state_.navigation.focus_key = games.empty() ? "library-empty" : game_key(state_.navigation.selected_game_id);
         save_profile();
         return;
@@ -5188,7 +5200,7 @@ void Simulation::activate() {
                 state_.navigation.selected_game_id = shelf.game_ids[static_cast<std::size_t>(item)];
         }
     }
-    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id != 0) {
+    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id.valid()) {
         if (live()) force_organization_selection_ = true;
         state_.navigation.detail_origin = Route::Home;
         state_.navigation.detail_id = state_.navigation.selected_game_id;
@@ -5277,7 +5289,7 @@ void Simulation::activate() {
             // The install service owns the choice; reflect it now and let its next snapshot confirm.
             const auto* volume = find_volume(state_, id);
             if (volume && volume->available && id != selected_volume_id_) {
-                pending_install_requests_.push_back({InstallRequestKind::SetDefaultVolume, 0, id});
+                pending_install_requests_.push_back({InstallRequestKind::SetDefaultVolume, {}, id});
                 selected_volume_id_ = id;
                 state_.default_volume_id = id;
             }
@@ -5292,7 +5304,7 @@ void Simulation::activate() {
                                                live() ? steam::kInstallSpaceMargin : 0);
         if (live()) {
             if (live_install_allowed(assessment.readiness, free_space_supported_)) {
-                if (id != 0) pending_install_requests_.push_back({InstallRequestKind::Install, id, install_volume_id_});
+                if (id.valid()) pending_install_requests_.push_back({InstallRequestKind::Install, id, install_volume_id_});
                 install_volume_id_.clear();
                 close_modal();
             }
@@ -5358,7 +5370,7 @@ void Simulation::activate() {
     } else if (action_name == "prep-action") {
         // The same kind of menu as a download's: what this preparation allows, then Cancel.
         const auto& key = selected.key;
-        const auto id = std::to_string(selected.game_id);
+        const auto id = ToKey(selected.game_id);
         std::vector<std::string> actions;
         if (key.rfind("prep-done-", 0) == 0) {
             actions = {"prep-open-" + id, "prep-dismiss-" + key.substr(std::strlen("prep-done-"))};
@@ -5384,21 +5396,21 @@ void Simulation::activate() {
         close_modal();
     } else if (action_name.rfind("prep-next-", 0) == 0) {
         close_modal();
-        prepare_next(static_cast<GameId>(std::strtoul(action_name.c_str() + std::strlen("prep-next-"), nullptr, 10)));
+        prepare_next(key_id(std::string_view(action_name).substr(std::strlen("prep-next-"))));
     } else if (action_name.rfind("prep-open-", 0) == 0) {
-        const auto id = static_cast<GameId>(std::strtoul(action_name.c_str() + std::strlen("prep-open-"), nullptr, 10));
+        const auto id = key_id(std::string_view(action_name).substr(std::strlen("prep-open-")));
         close_modal();
         state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
         state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
     } else if (action_name.rfind("prep-retry-", 0) == 0) {
-        const auto id = static_cast<GameId>(std::strtoul(action_name.c_str() + std::strlen("prep-retry-"), nullptr, 10));
+        const auto id = key_id(std::string_view(action_name).substr(std::strlen("prep-retry-")));
         close_modal();
         RequestRuntimePrepare(id);
     } else if (action_name.rfind("prep-dismiss-", 0) == 0) {
         // prep-dismiss-<game>-<finish time>: that finish only; preparing the game again lists it again.
         const auto rest = action_name.substr(std::strlen("prep-dismiss-"));
-        const auto dash = rest.find('-');
-        const LiveCompletedPreparation done{static_cast<GameId>(std::strtoul(rest.c_str(), nullptr, 10)),
+        const auto dash = rest.rfind('-');
+        const LiveCompletedPreparation done{key_id(std::string_view(rest).substr(0, dash)),
                                             dash == std::string::npos ? 0 : std::strtoll(rest.c_str() + dash + 1, nullptr, 10)};
         close_modal();
         pending_prepared_dismissals_.push_back(done);
@@ -5415,7 +5427,7 @@ void Simulation::activate() {
                                                     static_cast<int>(kSavesFilters.size()) - 1);
     } else if (live() && action_name == "saves-sync-all") {
         pending_cloud_requests_.push_back({state_.saves_job.kind == SavesJobKind::None ? CloudRequestKind::SyncAll
-                                                                                     : CloudRequestKind::StopJob, 0});
+                                                                                     : CloudRequestKind::StopJob, {}});
     } else if (live() && action_name == "saves-upload-all") {
         ask_upload_all();
     } else if (live() && action_name == "cloud-confirm-account-all") {
@@ -5438,7 +5450,7 @@ void Simulation::activate() {
         const auto kind = action_name == "saves-use-cloud" ? CloudRequestKind::UseCloud
                           : action_name == "saves-use-local" ? CloudRequestKind::UseLocal
                           : action_name == "saves-confirm-account" ? CloudRequestKind::ConfirmAccount : CloudRequestKind::Sync;
-        if (state_.navigation.save_id != 0) pending_cloud_requests_.push_back({kind, state_.navigation.save_id});
+        if (state_.navigation.save_id.valid()) pending_cloud_requests_.push_back({kind, state_.navigation.save_id});
     } else if (live() && (action_name == "saves-delete" || action_name == "saves-leftover")) {
         const auto id = state_.navigation.save_id;
         const auto cloud = state_.cloud.find(id);
@@ -5467,7 +5479,7 @@ void Simulation::activate() {
     } else if (live() && (action_name == "saves-delete-confirm" || action_name == "saves-leftover-confirm")) {
         const auto id = state_.navigation.save_id;
         close_modal();
-        if (id != 0)
+        if (id.valid())
             pending_cloud_requests_.push_back({action_name == "saves-delete-confirm" ? CloudRequestKind::RemoveLocal
                                                                                    : CloudRequestKind::RemoveLeftover, id});
         if (action_name == "saves-leftover-confirm") {
@@ -5475,12 +5487,12 @@ void Simulation::activate() {
             state_.navigation.focus_key.clear();
         }
     } else if (live() && action_name == "saves-quit-anyway") {
-        quit_sync_game_ = 0;
+        quit_sync_game_ = {};
         state_.navigation.modals.clear();
         quit_to_home();
     } else if (live() && action_name == "cloud-sync") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id != 0) pending_cloud_requests_.push_back({CloudRequestKind::Sync, id});
+        if (id.valid()) pending_cloud_requests_.push_back({CloudRequestKind::Sync, id});
     } else if (live() && action_name == "cloud-choose") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         const auto cloud = state_.cloud.find(id);
@@ -5516,24 +5528,24 @@ void Simulation::activate() {
         const auto kind = action_name == "cloud-use-cloud" ? CloudRequestKind::UseCloud
                           : action_name == "cloud-use-local" ? CloudRequestKind::UseLocal
                                                              : CloudRequestKind::ConfirmAccount;
-        if (id != 0) pending_cloud_requests_.push_back({kind, id});
+        if (id.valid()) pending_cloud_requests_.push_back({kind, id});
         close_modal();
     } else if (live() && action_name == "runtime-check-again") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         close_modal();
-        if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+        if (id.valid()) pending_runtime_prepare_requests_.push_back(id);
     } else if (live() && action_name == "runtime-update") {
         // The button goes once the update starts; Play shows its progress, so focus moves there.
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+        if (id.valid()) pending_runtime_prepare_requests_.push_back(id);
         state_.navigation.focus_key = "details-play";
     } else if (live() && action_name == "runtime-prepare") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+        if (id.valid()) pending_runtime_prepare_requests_.push_back(id);
     } else if (live() && action_name == "runtime-remove-retry") {
         // Continues the saved removal (with its first choice about saves), then removes the download.
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id != 0) {
+        if (id.valid()) {
             pending_install_requests_.push_back({InstallRequestKind::Uninstall, id, {}, false});
             pending_uninstalls_.insert(id);
         }
@@ -5552,7 +5564,7 @@ void Simulation::activate() {
         push_notice({"runtime-cleanup", "Unused game settings data cleaned up", "", false, kLiveNoticeSeconds, false, ""});
     } else if (live() && action_name == "runtime-play") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id != 0) {
+        if (id.valid()) {
             // A new attempt may fail for the same reason; only background refreshes
             // should be deduplicated against the previous outcome.
             if (auto previous = state_.runtime_games.find(id); previous != state_.runtime_games.end())
@@ -5564,14 +5576,14 @@ void Simulation::activate() {
         // Install at once when the game fits the default drive (or its size is checked later);
         // otherwise the sheet says why and offers another drive for this install.
         install_volume_id_.clear();
-        if (id != 0 && live_install_allowed(assess_install(state_, id, selected_volume_id_, steam::kInstallSpaceMargin).readiness,
+        if (id.valid() && live_install_allowed(assess_install(state_, id, selected_volume_id_, steam::kInstallSpaceMargin).readiness,
                                             free_space_supported_))
             pending_install_requests_.push_back({InstallRequestKind::Install, id});
-        else if (id != 0)
+        else if (id.valid())
             open_modal({"install", "Install game", "details-install", {"install-confirm", "storage-picker", "cancel"}, 0, false});
     } else if (live() && action_name == "open-downloads") {
         state_.navigation.route = Route::Downloads;
-        state_.navigation.focus_key = "job-" + std::to_string(state_.navigation.detail_id.value_or(0));
+        state_.navigation.focus_key = "job-" + ToKey(state_.navigation.detail_id.value_or(GameId{}));
     } else if (action_name == "job-resume-all") {
         // Every paused download goes back in the queue, in its current order.
         for (auto& job : state_.jobs) {
@@ -5642,7 +5654,7 @@ void Simulation::activate() {
         close_modal();
     } else if (action_name == "job-clear-completed") {
         close_modal();
-        if (live()) pending_install_requests_.push_back({InstallRequestKind::ClearCompleted, 0});
+        if (live()) pending_install_requests_.push_back({InstallRequestKind::ClearCompleted, {}});
         state_.jobs.erase(std::remove_if(state_.jobs.begin(), state_.jobs.end(), [](const Job& value) { return value.state == JobState::Downloaded; }), state_.jobs.end());
     } else if (action_name.rfind("job-dismiss-", 0) == 0) {
         const auto id = action_name.substr(12);
@@ -5722,14 +5734,14 @@ void Simulation::activate() {
         // Ready to play: ShadowMountPlus registers the title once Playden quits, and the
         // game appears on the Home screen. The dialog or Details already said so. Its saves
         // sync first, as before any Play, unless the game has no Steam Cloud or automatic sync is off.
-        const GameId id = !state_.navigation.modals.empty() && ready_prompt_game_ != 0
+        const GameId id = !state_.navigation.modals.empty() && ready_prompt_game_.valid()
             ? ready_prompt_game_ : state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         const auto cloud = state_.cloud.find(id);
         // With automatic sync off, saves move only when the player chooses Sync in Saves.
-        const bool syncs = id != 0 && state_.cloud_saves_auto && state_.account.authentication == AuthState::SignedIn &&
+        const bool syncs = id.valid() && state_.cloud_saves_auto && state_.account.authentication == AuthState::SignedIn &&
                            (cloud == state_.cloud.end() || cloud->second.status != CloudStatus::Unsupported);
         state_.navigation.modals.clear();
-        ready_prompt_game_ = 0;
+        ready_prompt_game_ = {};
         if (!syncs) {
             quit_to_home();
         } else {
@@ -5744,7 +5756,7 @@ void Simulation::activate() {
     } else if (action_name == "alert-settings") {
         const auto game = alert_settings_game_;
         close_modal();
-        if (game && find_game(state_, game)) {
+        if (game.valid() && find_game(state_, game)) {
             state_.navigation.selected_game_id = game;
             open_game_settings();
         }
@@ -5785,7 +5797,7 @@ void Simulation::activate() {
         if (all) installed_selected_.clear();
         else installed_selected_.insert(choosable.begin(), choosable.end());
     } else if (live() && action_name.rfind("installed-toggle-", 0) == 0) {
-        const auto id = static_cast<GameId>(std::strtoull(action_name.c_str() + 17, nullptr, 10));
+        const auto id = key_id(std::string_view(action_name).substr(17));
         if (find_installation(state_, id) && installed_blocker(id).empty() && !installed_selected_.erase(id)) installed_selected_.insert(id);
     } else if (live() && action_name == "installed-selection-uninstall") {
         if (installed_selected_.empty()) return;
@@ -5795,7 +5807,7 @@ void Simulation::activate() {
         for (const auto id : installed_list()) {
             if (!installed_selected_.contains(id)) continue;
             const auto* game = find_game(state_, id);
-            names.push_back(game && !game->title.empty() ? game->title : "Steam app " + std::to_string(id));
+            names.push_back(game && !game->title.empty() ? game->title : "Steam app " + ToKey(id));
             if (const auto* installation = find_installation(state_, id)) bytes += installation->installed_bytes;
             const auto runtime_game = state_.runtime_games.find(id);
             any_title = any_title || (runtime_game != state_.runtime_games.end() && runtime_game->second.has_title);
@@ -5818,7 +5830,7 @@ void Simulation::activate() {
         confirmation.body += " Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its row says why.";
         open_modal(std::move(confirmation));
     } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_ == "installed-selection-uninstall") {
-        GameId first = 0;
+        GameId first;
         installed_message_.clear();
         for (const auto id : installed_list()) {
             if (!installed_selected_.contains(id) || !installed_blocker(id).empty()) continue;
@@ -5832,18 +5844,18 @@ void Simulation::activate() {
             batch.bytes[id] = installation->installed_bytes;
             batch.stopped.erase(id);
             installed_stops_.erase(id);
-            if (first == 0) first = id;
+            if (!first.valid()) first = id;
         }
         // Every checked game started running or downloading while the dialog was open.
-        if (first == 0) installed_message_ = "None of the selected games can be uninstalled now.";
+        if (!first.valid()) installed_message_ = "None of the selected games can be uninstalled now.";
         installed_selected_.clear();
         uninstall_delete_saves_ = false;
         pending_destructive_action_.clear();
         close_modal();  // back to the list, which shows how each game goes
         refresh_installed_manager();
-        if (first != 0 && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "installed-games") {
+        if (first.valid() && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "installed-games") {
             auto& list = state_.navigation.modals.back();
-            const auto found = std::find(list.action_keys.begin(), list.action_keys.end(), "installed-step-" + std::to_string(first));
+            const auto found = std::find(list.action_keys.begin(), list.action_keys.end(), "installed-step-" + ToKey(first));
             if (found != list.action_keys.end()) {
                 list.focused_action = static_cast<int>(found - list.action_keys.begin());
                 state_.navigation.focus_key = *found;
@@ -5857,7 +5869,7 @@ void Simulation::activate() {
         if (kept_selected_.size() == state_.kept_bottles.size()) kept_selected_.clear();
         else for (const auto& kept : state_.kept_bottles) kept_selected_.insert(kept.game_id);
     } else if (live() && action_name.rfind("kept-toggle-", 0) == 0) {
-        const auto id = static_cast<GameId>(std::strtoull(action_name.c_str() + 12, nullptr, 10));
+        const auto id = key_id(std::string_view(action_name).substr(12));
         if (!kept_selected_.erase(id)) kept_selected_.insert(id);
     } else if (live() && action_name == "kept-selection-delete") {
         if (kept_selected_.empty()) return;
@@ -5879,7 +5891,7 @@ void Simulation::activate() {
         state_.navigation.modals.clear();
     } else if (live() && action_name.rfind("kept-delete-", 0) == 0) {
         pending_destructive_action_ = action_name;
-        const auto id = static_cast<GameId>(std::strtoull(action_name.c_str() + 12, nullptr, 10));
+        const auto id = key_id(std::string_view(action_name).substr(12));
         std::string name;
         for (const auto& kept : state_.kept_bottles) if (kept.game_id == id) name = kept.name;
         if (name.empty()) if (const auto* game = find_game(state_, id)) name = game->title;
@@ -5912,7 +5924,7 @@ void Simulation::activate() {
             request_maintenance(state_.navigation.selected_game_id, kind);
         }
     } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_.rfind("kept-delete-", 0) == 0) {
-        pending_kept_delete_requests_.push_back(static_cast<GameId>(std::strtoull(pending_destructive_action_.c_str() + 12, nullptr, 10)));
+        pending_kept_delete_requests_.push_back(key_id(std::string_view(pending_destructive_action_).substr(12)));
         pending_destructive_action_.clear();
         state_.navigation.focus_key = state_.navigation.modals.front().opener_focus_key;
         state_.navigation.modals.clear();
@@ -6000,7 +6012,7 @@ void Simulation::activate() {
             pending_runtime_prepare_requests_.push_back(id);
             settings_after_prepare_.insert(id);
             const auto* game = find_game(state_, id);
-            push_notice({"settings-" + std::to_string(id), "Checking the game", "", false, kLiveNoticeSeconds, false,
+            push_notice({"settings-" + ToKey(id), "Checking the game", "", false, kLiveNoticeSeconds, false,
                          (game ? game->title : std::string("The game")) + " · Game settings opens when Playden has looked at its files."});
         } else {
             open_game_settings();
@@ -6228,10 +6240,10 @@ void Simulation::activate() {
     else if (action_name == "details-back") { state_.navigation.route = Route::Details; state_.navigation.detail_id = state_.session_game_id; }
     else if (live() && action_name == "logs") {
         // From a download's actions: that game's install log, with Retry when the download failed.
-        GameId game_id = 0;
+        GameId game_id;
         if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "job-actions") {
             const auto& opener = state_.navigation.modals.back().opener_focus_key;
-            if (opener.rfind("job-", 0) == 0) game_id = static_cast<GameId>(std::strtoul(opener.c_str() + 4, nullptr, 10));
+            if (opener.rfind("job-", 0) == 0) game_id = key_id(std::string_view(opener).substr(4));
         }
         open_live_log("install", game_id);
     }
@@ -6239,7 +6251,7 @@ void Simulation::activate() {
         open_modal({"diagnostics", "Logs", state_.navigation.focus_key, {"log-install", "log-cloud", "log-auth", "log-launch", "cancel"}, 0, false});
     else if (live() && (action_name == "log-install" || action_name == "log-cloud" || action_name == "log-auth" ||
                         action_name == "log-launch"))
-        open_live_log(action_name.substr(4), 0);
+        open_live_log(action_name.substr(4), {});
     else if (live() && action_name == "logs-refresh") load_live_log();
     else if (action_name == "logs") { start_logs(); open_modal({"logs", "Operation logs", state_.navigation.focus_key, {"logs-fixture-controls", "logs-back"}, 0, false}); }
     else if (action_name == "logs-retry") { start_logs(); state_.navigation.modals.back().action_keys = {"logs-fixture-controls", "logs-back"}; state_.navigation.modals.back().focused_action = 0; state_.navigation.focus_key = "logs-fixture-controls"; }
@@ -6304,8 +6316,8 @@ void Simulation::activate() {
         actions.push_back("cancel"); open_modal({"notices", "Warnings", state_.navigation.focus_key, std::move(actions), 0, false});
     }
     else if (action_name.rfind("open-game:", 0) == 0) {
-        GameId id = 0; const auto number = action_name.substr(10);
-        if (std::from_chars(number.data(), number.data() + number.size(), id).ec == std::errc{} && find_game(state_, id)) {
+        const auto id = key_id(std::string_view(action_name).substr(10));
+        if (id.valid() && find_game(state_, id)) {
             state_.navigation.modals.clear(); state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
             state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
             details_primary_pending_ = live(); state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install");
@@ -6430,10 +6442,10 @@ bool Simulation::action(const std::string& logical_action) {
     if (logical_action.rfind("collection:add:", 0) == 0) {
         const auto remainder = logical_action.substr(15); const auto separator = remainder.find(':');
         if (separator == std::string::npos) return false;
-        const auto id = remainder.substr(0, separator); GameId game_id = 0;
-        const auto number = remainder.substr(separator + 1); const auto parsed = std::from_chars(number.data(), number.data() + number.size(), game_id);
+        const auto id = remainder.substr(0, separator);
+        const auto game_id = key_id(std::string_view(remainder).substr(separator + 1));
         auto found = std::find_if(state_.library.collections.begin(), state_.library.collections.end(), [&id](const Collection& value) { return value.id == id; });
-        if (parsed.ec != std::errc{} || found == state_.library.collections.end()) return false;
+        if (!game_id.valid() || found == state_.library.collections.end()) return false;
         found->members.insert(game_id); save_profile(); rebuild_view(); return true;
     }
     if (logical_action.rfind("collection:rename:", 0) == 0) {
@@ -6461,19 +6473,19 @@ bool Simulation::action(const std::string& logical_action) {
     }
     if (logical_action.rfind("rate:", 0) == 0) {
         const auto remainder = logical_action.substr(5); const auto separator = remainder.find(':'); if (separator == std::string::npos) return false;
-        GameId id = 0; const auto number = remainder.substr(0, separator); if (std::from_chars(number.data(), number.data() + number.size(), id).ec != std::errc{}) return false;
+        const auto id = key_id(std::string_view(remainder).substr(0, separator)); if (!id.valid()) return false;
         const auto rating = remainder.substr(separator + 1);
         state_.library.ratings[id] = rating == "works" ? Compatibility::Works : rating == "playable" ? Compatibility::Playable : rating == "broken" ? Compatibility::Broken : Compatibility::Untested;
         save_profile(); rebuild_view(); return true;
     }
     if (logical_action.rfind("note:", 0) == 0) {
         const auto remainder = logical_action.substr(5); const auto separator = remainder.find(':'); if (separator == std::string::npos) return false;
-        GameId id = 0; const auto number = remainder.substr(0, separator); if (std::from_chars(number.data(), number.data() + number.size(), id).ec != std::errc{}) return false;
+        const auto id = key_id(std::string_view(remainder).substr(0, separator)); if (!id.valid()) return false;
         state_.library.notes[id] = remainder.substr(separator + 1); save_profile(); rebuild_view(); return true;
     }
     if (logical_action.rfind("install:", 0) == 0) {
         const auto remainder = logical_action.substr(8); const auto separator = remainder.find(':'); if (separator == std::string::npos) return false;
-        GameId id = 0; const auto number = remainder.substr(0, separator); if (std::from_chars(number.data(), number.data() + number.size(), id).ec != std::errc{}) return false;
+        const auto id = key_id(std::string_view(remainder).substr(0, separator)); if (!id.valid()) return false;
         const auto volume_id = remainder.substr(separator + 1);
         const auto assessment = assess_install(state_, id, volume_id);
         if (assessment.readiness != InstallReadiness::Ready || !assessment.download_bytes) return false;
@@ -6527,9 +6539,8 @@ bool Simulation::action(const std::string& logical_action) {
     if (logical_action.rfind("select:", 0) == 0 || logical_action.rfind("details:", 0) == 0) {
         const bool details = logical_action.rfind("details:", 0) == 0;
         const auto text_id = logical_action.substr(details ? 8 : 7);
-        GameId id = 0;
-        const auto parsed = std::from_chars(text_id.data(), text_id.data() + text_id.size(), id);
-        if (parsed.ec != std::errc{} || !find_game(state_, id)) { last_error_ = "Unknown game: " + text_id; return false; }
+        const auto id = key_id(text_id);
+        if (!id.valid() || !find_game(state_, id)) { last_error_ = "Unknown game: " + text_id; return false; }
         state_.navigation.selected_game_id = id; state_.navigation.focus_key = game_key(id);
         if (live()) force_organization_selection_ = true;
         const auto games = visible_games();
@@ -6614,7 +6625,7 @@ bool Simulation::action(const std::string& logical_action) {
     else if (logical_action == "triangle" && live() && !state_.editor.active && state_.navigation.modals.empty() &&
              state_.navigation.route == Route::Saves)
         pending_cloud_requests_.push_back({state_.saves_job.kind == SavesJobKind::None ? CloudRequestKind::SyncAll
-                                                                                     : CloudRequestKind::StopJob, 0});
+                                                                                     : CloudRequestKind::StopJob, {}});
     else if (logical_action == "search") { if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.modals.empty()) start_editor("Search", state_.library.query); }
     else if (logical_action == "triangle" && !state_.editor.active && !state_.navigation.modals.empty() &&
              state_.navigation.modals.back().id == "installed-games") {
@@ -6685,12 +6696,12 @@ bool Simulation::action(const std::string& logical_action) {
         if (!state_.editor.active && state_.navigation.route == Route::Details && state_.navigation.modals.empty()) {
             if (live()) force_organization_selection_ = true;
             open_modal({"context", "Game actions", "details-more", details_context_actions(), 0, false});
-        } else if (!state_.editor.active && state_.navigation.route == Route::Home && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty()) {
+        } else if (!state_.editor.active && state_.navigation.route == Route::Home && state_.navigation.selected_game_id.valid() && state_.navigation.modals.empty()) {
             if (live()) force_organization_selection_ = true;
             open_modal({"context", "Game actions", state_.navigation.focus_key, context_actions(live()), 0, false});
         }
         else if (!state_.editor.active && state_.navigation.route == Route::Library && !state_.navigation.modals.empty()) {}
-        else if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.selected_game_id != 0 && state_.navigation.modals.empty()
+        else if (!state_.editor.active && state_.navigation.route == Route::Library && state_.navigation.selected_game_id.valid() && state_.navigation.modals.empty()
                  && state_.navigation.focus_key.rfind("game-", 0) == 0) {
             if (live()) force_organization_selection_ = true;
             open_modal({"context", "Game actions", state_.navigation.focus_key, {"favorite", "collection", "note", "hide", "cancel"}, 0, false});
@@ -6699,7 +6710,7 @@ bool Simulation::action(const std::string& logical_action) {
     } else if (logical_action == "square") {
         if (state_.editor.active) {
             if (state_.editor.caret > 0) { const auto prior = previous_caret(state_.editor.value, state_.editor.caret); state_.editor.value.erase(prior, state_.editor.caret - prior); state_.editor.caret = prior; }
-        } else if (state_.navigation.modals.empty() && (state_.navigation.route == Route::Home || state_.navigation.route == Route::Library || state_.navigation.route == Route::Details) && state_.navigation.selected_game_id != 0) {
+        } else if (state_.navigation.modals.empty() && (state_.navigation.route == Route::Home || state_.navigation.route == Route::Library || state_.navigation.route == Route::Details) && state_.navigation.selected_game_id.valid()) {
             if (state_.library.favorites.contains(state_.navigation.selected_game_id)) state_.library.favorites.erase(state_.navigation.selected_game_id);
             else state_.library.favorites.insert(state_.navigation.selected_game_id);
             save_profile();
@@ -6766,7 +6777,7 @@ bool Simulation::action(const std::string& logical_action) {
                 state_.navigation.modals.back().focused_action = 0; state_.navigation.focus_key = "logs-retry";
             }
         } else if (injected == "delayed-art" || injected == "failed-art") {
-            const GameId id = injected == "delayed-art" ? 900007 : 900008;
+            const GameId id = injected == "delayed-art" ? GameId::Steam(900007) : GameId::Steam(900008);
             auto game = std::find_if(state_.games.begin(), state_.games.end(), [id](const Game& value) { return value.id == id; });
             if (game != state_.games.end()) { game->art_pending = injected == "delayed-art"; game->art_failed = injected == "failed-art"; }
         } else if (injected == "library-refresh") state_.library_loading = true;
@@ -6840,7 +6851,7 @@ void Simulation::advance_jobs() {
             reconcile_storage(state_);
             const auto message = active->kind == "verify" ? "Verification complete"
                 : active->kind == "uninstall" ? "Uninstall complete; saves preserved" : "Download complete";
-            state_.notices.push_back({"job-complete-" + active->id, message, "open-game:" + std::to_string(active->game_id), false, 5});
+            state_.notices.push_back({"job-complete-" + active->id, message, "open-game:" + ToKey(active->game_id), false, 5});
         }
     }
 }
@@ -6973,14 +6984,14 @@ std::string Simulation::snapshot() const {
 void Simulation::SetSettingsData(std::vector<rt::SettingsPreset> presets, std::vector<rt::GameRecipe> recipes) {
     settings_presets_ = std::move(presets);
     recipes_.clear();
-    for (auto& recipe : recipes) recipes_[recipe.app_id] = std::move(recipe);
+    for (auto& recipe : recipes) recipes_[rt::RecipeGame(recipe)] = std::move(recipe);
     simulated_recipes_.clear();
     rebuild_view();
 }
 
 void Simulation::SetGameSettingsFile(std::filesystem::path path) {
     game_settings_file_ = std::move(path);
-    std::map<std::uint32_t, rt::GameSettingsRecord> records;
+    std::map<GameId, rt::GameSettingsRecord> records;
     std::string reason;
     settings_load_failed_ = !rt::LoadGameSettingsFile(game_settings_file_.string(), &records, &reason);
     if (settings_load_failed_) {
@@ -6988,8 +6999,7 @@ void Simulation::SetGameSettingsFile(std::filesystem::path path) {
         rebuild_view();
         return;
     }
-    state_.game_settings.clear();
-    for (auto& [id, record] : records) state_.game_settings[static_cast<GameId>(id)] = std::move(record);
+    state_.game_settings = std::move(records);
     saved_game_settings_ = state_.game_settings;
     rebuild_view();
 }
@@ -7001,8 +7011,8 @@ void Simulation::SetKitCapabilities(rt::KitCapabilities kit) {
 }
 
 void Simulation::SetGeneratedRecipes(const std::vector<rt::GameRecipe>& recipes) {
-    std::map<std::uint32_t, rt::GameRecipe> generated;
-    for (const auto& recipe : recipes) generated[recipe.app_id] = recipe;
+    std::map<GameId, rt::GameRecipe> generated;
+    for (const auto& recipe : recipes) generated[rt::RecipeGame(recipe)] = recipe;
     if (generated.size() == generated_recipes_.size() &&
         std::equal(generated.begin(), generated.end(), generated_recipes_.begin(), [](const auto& a, const auto& b) {
             return a.first == b.first && rt::SerializeGameRecipe(a.second) == rt::SerializeGameRecipe(b.second);
@@ -7056,8 +7066,8 @@ void Simulation::SetRecipeExportTarget(std::filesystem::path directory, std::str
 }
 
 const rt::GameRecipe& Simulation::RecipeFor(GameId id) const {
-    if (const auto found = recipes_.find(static_cast<std::uint32_t>(id)); found != recipes_.end()) return found->second;
-    if (const auto found = generated_recipes_.find(static_cast<std::uint32_t>(id)); found != generated_recipes_.end())
+    if (const auto found = recipes_.find(id); found != recipes_.end()) return found->second;
+    if (const auto found = generated_recipes_.find(id); found != generated_recipes_.end())
         return found->second;
     // A game Playden refused: the sheet starts from the draft so the player can choose a program.
     if (const auto found = game_setups_.find(id); found != game_setups_.end() && found->second.draft)
@@ -7067,10 +7077,11 @@ const rt::GameRecipe& Simulation::RecipeFor(GameId id) const {
     auto& recipe = simulated_recipes_[id];
     if (recipe.launch_entries.empty()) {
         const auto* game = find_game(state_, id);
-        recipe.id = "simulated-" + std::to_string(id);
+        recipe.id = "simulated-" + ToKey(id);
         recipe.version = 1;
-        recipe.app_id = static_cast<std::uint32_t>(id);
-        recipe.name = game ? game->title : "Game " + std::to_string(id);
+        recipe.app_id = id.steam_app().value_or(0);
+        if (!id.steam_app()) recipe.game = id;
+        recipe.name = game ? game->title : "Game " + ToKey(id);
         recipe.launch_entries = {{"game", recipe.name, "game.exe", ""}};
         recipe.arguments = "{resolution}";
         recipe.graphics = "dxvk";
@@ -7200,7 +7211,7 @@ void Simulation::request_maintenance(GameId id, MaintenanceKind kind) {
                           : kind == MaintenanceKind::Repair ? "Repaired"
                           : kind == MaintenanceKind::BackupSaves ? "Saves backed up"
                           : kind == MaintenanceKind::RecreateBottle ? "Bottle recreated" : "Settings applied";
-        push_notice({"maintenance-" + std::to_string(id), words, "", false, kLiveNoticeSeconds, false, "Simulated"});
+        push_notice({"maintenance-" + ToKey(id), words, "", false, kLiveNoticeSeconds, false, "Simulated"});
         return;
     }
     pending_maintenance_requests_.push_back({id, kind});
@@ -7361,6 +7372,8 @@ std::vector<std::string> Simulation::setting_value_actions(const std::string& id
 }
 
 void Simulation::export_recipe(GameId id) {
+    // Community recipes name a Steam app (steam_appid); other games have none to share.
+    if (!id.steam_app()) return;
     rt::EffectiveSettings values;
     if (!EffectiveSettingsFor(id, &values) || !values.launch) return;
     auto community = rt::BuildCommunityRecipe(RecipeFor(id), values);
@@ -7381,8 +7394,8 @@ void Simulation::export_recipe(GameId id) {
         push_notice({"recipe-exported", "Recipe exported", "", false, kLiveNoticeSeconds, false, "Simulated"});
         return;
     }
-    const auto path = recipe_export_directory_ / ("recipe-" + std::to_string(id) + ".json");
-    const auto temporary = recipe_export_directory_ / ("recipe-" + std::to_string(id) + ".json.tmp");
+    const auto path = recipe_export_directory_ / ("recipe-" + ToKey(id) + ".json");
+    const auto temporary = recipe_export_directory_ / ("recipe-" + ToKey(id) + ".json.tmp");
     std::error_code error;
     std::filesystem::create_directories(recipe_export_directory_, error);
     // POSIX calls, not iostreams: the console's C library lacks the locale functions they need.

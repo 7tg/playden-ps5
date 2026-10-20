@@ -8,6 +8,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "steam_id.h"
 
 namespace {
 
@@ -61,23 +62,23 @@ bool ReplaceBytes(playden::Bytes& bytes, const std::string& from, const std::str
 
 playden::OrganizationSnapshot Example() {
   playden::OrganizationSnapshot result;
-  result.favorites = {10, 20};
-  result.hidden = {30};
+  result.favorites = {SteamId(10), SteamId(20)};
+  result.hidden = {SteamId(30)};
   result.collections = {
-      {"collection-1", "旅のゲーム", true, {10, 30}},
-      {"collection-2", "Co-op café", false, {20}},
+      {"collection-1", "旅のゲーム", true, {SteamId(10), SteamId(30)}},
+      {"collection-2", "Co-op café", false, {SteamId(20)}},
   };
   result.ratings = {
-      {10, playden::CompatibilityRating::kWorks},
-      {20, playden::CompatibilityRating::kPlayable},
-      {30, playden::CompatibilityRating::kBroken},
+      {SteamId(10), playden::CompatibilityRating::kWorks},
+      {SteamId(20), playden::CompatibilityRating::kPlayable},
+      {SteamId(30), playden::CompatibilityRating::kBroken},
   };
-  result.notes = {{10, "再訪したい"}, {20, "Français — bientôt"}};
+  result.notes = {{SteamId(10), "再訪したい"}, {SteamId(20), "Français — bientôt"}};
   result.query = "星 café";
   result.scope = "collection-1";
   result.sort = "recent-played";
   result.filters = {"compat-playable"};
-  result.selected_game_id = 20;
+  result.selected_game_id = SteamId(20);
   return result;
 }
 
@@ -121,7 +122,7 @@ void RejectsInvalidValuesWithoutReplacingGoodData() {
   };
 
   auto invalid = expected; invalid.schema_version = 2; rejects(invalid, "future schema rejected");
-  invalid = expected; invalid.favorites.insert(0); rejects(invalid, "zero favorite rejected");
+  invalid = expected; invalid.favorites.insert(SteamId(0)); rejects(invalid, "zero favorite rejected");
   invalid = expected; invalid.collections.push_back(invalid.collections.front()); rejects(invalid, "duplicate collection ID rejected");
   invalid = expected; invalid.collections.front().id = "../escape"; rejects(invalid, "unsafe collection ID rejected");
   invalid = expected; invalid.collections.front().id = "installed"; rejects(invalid, "simulation rail ID cannot be a collection ID");
@@ -131,9 +132,9 @@ void RejectsInvalidValuesWithoutReplacingGoodData() {
   invalid = expected; invalid.collections.front().name = " Leading"; rejects(invalid, "leading collection whitespace rejected instead of normalized");
   invalid = expected; invalid.collections.front().name = "Trailing "; rejects(invalid, "trailing collection whitespace rejected instead of normalized");
   invalid = expected; invalid.collections[1].name = invalid.collections[0].name; rejects(invalid, "duplicate collection name rejected");
-  invalid = expected; invalid.collections.front().members.insert(0); rejects(invalid, "zero collection member rejected");
-  invalid = expected; invalid.ratings[10] = static_cast<playden::CompatibilityRating>(4); rejects(invalid, "unknown compatibility rejected");
-  invalid = expected; invalid.notes[10].assign(4097, 'n'); rejects(invalid, "oversized note rejected");
+  invalid = expected; invalid.collections.front().members.insert(SteamId(0)); rejects(invalid, "zero collection member rejected");
+  invalid = expected; invalid.ratings[SteamId(10)] = static_cast<playden::CompatibilityRating>(4); rejects(invalid, "unknown compatibility rejected");
+  invalid = expected; invalid.notes[SteamId(10)].assign(4097, 'n'); rejects(invalid, "oversized note rejected");
   invalid = expected; invalid.query.assign(257, 'q'); rejects(invalid, "oversized query rejected");
   invalid = expected; invalid.sort = "invented"; rejects(invalid, "unknown sort rejected");
   invalid = expected; invalid.filters.insert("fixture-only"); rejects(invalid, "unknown filter rejected");
@@ -158,12 +159,12 @@ void RejectsInvalidValuesWithoutReplacingGoodData() {
   }
   invalid = expected; invalid.filters = {"controller-full"}; rejects(invalid, "simulation-only controller filter rejected");
   invalid = expected; invalid.scope = "missing-collection"; rejects(invalid, "unknown scope rejected");
-  invalid = expected; invalid.notes[40] = std::string("bad-") + static_cast<char>(0xc0);
+  invalid = expected; invalid.notes[SteamId(40)] = std::string("bad-") + static_cast<char>(0xc0);
   rejects(invalid, "invalid UTF-8 note rejected");
 
   invalid = expected;
   invalid.favorites.clear();
-  for (playden::GameId id = 1; id <= 10001; ++id) invalid.favorites.insert(id);
+  for (std::uint32_t id = 1; id <= 10001; ++id) invalid.favorites.insert(SteamId(id));
   rejects(invalid, "more than ten thousand organization game IDs rejected");
 
   auto changed = expected;
@@ -258,14 +259,14 @@ void PreservesOrphanedPersonalState() {
   playden::Storage storage(directory.path());
   playden::OrganizationStore store(storage);
   auto snapshot = Example();
-  snapshot.selected_game_id = 999999;
-  snapshot.notes[888888] = "Keep this when ownership metadata is omitted";
-  snapshot.favorites.insert(777777);
+  snapshot.selected_game_id = SteamId(999999);
+  snapshot.notes[SteamId(888888)] = "Keep this when ownership metadata is omitted";
+  snapshot.favorites.insert(SteamId(777777));
   Check(store.Save(kFirstAccount, snapshot).ok(), "orphaned personal state saves");
   const auto loaded = store.Load(kFirstAccount);
-  Check(loaded.ok() && loaded.value() && loaded.value()->selected_game_id == 999999 &&
-            loaded.value()->notes.at(888888) == "Keep this when ownership metadata is omitted" &&
-            loaded.value()->favorites.count(777777),
+  Check(loaded.ok() && loaded.value() && loaded.value()->selected_game_id == SteamId(999999) &&
+            loaded.value()->notes.at(SteamId(888888)) == "Keep this when ownership metadata is omitted" &&
+            loaded.value()->favorites.count(SteamId(777777)),
         "organization store does not require current ownership or drop omitted game IDs");
 }
 
@@ -288,28 +289,28 @@ void ClearRemovesFinalAndTemporaryFiles() {
 void SelectionDoesNotConsumeAnnotationCapacity() {
   TemporaryDirectory directory;playden::Storage storage(directory.path());playden::OrganizationStore store(storage);
   playden::OrganizationSnapshot value;
-  for(playden::GameId id=1;id<=10000;++id)value.favorites.insert(id);
-  value.selected_game_id=20000;
+  for(std::uint32_t id=1;id<=10000;++id)value.favorites.insert(SteamId(id));
+  value.selected_game_id= SteamId(20000);
   Check(playden::OrganizationSnapshotIsValid(value),"fixed selection does not consume the annotation ID budget");
   Check(store.Save(kFirstAccount,value).ok(),"full annotations preserve independent selection");
   const auto loaded=store.Load(kFirstAccount);
-  Check(loaded.ok() && loaded.value() && loaded.value()->selected_game_id==20000,"selection round trips with full annotation capacity");
+  Check(loaded.ok() && loaded.value() && loaded.value()->selected_game_id==SteamId(20000),"selection round trips with full annotation capacity");
 }
 
 void SharedValidationMatchesEncodedBoundary() {
   TemporaryDirectory directory;playden::Storage storage(directory.path());playden::OrganizationStore store(storage);
   playden::OrganizationSnapshot value;
-  for(playden::GameId id=1;id<=255;++id)value.notes[id]=std::string(4096,'x');
-  value.notes[256]=std::string(1979,'x');
+  for(std::uint32_t id=1;id<=255;++id)value.notes[SteamId(id)]=std::string(4096,'x');
+  value.notes[SteamId(256)]=std::string(1979,'x');
   Check(playden::OrganizationSnapshotIsValid(value),"exact one MiB snapshot validates");
   Check(store.Save(kFirstAccount,value).ok(),"exact one MiB snapshot saves");
   const auto bytes=storage.Read(Path(kFirstAccount));
   Check(bytes.ok() && bytes.value().size()==1024*1024,"shared validator includes every encoded prefix and checksum");
-  value.notes[256].push_back('x');
+  value.notes[SteamId(256)].push_back('x');
   Check(!playden::OrganizationSnapshotIsValid(value),"one extra encoded byte is rejected before presentation apply");
   Check(!store.Save(kFirstAccount,value).ok(),"oversize snapshot cannot replace previous file");
   const auto restored=store.Load(kFirstAccount);
-  Check(restored.ok() && restored.value() && restored.value()->notes.at(256).size()==1979,"failed replacement preserves prior snapshot");
+  Check(restored.ok() && restored.value() && restored.value()->notes.at(SteamId(256)).size()==1979,"failed replacement preserves prior snapshot");
 }
 
 }  // namespace

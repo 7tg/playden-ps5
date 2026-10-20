@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "homebrew/simulation.hpp"
+#include "homebrew/store_art.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -13,6 +14,7 @@
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include "steam_id.h"
 
 namespace {
 
@@ -74,14 +76,14 @@ void projects_only_owned_facts_and_delivery_status() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
 
-    auto summary = game(10, "Known title", "https://cdn.invalid/10.jpg", "Known description");
+    auto summary = game(SteamId(10), "Known title", "https://cdn.invalid/10.jpg", "Known description");
     summary.developer = "Not projected by this boundary";
     summary.playtime_minutes = 91;
     summary.last_played_unix_seconds = 4'102'444'800ULL;
     check(model.UpdateLibrary({{summary}, false, {}, false, true, 1234}),
           "valid successful live snapshot is accepted");
 
-    const auto* projected = find_game(model, 10);
+    const auto* projected = find_game(model, SteamId(10));
     check(projected != nullptr && projected->title == "Known title"
               && projected->description == "Known description"
               && projected->source == "Steam"
@@ -104,7 +106,7 @@ void projects_only_owned_facts_and_delivery_status() {
 void loading_and_failure_preserve_last_good_snapshot() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
-    check(model.UpdateLibrary({{game(1, "One"), game(2, "Two")}, false, {}, false, true, 100}),
+    check(model.UpdateLibrary({{game(SteamId(1), "One"), game(SteamId(2), "Two")}, false, {}, false, true, 100}),
           "initial snapshot accepted");
 
     check(model.UpdateLibrary({{}, true, {}, false, true, std::nullopt}),
@@ -126,13 +128,13 @@ void loading_and_failure_preserve_last_good_snapshot() {
               && model.state().account.error.empty() && !model.state().library_offline,
           "successful empty ownership replaces stale games and clears failure state");
 
-    check(model.UpdateLibrary({{game(3, "Three")}, false, {}, false, true, 201})
+    check(model.UpdateLibrary({{game(SteamId(3), "Three")}, false, {}, false, true, 201})
               && model.action("details:3"),
           "details can be open before an empty ownership result");
     check(model.UpdateLibrary({{}, false, {}, false, true, 202})
               && model.state().navigation.route == Route::Home
               && !model.state().navigation.detail_id
-              && model.state().navigation.selected_game_id == 0
+              && !model.state().navigation.selected_game_id.valid()
               && has_row(model, "home-library"),
           "empty ownership leaves a removed details record for its empty origin surface");
 }
@@ -140,46 +142,65 @@ void loading_and_failure_preserve_last_good_snapshot() {
 void rejects_invalid_snapshots_transactionally_and_leaves_simulation_alone() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
-    check(model.UpdateLibrary({{game(5, "Five")}, false, {}, false, true, 50}),
+    check(model.UpdateLibrary({{game(SteamId(5), "Five")}, false, {}, false, true, 50}),
           "baseline snapshot accepted");
 
     const auto assert_unchanged = [&model](const char* message) {
-        check(model.state().games.size() == 1 && model.state().games.front().id == 5
+        check(model.state().games.size() == 1 && model.state().games.front().id == SteamId(5)
                   && model.state().account.last_sync == 50
                   && model.state().account.cache_available
                   && model.state().account.error.empty() && !model.state().library_offline,
               message);
     };
-    check(!model.UpdateLibrary({{game(0, "Zero")}, false, "must not leak", true, false, 60}),
+    check(!model.UpdateLibrary({{game(SteamId(0), "Zero")}, false, "must not leak", true, false, 60}),
           "zero app ID is rejected");
     assert_unchanged("zero-ID rejection is transactional");
-    check(!model.UpdateLibrary({{game(6, "")}, false, {}, false, false, 60}),
+    check(!model.UpdateLibrary({{game(SteamId(6), "")}, false, {}, false, false, 60}),
           "empty title is rejected");
     assert_unchanged("empty-title rejection is transactional");
-    check(!model.UpdateLibrary({{game(6, "First"), game(6, "Duplicate")}, false, {}, false, false, 60}),
+    check(!model.UpdateLibrary({{game(SteamId(6), "First"), game(SteamId(6), "Duplicate")}, false, {}, false, false, 60}),
           "duplicate app ID is rejected");
     assert_unchanged("duplicate rejection is transactional");
 
     Simulation simulation("fixtures-not-used", "profile-not-used.json", ModelMode::Simulation);
     const auto prior_games = simulation.state().games.size();
-    check(!simulation.UpdateLibrary({{game(88, "Live only")}, false, {}, false, true, 90})
+    check(!simulation.UpdateLibrary({{game(SteamId(88), "Live only")}, false, {}, false, true, 90})
               && simulation.state().games.size() == prior_games,
           "production library API cannot mutate deterministic simulation state");
+}
+
+// Keys name games canonically: leading zeros, signs or garbage name no game, even when the number
+// would match one.
+void non_canonical_game_keys_select_nothing() {
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(model.UpdateLibrary({{game(SteamId(19), "Nineteen"), game(SteamId(20), "Twenty")}, false, {}, false, true, 1}),
+          "library loaded");
+    check(model.action("r1") && model.action("select:20"), "a canonical key selects its game");
+    for (const char* key : {"0020", "+19", "19x", "019", " 19", "local-", "gog-19", "4294967315", ""}) {
+        const std::string text(key);
+        check(!model.action("select:" + text) && !model.action("details:" + text) &&
+                  !model.action("rate:" + text + ":works") && !model.action("note:" + text + ":hi"),
+              "a non-canonical key is refused");
+        check(model.state().navigation.selected_game_id == SteamId(20) && model.state().library.ratings.empty() &&
+                  model.state().library.notes.empty(),
+              "a non-canonical key selects nothing");
+    }
 }
 
 void preserves_identity_and_scroll_then_chooses_a_stable_neighbor() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
     std::vector<GameSummary> initial;
-    for (playden::GameId id = 1; id <= 30; ++id)
-        initial.push_back(game(id, "Game " + (id < 10 ? std::string("0") : std::string{}) + std::to_string(id)));
+    for (std::uint32_t id = 1; id <= 30; ++id)
+        initial.push_back(game(SteamId(id), "Game " + (id < 10 ? std::string("0") : std::string{}) + std::to_string(id)));
     check(model.UpdateLibrary({initial, false, {}, false, true, 1}), "large snapshot accepted");
     check(model.action("r1") && model.state().navigation.route == Route::Library,
           "navigation enters library");
     check(model.action("select:13") && model.action("down"), "selection moves into a scrolled row");
     const auto selected_id = model.state().navigation.selected_game_id;
     const auto scroll = model.state().navigation.scroll_offsets.at("library-grid");
-    check(selected_id == 19 && scroll == 3, "test starts with stable identity and nonzero scroll");
+    check(selected_id == SteamId(19) && scroll == 3, "test starts with stable identity and nonzero scroll");
 
     auto reordered = initial;
     for (auto& item : reordered)
@@ -200,12 +221,12 @@ void preserves_identity_and_scroll_then_chooses_a_stable_neighbor() {
     const int expected_index = std::min(prior_index, static_cast<int>(visible.size()) - 1);
     check(!visible.empty() && model.state().navigation.selected_index == expected_index
               && model.state().navigation.selected_game_id == visible[static_cast<std::size_t>(expected_index)]->id
-              && model.state().navigation.focus_key == "game-" + std::to_string(model.state().navigation.selected_game_id)
+              && model.state().navigation.focus_key == "game-" + ToKey(model.state().navigation.selected_game_id)
               && model.state().navigation.scroll_offsets.at("library-grid") == scroll,
           "removed selection chooses the item at the prior visible index and preserves scroll");
 
     const auto detail_id = model.state().navigation.selected_game_id;
-    check(model.action("details:" + std::to_string(detail_id))
+    check(model.action("details:" + ToKey(detail_id))
               && model.action("focus:details-more"),
           "selected neighbor opens with a stable details focus");
     auto detail_refresh = reordered;
@@ -222,18 +243,18 @@ void preserves_identity_and_scroll_then_chooses_a_stable_neighbor() {
 void live_details_keep_personal_edits_and_block_fixture_operations() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
-    check(model.UpdateLibrary({{game(7, "Seven")}, false, {}, false, true, 1}),
+    check(model.UpdateLibrary({{game(SteamId(7), "Seven")}, false, {}, false, true, 1}),
           "live game delivered");
     check(model.action("select:7") && model.action("square")
               && model.action("note:7:personal note")
               && model.action("collection:create:Personal")
               && model.action("collection:add:collection-1:7"),
           "favorites, notes and collections remain editable in live mode");
-    check(model.UpdateLibrary({{game(8, "Eight"), game(7, "Seven renamed")}, false, {}, false, true, 2}),
+    check(model.UpdateLibrary({{game(SteamId(8), "Eight"), game(SteamId(7), "Seven renamed")}, false, {}, false, true, 2}),
           "follow-up live snapshot accepted");
-    check(model.state().library.favorites.contains(7)
-              && model.state().library.notes.at(7) == "personal note"
-              && model.state().library.collections.front().members.contains(7),
+    check(model.state().library.favorites.contains(SteamId(7))
+              && model.state().library.notes.at(SteamId(7)) == "personal note"
+              && model.state().library.collections.front().members.contains(SteamId(7)),
           "refresh preserves account-scoped personal annotations");
 
     check(model.action("details:7"), "live details open");
@@ -265,14 +286,14 @@ const playden::homebrew::ViewRow* find_row(const Simulation& model, const std::s
 void live_install_requests_and_projection() {
     auto model=make_live();
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
-    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic")},false,{},false,false,{}}),"library loaded");
     check(model.action("details:42"), "details open");
     check(has_row(model, "details-checking"), "install state waits for Steam details");
     {
         const auto* waiting = find_row(model, "details-install");
         check(waiting && !waiting->enabled && waiting->value == "…", "Install stays in place, disabled, while Steam answers");
     }
-    check(model.UpdateAppDetails(42, 300'000'000, 600'000'000, true), "app details apply");
+    check(model.UpdateAppDetails(SteamId(42), 300'000'000, 600'000'000, true), "app details apply");
     check(has_row(model, "details-install"), "an installable game offers Install");
     check(model.state().navigation.focus_key == "details-install",
           "focus moves from Favorite to Install once Steam's details arrive");
@@ -284,9 +305,9 @@ void live_install_requests_and_projection() {
     activate(model, "details-install");
     auto requests = model.TakeInstallRequests();
     check(model.view().surface != "install", "a game that fits installs without a confirmation sheet");
-    check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Install && requests[0].game_id == 42,
+    check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Install && requests[0].game_id == SteamId(42),
           "Install sends one request");
-    model.UpdateInstalls({{42, playden::homebrew::JobState::Downloading, 50, 200, {}}}, {});
+    model.UpdateInstalls({{SteamId(42), playden::homebrew::JobState::Downloading, 50, 200, {}}}, {});
     check(has_row(model, "details-download") && !has_row(model, "details-install"), "a running job replaces Install");
     check(model.state().navigation.focus_key == "details-download", "focus follows Install to the download");
     activate(model, "details-download");
@@ -295,45 +316,45 @@ void live_install_requests_and_projection() {
     activate(model, "job-pause-42");
     requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Pause, "Pause goes to the service");
-    model.UpdateInstalls({}, {{42, 600'000'000}});
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     check(model.action("details:42") && has_row(model, "details-setup"), "a finished install shows setup readiness");
     check(!has_row(model, "details-runtime"), "no runtime row before the runtime host reports");
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready,
-                        {{42, "Not prepared", "Makes a private bottle and its own PS5 title", true, false}});
+                        {{SteamId(42), "Not prepared", "Makes a private bottle and its own PS5 title", true, false}});
     check(model.action("details:42") && has_row(model, "details-play"), "an installed game offers Play");
     const auto* play = find_row(model, "details-play");
     check(play && play->enabled && play->action == "runtime-play", "Play is offered before the game is prepared");
     activate(model, "details-play");
     const auto plays = model.TakeRuntimePlayRequests();
-    check(plays.size() == 1 && plays[0] == 42, "Play on an unprepared game goes to the controller, which prepares first");
+    check(plays.size() == 1 && plays[0] == SteamId(42), "Play on an unprepared game goes to the controller, which prepares first");
     check(find_row(model, "details-setup") && find_row(model, "details-setup")->value == "Not set up",
           "setup readiness appears as a fact");
-    model.RequestRuntimePrepare(42);
+    model.RequestRuntimePrepare(SteamId(42));
     check(model.TakeRuntimePrepareRequests().size() == 1, "Prepare can be queued without a button press");
-    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{SteamId(42), "Preparing", "Copying the bottle", false, false}});
     check(model.action("details:42"), "details reopen");
     check(find_row(model, "details-play")->progress == 0.0F,
           "a step without a known fraction shows no bar");
     {
-        playden::homebrew::LiveRuntimeGame copying{42, "Preparing", "Copying the Windows environment", false, false};
+        playden::homebrew::LiveRuntimeGame copying{SteamId(42), "Preparing", "Copying the Windows environment", false, false};
         copying.progress = 0.42F;
         model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {copying});
         check(find_row(model, "details-play")->progress == 0.42F,
               "a copy with a known fraction shows it on Play");
-        model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
+        model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{SteamId(42), "Preparing", "Copying the bottle", false, false}});
     }
     check(model.state().installations.size() == 1 && !model.state().installations[0].runtime_ready, "preparing is not ready");
-    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Ready", "FAKE78001", false, true}});
-    model.UpdateInstalls({}, {{42, 600'000'000}});
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{SteamId(42), "Ready", "FAKE78001", false, true}});
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     check(model.state().installations[0].runtime_ready, "readiness survives install refreshes");
     check(model.action("details:42"), "details reopen");
     check(model.action("focus:details-more") && model.action("cross"), "context opens");
     activate(model, "uninstall");
     activate(model, "confirm-destructive");
     requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Uninstall && requests[0].game_id == 42,
+    check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Uninstall && requests[0].game_id == SteamId(42),
           "Uninstall confirms and goes to the service");
-    model.UpdateAppDetails(42, std::nullopt, std::nullopt, false);
+    model.UpdateAppDetails(SteamId(42), std::nullopt, std::nullopt, false);
     model.UpdateInstalls({}, {});
     check(model.action("details:42") && has_row(model, "details-unavailable"), "a game without Windows content says so");
 }
@@ -343,15 +364,15 @@ void live_install_volumes() {
     using playden::homebrew::JobState;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Installed"), game(43, "Downloading"), game(44, "On USB"), game(45, "New")},
+    check(model.UpdateLibrary({{game(SteamId(42), "Installed"), game(SteamId(43), "Downloading"), game(SteamId(44), "On USB"), game(SteamId(45), "New")},
                                false, {}, false, false, {}}), "library loaded");
     model.UpdateVolumes({{"internal", "Console storage", true, std::nullopt, std::nullopt},
                          {"m2", "M.2 SSD", true, 2'000, 500},
                          {"usb0", "USB drive", false, std::nullopt, std::nullopt},
                          {"ext0", "Extended storage", true, 4'000, 3'000, false}}, "internal");
-    model.UpdateAppDetails(43, 400, 800, true);
-    model.UpdateInstalls({{43, JobState::Downloading, 100, 400, {}, "m2"}},
-                         {{42, 600, "internal", true}, {44, 0, "usb0", false}});
+    model.UpdateAppDetails(SteamId(43), 400, 800, true);
+    model.UpdateInstalls({{SteamId(43), JobState::Downloading, 100, 400, {}, "m2"}},
+                         {{SteamId(42), 600, "internal", true}, {SteamId(44), 0, "usb0", false}});
 
     const auto& volumes = model.state().volumes;
     check(volumes.size() == 4 && model.state().default_volume_id == "internal", "volumes and default projected");
@@ -406,7 +427,7 @@ void live_install_volumes() {
     installed = find_row(model, "details-installed");
     check(installed && installed->title == "Storage disconnected" && installed->subtitle == "Connect USB drive to use this game",
           "a game on an absent drive says so even without a known size");
-    check(model.action("details:45") && model.UpdateAppDetails(45, 1'000, 2'000, true), "new game details");
+    check(model.action("details:45") && model.UpdateAppDetails(SteamId(45), 1'000, 2'000, true), "new game details");
     const auto* install = find_row(model, "details-install");
     check(install && install->subtitle.find("To M.2 SSD · ") == 0 && install->subtitle.find(" free") != std::string::npos &&
               install->subtitle.find("reservation") == std::string::npos, "Install names the default drive and its free space");
@@ -424,9 +445,9 @@ void live_install_confirmation_checks_space_and_unknowns() {
     constexpr std::uint64_t margin = 64ULL * 1024 * 1024;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "New"), game(43, "Queued")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateAppDetails(42, 100, 600, true);
-    model.UpdateAppDetails(43, 100, 700, true);
+    check(model.UpdateLibrary({{game(SteamId(42), "New"), game(SteamId(43), "Queued")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(SteamId(42), 100, 600, true);
+    model.UpdateAppDetails(SteamId(43), 100, 700, true);
     model.UpdateVolumes({{"internal", "Console storage", true, margin + 2'000, margin + 599},
                          {"m2", "M.2 SSD", true, margin + 2'000, margin + 1'000}}, "internal");
     check(model.action("details:42"), "details open");
@@ -452,21 +473,21 @@ void live_install_confirmation_checks_space_and_unknowns() {
           "choosing a drive for one install does not change the default");
     activate(model, "install-confirm");
     auto requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Install && requests[0].game_id == 42 &&
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Install && requests[0].game_id == SteamId(42) &&
               requests[0].volume_id == "m2", "the install goes to the chosen drive");
 
     // Reservations: the rest of each download's estimate, less what it already holds on the drive.
-    model.UpdateInstalls({{43, JobState::Downloading, 90, 100, {}, "m2"}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Downloading, 90, 100, {}, "m2"}}, {});
     check(model.state().volumes[1].reserved_bytes == 700, "a download that has reported nothing reserves its estimate");
-    model.UpdateInstalls({{43, JobState::Downloading, 90, 100, {}, "m2", {}, {}, 300}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Downloading, 90, 100, {}, "m2", {}, {}, 300}}, {});
     check(model.state().volumes[1].reserved_bytes == 400, "bytes a download already holds on the drive are not reserved twice");
-    model.UpdateInstalls({{43, JobState::Downloading, 90, 100, {}, "m2", {}, {}, 900}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Downloading, 90, 100, {}, "m2", {}, {}, 900}}, {});
     check(model.state().volumes[1].reserved_bytes == 0, "a preallocated download reserves nothing more");
-    model.UpdateInstalls({{43, JobState::Failed, 90, 100, {}, "m2"}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Failed, 90, 100, {}, "m2"}}, {});
     check(model.state().volumes[1].reserved_bytes == 0, "failed downloads release live reservations");
-    model.UpdateInstalls({{43, JobState::Cancelled, 90, 100, {}, "m2"}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Cancelled, 90, 100, {}, "m2"}}, {});
     check(model.state().volumes[1].reserved_bytes == 0, "cancelled downloads hold no reservation");
-    model.UpdateInstalls({{43, JobState::Downloaded, 100, 100, {}, "m2"}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Downloaded, 100, 100, {}, "m2"}}, {});
     check(model.state().volumes[1].reserved_bytes == 0, "completed downloads hold no reservation");
     model.UpdateInstalls({}, {});
 
@@ -478,7 +499,7 @@ void live_install_confirmation_checks_space_and_unknowns() {
           "a game that fits installs without the sheet");
 
     // An unknown size installs at once when the drive has the margin; the downloader checks it.
-    model.UpdateAppDetails(42, std::nullopt, std::nullopt, true);
+    model.UpdateAppDetails(SteamId(42), std::nullopt, std::nullopt, true);
     check(find_row(model, "details-install")->value == "Size unknown", "unknown size never displays zero");
     activate(model, "details-install");
     check(model.TakeInstallRequests().size() == 1, "unknown size installs with a pre-download check");
@@ -507,18 +528,18 @@ void live_install_notifications() {
     auto model = make_live();
     model.SetWallClock(1'000);
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Finishing"), game(43, "Failing"), game(44, "Removed")}, false, {}, false, false, {}}),
+    check(model.UpdateLibrary({{game(SteamId(42), "Finishing"), game(SteamId(43), "Failing"), game(SteamId(44), "Removed")}, false, {}, false, false, {}}),
           "library loaded");
 
     // The first snapshot is restored state: a failed job from before restart is not announced.
-    model.UpdateInstalls({{42, JobState::Downloading, 10, 100, {}, "internal"}, {43, JobState::Failed, 0, 100, "Old failure", "internal"}},
-                         {{44, 500, "internal", true}});
+    model.UpdateInstalls({{SteamId(42), JobState::Downloading, 10, 100, {}, "internal"}, {SteamId(43), JobState::Failed, 0, 100, "Old failure", "internal"}},
+                         {{SteamId(44), 500, "internal", true}});
     check(model.state().notices.empty(), "restored history raises no notification");
 
     // A job that finishes into an install, and a job that newly fails.
-    model.UpdateInstalls({{43, JobState::Downloading, 5, 100, {}, "internal"}}, {{42, 100, "internal", true}, {44, 500, "internal", true}});
-    model.UpdateInstalls({{43, JobState::Failed, 5, 100, "Steam refused the download.", "internal"}},
-                         {{42, 100, "internal", true}, {44, 500, "internal", true}});
+    model.UpdateInstalls({{SteamId(43), JobState::Downloading, 5, 100, {}, "internal"}}, {{SteamId(42), 100, "internal", true}, {SteamId(44), 500, "internal", true}});
+    model.UpdateInstalls({{SteamId(43), JobState::Failed, 5, 100, "Steam refused the download.", "internal"}},
+                         {{SteamId(42), 100, "internal", true}, {SteamId(44), 500, "internal", true}});
     const auto* done = find_notice(model, "install-42");
     check(done && !done->persistent && !done->failure && done->message == "Download complete" && done->detail == "Finishing",
           "a finished download is announced with the game's name");
@@ -526,8 +547,8 @@ void live_install_notifications() {
     check(failed && failed->failure && !failed->persistent && failed->message == "Download failed" &&
               failed->detail == "Failing · Steam refused the download." && model.state().navigation.modals.empty(),
           "a new failure is announced with its reason in a corner, not a dialog");
-    model.UpdateInstalls({{43, JobState::Failed, 5, 100, "Steam refused the download.", "internal"}},
-                         {{42, 100, "internal", true}, {44, 500, "internal", true}});
+    model.UpdateInstalls({{SteamId(43), JobState::Failed, 5, 100, "Steam refused the download.", "internal"}},
+                         {{SteamId(42), 100, "internal", true}, {SteamId(44), 500, "internal", true}});
     check(std::count_if(model.state().notices.begin(), model.state().notices.end(),
                         [](const auto& notice) { return notice.id == "install-43"; }) == 1 &&
               model.state().navigation.modals.empty(),
@@ -537,19 +558,19 @@ void live_install_notifications() {
     check(model.action("details:44") && model.action("focus:details-more") && model.action("cross"), "menu opens");
     check(find_row(model, "favorite") && find_row(model, "favorite")->title == "Add to Favorites", "menu offers to add");
     activate(model, "favorite");
-    check(model.state().navigation.modals.empty() && model.state().library.favorites.contains(44),
+    check(model.state().navigation.modals.empty() && model.state().library.favorites.contains(SteamId(44)),
           "Favorite from the menu marks the game and closes the menu");
     check(model.action("focus:details-more") && model.action("cross") &&
               find_row(model, "favorite")->title == "Remove from Favorites", "menu offers to remove a favorite");
     activate(model, "favorite");
-    check(!model.state().library.favorites.contains(44), "removing works the same way");
+    check(!model.state().library.favorites.contains(SteamId(44)), "removing works the same way");
 
     // Uninstall: only a removal the player asked for is announced.
     check(model.action("details:44") && model.action("focus:details-more") && model.action("cross"), "context opens");
     activate(model, "uninstall");
     activate(model, "confirm-destructive");
     model.TakeInstallRequests();
-    model.UpdateInstalls({{43, JobState::Failed, 5, 100, "Steam refused the download.", "internal"}}, {{42, 100, "internal", true}});
+    model.UpdateInstalls({{SteamId(43), JobState::Failed, 5, 100, "Steam refused the download.", "internal"}}, {{SteamId(42), 100, "internal", true}});
     const auto* removed = find_notice(model, "install-44");
     check(removed && removed->message == "Game uninstalled" && removed->detail == "Removed", "an uninstall is announced");
 
@@ -587,8 +608,8 @@ void live_log_viewer() {
     }
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Fine"), game(43, "Broken")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateInstalls({{43, JobState::Failed, 0, 100, "Download failed.", "internal"}}, {});
+    check(model.UpdateLibrary({{game(SteamId(42), "Fine"), game(SteamId(43), "Broken")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({{SteamId(43), JobState::Failed, 0, 100, "Download failed.", "internal"}}, {});
 
     // Without a log folder the Settings entry is unavailable.
     model.action("l1");
@@ -636,22 +657,22 @@ void live_log_viewer() {
     check(model.state().log_lines.size() == 7, "Refresh reads new lines");
     activate(model, "job-retry-43");
     const auto requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Resume && requests[0].game_id == 43,
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Resume && requests[0].game_id == SteamId(43),
           "Retry from the log resumes the download");
     check(model.state().navigation.modals.empty(), "Retry closes the log and the job's actions");
 
     // Resume all puts every paused download back in the queue.
-    model.UpdateInstalls({{43, JobState::Paused, 10, 100, {}}, {44, JobState::Paused, 0, 0, {}},
-                          {45, JobState::Downloading, 5, 50, {}}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Paused, 10, 100, {}}, {SteamId(44), JobState::Paused, 0, 0, {}},
+                          {SteamId(45), JobState::Downloading, 5, 50, {}}}, {});
     activate(model, "job-45");
     check(has_row(model, "job-resume-all"), "a running download's actions offer Resume all while others wait");
     activate(model, "job-resume-all");
     const auto resumed = model.TakeInstallRequests();
-    check(resumed.size() == 2 && resumed[0].kind == InstallRequestKind::Resume && resumed[0].game_id == 43 &&
-              resumed[1].kind == InstallRequestKind::Resume && resumed[1].game_id == 44,
+    check(resumed.size() == 2 && resumed[0].kind == InstallRequestKind::Resume && resumed[0].game_id == SteamId(43) &&
+              resumed[1].kind == InstallRequestKind::Resume && resumed[1].game_id == SteamId(44),
           "Resume all resumes each paused download");
     check(model.state().navigation.modals.empty(), "Resume all closes the actions");
-    model.UpdateInstalls({{43, JobState::Paused, 10, 100, {}}, {45, JobState::Downloading, 5, 50, {}}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Paused, 10, 100, {}}, {SteamId(45), JobState::Downloading, 5, 50, {}}}, {});
     activate(model, "job-43");
     check(!has_row(model, "job-resume-all"), "a single paused download offers only its own Resume");
     model.action("circle");
@@ -664,8 +685,8 @@ void live_cloud_saves() {
     auto model = make_live();
     model.SetWallClock(10 * 86'400);
     model.UpdateAccount({AuthState::SignedIn, "123", "Player", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Saved Game"), game(43, "Not Installed")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateInstalls({}, {{42, 100, "internal", true}});
+    check(model.UpdateLibrary({{game(SteamId(42), "Saved Game"), game(SteamId(43), "Not Installed")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{SteamId(42), 100, "internal", true}});
 
     // A runtime that can't start is said on every screen, with the reason in Settings (#64).
     model.UpdateRuntimeProblem("managed runtime data root is inaccessible");
@@ -692,27 +713,27 @@ void live_cloud_saves() {
     activate(model, "settings-cloud-saves");
     check(model.state().cloud_saves_auto, "and on for what follows");
 
-    check(model.action("details:43") && model.UpdateAppDetails(43, 1, 2, true) && !has_row(model, "details-cloud"),
+    check(model.action("details:43") && model.UpdateAppDetails(SteamId(43), 1, 2, true) && !has_row(model, "details-cloud"),
           "a game that is not installed has no Cloud saves row");
     check(model.action("details:42"), "installed game opens");
     const auto* saves = find_row(model, "details-cloud");
     check(saves && saves->enabled && saves->action == "cloud-sync" && saves->value == "Sync", "an installed game offers Cloud saves");
     activate(model, "details-cloud");
     auto requests = model.TakeCloudRequests();
-    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::Sync && requests[0].game_id == 42, "Cloud saves asks for a sync");
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::Sync && requests[0].game_id == SteamId(42), "Cloud saves asks for a sync");
 
-    model.UpdateCloud({{42, CloudStatus::Checking, "Checking Steam Cloud…"}});
+    model.UpdateCloud({{SteamId(42), CloudStatus::Checking, "Checking Steam Cloud…"}});
     saves = find_row(model, "details-cloud");
     check(saves && !saves->enabled && saves->value == "Checking…", "a running sync cannot be started twice");
     check(saves->kind == playden::homebrew::RowKind::Action, "Cloud saves stays a button while it works");
-    model.UpdateCloud({{42, CloudStatus::Synced, "2 saves downloaded"}});
+    model.UpdateCloud({{SteamId(42), CloudStatus::Synced, "2 saves downloaded"}});
     saves = find_row(model, "details-cloud");
     check(saves && saves->enabled && saves->value == "Synced" && saves->subtitle == "2 saves downloaded", "a finished sync says what moved");
     const auto* synced = find_notice(model, "cloud-42");
     check(synced && synced->message == "Cloud saves synced" && synced->detail == "Saved Game · 2 saves downloaded", "a sync is announced");
 
     // A conflict opens a dialog describing both sides; the choice goes to the service.
-    model.UpdateCloud({{42, CloudStatus::Conflict, "Saves here and in Steam Cloud both changed.", 2, 3, 2'048, 4'096,
+    model.UpdateCloud({{SteamId(42), CloudStatus::Conflict, "Saves here and in Steam Cloud both changed.", 2, 3, 2'048, 4'096,
                         9 * 86'400, 10 * 86'400}});
     check(find_notice(model, "cloud-42")->message == "Cloud saves need a choice", "a pending choice is announced");
     saves = find_row(model, "details-cloud");
@@ -725,13 +746,13 @@ void live_cloud_saves() {
           "the choice dialog describes both sides");
     check(has_row(model, "cloud-use-cloud") && has_row(model, "cloud-use-local"), "both choices are offered");
     activate(model, "cancel");
-    model.UpdateCloud({{42, CloudStatus::Conflict, "Saves here and in Steam Cloud both changed.", 0, 1, 0, 4'096, 0, 10 * 86'400}});
+    model.UpdateCloud({{SteamId(42), CloudStatus::Conflict, "Saves here and in Steam Cloud both changed.", 0, 1, 0, 4'096, 0, 10 * 86'400}});
     activate(model, "details-cloud");
     const auto& empty_side = model.state().navigation.modals.back().body;
     check(empty_side.find("Steam Cloud: 1 file, ") != std::string::npos && empty_side.find("This console: no saves.") != std::string::npos,
           "a side without saves says so, and one file is not \"1 files\"");
     activate(model, "cancel");
-    model.UpdateCloud({{42, CloudStatus::Conflict, "Saves here and in Steam Cloud both changed.", 2, 3, 2'048, 4'096,
+    model.UpdateCloud({{SteamId(42), CloudStatus::Conflict, "Saves here and in Steam Cloud both changed.", 2, 3, 2'048, 4'096,
                         9 * 86'400, 10 * 86'400}});
     activate(model, "details-cloud");
     activate(model, "cloud-use-local");
@@ -740,7 +761,7 @@ void live_cloud_saves() {
           "choosing local saves goes to the service and closes the dialog");
 
     // Uploads for an account Playden has not synced before need its confirmation.
-    model.UpdateCloud({{42, CloudStatus::NeedsAccount, "Confirm this Steam account."}});
+    model.UpdateCloud({{SteamId(42), CloudStatus::NeedsAccount, "Confirm this Steam account."}});
     activate(model, "details-cloud");
     check(model.state().navigation.modals.back().body.find("Player") != std::string::npos && has_row(model, "cloud-confirm-account"),
           "the account dialog names the signed-in account");
@@ -748,7 +769,7 @@ void live_cloud_saves() {
     requests = model.TakeCloudRequests();
     check(requests.size() == 1 && requests[0].kind == CloudRequestKind::ConfirmAccount, "confirming goes to the service");
 
-    model.UpdateCloud({{42, CloudStatus::Failed, "Steam is not reachable. Try again."}});
+    model.UpdateCloud({{SteamId(42), CloudStatus::Failed, "Steam is not reachable. Try again."}});
     check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Cloud sync failed",
           "a sync failure waits in a dialog");
     activate(model, "alert-ok");
@@ -758,7 +779,7 @@ void live_cloud_saves() {
 void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
-    check(model.UpdateLibrary({{game(1, "One")}, false, {}, false, true, 100}),
+    check(model.UpdateLibrary({{game(SteamId(1), "One")}, false, {}, false, true, 100}),
           "baseline for refresh action accepted");
     model.action("l1");
     activate(model, "settings-account");
@@ -771,7 +792,7 @@ void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
     check(model.UpdateLibrary({{}, true, {}, false, true, std::nullopt})
               && model.state().account.authentication == AuthState::SignedIn,
           "loading update retains authenticated account state");
-    check(model.UpdateLibrary({{game(1, "One refreshed")}, false, {}, false, true, 101})
+    check(model.UpdateLibrary({{game(SteamId(1), "One refreshed")}, false, {}, false, true, 101})
               && model.state().account.authentication == AuthState::SignedIn
               && !model.state().library_syncing && !model.state().library_loading,
           "terminal library update clears delivery status without restoring authentication");
@@ -803,7 +824,7 @@ void live_empty_filter_keeps_the_signed_in_account() {
     // and its only row must undo the filter rather than start a new Steam sign-in.
     auto model=make_live();
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
-    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic")},false,{},false,false,{}}),"library loaded");
     model.TakeServiceActions();
     check(model.action("r1") && model.action("triangle"),"live filter modal opens");
     activate(model,"filter-compat-playable");
@@ -838,7 +859,7 @@ void live_empty_filter_keeps_the_signed_in_account() {
 void live_filters_only_use_available_facts() {
     auto model=make_live();
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
-    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic")},false,{},false,false,{}}),"library loaded");
     check(model.state().games.front().folded_title=="synthetic","production delivery caches Unicode key once");
     check(model.action("r1") && model.action("triangle"),"live filter modal opens");
     const auto& actions=model.state().navigation.modals.back().action_keys;
@@ -849,7 +870,7 @@ void live_filters_only_use_available_facts() {
     // A CM acquisition date makes "Recently added" a real fact, sorted newest first.
     auto dated=make_live();
     dated.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
-    auto older=game(42,"Alpha"),newer=game(43,"Beta"),undated=game(44,"Gamma");
+    auto older=game(SteamId(42),"Alpha"),newer=game(SteamId(43),"Beta"),undated=game(SteamId(44),"Gamma");
     older.added_at_unix_seconds=1400000000;newer.added_at_unix_seconds=1500000000;
     check(dated.UpdateLibrary({{older,newer,undated},false,{},false,false,{}}),"dated library loaded");
     check(dated.state().games.front().added_at==1400000000,"acquisition date projected");
@@ -859,7 +880,7 @@ void live_filters_only_use_available_facts() {
     activate(dated,"sort-recent-added");
     check(dated.state().library.sort=="recent-added","recently added sort selected");
     const auto ordered=dated.visible_games();
-    check(ordered.size()==3 && ordered[0]->id==43 && ordered[1]->id==42 && ordered[2]->id==44,
+    check(ordered.size()==3 && ordered[0]->id==SteamId(43) && ordered[1]->id==SteamId(42) && ordered[2]->id==SteamId(44),
           "newest acquisition first, undated last");
 }
 
@@ -868,7 +889,7 @@ void live_filters_only_use_available_facts() {
 void live_sort_sheet_refreshes_the_library() {
     auto model=make_live();
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
-    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic")},false,{},false,false,{}}),"library loaded");
     model.TakeServiceActions();
     check(model.action("r1") && model.action("triangle"),"live filter modal opens");
     const auto* row=find_row(model,"refresh-library");
@@ -892,8 +913,8 @@ void continue_playing_more_keeps_the_chosen_sort() {
     auto model=make_live();
     model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
     std::vector<GameSummary> games;
-    for(playden::GameId id=1;id<=25;++id) {
-        auto summary=game(id,"Game "+std::to_string(100+id));
+    for(std::uint32_t id=1;id<=25;++id) {
+        auto summary=game(SteamId(id),"Game "+std::to_string(100+id));
         summary.last_played_unix_seconds=1'700'000'000ULL+id;
         summary.playtime_minutes=id%2 ? 1000+id : id;
         games.push_back(std::move(summary));
@@ -901,29 +922,29 @@ void continue_playing_more_keeps_the_chosen_sort() {
     check(model.UpdateLibrary({std::move(games),false,{},false,false,{}}),"played library loaded");
     check(model.action("r1") && model.action("triangle"),"live filter modal opens");
     activate(model,"sort-playtime");
-    check(model.state().library.sort=="playtime" && model.visible_games().front()->id==25,"playtime sort chosen");
+    check(model.state().library.sort=="playtime" && model.visible_games().front()->id==SteamId(25),"playtime sort chosen");
     check(model.action("l1") && model.state().navigation.route==Route::Home,"back to Home");
     for(int step=0;step<30 && model.state().navigation.focus_key!="shelf-continue-more";++step) model.action("right");
     check(model.state().navigation.focus_key=="shelf-continue-more","More on Continue playing focused");
     check(model.action("cross") && model.state().navigation.route==Route::Library,"More opens the Library");
     const auto more=model.visible_games();
-    check(more.size()==25 && more.front()->id==25 && more[1]->id==24,"More lists the most recently played first");
+    check(more.size()==25 && more.front()->id==SteamId(25) && more[1]->id==SteamId(24),"More lists the most recently played first");
     check(model.state().library.sort=="playtime" && model.ExportOrganization().sort=="playtime",
           "More does not replace the saved sort");
     check(model.action("details:24") && model.action("circle") && model.state().navigation.route==Route::Library &&
-          model.visible_games()[1]->id==24,"a game opened from More returns to the same order");
+          model.visible_games()[1]->id==SteamId(24),"a game opened from More returns to the same order");
     check(model.action("l1") && model.action("r1") && model.state().navigation.route==Route::Library,"Library opened again");
     const auto again=model.visible_games();
-    check(again.front()->id==25 && again[1]->id==23,"the chosen playtime sort is back");
+    check(again.front()->id==SteamId(25) && again[1]->id==SteamId(23),"the chosen playtime sort is back");
 
     // Choosing a sort in the More view keeps it.
     check(model.action("l1"),"back to Home");
     for(int step=0;step<30 && model.state().navigation.focus_key!="shelf-continue-more";++step) model.action("right");
     check(model.action("cross") && model.action("triangle"),"sort sheet from the More view");
     activate(model,"sort-name");
-    check(model.state().library.sort=="name" && model.visible_games().front()->id==1,"a chosen sort replaces the More order");
+    check(model.state().library.sort=="name" && model.visible_games().front()->id==SteamId(1),"a chosen sort replaces the More order");
     check(model.action("l1") && model.action("r1") && model.state().library.sort=="name" &&
-          model.visible_games().front()->id==1,"and stays chosen");
+          model.visible_games().front()->id==SteamId(1),"and stays chosen");
 }
 
 void live_uninstall_removes_title_and_keeps_saves() {
@@ -932,13 +953,13 @@ void live_uninstall_removes_title_and_keeps_saves() {
     using playden::homebrew::RowKind;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic"), game(43, "No title")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateAppDetails(42, 300, 600, true);
-    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "No title")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(SteamId(42), 300, 600, true);
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100}});
     LiveRuntimeGame ready;
-    ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true; ready.has_title = true;
+    ready.game_id = SteamId(42); ready.status = "Ready"; ready.ready = true; ready.can_play = true; ready.has_title = true;
     LiveRuntimeGame plain;
-    plain.game_id = 43; plain.status = "Not prepared"; plain.can_prepare = true;
+    plain.game_id = SteamId(43); plain.status = "Not prepared"; plain.can_prepare = true;
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {ready, plain});
 
     // A prepared game: the dialog says the PS5 title goes too and offers deleting saves, off by default.
@@ -957,7 +978,7 @@ void live_uninstall_removes_title_and_keeps_saves() {
           "the dialog says the saves go when the choice is on");
     activate(model, "confirm-destructive");
     auto requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && requests[0].game_id == 42 &&
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && requests[0].game_id == SteamId(42) &&
               requests[0].delete_saves, "Uninstall carries the saves choice");
 
     // While it runs, Play waits; an interrupted removal offers Finish removing.
@@ -970,7 +991,7 @@ void live_uninstall_removes_title_and_keeps_saves() {
           "active uninstall replaces Ready with Removing in setup facts");
     check(!has_row(model, "details-hint"), "active uninstall has no interrupted setup hint");
     LiveRuntimeGame stuck;
-    stuck.game_id = 42; stuck.status = "Removal incomplete"; stuck.can_prepare = true; stuck.has_title = true;
+    stuck.game_id = SteamId(42); stuck.status = "Removal incomplete"; stuck.can_prepare = true; stuck.has_title = true;
     stuck.detail = "The console has not confirmed that the PS5 title is gone. Retry checks again.";
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {stuck, plain});
     check(model.action("details:42"), "details reopen");
@@ -981,14 +1002,14 @@ void live_uninstall_removes_title_and_keeps_saves() {
     requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && !requests[0].delete_saves,
           "Retry continues the uninstall with the saved choice");
-    model.NotifyUninstallStopped(42, "The PS5 title could not be removed.");
+    model.NotifyUninstallStopped(SteamId(42), "The PS5 title could not be removed.");
     check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Uninstall stopped" &&
               model.state().navigation.modals.back().action_keys == std::vector<std::string>{"alert-ok"},
           "a stopped uninstall says why in a dialog with OK");
     activate(model, "alert-ok");
     check(model.state().navigation.modals.empty(), "OK dismisses the failure dialog");
-    model.NotifyPlayStopped(42, "This game's program has Steam DRM that Playden can't unpack on the PS5 yet.");
-    model.NotifyPlayStopped(42, "This game's program has Steam DRM that Playden can't unpack on the PS5 yet.");
+    model.NotifyPlayStopped(SteamId(42), "This game's program has Steam DRM that Playden can't unpack on the PS5 yet.");
+    model.NotifyPlayStopped(SteamId(42), "This game's program has Steam DRM that Playden can't unpack on the PS5 yet.");
     check(model.state().navigation.modals.size() == 1 && model.state().navigation.modals.back().title == "Can't play" &&
               model.state().navigation.modals.back().body.find("Steam DRM") != std::string::npos,
           "a refused Play says why, once however often it is pressed");
@@ -996,7 +1017,7 @@ void live_uninstall_removes_title_and_keeps_saves() {
     check(model.state().navigation.modals.empty(), "a repeated refusal is not asked twice");
 
     // A game without a PS5 title and without Cloud: no saves choice; its saves exist only here.
-    model.UpdateCloud({{43, playden::homebrew::CloudStatus::Unsupported, "No Steam Cloud saves"}});
+    model.UpdateCloud({{SteamId(43), playden::homebrew::CloudStatus::Unsupported, "No Steam Cloud saves"}});
     check(model.action("details:43") && model.action("focus:details-more") && model.action("cross"), "context opens");
     activate(model, "uninstall");
     check(!has_row(model, "uninstall-delete-saves"), "no saves choice without a PS5 title");
@@ -1006,8 +1027,8 @@ void live_uninstall_removes_title_and_keeps_saves() {
     while (!model.state().navigation.modals.empty()) model.action("circle");
 
     // An uninstalled game with kept saves: Details shows them and can delete them.
-    model.UpdateInstalls({}, {{43, 100}});
-    model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}});
+    model.UpdateInstalls({}, {{SteamId(43), 100}});
+    model.UpdateKeptBottles({{SteamId(42), "Synthetic", 1760000000, 5'000'000}});
     check(model.action("details:42"), "details open");
     const auto* kept = find_row(model, "details-kept");
     check(kept && kept->title == "Saves from a previous install" && !kept->value.empty(), "kept saves are shown with their size");
@@ -1015,12 +1036,12 @@ void live_uninstall_removes_title_and_keeps_saves() {
     {
         // While Steam is still checked there is no Install yet: focus still avoids Delete saves.
         model.UpdateInstalls({}, {});
-        model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}, {43, "No title", 1760000000, 1'000'000}});
+        model.UpdateKeptBottles({{SteamId(42), "Synthetic", 1760000000, 5'000'000}, {SteamId(43), "No title", 1760000000, 1'000'000}});
         check(model.action("details:43") && has_row(model, "details-checking") && has_row(model, "details-kept-delete"),
               "kept saves while Steam is checked");
         check(model.state().navigation.focus_key != "details-kept-delete", "a second Cross cannot land on Delete saves");
-        model.UpdateInstalls({}, {{43, 100}});
-        model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}});
+        model.UpdateInstalls({}, {{SteamId(43), 100}});
+        model.UpdateKeptBottles({{SteamId(42), "Synthetic", 1760000000, 5'000'000}});
         check(model.action("details:42"), "details reopen");
     }
     check(has_row(model, "details-install"), "Install brings them back");
@@ -1028,11 +1049,11 @@ void live_uninstall_removes_title_and_keeps_saves() {
     check(model.state().navigation.modals.back().title == "Delete kept saves?", "deleting asks first");
     activate(model, "confirm-destructive");
     auto deletes = model.TakeKeptDeleteRequests();
-    check(deletes.size() == 1 && deletes[0] == 42, "the confirmed deletion goes to the runtime");
+    check(deletes.size() == 1 && deletes[0] == SteamId(42), "the confirmed deletion goes to the runtime");
 
     // Settings shows kept game data as one row that opens the manager.
-    model.UpdateKeptBottles({{42, "Synthetic", 1760000000, 5'000'000}, {43, "", 1760000000, 3'000'000},
-                             {44, "Third", 0, 1'000'000}});
+    model.UpdateKeptBottles({{SteamId(42), "Synthetic", 1760000000, 5'000'000}, {SteamId(43), "", 1760000000, 3'000'000},
+                             {SteamId(44), "Third", 0, 1'000'000}});
     model.action("l1");
     check(model.state().navigation.route == playden::homebrew::Route::Settings, "Settings opens");
     check(!has_row(model, "settings-kept-42"), "kept games are not listed one by one in Settings");
@@ -1065,13 +1086,13 @@ void live_uninstall_removes_title_and_keeps_saves() {
     activate(model, "kept-selection-delete");
     activate(model, "confirm-destructive");
     deletes = model.TakeKeptDeleteRequests();
-    check(deletes == std::vector<playden::homebrew::GameId>{42, 44}, "the confirmed games go to the runtime");
+    check(deletes == std::vector<playden::homebrew::GameId>{SteamId(42), SteamId(44)}, "the confirmed games go to the runtime");
     check(model.state().navigation.modals.empty() && model.state().navigation.focus_key == "settings-kept",
           "the manager closes and focus returns to its row");
 
     // Kept data changes while the manager is open: it lists what is left, and closes when nothing is.
     activate(model, "settings-kept");
-    model.UpdateKeptBottles({{43, "", 1760000000, 3'000'000}});
+    model.UpdateKeptBottles({{SteamId(43), "", 1760000000, 3'000'000}});
     check(!has_row(model, "kept-toggle-42") && has_row(model, "kept-toggle-43"), "the open manager follows the kept list");
     model.UpdateKeptBottles({});
     check(model.state().navigation.modals.empty(), "the manager closes when nothing is kept");
@@ -1167,16 +1188,16 @@ void live_storage_section_and_installed_games() {
         if (days) summary.last_played_unix_seconds = static_cast<std::uint64_t>(now - *days * day);
         return summary;
     };
-    check(model.UpdateLibrary({{played(10, "Alpha", 10), played(11, "Beta", std::nullopt), played(12, "Gamma", 100),
-                                played(13, "Delta", 1), played(14, "Echo", 50), played(15, "Foxtrot", 30),
-                                played(16, "Golf", 20)}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateInstalls({LiveInstallJob{15, JobState::Queued, 0, gb, {}, "internal"}},
-                         {{10, 5 * gb, "internal"}, {11, 20 * gb, "internal"}, {12, 5 * gb, "internal"},
-                          {13, 1 * gb, "internal"}, {14, 2 * gb, "internal"}, {15, 3 * gb, "internal"},
-                          {16, 4 * gb, "internal"}});
-    LiveRuntimeGame titled; titled.game_id = 10; titled.status = "Ready"; titled.ready = true; titled.has_title = true;
-    LiveRuntimeGame running; running.game_id = 14; running.status = "Ready"; running.ready = true; running.play_status = "Playing";
-    LiveRuntimeGame preparing; preparing.game_id = 16; preparing.status = "Preparing";
+    check(model.UpdateLibrary({{played(SteamId(10), "Alpha", 10), played(SteamId(11), "Beta", std::nullopt), played(SteamId(12), "Gamma", 100),
+                                played(SteamId(13), "Delta", 1), played(SteamId(14), "Echo", 50), played(SteamId(15), "Foxtrot", 30),
+                                played(SteamId(16), "Golf", 20)}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({LiveInstallJob{SteamId(15), JobState::Queued, 0, gb, {}, "internal"}},
+                         {{SteamId(10), 5 * gb, "internal"}, {SteamId(11), 20 * gb, "internal"}, {SteamId(12), 5 * gb, "internal"},
+                          {SteamId(13), 1 * gb, "internal"}, {SteamId(14), 2 * gb, "internal"}, {SteamId(15), 3 * gb, "internal"},
+                          {SteamId(16), 4 * gb, "internal"}});
+    LiveRuntimeGame titled; titled.game_id = SteamId(10); titled.status = "Ready"; titled.ready = true; titled.has_title = true;
+    LiveRuntimeGame running; running.game_id = SteamId(14); running.status = "Ready"; running.ready = true; running.play_status = "Playing";
+    LiveRuntimeGame preparing; preparing.game_id = SteamId(16); preparing.status = "Preparing";
     model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
     const auto* entry = find_row(model, "settings-installed");
     check(entry && entry->enabled && entry->value == "7 games · 40.0 GB", "the row counts installed games and size");
@@ -1217,11 +1238,11 @@ void live_storage_section_and_installed_games() {
     check(find_row(model, "installed-select-all")->title == "Clear selection", "with all checked it clears instead");
     check(model.view().footer == "4 selected · 31.0 GB", "the footer names how many and how much");
     // A game that starts running leaves the selection.
-    running.game_id = 13;
+    running.game_id = SteamId(13);
     model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
     check(!find_row(model, "installed-toggle-13")->selected && find_row(model, "installed-toggle-13")->subtitle == "Playing",
           "a game that becomes blocked leaves the selection");
-    running.game_id = 14;
+    running.game_id = SteamId(14);
     model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
     activate(model, "installed-select-all");
     activate(model, "installed-select-all");
@@ -1248,7 +1269,7 @@ void live_storage_section_and_installed_games() {
     activate(model, "installed-selection-uninstall");
     activate(model, "confirm-destructive");
     auto requests = model.TakeInstallRequests();
-    check(requests.size() == 3 && requests[0].game_id == 11 && requests[1].game_id == 10 && requests[2].game_id == 12 &&
+    check(requests.size() == 3 && requests[0].game_id == SteamId(11) && requests[1].game_id == SteamId(10) && requests[2].game_id == SteamId(12) &&
               std::all_of(requests.begin(), requests.end(), [](const auto& request) {
                   return request.kind == InstallRequestKind::Uninstall && !request.delete_saves;
               }),
@@ -1275,7 +1296,7 @@ void live_storage_section_and_installed_games() {
 
     // One stops on Cloud: its row says why, without a notice.
     const auto notices = batch_notices;
-    model.NotifyUninstallStopped(12, "Cloud saves could not be synced.");
+    model.NotifyUninstallStopped(SteamId(12), "Cloud saves could not be synced.");
     check(model.state().notices.size() == notices && model.state().navigation.modals.back().id == "installed-games",
           "a stop in the batch posts no notice");
     const auto* stopped = find_row(model, "installed-step-12");
@@ -1287,9 +1308,9 @@ void live_storage_section_and_installed_games() {
     // The other two finish: their rows say so and the totals count only them.
     titled.uninstall_status.clear();
     model.UpdateRuntime(RuntimeState::Ready, {running, preparing});
-    model.UpdateInstalls({LiveInstallJob{15, JobState::Queued, 0, gb, {}, "internal"}},
-                         {{12, 5 * gb, "internal"}, {13, 1 * gb, "internal"}, {14, 2 * gb, "internal"},
-                          {15, 3 * gb, "internal"}, {16, 4 * gb, "internal"}});
+    model.UpdateInstalls({LiveInstallJob{SteamId(15), JobState::Queued, 0, gb, {}, "internal"}},
+                         {{SteamId(12), 5 * gb, "internal"}, {SteamId(13), 1 * gb, "internal"}, {SteamId(14), 2 * gb, "internal"},
+                          {SteamId(15), 3 * gb, "internal"}, {SteamId(16), 4 * gb, "internal"}});
     check(model.state().notices.size() == notices, "the batch posts no Game uninstalled notices");
     const auto* gone = find_row(model, "installed-step-11");
     check(gone && gone->subtitle == "Uninstalled" && gone->tone == "good" && gone->value == "20.0 GB", "an uninstalled game says so");
@@ -1316,12 +1337,12 @@ void live_storage_section_and_installed_games() {
     check(model.state().navigation.modals.back().title == "Uninstall 1 game?", "the retry asks for the one game");
     activate(model, "confirm-destructive");
     requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].game_id == 12, "the stopped game is uninstalled again");
+    check(requests.size() == 1 && requests[0].game_id == SteamId(12), "the stopped game is uninstalled again");
     check(model.view().footer == "Uninstalling 1 of 1…" && find_row(model, "installed-step-12")->subtitle == "Waiting",
           "the retry is a batch of its own");
-    model.UpdateInstalls({LiveInstallJob{15, JobState::Queued, 0, gb, {}, "internal"}},
-                         {{13, 1 * gb, "internal"}, {14, 2 * gb, "internal"}, {15, 3 * gb, "internal"},
-                          {16, 4 * gb, "internal"}});
+    model.UpdateInstalls({LiveInstallJob{SteamId(15), JobState::Queued, 0, gb, {}, "internal"}},
+                         {{SteamId(13), 1 * gb, "internal"}, {SteamId(14), 2 * gb, "internal"}, {SteamId(15), 3 * gb, "internal"},
+                          {SteamId(16), 4 * gb, "internal"}});
     check(model.view().footer == "1 uninstalled · about 5.0 GB freed", "the retry's totals");
     activate(model, "installed-show-all");
     check(!has_row(model, "installed-toggle-12"), "the uninstalled game leaves the list");
@@ -1359,7 +1380,7 @@ void live_storage_section_and_installed_games() {
     activate(model, "settings-installed");
     activate(model, "installed-toggle-13");
     activate(model, "installed-selection-uninstall");
-    running.game_id = 13;
+    running.game_id = SteamId(13);
     model.UpdateRuntime(RuntimeState::Ready, {running, preparing});
     activate(model, "confirm-destructive");
     check(model.TakeInstallRequests().empty() && model.view().subtitle == "None of the selected games can be uninstalled now.",
@@ -1371,7 +1392,7 @@ void live_storage_section_and_installed_games() {
     activate(model, "installed-close");
     check(model.state().navigation.modals.empty(), "the list closes");
     check(find_row(model, "settings-installed")->value == "4 games · 10.0 GB", "the Settings row follows");
-    model.NotifyUninstallStopped(13, "Cloud saves could not be synced.");
+    model.NotifyUninstallStopped(SteamId(13), "Cloud saves could not be synced.");
     check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Uninstall stopped",
           "after the list closes a stop is told as before");
     model.action("circle");
@@ -1380,14 +1401,14 @@ void live_storage_section_and_installed_games() {
     model.UpdateRuntime(RuntimeState::Ready, {});
     model.UpdateVolumes({{"internal", "Console storage", true, 800 * gb, 500 * gb}, {"usb0", "USB drive", true, {}, {}}},
                         "internal");
-    model.UpdateInstalls({}, {{12, 5 * gb, "internal"}, {13, 1 * gb, "usb0"}});
+    model.UpdateInstalls({}, {{SteamId(12), 5 * gb, "internal"}, {SteamId(13), 1 * gb, "usb0"}});
     activate(model, "settings-installed");
     check(installed_order(model) == std::vector<std::string>{"12", "13"}, "the list shows what is installed now");
     check(find_row(model, "installed-toggle-13")->subtitle == "USB drive · Played yesterday" &&
               find_row(model, "installed-toggle-12")->subtitle == "Console storage · Played 100 days ago",
           "with games on two drives each row names its drive");
     check(model.action("focus:installed-toggle-13"), "the last game is focused");
-    model.UpdateInstalls({}, {{12, 5 * gb, "internal"}});
+    model.UpdateInstalls({}, {{SteamId(12), 5 * gb, "internal"}});
     check(installed_order(model) == std::vector<std::string>{"12"}, "the list follows an uninstall that finished");
     check(model.state().navigation.focus_key == "installed-toggle-12", "focus moves to the nearest game, not the footer");
     model.UpdateInstalls({}, {});
@@ -1399,7 +1420,7 @@ void live_storage_section_and_installed_games() {
 void live_settings_focus_stays_near_a_removed_row() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
     model.SetRuntimeLeftovers(2);
     model.UpdateVolumes({{"internal", "Console storage", true, {}, {}}}, "internal");
     model.action("l1");
@@ -1443,16 +1464,16 @@ void live_details_focus_moves_to_play_once_enabled() {
     using playden::homebrew::RuntimeState;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateAppDetails(42, 300, 600, true);
-    model.UpdateInstalls({}, {{42, 600'000'000}});
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(SteamId(42), 300, 600, true);
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     check(model.action("details:42"), "details open");
     // The runtime is still checking: no Play yet, focus waits on the first enabled action.
     check(model.state().navigation.focus_key != "details-play", "no Play while the runtime checks");
-    LiveRuntimeGame checking; checking.game_id = 42; checking.status = "Checking";
+    LiveRuntimeGame checking; checking.game_id = SteamId(42); checking.status = "Checking";
     model.UpdateRuntime(RuntimeState::Checking, {checking});
     check(model.state().navigation.focus_key == "details-cloud", "a disabled Play leaves focus on Cloud saves for now");
-    LiveRuntimeGame ready; ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true; ready.has_title = true;
+    LiveRuntimeGame ready; ready.game_id = SteamId(42); ready.status = "Ready"; ready.ready = true; ready.can_play = true; ready.has_title = true;
     model.UpdateRuntime(RuntimeState::Ready, {ready});
     check(model.state().navigation.focus_key == "details-play", "focus moves to Play once it is enabled");
 
@@ -1496,10 +1517,10 @@ void live_ready_to_play_quits_to_home() {
     auto model = make_live();
     sync_automatically(model);
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateAppDetails(42, 300, 600, true);
-    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
-    LiveRuntimeGame waiting; waiting.game_id = 42; waiting.status = "Waiting for the PS5"; waiting.awaiting_registration = true;
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "Other")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateAppDetails(SteamId(42), 300, 600, true);
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100}});
+    LiveRuntimeGame waiting; waiting.game_id = SteamId(42); waiting.status = "Waiting for the PS5"; waiting.awaiting_registration = true;
     waiting.can_prepare = true; waiting.has_title = true;
     waiting.detail = "Waiting for the PS5, which adds the game to Home when Playden quits";
     model.UpdateRuntime(RuntimeState::Ready, {waiting});
@@ -1511,30 +1532,30 @@ void live_ready_to_play_quits_to_home() {
     check(find_row(model, "details-setup")->value == "Waiting for the PS5", "setup says the title waits for the PS5");
     check(model.state().navigation.focus_key == "details-play", "focus rests on Play");
     // Its saves sync first (#50): Play waits in a dialog, then quits once they are in step.
-    model.UpdateCloud({{42, CloudStatus::UpToDate, "Saves are up to date"}});
+    model.UpdateCloud({{SteamId(42), CloudStatus::UpToDate, "Saves are up to date"}});
     activate(model, "details-play");
     auto requests = model.TakeCloudRequests();
-    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::Sync && requests[0].game_id == 42, "Play syncs saves first");
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::Sync && requests[0].game_id == SteamId(42), "Play syncs saves first");
     check(!model.state().quit_requested && model.state().navigation.modals.back().title == "Syncing Cloud saves…",
           "Play waits for the sync in a dialog");
-    model.UpdateCloud({{42, CloudStatus::UpToDate, "Saves are up to date"}});
+    model.UpdateCloud({{SteamId(42), CloudStatus::UpToDate, "Saves are up to date"}});
     check(!model.state().quit_requested, "a result that is not the sync's answer does not count");
-    model.NotifyCloudAnswered(43, CloudStatus::Synced);
+    model.NotifyCloudAnswered(SteamId(43), CloudStatus::Synced);
     check(!model.state().quit_requested, "another game's answer does not count");
-    model.UpdateCloud({{42, CloudStatus::Synced, "1 save downloaded"}});
-    model.NotifyCloudAnswered(42, CloudStatus::Synced);
+    model.UpdateCloud({{SteamId(42), CloudStatus::Synced, "1 save downloaded"}});
+    model.NotifyCloudAnswered(SteamId(42), CloudStatus::Synced);
     check(model.state().quit_requested && model.state().navigation.modals.empty(), "Play quits to Home once saves are in step");
     // A choice or a failure lets the player play without syncing.
     auto choosing = make_live();
     sync_automatically(choosing);
     choosing.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(choosing.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    choosing.UpdateInstalls({}, {{42, 600'000'000}});
+    check(choosing.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    choosing.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     choosing.UpdateRuntime(RuntimeState::Ready, {waiting});
     check(choosing.action("details:42"), "details open");
     activate(choosing, "details-play");
-    choosing.UpdateCloud({{42, CloudStatus::Conflict, "Both changed."}});
-    choosing.NotifyCloudAnswered(42, CloudStatus::Conflict);
+    choosing.UpdateCloud({{SteamId(42), CloudStatus::Conflict, "Both changed."}});
+    choosing.NotifyCloudAnswered(SteamId(42), CloudStatus::Conflict);
     check(!choosing.state().quit_requested && choosing.state().navigation.modals.back().title == "Cloud saves need a choice" &&
               has_row(choosing, "saves-quit-anyway"),
           "a conflict asks before quitting");
@@ -1544,32 +1565,32 @@ void live_ready_to_play_quits_to_home() {
     auto refused = make_live();
     sync_automatically(refused);
     refused.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(refused.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    refused.UpdateInstalls({}, {{42, 600'000'000}});
+    check(refused.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    refused.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     refused.UpdateRuntime(RuntimeState::Ready, {waiting});
     check(refused.action("details:42"), "details open");
     activate(refused, "details-play");
-    refused.NotifyCloudRefused(42);
+    refused.NotifyCloudRefused(SteamId(42));
     check(!refused.state().quit_requested && refused.state().navigation.modals.back().title == "The game may still be running" &&
               has_row(refused, "saves-quit-anyway"),
           "a refused sync says why and offers Play without syncing");
     // With automatic sync off, Play quits without moving saves.
     auto manual = make_live();
     manual.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(manual.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    manual.UpdateInstalls({}, {{42, 600'000'000}});
+    check(manual.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    manual.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     manual.UpdateRuntime(RuntimeState::Ready, {waiting});
-    manual.UpdateCloud({{42, CloudStatus::UpToDate, "Saves are up to date"}});
+    manual.UpdateCloud({{SteamId(42), CloudStatus::UpToDate, "Saves are up to date"}});
     check(manual.action("details:42"), "details open");
     activate(manual, "details-play");
     check(manual.TakeCloudRequests().empty() && manual.state().quit_requested, "automatic sync off: Play quits at once");
     // A game without Steam Cloud quits at once.
     auto local = make_live();
     local.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(local.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    local.UpdateInstalls({}, {{42, 600'000'000}});
+    check(local.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    local.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     local.UpdateRuntime(RuntimeState::Ready, {waiting});
-    local.UpdateCloud({{42, CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
+    local.UpdateCloud({{SteamId(42), CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
     check(local.action("details:42"), "details open");
     activate(local, "details-play");
     check(local.state().quit_requested && local.state().navigation.modals.empty(), "Play quits to Home without a dialog");
@@ -1578,15 +1599,15 @@ void live_ready_to_play_quits_to_home() {
     auto prompted = make_live();
     sync_automatically(prompted);
     prompted.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(prompted.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
-    prompted.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
-    LiveRuntimeGame other = waiting; other.game_id = 43;
+    check(prompted.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "Other")}, false, {}, false, false, {}}), "library loaded");
+    prompted.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100}});
+    LiveRuntimeGame other = waiting; other.game_id = SteamId(43);
     prompted.UpdateRuntime(RuntimeState::Ready, {waiting, other});
     prompted.action("l1");
     activate(prompted, "settings-about");  // a sheet is open: the prompt waits
     const auto open_before = prompted.state().navigation.modals.size();
-    prompted.NotifyReadyToPlay(42);
-    prompted.NotifyReadyToPlay(42);
+    prompted.NotifyReadyToPlay(SteamId(42));
+    prompted.NotifyReadyToPlay(SteamId(42));
     check(prompted.state().navigation.modals.size() == open_before, "the prompt waits for the open sheet");
     check(prompted.action("circle"), "the sheet closes");
     check(prompted.state().navigation.modals.empty(), "the prompt waits for its game's page");
@@ -1599,23 +1620,23 @@ void live_ready_to_play_quits_to_home() {
     activate(prompted, "ready-later");
     check(prompted.state().navigation.modals.empty() && !prompted.state().quit_requested, "Later closes it, once per game");
     // A game that stopped waiting (the check found it registered) is not announced.
-    prompted.NotifyReadyToPlay(43);
+    prompted.NotifyReadyToPlay(SteamId(43));
     check(prompted.state().navigation.modals.empty(), "a background game does not interrupt another game's page");
     check(prompted.action("details:43"), "the other game's page opens");
     check(!prompted.state().navigation.modals.empty(), "another game is announced");
     activate(prompted, "quit-to-home");
     requests = prompted.TakeCloudRequests();
-    check(requests.size() == 1 && requests[0].game_id == 43, "Play in the prompt syncs the announced game");
-    prompted.NotifyCloudAnswered(43, CloudStatus::Synced);
+    check(requests.size() == 1 && requests[0].game_id == SteamId(43), "Play in the prompt syncs the announced game");
+    prompted.NotifyCloudAnswered(SteamId(43), CloudStatus::Synced);
     check(prompted.state().quit_requested, "Play in the prompt quits to Home");
     // Quitting would cut off another game's preparation: the quit waits for it in a dialog.
     auto busy = make_live();
     busy.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(busy.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
-    busy.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
-    LiveRuntimeGame preparing; preparing.game_id = 43; preparing.status = "Preparing";
+    check(busy.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "Other")}, false, {}, false, false, {}}), "library loaded");
+    busy.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100}});
+    LiveRuntimeGame preparing; preparing.game_id = SteamId(43); preparing.status = "Preparing";
     busy.UpdateRuntime(RuntimeState::Ready, {waiting, preparing});
-    busy.UpdateCloud({{42, CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
+    busy.UpdateCloud({{SteamId(42), CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
     check(busy.action("details:42"), "details open");
     activate(busy, "details-play");
     check(!busy.state().quit_requested && busy.state().quit_waiting &&
@@ -1630,12 +1651,12 @@ void live_ready_to_play_quits_to_home() {
     // Games queued while none is being prepared (between two): the quit waits until the queue is held.
     auto queued = make_live();
     queued.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(queued.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
-    queued.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
-    LiveRuntimeGame next; next.game_id = 43; next.status = "Not prepared"; next.queued = true;
+    check(queued.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "Other")}, false, {}, false, false, {}}), "library loaded");
+    queued.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100}});
+    LiveRuntimeGame next; next.game_id = SteamId(43); next.status = "Not prepared"; next.queued = true;
     queued.UpdateRuntime(RuntimeState::Ready, {waiting, next});
-    queued.UpdatePreparationQueue({std::nullopt, {43}, {}, {}});
-    queued.UpdateCloud({{42, CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
+    queued.UpdatePreparationQueue({std::nullopt, {SteamId(43)}, {}, {}});
+    queued.UpdateCloud({{SteamId(42), CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
     check(queued.action("details:42"), "details open");
     activate(queued, "details-play");
     check(!queued.state().quit_requested && queued.state().quit_waiting &&
@@ -1645,10 +1666,10 @@ void live_ready_to_play_quits_to_home() {
     check(queued.state().quit_requested, "with the queue held and nothing preparing, Playden quits");
     auto cancelled = make_live();
     cancelled.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(cancelled.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
-    cancelled.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    check(cancelled.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "Other")}, false, {}, false, false, {}}), "library loaded");
+    cancelled.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100}});
     cancelled.UpdateRuntime(RuntimeState::Ready, {waiting, preparing});
-    cancelled.UpdateCloud({{42, CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
+    cancelled.UpdateCloud({{SteamId(42), CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
     check(cancelled.action("details:42"), "details open");
     activate(cancelled, "details-play");
     activate(cancelled, "cancel");
@@ -1657,9 +1678,9 @@ void live_ready_to_play_quits_to_home() {
     // A game held behind another game's preparation says what it waits for.
     auto held = make_live();
     held.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(held.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
-    held.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
-    LiveRuntimeGame recovering; recovering.game_id = 42; recovering.status = "Needs recovery"; recovering.has_title = true;
+    check(held.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "Other")}, false, {}, false, false, {}}), "library loaded");
+    held.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100}});
+    LiveRuntimeGame recovering; recovering.game_id = SteamId(42); recovering.status = "Needs recovery"; recovering.has_title = true;
     held.UpdateRuntime(RuntimeState::Ready, {recovering, preparing});
     check(held.action("details:42"), "details open");
     const auto* held_play = find_row(held, "details-play");
@@ -1668,11 +1689,11 @@ void live_ready_to_play_quits_to_home() {
           "a held setup action waits without adding a second status line");
     auto dropped = make_live();
     dropped.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(dropped.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    dropped.UpdateInstalls({}, {{42, 600'000'000}});
-    LiveRuntimeGame ready; ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true;
+    check(dropped.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    dropped.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
+    LiveRuntimeGame ready; ready.game_id = SteamId(42); ready.status = "Ready"; ready.ready = true; ready.can_play = true;
     dropped.UpdateRuntime(RuntimeState::Ready, {ready});
-    dropped.NotifyReadyToPlay(42);
+    dropped.NotifyReadyToPlay(SteamId(42));
     check(dropped.state().navigation.modals.empty(), "a Ready game needs no prompt");
 }
 
@@ -1682,16 +1703,16 @@ void live_ready_prompt_matches_the_open_game() {
     auto model = make_live();
     sync_automatically(model);
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(1684930, "CULTIC"), game(548430, "Deep Rock Galactic")}, false, {}, false, false, {}}),
+    check(model.UpdateLibrary({{game(SteamId(1684930), "CULTIC"), game(SteamId(548430), "Deep Rock Galactic")}, false, {}, false, false, {}}),
           "library loaded");
-    model.UpdateInstalls({}, {{1684930, 100}, {548430, 100}});
-    LiveRuntimeGame cultic; cultic.game_id = 1684930; cultic.awaiting_registration = true; cultic.has_title = true;
-    auto deep_rock = cultic; deep_rock.game_id = 548430;
+    model.UpdateInstalls({}, {{SteamId(1684930), 100}, {SteamId(548430), 100}});
+    LiveRuntimeGame cultic; cultic.game_id = SteamId(1684930); cultic.awaiting_registration = true; cultic.has_title = true;
+    auto deep_rock = cultic; deep_rock.game_id = SteamId(548430);
     model.UpdateRuntime(RuntimeState::Ready, {cultic, deep_rock});
     check(model.action("details:1684930"), "CULTIC page opens");
-    model.NotifyReadyToPlay(548430);
+    model.NotifyReadyToPlay(SteamId(548430));
     check(model.state().navigation.modals.empty(), "Deep Rock Galactic readiness stays queued on CULTIC's page");
-    model.NotifyReadyToPlay(1684930);
+    model.NotifyReadyToPlay(SteamId(1684930));
     check(model.state().navigation.modals.size() == 1 &&
               model.state().navigation.modals.back().title == "CULTIC is ready to play",
           "the current game's readiness is not blocked by an earlier background game");
@@ -1703,7 +1724,7 @@ void live_ready_prompt_matches_the_open_game() {
           "the deferred prompt names the game on its own page");
     activate(model, "quit-to-home");
     const auto requests = model.TakeCloudRequests();
-    check(requests.size() == 1 && requests[0].game_id == 548430, "Play syncs the game named in the prompt");
+    check(requests.size() == 1 && requests[0].game_id == SteamId(548430), "Play syncs the game named in the prompt");
 }
 
 // A setup waiting behind another game's says so: the button goes quiet and the page names the game ahead.
@@ -1712,11 +1733,11 @@ void live_queued_setup_names_the_game_ahead() {
     using playden::homebrew::LiveRuntimeGame;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic"), game(43, "Ahead")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 700'000'000}});
-    LiveRuntimeGame queued; queued.game_id = 42; queued.status = "Needs recovery"; queued.has_title = true;
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic"), game(SteamId(43), "Ahead")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 700'000'000}});
+    LiveRuntimeGame queued; queued.game_id = SteamId(42); queued.status = "Needs recovery"; queued.has_title = true;
     queued.queued = true;
-    LiveRuntimeGame ahead; ahead.game_id = 43; ahead.status = "Preparing"; ahead.detail = "Step 3 of 6 · Copying";
+    LiveRuntimeGame ahead; ahead.game_id = SteamId(43); ahead.status = "Preparing"; ahead.detail = "Step 3 of 6 · Copying";
     model.UpdateRuntime(RuntimeState::Ready, {queued, ahead});
     check(model.action("details:42"), "details open");
     const auto* play = find_row(model, "details-play");
@@ -1733,8 +1754,8 @@ void live_play_does_the_next_useful_thing() {
     using playden::homebrew::LiveRuntimeGame;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateInstalls({}, {{42, 600'000'000}});
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
     struct Case {
         const char* status; const char* label; const char* value; const char* hint;
         const char* setup; const char* tone; const char* action;
@@ -1752,7 +1773,7 @@ void live_play_does_the_next_useful_thing() {
         {"No kit", "Open Settings", "", "Playden needs its compatibility kit to set up games.", "No kit", "problem", ""},
     };
     for (const auto& expected : cases) {
-        LiveRuntimeGame state; state.game_id = 42; state.status = expected.status;
+        LiveRuntimeGame state; state.game_id = SteamId(42); state.status = expected.status;
         state.detail = "raw technical detail for bug reports";
         state.ready = state.status == "Ready"; state.can_play = state.ready;
         state.can_prepare = !state.ready && state.status != "No kit";
@@ -1786,7 +1807,7 @@ void live_play_does_the_next_useful_thing() {
                 const bool starts = play->action == "runtime-play";
                 activate(model, "details-play");
                 check((starts ? model.TakeRuntimePlayRequests() : model.TakeRuntimePrepareRequests()) ==
-                          std::vector<playden::GameId>{42}, "action requests the selected game");
+                          std::vector<playden::GameId>{SteamId(42)}, "action requests the selected game");
             }
         }
     }
@@ -1798,17 +1819,17 @@ void live_play_does_the_next_useful_thing() {
                  {"kit source is missing, linked, or has wrong mode", "The compatibility kit is damaged. Reinstall it."},
                  {"unknown failure /private/technical/path", status == "Failed" ? "Setup failed." : "Setup stopped early."},
                  {"", status == "Failed" ? "Setup failed." : "Setup stopped early."}}) {
-            LiveRuntimeGame state; state.game_id = 42; state.status = status; state.detail = detail; state.can_prepare = true;
+            LiveRuntimeGame state; state.game_id = SteamId(42); state.status = status; state.detail = detail; state.can_prepare = true;
             model.UpdateRuntime(RuntimeState::Ready, {state});
             check(model.action("details:42"), "failed details open");
             const auto* hint = find_row(model, "details-hint");
             check(hint && hint->title == expected, (status + ": " + detail + " -> " + (hint ? hint->title : "missing hint")).c_str());
-            check(model.state().runtime_games.at(42).detail == detail, "raw failure remains available for diagnostics");
+            check(model.state().runtime_games.at(SteamId(42)).detail == detail, "raw failure remains available for diagnostics");
         }
     }
     for (const std::string status : {"Needs recovery", "Failed"}) {
         for (const std::string code : {"space-unavailable", "kit-source", "kit-invalid-mode", "unknown-code"}) {
-            LiveRuntimeGame state; state.game_id = 42; state.status = status; state.can_prepare = true;
+            LiveRuntimeGame state; state.game_id = SteamId(42); state.status = status; state.can_prepare = true;
             state.detail = "technical failure context"; state.failure_code = code;
             model.UpdateRuntime(RuntimeState::Ready, {state});
             const std::string expected = code == "space-unavailable"
@@ -1819,7 +1840,7 @@ void live_play_does_the_next_useful_thing() {
                   "recorded failure code determines the plain hint");
         }
     }
-    LiveRuntimeGame preparing; preparing.game_id = 42; preparing.status = "Preparing";
+    LiveRuntimeGame preparing; preparing.game_id = SteamId(42); preparing.status = "Preparing";
     preparing.detail = "Step 3 of 6 · Copying the Windows environment";
     model.UpdateRuntime(RuntimeState::Ready, {preparing});
     check(find_row(model, "details-play") && !find_row(model, "details-play")->enabled, "preparing cannot start again");
@@ -1827,7 +1848,7 @@ void live_play_does_the_next_useful_thing() {
           "setup fact uses the existing preparation progress words");
     for (const auto& [runtime_state, status] : std::vector<std::pair<RuntimeState, std::string>>{
              {RuntimeState::Checking, "Checking"}, {RuntimeState::Unavailable, "Unavailable"}}) {
-        LiveRuntimeGame transient; transient.game_id = 42; transient.status = status;
+        LiveRuntimeGame transient; transient.game_id = SteamId(42); transient.status = status;
         model.UpdateRuntime(runtime_state, {transient});
         check(find_row(model, "details-setup") && find_row(model, "details-setup")->value == status,
               "transient runtime availability has a setup fact");
@@ -1843,9 +1864,9 @@ void live_launch_failure_remains_visible_without_a_details_status_line() {
     using playden::homebrew::RuntimeState;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateInstalls({}, {{42, 600'000'000}});
-    LiveRuntimeGame ready; ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true;
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
+    LiveRuntimeGame ready; ready.game_id = SteamId(42); ready.status = "Ready"; ready.ready = true; ready.can_play = true;
     model.UpdateRuntime(RuntimeState::Ready, {ready});
     check(model.action("details:42"), "details open");
     ready.play_detail = "Could not start: technical /private/launch/path";
@@ -1859,7 +1880,7 @@ void live_launch_failure_remains_visible_without_a_details_status_line() {
     check(model.state().navigation.modals.empty(), "an unchanged launch refusal is not repeated on refresh");
     check(!has_row(model, "details-hint"), "a ready game's launch refusal does not invent a setup hint");
     activate(model, "details-play");
-    check(model.TakeRuntimePlayRequests() == std::vector<playden::GameId>{42}, "retry requests another play");
+    check(model.TakeRuntimePlayRequests() == std::vector<playden::GameId>{SteamId(42)}, "retry requests another play");
     model.UpdateRuntime(RuntimeState::Ready, {ready});
     check(model.state().navigation.modals.size() == 1, "a fresh attempt can report the same refusal again");
     activate(model, "alert-ok");
@@ -1873,12 +1894,12 @@ void live_launch_failure_remains_visible_without_a_details_status_line() {
 void live_store_details_fill_the_description() {
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateStoreDetails(42, "A synthetic game.", {"Action", "Indie"}, "full");
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateStoreDetails(SteamId(42), "A synthetic game.", {"Action", "Indie"}, "full");
     const auto& games = model.state().games;
     check(games[0].description == "A synthetic game." && games[0].genres.size() == 2 && games[0].controller_support == "full",
           "the store fills the description, genres and controller support");
-    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library refreshed");
+    check(model.UpdateLibrary({{game(SteamId(42), "Synthetic")}, false, {}, false, false, {}}), "library refreshed");
     check(model.state().games[0].description == "A synthetic game.", "a library refresh keeps the store description");
 }
 
@@ -1896,21 +1917,21 @@ void live_saves_upload_all() {
     using playden::homebrew::SavesJobKind;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Alpha"), game(43, "Beta"), game(44, "Gamma")}, false, {}, false, false, {}}),
+    check(model.UpdateLibrary({{game(SteamId(42), "Alpha"), game(SteamId(43), "Beta"), game(SteamId(44), "Gamma")}, false, {}, false, false, {}}),
           "upload all: library loaded");
-    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 100'000'000}, {44, 100'000'000}});
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100'000'000}, {SteamId(44), 100'000'000}});
     model.action("l1");
     model.action("l1");
     model.TakeCloudRequests();
 
-    LiveCloudGame conflict{42, CloudStatus::Conflict, "Both changed."};
-    LiveCloudGame synced{43, CloudStatus::Synced, "1 save uploaded"};
+    LiveCloudGame conflict{SteamId(42), CloudStatus::Conflict, "Both changed."};
+    LiveCloudGame synced{SteamId(43), CloudStatus::Synced, "1 save uploaded"};
     model.UpdateCloud({conflict, synced});
     check(!saves_row(model, "saves-upload-all") && !has_legend(model, "Square Upload all"),
           "upload all: hidden while no game waits for the account");
 
-    LiveCloudGame first{43, CloudStatus::NeedsAccount, "Confirm this Steam account."};
-    LiveCloudGame second{44, CloudStatus::NeedsAccount, "Confirm this Steam account."};
+    LiveCloudGame first{SteamId(43), CloudStatus::NeedsAccount, "Confirm this Steam account."};
+    LiveCloudGame second{SteamId(44), CloudStatus::NeedsAccount, "Confirm this Steam account."};
     model.UpdateCloud({first, second});
     check(saves_row(model, "saves-upload-all") && saves_row(model, "saves-upload-all")->value == "2" &&
               has_legend(model, "Square Upload all"),
@@ -1930,13 +1951,13 @@ void live_saves_upload_all() {
     check(model.TakeCloudRequests().empty(), "upload all: nothing is sent before the confirmation");
     activate(model, "cloud-confirm-account-all");
     auto requests = model.TakeCloudRequests();
-    check(requests.size() == 2 && requests[0].kind == CloudRequestKind::ConfirmAccount && requests[0].game_id == 43 &&
-              requests[1].kind == CloudRequestKind::ConfirmAccount && requests[1].game_id == 44,
+    check(requests.size() == 2 && requests[0].kind == CloudRequestKind::ConfirmAccount && requests[0].game_id == SteamId(43) &&
+              requests[1].kind == CloudRequestKind::ConfirmAccount && requests[1].game_id == SteamId(44),
           "upload all: confirms each waiting game");
     check(model.state().navigation.modals.empty(), "upload all: the dialog closes");
 
     // Not while Sync all runs.
-    model.UpdateSavesJob({SavesJobKind::SyncAll, 0, 3, 42, false});
+    model.UpdateSavesJob({SavesJobKind::SyncAll, 0, 3, SteamId(42), false});
     check(!saves_row(model, "saves-upload-all"), "upload all: hidden while Sync all runs");
     model.action("square");
     check(model.state().navigation.modals.empty(), "upload all: Square does nothing while Sync all runs");
@@ -1949,10 +1970,10 @@ void live_saves_tab() {
     auto model = make_live();
     model.SetWallClock(1'800'000'000);
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Alpha"), game(43, "Beta"), game(44, "Gamma")}, false, {}, false, false, {}}),
+    check(model.UpdateLibrary({{game(SteamId(42), "Alpha"), game(SteamId(43), "Beta"), game(SteamId(44), "Gamma")}, false, {}, false, false, {}}),
           "library loaded");
-    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 100'000'000}});
-    model.UpdateKeptBottles({{44, "Gamma", 1'700'000'000, 1'900'000'000}});
+    model.UpdateInstalls({}, {{SteamId(42), 600'000'000}, {SteamId(43), 100'000'000}});
+    model.UpdateKeptBottles({{SteamId(44), "Gamma", 1'700'000'000, 1'900'000'000}});
 
     // The tab sits between Downloads and Settings; opening it asks for a quick check.
     model.action("l1");
@@ -1961,11 +1982,11 @@ void live_saves_tab() {
     auto requests = model.TakeCloudRequests();
     check(requests.size() == 1 && requests[0].kind == CloudRequestKind::QuickCheck, "opening Saves checks what may have changed");
 
-    LiveCloudGame first{42, CloudStatus::Conflict, "Both changed.", 2, 3, 900'000, 1'200'000, 1'799'000'000, 1'799'900'000};
+    LiveCloudGame first{SteamId(42), CloudStatus::Conflict, "Both changed.", 2, 3, 900'000, 1'200'000, 1'799'000'000, 1'799'900'000};
     first.first_sync = true;
-    LiveCloudGame synced{43, CloudStatus::Synced, "1 save uploaded", 4, 4, 312'000, 312'000};
+    LiveCloudGame synced{SteamId(43), CloudStatus::Synced, "1 save uploaded", 4, 4, 312'000, 312'000};
     synced.last_sync = 1'800'000'000 - 7200;
-    LiveCloudGame kept{44, CloudStatus::UpToDate, "Saves are up to date", 6, 6, 420'000, 420'000};
+    LiveCloudGame kept{SteamId(44), CloudStatus::UpToDate, "Saves are up to date", 6, 6, 420'000, 420'000};
     kept.background = true;
     model.UpdateCloud({first, synced, kept});
     check(saves_row(model, "save-42") && saves_row(model, "save-42")->value == "Choose saves" &&
@@ -1999,7 +2020,7 @@ void live_saves_tab() {
     check(model.action("triangle"), "Triangle works on Saves");
     requests = model.TakeCloudRequests();
     check(requests.size() == 1 && requests[0].kind == CloudRequestKind::SyncAll, "Triangle starts Sync all");
-    model.UpdateSavesJob({SavesJobKind::SyncAll, 1, 3, 43, false});
+    model.UpdateSavesJob({SavesJobKind::SyncAll, 1, 3, SteamId(43), false});
     check(saves_row(model, "saves-sync-all")->title == "Stop" && model.view().subtitle.find("Syncing 2 of 3") == 0,
           "a running Sync all shows its progress and Stop");
     activate(model, "saves-sync-all");
@@ -2012,7 +2033,7 @@ void live_saves_tab() {
     check(announced, "a finished Sync all is announced");
 
     // A background failure never opens a dialog; one the player asked for does.
-    LiveCloudGame failed{43, CloudStatus::Failed, "Steam is not reachable. Try again."};
+    LiveCloudGame failed{SteamId(43), CloudStatus::Failed, "Steam is not reachable. Try again."};
     failed.background = true;
     model.UpdateCloud({failed});
     check(model.state().navigation.modals.empty() && saves_row(model, "save-43")->value == "Couldn't sync",
@@ -2024,7 +2045,7 @@ void live_saves_tab() {
           "a first sync offers both sides");
     activate(model, "saves-use-cloud");
     requests = model.TakeCloudRequests();
-    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::UseCloud && requests[0].game_id == 42, "the choice is sent");
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::UseCloud && requests[0].game_id == SteamId(42), "the choice is sent");
     model.action("circle");
     check(model.state().navigation.route == Route::Saves && model.state().navigation.focus_key == "save-42", "Circle returns to the row");
 
@@ -2037,7 +2058,7 @@ void live_saves_tab() {
           "deleting saves asks and says Cloud keeps a copy");
     activate(model, "saves-delete-confirm");
     requests = model.TakeCloudRequests();
-    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::RemoveLocal && requests[0].game_id == 43, "delete is sent");
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::RemoveLocal && requests[0].game_id == SteamId(43), "delete is sent");
     model.action("circle");
 
     // An uninstalled game's leftovers: removing them frees the kept data.
@@ -2047,7 +2068,7 @@ void live_saves_tab() {
     check(model.state().navigation.modals.back().body.find("1.9 GB") != std::string::npos, "the size is shown first");
     activate(model, "saves-leftover-confirm");
     requests = model.TakeCloudRequests();
-    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::RemoveLeftover && requests[0].game_id == 44 &&
+    check(requests.size() == 1 && requests[0].kind == CloudRequestKind::RemoveLeftover && requests[0].game_id == SteamId(44) &&
               model.state().navigation.route == Route::Saves,
           "removal is sent and the list comes back");
 
@@ -2062,7 +2083,7 @@ void live_saves_tab() {
     check(model.action("details:43"), "details open");
     activate(model, "details-more");
     activate(model, "manage-saves");
-    check(model.state().navigation.route == Route::SaveDetails && model.state().navigation.save_id == 43 &&
+    check(model.state().navigation.route == Route::SaveDetails && model.state().navigation.save_id == SteamId(43) &&
               model.state().navigation.modals.empty(),
           "More > Manage saves opens the game's saves");
 }
@@ -2072,16 +2093,16 @@ void live_completed_downloads_follow_the_queue() {
     auto model = make_live();
     model.SetWallClock(100'000);
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Finished"), game(43, "Downloading"), game(45, "Earlier"), game(46, "Removed")},
+    check(model.UpdateLibrary({{game(SteamId(42), "Finished"), game(SteamId(43), "Downloading"), game(SteamId(45), "Earlier"), game(SteamId(46), "Removed")},
                                false, {}, false, false, {}}), "library loaded");
     // 46 is listed by the service but no longer installed; 43 is downloading again.
-    model.UpdateInstalls({{43, JobState::Downloading, 10, 100, {}, "internal"}},
-                         {{42, 100, "internal", true}, {43, 50, "internal", true}, {45, 300, "m2", true}},
-                         {{42, 100, "internal", 99'880}, {45, 300, "m2", 92'800}, {43, 50, "internal", 99'000}, {46, 9, "internal", 99'990}});
+    model.UpdateInstalls({{SteamId(43), JobState::Downloading, 10, 100, {}, "internal"}},
+                         {{SteamId(42), 100, "internal", true}, {SteamId(43), 50, "internal", true}, {SteamId(45), 300, "m2", true}},
+                         {{SteamId(42), 100, "internal", 99'880}, {SteamId(45), 300, "m2", 92'800}, {SteamId(43), 50, "internal", 99'000}, {SteamId(46), 9, "internal", 99'990}});
     const auto& jobs = model.state().jobs;
-    check(jobs.size() == 3 && jobs[0].game_id == 43 && jobs[0].state == JobState::Downloading, "the queue comes first");
-    check(jobs[1].game_id == 42 && jobs[1].state == JobState::Downloaded && jobs[1].finished_at == 99'880 &&
-              jobs[1].completed_bytes == 100 && jobs[1].total_bytes == 100 && jobs[2].game_id == 45 && jobs[2].volume_id == "m2",
+    check(jobs.size() == 3 && jobs[0].game_id == SteamId(43) && jobs[0].state == JobState::Downloading, "the queue comes first");
+    check(jobs[1].game_id == SteamId(42) && jobs[1].state == JobState::Downloaded && jobs[1].finished_at == 99'880 &&
+              jobs[1].completed_bytes == 100 && jobs[1].total_bytes == 100 && jobs[2].game_id == SteamId(45) && jobs[2].volume_id == "m2",
           "finished downloads follow it, newest first, without games downloading again or uninstalled");
     check(model.state().volumes.empty() || std::all_of(model.state().volumes.begin(), model.state().volumes.end(),
                                                        [](const Volume& volume) { return volume.reserved_bytes == 0 || volume.id == "internal"; }),
@@ -2096,15 +2117,15 @@ void live_completed_downloads_follow_the_queue() {
               !has_row(model, "job-cancel-42"), "a finished download offers Open, Dismiss and Clear completed");
     activate(model, "job-dismiss-42");
     auto requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::DismissCompleted && requests[0].game_id == 42,
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::DismissCompleted && requests[0].game_id == SteamId(42),
           "Dismiss tells the download service");
     check(!has_row(model, "job-42") && has_row(model, "job-45"), "the dismissed entry goes at once");
 
     activate(model, "job-45");
     check(!has_row(model, "job-clear-completed"), "one finished download needs no Clear completed");
     model.action("circle");
-    model.UpdateInstalls({}, {{42, 100, "internal", true}, {43, 50, "internal", true}, {45, 300, "m2", true}},
-                         {{43, 50, "internal", 99'950}, {45, 300, "m2", 92'800}});
+    model.UpdateInstalls({}, {{SteamId(42), 100, "internal", true}, {SteamId(43), 50, "internal", true}, {SteamId(45), 300, "m2", true}},
+                         {{SteamId(43), 50, "internal", 99'950}, {SteamId(45), 300, "m2", 92'800}});
     activate(model, "job-43");
     activate(model, "job-clear-completed");
     requests = model.TakeInstallRequests();
@@ -2118,7 +2139,7 @@ void game_collections_sheet_adds_and_removes_the_game() {
     using namespace playden::homebrew;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(42, "Metro"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    check(model.UpdateLibrary({{game(SteamId(42), "Metro"), game(SteamId(43), "Other")}, false, {}, false, false, {}}), "library loaded");
     check(model.action("details:42") && model.action("focus:details-more") && model.action("cross"), "game actions open");
     activate(model, "collection");
     check(model.state().navigation.modals.back().id == "collections" && has_row(model, "collection-new") &&
@@ -2129,7 +2150,7 @@ void game_collections_sheet_adds_and_removes_the_game() {
     model.text("To test");
     check(model.action("done"), "the name is entered");
     const auto& collections = model.state().library.collections;
-    check(collections.size() == 1 && collections[0].name == "To test" && collections[0].members.contains(42),
+    check(collections.size() == 1 && collections[0].name == "To test" && collections[0].members.contains(SteamId(42)),
           "a collection made from a game's sheet holds that game");
     const auto toggle = "collection-toggle-" + collections[0].id;
     const auto* row = find_row(model, toggle);
@@ -2138,7 +2159,7 @@ void game_collections_sheet_adds_and_removes_the_game() {
           "the new collection shows in the open sheet, checked and focused");
 
     check(model.action("cross"), "the checkbox toggles");
-    check(!model.state().library.collections[0].members.contains(42) && !find_row(model, toggle)->selected &&
+    check(!model.state().library.collections[0].members.contains(SteamId(42)) && !find_row(model, toggle)->selected &&
               model.state().navigation.modals.back().id == "collections",
           "unchecking removes the game and keeps the sheet open");
 
@@ -2159,35 +2180,35 @@ void live_download_card_keeps_queue_order() {
     using namespace playden::homebrew;
     auto model = make_live();
     // The download retried a moment ago waits in the queue; a failed one behind it must not take the card.
-    model.UpdateInstalls({{42, JobState::Queued, 0, 100, {}}, {43, JobState::Failed, 0, 100, "Could not reach Steam."}}, {});
+    model.UpdateInstalls({{SteamId(42), JobState::Queued, 0, 100, {}}, {SteamId(43), JobState::Failed, 0, 100, "Could not reach Steam."}}, {});
     model.action("r1");
     model.action("r1");
     check(model.state().navigation.route == Route::Downloads, "Downloads open");
     check(model.view().rows.size() > 2 && model.view().rows[0].key == "queue-downloads" &&
               model.view().rows[1].key == "job-42" && model.view().rows[2].key == "job-43",
           "the first download in the queue keeps the top spot ahead of a failed one");
-    model.UpdateInstalls({{42, JobState::Queued, 0, 100, {}}, {43, JobState::Downloading, 5, 100, {}}}, {});
+    model.UpdateInstalls({{SteamId(42), JobState::Queued, 0, 100, {}}, {SteamId(43), JobState::Downloading, 5, 100, {}}}, {});
     check(model.view().rows[1].key == "job-43", "a running download takes the top spot");
 }
 
 void live_download_reorder_reaches_service() {
     using namespace playden::homebrew;
     auto model = make_live();
-    model.UpdateInstalls({{43, JobState::Downloading, 10, 100, {}},
-                         {44, JobState::Queued, 0, 100, {}},
-                         {45, JobState::Queued, 0, 100, {}}}, {});
+    model.UpdateInstalls({{SteamId(43), JobState::Downloading, 10, 100, {}},
+                         {SteamId(44), JobState::Queued, 0, 100, {}},
+                         {SteamId(45), JobState::Queued, 0, 100, {}}}, {});
     model.action("r1");
     model.action("r1");
     check(model.state().navigation.route == Route::Downloads, "Downloads open for reordering");
     activate(model, "job-44");
     activate(model, "job-down-44");
     auto requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].game_id == 44 && requests[0].kind == InstallRequestKind::MoveDown,
+    check(requests.size() == 1 && requests[0].game_id == SteamId(44) && requests[0].kind == InstallRequestKind::MoveDown,
           "Move down sends the order change to the download service");
     activate(model, "job-45");
     activate(model, "job-up-45");
     requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].game_id == 45 && requests[0].kind == InstallRequestKind::MoveUp,
+    check(requests.size() == 1 && requests[0].game_id == SteamId(45) && requests[0].kind == InstallRequestKind::MoveUp,
           "Move up sends the order change to the download service");
 }
 
@@ -2195,7 +2216,7 @@ void live_sign_in_on_full_storage_offers_uninstall() {
     auto model = make_live();
     constexpr std::uint64_t gb = 1'000'000'000;
     model.UpdateVolumes({{"internal", "Console storage", true, 800 * gb, 0}}, "internal");
-    model.UpdateInstalls({}, {{12, 5 * gb, "internal"}, {13, 1 * gb, "internal"}});
+    model.UpdateInstalls({}, {{SteamId(12), 5 * gb, "internal"}, {SteamId(13), 1 * gb, "internal"}});
     playden::homebrew::AccountUpdate full;
     full.authentication = AuthState::Failed;
     full.error = "Playden can't save your sign-in.";
@@ -2243,24 +2264,24 @@ void live_queue_shows_downloads_and_preparations() {
     using namespace playden::homebrew;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(10, "Ninja"), game(11, "Shovel"), game(12, "Celeste"), game(13, "Stardew"),
-                                game(14, "Thomas"), game(20, "Hollow"), game(21, "Dead Cells"), game(22, "Hades"),
-                                game(23, "Monaco")}, false, {}, false, false, {}}), "library loaded");
-    model.UpdateInstalls({{20, JobState::Downloading, 64, 100, {}}, {21, JobState::Queued, 0, 100, {}},
-                          {22, JobState::Queued, 0, 100, {}}},
-                         {{10, 1, "internal", true}, {11, 1, "internal", true}, {12, 1, "internal", true},
-                          {13, 1, "internal", true}, {14, 1, "internal", true}, {23, 1, "internal", true}},
-                         {{23, 1, "internal", 1'000}});
-    LiveRuntimeGame preparing; preparing.game_id = 10; preparing.status = "Preparing"; preparing.detail = "Creating game files…";
+    check(model.UpdateLibrary({{game(SteamId(10), "Ninja"), game(SteamId(11), "Shovel"), game(SteamId(12), "Celeste"), game(SteamId(13), "Stardew"),
+                                game(SteamId(14), "Thomas"), game(SteamId(20), "Hollow"), game(SteamId(21), "Dead Cells"), game(SteamId(22), "Hades"),
+                                game(SteamId(23), "Monaco")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({{SteamId(20), JobState::Downloading, 64, 100, {}}, {SteamId(21), JobState::Queued, 0, 100, {}},
+                          {SteamId(22), JobState::Queued, 0, 100, {}}},
+                         {{SteamId(10), 1, "internal", true}, {SteamId(11), 1, "internal", true}, {SteamId(12), 1, "internal", true},
+                          {SteamId(13), 1, "internal", true}, {SteamId(14), 1, "internal", true}, {SteamId(23), 1, "internal", true}},
+                         {{SteamId(23), 1, "internal", 1'000}});
+    LiveRuntimeGame preparing; preparing.game_id = SteamId(10); preparing.status = "Preparing"; preparing.detail = "Creating game files…";
     std::vector<LiveRuntimeGame> runtime{preparing};
-    for (const GameId id : {11u, 12u, 13u}) {
-        LiveRuntimeGame waiting; waiting.game_id = id; waiting.status = "Not prepared"; waiting.queued = true;
+    for (const std::uint32_t id : {11u, 12u, 13u}) {
+        LiveRuntimeGame waiting; waiting.game_id = SteamId(id); waiting.status = "Not prepared"; waiting.queued = true;
         runtime.push_back(waiting);
     }
-    LiveRuntimeGame ready; ready.game_id = 14; ready.status = "Ready"; ready.ready = true; ready.prepared = true;
+    LiveRuntimeGame ready; ready.game_id = SteamId(14); ready.status = "Ready"; ready.ready = true; ready.prepared = true;
     runtime.push_back(ready);
     model.UpdateRuntime(RuntimeState::Ready, runtime);
-    model.UpdatePreparationQueue({10, {11, 12, 13}, {{14, 2'000}}, {}});
+    model.UpdatePreparationQueue({SteamId(10), {SteamId(11), SteamId(12), SteamId(13)}, {{SteamId(14), 2'000}}, {}});
     model.action("r1");
     model.action("r1");
     check(model.state().navigation.route == Route::Downloads && model.view().title == "Queue", "the Queue tab opens");
@@ -2280,11 +2301,11 @@ void live_queue_shows_downloads_and_preparations() {
                                                          "queue-preparation", "prep-active-10"}),
           "Downloads expands and Preparation collapses to its card");
     check(queue_row(model, "queue-preparation")->value == "3 more games queued · 1 completed", "collapsed Preparation counts");
-    model.UpdateInstalls({{20, JobState::Downloading, 70, 100, {}}, {21, JobState::Queued, 0, 100, {}},
-                          {22, JobState::Queued, 0, 100, {}}},
-                         {{10, 1, "internal", true}, {11, 1, "internal", true}, {12, 1, "internal", true},
-                          {13, 1, "internal", true}, {14, 1, "internal", true}, {23, 1, "internal", true}},
-                         {{23, 1, "internal", 1'000}});
+    model.UpdateInstalls({{SteamId(20), JobState::Downloading, 70, 100, {}}, {SteamId(21), JobState::Queued, 0, 100, {}},
+                          {SteamId(22), JobState::Queued, 0, 100, {}}},
+                         {{SteamId(10), 1, "internal", true}, {SteamId(11), 1, "internal", true}, {SteamId(12), 1, "internal", true},
+                          {SteamId(13), 1, "internal", true}, {SteamId(14), 1, "internal", true}, {SteamId(23), 1, "internal", true}},
+                         {{SteamId(23), 1, "internal", 1'000}});
     check(has_row(model, "job-21") && !has_row(model, "prep-11"), "progress keeps the player's choice");
     check(model.action("focus:job-23") && model.action("down") && model.state().navigation.focus_key == "queue-preparation",
           "Down from the last download reaches the Preparation heading");
@@ -2297,7 +2318,7 @@ void live_queue_shows_downloads_and_preparations() {
     activate(model, "prep-13");
     check(has_row(model, "prep-next-13"), "a later waiting game offers Prepare next");
     activate(model, "prep-next-13");
-    check(model.TakePrepareNextRequests() == std::vector<GameId>{13}, "Prepare next reaches the runtime");
+    check(model.TakePrepareNextRequests() == std::vector<GameId>{SteamId(13)}, "Prepare next reaches the runtime");
     check((queue_keys(model) == std::vector<std::string>{"queue-downloads", "job-20", "queue-preparation", "prep-active-10",
                                                          "prep-13", "prep-11", "prep-12", "prep-done-14-2000"}),
           "the game moves first, the others keep their order, the game being prepared stays");
@@ -2308,11 +2329,11 @@ void live_queue_shows_downloads_and_preparations() {
     check(has_row(model, "prep-open-14") && has_row(model, "prep-dismiss-14-2000") && !has_row(model, "prep-clear-completed"),
           "a finished preparation offers Game details and Dismiss");
     activate(model, "prep-dismiss-14-2000");
-    check((model.TakePreparedDismissals() == std::vector<LiveCompletedPreparation>{{14, 2'000}}), "Dismiss reaches the runtime");
+    check((model.TakePreparedDismissals() == std::vector<LiveCompletedPreparation>{{SteamId(14), 2'000}}), "Dismiss reaches the runtime");
     check(!has_row(model, "prep-done-14-2000") && model.state().navigation.focus_key == "prep-12",
           "the entry goes and focus stays in the section");
     // The runtime's next snapshot, still listing it, doesn't bring it back.
-    model.UpdatePreparationQueue({10, {13, 11, 12}, {{14, 2'000}}, {}});
+    model.UpdatePreparationQueue({SteamId(10), {SteamId(13), SteamId(11), SteamId(12)}, {{SteamId(14), 2'000}}, {}});
     check(!has_row(model, "prep-done-14-2000"), "a dismissal waiting for the runtime holds");
 }
 
@@ -2322,15 +2343,15 @@ void live_queue_history_and_empty_states() {
     using namespace playden::homebrew;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(14, "Thomas"), game(15, "Metal Slug"), game(23, "Monaco")}, false, {}, false, false, {}}),
+    check(model.UpdateLibrary({{game(SteamId(14), "Thomas"), game(SteamId(15), "Metal Slug"), game(SteamId(23), "Monaco")}, false, {}, false, false, {}}),
           "library loaded");
     model.action("r1");
     model.action("r1");
     check(model.view().subtitle.empty() && !has_row(model, "queue-downloads") && !has_row(model, "queue-preparation"),
           "nothing in the queue");
-    model.UpdateInstalls({}, {{14, 1, "internal", true}, {15, 1, "internal", true}, {23, 1, "internal", true}},
-                         {{23, 1, "internal", 1'000}});
-    model.UpdatePreparationQueue({std::nullopt, {}, {{15, 3'000}, {14, 2'000}}, {}});
+    model.UpdateInstalls({}, {{SteamId(14), 1, "internal", true}, {SteamId(15), 1, "internal", true}, {SteamId(23), 1, "internal", true}},
+                         {{SteamId(23), 1, "internal", 1'000}});
+    model.UpdatePreparationQueue({std::nullopt, {}, {{SteamId(15), 3'000}, {SteamId(14), 2'000}}, {}});
     check(model.view().subtitle == "No active work · 3 completed", "history alone says so");
     check(queue_row(model, "queue-downloads")->value == "1 completed" &&
               queue_row(model, "queue-preparation")->value == "2 completed", "both headings keep their history");
@@ -2341,7 +2362,7 @@ void live_queue_history_and_empty_states() {
     activate(model, "prep-clear-completed");
     check(model.TakePreparedClear() && model.TakeInstallRequests().empty(), "Clear completed clears only preparations");
     // Games waiting with none being prepared (Steam details still on their way) still count when collapsed.
-    model.UpdatePreparationQueue({std::nullopt, {14}, {{15, 4'000}}, {}});
+    model.UpdatePreparationQueue({std::nullopt, {SteamId(14)}, {{SteamId(15), 4'000}}, {}});
     activate(model, "queue-downloads");
     check(queue_row(model, "queue-preparation")->value == "1 waiting · 1 completed", "a collapsed section counts what waits");
     model.UpdatePreparationQueue({});
@@ -2353,14 +2374,14 @@ void live_queue_lists_preparations_needing_attention() {
     using namespace playden::homebrew;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(30, "Waits"), game(31, "Broke"), game(32, "Refused"), game(33, "Fine")}, false, {}, false,
+    check(model.UpdateLibrary({{game(SteamId(30), "Waits"), game(SteamId(31), "Broke"), game(SteamId(32), "Refused"), game(SteamId(33), "Fine")}, false, {}, false,
                                false, {}}), "library loaded");
-    LiveRuntimeGame waits; waits.game_id = 30; waits.status = "Waiting for the PS5"; waits.awaiting_registration = true;
-    LiveRuntimeGame broke; broke.game_id = 31; broke.status = "Failed"; broke.detail = "Disk full"; broke.can_prepare = true;
-    LiveRuntimeGame refused; refused.game_id = 32; refused.status = "Not prepared"; refused.can_prepare = true;
-    LiveRuntimeGame fine; fine.game_id = 33; fine.status = "Ready"; fine.ready = true;
+    LiveRuntimeGame waits; waits.game_id = SteamId(30); waits.status = "Waiting for the PS5"; waits.awaiting_registration = true;
+    LiveRuntimeGame broke; broke.game_id = SteamId(31); broke.status = "Failed"; broke.detail = "Disk full"; broke.can_prepare = true;
+    LiveRuntimeGame refused; refused.game_id = SteamId(32); refused.status = "Not prepared"; refused.can_prepare = true;
+    LiveRuntimeGame fine; fine.game_id = SteamId(33); fine.status = "Ready"; fine.ready = true;
     model.UpdateRuntime(RuntimeState::Ready, {waits, broke, refused, fine});
-    model.UpdatePreparationQueue({std::nullopt, {}, {}, {{32, "No verified compatibility kit is installed."}}});
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {{SteamId(32), "No verified compatibility kit is installed."}}});
     model.action("r1");
     model.action("r1");
     check((queue_keys(model) == std::vector<std::string>{"queue-preparation", "prep-attn-30", "prep-attn-31", "prep-attn-32"}),
@@ -2374,7 +2395,7 @@ void live_queue_lists_preparations_needing_attention() {
     activate(model, "prep-attn-31");
     check(has_row(model, "prep-retry-31"), "a failed preparation can be tried again");
     activate(model, "prep-retry-31");
-    check(model.TakeRuntimePrepareRequests() == std::vector<GameId>{31}, "Try again asks for it");
+    check(model.TakeRuntimePrepareRequests() == std::vector<GameId>{SteamId(31)}, "Try again asks for it");
     activate(model, "prep-attn-30");
     check(!has_row(model, "prep-retry-30"), "a game waiting for the PS5 is not prepared again from here");
 }
@@ -2384,14 +2405,14 @@ void live_details_prepare_next() {
     using namespace playden::homebrew;
     auto model = make_live();
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
-    check(model.UpdateLibrary({{game(40, "Busy"), game(41, "First"), game(42, "Second")}, false, {}, false, false, {}}),
+    check(model.UpdateLibrary({{game(SteamId(40), "Busy"), game(SteamId(41), "First"), game(SteamId(42), "Second")}, false, {}, false, false, {}}),
           "library loaded");
-    model.UpdateInstalls({}, {{40, 1, "internal", true}, {41, 1, "internal", true}, {42, 1, "internal", true}});
-    LiveRuntimeGame busy; busy.game_id = 40; busy.status = "Preparing";
-    LiveRuntimeGame first; first.game_id = 41; first.status = "Not prepared"; first.queued = true;
-    LiveRuntimeGame second; second.game_id = 42; second.status = "Not prepared"; second.queued = true;
+    model.UpdateInstalls({}, {{SteamId(40), 1, "internal", true}, {SteamId(41), 1, "internal", true}, {SteamId(42), 1, "internal", true}});
+    LiveRuntimeGame busy; busy.game_id = SteamId(40); busy.status = "Preparing";
+    LiveRuntimeGame first; first.game_id = SteamId(41); first.status = "Not prepared"; first.queued = true;
+    LiveRuntimeGame second; second.game_id = SteamId(42); second.status = "Not prepared"; second.queued = true;
     model.UpdateRuntime(RuntimeState::Ready, {busy, first, second});
-    model.UpdatePreparationQueue({40, {41, 42}, {}, {}});
+    model.UpdatePreparationQueue({SteamId(40), {SteamId(41), SteamId(42)}, {}, {}});
     check(model.action("details:41"), "details open");
     check(!has_row(model, "details-prepare-next") && find_row(model, "details-setup")->value == "Waiting for Busy",
           "the first waiting game waits for the one being prepared");
@@ -2401,13 +2422,30 @@ void live_details_prepare_next() {
               find_row(model, "details-hint")->title == "2 of 2 waiting. Setup starts when First is ready.",
           "a later game names the game right ahead and its place");
     activate(model, "details-prepare-next");
-    check(model.TakePrepareNextRequests() == std::vector<GameId>{42} &&
-              (model.state().preparation_queue.waiting == std::vector<GameId>{42, 41}), "Prepare next from the game page");
+    check(model.TakePrepareNextRequests() == std::vector<GameId>{SteamId(42)} &&
+              (model.state().preparation_queue.waiting == std::vector<GameId>{SteamId(42), SteamId(41)}), "Prepare next from the game page");
     check(find_row(model, "details-setup")->value == "Waiting for Busy" && !has_row(model, "details-prepare-next"),
           "now it is next");
 }
 
+// A Steam game's art is at the addresses Playden always used (the artwork backend accepts exactly
+// these); a game from another store has none yet, so its tile shows its title.
+void store_art_follows_the_store() {
+    using namespace playden::homebrew;
+    Game steam;
+    steam.id = SteamId(440);
+    check(CoverUrl(steam) == "https://cdn.cloudflare.steamstatic.com/steam/apps/440/library_600x900.jpg", "Steam cover");
+    check(HeroUrl(steam) == "https://cdn.cloudflare.steamstatic.com/steam/apps/440/library_hero.jpg", "Steam hero");
+    check(LogoUrl(steam) == "https://cdn.cloudflare.steamstatic.com/steam/apps/440/logo.png", "Steam logo");
+    Game local;
+    local.id = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+    check(CoverUrl(local).empty() && HeroUrl(local).empty() && LogoUrl(local).empty(), "imported games have no store art");
+    check(CoverUrl(playden::GameId{}).empty(), "an invalid game has no art");
+}
+
 int main() {
+    store_art_follows_the_store();
+    non_canonical_game_keys_select_nothing();
     live_launch_failure_remains_visible_without_a_details_status_line();
     live_download_reorder_reaches_service();
     live_play_does_the_next_useful_thing();

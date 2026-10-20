@@ -1,5 +1,6 @@
 #pragma once
 
+#include "library/store.h"
 #include "runtime/prospero_profile.h"
 
 #include <cstdint>
@@ -107,7 +108,11 @@ struct RegistryValue {
 struct GameRecipe {
   std::string id;
   int version = 0;
+  // A Steam game's app ID, or the runtime number of a game from another store, which `game` names.
   std::uint32_t app_id = 0;
+  // The game ("store"/"game" on disk, written only when not Steam). Default: the Steam game app_id
+  // names, as in every shipped recipe; RecipeGame resolves it.
+  GameId game;
   std::string name;
   std::vector<LaunchEntry> launch_entries;  // the first is the default
   // Arguments the game needs. "{resolution}" is replaced by resolution_arguments with
@@ -222,6 +227,9 @@ bool ApplyGameSettings(const GameRecipe& recipe, const EffectiveSettings& settin
                        const std::string& prospero_root, std::string* reason);
 
 // JSON data files: runtime/recipes/<id>.json and runtime/presets.json.
+// The game a recipe is for: `game`, or by default the Steam game app_id names. Shipped and
+// generated recipes are matched to a game by it, never by app_id alone.
+GameId RecipeGame(const GameRecipe& recipe);
 bool ParseGameRecipe(std::string_view json, GameRecipe* recipe, std::string* reason);
 bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* presets, std::string* reason);
 bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, std::string* reason);
@@ -229,10 +237,12 @@ bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, 
 std::string SerializeGameRecipe(const GameRecipe& recipe);
 
 // Games without a shipped recipe get one generated from Steam's Windows launch options.
-// Its id is GeneratedRecipeId(app_id); it starts the first launch entry with the game's own
+// Its id is playden::GeneratedRecipeId(game); it starts the first launch entry with the game's own
 // arguments, takes graphics and engine arguments from the game's files (game_probe.h) and
 // locks nothing. With graphics "dxvk", BuildEffectiveSettings adds kDxvkOverrides.
+// A Steam game's generated recipe id, "steam-<app id>-auto" (playden::GeneratedRecipeId).
 std::string GeneratedRecipeId(std::uint32_t app_id);
+// "steam-<app id>-auto" or "local-<uuid>-auto".
 bool IsGeneratedRecipeId(std::string_view id);
 // A community recipe (community-<app id>, docs/community-recipes.md). Like a generated one, it
 // is not a shipped recipe, so it does not force the game's own Steam library.
@@ -261,6 +271,12 @@ struct GameRecipeDiagnostics {
 bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std::vector<LaunchEntry>& launches,
                         const std::string& install_root, GameRecipe* recipe, std::string* reason,
                         const KitCapabilities& kit = {}, const RecipeChoices& choices = {},
+                        bool* refusal_soft = nullptr, GameRecipeDiagnostics* diagnostics = nullptr);
+// The same for any game: app_id is its runtime number (a Steam game's app ID), the id
+// playden::GeneratedRecipeId(game).
+bool GenerateGameRecipe(const GameId& game, std::uint32_t runtime_number, const std::string& name,
+                        const std::vector<LaunchEntry>& launches, const std::string& install_root, GameRecipe* recipe,
+                        std::string* reason, const KitCapabilities& kit = {}, const RecipeChoices& choices = {},
                         bool* refusal_soft = nullptr, GameRecipeDiagnostics* diagnostics = nullptr);
 
 // One Windows program in a game folder, for the Program picker.
@@ -470,11 +486,12 @@ bool BuildSettingsLaunchPlan(const SettingsLaunchInput& input, SettingsLaunchPla
 bool ApplySettingsFiles(const SettingsLaunchPlan& plan, const std::string& install_root, const std::string& prefix_dir,
                         std::int64_t unix_time, std::string* reason);
 
-// Per-game records in one small JSON file ({"version":1,"games":{"<app id>":record}}).
-// A missing file loads as no records. Saving replaces the file atomically.
-bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameSettingsRecord>* records,
+// Per-game records in one small JSON file ({"version":1,"games":{"<key>":record}}), keyed by
+// ToKey: a Steam game's app ID, "local-<uuid>" for an imported game. A missing file loads as no
+// records. Saving replaces the file atomically.
+bool LoadGameSettingsFile(const std::string& path, std::map<GameId, GameSettingsRecord>* records,
                           std::string* reason);
-bool SaveGameSettingsFile(const std::string& path, const std::map<std::uint32_t, GameSettingsRecord>& records,
+bool SaveGameSettingsFile(const std::string& path, const std::map<GameId, GameSettingsRecord>& records,
                           std::string* reason);
 // One-time import from the legacy approved state tree into an already-created
 // private settings root. The owned legacy file must be 0600/0644; the private

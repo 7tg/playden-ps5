@@ -10,7 +10,7 @@ namespace {
 std::string game_title(const State& state, GameId id) {
     for (const auto& game : state.games)
         if (game.id == id && !game.title.empty()) return game.title;
-    return "Steam app " + std::to_string(id);
+    return "Steam app " + ToKey(id);
 }
 
 std::string need_attention(std::size_t count) {
@@ -91,7 +91,7 @@ QueueSection preparations(const State& state) {
     std::string active_title;
     if (queue.active) {
         QueueEntry item;
-        item.key = "prep-active-" + std::to_string(*queue.active);
+        item.key = "prep-active-" + ToKey(*queue.active);
         item.game_id = *queue.active;
         item.title = active_title = game_title(state, *queue.active);
         item.status = "Preparing";
@@ -105,7 +105,7 @@ QueueSection preparations(const State& state) {
     for (const auto id : queue.waiting) {
         if (queue.active && id == *queue.active) continue;
         QueueEntry item;
-        item.key = "prep-" + std::to_string(id);
+        item.key = "prep-" + ToKey(id);
         item.game_id = id;
         item.title = game_title(state, id);
         item.position = ++position;
@@ -124,7 +124,7 @@ QueueSection preparations(const State& state) {
     for (const auto& [id, game] : state.runtime_games) {
         if (listed(id)) continue;
         QueueEntry item;
-        item.key = "prep-attn-" + std::to_string(id);
+        item.key = "prep-attn-" + ToKey(id);
         item.game_id = id;
         item.title = game_title(state, id);
         item.note = game.detail;
@@ -152,7 +152,7 @@ QueueSection preparations(const State& state) {
     }
     for (const auto& done : queue.completed) {
         QueueEntry item;
-        item.key = "prep-done-" + std::to_string(done.game_id) + "-" + std::to_string(done.finished_at);
+        item.key = "prep-done-" + ToKey(done.game_id) + "-" + std::to_string(done.finished_at);
         item.game_id = done.game_id;
         item.title = game_title(state, done.game_id);
         item.status = "Ready";

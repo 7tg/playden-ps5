@@ -27,7 +27,7 @@ std::vector<GameId> QueryLibrary(const std::vector<GameSummary>& games,
     matches.reserve(games.size());
     std::unordered_set<GameId> seen;
     for (const auto& game : games) {
-        if (game.id == 0 || !seen.insert(game.id).second) continue;
+        if (!game.id.valid() || !seen.insert(game.id).second) continue;
         auto title = FoldLibraryText(game.title);
         if (!text.empty() && title.find(text) == std::string::npos) continue;
         if (!developer.empty() && FoldLibraryText(game.developer) != developer) continue;

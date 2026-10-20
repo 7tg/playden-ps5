@@ -16,6 +16,7 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::steam;
@@ -528,7 +529,7 @@ void ManagedPrefixAndPlanBinding() {
   const auto base = std::filesystem::temp_directory_path() /
                     ("playden-cloud-managed-" + std::to_string(getpid()));
   std::filesystem::remove_all(base);
-  const CloudLocation legacy{kApp, (base / "game").string(), (base / "cloud").string()};
+  const CloudLocation legacy{SteamId(kApp), (base / "game").string(), (base / "cloud").string()};
   CHECK(SteamCloudRunner::SaveLocation(legacy).prefix_root == legacy.state_root + "/prefix");
   CloudLocation managed = legacy;
   managed.prefix_root = (base / "library/prefixes/game").string();

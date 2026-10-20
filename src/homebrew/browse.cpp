@@ -88,7 +88,7 @@ void select_game(State& state, GameId id, int index)
 {
     state.navigation.selected_game_id = id;
     state.navigation.selected_index = index;
-    state.navigation.focus_key = "game-" + std::to_string(id);
+    state.navigation.focus_key = "game-" + ToKey(id);
 }
 
 } // namespace
@@ -297,7 +297,7 @@ bool move_browser(State& state, int delta_x, int delta_y)
         if (child == static_cast<int>(shelf.game_ids.size()))
         {
             // The "More" cell: no game is selected there.
-            state.navigation.selected_game_id = 0;
+            state.navigation.selected_game_id = {};
             state.navigation.selected_index = child;
             state.navigation.focus_key = shelf_more_key(shelf);
         }

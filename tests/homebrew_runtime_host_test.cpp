@@ -104,7 +104,7 @@ RuntimePrepareRequest Hl2() { return {220, "/data/homebrew/FAKE77031/games/220",
 
 RuntimeInstall Record() {
   RuntimeInstall record;
-  record.install_id = "steam-220"; record.app_id = 220; record.default_profile_id = "playden-steam-220";
+  record.install_id = "steam-220"; record.runtime_number = 220; record.default_profile_id = "playden-steam-220";
   record.runtime_bundle_id = "wine-wow64"; record.recipe_id = "steam-220-hl2-v1"; record.recipe_version = "1";
   record.launch_entry_id = "hl2"; record.launch_path = "hl2.exe";
   record.install_path = "/data/homebrew/FAKE77031/games/220"; record.volume_id = "internal";
@@ -437,7 +437,7 @@ void StartupReportsJournalsWithoutResuming() {
     CHECK(repository.Load().ok());
     const auto record = Record();
     ReserveRequest request;
-    request.install_id = record.install_id; request.app_id = record.app_id;
+    request.install_id = record.install_id; request.runtime_number = record.runtime_number;
     request.default_profile_id = record.default_profile_id; request.runtime_bundle_id = record.runtime_bundle_id;
     request.recipe_id = record.recipe_id; request.recipe_version = record.recipe_version;
     request.launch_entry_id = record.launch_entry_id; request.launch_path = record.launch_path;
@@ -457,11 +457,81 @@ void StartupReportsJournalsWithoutResuming() {
   const auto started = WaitFor(host, Started);
   CHECK(started.status == RuntimeHostStatus::kReady && started.installs.size() == 1);
   const auto& view = started.installs[0];
-  CHECK(view.app_id == 220 && view.title_id == "FAKE78001" && view.state == PreparationState::kRegistering);
+  CHECK(view.runtime_number == 220 && view.title_id == "FAKE78001" && view.state == PreparationState::kRegistering);
   CHECK(view.recovery_pending);
   host.Shutdown();
   CHECK(Read(config.state_root / "installs.json") == before);
   CHECK(fixture.registry_mutations == 0 && fixture.database_reads == database_reads_before);
+}
+
+// A game from another store gets a runtime number from the reserved range on first use, from any
+// thread; its preparation is asked for with that number, and the snapshot names the game back.
+// Steam games keep their app ID and add nothing to installs.json.
+void LocalGameGetsRuntimeNumber() {
+  const auto local_a = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+  const auto local_b = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+  Fixture fixture;
+  auto config = fixture.Config();
+  // A Local game with a record from an earlier run: its view carries the game.
+  fs::create_directories(config.state_root); CHECK(chmod(config.state_root.c_str(), 0700) == 0);
+  {
+    playden::Storage storage(config.state_root.string());
+    RuntimeInstallRepository repository(storage, "installs.json", [](const std::string&) {
+      return NativeTitleAvailability{TitleAvailability::kFree, TitleAvailability::kFree};
+    });
+    CHECK(repository.Load().ok());
+    const auto number = repository.RuntimeNumberFor(local_a);
+    CHECK(number.ok() && number.value() == 0xF0000000u);
+    const auto record = Record();
+    ReserveRequest request;
+    request.install_id = playden::ToInstallId(local_a); request.runtime_number = number.value(); request.game = local_a;
+    request.default_profile_id = playden::ProfileId(local_a); request.runtime_bundle_id = record.runtime_bundle_id;
+    request.recipe_id = playden::GeneratedRecipeId(local_a); request.recipe_version = record.recipe_version;
+    request.launch_entry_id = record.launch_entry_id; request.launch_path = record.launch_path;
+    request.install_path = "/data/playden-import/Game"; request.volume_id = record.volume_id;
+    request.kit_title_variants = {"FAKE78001"};
+    CHECK(repository.Reserve(request).ok());
+  }
+  std::mutex log_mutex;
+  std::vector<std::string> lines;
+  config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(log_mutex); lines.push_back(line); };
+  RuntimeHost host(config);
+  CHECK(!host.RuntimeNumberFor(local_b));  // not started: no records to allocate from
+  CHECK(host.RuntimeNumberFor(playden::GameId::Steam(220)) == 220u);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(started.status == RuntimeHostStatus::kReady && started.installs.size() == 1);
+  CHECK(started.installs[0].game == local_a && started.installs[0].runtime_number == 0xF0000000u);
+  CHECK(started.runtime_games.at(0xF0000000u) == local_a);
+  CHECK(host.RuntimeNumberFor(local_a) == 0xF0000000u);
+  CHECK(host.RuntimeNumberFor(playden::GameId::Steam(220)) == 220u);
+
+  // Several threads asking at once: one number per game, never one number for two games.
+  std::vector<std::thread> threads;
+  std::vector<std::optional<std::uint32_t>> answers(8);
+  for (std::size_t i = 0; i < answers.size(); ++i)
+    threads.emplace_back([&, i] { answers[i] = host.RuntimeNumberFor(i % 2 ? local_b : local_a); });
+  for (auto& thread : threads) thread.join();
+  for (std::size_t i = 0; i < answers.size(); ++i)
+    CHECK(answers[i] == (i % 2 ? 0xF0000001u : 0xF0000000u));
+  const auto allocated = host.Snapshot();
+  CHECK(allocated.runtime_games.at(0xF0000001u) == local_b && !allocated.runtime_games.count(220));
+  CHECK(Read(config.state_root / "installs.json").find("\"next_runtime_number\":4026531842") != std::string::npos);
+
+  // The request reaches the worker with its number; the refusal maps back to the game.
+  RuntimePrepareRequest prepare{*host.RuntimeNumberFor(local_b), "/data/playden-import/Other", "internal", "Other"};
+  prepare.game = local_b;
+  CHECK(prepare.runtime_number >= 0xF0000000u);
+  host.Prepare(prepare);
+  const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(0xF0000001u) != 0; });
+  CHECK(refused.runtime_games.at(0xF0000001u) == local_b);
+  {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    CHECK(std::find(lines.begin(), lines.end(), "runtime number for local-7c9e6679-7425-40de-944b-e07fc1f90ae7 is 4026531841") !=
+          lines.end());
+  }
+  host.Shutdown();
+  CHECK(!host.RuntimeNumberFor(playden::GameId::Local("9a1d1f2e-0000-4000-8000-000000000001")));
 }
 
 // A public or foreign state root is refused rather than taken over.
@@ -541,7 +611,7 @@ void PreparationEndsAwaitingRegistration() {
   CHECK(fixture.registry_mutations == submissions);
   // Registered: now it is listed as done, and Clear completed takes it off.
   const auto listed = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.prepared.empty(); });
-  CHECK(listed.prepared.size() == 1 && listed.prepared[0].app_id == 220);
+  CHECK(listed.prepared.size() == 1 && listed.prepared[0].runtime_number == 220);
   host.ClearPrepared();
   CHECK(WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepared.empty(); }).prepared.empty());
   host.Shutdown();
@@ -569,8 +639,8 @@ void PreparesExistingDownloadToReady() {
     ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
   };
   config.unix_time = [] { return std::int64_t{1760000000}; };
-  config.title_icon = [](std::uint32_t app) -> std::optional<std::string> {
-    return app == 220 ? std::optional<std::string>("game-icon-png") : std::nullopt;
+  config.title_icon = [](const playden::GameId& game) -> std::optional<std::string> {
+    return game == playden::GameId::Steam(220) ? std::optional<std::string>("game-icon-png") : std::nullopt;
   };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
   Write(game / "hl2.exe", "existing-game", 0644);
@@ -1037,7 +1107,7 @@ void RepairsBottleRegistryModes() {
   CHECK(chmod(title_param.c_str(), 0644) == 0);
   Write(title_param, Read(fixture.root / "kit/titles/variant/sce_sys/param.json"), 0644);
   auto named = config;
-  named.title_icon = [](std::uint32_t) -> std::optional<std::string> { return std::string("game-icon-png"); };
+  named.title_icon = [](const playden::GameId&) -> std::optional<std::string> { return std::string("game-icon-png"); };
   RuntimeHost upgraded(named);
   CHECK(upgraded.Start());
   CHECK(!WaitFor(upgraded, Started).installs[0].title_current);
@@ -1123,7 +1193,7 @@ void PlaysReadyTitleThroughHandoff() {
   CHECK(Read(hive.string() + ".playden-backup") == "WINE REGISTRY Version 2\n");
   CHECK(Read(windows / "system32/winegstreamer.dll") == "dll x86_64-windows");
   CHECK(Read(windows / "syswow64/winegstreamer.dll") == "dll i386-windows");
-  CHECK(prepared.launch && prepared.launch->app_id == 220 && prepared.launch->title_id == "FAKE78001");
+  CHECK(prepared.launch && prepared.launch->runtime_number == 220 && prepared.launch->title_id == "FAKE78001");
   // Cloud saves under Windows folders use this game's private bottle.
   CHECK(prepared.installs[0].prefix_root == "/data/playden/games/steam-220/library/prefixes/game");
   CHECK(launches.empty());
@@ -1322,7 +1392,7 @@ void PreparesGameWithoutShippedRecipe() {
   Write(game / "Bin/steam_api64.dll", own_api, 0644);
   Write(game / ".playden-steam", "depots=4243\ndlc=4250\n", 0644);
   std::map<std::string, std::string> saved_settings;
-  config.settings_record = [&saved_settings](std::uint32_t) -> std::optional<GameSettingsRecord> {
+  config.settings_record = [&saved_settings](const playden::GameId&) -> std::optional<GameSettingsRecord> {
     if (saved_settings.empty()) return std::nullopt;
     GameSettingsRecord record;
     record.overrides = saved_settings;
@@ -1454,7 +1524,7 @@ void SettingsSavedDuringPrepareReachReadyTitle() {
   std::mutex mutex;
   GameSettingsRecord saved;
   bool applied_logged = false;
-  config.settings_record = [&](std::uint32_t) -> std::optional<GameSettingsRecord> {
+  config.settings_record = [&](const playden::GameId&) -> std::optional<GameSettingsRecord> {
     std::lock_guard<std::mutex> lock(mutex);
     return saved;
   };
@@ -1532,7 +1602,7 @@ void MaintainsReadyTitle() {
     return TitleResult{true, 0, "launch"};
   };
   GameSettingsRecord saved;
-  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   Write(game / "hl2.exe", "existing-game", 0644);
   CHECK(chmod(game.c_str(), 0755) == 0);
   const auto data = fixture.root / "data/playden/games/steam-220";
@@ -1671,7 +1741,7 @@ void ModdedGameFolderStillPlays() {
     return TitleResult{true, 0, "launch"};
   };
   GameSettingsRecord saved;
-  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   config.as_root = [](const std::function<bool()>& work) { return work(); };
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
   Write(game / "hl2.exe", "existing-game", 0644);
@@ -1779,7 +1849,7 @@ void OwnedPublicationOpenedUpRecovers(int route) {
   config.session_data_root = fixture.root / "data";
   config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
   GameSettingsRecord saved;
-  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   std::vector<std::string> lines;
   std::mutex lines_mutex;
   config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(lines_mutex); lines.push_back(line); };
@@ -1957,7 +2027,7 @@ void KitRespinKeepsWaitingSettingsUpdate() {
     }
   };
   GameSettingsRecord saved;
-  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   Write(game / "hl2.exe", "existing-game", 0644);
   CHECK(chmod(game.c_str(), 0755) == 0);
   {
@@ -2106,6 +2176,126 @@ void PreparesGameInstalledAgainElsewhere() {
   host.Shutdown();
 }
 
+// Kept bottles are not Steam-only: an imported game's marker names its game, lists after a restart
+// and gives the game its runtime number back. A Steam marker from before (fixture) still lists.
+void LocalGameKeepsItsBottle() {
+  const auto local = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+  const auto other = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-0000000000") + (uuids < 10 ? "0" : "") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.removal_confirm_polls = 3;
+  config.removal_poll_interval = std::chrono::milliseconds(1);
+  std::vector<playden::GameId> icons;
+  config.title_icon = [&icons](const playden::GameId& game) -> std::optional<std::string> {
+    icons.push_back(game);
+    return std::nullopt;
+  };
+  config.unregister_title = [&fixture](const std::string&, const std::string&) {
+    fixture.registered = false; fixture.submitted = false;
+    return TitleRemoverResult{true, 0, "answered"};
+  };
+  const auto game = fixture.root / "data/playden-import/Imported";
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  Write(game / "Bin/Game.exe", pe, 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  const auto games = fixture.root / "data/playden/games";
+  const auto steam_kept = games / "steam-220.kept";
+  Write(steam_kept / "playden-kept.json",
+        Read(fs::path(g_runtime_dir) / "../tests/fixtures/identity/playden-kept.json"), 0600);
+  const auto kept = games / "local-0f8fad5b-d9cb-469f-a165-70867728950e.kept";
+  const auto save = fs::path("library/prefixes/game/drive_c/users/steamuser/save.dat");
+  std::uint32_t number = 0;
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    const auto started = WaitFor(host, Started);
+    CHECK(started.kit_available && started.kept_bottles.size() == 1);
+    CHECK(started.kept_bottles[0].game == playden::GameId::Steam(220) && started.kept_bottles[0].runtime_number == 220);
+    CHECK(started.kept_bottles[0].name == "Half-Life 2" && started.kept_bottles[0].bytes == 4096);
+    number = *host.RuntimeNumberFor(local);
+    CHECK(number == 0xF0000000u);
+    RuntimePrepareRequest request{number, "/data/playden-import/Imported", "internal", "Imported"};
+    request.launches = {{"", "", "Bin/Game.exe", "", ""}};
+    request.game = local;
+    host.Prepare(request);
+    const auto ready = WaitFor(host, [number](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(number) ||
+          (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (ready.refusals.count(number)) std::fprintf(stderr, "Prepare refused: %s\n", ready.refusals.at(number).c_str());
+    CHECK(!ready.refusals.count(number) && ready.installs.size() == 1 && ready.installs[0].game == local);
+    CHECK(ready.installs[0].install_id == "local-0f8fad5b-d9cb-469f-a165-70867728950e");
+    CHECK(std::find(icons.begin(), icons.end(), local) != icons.end());  // named by game, not by number
+    CHECK(ready.generated_recipes.size() == 1 && ready.generated_recipes[0].id == playden::GeneratedRecipeId(local) &&
+          playden::runtime::RecipeGame(ready.generated_recipes[0]) == local);
+    host.SetTitleNames({{number, "Imported"}});
+    Write(games / "local-0f8fad5b-d9cb-469f-a165-70867728950e" / save, "player-save", 0600);
+    const auto before = host.Snapshot().removals_handled;
+    host.Remove(number, false);
+    const auto removed = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.removals_handled > before; }, 30);
+    if (removed.removal_failures.count(number)) std::fprintf(stderr, "Remove: %s\n", removed.removal_failures.at(number).c_str());
+    CHECK(removed.installs.empty() && removed.kept_bottles.size() == 2);
+    const auto marker = Read(kept / "playden-kept.json");
+    CHECK(marker.find("{\"schema\":1,\"install_id\":\"local-0f8fad5b-d9cb-469f-a165-70867728950e\",\"app_id\":4026531840,"
+                      "\"store\":\"local\",\"game\":\"0f8fad5b-d9cb-469f-a165-70867728950e\",\"name\":\"Imported\",") == 0);
+    host.Shutdown();
+  }
+  {
+    // After a restart the kept bottle lists with its game, which gets its number back.
+    RuntimeHost host(config);
+    CHECK(!host.RuntimeNumberFor(local));
+    CHECK(host.Start());
+    const auto started = WaitFor(host, Started);
+    CHECK(started.kept_bottles.size() == 2);
+    const auto found = std::find_if(started.kept_bottles.begin(), started.kept_bottles.end(),
+                                    [&](const KeptBottleView& view) { return view.game == local; });
+    CHECK(found != started.kept_bottles.end() && found->runtime_number == number && found->name == "Imported");
+    CHECK(started.runtime_games.at(number) == local);
+    CHECK(host.RuntimeNumberFor(local) == number);
+    const auto next = host.RuntimeNumberFor(other);
+    CHECK(next && *next != number && *next >= 0xF0000000u);
+    CHECK(Read(kept / save) == "player-save");
+    // Deleted by its number: only its own folder goes.
+    host.DeleteKeptBottle(number);
+    const auto deleted = WaitFor(host, [](const RuntimeSnapshot& s) { return s.kept_bottles.size() == 1; });
+    CHECK(deleted.kept_bottles[0].game == playden::GameId::Steam(220));
+    CHECK(!fs::exists(kept) && fs::exists(steam_kept));
+    host.Shutdown();
+  }
+  // A marker whose game doesn't match its folder, or a Local number outside the range, is not listed.
+  Write(kept / "playden-kept.json",
+        "{\"schema\":1,\"install_id\":\"local-0f8fad5b-d9cb-469f-a165-70867728950e\",\"app_id\":220,"
+        "\"store\":\"local\",\"game\":\"0f8fad5b-d9cb-469f-a165-70867728950e\",\"name\":\"X\",\"kept_at\":1,\"bytes\":1}\n", 0600);
+  const auto mismatch = games / "local-7c9e6679-7425-40de-944b-e07fc1f90ae7.kept";
+  Write(mismatch / "playden-kept.json",
+        "{\"schema\":1,\"install_id\":\"local-7c9e6679-7425-40de-944b-e07fc1f90ae7\",\"app_id\":4026531841,"
+        "\"store\":\"local\",\"game\":\"0f8fad5b-d9cb-469f-a165-70867728950e\",\"name\":\"X\",\"kept_at\":1,\"bytes\":1}\n", 0600);
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kept_bottles.size() == 1);
+    host.Shutdown();
+  }
+}
+
 void RemovesTitleKeepingSaves() {
   Fixture fixture;
   auto config = fixture.Config();
@@ -2217,7 +2407,7 @@ void RemovesTitleKeepingSaves() {
     CHECK(!removed.removal_failures.count(220) && removed.installs.empty());
     CHECK(*remover_calls == 2);  // the console no longer listed the title: never sent again
     CHECK(!fs::exists(bottle) && Read(kept / save) == "player-save");
-    CHECK(removed.kept_bottles.size() == 1 && removed.kept_bottles[0].app_id == 220);
+    CHECK(removed.kept_bottles.size() == 1 && removed.kept_bottles[0].runtime_number == 220);
     CHECK(removed.kept_bottles[0].name == "Half-Life 2" && removed.kept_bottles[0].kept_at == 1760000000);
     CHECK(removed.kept_bottles[0].bytes > 0);
     CHECK(Read(kept / "playden-kept.json").find("\"install_id\":\"steam-220\"") != std::string::npos);
@@ -2345,7 +2535,7 @@ void SteamEntryWithoutFolderStartsInInstallRoot() {
   Write(game / "desktop-1.0.jar", "jar", 0644);
   CHECK(chmod(game.c_str(), 0755) == 0 && chmod((game / "jre").c_str(), 0755) == 0 && chmod((game / "jre/bin").c_str(), 0755) == 0);
   GameSettingsRecord saved;
-  config.settings_record = [&](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.settings_record = [&](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   RuntimePrepareRequest request{646570, "/data/homebrew/FAKE77031/games/646570", "internal", "Slay the Spire"};
   request.launches = {{"", "Play", "jre\\bin\\javaw.exe", "", "-jar desktop-1.0.jar"}};
   const auto profile = fixture.root / "data/playden/games/steam-646570/library/profiles/playden-steam-646570.profile";
@@ -2410,7 +2600,7 @@ void PreparesProgramChosenInSettings() {
   CHECK(chmod(game.c_str(), 0755) == 0);
   GameSettingsRecord saved;
   bool has_record = false;
-  config.settings_record = [&](std::uint32_t) -> std::optional<GameSettingsRecord> {
+  config.settings_record = [&](const playden::GameId&) -> std::optional<GameSettingsRecord> {
     if (!has_record) return std::nullopt;
     return saved;
   };
@@ -2597,7 +2787,7 @@ void ShippedRecipePreparesWithAnotherKitsRecipe() {
     return !s.preparing_app && (s.refusals.count(292120) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
   }, 60);
   if (done.refusals.count(292120)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(292120).c_str());
-  CHECK(!done.refusals.count(292120) && done.installs.size() == 1 && done.installs[0].app_id == 292120);
+  CHECK(!done.refusals.count(292120) && done.installs.size() == 1 && done.installs[0].runtime_number == 292120);
   CHECK(Read(config.state_root / "installs.json").find("\"recipe_id\":\"steam-292120-ffxiii-v1\"") != std::string::npos);
   const auto game = fixture.root / "data/playden/games/steam-292120";
   CHECK(Read(game / "library/profiles/playden-steam-292120.profile").find("ffxiiiimg.exe") != std::string::npos);
@@ -2722,7 +2912,7 @@ RuntimeHostConfig MoveConfig(Fixture& fixture, const RuntimeKit& kit, unsigned* 
     return std::string(id);
   };
   config.unix_time = [] { return std::int64_t{1760000000}; };
-  config.settings_record = [](std::uint32_t) -> std::optional<GameSettingsRecord> {
+  config.settings_record = [](const playden::GameId&) -> std::optional<GameSettingsRecord> {
     GameSettingsRecord saved; saved.revision = 1; saved.overrides = {{"resolution", "1280x720"}};
     return saved;
   };
@@ -2946,7 +3136,7 @@ void MovedGameStartupKeepsSteamAccount() {
   const auto kit = SyntheticKit(fixture.root / "kit");
   unsigned uuids = 0;
   auto config = MoveConfig(fixture, kit, &uuids, move);
-  config.settings_record = [](std::uint32_t) -> std::optional<GameSettingsRecord> {
+  config.settings_record = [](const playden::GameId&) -> std::optional<GameSettingsRecord> {
     GameSettingsRecord saved; saved.revision = 1; return saved;
   };
   const auto old_games = fixture.root / "data/homebrew/FAKE77031/games";
@@ -2997,7 +3187,7 @@ void StuckMovedGameOffersRecreateBottle() {
   unsigned uuids = 0;
   auto config = MoveConfig(fixture, kit, &uuids, move);
   auto revision = std::make_shared<std::atomic<std::uint64_t>>(1);
-  config.settings_record = [revision](std::uint32_t) -> std::optional<GameSettingsRecord> {
+  config.settings_record = [revision](const playden::GameId&) -> std::optional<GameSettingsRecord> {
     GameSettingsRecord saved; saved.revision = revision->load(); saved.overrides = {{"resolution", "1280x720"}};
     return saved;
   };
@@ -3101,7 +3291,7 @@ void MigrationSkipsRecordsOutsideOldPrefix() {
     for (const auto& [app, path] : games) {
       auto record = Record();
       ReserveRequest request;
-      request.install_id = "steam-" + std::to_string(app); request.app_id = app;
+      request.install_id = "steam-" + std::to_string(app); request.runtime_number = app;
       request.default_profile_id = record.default_profile_id; request.runtime_bundle_id = record.runtime_bundle_id;
       request.recipe_id = record.recipe_id; request.recipe_version = record.recipe_version;
       request.launch_entry_id = record.launch_entry_id; request.launch_path = record.launch_path;
@@ -3125,7 +3315,7 @@ void MigrationSkipsRecordsOutsideOldPrefix() {
   RuntimeInstallRepository repository(storage, "installs.json", {});
   CHECK(repository.Load().ok());
   std::map<std::uint32_t, RuntimeInstall> records;
-  for (const auto& record : repository.Snapshot()) records[record.app_id] = record;
+  for (const auto& record : repository.Snapshot()) records[record.runtime_number] = record;
   CHECK(records.size() == 5);
   for (const std::uint32_t app : {400u, 500u, 600u}) {
     CHECK(records[app].moved_from.empty());
@@ -3226,7 +3416,7 @@ void UnownedUpgradeSkippedWhenFolderMissing() {
   config.session_data_root = fixture.root / "data";
   config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
   GameSettingsRecord saved;
-  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   std::vector<std::string> lines;
   std::mutex lines_mutex;
   config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(lines_mutex); lines.push_back(line); };
@@ -3585,7 +3775,7 @@ void UnownedUpgradeAfterCommittedSettingsUpdates(int scenario) {
   config.session_data_root = fixture.root / "data";
   config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
   GameSettingsRecord saved;
-  config.settings_record = [&saved](std::uint32_t) -> std::optional<GameSettingsRecord> { return saved; };
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   std::vector<std::string> lines;
   std::mutex lines_mutex;
   config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(lines_mutex); lines.push_back(line); };
@@ -3823,6 +4013,8 @@ int main(int argc, char** argv) {
   HeldPreparationsWait();
   HoldsEffectiveUidWhileWorking();
   StartupReportsJournalsWithoutResuming();
+  LocalGameGetsRuntimeNumber();
+  LocalGameKeepsItsBottle();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
   PreparesGameOnUnownedDrive();

@@ -67,7 +67,21 @@ constexpr char kActivityUnknown[] =
 // A moved game whose publication can't be redone: Recreate bottle (confirmed) prepares it again.
 constexpr char kRecreateHint[] = " Use Maintenance > Recreate bottle on the game page to prepare it again.";
 
-std::string InstallId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id); }
+// The game a request or record names: a default GameId stands for the Steam game its number is.
+GameId GameOf(const GameId& game, std::uint32_t runtime_number) {
+  return game == GameId{} && runtime_number ? GameId::Steam(runtime_number) : game;
+}
+// The game behind a record, for the callbacks named by game (settings, title icon).
+GameId GameOf(const rt::RuntimeInstall& record) { return GameOf(record.game, record.runtime_number); }
+// The game a request names.
+GameId GameOf(const RuntimePrepareRequest& request) { return GameOf(request.game, request.runtime_number); }
+// Whether a recipe is the record's game's: the same game (Steam: the app ID) and runtime number.
+// A record copy that doesn't carry its game (read back from a journal) relies on the number, which
+// the repository keeps to one game.
+bool RecipeFits(const rt::GameRecipe& recipe, const rt::RuntimeInstall& record) {
+  if (recipe.app_id != record.runtime_number) return false;
+  return record.game == GameId{} || rt::RecipeGame(recipe) == record.game;
+}
 
 // Why the kit cannot run a recipe Playden ships (its requirements), for the player; empty when it
 // can. The kit's own recipe is skipped: the kit's packager checked its template against it.
@@ -408,16 +422,17 @@ bool RuntimeHost::Stopping() const {
 }
 
 void RuntimeHost::Prepare(RuntimePrepareRequest request) {
+  request.game = GameOf(request.game, request.runtime_number);
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
     // A game asked for again keeps its place, with the newer request (launch options may have arrived).
     const auto queued = std::find_if(prepare_requests_.begin(), prepare_requests_.end(),
-                                     [&](const auto& waiting) { return waiting.app_id == request.app_id; });
+                                     [&](const auto& waiting) { return waiting.runtime_number == request.runtime_number; });
     if (queued != prepare_requests_.end()) {
       *queued = std::move(request);
     } else {
-      snapshot_.queued_prepares.push_back(request.app_id);
+      snapshot_.queued_prepares.push_back(request.runtime_number);
       prepare_requests_.push_back(std::move(request));
     }
     ++snapshot_.revision;
@@ -430,12 +445,12 @@ bool RuntimeHost::PrepareNext(std::uint32_t app_id) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto queued = std::find_if(prepare_requests_.begin(), prepare_requests_.end(),
-                                     [&](const auto& waiting) { return waiting.app_id == app_id; });
+                                     [&](const auto& waiting) { return waiting.runtime_number == app_id; });
     if (queued == prepare_requests_.end()) return false;
     // The others keep their order behind it.
     std::rotate(prepare_requests_.begin(), queued, queued + 1);
     snapshot_.queued_prepares.clear();
-    for (const auto& waiting : prepare_requests_) snapshot_.queued_prepares.push_back(waiting.app_id);
+    for (const auto& waiting : prepare_requests_) snapshot_.queued_prepares.push_back(waiting.runtime_number);
     ++snapshot_.revision;
   }
   published_.notify_all();
@@ -446,7 +461,7 @@ bool RuntimeHost::WithdrawPrepare(std::uint32_t app_id) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto queued = std::find_if(prepare_requests_.begin(), prepare_requests_.end(),
-                                     [&](const auto& waiting) { return waiting.app_id == app_id; });
+                                     [&](const auto& waiting) { return waiting.runtime_number == app_id; });
     if (queued == prepare_requests_.end()) return false;
     prepare_requests_.erase(queued);
     std::erase(snapshot_.queued_prepares, app_id);
@@ -507,7 +522,7 @@ void RuntimeHost::SavePreparedHistory() {
                             prepared_history_.end() - static_cast<std::ptrdiff_t>(kMaxPrepared * 8));
   std::string text;
   for (const auto& entry : prepared_history_)
-    text += std::to_string(entry.app_id) + "\t" + std::to_string(entry.finished_at) + "\n";
+    text += std::to_string(entry.runtime_number) + "\t" + std::to_string(entry.finished_at) + "\n";
   const auto path = config_.state_root / kPreparedHistory;
   const auto temporary = path.string() + ".playden-partial";
   const int out = open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
@@ -533,11 +548,11 @@ std::vector<PreparedGame> RuntimeHost::ListPrepared(const Composition* c) const 
   std::set<std::uint32_t> ready;
   if (c)
     for (const auto& record : c->repository.Snapshot())
-      if (record.state == rt::PreparationState::kReady && !record.journal) ready.insert(record.app_id);
+      if (record.state == rt::PreparationState::kReady && !record.journal) ready.insert(record.runtime_number);
   const auto now = config_.unix_time();
   std::vector<PreparedGame> listed;
   for (auto it = prepared_history_.rbegin(); it != prepared_history_.rend() && listed.size() < kMaxPrepared; ++it)
-    if (ready.count(it->app_id) && it->finished_at <= now && now - it->finished_at <= kPreparedDays * 24 * 60 * 60)
+    if (ready.count(it->runtime_number) && it->finished_at <= now && now - it->finished_at <= kPreparedDays * 24 * 60 * 60)
       listed.push_back(*it);
   std::stable_sort(listed.begin(), listed.end(),
                    [](const PreparedGame& left, const PreparedGame& right) { return left.finished_at > right.finished_at; });
@@ -547,7 +562,7 @@ std::vector<PreparedGame> RuntimeHost::ListPrepared(const Composition* c) const 
 void RuntimeHost::PublishPrepared(const Composition* c) {
   auto listed = ListPrepared(c);
   Publish([&](RuntimeSnapshot& s) {
-    if (s.preparing_app) std::erase_if(listed, [&s](const PreparedGame& entry) { return entry.app_id == *s.preparing_app; });
+    if (s.preparing_app) std::erase_if(listed, [&s](const PreparedGame& entry) { return entry.runtime_number == *s.preparing_app; });
     if (s.prepared != listed) s.prepared = std::move(listed);
   });
 }
@@ -643,13 +658,13 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     if (!rt::ApplyMediaRegistry((c.kit->view.root / c.kit->view.runtime.path).string(),
                                (HostPath(record.data_root) / "library/prefixes/game").string(),
                                config_.unix_time(), &reason))
-      Log("media upgrade app=" + std::to_string(record.app_id) + " skipped: " + reason);
+      Log("media upgrade app=" + std::to_string(record.runtime_number) + " skipped: " + reason);
   }
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
-    if (candidate.app_id == record.app_id && candidate.id == record.recipe_id) recipe = &candidate;
+    if (RecipeFits(candidate, record) && candidate.id == record.recipe_id) recipe = &candidate;
   if (!recipe) return {};  // publication reports the missing recipe
-  const auto saved = config_.settings_record ? config_.settings_record(record.app_id) : std::nullopt;
+  const auto saved = config_.settings_record ? config_.settings_record(GameOf(record)) : std::nullopt;
   const rt::SettingsPreset* preset = nullptr;
   if (saved)
     for (const auto& candidate : c.presets)
@@ -681,7 +696,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     std::string found, changed;
     for (const auto& path : unpacked.found) found += (found.empty() ? "" : ",") + path;
     for (const auto& path : unpacked.changed) changed += (changed.empty() ? "" : ",") + path;
-    Log("steamstub app=" + std::to_string(record.app_id) + " found=" + found + " changed=" + (changed.empty() ? "-" : changed) +
+    Log("steamstub app=" + std::to_string(record.runtime_number) + " found=" + found + " changed=" + (changed.empty() ? "-" : changed) +
         (unpacked.ok ? std::string() : " failed=" + unpacked.message));
   }
   if (!unpacked.ok) return unpacked.message;
@@ -690,17 +705,17 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   // The emulator's files name the signed-in account; before it is known they keep what Play wrote.
   const bool emulator_waits = emulate && !steam_account_known;
   if (emulator_waits) {
-    Log("steamworks app=" + std::to_string(record.app_id) + " mode=emulate waits: the Steam account is not known yet");
+    Log("steamworks app=" + std::to_string(record.runtime_number) + " mode=emulate waits: the Steam account is not known yet");
   } else if (emulate) {
     rt::SteamworksIdentity identity;
-    identity.app_id = record.app_id;
+    identity.app_id = record.runtime_number;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       identity.account_name = steam_account_name_;
       identity.steam_id = steam_id_;
     }
     if (!rt::ReadSteamworksFacts(root.string(), &identity))
-      Log("steamworks app=" + std::to_string(record.app_id) + " no download facts: no DLC or depots listed");
+      Log("steamworks app=" + std::to_string(record.runtime_number) + " no download facts: no DLC or depots listed");
     const auto emulator = config_.steamworks_dir.empty() ? config_.runtime_dir + "/steamworks" : config_.steamworks_dir;
     result = rt::EmulateSteamworks(root.string(), emulator, identity);
   } else {
@@ -709,7 +724,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   if (!emulator_waits) {
     std::string changed;
     for (const auto& path : result.changed) changed += (changed.empty() ? "" : ",") + path;
-    Log("steamworks app=" + std::to_string(record.app_id) + " mode=" + (emulate ? "emulate" : "game") +
+    Log("steamworks app=" + std::to_string(record.runtime_number) + " mode=" + (emulate ? "emulate" : "game") +
         " found=" + std::to_string(result.found.size()) + " changed=" + (changed.empty() ? "-" : changed) +
         (result.ok ? std::string() : " failed=" + result.message));
     if (!result.ok) return result.message;
@@ -723,7 +738,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     if (!legacy.changed.empty() || !legacy.ok) {
       std::string added;
       for (const auto& path : legacy.changed) added += (added.empty() ? "" : ",") + path;
-      Log("legacy steam app=" + std::to_string(record.app_id) + (emulate ? " added=" : " removed=") + added +
+      Log("legacy steam app=" + std::to_string(record.runtime_number) + (emulate ? " added=" : " removed=") + added +
           (legacy.ok ? std::string() : " failed=" + legacy.message));
     }
     if (!legacy.ok) return legacy.message;
@@ -732,7 +747,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   const auto eula = rt::AcceptUe3Eula(root.string(), programs,
                                       (HostPath(record.data_root) / "library/prefixes/game").string(), config_.unix_time());
   if (eula.found)
-    Log("ue3 eula app=" + std::to_string(record.app_id) + " guid=" + (eula.guid.empty() ? "-" : eula.guid) +
+    Log("ue3 eula app=" + std::to_string(record.runtime_number) + " guid=" + (eula.guid.empty() ? "-" : eula.guid) +
         " written=" + (eula.written ? "1" : "0") + (eula.ok ? std::string() : " failed=" + eula.message));
   if (!eula.ok) return "The game's EULA could not be marked accepted: " + eula.message + ".";
   // Direct3D 12 through vkd3d-proton: its DLLs go into the bottle, where the profile's overrides load them.
@@ -742,12 +757,12 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
                                (c.kit->view.root / c.kit->view.template_path).string(),
                                (HostPath(record.data_root) / "library/prefixes/game").string(), settings.vkd3d_proton,
                                &reason)) {
-      Log("d3d12 app=" + std::to_string(record.app_id) + " vkd3d-proton=" + (settings.vkd3d_proton ? "1" : "0") +
+      Log("d3d12 app=" + std::to_string(record.runtime_number) + " vkd3d-proton=" + (settings.vkd3d_proton ? "1" : "0") +
           " failed=" + reason);
       return std::string(settings.vkd3d_proton ? "vkd3d-proton could not be set up: "
                                                : "Wine's Direct3D 12 could not be put back: ") + reason + ".";
     } else if (settings.vkd3d_proton) {
-      Log("d3d12 app=" + std::to_string(record.app_id) + " vkd3d-proton=1");
+      Log("d3d12 app=" + std::to_string(record.runtime_number) + " vkd3d-proton=1");
     }
   }
   // vkd3d-proton's variables reach the game through the bottle's Environment key. Some change how it draws, so a
@@ -759,7 +774,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     if (::lstat((prefix + "/user.reg").c_str(), &hive) == 0 &&
         !rt::ApplyBottleRegistryValues(rt::RenderBottleEnvironment(settings), prefix, config_.unix_time(), "user.reg",
                                        &reason)) {
-      Log("bottle environment app=" + std::to_string(record.app_id) + " failed=" + reason);
+      Log("bottle environment app=" + std::to_string(record.runtime_number) + " failed=" + reason);
       return "The game's vkd3d-proton variables could not be written: " + reason + ".";
     }
   }
@@ -772,7 +787,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     if (!script.found.empty()) {
       std::string names;
       for (const auto& name : script.found) names += (names.empty() ? "" : ",") + name;
-      Log("install script app=" + std::to_string(record.app_id) + " found=" + names +
+      Log("install script app=" + std::to_string(record.runtime_number) + " found=" + names +
           " values=" + std::to_string(script.values) + " skipped=" + std::to_string(script.skipped.size()) +
           (script.ok ? std::string() : " failed=" + script.message));
     }
@@ -791,7 +806,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     };
     for (const auto& outcome : redist.outcomes)
       if (outcome.result != "already" && outcome.result != "covered")
-        Log("redist app=" + std::to_string(record.app_id) + " script=" + field(outcome.script) + " name=" +
+        Log("redist app=" + std::to_string(record.runtime_number) + " script=" + field(outcome.script) + " name=" +
             field(outcome.name) + " result=" + outcome.result + " detail=" + field(outcome.detail) +
             (outcome.files ? " files=" + std::to_string(outcome.files) : std::string()));
   }
@@ -800,7 +815,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     std::string reason;
     const bool ok = rt::ApplyBottleRegistryValues(recipe->registry, (HostPath(record.data_root) / "library/prefixes/game").string(),
                                                   config_.unix_time(), "user.reg", &reason);
-    Log("recipe registry app=" + std::to_string(record.app_id) + " values=" + std::to_string(recipe->registry.size()) +
+    Log("recipe registry app=" + std::to_string(record.runtime_number) + " values=" + std::to_string(recipe->registry.size()) +
         (ok ? std::string() : " failed=" + reason));
     if (!ok) return "The recipe's registry values could not be applied: " + reason + ".";
   }
@@ -810,7 +825,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   if (!dotnet.found.empty() || !dotnet.ok) {
     std::string limited;
     for (const auto& path : dotnet.changed) limited += (limited.empty() ? "" : ",") + path;
-    Log("dotnet heap app=" + std::to_string(record.app_id) + " found=" + std::to_string(dotnet.found.size()) +
+    Log("dotnet heap app=" + std::to_string(record.runtime_number) + " found=" + std::to_string(dotnet.found.size()) +
         " changed=" + (limited.empty() ? "-" : limited) + (dotnet.ok ? std::string() : " failed=" + dotnet.message));
   }
   return dotnet.ok ? std::string() : dotnet.message;
@@ -925,6 +940,53 @@ void RuntimeHost::Publish(const std::function<void(RuntimeSnapshot&)>& change) {
   published_.notify_all();
 }
 
+std::optional<std::uint32_t> RuntimeHost::RuntimeNumberFor(const GameId& game) {
+  if (const auto app = game.steam_app()) return app;
+  if (!game.valid()) {
+    Log("runtime number refused: invalid game " + ToKey(game));
+    return std::nullopt;
+  }
+  std::uint32_t number = 0;
+  {
+    // The repository serializes this with the worker's own use of it (its writes included).
+    std::lock_guard<std::mutex> lock(numbers_mutex_);
+    if (const auto found = numbers_.find(game); found != numbers_.end()) return found->second;
+    if (!numbers_repository_) {
+      Log("runtime number for " + ToKey(game) + " refused: the runtime records are not loaded");
+      return std::nullopt;
+    }
+    const auto allocated = numbers_repository_->RuntimeNumberFor(game);
+    if (!allocated.ok()) {
+      Log("runtime number for " + ToKey(game) + " refused: " + allocated.message());
+      return std::nullopt;
+    }
+    number = allocated.value();
+    numbers_.emplace(game, number);
+  }
+  Log("runtime number for " + ToKey(game) + " is " + std::to_string(number));
+  Publish([&](RuntimeSnapshot& s) { s.runtime_games[number] = game; });
+  return number;
+}
+
+void RuntimeHost::LearnNumber(const GameId& game, std::uint32_t runtime_number) {
+  if (game.store == Store::kSteam || !game.valid()) return;
+  {
+    std::lock_guard<std::mutex> lock(numbers_mutex_);
+    numbers_[game] = runtime_number;
+  }
+  Publish([&](RuntimeSnapshot& s) { s.runtime_games[runtime_number] = game; });
+}
+
+void RuntimeHost::ShareNumbers(rt::RuntimeInstallRepository* repository) {
+  std::vector<rt::RuntimeInstall> records;
+  {
+    std::lock_guard<std::mutex> lock(numbers_mutex_);
+    numbers_repository_ = repository;
+    if (repository) records = repository->Snapshot();
+  }
+  for (const auto& record : records) LearnNumber(record.game, record.runtime_number);
+}
+
 rt::NativeActivity RuntimeHost::ActivityNow(std::uint32_t app_id, std::chrono::milliseconds timeout) {
   std::unique_lock<std::mutex> lock(mutex_);
   if (stopping_) return rt::NativeActivity::kUnknown;
@@ -964,7 +1026,8 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
   std::vector<RuntimeInstallView> installs;
   for (const auto& record : composition.repository.Snapshot()) {
     RuntimeInstallView view;
-    view.install_id = record.install_id; view.app_id = record.app_id; view.title_id = record.title_id;
+    view.install_id = record.install_id; view.runtime_number = record.runtime_number; view.title_id = record.title_id;
+    view.game = GameOf(record.game, record.runtime_number);
     view.install_path = record.install_path;
     view.moving = record.journal && record.journal->operation == "remove-move";
     if (!record.data_root.empty()) view.prefix_root = record.data_root + "/library/prefixes/game";
@@ -1025,11 +1088,12 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
 
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
-    if (candidate.app_id == record.app_id && candidate.id == record.recipe_id) recipe = &candidate;
+    if (RecipeFits(candidate, record) && candidate.id == record.recipe_id) recipe = &candidate;
   if (!recipe) return failed("recipe-unavailable", "Playden no longer knows how to start this game; prepare it again.");
   rt::SettingsLaunchInput input;
   input.recipe = recipe;
-  input.record = config_.settings_record ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{})
+  input.record = config_.settings_record
+                     ? config_.settings_record(GameOf(record)).value_or(rt::GameSettingsRecord{})
                                          : rt::GameSettingsRecord{};
   for (const auto& preset : c.presets)
     if (preset.id == input.record.preset_id) input.preset = &preset;
@@ -1145,7 +1209,7 @@ bool RuntimeHost::DropUpgradeRequest(Composition& c, const std::string& install_
       loaded.request->plan.settings_revision != current->settings_revision)
     return false;
   const auto dropped = c.owner->DiscardRequested(*current, c.request_directory, config_.host_namespace_prefix);
-  Log("settings update app=" + std::to_string(current->app_id) + " unowned upgrade request " + current->journal->operation_id +
+  Log("settings update app=" + std::to_string(current->runtime_number) + " unowned upgrade request " + current->journal->operation_id +
       (dropped.state == rt::PackageActionState::kComplete ? " dropped" : " kept") + ": " + why +
       (dropped.code.empty() ? std::string{} : " code=" + dropped.code) +
       (dropped.message.empty() ? std::string{} : " " + dropped.message));
@@ -1207,7 +1271,7 @@ std::string RuntimeHost::UnlinkDxvkConfig(const rt::RuntimeInstall& record) {
   struct stat info{};
   if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_nlink <= 1) return {};
   const auto failed = [&](const char* step) {
-    Log("dxvk.conf unlink app=" + std::to_string(record.app_id) + " failed at " + step + " errno=" + std::to_string(errno));
+    Log("dxvk.conf unlink app=" + std::to_string(record.runtime_number) + " failed at " + step + " errno=" + std::to_string(errno));
     return std::string("The game's dxvk.conf has more than one link and could not be replaced by a copy.");
   };
   constexpr off_t kMaxBytes = 256 * 1024;
@@ -1250,7 +1314,7 @@ std::string RuntimeHost::UnlinkDxvkConfig(const rt::RuntimeInstall& record) {
     unlink(temporary.c_str());
     return failed("write");
   }
-  Log("dxvk.conf unlink app=" + std::to_string(record.app_id) + " links=" + std::to_string(info.st_nlink) +
+  Log("dxvk.conf unlink app=" + std::to_string(record.runtime_number) + " links=" + std::to_string(info.st_nlink) +
       " replaced by a copy path=" + path.string());
   return {};
 }
@@ -1264,12 +1328,12 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   // A recipe this kit cannot run is refused before the game's files or bottle change.
   if (c.kit)
     for (const auto& candidate : c.recipes)
-      if (candidate.app_id == record.app_id && candidate.id == record.recipe_id)
+      if (RecipeFits(candidate, record) && candidate.id == record.recipe_id)
         if (const auto lacks = KitLacksForRecipe(candidate, c.kit->view); !lacks.empty()) return lacks;
   // Only the unowned upgrade of a game that did not move, with no newer settings: the game
   // played under its owned publication, which stays when the upgrade fails.
   const auto saved_revision = config_.settings_record
-      ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{}).revision : 0;
+      ? config_.settings_record(GameOf(record)).value_or(rt::GameSettingsRecord{}).revision : 0;
   const bool upgrade_only = record.moved_from.empty() && saved_revision <= record.settings_revision &&
                             NeedsUnownedPublication(c, record);
   // A game folder that isn't there (a stale record, an unplugged drive) can't be published, and
@@ -1277,7 +1341,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   if (upgrade_only || !record.moved_from.empty()) {
     if (const auto missing = MissingGameFolder(HostPath(record.install_path), record)) {
       if (!upgrade_only) return "The moved game's working folder is missing at its new place (" + missing->string() + ").";
-      Log("settings update app=" + std::to_string(record.app_id) + " unowned upgrade skipped: game folder missing (" +
+      Log("settings update app=" + std::to_string(record.runtime_number) + " unowned upgrade skipped: game folder missing (" +
           missing->string() + ")");
       if (upgrade_deferred) *upgrade_deferred = "The game folder is missing.";
       return {};
@@ -1285,7 +1349,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   }
   auto refused = PublishSavedSettings(c, record, published, steam_account_known, prepare_again);
   if (refused.empty() || !upgrade_only) return refused;
-  Log("settings update app=" + std::to_string(record.app_id) + " unowned upgrade deferred, owned publication kept: " +
+  Log("settings update app=" + std::to_string(record.runtime_number) + " unowned upgrade deferred, owned publication kept: " +
       refused);
   if (prepare_again) *prepare_again = false;
   if (upgrade_deferred) *upgrade_deferred = refused;
@@ -1303,14 +1367,15 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
     if (prepare_again) *prepare_again = true;
     return message;
   };
-  const auto saved = config_.settings_record ? config_.settings_record(record.app_id).value_or(rt::GameSettingsRecord{})
+  const auto saved = config_.settings_record
+                         ? config_.settings_record(GameOf(record)).value_or(rt::GameSettingsRecord{})
                                              : rt::GameSettingsRecord{};
   // A game whose folder moved (RuntimeInstall::moved_from) is published again at its revision, so
   // its descriptor, profile and dxvk.conf name the new folder.
   const bool moved = !record.moved_from.empty();
   // So is an owned publication the kit can replace by an unowned one (folders opened for mods).
   const bool unowned_upgrade = !moved && NeedsUnownedPublication(c, record);
-  if (unowned_upgrade) Log("settings update app=" + std::to_string(record.app_id) + " publishes the game folder unowned");
+  if (unowned_upgrade) Log("settings update app=" + std::to_string(record.runtime_number) + " publishes the game folder unowned");
   // "Steam features" only swaps the game's own files, so it follows the saved value at once.
   if (saved.revision <= record.settings_revision && !moved && !unowned_upgrade)
     return ApplySteamworks(c, record, steam_account_known);
@@ -1319,7 +1384,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
     return again("The game's saved settings are older than its PS5 title's; prepare it again.");
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
-    if (candidate.app_id == record.app_id && candidate.id == record.recipe_id &&
+    if (RecipeFits(candidate, record) && candidate.id == record.recipe_id &&
         std::to_string(candidate.version) == record.recipe_version)
       recipe = &candidate;
   if (!recipe) return again("Playden no longer knows how to start this game; prepare it again.");
@@ -1373,7 +1438,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
         next.launch_in_install_root = launch.in_install_root && next.launch_working_directory.empty();
         // The recipe stays the one the game was prepared with: its graphics and engine arguments
         // came from the first program's files, and only a preparation sees Steam's launch options.
-        Log("program switch app=" + std::to_string(record.app_id) + " from=" + record.launch_entry_id + ":" +
+        Log("program switch app=" + std::to_string(record.runtime_number) + " from=" + record.launch_entry_id + ":" +
             record.launch_path + " to=" + next.launch_entry_id + ":" + next.launch_path + " recipe kept=" + record.recipe_id);
       }
     }
@@ -1410,10 +1475,10 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   rt::SettingsLaunchPlan plan;
   std::string reason;
   if (!rt::BuildSettingsLaunchPlan(input, &plan, &reason)) {
-    Log("settings update plan refused app=" + std::to_string(record.app_id) + ": " + reason);
+    Log("settings update plan refused app=" + std::to_string(record.runtime_number) + ": " + reason);
     return again("The settings could not be applied: " + reason);
   }
-  if (plan.app_id != record.app_id || plan.recipe_id != record.recipe_id || plan.recipe_version != record.recipe_version ||
+  if (plan.app_id != record.runtime_number || plan.recipe_id != record.recipe_id || plan.recipe_version != record.recipe_version ||
       plan.launch_entry_id != next.launch_entry_id || plan.profile_id != record.default_profile_id)
     return again("The settings no longer match this game's PS5 title; prepare it again.");
   const auto transaction = config_.uuid();
@@ -1426,14 +1491,14 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   request.plan = std::move(plan);
   request.registry_unix_time = config_.unix_time();
   const auto requested = c.owner->Request(request, c.request_directory);
-  Log("settings update request app=" + std::to_string(record.app_id) + " transaction=" + request.transaction_id +
+  Log("settings update request app=" + std::to_string(record.runtime_number) + " transaction=" + request.transaction_id +
       " revision=" + std::to_string(record.settings_revision) + "->" + std::to_string(saved.revision) + " state=" +
       std::to_string(static_cast<int>(requested.state)) + " code=" + requested.code + " message=" + requested.message);
   if (requested.state != rt::PackageActionState::kComplete) return "The settings could not be applied: " + requested.message;
   const auto armed = c.records.Find(record.install_id);
   if (!armed) return "The game's install record is missing.";
   const auto resumed = c.owner->ResumeRequested(*armed, c.request_directory, config_.host_namespace_prefix);
-  Log("settings update resume app=" + std::to_string(record.app_id) + " state=" +
+  Log("settings update resume app=" + std::to_string(record.runtime_number) + " state=" +
       std::to_string(static_cast<int>(resumed.state)) + " code=" + resumed.code + " message=" + resumed.message);
   // The title's start check now finds the new folder.
   if (moved && resumed.state == rt::PackageActionState::kComplete)
@@ -1648,7 +1713,8 @@ void RuntimeHost::PublishLaunch(Composition& c, const rt::LaunchSnapshot& launch
   view.message = launch.message;
   view.exit_code = launch.exit_code;
   if (const auto record = c.records.Find(launch.install_id)) {
-    view.app_id = record->app_id;
+    view.runtime_number = record->runtime_number;
+    view.game = GameOf(record->game, record->runtime_number);
     view.title_id = record->title_id;
   }
   Publish([&](RuntimeSnapshot& s) {
@@ -1661,7 +1727,7 @@ void RuntimeHost::PublishLaunch(Composition& c, const rt::LaunchSnapshot& launch
 void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
   std::optional<rt::RuntimeInstall> record;
   for (const auto& candidate : c.repository.Snapshot())
-    if (candidate.app_id == app_id) record = candidate;
+    if (candidate.runtime_number == app_id) record = candidate;
   rt::LaunchResult result;
   rt::LaunchSnapshot snapshot;
   {
@@ -1820,7 +1886,7 @@ bool RuntimeHost::TitleNameCurrent(const rt::RuntimeInstall& record) const {
   std::string wanted;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto found = title_names_.find(record.app_id);
+    const auto found = title_names_.find(record.runtime_number);
     if (found == title_names_.end() || found->second.empty()) return true;  // nothing asked for
     wanted = found->second;
   }
@@ -1866,11 +1932,11 @@ rt::PackageActionResult RuntimeHost::WriteTitleMetadata(Composition& c, const rt
       !(replace_value("titleId", record.title_id) && replace_value("conceptId", record.title_id.substr(4)) &&
         replace_value("contentId", "UP9000-" + record.title_id + "_00-PROSPEROWIN00001")))
     return failed("The kit's title parameters have an unexpected layout.");
-  const std::string name = title_name.empty() ? "Steam game " + std::to_string(record.app_id) : title_name;
+  const std::string name = title_name.empty() ? "Steam game " + std::to_string(record.runtime_number) : title_name;
   if (!replace_value("titleName", JsonEscaped(name)))
-    Log("title metadata app=" + std::to_string(record.app_id) + " keeps the kit's name: unexpected layout");
-  const auto icon = config_.title_icon ? config_.title_icon(record.app_id) : std::nullopt;
-  Log("title metadata app=" + std::to_string(record.app_id) + " name=" + name + " icon=" +
+    Log("title metadata app=" + std::to_string(record.runtime_number) + " keeps the kit's name: unexpected layout");
+  const auto icon = config_.title_icon ? config_.title_icon(GameOf(record)) : std::nullopt;
+  Log("title metadata app=" + std::to_string(record.runtime_number) + " name=" + name + " icon=" +
       (icon ? std::to_string(icon->size()) + "B" : std::string("kit")));
   return c.installer->WriteTitleMetadata(record, param, icon);
 }
@@ -1886,25 +1952,27 @@ std::string GeneratedRecipeFile(const std::string& recipe_id) { return "recipe-"
 const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const RuntimePrepareRequest& request,
                                                     std::string* reason) {
   for (const auto& candidate : c.recipes)
-    if (candidate.app_id == request.app_id && !rt::IsGeneratedRecipeId(candidate.id)) return &candidate;
+    if (rt::RecipeGame(candidate) == GameOf(request) && candidate.app_id == request.runtime_number &&
+        !rt::IsGeneratedRecipeId(candidate.id))
+      return &candidate;
   if (!c.settings_data_reason.empty()) { *reason = c.settings_data_reason; return nullptr; }
   const auto root = config_.host_namespace_prefix.empty()
       ? std::filesystem::path(request.install_path)
       : config_.host_namespace_prefix / std::filesystem::path(request.install_path).relative_path();
   // The program the player chose and "Try anyway" come from Game settings, so a game whose
   // Steam launch options don't work can still be started.
-  const auto saved = config_.settings_record ? config_.settings_record(request.app_id) : std::nullopt;
+  const auto saved = config_.settings_record ? config_.settings_record(GameOf(request)) : std::nullopt;
   const auto choices = saved ? rt::RecipeChoicesFrom(*saved) : rt::RecipeChoices{};
   const auto kit = c.kit ? rt::KitCapabilitiesFromManifest(c.kit->capabilities, true) : rt::KitCapabilities{};
   rt::GameRecipe generated;
   bool soft = true;
   rt::GameRecipeDiagnostics diagnostics;
   const bool made = (!request.launches.empty() || !choices.program.empty()) &&
-      rt::GenerateGameRecipe(request.app_id, request.title_name, request.launches, root.string(), &generated, reason, kit,
-                             choices, &soft, &diagnostics);
+      rt::GenerateGameRecipe(GameOf(request), request.runtime_number, request.title_name, request.launches, root.string(),
+                             &generated, reason, kit, choices, &soft, &diagnostics);
   // The same line an unpack writes, so a refused SteamStub program is found the same way.
   if (!made && !diagnostics.steam_stub_program.empty())
-    Log("steamstub app=" + std::to_string(request.app_id) + " found=" + diagnostics.steam_stub_program +
+    Log("steamstub app=" + std::to_string(request.runtime_number) + " found=" + diagnostics.steam_stub_program +
         " changed=- failed=" + *reason + " (" + (diagnostics.steam_stub_detail.empty() ? "unknown" : diagnostics.steam_stub_detail) + ")");
   if (!made && request.launches.empty() && choices.program.empty())
     *reason = request.launch_reason.empty() ? "Steam lists no Windows program this console can start for this game."
@@ -1919,22 +1987,23 @@ const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const Runtim
     tried.try_anyway = true;
     rt::GameRecipe permissive;
     std::string ignored;
-    if (!rt::GenerateGameRecipe(request.app_id, request.title_name, request.launches, root.string(), &permissive,
-                                &ignored, kit, tried)) {
+    if (!rt::GenerateGameRecipe(GameOf(request), request.runtime_number, request.title_name, request.launches, root.string(),
+                                &permissive, &ignored, kit, tried)) {
       // No program yet: the sheet starts from the Program row.
       permissive = {};
-      permissive.id = rt::GeneratedRecipeId(request.app_id);
+      permissive.id = playden::GeneratedRecipeId(GameOf(request));
       permissive.version = 2;
-      permissive.app_id = request.app_id;
+      permissive.app_id = request.runtime_number;
+      if (GameOf(request).store != Store::kSteam) permissive.game = GameOf(request);
       permissive.name = request.title_name;
       permissive.defaults["steam_features"] = "emulate";
     }
     draft = std::move(permissive);
-    Log("prepare refused app=" + std::to_string(request.app_id) + " soft=" + std::to_string(soft) +
+    Log("prepare refused app=" + std::to_string(request.runtime_number) + " soft=" + std::to_string(soft) +
         " programs=" + std::to_string(programs.size()) + " " + *reason);
   }
   Publish([&](RuntimeSnapshot& s) {
-    auto& setup = s.game_setups[request.app_id];
+    auto& setup = s.game_setups[request.runtime_number];
     if (!made) setup.programs = std::move(programs), setup.scanned = true;
     setup.draft = std::move(draft);
     setup.refusal_soft = !made && soft;
@@ -1943,11 +2012,11 @@ const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const Runtim
   const auto text = rt::SerializeGameRecipe(generated);
   const auto written = c.storage.WriteAtomicPrivate(GeneratedRecipeFile(generated.id), Bytes(text.begin(), text.end()));
   if (!written.ok()) {
-    Log("generated recipe write failed app=" + std::to_string(request.app_id) + " message=" + written.message());
+    Log("generated recipe write failed app=" + std::to_string(request.runtime_number) + " message=" + written.message());
     *reason = "Playden could not save how to start this game.";
     return nullptr;
   }
-  Log("generated recipe app=" + std::to_string(request.app_id) + " detected=" + generated.detected +
+  Log("generated recipe app=" + std::to_string(request.runtime_number) + " detected=" + generated.detected +
       " architecture=" + generated.architecture +
       " entries=" + std::to_string(generated.launch_entries.size()) + " executable=" +
       generated.launch_entries.front().executable);
@@ -1967,7 +2036,7 @@ void RuntimeHost::LoadGeneratedRecipes(Composition& c) {
     std::string reason;
     if (!bytes.ok() ||
         !rt::ParseGameRecipe(std::string(bytes.value().begin(), bytes.value().end()), &recipe, &reason) ||
-        recipe.id != record.recipe_id || recipe.app_id != record.app_id ||
+        recipe.id != record.recipe_id || !RecipeFits(recipe, record) ||
         std::to_string(recipe.version) != record.recipe_version) {
       Log("generated recipe unavailable install=" + record.install_id + " " +
           (bytes.ok() ? reason : bytes.message()));
@@ -1997,14 +2066,14 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   if (c.launch_journal) {
     const auto pending = c.launch_journal->LoadPending();
     if (!pending.ok) return "The launch record cannot be read; restart Playden before preparing.";
-    if (pending.session && pending.session->install_id == InstallId(request.app_id))
+    if (pending.session && pending.session->install_id == ToInstallId(GameOf(request.game, request.runtime_number)))
       return "Close the game before updating or repairing its PS5 title.";
   }
   // Before anything is written (or a managed folder opened): folders made over FTP may need a fix.
   if (const auto unwritable = EnsureWritable(request.install_path, {}); !unwritable.empty()) return unwritable;
   std::optional<rt::RuntimeInstall> existing;
   for (const auto& record : c.repository.Snapshot())
-    if (record.app_id == request.app_id) existing = record;
+    if (record.runtime_number == request.runtime_number) existing = record;
   // A title being removed because its game moved drives is finished here; any other removal by Uninstall.
   const bool moving = existing && existing->state == rt::PreparationState::kRemoving && existing->journal &&
                       existing->journal->operation == "remove-move";
@@ -2020,12 +2089,12 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     struct stat info{};
     if (lstat(HostPath(request.install_path).c_str(), &info) != 0 || !S_ISDIR(info.st_mode))
       return "The game's folder is missing; download it again.";
-    Log("moved install app=" + std::to_string(request.app_id) + " title=" + existing->title_id + " from=" +
+    Log("moved install app=" + std::to_string(request.runtime_number) + " title=" + existing->title_id + " from=" +
         existing->install_path + " to=" + request.install_path);
     // Recorded as a move, so a removal that stops part way is finished by the next Play or Prepare
     // and never turns into an uninstall of the game's new download.
-    if (const auto removed = RunRemove(c, request.app_id, false, true); !removed.empty()) {
-      Log("moved install app=" + std::to_string(request.app_id) + " removal stopped: " + removed);
+    if (const auto removed = RunRemove(c, request.runtime_number, false, true); !removed.empty()) {
+      Log("moved install app=" + std::to_string(request.runtime_number) + " removal stopped: " + removed);
       return "The game's old PS5 title could not be removed yet. Play tries again.";
     }
     existing.reset();
@@ -2097,7 +2166,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
           });
         });
     if (!bound_current) {
-      if (!record.artifacts.empty()) Log("prepare rebinds app=" + std::to_string(record.app_id) + " to the kit's artifacts");
+      if (!record.artifacts.empty()) Log("prepare rebinds app=" + std::to_string(record.runtime_number) + " to the kit's artifacts");
       record.artifacts = std::move(current);
       const auto bound = c.repository.Update(record);
       if (!bound.ok()) return "The kit artifacts could not be recorded: " + bound.message();
@@ -2173,11 +2242,11 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         const auto refreshed = c.installer->RefreshTitle(target);
         if (runtime_upgrade && refreshed.state == rt::PackageActionState::kComplete) {
           const auto recorded = c.repository.Update(target);
-          Log("runtime upgrade app=" + std::to_string(request.app_id) + " recorded=" + std::to_string(recorded.ok()));
+          Log("runtime upgrade app=" + std::to_string(request.runtime_number) + " recorded=" + std::to_string(recorded.ok()));
           if (!recorded.ok()) return "The runtime was updated but could not be recorded; press Update again.";
           *existing = target;
         }
-        Log("title refresh app=" + std::to_string(request.app_id) + " state=" +
+        Log("title refresh app=" + std::to_string(request.runtime_number) + " state=" +
             std::to_string(static_cast<int>(refreshed.state)) + " code=" + refreshed.code + " message=" + refreshed.message);
         PublishInstalls(c);
         if (refreshed.state != rt::PackageActionState::kComplete) return refreshed.message;
@@ -2204,7 +2273,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       if (admission != "ok") {
         const auto repaired = c.installer->RepairBottle(*existing);
         admission = c.installer->AdmissionDiagnostic(*existing);
-        Log("bottle repair app=" + std::to_string(request.app_id) + " state=" +
+        Log("bottle repair app=" + std::to_string(request.runtime_number) + " state=" +
             std::to_string(static_cast<int>(repaired.state)) + " code=" + repaired.code + " admission=" + admission);
         if (repaired.state != rt::PackageActionState::kComplete) {
           c.admission[existing->install_id] = admission; PublishInstalls(c);
@@ -2266,7 +2335,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       return "The installed compatibility kit was built for another version of this game's setup.";
     if (const auto lacks = KitLacksForRecipe(*recipe, c.kit->view); !lacks.empty()) return lacks;
     if (recipe->launch_entries.empty()) return "Steam lists no Windows program this console can start for this game.";
-    const auto settings = config_.settings_record ? config_.settings_record(request.app_id) : std::nullopt;
+    const auto settings = config_.settings_record ? config_.settings_record(GameOf(request)) : std::nullopt;
     // The title is made for the launch option the player chose, so its publication matches.
     rt::LaunchEntry launch = recipe->launch_entries.front();
     if (settings) {
@@ -2296,9 +2365,12 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
         !refused.empty())
       return refused;
     rt::ReserveRequest reserve;
-    reserve.install_id = InstallId(request.app_id);
-    reserve.app_id = request.app_id;
-    reserve.default_profile_id = rt::ProsperoProfileId(request.app_id);
+    // Steam: "steam-<app>" and "playden-steam-<app>", as before.
+    const auto game = GameOf(request.game, request.runtime_number);
+    reserve.install_id = ToInstallId(game);
+    reserve.runtime_number = request.runtime_number;
+    reserve.game = game;
+    reserve.default_profile_id = ProfileId(game);
     reserve.runtime_bundle_id = c.kit->view.runtime.bundle_id;
     reserve.recipe_id = recipe->id;
     reserve.recipe_version = std::to_string(recipe->version);
@@ -2318,18 +2390,18 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     if (!reserved.ok()) return "A PS5 title could not be reserved: " + reserved.message();
     auto record = reserved.value();
     // Before the title exists: it may only start once its helper lists it.
-    Log("prepare reserved app=" + std::to_string(request.app_id) + " title=" + record.title_id + " ms=" + elapsed_ms());
+    Log("prepare reserved app=" + std::to_string(request.runtime_number) + " title=" + record.title_id + " ms=" + elapsed_ms());
     if (const auto listed = SyncTitleAllowList(c); !listed.empty()) return listed;
     if (const auto initialized = initialize_reserved(record); !initialized.empty()) return initialized;
-    Log("prepare metadata app=" + std::to_string(request.app_id) + " ms=" + elapsed_ms());
+    Log("prepare metadata app=" + std::to_string(request.runtime_number) + " ms=" + elapsed_ms());
     PublishInstalls(c);
     started = c.service->Prepare(record.install_id);
   }
   PublishInstalls(c);
-  Log("prepare start app=" + std::to_string(request.app_id) + " root=" + request.install_path +
+  Log("prepare start app=" + std::to_string(request.runtime_number) + " root=" + request.install_path +
       " ok=" + std::to_string(started.ok()) + " ms=" + elapsed_ms() + " message=" + started.message);
   if (!started.ok()) return started.message;
-  const auto install_id = existing ? existing->install_id : InstallId(request.app_id);
+  const auto install_id = existing ? existing->install_id : ToInstallId(GameOf(request.game, request.runtime_number));
   bool checked_after_submit = false;
   for (int steps = 0; steps < kMaxPreparationSteps && !Stopping(); ++steps) {
     const auto current = c.records.Find(install_id);
@@ -2350,7 +2422,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count());
     };
     const auto after_step = c.records.Find(install_id);
-    Log("prepare step app=" + std::to_string(request.app_id) + " from=" + before +
+    Log("prepare step app=" + std::to_string(request.runtime_number) + " from=" + before +
         " step_ms=" + ms(step_began, step_ended) + " publish_ms=" + ms(step_ended, std::chrono::steady_clock::now()) +
         " ok=" + std::to_string(step.ok()) + " error=" + std::to_string(static_cast<int>(step.error())) +
         " state=" + (after_step ? std::to_string(static_cast<int>(after_step->state)) : std::string("-")) +
@@ -2386,10 +2458,8 @@ constexpr char kRestoredMarker[] = ".playden-saves-restored";
 constexpr char kSaveBackupSuffix[] = ".saves";
 constexpr std::size_t kSaveBackupsKept = 3;
 
-bool SteamInstallId(const std::string& id) {
-  if (id.rfind("steam-", 0) != 0 || id.size() <= 6 || id.size() > 16) return false;
-  return id.find_first_not_of("0123456789", 6) == std::string::npos;
-}
+// "steam-<app id>" or "local-<uuid>": the install IDs a kept bottle may carry.
+bool KeptInstallId(const std::string& id) { return ParseInstallId(id).has_value(); }
 
 // Deletes a tree with lstat/unlink/rmdir: links are removed as links and never
 // followed (Wine prefixes link z: to /). std::filesystem::remove_all crashed the
@@ -2497,14 +2567,28 @@ std::optional<KeptBottleView> ReadKeptMarker(const std::filesystem::path& kept, 
   const auto* kept_at = json->Find("kept_at");
   const auto* size = json->Find("bytes");
   const auto* install = json->Find("install_id");
+  // Written for games from other stores; absent means the Steam game app_id names.
+  const auto* store = json->Find("store");
+  const auto* game = json->Find("game");
   if (!app || !app->is_number() || !install || !install->is_string() || install->text() != install_id) return std::nullopt;
+  if ((store == nullptr) != (game == nullptr) || (store && (!store->is_string() || !game->is_string()))) return std::nullopt;
   KeptBottleView view;
   view.install_id = install_id;
-  view.app_id = static_cast<std::uint32_t>(std::strtoul(app->text().c_str(), nullptr, 10));
+  view.runtime_number = static_cast<std::uint32_t>(std::strtoul(app->text().c_str(), nullptr, 10));
   if (name && name->is_string()) view.name = WithoutStoreSuffix(name->text());  // markers written before the name was stripped
   if (kept_at && kept_at->is_number()) view.kept_at = std::strtoll(kept_at->text().c_str(), nullptr, 10);
   if (size && size->is_number()) view.bytes = std::strtoull(size->text().c_str(), nullptr, 10);
-  if (view.app_id == 0 || "steam-" + std::to_string(view.app_id) != install_id) return std::nullopt;
+  if (store) {
+    const auto parsed = ParseStoreKey(store->text());
+    if (!parsed) return std::nullopt;
+    view.game = GameId{*parsed, game->text()};
+    if (!view.game.valid() || ToInstallId(view.game) != install_id || view.runtime_number < rt::kFirstRuntimeNumber ||
+        view.runtime_number > rt::kLastRuntimeNumber)
+      return std::nullopt;
+  } else {
+    view.game = GameId::Steam(view.runtime_number);
+    if (!view.game.valid() || ToInstallId(view.game) != install_id) return std::nullopt;
+  }
   return view;
 }
 
@@ -2594,7 +2678,7 @@ std::string RuntimeHost::RunMaintenance(Composition& c, std::uint32_t app, Runti
   *ok = false;
   std::optional<rt::RuntimeInstall> record;
   for (const auto& candidate : c.repository.Snapshot())
-    if (candidate.app_id == app) record = candidate;
+    if (candidate.runtime_number == app) record = candidate;
   if (!record) return "This game has no PS5 title yet.";
   if (const auto replaced = KitReplaced(c); !replaced.empty()) return replaced;
   if (const auto refused = MaintenanceRefusal(c, *record); !refused.empty()) {
@@ -2723,7 +2807,7 @@ bool RuntimeHost::TitleListed(Composition& c, const std::string& title_id) {
   return lstat(HostPath("/user/app/" + title_id).c_str(), &info) == 0;
 }
 
-void RuntimeHost::PublishKeptBottles(const Composition& c) {
+void RuntimeHost::PublishKeptBottles(Composition& c) {
   std::set<std::string> recorded;
   for (const auto& record : c.repository.Snapshot()) recorded.insert(record.install_id);
   std::vector<KeptBottleView> kept;
@@ -2734,14 +2818,20 @@ void RuntimeHost::PublishKeptBottles(const Composition& c) {
     const std::size_t suffix = std::strlen(kKeptSuffix);
     if (name.size() <= suffix || name.compare(name.size() - suffix, suffix, kKeptSuffix) != 0) continue;
     const auto install_id = name.substr(0, name.size() - suffix);
-    if (!SteamInstallId(install_id) || recorded.count(install_id)) continue;
+    if (!KeptInstallId(install_id) || recorded.count(install_id)) continue;
     std::error_code ignored;
     if (it->is_symlink(ignored) || !it->is_directory(ignored)) continue;
     if (auto view = ReadKeptMarker(it->path(), install_id)) {
+      // A game from another store keeps its number: installed again, it gets the same one back.
+      if (const auto remembered = c.repository.RememberNumber(view->game, view->runtime_number); !remembered.ok()) {
+        Log("kept bottle skipped install=" + install_id + ": " + remembered.message());
+        continue;
+      }
       view->data_root = config_.package_paths.console_data_root + "/playden/games/" + name;
       kept.push_back(std::move(*view));
     }
   }
+  for (const auto& view : kept) LearnNumber(view.game, view.runtime_number);
   std::sort(kept.begin(), kept.end(), [](const auto& a, const auto& b) { return a.kept_at > b.kept_at; });
   Publish([&](RuntimeSnapshot& s) { s.kept_bottles = std::move(kept); });
 }
@@ -2753,7 +2843,7 @@ void RuntimeHost::PublishKeptBottles(const Composition& c) {
 std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delete_saves, bool moving) {
   std::optional<rt::RuntimeInstall> found;
   for (const auto& record : c.repository.Snapshot())
-    if (record.app_id == app) found = record;
+    if (record.runtime_number == app) found = record;
   if (!found) return {};  // no PS5 title: nothing to remove
   auto record = *found;
   if (!config_.unregister_title) return "Removing PS5 titles is not available in this build.";
@@ -2881,8 +2971,12 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
       ClearWork();
       if (error) return fail("bottle-delete", "The game's saves and settings could not be deleted: " + error.message());
     } else if (present) {
+      // A Steam game's marker is as before; another store's also names its game.
+      const auto game = GameOf(record);
+      const auto identity = game.store == Store::kSteam ? std::string()
+          : ",\"store\":\"" + std::string(Traits(game.store).key) + "\",\"game\":\"" + JsonEscaped(game.value) + "\"";
       const auto marker = "{\"schema\":1,\"install_id\":\"" + record.install_id + "\",\"app_id\":" +
-                          std::to_string(record.app_id) + ",\"name\":\"" + JsonEscaped(game_name) +
+                          std::to_string(record.runtime_number) + identity + ",\"name\":\"" + JsonEscaped(game_name) +
                           "\",\"kept_at\":" + std::to_string(config_.unix_time ? config_.unix_time() : std::int64_t(time(nullptr))) +
                           ",\"bytes\":" + std::to_string(TreeBytes(bottle)) + "}\n";
       const int fd = open((bottle / kKeptMarker).c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
@@ -2960,7 +3054,7 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
 std::string RuntimeHost::RestoreKeptSaves(Composition& c, std::uint32_t app) {
   std::optional<rt::RuntimeInstall> record;
   for (const auto& candidate : c.repository.Snapshot())
-    if (candidate.app_id == app && (candidate.state == rt::PreparationState::kReady || AwaitingRegistration(candidate)))
+    if (candidate.runtime_number == app && (candidate.state == rt::PreparationState::kReady || AwaitingRegistration(candidate)))
       record = candidate;
   if (!record) return {};
   const auto bottle = HostPath(record->data_root);
@@ -2995,7 +3089,13 @@ std::string RuntimeHost::RestoreKeptSaves(Composition& c, std::uint32_t app) {
 }
 
 std::string RuntimeHost::DeleteKept(Composition& c, std::uint32_t app) {
-  const auto install_id = "steam-" + std::to_string(app);
+  // The kept bottle listed with this number; a Steam game's is named by its app ID.
+  std::string install_id = ToInstallId(GameId::Steam(app));
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& view : snapshot_.kept_bottles)
+      if (view.runtime_number == app) install_id = view.install_id;
+  }
   const auto kept = HostPath(config_.package_paths.console_data_root + "/playden/games") / (install_id + kKeptSuffix);
   struct stat info{};
   if (lstat(kept.c_str(), &info) != 0) return {};
@@ -3065,7 +3165,7 @@ void RuntimeHost::Run() {
         c.records, *c.installer, *c.coordinator,
         [&c](const rt::RuntimeInstall& record) {
           for (const auto& recipe : c.recipes)
-            if (recipe.app_id == record.app_id && recipe.id == record.recipe_id &&
+            if (RecipeFits(recipe, record) && recipe.id == record.recipe_id &&
                 std::to_string(recipe.version) == record.recipe_version)
               return rt::CompatibilityResult{true, {}};
           return rt::CompatibilityResult{false, "Playden no longer knows how to start this game; prepare it again."};
@@ -3080,6 +3180,10 @@ void RuntimeHost::Run() {
       unavailable(move_error.empty() ? "Runtime install records are unavailable: " + loaded.message() : move_error);
       composition.reset();
     } else {
+      // Kept bottles first: their games' numbers are taken before anyone may ask for a new one.
+      PublishKeptBottles(c);
+      Log("startup kept bottles published");
+      ShareNumbers(&c.repository);
       // Startup only reads durable state. Records with a journal wait for an
       // explicit recovery action; nothing resumes, registers or rebuilds here.
       Log("startup records loaded installs=" + std::to_string(c.repository.Snapshot().size()));
@@ -3087,8 +3191,6 @@ void RuntimeHost::Run() {
       Log("startup generated recipes loaded");
       PublishInstalls(c);
       Log("startup installs published");
-      PublishKeptBottles(c);
-      Log("startup kept bottles published");
       // Retired title folders left by an earlier removal are outside the scan
       // root already; deleting them is only housekeeping.
       {
@@ -3182,7 +3284,7 @@ void RuntimeHost::Run() {
         bool published = false;
         std::string deferred;
         const auto refused = busy.empty() ? RepublishSettings(c, record, &published, false, nullptr, &deferred) : busy;
-        Log(std::string(moved ? "startup moved app=" : "startup unowned app=") + std::to_string(record.app_id) + " " +
+        Log(std::string(moved ? "startup moved app=" : "startup unowned app=") + std::to_string(record.runtime_number) + " " +
             (published ? std::string("republished")
              : !deferred.empty() ? "deferred: " + deferred
                                  : (busy.empty() ? "failed: " : "waits: ") + refused));
@@ -3193,13 +3295,13 @@ void RuntimeHost::Run() {
       if (c.kit)
         for (const auto& record : c.repository.Snapshot()) {
           // Only newer settings: the Steam account is not known yet, so Steam files wait for Play.
-          const auto saved = config_.settings_record ? config_.settings_record(record.app_id) : std::nullopt;
+          const auto saved = config_.settings_record ? config_.settings_record(GameOf(record)) : std::nullopt;
           if (!saved || saved->revision <= record.settings_revision || !record.moved_from.empty() ||
               !MaintenanceRefusal(c, record).empty()) continue;
           bool published = false;
           const auto refused = RepublishSettings(c, record, &published, false);
           if (published || !refused.empty())
-            Log("startup settings app=" + std::to_string(record.app_id) + " " + (refused.empty() ? "applied" : refused));
+            Log("startup settings app=" + std::to_string(record.runtime_number) + " " + (refused.empty() ? "applied" : refused));
         }
       const auto leftovers = LeftoverRequests(c, false);
       Publish([&](RuntimeSnapshot& s) { s.leftover_requests = leftovers; });
@@ -3300,7 +3402,7 @@ void RuntimeHost::Run() {
       if (composition) {
         activity = rt::NativeActivity::kStopped;
         for (const auto& record : composition->repository.Snapshot())
-          if (record.app_id == app && !record.title_id.empty()) activity = composition->coordinator->Activity(record.title_id);
+          if (record.runtime_number == app && !record.title_id.empty()) activity = composition->coordinator->Activity(record.title_id);
       }
       Publish([&](RuntimeSnapshot& s) { s.activity[app] = {activity, ++s.activity_serial}; });
     }
@@ -3308,10 +3410,10 @@ void RuntimeHost::Run() {
       std::map<std::uint32_t, std::uint64_t> sizes;
       constexpr const char* kUsers = "/library/prefixes/game/drive_c/users";
       for (const auto& record : composition->repository.Snapshot())
-        if (!record.data_root.empty()) sizes[record.app_id] = SizeTreeNoFollow(HostPath(record.data_root + kUsers).string());
+        if (!record.data_root.empty()) sizes[record.runtime_number] = SizeTreeNoFollow(HostPath(record.data_root + kUsers).string());
       const auto kept = Snapshot().kept_bottles;
       for (const auto& bottle : kept)
-        if (!sizes.count(bottle.app_id)) sizes[bottle.app_id] = SizeTreeNoFollow(HostPath(bottle.data_root + kUsers).string());
+        if (!sizes.count(bottle.runtime_number)) sizes[bottle.runtime_number] = SizeTreeNoFollow(HostPath(bottle.data_root + kUsers).string());
       Publish([&](RuntimeSnapshot& s) { s.save_bytes = std::move(sizes); });
     }
     if (cleanup && composition) {
@@ -3355,7 +3457,7 @@ void RuntimeHost::Run() {
         PublishKeptBottles(*composition);
       }
       Log("remove result app=" + std::to_string(app) + " " + (refusal.empty() ? "removed" : refusal));
-      if (refusal.empty() && std::erase_if(prepared_history_, [app](const PreparedGame& entry) { return entry.app_id == app; })) {
+      if (refusal.empty() && std::erase_if(prepared_history_, [app](const PreparedGame& entry) { return entry.runtime_number == app; })) {
         SavePreparedHistory();
         PublishPrepared(composition.get());
       }
@@ -3401,10 +3503,10 @@ void RuntimeHost::Run() {
         next = std::move(prepare_requests_.front());
         prepare_requests_.erase(prepare_requests_.begin());
         auto& queued = snapshot_.queued_prepares;
-        queued.erase(std::remove(queued.begin(), queued.end(), next->app_id), queued.end());
+        queued.erase(std::remove(queued.begin(), queued.end(), next->runtime_number), queued.end());
         if (composition) {
-          snapshot_.preparing_app = next->app_id;
-          snapshot_.refusals.erase(next->app_id);
+          snapshot_.preparing_app = next->runtime_number;
+          snapshot_.refusals.erase(next->runtime_number);
         }
         ++snapshot_.revision;
       }
@@ -3423,24 +3525,24 @@ void RuntimeHost::Run() {
         FinishGamesMove(*composition);
         // A game prepared again gets back the saves it kept when it was uninstalled,
         // before it can first be started (from Home, while it waits for registration).
-        if (refusal.empty()) refusal = RestoreKeptSaves(*composition, request.app_id);
+        if (refusal.empty()) refusal = RestoreKeptSaves(*composition, request.runtime_number);
         // Settings saved while the game was being prepared (after its profile was written) reach
         // the title as soon as it is ready; the check at startup ran before that.
         if (refusal.empty() && !awaiting)
           for (const auto& record : composition->repository.Snapshot()) {
-            if (record.app_id != request.app_id) continue;
+            if (record.runtime_number != request.runtime_number) continue;
             bool published = false;
             const auto refused = RepublishSettings(*composition, record, &published);
             if (published || !refused.empty())
-              Log("prepared settings app=" + std::to_string(record.app_id) + " " + (refused.empty() ? "applied" : refused));
+              Log("prepared settings app=" + std::to_string(record.runtime_number) + " " + (refused.empty() ? "applied" : refused));
           }
       }
-      Log("prepare result app=" + std::to_string(request.app_id) + " " +
+      Log("prepare result app=" + std::to_string(request.runtime_number) + " " +
           (!refusal.empty() ? refusal : awaiting ? "awaiting registration" : "ready"));
       // Only a preparation that ends Ready is listed as done; one still waiting for the PS5 is listed
       // once a later check finds the title registered.
       if (composition && refusal.empty() && !awaiting) {
-        prepared_history_.push_back({request.app_id, config_.unix_time()});
+        prepared_history_.push_back({request.runtime_number, config_.unix_time()});
         SavePreparedHistory();
       }
       if (composition) {
@@ -3453,8 +3555,8 @@ void RuntimeHost::Run() {
       Publish([&](RuntimeSnapshot& s) {
         s.preparing_app.reset();
         ++s.prepares_handled;
-        if (refusal.empty()) s.refusals.erase(request.app_id);
-        else s.refusals[request.app_id] = refusal;
+        if (refusal.empty()) s.refusals.erase(request.runtime_number);
+        else s.refusals[request.runtime_number] = refusal;
         if (composition) s.prepared = std::move(prepared);
       });
     }
@@ -3464,6 +3566,7 @@ void RuntimeHost::Run() {
     launch_ = nullptr;
     launch_composition_ = nullptr;
   }
+  ShareNumbers(nullptr);
   composition.reset();
   Publish([](RuntimeSnapshot& s) { s.status = RuntimeHostStatus::kStopped; });
 }

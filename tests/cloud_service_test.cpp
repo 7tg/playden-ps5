@@ -10,6 +10,7 @@
 #include <vector>
 #include <mutex>
 #include <thread>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::steam;
@@ -120,7 +121,7 @@ void Jobs() {
   std::filesystem::remove_all(base);
   std::filesystem::create_directories(base);
   const auto at = [&](GameId id, bool check_only = false) {
-    CloudLocation location{id, "/games/" + std::to_string(id), (base / std::to_string(id)).string(), "/bottle"};
+    CloudLocation location{id, "/games/" + ToKey(id), (base / ToKey(id)).string(), "/bottle"};
     location.check_only = check_only;
     return location;
   };
@@ -134,17 +135,17 @@ void Jobs() {
   service.SetClock([] { return std::int64_t{1'800'000'000}; });
   service.Restore(base.string());
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) {
-    auto* r = Of(s, 7);
+    auto* r = Of(s, SteamId(7));
     return r && r->state == CloudState::kConflict && r->first_sync && r->remote_files == 3 && r->checked == 1'700'000'000;
   });
 
   // Settle three games: 1 and 2 in step, 3 unknown to Steam Cloud.
-  runner.states = {{1, CloudState::kUpToDate}, {2, CloudState::kUpToDate}, {3, CloudState::kUnsupported}};
-  for (GameId id : {1, 2, 3}) {
-    service.Sync(at(id));
-    AwaitAt(__LINE__, service, [id](const CloudSnapshot& s) { auto* r = Of(s, id); return r && r->checked == 1'800'000'000; });
+  runner.states = {{SteamId(1), CloudState::kUpToDate}, {SteamId(2), CloudState::kUpToDate}, {SteamId(3), CloudState::kUnsupported}};
+  for (std::uint32_t id : {1, 2, 3}) {
+    service.Sync(at(SteamId(id)));
+    AwaitAt(__LINE__, service, [id](const CloudSnapshot& s) { auto* r = Of(s, SteamId(id)); return r && r->checked == 1'800'000'000; });
   }
-  CHECK(Of(service.Snapshot(), 1)->last_sync == 1'800'000'000 && Of(service.Snapshot(), 3)->last_sync == 0);
+  CHECK(Of(service.Snapshot(), SteamId(1))->last_sync == 1'800'000'000 && Of(service.Snapshot(), SteamId(3))->last_sync == 0);
   CHECK(std::filesystem::exists(base / "1/cloud-status.txt"));
 
   // The quick check fully checks only what drifted or was never settled: 2 changed locally, 4 is new,
@@ -153,38 +154,38 @@ void Jobs() {
     std::lock_guard<std::mutex> lock(runner.mutex);
     runner.checked.clear();
     runner.drift = {CloudDrift::kUnchanged, CloudDrift::kLocal, CloudDrift::kUnknown, CloudDrift::kUnknown, CloudDrift::kUnchanged};
-    runner.states[2] = CloudState::kSyncing;
-    runner.states.erase(4);
+    runner.states[SteamId(2)] = CloudState::kSyncing;
+    runner.states.erase(SteamId(4));
   }
   runner.next_check = CloudState::kUpToDate;
-  service.StartJob(CloudJobKind::kQuickCheck, {at(1), at(2), at(3), at(4), at(7)});
+  service.StartJob(CloudJobKind::kQuickCheck, {at(SteamId(1)), at(SteamId(2)), at(SteamId(3)), at(SteamId(4)), at(SteamId(7))});
   CHECK(service.Snapshot().job.kind == CloudJobKind::kQuickCheck && service.Snapshot().job.total == 5);
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return s.job.kind == CloudJobKind::kNone; });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
-    CHECK((runner.checked == std::vector<GameId>{2, 4}));
+    CHECK((runner.checked == std::vector<GameId>{SteamId(2), SteamId(4)}));
     CHECK(runner.applies == 1 && runner.last_resolution == CloudResolution::kAutomatic);
   }
   auto snapshot = service.Snapshot();
-  CHECK(Of(snapshot, 2)->state == CloudState::kSynced && Of(snapshot, 7)->state == CloudState::kConflict);
+  CHECK(Of(snapshot, SteamId(2))->state == CloudState::kSynced && Of(snapshot, SteamId(7))->state == CloudState::kConflict);
   for (const auto& game : snapshot.games) CHECK(!game.report.queued);
 
   // Sync all checks every game but settles no choice; a kept bottle's transfers wait for the player.
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     runner.checked.clear();
-    runner.states = {{1, CloudState::kSyncing}, {7, CloudState::kConflict}, {9, CloudState::kSyncing}};
+    runner.states = {{SteamId(1), CloudState::kSyncing}, {SteamId(7), CloudState::kConflict}, {SteamId(9), CloudState::kSyncing}};
   }
-  service.StartJob(CloudJobKind::kSyncAll, {at(1), at(7), at(9, true)});
-  service.StartJob(CloudJobKind::kQuickCheck, {at(1)});  // ignored while a job runs
+  service.StartJob(CloudJobKind::kSyncAll, {at(SteamId(1)), at(SteamId(7)), at(SteamId(9), true)});
+  service.StartJob(CloudJobKind::kQuickCheck, {at(SteamId(1))});  // ignored while a job runs
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return s.job.kind == CloudJobKind::kNone; });
   snapshot = service.Snapshot();
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
-    CHECK((runner.checked == std::vector<GameId>{1, 7, 9}) && runner.applies == 2);
+    CHECK((runner.checked == std::vector<GameId>{SteamId(1), SteamId(7), SteamId(9)}) && runner.applies == 2);
   }
-  CHECK(Of(snapshot, 1)->state == CloudState::kSynced && Of(snapshot, 7)->state == CloudState::kConflict);
-  CHECK(Of(snapshot, 9)->state == CloudState::kWaiting);
+  CHECK(Of(snapshot, SteamId(1))->state == CloudState::kSynced && Of(snapshot, SteamId(7))->state == CloudState::kConflict);
+  CHECK(Of(snapshot, SteamId(9))->state == CloudState::kWaiting);
 
   // Stop ends the job after the game it is on.
   {
@@ -194,8 +195,8 @@ void Jobs() {
   }
   runner.next_check = CloudState::kUpToDate;
   runner.check_delay_ms = 40;
-  service.StartJob(CloudJobKind::kSyncAll, {at(1), at(2), at(3), at(4)});
-  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return s.job.current == 1; });
+  service.StartJob(CloudJobKind::kSyncAll, {at(SteamId(1)), at(SteamId(2)), at(SteamId(3)), at(SteamId(4))});
+  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return s.job.current == SteamId(1); });
   service.StopJob();
   CHECK(service.Snapshot().job.stopping);
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return s.job.kind == CloudJobKind::kNone; });
@@ -209,15 +210,15 @@ void Jobs() {
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     runner.checked.clear();
-    runner.states = {{1, CloudState::kFailed}, {2, CloudState::kFailed}};
+    runner.states = {{SteamId(1), CloudState::kFailed}, {SteamId(2), CloudState::kFailed}};
   }
-  service.StartJob(CloudJobKind::kSyncAll, {at(1), at(2), at(3)});
+  service.StartJob(CloudJobKind::kSyncAll, {at(SteamId(1)), at(SteamId(2)), at(SteamId(3))});
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return s.job.kind == CloudJobKind::kNone; });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
-    CHECK((runner.checked == std::vector<GameId>{1, 2}));
+    CHECK((runner.checked == std::vector<GameId>{SteamId(1), SteamId(2)}));
   }
-  CHECK(!Of(service.Snapshot(), 3)->queued);
+  CHECK(!Of(service.Snapshot(), SteamId(3))->queued);
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     runner.states.clear();
@@ -227,44 +228,44 @@ void Jobs() {
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     runner.checked.clear();
-    runner.states = {{7, CloudState::kConflict}};
+    runner.states = {{SteamId(7), CloudState::kConflict}};
   }
   const int applies_before = runner.applies;
-  CHECK(service.Resolve(at(7), CloudResolution::kUseCloud, true) > 0);
-  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, 7); return r && r->state == CloudState::kSynced; });
+  CHECK(service.Resolve(at(SteamId(7)), CloudResolution::kUseCloud, true) > 0);
+  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, SteamId(7)); return r && r->state == CloudState::kSynced; });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
-    CHECK((runner.checked == std::vector<GameId>{7}) && runner.applies == applies_before + 1 &&
+    CHECK((runner.checked == std::vector<GameId>{SteamId(7)}) && runner.applies == applies_before + 1 &&
           runner.last_resolution == CloudResolution::kUseCloud);
     runner.states.clear();
   }
 
   // The gate is asked as each game comes up: a game started meanwhile is skipped and handed back.
-  service.SetGate([](GameId id) { return id != 2; });
+  service.SetGate([](GameId id) { return id != SteamId(2); });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     runner.checked.clear();
   }
-  service.StartJob(CloudJobKind::kSyncAll, {at(1), at(2), at(3)});
+  service.StartJob(CloudJobKind::kSyncAll, {at(SteamId(1)), at(SteamId(2)), at(SteamId(3))});
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return s.job.kind == CloudJobKind::kNone; });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
-    CHECK((runner.checked == std::vector<GameId>{1, 3}));
+    CHECK((runner.checked == std::vector<GameId>{SteamId(1), SteamId(3)}));
   }
-  CHECK((service.TakeDeferred() == std::vector<GameId>{2}) && service.TakeDeferred().empty());
-  CHECK(Of(service.Snapshot(), 2)->state != CloudState::kChecking);
+  CHECK((service.TakeDeferred() == std::vector<GameId>{SteamId(2)}) && service.TakeDeferred().empty());
+  CHECK(Of(service.Snapshot(), SteamId(2))->state != CloudState::kChecking);
   service.SetGate({});
 
   // Deleting local saves never downloads them straight back.
   runner.next_check = CloudState::kSyncing;
-  service.RemoveLocal(at(1));
+  service.RemoveLocal(at(SteamId(1)));
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) {
-    auto* r = Of(s, 1);
+    auto* r = Of(s, SteamId(1));
     return r && r->state == CloudState::kWaiting && r->message == "1 save deleted";
   });
   // Forgetting removes the state folder and the result.
-  service.Forget(at(1));
-  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return !Of(s, 1); });
+  service.Forget(at(SteamId(1)));
+  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { return !Of(s, SteamId(1)); });
   CHECK(!std::filesystem::exists(base / "1"));
   service.Shutdown();
   std::filesystem::remove_all(base);
@@ -277,15 +278,15 @@ int main() {
   Sessions sessions;
   Runner runner;
   CloudService service(runner, sessions);
-  const CloudLocation game{42, "/games/42", "/games/.playden-saves/42",
+  const CloudLocation game{SteamId(42), "/games/42", "/games/.playden-saves/42",
                            "/data/playden/games/install-42/library/prefixes/game"};
 
   // Transfers that need no choice run straight after the check.
   service.Sync(game);
-  CHECK(Of(service.Snapshot(), 42) && (Of(service.Snapshot(), 42)->state == CloudState::kChecking ||
-                                        Of(service.Snapshot(), 42)->state == CloudState::kSyncing ||
-                                        Of(service.Snapshot(), 42)->state == CloudState::kSynced));
-  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, 42); return r && r->state == CloudState::kSynced; });
+  CHECK(Of(service.Snapshot(), SteamId(42)) && (Of(service.Snapshot(), SteamId(42))->state == CloudState::kChecking ||
+                                        Of(service.Snapshot(), SteamId(42))->state == CloudState::kSyncing ||
+                                        Of(service.Snapshot(), SteamId(42))->state == CloudState::kSynced));
+  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, SteamId(42)); return r && r->state == CloudState::kSynced; });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     CHECK(runner.checks == 1 && runner.applies == 1 && runner.last_resolution == CloudResolution::kAutomatic);
@@ -296,13 +297,13 @@ int main() {
   // A conflict waits for the player, then applies their choice.
   runner.next_check = CloudState::kConflict;
   service.Sync(game);
-  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, 42); return r && r->state == CloudState::kConflict; });
+  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, SteamId(42)); return r && r->state == CloudState::kConflict; });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     CHECK(runner.applies == 1);
   }
   service.Resolve(game, CloudResolution::kUseCloud, true);
-  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, 42); return r && r->state == CloudState::kSynced; });
+  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, SteamId(42)); return r && r->state == CloudState::kSynced; });
   {
     std::lock_guard<std::mutex> lock(runner.mutex);
     CHECK(runner.applies == 2 && runner.last_resolution == CloudResolution::kUseCloud && runner.last_confirm);
@@ -319,13 +320,13 @@ int main() {
   // Up to date: no transfer.
   runner.next_check = CloudState::kUpToDate;
   service.Sync(game);
-  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, 42); return r && r->state == CloudState::kUpToDate; });
+  AwaitAt(__LINE__, service, [](const CloudSnapshot& s) { auto* r = Of(s, SteamId(42)); return r && r->state == CloudState::kUpToDate; });
 
   // Without a session the sync fails visibly.
   sessions.present = false;
   service.Sync(game);
   AwaitAt(__LINE__, service, [](const CloudSnapshot& s) {
-    auto* r = Of(s, 42);
+    auto* r = Of(s, SteamId(42));
     return r && r->state == CloudState::kFailed && r->message == "Sign in to Steam to sync saves.";
   });
   service.Shutdown();

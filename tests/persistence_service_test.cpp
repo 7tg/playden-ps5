@@ -10,6 +10,7 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::app;
@@ -195,8 +196,8 @@ void OrganizationCoalescingAndStaleLoad() {
   const auto stale = service.LoadOrganization(11, 1);
   assert(stale);
   Wait(organizations.load_entered);
-  const auto old_save = service.SaveOrganization(11, 1, 1, Snapshot(1));
-  const auto new_save = service.SaveOrganization(11, 1, 2, Snapshot(2));
+  const auto old_save = service.SaveOrganization(11, 1, 1, Snapshot(SteamId(1)));
+  const auto new_save = service.SaveOrganization(11, 1, 2, Snapshot(SteamId(2)));
   assert(old_save && new_save && old_save != new_save);
   service.InvalidateOrganization(2);
   organizations.load_release = true;
@@ -205,7 +206,7 @@ void OrganizationCoalescingAndStaleLoad() {
   assert(organizations.save_calls == 1);
   {
     std::lock_guard<std::mutex> lock(organizations.mutex);
-    assert(organizations.snapshots.at(11).favorites == std::set<GameId>{2});
+    assert(organizations.snapshots.at(11).favorites == std::set<GameId>{SteamId(2)});
   }
 
   organizations.load_entered = false;
@@ -224,7 +225,7 @@ void InvalidationPreservesAnAcceptedAccountSave() {
   PersistenceService service(preferences, organizations);
   assert(service.LoadOrganization(11, 1));
   Wait(organizations.load_entered);
-  assert(service.SaveOrganization(11, 1, 1, Snapshot(11)));
+  assert(service.SaveOrganization(11, 1, 1, Snapshot(SteamId(11))));
 
   service.InvalidateOrganization(2);
   assert(service.LoadOrganization(22, 2));
@@ -232,7 +233,7 @@ void InvalidationPreservesAnAcceptedAccountSave() {
   service.WaitIdle();
 
   std::lock_guard<std::mutex> lock(organizations.mutex);
-  assert(organizations.snapshots.at(11).favorites == std::set<GameId>{11});
+  assert(organizations.snapshots.at(11).favorites == std::set<GameId>{SteamId(11)});
 }
 
 void OrganizationSaveCoalesces() {
@@ -244,15 +245,15 @@ void OrganizationSaveCoalesces() {
   PersistenceService service(preferences, organizations);
   service.LoadOrganization(33, 1);
   Wait(organizations.load_entered);
-  const auto replaced = service.SaveOrganization(33, 1, 8, Snapshot(8));
-  const auto latest = service.SaveOrganization(33, 1, 9, Snapshot(9));
-  assert(service.SaveOrganization(33, 1, 8, Snapshot(10)) == 0);
+  const auto replaced = service.SaveOrganization(33, 1, 8, Snapshot(SteamId(8)));
+  const auto latest = service.SaveOrganization(33, 1, 9, Snapshot(SteamId(9)));
+  assert(service.SaveOrganization(33, 1, 8, Snapshot(SteamId(10))) == 0);
   organizations.load_release = true;
   const auto saved = Await(service, PersistenceEventKind::kOrganizationSaved, latest);
   assert(replaced && latest && saved.revision == 9 && organizations.save_calls == 1);
   std::lock_guard<std::mutex> lock(organizations.mutex);
-  assert(organizations.snapshots[33].favorites == std::set<GameId>{9});
-  assert(organizations.snapshots[33].selected_game_id == 9);
+  assert(organizations.snapshots[33].favorites == std::set<GameId>{SteamId(9)});
+  assert(organizations.snapshots[33].selected_game_id == SteamId(9));
 }
 
 void TerminalCapacityRejectsWithoutChangingScope() {
@@ -296,11 +297,11 @@ void SaveThenClearBarrierAndFailure() {
   Repository organizations;
   organizations.block_save = true;
   PersistenceService service(preferences, organizations);
-  const auto save = service.SaveOrganization(44, 1, 1, Snapshot(4));
+  const auto save = service.SaveOrganization(44, 1, 1, Snapshot(SteamId(4)));
   Wait(organizations.save_entered);
   const auto clear = service.ClearOrganization(44, 2);
   assert(save && clear);
-  assert(service.SaveOrganization(44, 2, 2, Snapshot(5)) == 0);
+  assert(service.SaveOrganization(44, 2, 2, Snapshot(SteamId(5))) == 0);
   assert(service.LoadOrganization(44, 2) == 0);
   service.InvalidateOrganization(3);
   organizations.save_release = true;
@@ -328,7 +329,7 @@ void ShutdownDrainsOrganizationSaveAndClear() {
   Repository organizations;
   organizations.block_save = true;
   PersistenceService service(preferences, organizations);
-  service.SaveOrganization(55, 1, 7, Snapshot(7));
+  service.SaveOrganization(55, 1, 7, Snapshot(SteamId(7)));
   Wait(organizations.save_entered);
   const auto clear = service.ClearOrganization(55, 2);
   std::thread shutdown([&] { service.Shutdown(); });
@@ -354,7 +355,7 @@ void OrganizationReadWriteFailures() {
   organizations.load_error = StorageError::kNone;
   organizations.save_error = StorageError::kWriteFailed;
   auto saved = Await(service, PersistenceEventKind::kOrganizationSaved,
-                     service.SaveOrganization(66, 1, 2, Snapshot(6)));
+                     service.SaveOrganization(66, 1, 2, Snapshot(SteamId(6))));
   assert(saved.error == StorageError::kWriteFailed && saved.revision == 2);
 }
 
@@ -368,7 +369,7 @@ void WaitIdleDrainsAnAcceptedLoadWithoutStoppingWorker() {
   const auto load = service.LoadOrganization(91, 1);
   assert(load);
   Wait(organizations.load_entered);
-  const auto save = service.SaveOrganization(91, 1, 1, Snapshot(91));
+  const auto save = service.SaveOrganization(91, 1, 1, Snapshot(SteamId(91)));
   assert(save);
 
   std::atomic<bool> idle{false};

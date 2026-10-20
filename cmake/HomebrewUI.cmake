@@ -76,7 +76,7 @@ target_include_directories(playden_steam_cm_codec PUBLIC "${CMAKE_SOURCE_DIR}/sr
 target_include_directories(playden_steam_cm_codec PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")
 target_compile_features(playden_steam_cm_codec PUBLIC cxx_std_17)
 target_link_libraries(playden_steam_cm_codec PUBLIC playden_game_paths playden_steam_protocol playden_managed_directory
-    playden_runtime_steamworks playden_runtime_artifact_hash playden_miniz)
+    playden_runtime_steamworks playden_runtime_artifact_hash playden_miniz playden_library)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm_codec PRIVATE -fno-exceptions -fno-rtti)
 endif()
@@ -187,7 +187,8 @@ add_library(playden_homebrew_model STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/simulation.cpp"
     "${CMAKE_SOURCE_DIR}/src/homebrew/storage_sim.cpp"
     "${CMAKE_SOURCE_DIR}/src/homebrew/queue_layout.cpp"
-    "${CMAKE_SOURCE_DIR}/src/homebrew/browse.cpp")
+    "${CMAKE_SOURCE_DIR}/src/homebrew/browse.cpp"
+    "${CMAKE_SOURCE_DIR}/src/homebrew/store_art.cpp")
 target_compile_features(playden_homebrew_model PUBLIC cxx_std_20)
 target_link_libraries(playden_homebrew_model PUBLIC playden_library playden_diagnostic_log playden_steam_cm_codec)
 target_include_directories(playden_homebrew_model PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -257,7 +258,7 @@ add_library(playden_homebrew_artwork STATIC
 target_compile_features(playden_homebrew_artwork PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_artwork PUBLIC "${CMAKE_SOURCE_DIR}/src"
     PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}" "${CMAKE_SOURCE_DIR}/third_party/ps5-homebrew-ui/third_party/stb")
-target_link_libraries(playden_homebrew_artwork PUBLIC playden_steam_http)
+target_link_libraries(playden_homebrew_artwork PUBLIC playden_library playden_steam_http)
 
 add_library(playden_homebrew_artwork_cache STATIC "${CMAKE_SOURCE_DIR}/src/homebrew/artwork_cache.cpp")
 target_compile_features(playden_homebrew_artwork_cache PUBLIC cxx_std_20)
@@ -553,13 +554,18 @@ if(BUILD_TESTING)
     add_executable(runtime_settings_publication_journal_test tests/runtime_settings_publication_journal_test.cpp)
     target_link_libraries(runtime_settings_publication_journal_test PRIVATE playden_runtime_settings_publication_journal)
     add_test(NAME runtime_settings_publication_journal COMMAND runtime_settings_publication_journal_test)
+    # Files from before games were named by store load and are written back unchanged.
+    add_executable(identity_fixtures_test tests/identity_fixtures_test.cpp)
+    target_link_libraries(identity_fixtures_test PRIVATE playden_steam_core playden_runtime_installs
+        playden_runtime_settings_publication_journal playden_steam_cm_codec playden_library)
+    add_test(NAME identity_fixtures COMMAND identity_fixtures_test "${CMAKE_SOURCE_DIR}/tests/fixtures/identity")
     add_executable(runtime_publication_backup_test tests/runtime_publication_backup_test.cpp)
     target_link_libraries(runtime_publication_backup_test PRIVATE playden_runtime_publication_backup)
     add_test(NAME runtime_publication_backup COMMAND runtime_publication_backup_test)
     add_executable(runtime_settings_storage_test tests/runtime_settings_storage_test.cpp)
     target_link_libraries(runtime_settings_storage_test PRIVATE playden_runtime_settings_storage)
     add_test(NAME runtime_settings_storage COMMAND runtime_settings_storage_test)
-    add_executable(game_settings_io_test tests/game_settings_io_test.cpp src/runtime/game_settings.cpp src/runtime/game_probe.cpp src/platform/managed_directory.cpp)
+    add_executable(game_settings_io_test tests/game_settings_io_test.cpp src/runtime/game_settings.cpp src/runtime/game_probe.cpp src/platform/managed_directory.cpp src/library/store.cpp)
     target_link_libraries(game_settings_io_test PRIVATE playden_steam_cm_codec)
     target_compile_features(game_settings_io_test PRIVATE cxx_std_20)
     target_compile_definitions(game_settings_io_test PRIVATE

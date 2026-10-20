@@ -124,21 +124,22 @@ bool ValidVolumeId(std::string_view id) {
 }
 
 struct RegistryEntry {
-  GameId id = 0;
+  GameId id;
   std::string volume_id;
   std::uint64_t install_bytes = 0;
   bool queued = false;  // written for a job in Downloads: "<id>\t<volume>\t0"
   bool paused = false;  // "<id>\t<volume>\t0\tpaused": the player paused it, or it failed
 };
 
-// One line per game: "<app id>" (legacy, primary volume) or "<app id>\t<volume id>\t<install bytes>",
-// followed by "\tpaused" for a job that should wait for Resume after a restart.
+// One line per game: "<key>" (legacy, primary volume) or "<key>\t<volume id>\t<install bytes>",
+// followed by "\tpaused" for a job that should wait for Resume after a restart. The key is ToKey:
+// a Steam game's app ID, "local-<uuid>" for an imported game.
 std::optional<RegistryEntry> ParseRegistryLine(std::string_view line) {
   RegistryEntry entry;
   const auto first_tab = line.find('\t');
-  const auto id_text = line.substr(0, first_tab);
-  const auto parsed = std::from_chars(id_text.data(), id_text.data() + id_text.size(), entry.id);
-  if (parsed.ec != std::errc{} || parsed.ptr != id_text.data() + id_text.size() || entry.id == 0) return std::nullopt;
+  const auto id = ParseKey(line.substr(0, first_tab));
+  if (!id) return std::nullopt;
+  entry.id = *id;
   if (first_tab == std::string_view::npos) return entry;
   const auto rest = line.substr(first_tab + 1);
   const auto second_tab = rest.find('\t');
@@ -180,7 +181,7 @@ const InstallVolume* InstallService::FindVolume(const std::string& id) const {
 
 std::string InstallService::RootOn(const std::string& volume_id, GameId id) const {
   const auto* volume = FindVolume(volume_id);
-  return volume ? volume->games_root + "/" + std::to_string(id) : std::string();
+  return volume && id.valid() ? volume->games_root + "/" + ToKey(id) : std::string();
 }
 
 std::string InstallService::LockedRootFor(GameId id) const {
@@ -202,7 +203,7 @@ void InstallService::Scan() {
   const auto& primary = volumes_.front().games_root;
   std::vector<RegistryEntry> entries;
   if (FILE* registry = std::fopen((primary + "/" + kRegistry).c_str(), "r")) {
-    char line[128];
+    char line[160];
     while (std::fgets(line, sizeof(line), registry) && entries.size() < kMaxJobs * 4) {
       const auto length = std::strcspn(line, "\r\n");
       auto entry = ParseRegistryLine(std::string_view(line, length));
@@ -256,14 +257,19 @@ void InstallService::Scan() {
   }
   std::sort(installed_.begin(), installed_.end(),
             [](const InstalledGame& left, const InstalledGame& right) { return left.id < right.id; });
-  // "<app id>\t<finish time>" per finished download the player took off Completed.
+  // "<key>\t<finish time>" per finished download the player took off Completed.
   if (FILE* file = std::fopen((primary + "/" + kDismissed).c_str(), "r")) {
-    char line[64];
+    char line[128];
     while (std::fgets(line, sizeof(line), file) && dismissed_.size() < kMaxJobs * 4) {
-      GameId id = 0;
+      const std::string_view text(line, std::strcspn(line, "\r\n"));
+      const auto tab = text.find('\t');
+      if (tab == std::string_view::npos) continue;
+      const auto id = ParseKey(text.substr(0, tab));
+      const auto time = text.substr(tab + 1);
       long long finished = 0;
-      if (std::sscanf(line, "%u\t%lld", &id, &finished) == 2 && id != 0 && finished > 0)
-        dismissed_.emplace_back(id, static_cast<std::int64_t>(finished));
+      const auto parsed = std::from_chars(time.data(), time.data() + time.size(), finished);
+      if (id && parsed.ec == std::errc{} && parsed.ptr == time.data() + time.size() && finished > 0)
+        dismissed_.emplace_back(*id, static_cast<std::int64_t>(finished));
     }
     std::fclose(file);
   }
@@ -279,11 +285,11 @@ void InstallService::SaveRegistry() {
   FILE* registry = std::fopen(temporary.c_str(), "w");
   if (!registry) return;
   for (const auto& game : installed_)
-    std::fprintf(registry, "%u\t%s\t%llu\n", game.id, game.volume_id.c_str(),
+    std::fprintf(registry, "%s\t%s\t%llu\n", ToKey(game.id).c_str(), game.volume_id.c_str(),
                  static_cast<unsigned long long>(game.install_bytes));
   for (const auto& job : jobs_) {
     const bool waits = job.view.state == InstallJobState::kPaused || job.view.state == InstallJobState::kFailed;
-    std::fprintf(registry, "%u\t%s\t0%s\n", job.view.id, job.view.volume_id.c_str(), waits ? "\tpaused" : "");
+    std::fprintf(registry, "%s\t%s\t0%s\n", ToKey(job.view.id).c_str(), job.view.volume_id.c_str(), waits ? "\tpaused" : "");
   }
   if (std::fclose(registry) == 0) std::rename(temporary.c_str(), path.c_str());
 }
@@ -317,7 +323,7 @@ void InstallService::SaveDismissed() {
   FILE* file = std::fopen(temporary.c_str(), "w");
   if (!file) return;
   for (const auto& [id, finished] : dismissed_)
-    std::fprintf(file, "%u\t%lld\n", id, static_cast<long long>(finished));
+    std::fprintf(file, "%s\t%lld\n", ToKey(id).c_str(), static_cast<long long>(finished));
   if (std::fclose(file) == 0) std::rename(temporary.c_str(), path.c_str());
 }
 
@@ -358,7 +364,8 @@ void InstallService::Publish() {
 
 void InstallService::Install(GameId id, std::optional<std::uint64_t> estimated_bytes, const std::string& volume_id) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (stopping_ || id == 0 || Find(id) || jobs_.size() >= kMaxJobs) return;
+  // Steam games only: the registry and the runner take Steam app IDs.
+  if (stopping_ || !id.steam_app() || Find(id) || jobs_.size() >= kMaxJobs) return;
   if (std::any_of(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; })) return;
   Job job;
   job.view.id = id;
@@ -554,6 +561,13 @@ void InstallService::Run() {
         for (auto& job : jobs_) {
           if (job.view.state != InstallJobState::kQueued) continue;
           const auto* volume = FindVolume(job.view.volume_id);
+          if (!job.view.id.steam_app()) {
+            // Only Steam games download; another store's job in the registry waits as failed.
+            job.view.state = InstallJobState::kFailed;
+            job.view.failure = "This game can't be downloaded.";
+            Publish();
+            continue;
+          }
           if (!volume || !volume->available) {
             job.view.state = InstallJobState::kFailed;
             job.view.failure = kVolumeUnavailable;
@@ -615,7 +629,7 @@ void InstallService::Run() {
       if (!stopping_) wake_.wait_for(lock, kSessionRetry);
       continue;
     } else {
-      result = runner_.Install(*session.value(), *next, next_root, active_cancel_,
+      result = runner_.Install(*session.value(), *next->steam_app(), next_root, active_cancel_,
                                [this, id = *next](std::uint64_t done, std::uint64_t total, std::uint64_t held) {
                                  std::lock_guard<std::mutex> lock(mutex_);
                                  if (auto* job = Find(id)) {

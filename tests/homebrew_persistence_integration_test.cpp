@@ -8,6 +8,7 @@
 #include <mutex>
 #include <thread>
 #include <unistd.h>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::homebrew;
@@ -26,14 +27,14 @@ struct Auth final : AuthBackend {
   AuthResult Restore(const StoredSession& s,const std::atomic<bool>&) override {return {AuthError::kNone,s};}
 };
 struct Library final : LibraryBackend {
-  LibraryResult Fetch(const StoredSession&,const std::atomic<bool>&) override {return {LibraryError::kNone,{{42,"Synthetic game",{},{},{}}},false};}
+  LibraryResult Fetch(const StoredSession&,const std::atomic<bool>&) override {return {LibraryError::kNone,{{SteamId(42),"Synthetic game",{},{},{}}},false};}
 };
 // Enough played games for Continue playing to end with More.
 struct PlayedLibrary final : LibraryBackend {
   LibraryResult Fetch(const StoredSession&,const std::atomic<bool>&) override {
     LibraryResult result{LibraryError::kNone,{},false};
-    for(GameId id=1;id<=25;++id) {
-      GameSummary game{id,"Played "+std::to_string(100+id),{},{},{}};
+    for(std::uint32_t id=1;id<=25;++id) {
+      GameSummary game{SteamId(id),"Played "+std::to_string(100+id),{},{},{}};
       game.last_played_unix_seconds=1700000000ULL+id;game.playtime_minutes=id%2 ? 1000+id : id;
       result.games.push_back(game);
     }
@@ -90,7 +91,7 @@ void Settings(Simulation& model) {
 void SignOut(Simulation& model) {Settings(model);Choose(model,"signout-confirm");Choose(model,"confirm-destructive");}
 void RestartAndDeletion(const std::filesystem::path& root) {
   Storage storage(root.string());PreferencesStore preferences(storage);Organization organization(storage);LibraryCache cache(storage);
-  OrganizationSnapshot seed;seed.favorites.insert(42);seed.notes[42]="Saved note";seed.selected_game_id=42;
+  OrganizationSnapshot seed;seed.favorites.insert(SteamId(42));seed.notes[SteamId(42)]="Saved note";seed.selected_game_id= SteamId(42);
   assert(organization.Save(123,seed).ok());assert(preferences.Save({true}).ok());
   Sessions sessions;Auth auth;Library backend;
   {
@@ -98,26 +99,26 @@ void RestartAndDeletion(const std::filesystem::path& root) {
     LibraryService library(backend,sessions,&cache);
     app::PersistenceService persistence(preferences,organization);
     Controller controller(model,auth,sessions,&library,&persistence);
-    Wait(controller,[&]{return model.state().games.size()==1 && model.state().library.favorites.contains(42) && model.state().reduced_motion;});
-    assert(model.state().library.notes.at(42)=="Saved note");
+    Wait(controller,[&]{return model.state().games.size()==1 && model.state().library.favorites.contains(SteamId(42)) && model.state().reduced_motion;});
+    assert(model.state().library.notes.at(SteamId(42))=="Saved note");
     assert(model.action("r1"));if(model.state().navigation.library_rail_focused)assert(model.action("right"));
     assert(model.action("square"));
     Settings(model);Choose(model,"toggle-motion");
     controller.Shutdown();
     auto saved=organization.Load(123);assert(saved.ok() && saved.value() && saved.value()->favorites.empty());
-    assert(saved.value()->notes.at(42)=="Saved note" && !preferences.Load().preferences.reduce_motion);
+    assert(saved.value()->notes.at(SteamId(42))=="Saved note" && !preferences.Load().preferences.reduce_motion);
   }
   {
     Simulation model({}, {},ModelMode::Live);LibraryService library(backend,sessions,&cache);
     app::PersistenceService persistence(preferences,organization);Controller controller(model,auth,sessions,&library,&persistence);
-    Wait(controller,[&]{return model.state().library.notes.count(42)>0 && model.state().games.size()==1;});
+    Wait(controller,[&]{return model.state().library.notes.count(SteamId(42))>0 && model.state().games.size()==1;});
     assert(model.state().library.favorites.empty() && !model.state().reduced_motion);
     organization.fail_clear=true;SignOut(model);controller.Tick();
     Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedIn && !model.state().account.error.empty();});
     assert(sessions.Load().value() && organization.Load(123).value());
     assert(model.action("r1") && model.state().navigation.route==Route::Home);
-    assert(model.action("square") && model.state().library.favorites.contains(42));
-    Wait(controller,[&]{const auto saved=organization.Load(123);return saved.ok() && saved.value() && saved.value()->favorites.count(42)>0;});
+    assert(model.action("square") && model.state().library.favorites.contains(SteamId(42)));
+    Wait(controller,[&]{const auto saved=organization.Load(123);return saved.ok() && saved.value() && saved.value()->favorites.count(SteamId(42))>0;});
     organization.fail_clear=false;SignOut(model);controller.Tick();
     Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedOut;});
     assert(!sessions.Load().value() && !organization.Load(123).value());
@@ -139,7 +140,7 @@ void SortSurvivesRestart(const std::filesystem::path& root) {
     assert(model.action("l1") && model.state().navigation.route==Route::Home);
     for(int step=0;step<30 && model.state().navigation.focus_key!="shelf-continue-more";++step) model.action("right");
     assert(model.action("cross") && model.state().navigation.route==Route::Library);
-    assert(model.visible_games().front()->id==25 && model.visible_games()[1]->id==24);
+    assert(model.visible_games().front()->id==SteamId(25) && model.visible_games()[1]->id==SteamId(24));
     Wait(controller,[&]{const auto saved=organization.Load(123);return saved.ok() && saved.value() && saved.value()->sort=="playtime";});
     controller.Shutdown();
   }
@@ -151,25 +152,25 @@ void SortSurvivesRestart(const std::filesystem::path& root) {
     Wait(controller,[&]{return model.state().games.size()==25 && !model.state().library_loading && model.state().library.sort=="playtime";});
     assert(model.action("r1") && model.state().navigation.route==Route::Library);
     const auto games=model.visible_games();
-    assert(games.front()->id==25 && games[1]->id==23);
+    assert(games.front()->id==SteamId(25) && games[1]->id==SteamId(23));
   }
 }
 void EditWhileLoading(const std::filesystem::path& root) {
   Storage storage(root.string());PreferencesStore preferences(storage);Organization organization(storage);LibraryCache cache(storage);
-  OrganizationSnapshot seed;seed.favorites.insert(77);seed.notes[77]="Keep unrelated note";
+  OrganizationSnapshot seed;seed.favorites.insert(SteamId(77));seed.notes[SteamId(77)]="Keep unrelated note";
   assert(organization.Save(123,seed).ok());organization.block_load=true;
   Sessions sessions;Auth auth;Library backend;Simulation model({}, {},ModelMode::Live);
   LibraryService library(backend,sessions,&cache);app::PersistenceService persistence(preferences,organization);
   Controller controller(model,auth,sessions,&library,&persistence);
   Wait(controller,[&]{return organization.entered && model.state().games.size()==1;});
   assert(model.action("r1"));if(model.state().navigation.library_rail_focused)assert(model.action("right"));
-  assert(model.action("square") && model.state().library.favorites.contains(42));
+  assert(model.action("square") && model.state().library.favorites.contains(SteamId(42)));
   organization.release=true;
-  Wait(controller,[&]{return model.state().library.favorites.contains(77) && model.state().library.favorites.contains(42);});
+  Wait(controller,[&]{return model.state().library.favorites.contains(SteamId(77)) && model.state().library.favorites.contains(SteamId(42));});
   controller.Shutdown();
   const auto loaded=organization.Load(123);
-  assert(loaded.ok() && loaded.value() && loaded.value()->favorites==std::set<GameId>({42,77}));
-  assert(loaded.value()->notes.at(77)=="Keep unrelated note");
+  assert(loaded.ok() && loaded.value() && loaded.value()->favorites==std::set<GameId>({SteamId(42),SteamId(77)}));
+  assert(loaded.value()->notes.at(SteamId(77))=="Keep unrelated note");
 }
 
 }

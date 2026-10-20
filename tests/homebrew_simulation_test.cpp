@@ -13,6 +13,7 @@
 #include <limits>
 #include <string>
 #include <unistd.h>
+#include "steam_id.h"
 
 namespace {
 
@@ -155,13 +156,13 @@ void t03_search_filters_and_focus_reconciliation(const std::filesystem::path& fi
     simulation.action("search");
     simulation.text("Night Orchard");
     simulation.action("done");
-    check(simulation.visible_games().size() == 1 && simulation.visible_games().front()->id == 900010,
+    check(simulation.visible_games().size() == 1 && simulation.visible_games().front()->id == SteamId(900010),
           "T03 committed search updates results and count");
-    check(simulation.state().navigation.selected_game_id == 900010 && simulation.state().navigation.focus_key == "game-900010",
+    check(simulation.state().navigation.selected_game_id == SteamId(900010) && simulation.state().navigation.focus_key == "game-900010",
           "T03 committing search reconciles logical selection to the visible result");
-    const bool prior_favorite = simulation.state().library.favorites.contains(900001);
+    const bool prior_favorite = simulation.state().library.favorites.contains(SteamId(900001));
     simulation.action("square");
-    check(simulation.state().library.favorites.contains(900010) && simulation.state().library.favorites.contains(900001) == prior_favorite,
+    check(simulation.state().library.favorites.contains(SteamId(900010)) && simulation.state().library.favorites.contains(SteamId(900001)) == prior_favorite,
           "T03 Square after controller search favorites the focused result");
     simulation.action("square");
     activate(simulation, "game-900010");
@@ -198,7 +199,7 @@ void t04_organization_persists_without_deleting_games(const std::filesystem::pat
     simulation.action("route:library");
     simulation.action("select:900012");
     simulation.action("square");
-    check(simulation.state().library.favorites.contains(900012), "T04 favorite toggles by stable ID");
+    check(simulation.state().library.favorites.contains(SteamId(900012)), "T04 favorite toggles by stable ID");
     check(simulation.action("collection:create:Night games"), "T04 collection create action is available");
     check(simulation.action("collection:add:collection-2:900012"), "T04 collection membership changes");
     check(simulation.action("collection:rename:collection-2:After dark"), "T04 collection rename works");
@@ -207,15 +208,15 @@ void t04_organization_persists_without_deleting_games(const std::filesystem::pat
     check(simulation.action("note:900012:Synthetic note"), "T04 note edit works");
     playden::homebrew::Simulation organized(fixtures, profile);
     check(organized.state().library.collections.size() == 2 && organized.state().library.collections.back().pinned
-              && organized.state().library.collections.back().members.contains(900012),
+              && organized.state().library.collections.back().members.contains(SteamId(900012)),
           "T04 collection name, pin, and membership survive restart");
-    check(organized.state().library.ratings.at(900012) == playden::homebrew::Compatibility::Playable
-              && organized.state().library.notes.at(900012) == "Synthetic note",
+    check(organized.state().library.ratings.at(SteamId(900012)) == playden::homebrew::Compatibility::Playable
+              && organized.state().library.notes.at(SteamId(900012)) == "Synthetic note",
           "T04 rating and note survive restart");
     check(simulation.action("collection:delete:collection-2"), "T04 collection delete works");
     check(simulation.state().games.size() == 24, "T04 deleting a collection never deletes a game");
     playden::homebrew::Simulation restored(fixtures, profile);
-    check(restored.state().library.favorites.contains(900012), "T04 favorites survive restart");
+    check(restored.state().library.favorites.contains(SteamId(900012)), "T04 favorites survive restart");
 }
 
 void t05_install_rechecks_storage_and_submits_once(const std::filesystem::path& fixtures,
@@ -260,7 +261,7 @@ void t06_queue_transitions_are_single_active_and_safe(const std::filesystem::pat
     simulation.action("details:900001"); simulation.action("options"); activate(simulation, "verify");
     simulation.action("details:900001"); simulation.action("options"); activate(simulation, "verify");
     const auto verifies = std::count_if(simulation.state().jobs.begin(), simulation.state().jobs.end(),
-        [](const playden::homebrew::Job& job) { return job.kind == "verify" && job.game_id == 900001; });
+        [](const playden::homebrew::Job& job) { return job.kind == "verify" && job.game_id == SteamId(900001); });
     check(verifies == 1, "T06 repeated Verify creates one queued operation");
     active = 0;
     for (const auto& job : simulation.state().jobs)
@@ -324,31 +325,31 @@ void t08_nested_settings_restore_openers(const std::filesystem::path& fixtures,
     activate(simulation, "setting-resolution");
     activate(simulation, "choice-2");
     check(simulation.state().navigation.focus_key == "setting-resolution", "T08 picker restores its opener");
-    check(simulation.state().game_settings.at(900001).overrides.at("resolution") == "2560x1440", "T08 picker saves the override");
+    check(simulation.state().game_settings.at(SteamId(900001)).overrides.at("resolution") == "2560x1440", "T08 picker saves the override");
     check(find_row(simulation, "setting-resolution")->modified, "T08 changed row is marked");
     check(find_row(simulation, "preset-picker")->value == "Custom · from Playden default", "T08 preset reads Custom after a change");
     activate(simulation, "setting-extra_arguments");
     simulation.text("--fixture");
     simulation.action("circle");
-    check(!simulation.state().game_settings.at(900001).overrides.count("extra_arguments"), "T08 cancelling text edit discards changes");
+    check(!simulation.state().game_settings.at(SteamId(900001)).overrides.count("extra_arguments"), "T08 cancelling text edit discards changes");
     activate(simulation, "setting-extra_arguments");
     simulation.text("--fixture");
     simulation.action("done");
-    check(simulation.state().game_settings.at(900001).overrides.at("extra_arguments") == "--fixture",
+    check(simulation.state().game_settings.at(SteamId(900001)).overrides.at("extra_arguments") == "--fixture",
           "T08 committing text edit saves the override");
     activate(simulation, "setting-extra_arguments");
     simulation.text(" \"unclosed");
     simulation.action("done");
-    check(simulation.state().editor.active && simulation.state().game_settings.at(900001).overrides.at("extra_arguments") == "--fixture",
+    check(simulation.state().editor.active && simulation.state().game_settings.at(SteamId(900001)).overrides.at("extra_arguments") == "--fixture",
           "T08 invalid arguments keep the editor open and the old value");
     simulation.action("circle");
     // Choosing the inherited value removes the override instead of storing a copy.
     activate(simulation, "setting-controller");
     activate(simulation, "choice-0");
-    check(!simulation.state().game_settings.at(900001).overrides.count("controller"), "T08 inherited choice is not an override");
+    check(!simulation.state().game_settings.at(SteamId(900001)).overrides.count("controller"), "T08 inherited choice is not an override");
     // Triangle resets the focused row to the preset value.
     check(simulation.action("focus:setting-resolution") && simulation.action("triangle"), "T08 triangle resets");
-    check(!simulation.state().game_settings.at(900001).overrides.count("resolution"), "T08 reset removes the override");
+    check(!simulation.state().game_settings.at(SteamId(900001)).overrides.count("resolution"), "T08 reset removes the override");
     simulation.action("circle");
     simulation.action("circle");  // Game settings returned to Game actions
     simulation.action("details:900002");
@@ -359,8 +360,8 @@ void t08_nested_settings_restore_openers(const std::filesystem::path& fixtures,
     simulation.action("circle");
     simulation.action("circle");
     playden::homebrew::Simulation restored(fixtures, profile);
-    check(restored.state().game_settings.at(900001).overrides.at("extra_arguments") == "--fixture"
-              && !restored.state().game_settings.count(900002),
+    check(restored.state().game_settings.at(SteamId(900001)).overrides.at("extra_arguments") == "--fixture"
+              && !restored.state().game_settings.count(SteamId(900002)),
           "T08 per-game overrides persist independently");
 }
 
@@ -390,23 +391,23 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
     // A preset clears overrides and becomes the base.
     activate(simulation, "preset-picker");
     activate(simulation, "preset-mouse-driven");
-    const auto& record = simulation.state().game_settings.at(900001);
+    const auto& record = simulation.state().game_settings.at(SteamId(900001));
     check(record.preset_id == "mouse-driven" && record.overrides.empty(), "T08b choosing a preset clears overrides");
     check(find_row(simulation, "preset-picker")->value == "Mouse-driven game", "T08b preset row names the preset");
     rt::EffectiveSettings settings;
-    check(simulation.EffectiveSettingsFor(900001, &settings) && settings.values.at("controller").value == "keyboard",
+    check(simulation.EffectiveSettingsFor(SteamId(900001), &settings) && settings.values.at("controller").value == "keyboard",
           "T08b preset values apply");
     // The sheet's settings produce a profile prospero-win accepts.
     rt::ProsperoProfile generated;
     std::string reason;
-    check(rt::RenderProsperoProfile(simulation.RecipeFor(900001), settings, {"playden-steam-900001", "/data/playden/games/900001"},
+    check(rt::RenderProsperoProfile(simulation.RecipeFor(SteamId(900001)), settings, {"playden-steam-900001", "/data/playden/games/900001"},
                                     &generated, &reason), "T08b sheet settings render a valid prospero profile");
     // Reset all returns to the preset.
     activate(simulation, "setting-pointer_speed");
     activate(simulation, "choice-4");
-    check(!simulation.state().game_settings.at(900001).overrides.empty(), "T08b override recorded");
+    check(!simulation.state().game_settings.at(SteamId(900001)).overrides.empty(), "T08b override recorded");
     activate(simulation, "reset-settings");
-    check(simulation.state().game_settings.at(900001).overrides.empty(), "T08b reset all clears overrides");
+    check(simulation.state().game_settings.at(SteamId(900001)).overrides.empty(), "T08b reset all clears overrides");
     simulation.action("circle");
     const auto toast = std::find_if(simulation.state().notices.begin(), simulation.state().notices.end(),
                                     [](const playden::homebrew::Notice& notice) { return notice.id == "settings-saved"; });
@@ -427,15 +428,15 @@ void t08b_settings_sheet_rules(const std::filesystem::path& fixtures, const std:
     check(find_row(simulation, "setting-button.options")->value == "Escape", "T08b recipe binding shows");
     activate(simulation, "setting-button.touchpad");
     activate(simulation, "choice-17");
-    check(simulation.state().game_settings.at(900001).overrides.at("button.touchpad") == "f5", "T08b common key saves");
+    check(simulation.state().game_settings.at(SteamId(900001)).overrides.at("button.touchpad") == "f5", "T08b common key saves");
     activate(simulation, "setting-button.l3");
     activate(simulation, "choice-custom");
     simulation.text("vk:0x41");
     simulation.action("done");
-    check(simulation.state().game_settings.at(900001).overrides.at("button.l3") == "vk:0x41", "T08b typed key saves");
+    check(simulation.state().game_settings.at(SteamId(900001)).overrides.at("button.l3") == "vk:0x41", "T08b typed key saves");
     activate(simulation, "setting-button.touchpad");
     activate(simulation, "choice-0");
-    check(!simulation.state().game_settings.at(900001).overrides.count("button.touchpad"), "T08b inherit removes the binding");
+    check(!simulation.state().game_settings.at(SteamId(900001)).overrides.count("button.touchpad"), "T08b inherit removes the binding");
     simulation.action("circle");
     check(find_row(simulation, "button-mapping")->modified, "T08b changed bindings mark the row");
     check(!find_row(simulation, "clear-shader-cache"), "T08b maintenance is not in the settings sheet");
@@ -513,25 +514,25 @@ void settings_revision_exhaustion_preserves_record(const std::filesystem::path& 
     record.revision = std::numeric_limits<std::uint64_t>::max();
     record.overrides["resolution"] = "1280x720";
     std::string reason;
-    check(playden::runtime::SaveGameSettingsFile(settings_file, {{900001, record}}, &reason), "seed exhausted revision");
+    check(playden::runtime::SaveGameSettingsFile(settings_file, {{SteamId(900001), record}}, &reason), "seed exhausted revision");
     simulation.SetGameSettingsFile(settings_file);
     simulation.action("details:900001");
     activate(simulation, "details-more");
     activate(simulation, "game-settings");
     activate(simulation, "setting-resolution");
     activate(simulation, "choice-2");
-    check(simulation.state().game_settings.at(900001) == record,
+    check(simulation.state().game_settings.at(SteamId(900001)) == record,
           "exhausted settings revision rejects change without wrapping");
     simulation.action("circle");
     playden::homebrew::Simulation restored(fixtures, profile);
-    check(restored.state().game_settings.count(900001) && restored.state().game_settings.at(900001) == record,
+    check(restored.state().game_settings.count(SteamId(900001)) && restored.state().game_settings.at(SteamId(900001)) == record,
           "fixture settings restore preserves the exact uint64 revision");
     record.revision = 9007199254740993ULL;
-    check(playden::runtime::SaveGameSettingsFile(settings_file, {{900001, record}}, &reason), "seed exact revision above double precision");
+    check(playden::runtime::SaveGameSettingsFile(settings_file, {{SteamId(900001), record}}, &reason), "seed exact revision above double precision");
     simulation.SetGameSettingsFile(settings_file);
     simulation.action("circle");
     playden::homebrew::Simulation precise(fixtures, profile);
-    check(precise.state().game_settings.count(900001) && precise.state().game_settings.at(900001) == record,
+    check(precise.state().game_settings.count(SteamId(900001)) && precise.state().game_settings.at(SteamId(900001)) == record,
           "fixture revision cannot round through double precision");
     std::filesystem::remove(settings_file);
 }
@@ -568,7 +569,7 @@ void t09_uninstall_and_reset_preserve_declared_data(const std::filesystem::path&
     activate(simulation, "confirm-destructive");
     simulation.action("details:900001"); simulation.action("options"); activate(simulation, "uninstall"); activate(simulation, "confirm-destructive");
     const auto uninstalls = std::count_if(simulation.state().jobs.begin(), simulation.state().jobs.end(),
-        [](const playden::homebrew::Job& job) { return job.game_id == 900001 && job.kind == "uninstall" && job.state != playden::homebrew::JobState::Cancelled; });
+        [](const playden::homebrew::Job& job) { return job.game_id == SteamId(900001) && job.kind == "uninstall" && job.state != playden::homebrew::JobState::Cancelled; });
     check(uninstalls == 1, "T09 repeated uninstall confirmation is idempotent");
     int active = 0;
     for (const auto& job : simulation.state().jobs)
@@ -577,17 +578,17 @@ void t09_uninstall_and_reset_preserve_declared_data(const std::filesystem::path&
     simulation.action("job:fail:job-1:download"); simulation.action("job:fail:job-2:download"); simulation.action("job:fail:job-3:download");
     simulation.tick(3);
     const auto removed = std::find_if(simulation.state().installations.begin(), simulation.state().installations.end(),
-                                      [](const playden::homebrew::Installation& value) { return value.game_id == 900001; });
+                                      [](const playden::homebrew::Installation& value) { return value.game_id == SteamId(900001); });
     check(removed != simulation.state().installations.end() && !removed->available && removed->saves_present,
           "T09 uninstall removes only the selected fixture install and preserves saves");
     check(simulation.action("reset"), "T09 reset is available");
     const auto after_reset = std::find_if(simulation.state().installations.begin(), simulation.state().installations.end(),
-                                          [](const playden::homebrew::Installation& value) { return value.game_id == 900001; });
+                                          [](const playden::homebrew::Installation& value) { return value.game_id == SteamId(900001); });
     check(after_reset != simulation.state().installations.end() && after_reset->saves_present,
           "T09 reset preserves fixture installs and saves");
     check(simulation.action("install:900001:external"), "T09 a completed uninstall does not block reinstall");
     check(std::any_of(simulation.state().jobs.begin(), simulation.state().jobs.end(),
-                      [](const playden::homebrew::Job& job) { return job.game_id == 900001 && job.kind == "install" && job.state == playden::homebrew::JobState::Queued; }),
+                      [](const playden::homebrew::Job& job) { return job.game_id == SteamId(900001) && job.kind == "install" && job.state == playden::homebrew::JobState::Queued; }),
           "T09 reinstall creates a fresh stable job");
 }
 
@@ -605,7 +606,7 @@ void t10_session_failure_running_stop_and_crash(const std::filesystem::path& fix
     activate(simulation, "session-logs");
     simulation.action("circle");
     check(simulation.state().navigation.route == playden::homebrew::Route::Details
-              && simulation.state().navigation.detail_id == 900001,
+              && simulation.state().navigation.detail_id == SteamId(900001),
           "T10 crash logs return to prior game details");
 }
 
@@ -654,7 +655,7 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     check(switched_restart.state().account.id == switched_id && switched_restart.state().account.display_name == switched_name
               && switched_restart.state().account.last_sync == switched_sync
               && switched_restart.state().library.query == "Night Orchard"
-              && switched_restart.state().library.favorites.contains(900010),
+              && switched_restart.state().library.favorites.contains(SteamId(900010)),
           "T11 switched account identity and organization restore only from its profile");
     restored.action("route:settings"); activate(restored, "settings-about");
     check(restored.view().surface == "about" && restored.view().rows.size() == 7,
@@ -677,7 +678,7 @@ void t12_stress_dataset_keeps_logical_focus(const std::filesystem::path& fixture
     const auto delayed_scroll = simulation.state().navigation.scroll_offsets.at("library-grid");
     const auto bytes = simulation.state().jobs.front().completed_bytes;
     const auto delayed = std::find_if(simulation.state().games.begin(), simulation.state().games.end(),
-                                      [](const playden::homebrew::Game& game) { return game.id == 900007; });
+                                      [](const playden::homebrew::Game& game) { return game.id == SteamId(900007); });
     check(delayed != simulation.state().games.end() && delayed->art_pending, "T12 delayed art exposes a stable placeholder state");
     simulation.tick(1);
     check(!delayed->art_pending && simulation.state().navigation.selected_game_id == delayed_id
@@ -792,7 +793,7 @@ void t52_recipe_values_in_game_settings(const std::filesystem::path& fixtures, c
     playden::homebrew::Simulation simulation(fixtures, profile);
     load_settings_data(simulation, fixtures);
     std::map<playden::GameId, playden::homebrew::LiveGameSetup> setups;
-    auto& setup = setups[900001];
+    auto& setup = setups[SteamId(900001)];
     setup.scanned = true;
     setup.programs = {{"bin/win64/hl2_win64.exe", "pe64", "", false, "d3d11 graphics=dxvk"},
                       {"Launcher.exe", "pe32", "This game needs .NET, which Playden's runtime doesn't include yet.", true, ""},
@@ -810,7 +811,7 @@ void t52_recipe_values_in_game_settings(const std::filesystem::path& fixtures, c
     simulation.action("circle");
     simulation.action("circle");
     const auto overrides = [&]() -> const std::map<std::string, std::string>& {
-        return simulation.state().game_settings.at(900001).overrides;
+        return simulation.state().game_settings.at(SteamId(900001)).overrides;
     };
     simulation.action("details:900001");
     activate(simulation, "details-more");
@@ -935,14 +936,14 @@ void t52_recipe_values_in_game_settings(const std::filesystem::path& fixtures, c
     draft.id = rt::GeneratedRecipeId(900003);
     draft.version = 2;
     draft.app_id = 900003;
-    setups[900003].draft = draft;
-    setups[900003].refusal_soft = true;
-    setups[900003].refusal = "Steam lists no Windows program this console can start for this game.";
+    setups[SteamId(900003)].draft = draft;
+    setups[SteamId(900003)].refusal_soft = true;
+    setups[SteamId(900003)].refusal = "Steam lists no Windows program this console can start for this game.";
     simulation.SetGameSetups(setups);
     rt::EffectiveSettings values;
-    check(simulation.RecipeFor(900003).id == draft.id && simulation.EffectiveSettingsFor(900003, &values) && !values.launch,
+    check(simulation.RecipeFor(SteamId(900003)).id == draft.id && simulation.EffectiveSettingsFor(SteamId(900003), &values) && !values.launch,
           "T52 a refused game's sheet has no program until the player picks one");
-    check(simulation.known_problem(900003), "T52 a refused game shows Known problems");
+    check(simulation.known_problem(SteamId(900003)), "T52 a refused game shows Known problems");
 }
 
 void type_into(playden::homebrew::Simulation& simulation, const std::string& key, const std::string& text) {

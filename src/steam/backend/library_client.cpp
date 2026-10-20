@@ -180,19 +180,19 @@ LibraryResult LibraryClient::Fetch(const StoredSession& session,
   LibraryResult result;
   result.error = LibraryError::kNone;
   result.games.reserve(games_value->array().size());
-  std::unordered_set<GameId> seen;
+  std::unordered_set<std::uint32_t> seen;
   seen.reserve(games_value->array().size());
   for (const auto& item : games_value->array()) {
     if (cancel.load()) return Failure(LibraryError::kCanceled);
     if (!item.is_object()) return Failure(LibraryError::kProtocol);
     const auto* id_value = item.Find("appid");
     const auto id = id_value ? id_value->AsUint64() : std::nullopt;
-    if (!id || !*id || *id > std::numeric_limits<GameId>::max())
+    if (!id || !*id || *id > std::numeric_limits<std::uint32_t>::max())
       return Failure(LibraryError::kProtocol);
 
-    const auto game_id = static_cast<GameId>(*id);
+    const auto game_id = static_cast<std::uint32_t>(*id);
     GameSummary game;
-    game.id = game_id;
+    game.id = GameId::Steam(game_id);
     const auto* title = item.Find("name");
     if (!title || (title->is_string() && title->text().empty())) {
       game.title = "app_" + std::to_string(game_id);

@@ -23,7 +23,7 @@ class CmAppDetailsSource final : public AppDetailsSource {
 
 // Pure part, for tests: turns one parsed app buffer into details. With `licensed`, sizes count
 // only the depots those licenses grant, as an install selects them.
-AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer,
+AppDetails DetailsFromAppInfo(std::uint32_t id, const std::string& buffer,
                               const std::optional<LicensedDepots::Grant>& licensed = std::nullopt);
 
 }  // namespace playden::steam

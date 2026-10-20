@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
+#include "steam_id.h"
 
 using namespace playden::homebrew;
 using namespace std::chrono_literals;
@@ -50,7 +51,7 @@ class ControlledBackend final : public ArtworkBackend {
     }
     if (cancel) saw_cancel = true;
     if (fail[key.game_id]) return std::nullopt;
-    return Pixel(static_cast<std::uint8_t>(key.game_id));
+    return Pixel(static_cast<std::uint8_t>(*key.game_id.steam_app()));
   }
 };
 
@@ -82,7 +83,7 @@ ArtworkResult Await(ArtworkService& service) {
 void SameSubscriptionIsIdempotentAndResubscribeRetries() {
   ControlledBackend backend;
   ArtworkService service(backend);
-  const auto key = Key(1, 10, "https://example.invalid/10.jpg");
+  const auto key = Key(1, SteamId(10), "https://example.invalid/10.jpg");
   assert(service.ReplaceSubscriptions({key}));
   auto first = Await(service);
   assert(first.key == key && first.image && first.image->rgba[0] == 10);
@@ -98,9 +99,9 @@ void SameSubscriptionIsIdempotentAndResubscribeRetries() {
 
 void FailureIsReportedOnceUntilExplicitResubscribe() {
   ControlledBackend backend;
-  backend.fail[11] = true;
+  backend.fail[SteamId(11)] = true;
   ArtworkService service(backend);
-  const auto key = Key(1, 11, "https://example.invalid/11.jpg");
+  const auto key = Key(1, SteamId(11), "https://example.invalid/11.jpg");
   assert(service.ReplaceSubscriptions({key}));
   const auto failure = Await(service);
   assert(failure.key == key && !failure.image);
@@ -108,7 +109,7 @@ void FailureIsReportedOnceUntilExplicitResubscribe() {
   std::this_thread::sleep_for(20ms);
   assert(backend.calls == 1 && service.Pump().empty());
 
-  backend.fail[11] = false;
+  backend.fail[SteamId(11)] = false;
   assert(service.ReplaceSubscriptions({}));
   assert(service.ReplaceSubscriptions({key}));
   assert(Await(service).image && backend.calls == 2);
@@ -119,8 +120,8 @@ void RemovedLateResultCannotCrossCellAccountOrSourceIdentity() {
   backend.block = true;
   backend.ignore_cancel = true;
   ArtworkService service(backend);
-  const auto old_key = Key(3, 12, "https://example.invalid/old.jpg");
-  const auto new_key = Key(4, 12, "https://example.invalid/new.jpg");
+  const auto old_key = Key(3, SteamId(12), "https://example.invalid/old.jpg");
+  const auto new_key = Key(4, SteamId(12), "https://example.invalid/new.jpg");
   assert(service.ReplaceSubscriptions({old_key}));
   WaitCalls(backend, 1);
   assert(service.ReplaceSubscriptions({new_key}));
@@ -139,20 +140,20 @@ void InvalidOrExcessiveReplacementLeavesCurrentWorkIntact() {
   ControlledBackend backend;
   backend.block = true;
   ArtworkService service(backend);
-  const auto valid = Key(1, 13, "https://example.invalid/13.jpg");
+  const auto valid = Key(1, SteamId(13), "https://example.invalid/13.jpg");
   assert(service.ReplaceSubscriptions({valid}));
   WaitCalls(backend, 1);
-  assert(!service.ReplaceSubscriptions({Key(0, 13, "x")}));
-  assert(!service.ReplaceSubscriptions({Key(1, 0, "x")}));
-  assert(!service.ReplaceSubscriptions({Key(1, 13, "")}));
+  assert(!service.ReplaceSubscriptions({Key(0, SteamId(13), "x")}));
+  assert(!service.ReplaceSubscriptions({Key(1, SteamId(0), "x")}));
+  assert(!service.ReplaceSubscriptions({Key(1, SteamId(13), "")}));
   assert(!service.ReplaceSubscriptions(
-      {Key(1, 13, std::string(kMaxArtworkSourceBytes + 1, 'x').c_str())}));
+      {Key(1, SteamId(13), std::string(kMaxArtworkSourceBytes + 1, 'x').c_str())}));
   std::string embedded_nul("a\0b", 3);
-  assert(!service.ReplaceSubscriptions({ArtworkKey{1, 13, embedded_nul}}));
+  assert(!service.ReplaceSubscriptions({ArtworkKey{1, SteamId(13), embedded_nul}}));
   assert(!service.ReplaceSubscriptions({valid, valid}));
   std::vector<ArtworkKey> excessive;
-  for (playden::GameId id = 1; id <= 65; ++id)
-    excessive.push_back(Key(1, id, "x"));
+  for (std::uint32_t id = 1; id <= 65; ++id)
+    excessive.push_back(Key(1, SteamId(id), "x"));
   assert(!service.ReplaceSubscriptions(std::move(excessive)));
   assert(!backend.saw_cancel);
   backend.release = true;
@@ -172,7 +173,7 @@ void ResultBytesBackpressureBoundsCompletedImages() {
   } backend;
   ArtworkService service(backend);
   std::vector<ArtworkKey> keys;
-  for (playden::GameId id = 1; id <= 5; ++id) keys.push_back(Key(1, id, "x"));
+  for (std::uint32_t id = 1; id <= 5; ++id) keys.push_back(Key(1, SteamId(id), "x"));
   assert(service.ReplaceSubscriptions(keys));
   const auto deadline = std::chrono::steady_clock::now() + 2s;
   while (backend.calls.load() < 4 && std::chrono::steady_clock::now() < deadline)
@@ -188,11 +189,11 @@ void ShutdownCancelsAndJoinsBlockedLoad() {
   ControlledBackend backend;
   backend.block = true;
   ArtworkService service(backend);
-  assert(service.ReplaceSubscriptions({Key(1, 14, "x")}));
+  assert(service.ReplaceSubscriptions({Key(1, SteamId(14), "x")}));
   WaitCalls(backend, 1);
   service.Shutdown();
   assert(backend.saw_cancel);
-  assert(!service.ReplaceSubscriptions({Key(1, 15, "x")}));
+  assert(!service.ReplaceSubscriptions({Key(1, SteamId(15), "x")}));
 }
 
 void InvalidBackendImageIsReducedToFailure() {
@@ -204,7 +205,7 @@ void InvalidBackendImageIsReducedToFailure() {
     }
   } backend;
   ArtworkService service(backend);
-  assert(service.ReplaceSubscriptions({Key(1, 16, "x")}));
+  assert(service.ReplaceSubscriptions({Key(1, SteamId(16), "x")}));
   assert(!Await(service).image);
 }
 
@@ -214,8 +215,8 @@ class ThrowingBackend final : public ArtworkBackend {
  public:
   std::optional<ArtworkImage> Load(
       const ArtworkKey& key, const std::atomic<bool>&) override {
-    if (key.game_id == 1) throw std::runtime_error("unexpected backend fault");
-    return Pixel(static_cast<std::uint8_t>(key.game_id));
+    if (key.game_id == SteamId(1)) throw std::runtime_error("unexpected backend fault");
+    return Pixel(static_cast<std::uint8_t>(*key.game_id.steam_app()));
   }
 };
 
@@ -228,7 +229,7 @@ class FlakyBackend final : public ArtworkBackend {
       const ArtworkKey& key, const std::atomic<bool>&) override {
     ++calls;
     if (failures_left.fetch_sub(1) > 0) return std::nullopt;
-    return Pixel(static_cast<std::uint8_t>(key.game_id));
+    return Pixel(static_cast<std::uint8_t>(*key.game_id.steam_app()));
   }
 };
 
@@ -248,7 +249,7 @@ ArtworkResult AwaitSubscribed(ArtworkService& service, const ArtworkKey& key) {
 void FailedLoadRetriesAfterDelayWhileSubscribed() {
   FlakyBackend backend(1);
   ArtworkService service(backend, 30ms);
-  const auto key = Key(1, 5, "https://example.invalid/5.jpg");
+  const auto key = Key(1, SteamId(5), "https://example.invalid/5.jpg");
   assert(!AwaitSubscribed(service, key).image);
   // Within the delay the continuous subscription does not retry.
   assert(service.ReplaceSubscriptions({key}));
@@ -267,7 +268,7 @@ void FailedLoadRetriesAfterDelayWhileSubscribed() {
 void RetriesStopAfterMaximumAttempts() {
   FlakyBackend backend(100);
   ArtworkService service(backend, 1ms);
-  const auto key = Key(1, 6, "https://example.invalid/6.jpg");
+  const auto key = Key(1, SteamId(6), "https://example.invalid/6.jpg");
   for (std::uint32_t attempt = 0; attempt < kMaxArtworkAttempts; ++attempt)
     assert(!AwaitSubscribed(service, key).image);
   for (int frame = 0; frame < 30; ++frame) {
@@ -281,12 +282,12 @@ void RetriesStopAfterMaximumAttempts() {
 void UnexpectedBackendExceptionBecomesFailureAndWorkerSurvives() {
   ThrowingBackend backend;
   ArtworkService service(backend);
-  assert(service.ReplaceSubscriptions({Key(1, 1, "throws")}));
+  assert(service.ReplaceSubscriptions({Key(1, SteamId(1), "throws")}));
   const auto failed = Await(service);
-  assert(failed.key == Key(1, 1, "throws") && !failed.image);
-  assert(service.ReplaceSubscriptions({Key(1, 1, "throws"), Key(1, 2, "ok")}));
+  assert(failed.key == Key(1, SteamId(1), "throws") && !failed.image);
+  assert(service.ReplaceSubscriptions({Key(1, SteamId(1), "throws"), Key(1, SteamId(2), "ok")}));
   const auto loaded = Await(service);
-  assert(loaded.key == Key(1, 2, "ok") && loaded.image &&
+  assert(loaded.key == Key(1, SteamId(2), "ok") && loaded.image &&
          loaded.image->rgba[0] == 2);
   service.Shutdown();
 }

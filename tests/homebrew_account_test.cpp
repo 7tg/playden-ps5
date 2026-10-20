@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <mutex>
 #include <thread>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::homebrew;
@@ -95,7 +96,7 @@ class LibraryBackendFixture final : public LibraryBackend {
   LibraryResult Fetch(const StoredSession&,const std::atomic<bool>& cancel) override {
     ++calls;
     while (block && !cancel) std::this_thread::sleep_for(1ms);
-    return {LibraryError::kNone,{{42,"Connected synthetic game",{},{},{}}},false};
+    return {LibraryError::kNone,{{SteamId(42),"Connected synthetic game",{},{},{}}},false};
   }
 };
 class CacheFixture final : public LibraryRepository {
@@ -116,7 +117,7 @@ class CacheFixture final : public LibraryRepository {
 class LicenseCheckRunner final : public InstallRunner {
  public:
   std::atomic<bool> release{false};
-  Result Install(const StoredSession&,GameId,const std::string&,const std::atomic<bool>& cancel,
+  Result Install(const StoredSession&,std::uint32_t,const std::string&,const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t,std::uint64_t,std::uint64_t)>&,
                  const std::function<void(InstallStep)>& step) override {
     step(InstallStep::kCheckingLicenses);
@@ -360,7 +361,7 @@ void StorageFailureKeepsVisibleAccount() {
   Backend backend; backend.error=AuthError::kNetwork;
   Controller controller(model,backend,repo);
   Wait(controller,[&]{return model.state().account.authentication==AuthState::Offline;});
-  model.UpdateLibrary({{{42,"Cached game",{},{},{}}},false,{},true,true,{}});
+  model.UpdateLibrary({{{SteamId(42),"Cached game",{},{},{}}},false,{},true,true,{}});
   repo.fail_load=true;
   assert(model.action("connect"));
   Wait(controller,[&]{return model.state().account.authentication==AuthState::Failed;});
@@ -437,7 +438,7 @@ void ConnectedLibraryAndOfflineRestart() {
     Controller controller(model,backend,repo,&library_service);
     Wait(controller,[&]{return model.state().games.size()==1 && !model.state().library_loading;});
     assert(model.state().account.authentication==AuthState::SignedIn && library_backend.calls==1);
-    assert(model.state().games[0].id==42 && model.state().account.cache_available);
+    assert(model.state().games[0].id==SteamId(42) && model.state().account.cache_available);
   }
   {
     Simulation model({}, {},ModelMode::Live);Backend backend;backend.error=AuthError::kNetwork;
@@ -507,7 +508,7 @@ void LicenseChangesRefreshTheLibrary() {
 // Refresh library in Sort and filters, offline: as Sync now, the saved sign-in is restored first.
 void OfflineRefreshFromTheLibraryReconnects() {
   Repository repo;repo.value=Session();CacheFixture cache;cache.value=LibrarySnapshot{};
-  cache.value->games={{42,"Cached synthetic game",{},{},{}}};
+  cache.value->games={{SteamId(42),"Cached synthetic game",{},{},{}}};
   Simulation model({}, {},ModelMode::Live);Backend backend;backend.error=AuthError::kNetwork;
   LibraryBackendFixture library_backend;LibraryService library_service(library_backend,repo,&cache);
   Controller controller(model,backend,repo,&library_service);
@@ -559,11 +560,11 @@ void SlowLicenseCheckShowsAfterAFewSeconds() {
     InstallService installs(runner,repo,root.string());
     Controller controller(model,backend,repo,nullptr,nullptr,nullptr,&installs);
     const auto job=[&]() -> const Job* {
-      for (const auto& value : model.state().jobs) if (value.game_id==70) return &value;
+      for (const auto& value : model.state().jobs) if (value.game_id==SteamId(70)) return &value;
       return nullptr;
     };
     const auto start=std::chrono::steady_clock::now();
-    installs.Install(70);
+    installs.Install(SteamId(70));
     Wait(controller,[&]{return job() && job()->state==JobState::Downloading;});
     assert(!job()->checking_licenses);
     const auto checking=[&]{ return job() && job()->checking_licenses; };

@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::app;
@@ -94,7 +95,7 @@ void Wait(PersistenceController& controller, Predicate predicate) {
 void Connect(Simulation& model, PersistenceController& controller,
              std::uint64_t account = 123) {
   model.UpdateAccount({AuthState::SignedIn, std::to_string(account), "Synthetic", {}, {}, false});
-  model.UpdateLibrary({{{42, "Synthetic game", {}, {}, {}, {}, {}}},
+  model.UpdateLibrary({{{SteamId(42), "Synthetic game", {}, {}, {}, {}, {}}},
                        false, {}, false, false, {}});
   controller.Activate(account);
 }
@@ -141,7 +142,7 @@ void PendingLoadReplaysLocalEditAndSavesMergedSnapshot() {
   PreferencesStore preferences(storage);
   Repository repository;
   OrganizationSnapshot stored;
-  stored.favorites.insert(7);
+  stored.favorites.insert(SteamId(7));
   repository.snapshots[123] = stored;
   repository.block_load = true;
   PersistenceService service(preferences, repository);
@@ -151,13 +152,13 @@ void PendingLoadReplaysLocalEditAndSavesMergedSnapshot() {
   while (!repository.load_entered) std::this_thread::sleep_for(1ms);
 
   assert(model.action("square"));
-  assert(model.state().library.favorites.contains(42));
+  assert(model.state().library.favorites.contains(SteamId(42)));
   repository.release_load = true;
   Wait(controller, [&] { return repository.saves.load() > 0; });
 
-  assert(model.state().library.favorites == std::set<GameId>({7, 42}));
+  assert(model.state().library.favorites == std::set<GameId>({SteamId(7), SteamId(42)}));
   std::lock_guard<std::mutex> lock(repository.mutex);
-  assert(repository.snapshots.at(123).favorites == std::set<GameId>({7, 42}));
+  assert(repository.snapshots.at(123).favorites == std::set<GameId>({SteamId(7), SteamId(42)}));
 }
 
 void ClearFailureRetainsStateAndSuccessSuppressesOnlyUntilNextEdit() {
@@ -166,20 +167,20 @@ void ClearFailureRetainsStateAndSuccessSuppressesOnlyUntilNextEdit() {
   PreferencesStore preferences(storage);
   Repository repository;
   OrganizationSnapshot stored;
-  stored.favorites.insert(42);
+  stored.favorites.insert(SteamId(42));
   repository.snapshots[123] = stored;
   PersistenceService service(preferences, repository);
   Simulation model({}, {}, ModelMode::Live);
   PersistenceController controller(model, service);
   Connect(model, controller);
-  Wait(controller, [&] { return model.state().library.favorites.contains(42); });
+  Wait(controller, [&] { return model.state().library.favorites.contains(SteamId(42)); });
 
   repository.clear_error = StorageError::kRemoveFailed;
   controller.Clear();
   std::optional<StorageError> result;
   Wait(controller, [&] { result = controller.TakeClearResult(); return result.has_value(); });
   assert(*result == StorageError::kRemoveFailed);
-  assert(model.state().library.favorites.contains(42));
+  assert(model.state().library.favorites.contains(SteamId(42)));
   assert(model.state().persistence_available);
   controller.Retry();
   controller.Tick();
@@ -200,7 +201,7 @@ void ClearFailureRetainsStateAndSuccessSuppressesOnlyUntilNextEdit() {
   controller.Clear();
   Wait(controller, [&] { result = controller.TakeClearResult(); return result.has_value(); });
   assert(*result == StorageError::kNone);
-  assert(model.state().library.favorites.contains(42));
+  assert(model.state().library.favorites.contains(SteamId(42)));
   {
     std::lock_guard<std::mutex> lock(repository.mutex);
     assert(!repository.snapshots.contains(123));
@@ -230,7 +231,7 @@ void ShutdownCapturesTheLastEdit() {
   controller.FlushAndShutdown();
 
   std::lock_guard<std::mutex> lock(repository.mutex);
-  assert(repository.snapshots.at(123).favorites.contains(42));
+  assert(repository.snapshots.at(123).favorites.contains(SteamId(42)));
 }
 
 void ShutdownWaitsForLoadBeforeMergingFinalEdit() {
@@ -239,7 +240,7 @@ void ShutdownWaitsForLoadBeforeMergingFinalEdit() {
   PreferencesStore preferences(storage);
   Repository repository;
   OrganizationSnapshot stored;
-  stored.notes[42] = "stored note";
+  stored.notes[SteamId(42)] = "stored note";
   repository.snapshots[123] = stored;
   repository.block_load = true;
   PersistenceService service(preferences, repository);
@@ -258,8 +259,8 @@ void ShutdownWaitsForLoadBeforeMergingFinalEdit() {
 
   std::lock_guard<std::mutex> lock(repository.mutex);
   const auto& saved = repository.snapshots.at(123);
-  assert(saved.notes.at(42) == "stored note");
-  assert(saved.favorites.contains(42));
+  assert(saved.notes.at(SteamId(42)) == "stored note");
+  assert(saved.favorites.contains(SteamId(42)));
 }
 
 void InvalidMergedLoadStaysUnsavedUntilEditAndRetryResolveIt() {
@@ -268,7 +269,7 @@ void InvalidMergedLoadStaysUnsavedUntilEditAndRetryResolveIt() {
   PreferencesStore preferences(storage);
   Repository repository;
   OrganizationSnapshot stored;
-  for (GameId id = 100; id < 10100; ++id) stored.favorites.insert(id);
+  for (std::uint32_t id = 100; id < 10100; ++id) stored.favorites.insert(SteamId(id));
   assert(stored.favorites.size() == 10000);
   repository.snapshots[123] = stored;
   repository.block_load = true;
@@ -282,7 +283,7 @@ void InvalidMergedLoadStaysUnsavedUntilEditAndRetryResolveIt() {
 
   Wait(controller, [&] { return !model.state().persistence_available; });
   assert(repository.saves.load() == 0);
-  assert(model.state().library.favorites == std::set<GameId>{42});
+  assert(model.state().library.favorites == std::set<GameId>{SteamId(42)});
 
   assert(model.action("square"));
   controller.Retry();
@@ -290,7 +291,7 @@ void InvalidMergedLoadStaysUnsavedUntilEditAndRetryResolveIt() {
     return model.state().persistence_available && repository.saves.load() > 0;
   });
   assert(model.state().library.favorites.size() == 10000);
-  assert(!model.state().library.favorites.contains(42));
+  assert(!model.state().library.favorites.contains(SteamId(42)));
 }
 
 void InitialPreferencesFailureRetriesWithoutOverwritingUnknownData() {

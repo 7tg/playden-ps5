@@ -29,7 +29,7 @@ int main() {
   CHECK(ReadTitleSource(root, "FAKE78001").availability == TitleAvailability::kFree);
   Records records; Package package;
   auto& record = records.value;
-  record.install_id = "install-220"; record.title_id = "FAKE78001"; record.app_id = 220;
+  record.install_id = "install-220"; record.title_id = "FAKE78001"; record.runtime_number = 220;
   record.data_root = "/data/playden/games/install-220"; record.default_profile_id = "main";
   record.runtime_bundle_id = "wine-tested"; record.recipe_id = "hl2"; record.recipe_version = "1";
   record.launch_entry_id = "game"; record.launch_path = "hl2.exe"; record.install_path = "/data/games/220";

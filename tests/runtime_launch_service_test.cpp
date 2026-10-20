@@ -63,7 +63,7 @@ RuntimeInstall ReadyInstall() {
   RuntimeInstall record;
   record.install_id = "install-hl2";
   record.title_id = "FAKE78001";
-  record.app_id = 220;
+  record.runtime_number = 220;
   record.data_root = "/data/playden/games/install-hl2";
   record.default_profile_id = "game";
   record.runtime_bundle_id = "prospero-win-e16ec8f";

@@ -10,6 +10,7 @@
 #include "homebrew/qr.hpp"
 #include "homebrew/queue_layout.hpp"
 #include "homebrew/simulation.hpp"
+#include "homebrew/store_art.hpp"
 #include <ctime>
 
 #include "gfx/draw_list.hpp"
@@ -169,7 +170,8 @@ gfx::Color id_color(GameId id)
 {
     static constexpr std::array<std::uint32_t, 8> colors = {
         0x634B3B, 0x354F52, 0x53405B, 0x5E4936, 0x334D3E, 0x4D435E, 0x675039, 0x3D4B63};
-    return gfx::Color::rgb(colors[id % colors.size()]);
+    const std::size_t number = id.store == Store::kSteam ? id.steam_app().value_or(0) : std::hash<GameId>{}(id);
+    return gfx::Color::rgb(colors[number % colors.size()]);
 }
 
 const Game *game_by_id(const State &state, GameId id)
@@ -463,6 +465,7 @@ class Render::Impl
         scene_.clear();
         overlay_.clear();
         stats_.grid_focused_game_id = 0;
+        grid_focused_game_ = {};
         stats_.grid_drawn_cell_count = 0;
         stats_.focused_control_key.clear();
         stats_.native_width = width;
@@ -1383,7 +1386,7 @@ class Render::Impl
                 const gfx::Rect art{kSafeX + item_index * tile_pitch - horizontal, top + 28.0F, tile_width, 320.0F};
                 const bool focused = route_focus_ && shelf_index == active_shelf &&
                                      item_index == focused_item;
-                if (cell.game_id == 0 && cell.action == "shelf-more")
+                if (!cell.game_id.valid() && cell.action == "shelf-more")
                 {
                     // The rest of the shelf lives in the Library: a poster-sized card with the count.
                     if (focused)
@@ -1410,7 +1413,7 @@ class Render::Impl
                     continue;
                 if (focused)
                     stats_.focused_control_key = shelf.items[static_cast<std::size_t>(item_index)].key;
-                const std::string key = "home-" + shelf.key + "-" + std::to_string(game->id);
+                const std::string key = "home-" + shelf.key + "-" + ToKey(game->id);
                 draw_poster(*game, art, focused, job_progress(game->id), false, key);
                 const float amount = focus_motion_.amount(key, focused);
                 if (amount > 0.0F)
@@ -1501,9 +1504,10 @@ class Render::Impl
         });
         if (selected != games.end())
             grid_focus = static_cast<int>(std::distance(games.begin(), selected));
-        stats_.grid_focused_game_id = games[static_cast<std::size_t>(grid_focus)]->id;
+        grid_focused_game_ = games[static_cast<std::size_t>(grid_focus)]->id;
+        stats_.grid_focused_game_id = grid_focused_game_.steam_app().value_or(0);
         if (grid_active)
-            stats_.focused_control_key = "game-" + std::to_string(stats_.grid_focused_game_id);
+            stats_.focused_control_key = "game-" + ToKey(grid_focused_game_);
         grid_.set_focus(grid_focus, true);
         grid_.set_active(grid_active);
         grid_.content = [this](ui::Canvas &, const gfx::Rect &cell, const ui::CardItem &, int index,
@@ -1511,9 +1515,9 @@ class Render::Impl
             ++stats_.grid_drawn_cell_count;
             const Game &game = *visible_grid_games_[static_cast<std::size_t>(index)];
             const bool focused = route_focus_ && !current_state_->navigation.library_rail_focused &&
-                                 game.id == stats_.grid_focused_game_id;
+                                 game.id == grid_focused_game_;
             draw_poster(game, cell, focused, job_progress(game.id), true,
-                        "library-" + std::to_string(game.id));
+                        "library-" + ToKey(game.id));
         };
         grid_.accent = [this](int index) {
             return id_color(visible_grid_games_[static_cast<std::size_t>(index)]->id);
@@ -1702,15 +1706,15 @@ class Render::Impl
         const float amount = motion_key.empty() ? (focused ? 1.0F : 0.0F) : focus_motion_.amount(motion_key, focused);
         const float scale = motion_key.empty() ? 1.0F : 1.0F + (FocusMotion::focused_scale - 1.0F) * amount;
         scene_.push_transform(scale, rect.cx(), rect.cy(), 0.0F, 0.0F);
-        const std::size_t texture_index = game.id >= 900001 ? (game.id - 900001) % art_.size() :
-                                                              game.id % art_.size();
+        // Fixture games are numbered from 900001.
+        const std::uint32_t number = game.id.steam_app().value_or(0);
+        const std::size_t texture_index = number >= 900001 ? (number - 900001) % art_.size() :
+                                                             number % art_.size();
         const bool simulated = current_state_ != nullptr && current_state_->simulation_mode;
         const std::uint32_t texture = simulated
             ? (game.art_failed || game.art_pending ? 0 : art_[texture_index])
             : (live_artwork_ && current_state_ && !current_state_->account.id.empty()
-                ? live_artwork_->TextureFor(game.id,
-                    "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
-                    std::to_string(game.id) + "/library_600x900.jpg") : 0);
+                ? store_texture(game.id, CoverUrl(game)) : 0);
         const TileStatus status = tile_status(game.id);
         // Glow first: it is a filled soft shape, and the art must cover its middle so only the
         // light outside the tile shows, as on macOS. The art itself is never tinted.
@@ -2405,9 +2409,11 @@ class Render::Impl
         scene_.pop_clip();
     }
 
-    std::string steam_art(GameId id, std::string_view name) const
+    // The live texture of a store's art (store_art.hpp); a game whose store has none gets 0, its title tile.
+    std::uint32_t store_texture(GameId id, const std::string &url, std::uint32_t *width = nullptr,
+                                std::uint32_t *height = nullptr)
     {
-        return "https://cdn.cloudflare.steamstatic.com/steam/apps/" + std::to_string(id) + "/" + std::string(name);
+        return url.empty() || !live_artwork_ ? 0 : live_artwork_->TextureFor(id, url, width, height);
     }
 
     // A label over its value, as the macOS details metadata.
@@ -2447,7 +2453,8 @@ class Render::Impl
         // The cover when it is loaded; a small tile would wrap the poster's title letter by letter.
         if (const Game *game = game_by_id(state, id); game != nullptr && state.simulation_mode)
         {
-            const std::size_t index = id >= 900001 ? (id - 900001) % art_.size() : id % art_.size();
+            const std::uint32_t number = id.steam_app().value_or(0);
+            const std::size_t index = number >= 900001 ? (number - 900001) % art_.size() : number % art_.size();
             if (!game->art_failed && !game->art_pending && art_[index] != 0)
             {
                 scene_.image(art_[index], rect, gfx::kFullUv, kText, 6.0F);
@@ -2455,8 +2462,7 @@ class Render::Impl
             }
         }
         if (live_artwork_ && !state.account.id.empty())
-            if (const std::uint32_t cover = live_artwork_->TextureFor(
-                    id, "https://cdn.cloudflare.steamstatic.com/steam/apps/" + std::to_string(id) + "/library_600x900.jpg"))
+            if (const std::uint32_t cover = store_texture(id, CoverUrl(id)))
             {
                 scene_.image(cover, rect, gfx::kFullUv, kText, 6.0F);
                 return;
@@ -2764,9 +2770,9 @@ class Render::Impl
         const GameId id = state.navigation.detail_id.value_or(state.navigation.selected_game_id);
         const Game *game = game_by_id(state, id);
         const gfx::Rect hero{0.0F, 0.0F, kWidth, 620.0F};
-        const bool live_art = !state.simulation_mode && live_artwork_ && !state.account.id.empty() && id != 0;
+        const bool live_art = !state.simulation_mode && live_artwork_ && !state.account.id.empty() && id.valid();
         const std::uint32_t hero_texture = state.simulation_mode ? hero_ :
-            live_art ? live_artwork_->TextureFor(id, steam_art(id, "library_hero.jpg")) : 0;
+            live_art ? store_texture(id, HeroUrl(id)) : 0;
         if (hero_texture != 0)
             scene_.image(hero_texture, hero, gfx::kFullUv, kText);
         else
@@ -2785,7 +2791,7 @@ class Render::Impl
         std::uint32_t logo_width = 0;
         std::uint32_t logo_height = 0;
         const std::uint32_t logo = live_art ?
-            live_artwork_->TextureFor(id, steam_art(id, "logo.png"), &logo_width, &logo_height) : 0;
+            store_texture(id, LogoUrl(id), &logo_width, &logo_height) : 0;
         if (logo != 0 && logo_width > 0 && logo_height > 0)
         {
             const float fit_scale = std::min(460.0F / static_cast<float>(logo_width),
@@ -4102,6 +4108,7 @@ class Render::Impl
     std::string link_qr_url_;
     QrMatrix link_qr_;
     std::vector<const Game *> visible_grid_games_;
+    GameId grid_focused_game_;
     const State *current_state_ = nullptr;
     bool simulation_tabs_ = true;
     float clock_ = 0.0F;

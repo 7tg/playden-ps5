@@ -7,6 +7,7 @@
 #undef unlink
 #undef unlinkat
 #include "runtime/game_settings.h"
+#include "steam_id.h"
 #include <cerrno>
 #include <cstdarg>
 #include <cstdio>
@@ -107,20 +108,20 @@ int main(int argc, char** argv) {
   const auto records = root / "settings.json";
   std::string reason;
   reject_relative_operations = true;
-  CHECK(SaveGameSettingsFile(records.string(), {{220, {"", {}, 1}}}, &reason));
+  CHECK(SaveGameSettingsFile(records.string(), {{SteamId(220), {"", {}, 1}}}, &reason));
   CHECK(Mode(records) == 0600);
   const auto original = Read(records);
   fail_file_sync = true;
-  CHECK(!SaveGameSettingsFile(records.string(), {{220, {"", {}, 2}}}, &reason));
+  CHECK(!SaveGameSettingsFile(records.string(), {{SteamId(220), {"", {}, 2}}}, &reason));
   CHECK(Read(records) == original);  // no rename before the data durability barrier
   fail_directory_sync = true;
-  CHECK(!SaveGameSettingsFile(records.string(), {{220, {"", {}, 2}}}, &reason));
+  CHECK(!SaveGameSettingsFile(records.string(), {{SteamId(220), {"", {}, 2}}}, &reason));
   CHECK(!fail_directory_sync);  // a directory barrier was attempted after rename
-  CHECK(SaveGameSettingsFile(records.string(), {{220, {"", {}, 2}}}, &reason));
+  CHECK(SaveGameSettingsFile(records.string(), {{SteamId(220), {"", {}, 2}}}, &reason));
   CHECK(::chmod(records.c_str(), 0644) == 0);  // admitted legacy owner file
-  CHECK(SaveGameSettingsFile(records.string(), {{220, {"", {}, 3}}}, &reason));
+  CHECK(SaveGameSettingsFile(records.string(), {{SteamId(220), {"", {}, 3}}}, &reason));
   CHECK(Mode(records) == 0600);  // every replacement migrates to private mode
-  std::map<std::uint32_t, GameSettingsRecord> loaded;
+  std::map<playden::GameId, GameSettingsRecord> loaded;
   CHECK(::chmod(records.c_str(), 0660) == 0);
   CHECK(!LoadGameSettingsFile(records.string(), &loaded, &reason));
   CHECK(::chmod(records.c_str(), 0600) == 0);
@@ -128,11 +129,11 @@ int main(int argc, char** argv) {
   const auto public_private_root = root / "public-settings";
   fs::create_directory(public_private_root);
   CHECK(!SaveGameSettingsFile((public_private_root / "settings.json").string(),
-                              {{220, {"", {}, 4}}}, &reason));
-  CHECK(!SaveGameSettingsFile("relative-settings.json", {{220, {"", {}, 4}}}, &reason));
+                              {{SteamId(220), {"", {}, 4}}}, &reason));
+  CHECK(!SaveGameSettingsFile("relative-settings.json", {{SteamId(220), {"", {}, 4}}}, &reason));
   const auto linked_settings = root / "linked-settings.json";
   CHECK(::symlink(records.c_str(), linked_settings.c_str()) == 0);
-  CHECK(!SaveGameSettingsFile(linked_settings.string(), {{220, {"", {}, 4}}}, &reason));
+  CHECK(!SaveGameSettingsFile(linked_settings.string(), {{SteamId(220), {"", {}, 4}}}, &reason));
 
   const auto legacy_root = root / "legacy-public";
   const auto migrated_root = root / "migrated-private";

@@ -8,6 +8,7 @@
 #include <SDL.h>
 #include <cassert>
 #include <filesystem>
+#include "steam_id.h"
 
 using namespace playden::homebrew;
 namespace {
@@ -41,12 +42,12 @@ int main(int argc, char** argv) {
         // None of these non-Latin characters except some Arabic letters occur in the
         // catalog the CJK/Arabic atlases are baked from (checked when choosing them).
         assert(model.UpdateLibrary({{
-            {701, "Persona 5 ザ・ロイヤル", {}, {}, {}},
-            {702, "東方紅魔郷", {}, {}, {}},
-            {703, "FIFA 23 كرة القدم", {}, {}, {}},
-            {704, "เกมส์ไทย", {}, {}, {}},
-            {705, "Party Night 🎮", {}, {}, {}},
-            {706, "Ωmega Ρrotocol", {}, {}, {}},
+            {SteamId(701), "Persona 5 ザ・ロイヤル", {}, {}, {}},
+            {SteamId(702), "東方紅魔郷", {}, {}, {}},
+            {SteamId(703), "FIFA 23 كرة القدم", {}, {}, {}},
+            {SteamId(704), "เกมส์ไทย", {}, {}, {}},
+            {SteamId(705), "Party Night 🎮", {}, {}, {}},
+            {SteamId(706), "Ωmega Ρrotocol", {}, {}, {}},
         }, false, {}, false, true, 1700000000}));
         assert(model.action("r1"));
         for (int i = 0; i < 16; ++i) renderer.draw(model, 1920, 1080);

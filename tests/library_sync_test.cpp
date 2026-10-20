@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include "steam_id.h"
 using namespace playden; using namespace playden::steam; using namespace std::chrono_literals;
 namespace {
 class Sessions final:public SessionRepository {
@@ -15,7 +16,7 @@ class Sessions final:public SessionRepository {
  Result<void> Save(const StoredSession&)const override{assert(false);return Result<void>::Success();} Result<void> Clear()const override{assert(false);return Result<void>::Success();}
 };
 class Backend final:public LibraryBackend {
- public: std::atomic<int> calls{0}; std::atomic<bool> block{false},entered{false},release{false},canceled{false}; LibraryResult result{LibraryError::kNone,{{42,"Fresh title",{},{},{},12,700}},true};
+ public: std::atomic<int> calls{0}; std::atomic<bool> block{false},entered{false},release{false},canceled{false}; LibraryResult result{LibraryError::kNone,{{SteamId(42),"Fresh title",{},{},{},12,700}},true};
  LibraryResult Fetch(const StoredSession& session,const std::atomic<bool>& cancel)override{assert(session.access_token=="private-access"||session.access_token=="access");++calls;entered=true;while(block&&!release){if(cancel){canceled=true;break;}std::this_thread::sleep_for(1ms);}return result;}
 };
 class Cache final:public LibraryRepository {
@@ -26,7 +27,7 @@ class Cache final:public LibraryRepository {
  Result<void> Save(std::uint64_t a,const LibrarySnapshot& s)const override{++saves;save_entered=true;while(block_save&&!save_release)std::this_thread::sleep_for(1ms);std::lock_guard<std::mutex> l(mutex);order.push_back('S');if(save_error!=StorageError::kNone)return Result<void>::Failure(save_error,"save");snapshots[a]=s;return Result<void>::Success();}
  Result<void> Clear(std::uint64_t a)const override{++clears;clear_entered=true;while(block_clear&&!clear_release)std::this_thread::sleep_for(1ms);std::lock_guard<std::mutex> l(mutex);order.push_back('C');if(clear_error!=StorageError::kNone)return Result<void>::Failure(clear_error,"clear");snapshots.erase(a);return Result<void>::Success();}
 };
-LibrarySnapshot Snapshot(std::uint64_t t,std::string title="Cached title"){return {3,t,{{42,std::move(title),{},{},{},9,600}},true};}
+LibrarySnapshot Snapshot(std::uint64_t t,std::string title="Cached title"){return {3,t,{{SteamId(42),std::move(title),{},{},{},9,600}},true};}
 void Wait(const std::atomic<bool>& v){auto d=std::chrono::steady_clock::now()+2s;while(!v&&std::chrono::steady_clock::now()<d)std::this_thread::sleep_for(1ms);assert(v);}
 std::vector<LibraryEvent> Until(LibraryService& s,LibraryEventKind expected){auto d=std::chrono::steady_clock::now()+2s;std::vector<LibraryEvent> out;while(std::chrono::steady_clock::now()<d){for(auto&e:s.Pump(1)){auto k=e.kind;out.push_back(std::move(e));if(k==expected)return out;}std::this_thread::sleep_for(1ms);}assert(false&&"worker deadline");return{};}
 void CachedThenNetworkAndSave(){Sessions sessions;Backend backend;backend.block=true;Cache cache;cache.snapshots[123]=Snapshot(111);LibraryService service(backend,sessions,&cache,[]{return std::uint64_t{777};});auto request=service.Refresh(123,7);auto events=Until(service,LibraryEventKind::kCached);assert(events.size()==2&&events[0].kind==LibraryEventKind::kLoading);auto& cached=events.back();assert(cached.request_id==request&&cached.games[0].title=="Cached title"&&cached.cache_available&&cached.retrieved_at_unix_seconds==111&&cached.metadata_partial);Wait(backend.entered);backend.release=true;events=Until(service,LibraryEventKind::kComplete);auto& complete=events.back();assert(complete.games[0].title=="Fresh title"&&complete.cache_available&&complete.retrieved_at_unix_seconds==777&&complete.cache_error==StorageError::kNone&&cache.saves==1);std::lock_guard<std::mutex> l(cache.mutex);assert(cache.snapshots[123].games[0].title=="Fresh title");}

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "steam_id.h"
 
 using namespace playden::homebrew;
 
@@ -152,13 +153,13 @@ void RejectsOversizedPngDimensionsBeforePixelAllocation() {
 void InvalidHttpIdentityIsRejectedWithoutTransport() {
   HttpArtworkBackend backend("unused-ca.pem");
   std::atomic<bool> cancel{false};
-  assert(!backend.Load({1, 42, "http://cdn.cloudflare.steamstatic.com/steam/apps/42/library_600x900.jpg"}, cancel));
-  assert(!backend.Load({1, 42, "https://cdn.cloudflare.steamstatic.com/steam/apps/41/library_600x900.jpg"}, cancel));
-  assert(!backend.Load({1, 42, "https://cdn.cloudflare.steamstatic.com/steam/apps/42/library_600x900.jpg?x=1"}, cancel));
+  assert(!backend.Load({1, SteamId(42), "http://cdn.cloudflare.steamstatic.com/steam/apps/42/library_600x900.jpg"}, cancel));
+  assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/41/library_600x900.jpg"}, cancel));
+  assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/42/library_600x900.jpg?x=1"}, cancel));
   // Hero and logo are allowed for the same game only; other CDN files are not.
-  assert(!backend.Load({1, 42, "https://cdn.cloudflare.steamstatic.com/steam/apps/41/library_hero.jpg"}, cancel));
-  assert(!backend.Load({1, 42, "https://cdn.cloudflare.steamstatic.com/steam/apps/41/logo.png"}, cancel));
-  assert(!backend.Load({1, 42, "https://cdn.cloudflare.steamstatic.com/steam/apps/42/header.jpg"}, cancel));
+  assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/41/library_hero.jpg"}, cancel));
+  assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/41/logo.png"}, cancel));
+  assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/42/header.jpg"}, cancel));
 }
 
 }  // namespace
@@ -168,7 +169,7 @@ int main(int argc, char** argv) {
     HttpArtworkBackend backend(argv[2]);
     std::atomic<bool> cancel{false};
     const auto image = backend.Load(
-        {1, 440,
+        {1, SteamId(440),
          "https://cdn.cloudflare.steamstatic.com/steam/apps/440/library_600x900.jpg"},
         cancel);
     assert(image && !image->rgba.empty());

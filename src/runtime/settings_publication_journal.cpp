@@ -69,7 +69,7 @@ bool StartsInInstallRoot(const RuntimeInstall& r, const SettingsLaunchPlan& p) {
   return r.launch_in_install_root || p.launch_entry.in_install_root;
 }
 template<class C> void IdentityPayload(C& c, RuntimeInstall& r, SettingsLaunchPlan& p, bool with_root) {
-  c.U32(r.schema_version); c.Text(r.install_id, 64); c.Text(r.title_id, 9); c.U32(r.app_id);
+  c.U32(r.schema_version); c.Text(r.install_id, 64); c.Text(r.title_id, 9); c.U32(r.runtime_number);
   c.Text(r.data_root, 511); c.Text(r.default_profile_id, 64); c.Text(r.runtime_bundle_id, 64);
   c.Text(r.recipe_id, 64); c.Text(r.recipe_version, 64); c.U64(r.settings_revision); c.Text(r.exit_policy, 15);
   c.Text(r.launch_entry_id, 128); c.Text(r.launch_path, 1024); c.Text(r.launch_arguments, 4096);
@@ -161,7 +161,7 @@ bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
   const auto& r = o.install; const auto& p = o.plan;
   if (o.schema != 1 || o.registry_unix_time < 0 || !ValidateRuntimeInstallRecord(r) ||
       static_cast<unsigned>(r.state) > static_cast<unsigned>(PreparationState::kRemoving) ||
-      p.app_id != r.app_id || p.recipe_id != r.recipe_id || p.recipe_version != r.recipe_version ||
+      p.app_id != r.runtime_number || p.recipe_id != r.recipe_id || p.recipe_version != r.recipe_version ||
       p.profile_id != r.default_profile_id || p.settings_revision != r.settings_revision ||
       o.previous_revision > p.settings_revision || p.launch_entry_id != r.launch_entry_id ||
       p.launch_entry.id != r.launch_entry_id || NormalRelative(p.launch_entry.executable) != NormalRelative(r.launch_path) ||
@@ -191,7 +191,7 @@ bool BaseValid(const SettingsPublicationOperation& o, std::string* reason) {
   }
   PwTitleLaunch launch{}; char error[256]{};
   if (pw_title_launch_parse(o.descriptor_bytes.data(), o.descriptor_bytes.size(), r.title_id.c_str(), &launch, error, sizeof(error)) != PW_OK ||
-      launch.app_id != r.app_id || launch.settings_revision != p.settings_revision || launch.install_id != r.install_id ||
+      launch.app_id != r.runtime_number || launch.settings_revision != p.settings_revision || launch.install_id != r.install_id ||
       launch.data_root != r.data_root || launch.default_profile_id != p.profile_id ||
       launch.runtime_bundle_id != r.runtime_bundle_id || launch.recipe_id != p.recipe_id || launch.recipe_version != p.recipe_version ||
       launch.exit_policy != r.exit_policy || launch.game_root != r.install_path)
@@ -317,7 +317,7 @@ bool RequestValid(const SettingsPublicationRequest& q, std::string* reason) {
   const auto& r = q.install; const auto& p = q.plan;
   if (q.schema != 1 || !IsSettingsPublicationTransactionId(q.transaction_id) || q.kit_id.empty() ||
       q.kit_id.size() > 64 || q.kit_id.find('\0') != std::string::npos || q.registry_unix_time < 0 ||
-      !ValidateRuntimeInstallRecord(r) || p.app_id != r.app_id || p.recipe_id != r.recipe_id ||
+      !ValidateRuntimeInstallRecord(r) || p.app_id != r.runtime_number || p.recipe_id != r.recipe_id ||
       p.recipe_version != r.recipe_version || p.profile_id != r.default_profile_id ||
       p.settings_revision != r.settings_revision || p.launch_entry_id != r.launch_entry_id ||
       p.launch_entry.id != r.launch_entry_id || NormalRelative(p.launch_entry.executable) != NormalRelative(r.launch_path) ||

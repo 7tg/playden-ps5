@@ -7,6 +7,9 @@ namespace playden {
 namespace {
 constexpr std::size_t kMaximumCacheBytes = 16 * 1024 * 1024;
 constexpr std::size_t kMaximumGames = 100000;
+// Schema 5 names each game by store and value; 4 and older hold Steam app IDs only.
+constexpr unsigned kLatestSchema = 5;
+constexpr std::size_t kMaximumGameValue = 48;
 const Bytes kMagic = {'P','D','L','I','B',0,1,0};
 bool ValidAccount(const std::string& account) {
     return !account.empty() && account.size() <= 20 && account[0] != '0' &&
@@ -40,8 +43,9 @@ struct Reader {
         std::string value(bytes.begin()+offset,bytes.begin()+offset+count);offset+=count;return value;
     }
 };
-bool ValidGame(const GameSummary& game) {
-    return game.id!=0 && !game.title.empty() && game.title.size()<=4096 &&
+bool ValidGame(const GameSummary& game,unsigned schema) {
+    return (schema>=5?game.id.valid():game.id.steam_app().has_value()) && game.id.value.size()<=kMaximumGameValue &&
+        !game.title.empty() && game.title.size()<=4096 &&
         (!game.last_played_unix_seconds || (*game.last_played_unix_seconds>0 &&
             *game.last_played_unix_seconds<=static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) &&
         (!game.added_at_unix_seconds || (*game.added_at_unix_seconds>0 &&
@@ -52,7 +56,7 @@ Result<void> Invalid(const char* message) {return Result<void>::Failure(StorageE
 }
 Result<void> LibraryCache::Save(const std::string& account,const LibrarySnapshot& snapshot) const {
     if(!ValidAccount(account))return Invalid("Invalid cache account identifier.");
-    if((snapshot.schema_version<1||snapshot.schema_version>4)||snapshot.games.size()>kMaximumGames||
+    if((snapshot.schema_version<1||snapshot.schema_version>kLatestSchema)||snapshot.games.size()>kMaximumGames||
         snapshot.retrieved_at_unix_seconds>static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))return Invalid("Unsupported library cache schema or size.");
     if(snapshot.schema_version<3&&snapshot.metadata_partial)return Invalid("Cache schema cannot preserve metadata state.");
     Bytes encoded=kMagic;
@@ -62,10 +66,12 @@ Result<void> LibraryCache::Save(const std::string& account,const LibrarySnapshot
     Number(encoded,snapshot.games.size(),4);
     std::unordered_set<GameId> seen;
     for(const auto& game:snapshot.games){
-        if(!ValidGame(game)||!seen.insert(game.id).second)return Invalid("Invalid or duplicate cached game.");
+        if(!ValidGame(game,snapshot.schema_version)||!seen.insert(game.id).second)return Invalid("Invalid or duplicate cached game.");
         if(snapshot.schema_version==1 && (game.playtime_minutes || game.last_played_unix_seconds))return Invalid("Cache schema cannot preserve game history.");
         if(snapshot.schema_version<4 && game.added_at_unix_seconds)return Invalid("Cache schema cannot preserve acquisition dates.");
-        Number(encoded,game.id,4);String(encoded,game.title);String(encoded,game.artwork_source);String(encoded,game.description);String(encoded,game.developer);
+        if(snapshot.schema_version>=5){Number(encoded,static_cast<std::uint8_t>(game.id.store),1);String(encoded,game.id.value);}
+        else Number(encoded,*game.id.steam_app(),4);
+        String(encoded,game.title);String(encoded,game.artwork_source);String(encoded,game.description);String(encoded,game.developer);
         if(snapshot.schema_version>=2){
             Number(encoded,(game.playtime_minutes?1u:0u)|(game.last_played_unix_seconds?2u:0u)|(game.added_at_unix_seconds?4u:0u),1);
             if(game.playtime_minutes)Number(encoded,*game.playtime_minutes,8);
@@ -84,7 +90,7 @@ Result<LibrarySnapshot> LibraryCache::Load(const std::string& account) const {
     if(!read.ok())return Result<LibrarySnapshot>::Failure(read.error(),read.message());
     const auto& bytes=read.value();
     if(bytes.size()<kMagic.size()+4||!std::equal(kMagic.begin(),kMagic.begin()+6,bytes.begin())||
-        (bytes[6]<1||bytes[6]>4)||bytes[7]!=0)return invalid();
+        (bytes[6]<1||bytes[6]>kLatestSchema)||bytes[7]!=0)return invalid();
     Reader tail{bytes,bytes.size()-4,bytes.size()};
     if(tail.Number(4)!=Checksum(bytes,bytes.size()-4))return invalid();
     Reader reader{bytes,kMagic.size(),bytes.size()-4};
@@ -99,7 +105,13 @@ Result<LibrarySnapshot> LibraryCache::Load(const std::string& account) const {
     std::unordered_set<GameId> seen;
     for(std::uint64_t i=0;i<count;++i){
         GameSummary game;
-        game.id=static_cast<GameId>(reader.Number(4));game.title=reader.String(4096);
+        if(snapshot.schema_version>=5){
+            // An unknown store byte makes an invalid GameId, which ValidGame refuses.
+            game.id.store=static_cast<Store>(reader.Number(1));game.id.value=reader.String(kMaximumGameValue);
+        } else {
+            game.id=GameId::Steam(static_cast<std::uint32_t>(reader.Number(4)));
+        }
+        game.title=reader.String(4096);
         game.artwork_source=reader.String(8192);game.description=reader.String(65536);game.developer=reader.String(4096);
         if(snapshot.schema_version>=2){
             const auto flags=reader.Number(1);
@@ -108,7 +120,7 @@ Result<LibrarySnapshot> LibraryCache::Load(const std::string& account) const {
             if(flags&2)game.last_played_unix_seconds=reader.Number(8);
             if(flags&4)game.added_at_unix_seconds=reader.Number(8);
         }
-        if(!reader.okay||!ValidGame(game)||!seen.insert(game.id).second)return invalid();
+        if(!reader.okay||!ValidGame(game,snapshot.schema_version)||!seen.insert(game.id).second)return invalid();
         snapshot.games.push_back(std::move(game));
     }
     if(reader.offset!=reader.limit)return invalid();

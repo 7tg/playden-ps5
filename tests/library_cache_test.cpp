@@ -2,12 +2,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <unistd.h>
+#include "steam_id.h"
 using namespace playden;
 void Check(bool value,const char* message){if(!value){std::fprintf(stderr,"FAIL: %s\n",message);std::exit(1);}}
 int main(){
  char root[]="/tmp/playden-cache-XXXXXX";Check(mkdtemp(root),"temporary root");
  Storage storage(root);LibraryCache cache(storage);
- LibrarySnapshot original{1,123456,{{10,"Portal","https://example.invalid/10.jpg","Puzzle","Valve"},{20,"星の旅","","Travel","Studio"}}};
+ LibrarySnapshot original{1,123456,{{SteamId(10),"Portal","https://example.invalid/10.jpg","Puzzle","Valve"},{SteamId(20),"星の旅","","Travel","Studio"}}};
  Check(cache.Save("76561198000000001",original).ok(),"save a real account snapshot");
  auto restored=cache.Load("76561198000000001");Check(restored.ok(),"load snapshot after creating a new cache reader");
  Check(restored.value().games.size()==2 && restored.value().games[1].title=="星の旅","Unicode title roundtrip");
@@ -38,7 +39,7 @@ int main(){
  Check(storage.WriteAtomic("library-76561198000000001.cache",truncated).ok(),"write truncated fixture");
  Check(!cache.Load("76561198000000001").ok(),"truncated cache rejected");
  LibrarySnapshot large{1,123458,{}};
- for(unsigned i=1;i<=32;++i)large.games.push_back({i,"Large game","",std::string(40000,'x'),"Studio"});
+ for(unsigned i=1;i<=32;++i)large.games.push_back({SteamId(i),"Large game","",std::string(40000,'x'),"Studio"});
  Check(cache.Save("76561198000000001",large).ok(),"save snapshot exceeding preference read limit");
  Check(!storage.Read("library-76561198000000001.cache").ok(),"default storage limit remains bounded");
  auto large_restored=cache.Load("76561198000000001");
@@ -49,13 +50,13 @@ int main(){
  Check(!storage.Read("library-76561198000000001.cache",33*1024*1024).ok(),"excessive read bound rejected");
  LibrarySnapshot empty{1,123457,{}};Check(cache.Save("76561198000000001",empty).ok(),"empty library is legitimate cached state");
  Check(cache.Load("76561198000000001").value().games.empty(),"empty library survives restart");
- LibrarySnapshot partial{3,123459,{{30,"Partial","","",""}},true};
+ LibrarySnapshot partial{3,123459,{{SteamId(30),"Partial","","",""}},true};
  Check(cache.Save(std::uint64_t{76561198000000004ULL},partial).ok(),"save schema three metadata state through repository API");
  auto partial_restored=cache.Load(std::uint64_t{76561198000000004ULL});
  Check(partial_restored.ok()&&partial_restored.value().metadata_partial,"schema three preserves partial metadata state");
  auto lossy_partial=partial;lossy_partial.schema_version=2;
  Check(!cache.Save("76561198000000004",lossy_partial).ok(),"schema two cannot silently discard partial metadata state");
- LibrarySnapshot dated{4,123460,{{40,"Dated","","",""},{41,"Undated","","",""}}};
+ LibrarySnapshot dated{4,123460,{{SteamId(40),"Dated","","",""},{SteamId(41),"Undated","","",""}}};
  dated.games[0].added_at_unix_seconds=1500000000;
  Check(cache.Save("76561198000000005",dated).ok(),"save schema four acquisition dates");
  auto dated_restored=cache.Load("76561198000000005");

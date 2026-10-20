@@ -40,11 +40,11 @@ std::string PlainText(std::string_view html) {
 
 }  // namespace
 
-std::string StoreDetailsUrl(GameId id) {
-  return "https://store.steampowered.com/api/appdetails?appids=" + std::to_string(id) + "&l=english";
+std::string StoreDetailsUrl(std::uint32_t app) {
+  return "https://store.steampowered.com/api/appdetails?appids=" + std::to_string(app) + "&l=english";
 }
 
-std::optional<StoreDetails> ParseStoreDetails(GameId id, std::string_view body) {
+std::optional<StoreDetails> ParseStoreDetails(std::uint32_t id, std::string_view body) {
   const auto root = json::Parse(body, {2 * 1024 * 1024, 32, 1 << 17, 512 * 1024});
   if (!root || !root->is_object()) return std::nullopt;
   const auto* entry = root->Find(std::to_string(id));
@@ -55,7 +55,7 @@ std::optional<StoreDetails> ParseStoreDetails(GameId id, std::string_view body) 
   const auto* app = data->Find("steam_appid");
   if (!app || app->AsUint64() != std::optional<std::uint64_t>(id)) return std::nullopt;
   StoreDetails details;
-  details.id = id;
+  details.id = GameId::Steam(id);
   if (const auto* text = data->Find("short_description"); text && text->is_string())
     details.description = PlainText(text->text());
   if (const auto* genres = data->Find("genres"); genres && genres->is_array())
@@ -74,7 +74,7 @@ StoreDetailsService::StoreDetailsService(Fetch fetch) : fetch_(std::move(fetch))
 StoreDetailsService::~StoreDetailsService() { Shutdown(); }
 
 void StoreDetailsService::Request(GameId id) {
-  if (id == 0) return;
+  if (!id.steam_app()) return;  // Steam games only
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_ || pending_.size() >= kMaxPending || !requested_.insert(id).second) return;
@@ -102,7 +102,7 @@ void StoreDetailsService::Shutdown() {
 
 void StoreDetailsService::Run() {
   for (;;) {
-    GameId id = 0;
+    GameId id;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       wake_.wait(lock, [this] { return stopping_ || !pending_.empty(); });
@@ -110,8 +110,9 @@ void StoreDetailsService::Run() {
       id = pending_.front();
       pending_.pop_front();
     }
-    const auto body = fetch_ ? fetch_(StoreDetailsUrl(id), cancel_) : std::nullopt;
-    auto details = body ? ParseStoreDetails(id, *body) : std::nullopt;
+    const auto app = *id.steam_app();
+    const auto body = fetch_ ? fetch_(StoreDetailsUrl(app), cancel_) : std::nullopt;
+    auto details = body ? ParseStoreDetails(app, *body) : std::nullopt;
     if (!details) continue;
     std::lock_guard<std::mutex> lock(mutex_);
     results_.push_back(std::move(*details));

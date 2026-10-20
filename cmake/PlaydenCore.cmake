@@ -17,7 +17,8 @@ add_library(playden_library STATIC
     "${CMAKE_SOURCE_DIR}/third_party/utf8proc/utf8proc.c"
     "${CMAKE_SOURCE_DIR}/src/library/query.cpp"
     "${CMAKE_SOURCE_DIR}/src/library/cache.cpp"
-    "${CMAKE_SOURCE_DIR}/src/library/organization.cpp")
+    "${CMAKE_SOURCE_DIR}/src/library/organization.cpp"
+    "${CMAKE_SOURCE_DIR}/src/library/store.cpp")
 target_include_directories(playden_library PUBLIC "${CMAKE_SOURCE_DIR}/src"
     PRIVATE "${CMAKE_SOURCE_DIR}/third_party/utf8proc")
 target_compile_definitions(playden_library PRIVATE UTF8PROC_STATIC)
@@ -44,7 +45,7 @@ target_compile_features(playden_steam_core PUBLIC cxx_std_17)
 if(PLAYDEN_PLATFORM_PS5)
     target_compile_definitions(playden_steam_core PRIVATE PLAYDEN_PLATFORM_PS5=1)
 endif()
-target_link_libraries(playden_steam_core PUBLIC playden_storage playden_steam_protocol Threads::Threads)
+target_link_libraries(playden_steam_core PUBLIC playden_library playden_storage playden_steam_protocol Threads::Threads)
 
 add_library(playden_library_service STATIC
     "${CMAKE_SOURCE_DIR}/src/library/service.cpp")
@@ -73,7 +74,7 @@ target_compile_features(playden_game_paths PUBLIC cxx_std_17)
 add_library(playden_runtime_installs STATIC "${CMAKE_SOURCE_DIR}/src/runtime/game_install.cpp")
 target_include_directories(playden_runtime_installs PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_installs PUBLIC cxx_std_17)
-target_link_libraries(playden_runtime_installs PUBLIC playden_storage playden_steam_protocol playden_game_paths)
+target_link_libraries(playden_runtime_installs PUBLIC playden_library playden_storage playden_steam_protocol playden_game_paths)
 
 add_library(playden_runtime_install_service STATIC "${CMAKE_SOURCE_DIR}/src/runtime/install_service.cpp")
 target_include_directories(playden_runtime_install_service PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -226,7 +227,7 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(library_sync_test "${CMAKE_SOURCE_DIR}/tests/library_sync_test.cpp")
     target_link_libraries(library_sync_test PRIVATE playden_library_service)
     add_test(NAME library_sync COMMAND library_sync_test)
-    foreach(test_name library_query library_cache library_organization)
+    foreach(test_name library_query library_cache library_organization library_store)
         add_executable(${test_name}_test "${CMAKE_SOURCE_DIR}/tests/${test_name}_test.cpp")
         target_link_libraries(${test_name}_test PRIVATE playden_library)
         add_test(NAME ${test_name} COMMAND ${test_name}_test)

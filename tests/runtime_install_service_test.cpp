@@ -25,7 +25,7 @@ RuntimeInstall Downloaded(std::string id = "install-hl2") {
   RuntimeInstall r;
   r.install_id = std::move(id);
   r.title_id = "FAKE78001";
-  r.app_id = 220;
+  r.runtime_number = 220;
   r.data_root = "/data/playden/games/" + r.install_id;
   r.default_profile_id = "game";
   r.runtime_bundle_id = "prospero-win-e16ec8f";

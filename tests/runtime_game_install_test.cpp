@@ -1,6 +1,7 @@
 #include "runtime/game_install.h"
 
 #include "platform/storage.h"
+#include "library/store.h"
 
 #include <cstdio>
 #include <set>
@@ -10,6 +11,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
@@ -63,7 +65,7 @@ struct TemporaryDirectory {
 ReserveRequest Request(std::string install_id = "install-hl2") {
   ReserveRequest request;
   request.install_id = std::move(install_id);
-  request.app_id = 220;
+  request.runtime_number = 220;
   request.default_profile_id = "game";
   request.runtime_bundle_id = "prospero-win-e16ec8f";
   request.recipe_id = "steam-220-hl2-v1";
@@ -147,7 +149,7 @@ void LegacyDownloadAdoptsWithoutCopyAndRemainsDownloaded() {
 
   LegacyInstall request;
   request.install_id = "legacy-hl2";
-  request.app_id = 220;
+  request.runtime_number = 220;
   request.install_path = "/data/homebrew/FAKE77031/games/220";
   request.volume_id = "internal";
   request.launch_path = "hl2.exe";
@@ -502,7 +504,7 @@ void MovedRecordsRewriteTogetherAndKeepTheirMark() {
   RuntimeInstallRepository repository(storage, "installs.json", Free);
   CHECK(repository.Load().ok());
   auto first = Request("install-a"); first.install_path = "/data/homebrew/FAKE77031/games/220";
-  auto second = Request("install-b"); second.app_id = 400; second.install_path = "/data/homebrew/FAKE77031/games/400";
+  auto second = Request("install-b"); second.runtime_number = 400; second.install_path = "/data/homebrew/FAKE77031/games/400";
   CHECK(repository.Reserve(first).ok() && repository.Reserve(second).ok());
   const auto unmarked = storage.ReadDurable("installs.json", 1 << 20);
   CHECK(unmarked.ok() && std::string(unmarked.value().begin(), unmarked.value().end()).find("moved_from") == std::string::npos);
@@ -528,7 +530,242 @@ void MovedRecordsRewriteTogetherAndKeepTheirMark() {
   CHECK(again.Load().ok() && again.Find("install-a")->moved_from.empty() && !again.Find("install-b")->moved_from.empty());
 }
 
+std::string ReadText(const std::string& path) {
+  std::ifstream input(path, std::ios::binary);
+  return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+}
+
+void WriteText(const std::string& path, const std::string& text) {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  output << text;
+}
+
+// What the code before runtime numbers wrote for these two Steam installs (captured from it).
+constexpr const char* kSteamRegistryBefore =
+    R"({"schema_version":1,"reservations":[{"install_id":"steam-220","title_id":"FAKE78000"},{"install_id":"steam-440","title_id":"FAKE78001"}],"installs":[{"schema_version":1,"install_id":"steam-220","title_id":"FAKE78000","app_id":220,"data_root":"/data/playden/games/steam-220","default_profile_id":"game","runtime_bundle_id":"prospero-win-e16ec8f","recipe_id":"steam-220-hl2-v1","recipe_version":"1","settings_revision":7,"exit_policy":"exit-title","launch_entry_id":"0","launch_path":"hl2.exe","launch_arguments":"-game hl2","launch_working_directory":"","install_path":"/mnt/ext1/playden/games/220","volume_id":"m2","state":"downloaded","artifacts":[],"last_failure":null,"journal":null},{"schema_version":1,"install_id":"steam-440","title_id":"FAKE78001","app_id":440,"data_root":"/data/playden/games/steam-440","default_profile_id":"game","runtime_bundle_id":"prospero-win-e16ec8f","recipe_id":"steam-440-auto","recipe_version":"1","settings_revision":7,"exit_policy":"exit-title","launch_entry_id":"0","launch_path":"bin/tf.exe","launch_arguments":"-game hl2","launch_working_directory":"","launch_in_install_root":true,"install_path":"/data/playden-games/440","volume_id":"internal","state":"failed","artifacts":[{"artifact_id":"wine","identity":"wine-1","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"last_failure":{"code":"copy-failed","message":"No \"space\""},"journal":{"operation_id":"op-1","operation":"prepare","step":"copy"},"moved_from":"/mnt/ext1/playden/games/440"}]})";
+
+ReserveRequest SteamRequest(std::uint32_t app, std::string install_path) {
+  ReserveRequest request;
+  request.install_id = "steam-" + std::to_string(app);
+  request.runtime_number = app;  // no game: Steam, as on disk
+  request.default_profile_id = "game";
+  request.runtime_bundle_id = "prospero-win-e16ec8f";
+  request.recipe_id = "steam-220-hl2-v1";
+  request.recipe_version = "1";
+  request.settings_revision = 7;
+  request.launch_entry_id = "0";
+  request.launch_path = "hl2.exe";
+  request.launch_arguments = "-game hl2";
+  request.install_path = std::move(install_path);
+  request.volume_id = "m2";
+  request.kit_title_variants = {"FAKE78000", "FAKE78001", "FAKE78002", "FAKE78003"};
+  return request;
+}
+
+const auto kLocalA = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+const auto kLocalB = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
+ReserveRequest LocalRequest(const playden::GameId& game, std::uint32_t number) {
+  auto request = SteamRequest(220, "/data/playden-games/" + playden::ToInstallId(game));
+  request.install_id = playden::ToInstallId(game);
+  request.runtime_number = number;
+  request.game = game;
+  request.recipe_id = playden::GeneratedRecipeId(game);
+  return request;
+}
+
+void SteamRegistryBytesAreUnchanged() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path);
+  CHECK(storage.EnsureRootDirectory().ok());
+  RuntimeInstallRepository repository(storage, "installs.json", Free);
+  CHECK(repository.Load().ok());
+  CHECK(repository.Reserve(SteamRequest(220, "/mnt/ext1/playden/games/220")).ok());
+  auto tf2 = SteamRequest(440, "/data/playden-games/440");
+  tf2.recipe_id = "steam-440-auto"; tf2.launch_path = "bin/tf.exe"; tf2.launch_in_install_root = true;
+  tf2.volume_id = "internal";
+  auto reserved = repository.Reserve(tf2);
+  CHECK(reserved.ok() && reserved.value().game == playden::GameId::Steam(440));
+  auto record = reserved.value();
+  record.state = PreparationState::kFailed;
+  record.last_failure = RuntimeFailure{"copy-failed", "No \"space\""};
+  record.journal = PreparationJournal{"op-1", "prepare", "copy"};
+  record.moved_from = "/mnt/ext1/playden/games/440";
+  record.artifacts.push_back({"wine", "wine-1", std::string(64, 'a')});
+  CHECK(repository.Update(record).ok());
+  // A Steam game's number is its app ID and allocates nothing.
+  const auto steam = repository.RuntimeNumberFor(playden::GameId::Steam(570));
+  CHECK(steam.ok() && steam.value() == 570);
+  const auto path = directory.path + "/installs.json";
+  CHECK(ReadText(path) == kSteamRegistryBefore);
+
+  // The old file reads as Steam and saves byte for byte.
+  RuntimeInstallRepository restarted(storage, "installs.json", Free);
+  CHECK(restarted.Load().ok());
+  CHECK(restarted.Find("steam-440")->game == playden::GameId::Steam(440));
+  CHECK(restarted.Find("steam-440")->runtime_number == 440);
+  CHECK(restarted.Save().ok());
+  CHECK(ReadText(path) == kSteamRegistryBefore);
+}
+
+void LocalGamesGetNumbersFromTheReservedRange() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path);
+  CHECK(storage.EnsureRootDirectory().ok());
+  RuntimeInstallRepository repository(storage, "installs.json", Free);
+  CHECK(!repository.RuntimeNumberFor(kLocalA).ok());  // not loaded
+  CHECK(repository.Load().ok());
+  CHECK(repository.Reserve(SteamRequest(220, "/mnt/ext1/playden/games/220")).ok());
+  const auto path = directory.path + "/installs.json";
+  const auto steam_only = ReadText(path);
+
+  const auto first = repository.RuntimeNumberFor(kLocalA);
+  CHECK(first.ok() && first.value() == 0xF0000000u);
+  // Saved before it is handed out: only the allocator's key is new.
+  const auto allocated = ReadText(path);
+  CHECK(allocated == steam_only.substr(0, steam_only.size() - 1) + ",\"next_runtime_number\":4026531841}");
+  // The same game keeps its number, also before it has a record; another game gets the next one.
+  CHECK(repository.RuntimeNumberFor(kLocalA).value() == 0xF0000000u);
+  CHECK(ReadText(path) == allocated);
+  const auto second = repository.RuntimeNumberFor(kLocalB);
+  CHECK(second.ok() && second.value() == 0xF0000001u);
+  CHECK(!repository.RuntimeNumberFor(playden::GameId{}).ok());
+  CHECK(!repository.RuntimeNumberFor(playden::GameId{playden::Store::kLocal, "not-a-uuid"}).ok());
+
+  // A record keeps store and game; a number held by another game is refused.
+  // Given to kLocalA (no record yet): kLocalB can't take it.
+  CHECK(repository.Reserve(LocalRequest(kLocalB, 0xF0000000u)).error() == RepositoryError::kConflict);
+  auto reserved = repository.Reserve(LocalRequest(kLocalA, 0xF0000000u));
+  CHECK(reserved.ok() && reserved.value().game == kLocalA && reserved.value().runtime_number == 0xF0000000u);
+  CHECK(reserved.value().install_id == "local-0f8fad5b-d9cb-469f-a165-70867728950e");
+  auto stolen = LocalRequest(kLocalB, 0xF0000000u);
+  CHECK(repository.Reserve(stolen).error() == RepositoryError::kConflict);
+  auto steam_number = LocalRequest(kLocalB, 220);
+  CHECK(repository.Reserve(steam_number).error() == RepositoryError::kConflict);
+  auto out_of_range = LocalRequest(kLocalB, 4000);
+  CHECK(repository.Reserve(out_of_range).error() == RepositoryError::kInvalidRecord);
+  const auto text = ReadText(path);
+  CHECK(text.find("\"app_id\":4026531840,\"store\":\"local\",\"game\":\"0f8fad5b-d9cb-469f-a165-70867728950e\",") !=
+        std::string::npos);
+  CHECK(text.find("\"next_runtime_number\":4026531842}") != std::string::npos);
+  // The Steam record's bytes are as before.
+  const auto steam_record_end = steam_only.find("]}");
+  const auto steam_record = steam_only.substr(steam_only.find("\"installs\":[") + 12,
+                                              steam_record_end - steam_only.find("\"installs\":[") - 12);
+  CHECK(text.find(steam_record) != std::string::npos);
+  // Identity is immutable.
+  auto changed = reserved.value(); changed.game = kLocalB;
+  CHECK(repository.Update(changed).error() == RepositoryError::kConflict);
+  auto unnamed = reserved.value(); unnamed.game = {};  // as read back from a journal: keeps its game
+  unnamed.settings_revision = 9;
+  CHECK(repository.Update(unnamed).ok() && repository.Find(reserved.value().install_id)->game == kLocalA);
+
+  RuntimeInstallRepository restarted(storage, "installs.json", Free);
+  CHECK(restarted.Load().ok());
+  const auto found = restarted.Find(reserved.value().install_id);
+  CHECK(found && found->game == kLocalA && found->runtime_number == 0xF0000000u);
+  CHECK(restarted.RuntimeNumberFor(kLocalA).value() == 0xF0000000u);  // from its record
+  // kLocalB's number was handed out but never recorded: it is not handed out again.
+  const auto third = restarted.RuntimeNumberFor(kLocalB);
+  CHECK(third.ok() && third.value() == 0xF0000002u);
+  CHECK(restarted.Save().ok());
+  CHECK(ReadText(path).find("\"next_runtime_number\":4026531843}") != std::string::npos);
+
+  // Uninstalled in this session, the game gets its number back when installed again.
+  auto removing = *restarted.Find(reserved.value().install_id);
+  removing.state = PreparationState::kRemoving;
+  CHECK(restarted.Update(removing).ok());
+  CHECK(restarted.EraseAfterUnregister(removing.install_id).ok());
+  CHECK(!restarted.Find(removing.install_id));
+  CHECK(restarted.RuntimeNumberFor(kLocalA).value() == 0xF0000000u);
+  CHECK(restarted.Reserve(LocalRequest(kLocalA, 0xF0000000u)).ok());
+}
+
+void RuntimeNumbersRefuseOverflowAndDuplicates() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path);
+  CHECK(storage.EnsureRootDirectory().ok());
+  const auto path = directory.path + "/installs.json";
+  const std::string empty = R"({"schema_version":1,"reservations":[],"installs":[])";
+  {
+    WriteText(path, empty + R"(,"next_runtime_number":4294967294})");
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(repository.Load().ok());
+    const auto last = repository.RuntimeNumberFor(kLocalA);
+    CHECK(last.ok() && last.value() == 0xFFFFFFFEu);
+    const auto none = repository.RuntimeNumberFor(kLocalB);
+    CHECK(!none.ok() && none.error() == RepositoryError::kBounds);
+    CHECK(ReadText(path) == empty + R"(,"next_runtime_number":4294967295})");
+    RuntimeInstallRepository restarted(storage, "installs.json", Free);
+    CHECK(restarted.Load().ok() && restarted.RuntimeNumberFor(kLocalB).error() == RepositoryError::kBounds);
+  }
+  for (const char* bad : {R"(,"next_runtime_number":4294967296})", R"(,"next_runtime_number":5})",
+                          R"(,"next_runtime_number":"x"})"}) {
+    WriteText(path, empty + bad);
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(repository.Load().error() == RepositoryError::kMalformed);
+  }
+  // A file that has the key keeps it, even with only Steam games.
+  WriteText(path, empty + R"(,"next_runtime_number":4026531840})");
+  {
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(repository.Load().ok() && repository.Save().ok());
+    CHECK(ReadText(path) == empty + R"(,"next_runtime_number":4026531840})");
+  }
+
+  // Two games with one number: the registry is refused.
+  WriteText(path, empty + "}");
+  {
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(repository.Load().ok());
+    CHECK(repository.RuntimeNumberFor(kLocalA).value() == 0xF0000000u);
+    CHECK(repository.RuntimeNumberFor(kLocalB).value() == 0xF0000001u);
+    CHECK(repository.Reserve(LocalRequest(kLocalA, 0xF0000000u)).ok());
+    CHECK(repository.Reserve(LocalRequest(kLocalB, 0xF0000001u)).ok());
+  }
+  const auto valid = ReadText(path);
+  {
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(repository.Load().ok());
+  }
+  auto duplicate = valid;
+  const std::string second = "\"app_id\":4026531841,";
+  CHECK(duplicate.find(second) != std::string::npos);
+  duplicate.replace(duplicate.find(second), second.size(), "\"app_id\":4026531840,");
+  WriteText(path, duplicate);
+  {
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(repository.Load().error() == RepositoryError::kConflict);
+  }
+  // A record past the allocator's next moves it on; Steam numbers and unknown stores are checked.
+  auto behind = valid;
+  behind.replace(behind.find("\"next_runtime_number\":4026531842"), 32, "\"next_runtime_number\":4026531840");
+  WriteText(path, behind);
+  {
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(repository.Load().ok());
+    CHECK(repository.RuntimeNumberFor(playden::GameId::Local("9a1d1f2e-0000-4000-8000-000000000001")).value() ==
+          0xF0000002u);
+  }
+  for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
+           {"\"store\":\"local\"", "\"store\":\"steam\""},
+           {"\"store\":\"local\"", "\"store\":\"gog\""},
+           {"\"game\":\"0f8fad5b", "\"game\":\"0F8FAD5B"},
+           {"\"app_id\":4026531840,", "\"app_id\":4000,"},
+           {",\"store\":\"local\"", ""}}) {
+    auto edited = valid;
+    CHECK(edited.find(from) != std::string::npos);
+    edited.replace(edited.find(from), from.size(), to);
+    WriteText(path, edited);
+    RuntimeInstallRepository repository(storage, "installs.json", Free);
+    CHECK(!repository.Load().ok());
+  }
+}
+
 int main() {
+  SteamRegistryBytesAreUnchanged();
+  LocalGamesGetNumbersFromTheReservedRange();
+  RuntimeNumbersRefuseOverflowAndDuplicates();
   JournalSyncFailureRequiresReloadBeforeFurtherEffects();
   JournalUpdateSyncFailureReconcilesPublishedState();
   RegistryRejectsSymlinksAndDoesNotTouchOldTemporaryFiles();

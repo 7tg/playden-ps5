@@ -1089,6 +1089,16 @@ bool ParseGameRecipe(std::string_view text, GameRecipe* recipe, std::string* rea
     return fail("recipe needs recipe_id, recipe_version and app_id");
   out.version = static_cast<int>(parsed_version);
   out.app_id = static_cast<std::uint32_t>(parsed_app);
+  // Games from other stores name their store and game; absent, the recipe is for Steam's app_id.
+  const auto* store = root->get("store");
+  const auto* game = root->get("game");
+  if ((store == nullptr) != (game == nullptr)) return fail("recipe needs both store and game, or neither");
+  if (store) {
+    const auto parsed_store = store->string() ? ParseStoreKey(*store->string()) : std::nullopt;
+    if (!parsed_store || !game->string()) return fail("recipe names an unknown store");
+    out.game = GameId{*parsed_store, *game->string()};
+    if (!out.game.valid()) return fail("recipe names an invalid game");
+  }
   if (!StringField(*root, "name", &out.name, false) || !StringField(*root, "arguments", &out.arguments, false) ||
       !StringField(*root, "resolution_arguments", &out.resolution_arguments, false) ||
       !StringField(*root, "dll_overrides", &out.dll_overrides, false) ||
@@ -1239,8 +1249,13 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record) {
 
 std::string SerializeGameRecipe(const GameRecipe& recipe) {
   const auto quoted = [](const std::string& text) { return "\"" + json::escape(text) + "\""; };
+  const auto game = RecipeGame(recipe);
   std::string text = "{\"recipe_id\":" + quoted(recipe.id) + ",\"recipe_version\":" + std::to_string(recipe.version) +
-                     ",\"app_id\":" + std::to_string(recipe.app_id) + ",\"name\":" + quoted(recipe.name) +
+                     ",\"app_id\":" + std::to_string(recipe.app_id) +
+                     (game.store == Store::kSteam ? std::string()
+                                                  : ",\"store\":" + quoted(std::string(Traits(game.store).key)) +
+                                                        ",\"game\":" + quoted(game.value)) +
+                     ",\"name\":" + quoted(recipe.name) +
                      ",\"launch_entries\":[";
   for (std::size_t index = 0; index < recipe.launch_entries.size(); ++index) {
     const auto& entry = recipe.launch_entries[index];
@@ -1366,10 +1381,19 @@ std::string ExecutableArchitecture(const std::string& path) {
 
 }  // namespace
 
-std::string GeneratedRecipeId(std::uint32_t app_id) { return "steam-" + std::to_string(app_id) + "-auto"; }
+std::string GeneratedRecipeId(std::uint32_t app_id) { return playden::GeneratedRecipeId(GameId::Steam(app_id)); }
 
 bool IsGeneratedRecipeId(std::string_view id) {
-  return id.size() > 11 && id.substr(0, 6) == "steam-" && id.substr(id.size() - 5) == "-auto";
+  constexpr std::string_view kSuffix = "-auto";
+  if (id.size() <= kSuffix.size() || id.substr(id.size() - kSuffix.size()) != kSuffix) return false;
+  const auto install_id = id.substr(0, id.size() - kSuffix.size());
+  // Steam's has always been any "steam-…-auto"; a Local one names a valid game.
+  if (install_id.size() > 6 && install_id.substr(0, 6) == "steam-") return true;
+  return install_id.substr(0, 6) == "local-" && ParseInstallId(install_id).has_value();
+}
+
+GameId RecipeGame(const GameRecipe& recipe) {
+  return recipe.game.valid() ? recipe.game : GameId::Steam(recipe.app_id);
 }
 
 RecipeChoices RecipeChoicesFrom(const GameSettingsRecord& record) {
@@ -1452,15 +1476,24 @@ bool GenerateGameRecipe(std::uint32_t app_id, const std::string& name, const std
                         const std::string& install_root, GameRecipe* recipe, std::string* reason,
                         const KitCapabilities& kit, const RecipeChoices& choices, bool* refusal_soft,
                         GameRecipeDiagnostics* diagnostics) {
+  return GenerateGameRecipe(GameId::Steam(app_id), app_id, name, launches, install_root, recipe, reason, kit, choices,
+                            refusal_soft, diagnostics);
+}
+
+bool GenerateGameRecipe(const GameId& game, std::uint32_t runtime_number, const std::string& name,
+                        const std::vector<LaunchEntry>& launches, const std::string& install_root, GameRecipe* recipe,
+                        std::string* reason, const KitCapabilities& kit, const RecipeChoices& choices,
+                        bool* refusal_soft, GameRecipeDiagnostics* diagnostics) {
   const auto fail = [&](std::string why, bool soft) {
     if (reason) *reason = std::move(why);
     if (refusal_soft) *refusal_soft = soft;
     return false;
   };
   GameRecipe out;
-  out.id = GeneratedRecipeId(app_id);
+  out.id = playden::GeneratedRecipeId(game);
   out.version = 2;  // 2: graphics and engine arguments from the game's files
-  out.app_id = app_id;
+  out.app_id = runtime_number;
+  if (game.store != Store::kSteam) out.game = game;
   out.name = name;
   std::string first_missing;
   std::string first_refusal;
@@ -1798,8 +1831,19 @@ bool WriteAtomicAt(const ManagedDirectory& directory, const char* name,
   return directory.Sync();
 }
 
+// A record's key: ToKey's form, or digits with leading zeros, which earlier Playdens read as that
+// Steam app ID (they never wrote them).
+std::optional<GameId> SettingsKey(const std::string& key) {
+  if (const auto id = ParseKey(key)) return id;
+  std::uint32_t app_id = 0;
+  const auto parsed = std::from_chars(key.data(), key.data() + key.size(), app_id);
+  if (key.empty() || parsed.ec != std::errc{} || parsed.ptr != key.data() + key.size() || app_id == 0)
+    return std::nullopt;
+  return GameId::Steam(app_id);
+}
+
 bool ParseSettingsFile(std::string_view text,
-                       std::map<std::uint32_t, GameSettingsRecord>* records) {
+                       std::map<GameId, GameSettingsRecord>* records) {
   const auto root = storage_json::Parse(text);
   const auto* version = root ? root->Find("version") : nullptr;
   const auto* games = root ? root->Find("games") : nullptr;
@@ -1807,26 +1851,23 @@ bool ParseSettingsFile(std::string_view text,
       !games || !games->is_object()) return false;
   records->clear();
   for (const auto& [key, value] : games->object()) {
-    std::uint32_t app_id = 0;
-    const auto parsed = std::from_chars(key.data(), key.data() + key.size(), app_id);
+    const auto id = SettingsKey(key);
     GameSettingsRecord record;
-    if (key.empty() || parsed.ec != std::errc{} ||
-        parsed.ptr != key.data() + key.size() || app_id == 0 ||
-        !RecordFromValue(value, &record)) continue;
-    (*records)[app_id] = std::move(record);
+    if (!id || !RecordFromValue(value, &record)) continue;
+    (*records)[*id] = std::move(record);
   }
   return true;
 }
 
 std::string SerializeSettingsFile(
-    const std::map<std::uint32_t, GameSettingsRecord>& records) {
+    const std::map<GameId, GameSettingsRecord>& records) {
   std::string text = "{\"version\":1,\"games\":{";
   bool first = true;
-  for (const auto& [app_id, record] : records) {
-    if (record.preset_id.empty() && record.overrides.empty() && record.revision == 0) continue;
+  for (const auto& [id, record] : records) {
+    if (!id.valid() || (record.preset_id.empty() && record.overrides.empty() && record.revision == 0)) continue;
     if (!first) text += ",";
     first = false;
-    text += "\"" + std::to_string(app_id) + "\":" + SerializeGameSettingsRecord(record);
+    text += "\"" + ToKey(id) + "\":" + SerializeGameSettingsRecord(record);
   }
   return text + "}}\n";
 }
@@ -1901,7 +1942,7 @@ bool ApplyGameSettings(const GameRecipe& recipe, const EffectiveSettings& settin
   return true;
 }
 
-bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameSettingsRecord>* records,
+bool LoadGameSettingsFile(const std::string& path, std::map<GameId, GameSettingsRecord>* records,
                           std::string* reason) {
   records->clear();
   std::string text;
@@ -1926,7 +1967,7 @@ bool LoadGameSettingsFile(const std::string& path, std::map<std::uint32_t, GameS
   return true;
 }
 
-bool SaveGameSettingsFile(const std::string& path, const std::map<std::uint32_t, GameSettingsRecord>& records,
+bool SaveGameSettingsFile(const std::string& path, const std::map<GameId, GameSettingsRecord>& records,
                           std::string* reason) {
   const auto text = SerializeSettingsFile(records);
   std::string name;
@@ -1984,7 +2025,7 @@ bool MigrateLegacyGameSettingsFile(const std::string& legacy_path,
   if (read == RelativeRead::kMissing) return true;
   if (read != RelativeRead::kPresent)
     return fail("legacy game settings are unsafe or unreadable");
-  std::map<std::uint32_t, GameSettingsRecord> records;
+  std::map<GameId, GameSettingsRecord> records;
   if (!ParseSettingsFile(text, &records))
     return fail("legacy game settings file is malformed");
   if (!WriteAtomicAt(*destination, destination_name.c_str(),

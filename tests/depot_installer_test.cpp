@@ -606,9 +606,9 @@ void StatsAndRemovalLogs(const std::filesystem::path& root) {
   CdnClient cdn([](const HttpRequest&, const std::atomic<bool>&) { return HttpResponse{}; });
   SteamInstallRunner runner(cm, cdn);
   int removals = 0;
-  GameId expected_app = 440;
+  std::uint32_t expected_app = 440;
   const char* expected_ok = "ok=1";
-  runner.SetLog([&](GameId app, const char* step, const char* result, const char* detail) {
+  runner.SetLog([&](std::uint32_t app, const char* step, const char* result, const char* detail) {
     CHECK(app == expected_app && std::string(step) == "install-removal" && std::string(result) == "done");
     CHECK(std::string(detail) == expected_ok);
     ++removals;
@@ -696,7 +696,23 @@ void InstallsMergedDepotsAndWritesRecord(const std::filesystem::path& root) {
   CHECK(last.download_done == last.download_total && last.files_total == 3);
   CHECK(last.held_bytes == last.install_total);  // every written byte is on the drive
   CHECK(world.chunk_calls == 3);  // the shadowed base level.dat is never fetched
-  CHECK(Read(root / DepotInstaller::kInstallRecord).find("\"app_id\":440") != std::string::npos);
+  // A Steam record is as it always was: no store, no game.
+  CHECK(Read(root / DepotInstaller::kInstallRecord).rfind("{\"version\":1,\"app_id\":440,\"install_bytes\":", 0) == 0);
+}
+
+// Another store's game: app_id holds its runtime number and the record names the game.
+void LocalRecordNamesItsGame(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  DepotInstaller installer(world.Hooks());
+  installer.SetTuning({1, 256});
+  std::atomic<bool> cancel{false};
+  auto target = Target(root);
+  target.app_id = 0xF0000000u;
+  target.game = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+  CHECK(installer.Run({}, target, cancel).error == InstallError::kNone);
+  CHECK(Read(root / DepotInstaller::kInstallRecord).rfind(
+            "{\"version\":1,\"app_id\":4026531840,\"store\":\"local\",\"game\":\"0f8fad5b-d9cb-469f-a165-70867728950e\","
+            "\"install_bytes\":", 0) == 0);
 }
 
 void ResumesWithoutRefetchingFinishedChunks(const std::filesystem::path& root) {
@@ -832,7 +848,7 @@ void HeaderWriteFailureCannotAppend(const std::filesystem::path& root) {
 
 void JournalTraceLogging() {
   std::vector<std::string> lines;
-  const InstallLogFn log = [&](GameId app, const char* step, const char* category, const char* detail) {
+  const InstallLogFn log = [&](std::uint32_t app, const char* step, const char* category, const char* detail) {
     lines.push_back(std::to_string(app) + " step=" + step + " result=" + category + " detail=" + detail);
   };
   LogInstallTrace(log, 440, "journal-reset");
@@ -1016,6 +1032,7 @@ int main() {
   StatsAndRemovalLogs(base / "removal");
   RunStats(base / "stats");
   InstallsMergedDepotsAndWritesRecord(base / "install");
+  LocalRecordNamesItsGame(base / "install-local");
   ResumesWithoutRefetchingFinishedChunks(base / "resume");
   ChangedManifestRefetchesSameOffset(base / "manifest-update");
   JournalHeaderModes(base / "header-modes");

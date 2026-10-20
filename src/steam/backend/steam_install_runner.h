@@ -8,15 +8,15 @@
 namespace playden::steam {
 
 std::string FormatInstallStats(const char* phase, const InstallStats& stats);
-using InstallLogFn = std::function<void(GameId app, const char* step, const char* category, const char* detail)>;
-void LogInstallTrace(const InstallLogFn& log, GameId app, const char* marker);
+using InstallLogFn = std::function<void(std::uint32_t app, const char* step, const char* category, const char* detail)>;
+void LogInstallTrace(const InstallLogFn& log, std::uint32_t app, const char* marker);
 
 // Installs a Steam game: PICS app info for the depot selection (Windows, English, public
 // branch), then the resumable depot installer.
 class SteamInstallRunner final : public InstallRunner {
  public:
   SteamInstallRunner(CmClient& cm, CdnClient& cdn) : cm_(cm), installer_(cm, cdn) {}
-  Result Install(const StoredSession& session, GameId id, const std::string& root,
+  Result Install(const StoredSession& session, std::uint32_t id, const std::string& root,
                  const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
                  const std::function<void(InstallStep)>& step) override;
@@ -41,7 +41,7 @@ class SteamInstallRunner final : public InstallRunner {
   DepotInstaller installer_;
   LogFn log_;
   std::function<DownloadTuning()> tuning_;
-  std::atomic<GameId> current_app_{0};
+  std::atomic<std::uint32_t> current_app_{0};
 };
 
 // User-facing text for an install failure category.

@@ -306,7 +306,7 @@ SessionReconcileStatus SessionReconciler::Dispatch(
                   "Cloud account changed before reconciliation dispatch");
 
   SessionCloudRequest request;
-  request.location.app_id = record.app_id;
+  request.location.app_id = record.runtime_number;
   request.location.game_root = record.install_path;
   request.location.state_root = record.data_root + "/cloud";
   request.location.prefix_root = record.data_root + "/library/prefixes/game";

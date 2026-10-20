@@ -177,7 +177,7 @@ void CloudService::Finish(const CloudLocation& location, CloudReport report) {
 
 std::uint64_t CloudService::Sync(const CloudLocation& location) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (stopping_ || location.id == 0 || pending_.size() >= kMaxPending) return 0;
+  if (stopping_ || !location.id.steam_app() || pending_.size() >= kMaxPending) return 0;
   const auto busy = games_.find(location.id);
   // Already being checked: that check's result answers this request too.
   if (busy != games_.end() && Busy(busy->second.state)) return busy->second.serial;
@@ -195,7 +195,7 @@ std::uint64_t CloudService::Sync(const CloudLocation& location) {
 
 std::uint64_t CloudService::Resolve(const CloudLocation& location, CloudResolution resolution, bool confirm_account) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (stopping_ || location.id == 0 || pending_.size() >= kMaxPending) return 0;
+  if (stopping_ || !location.id.steam_app() || pending_.size() >= kMaxPending) return 0;
   const auto current = games_.find(location.id);
   if (current == games_.end() ||
       (current->second.state != CloudState::kConflict && current->second.state != CloudState::kNeedsAccount))
@@ -227,11 +227,11 @@ void CloudService::Restore(const std::string& saves_root) {
 void CloudService::StartJob(CloudJobKind kind, std::vector<CloudLocation> locations) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_ || kind == CloudJobKind::kNone || job_pending_ || job_.kind != CloudJobKind::kNone) return;
-  locations.erase(std::remove_if(locations.begin(), locations.end(), [](const CloudLocation& location) { return location.id == 0; }),
+  locations.erase(std::remove_if(locations.begin(), locations.end(), [](const CloudLocation& location) { return !location.id.steam_app(); }),
                   locations.end());
   job_pending_ = true;
   stop_job_.store(false);
-  job_ = {kind, 0, locations.size(), 0, false};
+  job_ = {kind, 0, locations.size(), {}, false};
   for (const auto& location : locations) {
     const auto [slot, added] = games_.try_emplace(location.id);
     if (added) slot->second.state = CloudState::kIdle;  // not known yet: the job checks it
@@ -256,7 +256,7 @@ void CloudService::StopJob() {
 
 std::uint64_t CloudService::RemoveLocal(const CloudLocation& location) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (stopping_ || location.id == 0 || pending_.size() >= kMaxPending) return 0;
+  if (stopping_ || !location.id.steam_app() || pending_.size() >= kMaxPending) return 0;
   const auto current = games_.find(location.id);
   if (current != games_.end() && Busy(current->second.state)) return 0;
   CloudReport report = current == games_.end() ? CloudReport{} : current->second;
@@ -273,7 +273,7 @@ std::uint64_t CloudService::RemoveLocal(const CloudLocation& location) {
 
 void CloudService::Forget(const CloudLocation& location) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (stopping_ || location.id == 0 || location.state_root.empty()) return;
+  if (stopping_ || !location.id.steam_app() || location.state_root.empty()) return;
   Request request;
   request.kind = Kind::kForget;
   request.location = location;
@@ -321,7 +321,7 @@ CloudReport CloudService::CheckAndApply(const StoredSession& session, const Clou
   }
   auto applied = runner_.Apply(session, location, CloudResolution::kAutomatic, false, cancel);
   std::lock_guard<std::mutex> lock(mutex_);
-  active_ = 0;
+  active_ = {};
   return applied;
 }
 
@@ -415,7 +415,7 @@ void CloudService::Run() {
           const auto id = std::strtoull(entry->d_name, &end, 10);
           if (id == 0 || !end || *end != '\0') continue;
           if (auto report = LoadStatus(request.saves_root + "/" + entry->d_name))
-            restored.emplace_back(static_cast<GameId>(id), std::move(*report));
+            restored.emplace_back(GameId::Steam(static_cast<std::uint32_t>(id)), std::move(*report));
         }
         closedir(directory);
       }
@@ -478,7 +478,7 @@ void CloudService::Run() {
         }
         report = runner_.Apply(*session.value(), request.location, request.resolution, request.confirm_account, cancel_);
         std::lock_guard<std::mutex> lock(mutex_);
-        active_ = 0;
+        active_ = {};
       }
     }
     std::lock_guard<std::mutex> lock(mutex_);

@@ -9,7 +9,7 @@
 namespace playden {
 
 struct LibrarySnapshot {
-  std::uint32_t schema_version = 4;
+  std::uint32_t schema_version = 4;  // 5 names games by store and value (other stores than Steam)
   std::uint64_t retrieved_at_unix_seconds = 0;
   std::vector<GameSummary> games;
   bool metadata_partial = false;

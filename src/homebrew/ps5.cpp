@@ -4,6 +4,7 @@
 #include "homebrew/render.hpp"
 #include "homebrew/artwork_backend.hpp"
 #include "homebrew/simulation.hpp"
+#include "homebrew/store_art.hpp"
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
 #include "app/diagnostic_log.h"
@@ -338,7 +339,7 @@ int main() {
             if (downloads_slow_network.load()) tuning.slots = 8;
             return tuning;
         });
-        install_runner.SetLog([](playden::GameId app, const char* step, const char* category, const char* detail) {
+        install_runner.SetLog([](std::uint32_t app, const char* step, const char* category, const char* detail) {
             char line[640];
             if (std::string(step) == "install-removal")
                 std::snprintf(line, sizeof(line), "install-removal done app=%u %s", app, detail);
@@ -352,7 +353,7 @@ int main() {
         cloud_cm.SetSharedSession(steam_cm);
         playden::steam::HttpClient cloud_http(paths.trust_store);
         playden::steam::SteamCloudRunner cloud_runner(cloud_cm, cloud_http);
-        cloud_runner.SetLog([](playden::GameId app, const char* event, const std::string& message) {
+        cloud_runner.SetLog([](std::uint32_t app, const char* event, const std::string& message) {
             playden::app::AppendLogLine(log_root, "cloud.log", "app=" + std::to_string(app) + " event=" + event + " " + message);
         });
         playden::LocalSessionRepository cloud_sessions(user_root);
@@ -458,10 +459,10 @@ int main() {
                 return true;
             };
             config.runtime_dir = paths.title_root + "/runtime";
-            config.settings_record = [file = settings_file](std::uint32_t app) -> std::optional<rt::GameSettingsRecord> {
-                std::map<std::uint32_t, rt::GameSettingsRecord> records; std::string reason;
+            config.settings_record = [file = settings_file](const playden::GameId& game) -> std::optional<rt::GameSettingsRecord> {
+                std::map<playden::GameId, rt::GameSettingsRecord> records; std::string reason;
                 if (!file || !rt::LoadGameSettingsFile(file->string(), &records, &reason)) return std::nullopt;
-                const auto found = records.find(app);
+                const auto found = records.find(game);
                 return found == records.end() ? std::nullopt : std::optional<rt::GameSettingsRecord>(found->second);
             };
             config.log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "runtime.log", line); };
@@ -483,13 +484,17 @@ int main() {
                 std::fclose(file);
                 if (!bytes.empty()) generic_icon = std::move(bytes);
             }
-            config.title_icon = [trust = paths.trust_store, generic_icon](std::uint32_t app) -> std::optional<std::string> {
-                playden::homebrew::HttpArtworkBackend backend(trust);
-                const std::atomic<bool> cancel{false};
-                const auto cover = backend.Load({1, app, "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
-                                                 std::to_string(app) + "/library_600x900.jpg"}, cancel);
+            config.title_icon = [trust = paths.trust_store, generic_icon](const playden::GameId& game) -> std::optional<std::string> {
+                // A store with no cover for the game (an imported one) gets the generic icon.
+                const auto source = playden::homebrew::CoverUrl(game);
+                std::optional<playden::homebrew::ArtworkImage> cover;
+                if (!source.empty()) {
+                    playden::homebrew::HttpArtworkBackend backend(trust);
+                    const std::atomic<bool> cancel{false};
+                    cover = backend.Load({1, game, source}, cancel);
+                }
                 if (auto icon = cover ? playden::homebrew::MakeTitleIcon(*cover) : std::nullopt) return icon;
-                playden::app::AppendLogLine(log_root, "runtime.log", "title icon app=" + std::to_string(app) +
+                playden::app::AppendLogLine(log_root, "runtime.log", "title icon app=" + playden::ToKey(game) +
                                             (generic_icon ? " uses the generic icon: no cover" : " has no cover or generic icon"));
                 return generic_icon;
             };
@@ -699,9 +704,10 @@ int main() {
                 for (const auto& request : take_install_requests(native_access.runtime_ready)) {
                     using Action = playden::steam::InstallRequest::Action;
                     const char* action = "queued";
-                    if (request.action == Action::kUninstall) { action = "uninstall"; installs.Uninstall(request.app); }
-                    else if (request.action == Action::kCancel) { action = "cancel"; installs.Cancel(request.app); }
-                    else installs.Install(request.app);
+                    const auto game = playden::GameId::Steam(request.app);
+                    if (request.action == Action::kUninstall) { action = "uninstall"; installs.Uninstall(game); }
+                    else if (request.action == Action::kCancel) { action = "cancel"; installs.Cancel(game); }
+                    else installs.Install(game);
                     playden::app::AppendLogLine(log_root, "install.log", "install-request " + std::string(action) +
                                                " app=" + std::to_string(request.app));
                 }

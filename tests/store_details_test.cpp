@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
+#include "steam_id.h"
 
 using namespace playden::steam;
 
@@ -17,7 +18,7 @@ int main() {
       R"({"220":{"success":true,"data":{"steam_appid":220,"short_description":"<b>Half-Life 2</b> &amp; friends:\n )"
       R"(the &quot;best&quot;  game.","controller_support":"full","genres":[{"id":"1","description":"Action"}]}}})";
   const auto details = ParseStoreDetails(220, body);
-  CHECK(details && details->id == 220);
+  CHECK(details && details->id == SteamId(220));
   CHECK(details->description == "Half-Life 2 & friends: the \"best\" game.");
   CHECK(details->genres == std::vector<std::string>{"Action"} && details->controller_support == "full");
   CHECK(!ParseStoreDetails(221, body));  // another game's answer
@@ -32,9 +33,9 @@ int main() {
     if (url == StoreDetailsUrl(220)) return body;
     return std::nullopt;
   });
-  service.Request(220);
-  service.Request(220);  // asked once per run
-  service.Request(999);  // fails: nothing comes back
+  service.Request(SteamId(220));
+  service.Request(SteamId(220));  // asked once per run
+  service.Request(SteamId(999));  // fails: nothing comes back
   std::vector<StoreDetails> results;
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
   while ((results.empty() || fetches < 2) && std::chrono::steady_clock::now() < deadline) {
@@ -42,7 +43,7 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
   service.Shutdown();
-  CHECK(results.size() == 1 && results[0].id == 220 && fetches == 2);
+  CHECK(results.size() == 1 && results[0].id == SteamId(220) && fetches == 2);
   std::puts("store details tests passed");
   return 0;
 }

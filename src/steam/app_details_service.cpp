@@ -10,7 +10,7 @@ AppDetailsService::AppDetailsService(AppDetailsSource& source, SessionRepository
 AppDetailsService::~AppDetailsService() { Shutdown(); }
 
 void AppDetailsService::Request(GameId id, std::uint64_t account_generation) {
-  if (id == 0 || account_generation == 0) return;
+  if (!id.steam_app() || account_generation == 0) return;  // Steam games only
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
   if (account_generation != generation_) {
@@ -80,7 +80,7 @@ void AppDetailsService::Run() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
     if (generation != generation_ || cancel_.load(std::memory_order_acquire)) continue;
-    for (const auto id : batch) {
+    for (const auto& id : batch) {
       const auto found = std::find_if(fetched.begin(), fetched.end(),
                                       [id](const AppDetails& details) { return details.id == id; });
       AppDetails result = found != fetched.end() ? *found : AppDetails{};

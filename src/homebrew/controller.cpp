@@ -5,6 +5,30 @@
 #include <chrono>
 
 namespace playden::homebrew {
+namespace {
+// RuntimeHost names games by runtime number (a Steam game's app ID); 0 stands for no game, as it
+// did. For a call: the game's number, given out on first use. Nothing when the runtime has none for
+// it (RuntimeHost logs why to the runtime log); the call is then not made.
+std::optional<std::uint32_t> RuntimeApp(RuntimeHost& runtime, const GameId& id) {
+  if (id == GameId{}) return 0u;
+  return runtime.RuntimeNumberFor(id);
+}
+// For lookups in a runtime snapshot's number-keyed fields: a game with no number finds nothing there.
+std::uint32_t NumberIn(const RuntimeSnapshot& snapshot, const GameId& id) {
+  if (const auto app = id.steam_app()) return *app;
+  for (const auto& [number, game] : snapshot.runtime_games)
+    if (game == id) return number;
+  return 0;
+}
+// The game a number in a runtime snapshot stands for.
+GameId GameIn(const RuntimeSnapshot& snapshot, std::uint32_t number) {
+  const auto found = snapshot.runtime_games.find(number);
+  return found != snapshot.runtime_games.end() ? found->second : GameId::Steam(number);
+}
+bool IsNumber(const RuntimeSnapshot& snapshot, const std::optional<std::uint32_t>& number, const GameId& id) {
+  return number && GameIn(snapshot, *number) == id;
+}
+}  // namespace
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
                        LibraryService* library_service, app::PersistenceService* persistence_service,
                        steam::AppDetailsService* app_details, steam::InstallService* installs,
@@ -26,7 +50,9 @@ Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRe
         std::lock_guard<std::mutex> lock(gate_mutex_);
         if (gate_blocked_.count(id)) return false;
       }
-      return !runtime_ || runtime_->ActivityNow(id, std::chrono::seconds(5)) == runtime::NativeActivity::kStopped;
+      if (!runtime_) return true;
+      const auto app = RuntimeApp(*runtime_, id);
+      return app && runtime_->ActivityNow(*app, std::chrono::seconds(5)) == runtime::NativeActivity::kStopped;
     });
 }
 Controller::~Controller() { Shutdown(); }
@@ -294,14 +320,14 @@ bool Controller::SessionActive(GameId id) const {
   // not known yet: no game's saves move.
   if (snapshot.status == RuntimeHostStatus::kStarting) return true;
   if (play_queued_.count(id)) return true;
-  if (!snapshot.launch || snapshot.launch->app_id != id) return false;
+  if (!snapshot.launch || snapshot.launch->game != id) return false;
   using runtime::LaunchState;
   const auto state = snapshot.launch->state;
   return state == LaunchState::kReadyToHandoff || state == LaunchState::kLaunching || state == LaunchState::kRunning;
 }
 std::optional<steam::CloudLocation> Controller::CloudLocationFor(GameId id, bool for_job) const {
   if (saves_root_.empty()) return std::nullopt;
-  steam::CloudLocation location{id, {}, saves_root_ + "/" + std::to_string(id)};
+  steam::CloudLocation location{id, {}, saves_root_ + "/" + ToKey(id)};
   if (const auto root = game_roots_.find(id); root != game_roots_.end()) {
     location.game_root = root->second;
     // A prepared game keeps its Windows-folder saves in its private bottle, also while its
@@ -310,7 +336,7 @@ std::optional<steam::CloudLocation> Controller::CloudLocationFor(GameId id, bool
       const auto installs_shared = runtime_->Shared();
       // A title made for another folder (its game moved drives) is about to be replaced: only check.
       for (const auto& view : installs_shared->installs)
-        if (view.app_id == id && (view.state == runtime::PreparationState::kReady || view.awaiting_registration) &&
+        if (view.game == id && (view.state == runtime::PreparationState::kReady || view.awaiting_registration) &&
             (view.install_path.empty() || view.install_path == root->second))
           location.prefix_root = view.prefix_root;
     }
@@ -323,7 +349,7 @@ std::optional<steam::CloudLocation> Controller::CloudLocationFor(GameId id, bool
   if (runtime_) {
     const auto kept_bottles_shared = runtime_->Shared();
     for (const auto& kept : kept_bottles_shared->kept_bottles)
-      if (kept.app_id == id && !kept.data_root.empty()) {
+      if (kept.game == id && !kept.data_root.empty()) {
         location.prefix_root = kept.data_root + "/library/prefixes/game";
         location.check_only = for_job;
         return location;
@@ -342,7 +368,7 @@ void Controller::QueueSavesJob(steam::CloudJobKind kind) {
   if (runtime_) {
     const auto kept_bottles_shared = runtime_->Shared();
     for (const auto& kept : kept_bottles_shared->kept_bottles)
-      if (!game_roots_.count(kept.app_id)) job.ids.push_back(kept.app_id);
+      if (!game_roots_.count(kept.game)) job.ids.push_back(kept.game);
   }
   job.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
   pending_job_ = std::move(job);
@@ -388,9 +414,10 @@ void Controller::TickCloud() {
         break;
       case CloudRequestKind::RemoveLeftover:
         // The kept bottle and the game's sync state; no PS5 title is involved.
-        if (runtime_) runtime_->DeleteKeptBottle(request.game_id);
+        if (runtime_)
+          if (const auto app = RuntimeApp(*runtime_, request.game_id)) runtime_->DeleteKeptBottle(*app);
         if (!saves_root_.empty())
-          cloud_->Forget({request.game_id, {}, saves_root_ + "/" + std::to_string(request.game_id)});
+          cloud_->Forget({request.game_id, {}, saves_root_ + "/" + ToKey(request.game_id)});
         after_play_.erase(request.game_id);
         break;
       default:
@@ -454,11 +481,11 @@ void Controller::TickCloud() {
       if (!held.asked) {
         held.asked = true;
         held.after = runtime.activity_serial;
-        runtime_->CheckActivity(id);
+        if (const auto app = RuntimeApp(*runtime_, id)) runtime_->CheckActivity(*app);
         waiting.push_back(held);
         continue;
       }
-      const auto answer = runtime.activity.find(id);
+      const auto answer = runtime.activity.find(NumberIn(runtime, id));
       if (answer == runtime.activity.end() || answer->second.second <= held.after) { waiting.push_back(held); continue; }
       if (answer->second.first == runtime::NativeActivity::kStopped && !SessionActive(id)) {
         confirmed.push_back(held.request);
@@ -529,11 +556,12 @@ void Controller::TickCloud() {
         // than 8 s. A game left unanswered is synced on its own afterwards, two Steam logons each,
         // so wait long enough for the answers instead (#51).
         job.deadline = now + kJobActivityWait;
-        for (const auto id : job.ids) runtime_->CheckActivity(id);
+        for (const auto& id : job.ids)
+          if (const auto app = RuntimeApp(*runtime_, id)) runtime_->CheckActivity(*app);
         answered = false;
       } else {
         for (const auto id : job.ids) {
-          const auto answer = runtime.activity.find(id);
+          const auto answer = runtime.activity.find(NumberIn(runtime, id));
           if (answer == runtime.activity.end() || answer->second.second <= job.after) answered = false;
         }
       }
@@ -541,7 +569,7 @@ void Controller::TickCloud() {
       if (answered) {
         std::vector<GameId> stopped;
         for (const auto id : job.ids) {
-          const auto answer = runtime.activity.find(id);
+          const auto answer = runtime.activity.find(NumberIn(runtime, id));
           const bool known = answer != runtime.activity.end() && answer->second.second > job.after;
           if (known && answer->second.first == runtime::NativeActivity::kStopped && !SessionActive(id)) stopped.push_back(id);
           else after_play_.insert(id);
@@ -574,8 +602,9 @@ void Controller::TickCloud() {
     model_.UpdateSavesJob(job);
   }
   if (runtime_) {
-    const auto sizes = runtime_->Shared()->save_bytes;
-    std::map<GameId, std::uint64_t> projected(sizes.begin(), sizes.end());
+    const auto sizes_shared = runtime_->Shared();
+    std::map<GameId, std::uint64_t> projected;
+    for (const auto& [app, bytes] : sizes_shared->save_bytes) projected.emplace(GameIn(*sizes_shared, app), bytes);
     if (projected != save_sizes_) {
       save_sizes_ = projected;
       model_.UpdateSaveSizes(std::move(projected));
@@ -676,11 +705,14 @@ void Controller::TickRuntime() {
   if (!runtime_) return;
   {
     // The name each installed game's PS5 title should carry.
+    // Keyed by runtime number; a game with none yet has no title to name.
     std::map<std::uint32_t, std::string> names;
+    const auto numbers_shared = runtime_->Shared();
     for (const auto& [id, root] : game_roots_)
       for (const auto& game : model_.state().games)
-        if (game.id == id && !game.title.empty())
-          names[id] = model_.state().title_store_suffix ? game.title + " (Steam)" : game.title;
+        if (const auto number = NumberIn(*numbers_shared, id); game.id == id && !game.title.empty() && number)
+          names[number] = model_.state().title_store_suffix && id.store == Store::kSteam ? game.title + " (Steam)"
+                                                                                          : game.title;
     runtime_->SetTitleNames(std::move(names));
   }
   // A quit to Home waits for the running preparation; the queued ones would be cut off.
@@ -689,28 +721,35 @@ void Controller::TickRuntime() {
   // A game Playden still holds back moves to the front once it is asked for.
   // The latest choice wins: a game Playden still holds back moves first once it is asked for.
   for (const auto id : model_.TakePrepareNextRequests()) {
-    if (runtime_->PrepareNext(id)) prepare_next_pending_.reset();
+    const auto app = RuntimeApp(*runtime_, id);
+    if (app && runtime_->PrepareNext(*app)) prepare_next_pending_.reset();
     else prepare_next_pending_ = id;
   }
-  for (const auto& done : model_.TakePreparedDismissals()) runtime_->DismissPrepared(done.game_id, done.finished_at);
+  for (const auto& done : model_.TakePreparedDismissals())
+    if (const auto app = RuntimeApp(*runtime_, done.game_id)) runtime_->DismissPrepared(*app, done.finished_at);
   if (model_.TakePreparedClear()) runtime_->ClearPrepared();
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
-  for (const auto id : model_.TakeKeptDeleteRequests()) runtime_->DeleteKeptBottle(id);
-  for (const auto id : model_.TakeActivityRequests()) runtime_->CheckActivity(id);
+  for (const auto& id : model_.TakeKeptDeleteRequests())
+    if (const auto app = RuntimeApp(*runtime_, id)) runtime_->DeleteKeptBottle(*app);
+  for (const auto& id : model_.TakeActivityRequests())
+    if (const auto app = RuntimeApp(*runtime_, id)) runtime_->CheckActivity(*app);
   for (const auto id : model_.TakeProgramScanRequests())
-    if (const auto root = game_roots_.find(id); root != game_roots_.end()) runtime_->ScanPrograms(id, root->second);
+    if (const auto root = game_roots_.find(id); root != game_roots_.end())
+      if (const auto app = RuntimeApp(*runtime_, id)) runtime_->ScanPrograms(*app, root->second);
   for (const auto& [id, kind] : model_.TakeMaintenanceRequests()) {
+    const auto app = RuntimeApp(*runtime_, id);
+    if (!app) continue;
     if (kind == MaintenanceKind::RecreateBottle) {
       if (recreate_.count(id)) continue;
       recreate_[id] = {runtime_->Shared()->removals_handled, false, false, {}, {}};
       recreate_results_.erase(id);
-      runtime_->Remove(id, false);
+      runtime_->Remove(*app, false);
       ++play_notes_revision_;
       continue;
     }
     recreate_results_.erase(id);  // the sheet shows the newest request
     ++play_notes_revision_;
-    runtime_->Maintain(id, kind == MaintenanceKind::ClearShaderCache ? RuntimeMaintenance::kClearShaderCache
+    runtime_->Maintain(*app, kind == MaintenanceKind::ClearShaderCache ? RuntimeMaintenance::kClearShaderCache
                          : kind == MaintenanceKind::Repair ? RuntimeMaintenance::kRepair
                          : kind == MaintenanceKind::BackupSaves ? RuntimeMaintenance::kBackupSaves
                                                                 : RuntimeMaintenance::kApplySettings);
@@ -721,7 +760,7 @@ void Controller::TickRuntime() {
     if (current.revision != kept_revision_) {
       kept_revision_ = current.revision;
       std::vector<LiveKeptBottle> kept;
-      for (const auto& bottle : current.kept_bottles) kept.push_back({bottle.app_id, bottle.name, bottle.kept_at, bottle.bytes});
+      for (const auto& bottle : current.kept_bottles) kept.push_back({bottle.game, bottle.name, bottle.kept_at, bottle.bytes});
       if (kept != kept_projected_) { kept_projected_ = kept; model_.UpdateKeptBottles(std::move(kept)); }
     }
   }
@@ -731,7 +770,7 @@ void Controller::TickRuntime() {
     const auto& prepared = *prepared_shared;
     const bool usable = prepared.status == RuntimeHostStatus::kReady && prepared.kit_available;
     const auto record_of = [&prepared](GameId id) -> const RuntimeInstallView* {
-      for (const auto& view : prepared.installs) if (view.app_id == id) return &view;
+      for (const auto& view : prepared.installs) if (view.game == id) return &view;
       return nullptr;
     };
     const auto ready = [](const RuntimeInstallView* view) {
@@ -739,7 +778,7 @@ void Controller::TickRuntime() {
              view->title_current && view->admission == "ok";
     };
     const auto refusal_of = [&prepared](GameId id) {
-      const auto found = prepared.refusals.find(id);
+      const auto found = prepared.refusals.find(NumberIn(prepared, id));
       return found == prepared.refusals.end() ? std::string{} : found->second;
     };
     // Play on a game that was never prepared prepares it first; on one whose title needs an
@@ -761,7 +800,7 @@ void Controller::TickRuntime() {
     const auto moved = [this](const RuntimeInstallView* view) {
       if (view && view->moving) return true;  // a move that stopped part way: Prepare finishes it
       if (!view || view->install_path.empty() || view->recovery_pending) return false;
-      const auto root = game_roots_.find(view->app_id);
+      const auto root = game_roots_.find(view->game);
       return root != game_roots_.end() && root->second != view->install_path;
     };
     std::vector<GameId> direct;
@@ -800,7 +839,7 @@ void Controller::TickRuntime() {
     if (usable && !startup_awaiting_known_) {
       startup_awaiting_known_ = true;
       for (const auto& view : prepared.installs)
-        if (view.awaiting_registration) startup_awaiting_.insert(view.app_id);
+        if (view.awaiting_registration) startup_awaiting_.insert(view.game);
     }
     for (auto it = startup_awaiting_.begin(); it != startup_awaiting_.end();) {
       if (prepared.preparing_app) break;
@@ -814,9 +853,9 @@ void Controller::TickRuntime() {
     // ready to play once Playden quits to Home, so the model offers that.
     for (auto it = ready_watch_.begin(); it != ready_watch_.end();) {
       const auto id = it->first;
-      if (prepared.preparing_app == id) { it->second.seen_preparing = true; ++it; continue; }
+      if (IsNumber(prepared, prepared.preparing_app, id)) { it->second.seen_preparing = true; ++it; continue; }
       // A preparation still queued in the runtime is not lost, however long it waits.
-      const bool unseen_too_long = !it->second.seen_preparing && !PrepareQueued(prepared, id) &&
+      const bool unseen_too_long = !it->second.seen_preparing && !PrepareQueued(prepared, NumberIn(prepared, id)) &&
           !prepare_after_details_.count(id) &&
           std::chrono::steady_clock::now() - it->second.submitted_at > std::chrono::seconds(15);
       if (!it->second.seen_preparing && !unseen_too_long) { ++it; continue; }
@@ -842,8 +881,8 @@ void Controller::TickRuntime() {
         it = recreate_.erase(it);
       };
       if (!pending.prepare_submitted) {
-        if (prepared.removals_handled <= pending.removals_before || prepared.removing_app == id) { ++it; continue; }
-        if (const auto failure = prepared.removal_failures.find(id); failure != prepared.removal_failures.end()) {
+        if (prepared.removals_handled <= pending.removals_before || IsNumber(prepared, prepared.removing_app, id)) { ++it; continue; }
+        if (const auto failure = prepared.removal_failures.find(NumberIn(prepared, id)); failure != prepared.removal_failures.end()) {
           finish(false, failure->second);
           continue;
         }
@@ -855,8 +894,8 @@ void Controller::TickRuntime() {
         ++it;
         continue;
       }
-      if (prepared.preparing_app == id) { pending.seen_preparing = true; ++it; continue; }
-      const bool unseen_too_long = !pending.seen_preparing && !PrepareQueued(prepared, id) &&
+      if (IsNumber(prepared, prepared.preparing_app, id)) { pending.seen_preparing = true; ++it; continue; }
+      const bool unseen_too_long = !pending.seen_preparing && !PrepareQueued(prepared, NumberIn(prepared, id)) &&
           std::chrono::steady_clock::now() - pending.submitted_at > std::chrono::seconds(15);
       if (!pending.seen_preparing && !unseen_too_long) { ++it; continue; }
       const auto* record = record_of(id);
@@ -881,7 +920,7 @@ void Controller::TickRuntime() {
         ++it;
         continue;
       }
-      if (prepared.preparing_app == id) { pending.seen_preparing = true; ++it; continue; }
+      if (IsNumber(prepared, prepared.preparing_app, id)) { pending.seen_preparing = true; ++it; continue; }
       // A title still made for the game's old folder waits for the preparation that moves it.
       if (ready(record_of(id)) && !moved(record_of(id))) {
         plays.push_back(id);
@@ -892,8 +931,8 @@ void Controller::TickRuntime() {
       // Prepare ended without a Ready title, or was refused before it was seen starting:
       // Play says why, so a press never ends with nothing on screen.
       // Another game's preparation finishing says nothing about this one while it is still queued.
-      const bool queued = PrepareQueued(prepared, id) || prepare_after_details_.count(id);
-      const bool handled = !queued && prepared.prepares_handled > pending.prepares_handled && prepared.preparing_app != id;
+      const bool queued = PrepareQueued(prepared, NumberIn(prepared, id)) || prepare_after_details_.count(id);
+      const bool handled = !queued && prepared.prepares_handled > pending.prepares_handled && !IsNumber(prepared, prepared.preparing_app, id);
       const bool unseen_too_long = !pending.seen_preparing && !queued && !prepared.preparing_app &&
           std::chrono::steady_clock::now() - pending.queued_at > std::chrono::seconds(15);
       if (pending.seen_preparing || handled || refusal_of(id) != pending.refusal || !game_roots_.count(id) ||
@@ -932,15 +971,17 @@ void Controller::TickRuntime() {
   for (const auto id : plays_ready_) {
     // Never start a game while its saves are moving; it starts once they stop.
     if (cloud_busy_.count(id)) { later.push_back(id); continue; }
+    const auto app = RuntimeApp(*runtime_, id);
+    if (!app) continue;
     play_queued_.insert(id);
     ++plays_requested_;
-    runtime_->Play(id);
+    runtime_->Play(*app);
   }
   plays_ready_ = std::move(later);
   {
     const auto current_shared = runtime_->Shared();
     const auto& current = *current_shared;
-    if (current.handoff_ready && current.launch && !cloud_busy_.count(current.launch->app_id))
+    if (current.handoff_ready && current.launch && !cloud_busy_.count(current.launch->game))
       runtime_->Handoff();
   }
   const auto snapshot_shared = runtime_->Shared();
@@ -949,7 +990,7 @@ void Controller::TickRuntime() {
   // sessions or refusals are then visible.
   if (snapshot.plays_handled >= plays_requested_) play_queued_.clear();
   if (snapshot.launch) {
-    const std::pair<GameId, runtime::LaunchState> current{snapshot.launch->app_id, snapshot.launch->state};
+    const std::pair<GameId, runtime::LaunchState> current{snapshot.launch->game, snapshot.launch->state};
     if (current.second == runtime::LaunchState::kExited && last_launch_ != current)
       sync_after_session_.insert(current.first);
     last_launch_ = current;
@@ -962,8 +1003,8 @@ void Controller::TickRuntime() {
     // Queue's Preparation section: the runtime's queue in order, then games Playden holds back before
     // asking for them (Steam's launch options, saves in transit, a Play waiting to ask).
     PreparationQueue queue;
-    queue.active = snapshot.preparing_app;
-    queue.waiting = snapshot.queued_prepares;
+    if (snapshot.preparing_app) queue.active = GameIn(snapshot, *snapshot.preparing_app);
+    for (const auto app : snapshot.queued_prepares) queue.waiting.push_back(GameIn(snapshot, app));
     const auto add = [&queue](GameId id) {
       if (queue.active != id && std::find(queue.waiting.begin(), queue.waiting.end(), id) == queue.waiting.end())
         queue.waiting.push_back(id);
@@ -976,9 +1017,9 @@ void Controller::TickRuntime() {
           found != queue.waiting.end())
         std::rotate(queue.waiting.begin(), found, found + 1);
     for (const auto& done : snapshot.prepared)
-      if (game_roots_.count(done.app_id)) queue.completed.push_back({done.app_id, done.finished_at});
-    for (const auto& [id, refusal] : snapshot.refusals)
-      if (game_roots_.count(id) && queue.active != id &&
+      if (game_roots_.count(GameIn(snapshot, done.runtime_number))) queue.completed.push_back({GameIn(snapshot, done.runtime_number), done.finished_at});
+    for (const auto& [app, refusal] : snapshot.refusals)
+      if (const auto id = GameIn(snapshot, app); game_roots_.count(id) && queue.active != id &&
           std::find(queue.waiting.begin(), queue.waiting.end(), id) == queue.waiting.end())
         queue.refused[id] = refusal;
     model_.UpdatePreparationQueue(std::move(queue));
@@ -1003,17 +1044,17 @@ void Controller::TickRuntime() {
   for (const auto& [id, root] : game_roots_) {
     LiveRuntimeGame game; game.game_id = id;
     const RuntimeInstallView* record = nullptr;
-    for (const auto& view : snapshot.installs) if (view.app_id == id) record = &view;
-    const auto refusal = snapshot.refusals.find(id);
+    for (const auto& view : snapshot.installs) if (view.game == id) record = &view;
+    const auto refusal = snapshot.refusals.find(NumberIn(snapshot, id));
     game.has_title = record != nullptr;
     if (record) game.failure_code = record->failure_code;
     if (snapshot.status == RuntimeHostStatus::kStarting) {
       game.status = "Checking";
     } else if (snapshot.status != RuntimeHostStatus::kReady) {
       game.status = "Unavailable"; game.detail = snapshot.reason;
-    } else if (snapshot.removing_app == id) {
+    } else if (IsNumber(snapshot, snapshot.removing_app, id)) {
       game.status = "Removing"; game.detail = "Removing the game's PS5 title";
-    } else if (snapshot.preparing_app == id && record && record->moving) {
+    } else if (IsNumber(snapshot, snapshot.preparing_app, id) && record && record->moving) {
       // Prepare removes the title made for the game's old folder (installed again on another drive).
       game.status = "Preparing"; game.detail = "Removing the PS5 title made for the game's old drive";
     } else if (record && record->moving) {
@@ -1024,7 +1065,7 @@ void Controller::TickRuntime() {
       game.status = "Removal incomplete"; game.can_prepare = true;
       game.detail = record->failure.empty() ? "Retry finishes removing the PS5 title, then uninstalls the game."
                                             : record->failure;
-    } else if (snapshot.preparing_app == id) {
+    } else if (IsNumber(snapshot, snapshot.preparing_app, id)) {
       game.status = "Preparing"; game.detail = PreparationProgressWords(record != nullptr, record ? record->step : std::string{});
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                !record->title_current) {
@@ -1069,9 +1110,9 @@ void Controller::TickRuntime() {
          game.status == "Needs recovery" || game.status == "Failed" || game.status == "Registration pending"))
       game.status = "No kit";
     if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
-    if (const auto refused = snapshot.play_refusals.find(id); refused != snapshot.play_refusals.end())
+    if (const auto refused = snapshot.play_refusals.find(NumberIn(snapshot, id)); refused != snapshot.play_refusals.end())
       game.play_detail = "Could not start: " + refused->second;
-    const bool launching = snapshot.launch && snapshot.launch->app_id == id;
+    const bool launching = snapshot.launch && snapshot.launch->game == id;
     if (launching) {
       using runtime::LaunchState;
       switch (snapshot.launch->state) {
@@ -1094,18 +1135,18 @@ void Controller::TickRuntime() {
                                           snapshot.launch->state == runtime::LaunchState::kRunning);
     // Updating or repairing waits while this game is being started or played, and a queued
     // preparation is not asked for twice.
-    if ((launching && busy) || PrepareQueued(snapshot, id)) game.can_prepare = false;
+    if ((launching && busy) || PrepareQueued(snapshot, NumberIn(snapshot, id))) game.can_prepare = false;
     // Queued behind another game's setup, from the runtime's queue or a Play that waits to ask it.
     const auto waiting_play = play_after_prepare_.find(id);
-    game.queued = snapshot.preparing_app != id &&
-                  (PrepareQueued(snapshot, id) ||
+    game.queued = !IsNumber(snapshot, snapshot.preparing_app, id) &&
+                  (PrepareQueued(snapshot, NumberIn(snapshot, id)) ||
                    (waiting_play != play_after_prepare_.end() && !waiting_play->second.queued));
-    game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
+    game.can_play = game.ready && !busy && !IsNumber(snapshot, snapshot.preparing_app, id) && !cloud_busy_.count(id) &&
                     play_queued_.empty() && !sync_before_play_.count(id);
     if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
     if (sync_before_play_.count(id)) game.play_status = "Checking saves…";
     // Play's own work before the launch (a game moved in 0.6 is republished first).
-    if (const auto progress = snapshot.play_progress.find(id); progress != snapshot.play_progress.end()) {
+    if (const auto progress = snapshot.play_progress.find(NumberIn(snapshot, id)); progress != snapshot.play_progress.end()) {
       game.play_status = progress->second; game.can_play = false; game.can_prepare = false;
     }
     if (const auto pending = play_after_prepare_.find(id); pending != play_after_prepare_.end()) {
@@ -1119,7 +1160,7 @@ void Controller::TickRuntime() {
     // A retry is in flight: do not republish its previous refusal as a new outcome.
     if (play_queued_.count(id) || sync_before_play_.count(id)) game.play_detail.clear();
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
-    if (snapshot.work_progress && (snapshot.preparing_app == id || snapshot.removing_app == id))
+    if (snapshot.work_progress && (IsNumber(snapshot, snapshot.preparing_app, id) || IsNumber(snapshot, snapshot.removing_app, id)))
       game.progress = snapshot.work_progress;
     // Game settings and maintenance: the prepared title's state, the console's answer on
     // whether it runs, and the newest maintenance outcome.
@@ -1131,12 +1172,12 @@ void Controller::TickRuntime() {
       game.save_backups = record->save_backups;
       game.latest_save_backup = record->latest_save_backup;
     }
-    if (const auto answer = snapshot.activity.find(id); answer != snapshot.activity.end())
+    if (const auto answer = snapshot.activity.find(NumberIn(snapshot, id)); answer != snapshot.activity.end())
       game.activity = answer->second.first == runtime::NativeActivity::kStopped ? TitleActivity::Stopped
                     : answer->second.first == runtime::NativeActivity::kActive ? TitleActivity::Running
                                                                               : TitleActivity::Unknown;
     if (launching && busy) game.activity = TitleActivity::Running;
-    if (const auto found = snapshot.maintenance.find(id); found != snapshot.maintenance.end()) {
+    if (const auto found = snapshot.maintenance.find(NumberIn(snapshot, id)); found != snapshot.maintenance.end()) {
       const auto action = found->second.action;
       game.maintenance = action == RuntimeMaintenance::kClearShaderCache ? MaintenanceKind::ClearShaderCache
                        : action == RuntimeMaintenance::kRepair ? MaintenanceKind::Repair
@@ -1163,7 +1204,7 @@ void Controller::TickRuntime() {
   {
     std::map<GameId, LiveGameSetup> setups;
     for (const auto& [app, setup] : snapshot.game_setups) {
-      auto& live = setups[app];
+      auto& live = setups[GameIn(snapshot, app)];
       live.programs = setup.programs;
       live.scanned = setup.scanned;
       live.draft = setup.draft;
@@ -1196,7 +1237,7 @@ void Controller::BeginUninstall(GameId id, bool delete_saves) {
   if (!runtime_) { if (installs_) installs_->Uninstall(id); return; }
   // A preparation still waiting would make a title for files about to be deleted: it leaves the queue.
   // One already running finishes first (TickUninstalls waits), so its title is removed with the rest.
-  runtime_->WithdrawPrepare(id);
+  if (const auto app = RuntimeApp(*runtime_, id)) runtime_->WithdrawPrepare(*app);
   std::erase(auto_prepare_, id);
   prepare_after_details_.erase(id);
   play_after_prepare_.erase(id);
@@ -1217,23 +1258,26 @@ void Controller::TickUninstalls() {
   const auto& snapshot = *snapshot_shared;
   if (snapshot.status == RuntimeHostStatus::kStarting) return;
   for (const auto id : ids) {
-    if (snapshot.preparing_app == id) continue;  // its title is removed once the preparation ends
+    if (IsNumber(snapshot, snapshot.preparing_app, id)) continue;  // its title is removed once the preparation ends
     UninstallFacts facts;
     facts.has_title = std::any_of(snapshot.installs.begin(), snapshot.installs.end(),
-                                  [id](const RuntimeInstallView& view) { return view.app_id == id; });
-    facts.removing = snapshot.removing_app == id;
+                                  [id](const RuntimeInstallView& view) { return view.game == id; });
+    facts.removing = IsNumber(snapshot, snapshot.removing_app, id);
     facts.removal_started = std::any_of(snapshot.installs.begin(), snapshot.installs.end(), [id](const RuntimeInstallView& view) {
-      return view.app_id == id && view.state == runtime::PreparationState::kRemoving;
+      return view.game == id && view.state == runtime::PreparationState::kRemoving;
     });
     facts.removals_handled = snapshot.removals_handled;
-    if (const auto failure = snapshot.removal_failures.find(id); failure != snapshot.removal_failures.end())
+    if (const auto failure = snapshot.removal_failures.find(NumberIn(snapshot, id)); failure != snapshot.removal_failures.end())
       facts.removal_failure = failure->second;
     facts.saves_moving = cloud_busy_.count(id) != 0;
     facts.session_active = SessionActive(id);
     const auto action = uninstalls_.Advance(id, facts);
     switch (action.kind) {
       case UninstallAction::Kind::kNone: break;
-      case UninstallAction::Kind::kRemoveTitle: runtime_->Remove(id, action.delete_saves); ++play_notes_revision_; break;
+      case UninstallAction::Kind::kRemoveTitle:
+        if (const auto app = RuntimeApp(*runtime_, id)) runtime_->Remove(*app, action.delete_saves);
+        ++play_notes_revision_;
+        break;
       // The title is gone, so no title points at the files about to be deleted.
       case UninstallAction::Kind::kRemoveDownload: if (installs_) installs_->Uninstall(id); ++play_notes_revision_; break;
       case UninstallAction::Kind::kStop: StopUninstall(id, action.reason); break;
@@ -1385,9 +1429,12 @@ void Controller::RequestPrepare(GameId id) {
 void Controller::SubmitPrepare(GameId id, bool announce) {
   const auto root = game_roots_.find(id);
   if (!runtime_ || root == game_roots_.end()) return;
+  const auto app = RuntimeApp(*runtime_, id);
+  if (!app) return;
   if (announce) ready_watch_[id] = {false, std::chrono::steady_clock::now()};
   else ready_watch_.erase(id);
-  RuntimePrepareRequest request{id, root->second, game_volumes_[id], {}};
+  RuntimePrepareRequest request{*app, root->second, game_volumes_[id], {}};
+  request.game = id;
   for (const auto& game : model_.state().games) if (game.id == id) request.title_name = game.title;
   if (model_.state().title_store_suffix && !request.title_name.empty()) request.title_name += " (Steam)";
   if (const auto found = launch_options_.find(id); found != launch_options_.end())
@@ -1401,7 +1448,7 @@ void Controller::SubmitPrepare(GameId id, bool announce) {
   if (app_details_ && !launch_options_.count(id)) app_details_->Request(id, model_.state().account_generation);
   runtime_->Prepare(std::move(request));
   if (prepare_next_pending_ == id) {
-    runtime_->PrepareNext(id);
+    runtime_->PrepareNext(*app);
     prepare_next_pending_.reset();
   }
 }

@@ -28,7 +28,7 @@ struct LaunchOption {
 
 // What a game's Steam app info says about installing it on this console.
 struct AppDetails {
-  GameId id = 0;
+  GameId id;
   std::uint64_t account_generation = 0;
   bool available = false;  // false: Steam had no usable app info (see reason)
   std::optional<std::uint64_t> download_bytes;

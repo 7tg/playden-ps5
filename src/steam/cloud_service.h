@@ -34,7 +34,7 @@ enum class CloudResolution { kAutomatic, kUseLocal, kUseCloud };
 // Where one game's saves live: the install, its optional explicit Wine bottle,
 // and a state folder holding the sync baseline/backups that outlives uninstall.
 struct CloudLocation {
-  GameId id = 0;
+  GameId id;
   std::string game_root;
   std::string state_root;
   // Managed games use their actual bottle; empty retains the legacy
@@ -89,7 +89,7 @@ class CloudRunner {
 };
 
 struct CloudGameView {
-  GameId id = 0;
+  GameId id;
   CloudReport report;
 };
 
@@ -99,7 +99,7 @@ enum class CloudJobKind { kNone, kQuickCheck, kSyncAll };
 struct CloudJob {
   CloudJobKind kind = CloudJobKind::kNone;
   std::size_t done = 0, total = 0;
-  GameId current = 0;
+  GameId current;
   bool stopping = false;
 };
 
@@ -176,7 +176,7 @@ class CloudService {
   std::uint64_t revision_ = 0;
   CloudJob job_;
   bool job_pending_ = false;
-  GameId active_ = 0;  // the game Apply is moving saves for
+  GameId active_;  // the game Apply is moving saves for
   std::function<std::int64_t()> now_;
   std::function<bool(GameId)> gate_;
   std::vector<GameId> deferred_;

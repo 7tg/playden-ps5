@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::steam;
@@ -61,10 +62,10 @@ void SanitizedFixtures(const std::string& directory) {
     const auto result = Fetch(&fixture, ReadFixture(directory, "owned-games.json"));
     assert(result.error == LibraryError::kNone && !result.metadata_partial);
     assert(result.games.size() == 2);
-    assert(result.games[0].id == 1001 && result.games[0].title == "Synthetic One");
+    assert(result.games[0].id == SteamId(1001) && result.games[0].title == "Synthetic One");
     assert(result.games[0].playtime_minutes == 90);
     assert(result.games[0].last_played_unix_seconds == 1700000000);
-    assert(result.games[1].id == 1002 && result.games[1].playtime_minutes == 0);
+    assert(result.games[1].id == SteamId(1002) && result.games[1].playtime_minutes == 0);
     assert(!result.games[1].last_played_unix_seconds);
   }
   {
@@ -87,13 +88,13 @@ void RequestAndMapping() {
       R"({"appid":10,"name":"Caf\u00e9"}]}})");
   assert(result.error == LibraryError::kNone);
   assert(result.games.size() == 2);
-  assert(result.games[0].id == 570 && result.games[0].title == "Dota 2");
+  assert(result.games[0].id == SteamId(570) && result.games[0].title == "Dota 2");
   assert(result.games[0].artwork_source ==
       "https://media.steampowered.com/steamcommunity/public/images/apps/570/"
       "0123456789abcdef0123456789abcdef01234567.jpg");
   assert(result.games[0].playtime_minutes == 123);
   assert(result.games[0].last_played_unix_seconds == 1700000000);
-  assert(result.games[1].id == 10 && result.games[1].title == "Caf\xc3\xa9");
+  assert(result.games[1].id == SteamId(10) && result.games[1].title == "Caf\xc3\xa9");
   assert(result.games[1].artwork_source.empty());
   assert(!result.games[1].playtime_minutes && !result.games[1].last_played_unix_seconds);
   assert(result.metadata_partial);
@@ -125,7 +126,7 @@ void FreeGameNeverPlayed() {
   assert(result.error == LibraryError::kNone && !result.metadata_partial);
   assert(result.games.size() == 1);
   const auto& game = result.games.front();
-  assert(game.id == 2767030 && game.title == "Synthetic Free");
+  assert(game.id == SteamId(2767030) && game.title == "Synthetic Free");
   assert(game.playtime_minutes == 0 && !game.last_played_unix_seconds);
   assert(!game.added_at_unix_seconds);
   assert(game.artwork_source ==
@@ -177,8 +178,8 @@ void MissingMetadataAndStableDedupe() {
       R"({"appid":7},{"appid":8,"name":"First"},{"appid":7,"name":"Replacement"}]}})");
   assert(result.error == LibraryError::kNone && result.metadata_partial);
   assert(result.games.size() == 2);
-  assert(result.games[0].id == 7 && result.games[0].title == "app_7");
-  assert(result.games[1].id == 8 && result.games[1].title == "First");
+  assert(result.games[0].id == SteamId(7) && result.games[0].title == "app_7");
+  assert(result.games[1].id == SteamId(8) && result.games[1].title == "First");
 }
 
 void EmptyLibraryIsExplicit() {
@@ -197,7 +198,7 @@ void CountIsOptionalWhenGamesArePresent() {
   const auto result = Fetch(&fixture,
       R"({"response":{"games":[{"appid":42,"name":"Complete","img_icon_url":"0123456789abcdef0123456789abcdef01234567","playtime_forever":0,"rtime_last_played":0}]}})");
   assert(result.error == LibraryError::kNone);
-  assert(result.games.size() == 1 && result.games[0].id == 42);
+  assert(result.games.size() == 1 && result.games[0].id == SteamId(42));
   assert(!result.metadata_partial);
 }
 

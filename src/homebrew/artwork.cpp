@@ -14,7 +14,7 @@ bool Contains(const std::deque<ArtworkKey>& values, const ArtworkKey& key) {
 }
 
 bool ValidKey(const ArtworkKey& key) {
-  return key.account_generation != 0 && key.game_id != 0 &&
+  return key.account_generation != 0 && key.game_id.valid() &&
          !key.source.empty() && key.source.size() <= kMaxArtworkSourceBytes &&
          key.source.find('\0') == std::string::npos;
 }

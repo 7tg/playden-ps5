@@ -4,10 +4,10 @@
 
 namespace playden::steam {
 
-AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer,
+AppDetails DetailsFromAppInfo(std::uint32_t id, const std::string& buffer,
                               const std::optional<LicensedDepots::Grant>& licensed) {
   AppDetails details;
-  details.id = id;
+  details.id = GameId::Steam(id);
   const auto app = ParseAppInfo(id, buffer);
   if (!app) {
     details.reason = "Steam returned unreadable details for this game.";
@@ -49,16 +49,20 @@ AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer,
 std::vector<AppDetails> CmAppDetailsSource::Fetch(const StoredSession& session,
                                                   const std::vector<GameId>& ids,
                                                   const std::atomic<bool>& cancel) {
-  std::vector<std::uint32_t> app_ids(ids.begin(), ids.end());
+  // The service only queues Steam games.
+  std::vector<std::uint32_t> apps;
+  for (const auto& id : ids)
+    if (const auto app = id.steam_app()) apps.push_back(*app);
+  std::vector<std::uint32_t> app_ids(apps);
   if (app_ids.size() > kMaxAppInfoBatch) app_ids.resize(kMaxAppInfoBatch);
   const auto fetched = client_.FetchAppInfo(session, app_ids, cancel);
   std::vector<AppDetails> result;
   if (!fetched.ok()) return result;  // the service reports these as retryable
-  for (const auto id : ids) {
+  for (const auto id : apps) {
     const auto found = fetched.buffers.find(id);
     if (found == fetched.buffers.end()) {
       AppDetails missing;
-      missing.id = id;
+      missing.id = GameId::Steam(id);
       missing.reason = "Steam has no details for this game.";
       result.push_back(std::move(missing));
       continue;

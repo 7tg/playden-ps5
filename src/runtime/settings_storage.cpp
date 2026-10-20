@@ -28,7 +28,7 @@ std::optional<std::filesystem::path> PrepareGameSettingsStorage(
   }
   // An existing private file is authoritative. Never fall back to stale legacy
   // bytes when it is malformed or unsafe, and never enable save on that failure.
-  std::map<std::uint32_t, GameSettingsRecord> records;
+  std::map<GameId, GameSettingsRecord> records;
   if (!LoadGameSettingsFile(path.string(), &records, reason)) return std::nullopt;
   return path;
 }

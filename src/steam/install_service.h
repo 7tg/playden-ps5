@@ -42,7 +42,7 @@ struct InstallVolume {
 };
 
 struct InstallJobView {
-  GameId id = 0;
+  GameId id;
   InstallJobState state = InstallJobState::kQueued;
   std::uint64_t done_bytes = 0;
   std::uint64_t total_bytes = 0;
@@ -56,7 +56,7 @@ struct InstallJobView {
 };
 
 struct InstalledGame {
-  GameId id = 0;
+  GameId id;
   std::uint64_t install_bytes = 0;
   std::string root;
   std::string volume_id;
@@ -66,7 +66,7 @@ struct InstalledGame {
 
 // A recent finished download that Downloads lists after the queue until the player dismisses it.
 struct CompletedDownload {
-  GameId id = 0;
+  GameId id;
   std::uint64_t install_bytes = 0;
   std::string volume_id;
   std::int64_t finished_at = 0;
@@ -103,7 +103,7 @@ class InstallRunner {
     std::uint64_t install_bytes = 0;
     bool retry_later = false;  // Steam or the network was out of reach: the job waits and tries again
   };
-  virtual Result Install(const StoredSession& session, GameId id, const std::string& root,
+  virtual Result Install(const StoredSession& session, std::uint32_t app, const std::string& root,
                          const std::atomic<bool>& cancel,
                          const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress,
                          const std::function<void(InstallStep)>& step) = 0;

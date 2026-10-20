@@ -816,8 +816,12 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   const std::string temporary = record_path + ".tmp";
   FILE* record = std::fopen(temporary.c_str(), "w");
   if (!record) return fail(InstallError::kStorage, "cannot write install record");
-  std::fprintf(record, "{\"version\":1,\"app_id\":%u,\"install_bytes\":%llu,\"files\":%u,\"depots\":[",
-               target.app_id, static_cast<unsigned long long>(progress.install_total), progress.files_total);
+  // Steam records are written as before; another store's game adds "store" and "game".
+  std::string identity;
+  if (target.game.valid() && target.game.store != Store::kSteam)
+    identity = ",\"store\":\"" + std::string(Traits(target.game.store).key) + "\",\"game\":\"" + target.game.value + "\"";
+  std::fprintf(record, "{\"version\":1,\"app_id\":%u%s,\"install_bytes\":%llu,\"files\":%u,\"depots\":[",
+               target.app_id, identity.c_str(), static_cast<unsigned long long>(progress.install_total), progress.files_total);
   for (std::size_t index = 0; index < access.grants.size(); ++index)
     std::fprintf(record, "%s{\"id\":%u,\"manifest\":\"%llu\"}", index ? "," : "", access.grants[index].depot_id,
                  static_cast<unsigned long long>(access.grants[index].manifest_gid));

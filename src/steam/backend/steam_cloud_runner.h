@@ -24,7 +24,7 @@ class SteamCloudRunner final : public CloudRunner {
   void SetProgress(std::function<void(std::uint64_t done, std::uint64_t total)> progress) override { progress_ = std::move(progress); }
 
   // Optional sanitized log: the Steam app ID, what happened, and a short user-facing message.
-  void SetLog(std::function<void(GameId app, const char* event, const std::string& message)> log);
+  void SetLog(std::function<void(std::uint32_t app, const char* event, const std::string& message)> log);
 
   static cloud::GameSaveLocation SaveLocation(const CloudLocation& location);
 
@@ -34,9 +34,9 @@ class SteamCloudRunner final : public CloudRunner {
     cloud::CloudPlan plan;
     cloud::GameSaveLocation location;
   };
-  std::map<GameId, PendingPlan> plans_;  // bind Apply to the location actually checked
-  std::function<void(GameId, const char*, const std::string&)> log_;
-  GameId current_app_ = 0;
+  std::map<std::uint32_t, PendingPlan> plans_;  // bind Apply to the location actually checked
+  std::function<void(std::uint32_t, const char*, const std::string&)> log_;
+  std::uint32_t current_app_ = 0;
   std::function<void(std::uint64_t, std::uint64_t)> progress_;  // the game being checked or synced, for traces
 };
 

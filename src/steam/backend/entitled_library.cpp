@@ -33,7 +33,7 @@ LibraryResult EntitledLibraryBackend::Fetch(const StoredSession& session,
   if (result.error != LibraryError::kNone || !acquisitions.ok()) return result;
   if (licensed_) licensed_->Set(acquisitions);
   for (auto& game : result.games) {
-    const auto found = acquisitions.acquired_at.find(game.id);
+    const auto found = acquisitions.acquired_at.find(*game.id.steam_app());
     if (found != acquisitions.acquired_at.end()) game.added_at_unix_seconds = found->second;
   }
   AddLicensedGames(session, acquisitions, cancel, &result);
@@ -44,7 +44,7 @@ void EntitledLibraryBackend::AddLicensedGames(const StoredSession& session,
                                               const AcquisitionResult& acquisitions,
                                               const std::atomic<bool>& cancel, LibraryResult* result) {
   std::set<std::uint32_t> listed;
-  for (const auto& game : result->games) listed.insert(game.id);
+  for (const auto& game : result->games) listed.insert(*game.id.steam_app());
   // A package with a listed app is a bought game (with its DLC) the owned list already covers.
   // Package 0 is Steam's basic free package, which GetOwnedGames leaves out on purpose.
   std::set<std::uint32_t> candidates;
@@ -83,7 +83,7 @@ void EntitledLibraryBackend::AddLicensedGames(const StoredSession& session,
   for (const auto app : candidates) {
     const auto found = looked_up_.find(app);
     if (found == looked_up_.end() || found->second.empty()) continue;
-    GameSummary game{app, found->second, {}, {}, {}};
+    GameSummary game{GameId::Steam(app), found->second, {}, {}, {}};
     if (const auto icon = icons_.find(app); icon != icons_.end()) game.artwork_source = icon->second;
     if (const auto added = acquisitions.acquired_at.find(app); added != acquisitions.acquired_at.end())
       game.added_at_unix_seconds = added->second;

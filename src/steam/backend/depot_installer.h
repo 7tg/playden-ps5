@@ -1,5 +1,6 @@
 #pragma once
 
+#include "library/store.h"
 #include "steam/backend/app_info.h"
 #include "steam/backend/cdn_client.h"
 #include "steam/backend/cm_client.h"
@@ -28,7 +29,11 @@ enum class InstallError {
 const char* InstallErrorName(InstallError error);
 
 struct InstallTarget {
+  // The install record's "app_id": a Steam game's app ID, or the runtime number of a game from
+  // another store (as the kept marker holds), which `game` then names.
   std::uint32_t app_id = 0;
+  // Written as "store"/"game" in the install record only when not Steam; default: Steam app_id.
+  GameId game;
   std::string install_root;          // absolute directory owned by this install
   std::vector<DepotInfo> depots;     // selected depots, in Steam's listing (mounting) order
 };

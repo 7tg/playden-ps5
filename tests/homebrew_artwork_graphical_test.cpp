@@ -8,6 +8,7 @@
 #include <chrono>
 #include <filesystem>
 #include <thread>
+#include "steam_id.h"
 
 using namespace playden::homebrew;
 using namespace std::chrono_literals;
@@ -16,13 +17,13 @@ struct Backend final : ArtworkBackend {
     std::atomic<bool> release{false};
     std::optional<ArtworkImage> Load(const ArtworkKey& key, const std::atomic<bool>& cancel) override {
         while (!release && !cancel) std::this_thread::sleep_for(1ms);
-        if (cancel || key.game_id == 44) return std::nullopt;
+        if (cancel || key.game_id == SteamId(44)) return std::nullopt;
         ArtworkImage result{64,96,{}};
         result.rgba.resize(64*96*4);
         for (std::size_t i=0;i<result.rgba.size();i+=4) {
             const auto stripe = static_cast<unsigned char>((i/4/64)%16 < 8 ? 220 : 100);
-            result.rgba[i] = key.game_id == 42 ? stripe : 25;
-            result.rgba[i+1] = key.game_id == 43 ? stripe : 25;
+            result.rgba[i] = key.game_id == SteamId(42) ? stripe : 25;
+            result.rgba[i+1] = key.game_id == SteamId(43) ? stripe : 25;
             result.rgba[i+2] = 70;
             result.rgba[i+3] = 255;
         }
@@ -51,7 +52,7 @@ int main(int argc,char** argv) {
         Simulation model({}, {},ModelMode::Live);
         model.SetWallClock(1700000000);
         model.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
-        assert(model.UpdateLibrary({{{42,"Red cover",{},{},{}},{43,"Green cover",{},{},{}},{44,"Unavailable cover",{},{},{}}},false,{},false,true,1700000000}));
+        assert(model.UpdateLibrary({{{SteamId(42),"Red cover",{},{},{}},{SteamId(43),"Green cover",{},{},{}},{SteamId(44),"Unavailable cover",{},{},{}}},false,{},false,true,1700000000}));
         assert(model.action("r1"));
         for(int i=0;i<16;++i) renderer.draw(model,1920,1080);
         assert(renderer.diagnostics().live_artwork_texture_count==0);

@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "steam_id.h"
 
 using namespace playden::homebrew;
 using playden::GameId;
@@ -41,7 +42,7 @@ class ControlledArtwork final : public ArtworkBackend {
     if (failed.contains(key.game_id)) return std::nullopt;
     const auto side = sides.contains(key.game_id) ? sides[key.game_id] : 1U;
     auto image = Image(side, key.source == "old" ? 1 : key.source == "new" ? 2
-                                                                  : static_cast<std::uint8_t>(key.game_id));
+                                                                  : static_cast<std::uint8_t>(*key.game_id.steam_app()));
     if (malformed.contains(key.game_id)) image.rgba.pop_back();
     return image;
   }
@@ -101,11 +102,11 @@ void DeduplicatesAndUploadsOnlyOnUiThread() {
   FakeTextures textures;
   LiveArtworkCache cache(service, textures);
   cache.BeginFrame(1);
-  assert(cache.TextureFor(10, "a") == 0);
-  assert(cache.TextureFor(10, "a") == 0);
+  assert(cache.TextureFor(SteamId(10), "a") == 0);
+  assert(cache.TextureFor(SteamId(10), "a") == 0);
   cache.EndFrame();
   assert(cache.Stats().visible_count == 1 && cache.Stats().request_count == 1);
-  const auto texture = AwaitTexture(cache, 1, 10, "a");
+  const auto texture = AwaitTexture(cache, 1, SteamId(10), "a");
   assert(texture != 0 && cache.Stats().texture_count == 1 && cache.Stats().gpu_bytes == 4);
   const int calls = backend.calls;
   cache.BeginFrame(1);
@@ -113,7 +114,7 @@ void DeduplicatesAndUploadsOnlyOnUiThread() {
   cache.BeginFrame(1);
   std::uint32_t width = 0;
   std::uint32_t height = 0;
-  assert(cache.TextureFor(10, "a", &width, &height) == texture);
+  assert(cache.TextureFor(SteamId(10), "a", &width, &height) == texture);
   assert(width == 1 && height == 1);  // the size is reported so a logo can be fitted
   cache.EndFrame();
   assert(backend.calls == calls);
@@ -125,11 +126,11 @@ void UploadCountIsBoundedPerFrame() {
   FakeTextures textures;
   LiveArtworkCache cache(service, textures);
   cache.BeginFrame(1);
-  for (GameId id = 1; id <= 4; ++id) (void)cache.TextureFor(id, "batch");
+  for (std::uint32_t id = 1; id <= 4; ++id) (void)cache.TextureFor(SteamId(id), "batch");
   cache.EndFrame();
   WaitCalls(backend.calls, 4);
   cache.BeginFrame(1);
-  for (GameId id = 1; id <= 4; ++id) (void)cache.TextureFor(id, "batch");
+  for (std::uint32_t id = 1; id <= 4; ++id) (void)cache.TextureFor(SteamId(id), "batch");
   const auto before = textures.uploads.size();
   cache.EndFrame();
   assert(textures.uploads.size() - before == kMaxArtworkUploadsPerFrame);
@@ -142,14 +143,14 @@ void LateSourceAndGenerationCannotPopulateCurrentIdentity() {
   FakeTextures textures;
   LiveArtworkCache cache(service, textures);
   cache.BeginFrame(1);
-  (void)cache.TextureFor(20, "old");
+  (void)cache.TextureFor(SteamId(20), "old");
   cache.EndFrame();
   WaitFor(backend.old_started);
   cache.BeginFrame(1);
-  (void)cache.TextureFor(20, "new");
+  (void)cache.TextureFor(SteamId(20), "new");
   cache.EndFrame();
   backend.release_old = true;
-  assert(AwaitTexture(cache, 1, 20, "new") != 0);
+  assert(AwaitTexture(cache, 1, SteamId(20), "new") != 0);
   assert(std::find(textures.uploads.begin(), textures.uploads.end(), 1) == textures.uploads.end());
   assert(std::find(textures.uploads.begin(), textures.uploads.end(), 2) != textures.uploads.end());
 
@@ -158,22 +159,22 @@ void LateSourceAndGenerationCannotPopulateCurrentIdentity() {
   // The generation change releases everything before this frame draws; the new generation's
   // load may then finish within this same EndFrame, so check before it.
   assert(textures.releases.size() == releases + 1 && cache.Stats().texture_count == 0);
-  assert(cache.TextureFor(20, "new") == 0);
+  assert(cache.TextureFor(SteamId(20), "new") == 0);
   cache.EndFrame();
-  assert(AwaitTexture(cache, 2, 20, "new") != 0);
+  assert(AwaitTexture(cache, 2, SteamId(20), "new") != 0);
 }
 
 void InvalidAndFailedUploadsStayPlaceholders() {
   ControlledArtwork backend;
-  backend.malformed.insert(30);
+  backend.malformed.insert(SteamId(30));
   ArtworkService service(backend);
   FakeTextures textures;
   textures.fail_values.insert(31);
   LiveArtworkCache cache(service, textures);
   for (int frame = 0; frame < 30; ++frame) {
     cache.BeginFrame(1);
-    assert(cache.TextureFor(30, "bad") == 0);
-    assert(cache.TextureFor(31, "upload-fails") == 0);
+    assert(cache.TextureFor(SteamId(30), "bad") == 0);
+    assert(cache.TextureFor(SteamId(31), "upload-fails") == 0);
     cache.EndFrame();
     std::this_thread::sleep_for(1ms);
   }
@@ -182,29 +183,29 @@ void InvalidAndFailedUploadsStayPlaceholders() {
   cache.EndFrame();
   textures.fail_values.clear();
   backend.malformed.clear();
-  assert(AwaitTexture(cache, 1, 30, "bad") != 0);
-  assert(AwaitTexture(cache, 1, 31, "upload-fails") != 0);
+  assert(AwaitTexture(cache, 1, SteamId(30), "bad") != 0);
+  assert(AwaitTexture(cache, 1, SteamId(31), "upload-fails") != 0);
 
   cache.BeginFrame(1);
-  assert(cache.TextureFor(0, "x") == 0);
-  assert(cache.TextureFor(1, "") == 0);
-  assert(cache.TextureFor(1, std::string(kMaxArtworkSourceBytes + 1, 'x')) == 0);
+  assert(cache.TextureFor(SteamId(0), "x") == 0);
+  assert(cache.TextureFor(SteamId(1), "") == 0);
+  assert(cache.TextureFor(SteamId(1), std::string(kMaxArtworkSourceBytes + 1, 'x')) == 0);
   const std::string embedded_nul{"bad\0source", 10};
-  assert(cache.TextureFor(1, embedded_nul) == 0);
-  assert(cache.TextureFor(99, "valid-alongside-invalid") == 0);
-  for (GameId id = 1; id <= 65; ++id) (void)cache.TextureFor(100 + id, "bounded");
+  assert(cache.TextureFor(SteamId(1), embedded_nul) == 0);
+  assert(cache.TextureFor(SteamId(99), "valid-alongside-invalid") == 0);
+  for (std::uint32_t id = 1; id <= 65; ++id) (void)cache.TextureFor(SteamId(100 + id), "bounded");
   cache.EndFrame();
   assert(cache.Stats().visible_count == kMaxArtworkSubscriptions);
-  assert(AwaitTexture(cache, 1, 99, "valid-alongside-invalid") != 0);
+  assert(AwaitTexture(cache, 1, SteamId(99), "valid-alongside-invalid") != 0);
 }
 
 void UploadAndEvictionBudgetsProtectCurrentFrameTextures() {
   ControlledArtwork backend;
-  for (GameId id = 1; id <= 17; ++id) backend.sides[id] = 1024;
+  for (std::uint32_t id = 1; id <= 17; ++id) backend.sides[SteamId(id)] = 1024;
   ArtworkService service(backend);
   FakeTextures textures;
   LiveArtworkCache cache(service, textures);
-  for (GameId id = 1; id <= 16; ++id) assert(AwaitTexture(cache, 1, id, "large") != 0);
+  for (std::uint32_t id = 1; id <= 16; ++id) assert(AwaitTexture(cache, 1, SteamId(id), "large") != 0);
   assert(cache.Stats().texture_count == 16 && cache.Stats().gpu_bytes == kMaxArtworkGpuBytes);
 
   // Keep all 17 referenced until the 17th result has certainly been loaded and
@@ -213,14 +214,14 @@ void UploadAndEvictionBudgetsProtectCurrentFrameTextures() {
   for (int frames_after_load = 0; frames_after_load < 50;) {
     assert(std::chrono::steady_clock::now() < deadline);
     cache.BeginFrame(1);
-    for (GameId id = 1; id <= 17; ++id) (void)cache.TextureFor(id, "large");
+    for (std::uint32_t id = 1; id <= 17; ++id) (void)cache.TextureFor(SteamId(id), "large");
     cache.EndFrame();
     if (backend.calls.load() >= 17) ++frames_after_load;
     std::this_thread::sleep_for(1ms);
   }
   assert(textures.releases.empty() && cache.Stats().texture_count == 16);
 
-  const auto seventeenth = AwaitTexture(cache, 1, 17, "large");
+  const auto seventeenth = AwaitTexture(cache, 1, SteamId(17), "large");
   assert(seventeenth != 0 && !textures.releases.empty());
   assert(cache.Stats().texture_count == 16 && cache.Stats().gpu_bytes <= kMaxArtworkGpuBytes);
 }
@@ -231,8 +232,8 @@ void DestructorReleasesEveryTexture() {
   FakeTextures textures;
   {
     LiveArtworkCache cache(service, textures);
-    assert(AwaitTexture(cache, 1, 40, "a") != 0);
-    assert(AwaitTexture(cache, 1, 41, "b") != 0);
+    assert(AwaitTexture(cache, 1, SteamId(40), "a") != 0);
+    assert(AwaitTexture(cache, 1, SteamId(41), "b") != 0);
   }
   assert(textures.releases.size() == 2);
 }
@@ -242,8 +243,8 @@ void TextureCountEvictsLeastRecentlySeenUnusedEntry() {
   ArtworkService service(backend);
   FakeTextures textures;
   LiveArtworkCache cache(service, textures);
-  for (GameId id = 1; id <= 65; ++id)
-    assert(AwaitTexture(cache, 1, 1000 + id, "count") != 0);
+  for (std::uint32_t id = 1; id <= 65; ++id)
+    assert(AwaitTexture(cache, 1, SteamId(1000 + id), "count") != 0);
   assert(cache.Stats().texture_count == kMaxArtworkTextures);
   assert(!textures.releases.empty());
 }

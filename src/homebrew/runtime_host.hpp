@@ -25,6 +25,7 @@
 #include <optional>
 #include <pthread.h>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace playden::homebrew {
@@ -43,7 +44,8 @@ struct RuntimeKit {
 // settings, until the game is prepared again or the player deletes it.
 struct KeptBottleView {
   std::string install_id;
-  std::uint32_t app_id = 0;
+  std::uint32_t runtime_number = 0;
+  GameId game;               // from the marker; one without "store"/"game" is Steam(runtime_number)
   std::string name;          // the game's name when it was kept
   std::int64_t kept_at = 0;  // Unix time
   std::uint64_t bytes = 0;   // size when it was kept
@@ -80,7 +82,7 @@ struct RuntimeHostConfig {
   // gbe_fork's steam_api DLLs; empty: <runtime_dir>/steamworks.
   std::string steamworks_dir;
   // The player's saved settings for a game; nothing means Playden defaults.
-  std::function<std::optional<runtime::GameSettingsRecord>(std::uint32_t app_id)> settings_record;
+  std::function<std::optional<runtime::GameSettingsRecord>(const GameId& game)> settings_record;
   // Canonical lower-case UUID for a publication transaction, or nothing when no
   // secure random source is available. Empty uses /dev/urandom.
   std::function<std::optional<std::string>()> uuid;
@@ -103,7 +105,8 @@ struct RuntimeHostConfig {
   std::function<void(const std::string& title_id, const std::string& text)> title_log;
   // The game's PS5 title icon: a 512x512 PNG made from its store artwork, or
   // nothing (the kit's icon stays). Runs on the worker; may use the network.
-  std::function<std::optional<std::string>(std::uint32_t app_id)> title_icon;
+  // Named by the game, so a runtime number never reaches a store's artwork.
+  std::function<std::optional<std::string>(const GameId& game)> title_icon;
   // Native start of a prepared title with its arguments ("session=<UUID>").
   // Called only on the application thread, from Handoff. Empty disables Play.
   std::function<ps5::TitleResult(const std::string& title_id, const std::vector<std::string>& arguments)> launch_title;
@@ -139,7 +142,8 @@ struct RuntimeHostConfig {
 
 struct RuntimeInstallView {
   std::string install_id;
-  std::uint32_t app_id = 0;
+  std::uint32_t runtime_number = 0;
+  GameId game;
   std::string title_id;
   // The game folder the title starts (console path). When the game is installed again on another
   // drive it no longer matches, and Prepare makes the title again.
@@ -195,7 +199,8 @@ struct RuntimeMaintenanceView {
 // Play: the launch in progress, or how the last one ended.
 struct RuntimeLaunchView {
   std::string install_id;
-  std::uint32_t app_id = 0;
+  std::uint32_t runtime_number = 0;
+  GameId game;
   std::string title_id;
   runtime::LaunchState state = runtime::LaunchState::kIdle;
   std::string code;
@@ -220,7 +225,7 @@ struct RuntimeGameSetup {
 // A preparation that ended Ready. Queue lists it after the waiting games until the player dismisses it;
 // a dismissal names the finish time, so preparing the game again lists it again.
 struct PreparedGame {
-  std::uint32_t app_id = 0;
+  std::uint32_t runtime_number = 0;
   std::int64_t finished_at = 0;  // Unix seconds
   bool operator==(const PreparedGame&) const = default;
 };
@@ -235,7 +240,10 @@ struct RuntimeSnapshot {
   std::string kit_reason;  // why preparation is unavailable
   std::optional<RuntimeKit> kit;  // the admitted kit, for display
   std::vector<RuntimeInstallView> installs;
-  // Latest refused or failed request per Steam app, for presentation, and how many
+  // Below, games are named by runtime number (RuntimeHost::RuntimeNumberFor): a Steam game's app ID.
+  // The games of the other numbers, for the fields that carry no GameId.
+  std::map<std::uint32_t, GameId> runtime_games;
+  // Latest refused or failed request per runtime number, for presentation, and how many
   // preparation requests the worker has finished.
   std::map<std::uint32_t, std::string> refusals;
   std::uint64_t prepares_handled = 0;
@@ -253,40 +261,40 @@ struct RuntimeSnapshot {
   // Settings requests no install record's journal names: left by an interrupted
   // preparation, a refused request or a finished publication. They grant nothing.
   std::size_t leftover_requests = 0;
-  // Answers to CheckActivity: the title's activity per Steam app, with the
+  // Answers to CheckActivity: the title's activity per runtime number, with the
   // check's serial so a caller can tell a fresh answer from an older one.
   std::map<std::uint32_t, std::pair<runtime::NativeActivity, std::uint64_t>> activity;
   std::uint64_t activity_serial = 0;
   // Play requests the worker has finished handling (accepted or refused).
   std::uint64_t plays_handled = 0;
-  // Latest refused Play per Steam app, for presentation.
+  // Latest refused Play per runtime number, for presentation.
   std::map<std::uint32_t, std::string> play_refusals;
   // A checked session waits for Handoff on the application thread.
   bool handoff_ready = false;
-  // Recipes Playden generated from Steam launch options, for the settings sheet.
+  // Recipes Playden generated (from Steam's launch options or the game's files), for the settings sheet.
   std::vector<runtime::GameRecipe> generated_recipes;
-  // Program choices per Steam app, from ScanPrograms and from preparation.
+  // Program choices per runtime number, from ScanPrograms and from preparation.
   std::map<std::uint32_t, RuntimeGameSetup> game_setups;
   // Removal: the game whose PS5 title is being removed now, the latest refusal or
-  // failure per Steam app, and how many removal requests the worker has finished.
+  // failure per runtime number, and how many removal requests the worker has finished.
   std::optional<std::uint32_t> removing_app;
   std::map<std::uint32_t, std::string> removal_failures;
   std::uint64_t removals_handled = 0;
   // Game data kept when a game was uninstalled (bottles with no install record).
   std::vector<KeptBottleView> kept_bottles;
-  // Maintenance per Steam app, and how many requests the worker has finished.
+  // Maintenance per runtime number, and how many requests the worker has finished.
   std::map<std::uint32_t, RuntimeMaintenanceView> maintenance;
   std::uint64_t maintenance_handled = 0;
   // Bytes in each game's Windows user folders (installed and kept), from the latest MeasureSaves.
   std::map<std::uint32_t, std::uint64_t> save_bytes;
-  // What Play does before the launch is requested, per Steam app, while it runs: a game whose
+  // What Play does before the launch is requested, per runtime number, while it runs: a game whose
   // folder moved in Playden 0.6 is republished first (kPlayUpdatingForLayout).
   std::map<std::uint32_t, std::string> play_progress;
 };
 
 // Whether the game's preparation waits in the runtime's queue.
-inline bool PrepareQueued(const RuntimeSnapshot& snapshot, std::uint32_t app_id) {
-  return std::find(snapshot.queued_prepares.begin(), snapshot.queued_prepares.end(), app_id) !=
+inline bool PrepareQueued(const RuntimeSnapshot& snapshot, std::uint32_t runtime_number) {
+  return std::find(snapshot.queued_prepares.begin(), snapshot.queued_prepares.end(), runtime_number) !=
          snapshot.queued_prepares.end();
 }
 
@@ -294,7 +302,8 @@ inline constexpr const char* kPlayUpdatingForLayout = "Updating this game for Pl
 
 // A downloaded game to prepare. The game files stay at install_path.
 struct RuntimePrepareRequest {
-  std::uint32_t app_id = 0;
+  // From RuntimeHost::RuntimeNumberFor(game).
+  std::uint32_t runtime_number = 0;
   std::string install_path;  // console path of the Steam install
   std::string volume_id;
   std::string title_name;    // the game's name, shown for its PS5 title
@@ -302,6 +311,8 @@ struct RuntimePrepareRequest {
   // ships no recipe for the game. launch_reason says why they are missing.
   std::vector<runtime::LaunchEntry> launches;
   std::string launch_reason;
+  // The game; a default one stands for the Steam game runtime_number names.
+  GameId game;
 };
 
 // The worker constructs and owns every runtime collaborator, so durable work and
@@ -329,43 +340,49 @@ class RuntimeHost {
   void Prepare(RuntimePrepareRequest request);
   // Moves a queued preparation to the front of the queue. The one running now finishes first.
   // False when the game is not queued (it started or was never asked for): nothing changes.
-  bool PrepareNext(std::uint32_t app_id);
+  bool PrepareNext(std::uint32_t runtime_number);
   // Takes a queued preparation out of the queue (its game is being uninstalled). False when it is not
   // queued: it started already, or was never asked for.
-  bool WithdrawPrepare(std::uint32_t app_id);
+  bool WithdrawPrepare(std::uint32_t runtime_number);
   // While held, no queued preparation starts (a quit to Home waits for the running one only).
   void HoldPreparations(bool hold);
   // Takes a finished preparation off RuntimeSnapshot::prepared; ClearPrepared takes every one off,
   // including those past the kMaxPrepared the snapshot lists.
-  void DismissPrepared(std::uint32_t app_id, std::int64_t finished_at);
+  void DismissPrepared(std::uint32_t runtime_number, std::int64_t finished_at);
   void ClearPrepared();
   // Asks the console whether a game's PS5 title runs (from any origin, Home
   // included). A game with no prepared title reports stopped.
-  void CheckActivity(std::uint32_t app_id);
+  void CheckActivity(std::uint32_t runtime_number);
   // CheckActivity, waiting up to `timeout` for the answer (kUnknown without one). For other
   // threads, such as the Cloud worker checking a game just before moving its saves.
-  runtime::NativeActivity ActivityNow(std::uint32_t app_id, std::chrono::milliseconds timeout);
+  runtime::NativeActivity ActivityNow(std::uint32_t runtime_number, std::chrono::milliseconds timeout);
   // Queues removal of the leftover settings requests (rechecked on the worker).
   void CleanUpRequests();
   // The names each game's PS5 title should carry. A Ready title whose installed
   // name differs reports an update, and Prepare applies the new name.
   void SetTitleNames(std::map<std::uint32_t, std::string> names);
   // Queues Play of a Ready game.
-  void Play(std::uint32_t app_id);
+  void Play(std::uint32_t runtime_number);
   // The signed-in Steam account, for the Steamworks emulator's settings (empty when signed out).
   void SetSteamAccount(std::string account_name, std::uint64_t steam_id);
   // Queues removal of a game's PS5 title. Its bottle (saves and settings) is kept
   // unless delete_saves; an interrupted removal continues with its first choice.
-  void Remove(std::uint32_t app_id, bool delete_saves);
+  void Remove(std::uint32_t runtime_number, bool delete_saves);
   // Queues deletion of a game's kept bottle.
-  void DeleteKeptBottle(std::uint32_t app_id);
+  void DeleteKeptBottle(std::uint32_t runtime_number);
   // Queues a scan of a game folder for the Program picker (RuntimeSnapshot::game_setups).
-  void ScanPrograms(std::uint32_t app_id, std::string install_path);
+  void ScanPrograms(std::uint32_t runtime_number, std::string install_path);
   // Measures each game's Windows user folders (where saves of games without Steam Cloud live).
   void MeasureSaves();
   // Queues maintenance of a prepared game. Each action is refused while the game's
   // title runs or its state is unknown.
-  void Maintain(std::uint32_t app_id, RuntimeMaintenance action);
+  void Maintain(std::uint32_t runtime_number, RuntimeMaintenance action);
+  // A game's runtime number, which every call above takes: a Steam game's app ID; for a game from
+  // another store, the number of its install record, or a new one, saved before it is returned.
+  // Any thread; it may write installs.json (briefly waiting for the worker's write in progress).
+  // Nothing when the game is invalid, the runtime records are not loaded (yet) or the write fails;
+  // the runtime log says which. RuntimeSnapshot::runtime_games lists the number before it returns.
+  std::optional<std::uint32_t> RuntimeNumberFor(const GameId& game);
   // Application thread only: starts the title of a prepared launch session.
   // Returns false when no session is waiting.
   bool Handoff();
@@ -418,7 +435,7 @@ class RuntimeHost {
   // Empty when the game's Ready title is stopped with no launch pending, otherwise why not.
   std::string MaintenanceRefusal(Composition& composition, const runtime::RuntimeInstall& record);
   // Runs one maintenance action; empty message on refusal means none; *ok tells success.
-  std::string RunMaintenance(Composition& composition, std::uint32_t app_id, RuntimeMaintenance action, bool* ok);
+  std::string RunMaintenance(Composition& composition, std::uint32_t runtime_number, RuntimeMaintenance action, bool* ok);
   std::filesystem::path SaveBackupRoot(const std::string& install_id) const;
   // Puts the game's steam_api DLLs in the state its "Steam features" setting asks for. Call
   // only while the game is stopped; empty on success, otherwise why not (for the player).
@@ -447,17 +464,18 @@ class RuntimeHost {
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);
-  void RunPlay(Composition& composition, std::uint32_t app_id);
+  void RunPlay(Composition& composition, std::uint32_t runtime_number);
   // Removes a game's PS5 title; empty when it has none left, otherwise why not.
   // moving: the title goes because its game was installed again elsewhere (journal "remove-move"),
   // so Prepare, not Uninstall, finishes a removal that stopped part way.
-  std::string RunRemove(Composition& composition, std::uint32_t app_id, bool delete_saves, bool moving = false);
+  std::string RunRemove(Composition& composition, std::uint32_t runtime_number, bool delete_saves, bool moving = false);
   // Whether the console still lists the title (app.db or /user/app); unknown counts as listed.
   bool TitleListed(Composition& composition, const std::string& title_id);
   // Moves the saves of a kept bottle into the game's new bottle and drops the kept copy.
-  std::string RestoreKeptSaves(Composition& composition, std::uint32_t app_id);
-  std::string DeleteKept(Composition& composition, std::uint32_t app_id);
-  void PublishKeptBottles(const Composition& composition);
+  std::string RestoreKeptSaves(Composition& composition, std::uint32_t runtime_number);
+  std::string DeleteKept(Composition& composition, std::uint32_t runtime_number);
+  // Lists the kept bottles; a non-Steam game's number is remembered (RememberNumber) for it.
+  void PublishKeptBottles(Composition& composition);
   // Finished preparations, in prepared_history_ and the state root's prepared-history file (worker thread).
   void LoadPreparedHistory();
   void SavePreparedHistory();
@@ -483,6 +501,11 @@ class RuntimeHost {
   // Worker thread: publishes the work fraction when its whole percent changes; ClearWork removes it.
   void ReportWork(std::uint64_t done, std::uint64_t total);
   void ClearWork();
+  // Worker thread: makes the loaded repository the one RuntimeNumberFor asks (nullptr: none) and
+  // learns its records' numbers.
+  void ShareNumbers(runtime::RuntimeInstallRepository* repository);
+  // Remembers a non-Steam game's number for RuntimeNumberFor and RuntimeSnapshot::runtime_games.
+  void LearnNumber(const GameId& game, std::uint32_t runtime_number);
 
   RuntimeHostConfig config_;
   mutable std::mutex mutex_;
@@ -515,6 +538,11 @@ class RuntimeHost {
   runtime::LaunchService* launch_ = nullptr;
   Composition* launch_composition_ = nullptr;
   pthread_t application_thread_{};
+  // Runtime numbers of games from other stores. Lock order: numbers_mutex_, then the repository's
+  // own lock (never the other way round), then mutex_.
+  mutable std::mutex numbers_mutex_;
+  std::unordered_map<GameId, std::uint32_t> numbers_;     // guarded by numbers_mutex_
+  runtime::RuntimeInstallRepository* numbers_repository_ = nullptr;  // guarded by numbers_mutex_
   bool stopping_ = false;
   bool started_ = false;
   void* thread_ = nullptr;  // pthread_t storage, owned by the implementation

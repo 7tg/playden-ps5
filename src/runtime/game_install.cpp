@@ -166,9 +166,31 @@ const JsonValue* Required(const JsonValue& object, const char* key, JsonValue::T
   return value && value->type() == type ? value : nullptr;
 }
 
+// A Steam game's number is its app ID; others take one from the allocator's range.
+bool ValidNumber(const RuntimeInstall& record) {
+  if (record.runtime_number == 0) return false;
+  if (record.game == playden::GameId{}) return true;  // not carried (see RuntimeInstall::game)
+  if (!record.game.valid()) return false;
+  if (const auto app = record.game.steam_app()) return *app == record.runtime_number;
+  return record.runtime_number >= kFirstRuntimeNumber && record.runtime_number <= kLastRuntimeNumber;
+}
+
+// "store" on disk: only stores other than Steam are written, and only Local is read for now.
+std::optional<playden::Store> ParseStore(const std::string& key) { return playden::ParseStoreKey(key); }
+
+// Both copies name the game, or one doesn't carry it (see RuntimeInstall::game).
+bool SameGame(const playden::GameId& a, const playden::GameId& b) {
+  return a == b || a == playden::GameId{} || b == playden::GameId{};
+}
+
+// A default GameId in a request stands for the Steam game its number names, as on disk.
+playden::GameId RequestGame(const playden::GameId& game, std::uint32_t runtime_number) {
+  return game == playden::GameId{} && runtime_number ? playden::GameId::Steam(runtime_number) : game;
+}
+
 bool ValidRecord(const RuntimeInstall& record) {
   if (record.schema_version != 1 || !IsDescriptorId(record.install_id) ||
-      !IsManagedTitle(record.title_id) || record.app_id == 0 ||
+      !IsManagedTitle(record.title_id) || !ValidNumber(record) ||
       record.data_root != "/data/playden/games/" + record.install_id ||
       !IsDescriptorId(record.default_profile_id) || !IsDescriptorId(record.runtime_bundle_id) ||
       !IsDescriptorId(record.recipe_id) || !IsDescriptorId(record.recipe_version) ||
@@ -222,6 +244,11 @@ std::optional<RuntimeInstall> ParseRecord(const JsonValue& value, RepositoryErro
   // Added later: records without it start the program in its own folder, as before.
   const auto* in_install_root = value.Find("launch_in_install_root");
   if (in_install_root && !in_install_root->is_bool()) return std::nullopt;
+  // Added for games from other stores; absent means Steam.
+  const auto* store = value.Find("store");
+  const auto* game = value.Find("game");
+  if ((store == nullptr) != (game == nullptr) || (store && (!store->is_string() || !game->is_string())))
+    return std::nullopt;
   if (!install_id || !title_id || !app_id || !data_root || !profile || !bundle || !recipe ||
       !recipe_version || !revision || !exit_policy || !launch_entry_id || !launch ||
       !launch_arguments || !launch_working_directory || !install_path || !volume ||
@@ -234,7 +261,14 @@ std::optional<RuntimeInstall> ParseRecord(const JsonValue& value, RepositoryErro
 
   RuntimeInstall record;
   record.install_id = install_id->text(); record.title_id = title_id->text();
-  record.app_id = static_cast<std::uint32_t>(*parsed_app); record.data_root = data_root->text();
+  record.runtime_number = static_cast<std::uint32_t>(*parsed_app); record.data_root = data_root->text();
+  if (store) {
+    const auto parsed_store = ParseStore(store->text());
+    if (!parsed_store) return std::nullopt;
+    record.game = playden::GameId{*parsed_store, game->text()};
+  } else {
+    record.game = playden::GameId::Steam(record.runtime_number);
+  }
   record.default_profile_id = profile->text(); record.runtime_bundle_id = bundle->text();
   record.recipe_id = recipe->text(); record.recipe_version = recipe_version->text();
   record.settings_revision = *parsed_revision; record.exit_policy = exit_policy->text();
@@ -275,7 +309,11 @@ std::optional<RuntimeInstall> ParseRecord(const JsonValue& value, RepositoryErro
 void WriteRecord(TextOutput& output, const RuntimeInstall& record) {
   output << '{' << "\"schema_version\":1,";
   StringField(output, "install_id", record.install_id); StringField(output, "title_id", record.title_id);
-  output << "\"app_id\":" << record.app_id << ','; StringField(output, "data_root", record.data_root);
+  output << "\"app_id\":" << record.runtime_number << ',';
+  if (record.game.store != playden::Store::kSteam) {
+    StringField(output, "store", std::string(Traits(record.game.store).key));
+    StringField(output, "game", record.game.value);
+  } StringField(output, "data_root", record.data_root);
   StringField(output, "default_profile_id", record.default_profile_id);
   StringField(output, "runtime_bundle_id", record.runtime_bundle_id);
   StringField(output, "recipe_id", record.recipe_id); StringField(output, "recipe_version", record.recipe_version);
@@ -320,7 +358,7 @@ bool SameRuntimeInstallIdentity(const RuntimeInstall& a, const RuntimeInstall& b
   // the game prepared again, which starts a new journal.
   return ValidateRuntimeInstallRecord(a) && ValidateRuntimeInstallRecord(b) &&
       a.schema_version == b.schema_version && a.install_id == b.install_id && a.title_id == b.title_id &&
-      a.app_id == b.app_id && a.data_root == b.data_root && a.install_path == b.install_path;
+      a.runtime_number == b.runtime_number && SameGame(a.game, b.game) && a.data_root == b.data_root && a.install_path == b.install_path;
 }
 
 std::optional<std::string> RebaseInstallPath(const std::string& path, std::string from, std::string to) {
@@ -338,10 +376,12 @@ RuntimeInstallRepository::RuntimeInstallRepository(Storage& storage, std::string
       native_availability_(std::move(native_availability)) {}
 
 RepositoryResult<void> RuntimeInstallRepository::Load() {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   const auto read = storage_.ReadDurable(relative_path_, kMaxFileBytes);
   if (!read.ok()) {
     if (read.error() == StorageError::kNotFound) {
-      installs_.clear(); reservations_.clear(); loaded_ = true;
+      installs_.clear(); reservations_.clear(); allocated_.clear();
+      next_runtime_number_ = kFirstRuntimeNumber; write_next_runtime_number_ = false; loaded_ = true;
       return RepositoryResult<void>::Success();
     }
     loaded_ = false;
@@ -364,6 +404,16 @@ RepositoryResult<void> RuntimeInstallRepository::Load() {
   const auto* installs = Required(*root, "installs", JsonValue::Type::kArray);
   if (!reservations || !installs || reservations->array().size() > kMaxRecords || installs->array().size() > kMaxRecords) {
     loaded_ = false; return Failure(RepositoryError::kMalformed, "runtime install registry entries are malformed");
+  }
+  // Written once a game from another store was given a number; absent: none was.
+  std::uint32_t next_number = kFirstRuntimeNumber;
+  const auto* next_value = root->Find("next_runtime_number");
+  if (next_value) {
+    const auto parsed = next_value->AsUint64();
+    if (!parsed || *parsed < kFirstRuntimeNumber || *parsed > std::numeric_limits<std::uint32_t>::max()) {
+      loaded_ = false; return Failure(RepositoryError::kMalformed, "runtime number allocator is malformed");
+    }
+    next_number = static_cast<std::uint32_t>(*parsed);
   }
   std::unordered_map<std::string, std::string> next_reservations;
   for (const auto& value : reservations->array()) {
@@ -388,7 +438,22 @@ RepositoryResult<void> RuntimeInstallRepository::Load() {
   if (next_installs.size() != next_reservations.size()) {
     loaded_ = false; return Failure(RepositoryError::kMalformed, "runtime title reservation has no install record");
   }
+  // One number, one game: logs, journals and launch records name games by number.
+  std::unordered_map<std::uint32_t, playden::GameId> numbers;
+  for (const auto& entry : next_installs) {
+    const auto& record = entry.second;
+    const auto known = numbers.emplace(record.runtime_number, record.game);
+    if (!known.second && known.first->second != record.game) {
+      loaded_ = false; return Failure(RepositoryError::kConflict, "two games share runtime number " +
+                                      std::to_string(record.runtime_number));
+    }
+    // A number at or past the allocator's next (a file edited by hand) moves it on.
+    if (record.game.store != playden::Store::kSteam && record.runtime_number >= next_number)
+      next_number = record.runtime_number + 1;
+  }
   installs_ = std::move(next_installs); reservations_ = std::move(next_reservations);
+  allocated_.clear();
+  next_runtime_number_ = next_number; write_next_runtime_number_ = next_value != nullptr;
   loaded_ = true;
   return RepositoryResult<void>::Success();
 }
@@ -415,7 +480,9 @@ RepositoryResult<void> RuntimeInstallRepository::Persist() {
   for (std::size_t i = 0; i < install_ids.size(); ++i) {
     if (i) output << ','; WriteRecord(output, installs_.at(install_ids[i]));
   }
-  output << "]}";
+  output << ']';
+  if (write_next_runtime_number_) output << ",\"next_runtime_number\":" << next_runtime_number_;
+  output << '}';
   const std::string text = output.str();
   if (text.size() > kMaxFileBytes) return Failure(RepositoryError::kBounds, "runtime install registry exceeds its size limit");
   const auto written = storage_.WriteDurable(relative_path_, Bytes(text.begin(), text.end()));
@@ -425,11 +492,13 @@ RepositoryResult<void> RuntimeInstallRepository::Persist() {
 }
 
 RepositoryResult<void> RuntimeInstallRepository::Save() {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
   return Persist();
 }
 
 std::vector<RuntimeInstall> RuntimeInstallRepository::Snapshot() const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   std::vector<RuntimeInstall> result;
   if (!loaded_) return result;
   result.reserve(installs_.size());
@@ -441,24 +510,36 @@ std::vector<RuntimeInstall> RuntimeInstallRepository::Snapshot() const {
 }
 
 std::optional<RuntimeInstall> RuntimeInstallRepository::Find(const std::string& install_id) const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!loaded_) return std::nullopt;
   const auto found = installs_.find(install_id);
   return found == installs_.end() ? std::nullopt : std::optional<RuntimeInstall>(found->second);
 }
 
 RepositoryResult<RuntimeInstall> RuntimeInstallRepository::Reserve(const ReserveRequest& request) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!loaded_) return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
+  const auto game = RequestGame(request.game, request.runtime_number);
   const auto existing = installs_.find(request.install_id);
   if (existing != installs_.end()) {
-    if (existing->second.app_id != request.app_id)
+    if (existing->second.runtime_number != request.runtime_number || existing->second.game != game)
       return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kConflict, "install identity belongs to another app");
     return RepositoryResult<RuntimeInstall>::Success(existing->second);
   }
+  for (const auto& entry : installs_)
+    if (entry.second.runtime_number == request.runtime_number && entry.second.game != game)
+      return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kConflict,
+          "runtime number belongs to another game");
+  for (const auto& entry : allocated_)
+    if (entry.second == request.runtime_number && entry.first != game)
+      return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kConflict,
+          "runtime number belongs to another game");
   if (installs_.size() >= kMaxRecords)
     return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kBounds,
         "runtime install registry has reached its record limit");
   RuntimeInstall candidate;
-  candidate.install_id = request.install_id; candidate.app_id = request.app_id;
+  candidate.install_id = request.install_id; candidate.runtime_number = request.runtime_number;
+  candidate.game = game;
   candidate.data_root = "/data/playden/games/" + request.install_id;
   candidate.default_profile_id = request.default_profile_id;
   candidate.runtime_bundle_id = request.runtime_bundle_id; candidate.recipe_id = request.recipe_id;
@@ -496,7 +577,8 @@ RepositoryResult<RuntimeInstall> RuntimeInstallRepository::Reserve(const Reserve
 
 RepositoryResult<RuntimeInstall> RuntimeInstallRepository::Adopt(const LegacyInstall& legacy) {
   ReserveRequest request;
-  request.install_id = legacy.install_id; request.app_id = legacy.app_id;
+  request.install_id = legacy.install_id; request.runtime_number = legacy.runtime_number;
+  request.game = legacy.game;
   request.default_profile_id = legacy.default_profile_id;
   request.runtime_bundle_id = legacy.runtime_bundle_id; request.recipe_id = legacy.recipe_id;
   request.recipe_version = legacy.recipe_version; request.launch_entry_id = legacy.launch_entry_id;
@@ -508,6 +590,7 @@ RepositoryResult<RuntimeInstall> RuntimeInstallRepository::Adopt(const LegacyIns
 }
 
 RepositoryResult<void> RuntimeInstallRepository::Update(const RuntimeInstall& record) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
   const auto found = installs_.find(record.install_id);
   if (found == installs_.end()) return Failure(RepositoryError::kNotFound, "runtime install does not exist");
@@ -515,8 +598,9 @@ RepositoryResult<void> RuntimeInstallRepository::Update(const RuntimeInstall& re
   if (!NormalizeLaunchPaths(normalized) || !ValidRecord(normalized))
     return Failure(RepositoryError::kInvalidRecord, "runtime install record is invalid");
   const auto& current = found->second;
-  if (record.title_id != current.title_id || record.app_id != current.app_id ||
-      record.data_root != current.data_root || record.schema_version != current.schema_version)
+  if (normalized.game == playden::GameId{}) normalized.game = current.game;
+  if (record.title_id != current.title_id || record.runtime_number != current.runtime_number ||
+      normalized.game != current.game || record.data_root != current.data_root || record.schema_version != current.schema_version)
     return Failure(RepositoryError::kConflict, "runtime install identity is immutable");
   const auto previous = current;
   found->second = std::move(normalized);
@@ -526,6 +610,7 @@ RepositoryResult<void> RuntimeInstallRepository::Update(const RuntimeInstall& re
 }
 
 RepositoryResult<void> RuntimeInstallRepository::UpdateAll(const std::vector<RuntimeInstall>& records) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
   std::unordered_map<std::string, RuntimeInstall> next = installs_;
   for (const auto& record : records) {
@@ -535,8 +620,9 @@ RepositoryResult<void> RuntimeInstallRepository::UpdateAll(const std::vector<Run
     if (!NormalizeLaunchPaths(normalized) || !ValidRecord(normalized))
       return Failure(RepositoryError::kInvalidRecord, "runtime install record is invalid");
     const auto& current = found->second;
-    if (record.title_id != current.title_id || record.app_id != current.app_id ||
-        record.data_root != current.data_root || record.schema_version != current.schema_version)
+    if (normalized.game == playden::GameId{}) normalized.game = current.game;
+    if (record.title_id != current.title_id || record.runtime_number != current.runtime_number ||
+        normalized.game != current.game || record.data_root != current.data_root || record.schema_version != current.schema_version)
       return Failure(RepositoryError::kConflict, "runtime install identity is immutable");
     found->second = std::move(normalized);
   }
@@ -548,6 +634,7 @@ RepositoryResult<void> RuntimeInstallRepository::UpdateAll(const std::vector<Run
 }
 
 RepositoryResult<void> RuntimeInstallRepository::EraseAfterUnregister(const std::string& install_id) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
   const auto found = installs_.find(install_id);
   if (found == installs_.end()) return Failure(RepositoryError::kNotFound, "runtime install does not exist");
@@ -557,6 +644,7 @@ RepositoryResult<void> RuntimeInstallRepository::EraseAfterUnregister(const std:
 
 RepositoryResult<void> RuntimeInstallRepository::EraseAfterUnregister(const std::string& install_id,
                                                                       const NativeTitleAvailability& availability) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
   const auto found = installs_.find(install_id);
   if (found == installs_.end()) return Failure(RepositoryError::kNotFound, "runtime install does not exist");
@@ -572,6 +660,57 @@ RepositoryResult<void> RuntimeInstallRepository::EraseAfterUnregister(const std:
     installs_.emplace(record.install_id, record); reservations_.emplace(record.title_id, record.install_id);
     return persisted;
   }
+  // Installed again in this session, the game gets its number back.
+  if (record.game.store != playden::Store::kSteam) allocated_.emplace(record.game, record.runtime_number);
+  return RepositoryResult<void>::Success();
+}
+
+RepositoryResult<std::uint32_t> RuntimeInstallRepository::RuntimeNumberFor(const playden::GameId& game) {
+  using Result = RepositoryResult<std::uint32_t>;
+  if (const auto app = game.steam_app()) return Result::Success(*app);
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!loaded_) return Result::Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
+  if (!game.valid()) return Result::Failure(RepositoryError::kInvalidRecord, "the game has no valid identity");
+  for (const auto& entry : installs_)
+    if (entry.second.game == game) return Result::Success(entry.second.runtime_number);
+  if (const auto found = allocated_.find(game); found != allocated_.end()) return Result::Success(found->second);
+  std::unordered_set<std::uint32_t> used;
+  for (const auto& entry : installs_) used.insert(entry.second.runtime_number);
+  for (const auto& entry : allocated_) used.insert(entry.second);
+  auto number = next_runtime_number_;
+  while (number <= kLastRuntimeNumber && used.count(number)) ++number;
+  if (number < kFirstRuntimeNumber || number > kLastRuntimeNumber)
+    return Result::Failure(RepositoryError::kBounds, "no runtime number is left for another game");
+  const auto previous_next = next_runtime_number_;
+  const auto previous_write = write_next_runtime_number_;
+  next_runtime_number_ = number + 1;  // at most 0xFFFFFFFF: the range is used up
+  write_next_runtime_number_ = true;
+  const auto persisted = Persist();
+  if (!persisted.ok()) {
+    next_runtime_number_ = previous_next; write_next_runtime_number_ = previous_write;
+    return Result::Failure(persisted.error(), persisted.message());
+  }
+  allocated_.emplace(game, number);
+  return Result::Success(number);
+}
+
+RepositoryResult<void> RuntimeInstallRepository::RememberNumber(const playden::GameId& game, std::uint32_t runtime_number) {
+  if (game.steam_app()) return RepositoryResult<void>::Success();
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!loaded_) return Failure(RepositoryError::kNotLoaded, "runtime install registry is not loaded");
+  if (!game.valid() || runtime_number < kFirstRuntimeNumber || runtime_number > kLastRuntimeNumber)
+    return Failure(RepositoryError::kInvalidRecord, "the game or its runtime number is invalid");
+  for (const auto& entry : installs_) {
+    const bool same_game = entry.second.game == game, same_number = entry.second.runtime_number == runtime_number;
+    if (same_game != same_number) return Failure(RepositoryError::kConflict, "runtime number belongs to another game");
+    if (same_game) return RepositoryResult<void>::Success();
+  }
+  for (const auto& entry : allocated_) {
+    const bool same_game = entry.first == game, same_number = entry.second == runtime_number;
+    if (same_game != same_number) return Failure(RepositoryError::kConflict, "runtime number belongs to another game");
+    if (same_game) return RepositoryResult<void>::Success();
+  }
+  allocated_.emplace(game, runtime_number);
   return RepositoryResult<void>::Success();
 }
 

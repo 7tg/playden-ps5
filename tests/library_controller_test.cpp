@@ -3,6 +3,7 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::homebrew;
@@ -33,7 +34,7 @@ struct Cache final : LibraryRepository {
 struct Backend final : LibraryBackend {
   std::atomic<bool> block{false},release{false};
   std::atomic<int> calls{0};
-  LibraryResult result{LibraryError::kNone,{{42,"Synthetic title",{},{},{}}},false};
+  LibraryResult result{LibraryError::kNone,{{SteamId(42),"Synthetic title",{},{},{}}},false};
   LibraryResult Fetch(const StoredSession&,const std::atomic<bool>& cancel) override {
     ++calls;
     while(block && !release && !cancel) std::this_thread::sleep_for(1ms);
@@ -53,7 +54,7 @@ void FreshRefreshAndFailure() {
   app::LibraryController controller(model,service);
   controller.Activate(123,false);
   Wait(controller,[&]{return !model.state().library_loading && model.state().games.size()==1;});
-  assert(model.state().games[0].id==42 && model.state().account.cache_available);
+  assert(model.state().games[0].id==SteamId(42) && model.state().account.cache_available);
   assert(model.state().account.last_sync==12345 && model.state().account.authentication==AuthState::SignedIn);
   backend.result={LibraryError::kNetwork,{},false};
   controller.Refresh();
@@ -69,7 +70,7 @@ void OfflineCacheAndClear() {
   model.UpdateAccount({AuthState::Offline,"123","Synthetic",{},{},true});
   Sessions sessions;Cache cache;Backend backend;
   cache.value=LibrarySnapshot{};cache.value->retrieved_at_unix_seconds=100;
-  cache.value->games={{7,"Offline title",{},{},{}}};
+  cache.value->games={{SteamId(7),"Offline title",{},{},{}}};
   LibraryService service(backend,sessions,&cache);
   app::LibraryController controller(model,service);
   controller.Activate(123,true);
@@ -88,7 +89,7 @@ void RejectedCacheStillAcceptsFreshResult() {
   model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
   Sessions sessions;Cache cache;Backend backend;
   cache.value=LibrarySnapshot{};
-  cache.value->games={{7,"   ",{},{},{}}};
+  cache.value->games={{SteamId(7),"   ",{},{},{}}};
   backend.block=true;
   LibraryService service(backend,sessions,&cache);
   app::LibraryController controller(model,service);
@@ -96,7 +97,7 @@ void RejectedCacheStillAcceptsFreshResult() {
   Wait(controller,[&]{return backend.calls>0;});
   controller.Tick();backend.release=true;
   Wait(controller,[&]{return model.state().games.size()==1 && !model.state().library_loading;});
-  assert(model.state().games.front().id==42);
+  assert(model.state().games.front().id==SteamId(42));
 }
 void RejectedRequestStopsLoading() {
   Simulation model({}, {},ModelMode::Live);

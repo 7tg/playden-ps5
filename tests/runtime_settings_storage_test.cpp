@@ -1,5 +1,6 @@
 #include "runtime/settings_storage.h"
 #include "runtime/game_settings.h"
+#include "steam_id.h"
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -28,13 +29,13 @@ int main() {
   CHECK(lstat(prepared->parent_path().c_str(), &info) == 0 && (info.st_mode & 07777) == 0700 && info.st_uid == geteuid());
   CHECK(lstat(prepared->c_str(), &info) == 0 && (info.st_mode & 07777) == 0600);
   CHECK(lstat(state.c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
-  std::map<std::uint32_t, GameSettingsRecord> loaded;
-  CHECK(LoadGameSettingsFile(prepared->string(), &loaded, &reason) && loaded.at(220) == original);
+  std::map<playden::GameId, GameSettingsRecord> loaded;
+  CHECK(LoadGameSettingsFile(prepared->string(), &loaded, &reason) && loaded.at(SteamId(220)) == original);
   const GameSettingsRecord updated{"", {}, 5};
-  CHECK(SaveGameSettingsFile(prepared->string(), {{220, updated}}, &reason));
+  CHECK(SaveGameSettingsFile(prepared->string(), {{SteamId(220), updated}}, &reason));
   std::ofstream(legacy) << "malformed older source";
   CHECK(PrepareGameSettingsStorage(state, &reason) == prepared);
-  CHECK(LoadGameSettingsFile(prepared->string(), &loaded, &reason) && loaded.at(220) == updated);
+  CHECK(LoadGameSettingsFile(prepared->string(), &loaded, &reason) && loaded.at(SteamId(220)) == updated);
   std::ifstream preserved(legacy); std::string bytes; std::getline(preserved, bytes);
   CHECK(bytes == "malformed older source");
   std::ofstream(*prepared) << "malformed private record";

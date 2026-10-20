@@ -46,7 +46,7 @@ inline void Refresh(SettingsPublicationOperation& o) {
 inline SettingsPublicationOperation Fixture() {
   SettingsPublicationOperation o; o.transaction_id = "00000000-0000-7000-8000-000000000001"; o.kit_id = "kit-hl2";
   auto& r = o.install;
-  r.install_id = "install-220"; r.title_id = "FAKE78001"; r.app_id = 220;
+  r.install_id = "install-220"; r.title_id = "FAKE78001"; r.runtime_number = 220;
   r.data_root = "/data/playden/games/install-220"; r.default_profile_id = "playden-steam-220";
   r.runtime_bundle_id = "wine-wow64"; r.recipe_id = "steam-220-hl2-v1"; r.recipe_version = "1";
   r.settings_revision = 7; r.launch_entry_id = "main"; r.launch_path = "probe.exe";
@@ -55,7 +55,7 @@ inline SettingsPublicationOperation Fixture() {
   r.last_failure = RuntimeFailure{"prior-failure", "prior message"};
   r.journal = PreparationJournal{"owned-operation", "prepare", "profile"};
   auto& p = o.plan;
-  p.app_id = r.app_id; p.recipe_id = r.recipe_id; p.recipe_version = r.recipe_version;
+  p.app_id = r.runtime_number; p.recipe_id = r.recipe_id; p.recipe_version = r.recipe_version;
   p.profile_id = r.default_profile_id; p.settings_revision = r.settings_revision;
   p.launch_entry_id = "main"; p.launch_entry = {"main", "Play", "probe.exe", ""};
   p.profile_bytes = "[application]\nid = playden-steam-220\nname = Probe\n"

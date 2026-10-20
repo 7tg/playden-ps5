@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include "steam_id.h"
 
 using namespace playden;
 using namespace playden::steam;
@@ -16,7 +17,7 @@ using namespace std::chrono_literals;
 namespace {
 
 struct Owned final : LibraryBackend {
-  LibraryResult result{LibraryError::kNone, {{10, "Ten", {}, {}, {}}, {20, "Twenty", {}, {}, {}}}, false};
+  LibraryResult result{LibraryError::kNone, {{SteamId(10), "Ten", {}, {}, {}}, {SteamId(20), "Twenty", {}, {}, {}}}, false};
   LibraryResult Fetch(const StoredSession&, const std::atomic<bool>&) override { return result; }
 };
 
@@ -125,7 +126,7 @@ void LicensedFreeGamesAreAdded() {
   auto result = backend.Fetch(Session(), cancel);
   assert(result.error == LibraryError::kNone && result.games.size() == 3);
   const auto& added = result.games.back();
-  assert(added.id == 2767030 && added.title == "Synthetic Rivals" && added.added_at_unix_seconds == 1700000000u);
+  assert(added.id == SteamId(2767030) && added.title == "Synthetic Rivals" && added.added_at_unix_seconds == 1700000000u);
   assert(added.artwork_source == "https://media.steampowered.com/steamcommunity/public/images/apps/2767030/abc123.jpg");
   assert(acquisitions.app_info_requests.size() == 1);
   assert((acquisitions.app_info_requests[0] == std::vector<std::uint32_t>{30, 40, 2767030}));
