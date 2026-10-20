@@ -2850,7 +2850,16 @@ class Render::Impl
         const auto setup = std::find_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
             return row.key == "details-setup";
         });
-        const float facts_top = setup == view.rows.end() ? 754.0F : 694.0F;
+        // Progress reads "Step 3 of 6 · Copying …": the step on one line, what it does below it.
+        std::string setup_step, setup_detail;
+        if (setup != view.rows.end()) {
+            setup_step = setup->value;
+            if (const auto dot = setup_step.find(" · "); dot != std::string::npos) {
+                setup_detail = setup_step.substr(dot + std::string(" · ").size());
+                setup_step.resize(dot);
+            }
+        }
+        const float facts_top = setup == view.rows.end() ? 754.0F : setup_detail.empty() ? 694.0F : 662.0F;
         detail_cell("Playtime", playtime, left, facts_top, 240.0F);
         detail_cell("Size", size, right, facts_top, 240.0F);
         detail_cell("Store", game->source.empty() ? "Steam" : game->source, left, facts_top + 76.0F, 240.0F);
@@ -2861,9 +2870,15 @@ class Render::Impl
                         facts_top + 152.0F, 240.0F);
         else
             detail_cell("Controller", controller, right, facts_top + 152.0F, 240.0F);
-        if (setup != view.rows.end())
-            detail_cell("Setup", setup->value, left, facts_top + 228.0F, 520.0F,
-                        setup->tone.empty() || setup->tone == "quiet" ? kText : save_tone(setup->tone));
+        if (setup != view.rows.end()) {
+            const gfx::Color tone = setup->tone.empty() || setup->tone == "quiet" ? kText : save_tone(setup->tone);
+            detail_cell("Setup", setup_step, left, facts_top + 228.0F, 520.0F, tone);
+            if (!setup_detail.empty()) {
+                const ui::FontRef &face = font_for(setup_detail, fonts_.regular);
+                ui::text(scene_, face, face.font->fit(setup_detail, 24.0F, 520.0F), left, facts_top + 228.0F + 84.0F,
+                         24.0F, kSecondary);
+            }
+        }
     }
 
     void draw_session(ui::Canvas &, const ViewData &view, const State &state)
