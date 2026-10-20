@@ -161,7 +161,7 @@ void ResumesAfterEachStep() {
     auto f = Make("resume-logs");
     auto ops = f->ops;
     int renames = 0;
-    // Fail the second log entry once: the move puts the first back and holds.
+    // Fail the second log entry once: the first stays moved for forward retry.
     ops.rename = [&](const fs::path& from, const fs::path& to) -> std::error_code {
       if (from.parent_path().filename() == "logs" && ++renames == 2) return {EIO, std::generic_category()};
       return ::rename(from.c_str(), to.c_str()) == 0 ? std::error_code{} : std::error_code{errno, std::generic_category()};
@@ -169,10 +169,9 @@ void ResumesAfterEachStep() {
     const auto held = MigrateLayout(f->paths, ops);
     CHECK(held.user_moved && !held.logs_moved && !held.games_moved && !held.notice.empty());
     CHECK(held.log_root == f->paths.app_root / "logs" && held.games_root == f->paths.app_root / "games");
-    CHECK(fs::exists(f->paths.app_root / "logs" / "native-startup.log") && !fs::exists(f->paths.log_root / "native-startup.log"));
+    CHECK(!fs::exists(f->paths.app_root / "logs" / "native-startup.log") && fs::exists(f->paths.log_root / "native-startup.log"));
     CHECK(LoadLayoutJournal(f->paths.state_root)->step == "logs");
     // A crash left one log moved; the next start writes the same name again.
-    fs::rename(f->paths.app_root / "logs" / "native-startup.log", f->paths.log_root / "native-startup.log");
     Write(f->paths.app_root / "logs" / "native-startup.log", "next start\n");
     const auto result = MigrateLayout(f->paths, f->ops);
     CHECK(result.logs_moved && result.games_moved && result.notice.empty());
@@ -435,11 +434,76 @@ void RevertKeepsConflictsAndJournal() {
   CHECK(!reverted.complete && reverted.error.find("session.v1") != std::string::npos);
   CHECK(Read(f->paths.user_root / "session.v1") == "credentials");
   CHECK(LoadLayoutJournal(f->paths.state_root)->step == "revert-user");
+  CHECK(!MigrateLayout(f->paths, f->ops).runtime_ready);
   // A 0.6 start after the failed revert merges both places back.
   fs::remove(f->paths.app_root / "playden-data" / "session.v1");
   const auto resumed = MigrateLayout(f->paths, f->ops);
   CHECK(resumed.games_moved && resumed.notice.empty() && Moved(f->paths));
 }
+void PartialUserMoveBlocksServicesAndOnlyMovesForward() {
+  auto f = Make("partial-user");
+  const auto old = f->paths.app_root / "playden-data";
+  unsigned attempts = 0;
+  f->ops.rename = [&](const fs::path& from, const fs::path& to) -> std::error_code {
+    if (from.parent_path() == old && ++attempts == 2) return {EIO, std::generic_category()};
+    return ::rename(from.c_str(), to.c_str()) == 0 ? std::error_code{} : std::error_code{errno, std::generic_category()};
+  };
+  const auto first = MigrateLayout(f->paths, f->ops);
+  CHECK(!first.runtime_ready && !first.user_moved);
+  CHECK(fs::exists(f->paths.user_root / "game-settings-private") && !fs::exists(old / "game-settings-private"));
+  CHECK(Read(f->paths.state_root / kLayoutJournal).find("game-settings-private") != std::string::npos);
+  f->ops.rename = [](const fs::path&, const fs::path&) { return std::error_code(EIO, std::generic_category()); };
+  const auto retry = MigrateLayout(f->paths, f->ops);
+  CHECK(!retry.runtime_ready && !fs::exists(old / "game-settings-private"));
+  f->ops.rename = {};
+  CHECK(MigrateLayout(f->paths, f->ops).runtime_ready && Moved(f->paths));
+}
+
+void RenameParentsSyncBeforeJournalAdvances() {
+  auto f = Make("sync-order");
+  std::vector<fs::path> pending;
+  std::string journal_at_rename;
+  unsigned renames = 0, syncs = 0;
+  f->ops.rename = [&](const fs::path& from, const fs::path& to) -> std::error_code {
+    CHECK(pending.empty());
+    journal_at_rename = Read(f->paths.state_root / kLayoutJournal);
+    const int result = ::rename(from.c_str(), to.c_str());
+    if (!result) { pending = {from.parent_path(), to.parent_path()}; ++renames; }
+    return result == 0 ? std::error_code{} : std::error_code{errno, std::generic_category()};
+  };
+  f->ops.sync = [&](const fs::path& path) {
+    if (!pending.empty()) {
+      CHECK(Read(f->paths.state_root / kLayoutJournal) == journal_at_rename);
+      CHECK(path == pending.front());
+      pending.erase(pending.begin());
+      ++syncs;
+    }
+    return true;
+  };
+  CHECK(MigrateLayout(f->paths, f->ops).games_moved);
+  CHECK(renames == 6 && syncs == 2 * renames && pending.empty());
+  CHECK(RevertLayout(f->paths, f->ops).complete);
+  CHECK(renames == 12 && syncs == 2 * renames && pending.empty());
+}
+
+void FailedDirectorySyncKeepsUserStepBlocked() {
+  auto f = Make("user-sync");
+  const auto old = f->paths.app_root / "playden-data";
+  bool renamed = false;
+  f->ops.rename = [&](const fs::path& from, const fs::path& to) -> std::error_code {
+    const int result = ::rename(from.c_str(), to.c_str());
+    renamed = result == 0 && from.parent_path() == old;
+    return result == 0 ? std::error_code{} : std::error_code{errno, std::generic_category()};
+  };
+  f->ops.sync = [&](const fs::path& path) { return !renamed || path != old; };
+  const auto failed = MigrateLayout(f->paths, f->ops);
+  CHECK(!failed.runtime_ready && !failed.user_moved);
+  CHECK(LoadLayoutJournal(f->paths.state_root)->step == "user");
+  f->ops.sync = {};
+  f->ops.rename = {};
+  CHECK(MigrateLayout(f->paths, f->ops).runtime_ready && Moved(f->paths));
+}
+
 }  // namespace
 
 int main() {
@@ -447,6 +511,9 @@ int main() {
   CHECK(mkdtemp(pattern));
   g_base = fs::canonical(pattern);
   ::umask(022);
+  PartialUserMoveBlocksServicesAndOnlyMovesForward();
+  FailedDirectorySyncKeepsUserStepBlocked();
+  RenameParentsSyncBeforeJournalAdvances();
   MovesUserDataLogsAndGames();
   KeepsStubFolders();
   ResumesAfterEachStep();

@@ -48,16 +48,32 @@ bool AsRoot(const LayoutOps& ops, const std::function<bool()>& work) {
   return ops.as_root ? ops.as_root(work) : work();
 }
 
+bool SyncDirectory(const LayoutOps& ops, const fs::path& directory) {
+  if (ops.sync) return ops.sync(directory);
+  const int fd = platform::OpenDirectoryWalk(directory);
+  if (fd < 0) return false;
+  const bool ok = ::fsync(fd) == 0;
+  const int error = errno;
+  ::close(fd);
+  errno = error;
+  return ok;
+}
+std::error_code SyncRename(const LayoutOps& ops, const fs::path& from, const fs::path& to) {
+  if (!SyncDirectory(ops, from.parent_path()) || !SyncDirectory(ops, to.parent_path()))
+    return {errno ? errno : EIO, std::generic_category()};
+  return {};
+}
+
 // Renames as the app user; a folder only root may write gets a second try as root.
 std::error_code RenameEntry(const LayoutOps& ops, const fs::path& from, const fs::path& to) {
   auto error = Rename(ops, from, to);
   if ((error.value() == EACCES || error.value() == EPERM) && ops.as_root) {
     std::error_code rooted;
     const bool ran = ops.as_root([&] { rooted = Rename(ops, from, to); return !rooted; });
-    if (!rooted && ran) return {};
+    if (!rooted && ran) error.clear();
     if (rooted) error = rooted;
   }
-  return error;
+  return error ? error : SyncRename(ops, from, to);
 }
 
 std::string Describe(const std::error_code& error) {
@@ -108,7 +124,7 @@ bool EmptyDirectory(const fs::path& directory) {
 // Shared parents are sticky; the games root stays non-sticky for imported root-owned games.
 bool EnsureSharedDirectory(const LayoutOps& ops, const fs::path& directory, mode_t mode = 01777) {
   const int kind = Kind(directory);
-  if (kind == 1) return true;
+  if (kind == 1) return SyncDirectory(ops, directory) && SyncDirectory(ops, directory.parent_path());
   if (kind == 2) return false;
   const auto make = [&] {
     const int parent = platform::OpenDirectoryWalk(directory.parent_path());
@@ -117,7 +133,8 @@ bool EnsureSharedDirectory(const LayoutOps& ops, const fs::path& directory, mode
     const bool made = platform::MakeWalkChild(parent, name.c_str(), mode) == 0;
     const int fd = made ? platform::OpenWalkChild(parent, name.c_str(),
         O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) : -1;
-    const bool ok = fd >= 0 && ::fchmod(fd, mode) == 0;
+    const bool ok = fd >= 0 && ::fchmod(fd, mode) == 0 &&
+                    SyncDirectory(ops, directory) && SyncDirectory(ops, directory.parent_path());
     const int error = errno;
     if (fd >= 0) ::close(fd);
     ::close(parent);
@@ -150,9 +167,20 @@ bool PrepareState(const LayoutPaths& paths, std::string* error) {
 }
 
 bool SaveJournal(const fs::path& state_root, const LayoutJournal& journal, std::string* error) {
-  const std::string text = "{\"step\":\"" + Escape(journal.step) + "\",\"from\":\"" + Escape(journal.from) +
-                           "\",\"to\":\"" + Escape(journal.to) + "\",\"postponed\":" +
-                           std::to_string(journal.postponed) + "}\n";
+  std::string text = "{\"step\":\"" + Escape(journal.step) + "\",\"from\":\"" + Escape(journal.from) +
+                     "\",\"to\":\"" + Escape(journal.to) + "\",\"postponed\":" +
+                     std::to_string(journal.postponed) + ",\"entries\":[";
+  for (std::size_t i = 0; i < journal.entries.size(); ++i) {
+    const auto& entry = journal.entries[i];
+    if (i) text += ',';
+    text += "{\"from\":\"" + Escape(entry.from) + "\",\"to\":\"" + Escape(entry.to) +
+            "\",\"moved\":" + (entry.moved ? "true" : "false") + "}";
+  }
+  text += "]}\n";
+  if (text.size() > 64 * 1024 || journal.entries.size() > 512) {
+    if (error) *error = "layout journal has too many entries";
+    return false;
+  }
   const auto written = Storage(state_root.string()).WriteDurable(kLayoutJournal, Bytes(text.begin(), text.end()));
   if (!written.ok() && error) *error = written.message();
   return written.ok();
@@ -265,37 +293,38 @@ std::optional<std::string> PendingJournal(const LayoutPaths& paths, const Layout
   return std::nullopt;
 }
 
-// Moves every entry of `from` into `to`, never replacing one. A failed entry puts
-// back what this call moved, so this start keeps one complete layout. Logs keep
-// every copy of a name: the moving one gets ".moved", ".moved.2", ...
-bool MoveEntries(const LayoutOps& ops, const fs::path& from, const fs::path& to, bool logs, std::string* reason) {
-  if (Kind(from) != 1) return true;  // fresh install: nothing to move
+// Each intent is durable before the rename; its completion follows both parent syncs.
+// A partial move only retries forward, so services never see an incomplete old user tree.
+bool MoveEntries(const LayoutOps& ops, const fs::path& state, LayoutJournal& journal,
+                 const fs::path& from, const fs::path& to, bool logs, std::string* reason) {
+  const auto complete = [&](LayoutEntry& entry) {
+    const auto source = from / entry.from, target = to / entry.to;
+    const bool source_exists = Exists(source), target_exists = Exists(target);
+    if (target_exists && (!source_exists || logs)) {
+      const auto synced = SyncRename(ops, source, target);
+      if (synced) { *reason = "rename parents could not be synced: " + Describe(synced); return false; }
+    } else if (source_exists && !target_exists && !entry.moved) {
+      const auto error = RenameEntry(ops, source, target);
+      if (error) { *reason = "rename " + source.string() + " -> " + target.string() + " failed " + Describe(error); return false; }
+    } else {
+      *reason = "the recorded move of " + source.string() + " is incomplete or conflicts with " + target.string();
+      return false;
+    }
+    entry.moved = true;
+    return SaveJournal(state, journal, reason);
+  };
+  for (auto& entry : journal.entries)
+    if (!complete(entry)) return false;
+  if (Kind(from) == 0) return true;
   const auto names = Entries(from);
-  if (!names) {
-    *reason = from.string() + " can't be listed";
-    return false;
-  }
-  std::vector<std::pair<fs::path, fs::path>> moved;
+  if (!names) { *reason = from.string() + " can't be listed"; return false; }
   for (const auto& name : *names) {
     const auto slot = logs ? LogTarget(to, name) : Exists(to / name) ? std::nullopt : std::optional(to / name);
-    if (!slot) {
-      *reason = (from / name).string() + " and " + (to / name).string() + " both exist";
-      break;
-    }
-    const auto& target = *slot;
-    const auto error = RenameEntry(ops, from / name, target);
-    if (error) {
-      *reason = "rename " + (from / name).string() + " -> " + target.string() + " failed " + Describe(error);
-      break;
-    }
-    moved.emplace_back(from / name, target);
+    if (!slot) { *reason = (from / name).string() + " and " + (to / name).string() + " both exist"; return false; }
+    journal.entries.push_back({name, slot->filename().string(), false});
+    if (!SaveJournal(state, journal, reason) || !complete(journal.entries.back())) return false;
   }
-  if (moved.size() == names->size()) return true;
-  for (auto it = moved.rbegin(); it != moved.rend(); ++it) {
-    const auto error = RenameEntry(ops, it->second, it->first);
-    if (error) Log(ops, "could not put back " + it->second.string() + ": " + Describe(error));
-  }
-  return false;
+  return true;
 }
 
 std::string MovedText(const fs::path& to) {
@@ -323,6 +352,22 @@ std::optional<LayoutJournal> LoadLayoutJournal(const fs::path& state_root, std::
   LayoutJournal journal{step->text(), from->text(), to->text(), 0};
   if (postponed && postponed->is_number() && postponed->AsUint64() && *postponed->AsUint64() < 1000000)
     journal.postponed = static_cast<int>(*postponed->AsUint64());
+  if (const auto* entries = root->Find("entries")) {
+    if (!entries->is_array()) { if (error) *error = "layout entries are malformed"; return std::nullopt; }
+    for (const auto& entry : entries->array()) {
+      const auto* source = entry.Find("from"), *target = entry.Find("to"), *moved = entry.Find("moved");
+      const auto name = [](const steam::json::Value* value) {
+        return value && value->is_string() && !value->text().empty() && value->text() != "." && value->text() != ".." &&
+               value->text().find('/') == std::string::npos && value->text().find('\0') == std::string::npos;
+      };
+      if (!name(source) || !name(target) || !moved || !moved->is_bool()) {
+        if (error) *error = "layout entry is malformed";
+        return std::nullopt;
+      }
+      journal.entries.push_back({source->text(), target->text(), moved->boolean()});
+    }
+  }
+  if (StepIndex(journal.step) == kNone) { if (error) *error = "unknown layout step"; return std::nullopt; }
   return journal;
 }
 
@@ -343,7 +388,9 @@ LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops) {
   const auto old_logs = paths.app_root / "logs";
   const auto old_games = paths.app_root / "games";
   LayoutResult result;
+  bool uncertain = false;
   const auto finish = [&] {
+    result.runtime_ready = result.user_moved && !uncertain;
     result.user_root = result.user_moved ? paths.user_root : old_user;
     result.log_root = result.logs_moved ? paths.log_root : old_logs;
     result.games_root = result.games_moved ? paths.games_root : old_games;
@@ -365,13 +412,12 @@ LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops) {
   // Once the games step is done the games folder exists, shared: a fresh install has
   // none to move. One that came with the moved games keeps its mode.
   const auto ensure_games_root = [&] {
-    if (Kind(paths.games_root) == 0 && !EnsureSharedDirectory(ops, paths.games_root, 0777))
-      Log(ops, paths.games_root.string() + " can't be created: " + std::strerror(errno));
+    return EnsureSharedDirectory(ops, paths.games_root, 0777);
   };
   const Step initial = StepIndex(journal.step);
   if (initial >= kGamesMoved) {
     result.user_moved = result.logs_moved = result.games_moved = true;
-    ensure_games_root();
+    if (!ensure_games_root()) { uncertain = true; return hold("the games root could not be created or synced"); }
     return finish();
   }
   // After an interrupted revert both places hold Playden's own files: merge them back.
@@ -401,7 +447,7 @@ LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops) {
     if (journal.step != tree.name && !save(tree.name, tree.from, tree.to))
       return hold("the move record can't be written (" + error + ")");
     std::string reason;
-    if (!MoveEntries(ops, tree.from, tree.to, tree.logs, &reason)) return hold(reason);
+    if (!MoveEntries(ops, paths.state_root, journal, tree.from, tree.to, tree.logs, &reason)) return hold(reason);
     if (Kind(tree.from) == 1) WriteMarker(ops, tree.from / kMovedMarker, MovedText(tree.to));
     Log(ops, "moved " + tree.from.string() + " to " + tree.to.string());
     *tree.moved = true;
@@ -410,16 +456,21 @@ LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops) {
   if (journal.step != "games" && !save("games", old_games, paths.games_root))
     return hold("the move record can't be written (" + error + ")");
   const auto moved_games = [&] {
-    if (!save("games-moved", old_games, paths.games_root))
-      Log(ops, "games are at " + paths.games_root.string() + " but the move record can't be written (" + error +
-               "); the next start records it");
+    if (!ensure_games_root() || !save("games-moved", old_games, paths.games_root)) {
+      uncertain = true;
+      return false;
+    }
     result.games_moved = true;
-    ensure_games_root();
+    return true;
   };
   const int old_kind = Kind(old_games);
   if (old_kind == 0) {
+    if (const auto error = SyncRename(ops, old_games, paths.games_root)) {
+      uncertain = true;
+      return hold("the games rename parents could not be synced: " + Describe(error));
+    }
     // Nothing to move, or an interrupted start already renamed it.
-    moved_games();
+    if (!moved_games()) return hold("the games move could not be made durable: " + error);
     return finish();
   }
   const auto postpone = [&](const std::string& why, bool tell_now) {
@@ -454,8 +505,12 @@ LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops) {
     return postpone("rename failed " + (rename_error ? Describe(rename_error) : std::string("(root unavailable)")),
                     true);
   }
+  if (const auto error = SyncRename(ops, old_games, paths.games_root)) {
+    uncertain = true;
+    return postpone("the games rename parents could not be synced: " + Describe(error), true);
+  }
   Log(ops, "moved " + old_games.string() + " to " + paths.games_root.string());
-  moved_games();
+  if (!moved_games()) return hold("the games move could not be made durable: " + error);
   WriteMarker(ops, paths.app_root / kGamesMarker, MovedText(paths.games_root));
   return finish();
 }
@@ -493,12 +548,15 @@ RevertResult RevertLayout(const LayoutPaths& paths, const LayoutOps& ops) {
         rename_error = Rename(ops, paths.games_root, old_games);
         return !rename_error;
       });
+      if (!rename_error && ran) rename_error = SyncRename(ops, paths.games_root, old_games);
       if (rename_error || !ran) problems += "games rename failed " + Describe(rename_error) + "; ";
       else Log(ops, "moved " + paths.games_root.string() + " back to " + old_games.string());
     } else {
       problems += old_games.string() + " already has files; ";
     }
   }
+  if (!problems.empty()) { result.error = problems; return result; }
+  if (const auto error = SyncRename(ops, paths.games_root, old_games)) { result.error = Describe(error); return result; }
   std::remove((paths.app_root / kGamesMarker).c_str());
 
   struct Tree { const char* step; fs::path from, to; bool logs; };
@@ -508,9 +566,9 @@ RevertResult RevertLayout(const LayoutPaths& paths, const LayoutOps& ops) {
     if (!save(tree.step)) return result;
     std::remove((tree.to / kMovedMarker).c_str());
     if (Kind(tree.from) != 1) continue;
-    if (!EnsureSharedDirectory(ops, tree.to)) { problems += tree.to.string() + " can't be created; "; continue; }
+    if (!EnsureSharedDirectory(ops, tree.to)) { result.error = tree.to.string() + " can't be created or synced"; return result; }
     const auto names = Entries(tree.from);
-    if (!names) { problems += tree.from.string() + " can't be listed; "; continue; }
+    if (!names) { result.error = tree.from.string() + " can't be listed"; return result; }
     for (const auto& name : *names) {
       const auto target =
           tree.logs ? LogTarget(tree.to, name) : Exists(tree.to / name) ? std::nullopt : std::optional(tree.to / name);
@@ -521,6 +579,7 @@ RevertResult RevertLayout(const LayoutPaths& paths, const LayoutOps& ops) {
       const auto rename_error = RenameEntry(ops, tree.from / name, *target);
       if (rename_error) problems += "rename " + (tree.from / name).string() + " failed " + Describe(rename_error) + "; ";
     }
+    if (!problems.empty()) { result.error = problems; return result; }
     Log(ops, "moved " + tree.from.string() + " back to " + tree.to.string());
   }
   if (!problems.empty()) {

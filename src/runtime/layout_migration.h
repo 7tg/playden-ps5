@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace playden::runtime {
 
@@ -21,6 +22,8 @@ struct LayoutPaths {
 };
 
 struct LayoutOps {
+  // Directory durability barrier; empty uses open+fsync.
+  std::function<bool(const std::filesystem::path&)> sync;
   // rename(2); returns the errno as an error_code. Empty: the real rename.
   std::function<std::error_code(const std::filesystem::path&, const std::filesystem::path&)> rename;
   // Runs work with root's effective UID. Empty: runs it directly (tests).
@@ -40,11 +43,17 @@ inline constexpr int kLayoutPostponeNoticeAfter = 3;
 // "games-moved", from/to are the old and new games prefixes; the runtime host
 // rewrites its records, republishes, then calls MarkLayoutDone. RevertLayout
 // writes "revert-games", "revert-logs", "revert-user", then removes the journal.
+struct LayoutEntry {
+  std::string from, to;  // single entry names, relative to the journal roots
+  bool moved = false;   // both rename parents synced
+};
+
 struct LayoutJournal {
   std::string step;
   std::string from;
   std::string to;
   int postponed = 0;  // starts the games step waited for a pending install, publication or launch
+  std::vector<LayoutEntry> entries;
 };
 
 // Nothing when there is no journal (or it can't be read; `error` says which).
@@ -53,6 +62,7 @@ std::optional<LayoutJournal> LoadLayoutJournal(const std::filesystem::path& stat
 bool MarkLayoutDone(const std::filesystem::path& state_root, std::string* error = nullptr);
 
 struct LayoutResult {
+  bool runtime_ready = false;  // no service may start with split or uncertain user data
   bool user_moved = false;   // user data lives at paths.user_root
   bool logs_moved = false;   // logs live at paths.log_root
   bool games_moved = false;  // games live at paths.games_root

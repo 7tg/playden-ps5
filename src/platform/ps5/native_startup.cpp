@@ -193,6 +193,10 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
     result.paths.user_log_root = moved.log_root.string();
     result.paths.games_root = moved.games_root.string();
     result.notice = moved.notice;
+    if (!moved.runtime_ready) {
+      result.runtime_ready = false;
+      result.error = moved.notice;
+    }
   }
   const std::string logs = result.launcher_ready ? EffectiveLogRoot(result.paths) : "/app0/logs";
   for (const auto& line : layout_lines) app::AppendLogLine(logs, "native-startup.log", line);
