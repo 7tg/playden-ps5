@@ -54,7 +54,8 @@ class Backend final : public AuthBackend {
     if (cancel && !ignore_cancel) return {AuthError::kCanceled,{}};
     return {error,error == AuthError::kNone ? std::optional<StoredSession>(Session()) : std::nullopt};
   }
-  AuthResult Restore(const StoredSession& s,const std::atomic<bool>&) override { return {error,error == AuthError::kNone ? std::optional<StoredSession>(s) : std::nullopt}; }
+  std::atomic<int> restores{0};
+  AuthResult Restore(const StoredSession& s,const std::atomic<bool>&) override { ++restores; return {error,error == AuthError::kNone ? std::optional<StoredSession>(s) : std::nullopt}; }
   // Password sign-in by account name: "wrong" is refused, "email-user" needs an email code ("WRONG" is
   // rejected), "approve" waits for approval (or an app code); any other name signs in.
   std::atomic<int> credential_calls{0};
@@ -503,6 +504,25 @@ void LicenseChangesRefreshTheLibrary() {
     assert(library_backend.calls==0 && model.state().account.authentication==AuthState::Offline);
   }
 }
+// Refresh library in Sort and filters, offline: as Sync now, the saved sign-in is restored first.
+void OfflineRefreshFromTheLibraryReconnects() {
+  Repository repo;repo.value=Session();CacheFixture cache;cache.value=LibrarySnapshot{};
+  cache.value->games={{42,"Cached synthetic game",{},{},{}}};
+  Simulation model({}, {},ModelMode::Live);Backend backend;backend.error=AuthError::kNetwork;
+  LibraryBackendFixture library_backend;LibraryService library_service(library_backend,repo,&cache);
+  Controller controller(model,backend,repo,&library_service);
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::Offline && model.state().games.size()==1 &&
+                             !model.state().library_loading;});
+  assert(backend.restores==1 && library_backend.calls==0);
+  backend.error=AuthError::kNone;
+  assert(model.action("r1") && model.state().navigation.route==Route::Library);
+  if (model.state().navigation.library_rail_focused) assert(model.action("right"));
+  assert(model.action("triangle"));
+  Choose(model,"refresh-library");
+  Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedIn && library_backend.calls==1 &&
+                             !model.state().library_loading;});
+  assert(backend.restores==2 && model.state().games.front().title=="Connected synthetic game");
+}
 void RepeatedClearPreservesFirstIntent() {
   for(bool switching:{false,true}) {
     Repository repo;repo.value=Session();CacheFixture cache;
@@ -555,4 +575,4 @@ void SlowLicenseCheckShowsAfterAFewSeconds() {
   }
   std::filesystem::remove_all(root);
 }
-int main() { PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); LicenseChangesRefreshTheLibrary(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }
+int main() { PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); LicenseChangesRefreshTheLibrary(); OfflineRefreshFromTheLibraryReconnects(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }

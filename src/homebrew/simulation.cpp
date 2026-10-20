@@ -455,7 +455,7 @@ std::string action_label(const std::string& key) {
         {"sort-name", "Name"}, {"sort-recent-played", "Recently played"}, {"sort-recent-added", "Recently added"},
         {"sort-playtime", "Playtime"}, {"sort-install-size", "Install size"}, {"filter-installed", "Installed"},
         {"filter-genre-adventure", "Adventure"}, {"filter-controller-full", "Full controller support"},
-        {"filter-compat-playable", "Playable"}, {"filters-reset", "Reset filters"}, {"advance-clock", "Advance fixture clock"},
+        {"filter-compat-playable", "Playable"}, {"filters-reset", "Reset filters"}, {"refresh-library", "Refresh library"}, {"advance-clock", "Advance fixture clock"},
         {"inject-download-failed", "Inject download failure"}, {"inject-verification-failed", "Inject verification failure"},
         {"inject-uninstall-failed", "Inject uninstall failure"},
         {"inject-storage-disconnect", "Disconnect storage"}, {"inject-controller-disconnect", "Disconnect controller"},
@@ -3217,6 +3217,7 @@ void Simulation::rebuild_view() {
             }
             else if (action_key == "quit-to-home") item.dangerous = true;  // the dialog's primary action
             else if (action_key == "saves-delete-confirm" || action_key == "saves-leftover-confirm") item.dangerous = true;
+            else if (action_key == "refresh-library") item.enabled = !state_.library_loading && !state_.library_syncing;
             else if (action_key == "installed-sort") {
                 item.title = "Sort by";
                 item.value = installed_by_played_ ? "Last played" : "Size";
@@ -6051,6 +6052,18 @@ void Simulation::activate() {
         state_.navigation.route = Route::Home;
         if (live()) queue_service_action(ServiceAction::RefreshLibrary);
     }
+    else if (action_name == "refresh-library") {
+        // As Sync now, but the Library stays on screen. Offline or with an expired sign-in, the
+        // controller restores the saved sign-in first.
+        close_modal();
+        if (live()) {
+            state_.library_syncing = true;
+            state_.library_loading = true;
+            queue_service_action(ServiceAction::RefreshLibrary);
+        } else {
+            state_.account.last_sync = state_.clock_ticks;
+        }
+    }
     else if (action_name == "account-recover") {
         state_.navigation.modals.clear();
         open_sign_in();
@@ -6375,12 +6388,12 @@ bool Simulation::action(const std::string& logical_action) {
                             [](const Game& game) { return game.added_at.has_value(); });
             std::vector<std::string> actions = live()
             ? (dated ? std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime",
-                                                "filter-compat-playable", "filters-reset", "cancel"}
+                                                "filter-compat-playable", "filters-reset", "refresh-library", "cancel"}
                      : std::vector<std::string>{"sort-name", "sort-recent-played", "sort-playtime", "filter-compat-playable",
-                                                "filters-reset", "cancel"})
+                                                "filters-reset", "refresh-library", "cancel"})
             : std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime", "sort-install-size",
                                       "filter-installed", "filter-genre-adventure", "filter-controller-full", "filter-compat-playable",
-                                      "filters-reset", "cancel"};
+                                      "filters-reset", "refresh-library", "cancel"};
         open_modal({"filters", "Sort and filters", state_.navigation.focus_key, std::move(actions), 0, false});
         }
     }

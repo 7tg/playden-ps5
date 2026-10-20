@@ -866,6 +866,29 @@ void live_filters_only_use_available_facts() {
           "newest acquisition first, undated last");
 }
 
+// Sort and filters offers Refresh library: it asks the controller for Steam's current list and the
+// Library stays on screen. While a refresh runs, the row waits.
+void live_sort_sheet_refreshes_the_library() {
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    check(model.UpdateLibrary({{game(42,"Synthetic")},false,{},false,false,{}}),"library loaded");
+    model.TakeServiceActions();
+    check(model.action("r1") && model.action("triangle"),"live filter modal opens");
+    const auto* row=find_row(model,"refresh-library");
+    check(row!=nullptr && row->title=="Refresh library" && row->enabled,"the sheet offers Refresh library");
+    activate(model,"refresh-library");
+    const auto actions=model.TakeServiceActions();
+    check(actions.size()==1 && actions.front()==ServiceAction::RefreshLibrary,"Refresh library asks for a refresh");
+    check(model.state().navigation.modals.empty() && model.state().navigation.route==Route::Library &&
+          model.state().library_syncing && model.state().library_loading &&
+          model.state().account.authentication==AuthState::SignedIn,"the Library stays while it refreshes");
+    check(model.action("triangle"),"filter modal opens while refreshing");
+    row=find_row(model,"refresh-library");
+    check(row!=nullptr && !row->enabled,"a refresh in progress is not started again");
+    check(model.action("focus:refresh-library") && model.action("cross") && model.TakeServiceActions().empty(),
+          "the disabled row asks for nothing");
+}
+
 void live_uninstall_removes_title_and_keeps_saves() {
     using playden::homebrew::InstallRequestKind;
     using playden::homebrew::LiveRuntimeGame;
@@ -2061,6 +2084,7 @@ int main() {
     live_saves_tab();
     live_saves_upload_all();
     live_filters_only_use_available_facts();
+    live_sort_sheet_refreshes_the_library();
     live_empty_filter_keeps_the_signed_in_account();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();
