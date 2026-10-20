@@ -103,13 +103,35 @@ void RequestAndMapping() {
   assert(request.url ==
       "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
       "?access_token=synthetic-token&steamid=76561198000000001&include_appinfo=true&"
-      "include_played_free_games=true&format=json");
+      "include_played_free_games=true&include_free_sub=true&format=json");
   const std::vector<std::pair<std::string, std::string>> expected_headers = {
       {"User-Agent", "Playden/1.0"}};
   assert(request.headers == expected_headers);
   assert(request.body.empty());
   assert(request.timeout_ms == 30000);
   assert(request.max_response_bytes == 16 * 1024 * 1024);
+}
+
+// A free-to-play game added to the library and never played, as include_free_sub returns it:
+// no playtime, no last played time, and fields Playden doesn't read.
+void FreeGameNeverPlayed() {
+  Fixture fixture;
+  const auto result = Fetch(&fixture,
+      R"({"response":{"game_count":1,"games":[)"
+      R"({"appid":2767030,"name":"Synthetic Free","playtime_forever":0,)"
+      R"("img_icon_url":"0123456789abcdef0123456789abcdef01234567","has_community_visible_stats":true,)"
+      R"("playtime_windows_forever":0,"playtime_mac_forever":0,"playtime_linux_forever":0,)"
+      R"("playtime_deck_forever":0,"rtime_last_played":0,"content_descriptorids":[2,5],)"
+      R"("playtime_disconnected":0}]}})");
+  assert(result.error == LibraryError::kNone && !result.metadata_partial);
+  assert(result.games.size() == 1);
+  const auto& game = result.games.front();
+  assert(game.id == 2767030 && game.title == "Synthetic Free");
+  assert(game.playtime_minutes == 0 && !game.last_played_unix_seconds);
+  assert(!game.added_at_unix_seconds);
+  assert(game.artwork_source ==
+      "https://media.steampowered.com/steamcommunity/public/images/apps/2767030/"
+      "0123456789abcdef0123456789abcdef01234567.jpg");
 }
 
 void PlaytimeAndLastPlayedValidation() {
@@ -304,6 +326,7 @@ int main(int argc, char** argv) {
   }
   SanitizedFixtures(argv[1]);
   RequestAndMapping();
+  FreeGameNeverPlayed();
   PlaytimeAndLastPlayedValidation();
   MissingMetadataAndStableDedupe();
   EmptyLibraryIsExplicit();
