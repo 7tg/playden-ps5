@@ -552,7 +552,7 @@ int main() {
     CHECK(Exists(fixture.root + "/playden/self-update/backup/0.5.0-900/eboot.bin"));
     RemoveTree(fixture.root);
   }
-  // This branch may still report a version below 0.6.0: the move record alone refuses going back.
+  // A legacy build reporting below 0.6.0 still refuses going back when the move record exists.
   {
     Fixture fixture;
     fixture.root = zip_fixture::TempFolder("service-journal");
