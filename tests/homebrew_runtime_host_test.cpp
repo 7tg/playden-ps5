@@ -514,6 +514,7 @@ void PreparationEndsAwaitingRegistration() {
   if (waiting.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", waiting.refusals.at(220).c_str());
   CHECK(!waiting.refusals.count(220) && waiting.installs[0].awaiting_registration);
   CHECK(waiting.installs[0].state != PreparationState::kReady && waiting.installs[0].recovery_pending);
+  CHECK(waiting.prepared.empty());  // not done until the PS5 registers it
   CHECK(std::chrono::steady_clock::now() - began < std::chrono::seconds(20));  // no polling for the console
   const auto submissions = fixture.registry_mutations;
   CHECK(submissions > 0 && fixture.submitted && !fixture.registered);
@@ -535,6 +536,11 @@ void PreparationEndsAwaitingRegistration() {
   CHECK(!ready.refusals.count(220) && ready.installs[0].state == PreparationState::kReady);
   CHECK(!ready.installs[0].awaiting_registration && !ready.installs[0].recovery_pending);
   CHECK(fixture.registry_mutations == submissions);
+  // Registered: now it is listed as done, and Clear completed takes it off.
+  const auto listed = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.prepared.empty(); });
+  CHECK(listed.prepared.size() == 1 && listed.prepared[0].app_id == 220);
+  host.ClearPrepared();
+  CHECK(WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepared.empty(); }).prepared.empty());
   host.Shutdown();
 }
 
@@ -625,7 +631,35 @@ void PreparesExistingDownloadToReady() {
   const auto again = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
   CHECK(again.refusals.at(220) == "This game is already prepared.");
   CHECK(fixture.registry_mutations == 2);
+  // Queue lists the finished preparation once; the refused second request adds nothing.
+  CHECK((again.prepared == std::vector<PreparedGame>{{220, 1760000000}}));
   host.Shutdown();
+
+  // The list survives a restart. A dismissal names its finish time; another time leaves it listed.
+  {
+    RuntimeHost restarted(config);
+    CHECK(restarted.Start());
+    CHECK((WaitFor(restarted, Started).prepared == std::vector<PreparedGame>{{220, 1760000000}}));
+    restarted.DismissPrepared(220, 1759999999);
+    restarted.DismissPrepared(220, 1760000000);
+    CHECK(WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.prepared.empty(); }).prepared.empty());
+    restarted.Shutdown();
+  }
+  {
+    RuntimeHost restarted(config);
+    CHECK(restarted.Start());
+    CHECK(WaitFor(restarted, Started).prepared.empty());
+    restarted.Shutdown();
+  }
+  // Past kPreparedDays a preparation is no longer listed.
+  Write(fixture.root / "data/runtime-state/prepared-history", "220\t1760000000\n", 0600);
+  config.unix_time = [] { return std::int64_t{1760000000} + kPreparedDays * 24 * 60 * 60 + 1; };
+  {
+    RuntimeHost restarted(config);
+    CHECK(restarted.Start());
+    CHECK(WaitFor(restarted, Started).prepared.empty());
+    restarted.Shutdown();
+  }
 }
 
 // A folder made over FTP belongs to root and is 0755, so the app user can't write into it
@@ -2124,7 +2158,7 @@ void RemovesTitleKeepingSaves() {
     RuntimeHost host(config);
     CHECK(host.Start());
     CHECK(WaitFor(host, Started).kit_available);
-    prepare(host);
+    CHECK(prepare(host).prepared.size() == 1);
     host.SetTitleNames({{220, "Half-Life 2"}});
     Write(bottle / save, "player-save", 0600);
     for (const auto* part : {"library/prefixes/game/drive_c/users", "library/prefixes/game/drive_c/users/steamuser",
@@ -2146,6 +2180,7 @@ void RemovesTitleKeepingSaves() {
     CHECK(removed.removal_failures.at(220).find("has not confirmed") != std::string::npos);
     CHECK(removed.installs.size() == 1 && removed.installs[0].state == PreparationState::kRemoving);
     CHECK(removed.installs[0].step == "unregister");
+    CHECK(removed.prepared.empty());  // no longer Ready
     CHECK(!fs::exists(fixture.root / "data/homebrew/FAKE78001"));
     CHECK(fs::is_directory(fixture.root / "data/runtime-state/trash/FAKE78001-00000000-0000-4000-8000-000000000002"));
     CHECK(*remover_calls == 1);

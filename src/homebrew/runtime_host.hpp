@@ -217,6 +217,16 @@ struct RuntimeGameSetup {
 };
 
 
+// A preparation that ended Ready. Queue lists it after the waiting games until the player dismisses it;
+// a dismissal names the finish time, so preparing the game again lists it again.
+struct PreparedGame {
+  std::uint32_t app_id = 0;
+  std::int64_t finished_at = 0;  // Unix seconds
+  bool operator==(const PreparedGame&) const = default;
+};
+inline constexpr std::int64_t kPreparedDays = 7;
+inline constexpr std::size_t kMaxPrepared = 20;
+
 struct RuntimeSnapshot {
   std::uint64_t revision = 0;
   RuntimeHostStatus status = RuntimeHostStatus::kStarting;
@@ -230,6 +240,9 @@ struct RuntimeSnapshot {
   std::map<std::uint32_t, std::string> refusals;
   std::uint64_t prepares_handled = 0;
   std::optional<std::uint32_t> preparing_app;  // the game being prepared now
+  // Preparations that ended Ready at most kPreparedDays ago and were not dismissed, newest first, at most
+  // kMaxPrepared; only games whose title is still Ready.
+  std::vector<PreparedGame> prepared;
   // Games whose preparation is asked for but not started yet, in the order they will start: each
   // waits behind another game's preparation, or for the runtime to finish starting.
   std::vector<std::uint32_t> queued_prepares;
@@ -319,6 +332,10 @@ class RuntimeHost {
   bool PrepareNext(std::uint32_t app_id);
   // While held, no queued preparation starts (a quit to Home waits for the running one only).
   void HoldPreparations(bool hold);
+  // Takes a finished preparation off RuntimeSnapshot::prepared; ClearPrepared takes every one off,
+  // including those past the kMaxPrepared the snapshot lists.
+  void DismissPrepared(std::uint32_t app_id, std::int64_t finished_at);
+  void ClearPrepared();
   // Asks the console whether a game's PS5 title runs (from any origin, Home
   // included). A game with no prepared title reports stopped.
   void CheckActivity(std::uint32_t app_id);
@@ -438,6 +455,11 @@ class RuntimeHost {
   std::string RestoreKeptSaves(Composition& composition, std::uint32_t app_id);
   std::string DeleteKept(Composition& composition, std::uint32_t app_id);
   void PublishKeptBottles(const Composition& composition);
+  // Finished preparations, in prepared_history_ and the state root's prepared-history file (worker thread).
+  void LoadPreparedHistory();
+  void SavePreparedHistory();
+  std::vector<PreparedGame> ListPrepared(const Composition* composition) const;
+  void PublishPrepared(const Composition* composition);
   // With an any-title kit, lists every recorded game title in the helper's allow-list so their
   // titles may start; empty on success (or with no such kit), otherwise why not.
   std::string SyncTitleAllowList(Composition& composition);
@@ -478,6 +500,9 @@ class RuntimeHost {
   bool cleanup_requested_ = false;
   bool measure_requested_ = false;
   bool prepares_held_ = false;
+  std::vector<PreparedGame> prepared_dismissals_;  // guarded by mutex_
+  bool prepared_clear_requested_ = false;          // guarded by mutex_
+  std::vector<PreparedGame> prepared_history_;     // worker thread only, oldest first
   std::map<std::uint32_t, std::string> title_names_;  // guarded by mutex_
   std::string steam_account_name_;                     // guarded by mutex_
   std::uint64_t steam_id_ = 0;                         // guarded by mutex_

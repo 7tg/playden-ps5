@@ -28,6 +28,7 @@
 #include <cstring>
 #include <ctime>
 #include <dirent.h>
+#include <fstream>
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/stat.h>
@@ -440,6 +441,90 @@ bool RuntimeHost::PrepareNext(std::uint32_t app_id) {
   }
   published_.notify_all();
   return true;
+}
+
+void RuntimeHost::DismissPrepared(std::uint32_t app_id, std::int64_t finished_at) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    prepared_dismissals_.push_back({app_id, finished_at});
+  }
+  wake_.notify_all();
+}
+
+void RuntimeHost::ClearPrepared() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    prepared_clear_requested_ = true;
+  }
+  wake_.notify_all();
+}
+
+namespace {
+constexpr const char* kPreparedHistory = "prepared-history";
+}  // namespace
+
+void RuntimeHost::LoadPreparedHistory() {
+  prepared_history_.clear();
+  std::ifstream in(config_.state_root / kPreparedHistory);
+  std::uint32_t app = 0;
+  long long finished = 0;
+  while (prepared_history_.size() < kMaxPrepared * 8 && in >> app >> finished)
+    if (app != 0 && finished > 0) prepared_history_.push_back({app, static_cast<std::int64_t>(finished)});
+}
+
+void RuntimeHost::SavePreparedHistory() {
+  // Only what Queue could still list is kept.
+  const auto now = config_.unix_time();
+  std::erase_if(prepared_history_, [now](const PreparedGame& entry) {
+    return entry.finished_at > now || now - entry.finished_at > kPreparedDays * 24 * 60 * 60;
+  });
+  std::string text;
+  for (const auto& entry : prepared_history_)
+    text += std::to_string(entry.app_id) + "\t" + std::to_string(entry.finished_at) + "\n";
+  const auto path = config_.state_root / kPreparedHistory;
+  const auto temporary = path.string() + ".playden-partial";
+  const int out = open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (out < 0) {
+    Log("prepared history not saved: " + std::string(std::strerror(errno)));
+    return;
+  }
+  std::size_t written = 0;
+  while (written < text.size()) {
+    const auto count = write(out, text.data() + written, text.size() - written);
+    if (count <= 0) break;
+    written += static_cast<std::size_t>(count);
+  }
+  const bool ok = written == text.size() && fsync(out) == 0;
+  if (close(out) != 0 || !ok || rename(temporary.c_str(), path.c_str()) != 0) {
+    unlink(temporary.c_str());
+    Log("prepared history not saved");
+  }
+}
+
+std::vector<PreparedGame> RuntimeHost::ListPrepared(const Composition* c) const {
+  // A game uninstalled, being removed or being prepared again is not listed as Ready.
+  std::set<std::uint32_t> ready;
+  if (c)
+    for (const auto& record : c->repository.Snapshot())
+      if (record.state == rt::PreparationState::kReady && !record.journal) ready.insert(record.app_id);
+  const auto now = config_.unix_time();
+  std::vector<PreparedGame> listed;
+  for (auto it = prepared_history_.rbegin(); it != prepared_history_.rend() && listed.size() < kMaxPrepared; ++it)
+    if (ready.count(it->app_id) && it->finished_at <= now && now - it->finished_at <= kPreparedDays * 24 * 60 * 60)
+      listed.push_back(*it);
+  std::stable_sort(listed.begin(), listed.end(),
+                   [](const PreparedGame& left, const PreparedGame& right) { return left.finished_at > right.finished_at; });
+  return listed;
+}
+
+void RuntimeHost::PublishPrepared(const Composition* c) {
+  auto listed = ListPrepared(c);
+  Publish([&](RuntimeSnapshot& s) {
+    if (s.preparing_app) std::erase_if(listed, [&s](const PreparedGame& entry) { return entry.app_id == *s.preparing_app; });
+    if (s.prepared != listed) s.prepared = std::move(listed);
+  });
 }
 
 void RuntimeHost::HoldPreparations(bool hold) {
@@ -886,6 +971,7 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
     installs.push_back(std::move(view));
   }
   Publish([&](RuntimeSnapshot& s) { s.installs = std::move(installs); });
+  PublishPrepared(&composition);
 }
 
 // The complete OWNER protocol for the publish-profile step: persist the exact
@@ -3108,6 +3194,10 @@ void RuntimeHost::Run() {
       });
     }
   }
+  if (private_ready) {
+    LoadPreparedHistory();
+    PublishPrepared(composition.get());
+  }
   startup_hold.reset();
   for (;;) {
     std::vector<std::uint32_t> plays;
@@ -3120,6 +3210,8 @@ void RuntimeHost::Run() {
     bool measure = false;
     std::vector<std::uint32_t> checks;
     bool names_changed = false;
+    std::vector<PreparedGame> dismissals;
+    bool clear_prepared = false;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       // Preparation changes install records that Handoff reads on the
@@ -3130,7 +3222,7 @@ void RuntimeHost::Run() {
                cleanup_requested_ || measure_requested_ || !activity_requests_.empty() || title_names_changed_ ||
                (!remove_requests_.empty() && !snapshot_.handoff_ready) ||
                (!kept_delete_requests_.empty() && !snapshot_.handoff_ready) ||
-               !scan_requests_.empty() ||
+               !scan_requests_.empty() || !prepared_dismissals_.empty() || prepared_clear_requested_ ||
                (!maintenance_requests_.empty() && !snapshot_.handoff_ready);
       };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
@@ -3151,8 +3243,17 @@ void RuntimeHost::Run() {
       checks.swap(activity_requests_);
       names_changed = title_names_changed_;
       title_names_changed_ = false;
+      dismissals.swap(prepared_dismissals_);
+      clear_prepared = prepared_clear_requested_;
+      prepared_clear_requested_ = false;
     }
     const auto batch_hold = hold();
+    if (private_ready && (clear_prepared || !dismissals.empty())) {
+      if (clear_prepared) prepared_history_.clear();
+      for (const auto& dismissal : dismissals) std::erase(prepared_history_, dismissal);
+      SavePreparedHistory();
+      PublishPrepared(composition.get());
+    }
     if (names_changed && composition) PublishInstalls(*composition);
     for (const auto& [app, install_path] : scans) {
       const auto kit = composition && composition->kit
@@ -3226,6 +3327,10 @@ void RuntimeHost::Run() {
         PublishKeptBottles(*composition);
       }
       Log("remove result app=" + std::to_string(app) + " " + (refusal.empty() ? "removed" : refusal));
+      if (refusal.empty() && std::erase_if(prepared_history_, [app](const PreparedGame& entry) { return entry.app_id == app; })) {
+        SavePreparedHistory();
+        PublishPrepared(composition.get());
+      }
       ClearWork();
       Publish([&](RuntimeSnapshot& s) {
         s.removing_app.reset();
@@ -3304,16 +3409,25 @@ void RuntimeHost::Run() {
       }
       Log("prepare result app=" + std::to_string(request.app_id) + " " +
           (!refusal.empty() ? refusal : awaiting ? "awaiting registration" : "ready"));
+      // Only a preparation that ends Ready is listed as done; one still waiting for the PS5 is listed
+      // once a later check finds the title registered.
+      if (composition && refusal.empty() && !awaiting) {
+        prepared_history_.push_back({request.app_id, config_.unix_time()});
+        SavePreparedHistory();
+      }
       if (composition) {
         const auto leftovers = LeftoverRequests(*composition, false);
         Publish([&](RuntimeSnapshot& s) { s.leftover_requests = leftovers; });
       }
       ClearWork();
+      // Listed as done as it leaves preparing_app (PublishPrepared leaves out the game being prepared).
+      auto prepared = composition ? ListPrepared(composition.get()) : std::vector<PreparedGame>{};
       Publish([&](RuntimeSnapshot& s) {
         s.preparing_app.reset();
         ++s.prepares_handled;
         if (refusal.empty()) s.refusals.erase(request.app_id);
         else s.refusals[request.app_id] = refusal;
+        if (composition) s.prepared = std::move(prepared);
       });
     }
   }
