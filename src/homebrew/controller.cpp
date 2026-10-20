@@ -683,17 +683,9 @@ void Controller::TickRuntime() {
           names[id] = model_.state().title_store_suffix ? game.title + " (Steam)" : game.title;
     runtime_->SetTitleNames(std::move(names));
   }
-  for (const auto id : model_.TakeRuntimePrepareRequests()) {
-    if (!game_roots_.count(id)) continue;
-    // Without Steam's launch options yet, ask Steam first; TickAppDetails submits it.
-    if (app_details_ && !launch_options_.count(id) && !launch_options_reason_.count(id) &&
-        model_.state().account.authentication == AuthState::SignedIn) {
-      prepare_after_details_.insert(id);
-      app_details_->Request(id, model_.state().account_generation);
-      continue;
-    }
-    SubmitPrepare(id);
-  }
+  // A quit to Home waits for the running preparation; the queued ones would be cut off.
+  runtime_->HoldPreparations(model_.state().quit_waiting);
+  for (const auto id : model_.TakeRuntimePrepareRequests()) RequestPrepare(id);
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   for (const auto id : model_.TakeKeptDeleteRequests()) runtime_->DeleteKeptBottle(id);
   for (const auto id : model_.TakeActivityRequests()) runtime_->CheckActivity(id);
@@ -774,14 +766,15 @@ void Controller::TickRuntime() {
           pending.words = "Preparing the game on its new drive…";
         else if (needs_work(view))
           pending.words = !view->title_current ? "Updating runtime…" : "Repairing runtime…";
-        auto_prepare_.erase(id);
+        std::erase(auto_prepare_, id);
         ++play_notes_revision_;
       } else if (!play_after_prepare_.count(id)) {
         direct.push_back(id);
       }
     }
     plays = std::move(direct);
-    // Finished downloads are prepared one at a time, never over a game that already has a record.
+    // Finished downloads join the runtime's preparation queue in the order they finished, never over a
+    // game that already has a record. The runtime prepares them one at a time.
     if (prepared.status != RuntimeHostStatus::kStarting)
       for (auto it = auto_prepare_.begin(); it != auto_prepare_.end();) {
         if (!usable || !game_roots_.count(*it) || (record_of(*it) && !moved(record_of(*it)))) {
@@ -789,12 +782,9 @@ void Controller::TickRuntime() {
           continue;
         }
         if (cloud_busy_.count(*it)) { ++it; continue; }  // a move waits for saves in transit
-        // A quit to Home waits for the running preparation; the next one would be cut off.
-        if (prepared.preparing_app || model_.state().quit_waiting) break;
         play_after_prepare_.erase(*it);
-        model_.RequestRuntimePrepare(*it);
-        auto_prepare_.erase(it);
-        break;
+        RequestPrepare(*it);
+        it = auto_prepare_.erase(it);
       }
     // A title still waiting for the PS5 when Playden started is checked once: the
     // player left Playden since, so ShadowMountPlus has usually registered it. The
@@ -819,6 +809,7 @@ void Controller::TickRuntime() {
       if (prepared.preparing_app == id) { it->second.seen_preparing = true; ++it; continue; }
       // A preparation still queued in the runtime is not lost, however long it waits.
       const bool unseen_too_long = !it->second.seen_preparing && !PrepareQueued(prepared, id) &&
+          !prepare_after_details_.count(id) &&
           std::chrono::steady_clock::now() - it->second.submitted_at > std::chrono::seconds(15);
       if (!it->second.seen_preparing && !unseen_too_long) { ++it; continue; }
       const auto* record = record_of(id);
@@ -849,7 +840,6 @@ void Controller::TickRuntime() {
           continue;
         }
         if (record_of(id)) { finish(false, "The PS5 title could not be removed."); continue; }
-        if (prepared.preparing_app) { ++it; continue; }
         pending.prepare_submitted = true;
         pending.refusal = refusal_of(id);
         pending.submitted_at = std::chrono::steady_clock::now();
@@ -873,14 +863,13 @@ void Controller::TickRuntime() {
       const auto id = it->first;
       auto& pending = it->second;
       if (!pending.queued) {
-        if (prepared.preparing_app && *prepared.preparing_app != id) { ++it; continue; }
         // A move removes the old title and bottle: saves still in transit finish first.
         if (moved(record_of(id)) && cloud_busy_.count(id)) { ++it; continue; }
         pending.queued = true;
         pending.refusal = refusal_of(id);
         pending.prepares_handled = prepared.prepares_handled;
         pending.queued_at = std::chrono::steady_clock::now();
-        model_.RequestRuntimePrepare(id);
+        RequestPrepare(id);
         ++it;
         continue;
       }
@@ -895,7 +884,7 @@ void Controller::TickRuntime() {
       // Prepare ended without a Ready title, or was refused before it was seen starting:
       // Play says why, so a press never ends with nothing on screen.
       // Another game's preparation finishing says nothing about this one while it is still queued.
-      const bool queued = PrepareQueued(prepared, id);
+      const bool queued = PrepareQueued(prepared, id) || prepare_after_details_.count(id);
       const bool handled = !queued && prepared.prepares_handled > pending.prepares_handled && prepared.preparing_app != id;
       const bool unseen_too_long = !pending.seen_preparing && !queued && !prepared.preparing_app &&
           std::chrono::steady_clock::now() - pending.queued_at > std::chrono::seconds(15);
@@ -1243,7 +1232,9 @@ void Controller::TickInstalls() {
   std::set<GameId> downloading;
   for (const auto& job : snapshot.jobs) downloading.insert(job.id);
   for (const auto id : downloading_)
-    if (!downloading.count(id) && game_roots_.count(id)) auto_prepare_.insert(id);
+    if (!downloading.count(id) && game_roots_.count(id) &&
+        std::find(auto_prepare_.begin(), auto_prepare_.end(), id) == auto_prepare_.end())
+      auto_prepare_.push_back(id);
   downloading_ = std::move(downloading);
   if (!snapshot.volumes.empty()) saves_root_ = snapshot.volumes.front().games_root + "/.playden-saves";
   // Free space changes outside Playden too, so volumes refresh every few seconds as well.
@@ -1338,6 +1329,17 @@ void Controller::TickAppDetails() {
     }
     if (prepare_after_details_.erase(details.id) && runtime_) SubmitPrepare(details.id);
   }
+}
+void Controller::RequestPrepare(GameId id) {
+  if (!game_roots_.count(id)) return;
+  // Without Steam's launch options yet, ask Steam first; TickAppDetails submits it.
+  if (app_details_ && !launch_options_.count(id) && !launch_options_reason_.count(id) &&
+      model_.state().account.authentication == AuthState::SignedIn) {
+    prepare_after_details_.insert(id);
+    app_details_->Request(id, model_.state().account_generation);
+    return;
+  }
+  SubmitPrepare(id);
 }
 void Controller::SubmitPrepare(GameId id, bool announce) {
   const auto root = game_roots_.find(id);

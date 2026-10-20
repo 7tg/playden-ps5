@@ -102,6 +102,8 @@ class Controller {
   std::set<GameId> prepare_after_details_;
   // announce: tell the player when this preparation leaves the game ready to play
   // (waiting for the PS5 to register it); the startup check does not.
+  // Queues a game's preparation, after asking Steam for its launch options when they are missing.
+  void RequestPrepare(GameId id);
   void SubmitPrepare(GameId id, bool announce = true);
   RuntimeHost* runtime_ = nullptr;
   std::uint64_t runtime_revision_ = 0;
@@ -126,7 +128,7 @@ class Controller {
   // prepared yet. Play then starts it once it is Ready; the refusal seen when Prepare
   // was queued tells a new refusal from an old one.
   std::set<GameId> downloading_;
-  std::set<GameId> auto_prepare_;
+  std::vector<GameId> auto_prepare_;  // in the order their downloads finished
   struct PlayAfterPrepare {
     bool queued = false;
     bool seen_preparing = false;
