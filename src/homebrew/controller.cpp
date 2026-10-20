@@ -818,7 +818,7 @@ void Controller::TickRuntime() {
       const auto id = it->first;
       if (prepared.preparing_app == id) { it->second.seen_preparing = true; ++it; continue; }
       // A preparation still queued in the runtime is not lost, however long it waits.
-      const bool unseen_too_long = !it->second.seen_preparing && !prepared.queued_prepares.count(id) &&
+      const bool unseen_too_long = !it->second.seen_preparing && !PrepareQueued(prepared, id) &&
           std::chrono::steady_clock::now() - it->second.submitted_at > std::chrono::seconds(15);
       if (!it->second.seen_preparing && !unseen_too_long) { ++it; continue; }
       const auto* record = record_of(id);
@@ -858,7 +858,7 @@ void Controller::TickRuntime() {
         continue;
       }
       if (prepared.preparing_app == id) { pending.seen_preparing = true; ++it; continue; }
-      const bool unseen_too_long = !pending.seen_preparing && !prepared.queued_prepares.count(id) &&
+      const bool unseen_too_long = !pending.seen_preparing && !PrepareQueued(prepared, id) &&
           std::chrono::steady_clock::now() - pending.submitted_at > std::chrono::seconds(15);
       if (!pending.seen_preparing && !unseen_too_long) { ++it; continue; }
       const auto* record = record_of(id);
@@ -895,7 +895,7 @@ void Controller::TickRuntime() {
       // Prepare ended without a Ready title, or was refused before it was seen starting:
       // Play says why, so a press never ends with nothing on screen.
       // Another game's preparation finishing says nothing about this one while it is still queued.
-      const bool queued = prepared.queued_prepares.count(id) > 0;
+      const bool queued = PrepareQueued(prepared, id);
       const bool handled = !queued && prepared.prepares_handled > pending.prepares_handled && prepared.preparing_app != id;
       const bool unseen_too_long = !pending.seen_preparing && !queued && !prepared.preparing_app &&
           std::chrono::steady_clock::now() - pending.queued_at > std::chrono::seconds(15);
@@ -1072,11 +1072,11 @@ void Controller::TickRuntime() {
                                           snapshot.launch->state == runtime::LaunchState::kRunning);
     // Updating or repairing waits while this game is being started or played, and a queued
     // preparation is not asked for twice.
-    if ((launching && busy) || snapshot.queued_prepares.count(id)) game.can_prepare = false;
+    if ((launching && busy) || PrepareQueued(snapshot, id)) game.can_prepare = false;
     // Queued behind another game's setup, from the runtime's queue or a Play that waits to ask it.
     const auto waiting_play = play_after_prepare_.find(id);
     game.queued = snapshot.preparing_app && *snapshot.preparing_app != id &&
-                  (snapshot.queued_prepares.count(id) ||
+                  (PrepareQueued(snapshot, id) ||
                    (waiting_play != play_after_prepare_.end() && !waiting_play->second.queued));
     game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
                     play_queued_.empty() && !sync_before_play_.count(id);

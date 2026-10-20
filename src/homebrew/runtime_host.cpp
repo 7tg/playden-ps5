@@ -411,11 +411,43 @@ void RuntimeHost::Prepare(RuntimePrepareRequest request) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
-    snapshot_.queued_prepares.insert(request.app_id);
+    // A game asked for again keeps its place, with the newer request (launch options may have arrived).
+    const auto queued = std::find_if(prepare_requests_.begin(), prepare_requests_.end(),
+                                     [&](const auto& waiting) { return waiting.app_id == request.app_id; });
+    if (queued != prepare_requests_.end()) {
+      *queued = std::move(request);
+    } else {
+      snapshot_.queued_prepares.push_back(request.app_id);
+      prepare_requests_.push_back(std::move(request));
+    }
     ++snapshot_.revision;
-    prepare_requests_.push_back(std::move(request));
   }
   published_.notify_all();
+  wake_.notify_all();
+}
+
+bool RuntimeHost::PrepareNext(std::uint32_t app_id) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto queued = std::find_if(prepare_requests_.begin(), prepare_requests_.end(),
+                                     [&](const auto& waiting) { return waiting.app_id == app_id; });
+    if (queued == prepare_requests_.end()) return false;
+    // The others keep their order behind it.
+    std::rotate(prepare_requests_.begin(), queued, queued + 1);
+    snapshot_.queued_prepares.clear();
+    for (const auto& waiting : prepare_requests_) snapshot_.queued_prepares.push_back(waiting.app_id);
+    ++snapshot_.revision;
+  }
+  published_.notify_all();
+  return true;
+}
+
+void RuntimeHost::HoldPreparations(bool hold) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (prepares_held_ == hold) return;
+    prepares_held_ = hold;
+  }
   wake_.notify_all();
 }
 
@@ -3078,7 +3110,6 @@ void RuntimeHost::Run() {
   }
   startup_hold.reset();
   for (;;) {
-    std::vector<RuntimePrepareRequest> requests;
     std::vector<std::uint32_t> plays;
     std::vector<std::pair<std::uint32_t, bool>> removals;
     std::vector<std::uint32_t> kept_deletes;
@@ -3094,7 +3125,8 @@ void RuntimeHost::Run() {
       // Preparation changes install records that Handoff reads on the
       // application thread, so it waits while a handoff is pending.
       const auto ready = [this] {
-        return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready) || !play_requests_.empty() ||
+        return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready && !prepares_held_) ||
+               !play_requests_.empty() ||
                cleanup_requested_ || measure_requested_ || !activity_requests_.empty() || title_names_changed_ ||
                (!remove_requests_.empty() && !snapshot_.handoff_ready) ||
                (!kept_delete_requests_.empty() && !snapshot_.handoff_ready) ||
@@ -3104,7 +3136,6 @@ void RuntimeHost::Run() {
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
       if (stopping_) break;
-      if (!snapshot_.handoff_ready) requests.swap(prepare_requests_);
       plays.swap(play_requests_);
       // Removal changes install records that Handoff reads, like preparation.
       if (!snapshot_.handoff_ready) removals.swap(remove_requests_);
@@ -3227,29 +3258,33 @@ void RuntimeHost::Run() {
       std::lock_guard<std::mutex> lock(mutex_);
       launch_poll_ = again;
     }
-    for (std::size_t index = 0; index < requests.size(); ++index) {
-      const auto& request = requests[index];
-      // A handoff that became ready during this pass reads install records on
-      // the application thread: hold the remaining preparations until it is done.
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (snapshot_.handoff_ready) {
-          prepare_requests_.insert(prepare_requests_.begin(), requests.begin() + static_cast<std::ptrdiff_t>(index),
-                                   requests.end());
-          break;
+    // One preparation per pass, taken from the front of the queue only as it starts, so PrepareNext
+    // reorders everything not started yet. A handoff that became ready during this pass reads install
+    // records on the application thread, and a quit to Home holds the queue: the queue waits for both.
+    std::optional<RuntimePrepareRequest> next;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!prepare_requests_.empty() && !snapshot_.handoff_ready && !prepares_held_ && !stopping_) {
+        next = std::move(prepare_requests_.front());
+        prepare_requests_.erase(prepare_requests_.begin());
+        auto& queued = snapshot_.queued_prepares;
+        queued.erase(std::remove(queued.begin(), queued.end(), next->app_id), queued.end());
+        if (composition) {
+          snapshot_.preparing_app = next->app_id;
+          snapshot_.refusals.erase(next->app_id);
         }
+        ++snapshot_.revision;
       }
+    }
+    if (next) {
+      published_.notify_all();
+      const auto& request = *next;
       std::string refusal;
       bool awaiting = false;
       if (!composition) {
         const auto current = Snapshot();
         refusal = current.reason.empty() ? "The runtime services are unavailable." : current.reason;
       } else {
-        Publish([&](RuntimeSnapshot& s) {
-          s.preparing_app = request.app_id;
-          s.queued_prepares.erase(request.app_id);
-          s.refusals.erase(request.app_id);
-        });
         refusal = RunPrepare(*composition, request, &awaiting);
         // A resumed publication of a moved game may have been the last the 0.6 move waited for.
         FinishGamesMove(*composition);
@@ -3276,7 +3311,6 @@ void RuntimeHost::Run() {
       ClearWork();
       Publish([&](RuntimeSnapshot& s) {
         s.preparing_app.reset();
-        s.queued_prepares.erase(request.app_id);
         ++s.prepares_handled;
         if (refusal.empty()) s.refusals.erase(request.app_id);
         else s.refusals[request.app_id] = refusal;

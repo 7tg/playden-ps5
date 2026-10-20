@@ -11,6 +11,7 @@
 #include "runtime/launch_service.h"
 #include "runtime/package_installer.h"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include "runtime/layout_migration.h"
@@ -229,9 +230,9 @@ struct RuntimeSnapshot {
   std::map<std::uint32_t, std::string> refusals;
   std::uint64_t prepares_handled = 0;
   std::optional<std::uint32_t> preparing_app;  // the game being prepared now
-  // Games whose preparation is asked for but not started yet: it waits behind another game's
-  // preparation, or for the runtime to finish starting.
-  std::set<std::uint32_t> queued_prepares;
+  // Games whose preparation is asked for but not started yet, in the order they will start: each
+  // waits behind another game's preparation, or for the runtime to finish starting.
+  std::vector<std::uint32_t> queued_prepares;
   // How far the current copy (preparing_app) or deletion (removing_app) is, when
   // that is measurable; absent for steps whose progress is unknown.
   std::optional<float> work_progress;
@@ -270,6 +271,12 @@ struct RuntimeSnapshot {
   std::map<std::uint32_t, std::string> play_progress;
 };
 
+// Whether the game's preparation waits in the runtime's queue.
+inline bool PrepareQueued(const RuntimeSnapshot& snapshot, std::uint32_t app_id) {
+  return std::find(snapshot.queued_prepares.begin(), snapshot.queued_prepares.end(), app_id) !=
+         snapshot.queued_prepares.end();
+}
+
 inline constexpr const char* kPlayUpdatingForLayout = "Updating this game for Playden 0.6…";
 
 // A downloaded game to prepare. The game files stay at install_path.
@@ -304,8 +311,14 @@ class RuntimeHost {
   // The same state without a copy per call: shared and read-only, made again only after a change.
   // The UI reads it many times a frame; Snapshot() copies every field each time.
   std::shared_ptr<const RuntimeSnapshot> Shared() const;
-  // Queues preparation of a downloaded game, or a retry of a failed one.
+  // Queues preparation of a downloaded game, or a retry of a failed one. Games are prepared one
+  // at a time, in the order asked; asking again for a queued game keeps its place.
   void Prepare(RuntimePrepareRequest request);
+  // Moves a queued preparation to the front of the queue. The one running now finishes first.
+  // False when the game is not queued (it started or was never asked for): nothing changes.
+  bool PrepareNext(std::uint32_t app_id);
+  // While held, no queued preparation starts (a quit to Home waits for the running one only).
+  void HoldPreparations(bool hold);
   // Asks the console whether a game's PS5 title runs (from any origin, Home
   // included). A game with no prepared title reports stopped.
   void CheckActivity(std::uint32_t app_id);
@@ -464,6 +477,7 @@ class RuntimeHost {
   bool launch_poll_ = false;
   bool cleanup_requested_ = false;
   bool measure_requested_ = false;
+  bool prepares_held_ = false;
   std::map<std::uint32_t, std::string> title_names_;  // guarded by mutex_
   std::string steam_account_name_;                     // guarded by mutex_
   std::uint64_t steam_id_ = 0;                         // guarded by mutex_

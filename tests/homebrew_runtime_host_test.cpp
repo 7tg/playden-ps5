@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <thread>
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <unistd.h>
 
@@ -315,10 +316,107 @@ void QueuedPreparationIsPublishedUntilTaken() {
   Fixture fixture;
   RuntimeHost host(fixture.Config());
   host.Prepare(Hl2());
-  CHECK(host.Snapshot().queued_prepares.count(220) == 1);
+  CHECK(host.Snapshot().queued_prepares == std::vector<std::uint32_t>{220});
   CHECK(host.Start());
   const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
   CHECK(refused.queued_prepares.empty() && !refused.preparing_app);
+  host.Shutdown();
+}
+
+RuntimePrepareRequest Game(std::uint32_t app) {
+  return {app, "/data/homebrew/FAKE77031/games/" + std::to_string(app), "internal", "Game " + std::to_string(app)};
+}
+
+// The order the worker finished preparations in, from its log.
+struct PrepareLog {
+  std::mutex mutex;
+  std::vector<std::uint32_t> order;
+  void Attach(RuntimeHostConfig& config) {
+    config.log = [this](const std::string& line) {
+      constexpr const char* kResult = "prepare result app=";
+      if (line.rfind(kResult, 0) != 0) return;
+      std::lock_guard<std::mutex> lock(mutex);
+      order.push_back(static_cast<std::uint32_t>(std::stoul(line.substr(std::strlen(kResult)))));
+    };
+  }
+  std::vector<std::uint32_t> Order() {
+    std::lock_guard<std::mutex> lock(mutex);
+    return order;
+  }
+};
+
+// Preparations run one at a time in the order asked. Prepare next moves a waiting game to the front even
+// after the worker began a pass with every request waiting; the others keep their order. Asking again
+// for a queued game keeps its place, and a game that is not queued is left alone.
+void PrepareNextReordersWaitingPreparations() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  PrepareLog log;
+  log.Attach(config);
+  std::mutex gate_mutex;
+  std::condition_variable gate_changed;
+  bool block = false;
+  bool blocked = false;
+  config.hold_effective_uid = [&]() -> std::shared_ptr<void> {
+    std::unique_lock<std::mutex> lock(gate_mutex);
+    if (block) {
+      blocked = true;
+      gate_changed.notify_all();
+      gate_changed.wait(lock, [&] { return !block; });
+    }
+    return nullptr;
+  };
+  config.admit_kit = [](std::string* reason) -> std::optional<RuntimeKit> {
+    *reason = "No verified compatibility kit is installed.";
+    return std::nullopt;
+  };
+  RuntimeHost host(std::move(config));
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).status == RuntimeHostStatus::kReady);
+  {
+    std::lock_guard<std::mutex> lock(gate_mutex);
+    block = true;
+  }
+  host.Prepare(Game(10));
+  host.Prepare(Game(20));
+  host.Prepare(Game(30));
+  host.Prepare(Game(40));
+  host.Prepare(Game(20));
+  {
+    std::unique_lock<std::mutex> lock(gate_mutex);
+    CHECK(gate_changed.wait_for(lock, std::chrono::seconds(5), [&] { return blocked; }));
+  }
+  CHECK((host.Snapshot().queued_prepares == std::vector<std::uint32_t>{10, 20, 30, 40}));
+  CHECK(host.PrepareNext(30));
+  CHECK(host.PrepareNext(30));  // already first: nothing moves
+  CHECK(!host.PrepareNext(99));
+  CHECK((host.Snapshot().queued_prepares == std::vector<std::uint32_t>{30, 10, 20, 40}));
+  {
+    std::lock_guard<std::mutex> lock(gate_mutex);
+    block = false;
+  }
+  gate_changed.notify_all();
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepares_handled == 4; });
+  CHECK(done.queued_prepares.empty() && !done.preparing_app);
+  CHECK((log.Order() == std::vector<std::uint32_t>{30, 10, 20, 40}));
+  CHECK(!host.PrepareNext(30));  // handled: no longer queued
+  host.Shutdown();
+}
+
+// A quit to Home holds the queue: queued preparations wait until the hold is released.
+void HeldPreparationsWait() {
+  Fixture fixture;
+  RuntimeHost host(fixture.Config());
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).status == RuntimeHostStatus::kReady);
+  host.HoldPreparations(true);
+  host.Prepare(Hl2());
+  usleep(100000);
+  const auto held = host.Snapshot();
+  CHECK(held.prepares_handled == 0 && held.queued_prepares == std::vector<std::uint32_t>{220});
+  host.HoldPreparations(false);
+  const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
+  CHECK(refused.queued_prepares.empty());
   host.Shutdown();
 }
 
@@ -3683,6 +3781,8 @@ int main(int argc, char** argv) {
   WorkerMovesGamesUnderPublicationLease();
   NoKitRefusesPreparationWithoutDurableEffects();
   QueuedPreparationIsPublishedUntilTaken();
+  PrepareNextReordersWaitingPreparations();
+  HeldPreparationsWait();
   HoldsEffectiveUidWhileWorking();
   StartupReportsJournalsWithoutResuming();
   PublicStateRootIsUnavailable();
