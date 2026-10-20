@@ -161,7 +161,8 @@ bool ShareFolder(int fd, const fs::path& path, int depth, Walk& walk) {
     if (entry->d_type == DT_LNK) continue;
     if (walk.options.before_open) walk.options.before_open(path / name);
     // O_NOFOLLOW: a link swapped in is refused, never followed.
-    const int child = platform::OpenWalkChild(fd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    const int child = platform::OpenWalkChild(fd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC,
+                                              entry->d_fileno);
     if (child < 0) {
       if (errno == ENOSYS || errno == EINVAL) { ok = false; break; }
       if (errno != ELOOP && errno != EMLINK) ++result->skipped;

@@ -633,9 +633,15 @@ void live_root_access_missing() {
     Simulation long_error({}, {}, ModelMode::Live);
     long_error.ShowRootAccessMissing(std::string(400, 'x'));
     const auto& rows = long_error.view().rows;
-    const auto shortened = std::find_if(rows.begin(), rows.end(), [](const auto& row) { return row.key == "root-detail"; });
-    check(shortened != rows.end() && shortened->title.size() < 200 && shortened->title.find("…") != std::string::npos,
-          "root access: a long startup error is shortened");
+    const auto whole = std::find_if(rows.begin(), rows.end(), [](const auto& row) { return row.key == "root-detail"; });
+    check(whole != rows.end() && whole->title.find(std::string(400, 'x')) != std::string::npos,
+          "root access: a startup error with its diagnostics is shown whole");
+    Simulation runaway_error({}, {}, ModelMode::Live);
+    runaway_error.ShowRootAccessMissing(std::string(3000, 'x'));
+    const auto& runaway_rows = runaway_error.view().rows;
+    const auto shortened = std::find_if(runaway_rows.begin(), runaway_rows.end(), [](const auto& row) { return row.key == "root-detail"; });
+    check(shortened != runaway_rows.end() && shortened->title.size() < 1100 && shortened->title.find("…") != std::string::npos,
+          "root access: a runaway startup error is shortened");
 
     // Without the grant the FTP-made stubs fail the fallback's check too: that clause is left out.
     Simulation stubs({}, {}, ModelMode::Live);

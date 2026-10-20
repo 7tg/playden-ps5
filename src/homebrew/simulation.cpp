@@ -1021,9 +1021,9 @@ void Simulation::ShowLayoutNotice(const std::string& text) {
 
 void Simulation::ShowRootAccessMissing(const std::string& raw, bool granted) {
     if (!live()) return;
-    // One short line: the first failure and the helper's diagnostic are enough to report. The
-    // unused fallback launcher's path check is left out.
-    constexpr std::size_t kDetailLimit = 140;
+    // The whole failure and the helper's diagnostic, which the screen wraps: they are what the
+    // player reports. Only a runaway message is cut. The unused fallback launcher's path check is left out.
+    constexpr std::size_t kDetailLimit = 1000;
     std::string detail = raw;
     if (const auto from = detail.find("; launcher paths unavailable: "); from != std::string::npos) {
         const auto to = detail.find("; ", from + 2);

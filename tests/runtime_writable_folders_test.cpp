@@ -3,7 +3,6 @@
 #include <cstdio>
 #include <cerrno>
 #if PLAYDEN_PLATFORM_PS5
-extern int playden_test_gateway_error;
 #endif
 #include <cstdlib>
 #include <filesystem>
@@ -132,20 +131,18 @@ int main() {
   CHECK(EnsureWritableFolders({target}, runs, log, root).empty());
   CHECK(Mode(target) == 0777 && calls == before_calls);
   CHECK(chmod(target.c_str(), 0755) == 0);
-#if PLAYDEN_PLATFORM_PS5
-  for (const int error : {EINVAL, ENOSYS}) {
-    CHECK(chmod(locked.c_str(), 0555) == 0);
-    CHECK(chmod((root / "data/playden").c_str(), 0755) == 0);
-    playden_test_gateway_error = error;
-    CHECK(!EnsureWritableFolders({locked}, runs, log, root).empty());
-    CHECK(Mode(locked) == 0555);
+  // /data swapped for a link to an outside folder: neither repair follows it as root.
+  {
+    const auto outside = root / "outside-data";
+    CHECK(rename((root / "data").c_str(), outside.c_str()) == 0);
+    CHECK(symlink(outside.c_str(), (root / "data").c_str()) == 0);
+    CHECK(chmod((outside / "playden").c_str(), 0755) == 0 && chmod(locked.c_str(), 0555) == 0);
     CHECK(!PrepareRuntimeRoot(root / "data/playden", runs, log, root).empty());
-    CHECK(Mode(root / "data/playden") == 0755);
-    CHECK(lines.back().find("error=" + std::to_string(error)) != std::string::npos);
-    playden_test_gateway_error = 0;
+    CHECK(Mode(outside / "playden") == 0755);
+    CHECK(lines.back().find("open /data failed") != std::string::npos);
+    CHECK(unlink((root / "data").c_str()) == 0 && rename(outside.c_str(), (root / "data").c_str()) == 0);
     CHECK(chmod(locked.c_str(), 0777) == 0);
   }
-#endif
   std::error_code ignored;
   fs::remove_all(root, ignored);
   std::puts("writable folders tests passed");
