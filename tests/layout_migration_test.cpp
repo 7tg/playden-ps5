@@ -105,7 +105,7 @@ void MovesUserDataLogsAndGames() {
   CHECK(result.user_root == f->paths.user_root && result.log_root == f->paths.log_root &&
         result.games_root == f->paths.games_root);
   CHECK(Moved(f->paths));
-  CHECK(Mode(f->paths.user_root) == 0777 && Mode(f->paths.log_root) == 0777);
+  CHECK(Mode(f->paths.user_root) == 01777 && Mode(f->paths.log_root) == 01777);
   CHECK(Mode(f->paths.user_root / "session.v1") == 0600);
   CHECK(Mode(f->paths.user_root / "game-settings-private") == 0700);
   CHECK(Read(f->paths.user_root / "session.v1") == "credentials");

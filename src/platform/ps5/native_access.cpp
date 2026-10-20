@@ -278,6 +278,9 @@ NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
   }
 
   runtime_error.clear();
+  if (ops_.prepare_runtime_root &&
+      !ops_.prepare_runtime_root(ops_.context, options_.managed_runtime_root.c_str(), &runtime_error))
+    return granted_fallback(runtime_error);
   if (!ValidateRuntimeData(ops_, options_, &runtime_error))
     return granted_fallback(runtime_error);
 

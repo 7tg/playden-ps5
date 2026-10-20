@@ -19,7 +19,7 @@ struct PrivateTraversal {
 // belong to that user and have mode 0700 (or 0711 for traversal folders).
 // Existing foreign/public directories in the private tree are rejected, never
 // chmodded or taken over. Missing folders between boundary and private_root are
-// created 0777.
+// created 01777.
 bool EnsurePrivateDirectories(const std::filesystem::path& boundary,
                               const std::filesystem::path& private_root,
                               const std::filesystem::path& directory,

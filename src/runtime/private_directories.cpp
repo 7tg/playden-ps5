@@ -70,10 +70,10 @@ bool EnsurePrivateDirectories(const fs::path& boundary, const fs::path& private_
   for (const auto& part : relative) {
     path /= part;
     if (path == private_root) in_private = true;
-    // Shared parents it creates above the private root are 0777, so FTP and other
+    // Shared parents it creates above the private root are 01777, so FTP and other
     // apps can write beside them; existing ones keep their mode.
     const auto policy = PolicyFor(traversal, path);
-    auto next = !in_private ? current->OpenChild(part.string(), DirectoryPolicy::kApprovedTree, true, 0777)
+    auto next = !in_private ? current->OpenChild(part.string(), DirectoryPolicy::kApprovedTree, true, 01777)
                 : policy == DirectoryPolicy::kPrivateTraversable
                     ? current->OpenChild(part.string(), policy, true, traversal.created_mode)
                     : current->OpenChild(part.string(), policy, true);

@@ -576,7 +576,7 @@ void PrepareFixesRootOwnedHomebrewFolder() {
   CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
   CHECK(raises == 1);  // only the folder that failed its probe
   struct stat info{};
-  CHECK(stat(homebrew.c_str(), &info) == 0 && (info.st_mode & 07777) == 0777);
+  CHECK(stat(homebrew.c_str(), &info) == 0 && (info.st_mode & 07777) == 01777);
   CHECK(fs::is_regular_file(fixture.root / "data/homebrew/FAKE78001/game-launch.json"));
   host.Shutdown();
 }

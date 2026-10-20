@@ -2,6 +2,7 @@
 #include "runtime/game_install.h"
 #include "runtime/private_directories.h"
 #include "platform/storage.h"
+#include "platform/directory_walk.h"
 #include "steam/backend/json.h"
 
 #include <algorithm>
@@ -104,13 +105,24 @@ bool EmptyDirectory(const fs::path& directory) {
   return names && names->empty();
 }
 
-// A shared (0777) folder, made as root when the app user can't create it there.
-bool EnsureSharedDirectory(const LayoutOps& ops, const fs::path& directory) {
+// Shared parents are sticky; the games root stays non-sticky for imported root-owned games.
+bool EnsureSharedDirectory(const LayoutOps& ops, const fs::path& directory, mode_t mode = 01777) {
   const int kind = Kind(directory);
   if (kind == 1) return true;
   if (kind == 2) return false;
   const auto make = [&] {
-    return (::mkdir(directory.c_str(), 0777) == 0 || Kind(directory) == 1) && ::chmod(directory.c_str(), 0777) == 0;
+    const int parent = platform::OpenDirectoryWalk(directory.parent_path());
+    if (parent < 0) return false;
+    const auto name = directory.filename().string();
+    const bool made = platform::MakeWalkChild(parent, name.c_str(), mode) == 0;
+    const int fd = made ? platform::OpenWalkChild(parent, name.c_str(),
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) : -1;
+    const bool ok = fd >= 0 && ::fchmod(fd, mode) == 0;
+    const int error = errno;
+    if (fd >= 0) ::close(fd);
+    ::close(parent);
+    errno = error;
+    return ok;
   };
   if (make()) return true;
   return (errno == EACCES || errno == EPERM) && AsRoot(ops, make) && Kind(directory) == 1;
@@ -353,7 +365,7 @@ LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops) {
   // Once the games step is done the games folder exists, shared: a fresh install has
   // none to move. One that came with the moved games keeps its mode.
   const auto ensure_games_root = [&] {
-    if (Kind(paths.games_root) == 0 && !EnsureSharedDirectory(ops, paths.games_root))
+    if (Kind(paths.games_root) == 0 && !EnsureSharedDirectory(ops, paths.games_root, 0777))
       Log(ops, paths.games_root.string() + " can't be created: " + std::strerror(errno));
   };
   const Step initial = StepIndex(journal.step);

@@ -3,6 +3,7 @@
 #include "platform/ps5/title_activity.h"
 #include "platform/ps5/title_allow_list.h"
 #include "runtime/layout_migration.h"
+#include "runtime/writable_folders.h"
 #include <EGL/egl.h>
 #include "steam/backend/native_network.h"
 #include "app/diagnostic_log.h"
@@ -149,7 +150,14 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
   options.require_grant = true;
   const auto ops = filesystem.Ops();
   ops.read_source_identity(ops.context, "/app0", &context.source_identity);
-  NativeAccessBootstrap bootstrap(filesystem.Ops(), options);
+  auto startup_ops = filesystem.Ops();
+  startup_ops.prepare_runtime_root = [](void*, const char* root, std::string* error) {
+    *error = runtime::PrepareRuntimeRoot(root, WithRoot, [](const std::string& line) {
+      app::AppendLogLine("/app0/logs", "native-startup.log", line);
+    });
+    return error->empty();
+  };
+  NativeAccessBootstrap bootstrap(startup_ops, options);
   auto result = bootstrap.Prepare();
   if (!result.runtime_ready && !context.grant_diagnostic.empty())
     result.error += "; " + context.grant_diagnostic;

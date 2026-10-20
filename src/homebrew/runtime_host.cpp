@@ -966,7 +966,8 @@ std::string RuntimeHost::EnsureWritable(const std::string& install_path, const s
         std::none_of(relative.begin(), relative.end(), [](const auto& part) { return part == ".."; }))
       folders.push_back(HostPath(install_path) / relative);
   }
-  return rt::EnsureWritableFolders(folders, config_.as_root, [this](const std::string& line) { Log(line); });
+  return rt::EnsureWritableFolders(folders, config_.as_root, [this](const std::string& line) { Log(line); },
+                                    config_.host_namespace_prefix.empty() ? "/" : config_.host_namespace_prefix);
 }
 
 bool RuntimeHost::NeedsUnownedPublication(const Composition& c, const rt::RuntimeInstall& record) {

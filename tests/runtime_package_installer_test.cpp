@@ -1001,7 +1001,7 @@ void PrivateTitleFoldersAreRepublished() {
 }
 
 // Folders the installer creates get an explicit mode whatever the umask: the
-// shared staging parents are 0777, the title stays 0755.
+// shared staging parents are 01777, the title stays 0755.
 void CreatedFoldersIgnoreUmask() {
   for (const mode_t mask : {mode_t{0}, mode_t{077}}) {
     const auto previous = ::umask(mask);
@@ -1011,7 +1011,7 @@ void CreatedFoldersIgnoreUmask() {
     ::umask(previous);
     struct stat info{};
     for (const auto* shared : {"playden", "playden/staging"})
-      CHECK(::stat((fixture.host_data / shared).c_str(), &info) == 0 && (info.st_mode & 07777) == 0777);
+      CHECK(::stat((fixture.host_data / shared).c_str(), &info) == 0 && (info.st_mode & 07777) == 01777);
     CHECK(::stat((fixture.host_data / "homebrew/FAKE78001").c_str(), &info) == 0 && (info.st_mode & 07777) == 0755);
   }
 }

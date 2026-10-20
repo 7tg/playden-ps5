@@ -13,24 +13,24 @@ extern "C" int mkdirat(int, const char*, mode_t) { errno = EINVAL; return -1; }
 
 namespace fs = std::filesystem;
 
-// Folders created above the private root are shared (0777) whatever the umask;
+// Folders created above the private root are shared (01777) whatever the umask;
 // existing ones keep their mode, and the private tree stays 0700.
 void CreatedPublicAncestorsAreShared(const fs::path& boundary) {
   const auto mode = [](const fs::path& path) {
     struct stat info{};
     assert(stat(path.c_str(), &info) == 0);
-    return info.st_mode & 07777;
+    return info.st_mode & 017777;
   };
   const auto previous = umask(022);
   std::string error;
   const auto root = boundary / "shared/parent/install";
   assert(playden::runtime::EnsurePrivateDirectories(boundary, root, root / "child", &error));
-  assert(mode(boundary / "shared") == 0777 && mode(boundary / "shared/parent") == 0777);
+  assert(mode(boundary / "shared") == 01777 && mode(boundary / "shared/parent") == 01777);
   assert(mode(root) == 0700 && mode(root / "child") == 0700);
   assert(fs::create_directory(boundary / "existing") && chmod((boundary / "existing").c_str(), 0755) == 0);
   const auto kept = boundary / "existing/new/install";
   assert(playden::runtime::EnsurePrivateDirectories(boundary, kept, kept, &error));
-  assert(mode(boundary / "existing") == 0755 && mode(boundary / "existing/new") == 0777 && mode(kept) == 0700);
+  assert(mode(boundary / "existing") == 0755 && mode(boundary / "existing/new") == 01777 && mode(kept) == 0700);
   // Opening again finds the recorded modes unchanged.
   assert(playden::runtime::EnsurePrivateDirectories(boundary, kept, kept / "child", &error));
   umask(previous);
@@ -45,7 +45,7 @@ void TraversalChainAdmits0711(const fs::path& boundary) {
   const auto mode = [](const fs::path& path) {
     struct stat info{};
     assert(stat(path.c_str(), &info) == 0);
-    return info.st_mode & 07777;
+    return info.st_mode & 017777;
   };
   const auto previous = umask(077);
   const auto game = boundary / "playden/games/install-a";
@@ -55,7 +55,7 @@ void TraversalChainAdmits0711(const fs::path& boundary) {
   assert(EnsurePrivateDirectories(boundary, game, bottle / "drive_c/users", &error, traversal));
   assert(EnsurePrivateDirectories(boundary, game, game / "library/profiles", &error, traversal));
   assert(EnsurePrivateDirectories(boundary, game, game / ".playden-control", &error, traversal));
-  assert(mode(boundary / "playden") == 0777 && mode(boundary / "playden/games") == 0777);
+  assert(mode(boundary / "playden") == 01777 && mode(boundary / "playden/games") == 01777);
   for (const auto& folder : traversal.folders) assert(mode(folder) == 0711);
   assert(mode(bottle / "drive_c") == 0700 && mode(bottle / "drive_c/users") == 0700);
   assert(mode(game / "library/profiles") == 0700 && mode(game / ".playden-control") == 0700);

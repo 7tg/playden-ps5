@@ -503,7 +503,36 @@ void WritableManagedParentAllowsFirstRuntimeDirectoryCreation() {
 
 }  // namespace
 
+void RuntimeRepairRunsBetweenGrantAndWriteCheck() {
+  for (bool missing : {false, true}) {
+    FakeNative fake;
+    AddTree(fake, kAppRoot);
+    fake.identities[kAppRoot] = "playden-package-v1";
+    fake.expose_runtime_after_grant = !missing;
+    fake.read_only.insert(kRuntimeRoot);
+    auto ops = Ops(fake);
+    ops.prepare_runtime_root = [](void* context, const char* root, std::string*) {
+      auto& state = *static_cast<FakeNative*>(context);
+      CHECK(state.grants == 1);
+      CHECK(std::find(state.calls.begin(), state.calls.end(), "write:/data/playden") == state.calls.end());
+      state.paths[root] = NativePathKind::kDirectory;
+      state.read_only.erase(root);
+      state.calls.push_back("repair");
+      return true;
+    };
+    NativeAccessOptions options;
+    options.title_id = "FAKE77031";
+    options.require_grant = true;
+    options.user_service_after_grant = true;
+    NativeAccessBootstrap bootstrap(ops, options);
+    CHECK(bootstrap.Prepare().runtime_ready);
+    CHECK(std::find(fake.calls.begin(), fake.calls.end(), "repair") <
+          std::find(fake.calls.begin(), fake.calls.end(), "user"));
+  }
+}
+
 int main() {
+  RuntimeRepairRunsBetweenGrantAndWriteCheck();
   DeferredUserServiceRunsAfterGrantAndBeforeReturning();
   PathsRemainValidAfterGrant();
   GrantFailureDisablesRuntimeOnly();

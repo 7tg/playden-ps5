@@ -27,6 +27,7 @@ struct NativeAccessOps {
   NativePathKind (*path_kind)(void*, const char*) = nullptr;
   bool (*path_accessible)(void*, const char*, NativePathAccess) = nullptr;
   bool (*read_source_identity)(void*, const char*, std::string*) = nullptr;
+  bool (*prepare_runtime_root)(void*, const char*, std::string*) = nullptr;
 };
 
 struct NativeAccessOptions {

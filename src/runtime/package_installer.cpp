@@ -1148,8 +1148,8 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
   if (staging_parent_relative.empty() ||
       !PathComponentsHaveNoSymlink(paths_.host_data_root, staging_parent_relative, true))
     return Failed("staging-unavailable", "owned staging root is unavailable");
-  // /data/playden and its staging folder are shared parents: 0777 when created here.
-  CreateDirectoriesWithMode(staging.parent_path(), 0777, error);
+  // /data/playden and its staging folder are shared parents: 01777 when created here.
+  CreateDirectoriesWithMode(staging.parent_path(), 01777, error);
   if (error)
     return Failed("staging-unavailable", "owned staging root is unavailable");
   if (!SyncAncestors(staging.parent_path()))

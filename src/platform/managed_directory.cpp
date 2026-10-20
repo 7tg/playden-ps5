@@ -192,7 +192,8 @@ bool ManagedDirectory::InspectChild(const std::string& name, struct stat* result
 std::optional<ManagedDirectory> ManagedDirectory::OpenChild(
     const std::string& name, DirectoryPolicy policy, bool create, mode_t created_mode) const {
   if (!ValidName(name) || !Validate()) return std::nullopt;
-  if ((created_mode & ~0777) != 0 || (policy == DirectoryPolicy::kPrivate && created_mode != 0700) ||
+  if ((created_mode & ~01777) != 0 ||
+      ((created_mode & 01000) && policy != DirectoryPolicy::kApprovedTree) || (policy == DirectoryPolicy::kPrivate && created_mode != 0700) ||
       (policy == DirectoryPolicy::kPrivateTraversable && created_mode != 0700 && created_mode != 0711) ||
       (policy_ == DirectoryPolicy::kPrivate && policy != DirectoryPolicy::kPrivate) ||
       (policy_ == DirectoryPolicy::kPrivateTraversable && !PrivateFamily(policy))) {
