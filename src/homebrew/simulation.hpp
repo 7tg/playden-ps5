@@ -159,6 +159,8 @@ struct LiveRuntimeGame {
     std::size_t save_backups = 0;
     std::int64_t latest_save_backup = 0;
     std::string failure_code;  // Recorded preparation failure; detail remains available in diagnostics.
+    // Its setup waits for another game's to finish: Playden sets up one game at a time.
+    bool queued = false;
 };
 // Saves and settings kept from an uninstalled game (its private bottle).
 struct LiveKeptBottle {

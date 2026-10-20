@@ -1690,6 +1690,28 @@ void live_ready_prompt_matches_the_open_game() {
     check(requests.size() == 1 && requests[0].game_id == 548430, "Play syncs the game named in the prompt");
 }
 
+// A setup waiting behind another game's says so: the button goes quiet and the page names the game ahead.
+void live_queued_setup_names_the_game_ahead() {
+    using playden::homebrew::RuntimeState;
+    using playden::homebrew::LiveRuntimeGame;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Synthetic"), game(43, "Ahead")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{42, 600'000'000}, {43, 700'000'000}});
+    LiveRuntimeGame queued; queued.game_id = 42; queued.status = "Needs recovery"; queued.has_title = true;
+    queued.queued = true;
+    LiveRuntimeGame ahead; ahead.game_id = 43; ahead.status = "Preparing"; ahead.detail = "Step 3 of 6 · Copying";
+    model.UpdateRuntime(RuntimeState::Ready, {queued, ahead});
+    check(model.action("details:42"), "details open");
+    const auto* play = find_row(model, "details-play");
+    check(play && play->title == "Finish setup" && play->value == "Queued" && !play->enabled && play->action.empty(),
+          "a queued setup can't be asked for again and says it is queued");
+    const auto* setup = find_row(model, "details-setup");
+    check(setup && setup->value == "Waiting for Ahead" && setup->tone == "busy", "setup names the game ahead");
+    const auto* hint = find_row(model, "details-hint");
+    check(hint && hint->title == "Setup starts when Ahead is ready." && hint->tone == "busy", "hint says when it starts");
+}
+
 void live_play_does_the_next_useful_thing() {
     using playden::homebrew::RuntimeState;
     using playden::homebrew::LiveRuntimeGame;
@@ -2187,6 +2209,7 @@ int main() {
     live_launch_failure_remains_visible_without_a_details_status_line();
     live_download_reorder_reaches_service();
     live_play_does_the_next_useful_thing();
+    live_queued_setup_names_the_game_ahead();
     live_store_details_fill_the_description();
     live_ready_to_play_quits_to_home();
     live_ready_prompt_matches_the_open_game();

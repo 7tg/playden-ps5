@@ -3672,7 +3672,11 @@ void Simulation::rebuild_view() {
                             play.value = value.uninstall_status;
                             play.action.clear();
                         }
-                        if (!play.enabled && value.uninstall_status.empty() && value.status != "Preparing") {
+                        if (value.queued && value.uninstall_status.empty()) {
+                            play.value = "Queued";
+                            play.enabled = false;
+                            play.action.clear();
+                        } else if (!play.enabled && value.uninstall_status.empty() && value.status != "Preparing") {
                             const auto other = std::find_if(state_.runtime_games.begin(), state_.runtime_games.end(),
                                 [&](const auto& entry) { return entry.first != game->id && entry.second.status == "Preparing"; });
                             if (other != state_.runtime_games.end()) play.value = "Waiting";
@@ -3745,6 +3749,12 @@ void Simulation::rebuild_view() {
                 : status == "Failed" || status == "No kit" ? "problem"
                 : status == "Needs repair" || status == "Needs recovery" || status == "Registration pending" ||
                   status == "Removal incomplete" ? "attention" : "quiet";
+            // The game being set up now, when this one waits for it.
+            std::string ahead;
+            if (runtime && runtime->queued)
+                for (const auto& [other_id, other] : state_.runtime_games)
+                    if (other_id != game->id && other.status == "Preparing")
+                        if (const auto* other_game = find_game(state_, other_id)) ahead = other_game->title;
             auto& setup = row("details-setup", RowKind::Status, "Setup", "");
             setup.value = waiting ? "Waiting for the PS5" : kit_update ? "Kit update available"
                 : status == "Not prepared" ? "Not set up" : status == "Needs recovery" ? "Interrupted"
@@ -3752,8 +3762,15 @@ void Simulation::rebuild_view() {
                 : status == "Preparing" && runtime && !runtime->detail.empty() ? runtime->detail : status;
             setup.tone = tone;
             setup.enabled = false;
+            if (runtime && runtime->queued && runtime->uninstall_status.empty()) {
+                setup.value = ahead.empty() ? "Queued" : "Waiting for " + ahead;
+                setup.tone = "busy";
+            }
             std::string hint;
-            if (waiting) hint = "Quit Playden and " + game->title + " appears on the PS5 Home screen.";
+            if (runtime && runtime->queued && runtime->uninstall_status.empty())
+                hint = ahead.empty() ? "Setup starts when the game being set up is ready."
+                                     : "Setup starts when " + ahead + " is ready.";
+            else if (waiting) hint = "Quit Playden and " + game->title + " appears on the PS5 Home screen.";
             else if (status == "Registration pending") hint = "The PS5 hasn't confirmed " + game->title + " yet.";
             else if (status == "Removal incomplete") hint = "Removing " + game->title + " from the PS5 Home screen stopped partway.";
             else if (status == "Needs repair") hint = "Some of " + game->title + "'s setup files changed.";
@@ -3770,7 +3787,7 @@ void Simulation::rebuild_view() {
             }
             if (!hint.empty()) {
                 auto& note = row("details-hint", RowKind::Status, hint, "");
-                note.tone = tone;
+                note.tone = setup.tone;
                 note.enabled = false;
             }
         }

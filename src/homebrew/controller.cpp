@@ -1066,6 +1066,11 @@ void Controller::TickRuntime() {
     // Updating or repairing waits while this game is being started or played, and a queued
     // preparation is not asked for twice.
     if ((launching && busy) || snapshot.queued_prepares.count(id)) game.can_prepare = false;
+    // Queued behind another game's setup, from the runtime's queue or a Play that waits to ask it.
+    const auto waiting_play = play_after_prepare_.find(id);
+    game.queued = snapshot.preparing_app && *snapshot.preparing_app != id &&
+                  (snapshot.queued_prepares.count(id) ||
+                   (waiting_play != play_after_prepare_.end() && !waiting_play->second.queued));
     game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
                     play_queued_.empty() && !sync_before_play_.count(id);
     if (const auto note = play_notes_.find(id); note != play_notes_.end() && !launching) game.play_detail = note->second;
