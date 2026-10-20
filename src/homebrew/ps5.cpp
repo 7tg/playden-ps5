@@ -563,6 +563,8 @@ int main() {
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
         services.SetSelfUpdate(&self_update);
+        // A game bought or added to the library elsewhere: Steam pushes the new license list.
+        services.SetLicenseChanges([steam_cm] { return playden::steam::CmLicenseChanges(*steam_cm); });
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer(paths.assets_root);

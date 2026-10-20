@@ -121,6 +121,10 @@ struct CmClientHooks {
 // credentials change or Steam drops it. Destroying the session logs off.
 class CmSharedSession;
 std::shared_ptr<CmSharedSession> MakeCmSharedSession();
+// How many times Steam pushed a license list on the shared session whose packages differ from the
+// account's previous one: a game bought, added to the library or removed while Playden runs. It
+// starts at 0, and a new account's first list never counts. Safe from any thread.
+std::uint64_t CmLicenseChanges(const CmSharedSession& shared);
 
 // Without a shared session, a CM session per call: directory, connect (first four endpoints), hello,
 // logon with the stored refresh token, the pushed license list, then package PICS in batches of 50.

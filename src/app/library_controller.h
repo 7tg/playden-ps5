@@ -15,6 +15,8 @@ class LibraryController {
   void Tick();
   std::optional<steam::LibraryError> TakeClearResult();
   bool NeedsRenewal() const { return offline_ || needs_renewal_; }
+  // A load, refresh or clear is still running.
+  bool Busy() const { return request_ != 0 || clearing_; }
  private:
   void Loading();
   homebrew::Simulation& model_;

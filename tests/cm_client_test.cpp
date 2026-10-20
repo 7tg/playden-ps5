@@ -520,6 +520,64 @@ void SharedSessionLogsOnAgainForNewCredentials() {
   assert(CountSent(script, cm::kEMsgClientLogon) == 2 && CountSent(script, cm::kEMsgClientLogOff) == 0);
 }
 
+std::vector<std::uint8_t> LicenseListFrame(const std::vector<std::uint32_t>& packages) {
+  proto::Writer licenses;
+  for (const auto package : packages) {
+    proto::Writer license;
+    license.AddVarint(1, package);
+    license.AddFixed32(2, 1500000000);
+    licenses.AddMessage(2, license);
+  }
+  return ServerFrame(cm::kEMsgClientLicenseList, licenses.bytes());
+}
+
+bool WaitForLicenseChanges(const CmSharedSession& shared, std::uint64_t wanted) {
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  while (CmLicenseChanges(shared) != wanted && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(5ms);
+  return CmLicenseChanges(shared) == wanted;
+}
+
+// Steam pushes the license list again when a license is added (a free game added to the library on
+// another device). Only a different set of packages counts, also across a new logon.
+void SharedSessionCountsLicenseChanges() {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9)), LicenseListFrame({100, 200})};
+  script->on_service = {ServerFrame(cm::kEMsgServiceMethodResponse, {}, std::nullopt, 1)};
+  auto shared = MakeCmSharedSession();
+  auto client = MakeClient(script);
+  client.SetSharedSession(shared);
+  std::atomic<bool> cancel{false};
+  assert(Ping(client, cancel) == CmError::kNone);
+  // The first list after the first logon is what the library already reads.
+  assert(CmLicenseChanges(*shared) == 0);
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    script->Queue(LicenseListFrame({200, 100}));
+  }
+  std::this_thread::sleep_for(400ms);
+  assert(CmLicenseChanges(*shared) == 0);
+  // Pushed while the session is idle: the pump reads it.
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    script->Queue(LicenseListFrame({100, 200, 300}));
+  }
+  assert(WaitForLicenseChanges(*shared, 1));
+  // A rotated token logs on again; the list it gets differs from the last one seen.
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9)), LicenseListFrame({100, 300})};
+  }
+  auto rotated = Session();
+  rotated.refresh_token = "synthetic.rotated.token";
+  assert(client.WithServiceSession(rotated, 3000, cancel, [](const CmClient::ServiceCall& call, std::uint64_t) {
+    std::vector<std::uint8_t> reply;
+    return call("Cloud.Ping#1", {}, &reply, nullptr);
+  }) == CmError::kNone);
+  assert(WaitForLicenseChanges(*shared, 2));
+  assert(CountSent(script, cm::kEMsgClientLogon) == 2);
+}
+
 // A call waiting while another holds the shared session (a long library license scan, issue #47)
 // can be canceled, and its deadline starts only once it has the session.
 void WaitingForTheSharedSessionIsCancelableAndUntimed() {
@@ -790,6 +848,7 @@ int main(int argc, char** argv) {
   SharedSessionServesEveryClientWithOneLogon();
   ResetCmBackoff();
   SharedSessionLogsOnAgainForNewCredentials();
+  SharedSessionCountsLicenseChanges();
   ResetCmBackoff();
   WaitingForTheSharedSessionIsCancelableAndUntimed();
   ResetCmBackoff();

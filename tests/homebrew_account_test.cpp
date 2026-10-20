@@ -90,8 +90,11 @@ class Backend final : public AuthBackend {
 class LibraryBackendFixture final : public LibraryBackend {
  public:
   std::atomic<int> calls{0};
-  LibraryResult Fetch(const StoredSession&,const std::atomic<bool>&) override {
-    ++calls;return {LibraryError::kNone,{{42,"Connected synthetic game",{},{},{}}},false};
+  std::atomic<bool> block{false};
+  LibraryResult Fetch(const StoredSession&,const std::atomic<bool>& cancel) override {
+    ++calls;
+    while (block && !cancel) std::this_thread::sleep_for(1ms);
+    return {LibraryError::kNone,{{42,"Connected synthetic game",{},{},{}}},false};
   }
 };
 class CacheFixture final : public LibraryRepository {
@@ -449,6 +452,57 @@ void ConnectedLibraryAndOfflineRestart() {
     assert(!repo.Load().value() && !cache.value && model.state().games.empty());
   }
 }
+// Ticks for a while, for checks that something does not happen.
+void TickFor(Controller& controller,std::chrono::milliseconds duration) {
+  const auto until=std::chrono::steady_clock::now()+duration;
+  while (std::chrono::steady_clock::now()<until) { controller.Tick(); std::this_thread::sleep_for(1ms); }
+}
+// Steam pushed a changed license list (a game added to the library elsewhere): the library refreshes
+// once the changes settle, never during another refresh, and only while signed in.
+void LicenseChangesRefreshTheLibrary() {
+  Repository repo;repo.value=Session();CacheFixture cache;
+  {
+    Simulation model({}, {},ModelMode::Live);Backend backend;LibraryBackendFixture library_backend;
+    LibraryService library_service(library_backend,repo,&cache);
+    Controller controller(model,backend,repo,&library_service);
+    std::atomic<std::uint64_t> changes{0};
+    controller.SetLicenseChanges([&changes] { return changes.load(); },150ms);
+    Wait(controller,[&]{return model.state().games.size()==1 && !model.state().library_loading;});
+    assert(library_backend.calls==1);
+    TickFor(controller,300ms);
+    assert(library_backend.calls==1);
+    // A burst of lists makes one refresh, after the wait.
+    changes=1;controller.Tick();changes=2;controller.Tick();
+    TickFor(controller,100ms);
+    assert(library_backend.calls==1);
+    Wait(controller,[&]{return library_backend.calls==2 && !model.state().library_loading;});
+    TickFor(controller,300ms);
+    assert(library_backend.calls==2);
+    // A change while a refresh runs waits for it to finish.
+    library_backend.block=true;changes=3;
+    Wait(controller,[&]{return library_backend.calls==3;});
+    changes=4;
+    TickFor(controller,400ms);
+    assert(library_backend.calls==3 && model.state().library_loading);
+    library_backend.block=false;
+    Wait(controller,[&]{return library_backend.calls==4 && !model.state().library_loading;});
+    TickFor(controller,300ms);
+    assert(library_backend.calls==4 && model.state().games.size()==1);
+  }
+  {
+    // Offline: the saved library stays as it is.
+    Simulation model({}, {},ModelMode::Live);Backend backend;backend.error=AuthError::kNetwork;
+    LibraryBackendFixture library_backend;LibraryService library_service(library_backend,repo,&cache);
+    Controller controller(model,backend,repo,&library_service);
+    std::atomic<std::uint64_t> changes{0};
+    controller.SetLicenseChanges([&changes] { return changes.load(); },50ms);
+    Wait(controller,[&]{return model.state().account.authentication==AuthState::Offline && model.state().games.size()==1 &&
+                               !model.state().library_loading;});
+    changes=1;
+    TickFor(controller,300ms);
+    assert(library_backend.calls==0 && model.state().account.authentication==AuthState::Offline);
+  }
+}
 void RepeatedClearPreservesFirstIntent() {
   for(bool switching:{false,true}) {
     Repository repo;repo.value=Session();CacheFixture cache;
@@ -501,4 +555,4 @@ void SlowLicenseCheckShowsAfterAFewSeconds() {
   }
   std::filesystem::remove_all(root);
 }
-int main() { PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }
+int main() { PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); LicenseChangesRefreshTheLibrary(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }

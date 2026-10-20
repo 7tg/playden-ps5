@@ -346,6 +346,11 @@ class CmClient::Session {
 
   std::uint64_t steam_id() const { return steam_id_; }
 
+  // The license list Steam last pushed, and how many it has pushed: one after logon, and another
+  // whenever the account's licenses change (a game bought or added to the library).
+  const std::optional<cm::LicenseList>& licenses() const { return licenses_; }
+  std::uint64_t license_serial() const { return license_serial_; }
+
   // An idle turn until the deadline: answers the server and sends a heartbeat when due. kTimeout
   // means the session is still fine.
   CmError Idle() { return WaitFor([] { return false; }); }
@@ -426,6 +431,7 @@ class CmClient::Session {
           return;
         }
         licenses_ = std::move(list);
+        ++license_serial_;
         break;
       }
       case cm::kEMsgClientLoggedOff: {
@@ -483,6 +489,7 @@ class CmClient::Session {
   bool logon_pending_ = false;
   std::optional<cm::LogonResponse> logon_;
   std::optional<cm::LicenseList> licenses_;
+  std::uint64_t license_serial_ = 0;
   bool logged_off_ = false;
   std::int32_t heartbeat_seconds_ = 0;
   Clock::time_point next_heartbeat_{};
@@ -514,6 +521,7 @@ class CmSharedSession {
 
  private:
   friend class CmClient;
+  friend std::uint64_t CmLicenseChanges(const CmSharedSession& shared);
   // Keeps an idle session alive: answers the server and sends heartbeats on its interval. A call
   // waiting for the session never waits more than one short turn.
   void Pump() {
@@ -527,13 +535,31 @@ class CmSharedSession {
           session_->Rebind(Clock::now() + std::chrono::milliseconds(100), kNoCancel);
           const auto idle = session_->Idle();
           if (idle != CmError::kTimeout && idle != CmError::kNone) Drop();
+          else NoteLicenses();
         }
       }
       stop_lock.lock();
       stop_wake_.wait_for(stop_lock, std::chrono::milliseconds(100), [this] { return stop_; });
     }
   }
+  // Compares the license list the session last received with the account's previous one. Steam
+  // pushes a new list when a license is added or removed; the first list after a logon only
+  // repeats what the library fetch already reads, unless it changed while the session was closed.
+  // Called with mutex_ held, whenever a call or the pump has let the session read frames.
+  void NoteLicenses() {
+    if (!session_ || session_->license_serial() == noted_serial_ || !session_->licenses()) return;
+    noted_serial_ = session_->license_serial();
+    std::set<std::uint32_t> packages;
+    for (const auto& license : session_->licenses()->licenses) packages.insert(license.package_id);
+    const auto account = session_->steam_id();
+    if (account == licensed_account_ && packages != licensed_packages_)
+      license_changes_.fetch_add(1, std::memory_order_acq_rel);
+    licensed_account_ = account;
+    licensed_packages_ = std::move(packages);
+  }
   void Drop() {
+    NoteLicenses();
+    noted_serial_ = 0;
     if (transport_) CmClient::EndSession(session_.get(), transport_.get(), [](const std::string& line) {
       std::lock_guard<std::mutex> lock(g_log_mutex);
       if (g_log) g_log("owner=shared " + line);
@@ -547,6 +573,10 @@ class CmSharedSession {
   std::unique_ptr<MessageTransport> transport_;
   std::unique_ptr<CmClient::Session> session_;
   std::string key_;
+  std::uint64_t noted_serial_ = 0;
+  std::uint64_t licensed_account_ = 0;
+  std::set<std::uint32_t> licensed_packages_;
+  std::atomic<std::uint64_t> license_changes_{0};
   std::mutex stop_mutex_;
   std::condition_variable stop_wake_;
   bool stop_ = false;
@@ -554,6 +584,10 @@ class CmSharedSession {
 };
 
 std::shared_ptr<CmSharedSession> MakeCmSharedSession() { return std::make_shared<CmSharedSession>(); }
+
+std::uint64_t CmLicenseChanges(const CmSharedSession& shared) {
+  return shared.license_changes_.load(std::memory_order_acquire);
+}
 
 void CmClient::EndSession(Session* session, MessageTransport* transport,
                           const std::function<void(const std::string&)>& log) {
@@ -627,6 +661,7 @@ void CmClient::Release(Lease* lease, CmError result) {
     // The shared session stays for the next call unless this one left it in an unknown state.
     const bool clean = result == CmError::kNone || result == CmError::kRejected;
     if (!clean || !lease->session || !lease->session->usable()) shared_->Drop();
+    else shared_->NoteLicenses();
     lease->session = nullptr;
     lease->hold.unlock();
     return;

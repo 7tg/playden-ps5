@@ -253,6 +253,7 @@ void Controller::Tick() {
   for (const auto& event : service_->Pump(16)) Apply(event);
   lap(0);
   if(library_) { library_->Tick();AdvanceClear(); }
+  TickLicenseChanges();
   lap(1);
   if(persistence_) { persistence_->Tick();AdvanceOrganizationClear(); }
   lap(2);
@@ -1461,6 +1462,20 @@ void Controller::Apply(const steam::SteamEvent& event) {
       break;
     }
   }
+}
+void Controller::TickLicenseChanges() {
+  if (!license_changes_ || !library_) return;
+  const auto changes = license_changes_();
+  const auto now = std::chrono::steady_clock::now();
+  // Each change restarts the wait, so a burst of license lists makes one refresh.
+  if (seen_license_changes_ && changes != *seen_license_changes_) license_refresh_at_ = now + license_refresh_delay_;
+  seen_license_changes_ = changes;
+  if (!license_refresh_at_) return;
+  if (established_auth_ != AuthState::SignedIn || model_.state().account.id.empty()) { license_refresh_at_.reset(); return; }
+  // A refresh, sign-in or sign-out in progress: wait for it, then refresh with the new licenses.
+  if (now < *license_refresh_at_ || phase_ != Phase::Idle || library_->Busy() || library_->NeedsRenewal()) return;
+  license_refresh_at_.reset();
+  library_->Refresh();
 }
 void Controller::TickSelfUpdate() {
   if (!self_update_) return;
