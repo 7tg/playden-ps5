@@ -144,7 +144,8 @@ std::vector<const Game*> filtered_games(const State& state)
         result.push_back(&game);
     }
 
-    if (state.library.sort == "name")
+    const auto& sort = state.library.view_sort.empty() ? state.library.sort : state.library.view_sort;
+    if (sort == "name")
     {
         std::stable_sort(result.begin(), result.end(), [&](const Game* left, const Game* right) {
             if(!state.simulation_mode) {
@@ -154,25 +155,25 @@ std::vector<const Game*> filtered_games(const State& state)
             return ascii_lower(left->title) < ascii_lower(right->title);
         });
     }
-    else if (state.library.sort == "recent-played")
+    else if (sort == "recent-played")
     {
         std::stable_sort(result.begin(), result.end(), [](const Game* left, const Game* right) {
             return optional_descending(left->last_played, right->last_played);
         });
     }
-    else if (state.library.sort == "recent-added")
+    else if (sort == "recent-added")
     {
         std::stable_sort(result.begin(), result.end(), [](const Game* left, const Game* right) {
             return optional_descending(left->added_at, right->added_at);
         });
     }
-    else if (state.library.sort == "playtime")
+    else if (sort == "playtime")
     {
         std::stable_sort(result.begin(), result.end(), [](const Game* left, const Game* right) {
             return optional_descending(left->playtime_minutes, right->playtime_minutes);
         });
     }
-    else if (state.library.sort == "install-size")
+    else if (sort == "install-size")
     {
         std::stable_sort(result.begin(), result.end(), [](const Game* left, const Game* right) {
             return optional_descending(left->install_bytes, right->install_bytes);

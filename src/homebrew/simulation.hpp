@@ -317,6 +317,9 @@ struct UserLibrary {
     std::string query;
     std::string scope = "all";
     std::string sort = "name";
+    // The order "More" on Continue playing shows (most recently played first) while the Library,
+    // or a game opened from it, is on screen. Never saved: `sort` stays the player's own choice.
+    std::string view_sort;
     std::set<std::string> filters;
 };
 

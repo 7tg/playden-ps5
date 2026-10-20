@@ -2800,6 +2800,9 @@ bool Simulation::installed_list_open() const {
 }
 
 void Simulation::rebuild_view() {
+    // The Library left for another tab: the order "More" showed ends with that visit.
+    if (state_.navigation.route != Route::Library && state_.navigation.route != Route::Details)
+        state_.library.view_sort.clear();
     // An uninstall batch lives while its list is open; later stops are notices again.
     if (!rebuilding_overlay_ && uninstall_batch_ && !installed_list_open()) uninstall_batch_.reset();
     const bool has_overlay = state_.editor.active || !state_.navigation.modals.empty();
@@ -4950,8 +4953,9 @@ void Simulation::activate() {
         state_.navigation.focus_key.rfind("shelf-", 0) == 0 && state_.navigation.focus_key.size() > 5 &&
         state_.navigation.focus_key.compare(state_.navigation.focus_key.size() - 5, 5, "-more") == 0) {
         // "More" at the end of Continue playing: every game in the Library, most recently played first.
+        // Only this visit: the sort the player chose comes back when the Library is opened again.
         state_.library.scope = "all";
-        state_.library.sort = "recent-played";
+        state_.library.view_sort = "recent-played";
         state_.library.query.clear();
         state_.navigation.library_rail_focused = false;
         state_.navigation.route = Route::Library;
@@ -5706,13 +5710,13 @@ void Simulation::activate() {
         state_.navigation.modals.clear();
         pending_destructive_action_.clear();
     } else if (action_name.rfind("sort-", 0) == 0) {
-        state_.library.sort = action_name.substr(5); close_modal(); reconcile_library_selection(state_); save_profile();
+        state_.library.sort = action_name.substr(5); state_.library.view_sort.clear(); close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name.rfind("filter-", 0) == 0) {
         const auto filter = action_name.substr(7);
         if (state_.library.filters.contains(filter)) state_.library.filters.erase(filter); else state_.library.filters.insert(filter);
         close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name == "filters-reset") {
-        state_.library.filters.clear(); state_.library.sort = "name"; close_modal(); reconcile_library_selection(state_); save_profile();
+        state_.library.filters.clear(); state_.library.sort = "name"; state_.library.view_sort.clear(); close_modal(); reconcile_library_selection(state_); save_profile();
     } else if (action_name == "game-settings") {
         const auto id = state_.navigation.selected_game_id;
         const auto setup = game_setups_.find(id);

@@ -889,6 +889,46 @@ void live_sort_sheet_refreshes_the_library() {
           "the disabled row asks for nothing");
 }
 
+// "More" on Continue playing shows the Library most recently played first, for that visit only: the
+// sort the player chose stays saved and comes back when the Library is opened again.
+void continue_playing_more_keeps_the_chosen_sort() {
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    std::vector<GameSummary> games;
+    for(playden::GameId id=1;id<=25;++id) {
+        auto summary=game(id,"Game "+std::to_string(100+id));
+        summary.last_played_unix_seconds=1'700'000'000ULL+id;
+        summary.playtime_minutes=id%2 ? 1000+id : id;
+        games.push_back(std::move(summary));
+    }
+    check(model.UpdateLibrary({std::move(games),false,{},false,false,{}}),"played library loaded");
+    check(model.action("r1") && model.action("triangle"),"live filter modal opens");
+    activate(model,"sort-playtime");
+    check(model.state().library.sort=="playtime" && model.visible_games().front()->id==25,"playtime sort chosen");
+    check(model.action("l1") && model.state().navigation.route==Route::Home,"back to Home");
+    for(int step=0;step<30 && model.state().navigation.focus_key!="shelf-continue-more";++step) model.action("right");
+    check(model.state().navigation.focus_key=="shelf-continue-more","More on Continue playing focused");
+    check(model.action("cross") && model.state().navigation.route==Route::Library,"More opens the Library");
+    const auto more=model.visible_games();
+    check(more.size()==25 && more.front()->id==25 && more[1]->id==24,"More lists the most recently played first");
+    check(model.state().library.sort=="playtime" && model.ExportOrganization().sort=="playtime",
+          "More does not replace the saved sort");
+    check(model.action("details:24") && model.action("circle") && model.state().navigation.route==Route::Library &&
+          model.visible_games()[1]->id==24,"a game opened from More returns to the same order");
+    check(model.action("l1") && model.action("r1") && model.state().navigation.route==Route::Library,"Library opened again");
+    const auto again=model.visible_games();
+    check(again.front()->id==25 && again[1]->id==23,"the chosen playtime sort is back");
+
+    // Choosing a sort in the More view keeps it.
+    check(model.action("l1"),"back to Home");
+    for(int step=0;step<30 && model.state().navigation.focus_key!="shelf-continue-more";++step) model.action("right");
+    check(model.action("cross") && model.action("triangle"),"sort sheet from the More view");
+    activate(model,"sort-name");
+    check(model.state().library.sort=="name" && model.visible_games().front()->id==1,"a chosen sort replaces the More order");
+    check(model.action("l1") && model.action("r1") && model.state().library.sort=="name" &&
+          model.visible_games().front()->id==1,"and stays chosen");
+}
+
 void live_uninstall_removes_title_and_keeps_saves() {
     using playden::homebrew::InstallRequestKind;
     using playden::homebrew::LiveRuntimeGame;
@@ -2085,6 +2125,7 @@ int main() {
     live_saves_upload_all();
     live_filters_only_use_available_facts();
     live_sort_sheet_refreshes_the_library();
+    continue_playing_more_keeps_the_chosen_sort();
     live_empty_filter_keeps_the_signed_in_account();
     projects_only_owned_facts_and_delivery_status();
     loading_and_failure_preserve_last_good_snapshot();

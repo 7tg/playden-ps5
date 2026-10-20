@@ -28,6 +28,18 @@ struct Auth final : AuthBackend {
 struct Library final : LibraryBackend {
   LibraryResult Fetch(const StoredSession&,const std::atomic<bool>&) override {return {LibraryError::kNone,{{42,"Synthetic game",{},{},{}}},false};}
 };
+// Enough played games for Continue playing to end with More.
+struct PlayedLibrary final : LibraryBackend {
+  LibraryResult Fetch(const StoredSession&,const std::atomic<bool>&) override {
+    LibraryResult result{LibraryError::kNone,{},false};
+    for(GameId id=1;id<=25;++id) {
+      GameSummary game{id,"Played "+std::to_string(100+id),{},{},{}};
+      game.last_played_unix_seconds=1700000000ULL+id;game.playtime_minutes=id%2 ? 1000+id : id;
+      result.games.push_back(game);
+    }
+    return result;
+  }
+};
 struct Organization final : OrganizationRepository {
   explicit Organization(Storage& storage):store(storage){}
   OrganizationStore store;
@@ -112,6 +124,36 @@ void RestartAndDeletion(const std::filesystem::path& root) {
     assert(preferences.Load().status==PreferencesLoadStatus::kLoaded);
   }
 }
+// The sort chosen in Sort and filters is the one the Library opens with after a restart, also when
+// "More" on Continue playing was used last.
+void SortSurvivesRestart(const std::filesystem::path& root) {
+  Storage storage(root.string());PreferencesStore preferences(storage);Organization organization(storage);LibraryCache cache(storage);
+  Sessions sessions;Auth auth;PlayedLibrary backend;
+  {
+    Simulation model({}, {},ModelMode::Live);LibraryService library(backend,sessions,&cache);
+    app::PersistenceService persistence(preferences,organization);Controller controller(model,auth,sessions,&library,&persistence);
+    Wait(controller,[&]{return model.state().games.size()==25 && !model.state().library_loading;});
+    assert(model.action("r1"));if(model.state().navigation.library_rail_focused)assert(model.action("right"));
+    assert(model.action("triangle"));Choose(model,"sort-playtime");
+    assert(model.state().library.sort=="playtime");
+    assert(model.action("l1") && model.state().navigation.route==Route::Home);
+    for(int step=0;step<30 && model.state().navigation.focus_key!="shelf-continue-more";++step) model.action("right");
+    assert(model.action("cross") && model.state().navigation.route==Route::Library);
+    assert(model.visible_games().front()->id==25 && model.visible_games()[1]->id==24);
+    Wait(controller,[&]{const auto saved=organization.Load(123);return saved.ok() && saved.value() && saved.value()->sort=="playtime";});
+    controller.Shutdown();
+  }
+  const auto saved=organization.Load(123);
+  assert(saved.ok() && saved.value() && saved.value()->sort=="playtime");
+  {
+    Simulation model({}, {},ModelMode::Live);LibraryService library(backend,sessions,&cache);
+    app::PersistenceService persistence(preferences,organization);Controller controller(model,auth,sessions,&library,&persistence);
+    Wait(controller,[&]{return model.state().games.size()==25 && !model.state().library_loading && model.state().library.sort=="playtime";});
+    assert(model.action("r1") && model.state().navigation.route==Route::Library);
+    const auto games=model.visible_games();
+    assert(games.front()->id==25 && games[1]->id==23);
+  }
+}
 void EditWhileLoading(const std::filesystem::path& root) {
   Storage storage(root.string());PreferencesStore preferences(storage);Organization organization(storage);LibraryCache cache(storage);
   OrganizationSnapshot seed;seed.favorites.insert(77);seed.notes[77]="Keep unrelated note";
@@ -133,5 +175,5 @@ void EditWhileLoading(const std::filesystem::path& root) {
 }
 int main() {
   const auto root=std::filesystem::temp_directory_path()/("playden-persistence-integration-"+std::to_string(getpid()));
-  std::filesystem::create_directories(root);RestartAndDeletion(root);EditWhileLoading(root/"delayed");std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root);RestartAndDeletion(root);EditWhileLoading(root/"delayed");SortSurvivesRestart(root/"sort");std::filesystem::remove_all(root);
 }
