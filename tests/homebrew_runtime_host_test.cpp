@@ -2681,6 +2681,14 @@ void WorkerMovesGamesUnderPublicationLease() {
     host.Shutdown();
   }
   fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  if (geteuid() != 0) {
+    CHECK(::chmod(old.c_str(), 0000) == 0);
+    RuntimeHost host(config);
+    CHECK(host.Start() && host.WaitForStartup());
+    CHECK(rename_checks == 0 && record_checks == 0);
+    host.Shutdown();
+    CHECK(::chmod(old.c_str(), 0755) == 0);
+  }
   {
     RuntimeHost host(config);
     CHECK(host.Start() && host.WaitForStartup());

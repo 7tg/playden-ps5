@@ -1323,7 +1323,9 @@ bool RuntimeHost::MoveGames(Composition& c, std::string* error) {
   std::vector<platform::ManagedFileLock> leases;
   const auto postpone = [&](const std::string& why) {
     Log("layout games postponed: " + why);
-    if (rename_pending && std::filesystem::exists(config_.layout_paths->app_root / "games")) return true;
+    struct stat old_games{};
+    if (rename_pending && ::lstat((config_.layout_paths->app_root / "games").c_str(), &old_games) == 0 &&
+        S_ISDIR(old_games.st_mode)) return true;
     *error = "The games move could not finish: " + why;
     return false;
   };
@@ -1331,8 +1333,14 @@ bool RuntimeHost::MoveGames(Composition& c, std::string* error) {
     if (!rt::RebaseInstallPath(record.install_path, move->first, move->second)) continue;
     const auto rebased = rt::RebaseInstallPath(record.install_path, move->first, move->second);
     // Missing game folders have nothing Home can be using at either location.
-    if (!std::filesystem::is_directory(HostPath(record.install_path)) &&
-        !std::filesystem::is_directory(HostPath(*rebased))) continue;
+    bool present = false;
+    for (const auto& path : {record.install_path, *rebased}) {
+      std::error_code status_error;
+      present |= std::filesystem::is_directory(HostPath(path), status_error);
+      if (status_error && status_error != std::errc::no_such_file_or_directory)
+        return postpone("the game folder " + path + " cannot be inspected: " + status_error.message());
+    }
+    if (!present) continue;
     const auto control_path = HostPath(record.data_root) / ".playden-control";
     auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
     auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher)
