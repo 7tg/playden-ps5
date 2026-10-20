@@ -37,9 +37,9 @@ bool SetTraversableMode(const std::filesystem::path& folder, mode_t mode);
 // Opens a tree to everyone (FTP runs as root, which the console gives no permission bypass):
 // app-owned folders become 0777, app-owned regular files 0666 with their execute bits kept.
 // Links are never followed, entries of other owners are neither changed nor entered, files
-// with more than one link are left alone, and the walk is bounded. On the console (by path)
-// each folder must still be the entry listed, in a folder its path still names; the walk ends
-// where one changed. ok: the root is missing, or an owned folder that could be listed and
+// with more than one link are left alone, and the walk is bounded. Every ancestor and child
+// opens by descriptor without following links, including on the console via the syscall gateway.
+// Listed credential subtrees stay 0700/0600. ok: the root is missing, or an owned folder that could be listed and
 // nothing changed under the walk; truncated: the walk stopped at its bound; skipped counts
 // entries that could not be opened or changed, linked the files with other links.
 struct SharedTreeResult {
@@ -50,9 +50,14 @@ struct SharedTreeResult {
   std::size_t skipped = 0;
   std::size_t linked = 0;
 };
-// Test seams: by_path walks the console's way on the host; before_open runs before each entry opens.
+// Launcher credentials under the Windows profile. Empty until a launcher writes credentials
+// here; game saves and emulator settings are not sign-in tokens.
+const std::vector<std::filesystem::path>& PrivateProfilePaths();
+bool IsPrivateProfilePath(const std::filesystem::path& relative,
+                          const std::vector<std::filesystem::path>& private_paths);
+// before_open runs before each entry opens (race tests).
 struct SharedTreeOptions {
-  bool by_path = false;
+  std::vector<std::filesystem::path> private_paths = PrivateProfilePaths();
   std::function<void(const std::filesystem::path&)> before_open;
 };
 SharedTreeResult OpenTreeToEveryone(const std::filesystem::path& root, const SharedTreeOptions& options = {});

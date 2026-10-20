@@ -153,6 +153,7 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(runtime_private_directories_native_policy_test
         "${CMAKE_SOURCE_DIR}/tests/runtime_private_directories_native_policy_test.cpp"
         "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp"
+        "${CMAKE_SOURCE_DIR}/tests/directory_gateway_host.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
     target_include_directories(runtime_private_directories_native_policy_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_compile_features(runtime_private_directories_native_policy_test PRIVATE cxx_std_17)
@@ -191,6 +192,7 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
         "${CMAKE_SOURCE_DIR}/tests/runtime_package_installer_test.cpp"
         "${CMAKE_SOURCE_DIR}/src/runtime/package_installer.cpp"
         "${CMAKE_SOURCE_DIR}/src/runtime/private_directories.cpp"
+        "${CMAKE_SOURCE_DIR}/tests/directory_gateway_host.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/managed_directory.cpp")
     target_compile_definitions(runtime_package_installer_native_policy_test PRIVATE
         PLAYDEN_PLATFORM_PS5=1 PLAYDEN_TEST_AT_UNAVAILABLE=1)

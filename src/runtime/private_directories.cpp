@@ -1,5 +1,6 @@
 #include "runtime/private_directories.h"
 #include "platform/managed_directory.h"
+#include "platform/directory_walk.h"
 #include <cerrno>
 #include <cstring>
 #include <dirent.h>
@@ -124,7 +125,7 @@ int OpenEntry(int folder, const struct stat& folder_info, const fs::path& folder
 constexpr int kSharedTreeDepth = 64;
 constexpr std::size_t kSharedTreeEntries = 200000;
 struct Walk {
-  bool by_path;
+  fs::path root;
   const SharedTreeOptions& options;
   std::size_t entries = 0;
   SharedTreeResult* result;
@@ -136,8 +137,10 @@ bool ShareFolder(int fd, const fs::path& path, int depth, Walk& walk) {
   struct stat info{};
   if (::fstat(fd, &info) != 0 || !S_ISDIR(info.st_mode)) { ::close(fd); return false; }
   if (info.st_uid != ::geteuid()) { ::close(fd); ++result->skipped; return true; }
-  if ((info.st_mode & 07777) != 0777) {
-    if (::fchmod(fd, 0777) != 0) { ::close(fd); ++result->skipped; return true; }
+  const bool private_folder = IsPrivateProfilePath(path.lexically_relative(walk.root), walk.options.private_paths);
+  const mode_t folder_mode = private_folder ? 0700 : 0777;
+  if ((info.st_mode & 07777) != folder_mode) {
+    if (::fchmod(fd, folder_mode) != 0) { ::close(fd); ++result->skipped; return true; }
     ++result->changed;
   }
   const int listing_fd = ::dup(fd);
@@ -158,10 +161,9 @@ bool ShareFolder(int fd, const fs::path& path, int depth, Walk& walk) {
     if (entry->d_type == DT_LNK) continue;
     if (walk.options.before_open) walk.options.before_open(path / name);
     // O_NOFOLLOW: a link swapped in is refused, never followed.
-    bool stop = false;
-    const int child = OpenEntry(fd, info, path, name.c_str(), walk.by_path, 0, &stop);
-    if (stop) { result->changed_under = true; ok = false; break; }
+    const int child = platform::OpenWalkChild(fd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
     if (child < 0) {
+      if (errno == ENOSYS || errno == EINVAL) { ok = false; break; }
       if (errno != ELOOP && errno != EMLINK) ++result->skipped;
       continue;
     }
@@ -177,7 +179,8 @@ bool ShareFolder(int fd, const fs::path& path, int depth, Walk& walk) {
     if (S_ISREG(opened.st_mode) && opened.st_nlink != 1) {
       ++result->linked;
     } else if (S_ISREG(opened.st_mode) && opened.st_uid == ::geteuid()) {
-      const mode_t wanted = 0666 | (opened.st_mode & 0111);
+      const mode_t wanted = IsPrivateProfilePath((path / name).lexically_relative(walk.root), walk.options.private_paths)
+                                ? 0600 : 0666 | (opened.st_mode & 0111);
       if ((opened.st_mode & 07777) != wanted) {
         if (::fchmod(child, wanted) == 0) ++result->changed;
         else ++result->skipped;
@@ -224,35 +227,38 @@ int OpenChildFolderNoFollow(int parent_fd, const fs::path& parent_path, const st
 }
 bool SetTraversableMode(const fs::path& folder, mode_t mode) {
   if (mode != 0700 && mode != 0711) { errno = EINVAL; return false; }
-  struct stat before{};
-  if (::lstat(folder.c_str(), &before) != 0) return errno == ENOENT;
-  const auto current = before.st_mode & 07777;
-  if (!S_ISDIR(before.st_mode) || before.st_uid != ::geteuid() || (current != 0700 && current != 0711) ||
-      current == mode)
-    return true;
-  const int fd = ::open(folder.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-  if (fd < 0) return false;
-  struct stat opened{};
-  const bool same = ::fstat(fd, &opened) == 0 && opened.st_dev == before.st_dev && opened.st_ino == before.st_ino &&
-                    opened.st_uid == ::geteuid();
-  const bool changed = same && ::fchmod(fd, mode) == 0 && ::fsync(fd) == 0;
+  const int fd = platform::OpenDirectoryWalk(folder);
+  if (fd < 0) return errno == ENOENT;
+  struct stat info{};
+  bool ok = ::fstat(fd, &info) == 0;
+  const auto current = info.st_mode & 07777;
+  if (ok && info.st_uid == ::geteuid() && (current == 0700 || current == 0711) && current != mode)
+    ok = ::fchmod(fd, mode) == 0 && ::fsync(fd) == 0;
   const int error = errno;
   ::close(fd);
   errno = error;
-  return changed;
+  return ok;
+}
+const std::vector<fs::path>& PrivateProfilePaths() {
+  // Main writes no launcher sign-in tokens inside drive_c/users/prospero yet. Add each
+  // credential file or dedicated credential subtree here when its writer is introduced.
+  static const std::vector<fs::path> paths;
+  return paths;
+}
+bool IsPrivateProfilePath(const fs::path& relative, const std::vector<fs::path>& private_paths) {
+  for (const auto& path : private_paths) {
+    const auto within = relative.lexically_relative(path);
+    if (within == "." || SafeRelative(within)) return true;
+  }
+  return false;
 }
 SharedTreeResult OpenTreeToEveryone(const fs::path& root, const SharedTreeOptions& options) {
   SharedTreeResult result;
-  struct stat before{};
-  if (::lstat(root.c_str(), &before) != 0) { result.ok = errno == ENOENT; return result; }
-  if (!S_ISDIR(before.st_mode) || before.st_uid != ::geteuid()) return result;
-  const int fd = ::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-  struct stat opened{};
-  if (fd < 0 || ::fstat(fd, &opened) != 0 || opened.st_dev != before.st_dev || opened.st_ino != before.st_ino) {
-    if (fd >= 0) ::close(fd);
-    return result;
-  }
-  Walk walk{options.by_path || !kDescriptorRelative, options, 0, &result};
+  for (const auto& path : options.private_paths)
+    if (!SafeRelative(path)) { errno = EINVAL; return result; }
+  const int fd = platform::OpenDirectoryWalk(root);
+  if (fd < 0) { result.ok = errno == ENOENT; return result; }
+  Walk walk{root, options, 0, &result};
   result.ok = ShareFolder(fd, root, 0, walk);
   return result;
 }

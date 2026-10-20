@@ -893,6 +893,8 @@ PackageActionResult FilesystemPackageInstaller::SettleBottleModes(const RuntimeI
   if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");
   const bool shared = ProfileShared(record, *paths);
   const auto traversal = BottleTraversal(*paths, shared);
+  if (shared && !SetTraversableMode(paths->game.parent_path(), 0711))
+    return Failed("repair-mode", "the games profile parent could not be opened");
   if (!IsPrivateDirectoryTree(paths->game, paths->bottle, traversal))
     return Failed("repair-ownership", "the bottle is not this install's private directory");
   // A kit without bottle-profile-shared admits only 0700 there (after a kit downgrade too), and
@@ -906,7 +908,7 @@ PackageActionResult FilesystemPackageInstaller::SettleBottleModes(const RuntimeI
       return Failed("repair-mode", "the permissions of " + folder.string() + " could not be set: " + strerror(errno));
   // The profile only matters to FTP: what can't be opened is logged, never a failure of the game.
   SharedTreeResult opened;
-  if (shared) opened = OpenTreeToEveryone(paths->bottle / "drive_c/users/prospero");
+  if (shared) opened = OpenTreeToEveryone(paths->bottle / "drive_c/users/prospero", {operations_.private_profile_paths, {}});
   if (operations_.log)
     operations_.log("bottle modes install=" + record.install_id + " way=" + (shared ? "0711" : "0700") +
                     (shared ? " profile_opened=" + std::to_string(opened.changed) + " skipped=" +
@@ -1242,7 +1244,9 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     const bool profile_file = shared_profile &&
         std::mismatch(profile_relative.begin(), profile_relative.end(), relative.begin(), relative.end()).first ==
             profile_relative.end();
-    const unsigned mode = profile_file ? (0666 | (mapping.file->mode & 0111))
+    const bool private_profile_file = profile_file &&
+        IsPrivateProfilePath(relative.lexically_relative(profile_relative), operations_.private_profile_paths);
+    const unsigned mode = private_profile_file ? 0600 : profile_file ? (0666 | (mapping.file->mode & 0111))
                           : template_stage ? (0600 | (mapping.file->mode & 0100)) : mapping.file->mode;
     const int output = ::open(destination.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
     if (input < 0 || output < 0) {
@@ -1325,7 +1329,7 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
           current = std::move(next);
         }
       }
-      if (!OpenTreeToEveryone(user).ok)
+      if (!OpenTreeToEveryone(user, {operations_.private_profile_paths, {}}).ok)
         return Failed("private-directory", "cannot open the bottle's user profile: " + user.string());
     }
     for (const char* folder : kProfileFolders) {
@@ -1364,6 +1368,8 @@ PackageActionResult FilesystemPackageInstaller::CopyMappings(
     const auto game = paths_.host_data_root / "playden/games" / record.install_id;
     const PrivateTraversal parents{{game, game / "library", game / "library/prefixes"},
                                    static_cast<mode_t>(shared_profile ? 0711 : 0700)};
+    if (shared_profile && !SetTraversableMode(game.parent_path(), 0711))
+      return Failed("repair-mode", "the games profile parent could not be opened");
     if (!EnsurePrivateDirectories(paths_.host_data_root, game, final.parent_path(), &detail, parents))
       return Failed("private-directory", detail);
   } else {

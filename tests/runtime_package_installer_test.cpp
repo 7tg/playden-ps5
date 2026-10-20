@@ -181,6 +181,7 @@ struct Fixture {
   bool legacy_descriptor = false;
   std::function<void(const std::filesystem::path&, const std::filesystem::path&, std::error_code&)> rename_path;
   std::vector<std::string> logs;
+  std::vector<std::filesystem::path> private_profile_paths;
 
   Fixture() {
     Write(kit / "titles/variant/eboot.bin", "native", 0755);
@@ -251,6 +252,7 @@ struct Fixture {
 
   FilesystemPackageInstaller Installer(bool inject_sync = true) {
     PackageInstallerOperations operations;
+    operations.private_profile_paths = private_profile_paths;
     operations.rename_path = rename_path;
     operations.log = [&](const std::string& message) { logs.push_back(message); };
     operations.hash_file = TestHash;
@@ -620,6 +622,12 @@ unsigned ModeOf(const std::filesystem::path& path) {
 // 0711 there whatever the kit; the other private folders stay 0700.
 void SharedProfileBottleModes() {
   Fixture fixture;
+  fixture.private_profile_paths = {"AppData/Launcher", "token.txt"};
+  for (const char* relative : {"AppData/Launcher/auth/token.txt", "token.txt"}) {
+    const auto path = std::string("template/bottle/drive_c/users/prospero/") + relative;
+    Write(fixture.kit / path, "token", 0644);
+    fixture.view.files.push_back({path, 5, *TestHash(fixture.kit / path), 0644});
+  }
   Write(fixture.kit / "template/bottle/drive_c/users/prospero/Documents/kit.ini", "kit", 0644);
   fixture.view.files.push_back({"template/bottle/drive_c/users/prospero/Documents/kit.ini", 3,
                                 *TestHash(fixture.kit / "template/bottle/drive_c/users/prospero/Documents/kit.ini"), 0644});
@@ -639,7 +647,9 @@ void SharedProfileBottleModes() {
   CHECK(metadata.state == PackageActionState::kComplete);
   CHECK(ModeOf(game) == 0700 && ModeOf(game / "title-metadata") == 0700);
   CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
+  CHECK(::chmod(game.parent_path().c_str(), 0700) == 0);
   CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+  CHECK(ModeOf(game.parent_path()) == 0711);
   for (const auto& path : {game, game / "library", game / "library/prefixes", bottle, bottle / "drive_c",
                            bottle / "drive_c/users"})
     CHECK(ModeOf(path) == 0711);
@@ -647,6 +657,7 @@ void SharedProfileBottleModes() {
   CHECK(ModeOf(bottle / "drive_c/windows/system.reg") == 0600);
   for (const char* folder : {"", "AppData", "AppData/LocalLow", "AppData/Roaming", "Documents", "Saved Games"})
     CHECK(ModeOf(profile / folder) == 0777);
+  CHECK(ModeOf(profile / "token.txt") == 0600 && ModeOf(profile / "AppData/Launcher") == 0700);
   CHECK(ModeOf(profile / "Documents/kit.ini") == 0666 && Read(profile / "Documents/kit.ini") == "kit");
   CHECK(installer.ValidateArtifacts(record).state == PackageActionState::kComplete);
   CHECK(installer.Inspect(record).mutable_bottle_owned);
@@ -661,6 +672,16 @@ void SharedProfileBottleModes() {
   }
   for (const auto& path : {game / ".playden-control", game / "library/profiles", game / "library/input"})
     if (std::filesystem::exists(path)) CHECK(ModeOf(path) == 0700);
+
+  // Credentials stay private through initial copy, repeat copy, settling and repair.
+  for (unsigned pass = 0; pass < 3; ++pass) {
+    CHECK(ModeOf(profile / "AppData/Launcher") == 0700);
+    CHECK(ModeOf(profile / "AppData/Launcher/auth/token.txt") == 0600);
+    CHECK(ModeOf(profile / "token.txt") == 0600);
+    CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
+    CHECK(installer.SettleBottleModes(record).state == PackageActionState::kComplete);
+    CHECK(installer.RepairBottle(record).state == PackageActionState::kComplete);
+  }
 
   // Wine (umask 077) saves 0600 in 0700 folders; settling opens them again. Links are never
   // followed, a file with another link (a private one linked in) is left alone, and the
@@ -698,23 +719,34 @@ void SharedProfileBottleModes() {
   // A 0700 bottle (made before the capability) opens on Repair with the capable kit.
   CHECK(installer.RepairBottle(record).state == PackageActionState::kComplete);
   CHECK(ModeOf(game) == 0711 && ModeOf(bottle / "drive_c/users") == 0711);
+  for (const auto& ancestor : {bottle / "drive_c/users", bottle / "drive_c"}) {
+    const auto saved = ancestor.parent_path() / "saved-chain";
+    std::filesystem::rename(ancestor, saved);
+    std::filesystem::create_directory_symlink(saved, ancestor);
+    CHECK(installer.SettleBottleModes(record).state == PackageActionState::kFailed);
+    std::filesystem::remove(ancestor);
+    std::filesystem::rename(saved, ancestor);
+  }
   // Other modes on the way are not private: refused, never chmodded.
   CHECK(::chmod((game / "library").c_str(), 0755) == 0);
   CHECK(installer.SettleBottleModes(record).code == "repair-ownership");
   CHECK(ModeOf(game / "library") == 0755);
 }
 
-// The console walks by path: the same profile opens, a hard link stays private, and a folder
-// swapped for another mid-walk (its path names something else) ends the walk there.
+// The profile walk keeps using the opened directory when its name is swapped.
 void SharedTreeWalksByPath() {
   TemporaryDirectory temporary;
   const auto root = temporary.path / "profile";
+  Write(temporary.path / "outside/users/prospero/secret", "secret", 0600);
+  std::filesystem::create_directory_symlink(temporary.path / "outside", temporary.path / "drive_c");
+  CHECK(!OpenTreeToEveryone(temporary.path / "drive_c/users/prospero").ok);
+  CHECK(ModeOf(temporary.path / "outside/users/prospero/secret") == 0600);
   Write(root / "AppData/Roaming/Game/save.dat", "save", 0600);
   Write(root / "Documents/notes.txt", "notes", 0600);
   Write(temporary.path / "private/secret", "secret", 0600);
   CHECK(::link((temporary.path / "private/secret").c_str(), (root / "Documents/secret").c_str()) == 0);
   SharedTreeOptions options;
-  options.by_path = true;
+
   auto opened = OpenTreeToEveryone(root, options);
   CHECK(opened.ok && !opened.changed_under && opened.linked == 1);
   CHECK(ModeOf(root / "AppData/Roaming/Game") == 0777 && ModeOf(root / "AppData/Roaming/Game/save.dat") == 0666);
@@ -732,7 +764,7 @@ void SharedTreeWalksByPath() {
     std::filesystem::rename(temporary.path / "outside", root / "Documents");
   };
   opened = OpenTreeToEveryone(root, options);
-  CHECK(swapped && !opened.ok && opened.changed_under);
+  CHECK(swapped && opened.ok && !opened.changed_under);
   CHECK(ModeOf(root / "Documents") == 0700 && ModeOf(root / "Documents/inside.txt") == 0600);
 
   // Folder by folder (OpenGameFolders): a link component is refused, whatever it points at.

@@ -6,21 +6,21 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#if defined(__PROSPERO__)
+#if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
 extern "C" int __wrap_openat(int, const char*, int, ...);
 extern "C" int __wrap_mkdirat(int, const char*, mode_t);
 #endif
 
 namespace playden::platform {
 inline int OpenWalkChild(int parent, const char* name, int flags) {
-#if defined(__PROSPERO__)
+#if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
   return __wrap_openat(parent, name, flags);
 #else
   return ::openat(parent, name, flags);
 #endif
 }
 inline int MakeWalkChild(int parent, const char* name, mode_t mode) {
-#if defined(__PROSPERO__)
+#if defined(__PROSPERO__) || (defined(PLAYDEN_PLATFORM_PS5) && PLAYDEN_PLATFORM_PS5)
   return __wrap_mkdirat(parent, name, mode);
 #else
   return ::mkdirat(parent, name, mode);

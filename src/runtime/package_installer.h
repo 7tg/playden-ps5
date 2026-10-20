@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/private_directories.h"
 
 #include "runtime/install_service.h"
 #include "runtime/private_directories.h"
@@ -124,6 +125,7 @@ struct PublicationPaths {
 };
 
 struct PackageInstallerOperations {
+  std::vector<std::filesystem::path> private_profile_paths = PrivateProfilePaths();
   std::function<std::optional<std::string>(const std::filesystem::path&)> hash_file;
   std::function<std::optional<std::string>(std::string_view)> hash_bytes;
   std::function<std::optional<std::uint64_t>(const std::filesystem::path&)> free_bytes;
