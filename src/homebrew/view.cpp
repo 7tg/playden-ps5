@@ -8,6 +8,7 @@
 #include "homebrew/browse.hpp"
 #include "homebrew/focus_motion.hpp"
 #include "homebrew/qr.hpp"
+#include "homebrew/queue_layout.hpp"
 #include "homebrew/simulation.hpp"
 #include <ctime>
 
@@ -508,7 +509,7 @@ class Render::Impl
             draw_library(scene, simulation);
             break;
         case Route::Downloads:
-            draw_downloads(scene, route_view, state);
+            draw_queue(scene, route_view, state);
             break;
         case Route::Settings:
             draw_settings(scene, route_view, state);
@@ -716,7 +717,7 @@ class Render::Impl
         tabs_.style.track = false;
         tabs_.style.focus_ring = false;
         tabs_.style.on_page = true;
-        tabs_.set_tabs({{"Home"}, {"Library"}, {"Downloads", 1}, {"Settings"}});
+        tabs_.set_tabs({{"Home"}, {"Library"}, {"Queue", 1}, {"Settings"}});
         tabs_.set_bounds({96.0F, 54.0F, 760.0F, 56.0F});
 
         grid_.style.theme = theme_;
@@ -832,10 +833,15 @@ class Render::Impl
         if (current_state_->simulation_mode)
             pending = 1;
         else
+        {
+            // Unfinished downloads and preparations (the one running and those waiting).
             pending = static_cast<std::size_t>(std::count_if(current_state_->jobs.begin(), current_state_->jobs.end(),
                 [](const Job &job) {
                     return job.state != JobState::Cancelled && job.state != JobState::Downloaded && job.stage != JobStage::Uninstall;
                 }));
+            const auto &preparation = current_state_->preparation_queue;
+            pending += preparation.waiting.size() + (preparation.active ? 1U : 0U);
+        }
         // Saves: the games that need the player, or a spinner while a check or Sync all runs.
         std::size_t needs_you = 0;
         for (const auto &[id, cloud] : current_state_->cloud)
@@ -843,7 +849,7 @@ class Render::Impl
                                   cloud.status == CloudStatus::Failed))
                 ++needs_you;
         const bool saves_busy = current_state_->saves_job.kind != SavesJobKind::None;
-        static constexpr std::array<const char *, 5> names = {"Home", "Library", "Downloads", "Saves", "Settings"};
+        static constexpr std::array<const char *, 5> names = {"Home", "Library", "Queue", "Saves", "Settings"};
         float x = kSafeX;
         constexpr float cy = 82.0F;
         for (int tab = 0; tab < 5; ++tab)
@@ -1844,227 +1850,363 @@ class Render::Impl
         }
     }
 
-    void draw_downloads(ui::Canvas &canvas, const ViewData &view, const State &state)
+    // When a finished download or preparation ended: "just now", "12 min ago", then relative_time.
+    static std::string finished_words(std::int64_t finished_at, std::int64_t now)
     {
-        (void)view;
-        std::vector<const Job*> jobs;
-        for (const Job& job : state.jobs)
-            if (job.state != JobState::Cancelled)
-                jobs.push_back(&job);
-        std::stable_sort(jobs.begin(), jobs.end(), [](const Job* left, const Job* right) {
-            return left->queue_order < right->queue_order;
-        });
-        // The card shows the running transfer, or else the first one in queue order (a failed or paused
-        // download does not jump ahead of the queue).
-        const auto active = std::find_if(jobs.begin(), jobs.end(), [](const Job* job) {
-            return job->state == JobState::Downloading || job->state == JobState::Verifying ||
-                   job->state == JobState::Pausing;
-        });
-        // The card shows a transfer; finished downloads only follow the queue in the list below.
-        const Job* primary = active != jobs.end() ? *active :
-            (jobs.empty() || jobs.front()->state == JobState::Downloaded ? nullptr : jobs.front());
+        const std::int64_t seconds = std::max<std::int64_t>(0, now - finished_at);
+        return seconds < 60     ? std::string("just now")
+             : seconds < 3600 ? std::to_string(seconds / 60) + " min ago"
+                              : relative_time(finished_at, now);
+    }
 
-        section_label("Transfers", 96.0F, 146.0F);
-        const gfx::Rect active_card{96.0F, 180.0F, 1000.0F, 230.0F};
-        scene_.shadow(active_card, 12.0F, 24.0F, gfx::Color::rgb(0x000000, 0.35F));
-        scene_.rounded_rect(active_card, 12.0F, kPanel);
-        if (primary == nullptr)
-        {
-            ui::text(scene_, fonts_.display, "No transfers", 136.0F, 272.0F, 56.0F, kText);
-            ui::text(scene_, fonts_.regular,
-                     state.simulation_mode ? "Install a game to start a simulated transfer."
-                                           : "Install a game from its details to download it here.",
-                     136.0F, 322.0F, 26.0F, kSecondary);
-        }
-        else
-        {
-            const Game* game = game_by_id(state, primary->game_id);
-            if (game != nullptr)
-                draw_poster(*game, {116.0F, 196.0F, 132.0F, 198.0F}, false, -1.0F, false);
-            else
-                scene_.rounded_rect({116.0F, 196.0F, 132.0F, 198.0F}, 8.0F, kMuted.with_alpha(0.25F));
-            const std::string title = !primary->title.empty() ? primary->title
-                                      : game == nullptr       ? "Unknown game" : game->title;
-            dynamic_text(title, 282.0F, 238.0F, 36.0F, kText, 750.0F);
-            ui::text(scene_, fonts_.semibold,
-                     primary->stage_text.empty() ? job_stage_label(primary->stage) : primary->stage_text.c_str(),
-                     282.0F, 278.0F, 24.0F, primary->state == JobState::Failed ? kRed :
-                            primary->state == JobState::Paused ? kAmber : kAccent);
-            ui::text(scene_, fonts_.regular,
-                     primary->state_text.empty() ? job_state_label(primary->state) : primary->state_text.c_str(),
-                     1038.0F, 278.0F, 22.0F, kSecondary, gfx::Align::right);
-            const float progress = primary->total_bytes == 0 ? 0.0F :
-                static_cast<float>(primary->completed_bytes) / static_cast<float>(primary->total_bytes);
-            ui::ProgressBar bar;
-            bar.style.theme = theme_;
-            bar.style.height = 12.0F;
-            bar.style.placement = ui::LabelPlacement::none;
-            bar.style.status = primary->state == JobState::Failed ? ui::Status::danger :
-                               primary->state == JobState::Paused ? ui::Status::warning : ui::Status::accent;
-            bar.style.finish_flash = false;
-            bar.set_bounds({282.0F, 302.0F, 756.0F, 12.0F});
-            bar.set_value(std::clamp(progress, 0.0F, 1.0F), true);
-            bar.draw(canvas);
-            if (primary->state == JobState::Downloading && primary->checking_licenses)
-            {
-                // Large accounts take a minute here, before Steam gives the download size (issue #47).
-                spinner(292.0F, 345.0F, 9.0F, kBlue);
-                ui::text(scene_, fonts_.regular, "Checking your Steam licenses…", 314.0F, 352.0F, 22.0F, kText);
-            }
-            else
-            {
-                const std::string bytes = byte_count(primary->completed_bytes) + " / " +
-                                          byte_count(primary->total_bytes);
-                ui::text(scene_, fonts_.regular, bytes, 282.0F, 352.0F, 22.0F, kText);
-                ui::text(scene_, fonts_.regular, FormatDownloadRate(primary->state == JobState::Downloading ? primary->bytes_per_second : std::nullopt,
-                                             primary->state == JobState::Downloading ? primary->eta_seconds : std::nullopt), 1038.0F,
-                         352.0F, 22.0F, kSecondary, gfx::Align::right);
-            }
-            const bool card_focused = route_focus_ && state.navigation.focus_key == "job-" + primary->id;
-            focus_ring(scene_, active_card, control_focus("job-" + primary->id, card_focused));
-            if (card_focused)
-                stats_.focused_control_key = "job-" + primary->id;
-        }
-
-        std::vector<const Job*> secondary;
-        secondary.reserve(jobs.size());
-        for (const Job *job : jobs)
-            if (job != primary)
-                secondary.push_back(job);
-        // While a job's sheet is open the list keeps that job's row in view instead of jumping to the top.
+    // Queue: Downloads, then Preparation, one section expanded, then one line of drives. The model's rows
+    // say what shows and in which order; the list between the page title and the drives scrolls to keep
+    // the focused row whole, and the drives and the button guide stay put.
+    void draw_queue(ui::Canvas &canvas, const ViewData &view, const State &state)
+    {
+        const QueueLayout layout = BuildQueueLayout(state);
+        section_label("Downloads and preparation", kSafeX, 160.0F);
+        ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, view.subtitle, 22.0F, 1000.0F), 1824.0F, 161.0F, 22.0F,
+                 kSecondary, gfx::Align::right);
+        // While a sheet is open the row it came from stays in view.
         const std::string &list_focus = state.navigation.modals.empty() ? state.navigation.focus_key
                                                                          : state.navigation.modals.front().opener_focus_key;
-        const auto focused_job = std::find_if(secondary.begin(), secondary.end(), [&list_focus](const Job *job) {
-            return list_focus == "job-" + job->id;
-        });
-        const int secondary_focus = focused_job == secondary.end() ? 0 :
-            static_cast<int>(std::distance(secondary.begin(), focused_job));
-        // Five rows fit above the button guide; longer queues scroll smoothly to the focused row. The
-        // window is exactly five rows tall, so scrolling moves whole rows and none shows in part.
-        constexpr float job_pitch = 104.0F, job_top = 438.0F, job_viewport = 5 * job_pitch - 12.0F;
-        const float job_offset = list_scroll("downloads", secondary_focus * job_pitch, secondary_focus * job_pitch + 92.0F,
-                                             job_viewport, secondary.empty() ? 0.0F : secondary.size() * job_pitch - 12.0F,
-                                             state.reduced_motion);
-        // The clip leaves room for the focus ring around the first and the last row.
-        scene_.push_clip({80.0F, job_top - 10.0F, 1032.0F, job_viewport + 20.0F});
-        for (std::size_t index = 0; index < secondary.size(); ++index)
-        {
-            const float row_y = job_top + index * job_pitch - job_offset;
-            if (row_y + job_pitch < job_top - 8.0F || row_y > job_top + job_viewport)
-                continue;
-            const Job *job = secondary[index];
-            const Game* game = game_by_id(state, job->game_id);
-            const gfx::Rect row{96.0F, row_y, 1000.0F, 92.0F};
-            scene_.rounded_rect(row, 8.0F, kPanel);
-            dynamic_text(!job->title.empty() ? std::string_view(job->title)
-                         : game == nullptr  ? std::string_view("Unknown game") : std::string_view(game->title),
-                         122.0F, row_y + 42.0F, 30.0F, kText, 560.0F);
-            const bool finished = job->state == JobState::Downloaded;
-            std::string state_text = job->state_text.empty() ? job_state_label(job->state) : job->state_text;
-            if (finished && job->finished_at > 0 && !state.simulation_mode)
+        const auto focus_of = [&](const std::string &key) {
+            const bool focused = route_focus_ && state.navigation.focus_key == key;
+            if (focused)
+                stats_.focused_control_key = key;
+            return control_focus(key, focused);
+        };
+        const auto entry_of = [&](const std::string &key) -> const QueueEntry * {
+            for (const QueueSection *section : {&layout.downloads, &layout.preparation})
             {
-                // Short enough to stay clear of the size on the right.
-                const std::int64_t now = static_cast<std::int64_t>(state.clock_ticks);
-                const std::int64_t seconds = std::max<std::int64_t>(0, now - job->finished_at);
-                state_text += " · " + (seconds < 60     ? std::string("just now")
-                                       : seconds < 3600 ? std::to_string(seconds / 60) + " min ago"
-                                                        : relative_time(job->finished_at, now));
+                if (section->active && section->active->key == key)
+                    return &*section->active;
+                for (const QueueEntry &entry : section->rows)
+                    if (entry.key == key)
+                        return &entry;
             }
-            ui::text(scene_, fonts_.regular, state_text, 712.0F, row_y + 42.0F,
-                     22.0F, job->state == JobState::Failed ? kRed : kSecondary);
-            const std::string bytes = finished ? byte_count(job->total_bytes)
-                                               : byte_count(job->completed_bytes) + " / " + byte_count(job->total_bytes);
-            ui::text(scene_, fonts_.regular, bytes, 1068.0F, row_y + 42.0F, 22.0F, kSecondary,
-                     gfx::Align::right);
-            const float progress = job->total_bytes == 0 ? 0.0F :
-                static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
-            scene_.rounded_rect({122.0F, row_y + 68.0F, 946.0F, 5.0F}, 2.5F, kText.with_alpha(0.12F));
-            scene_.rounded_rect({122.0F, row_y + 68.0F, 946.0F * std::clamp(progress, 0.0F, 1.0F), 5.0F},
-                                2.5F, job->state == JobState::Failed ? kRed : kAccent);
-            const bool row_focused = route_focus_ && state.navigation.focus_key == "job-" + job->id;
-            focus_ring(scene_, row, control_focus("job-" + job->id, row_focused), true);
-            if (row_focused)
-                stats_.focused_control_key = "job-" + job->id;
+            return nullptr;
+        };
+        const auto card = [&](const std::string &key) {
+            return (layout.downloads.active && layout.downloads.active->key == key) ||
+                   (layout.preparation.active && layout.preparation.active->key == key);
+        };
+
+        constexpr float list_top = 196.0F, list_bottom = 884.0F, viewport = list_bottom - list_top;
+        constexpr float heading_height = 52.0F, card_height = 116.0F, row_height = 90.0F;
+        struct Placed { const ViewRow *row; float y; float height; };
+        std::vector<Placed> placed;
+        float y = 0.0F, focus_top = 0.0F, focus_bottom = 0.0F;
+        for (const ViewRow &row : view.rows)
+        {
+            if (row.key.rfind("storage-", 0) == 0)
+                continue;
+            const bool heading = row.kind == RowKind::Heading;
+            if (heading && !placed.empty())
+                y += 14.0F;  // the space between the two sections
+            const float height = heading ? heading_height : card(row.key) ? card_height : row_height;
+            placed.push_back({&row, y, height});
+            if (row.key == list_focus)
+            {
+                focus_top = y;
+                focus_bottom = y + height;
+            }
+            y += height + (heading ? 6.0F : 10.0F);
+        }
+        const float content = placed.empty() ? 0.0F : placed.back().y + placed.back().height;
+        // Room for the focus ring above and below the focused row.
+        const float offset = list_scroll("queue", std::max(0.0F, focus_top - 12.0F), focus_bottom + 12.0F, viewport,
+                                         content + 12.0F, state.reduced_motion);
+
+        if (layout.nothing())
+        {
+            ui::text(scene_, fonts_.display, "Nothing in the queue", kWidth * 0.5F, 500.0F, 56.0F, kText, gfx::Align::center);
+            ui::paragraph(scene_, fonts_.regular, "Downloads and game preparation show here. Install a game from its details to start.",
+                          kWidth * 0.5F, 552.0F, 26.0F, 800.0F, 36.0F, kSecondary, 2, gfx::Align::center);
+        }
+
+        const std::int64_t now = static_cast<std::int64_t>(state.clock_ticks);
+        constexpr float left = kSafeX, width = 1824.0F - kSafeX;
+        scene_.push_clip({0.0F, list_top - 12.0F, kWidth, viewport + 18.0F});
+        for (const Placed &item : placed)
+        {
+            const float top = list_top + item.y - offset;
+            if (top + item.height < list_top - 12.0F || top > list_bottom + 12.0F)
+                continue;
+            const ViewRow &row = *item.row;
+            const gfx::Rect box{left, top, width, item.height};
+            const float amount = focus_of(row.key);
+            if (row.kind == RowKind::Heading)
+            {
+                // The section's name, its counts and a chevron: down while open, right while closed.
+                const gfx::Color ink = row.selected ? kText : kSecondary;
+                ui::text(scene_, fonts_.display, ui::upper(row.title), left + 4.0F, top + 34.0F, 22.0F, ink, gfx::Align::left,
+                         2.6F);
+                ui::text(scene_, fonts_.regular, fit(fonts_.regular, row.value, 22.0F, 1100.0F), left + width - 40.0F,
+                         top + 34.0F, 22.0F, kSecondary, gfx::Align::right);
+                const float cx = left + width - 14.0F, cy = top + 26.0F;
+                if (row.selected)
+                {
+                    scene_.line(cx - 8.0F, cy - 4.0F, cx, cy + 4.0F, 2.5F, kAccent);
+                    scene_.line(cx, cy + 4.0F, cx + 8.0F, cy - 4.0F, 2.5F, kAccent);
+                }
+                else
+                {
+                    scene_.line(cx - 4.0F, cy - 8.0F, cx + 4.0F, cy, 2.5F, kAccent);
+                    scene_.line(cx + 4.0F, cy, cx - 4.0F, cy + 8.0F, 2.5F, kAccent);
+                }
+                focus_ring(scene_, box, amount, true);
+                continue;
+            }
+            const QueueEntry *entry = entry_of(row.key);
+            if (entry == nullptr)
+                continue;
+            const Game *game = game_by_id(state, entry->game_id);
+            focus_glow(scene_, box, amount, true);
+            scene_.rounded_rect(box, 10.0F, kPanel);
+            if (card(row.key))
+            {
+                const gfx::Rect poster{left + 16.0F, top + 13.0F, 60.0F, 90.0F};
+                if (game != nullptr)
+                    draw_poster(*game, poster, false, -1.0F, false);
+                else
+                    scene_.rounded_rect(poster, 6.0F, kMuted.with_alpha(0.25F));
+                const float text_x = left + 100.0F, right = left + width - 28.0F;
+                dynamic_text(entry->title, text_x, top + 44.0F, 32.0F, kText, 900.0F);
+                if (const Job *job = entry->job)
+                {
+                    const gfx::Color tone = job->state == JobState::Failed ? kRed : job->state == JobState::Paused ? kAmber : kAccent;
+                    // A download says only its state; another stage (the Playden update unpacking) names itself.
+                    std::string state_text = job->state_text.empty() ? job_state_label(job->state) : job->state_text;
+                    if (!job->stage_text.empty() || job->stage != JobStage::Download)
+                        state_text = (job->stage_text.empty() ? job_stage_label(job->stage) : job->stage_text) + " · " + state_text;
+                    const float progress = job->total_bytes == 0 ? 0.0F :
+                        static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
+                    const std::string percent = std::to_string(static_cast<int>(std::clamp(progress, 0.0F, 1.0F) * 100.0F)) + "%";
+                    ui::text(scene_, fonts_.regular, percent, right, top + 42.0F, 22.0F, kSecondary, gfx::Align::right);
+                    ui::text(scene_, fonts_.semibold, state_text, right - fonts_.regular.measure(percent, 22.0F) - 20.0F,
+                             top + 42.0F, 22.0F, tone, gfx::Align::right);
+                    ui::ProgressBar bar;
+                    bar.style.theme = theme_;
+                    bar.style.height = 8.0F;
+                    bar.style.placement = ui::LabelPlacement::none;
+                    bar.style.status = job->state == JobState::Failed ? ui::Status::danger :
+                                       job->state == JobState::Paused ? ui::Status::warning : ui::Status::accent;
+                    bar.style.finish_flash = false;
+                    bar.set_bounds({text_x, top + 60.0F, right - text_x, 8.0F});
+                    bar.set_value(std::clamp(progress, 0.0F, 1.0F), true);
+                    bar.draw(canvas);
+                    if (job->state == JobState::Downloading && job->checking_licenses)
+                    {
+                        // Large accounts take a minute here, before Steam gives the download size (issue #47).
+                        spinner(text_x + 10.0F, top + 92.0F, 8.0F, kBlue);
+                        ui::text(scene_, fonts_.regular, "Checking your Steam licenses…", text_x + 30.0F, top + 99.0F, 21.0F, kText);
+                    }
+                    else
+                    {
+                        ui::text(scene_, fonts_.regular, byte_count(job->completed_bytes) + " / " + byte_count(job->total_bytes),
+                                 text_x, top + 99.0F, 21.0F, kText);
+                        ui::text(scene_, fonts_.regular,
+                                 !job->failure.empty() ? job->failure
+                                     : FormatDownloadRate(job->state == JobState::Downloading ? job->bytes_per_second : std::nullopt,
+                                                          job->state == JobState::Downloading ? job->eta_seconds : std::nullopt),
+                                 right, top + 99.0F, 21.0F, job->failure.empty() ? kSecondary : kRed, gfx::Align::right);
+                    }
+                }
+                else
+                {
+                    // Preparing: the actual step, with a spinner; no percentage or time is made up.
+                    const float status_width = fonts_.semibold.measure("Preparing", 24.0F);
+                    spinner(right - status_width - 22.0F, top + 36.0F, 9.0F, kBlue);
+                    ui::text(scene_, fonts_.semibold, "Preparing", right, top + 44.0F, 24.0F, kBlue, gfx::Align::right);
+                    ui::text(scene_, fonts_.regular, fit(fonts_.regular, entry->note.empty() ? "Starting…" : entry->note, 24.0F, 1100.0F),
+                             text_x, top + 88.0F, 24.0F, kText);
+                    ui::text(scene_, fonts_.regular, "Setting up for this PS5", right, top + 88.0F, 21.0F, kSecondary,
+                             gfx::Align::right);
+                }
+                focus_ring(scene_, box, amount, true);
+                continue;
+            }
+            // A row, as in the Saves list: art, the name with why it waits or failed under it, the status
+            // with its colour, then the size and when it finished. Waiting preparations show their place.
+            float art_x = left + 14.0F;
+            if (entry->position > 0)
+            {
+                ui::text(scene_, fonts_.display, std::to_string(entry->position), left + 30.0F, top + 55.0F, 30.0F, kSecondary,
+                         gfx::Align::center);
+                art_x = left + 54.0F;
+            }
+            save_art(state, entry->game_id, {art_x, top + 9.0F, 48.0F, 72.0F});
+            std::string value = entry->status, subtitle = entry->note, aside, badge;
+            std::string tone = entry->tone;
+            float progress = 0.0F;
+            if (const Job *job = entry->job)
+            {
+                value = job->state_text.empty() ? job_state_label(job->state) : job->state_text;
+                tone = job->state == JobState::Failed ? "problem"
+                     : job->state == JobState::Paused || job->state == JobState::Interrupted ? "attention"
+                     : job->state == JobState::Downloading || job->state == JobState::Verifying ? "busy" : "quiet";
+                if (entry->completed)
+                {
+                    // The files are here; preparing them is the Preparation section's.
+                    value = "Downloaded";
+                    tone = "good";
+                    aside = byte_count(job->total_bytes);
+                    if (job->finished_at > 0 && !state.simulation_mode)
+                        badge = finished_words(job->finished_at, now);
+                }
+                else
+                {
+                    aside = byte_count(job->completed_bytes) + " / " + byte_count(job->total_bytes);
+                    if (job->total_bytes > 0 && job->completed_bytes > 0)
+                        progress = static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
+                }
+            }
+            else if (entry->completed && entry->finished_at > 0)
+            {
+                badge = finished_words(entry->finished_at, now);
+            }
+            const float text_x = art_x + 70.0F;
+            const bool two_lines = !subtitle.empty();
+            dynamic_text(entry->title, text_x, top + (two_lines ? 40.0F : 56.0F), 32.0F, kText, 1040.0F - 40.0F - text_x);
+            if (two_lines)
+                ui::text(scene_, fonts_.regular, fit(fonts_.regular, subtitle, 21.0F, 1040.0F - 40.0F - text_x), text_x, top + 72.0F,
+                         21.0F, tone == "problem" ? kRed : kSecondary);
+            const float status_x = 1040.0F;
+            const bool moving = progress > 0.0F;
+            if (tone == "busy" && entry->job != nullptr)
+                spinner(status_x + 8.0F, top + (moving ? 38.0F : 45.0F), 8.0F, kBlue);
+            else
+                scene_.circle(status_x + 8.0F, top + (moving ? 38.0F : 45.0F), 7.0F, save_tone(tone));
+            ui::text(scene_, fonts_.semibold, value, status_x + 28.0F, top + (moving ? 46.0F : 53.0F), 24.0F, kText);
+            if (moving)
+            {
+                scene_.rounded_rect({status_x + 28.0F, top + 60.0F, 200.0F, 5.0F}, 2.5F, kText.with_alpha(0.12F));
+                scene_.rounded_rect({status_x + 28.0F, top + 60.0F, 200.0F * std::clamp(progress, 0.0F, 1.0F), 5.0F}, 2.5F,
+                                    tone == "problem" ? kRed : kAccent);
+            }
+            ui::text(scene_, fonts_.semibold, aside, 1490.0F, top + 53.0F, 24.0F, kText.with_alpha(0.85F), gfx::Align::right);
+            ui::text(scene_, fonts_.regular, badge, box.x + box.w - 24.0F, top + 53.0F, 21.0F, kSecondary, gfx::Align::right);
+            focus_ring(scene_, box, amount, true);
         }
         scene_.pop_clip();
+        draw_storage_strip(view, state, focus_of);
+    }
 
-        scene_.rounded_rect({1160.0F, 160.0F, 664.0F, 780.0F}, 12.0F, kPanel);
-        ui::text(scene_, fonts_.display, "Storage", 1200.0F, 218.0F, 38.0F, kText);
-        // Every drive fits in the panel: rows shrink when the console lists many drives.
-        const bool any_unreported = std::any_of(state.volumes.begin(), state.volumes.end(),
-                                                [](const Volume &volume) { return !volume.capacity_known; });
-        const float list_bottom = any_unreported ? 880.0F : 920.0F;
-        float wanted = 0.0F;
-        for (const Volume &volume : state.volumes)
-            wanted += volume.capacity_known ? 192.0F : 100.0F;
-        // Shrink the spacing to fit; rows keep their minimum height, and drives past the end are counted.
-        const float scale = wanted <= list_bottom - 276.0F ? 1.0F :
-            std::max(0.72F, (list_bottom - 276.0F) / wanted);
-        float y = 276.0F;
-        std::size_t drawn = 0;
-        for (const Volume &volume : state.volumes)
+    // One line of drives under the queue: name, a small usage bar and the free space; each opens its details.
+    template <class Focus>
+    void draw_storage_strip(const ViewData &view, const State &state, const Focus &focus_of)
+    {
+        constexpr float line_y = 902.0F, baseline = 946.0F;
+        scene_.rounded_rect({kSafeX, line_y, 1824.0F - kSafeX, 1.5F}, 0.0F, kText.with_alpha(0.12F));
+        ui::text(scene_, fonts_.display, ui::upper("Storage"), kSafeX, baseline, 22.0F, kSecondary, gfx::Align::left, 2.6F);
+        float x = kSafeX + fonts_.display.measure(ui::upper("Storage"), 22.0F) + 2.6F * 7.0F + 36.0F;
+        for (const ViewRow &row : view.rows)
         {
-            const float step = (volume.capacity_known ? 192.0F : 100.0F) * scale;
-            if (y + step - 40.0F > list_bottom)
-            {
-                ui::text(scene_, fonts_.regular, "+" + std::to_string(state.volumes.size() - drawn) + " more drives",
-                         1200.0F, y, 22.0F, kMuted);
+            if (row.key.rfind("storage-", 0) != 0)
+                continue;
+            const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
+                                             [&row](const Volume &item) { return "storage-" + item.id == row.key; });
+            if (volume == state.volumes.end())
+                continue;
+            const std::string free = drive_free_words(*volume);
+            const float name_width = fonts_.regular.measure(volume->label, 24.0F);
+            const float free_width = fonts_.regular.measure(free, 22.0F);
+            const float bar_width = volume->capacity_known ? 72.0F : 0.0F;
+            const float item_width = name_width + (bar_width > 0.0F ? bar_width + 16.0F : 0.0F) + 16.0F + free_width + 34.0F;
+            if (x + item_width > 1824.0F)
                 break;
+            const gfx::Rect box{x - 12.0F, baseline - 32.0F, item_width + 24.0F, 46.0F};
+            const float amount = focus_of(row.key);
+            focus_glow(scene_, box, amount, true);
+            ui::text(scene_, fonts_.regular, volume->label, x, baseline, 24.0F, volume->available ? kText : kSecondary);
+            float cursor = x + name_width + 16.0F;
+            if (bar_width > 0.0F)
+            {
+                draw_usage_bar(*volume, cursor, baseline - 12.0F, bar_width, 6.0F);
+                cursor += bar_width + 16.0F;
             }
-            ++drawn;
-            draw_volume_usage(volume, !state.simulation_mode && volume.id == state.default_volume_id, 1200.0F, y, 584.0F);
-            y += step;
+            ui::text(scene_, fonts_.regular, free, cursor, baseline, 22.0F,
+                     volume->available && volume->writable ? kSecondary : kAmber);
+            cursor += free_width + 14.0F;
+            scene_.line(cursor, baseline - 15.0F, cursor + 6.0F, baseline - 9.0F, 2.0F, kSecondary);
+            scene_.line(cursor + 6.0F, baseline - 9.0F, cursor, baseline - 3.0F, 2.0F, kSecondary);
+            focus_ring(scene_, box, amount, true);
+            x += item_width + 40.0F;
         }
-        if (any_unreported)
-            ui::text(scene_, fonts_.regular, "Free space unavailable for some drives",
-                     1200.0F, 912.0F, 22.0F, kMuted);
+    }
+
+    // What the strip says after a drive's name: its free space, or why there is none to report.
+    static std::string drive_free_words(const Volume &volume)
+    {
+        if (!volume.available)
+            return "Disconnected";
+        if (!volume.writable)
+            return "No write access";
+        if (!volume.capacity_known)
+            return "Free space unknown";
+        const std::uint64_t unused = volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes);
+        return short_size(unused - std::min(volume.reserved_bytes, unused)) + " free";
     }
 
     // A drive's bar: used space, then space reserved for queued downloads, over its capacity.
-    void draw_usage_bar(const Volume &volume, float x, float y, float width)
+    void draw_usage_bar(const Volume &volume, float x, float y, float width, float height = 12.0F)
+    {
+        draw_usage_bar(scene_, volume, x, y, width, height);
+    }
+    void draw_usage_bar(gfx::DrawList &list, const Volume &volume, float x, float y, float width, float height)
     {
         const float fraction = volume.capacity_bytes == 0 ? 0.0F :
             static_cast<float>(volume.used_bytes) / static_cast<float>(volume.capacity_bytes);
         const float reserved = volume.capacity_bytes == 0 ? 0.0F :
             static_cast<float>(volume.reserved_bytes) / static_cast<float>(volume.capacity_bytes);
-        scene_.rounded_rect({x, y, width, 12.0F}, 6.0F, kText.with_alpha(0.14F));
-        scene_.rounded_rect({x, y, width * std::clamp(fraction, 0.0F, 1.0F), 12.0F}, 5.0F,
-                            volume.available ? kAccent : kMuted);
-        scene_.rounded_rect({x + width * std::clamp(fraction, 0.0F, 1.0F), y,
-                             width * std::clamp(reserved, 0.0F, 1.0F - std::clamp(fraction, 0.0F, 1.0F)), 12.0F},
-                            5.0F, volume.available ? kAmber : kMuted);
+        list.rounded_rect({x, y, width, height}, height * 0.5F, kText.with_alpha(0.14F));
+        list.rounded_rect({x, y, width * std::clamp(fraction, 0.0F, 1.0F), height}, height * 0.5F - 1.0F,
+                          volume.available ? kAccent : kMuted);
+        list.rounded_rect({x + width * std::clamp(fraction, 0.0F, 1.0F), y,
+                           width * std::clamp(reserved, 0.0F, 1.0F - std::clamp(fraction, 0.0F, 1.0F)), height},
+                          height * 0.5F - 1.0F, volume.available ? kAmber : kMuted);
     }
 
     // One drive's usage: its name and state, then a bar of used and reserved space with the
     // figures under it; without a space report only what Playden knows. `y` is the name's baseline.
     void draw_volume_usage(const Volume &volume, bool is_default, float x, float y, float width)
     {
+        draw_volume_usage(scene_, volume, is_default, x, y, width);
+    }
+    // named false: a sheet that has the drive's name as its title shows only the state on that line.
+    void draw_volume_usage(gfx::DrawList &list, const Volume &volume, bool is_default, float x, float y, float width,
+                           bool named = true)
+    {
         const float right = x + width;
-        ui::text(scene_, fonts_.display, volume.label, x, y, 30.0F, kText);
-        ui::text(scene_, fonts_.regular,
+        if (named)
+            ui::text(list, fonts_.display, volume.label, x, y, 30.0F, kText);
+        ui::text(list, fonts_.regular,
                  volume.available ? (volume.writable ? (is_default ? "Default · Available" : "Available") : "No write access")
                                   : "Disconnected",
-                 right, y, 22.0F, volume.available && volume.writable ? kSecondary : kAmber, gfx::Align::right);
+                 named ? right : x, y, 22.0F, volume.available && volume.writable ? kSecondary : kAmber,
+                 named ? gfx::Align::right : gfx::Align::left);
         if (!volume.capacity_known)
         {
             // A failed space query leaves capacity unknown: show only what Playden knows.
-            ui::text(scene_, fonts_.regular, "Used by games  " + short_size(volume.games_bytes), x, y + 42.0F, 22.0F,
+            ui::text(list, fonts_.regular, "Used by games  " + short_size(volume.games_bytes), x, y + 42.0F, 22.0F,
                      kSecondary);
             // Space held for queued downloads, only when there is some.
             if (volume.reserved_bytes > 0)
-                ui::text(scene_, fonts_.regular, "Reserved by queue  " + short_size(volume.reserved_bytes), right,
+                ui::text(list, fonts_.regular, "Reserved by queue  " + short_size(volume.reserved_bytes), right,
                          y + 42.0F, 22.0F, kSecondary, gfx::Align::right);
             return;
         }
         const std::uint64_t unused = volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes);
         const std::uint64_t free = unused - std::min(volume.reserved_bytes, unused);
-        draw_usage_bar(volume, x, y + 28.0F, width);
-        ui::text(scene_, fonts_.regular, "Capacity  " + short_size(volume.capacity_bytes), x, y + 76.0F, 22.0F, kSecondary);
-        ui::text(scene_, fonts_.regular, "Used  " + short_size(volume.used_bytes), x, y + 106.0F, 22.0F, kSecondary);
+        draw_usage_bar(list, volume, x, y + 28.0F, width, 12.0F);
+        ui::text(list, fonts_.regular, "Capacity  " + short_size(volume.capacity_bytes), x, y + 76.0F, 22.0F, kSecondary);
+        ui::text(list, fonts_.regular, "Used  " + short_size(volume.used_bytes), x, y + 106.0F, 22.0F, kSecondary);
         if (volume.reserved_bytes > 0)
-            ui::text(scene_, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes), right, y + 76.0F, 22.0F,
+            ui::text(list, fonts_.regular, "Reserved  " + short_size(volume.reserved_bytes), right, y + 76.0F, 22.0F,
                      kSecondary, gfx::Align::right);
-        ui::text(scene_, fonts_.semibold, "Free  " + short_size(free), right, y + 106.0F, 22.0F,
+        ui::text(list, fonts_.semibold, "Free  " + short_size(free), right, y + 106.0F, 22.0F,
                  volume.available ? kText : kMuted, gfx::Align::right);
     }
 
@@ -2596,7 +2738,7 @@ class Render::Impl
 
         // Where Circle returns, over the hero.
         const Route origin = state.navigation.detail_origin;
-        const char *back = origin == Route::Home ? "Home" : origin == Route::Downloads ? "Downloads" :
+        const char *back = origin == Route::Home ? "Home" : origin == Route::Downloads ? "Queue" :
                            origin == Route::Settings ? "Settings" : "Library";
         ui::draw_button(scene_, fonts_, ui::GlyphStyle::mono(kText, kBackground), ui::Button::circle, kSafeX, 74.0F, 36.0F);
         ui::text(scene_, fonts_.semibold, back, kSafeX + 48.0F, 82.0F, 22.0F, kText);
@@ -3210,7 +3352,7 @@ class Render::Impl
         static const std::map<std::string, std::string> names = {
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
             {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
-            {"job-actions", "Downloads"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
+            {"job-actions", "Downloads"}, {"prep-actions", "Preparation"}, {"storage-details", "Storage"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
             {"filters", "Library"}, {"logs-controls", "Logs"}, {"setting-value", "Settings"}, {"diagnostics", "Settings"},
             {"notices", "Notifications"}, {"qr-controls", "Sign in"}, {"session-controls", "Simulation"},
             {"simulation-controls", "Simulation"}, {"scenarios", "Simulation"}};
@@ -3219,6 +3361,29 @@ class Render::Impl
         std::string label = surface;
         std::replace(label.begin(), label.end(), '-', ' ');
         return label;
+    }
+
+    // A drive from Queue's storage line: the same usage block Settings shows, and how reserved space counts.
+    void draw_drive_details(const ViewData &view, const gfx::Rect &panel)
+    {
+        const State &state = *current_state_;
+        const std::string &opener = state.navigation.modals.back().opener_focus_key;
+        const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
+                                         [&opener](const Volume &item) { return "storage-" + item.id == opener; });
+        float y = 210.0F;
+        if (volume != state.volumes.end())
+        {
+            draw_volume_usage(overlay_, *volume, !state.simulation_mode && volume->id == state.default_volume_id,
+                              panel.x + 48.0F, y, panel.w - 96.0F, false);
+            y += 150.0F;
+            if (volume->reserved_bytes > 0)
+            {
+                ui::paragraph(overlay_, fonts_.regular, "Reserved space is part of the free space, set aside for the downloads still queued.",
+                              panel.x + 48.0F, y, 22.0F, panel.w - 96.0F, 32.0F, kSecondary, 3);
+                y += 90.0F;
+            }
+        }
+        draw_overlay_rows(view, {panel.x + 40.0F, y, panel.w - 80.0F, 120.0F}, false);
     }
 
     void draw_sheet_overlay(const ViewData &view)
@@ -3246,6 +3411,8 @@ class Render::Impl
                           panel.w - 96.0F, 32.0F, kSecondary, view.surface == "install" ? 6 : 3);
         if (view.surface == "storage")
             draw_storage_overlay_rows(view, {panel.x + 40.0F, 246.0F, panel.w - 80.0F, 710.0F});
+        else if (view.surface == "storage-details")
+            draw_drive_details(view, panel);
         else if (view.surface == "logs")
             draw_log_overlay(view, {panel.x + 40.0F, 246.0F, panel.w - 80.0F, 710.0F});
         else if (view.surface == "controller")

@@ -2688,6 +2688,68 @@ bool Simulation::scenario(const std::string& name) {
             state_.cloud[state_.games[6 % state_.games.size()].id].queued = true;
             state_.navigation.focus_key = "saves-sync-all";
         }
+    } else if (name.rfind("queue-", 0) == 0) {
+        // Queue in the states of its mockup: each workflow empty, one game, or one running and three waiting,
+        // with or without finished entries.
+        static const std::map<std::string, std::array<int, 3>> shapes = {
+            {"queue-preparation-empty", {4, 0, 0}}, {"queue-downloads-empty", {0, 4, 0}}, {"queue-one-preparation", {4, 1, 0}},
+            {"queue-one-download", {1, 4, 0}}, {"queue-both-full", {4, 4, 0}}, {"queue-all-empty", {0, 0, 0}},
+            {"queue-active-history", {4, 4, 1}}, {"queue-completed-only", {0, 0, 1}}};
+        const auto shape = shapes.find(name);
+        if (shape == shapes.end() || state_.games.size() < 13) return false;
+        const auto [downloads, preparations, history] = shape->second;
+        state_.account.authentication = AuthState::SignedIn;
+        state_.navigation.route = Route::Downloads;
+        state_.navigation.modals.clear();
+        state_.clock_ticks = 1'800'000'000;
+        const std::int64_t now = state_.clock_ticks;
+        state_.jobs.clear();
+        state_.runtime_games.clear();
+        state_.preparation_queue = {};
+        state_.queue_expanded.clear();
+        const auto job = [&](std::size_t game, int order, JobState job_state, std::uint64_t total, std::uint64_t done) {
+            Job item;
+            item.id = "queue-" + std::to_string(state_.games[game].id);
+            item.game_id = state_.games[game].id;
+            item.queue_order = order;
+            item.state = job_state;
+            item.total_bytes = total;
+            item.completed_bytes = done;
+            item.volume_id = "internal";
+            if (job_state == JobState::Downloading) { item.bytes_per_second = 18'200'000; item.eta_seconds = 152; }
+            if (job_state == JobState::Downloaded) { item.finished_at = now - 3600; item.completion_applied = true; }
+            state_.jobs.push_back(item);
+        };
+        for (int index = 0; index < downloads; ++index)
+            job(static_cast<std::size_t>(index), index, index == 0 ? JobState::Downloading : JobState::Queued,
+                7'600'000'000 + static_cast<std::uint64_t>(index) * 1'100'000'000, index == 0 ? 4'900'000'000 : 0);
+        if (history) {
+            job(8, 20, JobState::Downloaded, 549'000'000, 549'000'000);
+            job(9, 21, JobState::Downloaded, 367'000'000, 367'000'000);
+            job(10, 22, JobState::Downloaded, 1'700'000'000, 1'700'000'000);
+        }
+        auto& queue = state_.preparation_queue;
+        for (int index = 0; index < preparations; ++index) {
+            const auto id = state_.games[static_cast<std::size_t>(4 + index)].id;
+            LiveRuntimeGame runtime;
+            runtime.game_id = id;
+            if (index == 0) {
+                queue.active = id;
+                runtime.status = "Preparing";
+                runtime.detail = "Creating game files…";
+            } else {
+                queue.waiting.push_back(id);
+                runtime.status = "Not prepared";
+                runtime.queued = true;
+            }
+            state_.runtime_games[id] = runtime;
+        }
+        if (history)
+            queue.completed = {{state_.games[11].id, now - 20 * 60}, {state_.games[12].id, now - 35 * 60}};
+        state_.navigation.focus_key = preparations > 1 || (preparations && !downloads) ? "queue-preparation"
+                                    : downloads || history ? "queue-downloads" : "";
+        if (state_.navigation.focus_key.empty() && !state_.volumes.empty())
+            state_.navigation.focus_key = "storage-" + state_.volumes.front().id;
     } else if (name == "startup-loading") {
         state_.startup_loading = true; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-loading";
     } else if (name == "persistence-corrupt") {
