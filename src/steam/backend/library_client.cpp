@@ -123,13 +123,13 @@ LibraryResult LibraryClient::Fetch(const StoredSession& session,
 
   HttpRequest request;
   request.method = HttpMethod::kGet;
-  // include_free_sub: a free-to-play game added to the library but never played is only
-  // returned with it; include_played_free_games covers the ones played at least once.
+  // A free-to-play game added to the library but never played isn't listed, whatever the
+  // options; EntitledLibraryBackend adds those from the account's licenses.
   request.url =
       "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
       "?access_token=" + PercentEncode(session.access_token) +
       "&steamid=" + std::to_string(session.steam_id) +
-      "&include_appinfo=true&include_played_free_games=true&include_free_sub=true&format=json";
+      "&include_appinfo=true&include_played_free_games=true&format=json";
   request.headers = {{"User-Agent", "Playden/1.0"}};
   request.timeout_ms = kRequestTimeoutMs;
   request.max_response_bytes = kBodyLimit;

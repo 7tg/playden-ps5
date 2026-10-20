@@ -327,6 +327,7 @@ std::optional<AppInfo> ParseAppInfo(std::uint32_t app_id, std::string_view buffe
   app.type = type ? std::string(*type) : "?";
   app.install_dir = ChildString(config, "installdir");
   app.controller_support = ChildString(common, "controller_support");
+  app.icon = ChildString(common, "icon");
 
   std::optional<std::string_view> dlc_list;
   if (const VdfNode* extended = root->Find("extended")) dlc_list = extended->String("listofdlc");

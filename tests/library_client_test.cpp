@@ -103,7 +103,7 @@ void RequestAndMapping() {
   assert(request.url ==
       "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
       "?access_token=synthetic-token&steamid=76561198000000001&include_appinfo=true&"
-      "include_played_free_games=true&include_free_sub=true&format=json");
+      "include_played_free_games=true&format=json");
   const std::vector<std::pair<std::string, std::string>> expected_headers = {
       {"User-Agent", "Playden/1.0"}};
   assert(request.headers == expected_headers);
@@ -112,8 +112,7 @@ void RequestAndMapping() {
   assert(request.max_response_bytes == 16 * 1024 * 1024);
 }
 
-// A free-to-play game added to the library and never played, as include_free_sub returns it:
-// no playtime, no last played time, and fields Playden doesn't read.
+// A free-to-play game once played: no playtime, no last played time, and fields Playden doesn't read.
 void FreeGameNeverPlayed() {
   Fixture fixture;
   const auto result = Fetch(&fixture,

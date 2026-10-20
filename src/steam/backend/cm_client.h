@@ -52,6 +52,8 @@ struct AcquisitionResult {
   // Apps and depots granted by those licenses' packages, for depot selection.
   std::set<std::uint32_t> owned_apps;
   std::set<std::uint32_t> owned_depots;
+  // The apps of each active licensed package, for games the owned list leaves out.
+  std::map<std::uint32_t, std::vector<std::uint32_t>> package_apps;
   // Licensed packages Steam left out, sent without a token, or sent unreadable; their apps are not owned here.
   std::uint32_t skipped_packages = 0;
   bool ok() const { return error == CmError::kNone; }
@@ -99,6 +101,11 @@ class AcquisitionSource {
   virtual ~AcquisitionSource() = default;
   virtual AcquisitionResult FetchAcquisitionDates(const StoredSession& session,
                                                   const std::atomic<bool>& cancel) = 0;
+  // PICS app info, to name licensed games the owned list leaves out. None by default.
+  virtual AppInfoBuffers FetchAppInfo(const StoredSession&, const std::vector<std::uint32_t>&,
+                                      const std::atomic<bool>&) {
+    return {};
+  }
 };
 
 // Derives the stable logon device fields from a per-install seed, as the reference
@@ -158,7 +165,7 @@ class CmClient final : public AcquisitionSource {
                                      const std::atomic<bool>& cancel);
 
   AppInfoBuffers FetchAppInfo(const StoredSession& session, const std::vector<std::uint32_t>& app_ids,
-                              const std::atomic<bool>& cancel);
+                              const std::atomic<bool>& cancel) override;
 
   // A unified service call on an open session. When Steam refuses it, the result is kRejected and
   // `eresult` (optional) holds Steam's EResult.

@@ -78,6 +78,7 @@ struct AppInfo {
   std::vector<std::uint32_t> dlc_app_ids;
   std::vector<AppLaunch> launches;  // sorted by id
   std::string controller_support;
+  std::string icon;  // common/icon: the hash of the library icon, as GetOwnedGames img_icon_url
   CloudSaveInfo cloud;
 };
 

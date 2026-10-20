@@ -960,6 +960,7 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
       result.acquired_at.clear();
       result.owned_apps.clear();
       result.owned_depots.clear();
+      result.package_apps.clear();
     }
     return result;
   };
@@ -1030,6 +1031,7 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
       if (!inserted) entry->second = std::min(entry->second, license->time_created);
     }
   }
+  result.package_apps = std::move(package_apps);
   return finish(CmError::kNone);
 }
 
