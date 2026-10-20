@@ -1068,8 +1068,8 @@ class Render::Impl
             for (const ViewRow &row : view.rows)
                 if (row.kind == RowKind::Status)
                 {
-                    ui::paragraph(scene_, fonts_.regular, row.title, 96.0F, y, 22.0F, 1180.0F, 30.0F, kAmber, 2);
-                    y += 92.0F;
+                    // The whole error: it is what the player reports, so it is never cut short.
+                    y = ui::paragraph(scene_, fonts_.regular, row.title, 96.0F, y, 22.0F, 1180.0F, 30.0F, kAmber, 12) + 32.0F;
                 }
             draw_actions(view, 96.0F, y, 560.0F);
             return;

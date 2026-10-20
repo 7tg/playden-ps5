@@ -122,9 +122,11 @@ int main() {
   CHECK(chmod((root / "data/playden").c_str(), 0755) == 0);
   CHECK(PrepareRuntimeRoot(root / "data/playden", runs, log, root).empty());
   CHECK(Mode(root / "data/playden") == 01777 && Mode(locked) == 0777);
+  // A writable 0777 root is fine as it is: the PS5's /data drops the sticky bit.
   CHECK(chmod((root / "data/playden").c_str(), 0777) == 0);
+  lines.clear();
   CHECK(EnsureWritableFolders({root / "data/playden"}, runs, log, root).empty());
-  CHECK(Mode(root / "data/playden") == 01777);
+  CHECK(Mode(root / "data/playden") == 0777 && lines.empty());
   CHECK(chmod(target.c_str(), 0555) == 0);
   const auto before_calls = calls;
   CHECK(EnsureWritableFolders({target}, runs, log, root).empty());

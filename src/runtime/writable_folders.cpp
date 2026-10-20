@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 namespace playden::runtime {
 namespace {
@@ -60,7 +61,8 @@ std::string EnsureWritableFolders(const std::vector<std::filesystem::path>& fold
     if (!S_ISDIR(info.st_mode)) continue;
     const int first = Probe(folder);
     const mode_t mode = RepairMode(folder, namespace_root);
-    if (first == 0 && (!mode || (info.st_mode & 07777) == mode)) continue;
+    // The sticky bit is not compared: the PS5's /data drops it.
+    if (first == 0 && (!mode || (info.st_mode & 0777) == (mode & 0777))) continue;
     int fix_error = 0;
     bool ran = false;
     const auto repair = [&] {
@@ -102,24 +104,38 @@ std::string PrepareRuntimeRoot(const std::filesystem::path& root, const Writable
                                const std::function<void(const std::string&)>& log,
                                const std::filesystem::path& namespace_root) {
   if (root != namespace_root / "data/playden") return "Playden can't fix this runtime folder.";
+  // The step that failed and its errno, for the startup screen: the log may not be writable yet.
+  std::string failed = "root access";
+  int failed_error = 0;
+  std::vector<std::string> notes;
   const bool prepared = as_root && as_root([&] {
+    const auto fail = [&](const char* step) { failed = step; failed_error = errno; return false; };
     const int parent = platform::OpenDirectoryWalk(root.parent_path());
-    if (parent < 0) return false;
+    if (parent < 0) return fail("open /data");
     int fd = platform::OpenWalkChild(parent, "playden", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0 && errno == ENOENT &&
         (platform::MakeWalkChild(parent, "playden", 01777) == 0 || errno == EEXIST))
       fd = platform::OpenWalkChild(parent, "playden", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    const bool ok = fd >= 0 && ::fchmod(fd, 01777) == 0 && ::fsync(fd) == 0 && ::fsync(parent) == 0;
-    const int error = errno;
+    bool ok = fd >= 0 || fail("open the folder");
+    // Sticky when the filesystem keeps it; the PS5's /data reports 0777 for 1777, which still works.
+    if (ok && ::fchmod(fd, 01777) != 0) {
+      notes.push_back("sticky chmod=" + Error(errno));
+      if (::fchmod(fd, 0777) != 0) ok = fail("chmod");
+    }
+    // A mode change that isn't on disk yet is redone at the next start: not worth refusing to start.
+    if (ok && ::fsync(fd) != 0) notes.push_back("fsync=" + Error(errno));
+    if (ok && ::fsync(parent) != 0) notes.push_back("parent fsync=" + Error(errno));
     if (fd >= 0) ::close(fd);
     ::close(parent);
-    errno = error;
     return ok;
   });
+  if (!prepared && failed == "root access") failed_error = as_root ? errno : ENOSYS;
+  if (log) for (const auto& line : notes) log("runtime root repair path=" + root.string() + " " + line);
   if (prepared) return {};
-  if (log) log("runtime root repair failed path=" + root.string() + " error=" + Error(errno));
-  return "Playden can't write to " + root.string() +
-         ". Make the folder writable over FTP (permissions 1777), then try again.";
+  const std::string detail = failed + " failed" + (failed_error ? " error=" + Error(failed_error) : "");
+  if (log) log("runtime root repair failed path=" + root.string() + " " + detail);
+  return "Playden can't write to " + root.string() + " (" + detail +
+         "). Make the folder writable over FTP (permissions 777), then try again.";
 }
 
 }  // namespace playden::runtime
