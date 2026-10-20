@@ -2625,6 +2625,72 @@ void PrepareThenMoveGames(Fixture& fixture, const RuntimeHostConfig& config, Gam
   move.journal = std::make_pair(std::string(kOldGames), std::string(kNewGames));
 }
 
+// The worker owns the actual rename, with every title excluded until records name the new root.
+void WorkerMovesGamesUnderPublicationLease() {
+  Fixture fixture;
+  auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  GamesMove move;
+  auto config = MoveConfig(fixture, kit, &uuids, move);
+  PrepareThenMoveGames(fixture, config, move);
+  const auto old = fixture.root / "data/homebrew/FAKE77031/games";
+  const auto target = fixture.root / "data/playden-games";
+  fs::rename(target, old);
+  config.layout_paths = LayoutPaths{old.parent_path(), fixture.root / "data/playden/user",
+      fixture.root / "data/playden/logs", target, config.state_root, fixture.root / "data"};
+  const std::string text = "{\"step\":\"games\",\"from\":\"" + old.string() + "\",\"to\":\"" + target.string() + "\"}";
+  CHECK(playden::Storage(config.state_root.string()).WriteDurable(kLayoutJournal, playden::Bytes(text.begin(), text.end())).ok());
+  const auto lock_path = fixture.root / "data/playden/games/steam-220/.playden-control/publication.lock";
+  const auto busy = [&] {
+    const int fd = ::open(lock_path.c_str(), O_RDONLY);
+    CHECK(fd >= 0);
+    const bool held = ::flock(fd, LOCK_SH | LOCK_NB) != 0;
+    ::close(fd);
+    return held;
+  };
+  unsigned rename_checks = 0, record_checks = 0;
+  config.layout_operations.rename = [&](const fs::path& from, const fs::path& to) -> std::error_code {
+    CHECK(from == old && to == target && busy());
+    ++rename_checks;
+    return ::rename(from.c_str(), to.c_str()) == 0 ? std::error_code{} : std::error_code{errno, std::generic_category()};
+  };
+  config.moved_games_root = [&]() -> std::optional<std::pair<std::string, std::string>> {
+    const auto journal = LoadLayoutJournal(config.state_root);
+    if (!journal || journal->step != "games-moved") return std::nullopt;
+    CHECK(busy());  // Called by MoveGameRecords before UpdateAll publishes the new paths.
+    ++record_checks;
+    return std::make_pair(std::string(kOldGames), std::string(kNewGames));
+  };
+  config.finish_games_move = {};
+  // A Home launch's reader lease prevents the rename even if the activity query says stopped.
+  const int reader = ::open(lock_path.c_str(), O_RDONLY);
+  CHECK(reader >= 0 && ::flock(reader, LOCK_SH | LOCK_NB) == 0);
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start() && host.WaitForStartup());
+    CHECK(fs::exists(old) && !fs::exists(target) && rename_checks == 0 && record_checks == 0);
+    host.Shutdown();
+  }
+  ::close(reader);
+  // An active or suspended title also postpones after the writer lease is acquired.
+  fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start() && host.WaitForStartup());
+    CHECK(fs::exists(old) && !fs::exists(target) && rename_checks == 0);
+    host.Shutdown();
+  }
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start() && host.WaitForStartup());
+    CHECK(!fs::exists(old) && fs::exists(target) && rename_checks == 1 && record_checks == 1);
+    CHECK(!busy());
+    CHECK(host.Snapshot().installs.front().install_path == std::string(kNewGames) + "/220");
+    host.Shutdown();
+  }
+}
+
 // What the moved game's published files and record name after the move finished.
 void CheckRepublishedAtNewRoot(Fixture& fixture) {
   const auto records = Read(fixture.root / "data/runtime-state/installs.json");
@@ -3604,6 +3670,7 @@ void MovedGameWithUnreadableOperationRepublishes() {
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
+  WorkerMovesGamesUnderPublicationLease();
   NoKitRefusesPreparationWithoutDurableEffects();
   QueuedPreparationIsPublishedUntilTaken();
   HoldsEffectiveUidWhileWorking();

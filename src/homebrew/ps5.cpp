@@ -210,7 +210,7 @@ int main() {
     // Before the title's /data grant: a title whose credentials changed may fail to load system modules.
     const int keyboard_module = sceSysmoduleLoadModule(kKeyboardModule);
     const int system_keyboard_module = playden::ps5::SystemKeyboard::Preload();
-    const auto native_access = playden::ps5::PrepareNativeStartup(PLAYDEN_PS5_TITLE_ID);
+    auto native_access = playden::ps5::PrepareNativeStartup(PLAYDEN_PS5_TITLE_ID);
     hui::ps5::Display display;
     if (display.width() <= 0 && !display.open(3840, 2160)) {
         hui::sys::log("Playden Hui display failed"); hui::sys::park();
@@ -344,23 +344,6 @@ int main() {
             playden::app::AppendLogLine(log_root, "install.log", line);
         });
         playden::LocalSessionRepository install_sessions(user_root);
-        // A console-formatted M.2's root belongs to root: Playden's folder there is made as root.
-        auto install_volumes = playden::steam::DiscoverInstallVolumes(
-            playden::steam::ConsoleVolumeCandidates(paths.title_root, playden::ps5::EffectiveGamesRoot(paths)),
-            [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); });
-        for (const auto& volume : install_volumes)
-            playden::app::AppendLogLine(log_root, "install.log", "volume id=" + volume.id + " root=" + volume.games_root +
-                                        " writable=" + (volume.available ? "1" : "0"));
-        playden::steam::InstallService installs(install_runner, install_sessions, std::move(install_volumes));
-        // A games folder made over FTP is often root's and 0755: checked (and opened up) as a download starts.
-        // Only the games folder itself: the primary volume's parent is /data, never chmodded.
-        installs.SetFolderCheck([](const std::string& games_root) {
-            const std::filesystem::path root(games_root);
-            return playden::runtime::EnsureWritableFolders(
-                {root},
-                [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); },
-                [](const std::string& line) { playden::app::AppendLogLine(log_root, "install.log", line); });
-        });
         playden::steam::CmClient cloud_cm(paths.trust_store, library_storage);
         cloud_cm.SetOwner("cloud");
         cloud_cm.SetSharedSession(steam_cm);
@@ -429,6 +412,8 @@ int main() {
             config.boundary = "/data";
             config.state_root = std::filesystem::path(paths.runtime_data_root) / "runtime-state";
             config.homebrew_root = "/data/homebrew";
+            config.layout_paths = rt::LayoutPaths{paths.title_root, "/data/playden/user", "/data/playden/logs",
+                                                   "/data/playden-games", "/data/playden/runtime-state", "/data"};
             config.as_root = [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); };
             config.writable_folders = {"/data/homebrew", "/data/playden", "/data/playden-games", "/data/playden/user",
                                        "/data/playden/logs"};
@@ -542,6 +527,35 @@ int main() {
             if (!runtime_host->Start())
                 playden::app::AppendLogLine(log_root, "runtime.log", "runtime worker could not start");
         }
+        if (runtime_host && !runtime_host->WaitForStartup()) {
+            native_access.runtime_ready = false;
+            native_access.error = runtime_host->Snapshot().reason;
+            show_root_access_missing(display, native_access);
+            display.close();
+            hui::sys::quit();
+            return 0;
+        }
+        auto games_root = playden::ps5::EffectiveGamesRoot(paths);
+        if (const auto journal = playden::runtime::LoadLayoutJournal("/data/playden/runtime-state");
+            journal && (journal->step == "games-moved" || journal->step == "done"))
+            games_root = "/data/playden-games";
+        // A console-formatted M.2's root belongs to root: Playden's folder there is made as root.
+        auto install_volumes = playden::steam::DiscoverInstallVolumes(
+            playden::steam::ConsoleVolumeCandidates(paths.title_root, games_root),
+            [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); });
+        for (const auto& volume : install_volumes)
+            playden::app::AppendLogLine(log_root, "install.log", "volume id=" + volume.id + " root=" + volume.games_root +
+                                        " writable=" + (volume.available ? "1" : "0"));
+        playden::steam::InstallService installs(install_runner, install_sessions, std::move(install_volumes));
+        // A games folder made over FTP is often root's and 0755: checked (and opened up) as a download starts.
+        // Only the games folder itself: the primary volume's parent is /data, never chmodded.
+        installs.SetFolderCheck([](const std::string& games_root) {
+            const std::filesystem::path root(games_root);
+            return playden::runtime::EnsureWritableFolders(
+                {root},
+                [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); },
+                [](const std::string& line) { playden::app::AppendLogLine(log_root, "install.log", line); });
+        });
         playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud,
                                                runtime_host.get(), [](const std::string& line) {
             playden::app::AppendLogLine(log_root, "auth.log", "sign-in " + line);

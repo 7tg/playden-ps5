@@ -440,6 +440,17 @@ void RevertKeepsConflictsAndJournal() {
   const auto resumed = MigrateLayout(f->paths, f->ops);
   CHECK(resumed.games_moved && resumed.notice.empty() && Moved(f->paths));
 }
+void StartupDefersGamesWithoutActivityChecks() {
+  auto f = Make("deferred-games");
+  WriteInstalls(f->paths, false);
+  f->ops.defer_games = true;
+  f->ops.title_running = [](const std::string&) -> std::optional<bool> { CHECK(false); return {}; };
+  const auto result = MigrateLayout(f->paths, f->ops);
+  CHECK(result.runtime_ready && result.user_moved && result.logs_moved && !result.games_moved);
+  CHECK(fs::exists(f->paths.app_root / "games/220") && !fs::exists(f->paths.games_root));
+  CHECK(LoadLayoutJournal(f->paths.state_root)->step == "games");
+}
+
 void PartialUserMoveBlocksServicesAndOnlyMovesForward() {
   auto f = Make("partial-user");
   const auto old = f->paths.app_root / "playden-data";
@@ -511,6 +522,7 @@ int main() {
   CHECK(mkdtemp(pattern));
   g_base = fs::canonical(pattern);
   ::umask(022);
+  StartupDefersGamesWithoutActivityChecks();
   PartialUserMoveBlocksServicesAndOnlyMovesForward();
   FailedDirectorySyncKeepsUserStepBlocked();
   RenameParentsSyncBeforeJournalAdvances();

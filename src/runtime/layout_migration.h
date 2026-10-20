@@ -22,6 +22,7 @@ struct LayoutPaths {
 };
 
 struct LayoutOps {
+  bool defer_games = false;  // startup leaves the games step to RuntimeHost under publication leases
   // Directory durability barrier; empty uses open+fsync.
   std::function<bool(const std::filesystem::path&)> sync;
   // rename(2); returns the errno as an error_code. Empty: the real rename.
@@ -73,7 +74,8 @@ struct LayoutResult {
   std::string notice;  // one line for the user, when the move is held back
 };
 
-// Single-threaded, before any service starts, after the root grant. Never copies,
+// User/log stages run before services, after the grant. With defer_games, RuntimeHost
+// resumes the games stage under publication leases. Never copies,
 // never merges into a non-empty target, never replaces an existing entry.
 LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops);
 

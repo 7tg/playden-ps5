@@ -16,6 +16,7 @@
 #include "runtime/steam_stub.h"
 #include "runtime/steamworks.h"
 #include "runtime/writable_folders.h"
+#include "platform/managed_file_lock.h"
 #include "steam/backend/cloud_mapping.h"
 #include "steam/backend/json.h"
 
@@ -375,6 +376,12 @@ void RuntimeHost::Shutdown() {
     pthread_join(*thread, nullptr);
     delete thread;
   }
+}
+
+bool RuntimeHost::WaitForStartup() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  published_.wait(lock, [this] { return stopping_ || snapshot_.status != RuntimeHostStatus::kStarting; });
+  return snapshot_.status == RuntimeHostStatus::kReady;
 }
 
 RuntimeSnapshot RuntimeHost::Snapshot() const {
@@ -1296,9 +1303,65 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   return {};
 }
 
-void RuntimeHost::MoveGameRecords(Composition& c) {
+bool RuntimeHost::MoveGames(Composition& c, std::string* error) {
+  auto move = config_.moved_games_root ? config_.moved_games_root() : std::nullopt;
+  auto journal = rt::LoadLayoutJournal(config_.state_root);
+  const bool rename_pending = config_.layout_paths && journal && journal->step == "games";
+  const auto console_path = [this](const std::filesystem::path& path) {
+    if (config_.host_namespace_prefix.empty()) return path.string();
+    return (std::filesystem::path("/") / path.lexically_relative(config_.host_namespace_prefix)).string();
+  };
+  if (rename_pending) move = std::make_pair(console_path(config_.layout_paths->app_root / "games"),
+                                           console_path(config_.layout_paths->games_root));
+  if (!move) return true;
+  // All leases precede every activity check and survive the rename AND record rewrite.
+  std::vector<platform::ManagedFileLock> leases;
+  const auto postpone = [&](const std::string& why) {
+    Log("layout games postponed: " + why);
+    if (rename_pending && std::filesystem::exists(config_.layout_paths->app_root / "games")) return true;
+    *error = "The games move could not finish: " + why;
+    return false;
+  };
+  for (const auto& record : c.repository.Snapshot()) {
+    if (!rt::RebaseInstallPath(record.install_path, move->first, move->second)) continue;
+    const auto rebased = rt::RebaseInstallPath(record.install_path, move->first, move->second);
+    // Missing game folders have nothing Home can be using at either location.
+    if (!std::filesystem::is_directory(HostPath(record.install_path)) &&
+        !std::filesystem::is_directory(HostPath(*rebased))) continue;
+    const auto control_path = HostPath(record.data_root) / ".playden-control";
+    auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
+    auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher)
+                         : std::nullopt;
+    if (!lease) return postpone("the publication lock for " + record.title_id + " is unavailable or held");
+    leases.push_back(std::move(*lease));
+  }
+  if (rename_pending) {
+    auto ops = config_.layout_operations;
+    ops.defer_games = false;
+    ops.as_root = config_.as_root;
+    ops.log = [this](const std::string& line) { Log(line); };
+    ops.title_running = [&c](const std::string& title) -> std::optional<bool> {
+      const auto activity = c.coordinator->Activity(title);
+      if (activity == rt::NativeActivity::kUnknown) return std::nullopt;
+      return activity != rt::NativeActivity::kStopped;
+    };
+    const auto moved = rt::MigrateLayout(*config_.layout_paths, ops);
+    if (!moved.runtime_ready) { *error = moved.notice; return false; }
+    if (!moved.games_moved) return true;
+  }
+  if (!MoveGameRecords(c)) { *error = "The moved games' records could not be saved."; return false; }
+  return true;
+}
+
+bool RuntimeHost::MoveGameRecords(Composition& c) {
   c.games_move = config_.moved_games_root ? config_.moved_games_root() : std::nullopt;
-  if (!c.games_move) return;
+  if (!c.games_move) return true;
+  if (!config_.host_namespace_prefix.empty()) {
+    for (auto* path : {&c.games_move->first, &c.games_move->second}) {
+      const auto relative = std::filesystem::path(*path).lexically_relative(config_.host_namespace_prefix);
+      if (!relative.empty() && *relative.begin() != "..") *path = (std::filesystem::path("/") / relative).string();
+    }
+  }
   const auto& [from, to] = *c.games_move;
   // Records on other drives (USB, M.2) stay; the ones under the old root name the new one and
   // keep the old one until a publication names the new folder.
@@ -1315,10 +1378,11 @@ void RuntimeHost::MoveGameRecords(Composition& c) {
     Log("layout move records=" + std::to_string(moved.size()) + " from=" + from + " to=" + to + " " +
         (written.ok() ? std::string("rewritten") : "failed: " + written.message()));
     // Nothing is marked done while the records still name the old root.
-    if (!written.ok()) { c.games_move.reset(); return; }
+    if (!written.ok()) { c.games_move.reset(); return false; }
   }
   const auto indexes = RebaseCloudIndexes(HostPath(to) / ".playden-saves", from, to);
   if (indexes) Log("layout move cloud indexes=" + std::to_string(indexes));
+  return true;
 }
 
 void RuntimeHost::FinishGamesMove(Composition& c) {
@@ -2848,15 +2912,15 @@ void RuntimeHost::Run() {
         [this, &c](const rt::RuntimeInstall& record) { return DrivePublication(c, record); });
     Log("startup loading records");
     const auto loaded = c.repository.Load();
-    if (!loaded.ok()) {
+    std::string move_error;
+    if (!loaded.ok() || !MoveGames(c, &move_error)) {
       Log("runtime records unavailable: " + loaded.message());
-      unavailable("Runtime install records are unavailable: " + loaded.message());
+      unavailable(move_error.empty() ? "Runtime install records are unavailable: " + loaded.message() : move_error);
       composition.reset();
     } else {
       // Startup only reads durable state. Records with a journal wait for an
       // explicit recovery action; nothing resumes, registers or rebuilds here.
       Log("startup records loaded installs=" + std::to_string(c.repository.Snapshot().size()));
-      MoveGameRecords(c);
       LoadGeneratedRecipes(c);
       Log("startup generated recipes loaded");
       PublishInstalls(c);

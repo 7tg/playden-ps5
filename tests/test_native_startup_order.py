@@ -13,3 +13,6 @@ startup = (root / "src/platform/ps5/native_startup.cpp").read_text()
 assert "if (!moved.runtime_ready)" in startup
 failure = startup.split("if (!moved.runtime_ready)", 1)[1].split("}", 1)[0]
 assert "result.runtime_ready = false;" in failure
+
+assert "layout_ops.defer_games = true;" in startup
+assert main.index("runtime_host->WaitForStartup()") < main.index("InstallService installs")

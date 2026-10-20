@@ -455,6 +455,7 @@ LayoutResult MigrateLayout(const LayoutPaths& paths, const LayoutOps& ops) {
 
   if (journal.step != "games" && !save("games", old_games, paths.games_root))
     return hold("the move record can't be written (" + error + ")");
+  if (ops.defer_games) return finish();
   const auto moved_games = [&] {
     if (!ensure_games_root() || !save("games-moved", old_games, paths.games_root)) {
       uncertain = true;

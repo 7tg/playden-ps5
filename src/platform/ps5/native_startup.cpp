@@ -162,8 +162,8 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
   if (!result.runtime_ready && !context.grant_diagnostic.empty())
     result.error += "; " + context.grant_diagnostic;
   // The 0.6 layout: user data, logs and games leave the app folder once. Still
-  // single-threaded here, so the short root raises (the games rename, renames out of
-  // root-owned stub folders, creating /data/playden-games) affect no other thread.
+  // single-threaded here; only user data and logs move. The runtime worker moves
+  // games under publication leases before download services receive their volume paths.
   std::vector<std::string> layout_lines;
   if (result.runtime_ready && !result.paths.runtime_data_root.empty()) {
     namespace fs = std::filesystem;
@@ -176,18 +176,9 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
     layout.state_root = data_root / "runtime-state";
     layout.boundary = data_root.parent_path();
     runtime::LayoutOps layout_ops;
+    layout_ops.defer_games = true;
     layout_ops.as_root = [](const std::function<bool()>& work) { return WithRoot(work); };
     layout_ops.log = [&layout_lines](const std::string& line) { layout_lines.push_back(line); };
-    // Read-only kernel process list: the game of a launch session left pending.
-    layout_ops.title_running = [&layout_lines](const std::string& title) -> std::optional<bool> {
-      std::string reason;
-      const auto activity = ReadTitleActivity(title, &reason);
-      if (activity == runtime::NativeActivity::kUnknown) {
-        layout_lines.push_back("title activity " + title + " unknown: " + reason);
-        return std::nullopt;
-      }
-      return activity == runtime::NativeActivity::kActive;
-    };
     const auto moved = runtime::MigrateLayout(layout, layout_ops);
     result.paths.user_root = moved.user_root.string();
     result.paths.user_log_root = moved.log_root.string();

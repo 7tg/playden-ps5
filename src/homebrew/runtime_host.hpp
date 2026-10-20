@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include "runtime/layout_migration.h"
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -126,6 +127,8 @@ struct RuntimeHostConfig {
   // "games-moved"; nothing otherwise. finish_games_move: called once every moved Ready game is
   // republished; false keeps the move pending for the next start. Empty: LoadLayoutJournal and
   // MarkLayoutDone on state_root.
+  std::optional<runtime::LayoutPaths> layout_paths;
+  runtime::LayoutOps layout_operations;
   std::function<std::optional<std::pair<std::string, std::string>>()> moved_games_root;
   std::function<bool(std::string* error)> finish_games_move;
   // SQLite and the native readers run on this worker. PS5 std::thread stacks are
@@ -295,6 +298,8 @@ class RuntimeHost {
   bool Start();
   void Shutdown();
   RuntimeSnapshot Snapshot() const;
+  // Before any download service receives its games root.
+  bool WaitForStartup();
   // The same state without a copy per call: shared and read-only, made again only after a change.
   // The UI reads it many times a frame; Snapshot() copies every field each time.
   std::shared_ptr<const RuntimeSnapshot> Shared() const;
@@ -373,7 +378,8 @@ class RuntimeHost {
   bool DropUpgradeRequest(Composition& composition, const std::string& install_id, const std::string& why);
   // The 0.6 games move: rewrites the records and Cloud indexes under the old games root at startup,
   // and marks the move done once no moved Ready game is left to republish.
-  void MoveGameRecords(Composition& composition);
+  bool MoveGames(Composition& composition, std::string* error);
+  bool MoveGameRecords(Composition& composition);
   void FinishGamesMove(Composition& composition);
   // Empty when the game's Ready title is stopped with no launch pending, otherwise why not.
   std::string MaintenanceRefusal(Composition& composition, const runtime::RuntimeInstall& record);
