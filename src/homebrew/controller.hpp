@@ -129,6 +129,7 @@ class Controller {
   // was queued tells a new refusal from an old one.
   std::set<GameId> downloading_;
   std::vector<GameId> auto_prepare_;  // in the order their downloads finished
+  std::optional<GameId> prepare_next_pending_;  // Prepare next on a game not in the runtime's queue yet
   struct PlayAfterPrepare {
     bool queued = false;
     bool seen_preparing = false;

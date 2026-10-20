@@ -1,0 +1,244 @@
+// queue_layout.cpp - What the Queue screen shows: downloads and preparations, each section's rows and counts.
+// Copyright (c) 2026 Playden contributors
+// SPDX-License-Identifier: MIT
+#include "homebrew/queue_layout.hpp"
+
+#include <algorithm>
+
+namespace playden::homebrew {
+namespace {
+std::string game_title(const State& state, GameId id) {
+    for (const auto& game : state.games)
+        if (game.id == id && !game.title.empty()) return game.title;
+    return "Steam app " + std::to_string(id);
+}
+
+std::string need_attention(std::size_t count) {
+    return std::to_string(count) + (count == 1 ? " needs attention" : " need attention");
+}
+
+void join(std::string& text, const std::string& part) {
+    if (part.empty()) return;
+    if (!text.empty()) text += " · ";
+    text += part;
+}
+
+bool running(const Job& job) {
+    return job.state == JobState::Downloading || job.state == JobState::Verifying || job.state == JobState::Pausing;
+}
+
+QueueSection downloads(const State& state) {
+    QueueSection section{kQueueDownloads, "Downloads"};
+    std::vector<const Job*> jobs;
+    for (const auto& job : state.jobs)
+        if (job.state != JobState::Cancelled) jobs.push_back(&job);
+    std::stable_sort(jobs.begin(), jobs.end(), [](const Job* left, const Job* right) { return left->queue_order < right->queue_order; });
+    // The card shows the running transfer, or else the first unfinished one in queue order (a failed or
+    // paused download does not jump ahead of the queue).
+    auto card = std::find_if(jobs.begin(), jobs.end(), [](const Job* job) { return running(*job); });
+    if (card == jobs.end())
+        card = std::find_if(jobs.begin(), jobs.end(), [](const Job* job) { return job->state != JobState::Downloaded; });
+    const auto entry = [&state](const Job& job) {
+        QueueEntry item;
+        item.key = "job-" + job.id;
+        item.game_id = job.game_id;
+        item.job = &job;
+        item.title = !job.title.empty() ? job.title : game_title(state, job.game_id);
+        item.note = job.failure;
+        item.completed = job.state == JobState::Downloaded && job.kind == "install";
+        item.finished_at = job.finished_at;
+        return item;
+    };
+    std::vector<const Job*> finished;
+    std::size_t paused = 0, failed = 0;
+    for (const auto* job : jobs) {
+        if (running(*job)) ++section.running;
+        else if (job->state == JobState::Queued) ++section.waiting;
+        else if (job->state == JobState::Paused || job->state == JobState::Interrupted) ++paused;
+        else if (job->state == JobState::Failed) ++failed;
+        if (card != jobs.end() && job == *card) section.active = entry(*job);
+        // A staged Playden update is a Downloaded job that still asks for a restart: it stays with the work.
+        else if (job->state == JobState::Downloaded && job->kind == "install") finished.push_back(job);
+        else section.rows.push_back(entry(*job));
+    }
+    std::stable_sort(finished.begin(), finished.end(), [](const Job* left, const Job* right) {
+        return left->finished_at > right->finished_at;
+    });
+    for (const auto* job : finished) section.rows.push_back(entry(*job));
+    section.attention = paused + failed;
+    section.completed = finished.size();
+    return section;
+}
+
+std::string downloads_words(const QueueSection& section, std::size_t paused, std::size_t failed) {
+    std::string text;
+    if (section.running) join(text, std::to_string(section.running) + " downloading");
+    if (section.waiting) join(text, std::to_string(section.waiting) + " waiting");
+    if (paused) join(text, std::to_string(paused) + " paused");
+    if (failed) join(text, std::to_string(failed) + " failed");
+    return text;
+}
+
+QueueSection preparations(const State& state) {
+    QueueSection section{kQueuePreparation, "Preparation"};
+    const auto& queue = state.preparation_queue;
+    const auto runtime = [&state](GameId id) -> const LiveRuntimeGame* {
+        const auto found = state.runtime_games.find(id);
+        return found == state.runtime_games.end() ? nullptr : &found->second;
+    };
+    std::string active_title;
+    if (queue.active) {
+        QueueEntry item;
+        item.key = "prep-active-" + std::to_string(*queue.active);
+        item.game_id = *queue.active;
+        item.title = active_title = game_title(state, *queue.active);
+        item.status = "Preparing";
+        item.tone = "busy";
+        // The actual step, never a made-up percentage.
+        if (const auto* game = runtime(*queue.active)) item.note = game->detail;
+        section.active = item;
+        section.running = 1;
+    }
+    int position = 0;
+    for (const auto id : queue.waiting) {
+        if (queue.active && id == *queue.active) continue;
+        QueueEntry item;
+        item.key = "prep-" + std::to_string(id);
+        item.game_id = id;
+        item.title = game_title(state, id);
+        item.position = ++position;
+        item.status = position == 1 ? "Up next" : "Queued";
+        item.tone = position == 1 ? "busy" : "quiet";
+        item.note = position == 1 ? (active_title.empty() ? "Starts next" : "Starts after " + active_title)
+                                  : "Waiting for preparation";
+        section.rows.push_back(std::move(item));
+        ++section.waiting;
+    }
+    // Games whose preparation needs the player: it failed, stopped part way or waits for the PS5.
+    const auto listed = [&](GameId id) {
+        return (queue.active && *queue.active == id) ||
+               std::find(queue.waiting.begin(), queue.waiting.end(), id) != queue.waiting.end();
+    };
+    for (const auto& [id, game] : state.runtime_games) {
+        if (listed(id)) continue;
+        QueueEntry item;
+        item.key = "prep-attn-" + std::to_string(id);
+        item.game_id = id;
+        item.title = game_title(state, id);
+        item.note = game.detail;
+        item.tone = "attention";
+        if (game.status == "Waiting for the PS5") {
+            item.status = "Waiting for the PS5";
+            item.note = "Quit Playden and the PS5 adds it to Home";
+        } else if (game.status == "Registration pending") {
+            item.status = "Registration pending";
+        } else if (game.status == "Needs recovery") {
+            item.status = "Interrupted";
+        } else if (game.status == "Failed") {
+            item.status = "Couldn't prepare";
+            item.tone = "problem";
+        } else if (const auto refused = queue.refused.find(id);
+                   refused != queue.refused.end() && !game.ready && !game.prepared && !game.awaiting_registration) {
+            item.status = "Couldn't prepare";
+            item.note = refused->second;
+            item.tone = "problem";
+        } else {
+            continue;
+        }
+        section.rows.push_back(std::move(item));
+        ++section.attention;
+    }
+    for (const auto& done : queue.completed) {
+        QueueEntry item;
+        item.key = "prep-done-" + std::to_string(done.game_id) + "-" + std::to_string(done.finished_at);
+        item.game_id = done.game_id;
+        item.title = game_title(state, done.game_id);
+        item.status = "Ready";
+        item.tone = "good";
+        item.completed = true;
+        item.finished_at = done.finished_at;
+        section.rows.push_back(std::move(item));
+        ++section.completed;
+    }
+    return section;
+}
+
+// The heading's words: what runs and waits when expanded, how many more when collapsed; both keep
+// what needs the player and the completed count.
+void summarize(QueueSection& section, const std::string& expanded_words, const std::string& attention_words,
+               const char* idle) {
+    std::string text;
+    const std::size_t more = section.rows.size() - section.completed;  // unfinished, after the card
+    if (section.expanded) {
+        text = expanded_words;
+        if (section.running && !section.waiting && !section.attention) join(text, "Nobody waiting");
+    } else if (section.active) {
+        text = more == 0 ? "No other games queued"
+             : more == 1 ? "1 more game queued" : std::to_string(more) + " more games queued";
+        join(text, attention_words);
+    } else {
+        join(text, attention_words);
+    }
+    if (section.completed) join(text, std::to_string(section.completed) + " completed");
+    if (text.empty()) text = section.unfinished() ? expanded_words : idle;
+    section.summary = text;
+}
+}  // namespace
+
+std::string QueueSectionOf(const std::string& key) {
+    if (key == "queue-downloads" || key.rfind("job-", 0) == 0) return kQueueDownloads;
+    if (key == "queue-preparation" || key.rfind("prep-", 0) == 0) return kQueuePreparation;
+    return {};
+}
+
+QueueLayout BuildQueueLayout(const State& state) {
+    QueueLayout layout{downloads(state), preparations(state)};
+    auto& download = layout.downloads;
+    auto& prepare = layout.preparation;
+    // A row (not a card: it shows either way) with focus keeps its section open.
+    std::string open;
+    const auto& focus = state.navigation.modals.empty() ? state.navigation.focus_key
+                                                        : state.navigation.modals.front().opener_focus_key;
+    for (const auto* section : {&download, &prepare})
+        for (const auto& row : section->rows)
+            if (row.key == focus) open = section->id;
+    const auto section = [&](const std::string& id) -> QueueSection& { return id == kQueueDownloads ? download : prepare; };
+    if (open.empty() && !state.queue_expanded.empty() && !section(state.queue_expanded).empty()) open = state.queue_expanded;
+    if (open.empty()) {
+        if (prepare.waiting > 0) open = kQueuePreparation;
+        else if (download.unfinished()) open = kQueueDownloads;
+        else if (prepare.unfinished()) open = kQueuePreparation;
+        else if (!download.empty()) open = kQueueDownloads;
+        else if (!prepare.empty()) open = kQueuePreparation;
+    }
+    download.expanded = !download.empty() && open == kQueueDownloads;
+    prepare.expanded = !prepare.empty() && open == kQueuePreparation;
+
+    std::size_t paused = 0, failed = 0;
+    for (const auto& job : state.jobs) {
+        if (job.state == JobState::Paused || job.state == JobState::Interrupted) ++paused;
+        if (job.state == JobState::Failed) ++failed;
+    }
+    std::string download_attention;
+    if (paused) join(download_attention, std::to_string(paused) + " paused");
+    if (failed) join(download_attention, std::to_string(failed) + " failed");
+    summarize(download, downloads_words(download, paused, failed), download_attention, "No downloads");
+    std::string prepare_words, prepare_attention;
+    if (prepare.running) join(prepare_words, "1 preparing");
+    if (prepare.waiting) join(prepare_words, std::to_string(prepare.waiting) + " waiting");
+    if (prepare.attention) join(prepare_attention, need_attention(prepare.attention));
+    join(prepare_words, prepare_attention);
+    summarize(prepare, prepare_words, prepare_attention, "No preparation queued");
+
+    std::string summary;
+    if (download.running) join(summary, std::to_string(download.running) + " downloading");
+    if (prepare.running) join(summary, "1 preparing");
+    if (download.waiting + prepare.waiting) join(summary, std::to_string(download.waiting + prepare.waiting) + " waiting");
+    if (download.attention + prepare.attention)
+        join(summary, need_attention(download.attention + prepare.attention));
+    if (summary.empty() && !layout.nothing())
+        summary = "No active work · " + std::to_string(download.completed + prepare.completed) + " completed";
+    layout.summary = summary;
+    return layout;
+}
+}  // namespace playden::homebrew

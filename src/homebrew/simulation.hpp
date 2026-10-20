@@ -162,6 +162,21 @@ struct LiveRuntimeGame {
     // Its setup waits for another game's to finish: Playden sets up one game at a time.
     bool queued = false;
 };
+// A preparation that ended Ready, listed in Queue after the waiting games.
+struct LiveCompletedPreparation {
+    GameId game_id = 0;
+    std::int64_t finished_at = 0;  // Unix seconds
+    bool operator==(const LiveCompletedPreparation&) const = default;
+};
+// Live: the runtime's preparation queue, for Queue's Preparation section.
+struct PreparationQueue {
+    std::optional<GameId> active;  // being prepared now
+    std::vector<GameId> waiting;   // in the order they start
+    std::vector<LiveCompletedPreparation> completed;  // newest first
+    // Why the latest preparation of a game that is neither prepared nor waiting was refused.
+    std::map<GameId, std::string> refused;
+    bool operator==(const PreparationQueue&) const = default;
+};
 // Saves and settings kept from an uninstalled game (its private bottle).
 struct LiveKeptBottle {
     GameId game_id = 0;
@@ -467,6 +482,9 @@ struct State {
     std::string default_volume_id;  // live: where new installs go
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
     std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
+    PreparationQueue preparation_queue;                 // live: games being prepared, waiting and done
+    // Queue: the section the player expanded ("downloads", "preparation"); empty until they choose.
+    std::string queue_expanded;
     std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
     LiveKitInfo kit;                                    // live: the compatibility kit in use
     LiveSelfUpdate self_update;                         // live: Playden's own update
@@ -630,6 +648,12 @@ public:
     void SetRuntimeLeftovers(std::size_t count);
     void SetKitInfo(LiveKitInfo kit);
     void UpdateRuntime(RuntimeState runtime, const std::vector<LiveRuntimeGame>& games);
+    // Live mode: the preparation queue for Queue, and what the player asked of it there: games to
+    // prepare next, finished preparations dismissed, and Clear completed.
+    void UpdatePreparationQueue(PreparationQueue queue);
+    [[nodiscard]] std::vector<GameId> TakePrepareNextRequests();
+    [[nodiscard]] std::vector<LiveCompletedPreparation> TakePreparedDismissals();
+    [[nodiscard]] bool TakePreparedClear();
     // The game runtime could not start (raw: its log reason; empty: it runs). Shown on every screen
     // until it is fixed, with the reason under Settings › Runtime status (#64).
     void UpdateRuntimeProblem(const std::string& raw);
@@ -772,6 +796,12 @@ private:
     bool system_keyboard_available_ = false;
     std::vector<InstallRequest> pending_install_requests_;
     std::vector<GameId> pending_runtime_prepare_requests_;
+    std::vector<GameId> pending_prepare_next_requests_;
+    std::vector<LiveCompletedPreparation> pending_prepared_dismissals_;
+    bool pending_prepared_clear_ = false;
+    // Asked of the runtime and not carried out yet: finished preparations dismissed, a game moved first.
+    std::vector<LiveCompletedPreparation> prepared_dismissed_;
+    std::optional<GameId> prepare_next_asked_;
     std::vector<GameId> pending_runtime_play_requests_;
     bool pending_runtime_cleanup_ = false;
     bool library_catalog_received_ = false;
@@ -825,6 +855,7 @@ private:
     bool details_primary_pending_ = false;  // live Details: move focus to the first action once known
     // Settings: the last focused row, so focus stays nearby when that row goes away.
     int settings_focus_index_ = 0;
+    int queue_focus_index_ = 0;  // Queue: the focused row's place, for when that row goes away
     std::string settings_focus_section_;
 
     struct OrganizationJournalEntry {
@@ -882,6 +913,7 @@ private:
     void quit_to_home();
     void change_route(int delta);
     void open_modal(ModalEntry modal);
+    void prepare_next(GameId id);
     void close_modal();
     void start_editor(std::string purpose, std::string value, bool secret = false);
     // Sign-in screen: opened in the remembered method, its actions, and the form's secrets wiped.

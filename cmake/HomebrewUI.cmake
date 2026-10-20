@@ -186,6 +186,7 @@ target_include_directories(playden_hui PUBLIC
 add_library(playden_homebrew_model STATIC
     "${CMAKE_SOURCE_DIR}/src/homebrew/simulation.cpp"
     "${CMAKE_SOURCE_DIR}/src/homebrew/storage_sim.cpp"
+    "${CMAKE_SOURCE_DIR}/src/homebrew/queue_layout.cpp"
     "${CMAKE_SOURCE_DIR}/src/homebrew/browse.cpp")
 target_compile_features(playden_homebrew_model PUBLIC cxx_std_20)
 target_link_libraries(playden_homebrew_model PUBLIC playden_library playden_diagnostic_log playden_steam_cm_codec)

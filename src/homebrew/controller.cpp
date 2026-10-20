@@ -686,6 +686,11 @@ void Controller::TickRuntime() {
   // A quit to Home waits for the running preparation; the queued ones would be cut off.
   runtime_->HoldPreparations(model_.state().quit_waiting);
   for (const auto id : model_.TakeRuntimePrepareRequests()) RequestPrepare(id);
+  // A game Playden still holds back moves to the front once it is asked for.
+  for (const auto id : model_.TakePrepareNextRequests())
+    if (!runtime_->PrepareNext(id)) prepare_next_pending_ = id;
+  for (const auto& done : model_.TakePreparedDismissals()) runtime_->DismissPrepared(done.game_id, done.finished_at);
+  if (model_.TakePreparedClear()) runtime_->ClearPrepared();
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   for (const auto id : model_.TakeKeptDeleteRequests()) runtime_->DeleteKeptBottle(id);
   for (const auto id : model_.TakeActivityRequests()) runtime_->CheckActivity(id);
@@ -950,6 +955,31 @@ void Controller::TickRuntime() {
     for (const auto id : ready_notices_) model_.NotifyReadyToPlay(id);
     ready_notices_.clear();
   };
+  {
+    // Queue's Preparation section: the runtime's queue in order, then games Playden holds back before
+    // asking for them (Steam's launch options, saves in transit, a Play waiting to ask).
+    PreparationQueue queue;
+    queue.active = snapshot.preparing_app;
+    queue.waiting = snapshot.queued_prepares;
+    const auto add = [&queue](GameId id) {
+      if (queue.active != id && std::find(queue.waiting.begin(), queue.waiting.end(), id) == queue.waiting.end())
+        queue.waiting.push_back(id);
+    };
+    for (const auto id : prepare_after_details_) add(id);
+    for (const auto id : auto_prepare_) if (game_roots_.count(id)) add(id);
+    for (const auto& [id, pending] : play_after_prepare_) if (!pending.queued) add(id);
+    if (prepare_next_pending_)
+      if (const auto found = std::find(queue.waiting.begin(), queue.waiting.end(), *prepare_next_pending_);
+          found != queue.waiting.end())
+        std::rotate(queue.waiting.begin(), found, found + 1);
+    for (const auto& done : snapshot.prepared)
+      if (game_roots_.count(done.app_id)) queue.completed.push_back({done.app_id, done.finished_at});
+    for (const auto& [id, refusal] : snapshot.refusals)
+      if (game_roots_.count(id) && queue.active != id &&
+          std::find(queue.waiting.begin(), queue.waiting.end(), id) == queue.waiting.end())
+        queue.refused[id] = refusal;
+    model_.UpdatePreparationQueue(std::move(queue));
+  }
   if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
       cloud_revision_ == runtime_cloud_revision_ && play_notes_revision_ == runtime_notes_revision_) {
     announce_ready();
@@ -1064,7 +1094,7 @@ void Controller::TickRuntime() {
     if ((launching && busy) || PrepareQueued(snapshot, id)) game.can_prepare = false;
     // Queued behind another game's setup, from the runtime's queue or a Play that waits to ask it.
     const auto waiting_play = play_after_prepare_.find(id);
-    game.queued = snapshot.preparing_app && *snapshot.preparing_app != id &&
+    game.queued = snapshot.preparing_app != id &&
                   (PrepareQueued(snapshot, id) ||
                    (waiting_play != play_after_prepare_.end() && !waiting_play->second.queued));
     game.can_play = game.ready && !busy && snapshot.preparing_app != id && !cloud_busy_.count(id) &&
@@ -1359,6 +1389,10 @@ void Controller::SubmitPrepare(GameId id, bool announce) {
   // After a failed answer, ask Steam again so a later Prepare can use the options.
   if (app_details_ && !launch_options_.count(id)) app_details_->Request(id, model_.state().account_generation);
   runtime_->Prepare(std::move(request));
+  if (prepare_next_pending_ == id) {
+    runtime_->PrepareNext(id);
+    prepare_next_pending_.reset();
+  }
 }
 void Controller::Apply(const steam::SteamEvent& event) {
   const auto ignore = [&](const char* reason) {

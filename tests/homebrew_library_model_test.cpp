@@ -2094,7 +2094,7 @@ void live_completed_downloads_follow_the_queue() {
     requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == InstallRequestKind::ClearCompleted, "Clear completed tells the service");
     check(std::none_of(model.state().jobs.begin(), model.state().jobs.end(),
-                       [](const Job& job) { return job.state == JobState::Downloaded; }) && has_row(model, "downloads-empty"),
+                       [](const Job& job) { return job.state == JobState::Downloaded; }) && !has_row(model, "queue-downloads"),
           "Clear completed empties the list");
 }
 
@@ -2147,10 +2147,11 @@ void live_download_card_keeps_queue_order() {
     model.action("r1");
     model.action("r1");
     check(model.state().navigation.route == Route::Downloads, "Downloads open");
-    check(!model.view().rows.empty() && model.view().rows[0].key == "job-42" && model.view().rows[1].key == "job-43",
+    check(model.view().rows.size() > 2 && model.view().rows[0].key == "queue-downloads" &&
+              model.view().rows[1].key == "job-42" && model.view().rows[2].key == "job-43",
           "the first download in the queue keeps the top spot ahead of a failed one");
     model.UpdateInstalls({{42, JobState::Queued, 0, 100, {}}, {43, JobState::Downloading, 5, 100, {}}}, {});
-    check(model.view().rows[0].key == "job-43", "a running download takes the top spot");
+    check(model.view().rows[1].key == "job-43", "a running download takes the top spot");
 }
 
 void live_download_reorder_reaches_service() {
@@ -2205,6 +2206,183 @@ void live_sign_in_on_full_storage_offers_uninstall() {
           "other storage trouble keeps the usual screen");
 }
 
+// Keys of the Queue rows in screen order, storage left out.
+std::vector<std::string> queue_keys(const Simulation& model) {
+    std::vector<std::string> keys;
+    for (const auto& row : model.view().rows)
+        if (row.key.rfind("storage-", 0) != 0) keys.push_back(row.key);
+    return keys;
+}
+
+const playden::homebrew::ViewRow* queue_row(const Simulation& model, const std::string& key) {
+    for (const auto& row : model.view().rows)
+        if (row.key == key) return &row;
+    return nullptr;
+}
+
+// Queue: both workflows, one section expanded at a time. A collapsed section keeps its card and counts.
+// Waiting preparations are numbered in the runtime's order, completed ones follow them in the same list,
+// and Prepare next moves a waiting game first without touching the one being prepared.
+void live_queue_shows_downloads_and_preparations() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(10, "Ninja"), game(11, "Shovel"), game(12, "Celeste"), game(13, "Stardew"),
+                                game(14, "Thomas"), game(20, "Hollow"), game(21, "Dead Cells"), game(22, "Hades"),
+                                game(23, "Monaco")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({{20, JobState::Downloading, 64, 100, {}}, {21, JobState::Queued, 0, 100, {}},
+                          {22, JobState::Queued, 0, 100, {}}},
+                         {{10, 1, "internal", true}, {11, 1, "internal", true}, {12, 1, "internal", true},
+                          {13, 1, "internal", true}, {14, 1, "internal", true}, {23, 1, "internal", true}},
+                         {{23, 1, "internal", 1'000}});
+    LiveRuntimeGame preparing; preparing.game_id = 10; preparing.status = "Preparing"; preparing.detail = "Creating game files…";
+    std::vector<LiveRuntimeGame> runtime{preparing};
+    for (const GameId id : {11u, 12u, 13u}) {
+        LiveRuntimeGame waiting; waiting.game_id = id; waiting.status = "Not prepared"; waiting.queued = true;
+        runtime.push_back(waiting);
+    }
+    LiveRuntimeGame ready; ready.game_id = 14; ready.status = "Ready"; ready.ready = true; ready.prepared = true;
+    runtime.push_back(ready);
+    model.UpdateRuntime(RuntimeState::Ready, runtime);
+    model.UpdatePreparationQueue({10, {11, 12, 13}, {{14, 2'000}}, {}});
+    model.action("r1");
+    model.action("r1");
+    check(model.state().navigation.route == Route::Downloads && model.view().title == "Queue", "the Queue tab opens");
+    check(model.view().subtitle == "1 downloading · 1 preparing · 5 waiting", "the page counts running and waiting work");
+    check((queue_keys(model) == std::vector<std::string>{"queue-downloads", "job-20", "queue-preparation", "prep-active-10",
+                                                         "prep-11", "prep-12", "prep-13", "prep-done-14-2000"}),
+          "games waiting for preparation open the Preparation section, its completed entry last");
+    check(queue_row(model, "queue-downloads")->value == "2 more games queued · 1 completed",
+          "collapsed Downloads keeps its card, how many more wait, and its completed count");
+    check(queue_row(model, "queue-preparation")->value == "1 preparing · 3 waiting · 1 completed",
+          "expanded Preparation separates preparing from waiting");
+    check(queue_row(model, "prep-11")->value == "Up next" && queue_row(model, "prep-11")->subtitle == "Starts after Ninja" &&
+              queue_row(model, "prep-12")->value == "Queued", "the first waiting game is up next");
+
+    activate(model, "queue-downloads");
+    check((queue_keys(model) == std::vector<std::string>{"queue-downloads", "job-20", "job-21", "job-22", "job-23",
+                                                         "queue-preparation", "prep-active-10"}),
+          "Downloads expands and Preparation collapses to its card");
+    check(queue_row(model, "queue-preparation")->value == "3 more games queued · 1 completed", "collapsed Preparation counts");
+    model.UpdateInstalls({{20, JobState::Downloading, 70, 100, {}}, {21, JobState::Queued, 0, 100, {}},
+                          {22, JobState::Queued, 0, 100, {}}},
+                         {{10, 1, "internal", true}, {11, 1, "internal", true}, {12, 1, "internal", true},
+                          {13, 1, "internal", true}, {14, 1, "internal", true}, {23, 1, "internal", true}},
+                         {{23, 1, "internal", 1'000}});
+    check(has_row(model, "job-21") && !has_row(model, "prep-11"), "progress keeps the player's choice");
+
+    activate(model, "queue-preparation");
+    activate(model, "prep-11");
+    check(!has_row(model, "prep-next-11") && has_row(model, "prep-open-11"), "the game up next has no Prepare next");
+    model.action("circle");
+    activate(model, "prep-13");
+    check(has_row(model, "prep-next-13"), "a later waiting game offers Prepare next");
+    activate(model, "prep-next-13");
+    check(model.TakePrepareNextRequests() == std::vector<GameId>{13}, "Prepare next reaches the runtime");
+    check((queue_keys(model) == std::vector<std::string>{"queue-downloads", "job-20", "queue-preparation", "prep-active-10",
+                                                         "prep-13", "prep-11", "prep-12", "prep-done-14-2000"}),
+          "the game moves first, the others keep their order, the game being prepared stays");
+    check(model.state().navigation.focus_key == "prep-13" && queue_row(model, "prep-13")->value == "Up next",
+          "focus stays on the game, now up next");
+
+    activate(model, "prep-done-14-2000");
+    check(has_row(model, "prep-open-14") && has_row(model, "prep-dismiss-14-2000") && !has_row(model, "prep-clear-completed"),
+          "a finished preparation offers Game details and Dismiss");
+    activate(model, "prep-dismiss-14-2000");
+    check((model.TakePreparedDismissals() == std::vector<LiveCompletedPreparation>{{14, 2'000}}), "Dismiss reaches the runtime");
+    check(!has_row(model, "prep-done-14-2000") && model.state().navigation.focus_key == "prep-12",
+          "the entry goes and focus stays in the section");
+    // The runtime's next snapshot, still listing it, doesn't bring it back.
+    model.UpdatePreparationQueue({10, {13, 11, 12}, {{14, 2'000}}, {}});
+    check(!has_row(model, "prep-done-14-2000"), "a dismissal waiting for the runtime holds");
+}
+
+// With nothing unfinished the completed entries stay; Clear completed clears only its own workflow.
+// With nothing at all only the drives are left.
+void live_queue_history_and_empty_states() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(14, "Thomas"), game(15, "Metal Slug"), game(23, "Monaco")}, false, {}, false, false, {}}),
+          "library loaded");
+    model.action("r1");
+    model.action("r1");
+    check(model.view().subtitle.empty() && !has_row(model, "queue-downloads") && !has_row(model, "queue-preparation"),
+          "nothing in the queue");
+    model.UpdateInstalls({}, {{14, 1, "internal", true}, {15, 1, "internal", true}, {23, 1, "internal", true}},
+                         {{23, 1, "internal", 1'000}});
+    model.UpdatePreparationQueue({std::nullopt, {}, {{15, 3'000}, {14, 2'000}}, {}});
+    check(model.view().subtitle == "No active work · 3 completed", "history alone says so");
+    check(queue_row(model, "queue-downloads")->value == "1 completed" &&
+              queue_row(model, "queue-preparation")->value == "2 completed", "both headings keep their history");
+    activate(model, "queue-preparation");
+    check(has_row(model, "prep-done-15-3000") && has_row(model, "prep-done-14-2000") && !has_row(model, "job-23"),
+          "a section with only completed entries expands");
+    activate(model, "prep-done-15-3000");
+    activate(model, "prep-clear-completed");
+    check(model.TakePreparedClear() && model.TakeInstallRequests().empty(), "Clear completed clears only preparations");
+    check(!has_row(model, "queue-preparation") && has_row(model, "job-23"), "Preparation empties; Downloads keeps its entry");
+}
+
+// A game whose preparation needs the player stays in Preparation without a running preparation.
+void live_queue_lists_preparations_needing_attention() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(30, "Waits"), game(31, "Broke"), game(32, "Refused"), game(33, "Fine")}, false, {}, false,
+                               false, {}}), "library loaded");
+    LiveRuntimeGame waits; waits.game_id = 30; waits.status = "Waiting for the PS5"; waits.awaiting_registration = true;
+    LiveRuntimeGame broke; broke.game_id = 31; broke.status = "Failed"; broke.detail = "Disk full"; broke.can_prepare = true;
+    LiveRuntimeGame refused; refused.game_id = 32; refused.status = "Not prepared"; refused.can_prepare = true;
+    LiveRuntimeGame fine; fine.game_id = 33; fine.status = "Ready"; fine.ready = true;
+    model.UpdateRuntime(RuntimeState::Ready, {waits, broke, refused, fine});
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {{32, "No verified compatibility kit is installed."}}});
+    model.action("r1");
+    model.action("r1");
+    check((queue_keys(model) == std::vector<std::string>{"queue-preparation", "prep-attn-30", "prep-attn-31", "prep-attn-32"}),
+          "waiting for the PS5, failed and refused games are listed");
+    check(queue_row(model, "queue-preparation")->value == "3 need attention" && model.view().subtitle == "3 need attention",
+          "they are not counted as waiting work");
+    check(queue_row(model, "prep-attn-30")->value == "Waiting for the PS5" &&
+              queue_row(model, "prep-attn-31")->subtitle == "Disk full" &&
+              queue_row(model, "prep-attn-32")->subtitle == "No verified compatibility kit is installed.",
+          "each says why");
+    activate(model, "prep-attn-31");
+    check(has_row(model, "prep-retry-31"), "a failed preparation can be tried again");
+    activate(model, "prep-retry-31");
+    check(model.TakeRuntimePrepareRequests() == std::vector<GameId>{31}, "Try again asks for it");
+    activate(model, "prep-attn-30");
+    check(!has_row(model, "prep-retry-30"), "a game waiting for the PS5 is not prepared again from here");
+}
+
+// The game page of a waiting game names the game right ahead of it and offers Prepare next.
+void live_details_prepare_next() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(40, "Busy"), game(41, "First"), game(42, "Second")}, false, {}, false, false, {}}),
+          "library loaded");
+    model.UpdateInstalls({}, {{40, 1, "internal", true}, {41, 1, "internal", true}, {42, 1, "internal", true}});
+    LiveRuntimeGame busy; busy.game_id = 40; busy.status = "Preparing";
+    LiveRuntimeGame first; first.game_id = 41; first.status = "Not prepared"; first.queued = true;
+    LiveRuntimeGame second; second.game_id = 42; second.status = "Not prepared"; second.queued = true;
+    model.UpdateRuntime(RuntimeState::Ready, {busy, first, second});
+    model.UpdatePreparationQueue({40, {41, 42}, {}, {}});
+    check(model.action("details:41"), "details open");
+    check(!has_row(model, "details-prepare-next") && find_row(model, "details-setup")->value == "Waiting for Busy",
+          "the first waiting game waits for the one being prepared");
+    model.action("circle");
+    check(model.action("details:42"), "details open");
+    check(find_row(model, "details-setup")->value == "Waiting for First" &&
+              find_row(model, "details-hint")->title == "2 of 2 waiting. Setup starts when First is ready.",
+          "a later game names the game right ahead and its place");
+    activate(model, "details-prepare-next");
+    check(model.TakePrepareNextRequests() == std::vector<GameId>{42} &&
+              (model.state().preparation_queue.waiting == std::vector<GameId>{42, 41}), "Prepare next from the game page");
+    check(find_row(model, "details-setup")->value == "Waiting for Busy" && !has_row(model, "details-prepare-next"),
+          "now it is next");
+}
+
 int main() {
     live_launch_failure_remains_visible_without_a_details_status_line();
     live_download_reorder_reaches_service();
@@ -2240,6 +2418,10 @@ int main() {
     preserves_identity_and_scroll_then_chooses_a_stable_neighbor();
     live_details_keep_personal_edits_and_block_fixture_operations();
     refresh_actions_preserve_authentication_and_wall_clock_is_external();
+    live_queue_shows_downloads_and_preparations();
+    live_queue_history_and_empty_states();
+    live_queue_lists_preparations_needing_attention();
+    live_details_prepare_next();
     std::cout << "homebrew_library_model_test passed\n";
     return 0;
 }

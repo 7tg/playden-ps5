@@ -9,6 +9,7 @@
 #include "app/diagnostic_log.h"
 #include "homebrew/browse.hpp"
 #include "homebrew/json.hpp"
+#include "homebrew/queue_layout.hpp"
 #include "homebrew/storage_sim.hpp"
 #include "steam/install_volumes.h"
 #include "steam/backend/json.h"
@@ -467,7 +468,8 @@ std::string action_label(const std::string& key) {
         {"inject-logs-ready", "Inject ready logs"}, {"account-auth", "Authentication"},
         {"account-last-sync", "Last library sync"}, {"account-sync", "Sync now"},
         {"account-recover", "Reconnect account"}, {"account-switch", "Switch account"},
-        {"account-reauth", "Sign in again"}, {"job-resume-all", "Resume all"}, {"job-clear-completed", "Clear completed"}, {"collection-new", "New collection"}, {"collection-manage", "Manage collections"},
+        {"account-reauth", "Sign in again"}, {"job-resume-all", "Resume all"}, {"job-clear-completed", "Clear completed"},
+        {"prep-clear-completed", "Clear completed"}, {"storage-close", "Close"}, {"collection-new", "New collection"}, {"collection-manage", "Manage collections"},
         {"about-version", "Version"}, {"self-update-install", "Download and install"},
         {"self-update-restart", "Restart Playden"}, {"self-update-cancel", "Cancel update"},
         {"self-update-back-confirm", "Go back"}, {"release-notes-ok", "OK"},
@@ -480,7 +482,8 @@ std::string action_label(const std::string& key) {
     for (const auto& [prefix, label] : std::initializer_list<std::pair<const char*, const char*>>{
              {"job-pause-", "Pause download"}, {"job-resume-", "Resume download"}, {"job-retry-", "Retry download"},
              {"job-cancel-", "Cancel download"}, {"job-now-", "Download now"}, {"job-up-", "Move up"}, {"job-down-", "Move down"},
-             {"job-open-", "Open game"}, {"job-dismiss-", "Dismiss"}})
+             {"job-open-", "Open game"}, {"job-dismiss-", "Dismiss"}, {"prep-next-", "Prepare next"},
+             {"prep-open-", "Game details"}, {"prep-retry-", "Try again"}, {"prep-dismiss-", "Dismiss"}})
         if (key.rfind(prefix, 0) == 0) return label;
     std::string title = key;
     std::replace(title.begin(), title.end(), '-', ' ');
@@ -967,6 +970,51 @@ void Simulation::NotifyPlayStopped(GameId id, const std::string& reason) {
 
 void Simulation::RequestRuntimePrepare(GameId id) {
     if (id != 0) pending_runtime_prepare_requests_.push_back(id);
+}
+
+void Simulation::UpdatePreparationQueue(PreparationQueue queue) {
+    // A dismissal or Prepare next the runtime has not carried out yet keeps showing as asked; once the
+    // runtime's list no longer has the entry, or has the game first, it is done.
+    std::erase_if(prepared_dismissed_, [&queue](const LiveCompletedPreparation& done) {
+        return std::find(queue.completed.begin(), queue.completed.end(), done) == queue.completed.end();
+    });
+    for (const auto& done : prepared_dismissed_) std::erase(queue.completed, done);
+    if (prepare_next_asked_) {
+        const auto found = std::find(queue.waiting.begin(), queue.waiting.end(), *prepare_next_asked_);
+        if (found == queue.waiting.end() || found == queue.waiting.begin()) prepare_next_asked_.reset();
+        else std::rotate(queue.waiting.begin(), found, found + 1);
+    }
+    if (queue == state_.preparation_queue) return;
+    state_.preparation_queue = std::move(queue);
+    rebuild_view();
+}
+
+std::vector<GameId> Simulation::TakePrepareNextRequests() { return std::exchange(pending_prepare_next_requests_, {}); }
+
+std::vector<LiveCompletedPreparation> Simulation::TakePreparedDismissals() {
+    return std::exchange(pending_prepared_dismissals_, {});
+}
+
+bool Simulation::TakePreparedClear() { return std::exchange(pending_prepared_clear_, false); }
+
+// Moves a waiting game to the front of the preparation queue; the game being prepared now finishes first.
+// Focus stays on the game, now first.
+void Simulation::prepare_next(GameId id) {
+    auto& waiting = state_.preparation_queue.waiting;
+    const auto found = std::find(waiting.begin(), waiting.end(), id);
+    if (found == waiting.end() || found == waiting.begin()) return;
+    std::rotate(waiting.begin(), found, found + 1);
+    if (live()) {
+        pending_prepare_next_requests_.push_back(id);
+        prepare_next_asked_ = id;
+    }
+    state_.queue_expanded = kQueuePreparation;
+    state_.navigation.focus_key = "prep-" + std::to_string(id);
+    const auto* game = find_game(state_, id);
+    const auto& active = state_.preparation_queue.active;
+    const auto* current = active ? find_game(state_, *active) : nullptr;
+    push_notice({"prepare-next", (game ? game->title : std::string("The game")) + " is up next", "", false, kLiveNoticeSeconds,
+                 false, current ? "After " + current->title : "It starts next"});
 }
 
 std::vector<GameId> Simulation::TakeRuntimePlayRequests() {
@@ -3749,12 +3797,21 @@ void Simulation::rebuild_view() {
                 : status == "Failed" || status == "No kit" ? "problem"
                 : status == "Needs repair" || status == "Needs recovery" || status == "Registration pending" ||
                   status == "Removal incomplete" ? "attention" : "quiet";
-            // The game being set up now, when this one waits for it.
+            // The game right ahead of this one in the preparation queue (the one being set up now when
+            // this one is next), and where this one waits.
             std::string ahead;
-            if (runtime && runtime->queued)
-                for (const auto& [other_id, other] : state_.runtime_games)
-                    if (other_id != game->id && other.status == "Preparing")
-                        if (const auto* other_game = find_game(state_, other_id)) ahead = other_game->title;
+            const auto& queue = state_.preparation_queue;
+            const auto place = std::find(queue.waiting.begin(), queue.waiting.end(), game->id);
+            const auto position = place == queue.waiting.end() ? 0 : static_cast<std::size_t>(place - queue.waiting.begin()) + 1;
+            if (runtime && runtime->queued) {
+                if (position > 1) {
+                    if (const auto* other_game = find_game(state_, queue.waiting[position - 2])) ahead = other_game->title;
+                } else {
+                    for (const auto& [other_id, other] : state_.runtime_games)
+                        if (other_id != game->id && other.status == "Preparing")
+                            if (const auto* other_game = find_game(state_, other_id)) ahead = other_game->title;
+                }
+            }
             auto& setup = row("details-setup", RowKind::Status, "Setup", "");
             setup.value = waiting ? "Waiting for the PS5" : kit_update ? "Kit update available"
                 : status == "Not prepared" ? "Not set up" : status == "Needs recovery" ? "Interrupted"
@@ -3767,9 +3824,12 @@ void Simulation::rebuild_view() {
                 setup.tone = "busy";
             }
             std::string hint;
-            if (runtime && runtime->queued && runtime->uninstall_status.empty())
+            if (runtime && runtime->queued && runtime->uninstall_status.empty()) {
                 hint = ahead.empty() ? "Setup starts when the game being set up is ready."
                                      : "Setup starts when " + ahead + " is ready.";
+                if (position > 0 && queue.waiting.size() > 1)
+                    hint = std::to_string(position) + " of " + std::to_string(queue.waiting.size()) + " waiting. " + hint;
+            }
             else if (waiting) hint = "Quit Playden and " + game->title + " appears on the PS5 Home screen.";
             else if (status == "Registration pending") hint = "The PS5 hasn't confirmed " + game->title + " yet.";
             else if (status == "Removal incomplete") hint = "Removing " + game->title + " from the PS5 Home screen stopped partway.";
@@ -3790,36 +3850,53 @@ void Simulation::rebuild_view() {
                 note.tone = setup.tone;
                 note.enabled = false;
             }
+            // Waiting behind other games: move it to the front; the game being set up now finishes first.
+            if (runtime && runtime->queued && runtime->uninstall_status.empty() && position > 1)
+                row("details-prepare-next", RowKind::Action, "Prepare next", "details-prepare-next").game_id = game->id;
         }
         row("details-favorite", RowKind::Toggle, "Favorite", "favorite").selected = game && state_.library.favorites.contains(game->id);
         if (!live()) row("details-simulate-launch", RowKind::Action, "Simulate launch", "launch");
         row("details-more", RowKind::Action, "More", "context");
         view_.legends = {"Cross Select", "Options Actions", "Circle Back"};
     } else if (state_.navigation.route == Route::Downloads) {
-        view_.title = "Downloads";
-        std::vector<const Job*> jobs;
-        for (const auto& job : state_.jobs) if (job.state != JobState::Cancelled) jobs.push_back(&job);
-        std::stable_sort(jobs.begin(), jobs.end(), [](const Job* left, const Job* right) { return left->queue_order < right->queue_order; });
-        // The view draws the active transfer in the top card and the rest below it in queue order;
-        // focus moves in that same order, so Up and Down follow what is on screen.
-        const auto active = std::find_if(jobs.begin(), jobs.end(), [](const Job* job) {
-            return job->state == JobState::Downloading || job->state == JobState::Verifying ||
-                   job->state == JobState::Pausing;
-        });
-        if (active != jobs.end()) std::rotate(jobs.begin(), active, active + 1);
-        for (const auto* job_pointer : jobs) {
-            const auto& job = *job_pointer;
-            if (job.state == JobState::Cancelled) continue;
-            const auto* game = find_game(state_, job.game_id);
-            auto& item = row("job-" + job.id, RowKind::Job, !job.title.empty() ? job.title : game ? game->title : job.id,
-                             "job-action");
-            item.game_id = job.game_id;
-            item.subtitle = job.failure;
-            item.value = !job.state_text.empty() ? job.state_text : job_state_name(job.state);
-            item.progress = job.total_bytes == 0 ? 0.0F : static_cast<float>(job.completed_bytes) / static_cast<float>(job.total_bytes);
+        // Queue: Downloads, then Preparation, one expanded at a time, then the drives. Rows come in screen
+        // order (heading, card, the expanded section's rows), so Up and Down follow what is on screen.
+        view_.title = "Queue";
+        const auto layout = BuildQueueLayout(state_);
+        view_.subtitle = layout.summary;
+        const auto entry_row = [&](const QueueEntry& entry, bool card) {
+            if (entry.job) {
+                const auto& job = *entry.job;
+                auto& item = row(entry.key, RowKind::Job, entry.title, "job-action");
+                item.game_id = job.game_id;
+                item.subtitle = job.failure;
+                item.value = !job.state_text.empty() ? job.state_text : job_state_name(job.state);
+                item.progress = job.total_bytes == 0 ? 0.0F : static_cast<float>(job.completed_bytes) / static_cast<float>(job.total_bytes);
+                return;
+            }
+            auto& item = row(entry.key, RowKind::Job, entry.title, "prep-action");
+            item.game_id = entry.game_id;
+            item.subtitle = entry.note;
+            item.value = entry.status;
+            item.tone = entry.tone;
+            item.section = kQueuePreparation;
+            if (card) item.badge = "card";
+        };
+        for (const auto* section : {&layout.downloads, &layout.preparation}) {
+            if (section->empty()) continue;
+            auto& heading = row(std::string("queue-") + section->id, RowKind::Heading, section->name, "queue-expand");
+            heading.value = section->summary;
+            heading.selected = section->expanded;
+            heading.section = section->id;
+            if (section->active) entry_row(*section->active, true);
+            if (section->expanded)
+                for (const auto& entry : section->rows) entry_row(entry, false);
         }
-        if (view_.rows.empty()) row("downloads-empty", RowKind::Status, "No active downloads", "");
-        view_.legends = {"Cross Actions", "Options Actions", "L1/R1 Sections"};
+        for (const auto& volume : state_.volumes) {
+            auto& drive = row("storage-" + volume.id, RowKind::Volume, volume.label, "storage-details");
+            drive.section = "storage";
+        }
+        view_.legends = {"Cross Select", "Options Actions", "Circle Back", "L1/R1 Sections"};
     } else if (state_.navigation.route == Route::Saves) {
         view_.title = "Saves";
         const auto all = save_games(false);
@@ -4130,6 +4207,28 @@ void Simulation::rebuild_view() {
         });
         if (focused != view_.rows.end()) state_.navigation.focus_key = focused->key;
     }
+    // Queue: the focused row went away (dismissed, started, or its section closed). Focus the nearest
+    // row left in its section, else that section's heading, so focus never jumps across the screen.
+    if (focused == view_.rows.end() && !has_overlay && state_.navigation.route == Route::Downloads && !view_.rows.empty()) {
+        const auto section = QueueSectionOf(state_.navigation.focus_key);
+        const int last = static_cast<int>(view_.rows.size()) - 1;
+        const int origin = std::clamp(queue_focus_index_, 0, last);
+        int best = -1;
+        for (int distance = 0; distance <= last && best < 0 && !section.empty(); ++distance)
+            for (const int candidate : {origin + distance, origin - distance}) {
+                if (candidate < 0 || candidate > last) continue;
+                const auto& key = view_.rows[static_cast<std::size_t>(candidate)].key;
+                if (QueueSectionOf(key) == section && key.rfind("queue-", 0) != 0) { best = candidate; break; }
+            }
+        if (best < 0)
+            for (int index = 0; index <= last; ++index)
+                if (view_.rows[static_cast<std::size_t>(index)].key == "queue-" + section) best = index;
+        if (best >= 0) {
+            state_.navigation.selected_index = best;
+            state_.navigation.focus_key = view_.rows[static_cast<std::size_t>(best)].key;
+            focused = view_.rows.begin() + best;
+        }
+    }
     // Settings: the focused row went away (a dialog deleted it, or its data changed). Focus
     // the nearest row left in the same section, never the rail-only Quit entry.
     if (focused == view_.rows.end() && !has_overlay && state_.navigation.route == Route::Settings &&
@@ -4168,6 +4267,8 @@ void Simulation::rebuild_view() {
         if (!has_overlay && view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id != 0)
             state_.navigation.selected_game_id = view_.rows[static_cast<std::size_t>(view_.focused_row)].game_id;
     }
+    if (!has_overlay && state_.navigation.route == Route::Downloads && focused != view_.rows.end())
+        queue_focus_index_ = view_.focused_row;
     if (!has_overlay && state_.navigation.route == Route::Settings && view_.focused_row >= 0 &&
         static_cast<std::size_t>(view_.focused_row) < view_.rows.size()) {
         settings_focus_index_ = view_.focused_row;
@@ -5176,6 +5277,66 @@ void Simulation::activate() {
         else if (job && job->state != JobState::Cancelled) actions.push_back("job-cancel-" + id);
         actions.push_back("logs"); actions.push_back("cancel");
         open_modal({"job-actions", "Download actions", selected.key, std::move(actions), 0, false});
+    } else if (action_name == "details-prepare-next") {
+        prepare_next(selected.game_id);
+        state_.navigation.focus_key = selected.key;
+    } else if (action_name == "queue-expand") {
+        state_.queue_expanded = selected.section;
+    } else if (action_name == "prep-action") {
+        // The same kind of menu as a download's: what this preparation allows, then Cancel.
+        const auto& key = selected.key;
+        const auto id = std::to_string(selected.game_id);
+        std::vector<std::string> actions;
+        if (key.rfind("prep-done-", 0) == 0) {
+            actions = {"prep-open-" + id, "prep-dismiss-" + key.substr(std::strlen("prep-done-"))};
+            if (state_.preparation_queue.completed.size() > 1) actions.push_back("prep-clear-completed");
+        } else if (key.rfind("prep-attn-", 0) == 0) {
+            const auto runtime = state_.runtime_games.find(selected.game_id);
+            if (runtime != state_.runtime_games.end() && runtime->second.can_prepare && !runtime->second.awaiting_registration)
+                actions.push_back("prep-retry-" + id);
+            actions.push_back("prep-open-" + id);
+        } else if (key.rfind("prep-active-", 0) == 0) {
+            actions.push_back("prep-open-" + id);
+        } else {
+            // Prepare next waits for the game being prepared now; the first waiting game is next already.
+            const auto& waiting = state_.preparation_queue.waiting;
+            if (!waiting.empty() && waiting.front() != selected.game_id) actions.push_back("prep-next-" + id);
+            actions.push_back("prep-open-" + id);
+        }
+        actions.push_back("cancel");
+        open_modal({"prep-actions", "Preparation actions", key, std::move(actions), 0, false});
+    } else if (action_name == "storage-details") {
+        open_modal({"storage-details", selected.title, selected.key, {"storage-close"}, 0, false});
+    } else if (action_name == "storage-close") {
+        close_modal();
+    } else if (action_name.rfind("prep-next-", 0) == 0) {
+        close_modal();
+        prepare_next(static_cast<GameId>(std::strtoul(action_name.c_str() + std::strlen("prep-next-"), nullptr, 10)));
+    } else if (action_name.rfind("prep-open-", 0) == 0) {
+        const auto id = static_cast<GameId>(std::strtoul(action_name.c_str() + std::strlen("prep-open-"), nullptr, 10));
+        close_modal();
+        state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
+        state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
+    } else if (action_name.rfind("prep-retry-", 0) == 0) {
+        const auto id = static_cast<GameId>(std::strtoul(action_name.c_str() + std::strlen("prep-retry-"), nullptr, 10));
+        close_modal();
+        RequestRuntimePrepare(id);
+    } else if (action_name.rfind("prep-dismiss-", 0) == 0) {
+        // prep-dismiss-<game>-<finish time>: that finish only; preparing the game again lists it again.
+        const auto rest = action_name.substr(std::strlen("prep-dismiss-"));
+        const auto dash = rest.find('-');
+        const LiveCompletedPreparation done{static_cast<GameId>(std::strtoul(rest.c_str(), nullptr, 10)),
+                                            dash == std::string::npos ? 0 : std::strtoll(rest.c_str() + dash + 1, nullptr, 10)};
+        close_modal();
+        pending_prepared_dismissals_.push_back(done);
+        prepared_dismissed_.push_back(done);
+        std::erase(state_.preparation_queue.completed, done);
+    } else if (action_name == "prep-clear-completed") {
+        close_modal();
+        pending_prepared_clear_ = true;
+        auto& completed = state_.preparation_queue.completed;
+        prepared_dismissed_.insert(prepared_dismissed_.end(), completed.begin(), completed.end());
+        completed.clear();
     } else if (action_name == "saves-filter") {
         state_.navigation.saves_filter = std::clamp(std::atoi(selected.key.c_str() + std::strlen("saves-filter-")), 0,
                                                     static_cast<int>(kSavesFilters.size()) - 1);

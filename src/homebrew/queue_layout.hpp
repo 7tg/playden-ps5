@@ -1,0 +1,63 @@
+#pragma once
+// queue_layout.hpp - What the Queue screen shows: downloads and preparations, each section's rows and counts.
+// Copyright (c) 2026 Playden contributors
+// SPDX-License-Identifier: MIT
+#include "homebrew/simulation.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace playden::homebrew {
+inline constexpr const char* kQueueDownloads = "downloads";
+inline constexpr const char* kQueuePreparation = "preparation";
+
+// One game in a section. Downloads point at their job; preparations carry what their row says.
+struct QueueEntry {
+    std::string key;  // the row's focus key: job-<id>, prep-<id>, prep-attn-<id>, prep-done-<id>-<time>
+    GameId game_id = 0;
+    const Job* job = nullptr;
+    std::string title;
+    std::string status;  // the right-hand tag: "Up next", "Queued", "Waiting for the PS5", "Ready"
+    std::string note;    // beside the title: why it waits or failed
+    std::string tone;    // good, busy, attention, problem, quiet
+    int position = 0;    // waiting preparations, from 1
+    bool completed = false;
+    std::int64_t finished_at = 0;  // completed entries (Unix seconds), 0 unknown
+};
+
+struct QueueSection {
+    std::string id;    // kQueueDownloads or kQueuePreparation
+    std::string name;  // "Downloads", "Preparation"
+    // The running download or preparation, shown in the card; a paused or failed download at the front
+    // of the queue takes the card too, as Downloads always showed it.
+    std::optional<QueueEntry> active;
+    // Unfinished entries after the card (waiting, then needing attention), then completed ones, newest first.
+    std::vector<QueueEntry> rows;
+    std::size_t running = 0;    // downloading or preparing now
+    std::size_t waiting = 0;    // queued to run, card included when it only waits
+    std::size_t attention = 0;  // paused, failed or blocked: not ordinary waiting work
+    std::size_t completed = 0;
+    bool expanded = false;
+    std::string summary;  // the heading's right-hand words
+
+    [[nodiscard]] bool empty() const { return !active && rows.empty(); }
+    [[nodiscard]] bool unfinished() const { return active || rows.size() > completed; }
+};
+
+struct QueueLayout {
+    QueueSection downloads;
+    QueueSection preparation;
+    std::string summary;  // the page's subtitle: "1 downloading · 1 preparing · 4 waiting"
+    [[nodiscard]] bool nothing() const { return downloads.empty() && preparation.empty(); }
+};
+
+// The section shown expanded: the one whose row has focus, else the player's choice when it still
+// has something to show, else Preparation when games wait there, Downloads with unfinished work,
+// then whichever has anything.
+QueueLayout BuildQueueLayout(const State& state);
+// The section a Queue focus key belongs to (a heading, card or row); empty for other keys.
+std::string QueueSectionOf(const std::string& key);
+}  // namespace playden::homebrew
