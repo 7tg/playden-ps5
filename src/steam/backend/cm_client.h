@@ -54,6 +54,7 @@ struct AcquisitionResult {
   std::set<std::uint32_t> owned_depots;
   // The apps of each active licensed package, for games the owned list leaves out.
   std::map<std::uint32_t, std::vector<std::uint32_t>> package_apps;
+  std::map<std::uint32_t, std::vector<std::uint32_t>> package_depots;
   // Licensed packages Steam left out, sent without a token, or sent unreadable; their apps are not owned here.
   std::uint32_t skipped_packages = 0;
   bool ok() const { return error == CmError::kNone; }

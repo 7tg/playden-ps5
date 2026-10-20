@@ -128,6 +128,23 @@ InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, 
     std::string ids;
     for (const auto depot : missing) ids += (ids.empty() ? "" : " ") + std::to_string(depot);
     log("depots", "partial", ("unowned=" + ids).c_str());
+    // Which licenses carry the game and what they grant, against the app's depots.
+    std::string packages;
+    for (const auto& [package, apps] : entitlements.package_apps) {
+      if (std::find(apps.begin(), apps.end(), id) == apps.end()) continue;
+      packages += " " + std::to_string(package) + ":";
+      const auto depots = entitlements.package_depots.find(package);
+      if (depots != entitlements.package_depots.end())
+        for (const auto depot : depots->second) packages += std::to_string(depot) + ",";
+    }
+    log("depots", "licenses", packages.c_str());
+    std::string listed;
+    for (const auto& depot : app->depots)
+      listed += " " + std::to_string(depot.id) + ":" + std::to_string(depot.size) + ":" + depot.os_list + ":" +
+                (depot.depot_from_app ? "from" + std::to_string(*depot.depot_from_app) : "") +
+                (depot.shared_install ? "shared" : "") + (depot.is_dlc ? "dlc" : "") + ":" +
+                (entitlements.owned_depots.count(depot.id) ? "owned" : "-") + ":" + depot.name;
+    log("depots", "listed", listed.c_str());
     result.failure = "Steam didn't grant access to part of this game.";
     return result;
   }

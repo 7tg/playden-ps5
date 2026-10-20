@@ -961,6 +961,7 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
       result.owned_apps.clear();
       result.owned_depots.clear();
       result.package_apps.clear();
+      result.package_depots.clear();
     }
     return result;
   };
@@ -1008,6 +1009,8 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
           continue;
         auto& apps = package_apps[package.package_id];
         apps.insert(apps.end(), contents.app_ids.begin(), contents.app_ids.end());
+        auto& depots = result.package_depots[package.package_id];
+        depots.insert(depots.end(), contents.depot_ids.begin(), contents.depot_ids.end());
         result.owned_apps.insert(contents.app_ids.begin(), contents.app_ids.end());
         result.owned_depots.insert(contents.depot_ids.begin(), contents.depot_ids.end());
         received.insert(package.package_id);

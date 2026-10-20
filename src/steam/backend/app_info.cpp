@@ -435,14 +435,21 @@ std::vector<std::uint32_t> MissingBaseDepots(const AppInfo& app,
                                              const std::optional<std::set<std::uint32_t>>& owned_depots,
                                              const std::vector<DepotInfo>& selected) {
   if (!owned_depots) return {};
+  const auto base_content = [](const DepotInfo& depot) {
+    return !depot.depot_from_app && !depot.shared_install && !depot.is_dlc && depot.os_list.empty() &&
+           depot.language.empty() && depot.manifest_gid && *depot.manifest_gid != 0;
+  };
+  // A license that grants base content of its own holds the game: the base depots it leaves out
+  // are alternates for other licenses (Marvel Rivals lists a second copy of its content), and
+  // Steam installs only what the license grants.
+  for (const DepotInfo& depot : selected)
+    if (base_content(depot) && depot.size) return {};
   std::uint64_t selected_size = 0;
   for (const DepotInfo& depot : selected) selected_size += depot.size;
   std::vector<std::uint32_t> missing;
   std::uint64_t missing_size = 0;
   for (const DepotInfo& depot : app.depots) {
-    if (owned_depots->count(depot.id) != 0 || depot.depot_from_app || depot.shared_install || depot.is_dlc ||
-        !depot.os_list.empty() || !depot.language.empty() || !depot.manifest_gid || *depot.manifest_gid == 0)
-      continue;
+    if (owned_depots->count(depot.id) != 0 || !base_content(depot)) continue;
     missing.push_back(depot.id);
     missing_size += depot.size;
   }

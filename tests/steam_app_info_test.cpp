@@ -326,6 +326,24 @@ void TestMissingBaseDepots() {
   for (DepotInfo& depot : sizeless.depots) depot.size = 0;
   CHECK(SelectDepots(sizeless, {440}, partial, &selected, &reason));
   CHECK(MissingBaseDepots(sizeless, partial, selected).empty());
+
+  // Marvel Rivals: the free license grants one content depot; a same-size copy and a third content
+  // depot belong to other licenses. Together they outweigh the granted one, which is still the game.
+  AppInfo rivals;
+  rivals.app_id = 2767030;
+  DepotInfo granted = content;
+  granted.id = 2767031;
+  granted.size = 74'083'193'346ull;
+  DepotInfo copy = granted;
+  copy.id = 2767032;
+  DepotInfo other = granted;
+  other.id = 2767033;
+  other.size = 20'311'069'758ull;
+  rivals.depots = {granted, copy, other};
+  const std::set<std::uint32_t> free_license{2767031};
+  CHECK(SelectDepots(rivals, {2767030}, free_license, &selected, &reason));
+  CHECK((Ids(selected) == U32s{2767031}));
+  CHECK(MissingBaseDepots(rivals, free_license, selected).empty());
 }
 
 void TestEligibleLaunches() {
