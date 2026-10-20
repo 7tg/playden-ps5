@@ -296,33 +296,30 @@ void live_install_requests_and_projection() {
     requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == playden::homebrew::InstallRequestKind::Pause, "Pause goes to the service");
     model.UpdateInstalls({}, {{42, 600'000'000}});
-    check(model.action("details:42") && has_row(model, "details-installed"), "a finished install shows Installed");
+    check(model.action("details:42") && has_row(model, "details-setup"), "a finished install shows setup readiness");
     check(!has_row(model, "details-runtime"), "no runtime row before the runtime host reports");
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready,
                         {{42, "Not prepared", "Makes a private bottle and its own PS5 title", true, false}});
-    check(model.action("details:42") && has_row(model, "details-runtime"), "an installed game offers Prepare");
+    check(model.action("details:42") && has_row(model, "details-play"), "an installed game offers Play");
     const auto* play = find_row(model, "details-play");
     check(play && play->enabled && play->action == "runtime-play", "Play is offered before the game is prepared");
     activate(model, "details-play");
     const auto plays = model.TakeRuntimePlayRequests();
     check(plays.size() == 1 && plays[0] == 42, "Play on an unprepared game goes to the controller, which prepares first");
-    // The PS5 title's state is a note under the install line, not a second button: Play prepares.
-    const auto* runtime_note = find_row(model, "details-runtime");
-    check(runtime_note && runtime_note->kind == playden::homebrew::RowKind::Status && runtime_note->action.empty() &&
-              runtime_note->value == "Not prepared",
-          "the PS5 title state is a note");
+    check(find_row(model, "details-setup") && find_row(model, "details-setup")->value == "Not set up",
+          "setup readiness appears as a fact");
     model.RequestRuntimePrepare(42);
     check(model.TakeRuntimePrepareRequests().size() == 1, "Prepare can be queued without a button press");
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
     check(model.action("details:42"), "details reopen");
-    check(find_row(model, "details-play")->progress == 0.0F && find_row(model, "details-runtime")->progress == 0.0F,
+    check(find_row(model, "details-play")->progress == 0.0F,
           "a step without a known fraction shows no bar");
     {
         playden::homebrew::LiveRuntimeGame copying{42, "Preparing", "Copying the Windows environment", false, false};
         copying.progress = 0.42F;
         model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {copying});
-        check(find_row(model, "details-play")->progress == 0.42F && find_row(model, "details-runtime")->progress == 0.42F,
-              "a copy with a known fraction shows it on Play and the PS5 title");
+        check(find_row(model, "details-play")->progress == 0.42F,
+              "a copy with a known fraction shows it on Play");
         model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {{42, "Preparing", "Copying the bottle", false, false}});
     }
     check(model.state().installations.size() == 1 && !model.state().installations[0].runtime_ready, "preparing is not ready");
@@ -404,7 +401,7 @@ void live_install_volumes() {
     // Details show where a game is and where a new install goes.
     check(model.action("details:42"), "installed game opens");
     const auto* installed = find_row(model, "details-installed");
-    check(installed && installed->title == "Installed" && installed->subtitle == "On Console storage", "an installed game names its drive");
+    check(!installed, "installed size and location are shown only in facts");
     check(model.action("details:44"), "game on an absent drive opens");
     installed = find_row(model, "details-installed");
     check(installed && installed->title == "Storage disconnected" && installed->subtitle == "Connect USB drive to use this game",
@@ -963,20 +960,23 @@ void live_uninstall_removes_title_and_keeps_saves() {
     check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && requests[0].game_id == 42 &&
               requests[0].delete_saves, "Uninstall carries the saves choice");
 
-    // While it runs, Play waits; an interrupted removal offers Retry on the PS5 title row.
+    // While it runs, Play waits; an interrupted removal offers Finish removing.
     ready.uninstall_status = "Removing PS5 title…"; ready.can_play = false;
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {ready, plain});
     check(model.action("details:42"), "details reopen");
     const auto* play = find_row(model, "details-play");
     check(play && !play->enabled && play->value == "Removing PS5 title…", "Play shows the uninstall in progress");
+    check(find_row(model, "details-setup") && find_row(model, "details-setup")->value == "Removing",
+          "active uninstall replaces Ready with Removing in setup facts");
+    check(!has_row(model, "details-hint"), "active uninstall has no interrupted setup hint");
     LiveRuntimeGame stuck;
     stuck.game_id = 42; stuck.status = "Removal incomplete"; stuck.can_prepare = true; stuck.has_title = true;
     stuck.detail = "The console has not confirmed that the PS5 title is gone. Retry checks again.";
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {stuck, plain});
     check(model.action("details:42"), "details reopen");
     const auto* retry = find_row(model, "details-play");
-    check(retry && retry->title == "Retry" && retry->enabled && retry->action == "runtime-remove-retry",
-          "an unfinished removal turns Play into Retry");
+    check(retry && retry->title == "Finish removing" && retry->enabled && retry->action == "runtime-remove-retry",
+          "an unfinished removal offers Finish removing");
     activate(model, "details-play");
     requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Uninstall && !requests[0].delete_saves,
@@ -1504,11 +1504,11 @@ void live_ready_to_play_quits_to_home() {
     waiting.detail = "Waiting for the PS5, which adds the game to Home when Playden quits";
     model.UpdateRuntime(RuntimeState::Ready, {waiting});
 
-    // Details: Play is ready and quits to Home without asking; the PS5 title row checks again.
+    // Details: Finish setup quits to Home without asking; SETUP explains the pending registration.
     check(model.action("details:42"), "details open");
     const auto* play = find_row(model, "details-play");
-    check(play && play->enabled && play->action == "quit-to-home" && play->value == "Ready to play", "Play reads Ready to play");
-    check(find_row(model, "details-runtime")->value == "Waiting for the PS5", "the note says the title waits for the PS5");
+    check(play && play->enabled && play->action == "quit-to-home" && play->title == "Finish setup" && play->value == "Quits to Home", "Finish setup explains quitting to Home");
+    check(find_row(model, "details-setup")->value == "Waiting for the PS5", "setup says the title waits for the PS5");
     check(model.state().navigation.focus_key == "details-play", "focus rests on Play");
     // Its saves sync first (#50): Play waits in a dialog, then quits once they are in step.
     model.UpdateCloud({{42, CloudStatus::UpToDate, "Saves are up to date"}});
@@ -1648,8 +1648,8 @@ void live_ready_to_play_quits_to_home() {
     check(held.action("details:42"), "details open");
     const auto* held_play = find_row(held, "details-play");
     check(held_play && !held_play->enabled && held_play->value == "Waiting" &&
-              held_play->subtitle == "Waits for Other to finish preparing",
-          "a held Resume names the game it waits for");
+              held_play->subtitle.empty(),
+          "a held setup action waits without adding a second status line");
     auto dropped = make_live();
     dropped.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(dropped.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
@@ -1697,56 +1697,139 @@ void live_play_does_the_next_useful_thing() {
     model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
     model.UpdateInstalls({}, {{42, 600'000'000}});
-    const auto show = [&](const std::string& status, bool ready, bool can_prepare) {
-        LiveRuntimeGame value; value.game_id = 42; value.status = status; value.detail = status + " detail";
-        value.ready = ready; value.can_play = ready; value.can_prepare = can_prepare; value.has_title = true;
-        model.UpdateRuntime(RuntimeState::Ready, {value});
-        check(model.action("details:42"), "details open");
-        return find_row(model, "details-play");
+    struct Case {
+        const char* status; const char* label; const char* value; const char* hint;
+        const char* setup; const char* tone; const char* action;
     };
-    // An update or a repair happens on the way to the game: Play stays Play and says so.
-    for (const std::string status : {"Update available", "Needs repair"}) {
-        const auto* play = show(status, false, true);
-        check(play && play->title == "Play" && play->enabled && play->action == "runtime-play" &&
-                  play->subtitle == status + " detail",
-              "Play updates or repairs first, saying so");
-        check(find_row(model, "details-runtime")->value ==
-                  (status == "Update available" ? "Runtime update available" : "Runtime needs repair"),
-              "the note names the runtime, not the game");
-        activate(model, "details-play");
-        check(model.TakeRuntimePlayRequests() == std::vector<playden::GameId>{42}, "Play goes to the controller");
-        // Only an update can happen without starting the game; a broken title is repaired by Play.
-        const auto* update = find_row(model, "details-update-runtime");
-        if (status == "Update available") {
-            check(update && update->title == "Update runtime" && update->enabled && update->action == "runtime-update",
-                  "Update runtime sits beside Play");
-            activate(model, "details-update-runtime");
-            check(model.TakeRuntimePrepareRequests() == std::vector<playden::GameId>{42} &&
-                      model.TakeRuntimePlayRequests().empty(),
-                  "Update runtime updates without starting the game");
-            check(model.state().navigation.focus_key == "details-play", "focus moves to Play, which shows the progress");
+    const std::vector<Case> cases{
+        {"Ready", "Play", "", "", "Ready", "good", "runtime-play"},
+        {"Not prepared", "Play", "Sets up first", "", "Not set up", "quiet", "runtime-play"},
+        {"Kit update available", "Play", "Kit update first", "", "Kit update available", "busy", "runtime-play"},
+        {"Needs repair", "Play", "Repairs first", "Some of Synthetic's setup files changed.", "Needs repair", "attention", "runtime-play"},
+        {"Needs recovery", "Finish setup", "", "Setup stopped early.", "Interrupted", "attention", "runtime-prepare"},
+        {"Waiting for the PS5", "Finish setup", "Quits to Home", "Quit Playden and Synthetic appears on the PS5 Home screen.", "Waiting for the PS5", "busy", "quit-to-home"},
+        {"Failed", "Finish setup", "", "Setup failed.", "Failed", "problem", "runtime-prepare"},
+        {"Registration pending", "Check again", "", "The PS5 hasn't confirmed Synthetic yet.", "Not confirmed", "attention", "runtime-prepare"},
+        {"Removal incomplete", "Finish removing", "", "Removing Synthetic from the PS5 Home screen stopped partway.", "Removing", "attention", "runtime-remove-retry"},
+        {"No kit", "Open Settings", "", "Playden needs its compatibility kit to set up games.", "No kit", "problem", ""},
+    };
+    for (const auto& expected : cases) {
+        LiveRuntimeGame state; state.game_id = 42; state.status = expected.status;
+        state.detail = "raw technical detail for bug reports";
+        state.ready = state.status == "Ready"; state.can_play = state.ready;
+        state.can_prepare = !state.ready && state.status != "No kit";
+        state.has_title = state.status != "No kit" && state.status != "Not prepared";
+        state.awaiting_registration = state.status == "Waiting for the PS5";
+        model.UpdateRuntime(RuntimeState::Ready, {state});
+        check(model.action("details:42"), "details open");
+        const auto* play = find_row(model, "details-play");
+        check(play && play->enabled && play->title == expected.label && play->value == expected.value,
+              (state.status + ": main action names the next step").c_str());
+        check(play->subtitle.empty(), "main action does not repeat the hint or technical detail");
+        const auto* hint = find_row(model, "details-hint");
+        if (std::string(expected.hint).empty()) check(!hint, "ready and routine setup have no attention hint");
+        else check(hint && hint->title == expected.hint && hint->tone == expected.tone && !hint->enabled,
+                   (state.status + ": one plain, coloured hint").c_str());
+        const auto* setup = find_row(model, "details-setup");
+        check(setup && setup->value == expected.setup && setup->tone == expected.tone && !setup->enabled,
+              (state.status + ": setup fact states readiness").c_str());
+        check(!has_row(model, "details-runtime") && !has_row(model, "details-installed") &&
+                  !has_row(model, "details-update-runtime"), "details avoid duplicated facts and separate kit update action");
+        if (state.status == "No kit") {
+            activate(model, "details-play");
+            check(model.state().navigation.route == Route::Settings, "missing kit opens Settings");
+            check(model.TakeRuntimePlayRequests().empty() && model.TakeRuntimePrepareRequests().empty(),
+                  "missing kit does not queue an impossible preparation");
+            check(model.state().navigation.focus_key == "about-kit", "missing kit opens Compatibility kit in About");
+            while (!model.state().navigation.modals.empty()) check(model.action("circle"), "close kit information");
         } else {
-            check(!update, "a repair offers no separate button");
+            check(play->action == expected.action, "redesigned action preserves existing behavior");
+            if (play->action == "runtime-play" || play->action == "runtime-prepare") {
+                const bool starts = play->action == "runtime-play";
+                activate(model, "details-play");
+                check((starts ? model.TakeRuntimePlayRequests() : model.TakeRuntimePrepareRequests()) ==
+                          std::vector<playden::GameId>{42}, "action requests the selected game");
+            }
         }
     }
-    // While the runtime cannot act on it (queued, being played, uninstalling), there is no Update button.
-    show("Update available", false, false);
-    check(!find_row(model, "details-update-runtime"), "no Update runtime while the game cannot be prepared");
-    // A title that needs the player's attention turns Play into that action.
-    for (const auto& [status, label] : std::vector<std::pair<std::string, std::string>>{
-             {"Needs recovery", "Resume"}, {"Failed", "Retry"}, {"Registration pending", "Check again"}}) {
-        const auto* play = show(status, false, true);
-        check(play && play->title == label && play->enabled && play->action == "runtime-prepare" &&
-                  play->subtitle == status + " detail",
-              "Play becomes the attention action");
-        activate(model, "details-play");
-        check(model.TakeRuntimePrepareRequests() == std::vector<playden::GameId>{42}, "the action goes to the runtime host");
+    // Raw failures must not leak into the page, even when they contain paths or jargon.
+    for (const std::string status : {"Needs recovery", "Failed"}) {
+        for (const auto& [detail, expected] : std::vector<std::pair<std::string, std::string>>{
+                 {"insufficient verified free space for package copy", status == "Failed"
+                     ? "Setup failed: console storage was full." : "Setup stopped early: console storage was full."},
+                 {"kit source is missing, linked, or has wrong mode", "The compatibility kit is damaged. Reinstall it."},
+                 {"unknown failure /private/technical/path", status == "Failed" ? "Setup failed." : "Setup stopped early."},
+                 {"", status == "Failed" ? "Setup failed." : "Setup stopped early."}}) {
+            LiveRuntimeGame state; state.game_id = 42; state.status = status; state.detail = detail; state.can_prepare = true;
+            model.UpdateRuntime(RuntimeState::Ready, {state});
+            check(model.action("details:42"), "failed details open");
+            const auto* hint = find_row(model, "details-hint");
+            check(hint && hint->title == expected, (status + ": " + detail + " -> " + (hint ? hint->title : "missing hint")).c_str());
+            check(model.state().runtime_games.at(42).detail == detail, "raw failure remains available for diagnostics");
+        }
     }
-    // Ready plays; while the runtime cannot act, Play is off and the note says why.
-    check(show("Ready", true, false)->title == "Play" && find_row(model, "details-play")->enabled, "Ready plays");
-    const auto* off = show("Preparing", false, false);
-    check(off && off->title == "Play" && !off->enabled, "nothing to do leaves Play off");
-    check(find_row(model, "details-runtime")->kind == playden::homebrew::RowKind::Status, "the PS5 title is a note");
+    for (const std::string status : {"Needs recovery", "Failed"}) {
+        for (const std::string code : {"space-unavailable", "kit-source", "kit-invalid-mode", "unknown-code"}) {
+            LiveRuntimeGame state; state.game_id = 42; state.status = status; state.can_prepare = true;
+            state.detail = "technical failure context"; state.failure_code = code;
+            model.UpdateRuntime(RuntimeState::Ready, {state});
+            const std::string expected = code == "space-unavailable"
+                ? (status == "Failed" ? "Setup failed: console storage was full." : "Setup stopped early: console storage was full.")
+                : code.starts_with("kit-") ? "The compatibility kit is damaged. Reinstall it."
+                : status == "Failed" ? "Setup failed." : "Setup stopped early.";
+            check(find_row(model, "details-hint") && find_row(model, "details-hint")->title == expected,
+                  "recorded failure code determines the plain hint");
+        }
+    }
+    LiveRuntimeGame preparing; preparing.game_id = 42; preparing.status = "Preparing";
+    preparing.detail = "Step 3 of 6 · Copying the Windows environment";
+    model.UpdateRuntime(RuntimeState::Ready, {preparing});
+    check(find_row(model, "details-play") && !find_row(model, "details-play")->enabled, "preparing cannot start again");
+    check(find_row(model, "details-setup") && find_row(model, "details-setup")->value == preparing.detail,
+          "setup fact uses the existing preparation progress words");
+    for (const auto& [runtime_state, status] : std::vector<std::pair<RuntimeState, std::string>>{
+             {RuntimeState::Checking, "Checking"}, {RuntimeState::Unavailable, "Unavailable"}}) {
+        LiveRuntimeGame transient; transient.game_id = 42; transient.status = status;
+        model.UpdateRuntime(runtime_state, {transient});
+        check(find_row(model, "details-setup") && find_row(model, "details-setup")->value == status,
+              "transient runtime availability has a setup fact");
+        check(!find_row(model, "details-play")->enabled && !has_row(model, "details-hint"),
+              "transient runtime availability does not offer an impossible action or attention hint");
+    }
+    model.UpdateInstalls({}, {});
+    check(!has_row(model, "details-setup") && !has_row(model, "details-hint"), "uninstalled games have no setup facts or hints");
+}
+
+void live_launch_failure_remains_visible_without_a_details_status_line() {
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RuntimeState;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(42, "Synthetic")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{42, 600'000'000}});
+    LiveRuntimeGame ready; ready.game_id = 42; ready.status = "Ready"; ready.ready = true; ready.can_play = true;
+    model.UpdateRuntime(RuntimeState::Ready, {ready});
+    check(model.action("details:42"), "details open");
+    ready.play_detail = "Could not start: technical /private/launch/path";
+    model.UpdateRuntime(RuntimeState::Ready, {ready});
+    check(model.state().navigation.modals.size() == 1 && model.state().navigation.modals.back().title == "Can't play",
+          "a failed launch remains visible after removing the details subtitle");
+    check(model.state().navigation.modals.back().body.find("/private/launch/path") == std::string::npos,
+          "launch failure notice keeps technical paths out of player copy");
+    activate(model, "alert-ok");
+    model.UpdateRuntime(RuntimeState::Ready, {ready});
+    check(model.state().navigation.modals.empty(), "an unchanged launch refusal is not repeated on refresh");
+    check(!has_row(model, "details-hint"), "a ready game's launch refusal does not invent a setup hint");
+    activate(model, "details-play");
+    check(model.TakeRuntimePlayRequests() == std::vector<playden::GameId>{42}, "retry requests another play");
+    model.UpdateRuntime(RuntimeState::Ready, {ready});
+    check(model.state().navigation.modals.size() == 1, "a fresh attempt can report the same refusal again");
+    activate(model, "alert-ok");
+    ready.play_detail = "Cloud saves could not be checked. Press Play again to start without syncing.";
+    model.UpdateRuntime(RuntimeState::Ready, {ready});
+    check(model.state().navigation.modals.size() == 1 &&
+              model.state().navigation.modals.back().body.find(ready.play_detail) != std::string::npos,
+          "Cloud retry guidance remains reachable after removing the details subtitle");
 }
 
 void live_store_details_fill_the_description() {
@@ -2101,6 +2184,7 @@ void live_sign_in_on_full_storage_offers_uninstall() {
 }
 
 int main() {
+    live_launch_failure_remains_visible_without_a_details_status_line();
     live_download_reorder_reaches_service();
     live_play_does_the_next_useful_thing();
     live_store_details_fill_the_description();

@@ -158,6 +158,7 @@ struct LiveRuntimeGame {
     // Save backups kept for the game and when the newest was made (Unix time).
     std::size_t save_backups = 0;
     std::int64_t latest_save_backup = 0;
+    std::string failure_code;  // Recorded preparation failure; detail remains available in diagnostics.
 };
 // Saves and settings kept from an uninstalled game (its private bottle).
 struct LiveKeptBottle {

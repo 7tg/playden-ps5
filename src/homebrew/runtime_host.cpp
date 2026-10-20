@@ -827,7 +827,10 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
     if (record.journal) view.step = record.journal->step;
     view.recovery_pending = record.journal.has_value();
     view.awaiting_registration = AwaitingRegistration(record);
-    if (record.last_failure) view.failure = record.last_failure->message;
+    if (record.last_failure) {
+      view.failure = record.last_failure->message;
+      view.failure_code = record.last_failure->code;
+    }
     if (const auto kept = checked.find(record.install_id); !only.empty() && record.install_id != only && kept != checked.end())
       view.title_current = kept->second;
     else if (record.state == rt::PreparationState::kReady && composition.kit)

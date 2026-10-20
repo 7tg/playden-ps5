@@ -185,7 +185,7 @@ int main(int argc,char** argv) {
         capture_live("details-preparing-progress.png");
       }
       {
-        // Prepared and waiting for the PS5: Play reads Ready to play, and the prompt offers it.
+        // Prepared and waiting for the PS5: Finish setup explains quitting to Home.
         LiveRuntimeGame waiting; waiting.game_id=42; waiting.status="Waiting for the PS5"; waiting.has_title=true;
         waiting.awaiting_registration=true; waiting.can_prepare=true;
         waiting.detail="Waiting for the PS5, which adds the game to Home when Playden quits";
@@ -194,6 +194,18 @@ int main(int argc,char** argv) {
         live.NotifyReadyToPlay(42);
         capture_live("ready-to-play-prompt.png");
         assert(live.action("focus:ready-later") && live.action("cross"));
+      }
+      // The details state gallery covers button widths, hint colours and the seventh fact.
+      for (const auto& [status, filename] : std::vector<std::pair<std::string, std::string>>{
+               {"Not prepared", "details-not-prepared.png"}, {"Kit update available", "details-kit-update.png"},
+               {"Needs repair", "details-needs-repair.png"}, {"Needs recovery", "details-interrupted.png"},
+               {"Failed", "details-failed.png"}, {"Registration pending", "details-not-confirmed.png"},
+               {"Removal incomplete", "details-removing.png"}, {"No kit", "details-no-kit.png"}}) {
+        LiveRuntimeGame state; state.game_id=42; state.status=status;
+        state.can_prepare=status!="No kit"; state.has_title=status!="No kit" && status!="Not prepared";
+        if (status=="Needs recovery" || status=="Failed") state.detail="insufficient verified free space for package copy";
+        live.UpdateRuntime(RuntimeState::Ready, {state});
+        capture_live(filename.c_str());
       }
       ready.can_play=true; ready.play_status.clear();
       live.UpdateRuntime(RuntimeState::Ready, {ready});

@@ -172,6 +172,7 @@ struct RuntimeInstallView {
   // Save backups kept for the game, and when the newest was made (Unix time).
   std::size_t save_backups = 0;
   std::int64_t latest_save_backup = 0;
+  std::string failure_code;  // Recorded preparation failure; the message remains available in diagnostics.
 };
 
 // Work on a prepared game's files, run while its PS5 title is stopped.

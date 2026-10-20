@@ -1191,6 +1191,17 @@ void Simulation::UpdateRuntime(RuntimeState runtime, const std::vector<LiveRunti
     for (const auto& [id, game] : next) {
         if (game.status != "Not prepared") rechosen_after_refusal_.erase(id);
         const auto before = state_.runtime_games.find(id);
+        // Launch outcomes are separate from setup readiness. Surface a new actionable
+        // refusal once through the existing notice path, keeping diagnostics off Details.
+        if (!game.play_detail.empty() &&
+            (before == state_.runtime_games.end() || before->second.play_detail != game.play_detail)) {
+            if (game.play_detail.rfind("Could not start:", 0) == 0 || game.play_detail == "The game could not start.")
+                NotifyPlayStopped(id, "The game could not start. Open Logs in Settings for details.");
+            else if (game.play_detail == "The game's PS5 title may still be running. Close it, then press Play." ||
+                     game.play_detail == "Choose which Cloud saves to keep, or press Play again to start without syncing." ||
+                     game.play_detail == "Cloud saves could not be checked. Press Play again to start without syncing.")
+                NotifyPlayStopped(id, game.play_detail);
+        }
         if (before == state_.runtime_games.end()) continue;
         const auto* known = find_game(state_, id);
         const std::string title = known ? known->title : "The game";
@@ -2724,7 +2735,7 @@ bool Simulation::scenario(const std::string& name) {
         state_.navigation.detail_id = 900001;
         state_.navigation.selected_game_id = 900001;
         if (auto* installation = find_installation(state_, 900001)) installation->runtime_ready = false;
-        state_.navigation.focus_key = "details-runtime";
+        state_.navigation.focus_key = "details-play";
     } else if (name == "launch-failure" || name == "crash" || name == "stop-failure") {
         state_.navigation.route = Route::Session;
         state_.session_game_id = 900001;
@@ -3615,87 +3626,63 @@ void Simulation::rebuild_view() {
         const bool installed = installation && (live() || installation->installed_bytes > 0);
         if (!live()) {
             auto& primary = row(installed ? "details-play" : "details-install", RowKind::Action,
-                                installed ? (installation->runtime_ready ? "Play" : "Runtime unavailable") : "Install",
-                                installed ? (installation->runtime_ready ? "launch" : "runtime-status") : "install");
+                                installed ? (installation->runtime_ready ? "Play" : "Open Settings") : "Install",
+                                installed ? (installation->runtime_ready ? "launch" : "details-kit-settings") : "install");
             primary.enabled = true;
         }
         if (live() && game) {
             // Real install state: an install job, a finished install, or what Steam allows.
             const auto* job = find_job(state_, std::to_string(game->id));
             if (installed) {
-                const auto* volume = find_volume(state_, installation->volume_id);
-                const std::string label = volume ? volume->label : "its storage";
-                auto& status = row("details-installed", RowKind::Status,
-                                   installation->available ? "Installed" : "Storage disconnected", "");
-                status.value = installation->installed_bytes > 0 ? format_bytes(installation->installed_bytes) : "";
-                status.subtitle = installation->available ? "On " + label : "Connect " + label + " to use this game";
+                if (!installation->available) {
+                    const auto* volume = find_volume(state_, installation->volume_id);
+                    auto& status = row("details-installed", RowKind::Status, "Storage disconnected", "");
+                    status.subtitle = "Connect " + (volume ? volume->label : std::string("its storage")) + " to use this game";
+                    status.enabled = false;
+                }
                 if (installation->available) {
-                    // Play the game's own PS5 title. A game that is not prepared yet is prepared
-                    // first and then starts, so the player never has to prepare it by hand.
-                    // One button does the next useful thing: Play, preparing, updating or repairing the
-                    // PS5 title first when it needs it, or Resume / Retry / Check again when the title needs
-                    // the player's attention.
+                    // The primary action says what pressing does; setup facts and a single
+                    // player-facing hint carry its state without repeating technical diagnostics.
                     const auto play_game = state_.runtime_games.find(game->id);
                     if (play_game != state_.runtime_games.end()) {
                         const auto& value = play_game->second;
+                        const bool kit_update = value.status == "Kit update available" || value.status == "Update available";
+                        const bool no_kit = value.status == "No kit";
                         const bool prepares_first = !value.ready && value.can_prepare &&
-                            (value.status == "Not prepared" || value.status == "Update available" ||
-                             value.status == "Needs repair");
-                        const std::string attention = !value.can_prepare ? ""
-                            : value.status == "Removal incomplete" || value.status == "Failed" ? "Retry"
-                            : value.status == "Needs recovery" ? "Resume"
-                            : value.status == "Registration pending" ? "Check again" : "";
-                        const bool enabled = value.can_play || prepares_first || value.awaiting_registration ||
-                                             !attention.empty();
-                        auto& play = row("details-play", RowKind::Action, attention.empty() ? "Play" : attention,
-                                         value.awaiting_registration ? "quit-to-home"
-                                         : !attention.empty() ? (value.status == "Removal incomplete" ? "runtime-remove-retry"
-                                                                                                      : "runtime-prepare")
-                                         : enabled ? "runtime-play" : "");
-                        // Otherwise Play names what holds it (Preparing, Update available…); the PS5 title row says why.
-                        play.value = !value.play_status.empty() || value.ready || prepares_first ? value.play_status
-                                                                                                 : value.status;
+                            (value.status == "Not prepared" || kit_update || value.status == "Needs repair");
+                        const bool recovery = value.status == "Needs recovery" || value.status == "Failed";
+                        const bool removing = value.status == "Removal incomplete";
+                        const bool pending = value.status == "Registration pending";
+                        const bool attention = value.can_prepare && (recovery || removing || pending);
+                        const bool enabled = no_kit || value.can_play || prepares_first || value.awaiting_registration || attention;
+                        auto& play = row("details-play", RowKind::Action,
+                            no_kit ? "Open Settings" : removing ? "Finish removing" : pending ? "Check again"
+                            : recovery || value.awaiting_registration ? "Finish setup" : "Play",
+                            no_kit ? "details-kit-settings" : value.awaiting_registration ? "quit-to-home"
+                            : attention ? (removing ? "runtime-remove-retry" : "runtime-prepare")
+                            : enabled ? "runtime-play" : "");
+                        play.value = value.awaiting_registration ? "Quits to Home"
+                            : !value.play_status.empty() ? value.play_status
+                            : prepares_first ? (kit_update ? "Kit update first" : value.status == "Needs repair" ? "Repairs first" : "Sets up first")
+                            : value.status == "Preparing" ? value.detail
+                            : value.status == "Checking" || value.status == "Removing" || value.status == "Unavailable" ? value.status
+                            : std::string{};
+                        play.enabled = enabled && value.uninstall_status.empty();
                         if (!value.uninstall_status.empty()) {
                             play.value = value.uninstall_status;
                             play.action.clear();
-                            play.enabled = false;
                         }
-                        play.subtitle = !value.play_detail.empty() ? value.play_detail
-                                      : !attention.empty() ? value.detail
-                                      : (value.status == "Update available" || value.status == "Needs repair") && prepares_first
-                                            ? value.detail
-                                      : prepares_first ? "The first start sets the game up and adds it to the PS5 Home screen"
-                                                       : std::string{};
-                        if (!attention.empty() && value.play_status.empty()) play.value.clear();
-                        if (value.awaiting_registration) {
-                            play.value = "Ready to play";
-                            play.subtitle = "Play quits to the PS5 Home screen, where the game appears";
-                        }
-                        play.enabled = enabled && value.uninstall_status.empty();
-                        // The runtime prepares one game at a time: a Play or Resume held behind another game's
-                        // preparation says so, instead of a greyed button with this game's old status.
                         if (!play.enabled && value.uninstall_status.empty() && value.status != "Preparing") {
                             const auto other = std::find_if(state_.runtime_games.begin(), state_.runtime_games.end(),
                                 [&](const auto& entry) { return entry.first != game->id && entry.second.status == "Preparing"; });
-                            if (other != state_.runtime_games.end()) {
-                                const auto* busy = find_game(state_, other->first);
-                                play.value = "Waiting";
-                                play.subtitle = "Waits for " + (busy ? busy->title : std::string("another game")) +
-                                                " to finish preparing";
-                            }
+                            if (other != state_.runtime_games.end()) play.value = "Waiting";
                         }
-                        // A copy or deletion with a known fraction shows a bar and its percentage; other steps
-                        // only their words.
                         if (value.progress) {
                             play.progress = std::max(*value.progress, 0.001F);
                             if (!play.value.empty())
                                 play.value = trimmed(play.value.substr(0, play.value.find("…"))) + " " +
                                              std::to_string(static_cast<int>(*value.progress * 100.0F)) + "%";
                         }
-                        // A title made with an earlier kit's runtime can be updated without starting the
-                        // game; Play still updates it first. A repair stays on Play: that title is broken.
-                        if (value.status == "Update available" && value.can_prepare && value.uninstall_status.empty())
-                            row("details-update-runtime", RowKind::Action, "Update runtime", "runtime-update");
                     }
                     // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
                     const auto cloud = state_.cloud.find(game->id);
@@ -3713,19 +3700,6 @@ void Simulation::rebuild_view() {
                                                                           : "Synced";
                     if (cloud != state_.cloud.end()) saves.subtitle = cloud->second.message;
                     saves.enabled = !busy;
-                    // Per-game runtime: a private bottle and the game's own PS5 title. Its state is the
-                    // note under the install line; Play carries its actions.
-                    const auto runtime_game = state_.runtime_games.find(game->id);
-                    if (runtime_game != state_.runtime_games.end()) {
-                        const auto& value = runtime_game->second;
-                        auto& runtime = row("details-runtime", RowKind::Status, "PS5 title", "");
-                        runtime.value = value.status == "Update available" ? "Runtime update available"
-                                      : value.status == "Needs repair" ? "Runtime needs repair" : value.status;
-                        runtime.subtitle = rechosen_after_refusal_.count(game->id) && value.status == "Not prepared"
-                            ? "Play prepares it with your choices from Game settings" : value.detail;
-                        runtime.enabled = false;
-                        if (value.progress) runtime.progress = std::max(*value.progress, 0.001F);
-                    }
                 }
             } else if (job) {
                 auto& status = row("details-download", RowKind::Action, "Download", "open-downloads");
@@ -3758,6 +3732,47 @@ void Simulation::rebuild_view() {
                     saves.enabled = false;
                     row("details-kept-delete", RowKind::Action, "Delete saves", "kept-delete-" + std::to_string(game->id)).dangerous = true;
                 }
+        }
+        if (installed) {
+            const auto found = state_.runtime_games.find(game->id);
+            const auto* runtime = found == state_.runtime_games.end() ? nullptr : &found->second;
+            const std::string status = !installation->available ? "Unavailable"
+                : runtime && !runtime->uninstall_status.empty() ? "Removing"
+                : runtime ? runtime->status : !live() ? (installation->runtime_ready ? "Ready" : "No kit") : "Checking";
+            const bool waiting = runtime && runtime->awaiting_registration && installation->available && runtime->uninstall_status.empty();
+            const bool kit_update = status == "Kit update available" || status == "Update available";
+            const std::string tone = waiting || kit_update ? "busy" : status == "Ready" ? "good"
+                : status == "Failed" || status == "No kit" ? "problem"
+                : status == "Needs repair" || status == "Needs recovery" || status == "Registration pending" ||
+                  status == "Removal incomplete" ? "attention" : "quiet";
+            auto& setup = row("details-setup", RowKind::Status, "Setup", "");
+            setup.value = waiting ? "Waiting for the PS5" : kit_update ? "Kit update available"
+                : status == "Not prepared" ? "Not set up" : status == "Needs recovery" ? "Interrupted"
+                : status == "Registration pending" ? "Not confirmed" : status == "Removal incomplete" ? "Removing"
+                : status == "Preparing" && runtime && !runtime->detail.empty() ? runtime->detail : status;
+            setup.tone = tone;
+            setup.enabled = false;
+            std::string hint;
+            if (waiting) hint = "Quit Playden and " + game->title + " appears on the PS5 Home screen.";
+            else if (status == "Registration pending") hint = "The PS5 hasn't confirmed " + game->title + " yet.";
+            else if (status == "Removal incomplete") hint = "Removing " + game->title + " from the PS5 Home screen stopped partway.";
+            else if (status == "Needs repair") hint = "Some of " + game->title + "'s setup files changed.";
+            else if (status == "No kit") hint = "Playden needs its compatibility kit to set up games.";
+            else if (runtime && (status == "Needs recovery" || status == "Failed")) {
+                const bool stopped = status == "Needs recovery";
+                if (runtime->failure_code.rfind("kit-", 0) == 0 ||
+                    runtime->detail == "kit source is missing, linked, or has wrong mode")
+                    hint = "The compatibility kit is damaged. Reinstall it.";
+                else if (runtime->failure_code == "space-unavailable" ||
+                         runtime->detail == "insufficient verified free space for package copy")
+                    hint = stopped ? "Setup stopped early: console storage was full." : "Setup failed: console storage was full.";
+                else hint = stopped ? "Setup stopped early." : "Setup failed.";
+            }
+            if (!hint.empty()) {
+                auto& note = row("details-hint", RowKind::Status, hint, "");
+                note.tone = tone;
+                note.enabled = false;
+            }
         }
         row("details-favorite", RowKind::Toggle, "Favorite", "favorite").selected = game && state_.library.favorites.contains(game->id);
         if (!live()) row("details-simulate-launch", RowKind::Action, "Simulate launch", "launch");
@@ -4086,7 +4101,7 @@ void Simulation::rebuild_view() {
             return std::any_of(view_.rows.begin(), view_.rows.end(), [key](const ViewRow& item) { return item.key == key; });
         };
         const auto play = std::find_if(view_.rows.begin(), view_.rows.end(), [](const ViewRow& item) { return item.key == "details-play"; });
-        const bool awaiting_play = has("details-installed") && (play == view_.rows.end() || !play->enabled);
+        const bool awaiting_play = has("details-setup") && (play == view_.rows.end() || !play->enabled);
         if (!has("details-checking") && !awaiting_play) details_primary_pending_ = false;
     }
     auto focused = std::find_if(view_.rows.begin(), view_.rows.end(), [this](const ViewRow& item) { return item.key == state_.navigation.focus_key; });
@@ -5286,7 +5301,13 @@ void Simulation::activate() {
         push_notice({"runtime-cleanup", "Unused game settings data cleaned up", "", false, kLiveNoticeSeconds, false, ""});
     } else if (live() && action_name == "runtime-play") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id != 0) pending_runtime_play_requests_.push_back(id);
+        if (id != 0) {
+            // A new attempt may fail for the same reason; only background refreshes
+            // should be deduplicated against the previous outcome.
+            if (auto previous = state_.runtime_games.find(id); previous != state_.runtime_games.end())
+                previous->second.play_detail.clear();
+            pending_runtime_play_requests_.push_back(id);
+        }
     } else if (live() && action_name == "live-install") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         // Install at once when the game fits the default drive (or its size is checked later);
@@ -5981,6 +6002,14 @@ void Simulation::activate() {
         {"inject-qr-approved", "inject-qr-expired", "inject-qr-failure", "inject-qr-denied", "advance-clock", "cancel"}, 0, false});
     else if (action_name == "simulation-controls") open_modal({"simulation-controls", "Simulation controls", state_.navigation.focus_key,
         {"advance-clock", "inject-download-failed", "inject-verification-failed", "inject-uninstall-failed", "inject-storage-disconnect", "inject-storage-reconnect", "inject-controller-disconnect", "inject-controller-reconnect", "inject-launch-failure", "inject-stop-failure", "inject-runtime-failed", "inject-save-failure", "inject-logs-loading", "inject-logs-empty", "inject-logs-failure", "inject-logs-ready", "inject-delayed-art", "inject-failed-art", "inject-library-refresh", "inject-startup-loading", "cancel"}, 0, false});
+    else if (action_name == "details-kit-settings") {
+        state_.navigation.route = Route::Settings;
+        state_.navigation.settings_rail_focused = false;
+        state_.navigation.focus_key = "settings-about";
+        settings_focus_section_ = "About";
+        open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", "settings-about",
+            {"about-version", "about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 4, false});
+    }
     else if (action_name == "about") open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", state_.navigation.focus_key,
         {"about-version", "about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 0, false});
     else if (action_name == "about-back") close_modal();

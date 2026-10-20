@@ -2231,11 +2231,12 @@ class Render::Impl
     }
 
     // A label over its value, as the macOS details metadata.
-    void detail_cell(std::string_view label, std::string_view value, float x, float y, float width)
+    void detail_cell(std::string_view label, std::string_view value, float x, float y, float width,
+                     gfx::Color tone = kText)
     {
         ui::text(scene_, fonts_.display, ui::upper(label), x, y + 14.0F, 17.0F, kSecondary, gfx::Align::left, 1.7F);
         const ui::FontRef &face = font_for(value, fonts_.semibold);
-        ui::text(scene_, face, face.font->fit(value, 26.0F, width), x, y + 50.0F, 26.0F, kText);
+        ui::text(scene_, face, face.font->fit(value, 26.0F, width), x, y + 50.0F, 26.0F, tone);
     }
 
     // The macOS game page: the game's hero across the top with its logo, a row of actions,
@@ -2696,15 +2697,29 @@ class Render::Impl
             x += width + 26.0F;
         }
 
-        // Left column: install status, the description and genres.
+        // The setup hint belongs to the actions, with a smaller face and a coloured dot.
+        // Leave a clear gap before the description; ready games have no hint.
         float y = 774.0F;
+        for (const ViewRow &row : view.rows)
+        {
+            if (row.key != "details-hint" || row.title.empty())
+                continue;
+            scene_.circle(kSafeX + 6.0F, 752.0F, 6.0F, save_tone(row.tone));
+            const ui::FontRef &face = font_for(row.title, fonts_.semibold);
+            ui::text(scene_, face, face.font->fit(row.title, 23.0F, 1100.0F), kSafeX + 26.0F, 760.0F,
+                     23.0F, kText);
+            y += 52.0F;
+            break;
+        }
+        // Non-installed games retain their download, destination and kept-save notes.
         if (!state.simulation_mode)
         {
             std::string note;
             gfx::Color tone = kSecondary;
             for (const ViewRow &row : view.rows)
             {
-                if (row.key.rfind("details-", 0) != 0 || row.key == "details-kept")
+                if (row.key.rfind("details-", 0) != 0 || row.key == "details-kept" ||
+                    row.key == "details-hint" || row.key == "details-setup")
                     continue;
                 if (row.kind == RowKind::Status)
                 {
@@ -2750,38 +2765,11 @@ class Render::Impl
                          22.0F, kSecondary);
                 y += 42.0F;
             }
-            // The game's PS5 title state, under the install note.
-            for (const ViewRow &row : view.rows)
-            {
-                if (row.key != "details-runtime" || row.subtitle.empty())
-                    continue;
-                // Its percentage is on the Play button.
-                const std::string runtime_note = "PS5 title · " + row.value + " · " + row.subtitle;
-                ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, runtime_note, 22.0F, 1128.0F), kSafeX, y + 4.0F,
-                         22.0F, kSecondary);
-                y += 42.0F;
-            }
-            // What Play will do first, or why it stopped ("Could not start: …"), under the PS5 title note.
-            std::string runtime_reason;
-            for (const ViewRow &row : view.rows)
-                if (row.key == "details-runtime")
-                    runtime_reason = row.subtitle;
-            for (const ViewRow &row : view.rows)
-            {
-                if (row.key != "details-play" || row.subtitle.empty() || row.subtitle == runtime_reason)
-                    continue;
-                const bool stopped = row.subtitle.rfind("Could not start", 0) == 0 ||
-                                     row.subtitle.rfind("The game could not", 0) == 0;
-                ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, row.subtitle, 22.0F, 1128.0F), kSafeX, y + 4.0F,
-                         22.0F, stopped ? kAmber : kSecondary);
-                y += 42.0F;
-            }
         }
         const std::string description = game == nullptr || game->description.empty() ?
                                             "Description unavailable." : game->description;
         const auto detail_scroll = state.navigation.scroll_offsets.find("details-content");
-        // The left column ends above the footer hints. Live pages carry status lines above the
-        // description, so it shows two lines a page (the model pages by the same size).
+        // Keep description pagination aligned with the model and above the footer hints.
         constexpr float column_bottom = 975.0F;
         const int description_lines = state.simulation_mode ? 3 : 2;
         const std::size_t page_size = DetailsDescriptionPage(state.simulation_mode);
@@ -2859,15 +2847,23 @@ class Render::Impl
         controller.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(controller.front())));
         constexpr float left = 1304.0F;
         constexpr float right = 1584.0F;
-        detail_cell("Playtime", playtime, left, 754.0F, 240.0F);
-        detail_cell("Size", size, right, 754.0F, 240.0F);
-        detail_cell("Store", game->source.empty() ? "Steam" : game->source, left, 830.0F, 240.0F);
-        detail_cell("Location", location, right, 830.0F, 240.0F);
-        detail_cell("Compatibility", compat, left, 906.0F, 240.0F);
-        if (game->last_played)
-            detail_cell("Last played", relative_time(game->last_played, state.clock_ticks), right, 906.0F, 240.0F);
+        const auto setup = std::find_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
+            return row.key == "details-setup";
+        });
+        const float facts_top = setup == view.rows.end() ? 754.0F : 694.0F;
+        detail_cell("Playtime", playtime, left, facts_top, 240.0F);
+        detail_cell("Size", size, right, facts_top, 240.0F);
+        detail_cell("Store", game->source.empty() ? "Steam" : game->source, left, facts_top + 76.0F, 240.0F);
+        detail_cell("Location", location, right, facts_top + 76.0F, 240.0F);
+        detail_cell("Compatibility", compat, left, facts_top + 152.0F, 240.0F);
+        if (game->last_played && setup == view.rows.end())
+            detail_cell("Last played", relative_time(game->last_played, state.clock_ticks), right,
+                        facts_top + 152.0F, 240.0F);
         else
-            detail_cell("Controller", controller, right, 906.0F, 240.0F);
+            detail_cell("Controller", controller, right, facts_top + 152.0F, 240.0F);
+        if (setup != view.rows.end())
+            detail_cell("Setup", setup->value, left, facts_top + 228.0F, 520.0F,
+                        setup->tone.empty() || setup->tone == "quiet" ? kText : save_tone(setup->tone));
     }
 
     void draw_session(ui::Canvas &, const ViewData &view, const State &state)

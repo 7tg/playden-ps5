@@ -820,6 +820,8 @@ void RetryAfterKitRespinBindsTheNewArtifacts() {
       return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kFailed;
     }, 60);
     CHECK(failed.installs[0].state == PreparationState::kFailed);
+    CHECK(failed.installs[0].failure_code == "space-unavailable");
+    CHECK(failed.installs[0].failure == "insufficient verified free space for package copy");
     host.Shutdown();
   }
   const auto rebuilt = SyntheticKit(fixture.root / "kit-rebuilt", "native", "kit-1", 'd', "runtime-neutral", "rev-neutral");

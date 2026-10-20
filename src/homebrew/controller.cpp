@@ -977,6 +977,7 @@ void Controller::TickRuntime() {
     for (const auto& view : snapshot.installs) if (view.app_id == id) record = &view;
     const auto refusal = snapshot.refusals.find(id);
     game.has_title = record != nullptr;
+    if (record) game.failure_code = record->failure_code;
     if (snapshot.status == RuntimeHostStatus::kStarting) {
       game.status = "Checking";
     } else if (snapshot.status != RuntimeHostStatus::kReady) {
@@ -998,8 +999,8 @@ void Controller::TickRuntime() {
       game.status = "Preparing"; game.detail = PreparationProgressWords(record != nullptr, record ? record->step : std::string{});
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                !record->title_current) {
-      game.status = "Update available"; game.can_prepare = usable;
-      game.detail = "Play or Update runtime updates it first; the game and its saves stay as they are";
+      game.status = "Kit update available"; game.can_prepare = usable;
+      game.detail = "Play updates the compatibility kit first; the game and its saves stay as they are";
     } else if (record && record->state == runtime::PreparationState::kReady && !record->recovery_pending &&
                record->admission != "ok") {
       game.status = "Needs repair"; game.can_prepare = usable;
@@ -1028,10 +1029,16 @@ void Controller::TickRuntime() {
                           record->state == runtime::PreparationState::kUnavailable)) {
       game.status = "Failed"; game.detail = record->failure; game.can_prepare = usable;
     } else {
-      game.status = "Not prepared";
+      game.status = usable ? "Not prepared" : "No kit";
       game.detail = usable ? "Play prepares it: a private bottle and the game's own PS5 title" : snapshot.kit_reason;
       game.can_prepare = usable;
     }
+    // Preparation and its recovery checks require the kit. Keep actions that
+    // launch or remove an existing title, and route blocked setup to Settings.
+    if (snapshot.status == RuntimeHostStatus::kReady && !usable &&
+        (game.status == "Kit update available" || game.status == "Needs repair" ||
+         game.status == "Needs recovery" || game.status == "Failed" || game.status == "Registration pending"))
+      game.status = "No kit";
     if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
     if (const auto refused = snapshot.play_refusals.find(id); refused != snapshot.play_refusals.end())
       game.play_detail = "Could not start: " + refused->second;
@@ -1075,6 +1082,8 @@ void Controller::TickRuntime() {
                             : *step == UninstallStep::kRemoveTitle ? "Removing PS5 title…" : "Uninstalling…";
       game.can_play = false; game.can_prepare = false;
     }
+    // A retry is in flight: do not republish its previous refusal as a new outcome.
+    if (play_queued_.count(id) || sync_before_play_.count(id)) game.play_detail.clear();
     if (game.ready && cloud_busy_.count(id) && game.play_detail.empty()) game.play_detail = "Waiting for Cloud saves to finish.";
     if (snapshot.work_progress && (snapshot.preparing_app == id || snapshot.removing_app == id))
       game.progress = snapshot.work_progress;
