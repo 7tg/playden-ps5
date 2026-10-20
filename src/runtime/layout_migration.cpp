@@ -581,6 +581,11 @@ RevertResult RevertLayout(const LayoutPaths& paths, const LayoutOps& ops) {
       if (rename_error) problems += "rename " + (tree.from / name).string() + " failed " + Describe(rename_error) + "; ";
     }
     if (!problems.empty()) { result.error = problems; return result; }
+    // A previous attempt may have renamed the last entry but failed its parent sync.
+    if (!SyncDirectory(ops, tree.from) || !SyncDirectory(ops, tree.to)) {
+      result.error = "the rollback folders could not be synced";
+      return result;
+    }
     Log(ops, "moved " + tree.from.string() + " back to " + tree.to.string());
   }
   if (!problems.empty()) {

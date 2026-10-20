@@ -425,6 +425,14 @@ if(BUILD_TESTING)
     target_compile_features(runtime_writable_folders_test PRIVATE cxx_std_20)
     target_include_directories(runtime_writable_folders_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
     add_test(NAME runtime_writable_folders COMMAND runtime_writable_folders_test)
+    add_executable(runtime_writable_folders_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_writable_folders_test.cpp"
+        "${CMAKE_SOURCE_DIR}/tests/directory_gateway_host.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/writable_folders.cpp")
+    target_compile_features(runtime_writable_folders_native_policy_test PRIVATE cxx_std_20)
+    target_include_directories(runtime_writable_folders_native_policy_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_compile_definitions(runtime_writable_folders_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    add_test(NAME runtime_writable_folders_native_policy COMMAND runtime_writable_folders_native_policy_test)
     add_executable(homebrew_title_icon_test "${CMAKE_SOURCE_DIR}/tests/homebrew_title_icon_test.cpp")
     target_compile_features(homebrew_title_icon_test PRIVATE cxx_std_20)
     target_include_directories(homebrew_title_icon_test PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")

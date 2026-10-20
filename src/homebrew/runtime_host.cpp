@@ -1314,6 +1314,11 @@ bool RuntimeHost::MoveGames(Composition& c, std::string* error) {
   if (rename_pending) move = std::make_pair(console_path(config_.layout_paths->app_root / "games"),
                                            console_path(config_.layout_paths->games_root));
   if (!move) return true;
+  for (auto* path : {&move->first, &move->second})
+    if (!config_.host_namespace_prefix.empty()) {
+      const auto relative = std::filesystem::path(*path).lexically_relative(config_.host_namespace_prefix);
+      if (!relative.empty() && *relative.begin() != "..") *path = (std::filesystem::path("/") / relative).string();
+    }
   // All leases precede every activity check and survive the rename AND record rewrite.
   std::vector<platform::ManagedFileLock> leases;
   const auto postpone = [&](const std::string& why) {

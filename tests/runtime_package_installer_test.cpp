@@ -29,6 +29,7 @@
 #include <vector>
 
 #ifdef PLAYDEN_TEST_AT_UNAVAILABLE
+extern int playden_test_gateway_error;
 extern "C" int playden_ps5_file_lock(int fd, int operation) { return ::flock(fd, operation); }
 #include <cerrno>
 extern "C" int openat(int, const char*, int, ...) { errno = EINVAL; return -1; }
@@ -747,6 +748,14 @@ void SharedTreeWalksByPath() {
   CHECK(::link((temporary.path / "private/secret").c_str(), (root / "Documents/secret").c_str()) == 0);
   SharedTreeOptions options;
 
+#ifdef PLAYDEN_TEST_AT_UNAVAILABLE
+  for (const int error : {EINVAL, ENOSYS}) {
+    playden_test_gateway_error = error;
+    CHECK(!OpenTreeToEveryone(root, options).ok);
+    CHECK(ModeOf(root / "Documents/notes.txt") == 0600);
+    playden_test_gateway_error = 0;
+  }
+#endif
   auto opened = OpenTreeToEveryone(root, options);
   CHECK(opened.ok && !opened.changed_under && opened.linked == 1);
   CHECK(ModeOf(root / "AppData/Roaming/Game") == 0777 && ModeOf(root / "AppData/Roaming/Game/save.dat") == 0666);

@@ -497,6 +497,21 @@ void RenameParentsSyncBeforeJournalAdvances() {
   CHECK(renames == 12 && syncs == 2 * renames && pending.empty());
 }
 
+void RevertRetriesTheLastRenameSync() {
+  auto f = Make("revert-last-sync");
+  CHECK(MigrateLayout(f->paths, f->ops).games_moved);
+  bool failed = false;
+  f->ops.sync = [&](const fs::path& path) {
+    if (path == f->paths.log_root && fs::is_empty(path)) { failed = true; return false; }
+    return true;
+  };
+  CHECK(!RevertLayout(f->paths, f->ops).complete && failed);
+  CHECK(LoadLayoutJournal(f->paths.state_root)->step == "revert-logs");
+  bool retried = false;
+  f->ops.sync = [&](const fs::path& path) { if (path == f->paths.log_root) retried = true; return true; };
+  CHECK(RevertLayout(f->paths, f->ops).complete && retried);
+}
+
 void FailedDirectorySyncKeepsUserStepBlocked() {
   auto f = Make("user-sync");
   const auto old = f->paths.app_root / "playden-data";
@@ -526,6 +541,7 @@ int main() {
   PartialUserMoveBlocksServicesAndOnlyMovesForward();
   FailedDirectorySyncKeepsUserStepBlocked();
   RenameParentsSyncBeforeJournalAdvances();
+  RevertRetriesTheLastRenameSync();
   MovesUserDataLogsAndGames();
   KeepsStubFolders();
   ResumesAfterEachStep();
