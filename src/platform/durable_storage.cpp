@@ -1,4 +1,5 @@
 #include "platform/storage.h"
+#include "platform/ps5/title_allow_list.h"
 #include "platform/managed_directory.h"
 
 #include <atomic>
@@ -84,6 +85,7 @@ Result<void> Storage::WriteDurableExclusive(const std::string& relative_path,
 Result<void> Storage::WriteDurableImpl(const std::string& relative_path,
                                        const Bytes& bytes,
                                        bool replace_existing) const {
+  const auto uid = ps5::HoldEffectiveUid();
   const auto resolved = Resolve(relative_path);
   if (!resolved.ok()) return Failure(resolved.error(), "Invalid journal path.");
   auto parent = Parent(root_, relative_path, traversable_root_);

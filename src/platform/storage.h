@@ -130,7 +130,7 @@ class Storage {
  private:
   Result<std::string> Resolve(const std::string& relative_path) const;
   Result<void> WriteAtomicImpl(const std::string& relative_path,
-                               const Bytes& bytes, bool private_file) const;
+                               const Bytes& bytes, bool private_file, bool* retry = nullptr) const;
 
   Result<void> WriteDurableImpl(const std::string& relative_path,
                                  const Bytes& bytes, bool replace_existing) const;

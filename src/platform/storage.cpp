@@ -1,4 +1,5 @@
 #include "platform/storage.h"
+#include "platform/ps5/title_allow_list.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -133,12 +134,18 @@ Result<void> Storage::WriteAtomic(const std::string& relative_path,
 
 Result<void> Storage::WriteAtomicPrivate(const std::string& relative_path,
                                          const Bytes& bytes) const {
-  return WriteAtomicImpl(relative_path, bytes, true);
+  const auto uid = ps5::HoldEffectiveUid();
+  for (unsigned attempt = 0; attempt < 3; ++attempt) {
+    bool retry = false;
+    auto written = WriteAtomicImpl(relative_path, bytes, true, &retry);
+    if (!retry) return written;
+  }
+  return Result<void>::Failure(StorageError::kPermissionFailed, "Private storage owner changed repeatedly.");
 }
 
 Result<void> Storage::WriteAtomicImpl(const std::string& relative_path,
                                       const Bytes& bytes,
-                                      bool private_file) const {
+                                      bool private_file, bool* retry) const {
   const auto resolved = Resolve(relative_path);
   if (!resolved.ok()) {
     return Result<void>::Failure(resolved.error(), resolved.message());
@@ -148,7 +155,10 @@ Result<void> Storage::WriteAtomicImpl(const std::string& relative_path,
   errno = 0;
   std::FILE* file = nullptr;
   if (private_file) {
-    const int descriptor = open(temporary_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    // Discard a stale temp from an interrupted save, including one created during a root raise.
+    if (::unlink(temporary_path.c_str()) != 0 && errno != ENOENT)
+      return Result<void>::Failure(StorageError::kOpenFailed, "Private storage temporary file could not be removed.");
+    const int descriptor = open(temporary_path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (descriptor < 0) {
       return Result<void>::Failure(StorageError::kOpenFailed,
                                    "private storage open failed for '" + relative_path +
@@ -215,6 +225,16 @@ Result<void> Storage::WriteAtomicImpl(const std::string& relative_path,
     return Result<void>::Failure(
         StorageError::kWriteFailed,
         WriteErrorMessage("could not flush", relative_path, flush_error, private_file));
+  }
+  if (private_file) {
+    struct stat status{};
+    const bool inspected = ::fstat(fileno(file), &status) == 0;
+    if (!inspected || status.st_uid != ::geteuid()) {
+      std::fclose(file);
+      const bool removed = ::unlink(temporary_path.c_str()) == 0;
+      if (retry) *retry = inspected && removed;
+      return Result<void>::Failure(StorageError::kPermissionFailed, "Private storage temporary owner is not the app user.");
+    }
   }
   if (std::fclose(file) != 0) {
     const int close_error = errno;

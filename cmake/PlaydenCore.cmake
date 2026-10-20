@@ -24,6 +24,7 @@ target_compile_definitions(playden_library PRIVATE UTF8PROC_STATIC)
 target_compile_features(playden_library PUBLIC cxx_std_17)
 
 add_library(playden_storage STATIC
+    "${CMAKE_SOURCE_DIR}/src/platform/effective_uid.cpp"
     "${CMAKE_SOURCE_DIR}/src/platform/storage.cpp"
     "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp")
 target_include_directories(playden_storage PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -283,6 +284,9 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(title_remover_test "${CMAKE_SOURCE_DIR}/tests/title_remover_test.cpp")
     target_link_libraries(title_remover_test PRIVATE playden_native_coordinator)
     add_test(NAME title_remover COMMAND title_remover_test)
+    add_executable(private_storage_uid_test "${CMAKE_SOURCE_DIR}/tests/private_storage_uid_test.cpp")
+    target_link_libraries(private_storage_uid_test PRIVATE playden_native_coordinator playden_storage Threads::Threads)
+    add_test(NAME private_storage_uid COMMAND private_storage_uid_test)
     add_executable(title_allow_list_test "${CMAKE_SOURCE_DIR}/tests/title_allow_list_test.cpp")
     target_link_libraries(title_allow_list_test PRIVATE playden_native_coordinator)
     add_test(NAME title_allow_list COMMAND title_allow_list_test)

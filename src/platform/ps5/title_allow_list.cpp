@@ -35,6 +35,7 @@ bool Private(const struct stat& info, uid_t owner, mode_t mode) {
 
 bool WriteRootOwnedFile(const std::filesystem::path& directory, const std::string& name,
                         const std::string& contents, const RootFileOps& ops, std::string* error) {
+  const auto uid = HoldEffectiveUid();
   if (!ops.raise || !ops.lower || name.empty() || name.find('/') != std::string::npos)
     return Fail(error, "invalid request", EINVAL);
   const auto target = directory / name;
@@ -77,29 +78,9 @@ bool WriteRootOwnedFile(const std::filesystem::path& directory, const std::strin
   return true;
 }
 
-namespace {
-std::recursive_mutex& RootLock() {
-  static std::recursive_mutex lock;
-  return lock;
-}
-}  // namespace
-
-bool WithRoot(const std::function<bool()>& work) {
-  std::lock_guard<std::recursive_mutex> lock(RootLock());
-  const uid_t user = ::geteuid();
-  if (user == 0) return work();
-  if (::seteuid(0) != 0) return false;
-  const bool ok = work();
-  return ::seteuid(user) == 0 && ok;
-}
-
-std::shared_ptr<void> HoldEffectiveUid() {
-  return std::make_shared<std::unique_lock<std::recursive_mutex>>(RootLock());
-}
-
 bool WriteTitleAllowList(const std::string& contents, std::string* error) {
   const std::filesystem::path list = runtime::kTitleRuleAllowList;
-  std::lock_guard<std::recursive_mutex> lock(RootLock());
+  const auto uid = HoldEffectiveUid();
   const uid_t user = ::geteuid();
   RootFileOps ops;
   ops.raise = [] { return ::seteuid(0) == 0; };
