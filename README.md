@@ -23,7 +23,8 @@ private Windows environment and its own tile on the PS5 Home screen.
   the method you used last.
 - **Your whole Steam library.** Search, sort, favorites, collections, ratings and notes, with cover art and store
   details. The library works offline from a cache.
-- **Downloads from Steam.** Queue games and watch progress.
+- **Downloads from Steam.** Queue games and watch progress. The Queue screen also lists the games being prepared, in
+  the order they start; Prepare next moves a waiting game to the front.
 - **Storage at a glance.** Settings › Storage shows how much space is used and lists installed games by size or
   last played. Select several games and uninstall them together; saves are kept unless you choose otherwise.
 - **Each game is its own PS5 app.** It gets a tile on the Home screen, so you can start it without Playden.
@@ -146,7 +147,7 @@ Since 0.3.0, Playden updates itself from this repository's GitHub releases:
 - **Check:** at startup, and with Settings › About › Playden updates › Check now. When a newer release is out,
   Playden offers it once, with its notes, its download size, and a QR code for its release page on GitHub.
 - **Download:** Download and install fetches the new app and, when the release has a new one, the runtime kit. You
-  can follow the download on the Downloads screen and keep using Playden meanwhile.
+  can follow the download on the Queue screen and keep using Playden meanwhile.
 - **Restart:** when the update is ready, Restart Playden closes Playden, puts the new version and kit in place, and
   opens Playden again. If it doesn't open by itself (the payload loader on port 9021 isn't running), open it from
   the Home screen. On that first start Playden shows what's new in the version; Settings › About › Release notes

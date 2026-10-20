@@ -856,6 +856,7 @@ private:
     // Settings: the last focused row, so focus stays nearby when that row goes away.
     int settings_focus_index_ = 0;
     int queue_focus_index_ = 0;  // Queue: the focused row's place, for when that row goes away
+    bool queue_shown_ = false;   // Queue was on screen at the last rebuild
     std::string settings_focus_section_;
 
     struct OrganizationJournalEntry {

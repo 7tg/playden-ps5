@@ -826,7 +826,7 @@ std::string Simulation::installed_blocker(GameId id) const {
     if (std::any_of(state_.jobs.begin(), state_.jobs.end(), [id](const Job& job) {
             return job.game_id == id && job.state != JobState::Downloaded && job.state != JobState::Cancelled;
         }))
-        return "In Downloads";
+        return "In Queue";
     if (game && (game->status == "Preparing" || game->maintenance_running)) return "Busy";
     return {};
 }
@@ -2951,6 +2951,7 @@ void Simulation::rebuild_view() {
         state_.navigation.selected_game_id = selected_game_id;
     }
     view_ = {};
+    if (state_.navigation.route != Route::Downloads) queue_shown_ = false;
     view_.surface = route_name(state_.navigation.route);
     view_.show_simulation_label = state_.simulation_mode;
     if (state_.editor.active) view_.surface = "keyboard";
@@ -3924,8 +3925,14 @@ void Simulation::rebuild_view() {
         // Queue: Downloads, then Preparation, one expanded at a time, then the drives. Rows come in screen
         // order (heading, card, the expanded section's rows), so Up and Down follow what is on screen.
         view_.title = "Queue";
+        // Each visit starts from the automatic choice (or the focused row's section); then the open section
+        // stays open while focus moves and the queues change, until the player opens the other one.
+        if (!queue_shown_) state_.queue_expanded.clear();
+        queue_shown_ = true;
         const auto layout = BuildQueueLayout(state_);
         view_.subtitle = layout.summary;
+        if (layout.downloads.expanded) state_.queue_expanded = kQueueDownloads;
+        else if (layout.preparation.expanded) state_.queue_expanded = kQueuePreparation;
         const auto entry_row = [&](const QueueEntry& entry, bool card) {
             if (entry.job) {
                 const auto& job = *entry.job;
@@ -5010,16 +5017,20 @@ void Simulation::UpdateSaveSizes(std::map<GameId, std::uint64_t> sizes) {
 void Simulation::quit_to_home() {
     const auto preparing = std::find_if(state_.runtime_games.begin(), state_.runtime_games.end(),
                                         [](const auto& entry) { return entry.second.status == "Preparing"; });
-    if (preparing == state_.runtime_games.end()) {
+    // Games waiting in the queue hold too: between two preparations the next one may be about to start.
+    const auto& waiting = state_.preparation_queue.waiting;
+    if (preparing == state_.runtime_games.end() && waiting.empty()) {
         state_.quit_requested = true;
         return;
     }
-    const auto* game = find_game(state_, preparing->first);
+    const auto* game = find_game(state_, preparing != state_.runtime_games.end() ? preparing->first : waiting.front());
     const std::string name = game ? game->title : std::string("A game");
-    quit_wait_title_ = "Waiting for " + name;
+    quit_wait_title_ = preparing != state_.runtime_games.end() ? "Waiting for " + name : std::string("Waiting for the queue");
     state_.quit_waiting = true;
     ModalEntry wait{"confirmation", quit_wait_title_, state_.navigation.focus_key, {"cancel"}, 0, false};
-    wait.body = name + " is being prepared. Playden quits to the PS5 Home screen once it is done, so it is not left half-made.";
+    wait.body = preparing != state_.runtime_games.end()
+        ? name + " is being prepared. Playden quits to the PS5 Home screen once it is done, so it is not left half-made."
+        : "Playden quits to the PS5 Home screen once the queued games are held, so none is left half-made.";
     open_modal(std::move(wait));
 }
 

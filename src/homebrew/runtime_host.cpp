@@ -532,7 +532,10 @@ void RuntimeHost::HoldPreparations(bool hold) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (prepares_held_ == hold) return;
     prepares_held_ = hold;
+    // A new revision: a quit waiting for the queue to hold checks again whether anything still runs.
+    ++snapshot_.revision;
   }
+  published_.notify_all();
   wake_.notify_all();
 }
 

@@ -1204,7 +1204,7 @@ void live_storage_section_and_installed_games() {
     const auto* foxtrot = find_row(model, "installed-toggle-15");
     const auto* golf = find_row(model, "installed-toggle-16");
     check(echo && !echo->enabled && echo->subtitle == "Playing", "a running game is blocked");
-    check(foxtrot && !foxtrot->enabled && foxtrot->subtitle == "In Downloads", "a game with a download is blocked");
+    check(foxtrot && !foxtrot->enabled && foxtrot->subtitle == "In Queue", "a game with a download is blocked");
     check(golf && !golf->enabled && golf->subtitle == "Busy", "a game being prepared is blocked");
     activate(model, "installed-toggle-14");
     check(!find_row(model, "installed-toggle-14")->selected, "a blocked game can't be checked");
@@ -1627,6 +1627,22 @@ void live_ready_to_play_quits_to_home() {
     busy.UpdateRuntime(RuntimeState::Ready, {waiting, prepared});
     check(busy.state().quit_requested && !busy.state().quit_waiting && busy.state().navigation.modals.empty(),
           "Playden quits once the preparation is done");
+    // Games queued while none is being prepared (between two): the quit waits until the queue is held.
+    auto queued = make_live();
+    queued.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(queued.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
+    queued.UpdateInstalls({}, {{42, 600'000'000}, {43, 100}});
+    LiveRuntimeGame next; next.game_id = 43; next.status = "Not prepared"; next.queued = true;
+    queued.UpdateRuntime(RuntimeState::Ready, {waiting, next});
+    queued.UpdatePreparationQueue({std::nullopt, {43}, {}, {}});
+    queued.UpdateCloud({{42, CloudStatus::Unsupported, "This game does not use Steam Cloud."}});
+    check(queued.action("details:42"), "details open");
+    activate(queued, "details-play");
+    check(!queued.state().quit_requested && queued.state().quit_waiting &&
+              queued.state().navigation.modals.back().title == "Waiting for the queue",
+          "a queued game holds the quit");
+    queued.UpdateRuntime(RuntimeState::Ready, {waiting, next});
+    check(queued.state().quit_requested, "with the queue held and nothing preparing, Playden quits");
     auto cancelled = make_live();
     cancelled.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
     check(cancelled.UpdateLibrary({{game(42, "Synthetic"), game(43, "Other")}, false, {}, false, false, {}}), "library loaded");
@@ -2270,6 +2286,9 @@ void live_queue_shows_downloads_and_preparations() {
                           {13, 1, "internal", true}, {14, 1, "internal", true}, {23, 1, "internal", true}},
                          {{23, 1, "internal", 1'000}});
     check(has_row(model, "job-21") && !has_row(model, "prep-11"), "progress keeps the player's choice");
+    check(model.action("focus:job-23") && model.action("down") && model.state().navigation.focus_key == "queue-preparation",
+          "Down from the last download reaches the Preparation heading");
+    check(has_row(model, "job-21") && !has_row(model, "prep-11"), "moving onto the other heading doesn't open it");
 
     activate(model, "queue-preparation");
     activate(model, "prep-11");
