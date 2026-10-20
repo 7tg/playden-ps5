@@ -330,6 +330,9 @@ class RuntimeHost {
   // Moves a queued preparation to the front of the queue. The one running now finishes first.
   // False when the game is not queued (it started or was never asked for): nothing changes.
   bool PrepareNext(std::uint32_t app_id);
+  // Takes a queued preparation out of the queue (its game is being uninstalled). False when it is not
+  // queued: it started already, or was never asked for.
+  bool WithdrawPrepare(std::uint32_t app_id);
   // While held, no queued preparation starts (a quit to Home waits for the running one only).
   void HoldPreparations(bool hold);
   // Takes a finished preparation off RuntimeSnapshot::prepared; ClearPrepared takes every one off,

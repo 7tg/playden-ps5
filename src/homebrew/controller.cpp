@@ -687,8 +687,11 @@ void Controller::TickRuntime() {
   runtime_->HoldPreparations(model_.state().quit_waiting);
   for (const auto id : model_.TakeRuntimePrepareRequests()) RequestPrepare(id);
   // A game Playden still holds back moves to the front once it is asked for.
-  for (const auto id : model_.TakePrepareNextRequests())
-    if (!runtime_->PrepareNext(id)) prepare_next_pending_ = id;
+  // The latest choice wins: a game Playden still holds back moves first once it is asked for.
+  for (const auto id : model_.TakePrepareNextRequests()) {
+    if (runtime_->PrepareNext(id)) prepare_next_pending_.reset();
+    else prepare_next_pending_ = id;
+  }
   for (const auto& done : model_.TakePreparedDismissals()) runtime_->DismissPrepared(done.game_id, done.finished_at);
   if (model_.TakePreparedClear()) runtime_->ClearPrepared();
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
@@ -1191,6 +1194,13 @@ void Controller::TickRuntime() {
 void Controller::BeginUninstall(GameId id, bool delete_saves) {
   // Without the runtime there is no PS5 title to remove: the download goes as before.
   if (!runtime_) { if (installs_) installs_->Uninstall(id); return; }
+  // A preparation still waiting would make a title for files about to be deleted: it leaves the queue.
+  // One already running finishes first (TickUninstalls waits), so its title is removed with the rest.
+  runtime_->WithdrawPrepare(id);
+  std::erase(auto_prepare_, id);
+  prepare_after_details_.erase(id);
+  play_after_prepare_.erase(id);
+  if (prepare_next_pending_ == id) prepare_next_pending_.reset();
   // With automatic sync off, nothing moves to or from Steam Cloud unless the player syncs from Saves.
   if (uninstalls_.Begin(id, delete_saves, cloud_ && game_roots_.count(id) && !saves_root_.empty() && model_.state().cloud_saves_auto))
     ++play_notes_revision_;
@@ -1207,6 +1217,7 @@ void Controller::TickUninstalls() {
   const auto& snapshot = *snapshot_shared;
   if (snapshot.status == RuntimeHostStatus::kStarting) return;
   for (const auto id : ids) {
+    if (snapshot.preparing_app == id) continue;  // its title is removed once the preparation ends
     UninstallFacts facts;
     facts.has_title = std::any_of(snapshot.installs.begin(), snapshot.installs.end(),
                                   [id](const RuntimeInstallView& view) { return view.app_id == id; });

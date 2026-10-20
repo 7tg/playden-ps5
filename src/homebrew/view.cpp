@@ -2101,7 +2101,10 @@ class Render::Impl
         constexpr float line_y = 902.0F, baseline = 946.0F;
         scene_.rounded_rect({kSafeX, line_y, 1824.0F - kSafeX, 1.5F}, 0.0F, kText.with_alpha(0.12F));
         ui::text(scene_, fonts_.display, ui::upper("Storage"), kSafeX, baseline, 22.0F, kSecondary, gfx::Align::left, 2.6F);
-        float x = kSafeX + fonts_.display.measure(ui::upper("Storage"), 22.0F) + 2.6F * 7.0F + 36.0F;
+        const float first_x = kSafeX + fonts_.display.measure(ui::upper("Storage"), 22.0F) + 2.6F * 7.0F + 36.0F;
+        struct Drive { const ViewRow *row; const Volume *volume; std::string free; float width; };
+        std::vector<Drive> drives;
+        int focused = -1;
         for (const ViewRow &row : view.rows)
         {
             if (row.key.rfind("storage-", 0) != 0)
@@ -2111,30 +2114,59 @@ class Render::Impl
             if (volume == state.volumes.end())
                 continue;
             const std::string free = drive_free_words(*volume);
-            const float name_width = fonts_.regular.measure(volume->label, 24.0F);
-            const float free_width = fonts_.regular.measure(free, 22.0F);
-            const float bar_width = volume->capacity_known ? 72.0F : 0.0F;
-            const float item_width = name_width + (bar_width > 0.0F ? bar_width + 16.0F : 0.0F) + 16.0F + free_width + 34.0F;
-            if (x + item_width > 1824.0F)
+            const float width = fonts_.regular.measure(volume->label, 24.0F) + (volume->capacity_known ? 88.0F : 0.0F) + 16.0F +
+                                fonts_.regular.measure(free, 22.0F) + 34.0F;
+            if (row.key == state.navigation.focus_key ||
+                (!state.navigation.modals.empty() && row.key == state.navigation.modals.front().opener_focus_key))
+                focused = static_cast<int>(drives.size());
+            drives.push_back({&row, &*volume, free, width});
+        }
+        // Drives that don't fit wait past the end; the line starts later so the focused one shows.
+        constexpr float room_end = 1824.0F - 80.0F;
+        std::size_t begin = 0;
+        const auto fits = [&](std::size_t from, std::size_t to) {
+            float x = first_x;
+            for (std::size_t index = from; index <= to; ++index)
+                x += drives[index].width + 40.0F;
+            return x - 40.0F <= room_end;
+        };
+        while (focused > 0 && begin < static_cast<std::size_t>(focused) && !fits(begin, static_cast<std::size_t>(focused)))
+            ++begin;
+        float x = first_x;
+        if (begin > 0)
+        {
+            const std::string earlier = "‹ " + std::to_string(begin);
+            ui::text(scene_, fonts_.regular, earlier, first_x, baseline, 22.0F, kMuted);
+            x += fonts_.regular.measure(earlier, 22.0F) + 28.0F;
+        }
+        std::size_t index = begin;
+        for (; index < drives.size(); ++index)
+        {
+            const Drive &drive = drives[index];
+            if (x + drive.width > room_end)
                 break;
-            const gfx::Rect box{x - 12.0F, baseline - 32.0F, item_width + 24.0F, 46.0F};
-            const float amount = focus_of(row.key);
+            const Volume *volume = drive.volume;
+            const gfx::Rect box{x - 12.0F, baseline - 32.0F, drive.width + 24.0F, 46.0F};
+            const float amount = focus_of(drive.row->key);
             focus_glow(scene_, box, amount, true);
             ui::text(scene_, fonts_.regular, volume->label, x, baseline, 24.0F, volume->available ? kText : kSecondary);
-            float cursor = x + name_width + 16.0F;
-            if (bar_width > 0.0F)
+            float cursor = x + fonts_.regular.measure(volume->label, 24.0F) + 16.0F;
+            if (volume->capacity_known)
             {
-                draw_usage_bar(*volume, cursor, baseline - 12.0F, bar_width, 6.0F);
-                cursor += bar_width + 16.0F;
+                draw_usage_bar(*volume, cursor, baseline - 12.0F, 72.0F, 6.0F);
+                cursor += 88.0F;
             }
-            ui::text(scene_, fonts_.regular, free, cursor, baseline, 22.0F,
+            ui::text(scene_, fonts_.regular, drive.free, cursor, baseline, 22.0F,
                      volume->available && volume->writable ? kSecondary : kAmber);
-            cursor += free_width + 14.0F;
+            cursor += fonts_.regular.measure(drive.free, 22.0F) + 14.0F;
             scene_.line(cursor, baseline - 15.0F, cursor + 6.0F, baseline - 9.0F, 2.0F, kSecondary);
             scene_.line(cursor + 6.0F, baseline - 9.0F, cursor, baseline - 3.0F, 2.0F, kSecondary);
             focus_ring(scene_, box, amount, true);
-            x += item_width + 40.0F;
+            x += drive.width + 40.0F;
         }
+        if (index < drives.size())
+            ui::text(scene_, fonts_.regular, "+" + std::to_string(drives.size() - index) + " ›", 1824.0F, baseline, 22.0F, kMuted,
+                     gfx::Align::right);
     }
 
     // What the strip says after a drive's name: its free space, or why there is none to report.

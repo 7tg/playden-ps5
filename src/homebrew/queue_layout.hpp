@@ -40,6 +40,7 @@ struct QueueSection {
     std::size_t waiting = 0;    // queued to run, card included when it only waits
     std::size_t attention = 0;  // paused, failed or blocked: not ordinary waiting work
     std::size_t completed = 0;
+    std::size_t updates = 0;    // a downloaded Playden update waiting for a restart
     bool expanded = false;
     std::string summary;  // the heading's right-hand words
 

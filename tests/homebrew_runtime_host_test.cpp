@@ -391,14 +391,17 @@ void PrepareNextReordersWaitingPreparations() {
   CHECK(host.PrepareNext(30));  // already first: nothing moves
   CHECK(!host.PrepareNext(99));
   CHECK((host.Snapshot().queued_prepares == std::vector<std::uint32_t>{30, 10, 20, 40}));
+  // An uninstall takes a waiting game out; the others keep their order.
+  CHECK(host.WithdrawPrepare(20) && !host.WithdrawPrepare(20));
+  CHECK((host.Snapshot().queued_prepares == std::vector<std::uint32_t>{30, 10, 40}));
   {
     std::lock_guard<std::mutex> lock(gate_mutex);
     block = false;
   }
   gate_changed.notify_all();
-  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepares_handled == 4; });
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepares_handled == 3; });
   CHECK(done.queued_prepares.empty() && !done.preparing_app);
-  CHECK((log.Order() == std::vector<std::uint32_t>{30, 10, 20, 40}));
+  CHECK((log.Order() == std::vector<std::uint32_t>{30, 10, 40}));
   CHECK(!host.PrepareNext(30));  // handled: no longer queued
   host.Shutdown();
 }

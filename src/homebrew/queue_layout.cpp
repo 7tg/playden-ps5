@@ -56,6 +56,7 @@ QueueSection downloads(const State& state) {
         else if (job->state == JobState::Queued) ++section.waiting;
         else if (job->state == JobState::Paused || job->state == JobState::Interrupted) ++paused;
         else if (job->state == JobState::Failed) ++failed;
+        else if (job->state == JobState::Downloaded && job->kind != "install") ++section.updates;
         if (card != jobs.end() && job == *card) section.active = entry(*job);
         // A staged Playden update is a Downloaded job that still asks for a restart: it stays with the work.
         else if (job->state == JobState::Downloaded && job->kind == "install") finished.push_back(job);
@@ -76,6 +77,7 @@ std::string downloads_words(const QueueSection& section, std::size_t paused, std
     if (section.waiting) join(text, std::to_string(section.waiting) + " waiting");
     if (paused) join(text, std::to_string(paused) + " paused");
     if (failed) join(text, std::to_string(failed) + " failed");
+    if (section.updates) join(text, "Playden update ready");
     return text;
 }
 
@@ -171,13 +173,14 @@ void summarize(QueueSection& section, const std::string& expanded_words, const s
     const std::size_t more = section.rows.size() - section.completed;  // unfinished, after the card
     if (section.expanded) {
         text = expanded_words;
-        if (section.running && !section.waiting && !section.attention) join(text, "Nobody waiting");
+        if (section.running && !section.waiting && !section.attention) join(text, "No games waiting");
     } else if (section.active) {
         text = more == 0 ? "No other games queued"
              : more == 1 ? "1 more game queued" : std::to_string(more) + " more games queued";
         join(text, attention_words);
     } else {
-        join(text, attention_words);
+        // Nothing runs: what waits, needs attention or is ready.
+        text = expanded_words;
     }
     if (section.completed) join(text, std::to_string(section.completed) + " completed");
     if (text.empty()) text = section.unfinished() ? expanded_words : idle;
@@ -236,6 +239,7 @@ QueueLayout BuildQueueLayout(const State& state) {
     if (download.waiting + prepare.waiting) join(summary, std::to_string(download.waiting + prepare.waiting) + " waiting");
     if (download.attention + prepare.attention)
         join(summary, need_attention(download.attention + prepare.attention));
+    if (download.updates) join(summary, "Playden update ready");
     if (summary.empty() && !layout.nothing())
         summary = "No active work · " + std::to_string(download.completed + prepare.completed) + " completed";
     layout.summary = summary;

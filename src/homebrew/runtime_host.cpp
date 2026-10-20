@@ -443,6 +443,20 @@ bool RuntimeHost::PrepareNext(std::uint32_t app_id) {
   return true;
 }
 
+bool RuntimeHost::WithdrawPrepare(std::uint32_t app_id) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto queued = std::find_if(prepare_requests_.begin(), prepare_requests_.end(),
+                                     [&](const auto& waiting) { return waiting.app_id == app_id; });
+    if (queued == prepare_requests_.end()) return false;
+    prepare_requests_.erase(queued);
+    std::erase(snapshot_.queued_prepares, app_id);
+    ++snapshot_.revision;
+  }
+  published_.notify_all();
+  return true;
+}
+
 void RuntimeHost::DismissPrepared(std::uint32_t app_id, std::int64_t finished_at) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -470,8 +484,12 @@ void RuntimeHost::LoadPreparedHistory() {
   std::ifstream in(config_.state_root / kPreparedHistory);
   std::uint32_t app = 0;
   long long finished = 0;
-  while (prepared_history_.size() < kMaxPrepared * 8 && in >> app >> finished)
-    if (app != 0 && finished > 0) prepared_history_.push_back({app, static_cast<std::int64_t>(finished)});
+  // Oldest first: a long file keeps its newest entries.
+  while (in >> app >> finished) {
+    if (app == 0 || finished <= 0) continue;
+    prepared_history_.push_back({app, static_cast<std::int64_t>(finished)});
+    if (prepared_history_.size() > kMaxPrepared * 8) prepared_history_.erase(prepared_history_.begin());
+  }
 }
 
 void RuntimeHost::SavePreparedHistory() {
@@ -480,6 +498,9 @@ void RuntimeHost::SavePreparedHistory() {
   std::erase_if(prepared_history_, [now](const PreparedGame& entry) {
     return entry.finished_at > now || now - entry.finished_at > kPreparedDays * 24 * 60 * 60;
   });
+  if (prepared_history_.size() > kMaxPrepared * 8)
+    prepared_history_.erase(prepared_history_.begin(),
+                            prepared_history_.end() - static_cast<std::ptrdiff_t>(kMaxPrepared * 8));
   std::string text;
   for (const auto& entry : prepared_history_)
     text += std::to_string(entry.app_id) + "\t" + std::to_string(entry.finished_at) + "\n";

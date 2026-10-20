@@ -2340,6 +2340,11 @@ void live_queue_history_and_empty_states() {
     activate(model, "prep-done-15-3000");
     activate(model, "prep-clear-completed");
     check(model.TakePreparedClear() && model.TakeInstallRequests().empty(), "Clear completed clears only preparations");
+    // Games waiting with none being prepared (Steam details still on their way) still count when collapsed.
+    model.UpdatePreparationQueue({std::nullopt, {14}, {{15, 4'000}}, {}});
+    activate(model, "queue-downloads");
+    check(queue_row(model, "queue-preparation")->value == "1 waiting · 1 completed", "a collapsed section counts what waits");
+    model.UpdatePreparationQueue({});
     check(!has_row(model, "queue-preparation") && has_row(model, "job-23"), "Preparation empties; Downloads keeps its entry");
 }
 
