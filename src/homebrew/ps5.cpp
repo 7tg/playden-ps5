@@ -311,6 +311,8 @@ int main() {
         cm_client.SetOwner("library");
         cm_client.SetSharedSession(steam_cm);
         playden::steam::EntitledLibraryBackend library_backend(owned_library, cm_client);
+        playden::steam::LicensedDepots licensed_depots;
+        library_backend.SetLicensedDepots(&licensed_depots);
         playden::LibraryCache library_cache(library_storage);
         playden::LibraryService library_service(library_backend,library_sessions,&library_cache);
         playden::PreferencesStore preferences(library_storage);
@@ -320,6 +322,7 @@ int main() {
         details_cm.SetOwner("details");
         details_cm.SetSharedSession(steam_cm);
         playden::steam::CmAppDetailsSource details_source(details_cm);
+        details_source.SetLicensedDepots(&licensed_depots);
         playden::LocalSessionRepository details_sessions(user_root);
         playden::steam::AppDetailsService app_details(details_source, details_sessions);
         playden::steam::CmClient install_cm(paths.trust_store, library_storage);

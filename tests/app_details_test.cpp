@@ -184,9 +184,36 @@ void ImpossibleDownloadSizeFallsBackToInstallSize() {
   assert(details.download_bytes == 30738676601ull + 61851360699ull + 400u);
 }
 
+// Marvel Rivals lists two copies of its content and a third content depot; the free license grants
+// one copy. The page showed 168.5 GB, the sum of all three, for a 74 GB install.
+void SizesCountOnlyLicensedDepots() {
+  const std::string buffer = R"("appinfo"
+{
+  "appid" "2767030"
+  "common" { "name" "Synthetic Rivals" "type" "Game" }
+  "config" { "launch" { "0" { "executable" "Rivals.exe" "config" { "oslist" "windows" } } } }
+  "depots"
+  {
+    "2767031" { "manifests" { "public" { "gid" "1" "size" "74083193346" "download" "67000000000" } } }
+    "2767032" { "manifests" { "public" { "gid" "2" "size" "74083193346" "download" "67000000000" } } }
+    "2767033" { "manifests" { "public" { "gid" "3" "size" "20311069758" "download" "18000000000" } } }
+  }
+})";
+  const auto unlicensed = DetailsFromAppInfo(2767030, buffer);
+  assert(unlicensed.install_bytes == 2 * 74083193346ull + 20311069758ull);
+  LicensedDepots::Grant grant{{2767030}, {2767031}};
+  const auto licensed = DetailsFromAppInfo(2767030, buffer, grant);
+  assert(licensed.available && licensed.windows_installable);
+  assert(licensed.install_bytes == 74083193346ull && licensed.download_bytes == 67000000000ull);
+  // Licenses that grant none of it (not loaded for this game yet) keep the full estimate.
+  const auto none = DetailsFromAppInfo(2767030, buffer, LicensedDepots::Grant{{}, {}});
+  assert(none.install_bytes == unlicensed.install_bytes);
+}
+
 }  // namespace
 
 int main() {
+  SizesCountOnlyLicensedDepots();
   RequestsAreDeduplicatedPerGeneration();
   NewGenerationDropsResultsAndRefetches();
   FailuresAreRetryable();

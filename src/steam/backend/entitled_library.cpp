@@ -31,6 +31,7 @@ LibraryResult EntitledLibraryBackend::Fetch(const StoredSession& session,
 
   last_error_.store(acquisitions.error);
   if (result.error != LibraryError::kNone || !acquisitions.ok()) return result;
+  if (licensed_) licensed_->Set(acquisitions);
   for (auto& game : result.games) {
     const auto found = acquisitions.acquired_at.find(game.id);
     if (found != acquisitions.acquired_at.end()) game.added_at_unix_seconds = found->second;

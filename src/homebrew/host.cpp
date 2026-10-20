@@ -410,6 +410,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::Storage> library_storage;
     std::unique_ptr<playden::steam::CmClient> cm_client;
     std::unique_ptr<playden::steam::EntitledLibraryBackend> library_backend;
+    playden::steam::LicensedDepots licensed_depots;
     std::unique_ptr<playden::LibraryCache> library_cache;
     std::unique_ptr<playden::LibraryService> library_service;
     std::unique_ptr<playden::PreferencesStore> preferences;
@@ -491,6 +492,7 @@ int main(int argc, char** argv) {
         library_storage = std::make_unique<playden::Storage>(options->data_directory.string());
         cm_client = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         library_backend = std::make_unique<playden::steam::EntitledLibraryBackend>(*owned_library, *cm_client);
+        library_backend->SetLicensedDepots(&licensed_depots);
         library_cache = std::make_unique<playden::LibraryCache>(*library_storage);
         library_service = std::make_unique<playden::LibraryService>(*library_backend,*library_sessions,library_cache.get());
         preferences=std::make_unique<playden::PreferencesStore>(*library_storage);
@@ -498,6 +500,7 @@ int main(int argc, char** argv) {
         persistence=std::make_unique<playden::app::PersistenceService>(*preferences,*organization);
         details_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         details_source = std::make_unique<playden::steam::CmAppDetailsSource>(*details_cm);
+        details_source->SetLicensedDepots(&licensed_depots);
         details_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
         app_details = std::make_unique<playden::steam::AppDetailsService>(*details_source, *details_sessions);
         install_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);

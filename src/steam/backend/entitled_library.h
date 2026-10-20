@@ -20,6 +20,8 @@ class EntitledLibraryBackend final : public LibraryBackend {
       : owned_(owned), acquisitions_(acquisitions) {}
 
   LibraryResult Fetch(const StoredSession& session, const std::atomic<bool>& cancel) override;
+  // Receives each successful license read, for size estimates.
+  void SetLicensedDepots(LicensedDepots* licensed) { licensed_ = licensed; }
 
   // Category of the most recent CM attempt, for diagnostics without identifiers.
   CmError last_acquisition_error() const { return last_error_.load(); }
@@ -30,6 +32,7 @@ class EntitledLibraryBackend final : public LibraryBackend {
 
   LibraryBackend& owned_;
   AcquisitionSource& acquisitions_;
+  LicensedDepots* licensed_ = nullptr;
   std::atomic<CmError> last_error_{CmError::kNone};
   // App ID -> its name when PICS calls it a game, empty when it is something else or undescribed.
   std::mutex looked_up_mutex_;

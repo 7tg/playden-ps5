@@ -4,7 +4,8 @@
 
 namespace playden::steam {
 
-AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer) {
+AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer,
+                              const std::optional<LicensedDepots::Grant>& licensed) {
   AppDetails details;
   details.id = id;
   const auto app = ParseAppInfo(id, buffer);
@@ -16,7 +17,14 @@ AppDetails DetailsFromAppInfo(GameId id, const std::string& buffer) {
   std::vector<DepotInfo> depots;
   std::string reason;
   const std::set<std::uint32_t> owned{id};
-  if (!SelectDepots(*app, owned, std::nullopt, &depots, &reason)) {
+  // As an install selects them; without licenses, or when they grant none of it, every eligible depot.
+  bool selected = false;
+  if (licensed) {
+    auto apps = licensed->apps;
+    apps.insert(id);
+    selected = SelectDepots(*app, apps, licensed->depots, &depots, &reason);
+  }
+  if (!selected && !SelectDepots(*app, owned, std::nullopt, &depots, &reason)) {
     details.reason = "No Windows content to install.";
     return details;
   }
@@ -55,7 +63,7 @@ std::vector<AppDetails> CmAppDetailsSource::Fetch(const StoredSession& session,
       result.push_back(std::move(missing));
       continue;
     }
-    result.push_back(DetailsFromAppInfo(id, found->second));
+    result.push_back(DetailsFromAppInfo(id, found->second, licensed_ ? licensed_->Get() : std::nullopt));
   }
   return result;
 }

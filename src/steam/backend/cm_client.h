@@ -60,6 +60,28 @@ struct AcquisitionResult {
   bool ok() const { return error == CmError::kNone; }
 };
 
+// What the account's licenses granted at the last library load, shared with size estimates so a
+// game's page counts only the depots an install would download. Safe from any thread.
+class LicensedDepots {
+ public:
+  struct Grant {
+    std::set<std::uint32_t> apps;
+    std::set<std::uint32_t> depots;
+  };
+  void Set(const AcquisitionResult& result) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    grant_ = Grant{result.owned_apps, result.owned_depots};
+  }
+  std::optional<Grant> Get() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return grant_;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::optional<Grant> grant_;
+};
+
 struct TokenRenewal {
   CmError error = CmError::kProtocol;
   std::string access_token;
