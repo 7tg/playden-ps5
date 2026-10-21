@@ -123,6 +123,8 @@ std::vector<const Game*> filtered_games(const State& state)
             continue;
         if (state.library.scope == "hidden" && !state.library.hidden.contains(game.id))
             continue;
+        if (state.library.scope == "imported" && game.id.store != Store::kLocal)
+            continue;
         if (collection != nullptr && !collection->members.contains(game.id))
             continue;
         if (state.library.scope != "hidden" && state.library.hidden.contains(game.id))
@@ -265,9 +267,17 @@ ShelfWindow shelf_window(int item_count, int focused_item, int capacity) noexcep
     return {first, count};
 }
 
+bool has_imported_games(const State& state)
+{
+    return std::any_of(state.games.begin(), state.games.end(),
+                       [](const Game& game) { return game.id.store == Store::kLocal; });
+}
+
 std::vector<std::string> library_rail_scopes(const State& state)
 {
     std::vector<std::string> result{"installed", "all", "favorites", "hidden"};
+    if (has_imported_games(state))
+        result.push_back("imported");
     for (const Collection& collection : state.library.collections)
         result.push_back(collection.id);
     result.push_back("new-collection");
@@ -279,8 +289,9 @@ bool move_browser(State& state, int delta_x, int delta_y)
     if (state.navigation.route == Route::Home)
     {
         const std::vector<Shelf> projected = shelves(state);
+        // No shelves: Home's empty state has only its buttons, which Up and Down step through.
         if (projected.empty())
-            return true;
+            return false;
         int shelf_index = std::clamp(state.navigation.home_shelf, 0,
                                      static_cast<int>(projected.size()) - 1);
         int child = std::clamp(state.navigation.home_shelf_focus[projected[static_cast<std::size_t>(shelf_index)].key],

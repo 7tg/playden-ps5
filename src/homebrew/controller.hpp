@@ -139,6 +139,9 @@ class Controller {
   // Removals asked for before the Local store's first snapshot reached the locations: until then a
   // game's folder (and so its PS5 title's removal first) isn't known.
   std::vector<GameId> held_import_removals_;
+  // The player's add, copy, move and removal requests sent to the Local store, by request number,
+  // until their outcome: a refusal reaches the model as a notice.
+  std::map<std::uint64_t, ImportRequest> import_requests_;
   // Copies into Playden were reconciled with the install service after the first imports.json read.
   bool copies_reconciled_ = false;
   // Play and Prepare of a game playing from the drop folder wait for its files to be opened

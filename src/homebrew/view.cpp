@@ -1553,6 +1553,11 @@ class Render::Impl
             {"rail-favorites", "Favorites", std::to_string(state.library.favorites.size()),
              state.library.scope == "favorites"},
             {"rail-hidden", "Hidden", std::to_string(state.library.hidden.size()), state.library.scope == "hidden"}};
+        if (has_imported_games(state))
+            entries.push_back({"rail-imported", "Imported",
+                               std::to_string(std::count_if(state.games.begin(), state.games.end(),
+                                                            [](const Game &game) { return game.id.store == Store::kLocal; })),
+                               state.library.scope == "imported"});
         for (const Collection &collection : state.library.collections)
             entries.push_back({"rail-" + collection.id, collection.name,
                                std::to_string(collection.members.size()),
@@ -1622,6 +1627,7 @@ class Render::Impl
         const Installation *installation = nullptr;
         bool installed = false;
         bool disconnected = false;
+        bool in_place = false;  // an imported game playing from its folder (no installation)
     };
 
     TileStatus tile_status(GameId id) const
@@ -1652,6 +1658,14 @@ class Render::Impl
             status.disconnected = !installation->available || (volume != state.volumes.end() && !volume->available);
             status.installed = !status.disconnected;
         }
+        else if (const auto external = std::find_if(state.external_games.begin(), state.external_games.end(),
+                                                    [id](const LiveExternalGame &item) { return item.game_id == id; });
+                 external != state.external_games.end())
+        {
+            status.in_place = true;
+            status.disconnected = !external->available;
+            status.installed = external->available;
+        }
         return status;
     }
 
@@ -1670,8 +1684,9 @@ class Render::Impl
             return "Reconnect its drive";
         if (status.installed)
         {
-            const std::string size = status.installation->installed_bytes > 0 ?
-                short_size(status.installation->installed_bytes) + " · " : std::string{};
+            const std::uint64_t bytes = status.installation != nullptr ? status.installation->installed_bytes :
+                                        game.install_bytes.value_or(0);
+            const std::string size = bytes > 0 ? short_size(bytes) + " · " : std::string{};
             return size + (game.playtime_minutes && *game.playtime_minutes > 0 ?
                                playtime_label(game.playtime_minutes) + " played" : std::string("Installed"));
         }
@@ -1711,8 +1726,9 @@ class Render::Impl
         const std::size_t texture_index = number >= 900001 ? (number - 900001) % art_.size() :
                                                              number % art_.size();
         const bool simulated = current_state_ != nullptr && current_state_->simulation_mode;
+        // Fixture posters belong to the fixture's Steam games; an imported game has none (its title shows).
         const std::uint32_t texture = simulated
-            ? (game.art_failed || game.art_pending ? 0 : art_[texture_index])
+            ? (game.art_failed || game.art_pending || !game.id.steam_app() ? 0 : art_[texture_index])
             : (live_artwork_ && current_state_ && !current_state_->account().id.empty()
                 ? store_texture(game.id, CoverUrl(game)) : 0);
         const TileStatus status = tile_status(game.id);
@@ -1743,7 +1759,7 @@ class Render::Impl
         const bool downloading = status.job != nullptr &&
             (status.job->state == JobState::Downloading || status.job->state == JobState::Verifying ||
              status.job->state == JobState::Pausing || status.job->state == JobState::Paused);
-        const bool show_download_mark = status.job == nullptr && status.installation == nullptr;
+        const bool show_download_mark = status.job == nullptr && status.installation == nullptr && !status.in_place;
         if (title_overlay && amount > 0.0F && !game.art_pending && !downloading)
         {
             scene_.push_opacity(amount);
@@ -1771,7 +1787,7 @@ class Render::Impl
             tile_badge(rect, "Drive disconnected", kAmber);
         if (show_download_mark)
             download_mark(rect.x + rect.w - 25.0F, rect.y + rect.h - 25.0F, 1.0F);
-        else if (status.installed && status.installation->installed_bytes > 0 && amount < 1.0F && title_overlay)
+        else if (status.installed && status.installation != nullptr && status.installation->installed_bytes > 0 && amount < 1.0F && title_overlay)
         {
             const std::string size = short_size(status.installation->installed_bytes);
             const float width = fonts_.semibold.measure(size, 16.0F) + 20.0F;
@@ -2451,7 +2467,7 @@ class Render::Impl
     void save_art(const State &state, GameId id, const gfx::Rect &rect)
     {
         // The cover when it is loaded; a small tile would wrap the poster's title letter by letter.
-        if (const Game *game = game_by_id(state, id); game != nullptr && state.simulation_mode)
+        if (const Game *game = game_by_id(state, id); game != nullptr && state.simulation_mode && id.steam_app())
         {
             const std::uint32_t number = id.steam_app().value_or(0);
             const std::size_t index = number >= 900001 ? (number - 900001) % art_.size() : number % art_.size();
@@ -2897,8 +2913,11 @@ class Render::Impl
             y += 52.0F;
             break;
         }
-        // Non-installed games retain their download, destination and kept-save notes.
-        if (!state.simulation_mode)
+        // Non-installed games retain their download, destination and kept-save notes; an imported
+        // game says where it plays from (the fixture's too).
+        const bool folder_note = std::any_of(view.rows.begin(), view.rows.end(),
+                                             [](const ViewRow &row) { return row.key == "details-folder"; });
+        if (!state.simulation_mode || folder_note)
         {
             std::string note;
             gfx::Color tone = kSecondary;
@@ -2927,7 +2946,7 @@ class Render::Impl
                 if (row.key == "details-download")
                 {
                     if (row.progress > 0.0F && row.value != "downloading")
-                        note = "Download " + row.value;
+                        note = row.title + " " + row.value;  // "Download paused", "Copying paused"
                     break;
                 }
             }
@@ -3007,6 +3026,19 @@ class Render::Impl
         if (found_installation != state.installations.end())
             installation = &*found_installation;
         std::string location = "Not installed";
+        // An imported game playing from its folder: the drive it is on, as the Import sheet names it.
+        const auto external = std::find_if(state.external_games.begin(), state.external_games.end(),
+                                           [&game](const LiveExternalGame &item) { return item.game_id == game->id; });
+        if (installation == nullptr && external != state.external_games.end())
+        {
+            static const std::map<std::string, std::string> drives = {
+                {"usb0", "USB drive"}, {"usb1", "USB drive 2"}, {"m2", "M.2 SSD"}, {"extended", "Extended storage"},
+                {"internal", "Console drop folder"}};
+            const auto drive = drives.find(external->volume_id);
+            location = drive == drives.end() ? external->volume_id : drive->second;
+            if (!external->available)
+                location += " · Disconnected";
+        }
         if (installation != nullptr)
         {
             const auto volume = std::find_if(state.volumes.begin(), state.volumes.end(),
@@ -3048,7 +3080,8 @@ class Render::Impl
         const float facts_top = setup == view.rows.end() ? 754.0F : setup_detail.empty() ? 694.0F : 662.0F;
         detail_cell("Playtime", playtime, left, facts_top, 240.0F);
         detail_cell("Size", size, right, facts_top, 240.0F);
-        detail_cell("Store", game->source.empty() ? "Steam" : game->source, left, facts_top + 76.0F, 240.0F);
+        detail_cell("Store", game->id.store == Store::kLocal ? std::string("Imported") : game->source.empty() ? "Steam" : game->source,
+                    left, facts_top + 76.0F, 240.0F);
         detail_cell("Location", location, right, facts_top + 76.0F, 240.0F);
         detail_cell("Compatibility", compat, left, facts_top + 152.0F, 240.0F);
         if (game->last_played && setup == view.rows.end())
@@ -3396,6 +3429,7 @@ class Render::Impl
         static const std::map<std::string, std::string> names = {
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
             {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
+            {"import-games", "Library"}, {"import-programs", "Import games"}, {"import-choice", "Import games"},
             {"job-actions", "Downloads"}, {"prep-actions", "Preparation"}, {"storage-details", "Storage"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
             {"filters", "Library"}, {"logs-controls", "Logs"}, {"setting-value", "Settings"}, {"diagnostics", "Settings"},
             {"notices", "Notifications"}, {"qr-controls", "Sign in"}, {"session-controls", "Simulation"},
@@ -3441,7 +3475,8 @@ class Render::Impl
                           view.surface == "button-mapping" || view.surface == "game-maintenance" ||
                           view.surface == "controller" || view.surface == "logs" ||
                           view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" ||
-                          view.surface == "installed-games";
+                          view.surface == "installed-games" || view.surface == "import-games" ||
+                          view.surface == "import-programs";
         const float width = overlay_transition_.panel_width(wide ? 960.0F : 640.0F);
         const gfx::Rect panel{kWidth - width + (1.0F - ease) * width, 0.0F, width, kHeight};
         overlay_.shadow({panel.x - 18.0F, 0.0F, panel.w + 18.0F, panel.h}, 0.0F, 36.0F,
@@ -3767,13 +3802,15 @@ class Render::Impl
 
     std::string overlay_label(const ViewRow &row) const
     {
+        // A sheet that only shows things says Close or Back on its cancel row.
         if (row.action == "cancel")
-            return "Cancel";
+            return row.title == "Close" || row.title == "Back" ? row.title : "Cancel";
         // Titles come labeled from the model; only a bare action key needs its dashes softened.
         std::string label = row.title.empty() ? row.action : row.title;
         if (row.title.empty())
             std::replace(label.begin(), label.end(), '-', ' ');
-        if (!label.empty() && label.front() >= 'a' && label.front() <= 'z')
+        // A program path ("redist/setup.exe") is shown as it is on the drive.
+        if (!label.empty() && label.front() >= 'a' && label.front() <= 'z' && row.action.rfind("import-program-", 0) != 0)
             label.front() = static_cast<char>(label.front() - 'a' + 'A');
         return label;
     }
@@ -3884,6 +3921,8 @@ class Render::Impl
         const bool settings_sheet = view.surface == "game-settings" || view.surface == "choice-picker" ||
                                     view.surface == "preset-picker" || view.surface == "button-mapping" ||
                                     view.surface == "game-maintenance";
+        // The Import sheets: each folder's path (or why it can't be added) under its name.
+        const bool import_sheet = view.surface == "import-games" || view.surface == "import-programs";
         // Every row's place in the list; the list scrolls only when it is taller than the sheet,
         // just enough to keep the focused row and a little of its neighbours in view, and eases there.
         const auto pitch = [&](const ViewRow &row) {
@@ -3893,7 +3932,7 @@ class Render::Impl
                 return 54.0F;
             const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
-            const bool described = (settings_sheet || checkbox || view.surface == "installed-games") && !row.subtitle.empty();
+            const bool described = (settings_sheet || checkbox || view.surface == "installed-games" || import_sheet) && !row.subtitle.empty();
             return (described ? 96.0F : 72.0F) + 12.0F;
         };
         std::vector<float> tops;
@@ -3966,7 +4005,7 @@ class Render::Impl
             // Kept game data: each game is a checkbox row with its kept date under the name.
             const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
-            const bool described = (settings_sheet || checkbox || view.surface == "installed-games") && !row.subtitle.empty() && row.kind != RowKind::Heading;
+            const bool described = (settings_sheet || checkbox || view.surface == "installed-games" || import_sheet) && !row.subtitle.empty() && row.kind != RowKind::Heading;
             const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F : 72.0F};
             const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
             focus_glow(overlay_, rect, amount);

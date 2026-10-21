@@ -42,6 +42,8 @@ private Windows environment and its own tile on the PS5 Home screen.
   with rumble. Games see the DualSense as an Xbox controller.
 - **Mouse and keyboard.** Plug a USB mouse and keyboard into the PS5, or use a controller preset: the left stick as a
   mouse, or the D-pad as the arrow keys.
+- **Import Windows games.** Add game folders you already have, from a USB drive, an M.2 SSD or over FTP. No Steam
+  account is needed. See [Import Windows games](#import-windows-games).
 - **Install to internal or external disks.** Console storage, or an exFAT USB drive formatted on a Mac or PC.
 
 See the [compatibility list](COMPATIBILITY.md) for the games we have tested.
@@ -87,7 +89,7 @@ you sign in:
   - For installing and updating Playden: an FTP server such as [zftpd](https://github.com/seregonwar/zftpd)
     (port 2120), and optionally [ps5-web-file-manager](https://github.com/owendswang/ps5-web-file-manager)
     (port 8888).
-- **A Steam account** with Windows games.
+- **Windows games:** a Steam account with games, or game folders you already have (see [Import Windows games](#import-windows-games)).
 - **A computer with Python 3** on the same network as the PS5, to copy Playden and the kit to it.
 - **To build it yourself (optional):** a Mac with Apple Silicon. Linux should also work, but we have not tested it
   yet. See [Build from source](#build-from-source).
@@ -160,6 +162,9 @@ version opens again, it says so and puts its kit back. If the new version itself
 described above (your games, sign-in and settings are kept), and put the previous kit folder back in place of
 `hl2-fw1360-dev1` if the new kit is at fault.
 
+After the version that added import, going back to an older version keeps your old favorites, but loses the favorites
+and collections you changed since. The console's organization data now lives in one file that older versions don't read.
+
 You can also update by hand: run the install command without `--install`. It copies only the changed files, keeps a
 backup of what it replaced, and puts those three folders' modes right if they changed.
 
@@ -193,6 +198,43 @@ This needs the next runtime kit (it has the `bottle-profile-shared` capability);
 private. With it, you can read and write everything in `prospero`. The folders above it can be entered but not
 listed, so type the full path in your FTP client instead of browsing to it. New saves a game writes are private
 at first. Playden opens them to FTP when it starts, when a game it started ends, and before it starts a game.
+
+## Import Windows games
+
+You can add Windows games you already have, without a Steam account.
+
+**Put the game folders in place:**
+
+- On an exFAT USB drive or M.2 SSD, in `playden/import/<game folder>` at the root of the drive.
+- Or over FTP, in `/data/playden-import/<game folder>` on the console.
+
+The drive must be exFAT. The PS5 can't read NTFS, and FAT32 can't hold files over 4 GB.
+
+**Add a game:**
+
+1. Open **Import games**: on the Startup screen, on Home when your library is empty, or in Settings › Storage.
+2. Choose **Look for games**. Playden lists the folders it finds, with their size.
+3. Pick a folder, then pick the program that starts the game. Installers and tools are labelled as such.
+4. Choose how to play it:
+   - **Play from the drive** (or from the drop folder): nothing is copied. The drive must stay plugged in.
+   - **Copy into Playden:** copies the game to Playden's games folder. The console copies about 11 MB/s, so a large
+     game takes a while.
+   - **Move into Playden:** for the drop folder only. It is instant.
+
+The PS5 adds the game's title to Home when Playden quits. Copying or moving a game later keeps its saves.
+
+**Limits:**
+
+- To play from where it is, the folder's path must be plain ASCII. Otherwise, copy the game.
+- Playden refuses a game folder that holds links.
+- Removing an imported game from the library leaves its files, and keeps its saves.
+- Cloud saves are only for Steam games.
+
+**Steam games copied from a PC** usually run without Steam. If a game needs Steam, Playden uses the game's
+`steam_appid.txt`, or the **Steam app ID** in Game settings. Most games run without either.
+
+Games that need their own launcher, or DRM beyond SteamStub (Denuvo, or the Ubisoft, EA or Rockstar launchers), won't
+run.
 
 ## Build from source
 

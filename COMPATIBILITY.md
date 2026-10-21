@@ -206,3 +206,4 @@ To see which kit your console has, run the [log script](tools/collect_logs.py): 
 - **Denuvo Anti-Tamper** games (for example Hi-Fi RUSH) cannot run, and support is not planned.
 - **Kernel anti-cheat** games (for example Easy Anti-Cheat or BattlEye in kernel mode) cannot run.
 - Games that need a **third-party launcher or account** (EA app, Ubisoft Connect, Rockstar) are not supported yet.
+- **Imported games** (added from a folder, see [Import Windows games](README.md#import-windows-games)) are not in this list. If you test one, [open a test report](../../issues/new?template=test-report.yml) and say it was imported.

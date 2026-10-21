@@ -34,6 +34,9 @@ static void choose(Simulation& simulation, const std::string& key) {
     const int index = static_cast<int>(std::distance(rows.begin(), target));
     for (int count = 0; count < 100 && simulation.view().focused_row != index; ++count)
         press(simulation, simulation.view().focused_row < index ? "down" : "up");
+    if (simulation.state().navigation.focus_key != key)
+        std::fprintf(stderr, "focus %s, wanted %s on %s\n", simulation.state().navigation.focus_key.c_str(), key.c_str(),
+                     simulation.view().surface.c_str());
     require(simulation.state().navigation.focus_key == key, "navigation reaches requested visible row");
     press(simulation, "cross");
 }
@@ -168,6 +171,63 @@ int main(int argc, char** argv) {
     require(std::count_if(simulation.state().jobs.begin(), simulation.state().jobs.end(),
                 [game](const Job& entry) { return entry.kind == "uninstall" && entry.game_id == game; }) == 1,
             "confirming Uninstall queues one uninstall operation");
+
+    // Import: Skip at Startup, Import games from Home, add a folder to play from its drive and Play
+    // it; then copy it into Playden, follow the copy, and uninstall the copy.
+    // A console with nothing queued: the earlier journeys' jobs stay with their own model.
     std::filesystem::remove(profile, error);
-    std::puts("PASS: install, storage, space, queue, pause/resume, cancel, retry, recovery, verify, uninstall by controller");
+    Simulation importing(argv[1], profile);
+    importing.scenario("signed-out");
+    choose(importing, "startup-skip");
+    require(importing.state().navigation.route == Route::Home, "Skip for now reaches Home");
+    choose(importing, "home-import");
+    require(importing.view().surface == "import-games", "Home's Import games opens the sheet");
+    if (importing.state().import_candidates.empty()) {
+        choose(importing, "import-look");
+        importing.tick(1);
+    }
+    choose(importing, "import-candidate-usb0:playden/import/Old School Rally");
+    require(importing.view().surface == "import-programs", "a folder lists its programs");
+    choose(importing, "import-program-0");
+    require(importing.view().surface == "import-choice" && has_row(importing, "import-copy"),
+            "the program leads to the choice of where the game plays from");
+    choose(importing, "import-play-in-place");
+    const auto imported = importing.state().navigation.detail_id.value_or(playden::GameId{});
+    require(importing.state().navigation.route == Route::Details && imported.store == playden::Store::kLocal &&
+                importing.state().navigation.detail_origin == Route::Home,
+            "adding the game opens its page, which returns Home");
+    require(has_row(importing, "details-copy") && has_row(importing, "details-remove") && !has_row(importing, "details-cloud"),
+            "an imported game playing from its drive offers Copy and Remove, no Cloud saves");
+    choose(importing, "details-play");
+    require(importing.state().navigation.route == Route::Session && importing.state().session_game_id == imported,
+            "Play launches the imported game");
+    importing.tick(2);
+    require(importing.state().session == SessionState::Running, "the imported game runs");
+    choose(importing, "session-quit");
+    if (importing.view().surface == "confirmation") choose(importing, "confirm-destructive");
+    importing.tick(1);
+    require(importing.state().navigation.route == Route::Details && importing.state().session == SessionState::Idle,
+            "quitting the game returns to its page");
+    choose(importing, "details-copy");
+    require(importing.view().surface == "import-choice" && has_row(importing, "storage-picker") &&
+                !has_row(importing, "import-play-in-place"),
+            "Copy into Playden asks for the drive");
+    choose(importing, "import-copy");
+    require(importing.state().navigation.route == Route::Details && has_row(importing, "details-download") &&
+                !has_row(importing, "details-copy"),
+            "the page shows the copy's progress");
+    // The fixture queue runs its own downloads first, one at a time.
+    for (int tick = 0; tick < 600 && has_row(importing, "details-download"); ++tick) importing.tick(1);
+    require(!has_row(importing, "details-download") && has_row(importing, "details-uninstall") &&
+                !has_row(importing, "details-remove") && has_row(importing, "details-play"),
+            "the copy finishes: the game plays from Playden and uninstalls");
+    choose(importing, "details-uninstall");
+    require(importing.state().navigation.focus_key == "cancel", "uninstall defaults to decline");
+    choose(importing, "confirm-destructive");
+    require(std::count_if(importing.state().jobs.begin(), importing.state().jobs.end(),
+                [imported](const Job& entry) { return entry.kind == "uninstall" && entry.game_id == imported; }) == 1,
+            "uninstalling the copy queues one uninstall operation");
+
+    std::filesystem::remove(profile, error);
+    std::puts("PASS: install, storage, space, queue, pause/resume, cancel, retry, recovery, verify, uninstall, import by controller");
 }

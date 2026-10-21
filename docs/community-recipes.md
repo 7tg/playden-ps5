@@ -87,6 +87,21 @@ contributions until it is.
 
 Applying community recipes from the preset chooser is planned.
 
+## Other stores
+
+A recipe can name a game that is not from Steam, with two more fields:
+
+```json
+"store": "local",
+"game": "local-<uuid>"
+```
+
+Give both or neither; a file with only one is refused, as is an unknown `store`. `local` is the only store so far: it
+is a game imported from a folder. Without them, the recipe is for the Steam game `app_id`, as before.
+
+An imported game is keyed by its local ID, which Playden makes when you add it, so a recipe for one only fits the
+console that exported it. Community recipes still target Steam games.
+
 ## Registry values
 
 Use `registry` only for a value the game reads from the registry and that no

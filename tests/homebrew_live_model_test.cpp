@@ -676,6 +676,70 @@ void live_root_access_missing() {
     check(!fixture.state().root_access_missing, "root access: the fixture model ignores it");
 }
 
+const playden::homebrew::ViewRow* find_view_row(const Simulation& model, const std::string& key) {
+    for (const auto& row : model.view().rows) if (row.key == key) return &row;
+    return nullptr;
+}
+
+// An imported game's Game settings: Program, and a "Steam app ID" that takes plain decimal only,
+// shows the game's own steam_appid.txt when that one wins, and clears when emptied.
+void live_imported_game_steam_app_id(const std::filesystem::path& base) {
+    std::filesystem::create_directories(base);
+    auto model = make_live(base);
+    model.SetGameSettingsFile(base / "imported-settings.json");
+    model.SetSettingsData({{"playden-default", "Playden default", "Most games", "", {}}}, {});
+    const auto id = playden::GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11");
+    playden::GameSummary game;
+    game.id = id;
+    game.title = "Night Sky";
+    playden::homebrew::LibraryUpdate update{{game}, false, {}, false, true, 100};
+    update.source = playden::Store::kLocal;
+    check(model.UpdateLibrary(update), "imported library delivered");
+    model.UpdateExternalGames({{id, "usb0", true, ""}});
+    playden::homebrew::LiveRuntimeGame runtime;
+    runtime.game_id = id;
+    runtime.status = "Ready";
+    runtime.ready = runtime.prepared = runtime.has_title = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(model.action("details:" + playden::ToKey(id)), "imported game details");
+    activate(model, "details-more");
+    check(find_view_row(model, "game-settings") && find_view_row(model, "import-remove") &&
+              !find_view_row(model, "uninstall") && !find_view_row(model, "manage-saves"),
+          "an imported game playing in place has Game settings and Remove from library, no Saves link");
+    activate(model, "game-settings");
+    const auto* row = find_view_row(model, "steam-app-id");
+    check(row && row->title == "Steam app ID" && row->value == "None" &&
+              row->subtitle == "Only for games that need Steam. Most run without it." && find_view_row(model, "setting-launch_option"),
+          "Game settings lists Program and Steam app ID");
+    activate(model, "steam-app-id");
+    check(model.state().editor.active && model.state().editor.purpose == "Steam app ID" && model.state().editor.symbols,
+          "Steam app ID opens the keyboard on its digits");
+    model.SubmitEditorText("0440");
+    const auto saved = [&] {
+        const auto found = model.state().game_settings.find(id);
+        return found == model.state().game_settings.end() ? 0u : found->second.steam_app_id;
+    };
+    check(saved() == 0 && std::any_of(model.state().notices.begin(), model.state().notices.end(),
+                                      [](const auto& notice) { return notice.id == "setting-validation"; }),
+          "a number that is not plain decimal is refused");
+    model.SubmitEditorText("abc");
+    check(saved() == 0, "letters are refused");
+    model.SubmitEditorText("440");
+    check(saved() == 440 && !model.state().editor.active && find_view_row(model, "steam-app-id")->value == "440" &&
+              std::none_of(model.state().notices.begin(), model.state().notices.end(),
+                           [](const auto& notice) { return notice.id == "setting-validation"; }),
+          "a plain Steam app ID is saved");
+    runtime.steam_app_id = 620;
+    runtime.steam_app_from_game_file = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    row = find_view_row(model, "steam-app-id");
+    check(row && row->value == "620" && row->subtitle == "From the game's steam_appid.txt",
+          "the game's own steam_appid.txt shows when it wins");
+    activate(model, "steam-app-id");
+    model.SubmitEditorText("");
+    check(saved() == 0, "an empty Steam app ID clears it");
+}
+
 } // namespace
 
 int main() {
@@ -689,6 +753,7 @@ int main() {
     settings_survive_account_restore_and_cache_action_is_honest(base);
     live_settings_follow_the_prepared_title(base);
     live_program_change_applies_like_other_settings(base);
+    live_imported_game_steam_app_id(base);
     live_starts_clean_and_never_reads_or_writes_fixtures(base);
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);

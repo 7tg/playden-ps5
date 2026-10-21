@@ -168,6 +168,10 @@ struct LiveRuntimeGame {
     std::string failure_code;  // Recorded preparation failure; detail remains available in diagnostics.
     // Its setup waits for another game's to finish: Playden sets up one game at a time.
     bool queued = false;
+    // Another store's game that uses Steamworks: the Steam app ID it was set up with, and whether that
+    // came from the game's own steam_appid.txt (which wins over the one in Game settings).
+    std::uint32_t steam_app_id = 0;
+    bool steam_app_from_game_file = false;
 };
 // A preparation that ended Ready, listed in Queue after the waiting games.
 struct LiveCompletedPreparation {
@@ -702,6 +706,9 @@ public:
     // Live mode: requests for the Local store (the Import sheet, the dev request file).
     void RequestImport(ImportRequest request);
     [[nodiscard]] std::vector<ImportRequest> TakeImportRequests();
+    // Live mode: a request from TakeImportRequests that the Local store refused (an add, copy, move
+    // or removal), with its sentence for the player: shown as a notice, and what waited on it dropped.
+    void NotifyImportFailed(const ImportRequest& request, const std::string& message);
     // Writes the program an imported game starts with into its Game settings, unless the player
     // chose one already; saved at once so the next preparation reads it. True when it was written.
     bool SeedGameProgram(GameId id, const std::string& program);
@@ -1006,6 +1013,41 @@ private:
     void advance_jobs();
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;
     [[nodiscard]] std::vector<std::string> kept_manager_actions() const;
+    // The Import sheet: Look for games, then the candidates grouped by drive (headings never take
+    // the focus), then Close. Opened from Startup, Home's empty state and Settings › Storage.
+    [[nodiscard]] std::vector<std::string> import_sheet_actions() const;
+    [[nodiscard]] const LiveImportCandidate* import_candidate(const std::string& key) const;
+    void open_import_sheet();
+    void refresh_import_sheet();
+    void move_import_sheet(int delta);
+    void look_for_games();
+    std::string import_programs_key_;  // the candidate whose program list is open
+    // The add choice (surface import-choice): play in place, copy or move, for the program picked in
+    // the open program list, or for a game already added (import_choice_game_ valid: Copy or Move).
+    void open_import_choice(std::size_t program, GameId game = {});
+    void choose_import(const std::string& action);
+    // An add sent to the Local store waits for its game: then the copy or move chosen with it is sent
+    // and its page opens.
+    struct PendingImport {
+        std::optional<ImportRequestKind> then;  // CopyIntoPlayden or MoveIntoPlayden
+        std::string volume_id;                  // the copy's install volume (empty: the default)
+        Route from = Route::Startup;            // where the Import sheet was open
+    };
+    void settle_pending_imports();
+    void start_import_transfer(GameId id, ImportRequestKind kind, const std::string& volume_id);
+    void open_game_page(GameId id);
+    // Imported games playing in place from their folder (State::external_games), and a copy running.
+    [[nodiscard]] const LiveExternalGame* external_game(GameId id) const;
+    [[nodiscard]] const Job* import_copy_job(GameId id) const;
+    [[nodiscard]] std::string import_copy_target() const;
+    std::size_t import_program_index_ = 0;
+    GameId import_choice_game_;
+    std::string import_copy_volume_;       // empty: the default drive
+    bool picking_import_volume_ = false;   // the drive picker chooses the copy's drive
+    std::map<std::string, PendingImport> pending_imports_;  // by candidate key
+    // Why the latest add of a folder was refused, by candidate key: its row on the Import sheet says it
+    // (a dialog waits until the sheet closes).
+    std::map<std::string, std::string> import_failures_;
     // Installed games list: its games in the chosen order (those a running batch uninstalled
     // included), why a game cannot be picked now (empty when it can), and the list's refresh.
     [[nodiscard]] std::vector<GameId> installed_list() const;

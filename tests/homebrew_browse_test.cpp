@@ -292,6 +292,30 @@ void live_unicode_query() {
     check(filtered_games(state).size()==6,"clearing live query restores records");
 }
 
+// The rail's "Imported" scope shows only once the library has an imported game, after Hidden, and
+// lists only the imported games.
+void imported_scope_lists_local_games(const std::filesystem::path& fixtures)
+{
+    State state = fixture_state(fixtures);
+    state.navigation.route = Route::Library;
+    auto scopes = library_rail_scopes(state);
+    check(std::find(scopes.begin(), scopes.end(), "imported") == scopes.end() && !has_imported_games(state),
+          "no Imported scope without imported games");
+    Game imported;
+    imported.id = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+    imported.title = "Night Sky";
+    state.games.push_back(imported);
+    scopes = library_rail_scopes(state);
+    const auto hidden = std::find(scopes.begin(), scopes.end(), "hidden");
+    check(has_imported_games(state) && hidden != scopes.end() && hidden + 1 != scopes.end() && *(hidden + 1) == "imported",
+          "the Imported scope follows Hidden");
+    state.library.scope = "imported";
+    const auto games = filtered_games(state);
+    check(games.size() == 1 && games.front()->id == imported.id, "the Imported scope lists only imported games");
+    state.library.scope = "all";
+    check(filtered_games(state).size() > 1, "All still lists every game");
+}
+
 } // namespace
 
 void continue_playing_ends_in_more(const std::filesystem::path& fixtures)
@@ -349,6 +373,7 @@ int main(int argc, char** argv)
     download_window_keeps_late_jobs_visible(fixtures);
     utf8_caret_boundaries();
     disconnected_installations_remain_installed(fixtures);
+    imported_scope_lists_local_games(fixtures);
     std::cout << "homebrew browse tests passed\n";
     return 0;
 }

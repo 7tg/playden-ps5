@@ -1129,14 +1129,14 @@ void live_storage_section_and_installed_games() {
         const auto* row = find_row(model, key);
         return row ? row->section : std::string("missing");
     };
-    for (const auto* key : {"settings-storage", "settings-installed", "settings-kept", "settings-runtime"})
+    for (const auto* key : {"settings-storage", "settings-import", "settings-installed", "settings-kept", "settings-runtime"})
         check(section_of(key) == "Storage", "the storage rows are in the Storage section");
     check(section_of("settings-title-store") == "Library" && section_of("settings-cloud-saves") == "Library",
           "Library keeps its two toggles");
     check(find_row(model, "settings-storage")->action == "storage-picker", "Games storage opens the drive picker");
     std::vector<std::string> order;
     for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
-    check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept",
+    check(order == std::vector<std::string>{"settings-storage", "settings-import", "settings-installed", "settings-kept",
                                             "settings-runtime", "settings-downloads-slow"},
           "Storage lists its rows in order, without the hidden cleanup row");
     // Downloads for slow networks (#29): off by default, a toggle saved with the preferences.
@@ -1159,7 +1159,7 @@ void live_storage_section_and_installed_games() {
     model.SetRuntimeLeftovers(1);
     order.clear();
     for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
-    check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept",
+    check(order == std::vector<std::string>{"settings-storage", "settings-import", "settings-installed", "settings-kept",
                                             "settings-runtime-cleanup", "settings-runtime", "settings-downloads-slow"},
           "unused settings data sits before Runtime status when there is some");
     model.SetRuntimeLeftovers(0);
@@ -2508,8 +2508,10 @@ void live_store_without_cloud_never_asks_the_cloud() {
         // Uninstalling it says its saves exist only on this console.
         check(model.action("details:" + key) && model.action("focus:details-more") && model.action("cross"), "context opens");
         activate(model, "uninstall");
-        check(model.state().navigation.modals.back().body.find("its saves exist only on this console") != std::string::npos,
-              "no Cloud sync before uninstalling");
+        check(model.state().navigation.modals.back().body.find("Its saves exist only on this console") != std::string::npos &&
+                  model.state().navigation.modals.back().body.find("Cloud") == std::string::npos &&
+                  model.state().navigation.modals.back().body.find("Steam") == std::string::npos,
+              "no Cloud sync before uninstalling, and no word of Steam");
         check(model.action("circle") && model.TakeCloudRequests().empty(), "nothing asked of the Cloud");
         // A new Steam sign-in takes Steam's installs and downloads away, not the imported ones.
         model.UpdateAccount({AuthState::Waiting, {}, {}, "https://s.team/q/synthetic", {}, true});
@@ -2526,7 +2528,192 @@ void live_store_without_cloud_never_asks_the_cloud() {
     }
 }
 
+// Live: the Import sheet sends Look for games and the add to the Local store, follows the scan, and
+// keeps the focus on its row when the candidates change.
+void live_import_sheet_sends_requests() {
+    using playden::homebrew::ImportRequestKind;
+    using playden::homebrew::LiveImportCandidate;
+    auto model = make_live();
+    check(model.state().navigation.route == Route::Startup && has_row(model, "startup-import"), "Startup offers Import games");
+    activate(model, "startup-import");
+    check(model.view().surface == "import-games" && model.view().rows.size() == 2, "the empty sheet opens");
+    activate(model, "import-look");
+    auto requests = model.TakeImportRequests();
+    check(requests.size() == 1 && requests.front().kind == ImportRequestKind::LookForGames, "Look for games reaches the store");
+    model.UpdateImportCandidates({}, true);
+    check(find_row(model, "import-look")->title == "Looking for games…" && !find_row(model, "import-look")->enabled,
+          "the scan shows");
+    model.action("cross");
+    check(model.TakeImportRequests().empty(), "no second scan while one runs");
+    LiveImportCandidate delores;
+    delores.volume_id = "usb0"; delores.folder = "playden/import/Delores"; delores.path = "/mnt/usb0/playden/import/Delores";
+    delores.title = "Delores"; delores.total_bytes = 230'000'000; delores.ascii_ok = true;
+    delores.programs = {{"Delores.exe", 9'000'000, false}, {"setup.exe", 1'000'000, true}};
+    LiveImportCandidate drop = delores;
+    drop.volume_id = "internal"; drop.folder = "playden-import/Delores"; drop.path = "/data/playden-import/Delores";
+    model.UpdateImportCandidates({delores, drop}, false);
+    check(model.state().navigation.focus_key == "import-look" && find_row(model, "import-look")->enabled,
+          "the focus stays on Look for games when the scan ends");
+    check(has_row(model, "import-group-usb0") && has_row(model, "import-group-internal") &&
+              find_row(model, "import-candidate-usb0:playden/import/Delores")->value == "230 MB",
+          "candidates are listed by drive");
+    activate(model, "import-candidate-internal:playden-import/Delores");
+    check(model.view().surface == "import-programs" && find_row(model, "import-program-1")->title == "setup.exe",
+          "the program list opens, paths as they are");
+    activate(model, "import-program-0");
+    check(model.view().surface == "import-choice" && find_row(model, "import-play-in-place")->title == "Play from the drop folder" &&
+              find_row(model, "import-move")->value == "Instant" && !has_row(model, "import-copy"),
+          "a drop-folder game plays from there or moves into Playden");
+    activate(model, "import-play-in-place");
+    requests = model.TakeImportRequests();
+    check(requests.size() == 1 && requests.front().kind == ImportRequestKind::Add && requests.front().volume_id == "internal" &&
+              requests.front().folder == "playden-import/Delores" && requests.front().program == "Delores.exe",
+          "choosing the program adds the folder");
+    check(model.view().surface == "import-games" &&
+              model.state().navigation.focus_key == "import-candidate-internal:playden-import/Delores",
+          "back on the sheet at the folder");
+    // A new scan without the focused folder gives the focus to Look for games; an open program
+    // list of a folder that went away closes.
+    activate(model, "import-candidate-usb0:playden/import/Delores");
+    model.UpdateImportCandidates({drop}, false);
+    check(model.view().surface == "import-games" && model.state().navigation.focus_key == "import-look",
+          "a folder that went away closes its program list");
+    check(model.action("circle") && model.state().navigation.modals.empty(), "the sheet closes");
+}
+
+// Live: the add choice (play in place, copy with its drive, move), the copy or move sent once the
+// store gives the game its ID, the game's page once the library lists it, refusals said to the
+// player, and the page of an imported game (Copy/Move, progress, Remove from library).
+void live_import_choice_and_details() {
+    using playden::homebrew::ImportRequest;
+    using playden::homebrew::ImportRequestKind;
+    using playden::homebrew::LiveImportCandidate;
+    auto model = make_live();
+    check(model.view().subtitle == "Connect a store or import games to fill your library.", "Startup mentions importing");
+    model.UpdateVolumes({{"internal", "Console storage", true, 900'000'000'000, 500'000'000'000},
+                         {"usb1", "USB drive 2", true, 900'000'000'000, 500'000'000'000}}, "internal");
+    LiveImportCandidate rally;
+    rally.volume_id = "usb0"; rally.folder = "playden/import/Rally"; rally.path = "/mnt/usb0/playden/import/Rally";
+    rally.title = "Rally"; rally.total_bytes = 8'900'000'000; rally.ascii_ok = true;
+    rally.programs = {{"Rally.exe", 9'000'000, false}};
+    LiveImportCandidate cafe = rally;
+    cafe.folder = "playden/import/Café"; cafe.path = "/mnt/usb0/playden/import/Café"; cafe.title = "Café"; cafe.ascii_ok = false;
+    LiveImportCandidate drop = rally;
+    drop.volume_id = "internal"; drop.folder = "playden-import/Drop"; drop.path = "/data/playden-import/Drop"; drop.title = "Drop";
+    model.UpdateImportCandidates({rally, cafe, drop}, false);
+    activate(model, "startup-import");
+    // Look for games pressed twice before the store answers asks once.
+    activate(model, "import-look");
+    model.action("cross");
+    auto requests = model.TakeImportRequests();
+    check(requests.size() == 1 && requests[0].kind == ImportRequestKind::LookForGames &&
+              find_row(model, "import-look")->title == "Looking for games…",
+          "a second Look for games before the store answers is ignored");
+    model.UpdateImportCandidates({rally, cafe, drop}, false);
+
+    // A copy-only folder: no Play from the drive, and why.
+    activate(model, "import-candidate-usb0:playden/import/Café");
+    activate(model, "import-program-0");
+    check(model.view().surface == "import-choice" && !has_row(model, "import-play-in-place") && has_row(model, "import-copy") &&
+              model.view().subtitle.find("characters the PS5 can't start a game from") != std::string::npos,
+          "a folder the PS5 can't play from can only be copied");
+    model.action("circle");
+    model.action("circle");
+
+    // A drive folder: play in place, or copy with its size, an estimate and the drive.
+    activate(model, "import-candidate-usb0:playden/import/Rally");
+    activate(model, "import-program-0");
+    check(find_row(model, "import-play-in-place")->title == "Play from the drive" &&
+              find_row(model, "import-copy")->value == "8.9 GB · about 14 min" && !has_row(model, "import-move") &&
+              find_row(model, "storage-picker")->title == "Copy to" && find_row(model, "storage-picker")->value == "Console storage",
+          "a drive folder plays from there or is copied, with its size, time and drive");
+    activate(model, "storage-picker");
+    check(model.view().surface == "storage" && find_row(model, "volume-internal")->selected, "the drive picker opens");
+    activate(model, "volume-usb1");
+    check(model.view().surface == "import-choice" && model.state().navigation.focus_key == "import-copy" &&
+              find_row(model, "storage-picker")->value == "USB drive 2",
+          "choosing a drive returns to Copy into Playden");
+    activate(model, "import-copy");
+    requests = model.TakeImportRequests();
+    check(requests.size() == 1 && requests[0].kind == ImportRequestKind::Add && requests[0].volume_id == "usb0" &&
+              requests[0].program == "Rally.exe",
+          "Copy into Playden adds the folder first");
+    check(model.view().surface == "import-games" && find_row(model, "import-candidate-usb0:playden/import/Rally")->value == "Adding…",
+          "the sheet says the folder is being added");
+    const auto id = playden::GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11");
+    rally.imported = id;
+    model.UpdateImportCandidates({rally, cafe, drop}, false);
+    requests = model.TakeImportRequests();
+    check(requests.size() == 1 && requests[0].kind == ImportRequestKind::CopyIntoPlayden && requests[0].game_id == id &&
+              requests[0].volume_id == "usb1",
+          "the copy goes to the chosen drive once the game has its ID");
+    LibraryUpdate imported{{game(id, "Rally")}, false, {}, false, false, {}};
+    imported.source = playden::Store::kLocal;
+    check(model.UpdateLibrary(imported), "imported library");
+    check(model.state().navigation.route == Route::Details && model.state().navigation.detail_id == id &&
+              model.state().navigation.detail_origin == Route::Home && model.state().navigation.modals.empty(),
+          "the added game's page opens, even from Startup");
+
+    // Its page while it plays from the drive, then while it copies.
+    model.UpdateExternalGames({{id, "usb0", true, ""}});
+    check(find_row(model, "details-copy") && find_row(model, "details-copy")->title == "Copy into Playden" &&
+              find_row(model, "details-remove") && !has_row(model, "details-cloud") && !has_row(model, "details-uninstall"),
+          "an imported game on a drive offers Copy into Playden and Remove from library");
+    // A folder the PS5 can't play from (its name) still offers the copy.
+    model.UpdateExternalGames({{id, "usb0", true, "The game's folder name has characters the PS5 can't play from."}});
+    check(has_row(model, "details-installed") && has_row(model, "details-copy") && has_row(model, "details-remove"),
+          "a copy-only folder says why and offers Copy into Playden");
+    model.UpdateExternalGames({{id, "usb0", true, ""}});
+    model.UpdateInstalls({{id, playden::homebrew::JobState::Downloading, 4'450'000'000, 8'900'000'000, {}, "usb1"}}, {});
+    const auto* copying = find_row(model, "details-download");
+    check(copying && copying->title == "Copying" && copying->progress > 0.49F && copying->progress < 0.51F &&
+              !has_row(model, "details-copy") && !find_row(model, "details-remove")->enabled,
+          "the copy's progress replaces Copy into Playden");
+    // Copied: Uninstall, not Remove from library.
+    model.UpdateInstalls({}, {{id, 8'900'000'000, "usb1", true}});
+    model.UpdateExternalGames({});
+    check(has_row(model, "details-uninstall") && !has_row(model, "details-remove") && !has_row(model, "details-copy"),
+          "a copied game uninstalls");
+
+    // A refused copy or add is said to the player.
+    model.NotifyImportFailed({ImportRequestKind::CopyIntoPlayden, id, "usb1"}, "Not enough space on USB drive 2.");
+    check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Can't copy Rally" &&
+              model.state().navigation.modals.back().body == "Not enough space on USB drive 2.",
+          "a refused copy opens a dialog");
+    model.action("cross");
+
+    // Home with only the imported game, signed out: about the library, not the account.
+    model.action("circle");
+    check(model.state().navigation.route == Route::Home && model.view().subtitle == "Your library", "Home is neutral");
+
+    // The drop folder: play from there, or move.
+    activate(model, "home-connect");
+    while (!model.state().navigation.modals.empty()) model.action("circle");
+    model.action("l1");
+    for (int step = 0; step < 4 && model.state().navigation.route != Route::Settings; ++step) model.action("r1");
+    model.action("focus:settings-import");
+    model.action("cross");
+    activate(model, "import-candidate-internal:playden-import/Drop");
+    activate(model, "import-program-0");
+    check(find_row(model, "import-play-in-place")->title == "Play from the drop folder" && find_row(model, "import-move")->value == "Instant" &&
+              !has_row(model, "import-copy") && !has_row(model, "storage-picker"),
+          "a drop-folder game plays from there or moves");
+    activate(model, "import-move");
+    requests = model.TakeImportRequests();
+    check(requests.size() == 1 && requests[0].kind == ImportRequestKind::Add, "Move adds the folder first");
+    model.NotifyImportFailed(requests[0], "The game's folder can't be used.");
+    const auto* refused = find_row(model, "import-candidate-internal:playden-import/Drop");
+    check(refused && refused->enabled && refused->value != "Adding…" &&
+              refused->subtitle == "Not added · The game's folder can't be used.",
+          "a refused add shows on its row");
+    drop.imported = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+    model.UpdateImportCandidates({rally, cafe, drop}, false);
+    check(model.TakeImportRequests().empty(), "a refused add sends nothing more when the folder is added later");
+}
+
 int main() {
+    live_import_sheet_sends_requests();
+    live_import_choice_and_details();
     store_art_follows_the_store();
     non_canonical_game_keys_select_nothing();
     live_launch_failure_remains_visible_without_a_details_status_line();

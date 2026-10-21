@@ -1095,6 +1095,11 @@ void Controller::TickRuntime() {
   std::vector<LiveRuntimeGame> games;
   for (const auto& [id, root] : game_roots_) {
     LiveRuntimeGame game; game.game_id = id;
+    // The Steam app ID its Steamworks emulator was given, for Game settings' "Steam app ID".
+    if (const auto steam_app = snapshot.steamworks_apps.find(NumberIn(snapshot, id)); steam_app != snapshot.steamworks_apps.end()) {
+      game.steam_app_id = steam_app->second.app_id;
+      game.steam_app_from_game_file = steam_app->second.source == SteamworksAppView::Source::kGameFile;
+    }
     const RuntimeInstallView* record = nullptr;
     for (const auto& view : snapshot.installs) if (view.game == id) record = &view;
     const auto refusal = snapshot.refusals.find(NumberIn(snapshot, id));
@@ -1380,10 +1385,16 @@ void Controller::TickImports() {
   if (!local_) return;
   // The locations reflect a Local snapshot once one was seen on an earlier tick (TickInstalls projects them).
   const bool locations_known = local_revision_ != 0;
+  const auto track = [this](std::uint64_t number, const ImportRequest& request) {
+    if (number == 0) return;
+    import_requests_[number] = request;
+    // Outcomes are kept for the latest requests only: one never answered is dropped with the oldest.
+    while (import_requests_.size() > stores::local::LocalLibrarySource::kMaxOutcomes * 2) import_requests_.erase(import_requests_.begin());
+  };
   for (const auto& request : model_.TakeImportRequests()) {
     switch (request.kind) {
       case ImportRequestKind::LookForGames: local_->LookForGames(); break;
-      case ImportRequestKind::Add: local_->Add(request.volume_id, request.folder, request.program); break;
+      case ImportRequestKind::Add: track(local_->Add(request.volume_id, request.folder, request.program), request); break;
       case ImportRequestKind::Remove:
         if (request.game_id.store == Store::kLocal) held_import_removals_.push_back(request.game_id);
         break;
@@ -1392,13 +1403,13 @@ void Controller::TickImports() {
           // The copy's install record carries the game's runtime number (given out now if it has
           // none); a game set up from its drive folder keeps its PS5 title, which follows the copy.
           const auto number = runtime_ ? RuntimeApp(*runtime_, request.game_id).value_or(0u) : 0u;
-          local_->CopyIntoPlayden(request.game_id.value, request.volume_id, number);
+          track(local_->CopyIntoPlayden(request.game_id.value, request.volume_id, number), request);
         }
         break;
       case ImportRequestKind::MoveIntoPlayden:
         if (request.game_id.store == Store::kLocal) {
           const auto number = runtime_ ? RuntimeApp(*runtime_, request.game_id).value_or(0u) : 0u;
-          local_->MoveIntoPlayden(request.game_id.value, number);
+          track(local_->MoveIntoPlayden(request.game_id.value, number), request);
         }
         break;
     }
@@ -1407,7 +1418,7 @@ void Controller::TickImports() {
     for (const auto& id : std::exchange(held_import_removals_, {})) {
       // A game with a folder to play from goes like an uninstall: its PS5 title first.
       if (LocationOf(id)) BeginUninstall(id, false);
-      else local_->Remove(id.value);
+      else track(local_->Remove(id.value), {ImportRequestKind::Remove, id});
     }
   // A drive plugged in or out: its games become (un)available and its folders are looked at.
   const auto now = std::chrono::steady_clock::now();
@@ -1416,6 +1427,14 @@ void Controller::TickImports() {
     local_volumes_checked_at_ = now;
   }
   const auto snapshot = local_->Snapshot();
+  // Requests the store answered: a refusal is said to the player, not only logged.
+  for (auto it = import_requests_.begin(); it != import_requests_.end();) {
+    const auto outcome = std::find_if(snapshot->outcomes.begin(), snapshot->outcomes.end(),
+                                      [&](const stores::local::ImportOutcome& o) { return o.request == it->first; });
+    if (outcome == snapshot->outcomes.end()) { ++it; continue; }
+    if (!outcome->ok) model_.NotifyImportFailed(it->second, outcome->message);
+    it = import_requests_.erase(it);
+  }
   // Once imports.json is read: copies that finished or stopped while Playden was closed are settled.
   // A move a restart interrupted is finished then too, once the runtime has started (its PS5 title
   // follows the folder).

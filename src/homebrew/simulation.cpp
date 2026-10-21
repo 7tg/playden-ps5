@@ -455,7 +455,7 @@ std::string action_label(const std::string& key) {
     static const std::map<std::string, std::string> labels = {
         {"cancel", "Cancel"}, {"confirm-destructive", "Confirm"}, {"ready-later", "Later"}, {"alert-ok", "OK"}, {"alert-settings", "Game settings"}, {"runtime-cleanup-confirm", "Clean up"}, {"quit-to-home", "Play"}, {"favorite", "Favorite"},
         {"collection", "Collections"}, {"note", "Compatibility and note"}, {"verify", "Verify files"},
-        {"uninstall", "Uninstall"}, {"uninstall-delete-saves", "Delete saves too"}, {"logs", "Open logs"}, {"logs-back", "Back"},
+        {"uninstall", "Uninstall"}, {"import-remove", "Remove from library"}, {"uninstall-delete-saves", "Delete saves too"}, {"logs", "Open logs"}, {"logs-back", "Back"},
         {"logs-pick", "Logs"}, {"log-install", "Install log"}, {"log-auth", "Sign-in log"},
         {"log-launch", "Launch log"}, {"log-cloud", "Cloud saves log"}, {"logs-refresh", "Refresh"},
         {"cloud-sync", "Cloud saves"}, {"cloud-choose", "Cloud saves"}, {"cloud-use-cloud", "Use Cloud saves"},
@@ -606,6 +606,66 @@ void replay_organization_delta(playden::OrganizationSnapshot& base,
     if (selected || before.selected_game_id != after.selected_game_id)
         base.selected_game_id = after.selected_game_id;
 }
+
+// The Import sheet's drive groups, in the order it lists them (ImportRoots' volume ids).
+constexpr std::array<std::pair<const char*, const char*>, 5> kImportGroups = {{
+    {"usb0", "USB drive"}, {"usb1", "USB drive 2"}, {"m2", "M.2 SSD"}, {"extended", "Extended storage"},
+    {"internal", "Console drop folder"}}};
+constexpr const char* kImportEmptyText =
+    "Copy game folders into playden/import on an exFAT drive, or into /data/playden-import over FTP, then choose "
+    "Look for games.";
+constexpr const char* kImportCopyOnlyText =
+    "This folder's name has characters the PS5 can't start a game from. Copy it into Playden instead.";
+
+constexpr const char* kImportDropVolume = "internal";
+
+
+// A drive's name as the Import sheet groups it ("USB drive", "Console drop folder").
+std::string import_volume_name(const std::string& volume) {
+    for (const auto& [id, name] : kImportGroups)
+        if (volume == id) return name;
+    return volume;
+}
+
+// How long a copy takes at the console's copy speed (about 11 MB/s): "about 14 min".
+std::string import_copy_estimate(std::uint64_t bytes) {
+    constexpr std::uint64_t kBytesPerSecond = 11'000'000;
+    const auto minutes = std::max<std::uint64_t>(1, (bytes / kBytesPerSecond + 59) / 60);
+    if (minutes <= 90) return "about " + std::to_string(minutes) + " min";
+    return "about " + std::to_string((minutes + 30) / 60) + " h";
+}
+
+std::string import_candidate_key(const LiveImportCandidate& candidate) {
+    return "import-candidate-" + candidate.volume_id + ":" + candidate.folder;
+}
+
+// Fixture mode: what Look for games finds (one game added already, one copy only, one without a program).
+std::vector<LiveImportCandidate> fixture_import_candidates() {
+    std::vector<LiveImportCandidate> candidates;
+    const auto add = [&](std::string volume, std::string folder, std::string path, std::string title,
+                         std::uint64_t bytes, bool ascii_ok, std::vector<LiveImportProgram> programs) {
+        LiveImportCandidate candidate;
+        candidate.volume_id = std::move(volume); candidate.folder = std::move(folder); candidate.path = std::move(path);
+        candidate.title = std::move(title); candidate.total_bytes = bytes; candidate.ascii_ok = ascii_ok;
+        candidate.programs = std::move(programs);
+        candidates.push_back(std::move(candidate));
+    };
+    add("usb0", "playden/import/Night Sky", "/mnt/usb0/playden/import/Night Sky", "Night Sky", 412'000'000, true,
+        {{"NightSky.exe", 18'000'000, false}});
+    add("usb0", "playden/import/Old School Rally", "/mnt/usb0/playden/import/Old School Rally", "Old School Rally",
+        938'000'000, true, {{"OldSchoolRally.exe", 640'000'000, false}, {"UnityCrashHandler64.exe", 1'400'000, true}});
+    add("usb0", "playden/import/Café Étoile", "/mnt/usb0/playden/import/Café Étoile", "Café Étoile", 1'250'000'000,
+        false, {{"CafeEtoile.exe", 96'000'000, false}, {"redist/vcredist_x64.exe", 14'000'000, true}});
+    add("m2", "playden/import/Delores", "/mnt/ext1/playden/import/Delores", "Delores", 230'000'000, true,
+        {{"Delores.exe", 9'000'000, false}});
+    add("internal", "playden-import/Hollow Knight", "/data/playden-import/Hollow Knight", "Hollow Knight",
+        8'900'000'000, true, {{"hollow_knight.exe", 650'000, false}});
+    add("internal", "playden-import/Tools", "/data/playden-import/Tools", "Tools", 3'000'000, true, {});
+    return candidates;
+}
+
+// The fixture's imported game (Night Sky, already added from the USB drive).
+GameId fixture_imported_game() { return GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11"); }
 
 } // namespace
 
@@ -774,6 +834,8 @@ void Simulation::UpdateImportCandidates(std::vector<LiveImportCandidate> candida
     if (!live() || (candidates == state_.import_candidates && scanning == state_.import_scanning)) return;
     state_.import_candidates = std::move(candidates);
     state_.import_scanning = scanning;
+    refresh_import_sheet();
+    settle_pending_imports();
     rebuild_view();
 }
 
@@ -782,6 +844,258 @@ void Simulation::RequestImport(ImportRequest request) {
 }
 
 std::vector<ImportRequest> Simulation::TakeImportRequests() { return std::exchange(pending_import_requests_, {}); }
+
+std::vector<std::string> Simulation::import_sheet_actions() const {
+    std::vector<std::string> actions{"import-look"};
+    for (const auto& [volume, name] : kImportGroups) {
+        bool heading = false;
+        for (const auto& candidate : state_.import_candidates) {
+            if (candidate.volume_id != volume) continue;
+            if (!heading) { actions.push_back(std::string("import-group-") + volume); heading = true; }
+            actions.push_back(import_candidate_key(candidate));
+        }
+    }
+    actions.push_back("cancel");
+    return actions;
+}
+
+const LiveImportCandidate* Simulation::import_candidate(const std::string& key) const {
+    for (const auto& candidate : state_.import_candidates)
+        if (import_candidate_key(candidate) == key) return &candidate;
+    return nullptr;
+}
+
+void Simulation::open_import_sheet() {
+    auto actions = import_sheet_actions();
+    // The first game not added yet, else the first game, else Look for games.
+    int focus = 0, first = -1;
+    for (int index = 0; index < static_cast<int>(actions.size()); ++index) {
+        const auto* candidate = import_candidate(actions[static_cast<std::size_t>(index)]);
+        if (!candidate) continue;
+        if (first < 0) first = index;
+        if (!candidate->imported.valid()) { focus = index; break; }
+    }
+    if (focus == 0 && first >= 0) focus = first;
+    open_modal({"import-games", "Import games", state_.navigation.focus_key, std::move(actions), focus, false});
+}
+
+void Simulation::refresh_import_sheet() {
+    auto& modals = state_.navigation.modals;
+    for (std::size_t index = 0; index < modals.size(); ++index) {
+        auto& modal = modals[index];
+        if (modal.id == "import-games") {
+            const auto focused = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+            modal.action_keys = import_sheet_actions();
+            const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), focused);
+            modal.focused_action = found == modal.action_keys.end() ? 0 : static_cast<int>(found - modal.action_keys.begin());
+            if (index + 1 == modals.size()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+        } else if ((modal.id == "import-programs" || (modal.id == "import-choice" && !import_choice_game_.valid())) &&
+                   !import_candidate(import_programs_key_)) {
+            // The folder went away in a new scan: its program list closes.
+            modals.erase(modals.begin() + static_cast<std::ptrdiff_t>(index));
+            if (index == modals.size() && !modals.empty())
+                state_.navigation.focus_key = modals.back().action_keys[static_cast<std::size_t>(modals.back().focused_action)];
+            --index;
+        }
+    }
+}
+
+void Simulation::move_import_sheet(int delta) {
+    auto& modal = state_.navigation.modals.back();
+    if (delta == 0) return;
+    const int step = delta > 0 ? 1 : -1;
+    for (int next = modal.focused_action + step; next >= 0 && next < static_cast<int>(modal.action_keys.size()); next += step) {
+        if (modal.action_keys[static_cast<std::size_t>(next)].rfind("import-group-", 0) == 0) continue;
+        modal.focused_action = next;
+        break;
+    }
+    state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+}
+
+void Simulation::look_for_games() {
+    if (state_.import_scanning) return;
+    // The sheet shows the scan at once, so a second press before the store answers asks nothing more.
+    state_.import_scanning = true;
+    // Fixture mode: the scan runs until the next tick, which fills in the fixture's folders.
+    if (live()) RequestImport({ImportRequestKind::LookForGames});
+}
+
+const LiveExternalGame* Simulation::external_game(GameId id) const {
+    for (const auto& external : state_.external_games)
+        if (external.game_id == id) return &external;
+    return nullptr;
+}
+
+const Job* Simulation::import_copy_job(GameId id) const {
+    if (id.store != Store::kLocal) return nullptr;
+    for (const auto& job : state_.jobs)
+        if (job.game_id == id && job.kind == "install" && job.state != JobState::Downloaded && job.state != JobState::Cancelled)
+            return &job;
+    return nullptr;
+}
+
+std::string Simulation::import_copy_target() const {
+    return import_copy_volume_.empty() ? selected_volume_id_ : import_copy_volume_;
+}
+
+void Simulation::open_import_choice(std::size_t program, GameId game) {
+    import_program_index_ = program;
+    import_choice_game_ = game;
+    import_copy_volume_.clear();
+    std::string title, volume;
+    bool ascii_ok = true;
+    if (game.valid()) {
+        const auto* found = find_game(state_, game);
+        const auto* external = external_game(game);
+        if (!found || !external) return;
+        title = found->title;
+        volume = external->volume_id;
+    } else {
+        const auto* candidate = import_candidate(import_programs_key_);
+        if (!candidate || program >= candidate->programs.size()) return;
+        title = candidate->title;
+        volume = candidate->volume_id;
+        ascii_ok = candidate->ascii_ok;
+    }
+    // Play in place (a folder the PS5 can start a game from), then Copy (a drive) or Move (the drop
+    // folder), then Back.
+    std::vector<std::string> actions;
+    const bool drop = volume == kImportDropVolume;
+    if (!game.valid() && ascii_ok) actions.push_back("import-play-in-place");
+    if (drop) actions.push_back("import-move");
+    else { actions.push_back("import-copy"); actions.push_back("storage-picker"); }
+    actions.push_back("cancel");
+    open_modal({"import-choice", std::move(title), state_.navigation.focus_key, std::move(actions), 0, false});
+}
+
+void Simulation::open_game_page(GameId id) {
+    if (!find_game(state_, id)) return;
+    state_.navigation.modals.clear();
+    if (live()) force_organization_selection_ = true;
+    // From Startup (no library page yet) Circle goes Home.
+    if (state_.navigation.route != Route::Details)
+        state_.navigation.detail_origin = state_.navigation.route == Route::Startup ? Route::Home : state_.navigation.route;
+    state_.navigation.detail_id = id;
+    state_.navigation.selected_game_id = id;
+    state_.navigation.route = Route::Details;
+    details_primary_pending_ = live();
+    state_.navigation.focus_key = live() ? "details-favorite" : "details-play";
+}
+
+void Simulation::start_import_transfer(GameId id, ImportRequestKind kind, const std::string& volume_id) {
+    if (live()) {
+        RequestImport({kind, id, kind == ImportRequestKind::CopyIntoPlayden ? volume_id : std::string()});
+        return;
+    }
+    // Fixture mode: a copy is a job in Queue (its drive, or the default); a move is instant.
+    const auto* game = find_game(state_, id);
+    const auto bytes = game && game->install_bytes ? *game->install_bytes : std::uint64_t{0};
+    if (kind == ImportRequestKind::CopyIntoPlayden) {
+        if (import_copy_job(id)) return;
+        state_.jobs.push_back({next_job_id(), id, "install", next_queue_order(state_), JobStage::Download, JobState::Queued, 0,
+                               std::max<std::uint64_t>(bytes, 1), std::nullopt, std::nullopt, {}, JobStage::Download,
+                               volume_id.empty() ? selected_volume_id_ : volume_id, 0, bytes, true, false});
+    } else {
+        std::erase_if(state_.external_games, [id](const LiveExternalGame& external) { return external.game_id == id; });
+        if (!find_installation(state_, id))
+            state_.installations.push_back({id, kImportDropVolume, std::max<std::uint64_t>(bytes, 1), true, true, true});
+        reconcile_storage(state_);
+    }
+}
+
+void Simulation::choose_import(const std::string& action) {
+    const bool copy = action == "import-copy", move = action == "import-move";
+    std::optional<ImportRequestKind> then;
+    if (copy) then = ImportRequestKind::CopyIntoPlayden;
+    if (move) then = ImportRequestKind::MoveIntoPlayden;
+    if (import_choice_game_.valid()) {
+        // A game already added: Copy or Move from its page.
+        const auto id = import_choice_game_;
+        if (then) start_import_transfer(id, *then, import_copy_volume_);
+        import_choice_game_ = {};
+        close_modal();
+        return;
+    }
+    const auto* candidate = import_candidate(import_programs_key_);
+    if (!candidate || import_program_index_ >= candidate->programs.size() || candidate->imported.valid()) return;
+    if (action == "import-play-in-place" && !candidate->ascii_ok) return;
+    const auto key = import_programs_key_;
+    RequestImport({ImportRequestKind::Add, {}, candidate->volume_id, candidate->folder, candidate->programs[import_program_index_].path});
+    pending_imports_[key] = {then, copy ? import_copy_volume_ : std::string(), state_.navigation.route};
+    import_failures_.erase(key);
+    if (!live()) {
+        // Fixture mode: the folder becomes a library game at once.
+        Game game;
+        // A UUID made from the folder, so adding it again finds the same game.
+        const auto hash = static_cast<unsigned long long>(std::hash<std::string>{}(key));
+        char uuid[40];
+        std::snprintf(uuid, sizeof(uuid), "%08llx-%04llx-4%03llx-8%03llx-%012llx", hash & 0xffffffffULL,
+                      (hash >> 32) & 0xffffULL, (hash >> 48) & 0xfffULL, (hash >> 20) & 0xfffULL, hash & 0xffffffffffffULL);
+        game.id = GameId::Local(uuid);
+        game.title = candidate->title;
+        game.source = "Imported";
+        game.install_bytes = candidate->total_bytes;
+        if (!find_game(state_, game.id)) state_.games.push_back(game);
+        if (!external_game(game.id)) state_.external_games.push_back({game.id, candidate->volume_id, true, ""});
+        for (auto& entry : state_.import_candidates)
+            if (import_candidate_key(entry) == key) entry.imported = game.id;
+    }
+    // Back on the Import sheet until the game is in the library; then its page opens.
+    while (!state_.navigation.modals.empty() && state_.navigation.modals.back().id != "import-games") close_modal();
+    settle_pending_imports();
+}
+
+void Simulation::settle_pending_imports() {
+    for (auto it = pending_imports_.begin(); it != pending_imports_.end();) {
+        const auto* candidate = import_candidate(it->first);
+        // The folder went away in a new scan: nothing waits on it any more.
+        if (!candidate) { it = pending_imports_.erase(it); continue; }
+        if (!candidate->imported.valid()) { ++it; continue; }
+        const auto id = candidate->imported;
+        if (it->second.then) {
+            // The copy or move chosen with the add goes once the game has its ID.
+            const auto kind = *it->second.then;
+            it->second.then.reset();
+            start_import_transfer(id, kind, it->second.volume_id);
+        }
+        // The library lists it: its page opens over the Import sheet, or where the sheet was when the
+        // library's arrival closed it (Startup gives way to Home); not once the player went elsewhere.
+        if (!find_game(state_, id)) { ++it; continue; }
+        const auto from = it->second.from;
+        it = pending_imports_.erase(it);
+        const auto& modals = state_.navigation.modals;
+        const auto route = state_.navigation.route;
+        if ((!modals.empty() && modals.back().id == "import-games") ||
+            (modals.empty() && !state_.editor.active && (route == from || (from == Route::Startup && route == Route::Home))))
+            open_game_page(id);
+    }
+}
+
+void Simulation::NotifyImportFailed(const ImportRequest& request, const std::string& message) {
+    std::string title, verb;
+    switch (request.kind) {
+    case ImportRequestKind::LookForGames: verb = "Can't look for games"; break;
+    case ImportRequestKind::Add: verb = "Can't add"; break;
+    case ImportRequestKind::Remove: verb = "Can't remove"; break;
+    case ImportRequestKind::CopyIntoPlayden: verb = "Can't copy"; break;
+    case ImportRequestKind::MoveIntoPlayden: verb = "Can't move"; break;
+    }
+    if (request.kind == ImportRequestKind::Add) {
+        for (const auto& candidate : state_.import_candidates)
+            if (candidate.volume_id == request.volume_id && candidate.folder == request.folder) {
+                title = candidate.title;
+                pending_imports_.erase(import_candidate_key(candidate));
+                import_failures_[import_candidate_key(candidate)] = message;
+            }
+        if (title.empty()) title = request.folder.substr(request.folder.find_last_of('/') + 1);
+    } else if (const auto* game = find_game(state_, request.game_id)) {
+        title = game->title;
+    }
+    if (request.kind == ImportRequestKind::LookForGames) state_.import_scanning = false;
+    push_notice({"import-" + (request.game_id.valid() ? ToKey(request.game_id) : request.volume_id + ":" + request.folder),
+                 verb + (title.empty() ? std::string() : " " + title), "", false, kLiveNoticeSeconds * 2, true, message});
+    rebuild_view();
+}
 
 bool Simulation::SeedGameProgram(GameId id, const std::string& program) {
     if (!live() || !id.valid() || settings_load_failed_ || game_settings_file_.empty()) return false;
@@ -1963,6 +2277,8 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
     account.cache_available = update.cache_available;
     account.error = std::move(update.error);
     if (update.retrieved_at) account.last_sync = *update.retrieved_at;
+    // A game just added from the Import sheet is listed now: its page opens (from Startup too).
+    if (!pending_imports_.empty()) settle_pending_imports();
     // A store without an account brought games while nothing is signed in (or Steam's saved sign-in
     // failed to restore): they open on Home.
     const bool waiting_route = state_.navigation.route == Route::Startup ||
@@ -2984,6 +3300,65 @@ bool Simulation::scenario(const std::string& name) {
         state_.library_syncing = false;
         state_.account().authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Home;
+    } else if (name == "import-empty" || name == "import-candidates" || name == "import-programs" || name == "import-choice" ||
+               name == "import-details" || name == "import-copying" || name == "import-library") {
+        // The Import sheet over Settings › Storage: nothing found yet, or the fixture's folders; then
+        // a folder's programs, the add choice, and the imported game's page (in place, then copying).
+        state_.account().authentication = AuthState::SignedIn;
+        state_.import_scanning = false;
+        state_.import_candidates.clear();
+        pending_imports_.clear();
+        state_.navigation.modals.clear();
+        if (name != "import-empty") {
+            const auto id = fixture_imported_game();
+            if (!find_game(state_, id)) {
+                Game game;
+                game.id = id;
+                game.title = "Night Sky";
+                game.source = "Imported";
+                game.install_bytes = 412'000'000;
+                game.description = "A quiet night drive under the stars.";
+                state_.games.push_back(std::move(game));
+            }
+            if (!external_game(id)) state_.external_games.push_back({id, "usb0", true, ""});
+            std::erase_if(state_.jobs, [id](const Job& job) { return job.game_id == id; });
+            state_.import_candidates = fixture_import_candidates();
+            state_.import_candidates.front().imported = id;
+        }
+        if (name == "import-details" || name == "import-copying") {
+            const auto id = fixture_imported_game();
+            state_.navigation.route = Route::Library;
+            open_game_page(id);
+            if (name == "import-copying") {
+                start_import_transfer(id, ImportRequestKind::CopyIntoPlayden, {});
+                auto& job = state_.jobs.back();
+                job.state = JobState::Downloading;
+                job.completed_bytes = job.total_bytes * 2 / 5;
+            }
+            rebuild_view();
+            return true;
+        }
+        if (name == "import-library") {
+            // The Library's Imported scope: imported games' tiles carry their title, no store art.
+            state_.library.scope = "imported";
+            state_.navigation.route = Route::Library;
+            state_.navigation.library_rail_focused = false;
+            reconcile_library_selection(state_);
+            rebuild_view();
+            return true;
+        }
+        state_.navigation.route = Route::Settings;
+        state_.navigation.settings_rail_focused = false;
+        state_.navigation.tabs_focused = false;
+        state_.navigation.focus_key = "settings-import";
+        rebuild_view();
+        open_import_sheet();
+        if (name == "import-programs" || name == "import-choice") {
+            rebuild_view();
+            action("focus:import-candidate-usb0:playden/import/Old School Rally");
+            action("cross");
+            if (name == "import-choice") action("cross");
+        }
     } else {
         last_error_ = "Unknown scenario: " + name;
         return false;
@@ -3179,6 +3554,32 @@ void Simulation::rebuild_view() {
                 }
             }
         }
+        if (modal.id == "import-games")
+            view_.subtitle = state_.import_candidates.empty() ? kImportEmptyText
+                : "Games found in playden/import on your drives and in /data/playden-import. Choose one to add it.";
+        const auto* import_programs = modal.id == "import-programs" ? import_candidate(import_programs_key_) : nullptr;
+        if (import_programs)
+            view_.subtitle = import_programs->ascii_ok ? "Choose the program that starts the game." : kImportCopyOnlyText;
+        // The add choice: its folder's candidate, or the game added already (its page's Copy or Move).
+        const LiveImportCandidate* import_choice = nullptr;
+        std::uint64_t import_choice_bytes = 0;
+        std::string import_choice_volume;
+        if (modal.id == "import-choice") {
+            if (import_choice_game_.valid()) {
+                const auto* game = find_game(state_, import_choice_game_);
+                if (game && game->install_bytes) import_choice_bytes = *game->install_bytes;
+                if (const auto* external = external_game(import_choice_game_)) import_choice_volume = external->volume_id;
+            } else if ((import_choice = import_candidate(import_programs_key_))) {
+                import_choice_bytes = import_choice->total_bytes;
+                import_choice_volume = import_choice->volume_id;
+            }
+            const bool drop = import_choice_volume == kImportDropVolume;
+            view_.subtitle = import_choice && !import_choice->ascii_ok ? kImportCopyOnlyText
+                : drop ? (import_choice ? "Play the game from the drop folder, or move it into Playden's games folder."
+                                        : "The game's folder moves from the drop folder into Playden's games folder.")
+                : import_choice ? "Play the game from the drive, or copy it into Playden to play without the drive."
+                                : "A copy in Playden plays without the drive. The folder on the drive stays as it is.";
+        }
         if (modal.id == "kept-data")
             view_.subtitle = "Saves and settings kept when a game was uninstalled. Installing a game again brings its saves "
                              "back. Saves in Steam Cloud stay in Steam Cloud.";
@@ -3253,6 +3654,19 @@ void Simulation::rebuild_view() {
                     modal.action_keys[static_cast<std::size_t>(modal.focused_action)] == action_key;
                 if (focused_row && !definition->also_called.empty() && modal.id != "button-mapping")
                     item.subtitle += " · Also called " + definition->also_called;
+            } else if (settings_ready && action_key == "steam-app-id") {
+                // Saved in the game's settings record; the game's own steam_appid.txt wins over it.
+                item.kind = RowKind::Text;
+                item.title = "Steam app ID";
+                const auto record = state_.game_settings.find(settings_game);
+                const std::uint32_t saved = record == state_.game_settings.end() ? 0 : record->second.steam_app_id;
+                const auto runtime_game = state_.runtime_games.find(settings_game);
+                const bool from_file = runtime_game != state_.runtime_games.end() && runtime_game->second.steam_app_from_game_file &&
+                                       runtime_game->second.steam_app_id != 0;
+                item.value = from_file ? std::to_string(runtime_game->second.steam_app_id)
+                           : saved ? std::to_string(saved) : std::string("None");
+                item.subtitle = from_file ? "From the game's steam_appid.txt" : "Only for games that need Steam. Most run without it.";
+                item.modified = saved != 0;
             } else if (settings_ready && action_key == "button-mapping") {
                 item.kind = RowKind::Choice;
                 item.title = "Button mapping";
@@ -3430,7 +3844,8 @@ void Simulation::rebuild_view() {
                         item.value = "Free space unknown";
                     item.subtitle = !volume->available ? "Disconnected" : !volume->writable ? "No write access" : "Available";
                     item.enabled = volume->available && volume->writable;
-                    item.selected = volume->id == (live() && picking_install_volume_ ? install_target() : selected_volume_id_);
+                    item.selected = volume->id == (picking_import_volume_ ? import_copy_target()
+                                                   : live() && picking_install_volume_ ? install_target() : selected_volume_id_);
                 }
             }
             else if (action_key == "quit-to-home") item.dangerous = true;  // the dialog's primary action
@@ -3505,6 +3920,70 @@ void Simulation::rebuild_view() {
                 item.title = "Uninstall selected";
                 item.dangerous = true;
                 item.enabled = !installed_selected_.empty();
+            }
+            else if (modal.id == "import-games" && action_key == "import-look") {
+                item.title = state_.import_scanning ? "Looking for games…" : "Look for games";
+                if (state_.import_scanning) { item.kind = RowKind::Status; item.enabled = false; }
+            }
+            else if (modal.id == "import-games" && action_key.rfind("import-group-", 0) == 0) {
+                item.kind = RowKind::Heading;
+                item.action.clear();
+                item.enabled = false;
+                for (const auto& [volume, name] : kImportGroups)
+                    if (action_key == std::string("import-group-") + volume) item.title = name;
+            }
+            else if (modal.id == "import-games" && action_key.rfind("import-candidate-", 0) == 0) {
+                if (const auto* candidate = import_candidate(action_key)) {
+                    item.title = candidate->title;
+                    item.value = candidate->imported.valid() ? std::string("Added") : format_bytes(candidate->total_bytes);
+                    item.subtitle = candidate->path;
+                    if (candidate->imported.valid()) item.game_id = candidate->imported;
+                    else if (candidate->programs.empty()) { item.subtitle = "No Windows program found"; item.enabled = false; }
+                    else if (!candidate->ascii_ok) item.subtitle += " · Copy only";
+                    // An add on its way, or why the last one was refused.
+                    if (!candidate->imported.valid() && pending_imports_.count(action_key)) {
+                        item.value = "Adding…";
+                        item.enabled = false;
+                    } else if (const auto failure = import_failures_.find(action_key);
+                               !candidate->imported.valid() && failure != import_failures_.end()) {
+                        item.subtitle = "Not added · " + failure->second;
+                    }
+                }
+            }
+            else if (import_programs && action_key.rfind("import-program-", 0) == 0) {
+                const auto index = static_cast<std::size_t>(std::stoul(action_key.substr(15)));
+                if (index < import_programs->programs.size()) {
+                    const auto& program = import_programs->programs[index];
+                    item.title = program.path;
+                    item.value = format_bytes(program.bytes);
+                    if (program.helper) item.subtitle = "Installer or tool";
+
+                }
+            }
+            else if (modal.id == "import-choice" && action_key == "import-play-in-place") {
+                item.title = import_choice_volume == kImportDropVolume ? "Play from the drop folder" : "Play from the drive";
+                item.value = import_volume_name(import_choice_volume);
+            }
+            else if (modal.id == "import-choice" && action_key == "import-copy") {
+                item.title = "Copy into Playden";
+                item.value = format_bytes(import_choice_bytes);
+                item.value += (item.value.empty() ? "" : " · ") + import_copy_estimate(import_choice_bytes);
+            }
+            else if (modal.id == "import-choice" && action_key == "import-move") {
+                item.title = "Move into Playden";
+                item.value = "Instant";
+            }
+            else if (modal.id == "import-choice" && action_key == "storage-picker") {
+                // The drive the copy goes to, as the install sheet's drive choice.
+                item.title = "Copy to";
+                if (const auto* volume = find_volume(state_, import_copy_target())) {
+                    item.value = volume->label;
+                } else {
+                    item.value = "Default drive";
+                }
+            }
+            else if ((modal.id == "import-games" || modal.id == "import-programs" || modal.id == "import-choice") && action_key == "cancel") {
+                item.title = modal.id == "import-games" ? "Close" : "Back";
             }
             else if (action_key == "kept-select-all") {
                 const bool all = !state_.kept_bottles.empty() && kept_selected_.size() == state_.kept_bottles.size();
@@ -3649,6 +4128,8 @@ void Simulation::rebuild_view() {
         else if (modal.id == "preset-picker") view_.legends = {"Cross Use this preset", "L1/R1 Jump", "Circle Back"};
         else if (modal.id == "button-mapping") view_.legends = {"Cross Change", "L1/R1 Jump", "Circle Back"};
         else if (modal.id == "game-maintenance") view_.legends = {"Cross Select", "L1/R1 Jump", "Circle Cancel"};
+        else if (modal.id == "import-games") view_.legends = {"Cross Select", "Circle Close"};
+        else if (modal.id == "import-programs" || modal.id == "import-choice") view_.legends = {"Cross Select", "Circle Back"};
         else if (modal.id == "installed-games")
             // The batch's rows only report; Cross does something only on its buttons.
             view_.legends = !uninstall_batch_ ? std::vector<std::string>{"Cross Select", "Triangle Uninstall", "Circle Close"}
@@ -3671,7 +4152,7 @@ void Simulation::rebuild_view() {
         view_.legends = {"Cross Quit to Home"};
     } else if (state_.navigation.route == Route::Startup) {
         view_.title = "Welcome to Playden";
-        view_.subtitle = live() ? "Connect Steam to load your library." : "Browse the local UI fixture or connect a simulated Steam account.";
+        view_.subtitle = live() ? "Connect a store or import games to fill your library." : "Browse the local UI fixture or connect a simulated Steam account.";
         if (state_.startup_loading || state_.account().authentication == AuthState::Restoring) {
             row("startup-loading", RowKind::Status, live() ? "Restoring your accounts…" : "Loading saved fixture state…", "").enabled = false;
             if (!live()) row("startup-advance", RowKind::Action, "Advance fixture clock", "advance-clock");
@@ -3681,6 +4162,8 @@ void Simulation::rebuild_view() {
             row("startup-continue", RowKind::Action, "Continue without saving", "continue-without-saving");
         } else {
             row("startup-connect", RowKind::Action, "Connect Steam", "connect");
+            // Games from a drive or the drop folder need no store account.
+            row("startup-import", RowKind::Action, "Import games", "import-manage");
             row("startup-skip", RowKind::Action, "Skip for now", "skip");
         }
     } else if (state_.navigation.route == Route::SignIn && state_.sign_in.step != SignInStep::Qr &&
@@ -3765,9 +4248,14 @@ void Simulation::rebuild_view() {
             item.badge = state_.library.favorites.contains(game->id) ? "Favorite" : "";
             steam_shown = steam_shown || game->id.store == Store::kSteam;
         }
-        // Signed out with only other stores' games (imported ones) listed, Steam is still offered.
+        // Signed out with only other stores' games (imported ones) listed, Steam is still offered, and
+        // Home is about those games rather than the account.
         const bool connect = state_.account().authentication != AuthState::SignedIn && !steam_shown;
-        if (view_.rows.empty()) row("home-library", RowKind::Action, "Open Library", "library");
+        if (connect && !view_.rows.empty() && state_.account().authentication != AuthState::Offline) view_.subtitle = "Your library";
+        if (view_.rows.empty()) {
+            row("home-library", RowKind::Action, "Open Library", "library");
+            row("home-import", RowKind::Action, "Import games", "import-manage");
+        }
         if (connect) row("home-connect", RowKind::Action, "Connect a store", "connect");
         auto add_shelf = [this](const playden::homebrew::Shelf& source, int shelf_index) {
             ViewData::Shelf shelf;
@@ -3832,15 +4320,18 @@ void Simulation::rebuild_view() {
         // rows as an installed one; it is never in Installed games.
         std::optional<Installation> in_place;
         std::string in_place_reason;
-        if (!installation && game && live())
-            for (const auto& external : state_.external_games)
-                if (external.game_id == game->id) {
-                    const auto runtime_game = state_.runtime_games.find(game->id);
-                    in_place = Installation{game->id, external.volume_id, 0, external.available && external.reason.empty(),
-                                            runtime_game != state_.runtime_games.end() && runtime_game->second.ready, false};
-                    in_place_reason = external.reason;
-                    installation = &*in_place;
-                }
+        if (!installation && game)
+            if (const auto* external = external_game(game->id)) {
+                const auto runtime_game = state_.runtime_games.find(game->id);
+                // Fixture mode: a folder there plays at once (its size stands for the install).
+                in_place = Installation{game->id, external->volume_id, live() ? 0 : std::max<std::uint64_t>(game->install_bytes.value_or(1), 1),
+                                        external->available && external->reason.empty(),
+                                        live() ? runtime_game != state_.runtime_games.end() && runtime_game->second.ready : true, false};
+                in_place_reason = external->reason;
+                installation = &*in_place;
+            }
+        const bool imported = game && game->id.store == Store::kLocal;
+        const Job* copying = imported && in_place ? import_copy_job(game->id) : nullptr;
         // Live installations are only finished installs; their size may be unknown on an absent drive.
         const bool installed = installation && (live() || installation->installed_bytes > 0);
         if (!live()) {
@@ -3963,6 +4454,31 @@ void Simulation::rebuild_view() {
                     row("details-kept-delete", RowKind::Action, "Delete saves", "kept-delete-" + ToKey(game->id)).dangerous = true;
                 }
         }
+        if (imported) {
+            // An imported game: Copy or Move into Playden while it plays from its folder (the copy's
+            // progress while it runs), then Remove from library; a copy in Playden uninstalls.
+            if (copying) {
+                auto& status = row("details-download", RowKind::Action, "Copying", "import-open-copy");
+                status.value = job_state_name(copying->state);
+                status.progress = copying->total_bytes == 0 ? 0.0F
+                    : static_cast<float>(copying->completed_bytes) / static_cast<float>(copying->total_bytes);
+            } else if (const auto* external = in_place ? external_game(game->id) : nullptr; external && external->available) {
+                // Its drive is there: a folder the PS5 can't play from (its name) can still be copied.
+                row("details-copy", RowKind::Action, in_place->volume_id == kImportDropVolume ? "Move into Playden" : "Copy into Playden",
+                    "import-copy-game");
+            }
+            if (in_place) {
+                row("details-remove", RowKind::Action, "Remove from library", "import-remove").enabled = !copying;
+                // Where it plays from, under the buttons.
+                for (const auto& candidate : state_.import_candidates)
+                    if (candidate.imported == game->id && installation->available) {
+                        auto& folder = row("details-folder", RowKind::Status, "Plays from " + candidate.path, "");
+                        folder.enabled = false;
+                    }
+            } else if (installed) {
+                row("details-uninstall", RowKind::Action, "Uninstall", "uninstall");
+            }
+        }
         if (installed) {
             const auto found = state_.runtime_games.find(game->id);
             const auto* runtime = found == state_.runtime_games.end() ? nullptr : &found->second;
@@ -4008,6 +4524,7 @@ void Simulation::rebuild_view() {
                 if (position > 0 && queue.waiting.size() > 1)
                     hint = std::to_string(position) + " of " + std::to_string(queue.waiting.size()) + " waiting. " + hint;
             }
+            else if (waiting && imported) hint = "The PS5 adds the game to Home when Playden quits.";
             else if (waiting) hint = "Quit Playden and " + game->title + " appears on the PS5 Home screen.";
             else if (status == "Registration pending") hint = "The PS5 hasn't confirmed " + game->title + " yet.";
             else if (status == "Removal incomplete") hint = "Removing " + game->title + " from the PS5 Home screen stopped partway.";
@@ -4237,6 +4754,14 @@ void Simulation::rebuild_view() {
             storage.value = volume ? volume->label : "";
             storage.subtitle = "Where new games are installed";
             if (state_.volumes.empty()) { storage.kind = RowKind::Status; storage.action.clear(); storage.enabled = false; storage.subtitle = "Storage is unavailable"; }
+        }
+        {
+            // Windows games in a drive's playden/import or the console drop folder: the Import sheet.
+            auto& entry = add("settings-import", RowKind::Action, "Import games", "import-manage");
+            entry.subtitle = "Add Windows games from a drive or the console drop folder";
+            const auto found = std::count_if(state_.import_candidates.begin(), state_.import_candidates.end(),
+                                             [](const LiveImportCandidate& candidate) { return !candidate.imported.valid(); });
+            if (found > 0) entry.value = std::to_string(found) + " found";
         }
         if (live()) {
             // Installed games: one row that opens the list, sorted by size or last played, where
@@ -4470,6 +4995,8 @@ void Simulation::open_modal(ModalEntry modal) {
 void Simulation::close_modal() {
     if (state_.navigation.modals.empty()) return;
     const auto opener = state_.navigation.modals.back().opener_focus_key;
+    if (state_.navigation.modals.back().id == "storage") picking_import_volume_ = false;
+    if (state_.navigation.modals.back().id == "import-choice") import_choice_game_ = {};
     state_.navigation.modals.pop_back();
     state_.navigation.focus_key = opener;
 }
@@ -4738,6 +5265,28 @@ void Simulation::commit_editor() {
         return;
     }
     if (state_.editor.purpose == "Search") { state_.library.query = state_.editor.value; reconcile_library_selection(state_); }
+    else if (state_.editor.purpose == "Steam app ID") {
+        // A Steam app ID in plain decimal ("440"), or nothing to clear it.
+        if (!can_change_game_settings()) return;
+        const auto value = trimmed(state_.editor.value);
+        const auto parsed = value.empty() ? std::optional<std::uint32_t>{0} : rt::ParseSteamAppId(value);
+        if (!parsed || (!value.empty() && std::to_string(*parsed) != value)) {
+            state_.notices.push_back({"setting-validation", "Steam app ID: use the number in the game's Steam store address",
+                                      "", true, 0, true});
+            return;
+        }
+        std::erase_if(state_.notices, [](const Notice& notice) { return notice.id == "setting-validation"; });
+        auto& record = state_.game_settings[state_.navigation.selected_game_id];
+        if (record.steam_app_id != *parsed) {
+            record.steam_app_id = *parsed;
+            ++record.revision;
+        }
+        state_.editor.active = false;
+        state_.navigation.focus_key = state_.editor.opener_focus_key;
+        refresh_game_settings();
+        save_profile();
+        return;
+    }
     else if (!editing_setting_id_.empty()) {
         if (!can_change_game_settings()) return;
         auto value = trimmed(state_.editor.value);
@@ -4890,6 +5439,7 @@ void Simulation::move(int delta_x, int delta_y) {
             return;
         }
         if (modal.id == "installed-games") { move_installed_manager(delta_x, delta_y); return; }
+        if (modal.id == "import-games") { move_import_sheet(delta_y != 0 ? delta_y : delta_x); return; }
         const int delta = delta_y != 0 ? delta_y : delta_x;
         modal.focused_action = std::clamp(modal.focused_action + delta, 0, static_cast<int>(modal.action_keys.size()) - 1);
         state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
@@ -5304,7 +5854,10 @@ void Simulation::activate() {
                 state_.navigation.selected_game_id = shelf.game_ids[static_cast<std::size_t>(item)];
         }
     }
-    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id.valid()) {
+    // Home's empty state has only its buttons (Open Library, Import games, Connect a store): a game
+    // selected before is not under the focus.
+    if (state_.navigation.route == Route::Home && state_.navigation.modals.empty() && state_.navigation.selected_game_id.valid() &&
+        state_.navigation.focus_key.rfind("home-", 0) != 0) {
         if (live()) force_organization_selection_ = true;
         state_.navigation.detail_origin = Route::Home;
         state_.navigation.detail_id = state_.navigation.selected_game_id;
@@ -5375,13 +5928,23 @@ void Simulation::activate() {
     else if (action_name == "storage-picker") {
         // From the install sheet the choice is for that install only; Settings changes the default.
         picking_install_volume_ = live() && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "install";
+        // From the add choice, the drive is for that copy only.
+        picking_import_volume_ = !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "import-choice";
         std::vector<std::string> actions;
         for (const auto& volume : state_.volumes) actions.push_back("volume-" + volume.id);
         actions.push_back("cancel");
-        open_modal({"storage", picking_install_volume_ ? "Install to" : "Choose storage", state_.navigation.focus_key,
-                    std::move(actions), 0, false});
+        open_modal({"storage", picking_install_volume_ ? "Install to" : picking_import_volume_ ? "Copy to" : "Choose storage",
+                    state_.navigation.focus_key, std::move(actions), 0, false});
     } else if (action_name.rfind("volume-", 0) == 0) {
         const auto id = action_name.substr(7);
+        if (picking_import_volume_) {
+            const auto* volume = find_volume(state_, id);
+            if (volume && volume->available && volume->writable) import_copy_volume_ = id == selected_volume_id_ ? std::string() : id;
+            picking_import_volume_ = false;
+            close_modal();
+            state_.navigation.focus_key = "import-copy";  // back on the choice, ready to copy
+            return;
+        }
         if (live() && picking_install_volume_) {
             const auto* volume = find_volume(state_, id);
             if (volume && volume->available) install_volume_id_ = id == selected_volume_id_ ? std::string() : id;
@@ -5807,10 +6370,14 @@ void Simulation::activate() {
                 const bool no_cloud = !Traits(id.store).cloud_saves ||
                                       (cloud != state_.cloud.end() && cloud->second.status == CloudStatus::Unsupported);
                 title = "Uninstall this game?";
+                const bool steam = id.store == Store::kSteam;
                 body = has_title ? uninstall_body_kept
-                                 : "The game's files are removed from this console. You can install it again from Steam.";
-                body += no_cloud ? " This game has no Steam Cloud saves: its saves exist only on this console."
-                                 : " Steam Cloud saves are synced first; if that fails, Playden asks before going on.";
+                     : steam ? "The game's files are removed from this console. You can install it again from Steam."
+                             : "The game's files are removed from this console.";
+                // Only a store with Cloud saves is worth a word about them.
+                if (!Traits(id.store).cloud_saves) body += " Its saves exist only on this console.";
+                else body += no_cloud ? " This game has no Steam Cloud saves: its saves exist only on this console."
+                                      : " Steam Cloud saves are synced first; if that fails, Playden asks before going on.";
             }
         }
         std::vector<std::string> actions{"cancel", "confirm-destructive"};
@@ -5909,9 +6476,11 @@ void Simulation::activate() {
         if (installed_selected_.empty()) return;
         std::vector<std::string> names;
         std::uint64_t bytes = 0;
-        bool any_title = false;
+        bool any_title = false, any_cloud = false, all_steam = true;
         for (const auto id : installed_list()) {
             if (!installed_selected_.contains(id)) continue;
+            any_cloud = any_cloud || Traits(id.store).cloud_saves;
+            all_steam = all_steam && id.store == Store::kSteam;
             const auto* game = find_game(state_, id);
             names.push_back(game && !game->title.empty() ? game->title : "Steam app " + ToKey(id));
             if (const auto* installation = find_installation(state_, id)) bytes += installation->installed_bytes;
@@ -5932,8 +6501,10 @@ void Simulation::activate() {
                                 0, true};
         confirmation.body = listed + ". Frees about " + format_bytes(bytes) + ". ";
         confirmation.body += any_title ? uninstall_batch_body_kept
-                                       : "Their files are removed from this console. You can install them again from Steam.";
-        confirmation.body += " Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its row says why.";
+                           : all_steam ? "Their files are removed from this console. You can install them again from Steam."
+                                       : "Their files are removed from this console.";
+        if (any_cloud)
+            confirmation.body += " Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its row says why.";
         open_modal(std::move(confirmation));
     } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_ == "installed-selection-uninstall") {
         GameId first;
@@ -5967,6 +6538,53 @@ void Simulation::activate() {
                 state_.navigation.focus_key = *found;
             }
         }
+    } else if (action_name == "import-manage") {
+        open_import_sheet();
+    } else if (action_name == "import-look") {
+        look_for_games();
+    } else if (action_name.rfind("import-candidate-", 0) == 0) {
+        const auto* candidate = import_candidate(action_name);
+        if (!candidate) return;
+        if (candidate->imported.valid()) {
+            // Added already: its page, with the sheets closed.
+            open_game_page(candidate->imported);
+            return;
+        }
+        if (pending_imports_.count(action_name)) return;  // being added
+        if (candidate->programs.empty()) return;
+        import_programs_key_ = action_name;
+        std::vector<std::string> actions;
+        for (std::size_t index = 0; index < candidate->programs.size(); ++index)
+            actions.push_back("import-program-" + std::to_string(index));
+        actions.push_back("cancel");
+        open_modal({"import-programs", candidate->title, state_.navigation.focus_key, std::move(actions), 0, false});
+    } else if (action_name.rfind("import-program-", 0) == 0) {
+        const auto* candidate = import_candidate(import_programs_key_);
+        const auto index = static_cast<std::size_t>(std::stoul(action_name.substr(15)));
+        if (!candidate || index >= candidate->programs.size()) return;
+        // Where the game plays from: its folder, a copy or a move into Playden.
+        open_import_choice(index);
+    } else if (action_name == "import-play-in-place" || action_name == "import-copy" || action_name == "import-move") {
+        choose_import(action_name);
+    } else if (action_name == "import-copy-game") {
+        // An imported game playing from its folder: Copy (a drive) or Move (the drop folder) into Playden.
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        if (const auto* external = external_game(id); external && external->available && !import_copy_job(id)) open_import_choice(0, id);
+    } else if (action_name == "import-open-copy") {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        state_.navigation.route = Route::Downloads;
+        if (const auto* job = import_copy_job(id)) state_.navigation.focus_key = "job-" + job->id;
+    } else if (action_name == "import-remove") {
+        // Out of the library; the folder stays where it is.
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        const auto* game = find_game(state_, id);
+        if (!game || !external_game(id)) return;
+        pending_destructive_action_ = action_name;
+        ModalEntry confirmation{"confirmation", "Remove " + game->title + " from the library?", state_.navigation.focus_key,
+                                {"cancel", "confirm-destructive"}, 0, true};
+        confirmation.body = "The game's folder and files stay where they are, and Import games can add it again. Its PS5 "
+                            "title is removed; its saves and settings on this console are kept.";
+        open_modal(std::move(confirmation));
     } else if (live() && action_name == "kept-manage") {
         if (state_.kept_bottles.empty()) return;
         kept_selected_.clear();
@@ -6029,6 +6647,23 @@ void Simulation::activate() {
         } else {
             request_maintenance(state_.navigation.selected_game_id, kind);
         }
+    } else if (action_name == "confirm-destructive" && pending_destructive_action_ == "import-remove") {
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        pending_destructive_action_.clear();
+        state_.navigation.modals.clear();
+        RequestImport({ImportRequestKind::Remove, id});
+        if (!live()) {
+            // Fixture mode: the game leaves the library at once and its folder can be added again.
+            std::erase_if(state_.external_games, [id](const LiveExternalGame& external) { return external.game_id == id; });
+            std::erase_if(state_.games, [id](const Game& game) { return game.id == id; });
+            for (auto& candidate : state_.import_candidates)
+                if (candidate.imported == id) candidate.imported = {};
+        }
+        // Back where the page was opened from; the library loses the game on its next refresh.
+        state_.navigation.route = state_.navigation.detail_origin == Route::Details ? Route::Home : state_.navigation.detail_origin;
+        state_.navigation.selected_game_id = {};
+        state_.navigation.detail_id.reset();
+        state_.navigation.focus_key.clear();
     } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_.rfind("kept-delete-", 0) == 0) {
         pending_kept_delete_requests_.push_back(key_id(std::string_view(pending_destructive_action_).substr(12)));
         pending_destructive_action_.clear();
@@ -6193,6 +6828,11 @@ void Simulation::activate() {
         close_modal(); refresh_game_settings(); save_profile();
     } else if (action_name.rfind("setting-", 0) == 0) {
         open_setting(action_name.substr(8));
+    } else if (action_name == "steam-app-id") {
+        const auto record = state_.game_settings.find(state_.navigation.selected_game_id);
+        const std::uint32_t saved = record == state_.game_settings.end() ? 0 : record->second.steam_app_id;
+        start_editor("Steam app ID", saved ? std::to_string(saved) : std::string());
+        state_.editor.symbols = true;  // digits first
     } else if (action_name == "unlock-setting" && !state_.navigation.modals.empty()) {
         // "Change anyway" on a row the recipe locks: the player's value may now win.
         const auto id = state_.navigation.modals.back().setting_id;
@@ -6406,7 +7046,7 @@ void Simulation::activate() {
     }
     else if (kOfferGoBack && live() && action_name == "self-update-back-confirm") { close_modal(); request_self_update_restart("rollback"); }
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
-        {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "cancel"}, 0, false});
+        {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "scenario-import-empty", "scenario-import-candidates", "scenario-import-programs", "scenario-import-choice", "scenario-import-details", "scenario-import-copying", "scenario-import-library", "cancel"}, 0, false});
     else if (action_name.rfind("scenario-", 0) == 0) { state_.navigation.modals.clear(); scenario(action_name.substr(9)); }
     else if (action_name == "session-fixture-controls") open_modal({"session-controls", "Session fixture controls", state_.navigation.focus_key,
         {"advance-clock", "inject-stop-failure", "inject-crash", "cancel"}, 0, false});
@@ -6971,6 +7611,14 @@ void Simulation::tick(int ticks) {
         if (!state_.screenshot_mode) {
             ++state_.clock_ticks;
             advance_jobs();
+            // A finished copy of an imported game: it plays from Playden's storage, not its folder.
+            for (const auto& job : state_.jobs)
+                if (job.kind == "install" && job.state == JobState::Downloaded && job.game_id.store == Store::kLocal &&
+                    external_game(job.game_id)) {
+                    const auto id = job.game_id;
+                    std::erase_if(state_.external_games, [id](const LiveExternalGame& external) { return external.game_id == id; });
+                    if (auto* installation = find_installation(state_, id)) installation->runtime_ready = true;
+                }
             if (state_.account().authentication == AuthState::Waiting && state_.clock_ticks >= state_.account().challenge_expiry) {
                 state_.account().authentication = AuthState::Expired;
                 state_.navigation.focus_key = "qr-refresh";
@@ -6987,6 +7635,17 @@ void Simulation::tick(int ticks) {
             else if (state_.session == SessionState::Launching) state_.session = SessionState::Running;
             else if (state_.session == SessionState::Stopping) { state_.session = SessionState::Idle; state_.navigation.route = Route::Details; state_.navigation.detail_id = state_.session_game_id; }
             if (state_.runtime == RuntimeState::Checking) state_.runtime = RuntimeState::Ready;
+            if (state_.import_scanning) {
+                // Folders added before stay added.
+                auto found = fixture_import_candidates();
+                for (auto& candidate : found)
+                    for (const auto& known : state_.import_candidates)
+                        if (import_candidate_key(known) == import_candidate_key(candidate)) candidate.imported = known.imported;
+                if (find_game(state_, fixture_imported_game())) found.front().imported = fixture_imported_game();
+                state_.import_candidates = std::move(found);
+                state_.import_scanning = false;
+                refresh_import_sheet();
+            }
             if (state_.log_state == LogState::Loading) finish_logs();
             state_.startup_loading = false;
             state_.library_loading = false;
@@ -7218,6 +7877,8 @@ std::vector<std::string> Simulation::game_settings_actions() const {
     std::vector<std::string> actions = {"preset-picker"};
     for (const auto& definition : rt::SettingsCatalogue())
         if (definition.tier == rt::SettingTier::kBasic && shown(definition)) actions.push_back("setting-" + definition.id);
+    // Another store's game may use Steamworks: the Steam app ID its emulator is given.
+    if (game.store == Store::kLocal) actions.push_back("steam-app-id");
     for (const auto& [section, tier] : {std::pair<const char*, rt::SettingTier>{"section-more", rt::SettingTier::kCompatibility},
                                        std::pair<const char*, rt::SettingTier>{"section-advanced", rt::SettingTier::kAdvanced}}) {
         actions.push_back(section);
@@ -7260,7 +7921,12 @@ std::vector<std::string> Simulation::details_context_actions() const {
     // itself up first, so Game settings is there before Play is pressed once (#46).
     // Maintenance is there for every installed game, whatever its state (a title waiting for
     // recovery gets out through Recreate bottle); rows that can't run say why.
-    const bool installed = live() && is_installed(state_, state_.navigation.selected_game_id);
+    const auto selected = state_.navigation.selected_game_id;
+    // An imported game playing from its folder is "installed" there: its settings apply, and it
+    // leaves the library rather than being uninstalled.
+    const bool in_place = external_game(selected) != nullptr;
+    if (in_place) std::replace(actions.begin(), actions.end(), std::string("uninstall"), std::string("import-remove"));
+    const bool installed = (live() && is_installed(state_, selected)) || in_place;
     if (installed || game_prepared(state_.navigation.selected_game_id))
         actions.insert(actions.begin(), {"game-settings", "game-maintenance"});
     else if (refused)
@@ -7270,8 +7936,8 @@ std::vector<std::string> Simulation::details_context_actions() const {
     if (live() && runtime != state_.runtime_games.end() && runtime->second.awaiting_registration &&
         runtime->second.can_prepare)
         actions.insert(actions.begin(), "runtime-check-again");
-    // The game's saves in the Saves tab, after Game settings and Maintenance.
-    if (live() && is_installed(state_, state_.navigation.selected_game_id)) {
+    // The game's saves in the Saves tab, after Game settings and Maintenance; imported games have no link.
+    if (live() && is_installed(state_, state_.navigation.selected_game_id) && selected.store != Store::kLocal) {
         const auto maintenance = std::find(actions.begin(), actions.end(), "game-maintenance");
         actions.insert(maintenance == actions.end() ? actions.begin() : maintenance + 1, "manage-saves");
     }
