@@ -709,18 +709,24 @@ void t13_settings_sections_rail(const std::filesystem::path& fixtures, const std
     simulation.action("left");
     check(simulation.state().navigation.settings_rail_focused, "T13 Left moves to the section rail");
     simulation.action("down");
-    check(section() == "Storage" && simulation.state().navigation.focus_key == "settings-storage",
-          "T13 Down on the rail switches to the next section's first row");
+    check(section() == "Library" && simulation.state().navigation.focus_key == "settings-import",
+          "T13 Down on the rail switches to the next section's first row (Import games heads Library)");
     simulation.action("cross");
-    check(!simulation.state().navigation.settings_rail_focused && simulation.state().navigation.focus_key == "settings-storage",
+    check(!simulation.state().navigation.settings_rail_focused && simulation.state().navigation.focus_key == "settings-import" &&
+              simulation.state().navigation.modals.empty(),
           "T13 Cross on the rail enters the section without activating its row");
     simulation.action("down");
+    check(section() == "Library" && simulation.state().navigation.focus_key == "settings-import",
+          "T13 Down on a section's last row stays in the section");
+    simulation.action("left");
+    simulation.action("down");
+    simulation.action("right");
+    check(section() == "Storage" && simulation.state().navigation.focus_key == "settings-storage",
+          "T13 Storage starts with Games storage, Import games no longer in it");
     simulation.action("down");
     simulation.action("down");
     check(section() == "Storage" && simulation.state().navigation.focus_key == "settings-runtime",
-          "T13 Down on a section's last row stays in the section");
-    simulation.action("up");
-    check(simulation.state().navigation.focus_key == "settings-import", "T13 Up moves to Import games");
+          "T13 Down stops on the section's last row");
     simulation.action("up");
     check(section() == "Storage" && simulation.state().navigation.focus_key == "settings-storage" &&
               !simulation.state().navigation.tabs_focused, "T13 Up stops on the section's first row");
@@ -1168,7 +1174,7 @@ static void t17_import_sheet(const std::filesystem::path& fixtures, const std::f
     simulation.action("circle");
     check(simulation.state().navigation.modals.empty() && simulation.state().navigation.focus_key == "settings-import" &&
               row("settings-import")->value == "6 found",
-          "T17 Settings › Storage counts the folders found");
+          "T17 Settings › Library counts the folders found");
 
     // Candidates: sizes, Added, copy only, no program.
     check(simulation.scenario("import-candidates"), "T17 import-candidates scenario");
@@ -1183,13 +1189,16 @@ static void t17_import_sheet(const std::filesystem::path& fixtures, const std::f
     check(!tools->enabled && tools->subtitle == "No Windows program found", "T17 a folder without a program can't be added");
     check(simulation.view().subtitle.find("Games found in playden/import") == 0, "T17 the sheet's subtitle with games");
 
-    // Copy only: its programs wait for Copy into Playden.
+    // Copy only, with one program besides a redistributable: no program list; step 1 says which
+    // program starts the game, and why it can't play from its drive.
     press("import-candidate-usb0:playden/import/Café Étoile");
-    check(simulation.view().surface == "import-programs" &&
-              simulation.view().subtitle == "This folder's name has characters the PS5 can't start a game from. "
-                                            "Copy it into Playden instead." &&
-              row("import-program-0")->enabled && row("import-program-1")->subtitle == "Installer or tool",
-          "T17 a copy-only folder says why");
+    check(simulation.view().surface == "import-choice" &&
+              simulation.view().subtitle == "Starts with CafeEtoile.exe, which you can change in Game settings. "
+                                            "You can import it into Playden later from the game's page." &&
+              !row("import-play-in-place")->enabled &&
+              row("import-play-in-place")->subtitle == "This folder's name has characters the PS5 can't start a game from. "
+                                                       "Copy it into Playden instead.",
+          "T17 one clear program skips the list; a copy-only folder says why");
     simulation.action("circle");
     check(simulation.view().surface == "import-games", "T17 Back returns to the sheet");
 
@@ -1197,13 +1206,21 @@ static void t17_import_sheet(const std::filesystem::path& fixtures, const std::f
     press("import-candidate-usb0:playden/import/Old School Rally");
     check(simulation.view().surface == "import-programs" && simulation.view().title == "Old School Rally" &&
               row("import-program-0")->title == "OldSchoolRally.exe" && row("import-program-0")->subtitle.empty() &&
-              row("import-program-1")->subtitle == "Installer or tool" && simulation.view().rows.back().title == "Back" &&
+              row("import-program-1")->title == "Benchmark/RallyBench.exe" && row("import-program-1")->subtitle.empty() &&
+              row("import-program-2")->subtitle == "Installer or tool" && simulation.view().rows.back().title == "Back" &&
               simulation.state().navigation.focus_key == "import-program-0",
           "T17 the program list puts the game first and labels helpers");
     simulation.action("cross");
-    check(simulation.view().surface == "import-choice" && row("import-play-in-place")->title == "Play from the drive",
-          "T17 choosing the program asks where the game plays from");
-    simulation.action("cross");
+    check(simulation.view().surface == "import-choice" && simulation.view().title == "Where will the game files live?" &&
+              simulation.view().eyebrow == "Import games · Old School Rally" &&
+              simulation.view().subtitle == "You can import it into Playden later from the game's page." &&
+              row("import-play-in-place")->title == "Play from the USB drive" &&
+              row("import-play-in-place")->subtitle == "Nothing is copied. Keep the drive plugged in." &&
+              row("import-copy")->title == "Import into Playden" && row("import-copy")->value == "938 MB" &&
+              row("import-copy")->subtitle == "Copies the game. You pick the storage next." &&
+              simulation.state().navigation.focus_key == "import-copy",
+          "T17 choosing the program asks where the game files live, Import focused");
+    press("import-play-in-place");
     check(simulation.state().navigation.route == Route::Details && simulation.state().navigation.modals.empty() &&
               simulation.state().navigation.detail_id && simulation.state().navigation.detail_id->store == playden::Store::kLocal,
           "T17 playing from the drive adds the game and opens its page");
@@ -1234,21 +1251,30 @@ static void t18_imported_game_page(const std::filesystem::path& fixtures, const 
     };
     check(simulation.scenario("import-details"), "T18 import-details scenario");
     check(simulation.state().navigation.route == Route::Details && row("details-play") && row("details-play")->title == "Play" &&
-              row("details-copy")->title == "Copy into Playden" && row("details-remove")->title == "Remove from library" &&
+              row("details-copy")->title == "Import into Playden" && row("details-remove")->title == "Remove from library" &&
               row("details-folder")->title == "Plays from /mnt/usb0/playden/import/Night Sky" && !row("details-cloud"),
-          "T18 an imported game's page plays in place and offers Copy and Remove");
-    // Copy: the drive choice, then the copy's progress on the page.
+          "T18 an imported game's page plays in place and offers Import and Remove");
+    // Import into Playden: the wizard's drive choice at once; Back closes it.
     press("details-copy");
-    check(simulation.view().surface == "import-choice" && !row("import-play-in-place") && row("import-copy")->value == "412 MB · under a minute",
-          "T18 Copy into Playden from the page asks for the drive");
-    press("storage-picker");
-    check(simulation.view().surface == "storage" && simulation.view().title == "Copy to", "T18 the copy's drive picker");
+    check(simulation.view().surface == "import-storage" && simulation.view().title == "Choose storage" &&
+              simulation.view().subtitle == "412 MB will be copied there." &&
+              simulation.view().eyebrow == "Import games · Night Sky" &&
+              row("volume-external")->subtitle == "Default · Available" && row("volume-external")->enabled &&
+              row("volume-internal")->subtitle == "Available" && row("volume-internal")->enabled &&
+              !row("volume-readonly")->enabled && row("volume-readonly")->subtitle == "No write access" &&
+              simulation.state().navigation.focus_key == "volume-external" &&
+              simulation.view().legends.front() == "Cross Import here" && simulation.view().rows.back().title == "Back",
+          "T18 Import into Playden from the page opens the drive choice, the default drive focused");
+    simulation.action("circle");
+    check(simulation.state().navigation.modals.empty() && simulation.state().navigation.route == Route::Details,
+          "T18 Back from the page's drive choice closes it");
+    press("details-copy");
+    press("volume-readonly");
+    check(simulation.view().surface == "import-storage" && simulation.state().jobs.back().game_id.store != playden::Store::kLocal,
+          "T18 a drive that can't take the game does nothing");
     press("volume-internal");
-    check(simulation.view().surface == "import-choice" && row("storage-picker")->value == "Console fixture storage",
-          "T18 the chosen drive shows on the choice");
-    press("import-copy");
-    check(simulation.state().jobs.back().volume_id == "internal" && row("details-download") &&
-              row("details-download")->title == "Copying" && !row("details-copy"),
+    check(simulation.state().navigation.modals.empty() && simulation.state().jobs.back().volume_id == "internal" &&
+              row("details-download") && row("details-download")->title == "Copying" && !row("details-copy"),
           "T18 the copy runs on the chosen drive and shows on the page");
     check(simulation.scenario("import-copying"), "T18 import-copying scenario");
     check(row("details-download")->progress > 0.39F && row("details-download")->progress < 0.41F, "T18 the copy is 40% done");
@@ -1273,18 +1299,43 @@ static void t18_imported_game_page(const std::filesystem::path& fixtures, const 
                            [](const playden::homebrew::Game& game) { return game.title == "Night Sky"; }),
           "T18 the game leaves the library and its folder can be added again");
 
-    // The drop folder: Move into Playden, instant.
+    // The drop folder: step 1, then console storage moves the folder at once.
     check(simulation.scenario("import-candidates"), "T18 import-candidates scenario");
     press("import-candidate-internal:playden-import/Hollow Knight");
-    press("import-program-0");
-    check(row("import-play-in-place")->title == "Play from the drop folder" && row("import-move")->value == "Instant" &&
-              !row("import-copy"),
-          "T18 a drop-folder game plays from there or moves");
-    press("import-move");
+    check(row("import-play-in-place")->title == "Play from the drop folder" &&
+              row("import-play-in-place")->subtitle == "Nothing moves. The files stay in /data/playden-import." &&
+              row("import-copy")->title == "Import into Playden" && row("import-copy")->value == "8.9 GB" &&
+              row("import-copy")->subtitle == "Takes the game out of the drop folder. You pick the storage next." &&
+              !row("import-move") && !row("storage-picker"),
+          "T18 a drop-folder game plays from there or is imported");
+    press("import-copy");
+    check(simulation.view().surface == "import-storage" && simulation.view().subtitle == "8.9 GB. The game leaves the drop folder." &&
+              row("volume-internal")->subtitle == "Instant · moves the folder" && row("volume-internal")->enabled &&
+              row("volume-external")->subtitle == "Copies, then frees the drop folder",
+          "T18 the drop folder's drive choice says what each drive does");
+    simulation.action("circle");
+    check(simulation.view().surface == "import-choice" && simulation.state().navigation.focus_key == "import-copy",
+          "T18 Back from step 2 returns to step 1");
+    press("import-copy");
+    press("volume-internal");
     const auto id = simulation.state().navigation.detail_id.value_or(playden::GameId{});
     check(simulation.state().navigation.route == Route::Details && id.store == playden::Store::kLocal &&
               row("details-uninstall") && !row("details-remove") && !row("details-copy"),
           "T18 a moved game is in Playden at once and uninstalls");
+    // To another drive (a fresh console): a copy, playing from the drop folder until it is done.
+    playden::homebrew::Simulation fresh(fixtures, profile);
+    const auto press_fresh = [&](const std::string& key) {
+        check(fresh.action("focus:" + key) && fresh.action("cross"), "T18 row activates");
+    };
+    check(fresh.scenario("import-candidates"), "T18 import-candidates scenario on a fresh console");
+    press_fresh("import-candidate-internal:playden-import/Hollow Knight");
+    press_fresh("import-copy");
+    press_fresh("volume-external");
+    const auto copied = fresh.state().navigation.detail_id.value_or(playden::GameId{});
+    check(fresh.state().navigation.route == Route::Details && copied.store == playden::Store::kLocal &&
+              !fresh.state().jobs.empty() && fresh.state().jobs.back().game_id == copied &&
+              fresh.state().jobs.back().volume_id == "external" && !fresh.state().external_games.empty(),
+          "T18 a drop-folder game imported to another drive is copied there and plays in place meanwhile");
 }
 
 int main(int argc, char** argv) {

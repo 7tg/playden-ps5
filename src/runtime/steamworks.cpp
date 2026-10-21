@@ -139,7 +139,9 @@ bool WriteSettings(const fs::path& folder, const SteamworksIdentity& identity, c
   const auto settings = folder / "steam_settings";
   if (!EnsureFolder(settings)) return false;
   const auto app = std::to_string(identity.app_id);
-  if (!Exists(folder / "steam_appid.txt") && !WriteAtomic(folder / "steam_appid.txt", app)) return false;
+  if (identity.write_game_appid_file && !Exists(folder / "steam_appid.txt") &&
+      !WriteAtomic(folder / "steam_appid.txt", app))
+    return false;
   if (!WriteAtomic(settings / "steam_appid.txt", app)) return false;
   if (identity.depots.empty()) ::unlink((settings / "depots.txt").c_str());
   else if (!WriteAtomic(settings / "depots.txt", Join(Sorted(identity.depots), "\n") + "\n")) return false;

@@ -36,7 +36,7 @@ struct ImportEntry {
   std::string program;  // relative to the folder, '/' separators
   ImportState state = ImportState::kInPlace;
   std::uint64_t added_at = 0;  // seconds since the epoch
-  std::string failure;  // the last copy's failure, empty when none
+  std::string failure;  // the last copy's failure (or what it left behind), empty when none
 };
 
 struct RemovedImport {
@@ -97,7 +97,7 @@ class ImportResult<void> {
 
 // Lower-case canonical UUID text (8-4-4-4-12 hex digits).
 bool IsImportId(const std::string& id);
-// A random (version 4) UUID from /dev/urandom, or nothing.
+// A random (version 4) UUID from /dev/urandom, or nothing (platform/random_id.h).
 std::optional<std::string> RandomImportId();
 
 class ImportStore {
@@ -146,6 +146,9 @@ class ImportStore {
   // copy_queued/copying -> in_place, keeping `failure` (empty for a plain cancel). A drop-folder
   // game too: its folder stays, and it plays in place again.
   ImportResult<ImportEntry> CancelCopy(const std::string& id, const std::string& failure = {});
+  // Keeps a sentence on an entry without changing its state (a copied drop-folder game whose
+  // drop-folder files could not be deleted).
+  ImportResult<ImportEntry> NoteFailure(const std::string& id, const std::string& failure);
   // in_place -> removed list (its files stay). A copied game must be uninstalled first; a copy in
   // progress must be cancelled first.
   ImportResult<void> Remove(const std::string& id);

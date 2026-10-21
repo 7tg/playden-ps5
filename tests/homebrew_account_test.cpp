@@ -57,7 +57,13 @@ class Backend final : public AuthBackend {
     return {error,error == AuthError::kNone ? std::optional<StoredSession>(Session()) : std::nullopt};
   }
   std::atomic<int> restores{0};
-  AuthResult Restore(const StoredSession& s,const std::atomic<bool>&) override { ++restores; return {error,error == AuthError::kNone ? std::optional<StoredSession>(s) : std::nullopt}; }
+  std::atomic<bool> hold_restore{false};  // Restore answers once this is false again (at most 3 s)
+  AuthResult Restore(const StoredSession& s,const std::atomic<bool>&) override {
+    ++restores;
+    for (const auto deadline=std::chrono::steady_clock::now()+3s; hold_restore && std::chrono::steady_clock::now()<deadline;)
+      std::this_thread::sleep_for(1ms);
+    return {error,error == AuthError::kNone ? std::optional<StoredSession>(s) : std::nullopt};
+  }
   // Password sign-in by account name: "wrong" is refused, "email-user" needs an email code ("WRONG" is
   // rejected), "approve" waits for approval (or an app code); any other name signs in.
   std::atomic<int> credential_calls{0};
@@ -653,6 +659,62 @@ void FailedRestoreWithOtherGamesOpensHome() {
     controller.Shutdown();
   }
 }
+// Steam's other restore failures (account storage busy, a revoked session) don't take the screen from
+// another store's games either: Playden stays on Home, a notification and the Account row give the reason,
+// and Sign in still opens a QR code. Without other games: the sign-in screen, as before (a retry, a new
+// QR code at once).
+void OtherRestoreFailuresWithOtherGamesOpenHome() {
+  for (const bool revoked : {false, true})
+  for (const bool other : {true, false}) {
+    Repository repo;repo.value=Session();repo.fail_load=!revoked;CacheFixture cache;
+    Simulation model({}, {},ModelMode::Live);Backend backend;
+    backend.error=revoked?AuthError::kCredentialsRevoked:AuthError::kNone;backend.hold_restore=true;
+    LibraryBackendFixture library_backend;
+    LibraryService library_service(library_backend,repo,&cache);
+    stores::Registry registry;
+    registry.Add(std::make_unique<stores::SteamAccount>(backend,repo));
+    registry.Add(std::make_unique<stores::SteamLibrarySource>(library_service));
+    auto imported=std::make_unique<test::FakeLibrarySource>();
+    imported->games={test::ImportedGame("0f8fad5b-d9cb-469f-a165-70867728950e","Imported title")};
+    if (other) registry.Add(std::move(imported));
+    Controller controller(model,registry);
+    if (other && revoked) Wait(controller,[&]{return model.state().games.size()==1;});
+    backend.hold_restore=false;
+    const auto notice=[&]() -> const Notice* {
+      for (const auto& value : model.state().notices) if (value.id=="steam-restore") return &value;
+      return nullptr;
+    };
+    if (revoked && other) {
+      Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedOut && backend.restores>=1;});
+      TickFor(controller,50ms);
+      assert(model.state().navigation.route==Route::Home && backend.calls==0);
+      assert(model.state().account().challenge_url.empty() && !model.state().account().error.empty());
+    } else if (revoked) {
+      Wait(controller,[&]{return !model.state().account().challenge_url.empty();});
+      assert(model.state().navigation.route==Route::SignIn && backend.calls==1);
+    } else {
+      Wait(controller,[&]{return model.state().account().authentication==AuthState::Failed &&
+                                 (!other || model.state().games.size()==1);});
+      TickFor(controller,50ms);
+      assert(model.state().account().error.find("storage")!=std::string::npos && backend.restores==0);
+      assert(model.state().navigation.route==(other?Route::Home:Route::SignIn));
+    }
+    if (other) {
+      const auto& v=model.view();
+      assert(v.focused_row>=0 && v.rows[static_cast<std::size_t>(v.focused_row)].key==model.state().navigation.focus_key);
+      assert(notice() && notice()->detail==model.state().account().error && !notice()->alert);
+    } else {
+      assert(!notice());
+    }
+    if (revoked && other) {
+      // Sign in from Settings still shows a new QR code.
+      assert(model.action("connect"));
+      Wait(controller,[&]{return !model.state().account().challenge_url.empty();});
+      assert(model.state().navigation.route==Route::SignIn && backend.calls==1);
+    }
+    controller.Shutdown();
+  }
+}
 // PS5 title names carry their store with "Store name in PS5 titles": Steam's, GOG's and Epic's; imported
 // games have no store to name.
 void TitleNamesCarryTheirStore() {
@@ -660,4 +722,4 @@ void TitleNamesCarryTheirStore() {
   assert(TitleStoreSuffix(Store::kGog)==" (GOG)" && TitleStoreSuffix(Store::kEpic)==" (Epic)");
   assert(TitleStoreSuffix(Store::kLocal).empty());
 }
-int main() { TitleNamesCarryTheirStore(); NoSteamSessionWithOtherGamesOpensHome(); FailedRestoreWithOtherGamesOpensHome(); SteamSignOutKeepsOtherGames(); PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); LicenseChangesRefreshTheLibrary(); OfflineRefreshFromTheLibraryReconnects(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }
+int main() { TitleNamesCarryTheirStore(); NoSteamSessionWithOtherGamesOpensHome(); FailedRestoreWithOtherGamesOpensHome(); OtherRestoreFailuresWithOtherGamesOpenHome(); SteamSignOutKeepsOtherGames(); PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); LicenseChangesRefreshTheLibrary(); OfflineRefreshFromTheLibraryReconnects(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }

@@ -161,6 +161,21 @@ std::filesystem::path first_existing(const std::vector<std::filesystem::path> &p
     return {};
 }
 
+// ui::upper, and the accented Latin-1 letters too (a game's name in a sheet's label: "CAFÉ").
+std::string upper_latin(std::string_view text)
+{
+    std::string result = ui::upper(text);
+    for (std::size_t index = 0; index + 1 < result.size(); ++index)
+    {
+        const auto lead = static_cast<unsigned char>(result[index]);
+        const auto next = static_cast<unsigned char>(result[index + 1]);
+        // U+00E0-U+00FE, but not U+00F7 (division sign), are U+00C0-U+00DE plus 0x20.
+        if (lead == 0xC3 && next >= 0xA0 && next <= 0xBE && next != 0xB7)
+            result[index + 1] = static_cast<char>(next - 0x20);
+    }
+    return result;
+}
+
 std::string fit(const ui::FontRef &font, std::string_view text, float size, float width)
 {
     return font.font->fit(text, size, width);
@@ -297,32 +312,6 @@ const char* job_stage_label(JobStage stage)
         return "Install";
     case JobStage::Uninstall:
         return "Removal";
-    }
-    return "Transfer";
-}
-
-const char* job_state_label(JobState state)
-{
-    switch (state)
-    {
-    case JobState::Queued:
-        return "Queued";
-    case JobState::Downloading:
-        return "Downloading";
-    case JobState::Pausing:
-        return "Pausing";
-    case JobState::Paused:
-        return "Paused";
-    case JobState::Verifying:
-        return "Verifying";
-    case JobState::Downloaded:
-        return "Complete";
-    case JobState::Failed:
-        return "Failed";
-    case JobState::Cancelled:
-        return "Cancelled";
-    case JobState::Interrupted:
-        return "Interrupted";
     }
     return "Transfer";
 }
@@ -1677,8 +1666,8 @@ class Render::Impl
                 return "Checking licenses";
             if (status.job->state == JobState::Downloading && status.job->total_bytes > 0)
                 return std::to_string(static_cast<int>(100.0 * status.job->completed_bytes / status.job->total_bytes)) +
-                       "% · " + job_state_label(status.job->state);
-            return job_state_label(status.job->state);
+                       "% · " + JobStateText(*status.job);
+            return JobStateText(*status.job);
         }
         if (status.disconnected)
             return "Reconnect its drive";
@@ -1781,7 +1770,7 @@ class Render::Impl
             return;
         }
         if (status.job != nullptr && !downloading)
-            tile_badge(rect, job_state_label(status.job->state),
+            tile_badge(rect, JobStateText(*status.job),
                        status.job->state == JobState::Failed ? kAmber : kSecondary);
         else if (status.disconnected)
             tile_badge(rect, "Drive disconnected", kAmber);
@@ -1803,7 +1792,7 @@ class Render::Impl
             const float value = std::clamp(progress, 0.0F, 1.0F);
             scene_.gradient_rect({rect.x, rect.y + rect.h - 64.0F, rect.w, 64.0F}, 8.0F,
                                  kBackground.with_alpha(0.0F), kBackground.with_alpha(0.9F));
-            ui::text(scene_, fonts_.semibold, job_state_label(status.job->state), rect.x + 12.0F,
+            ui::text(scene_, fonts_.semibold, JobStateText(*status.job), rect.x + 12.0F,
                      rect.y + rect.h - 30.0F, 16.0F, kText);
             if (status.job->state == JobState::Downloading)
                 ui::text(scene_, fonts_.semibold, std::to_string(static_cast<int>(value * 100.0F)) + "%",
@@ -2004,7 +1993,7 @@ class Render::Impl
                 {
                     const gfx::Color tone = job->state == JobState::Failed ? kRed : job->state == JobState::Paused ? kAmber : kAccent;
                     // A download says only its state; another stage (the Playden update unpacking) names itself.
-                    std::string state_text = job->state_text.empty() ? job_state_label(job->state) : job->state_text;
+                    std::string state_text = JobStateText(*job);
                     if (!job->stage_text.empty() || job->stage != JobStage::Download)
                         state_text = (job->stage_text.empty() ? job_stage_label(job->stage) : job->stage_text) + " · " + state_text;
                     const float progress = job->total_bytes == 0 ? 0.0F :
@@ -2069,7 +2058,7 @@ class Render::Impl
             float progress = 0.0F;
             if (const Job *job = entry->job)
             {
-                value = job->state_text.empty() ? job_state_label(job->state) : job->state_text;
+                value = JobStateText(*job);
                 tone = job->state == JobState::Failed ? "problem"
                      : job->state == JobState::Paused || job->state == JobState::Interrupted ? "attention"
                      : job->state == JobState::Downloading || job->state == JobState::Verifying ? "busy" : "quiet";
@@ -2945,7 +2934,7 @@ class Render::Impl
                 // only a state hidden behind a percentage (paused, verifying) is said here.
                 if (row.key == "details-download")
                 {
-                    if (row.progress > 0.0F && row.value != "downloading")
+                    if (row.progress > 0.0F && row.value != "downloading" && row.value != "copying")
                         note = row.title + " " + row.value;  // "Download paused", "Copying paused"
                     break;
                 }
@@ -3435,6 +3424,7 @@ class Render::Impl
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
             {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
             {"import-games", "Library"}, {"import-programs", "Import games"}, {"import-choice", "Import games"},
+            {"import-storage", "Import games"},
             {"job-actions", "Downloads"}, {"prep-actions", "Preparation"}, {"storage-details", "Storage"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
             {"filters", "Library"}, {"logs-controls", "Logs"}, {"setting-value", "Settings"}, {"diagnostics", "Settings"},
             {"notices", "Notifications"}, {"qr-controls", "Sign in"}, {"session-controls", "Simulation"},
@@ -3488,13 +3478,25 @@ class Render::Impl
                         gfx::Color::rgb(0x000000, 0.75F));
         overlay_.rounded_rect(panel, 0.0F, kPanel);
         overlay_.push_opacity(overlay_transition_.content());
-        section_overlay(sheet_eyebrow(view.surface), panel.x + 48.0F, 72.0F);
-        ui::text(overlay_, fonts_.display, view.title, panel.x + 48.0F, 142.0F, 48.0F, kText);
+        section_overlay(view.eyebrow.empty() ? sheet_eyebrow(view.surface) : view.eyebrow, panel.x + 48.0F, 72.0F);
+        // A title too long for one line wraps onto a second; what follows moves down with it.
+        float drop = 0.0F;
+        if (fonts_.display.measure(view.title, 48.0F) > panel.w - 96.0F)
+        {
+            ui::paragraph(overlay_, fonts_.display, view.title, panel.x + 48.0F, 142.0F, 48.0F, panel.w - 96.0F, 54.0F,
+                          kText, 2);
+            drop = 54.0F;
+        }
+        else
+            ui::text(overlay_, fonts_.display, view.title, panel.x + 48.0F, 142.0F, 48.0F, kText);
         if (!view.subtitle.empty())
-            ui::paragraph(overlay_, fonts_.regular, view.subtitle, panel.x + 48.0F, 190.0F, 23.0F,
+            ui::paragraph(overlay_, fonts_.regular, view.subtitle, panel.x + 48.0F, 190.0F + drop, 23.0F,
                           panel.w - 96.0F, 32.0F, kSecondary, view.surface == "install" ? 6 : 3);
         if (view.surface == "storage")
             draw_storage_overlay_rows(view, {panel.x + 40.0F, 246.0F, panel.w - 80.0F, 710.0F});
+        else if (view.surface == "import-storage")
+            // The wizard's drive choice: the drive cards of the storage picker, under a one-line subtitle.
+            draw_storage_overlay_rows(view, {panel.x + 40.0F, 262.0F + drop, panel.w - 80.0F, 694.0F - drop});
         else if (view.surface == "storage-details")
             draw_drive_details(view, panel);
         else if (view.surface == "logs")
@@ -3504,8 +3506,8 @@ class Render::Impl
         else if (view.surface == "installed-games")
             draw_installed_games_sheet(view, panel);
         else
-            draw_overlay_rows(view, {panel.x + 40.0F, view.surface == "install" ? 414.0F : 292.0F,
-                                     panel.w - 80.0F, view.surface == "install" ? 528.0F : 650.0F});
+            draw_overlay_rows(view, {panel.x + 40.0F, (view.surface == "install" ? 414.0F : 292.0F) + drop,
+                                     panel.w - 80.0F, (view.surface == "install" ? 528.0F : 650.0F) - drop});
         if (view.comparison)
             draw_preset_comparison(*view.comparison, {72.0F, 150.0F, panel.x - 144.0F, 760.0F}, ease);
         overlay_.pop_opacity();
@@ -3583,15 +3585,23 @@ class Render::Impl
             const int row_index = static_cast<int>(&row - view.rows.data());
             const gfx::Rect card{bounds.x, y, bounds.w, 156.0F};
             const float amount = control_focus("volume-" + row.key, row_index == view.focused_row);
+            // The import wizard dims a drive that can't take the game, as its other rows dim.
+            const bool dimmed = view.surface == "import-storage" && !row.enabled;
+            if (dimmed)
+                overlay_.push_opacity(0.5F);
             focus_glow(overlay_, card, amount);
             overlay_.rounded_rect(card, 8.0F, kPanel);
             overlay_.rounded_rect(card, 8.0F, kText.with_alpha(row.selected ? 0.10F : 0.04F));
             focus_ring(overlay_, card, amount);
             ui::text(overlay_, fonts_.display, volume.label, card.x + 22.0F, card.y + 38.0F,
                      27.0F, row.enabled ? kText : kMuted);
-            const bool is_default = !current_state_->simulation_mode && volume.id == current_state_->default_volume_id;
+            // The import wizard's rows say all of their state (its default drive included); a
+            // disabled one is amber only for a problem with the drive (tone "warn").
+            const bool wizard = view.surface == "import-storage";
+            const bool is_default = !wizard && !current_state_->simulation_mode && volume.id == current_state_->default_volume_id;
+            const bool warn = wizard ? row.tone == "warn" : !row.enabled;
             ui::text(overlay_, fonts_.regular, is_default && row.enabled ? "Default · " + row.subtitle : row.subtitle,
-                     card.x + card.w - 22.0F, card.y + 38.0F, 18.0F, row.enabled ? kSecondary : kAmber,
+                     card.x + card.w - 22.0F, card.y + 38.0F, 18.0F, warn ? kAmber : row.enabled ? kSecondary : kMuted,
                      gfx::Align::right);
             if (!volume.capacity_known)
             {
@@ -3602,6 +3612,8 @@ class Render::Impl
                              card.x + card.w - 22.0F, card.y + 98.0F, 17.0F, kSecondary, gfx::Align::right);
                 ui::text(overlay_, fonts_.regular, "Free space unavailable",
                          card.x + 22.0F, card.y + 128.0F, 17.0F, kMuted);
+                if (dimmed)
+                    overlay_.pop_opacity();
                 y += 174.0F;
                 continue;
             }
@@ -3623,6 +3635,8 @@ class Render::Impl
             ui::text(overlay_, fonts_.semibold, "Free  " + short_size(free),
                      card.x + card.w - 22.0F, card.y + 128.0F, 17.0F, kText,
                      gfx::Align::right);
+            if (dimmed)
+                overlay_.pop_opacity();
             y += 174.0F;
         }
         const auto cancel = std::find_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
@@ -3631,7 +3645,7 @@ class Render::Impl
         if (cancel != view.rows.end() && y + 70.0F < bounds.y + bounds.h)
         {
             const int index = static_cast<int>(std::distance(view.rows.begin(), cancel));
-            painter.row({bounds.x, y, bounds.w, 66.0F}, "Cancel", "", 0.0F,
+            painter.row({bounds.x, y, bounds.w, 66.0F}, overlay_label(*cancel), "", 0.0F,
                         {index == view.focused_row ? 1.0F : 0.0F, 0.0F, false});
         }
     }
@@ -3801,7 +3815,7 @@ class Render::Impl
 
     void section_overlay(std::string_view value, float x, float y)
     {
-        ui::text(overlay_, fonts_.display, ui::upper(value), x, y, 20.0F, kSecondary,
+        ui::text(overlay_, fonts_.display, upper_latin(value), x, y, 20.0F, kSecondary,
                  gfx::Align::left, 2.4F);
     }
 
@@ -3927,7 +3941,16 @@ class Render::Impl
                                     view.surface == "preset-picker" || view.surface == "button-mapping" ||
                                     view.surface == "game-maintenance";
         // The Import sheets: each folder's path (or why it can't be added) under its name.
-        const bool import_sheet = view.surface == "import-games" || view.surface == "import-programs";
+        const bool import_sheet = view.surface == "import-games" || view.surface == "import-programs" ||
+                                  view.surface == "import-choice";
+        // The import wizard's hints wrap onto a second line rather than being cut.
+        const float hint_width = bounds.w - 48.0F;
+        const auto hint_extra = [&](const ViewRow &row) {
+            return view.surface == "import-choice" && !row.subtitle.empty() &&
+                           fonts_.regular.measure(row.subtitle, 19.0F) > hint_width
+                       ? 26.0F
+                       : 0.0F;
+        };
         // Every row's place in the list; the list scrolls only when it is taller than the sheet,
         // just enough to keep the focused row and a little of its neighbours in view, and eases there.
         const auto pitch = [&](const ViewRow &row) {
@@ -3938,7 +3961,7 @@ class Render::Impl
             const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
             const bool described = (settings_sheet || checkbox || view.surface == "installed-games" || import_sheet) && !row.subtitle.empty();
-            return (described ? 96.0F : 72.0F) + 12.0F;
+            return (described ? 96.0F + hint_extra(row) : 72.0F) + 12.0F;
         };
         std::vector<float> tops;
         float total = 0.0F;
@@ -4011,13 +4034,15 @@ class Render::Impl
             const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
             const bool described = (settings_sheet || checkbox || view.surface == "installed-games" || import_sheet) && !row.subtitle.empty() && row.kind != RowKind::Heading;
-            const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F : 72.0F};
+            const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F + hint_extra(row) : 72.0F};
             const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
             focus_glow(overlay_, rect, amount);
             overlay_.rounded_rect(rect, 8.0F, kPanel);
             overlay_.rounded_rect(rect, 8.0F, kText.with_alpha(row.selected ? 0.10F : 0.04F));
             const gfx::Color ink = !row.enabled ? kMuted : row.dangerous ? kRed : kText;
-            const std::string value = settings_sheet && row.kind != RowKind::Heading ? row.value : overlay_value(row);
+            // A row with its subtitle under the name never repeats it on the right.
+            const std::string value = settings_sheet && row.kind != RowKind::Heading ? row.value
+                : described && row.value.empty() && row.badge.empty() ? std::string() : overlay_value(row);
             const float value_width = value.empty() ? 0.0F : std::min(rect.w * 0.45F, fonts_.regular.measure(value, 22.0F));
             const float name_y = described ? rect.y + 40.0F : rect.cy() + 10.0F;
             float name_x = rect.x + 24.0F;
@@ -4054,7 +4079,11 @@ class Render::Impl
                     ui::text(overlay_, fonts_.semibold, ui::upper(row.badge), tag_x + 8.0F, name_y - 4.0F, 13.0F, kSecondary);
                 }
             }
-            if (described)
+            if (described && view.surface == "import-choice")
+                // Under the value's line: the whole width, on two lines when it needs them.
+                ui::paragraph(overlay_, fonts_.regular, row.subtitle, rect.x + 24.0F, rect.y + 74.0F, 19.0F, hint_width,
+                              26.0F, row.enabled ? kSecondary : kMuted, 2);
+            else if (described)
                 ui::text(overlay_, fonts_.regular, fit(fonts_.regular, row.subtitle, 19.0F, rect.w - 72.0F - value_width),
                          checkbox ? name_x : rect.x + 24.0F, rect.y + 74.0F, 19.0F,
                          row.tone == "problem" ? kRed : row.tone == "good" ? kGreen : row.enabled ? kSecondary : kMuted);

@@ -26,6 +26,7 @@ target_compile_features(playden_library PUBLIC cxx_std_17)
 
 add_library(playden_storage STATIC
     "${CMAKE_SOURCE_DIR}/src/platform/effective_uid.cpp"
+    "${CMAKE_SOURCE_DIR}/src/platform/random_id.cpp"
     "${CMAKE_SOURCE_DIR}/src/platform/storage.cpp"
     "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp")
 target_include_directories(playden_storage PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -164,6 +165,9 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(durable_storage_test "${CMAKE_SOURCE_DIR}/tests/durable_storage_test.cpp")
     target_link_libraries(durable_storage_test PRIVATE playden_storage ${CMAKE_DL_LIBS})
     add_test(NAME durable_storage COMMAND durable_storage_test)
+    add_executable(random_id_test "${CMAKE_SOURCE_DIR}/tests/random_id_test.cpp")
+    target_link_libraries(random_id_test PRIVATE playden_storage)
+    add_test(NAME random_id COMMAND random_id_test)
     add_executable(durable_storage_native_policy_test
         "${CMAKE_SOURCE_DIR}/tests/durable_storage_test.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/durable_storage.cpp"

@@ -5,6 +5,7 @@
 // plain path operations.
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -62,6 +63,19 @@ bool IsLikelyHelper(const std::string& relative_path);
 // Non-helpers first; then names matching the title (ASCII letters only, lower case, either
 // contains the other); then shallower; then larger; then by path (byte order).
 void RankPrograms(std::vector<Program>& programs, const std::string& title);
+// The program that starts the game without asking: the only one that isn't an installer or tool.
+// Two or more candidates, or none, are the player's choice. Any list of items with a `helper` flag
+// (Program, or the UI's copy of it).
+template <typename Programs>
+std::optional<std::size_t> ClearGameProgram(const Programs& programs) {
+  std::optional<std::size_t> found;
+  for (std::size_t index = 0; index < programs.size(); ++index) {
+    if (programs[index].helper) continue;
+    if (found) return std::nullopt;
+    found = index;
+  }
+  return found;
+}
 bool IsPrintableAscii(const std::string& text);
 
 // A path inside a folder: relative, '/' separators, no empty, "." or ".." parts, no backslash or NUL.

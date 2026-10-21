@@ -1,5 +1,6 @@
 #include "stores/local/import_store.h"
 
+#include "platform/random_id.h"
 #include "steam/backend/json.h"
 #include "stores/local/scanner.h"
 
@@ -150,26 +151,7 @@ bool IsImportId(const std::string& id) {
   return true;
 }
 
-std::optional<std::string> RandomImportId() {
-  // Not std::random_device: on the console it goes through libc arc4random, which may abort.
-  unsigned char bytes[16];
-  const int fd = ::open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-  if (fd < 0) return std::nullopt;
-  std::size_t read_bytes = 0;
-  while (read_bytes < sizeof(bytes)) {
-    const auto count = ::read(fd, bytes + read_bytes, sizeof(bytes) - read_bytes);
-    if (count <= 0) { ::close(fd); return std::nullopt; }
-    read_bytes += static_cast<std::size_t>(count);
-  }
-  ::close(fd);
-  bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0f) | 0x40);  // version 4
-  bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3f) | 0x80);  // RFC 4122 variant
-  char text[37];
-  std::snprintf(text, sizeof(text), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
-  return std::string(text);
-}
+std::optional<std::string> RandomImportId() { return playden::RandomUuid(); }
 
 ImportStore::ImportStore(Storage& storage, std::string relative_path, IdSource ids, Clock clock)
     : storage_(storage), relative_path_(std::move(relative_path)), ids_(std::move(ids)), clock_(std::move(clock)) {
@@ -438,6 +420,22 @@ ImportResult<ImportEntry> ImportStore::CancelCopy(const std::string& id, const s
   const auto persisted = Persist();
   if (!persisted.ok()) {
     games_ = previous;
+    return FailureOf<ImportEntry>(persisted.error(), persisted.message());
+  }
+  return ImportResult<ImportEntry>::Success(kept);
+}
+
+ImportResult<ImportEntry> ImportStore::NoteFailure(const std::string& id, const std::string& failure) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!loaded_) return FailureOf<ImportEntry>(ImportError::kNotLoaded, "imports are not loaded");
+  auto* found = Mutable(id);
+  if (!found) return FailureOf<ImportEntry>(ImportError::kNotFound, "the game is not in the library");
+  const auto previous = *found;
+  found->failure = failure.substr(0, kMaxFailureBytes);
+  const auto kept = *found;
+  const auto persisted = Persist();
+  if (!persisted.ok()) {
+    *found = previous;
     return FailureOf<ImportEntry>(persisted.error(), persisted.message());
   }
   return ImportResult<ImportEntry>::Success(kept);

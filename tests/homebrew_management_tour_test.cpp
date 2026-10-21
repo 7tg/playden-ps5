@@ -173,7 +173,7 @@ int main(int argc, char** argv) {
             "confirming Uninstall queues one uninstall operation");
 
     // Import: Skip at Startup, Import games from Home, add a folder to play from its drive and Play
-    // it; then copy it into Playden, follow the copy, and uninstall the copy.
+    // it; then import it into Playden, follow the copy, and uninstall the copy.
     // A console with nothing queued: the earlier journeys' jobs stay with their own model.
     std::filesystem::remove(profile, error);
     Simulation importing(argv[1], profile);
@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
     require(importing.view().surface == "import-programs", "a folder lists its programs");
     choose(importing, "import-program-0");
     require(importing.view().surface == "import-choice" && has_row(importing, "import-copy"),
-            "the program leads to the choice of where the game plays from");
+            "the program leads to the choice of where the game files live");
     choose(importing, "import-play-in-place");
     const auto imported = importing.state().navigation.detail_id.value_or(playden::GameId{});
     require(importing.state().navigation.route == Route::Details && imported.store == playden::Store::kLocal &&
@@ -209,10 +209,10 @@ int main(int argc, char** argv) {
     require(importing.state().navigation.route == Route::Details && importing.state().session == SessionState::Idle,
             "quitting the game returns to its page");
     choose(importing, "details-copy");
-    require(importing.view().surface == "import-choice" && has_row(importing, "storage-picker") &&
+    require(importing.view().surface == "import-storage" && has_row(importing, "volume-internal") &&
                 !has_row(importing, "import-play-in-place"),
-            "Copy into Playden asks for the drive");
-    choose(importing, "import-copy");
+            "Import into Playden asks for the drive");
+    choose(importing, "volume-internal");
     require(importing.state().navigation.route == Route::Details && has_row(importing, "details-download") &&
                 !has_row(importing, "details-copy"),
             "the page shows the copy's progress");

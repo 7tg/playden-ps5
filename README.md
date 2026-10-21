@@ -212,16 +212,23 @@ The drive must be exFAT. The PS5 can't read NTFS, and FAT32 can't hold files ove
 
 **Add a game:**
 
-1. Open **Import games**: on the Startup screen, on Home when your library is empty, or in Settings › Storage.
+1. Open **Import games**: on the Startup screen, on Home when your library is empty, or in Settings › Library.
 2. Choose **Look for games**. Playden lists the folders it finds, with their size.
-3. Pick a folder, then pick the program that starts the game. Installers and tools are labelled as such.
-4. Choose how to play it:
-   - **Play from the drive** (or from the drop folder): nothing is copied. The drive must stay plugged in.
-   - **Copy into Playden:** copies the game to Playden's games folder. The console copies about 11 MB/s, so a large
-     game takes a while.
-   - **Move into Playden:** for the drop folder only. It is instant.
+3. Pick a folder. When it holds one program besides installers and tools, Playden starts the game with it. Otherwise
+   pick the program that starts the game; installers and tools are labelled as such. You can change it later in
+   Game settings.
+4. Choose where the game files live:
+   - **Play from the USB drive** (or the M.2 SSD, or the drop folder): nothing is copied. The drive must stay plugged
+     in.
+   - **Import into Playden:** then choose the storage it goes to. Playden copies the game there; the console copies
+     about 11 MB/s, so a large game takes a while. A drive without room for the game, and the drive the game is on,
+     can't be chosen.
+5. For a game in the drop folder, **Console storage** moves the folder into Playden at once. Another drive gets a
+   copy, and once the copy is checked the game's files leave the drop folder, so it isn't stored twice. Until then
+   it plays from the drop folder.
 
-The PS5 adds the game's title to Home when Playden quits. Copying or moving a game later keeps its saves.
+You can import a game that plays from its folder later, with **Import into Playden** on its page. The PS5 adds the
+game's title to Home when Playden quits. Importing a game later keeps its saves.
 
 **Limits:**
 

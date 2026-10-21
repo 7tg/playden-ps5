@@ -2162,7 +2162,7 @@ void LocalGameSteamworksAppId() {
   };
   using Source = SteamworksAppView::Source;
   // The app ID from Game settings only: emulated with it, signed out (the emulator's default account).
-  // Playden's steam_appid.txt beside the DLL is taken away again; the emulator's own copy has it.
+  // No steam_appid.txt of Playden's beside the DLL; the emulator's own copy has the app ID.
   set_field(4000);
   CHECK((apply() == SteamworksAppView{4000, Source::kSettings, false}));
   CHECK(Read(game / "Bin/steam_api64.dll") == emulator && Read(game / "Bin/steam_api64.dll.orig") == own_api);

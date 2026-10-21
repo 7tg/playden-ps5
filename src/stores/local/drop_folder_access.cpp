@@ -311,7 +311,180 @@ class Walk {
   DropFolderAccessResult result_;
 };
 
+// Removes `name` from the held folder `parent` (a folder when `folder`) without following it.
+int RemoveWalkChild(int parent, const char* name, bool folder) {
+  if (!PlainName(name ? name : "")) { errno = EINVAL; return -1; }
+#if defined(PLAYDEN_WALK_BY_PATH)
+  // A title has no unlinkat with a real descriptor: the removal goes by path once the path still
+  // names the held parent (as MakeWalkChild checks), and unlink/rmdir never follow the last name.
+  fs::path parent_path;
+  if (!platform::walk_detail::PathOf(parent, &parent_path)) return -1;
+  struct stat held{}, named{};
+  if (::fstat(parent, &held) != 0 || ::lstat(parent_path.c_str(), &named) != 0) return -1;
+  if (!S_ISDIR(named.st_mode) || named.st_dev != held.st_dev || named.st_ino != held.st_ino) { errno = ESTALE; return -1; }
+  const auto path = parent_path / name;
+  return folder ? ::rmdir(path.c_str()) : ::unlink(path.c_str());
+#else
+  return ::unlinkat(parent, name, folder ? AT_REMOVEDIR : 0);
+#endif
+}
+
+class Removal {
+ public:
+  Removal(const std::function<bool(const std::string&)>& planned, const runtime::WritableFoldersAsRoot& as_root)
+      : planned_(planned), as_root_(as_root) {}
+  ~Removal() {
+    for (auto& frame : stack_) if (frame.fd >= 0) ::close(frame.fd);
+  }
+
+  DropFolderRemoval Run(const std::string& drop_folder, const std::string& name) {
+    const int parent = platform::OpenDirectoryWalk(drop_folder);
+    if (parent < 0) return Done("open-parent=" + Error(errno));
+    const int fd = Open(parent, name);
+    if (fd < 0) {
+      const int error = errno;
+      ::close(parent);
+      return Done("open=" + Error(error));
+    }
+    if (!Enter(fd, {}, 0)) { ::close(parent); return Done(message_); }
+    while (!stack_.empty() && message_.empty()) {
+      Frame& top = stack_.back();
+      if (top.next == top.children.size()) {
+        // Its children are done: the folder goes from its parent (the drop folder for the entry).
+        const auto relative = top.relative;
+        ::close(top.fd);
+        stack_.pop_back();
+        const int holder = stack_.empty() ? parent : stack_.back().fd;
+        const auto leaf = relative.empty() ? name : relative.filename().string();
+        if (Remove(holder, leaf, true)) ++result_.folders;
+        else if (errno == ENOTEMPTY || errno == EEXIST) ++result_.kept;  // something it kept is inside
+        else Fail(relative, "rmdir=" + Error(errno));
+        continue;
+      }
+      const Child child = top.children[top.next++];
+      Visit(top, child);
+    }
+    ::close(parent);
+    if (message_.empty() && result_.kept > 0) message_ = "kept=" + std::to_string(result_.kept);
+    return Done(message_);
+  }
+
+ private:
+  bool AsRoot(const std::function<bool()>& work) {
+    ++result_.raises;
+    return as_root_ && as_root_(work);
+  }
+  int Open(int parent, const std::string& name, std::uint64_t inode = 0) {
+    const int flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+    int fd = platform::OpenWalkChild(parent, name.c_str(), flags, inode);
+    if (fd >= 0 || (errno != EACCES && errno != EPERM)) return fd;
+    int error = 0;
+    const bool ran = AsRoot([&] {
+      fd = platform::OpenWalkChild(parent, name.c_str(), flags, inode);
+      error = errno;
+      return fd >= 0;
+    });
+    if (!ran && fd >= 0) { ::close(fd); fd = -1; }
+    errno = fd >= 0 ? 0 : error ? error : EACCES;
+    return fd;
+  }
+  // As the app user, then in a raise when the folder holding it isn't the app user's to change.
+  bool Remove(int parent, const std::string& name, bool folder) {
+    if (RemoveWalkChild(parent, name.c_str(), folder) == 0) return true;
+    if (errno != EACCES && errno != EPERM) return false;
+    int error = 0;
+    const bool removed = AsRoot([&] {
+      if (RemoveWalkChild(parent, name.c_str(), folder) == 0) return true;
+      error = errno;
+      return false;
+    });
+    errno = removed ? 0 : error ? error : EACCES;
+    return removed;
+  }
+  bool Enter(int fd, const fs::path& relative, int depth) {
+    if (depth > kMaxDepth) { ::close(fd); return Fail(relative, "depth=" + std::to_string(depth)); }
+    Frame frame;
+    frame.fd = fd;
+    frame.relative = relative;
+    frame.depth = depth;
+    const int listing_fd = ::dup(fd);
+    DIR* listing = listing_fd >= 0 ? ::fdopendir(listing_fd) : nullptr;
+    if (!listing) {
+      const int e = errno;
+      if (listing_fd >= 0) ::close(listing_fd);
+      ::close(fd);
+      return Fail(relative, "list=" + Error(e));
+    }
+    for (;;) {
+      errno = 0;
+      const auto* entry = ::readdir(listing);
+      if (!entry) break;
+      const std::string child = entry->d_name;
+      if (child == "." || child == "..") continue;
+      if (++entries_ > kMaxEntries) { ::closedir(listing); ::close(fd); return Fail(relative, "entries>" + std::to_string(kMaxEntries)); }
+      frame.children.push_back({child, static_cast<std::uint64_t>(entry->d_fileno), entry->d_type});
+    }
+    ::closedir(listing);
+    stack_.push_back(std::move(frame));
+    return true;
+  }
+  void Visit(Frame& folder, const Child& child) {
+    const auto relative = folder.relative / child.name;
+    if (child.type == DT_LNK) { ++result_.kept; return; }  // never followed, never deleted
+    if (child.type == DT_DIR || child.type == DT_UNKNOWN) {
+      const int fd = Open(folder.fd, child.name, child.inode);
+      if (fd >= 0) {
+        Enter(fd, relative, folder.depth + 1);  // `folder` is invalid once a frame is pushed
+        return;
+      }
+      const int error = errno;
+      if (error == ENOENT) return;                     // gone meanwhile
+      if (IsLink(error)) { ++result_.kept; return; }  // a link in its place: left alone
+      if (child.type == DT_DIR || error != ENOTDIR) { Fail(relative, "open=" + Error(error)); return; }
+    }
+    if (child.type != DT_REG && child.type != DT_UNKNOWN) { ++result_.kept; return; }
+    // A file: only one the copy took goes.
+    if (!planned_ || !planned_(relative.generic_string())) { ++result_.kept; return; }
+    if (Remove(folder.fd, child.name, false)) ++result_.files;
+    else if (errno != ENOENT) Fail(relative, "unlink=" + Error(errno));
+  }
+  bool Fail(const fs::path& relative, const std::string& detail) {
+    if (message_.empty()) message_ = "path=" + (relative.empty() ? std::string(".") : relative.generic_string()) + " " + detail;
+    return false;
+  }
+  DropFolderRemoval Done(const std::string& message) {
+    result_.message = message;
+    result_.ok = message.empty();
+    return result_;
+  }
+
+  const std::function<bool(const std::string&)>& planned_;
+  const runtime::WritableFoldersAsRoot& as_root_;
+  std::vector<Frame> stack_;
+  std::size_t entries_ = 0;
+  std::string message_;
+  DropFolderRemoval result_;
+};
+
 }  // namespace
+
+DropFolderRemoval RemoveDropFolderEntry(const std::string& drop_folder, const std::string& name,
+                                        const std::function<bool(const std::string& relative)>& planned,
+                                        const runtime::WritableFoldersAsRoot& as_root,
+                                        const std::function<void(const std::string&)>& log) {
+  DropFolderRemoval result;
+  const fs::path folder(drop_folder);
+  if (!PlainName(name) || !folder.is_absolute() || folder.lexically_normal() != folder || folder.filename() != "playden-import") {
+    result.message = "refused";
+  } else {
+    result = Removal(planned, as_root).Run(drop_folder, name);
+  }
+  if (log)
+    log("drop folder removal entry=" + drop_folder + "/" + name + (result.ok ? " done" : " incomplete " + result.message) +
+        " files=" + std::to_string(result.files) + " folders=" + std::to_string(result.folders) +
+        " kept=" + std::to_string(result.kept) + " raises=" + std::to_string(result.raises));
+  return result;
+}
 
 bool IsDropFolderEntry(const std::string& console_path) {
   const fs::path path(console_path);

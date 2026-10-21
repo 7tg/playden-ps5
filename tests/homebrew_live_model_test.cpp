@@ -438,6 +438,34 @@ void live_download_telemetry() {
         model.UpdateInstalls({job}, {});
         check(!model.state().jobs[0].bytes_per_second && !model.state().jobs[0].eta_seconds, "inactive telemetry clears");
     }
+    // An imported game's copy into Playden says "Copying" (tiles, Queue) where a store's download says
+    // "Downloading"; other states and a job's own words read the same for both.
+    const auto imported = playden::GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11");
+    LiveInstallJob copy; copy.game_id = imported; copy.state = JobState::Downloading;
+    copy.done_bytes = 1; copy.total_bytes = 4;
+    job.state = JobState::Downloading;
+    model.UpdateInstalls({job, copy}, {});
+    const auto find_job = [&](playden::GameId id) -> const Job& {
+        for (const auto& value : model.state().jobs) if (value.game_id == id) return value;
+        check(false, "job listed");
+        return model.state().jobs.front();
+    };
+    check(JobStateText(find_job(SteamId(275390))) == "Downloading", "a store's download says Downloading");
+    check(JobStateText(find_job(imported)) == "Copying", "an imported game's copy says Copying");
+    for (int i = 0; i < 6 && model.state().navigation.route != Route::Downloads; ++i) model.action("r1");
+    check(model.state().navigation.route == Route::Downloads, "R1 reaches the Queue");
+    bool copying_row = false, downloading_row = false;
+    for (const auto& row : model.view().rows) {
+        if (row.kind != RowKind::Job) continue;
+        copying_row = copying_row || (row.game_id == imported && row.value == "copying");
+        downloading_row = downloading_row || (row.game_id == SteamId(275390) && row.value == "downloading");
+    }
+    check(copying_row && downloading_row, "Queue rows: copying for the import, downloading for the store's");
+    copy.state = JobState::Paused;
+    model.UpdateInstalls({copy}, {});
+    check(JobStateText(find_job(imported)) == "Paused", "a paused copy says Paused");
+    Job update; update.state = JobState::Downloading; update.game_id = imported; update.state_text = "Unpacking";
+    check(JobStateText(update) == "Unpacking", "a job's own words come first");
 }
 
 

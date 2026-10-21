@@ -2,6 +2,7 @@
 
 #include "platform/directory_walk.h"
 #include "steam/backend/depot_installer.h"
+#include "stores/local/drop_folder_access.h"
 #include "stores/local/scanner.h"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <cstdio>
 #include <dirent.h>
 #include <fcntl.h>
+#include <set>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <unordered_map>
@@ -526,15 +528,44 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
   ::rmdir(journal.c_str());
   result.ok = true;
   result.install_bytes = plan->total;
+  // A drop-folder game copied to a drive: committed, it plays from the copy, so its drop-folder
+  // files go and it isn't stored twice. A failure there leaves them, and the copy stays done.
+  const auto left_behind = RemoveDropFolderSource(*entry, *plan);
   if (options_.before_finish && !options_.before_finish(id, root)) {
     Log("import copy complete id=" + entry->id + "; entry left copying");
     return result;
   }
   const auto finished = store_.FinishCopy(entry->id);
+  if (finished.ok() && !left_behind.empty()) store_.NoteFailure(entry->id, left_behind);
   // A failed write is finished by the reconcile at the next start.
   Log("import copy complete id=" + entry->id + (finished.ok() ? "" : " (imports.json not saved: " + finished.message() + ")"));
   Changed();
   return result;
+}
+
+std::string LocalCopyRunner::RemoveDropFolderSource(const ImportEntry& entry, const CopyPlan& plan) {
+  if (entry.volume != ImportStore::kDropFolderVolume) return {};
+  // Only playden-import/<name>, and only when the copy's source is that very folder.
+  constexpr const char* kPrefix = "playden-import/";
+  const auto name = entry.folder.rfind(kPrefix, 0) == 0 ? entry.folder.substr(std::string(kPrefix).size()) : std::string();
+  const auto drop_folder = Parent(plan.source);
+  const auto console = "/data/" + entry.folder;
+  if (name.empty() || name.find('/') != std::string::npos || Basename(plan.source) != name ||
+      Basename(drop_folder) != "playden-import") {
+    Log("import copy keeps the drop folder id=" + entry.id + ": " + plan.source + " is not " + console);
+    return "The game is in Playden, but Playden didn't delete " + console + ". Delete it over FTP.";
+  }
+  std::set<std::string> copied;
+  for (const auto& file : plan.files) copied.insert(file.path);
+  const auto removal = RemoveDropFolderEntry(
+      drop_folder, name, [&copied](const std::string& relative) { return copied.count(relative) > 0; }, options_.as_root,
+      [this](const std::string& line) { Log(line); });
+  if (removal.ok) {
+    Log("import copy freed the drop folder id=" + entry.id + " path=" + console);
+    return {};
+  }
+  Log("import copy left the drop folder id=" + entry.id + " path=" + console + ": " + removal.message);
+  return "The game is in Playden, but some of its files are still in " + console + ". Delete them over FTP.";
 }
 
 LocalRelocationResult LocalCopyRunner::Relocate(const LocalRelocation& relocation) {

@@ -266,6 +266,17 @@ void HelperRules() {
   CHECK(!IsLikelyHelper("Setup/Game.exe"));  // "setup" is a name prefix, not a helper folder
 }
 
+void ClearProgramIsTheOnlyNonHelper() {
+  using Programs = std::vector<Program>;
+  CHECK(ClearGameProgram(Programs{{"Game.exe", 9, false}}) == std::size_t{0});
+  // One program besides helpers, wherever it is listed.
+  CHECK(ClearGameProgram(Programs{{"setup.exe", 1, true}, {"Game.exe", 9, false}, {"UnityCrashHandler64.exe", 1, true}}) ==
+        std::size_t{1});
+  CHECK(!ClearGameProgram(Programs{{"Game.exe", 9, false}, {"GameLauncher.exe", 2, false}}));  // a choice
+  CHECK(!ClearGameProgram(Programs{{"setup.exe", 1, true}}));
+  CHECK(!ClearGameProgram(Programs{}));
+}
+
 }  // namespace
 
 #if defined(PLAYDEN_PLATFORM_PS5)
@@ -307,6 +318,7 @@ int main() {
   SpikeGamesRankTheirProgramFirst();
   ImportRootListsChildFolders();
   HelperRules();
+  ClearProgramIsTheOnlyNonHelper();
   std::puts("local_scanner_test passed");
   return 0;
 }

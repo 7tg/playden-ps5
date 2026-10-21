@@ -60,6 +60,26 @@ bool IsDropFolderEntry(const std::string& console_path);
 // Walks the entry (a console path, see IsDropFolderEntry). Run with no root held by this thread.
 DropFolderAccessResult OpenDropFolderEntry(const std::string& entry, const DropFolderAccessOptions& options);
 
+// Deleting a drop-folder game's files once a copy of it elsewhere is in Playden, so it isn't stored
+// twice. Only the entry `name` (one plain folder name) directly inside `drop_folder` (the drop
+// folder as this process opens it: /data/playden-import on the console) is walked, through
+// platform/directory_walk.h, never following a link: a link is never followed nor deleted, and
+// neither is a file `planned` doesn't name (relative to the entry, '/' separators: what the copy
+// took). A folder still holding something then stays, and the result says so. Root is raised (as_root)
+// only for one removal the app user may not do (FTP leaves root-owned folders). Run with no root
+// held by this thread.
+struct DropFolderRemoval {
+  bool ok = false;      // the entry is gone
+  std::string message;  // for the log, when not ok
+  std::size_t files = 0, folders = 0;  // removed
+  std::size_t kept = 0;                // entries left: links, files the copy didn't take
+  std::size_t raises = 0;
+};
+DropFolderRemoval RemoveDropFolderEntry(const std::string& drop_folder, const std::string& name,
+                                        const std::function<bool(const std::string& relative)>& planned,
+                                        const runtime::WritableFoldersAsRoot& as_root,
+                                        const std::function<void(const std::string&)>& log = {});
+
 // OpenDropFolderEntry as a callback: the empty string, or the failure's sentence.
 using DropFolderOpener = std::function<std::string(const std::string& entry)>;
 DropFolderOpener MakeDropFolderOpener(DropFolderAccessOptions options);

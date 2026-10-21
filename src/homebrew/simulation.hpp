@@ -329,8 +329,9 @@ struct AccountUpdate {
     // Authenticated by a sign-in (not a restore): whether it used the password, remembered for next time.
     std::optional<bool> signed_in_with_password;
     bool storage_full = false;  // Failed: console storage is full
-    // Failed: the saved sign-in could not be restored (Steam out of reach, say), not a sign-in the
-    // player started. With another store's games, Playden stays on (or goes to) Home.
+    // Failed or SignedOut: the saved sign-in could not be restored (Steam out of reach, storage busy or
+    // full, the session revoked), not a sign-in the player started. With another store's games, Playden
+    // stays on (or goes to) Home and a notification gives the error.
     bool restoring = false;
 };
 
@@ -620,6 +621,7 @@ struct ViewData {
     std::string surface;
     std::string title;
     std::string subtitle;
+    std::string eyebrow;  // a sheet's label above its title; empty: the sheet's place (view.cpp)
     std::vector<ViewRow> rows;
     std::vector<ViewRow> actions;
     struct Shelf {
@@ -659,6 +661,10 @@ inline constexpr int kPreparationSteps = 6;
 int PreparationStepNumber(const std::string& step);
 std::string PreparationProgressWords(bool has_record, const std::string& step);
 
+// A job's state for the player ("Downloading", "Paused", "Complete"…): its own words when it has them
+// (the Playden update), and "Copying" while an imported game is copied into Playden.
+std::string JobStateText(const Job& job);
+
 class Simulation {
 public:
     Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path,
@@ -678,6 +684,8 @@ public:
     void SetControllerConnected(bool connected);
     void SetWallClock(std::int64_t unix_seconds);
     void UpdateAccount(AccountUpdate update);
+    // Another store has a signed-in account or games: Steam's sign-in screen need not take over.
+    [[nodiscard]] bool HasGamesBeyondSteam() const { return beyond_steam(); }
     bool UpdateLibrary(LibraryUpdate update);
     // Live mode: requests for the real install service, and its state for display.
     [[nodiscard]] std::vector<InstallRequest> TakeInstallRequests();
@@ -1016,7 +1024,7 @@ private:
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;
     [[nodiscard]] std::vector<std::string> kept_manager_actions() const;
     // The Import sheet: Look for games, then the candidates grouped by drive (headings never take
-    // the focus), then Close. Opened from Startup, Home's empty state and Settings › Storage.
+    // the focus), then Close. Opened from Startup, Home's empty state and Settings › Library.
     [[nodiscard]] std::vector<std::string> import_sheet_actions() const;
     [[nodiscard]] const LiveImportCandidate* import_candidate(const std::string& key) const;
     void open_import_sheet();
@@ -1024,15 +1032,34 @@ private:
     void move_import_sheet(int delta);
     void look_for_games();
     std::string import_programs_key_;  // the candidate whose program list is open
-    // The add choice (surface import-choice): play in place, copy or move, for the program picked in
-    // the open program list, or for a game already added (import_choice_game_ valid: Copy or Move).
-    void open_import_choice(std::size_t program, GameId game = {});
+    // The import wizard. Step 1 (surface import-choice), for the program picked in the open program
+    // list: play the game from its folder, or Import into Playden. Step 2 (surface import-storage):
+    // the drive the game goes to, for that program's folder or for a game already added
+    // (import_choice_game_ valid: its page's Import into Playden opens step 2 directly).
+    void open_import_choice(std::size_t program);
+    void open_import_storage(GameId game = {});
     void choose_import(const std::string& action);
+    void choose_import_volume(const std::string& volume_id);
+    // Sends the add of the open program list's folder with the transfer to start once it has its
+    // game, and returns to the Import sheet.
+    void add_import_candidate(const std::string& key, std::optional<ImportRequestKind> then, const std::string& volume_id);
+    // What the wizard imports: the candidate (step 1 from the program list) or the game added
+    // already, its size and the volume its files are on now.
+    struct ImportSubject {
+        const LiveImportCandidate* candidate = nullptr;
+        std::string title;
+        std::string volume;
+        std::uint64_t bytes = 0;
+        bool ascii_ok = true;
+    };
+    [[nodiscard]] ImportSubject import_subject() const;
+    // Why a drive can't take the game in step 2 (empty: it can), and its words there.
+    [[nodiscard]] std::string import_volume_blocker(const ImportSubject& subject, const Volume& volume) const;
     // An add sent to the Local store waits for its game: then the copy or move chosen with it is sent
     // and its page opens.
     struct PendingImport {
         std::optional<ImportRequestKind> then;  // CopyIntoPlayden or MoveIntoPlayden
-        std::string volume_id;                  // the copy's install volume (empty: the default)
+        std::string volume_id;                  // the copy's install volume
         Route from = Route::Startup;            // where the Import sheet was open
     };
     void settle_pending_imports();
@@ -1041,12 +1068,12 @@ private:
     // Imported games playing in place from their folder (State::external_games), and a copy running.
     [[nodiscard]] const LiveExternalGame* external_game(GameId id) const;
     [[nodiscard]] const Job* import_copy_job(GameId id) const;
-    [[nodiscard]] std::string import_copy_target() const;
     std::size_t import_program_index_ = 0;
+    bool import_program_chosen_ = false;  // the program was clear (ClearGameProgram): its list was skipped
     GameId import_choice_game_;
-    std::string import_copy_volume_;       // empty: the default drive
-    bool picking_import_volume_ = false;   // the drive picker chooses the copy's drive
     std::map<std::string, PendingImport> pending_imports_;  // by candidate key
+    // Live: a copy or move asked for whose job (or finished move) isn't listed yet; its page shows it starting.
+    std::map<GameId, ImportRequestKind> import_transfers_starting_;
     // Why the latest add of a folder was refused, by candidate key: its row on the Import sheet says it
     // (a dialog waits until the sheet closes).
     std::map<std::string, std::string> import_failures_;
@@ -1084,6 +1111,8 @@ private:
     [[nodiscard]] bool beyond_steam() const;
     // Steam's sign-in ended without an account: Home when another store has games, else Startup.
     void leave_steam_sign_in();
+    // A notification for Steam's saved sign-in that failed while another store's games show.
+    void steam_restore_notice();
     void clear_account_specific_state();
     void apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot);
     void reconcile_applied_organization_selection(GameId prior_selected_id);

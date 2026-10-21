@@ -39,6 +39,10 @@ struct SteamworksIdentity {
   std::string language = "english";
   std::vector<std::uint32_t> owned_dlc;
   std::vector<std::uint32_t> depots;  // empty: no depots.txt
+  // A steam_appid.txt beside a DLL that has none (Steam games). Off for a game whose app ID came from its
+  // own steam_appid.txt or Game settings: the emulator reads steam_settings/steam_appid.txt, and a file
+  // Playden left in the game's folder would later pass for the game's own.
+  bool write_game_appid_file = true;
 };
 
 struct SteamworksResult {

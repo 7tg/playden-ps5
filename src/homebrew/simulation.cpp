@@ -12,6 +12,7 @@
 #include "homebrew/queue_layout.hpp"
 #include "homebrew/storage_sim.hpp"
 #include "steam/install_volumes.h"
+#include "stores/local/scanner.h"
 #include "steam/backend/json.h"
 #include "steam/secret.h"
 
@@ -178,6 +179,12 @@ std::string job_state_name(JobState state) {
     case JobState::Interrupted: return "interrupted";
     }
     return "queued";
+}
+
+// job_state_name, but an imported game's copy says "copying".
+std::string job_state_value(const Job& job) {
+    if (job.state == JobState::Downloading && job.game_id.store == Store::kLocal) return "copying";
+    return job_state_name(job.state);
 }
 
 std::string job_stage_name(JobStage stage) {
@@ -620,6 +627,9 @@ constexpr const char* kImportCopyOnlyText =
     "This folder's name has characters the PS5 can't start a game from. Copy it into Playden instead.";
 
 constexpr const char* kImportDropVolume = "internal";
+// The wizard's step 1 title, and what it says about importing later.
+constexpr const char* kImportChoiceTitle = "Where will the game files live?";
+constexpr const char* kImportChoiceText = "You can import it into Playden later from the game's page.";
 
 
 // A drive's name as the Import sheet groups it ("USB drive", "Console drop folder").
@@ -629,23 +639,12 @@ std::string import_volume_name(const std::string& volume) {
     return volume;
 }
 
-// How long a copy takes on the console: about 80 MB/s of data plus 15 ms to create each file (file
-// creation is serialized, so many small files copy slowly): "under a minute", "about 14 min".
-std::string import_copy_estimate(std::uint64_t bytes, std::uint64_t files) {
-    constexpr std::uint64_t kBytesPerSecond = 80'000'000;
-    constexpr std::uint64_t kMillisecondsPerFile = 15;
-    const auto seconds = (bytes + kBytesPerSecond - 1) / kBytesPerSecond + (files * kMillisecondsPerFile + 999) / 1000;
-    if (seconds < 60) return "under a minute";
-    const auto minutes = (seconds + 59) / 60;
-    if (minutes <= 90) return "about " + std::to_string(minutes) + " min";
-    return "about " + std::to_string((minutes + 30) / 60) + " h";
-}
-
 std::string import_candidate_key(const LiveImportCandidate& candidate) {
     return "import-candidate-" + candidate.volume_id + ":" + candidate.folder;
 }
 
-// Fixture mode: what Look for games finds (one game added already, one copy only, one without a program).
+// Fixture mode: what Look for games finds (one game added already, one with two programs to choose from,
+// one copy only, one without a program).
 std::vector<LiveImportCandidate> fixture_import_candidates() {
     std::vector<LiveImportCandidate> candidates;
     const auto add = [&](std::string volume, std::string folder, std::string path, std::string title,
@@ -660,7 +659,8 @@ std::vector<LiveImportCandidate> fixture_import_candidates() {
     add("usb0", "playden/import/Night Sky", "/mnt/usb0/playden/import/Night Sky", "Night Sky", 412'000'000, true,
         {{"NightSky.exe", 18'000'000, false}}, 120);
     add("usb0", "playden/import/Old School Rally", "/mnt/usb0/playden/import/Old School Rally", "Old School Rally",
-        938'000'000, true, {{"OldSchoolRally.exe", 640'000'000, false}, {"UnityCrashHandler64.exe", 1'400'000, true}}, 2400);
+        938'000'000, true, {{"OldSchoolRally.exe", 640'000'000, false}, {"Benchmark/RallyBench.exe", 12'000'000, false},
+         {"UnityCrashHandler64.exe", 1'400'000, true}}, 2400);
     add("usb0", "playden/import/Café Étoile", "/mnt/usb0/playden/import/Café Étoile", "Café Étoile", 1'250'000'000,
         false, {{"CafeEtoile.exe", 96'000'000, false}, {"redist/vcredist_x64.exe", 14'000'000, true}}, 300);
     add("m2", "playden/import/Delores", "/mnt/ext1/playden/import/Delores", "Delores", 230'000'000, true,
@@ -675,6 +675,22 @@ std::vector<LiveImportCandidate> fixture_import_candidates() {
 GameId fixture_imported_game() { return GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11"); }
 
 } // namespace
+
+std::string JobStateText(const Job& job) {
+    if (!job.state_text.empty()) return job.state_text;
+    switch (job.state) {
+    case JobState::Queued: return "Queued";
+    case JobState::Downloading: return job.game_id.store == Store::kLocal ? "Copying" : "Downloading";
+    case JobState::Pausing: return "Pausing";
+    case JobState::Paused: return "Paused";
+    case JobState::Verifying: return "Verifying";
+    case JobState::Downloaded: return "Complete";
+    case JobState::Failed: return "Failed";
+    case JobState::Cancelled: return "Cancelled";
+    case JobState::Interrupted: return "Interrupted";
+    }
+    return "Transfer";
+}
 
 Simulation::Simulation(std::filesystem::path fixture_directory, std::filesystem::path profile_path, ModelMode mode)
     : fixture_directory_(std::move(fixture_directory)), profile_path_(std::move(profile_path)), mode_(mode) {
@@ -896,7 +912,8 @@ void Simulation::refresh_import_sheet() {
             const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), focused);
             modal.focused_action = found == modal.action_keys.end() ? 0 : static_cast<int>(found - modal.action_keys.begin());
             if (index + 1 == modals.size()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
-        } else if ((modal.id == "import-programs" || (modal.id == "import-choice" && !import_choice_game_.valid())) &&
+        } else if ((modal.id == "import-programs" || modal.id == "import-choice" ||
+                    (modal.id == "import-storage" && !import_choice_game_.valid())) &&
                    !import_candidate(import_programs_key_)) {
             // The folder went away in a new scan: its program list closes.
             modals.erase(modals.begin() + static_cast<std::ptrdiff_t>(index));
@@ -941,38 +958,74 @@ const Job* Simulation::import_copy_job(GameId id) const {
     return nullptr;
 }
 
-std::string Simulation::import_copy_target() const {
-    return import_copy_volume_.empty() ? selected_volume_id_ : import_copy_volume_;
+Simulation::ImportSubject Simulation::import_subject() const {
+    ImportSubject subject;
+    if (import_choice_game_.valid()) {
+        const auto* game = find_game(state_, import_choice_game_);
+        if (game) subject.title = game->title;
+        if (game && game->install_bytes) subject.bytes = *game->install_bytes;
+        // An in-place game's size comes from the import scan when the library has none.
+        for (const auto& candidate : state_.import_candidates)
+            if (candidate.imported == import_choice_game_ && !subject.bytes) subject.bytes = candidate.total_bytes;
+        if (const auto* external = external_game(import_choice_game_)) subject.volume = external->volume_id;
+    } else if ((subject.candidate = import_candidate(import_programs_key_))) {
+        subject.title = subject.candidate->title;
+        subject.volume = subject.candidate->volume_id;
+        subject.bytes = subject.candidate->total_bytes;
+        subject.ascii_ok = subject.candidate->ascii_ok;
+    }
+    return subject;
 }
 
-void Simulation::open_import_choice(std::size_t program, GameId game) {
-    import_program_index_ = program;
-    import_choice_game_ = game;
-    import_copy_volume_.clear();
-    std::string title, volume;
-    bool ascii_ok = true;
-    if (game.valid()) {
-        const auto* found = find_game(state_, game);
-        const auto* external = external_game(game);
-        if (!found || !external) return;
-        title = found->title;
-        volume = external->volume_id;
-    } else {
-        const auto* candidate = import_candidate(import_programs_key_);
-        if (!candidate || program >= candidate->programs.size()) return;
-        title = candidate->title;
-        volume = candidate->volume_id;
-        ascii_ok = candidate->ascii_ok;
+std::string Simulation::import_volume_blocker(const ImportSubject& subject, const Volume& volume) const {
+    if (!volume.available) return "Disconnected";
+    if (!volume.writable) return "No write access";
+    const bool drop = subject.volume == kImportDropVolume;
+    // A drop-folder game moves within the console storage: no extra space.
+    if (drop && volume.id == kImportDropVolume) return {};
+    if (!drop && volume.id == subject.volume) return "The game is on this drive";
+    if (volume.capacity_known) {
+        const auto unused = volume.capacity_bytes - std::min(volume.used_bytes, volume.capacity_bytes);
+        const auto free = unused - std::min(volume.reserved_bytes, unused);
+        const std::uint64_t margin = live() ? steam::kInstallSpaceMargin : 0;
+        if (free < margin || subject.bytes > free - margin) return "Not enough space";
     }
-    // Play in place (a folder the PS5 can start a game from), then Copy (a drive) or Move (the drop
-    // folder), then Back.
+    return {};
+}
+
+void Simulation::open_import_choice(std::size_t program) {
+    import_program_index_ = program;
+    import_choice_game_ = {};
+    import_program_chosen_ = false;
+    const auto* candidate = import_candidate(import_programs_key_);
+    if (!candidate || program >= candidate->programs.size()) return;
+    // Play from the folder (disabled, with why, when the PS5 can't start a game from it), then
+    // Import into Playden (step 2 picks the drive), then Back. Import has the focus.
+    open_modal({"import-choice", kImportChoiceTitle, state_.navigation.focus_key,
+                {"import-play-in-place", "import-copy", "cancel"}, 1, false});
+}
+
+void Simulation::open_import_storage(GameId game) {
+    if (game.valid()) {
+        if (!find_game(state_, game) || !external_game(game)) return;
+        import_choice_game_ = game;
+    }
+    const auto subject = import_subject();
+    if (!subject.candidate && !import_choice_game_.valid()) return;
+    // The install volumes, with the focus on the default drive when it can take the game, else on
+    // the first that can; then Back.
     std::vector<std::string> actions;
-    const bool drop = volume == kImportDropVolume;
-    if (!game.valid() && ascii_ok) actions.push_back("import-play-in-place");
-    if (drop) actions.push_back("import-move");
-    else { actions.push_back("import-copy"); actions.push_back("storage-picker"); }
+    int focus = -1, first = -1;
+    for (const auto& volume : state_.volumes) {
+        const int index = static_cast<int>(actions.size());
+        actions.push_back("volume-" + volume.id);
+        if (!import_volume_blocker(subject, volume).empty()) continue;
+        if (first < 0) first = index;
+        if (volume.id == selected_volume_id_) focus = index;
+    }
     actions.push_back("cancel");
-    open_modal({"import-choice", std::move(title), state_.navigation.focus_key, std::move(actions), 0, false});
+    if (focus < 0) focus = first >= 0 ? first : static_cast<int>(actions.size()) - 1;
+    open_modal({"import-storage", "Choose storage", state_.navigation.focus_key, std::move(actions), focus, false});
 }
 
 void Simulation::open_game_page(GameId id) {
@@ -992,6 +1045,7 @@ void Simulation::open_game_page(GameId id) {
 void Simulation::start_import_transfer(GameId id, ImportRequestKind kind, const std::string& volume_id) {
     if (live()) {
         RequestImport({kind, id, kind == ImportRequestKind::CopyIntoPlayden ? volume_id : std::string()});
+        import_transfers_starting_[id] = kind;
         return;
     }
     // Fixture mode: a copy is a job in Queue (its drive, or the default); a move is instant.
@@ -1011,24 +1065,40 @@ void Simulation::start_import_transfer(GameId id, ImportRequestKind kind, const 
 }
 
 void Simulation::choose_import(const std::string& action) {
-    const bool copy = action == "import-copy", move = action == "import-move";
-    std::optional<ImportRequestKind> then;
-    if (copy) then = ImportRequestKind::CopyIntoPlayden;
-    if (move) then = ImportRequestKind::MoveIntoPlayden;
-    if (import_choice_game_.valid()) {
-        // A game already added: Copy or Move from its page.
-        const auto id = import_choice_game_;
-        if (then) start_import_transfer(id, *then, import_copy_volume_);
-        import_choice_game_ = {};
-        close_modal();
-        return;
-    }
+    // Step 1: Import into Playden goes on to the drive choice.
+    if (action == "import-copy") { open_import_storage(); return; }
+    if (action != "import-play-in-place") return;
     const auto* candidate = import_candidate(import_programs_key_);
     if (!candidate || import_program_index_ >= candidate->programs.size() || candidate->imported.valid()) return;
-    if (action == "import-play-in-place" && !candidate->ascii_ok) return;
+    if (!candidate->ascii_ok) return;
     const auto key = import_programs_key_;
+    add_import_candidate(key, std::nullopt, {});
+}
+
+void Simulation::choose_import_volume(const std::string& volume_id) {
+    const auto subject = import_subject();
+    const auto* volume = find_volume(state_, volume_id);
+    if (!volume || !import_volume_blocker(subject, *volume).empty()) return;
+    // The drop folder into the console storage is a rename; anything else a copy to that drive.
+    const auto kind = subject.volume == kImportDropVolume && volume_id == kImportDropVolume ? ImportRequestKind::MoveIntoPlayden
+                                                                                              : ImportRequestKind::CopyIntoPlayden;
+    if (import_choice_game_.valid()) {
+        // A game already added (its page's Import into Playden): the transfer starts on its page.
+        const auto id = import_choice_game_;
+        start_import_transfer(id, kind, volume_id);
+        open_game_page(id);
+        return;
+    }
+    const auto* candidate = subject.candidate;
+    if (!candidate || import_program_index_ >= candidate->programs.size() || candidate->imported.valid()) return;
+    add_import_candidate(import_programs_key_, kind, volume_id);
+}
+
+void Simulation::add_import_candidate(const std::string& key, std::optional<ImportRequestKind> then, const std::string& volume_id) {
+    const auto* candidate = import_candidate(key);
+    if (!candidate) return;
     RequestImport({ImportRequestKind::Add, {}, candidate->volume_id, candidate->folder, candidate->programs[import_program_index_].path});
-    pending_imports_[key] = {then, copy ? import_copy_volume_ : std::string(), state_.navigation.route};
+    pending_imports_[key] = {then, volume_id, state_.navigation.route};
     import_failures_.erase(key);
     if (!live()) {
         // Fixture mode: the folder becomes a library game at once.
@@ -1099,6 +1169,8 @@ void Simulation::NotifyImportFailed(const ImportRequest& request, const std::str
         title = game->title;
     }
     if (request.kind == ImportRequestKind::LookForGames) state_.import_scanning = false;
+    if (request.kind == ImportRequestKind::CopyIntoPlayden || request.kind == ImportRequestKind::MoveIntoPlayden)
+        import_transfers_starting_.erase(request.game_id);
     push_notice({"import-" + (request.game_id.valid() ? ToKey(request.game_id) : request.volume_id + ":" + request.folder),
                  verb + (title.empty() ? std::string() : " " + title), "", false, kLiveNoticeSeconds * 2, true, message});
     rebuild_view();
@@ -1774,6 +1846,10 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
     for (const auto& job : jobs) job_states[job.game_id] = job.state;
     std::set<GameId> installed_ids;
     for (const auto& game : installed) installed_ids.insert(game.game_id);
+    // A copy's job, or a move's finished install, ends its starting state.
+    std::erase_if(import_transfers_starting_, [&](const auto& entry) {
+        return job_states.count(entry.first) || installed_ids.count(entry.first);
+    });
     if (live_installs_seen_) {
         const auto title = [this](GameId id) {
             const auto* game = find_game(state_, id);
@@ -1943,6 +2019,12 @@ bool Simulation::beyond_steam() const {
                        [](const Game& game) { return game.id.store != Store::kSteam; });
 }
 
+void Simulation::steam_restore_notice() {
+    const auto& error = state_.account().error;
+    push_notice({"steam-restore", "Steam isn't signed in", "", false, kLiveNoticeSeconds * 2, true,
+                 error.empty() ? std::string("Sign in to Steam from Settings.") : error, false});
+}
+
 void Simulation::leave_steam_sign_in() {
     if (beyond_steam()) {
         state_.navigation.route = Route::Home;
@@ -2092,6 +2174,10 @@ void Simulation::UpdateAccount(AccountUpdate update) {
     }
     if (!repeat) restore_failed_sign_in_ = update.authentication == AuthState::Failed && update.restoring &&
                                            state_.navigation.route == Route::SignIn;
+    // Steam's saved sign-in failed while another store's games are on screen: a notification says why;
+    // the Account row keeps the error.
+    if (!repeat && update.restoring && state_.navigation.route != Route::SignIn && beyond_steam())
+        steam_restore_notice();
     if (state_.navigation.route != Route::SignIn) {
         // Leaving the sign-in screen: a sign-in field still open closes, and nothing secret stays.
         if (state_.editor.active && state_.editor.opener_focus_key.rfind("signin-", 0) == 0) state_.editor.active = false;
@@ -2296,9 +2382,11 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
                                (state_.navigation.route == Route::SignIn && restore_failed_sign_in_);
     if (waiting_route && !state_.startup_loading && !state_.root_access_missing &&
         state_.account().authentication != AuthState::Restoring && beyond_steam()) {
+        const bool failed_restore = restore_failed_sign_in_;
         restore_failed_sign_in_ = false;
         state_.navigation.route = Route::Home;
         state_.navigation.focus_key = state_.games.empty() ? "home-library" : game_key(state_.games.front().id);
+        if (failed_restore) steam_restore_notice();
     }
     captured_organization_.selected_game_id = state_.navigation.selected_game_id;
     rebuild_view();
@@ -3312,9 +3400,11 @@ bool Simulation::scenario(const std::string& name) {
         state_.account().authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Home;
     } else if (name == "import-empty" || name == "import-candidates" || name == "import-programs" || name == "import-choice" ||
+               name == "import-storage" || name == "import-drop-choice" || name == "import-drop-storage" ||
                name == "import-details" || name == "import-copying" || name == "import-library") {
-        // The Import sheet over Settings › Storage: nothing found yet, or the fixture's folders; then
-        // a folder's programs, the add choice, and the imported game's page (in place, then copying).
+        // The Import sheet over Settings › Library: nothing found yet, or the fixture's folders; then
+        // a folder's programs, the wizard's two steps (a USB drive's game, a drop-folder game), and
+        // the imported game's page (in place, then copying).
         state_.account().authentication = AuthState::SignedIn;
         state_.import_scanning = false;
         state_.import_candidates.clear();
@@ -3364,11 +3454,26 @@ bool Simulation::scenario(const std::string& name) {
         state_.navigation.focus_key = "settings-import";
         rebuild_view();
         open_import_sheet();
-        if (name == "import-programs" || name == "import-choice") {
+        if (name == "import-storage" || name == "import-drop-storage") {
+            // The console's drives as the wizard's mockup has them: the game's USB drive among them.
+            state_.volumes = {{"internal", "Console storage", 673'900'000'000, 562'400'000'000, 0},
+                              {"m2", "M.2 SSD", 1'000'200'000'000, 668'100'000'000, 0},
+                              {"usb0", "USB drive", 1'000'200'000'000, 372'900'000'000, 0}};
+            for (auto& volume : state_.volumes) volume.base_used_bytes = volume.used_bytes;
+            selected_volume_id_ = "internal";
+        }
+        if (name != "import-empty" && name != "import-candidates") {
+            const bool drop = name == "import-drop-choice" || name == "import-drop-storage";
             rebuild_view();
-            action("focus:import-candidate-usb0:playden/import/Old School Rally");
+            action(drop ? "focus:import-candidate-internal:playden-import/Hollow Knight"
+                        : "focus:import-candidate-usb0:playden/import/Old School Rally");
             action("cross");
-            if (name == "import-choice") action("cross");
+            // A folder with one clear program skips its list (ClearGameProgram).
+            if (name != "import-programs" && state_.navigation.modals.back().id == "import-programs") action("cross");
+            if (name == "import-storage" || name == "import-drop-storage") {
+                action("focus:import-copy");
+                action("cross");
+            }
         }
     } else {
         last_error_ = "Unknown scenario: " + name;
@@ -3571,32 +3676,25 @@ void Simulation::rebuild_view() {
         const auto* import_programs = modal.id == "import-programs" ? import_candidate(import_programs_key_) : nullptr;
         if (import_programs)
             view_.subtitle = import_programs->ascii_ok ? "Choose the program that starts the game." : kImportCopyOnlyText;
-        // The add choice: its folder's candidate, or the game added already (its page's Copy or Move).
-        const LiveImportCandidate* import_choice = nullptr;
-        std::uint64_t import_choice_bytes = 0, import_choice_files = 0;
-        std::string import_choice_volume;
-        if (modal.id == "import-choice") {
-            if (import_choice_game_.valid()) {
-                const auto* game = find_game(state_, import_choice_game_);
-                if (game && game->install_bytes) import_choice_bytes = *game->install_bytes;
-                // An in-place game's size and file count come from the import scan.
-                for (const auto& candidate : state_.import_candidates)
-                    if (candidate.imported == import_choice_game_) {
-                        if (!import_choice_bytes) import_choice_bytes = candidate.total_bytes;
-                        import_choice_files = candidate.file_count;
-                    }
-                if (const auto* external = external_game(import_choice_game_)) import_choice_volume = external->volume_id;
-            } else if ((import_choice = import_candidate(import_programs_key_))) {
-                import_choice_bytes = import_choice->total_bytes;
-                import_choice_files = import_choice->file_count;
-                import_choice_volume = import_choice->volume_id;
+        // The import wizard: what it imports, where from, and how big it is.
+        const bool import_wizard = modal.id == "import-choice" || modal.id == "import-storage";
+        const auto import_wizard_subject = import_wizard ? import_subject() : ImportSubject{};
+        const bool import_from_drop = import_wizard_subject.volume == kImportDropVolume;
+        if (import_wizard) {
+            view_.eyebrow = "Import games · " + import_wizard_subject.title;
+            const auto size = format_bytes(import_wizard_subject.bytes);
+            if (modal.id == "import-choice") {
+                const auto* chosen = import_program_chosen_ ? import_candidate(import_programs_key_) : nullptr;
+                if (chosen && import_program_index_ < chosen->programs.size()) {
+                    const auto& path = chosen->programs[import_program_index_].path;
+                    view_.subtitle = "Starts with " + path.substr(path.find_last_of('/') + 1) +
+                                     ", which you can change in Game settings. " + kImportChoiceText;
+                } else {
+                    view_.subtitle = kImportChoiceText;
+                }
             }
-            const bool drop = import_choice_volume == kImportDropVolume;
-            view_.subtitle = import_choice && !import_choice->ascii_ok ? kImportCopyOnlyText
-                : drop ? (import_choice ? "Play the game from the drop folder, or move it into Playden's games folder."
-                                        : "The game's folder moves from the drop folder into Playden's games folder.")
-                : import_choice ? "Play the game from the drive, or copy it into Playden to play without the drive."
-                                : "A copy in Playden plays without the drive. The folder on the drive stays as it is.";
+            else if (import_from_drop) view_.subtitle = (size.empty() ? std::string("The game") : size + ". The game") + " leaves the drop folder.";
+            else view_.subtitle = (size.empty() ? std::string("The game") : size) + " will be copied there.";
         }
         if (modal.id == "kept-data")
             view_.subtitle = "Saves and settings kept when a game was uninstalled. Installing a game again brings its saves "
@@ -3862,8 +3960,19 @@ void Simulation::rebuild_view() {
                         item.value = "Free space unknown";
                     item.subtitle = !volume->available ? "Disconnected" : !volume->writable ? "No write access" : "Available";
                     item.enabled = volume->available && volume->writable;
-                    item.selected = volume->id == (picking_import_volume_ ? import_copy_target()
-                                                   : live() && picking_install_volume_ ? install_target() : selected_volume_id_);
+                    item.selected = volume->id == (live() && picking_install_volume_ ? install_target() : selected_volume_id_);
+                    if (modal.id == "import-storage") {
+                        // The wizard's drive choice: what happens on each drive, or why it can't.
+                        const auto blocker = import_volume_blocker(import_wizard_subject, *volume);
+                        item.selected = false;
+                        item.enabled = blocker.empty();
+                        item.tone = blocker == "Not enough space" || blocker == "Disconnected" || blocker == "No write access"
+                                        ? "warn" : "";
+                        if (!blocker.empty()) item.subtitle = blocker;
+                        else if (import_from_drop)
+                            item.subtitle = volume->id == kImportDropVolume ? "Instant · moves the folder" : "Copies, then frees the drop folder";
+                        else item.subtitle = volume->id == selected_volume_id_ ? "Default · Available" : "Available";
+                    }
                 }
             }
             else if (action_key == "quit-to-home") item.dangerous = true;  // the dialog's primary action
@@ -3979,28 +4088,23 @@ void Simulation::rebuild_view() {
                 }
             }
             else if (modal.id == "import-choice" && action_key == "import-play-in-place") {
-                item.title = import_choice_volume == kImportDropVolume ? "Play from the drop folder" : "Play from the drive";
-                item.value = import_volume_name(import_choice_volume);
+                std::string place = import_volume_name(import_wizard_subject.volume);
+                if (place == import_wizard_subject.volume)
+                    if (const auto* volume = find_volume(state_, place)) place = volume->label;
+                if (place == "Extended storage") place = "extended storage";
+                item.title = import_from_drop ? "Play from the drop folder" : "Play from the " + place;
+                item.subtitle = !import_wizard_subject.ascii_ok ? kImportCopyOnlyText
+                    : import_from_drop ? "Nothing moves. The files stay in /data/playden-import."
+                                       : "Nothing is copied. Keep the drive plugged in.";
+                item.enabled = import_wizard_subject.ascii_ok;
             }
             else if (modal.id == "import-choice" && action_key == "import-copy") {
-                item.title = "Copy into Playden";
-                item.value = format_bytes(import_choice_bytes);
-                item.value += (item.value.empty() ? "" : " · ") + import_copy_estimate(import_choice_bytes, import_choice_files);
+                item.title = "Import into Playden";
+                item.value = format_bytes(import_wizard_subject.bytes);
+                item.subtitle = import_from_drop ? "Takes the game out of the drop folder. You pick the storage next."
+                                                 : "Copies the game. You pick the storage next.";
             }
-            else if (modal.id == "import-choice" && action_key == "import-move") {
-                item.title = "Move into Playden";
-                item.value = "Instant";
-            }
-            else if (modal.id == "import-choice" && action_key == "storage-picker") {
-                // The drive the copy goes to, as the install sheet's drive choice.
-                item.title = "Copy to";
-                if (const auto* volume = find_volume(state_, import_copy_target())) {
-                    item.value = volume->label;
-                } else {
-                    item.value = "Default drive";
-                }
-            }
-            else if ((modal.id == "import-games" || modal.id == "import-programs" || modal.id == "import-choice") && action_key == "cancel") {
+            else if ((modal.id == "import-games" || modal.id == "import-programs" || import_wizard) && action_key == "cancel") {
                 item.title = modal.id == "import-games" ? "Close" : "Back";
             }
             else if (action_key == "kept-select-all") {
@@ -4148,6 +4252,7 @@ void Simulation::rebuild_view() {
         else if (modal.id == "game-maintenance") view_.legends = {"Cross Select", "L1/R1 Jump", "Circle Cancel"};
         else if (modal.id == "import-games") view_.legends = {"Cross Select", "Circle Close"};
         else if (modal.id == "import-programs" || modal.id == "import-choice") view_.legends = {"Cross Select", "Circle Back"};
+        else if (modal.id == "import-storage") view_.legends = {"Cross Import here", "Circle Back"};
         else if (modal.id == "installed-games")
             // The batch's rows only report; Cross does something only on its buttons.
             view_.legends = !uninstall_batch_ ? std::vector<std::string>{"Cross Select", "Triangle Uninstall", "Circle Close"}
@@ -4442,7 +4547,7 @@ void Simulation::rebuild_view() {
                 }
             } else if (job) {
                 auto& status = row("details-download", RowKind::Action, "Download", "open-downloads");
-                status.value = job_state_name(job->state);
+                status.value = job_state_value(*job);
                 status.progress = job->total_bytes == 0 ? 0.0F : static_cast<float>(job->completed_bytes) / static_cast<float>(job->total_bytes);
             } else if (game->windows_installable.value_or(false)) {
                 auto& install = row("details-install", RowKind::Action, "Install", "live-install");
@@ -4473,22 +4578,31 @@ void Simulation::rebuild_view() {
                 }
         }
         if (imported) {
-            // An imported game: Copy or Move into Playden while it plays from its folder (the copy's
+            // An imported game: Import into Playden while it plays from its folder (the copy's
             // progress while it runs), then Remove from library; a copy in Playden uninstalls.
-            if (copying) {
+            const auto starting = copying || !in_place ? import_transfers_starting_.end()
+                                                       : import_transfers_starting_.find(game->id);
+            if (starting != import_transfers_starting_.end()) {
+                // Asked for, not listed yet (the copy is planned first): disabled, like Install while Steam answers.
+                auto& status = row("details-download", RowKind::Action,
+                                   starting->second == ImportRequestKind::MoveIntoPlayden ? "Moving" : "Copying", "");
+                status.value = "…";
+                status.enabled = false;
+            } else if (copying) {
                 auto& status = row("details-download", RowKind::Action, "Copying", "import-open-copy");
-                status.value = job_state_name(copying->state);
+                status.value = job_state_value(*copying);
                 status.progress = copying->total_bytes == 0 ? 0.0F
                     : static_cast<float>(copying->completed_bytes) / static_cast<float>(copying->total_bytes);
                 // A copy that failed (or runs too long) can be cancelled here; the game plays in place again.
                 row("details-cancel-copy", RowKind::Action, "Cancel copy", "import-cancel-copy");
             } else if (const auto* external = in_place ? external_game(game->id) : nullptr; external && external->available) {
                 // Its drive is there: a folder the PS5 can't play from (its name) can still be copied.
-                row("details-copy", RowKind::Action, in_place->volume_id == kImportDropVolume ? "Move into Playden" : "Copy into Playden",
+                row("details-copy", RowKind::Action, "Import into Playden",
                     "import-copy-game");
             }
             if (in_place) {
-                row("details-remove", RowKind::Action, "Remove from library", "import-remove").enabled = !copying;
+                row("details-remove", RowKind::Action, "Remove from library", "import-remove").enabled =
+                    !copying && starting == import_transfers_starting_.end();
                 // Where it plays from, under the buttons.
                 for (const auto& candidate : state_.import_candidates)
                     if (candidate.imported == game->id && installation->available) {
@@ -4591,7 +4705,7 @@ void Simulation::rebuild_view() {
                 auto& item = row(entry.key, RowKind::Job, entry.title, "job-action");
                 item.game_id = job.game_id;
                 item.subtitle = job.failure;
-                item.value = !job.state_text.empty() ? job.state_text : job_state_name(job.state);
+                item.value = !job.state_text.empty() ? job.state_text : job_state_value(job);
                 item.progress = job.total_bytes == 0 ? 0.0F : static_cast<float>(job.completed_bytes) / static_cast<float>(job.total_bytes);
                 return;
             }
@@ -4757,6 +4871,14 @@ void Simulation::rebuild_view() {
         if (state_.account().authentication != AuthState::SignedOut)
             add("settings-signout", RowKind::Action, "Sign out", "signout-confirm").dangerous = true;
         section = "Library";
+        {
+            // Windows games in a drive's playden/import or the console drop folder: the Import sheet.
+            auto& entry = add("settings-import", RowKind::Action, "Import games", "import-manage");
+            entry.subtitle = "Add Windows games from a drive or the console drop folder";
+            const auto found = std::count_if(state_.import_candidates.begin(), state_.import_candidates.end(),
+                                             [](const LiveImportCandidate& candidate) { return !candidate.imported.valid(); });
+            if (found > 0) entry.value = std::to_string(found) + " found";
+        }
         if (live()) {
             auto& suffix = add("settings-title-store", RowKind::Toggle, "Store name in PS5 titles", "toggle-title-store");
             suffix.selected = state_.title_store_suffix;
@@ -4774,14 +4896,6 @@ void Simulation::rebuild_view() {
             storage.value = volume ? volume->label : "";
             storage.subtitle = "Where new games are installed";
             if (state_.volumes.empty()) { storage.kind = RowKind::Status; storage.action.clear(); storage.enabled = false; storage.subtitle = "Storage is unavailable"; }
-        }
-        {
-            // Windows games in a drive's playden/import or the console drop folder: the Import sheet.
-            auto& entry = add("settings-import", RowKind::Action, "Import games", "import-manage");
-            entry.subtitle = "Add Windows games from a drive or the console drop folder";
-            const auto found = std::count_if(state_.import_candidates.begin(), state_.import_candidates.end(),
-                                             [](const LiveImportCandidate& candidate) { return !candidate.imported.valid(); });
-            if (found > 0) entry.value = std::to_string(found) + " found";
         }
         if (live()) {
             // Installed games: one row that opens the list, sorted by size or last played, where
@@ -5015,8 +5129,10 @@ void Simulation::open_modal(ModalEntry modal) {
 void Simulation::close_modal() {
     if (state_.navigation.modals.empty()) return;
     const auto opener = state_.navigation.modals.back().opener_focus_key;
-    if (state_.navigation.modals.back().id == "storage") picking_import_volume_ = false;
-    if (state_.navigation.modals.back().id == "import-choice") import_choice_game_ = {};
+    // Step 2 opened from a game's page (no step 1 under it) was for that game only.
+    if (state_.navigation.modals.back().id == "import-storage" &&
+        (state_.navigation.modals.size() < 2 || state_.navigation.modals[state_.navigation.modals.size() - 2].id != "import-choice"))
+        import_choice_game_ = {};
     state_.navigation.modals.pop_back();
     state_.navigation.focus_key = opener;
 }
@@ -5948,21 +6064,15 @@ void Simulation::activate() {
     else if (action_name == "storage-picker") {
         // From the install sheet the choice is for that install only; Settings changes the default.
         picking_install_volume_ = live() && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "install";
-        // From the add choice, the drive is for that copy only.
-        picking_import_volume_ = !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "import-choice";
         std::vector<std::string> actions;
         for (const auto& volume : state_.volumes) actions.push_back("volume-" + volume.id);
         actions.push_back("cancel");
-        open_modal({"storage", picking_install_volume_ ? "Install to" : picking_import_volume_ ? "Copy to" : "Choose storage",
+        open_modal({"storage", picking_install_volume_ ? "Install to" : "Choose storage",
                     state_.navigation.focus_key, std::move(actions), 0, false});
     } else if (action_name.rfind("volume-", 0) == 0) {
         const auto id = action_name.substr(7);
-        if (picking_import_volume_) {
-            const auto* volume = find_volume(state_, id);
-            if (volume && volume->available && volume->writable) import_copy_volume_ = id == selected_volume_id_ ? std::string() : id;
-            picking_import_volume_ = false;
-            close_modal();
-            state_.navigation.focus_key = "import-copy";  // back on the choice, ready to copy
+        if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "import-storage") {
+            choose_import_volume(id);
             return;
         }
         if (live() && picking_install_volume_) {
@@ -6574,6 +6684,12 @@ void Simulation::activate() {
         if (pending_imports_.count(action_name)) return;  // being added
         if (candidate->programs.empty()) return;
         import_programs_key_ = action_name;
+        // One program that isn't an installer or tool: no list, straight to where the files live.
+        if (const auto clear = playden::stores::local::ClearGameProgram(candidate->programs)) {
+            open_import_choice(*clear);
+            import_program_chosen_ = true;
+            return;
+        }
         std::vector<std::string> actions;
         for (std::size_t index = 0; index < candidate->programs.size(); ++index)
             actions.push_back("import-program-" + std::to_string(index));
@@ -6585,12 +6701,12 @@ void Simulation::activate() {
         if (!candidate || index >= candidate->programs.size()) return;
         // Where the game plays from: its folder, a copy or a move into Playden.
         open_import_choice(index);
-    } else if (action_name == "import-play-in-place" || action_name == "import-copy" || action_name == "import-move") {
+    } else if (action_name == "import-play-in-place" || action_name == "import-copy") {
         choose_import(action_name);
     } else if (action_name == "import-copy-game") {
-        // An imported game playing from its folder: Copy (a drive) or Move (the drop folder) into Playden.
+        // An imported game playing from its folder: Import into Playden opens the drive choice.
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (const auto* external = external_game(id); external && external->available && !import_copy_job(id)) open_import_choice(0, id);
+        if (const auto* external = external_game(id); external && external->available && !import_copy_job(id)) open_import_storage(id);
     } else if (action_name == "import-cancel-copy") {
         // The same cancel as Queue's, from the game's page.
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
@@ -7076,7 +7192,7 @@ void Simulation::activate() {
     }
     else if (kOfferGoBack && live() && action_name == "self-update-back-confirm") { close_modal(); request_self_update_restart("rollback"); }
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
-        {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "scenario-import-empty", "scenario-import-candidates", "scenario-import-programs", "scenario-import-choice", "scenario-import-details", "scenario-import-copying", "scenario-import-library", "cancel"}, 0, false});
+        {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "scenario-import-empty", "scenario-import-candidates", "scenario-import-programs", "scenario-import-choice", "scenario-import-storage", "scenario-import-drop-choice", "scenario-import-drop-storage", "scenario-import-details", "scenario-import-copying", "scenario-import-library", "cancel"}, 0, false});
     else if (action_name.rfind("scenario-", 0) == 0) { state_.navigation.modals.clear(); scenario(action_name.substr(9)); }
     else if (action_name == "session-fixture-controls") open_modal({"session-controls", "Session fixture controls", state_.navigation.focus_key,
         {"advance-clock", "inject-stop-failure", "inject-crash", "cancel"}, 0, false});

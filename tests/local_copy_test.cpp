@@ -100,6 +100,7 @@ struct Fixture {
   std::mutex log_mutex;
   int next_id = 0;
   std::atomic<bool> usb_present{true};  // the source drive
+  std::vector<InstallVolume> extra_volumes;  // install volumes after the console storage
 
   Fixture() {
     char name[] = "/tmp/playden-local-copy-XXXXXX";
@@ -131,8 +132,9 @@ struct Fixture {
       return std::string(kIds[next_id++]);
     }, [] { return std::uint64_t{1760000000}; });
     runner = std::make_unique<LocalCopyRunner>(*store, options);
-    service = std::make_unique<InstallService>(InstallService::Runners{{Store::kLocal, runner.get()}},
-                                               std::vector<InstallVolume>{{"internal", "Console storage", games.string(), true}});
+    std::vector<InstallVolume> volumes{{"internal", "Console storage", games.string(), true}};
+    volumes.insert(volumes.end(), extra_volumes.begin(), extra_volumes.end());
+    service = std::make_unique<InstallService>(InstallService::Runners{{Store::kLocal, runner.get()}}, volumes);
     service->SetRetryDelays(std::chrono::milliseconds(10), std::chrono::milliseconds(20));
     if (!with_local) {
       CHECK(store->Load().ok());
@@ -847,6 +849,120 @@ void FreeSpaceRefused() {
 
 }  // namespace
 
+// A drop-folder game copied to another drive: once the copy is committed its drop-folder files go
+// (as root where the app user may not), never a file the copy didn't take; what stays is noted.
+void DropFolderCopyFreesTheDropFolder() {
+  const auto m2 = [](Fixture& fixture) {
+    const auto games = fixture.root / "mnt/ext1/playden/games";
+    fs::create_directories(games);
+    fixture.extra_volumes = {{"m2", "M.2 SSD", games.string(), true}};
+    return games / ("local-" + std::string(kId));
+  };
+  const auto copy = [](Fixture& fixture) {
+    const auto outcome = fixture.Outcome(fixture.local->CopyIntoPlayden(kId, "m2", kNumber));
+    if (!outcome.ok) std::fprintf(stderr, "copy: %s\n", outcome.message.c_str());
+    CHECK(outcome.ok);
+    WaitFor([&] { return fixture.Installed() && fixture.State() == ImportState::kCopied; }, "the drop-folder copy");
+  };
+  const auto without_records = [](std::vector<std::pair<std::string, std::string>> files) {
+    files.erase(std::remove_if(files.begin(), files.end(), [](const auto& file) {
+      return file.first == ".playden-install.json" || file.first == ".playden-files";
+    }), files.end());
+    return files;
+  };
+  {
+    // The drop folder itself is the app user's, as on a console whose folders were opened.
+    Fixture fixture;
+    const auto dest = m2(fixture);
+    std::atomic<unsigned> raises{0};
+    fixture.options.as_root = [&raises](const std::function<bool()>& work) { ++raises; return work(); };
+    fixture.Start();
+    fixture.AddDrop();
+    const auto before = Files(fixture.Drop());
+    copy(fixture);
+    CHECK(without_records(Files(dest)) == before && fs::is_directory(dest / "saves"));
+    CHECK(!fs::exists(fixture.Drop()) && fs::is_directory(fixture.Drop().parent_path()));
+    CHECK(raises == 0 && fixture.Logged("import copy freed the drop folder id=" + std::string(kId)));
+    CHECK(fixture.store->Find(kId)->failure.empty());
+    WaitFor([&] { return fixture.local->Locations().empty(); }, "the drop-folder location gone");
+  }
+  {
+    // The files stay in the drop folder while the copy runs; a file added meanwhile stays after it.
+    Fixture fixture;
+    const auto dest = m2(fixture);
+    bool checked = false;
+    fixture.options.after_file = [&](const std::string&) {
+      if (checked) return;
+      checked = true;
+      CHECK(fs::exists(fixture.Drop() / "Bin/Rally.exe"));
+      Write(fixture.Drop() / "data/added-over-ftp.txt", "later");
+    };
+    fixture.Start();
+    fixture.AddDrop();
+    copy(fixture);
+    CHECK(checked && fs::exists(dest / "Bin/Rally.exe"));
+    const auto left = Files(fixture.Drop());
+    CHECK(left.size() == 1 && left[0].first == "data/added-over-ftp.txt");
+    CHECK(Has(fixture.store->Find(kId)->failure, "still in /data/playden-import/Rally"));
+    CHECK(fixture.Logged("import copy left the drop folder id=" + std::string(kId)));
+    CHECK(fixture.Installed() && fixture.State() == ImportState::kCopied);
+  }
+  {
+    // A drop folder the app user can't change (root's, from FTP): the entry goes in a raise.
+    Fixture fixture;
+    m2(fixture);
+    const auto parent = fixture.root / "data/playden-import";
+    std::atomic<unsigned> raises{0};
+    fixture.options.as_root = [&](const std::function<bool()>& work) {
+      ++raises;
+      ::chmod(parent.c_str(), 0755);
+      const bool ok = work();
+      ::chmod(parent.c_str(), 0555);
+      return ok;
+    };
+    fixture.Start();
+    fixture.AddDrop();
+    CHECK(::chmod(parent.c_str(), 0555) == 0);
+    copy(fixture);
+    CHECK(!fs::exists(fixture.Drop()) && raises >= 1);
+    CHECK(fixture.store->Find(kId)->failure.empty());
+    ::chmod(parent.c_str(), 0755);
+  }
+  {
+    // Without root it stays: the copy still counts, and the entry says what is left.
+    Fixture fixture;
+    m2(fixture);
+    const auto parent = fixture.root / "data/playden-import";
+    fixture.Start();
+    fixture.AddDrop();
+    CHECK(::chmod(parent.c_str(), 0555) == 0);
+    copy(fixture);
+    CHECK(fs::is_directory(fixture.Drop()) && Files(fixture.Drop()).empty());
+    CHECK(Has(fixture.store->Find(kId)->failure, "/data/playden-import/Rally"));
+    CHECK(fixture.Installed() && fixture.State() == ImportState::kCopied);
+    ::chmod(parent.c_str(), 0755);
+  }
+  {
+    // A crash after the commit's record: the files are gone already, the next start commits the entry.
+    Fixture fixture;
+    m2(fixture);
+    fixture.options.before_finish = [](const GameId&, const std::string&) { return false; };
+    fixture.Start();
+    fixture.AddDrop();
+    const auto outcome = fixture.Outcome(fixture.local->CopyIntoPlayden(kId, "m2", kNumber));
+    CHECK(outcome.ok);
+    WaitFor([&] { return fixture.Installed(); }, "the managed install");
+    CHECK(fixture.State() == ImportState::kCopying && !fs::exists(fixture.Drop()));
+    fixture.Stop();
+    fixture.options.before_finish = {};
+    fixture.Start();
+    auto* service = fixture.service.get();
+    fixture.local->Reconcile([service] { return service->Snapshot(); }, [service](const GameId& id) { service->Cancel(id); });
+    WaitFor([&] { return fixture.State() == ImportState::kCopied; }, "reconciled to copied");
+    CHECK(fixture.Installed());
+  }
+}
+
 int main() {
   PlanCoversTheTree();
   LinksAreRefused();
@@ -864,6 +980,7 @@ int main() {
   MovesDropFolderGame();
   MoveRefusedWhileTheTitleRuns();
   MoveFinishesAfterRestart();
+  DropFolderCopyFreesTheDropFolder();
   std::puts("local copy tests passed");
   return 0;
 }

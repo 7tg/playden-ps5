@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 #include "homebrew/runtime_host.hpp"
 
+#include "platform/random_id.h"
 #include "platform/storage.h"
 #include "runtime/private_directories.h"
 #include "runtime/prospero_profile.h"
@@ -280,25 +281,7 @@ std::optional<std::string> NewestSessionLog(const std::filesystem::path& data_ro
   return text;
 }
 
-std::optional<std::string> RandomUuid() {
-  unsigned char bytes[16];
-  const int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-  if (fd < 0) return std::nullopt;
-  std::size_t read_bytes = 0;
-  while (read_bytes < sizeof(bytes)) {
-    const auto count = read(fd, bytes + read_bytes, sizeof(bytes) - read_bytes);
-    if (count <= 0) { close(fd); return std::nullopt; }
-    read_bytes += static_cast<std::size_t>(count);
-  }
-  close(fd);
-  bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0f) | 0x40);  // version 4
-  bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3f) | 0x80);  // RFC 4122 variant
-  char text[37];
-  std::snprintf(text, sizeof(text), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
-  return std::string(text);
-}
+std::optional<std::string> RandomUuid() { return playden::RandomUuid(); }
 
 // Construction order resolves the ownership cycle:
 //   repository -> records -> installer -> registry -> coordinator -> owner -> service.
@@ -686,16 +669,11 @@ std::optional<std::uint32_t> ReadSteamAppIdFile(const std::filesystem::path& pat
   if (text.substr(0, 3) == "\xEF\xBB\xBF") text.remove_prefix(3);  // a UTF-8 byte order mark
   return rt::ParseSteamAppId(text);
 }
-
-bool RegularFileAt(const std::filesystem::path& path) {
-  struct stat info {};
-  return ::lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
-}
 }  // namespace
 
 // Steam games: their own app ID. Other stores: the game's steam_appid.txt (the folder of the program that
 // starts, then the game folder), else the one in Game settings, else none. The runtime number is never one.
-SteamworksAppView RuntimeHost::SteamworksAppFor(const GameFiles& files, std::vector<std::filesystem::path>* folders) const {
+SteamworksAppView RuntimeHost::SteamworksAppFor(const GameFiles& files) const {
   SteamworksAppView view;
   auto game = GameOf(files.record);
   // A record copy that doesn't carry its game (read back from a journal) is another store's when its
@@ -716,7 +694,6 @@ SteamworksAppView RuntimeHost::SteamworksAppFor(const GameFiles& files, std::vec
   std::vector<std::filesystem::path> places;
   if (!program.empty()) places.push_back((files.root / program).parent_path());
   if (places.empty() || places.front().lexically_normal() != files.root.lexically_normal()) places.push_back(files.root);
-  if (folders) *folders = places;
   for (const auto& folder : places)
     if (const auto app = ReadSteamAppIdFile(folder / "steam_appid.txt")) {
       view.app_id = *app;
@@ -766,8 +743,7 @@ std::string RuntimeHost::SteamStubStep(const GameFiles& files) {
 std::string RuntimeHost::SteamworksStep(const GameFiles& files, bool steam_account_known) {
   const auto& record = files.record;
   const auto& root = files.root;
-  std::vector<std::filesystem::path> folders;
-  const auto steam_app = SteamworksAppFor(files, &folders);
+  const auto steam_app = SteamworksAppFor(files);
   const bool other_store = steam_app.source != SteamworksAppView::Source::kStore;
   if (other_store) {
     const char* source = steam_app.source == SteamworksAppView::Source::kGameFile ? "game-file"
@@ -801,17 +777,10 @@ std::string RuntimeHost::SteamworksStep(const GameFiles& files, bool steam_accou
     if (!rt::ReadSteamworksFacts(root.string(), &identity))
       Log("steamworks app=" + std::to_string(record.runtime_number) + " no download facts: no DLC or depots listed");
     const auto emulator = config_.steamworks_dir.empty() ? config_.runtime_dir + "/steamworks" : config_.steamworks_dir;
-    // The emulator writes a steam_appid.txt beside a DLL that has none. Where the next preparation looks
-    // for the game's own (a game from another store), Playden's is taken away again: it would hide the
-    // game's lack of one, and a later app ID in Game settings would never reach the emulator, which
-    // reads its own copy in steam_settings/.
-    std::vector<std::filesystem::path> absent;
-    if (other_store)
-      for (const auto& folder : folders)
-        if (!RegularFileAt(folder / "steam_appid.txt")) absent.push_back(folder / "steam_appid.txt");
+    // A game from another store keeps its folder as it shipped: no steam_appid.txt of Playden's would hide
+    // the game's lack of one, so a later app ID in Game settings still reaches the emulator.
+    identity.write_game_appid_file = !other_store;
     result = rt::EmulateSteamworks(root.string(), emulator, identity);
-    for (const auto& written : absent)
-      if (RegularFileAt(written)) ::unlink(written.c_str());
   } else {
     result = rt::RestoreSteamworks(root.string());
   }

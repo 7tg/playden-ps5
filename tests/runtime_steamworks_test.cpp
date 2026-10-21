@@ -97,6 +97,24 @@ int main(int argc, char** argv) {
   CHECK(Read(plugin / "steam_interfaces.txt") == Read(plugin / "steam_settings/steam_interfaces.txt"));
   CHECK(!fs::exists(root / ".hidden/steam_api.dll.orig"));
 
+  // Another store's game: no steam_appid.txt of Playden's beside the DLL, only the emulator's own; a
+  // game's own file stays as it is.
+  {
+    const auto other = root.string() + "-other";
+    Write(fs::path(other) / "Bin/steam_api64.dll", own64);
+    Write(fs::path(other) / "Lib/steam_api.dll", own32);
+    Write(fs::path(other) / "Lib/steam_appid.txt", "99700\n");
+    SteamworksIdentity other_identity;
+    other_identity.app_id = 4000;
+    other_identity.write_game_appid_file = false;
+    const auto other_result = EmulateSteamworks(other, emulator, other_identity);
+    CHECK(other_result.ok && other_result.changed.size() == 2);
+    CHECK(!fs::exists(fs::path(other) / "Bin/steam_appid.txt") && Read(fs::path(other) / "Bin/steam_settings/steam_appid.txt") == "4000");
+    CHECK(Read(fs::path(other) / "Lib/steam_appid.txt") == "99700\n" &&
+          Read(fs::path(other) / "Lib/steam_settings/steam_appid.txt") == "4000");
+    fs::remove_all(other);
+  }
+
   // Again: nothing changes hands; the settings follow a new account.
   identity.account_name = "";
   result = EmulateSteamworks(root.string(), emulator, identity);

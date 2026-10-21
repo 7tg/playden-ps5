@@ -1,7 +1,9 @@
 #pragma once
 // "Copy into Playden": the install service's runner for imported games (Store::kLocal). An
 // imported game is copied from its drive folder into <games_root>/local-<id> on the chosen volume
-// and becomes a managed install there; the drive folder is never touched.
+// and becomes a managed install there; the drive folder is never touched. A drop-folder game's
+// folder (/data/playden-import/<name>) is deleted once its copy is committed, so the game isn't
+// stored twice; until then it plays from the drop folder.
 //
 // Flow: Enqueue (on the Local source's worker) walks the folder into a copy plan, saves it in the
 // destination (copy_plan.h), sets the entry copy_queued and queues the job with the plan's total
@@ -113,6 +115,9 @@ class LocalCopyRunner final : public installs::InstallRunner {
 
  private:
   LocalRelocationResult Relocate(const LocalRelocation& relocation);
+  // After a drop-folder game's copy committed: its drop-folder files (those the copy took) are
+  // deleted. Empty, or the sentence kept on the entry when some stay.
+  std::string RemoveDropFolderSource(const ImportEntry& entry, const CopyPlan& plan);
   Result Abandon(const ImportEntry& entry, const std::string& root, const CopyPlan* plan, const std::string& failure);
   void Changed();
   void Log(const std::string& line) const;

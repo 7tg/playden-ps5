@@ -1896,9 +1896,10 @@ void Controller::Apply(const steam::SteamEvent& event) {
         }
         if (space && space->free_bytes == 0)
           Update(AuthState::Failed, "Playden can't save your sign-in. Uninstall games to free up space; it signs in again on its own.",
-                 false, {}, SignInStep::Qr, nullptr, true);
+                 false, {}, SignInStep::Qr, nullptr, true, true);
         else
-          Update(AuthState::Failed, "Account storage is unavailable. Retrying your saved sign-in…");
+          Update(AuthState::Failed, "Account storage is unavailable. Retrying your saved sign-in…", false, {}, SignInStep::Qr,
+                 nullptr, false, true);
         break;
       }
       retry_saved_session_ = false;
@@ -1908,9 +1909,15 @@ void Controller::Apply(const steam::SteamEvent& event) {
       else if (restoring && event.error == steam::AuthError::kNoSession) Update(AuthState::SignedOut,{},true);
       else if (restoring && (event.error == steam::AuthError::kRejected || event.error == steam::AuthError::kCredentialsRevoked)) {
         // Steam no longer accepts the saved session: show a new QR code right away
-        // instead of a failure the player can only retry.
-        Update(AuthState::SignedOut,{},true);
-        Begin();
+        // instead of a failure the player can only retry. With another store's games to play,
+        // Playden stays on Home and says so; Sign in is in Settings.
+        if (model_.HasGamesBeyondSteam()) {
+          Update(AuthState::SignedOut,"Steam ended your saved sign-in. Sign in again from Settings.",true,{},
+                 SignInStep::Qr,nullptr,false,true);
+        } else {
+          Update(AuthState::SignedOut,{},true);
+          Begin();
+        }
       }
       else if (event.error == steam::AuthError::kCanceled) Update(AuthState::Cancelled,{},true);
       else if (event.error == steam::AuthError::kExpired) Update(AuthState::Expired,diagnostics::AuthMessage(event.error),true);

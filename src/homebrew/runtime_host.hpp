@@ -534,9 +534,8 @@ class RuntimeHost {
   std::string SteamStubStep(const GameFiles& files);
   std::string SteamworksStep(const GameFiles& files, bool steam_account_known);  // and the legacy steam.dll
   std::string InstallScriptsStep(const GameFiles& files);                        // and redistributables
-  // The Steam app ID the game's emulator uses; *folders: where a game from another store's own
-  // steam_appid.txt is looked for, in order.
-  SteamworksAppView SteamworksAppFor(const GameFiles& files, std::vector<std::filesystem::path>* folders) const;
+  // The Steam app ID the game's emulator uses.
+  SteamworksAppView SteamworksAppFor(const GameFiles& files) const;
   // Empty while the kit on disk is the one admitted at startup; otherwise what to tell the player.
   std::string KitReplaced(const Composition& composition) const;
   // Makes an owned, world-writable folder from root down to working 0755 (dxvk.conf goes there).
@@ -647,7 +646,7 @@ class RuntimeHost {
   void* thread_ = nullptr;  // pthread_t storage, owned by the implementation
 };
 
-// Canonical random (version 4) UUID from /dev/urandom, or nothing.
+// Canonical random (version 4) UUID from /dev/urandom, or nothing (platform/random_id.h).
 std::optional<std::string> RandomUuid();
 
 }  // namespace playden::homebrew
