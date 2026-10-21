@@ -8,7 +8,7 @@ import sys
 
 root = pathlib.Path(__file__).resolve().parents[1]
 package = root / "fixtures/ui-comparison"
-frozen_commit = "2d161059540c1c73c61cfb2ffebb8a0e4efcecd1"
+frozen_commit = "536c7dcdce652aec2445a0ca77c0104d46fdeb9f"  # the public 0.1.0 commit; the package has not changed since
 failures = []
 checked = 0
 for digest, name in re.findall(r"^([0-9a-f]{64})  (.+)$", (package / "README.md").read_text(), re.M):
@@ -23,4 +23,4 @@ for name in subprocess.check_output(["git", "ls-tree", "-r", "--name-only", froz
 if failures:
     print("\n".join(failures), file=sys.stderr)
     sys.exit(1)
-print(f"PASS: {checked} hashes; all package files identical to Agent A's {frozen_commit}")
+print(f"PASS: {checked} hashes; all package files identical to {frozen_commit}")
