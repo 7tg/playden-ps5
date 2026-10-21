@@ -13,6 +13,7 @@
 #include "runtime/redist_install.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include "runtime/layout_migration.h"
@@ -113,9 +114,12 @@ struct RuntimeHostConfig {
   // Named by the game, so a runtime number never reaches a store's artwork.
   std::function<std::optional<std::string>(const GameId& game)> title_icon;
   // One ranged HTTPS GET for what Playden downloads for a game's bottle: Microsoft's Visual C++ redistributable,
-  // for a game whose files import MFC (runtime/redist_install.h). Runs on the worker, while Play or a preparation
-  // waits. Empty: nothing is downloaded, and such games start without MFC.
-  runtime::RangeFetch fetch_range;
+  // for a game whose files import MFC (runtime/redist_install.h). Runs on the worker, only for work the player
+  // started (Play, Prepare, maintenance), never at start-up; it should give up soon after cancel turns true
+  // (Shutdown). Empty: nothing is downloaded, and such games start without MFC.
+  std::function<std::optional<std::string>(const std::string& url, std::uint64_t offset, std::uint64_t length,
+                                           const std::atomic<bool>& cancel, std::string* error)>
+      fetch_range;
   // The redistributables MFC comes from, by architecture; kept under <console data>/playden/redist.
   std::vector<runtime::VcRedist> vc_redists = runtime::MicrosoftVcRedists();
   // How long a failed download is not tried again (a preparation runs its steps more than once).
@@ -333,6 +337,9 @@ struct RuntimeSnapshot {
   // What Play does before the launch is requested, per runtime number, while it runs: a game whose
   // folder moved in Playden 0.6 is republished first (kPlayUpdatingForLayout).
   std::map<std::uint32_t, std::string> play_progress;
+  // What the latest Play from Playden went ahead without, per runtime number (Microsoft's MFC that could not be
+  // downloaded): Play still starts the game, and the player sees why it may stop.
+  std::map<std::uint32_t, std::string> play_notices;
   // The Steam app ID each game from another store was last prepared with, by runtime number. Steam
   // games are not listed: theirs is their own.
   std::map<std::uint32_t, SteamworksAppView> steamworks_apps;
@@ -345,6 +352,9 @@ inline bool PrepareQueued(const RuntimeSnapshot& snapshot, std::uint32_t runtime
 }
 
 inline constexpr const char* kPlayUpdatingForLayout = "Updating this game for Playden 0.6…";
+inline constexpr const char* kPlayDownloadingMfc = "Downloading Microsoft's MFC for this game…";
+inline constexpr const char* kPlayMfcNotDownloaded = "Microsoft's MFC could not be downloaded. Play again to retry.";
+inline constexpr const char* kPlayMfcNotInstalled = "Microsoft's MFC could not be installed for this game.";
 
 // A downloaded game to prepare. The game files stay at install_path.
 struct RuntimePrepareRequest {
@@ -645,6 +655,18 @@ class RuntimeHost {
   // When each redistributable's download last failed (worker only): a preparation runs its steps more than once,
   // and Play shouldn't wait for a network that just failed.
   std::map<std::string, std::chrono::steady_clock::time_point> redist_download_failed_;
+  // What the work in progress lets MfcStep do (worker only; RedistWorkScope sets it): download only for work the
+  // player started, never at start-up or for other background republishing. play_app: the Play that waits, for
+  // its progress line; notice: what that Play went ahead without.
+  struct RedistWork {
+    bool downloads = false;
+    std::optional<std::uint32_t> play_app;
+    std::string notice;
+  };
+  RedistWork redist_work_;
+  struct RedistWorkScope;
+  // Set by Shutdown: a download in progress gives up.
+  std::atomic<bool> cancel_downloads_{false};
   mutable std::mutex mutex_;
   std::condition_variable wake_;
   std::condition_variable published_;  // notified on every Publish

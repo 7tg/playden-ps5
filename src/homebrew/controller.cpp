@@ -1242,6 +1242,10 @@ void Controller::TickRuntime() {
         case LaunchState::kIdle: break;
       }
     }
+    // What the latest Play went ahead without (Microsoft's MFC), unless something newer is said.
+    if (const auto notice = snapshot.play_notices.find(NumberIn(snapshot, id));
+        notice != snapshot.play_notices.end() && game.play_detail.empty())
+      game.play_detail = notice->second;
     // One launch at a time: Play waits while any session is undecided.
     const bool busy = snapshot.launch && (snapshot.launch->state == runtime::LaunchState::kWaitingForCloud ||
                                           snapshot.launch->state == runtime::LaunchState::kReadyToHandoff ||

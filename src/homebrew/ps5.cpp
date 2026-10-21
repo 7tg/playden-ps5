@@ -512,10 +512,9 @@ int main() {
             // hand to other HTTPS addresses; the bytes are checked against their pinned SHA-256 afterwards.
             config.fetch_range = [client = std::make_shared<std::unique_ptr<playden::steam::HttpClient>>(),
                                   trust = paths.trust_store](const std::string& url, std::uint64_t offset,
-                                                             std::uint64_t length,
+                                                             std::uint64_t length, const std::atomic<bool>& cancel,
                                                              std::string* error) -> std::optional<std::string> {
                 if (!*client) *client = std::make_unique<playden::steam::HttpClient>(trust);
-                static const std::atomic<bool> never{false};
                 std::string target = url;
                 for (int hop = 0; hop <= 5; ++hop) {
                     playden::steam::HttpRequest request;
@@ -524,7 +523,7 @@ int main() {
                                        {"Range", "bytes=" + std::to_string(offset) + "-" + std::to_string(offset + length - 1)}};
                     request.timeout_ms = playden::steam::kMaxHttpTimeoutMs;
                     request.max_response_bytes = static_cast<std::size_t>(length) + 1;
-                    const auto response = (*client)->Perform(request, never);
+                    const auto response = (*client)->Perform(request, cancel);
                     const long status = response.status_code;
                     if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
                         target.clear();

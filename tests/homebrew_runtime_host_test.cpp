@@ -3222,8 +3222,9 @@ std::string ImportingDll(bool pe64, const std::string& import) {
 }
 
 // A game whose plugin imports Microsoft's MFC gets MFC's files in its bottle from the Visual C++ redistributable.
-// An upgrade, not a condition: the preparation that can't download it still ends Ready, and the next Play installs
-// it (also for a game prepared before Playden knew of MFC); later Plays neither download nor install it again.
+// An upgrade, not a condition: the preparation that can't download it still ends Ready. Start-up never downloads
+// (settings published there leave MFC for Play); a Play that can't download it still starts the game with a notice,
+// and the next Play installs it with a progress line; later Plays neither walk the folder nor download again.
 void PlayInstallsMfcForGameThatImportsIt() {
   Fixture fixture;
   auto config = fixture.Config();
@@ -3241,7 +3242,7 @@ void PlayInstallsMfcForGameThatImportsIt() {
   config.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
   unsigned uuids = 0;
   config.uuid = [&uuids]() -> std::optional<std::string> {
-    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+    ++uuids; return "00000000-0000-4000-8000-" + std::string(11 - std::to_string(uuids).size(), '0') + "1" + std::to_string(uuids);
   };
   config.unix_time = [] { return std::int64_t{1760000000}; };
   std::string session;
@@ -3249,17 +3250,19 @@ void PlayInstallsMfcForGameThatImportsIt() {
     session = arguments.at(0).substr(8);  // "session=<UUID>"
     return TitleResult{true, 0, "launch"};
   };
+  GameSettingsRecord saved;
+  config.settings_record = [&saved](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
   std::vector<std::string> lines;
   std::mutex lines_mutex;
   config.log = [&](const std::string& line) {
     std::lock_guard<std::mutex> lock(lines_mutex);
     lines.push_back(line);
   };
-  const auto mfc_lines = [&] {
+  const auto logged = [&](const char* prefix) {
     std::lock_guard<std::mutex> lock(lines_mutex);
     std::vector<std::string> found;
     for (const auto& line : lines)
-      if (line.rfind("mfc ", 0) == 0) found.push_back(line);
+      if (line.rfind(prefix, 0) == 0) found.push_back(line);
     return found;
   };
   // Microsoft's bundles stand in for by synthetic ones, at their own pinned hashes.
@@ -3272,9 +3275,15 @@ void PlayInstallsMfcForGameThatImportsIt() {
   config.redist_retry_wait = std::chrono::seconds(1);
   std::atomic<bool> online{false};
   std::atomic<int> fetches{0};
-  config.fetch_range = [&](const std::string& url, std::uint64_t offset, std::uint64_t length,
+  std::atomic<RuntimeHost*> current_host{nullptr};
+  std::atomic<bool> progress_shown{false};
+  config.fetch_range = [&](const std::string& url, std::uint64_t offset, std::uint64_t length, const std::atomic<bool>&,
                            std::string* error) -> std::optional<std::string> {
     ++fetches;
+    if (auto* host = current_host.load()) {
+      const auto progress = host->Snapshot().play_progress;
+      if (progress.count(220) && progress.at(220) == kPlayDownloadingMfc) progress_shown = true;
+    }
     if (!online) {
       *error = "offline";
       return std::nullopt;
@@ -3285,59 +3294,88 @@ void PlayInstallsMfcForGameThatImportsIt() {
   const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
   Write(game / "hl2.exe", "existing-game", 0644);
   Write(game / "bin/chroma.dll", ImportingDll(true, "MFC140U.dll"), 0644);
+  const auto windows = fixture.root / "data/playden/games/steam-220/library/prefixes/game/drive_c/windows";
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+    }, 60);
+    if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+    CHECK(!done.refusals.count(220) && done.installs.size() == 1);
+    const auto upgrades = logged("mfc upgrade ");
+    CHECK(upgrades.size() == 2);
+    CHECK(upgrades[0] == "mfc upgrade app=220 arch=x64 program=bin/chroma.dll skipped: the download failed at byte 0: offline");
+    // Three attempts; the preparation's later pass over its steps doesn't wait for the network again.
+    CHECK(upgrades[1] == "mfc upgrade app=220 arch=x64 program=bin/chroma.dll skipped: its download failed 0 s ago; "
+                         "it is tried again from 1 s");
+    CHECK(fetches == 3);
+    CHECK(logged("mfc scan app=220 programs=").size() >= 1);
+    CHECK(!fs::exists(windows / "system32/mfc140u.dll"));
+    host.Shutdown();
+  }
+  // Settings saved while Playden was closed are published at start-up, which doesn't download.
+  saved.revision = 1;
+  saved.overrides = {{"resolution", "1280x720"}};
+  online = true;
   RuntimeHost host(config);
+  current_host = &host;
   CHECK(host.Start());
   CHECK(WaitFor(host, Started).kit_available);
-  host.Prepare(Hl2());
-  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
-    return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
-  }, 60);
-  if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
-  CHECK(!done.refusals.count(220) && done.installs.size() == 1);
-  auto logged = mfc_lines();
-  CHECK(logged.size() == 2);
-  CHECK(logged[0] == "mfc upgrade app=220 arch=x64 program=bin/chroma.dll skipped: the download failed at byte 0: offline");
-  // Three attempts; the preparation's later pass over its steps doesn't wait for the network again.
-  CHECK(logged[1] == "mfc upgrade app=220 arch=x64 program=bin/chroma.dll skipped: its download failed 0 s ago; "
-                     "it is tried again from 1 s");
+  CHECK(!logged("startup settings app=220 applied").empty());
   CHECK(fetches == 3);
-  const auto windows = fixture.root / "data/playden/games/steam-220/library/prefixes/game/drive_c/windows";
-  CHECK(!fs::exists(windows / "system32/mfc140u.dll"));
+  CHECK(logged("mfc upgrade ").back() ==
+        "mfc upgrade app=220 arch=x64 program=bin/chroma.dll waits for Play: start-up and background work don't download");
+  const auto end_session = [&] {
+    const auto sessions = fixture.root / "data/playden/games/steam-220/logs/sessions";
+    fs::create_directories(sessions);
+    CHECK(chmod((fixture.root / "data/playden/games/steam-220/logs").c_str(), 0700) == 0);
+    CHECK(chmod(sessions.c_str(), 0700) == 0);
+    Write(sessions / (session + ".json"),
+          R"({"schema_version":1,"session_id":")" + session +
+              R"(","install_id":"steam-220","title_id":"FAKE78001","origin":"playden","settings_revision":1,)"
+              R"("runtime_bundle_id":"wine-wow64","phase":"exited"})" "\n", 0600);
+    WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kExited; }, 30);
+  };
+  // A Play that can't download it still starts the game, and says why it may stop.
+  online = false;
+  host.Play(220);
+  auto played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(played.play_notices.count(220) && played.play_notices.at(220) == kPlayMfcNotDownloaded);
+  CHECK(!played.play_progress.count(220) && progress_shown);
+  CHECK(host.Handoff());
+  end_session();
 
   // The game updates with a 32-bit tool that needs MFC as well; the next Play installs both.
   Write(game / "tools/editor.dll", ImportingDll(false, "mfc140.dll"), 0644);
   online = true;
-  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  progress_shown = false;
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));  // past the retry wait
   host.Play(220);
-  WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  played = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(progress_shown && !played.play_progress.count(220) && !played.play_notices.count(220));
   CHECK(Read(windows / "system32/mfc140u.dll") == "MFC64U" && Read(windows / "system32/mfcm140.dll") == "MFCM64");
   CHECK(Read(windows / "syswow64/mfc140u.dll") == "MFC32U");
   CHECK(!fs::exists(windows / "system32/msvcp140.dll") && !fs::exists(windows / "syswow64/msvcp140.dll"));
   CHECK(Read(fixture.root / "data/playden/redist/vc-14.44.35211/x64/VC_redist.x64.exe") == x64_bundle);
   CHECK(Read(fixture.root / "data/playden/redist/vc-14.44.35211/x86/VC_redist.x86.exe") == x86_bundle);
-  logged = mfc_lines();
-  CHECK(logged.size() >= 3);
-  CHECK(logged[logged.size() - 2].rfind("mfc upgrade app=220 arch=x86 program=tools/editor.dll installed files=2 from=download ms=", 0) == 0);
-  CHECK(logged.back().rfind("mfc upgrade app=220 arch=x64 program=bin/chroma.dll installed files=2 from=download ms=", 0) == 0);
+  auto upgrades = logged("mfc upgrade ");
+  CHECK(upgrades[upgrades.size() - 2].rfind("mfc upgrade app=220 arch=x86 program=tools/editor.dll installed files=2 from=download ms=", 0) == 0);
+  CHECK(upgrades.back().rfind("mfc upgrade app=220 arch=x64 program=bin/chroma.dll installed files=2 from=download ms=", 0) == 0);
   CHECK(host.Handoff());
-  // The game runs and exits (the wrapper's session record).
-  const auto sessions = fixture.root / "data/playden/games/steam-220/logs/sessions";
-  fs::create_directories(sessions);
-  CHECK(chmod((fixture.root / "data/playden/games/steam-220/logs").c_str(), 0700) == 0);
-  CHECK(chmod(sessions.c_str(), 0700) == 0);
-  Write(sessions / (session + ".json"),
-        R"({"schema_version":1,"session_id":")" + session +
-            R"(","install_id":"steam-220","title_id":"FAKE78001","origin":"playden","settings_revision":0,)"
-            R"("runtime_bundle_id":"wine-wow64","phase":"exited"})" "\n", 0600);
-  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kExited; }, 30);
-  // Installed once: the next Play only finds it there, without the kept download.
-  const auto count = logged.size();
+  end_session();
+
+  // Installed once: the next Play neither walks the game folder nor downloads, even without the kept copy.
+  const auto count = logged("mfc ").size();
   const int fetched = fetches;
   fs::remove_all(fixture.root / "data/playden/redist");
   host.Play(220);
   WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
-  CHECK(mfc_lines().size() == count && fetches == fetched);
+  CHECK(logged("mfc ").size() == count && fetches == fetched);
   CHECK(Read(windows / "system32/mfc140u.dll") == "MFC64U");
+  current_host = nullptr;
   host.Shutdown();
 }
 

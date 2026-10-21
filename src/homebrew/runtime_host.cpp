@@ -372,6 +372,7 @@ bool RuntimeHost::Start() {
 
 void RuntimeHost::Shutdown() {
   pthread_t* thread = nullptr;
+  cancel_downloads_ = true;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stopping_ = true;
@@ -891,14 +892,27 @@ std::string RuntimeHost::InstallScriptsStep(const GameFiles& files) {
   return {};
 }
 
+// Sets what MfcStep may do for the work in its scope (RedistWork), and puts the default back after it.
+struct RuntimeHost::RedistWorkScope {
+  RedistWork& work;
+  RedistWorkScope(RedistWork& target, bool downloads, std::optional<std::uint32_t> play_app = std::nullopt)
+      : work(target) {
+    work = RedistWork{downloads, play_app, {}};
+  }
+  ~RedistWorkScope() { work = RedistWork{}; }
+  RedistWorkScope(const RedistWorkScope&) = delete;
+  RedistWorkScope& operator=(const RedistWorkScope&) = delete;
+};
+
 // Generic step: Microsoft's MFC for a game whose files import it (Wine has none; a Unity plugin of Moonlighter's
 // stops the game without it), downloaded once per console and installed into the bottle once. An upgrade, not a
-// condition: a failed download or install is logged, the game still starts, and the next Play tries again.
+// condition: a failed download or install is logged, the game still starts, and the next Play tries again. Only
+// work the player started downloads (redist_work_); start-up and other background work install from a kept copy
+// or leave it for Play.
 void RuntimeHost::MfcStep(const GameFiles& files) {
-  const auto needs = rt::FindMfcImports(files.root.string());
   const auto app = std::to_string(files.record.runtime_number);
-  if (needs.truncated) Log("mfc scan app=" + app + " stopped after " + std::to_string(needs.programs) + " programs");
-  if (needs.x86_program.empty() && needs.x64_program.empty()) return;
+  struct stat hive {};
+  if (::lstat((files.prefix + "/system.reg").c_str(), &hive) != 0) return;  // the bottle comes later
   // Paths come from the game's files: one line each, whatever they hold.
   const auto field = [](std::string text) {
     if (text.size() > 240) text.resize(240);
@@ -906,44 +920,87 @@ void RuntimeHost::MfcStep(const GameFiles& files) {
       if (static_cast<unsigned char>(value) < 0x20 || value == 0x7f) value = '?';
     return text;
   };
-  struct stat hive {};
-  if (::lstat((files.prefix + "/system.reg").c_str(), &hive) != 0) {
-    Log("mfc upgrade app=" + app + " skipped: the bottle is not made yet");
-    return;
+  const auto redist_for = [&](const char* architecture) -> const rt::VcRedist* {
+    for (const auto& candidate : config_.vc_redists)
+      if (candidate.architecture == architecture) return &candidate;
+    return nullptr;
+  };
+  // The latest scan stands while the game's files are the ones it read, or while everything it found is
+  // installed; otherwise the folder is walked again.
+  const auto fingerprint = rt::GameFilesFingerprint(files.root.string());
+  auto scan = rt::ReadMfcScan(files.prefix);
+  const auto installed = [&](const std::string& program, const char* architecture) {
+    const auto* redist = redist_for(architecture);
+    return program.empty() || (redist && rt::MfcInstalled(*redist, files.prefix));
+  };
+  const bool reuse = scan && ((!fingerprint.empty() && scan->fingerprint == fingerprint) ||
+                              ((!scan->x86_program.empty() || !scan->x64_program.empty()) &&
+                               installed(scan->x86_program, "x86") && installed(scan->x64_program, "x64")));
+  if (!reuse) {
+    const auto began = std::chrono::steady_clock::now();
+    const auto found = rt::FindMfcImports(files.root.string());
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count();
+    Log("mfc scan app=" + app + " programs=" + std::to_string(found.programs) + " folders=" + std::to_string(found.folders) +
+        " ms=" + std::to_string(ms) + (found.truncated ? " stopped early" : "") + " x86=" +
+        (found.x86_program.empty() ? "-" : field(found.x86_program)) + " x64=" +
+        (found.x64_program.empty() ? "-" : field(found.x64_program)));
+    scan = rt::MfcScanRecord{fingerprint, found.x86_program, found.x64_program};
+    if (!rt::WriteMfcScan(files.prefix, *scan)) Log("mfc scan app=" + app + " could not be kept in the bottle");
   }
   const auto cache = HostPath(config_.package_paths.console_data_root + "/playden/redist").string();
-  for (const auto& [architecture, program] : {std::pair<std::string, std::string>{"x86", needs.x86_program},
-                                              std::pair<std::string, std::string>{"x64", needs.x64_program}}) {
+  for (const auto& [architecture, program] : {std::pair<const char*, std::string>{"x86", scan->x86_program},
+                                              std::pair<const char*, std::string>{"x64", scan->x64_program}}) {
     if (program.empty()) continue;
-    const auto redist = std::find_if(config_.vc_redists.begin(), config_.vc_redists.end(),
-                                     [&](const rt::VcRedist& candidate) { return candidate.architecture == architecture; });
+    const auto* redist = redist_for(architecture);
     const auto line = "mfc upgrade app=" + app + " arch=" + architecture + " program=" + field(program);
-    if (redist == config_.vc_redists.end()) {
+    if (!redist) {
       Log(line + " skipped: no redistributable for it");
       continue;
     }
+    if (rt::MfcInstalled(*redist, files.prefix)) continue;
     // A download that failed a moment ago (the same preparation, or a Play right after) isn't tried again yet;
     // a kept copy still installs.
     const auto began = std::chrono::steady_clock::now();
     const auto failed = redist_download_failed_.find(redist->sha256);
     const bool waits = failed != redist_download_failed_.end() && began - failed->second < config_.redist_retry_wait;
-    const auto result = rt::InstallMfcRuntime(*redist, cache, files.prefix, waits ? rt::RangeFetch{} : config_.fetch_range,
-                                              config_.unix_time());
-    if (result.result == "already") continue;
+    const bool downloads = redist_work_.downloads && !waits && config_.fetch_range;
+    bool shown = false;
+    rt::RangeFetch fetch;
+    if (downloads)
+      fetch = [&](const std::string& url, std::uint64_t offset, std::uint64_t length, std::string* error) -> std::optional<std::string> {
+        if (cancel_downloads_) {
+          *error = "Playden is closing";
+          return std::nullopt;
+        }
+        if (redist_work_.play_app && !shown) {
+          shown = true;
+          Publish([&](RuntimeSnapshot& s) { s.play_progress[*redist_work_.play_app] = kPlayDownloadingMfc; });
+        }
+        return config_.fetch_range(url, offset, length, cancel_downloads_, error);
+      };
+    const auto result = rt::InstallMfcRuntime(*redist, cache, files.prefix, fetch, config_.unix_time());
+    if (shown) Publish([&](RuntimeSnapshot& s) { s.play_progress.erase(*redist_work_.play_app); });
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count();
-    if (result.result != "installed") {
-      if (result.download_failed) redist_download_failed_[redist->sha256] = std::chrono::steady_clock::now();
-      if (waits && !result.download_failed)
-        Log(line + " skipped: its download failed " +
-            std::to_string(std::chrono::duration_cast<std::chrono::seconds>(began - failed->second).count()) +
-            " s ago; it is tried again from " + std::to_string(config_.redist_retry_wait.count()) + " s");
-      else
-        Log(line + " skipped: " + result.detail);
+    if (result.result == "already") continue;
+    if (result.result == "installed") {
+      redist_download_failed_.erase(redist->sha256);
+      Log(line + " installed files=" + std::to_string(result.files) + " from=" + result.source + " ms=" + std::to_string(ms) +
+          (result.cache_problem.empty() ? std::string() : " not kept: " + result.cache_problem));
       continue;
     }
-    redist_download_failed_.erase(redist->sha256);
-    Log(line + " installed files=" + std::to_string(result.files) + " from=" + result.source + " ms=" + std::to_string(ms) +
-        (result.cache_problem.empty() ? std::string() : " not kept: " + result.cache_problem));
+    if (result.download_failed) redist_download_failed_[redist->sha256] = std::chrono::steady_clock::now();
+    const bool not_downloaded = !fetch && !waits;  // no kept copy, and this work doesn't download
+    if (not_downloaded)
+      Log(line + " waits for Play: " + (redist_work_.downloads ? std::string("Playden can't download here")
+                                                                 : std::string("start-up and background work don't download")));
+    else if (waits && !result.download_failed)
+      Log(line + " skipped: its download failed " +
+          std::to_string(std::chrono::duration_cast<std::chrono::seconds>(began - failed->second).count()) +
+          " s ago; it is tried again from " + std::to_string(config_.redist_retry_wait.count()) + " s");
+    else
+      Log(line + " skipped: " + result.detail);
+    if (redist_work_.play_app)
+      redist_work_.notice = result.download_failed || waits || not_downloaded ? kPlayMfcNotDownloaded : kPlayMfcNotInstalled;
   }
 }
 
@@ -2149,6 +2206,8 @@ void RuntimeHost::PublishLaunch(Composition& c, const rt::LaunchSnapshot& launch
 }
 
 void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
+  // The player waits on this Play: Microsoft's MFC may be downloaded for it, with a progress line.
+  RedistWorkScope redist(redist_work_, true, app_id);
   std::optional<rt::RuntimeInstall> record;
   for (const auto& candidate : c.repository.Snapshot())
     if (candidate.runtime_number == app_id) record = candidate;
@@ -2212,6 +2271,9 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
     ++s.plays_handled;
     if (result.accepted) s.play_refusals.erase(app_id);
     else s.play_refusals[app_id] = result.message.empty() ? "The game could not start." : result.message;
+    // What it went ahead without (Microsoft's MFC), until a Play gets it.
+    if (result.accepted && !redist_work_.notice.empty()) s.play_notices[app_id] = redist_work_.notice;
+    else if (result.accepted) s.play_notices.erase(app_id);
   });
   Log("play request app=" + std::to_string(app_id) + " accepted=" + std::to_string(result.accepted) +
       " session=" + result.session_id + " code=" + result.code + " message=" + result.message);
@@ -3979,6 +4041,7 @@ void RuntimeHost::Run() {
     }
     for (const auto& [app, action] : maintenance) {
       bool ok = false;
+      RedistWorkScope redist(redist_work_, true);  // the player asked for it
       const auto message = composition ? RunMaintenance(*composition, app, action, &ok)
                                        : std::string("The runtime services are unavailable.");
       Log("maintenance app=" + std::to_string(app) + " action=" + std::to_string(static_cast<int>(action)) +
@@ -4046,6 +4109,7 @@ void RuntimeHost::Run() {
         const auto current = Snapshot();
         refusal = current.reason.empty() ? "The runtime services are unavailable." : current.reason;
       } else {
+        RedistWorkScope redist(redist_work_, true);  // Prepare, Update and Recreate: the player asked for them
         refusal = RunPrepare(*composition, request, &awaiting);
         // A resumed publication of a moved game may have been the last the 0.6 move waited for.
         FinishGamesMove(*composition);
