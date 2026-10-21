@@ -39,7 +39,7 @@ struct KitPart {
   std::string revision;         // "r9"
   std::string manifest_sha256;  // the kit's manifest.json SHA-256
   std::string asset;            // release asset name
-  std::string prefix;           // folder inside the zip ("playden-kit-0.11/hl2-fw1360-dev1/")
+  std::string prefix;           // folder inside the zip ("playden-kit-0.12/hl2-fw1360-dev1/")
 };
 
 struct UpdateManifest {

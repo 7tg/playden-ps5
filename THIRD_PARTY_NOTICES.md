@@ -10,12 +10,12 @@ These are compiled into Playden's PS5 package (`FAKE77031`) or copied into it.
 
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
-| ps5-homebrew-ui | fork `0a6fb4b` | GPL-3.0 | [blackbearreloaded/ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui), our fork in `third_party/ps5-homebrew-ui` |
-| ps5-opengl (`libPS5OpenGL`) | 1.0.0, fork `7234923` | GPL-3.0 | [blackbearreloaded/ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl), our fork in `third_party/ps5-opengl` |
+| ps5-homebrew-ui | fork `0a6fb4b` | GPL-3.0 | [blackbearreloaded/ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui), my fork in `third_party/ps5-homebrew-ui` |
+| ps5-opengl (`libPS5OpenGL`) | 1.0.0, fork `7234923` | GPL-3.0 | [blackbearreloaded/ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl), my fork in `third_party/ps5-opengl` |
 | ps5-native-app-boilerplate (build tools and `libc.prx`) | `f98de73` | GPL-3.0 | [blackbearreloaded/ps5-native-app-boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate) |
 | ProsperoStore's system keyboard (adapted in `src/platform/ps5/system_keyboard.cpp` and `common_dialog_stub.cpp`) | `f73ec17` | GPL-3.0 | [blackbearreloaded/ProsperoStore](https://github.com/blackbearreloaded/ProsperoStore) |
 | ps5-payload-sdk | v0.43 (v0.42 for the root helper) | GPL-3.0 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) |
-| PS5-Lapy-JB-Daemon (root helper, `lapy.elf`) | fork `66ab4f1` | MIT, Copyright (c) 2026 Arksama (Team PHU) | [mpereiraesaa/PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon), our fork in `third_party/PS5-Lapy-JB-Daemon` |
+| PS5-Lapy-JB-Daemon (root helper, `lapy.elf`) | fork `66ab4f1` | MIT, Copyright (c) 2026 Arksama (Team PHU) | [mpereiraesaa/PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon), my fork in `third_party/PS5-Lapy-JB-Daemon` |
 | curl | 8.22.0, with a PS5 non-blocking patch | curl license (MIT-style) | [curl.se](https://curl.se/) |
 | Mbed TLS | 3.6.6 | Apache-2.0 | [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) |
 | CA certificate bundle (`trust/cacert.pem`) | 2026-09-25 | MPL-2.0 | Mozilla's root store, as extracted by [curl](https://curl.se/docs/caextract.html) |
@@ -47,12 +47,12 @@ revisions it was built from and includes their license texts in `LICENSES/`, and
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
 | Wine | upstream with the prospero-win patch series | LGPL-2.1-or-later | [winehq.org](https://www.winehq.org/), patches in prospero-win `wine/patches/` |
-| prospero-win (Wine's PS5 side, the 32-bit translator, the per-game app shell) | kit 0.11: Wine and runtime `d0e60e8`, app shell `4a1aa7a` | LGPL-2.1 | [mpereiraesaa/prospero-win](https://github.com/mpereiraesaa/prospero-win), our fork [leolobato/prospero-win](https://github.com/leolobato/prospero-win) |
-| prospero-foundation (native app tools for the per-game app shell) | kit 0.11: `9c0b994` | GPL-3.0 | Fork of [mpereiraesaa/ps5-native-app-boilerplate](https://github.com/mpereiraesaa/ps5-native-app-boilerplate) |
+| prospero-win (Wine's PS5 side, the 32-bit translator, the per-game app shell) | kit 0.12: Wine and runtime `f729534`, app shell `f729534` | LGPL-2.1 | [mpereiraesaa/prospero-win](https://github.com/mpereiraesaa/prospero-win), my fork [leolobato/prospero-win](https://github.com/leolobato/prospero-win) |
+| prospero-foundation (native app tools for the per-game app shell) | kit 0.12: `9c0b994` | GPL-3.0 | Fork of [mpereiraesaa/ps5-native-app-boilerplate](https://github.com/mpereiraesaa/ps5-native-app-boilerplate) |
 | DXVK | 2.6.2 | Zlib | [doitsujin/dxvk](https://github.com/doitsujin/dxvk) |
 | vkd3d-proton (Direct3D 12 for games set to it), with dxil-spirv and dxbc-spirv | 3.0.1 (`3b10bd7`), unmodified | LGPL-2.1-or-later; MIT (dxil-spirv, dxbc-spirv); Apache-2.0 and MIT (Khronos SPIR-V and Vulkan headers and tools) | [HansKristian-Work/vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton) |
 | Mesa (WGL and Zink, for OpenGL games) | PS5_Mesa `e4607ef` | MIT | [mpereiraesaa/PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa), based on [Mesa](https://mesa3d.org/) |
-| RADV for the PS5 (`libvulkan.prx`) | PS5_Vulkan `8aee3af`, PS5_Mesa `01d7057` | GPL-3.0 (PS5_Vulkan); MIT (Mesa) | [mpereiraesaa/PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan), [mpereiraesaa/PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa) |
+| RADV for the PS5 (`libvulkan.prx`) | PS5_Vulkan `8aee3af`, PS5_Mesa `156e555` (`01d7057` with 120 Hz output) | GPL-3.0 (PS5_Vulkan); MIT (Mesa) | [mpereiraesaa/PS5_Vulkan](https://github.com/mpereiraesaa/PS5_Vulkan), [mpereiraesaa/PS5_Mesa](https://github.com/mpereiraesaa/PS5_Mesa), my fork [leolobato/PS5_Mesa](https://github.com/leolobato/PS5_Mesa) |
 | Wine Mono (the .NET runtime for Windows programs) | 11.3.0, unmodified | MIT for most of it; parts of Mono are LGPL, FNA is MIT and MS-PL (see its `COPYING`) | [wine-mono/wine-mono](https://github.com/wine-mono/wine-mono), [release archive](https://dl.winehq.org/wine/wine-mono/11.3.0/) |
 | GnuTLS, with its libtasn1 | 3.8.13 | LGPL-2.1-or-later | [gnutls.org](https://www.gnutls.org/) |
 | Nettle, with its mini-gmp | 3.10.2 | LGPL-3.0-or-later or GPL-2.0-or-later | [lysator.liu.se/~nisse/nettle](https://www.lysator.liu.se/~nisse/nettle/) |
