@@ -599,7 +599,7 @@ if(BUILD_TESTING)
     add_executable(homebrew_account_test
         "${CMAKE_SOURCE_DIR}/tests/homebrew_account_test.cpp")
     target_compile_features(homebrew_account_test PRIVATE cxx_std_20)
-    target_link_libraries(homebrew_account_test PRIVATE playden_homebrew_controller)
+    target_link_libraries(homebrew_account_test PRIVATE playden_homebrew_controller playden_local_session_repository)
     add_test(NAME homebrew_account COMMAND homebrew_account_test)
 
     add_executable(library_controller_test "${CMAKE_SOURCE_DIR}/tests/library_controller_test.cpp")

@@ -1,4 +1,5 @@
 #include "homebrew/controller.hpp"
+#include "steam/local_session_repository.h"
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -722,4 +723,70 @@ void TitleNamesCarryTheirStore() {
   assert(TitleStoreSuffix(Store::kGog)==" (GOG)" && TitleStoreSuffix(Store::kEpic)==" (Epic)");
   assert(TitleStoreSuffix(Store::kLocal).empty());
 }
-int main() { TitleNamesCarryTheirStore(); NoSteamSessionWithOtherGamesOpensHome(); FailedRestoreWithOtherGamesOpensHome(); OtherRestoreFailuresWithOtherGamesOpenHome(); SteamSignOutKeepsOtherGames(); PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); LicenseChangesRefreshTheLibrary(); OfflineRefreshFromTheLibraryReconnects(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }
+// "Stay signed in" off on the sign-in screen: the token stays in memory, session.v1 never appears,
+// and the next start asks for a sign-in again.
+void StaySignedInOffKeepsTheTokenInMemory() {
+  const auto root=std::filesystem::temp_directory_path()/("playden-stay-signed-in-"+std::to_string(getpid()));
+  std::filesystem::remove_all(root); std::filesystem::create_directories(root);
+  const auto file=root/"session.v1";
+  {
+    SessionVault vault;
+    LocalSessionRepository repo(root.string(),{},&vault);
+    LocalSessionRepository library(root.string(),{},&vault);
+    Simulation model({}, {},ModelMode::Live); Backend backend;
+    Controller controller(model,backend,repo);
+    controller.SetStaySignedIn([&](bool stay) { assert(repo.SetPersist(stay).ok()); });
+    Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedOut;});
+    Connect(model); controller.Tick();
+    const auto stay=[&]{
+      const auto& rows=model.view().rows;
+      return std::find_if(rows.begin(),rows.end(),[](const ViewRow& row){return row.key=="signin-stay";});
+    };
+    assert(stay()!=model.view().rows.end() && stay()->kind==RowKind::Toggle && stay()->selected);
+    Choose(model,"signin-stay");
+    assert(!model.state().stay_signed_in && !model.ExportPreferences().steam_stay_signed_in && !stay()->selected);
+    controller.Tick();
+    assert(!vault.persist());
+    // The password form offers the same toggle.
+    Choose(model,"signin-password-mode"); controller.Tick();
+    assert(stay()!=model.view().rows.end() && !stay()->selected);
+    Choose(model,"signin-qr-mode"); backend.approve=true;
+    Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedIn;});
+    assert(!std::filesystem::exists(file));
+    const auto shared=library.Load(); assert(shared.ok() && shared.value() && shared.value()->steam_id==12345);
+    // Sign-out drops it from memory too.
+    SignOut(model);
+    Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedOut;});
+    assert(library.Load().ok() && !library.Load().value() && !std::filesystem::exists(file));
+    // Signed in again, then Playden closes.
+    Connect(model); backend.approve=true;
+    Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedIn;});
+    controller.Shutdown();
+  }
+  {
+    // The next start: nothing on disk, so the sign-in screen comes back.
+    SessionVault vault(false);
+    LocalSessionRepository repo(root.string(),{},&vault);
+    Simulation model({}, {},ModelMode::Live); Backend backend;
+    Controller controller(model,backend,repo);
+    Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedOut;});
+    assert(backend.restores==0 && !std::filesystem::exists(file));
+    controller.Shutdown();
+  }
+  {
+    // Turned off just before quitting, while signed in from session.v1: the file still goes.
+    { LocalSessionRepository writer(root.string()); assert(writer.Save(Session()).ok()); }
+    SessionVault vault;
+    LocalSessionRepository repo(root.string(),{},&vault);
+    Simulation model({}, {},ModelMode::Live); Backend backend;
+    Controller controller(model,backend,repo);
+    controller.SetStaySignedIn([&](bool stay) { assert(repo.SetPersist(stay).ok()); });
+    Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedIn;});
+    OpenSettings(model); Choose(model,"account"); Choose(model,"account-reauth");
+    Choose(model,"signin-stay");
+    controller.Shutdown();
+    assert(!vault.persist() && !std::filesystem::exists(file));
+  }
+  std::filesystem::remove_all(root);
+}
+int main() { StaySignedInOffKeepsTheTokenInMemory(); TitleNamesCarryTheirStore(); NoSteamSessionWithOtherGamesOpensHome(); FailedRestoreWithOtherGamesOpensHome(); OtherRestoreFailuresWithOtherGamesOpenHome(); SteamSignOutKeepsOtherGames(); PasswordSignInWithGuardCode(); PasswordFailuresAndCancel(); SlowLicenseCheckShowsAfterAFewSeconds(); CanceledStorageRetryKeepsSavedSessionIntent(); RevokedSessionCleanupRetriesAfterStorageRecovery(); StorageFailureKeepsVisibleAccount(); StorageFailureRetriesSavedSession(); ChallengeAndCancel(); AuthenticationRestoreAndSignOut(); FailedClearDoesNotSwitch(); SignInAgainKeepsTheAccount(); ExitHonorsClearWithoutStartingNewQr(); StorageFailureAndRevocation(); ConnectedLibraryAndOfflineRestart(); LicenseChangesRefreshTheLibrary(); OfflineRefreshFromTheLibraryReconnects(); ShutdownClearsLibraryBeforeSession(); RepeatedClearPreservesFirstIntent(); }

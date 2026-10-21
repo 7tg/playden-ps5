@@ -186,9 +186,9 @@ void SignInMethodPersistsAndVersionThreeOpensQr() {
   Check(store.Save(preferences).ok(), "sign-in method preference saves");
   const auto saved = storage.Read("preferences.conf");
   Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()) ==
-                          "version=5\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
-                          "downloads_slow_network=0\n",
-        "version 5 format");
+                          "version=6\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
+                          "downloads_slow_network=0\nsteam_stay_signed_in=1\n",
+        "version 6 format");
   const auto loaded = store.Load();
   Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.steam_sign_in_password &&
             loaded.preferences.cloud_saves_auto,
@@ -215,6 +215,34 @@ void SignInMethodPersistsAndVersionThreeOpensQr() {
   const std::string bad = "version=4\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=2\n";
   Check(storage.WriteAtomic("preferences.conf", playden::Bytes(bad.begin(), bad.end())).ok(), "bad fixture is written");
   Check(store.Load().status == playden::PreferencesLoadStatus::kDefaultCorrupt, "bad sign-in value is corrupt");
+}
+
+void StaySignedInDefaultsOnAndPersistsOff() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  Check(store.Load().preferences.steam_stay_signed_in, "a fresh install stays signed in");
+  const std::string version_five =
+      "version=5\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=1\n"
+      "downloads_slow_network=1\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(version_five.begin(), version_five.end())).ok(),
+        "version 5 fixture is written");
+  const auto five = store.Load();
+  Check(five.status == playden::PreferencesLoadStatus::kLoaded && five.preferences.steam_sign_in_password &&
+            five.preferences.downloads_slow_network && five.preferences.steam_stay_signed_in,
+        "version 5 preferences load and stay signed in");
+  playden::Preferences preferences;
+  preferences.steam_stay_signed_in = false;
+  Check(store.Save(preferences).ok(), "stay signed in off saves");
+  const auto off = store.Load();
+  Check(off.status == playden::PreferencesLoadStatus::kLoaded && !off.preferences.steam_stay_signed_in,
+        "stay signed in off survives restart");
+  const std::string bad = "version=6\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=0\n"
+                          "downloads_slow_network=0\nsteam_stay_signed_in=2\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(bad.begin(), bad.end())).ok(), "bad fixture is written");
+  const auto corrupt = store.Load();
+  Check(corrupt.status == playden::PreferencesLoadStatus::kDefaultCorrupt && corrupt.preferences.steam_stay_signed_in,
+        "a bad stay signed in value is corrupt and restores the default");
 }
 
 void CorruptPreferencesRestoreDefaultsWithVisibleDiagnostic() {
@@ -261,6 +289,7 @@ int main() {
   CorruptPreferencesRestoreDefaultsWithVisibleDiagnostic();
   TitleStoreSuffixPersistsAndVersionOneStillLoads();
   SignInMethodPersistsAndVersionThreeOpensQr();
+  StaySignedInDefaultsOnAndPersistsOff();
 
   if (failures != 0) {
     std::fprintf(stderr, "%d preference test assertion(s) failed\n", failures);

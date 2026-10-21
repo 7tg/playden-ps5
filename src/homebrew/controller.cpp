@@ -105,6 +105,9 @@ void Controller::Shutdown() {
     for (const auto action : model_.TakeServiceActions()) {
       if (action.store == Store::kSteam && (action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount) &&
           phase_!=Phase::ClearLibrary && phase_!=Phase::ClearOrganization && phase_!=Phase::SignOut) SignOut(false);
+      // Turned off just before quitting: the saved token must still go.
+      if (action.store == Store::kSteam && action == ServiceAction::StaySignedIn && stay_signed_in_)
+        stay_signed_in_(model_.state().stay_signed_in);
     }
   begin_after_clear_=false;
   // Each step is logged before it starts and with its time after, so a hang shows where it stopped.
@@ -318,6 +321,9 @@ void Controller::Tick() {
         break;
       case ServiceAction::SignOut: SignOut(false); break;
       case ServiceAction::SwitchAccount: SignOut(true); break;
+      case ServiceAction::StaySignedIn:
+        if (stay_signed_in_) stay_signed_in_(model_.state().stay_signed_in);
+        break;
       case ServiceAction::RefreshLibrary:
         if (phase_ == Phase::Idle && !model_.state().account().id.empty()) {
           if(library_) {

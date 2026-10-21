@@ -304,11 +304,17 @@ int main() {
             playden::app::AppendLogLine(log_root, "auth.log", std::string("restored path=") + path + " before " + before +
                 " after " + after);
         });
+        // "Stay signed in" is known before the controller restores the session. Off, the session lives
+        // only in this vault, which all five repositories below share.
+        const bool stay_signed_in = playden::PreferencesStore(auth_storage).Load().preferences.steam_stay_signed_in;
+        playden::SessionVault session_vault(stay_signed_in);
         playden::LocalSessionRepository sessions(user_root, [](const std::string& diagnostic) {
             playden::app::AppendLogLine(log_root, "storage.log", diagnostic);
-        });
+        }, &session_vault);
+        // Off: a session.v1 left from before is deleted unread.
+        if (!stay_signed_in) (void)sessions.Clear();
         playden::steam::LibraryClient owned_library(paths.trust_store);
-        playden::LocalSessionRepository library_sessions(user_root);
+        playden::LocalSessionRepository library_sessions(user_root, {}, &session_vault);
         playden::Storage library_storage(user_root);
         playden::steam::CmClient cm_client(paths.trust_store, library_storage);
         cm_client.SetOwner("library");
@@ -326,13 +332,13 @@ int main() {
         details_cm.SetSharedSession(steam_cm);
         playden::steam::CmAppDetailsSource details_source(details_cm);
         details_source.SetLicensedDepots(&licensed_depots);
-        playden::LocalSessionRepository details_sessions(user_root);
+        playden::LocalSessionRepository details_sessions(user_root, {}, &session_vault);
         playden::steam::AppDetailsService app_details(details_source, details_sessions);
         playden::steam::CmClient install_cm(paths.trust_store, library_storage);
         install_cm.SetOwner("install");
         install_cm.SetSharedSession(steam_cm);
         playden::steam::CdnClient install_cdn(paths.trust_store);
-        playden::LocalSessionRepository install_sessions(user_root);
+        playden::LocalSessionRepository install_sessions(user_root, {}, &session_vault);
         playden::steam::SteamInstallRunner install_runner(install_sessions, install_cm, install_cdn);
         install_runner.SetTuning([root = paths.title_root] {
             // A developer's tuning file wins over the setting.
@@ -358,7 +364,7 @@ int main() {
         cloud_runner.SetLog([](std::uint32_t app, const char* event, const std::string& message) {
             playden::app::AppendLogLine(log_root, "cloud.log", "app=" + std::to_string(app) + " event=" + event + " " + message);
         });
-        playden::LocalSessionRepository cloud_sessions(user_root);
+        playden::LocalSessionRepository cloud_sessions(user_root, {}, &session_vault);
         playden::steam::CloudService cloud(cloud_runner, cloud_sessions);
         simulation.SetLogDirectory(log_root);
         // Playden's own update: it looks for a newer release on GitHub at startup, stages it on
@@ -655,6 +661,11 @@ int main() {
         // A game bought or added to the library elsewhere: Steam pushes the new license list.
         services.SetLicenseChanges([steam_cm] { return playden::steam::CmLicenseChanges(*steam_cm); });
         services.SetShutdownLog([](const std::string& line) { playden::app::AppendLogLine(log_root, "launch.log", line); });
+        services.SetStaySignedIn([&sessions](bool stay) {
+            const auto moved = sessions.SetPersist(stay);
+            playden::app::AppendLogLine(log_root, "auth.log", std::string("stay signed in ") + (stay ? "on" : "off") +
+                                                                  " moved=" + (moved.ok() ? "1" : "0"));
+        });
 #endif
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer(paths.assets_root);

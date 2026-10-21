@@ -19,6 +19,9 @@ struct Preferences {
   // Downloads for slow networks: 8 pieces at a time instead of 4. Far from a fast Steam server each piece waits
   // long for its answer, and more of them in flight make up for it (#29); on a fast connection 4 is quicker.
   bool downloads_slow_network = false;
+  // "Stay signed in" on the sign-in screen. Off, Steam's sign-in token stays in memory only and is never
+  // saved on the PS5, so every Playden start asks for a sign-in. On (the default) keeps it in session.v1.
+  bool steam_stay_signed_in = true;
 };
 
 enum class PreferencesLoadStatus {

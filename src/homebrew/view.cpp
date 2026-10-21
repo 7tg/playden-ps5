@@ -1211,8 +1211,11 @@ class Render::Impl
         const gfx::Rect panel{1036.0F, 224.0F, 640.0F, 430.0F};
         scene_.rounded_rect(panel, 14.0F, kPanel);
         const char *title = "Account name and password";
-        const char *detail = "Playden sends your password to Steam, encrypted, and keeps only Steam's sign-in token. "
-                             "It never saves your password.";
+        const char *detail = state.stay_signed_in
+            ? "Playden sends your password to Steam, encrypted, and never saves it. It keeps Steam's sign-in token "
+              "on this PS5 so you stay signed in."
+            : "Playden sends your password to Steam, encrypted, and never saves it. It keeps Steam's sign-in token "
+              "only until you close Playden. You will sign in again next time.";
         if (form.step == SignInStep::Submitting)
         {
             title = "Signing in";
@@ -1245,7 +1248,11 @@ class Render::Impl
         const bool storage_full = state.account().authentication == AuthState::Failed && state.account().storage_full;
         section_label(storage_full ? "Console storage" : "Connect Steam", 96.0F, 78.0F);
         draw_title(view, 96.0F, 272.0F, 720.0F);
-        draw_actions(view, 96.0F, 594.0F, 540.0F);
+        // Four buttons fit above the footer; a fifth (the password form) lifts the column by one.
+        const auto buttons = std::count_if(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
+            return row.kind == RowKind::Action || row.kind == RowKind::Toggle;
+        });
+        draw_actions(view, 96.0F, buttons > 4 ? 514.0F : 594.0F, 540.0F);
         constexpr float qr_x = 1116.0F;
         constexpr float qr_y = 224.0F;
         constexpr int qr_side = 430;

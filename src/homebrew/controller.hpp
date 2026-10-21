@@ -53,6 +53,8 @@ class Controller {
   void SetSelfUpdate(update::UpdateService* self_update) { self_update_ = self_update; }
   // Receives one line per shutdown step with how long it took, so a quit that hangs names the step.
   void SetShutdownLog(std::function<void(const std::string&)> log) { shutdown_log_ = std::move(log); }
+  // The player turned "Stay signed in" on or off: the host moves the Steam session to disk or memory.
+  void SetStaySignedIn(std::function<void(bool)> apply) { stay_signed_in_ = std::move(apply); }
   // Counts changes to the account's Steam licenses (steam::CmLicenseChanges): the library refreshes
   // once they settle for `delay`, so a game added on another device shows up.
   void SetLicenseChanges(std::function<std::uint64_t()> changes,
@@ -105,6 +107,7 @@ class Controller {
   void TickSelfUpdate();
   void TickLicenseChanges();
   std::function<void(const std::string&)> shutdown_log_;
+  std::function<void(bool)> stay_signed_in_;
   std::function<std::uint64_t()> license_changes_;
   std::chrono::steady_clock::duration license_refresh_delay_{};
   std::optional<std::uint64_t> seen_license_changes_;

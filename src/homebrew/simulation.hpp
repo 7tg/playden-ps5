@@ -26,7 +26,7 @@ enum class ModelMode { Simulation, Live };
 // UsePassword/UseQr switch the sign-in screen's method; BeginPassword and SubmitCode carry the form's
 // secrets, which the controller takes with TakeSignInCredentials and TakeGuardCode.
 enum class ServiceAction { BeginQr, CancelQr, SignOut, SwitchAccount, RefreshLibrary, Reauthenticate,
-                           UsePassword, UseQr, BeginPassword, SubmitCode };
+                           UsePassword, UseQr, BeginPassword, SubmitCode, StaySignedIn };
 // A service action for one store's account. The sign-in actions (QR, password, Steam Guard code) are Steam's.
 struct ServiceRequest {
     ServiceAction action = ServiceAction::BeginQr;
@@ -566,6 +566,7 @@ struct State {
     // The Steam account's sign-in screen and its preference: the last sign-in used the account name and password.
     SignInForm sign_in;
     bool sign_in_password = false;
+    bool stay_signed_in = true;       // preference: keep Steam's sign-in token on the PS5 (else memory only)
     std::vector<Notice> notices;
     // Per-game settings: preset and player overrides (see runtime/game_settings.h).
     std::map<GameId, playden::runtime::GameSettingsRecord> game_settings;

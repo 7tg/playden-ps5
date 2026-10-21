@@ -2416,7 +2416,7 @@ playden::OrganizationSnapshot Simulation::ExportOrganization() const {
 
 playden::Preferences Simulation::ExportPreferences() const {
     return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password,
-            state_.downloads_slow_network};
+            state_.downloads_slow_network, state_.stay_signed_in};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -2642,6 +2642,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.cloud_saves_auto = loaded.preferences.cloud_saves_auto;
         state_.sign_in_password = loaded.preferences.steam_sign_in_password;
         state_.downloads_slow_network = loaded.preferences.downloads_slow_network;
+        state_.stay_signed_in = loaded.preferences.steam_stay_signed_in;
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
     }
@@ -2719,7 +2720,8 @@ bool Simulation::record_live_persistence() {
                                       after_preferences.title_store_suffix != captured_preferences_.title_store_suffix ||
                                       after_preferences.cloud_saves_auto != captured_preferences_.cloud_saves_auto ||
                                       after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password ||
-                                      after_preferences.downloads_slow_network != captured_preferences_.downloads_slow_network);
+                                      after_preferences.downloads_slow_network != captured_preferences_.downloads_slow_network ||
+                                      after_preferences.steam_stay_signed_in != captured_preferences_.steam_stay_signed_in);
 
     if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
         apply_organization_snapshot(captured_organization_);
@@ -2742,6 +2744,7 @@ bool Simulation::record_live_persistence() {
                 state_.cloud_saves_auto = captured_preferences_.cloud_saves_auto;
                 state_.sign_in_password = captured_preferences_.steam_sign_in_password;
                 state_.downloads_slow_network = captured_preferences_.downloads_slow_network;
+                state_.stay_signed_in = captured_preferences_.steam_stay_signed_in;
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
                 force_organization_selection_ = false;
@@ -4305,6 +4308,7 @@ void Simulation::rebuild_view() {
             row("signin-submit", RowKind::Action, "Sign in", "signin-submit").enabled =
                 !form.account_name.empty() && !form.password.empty();
             row("signin-qr-mode", RowKind::Action, "Use QR code instead", "signin-qr-mode");
+            row("signin-stay", RowKind::Toggle, "Stay signed in", "signin-stay").selected = state_.stay_signed_in;
         } else if (form.step == SignInStep::Submitting) {
             view_.subtitle = "Signing in to Steam…";
             row("signin-cancel", RowKind::Action, "Cancel", "signin-cancel");
@@ -4356,8 +4360,10 @@ void Simulation::rebuild_view() {
         else if (state_.account().authentication == AuthState::Expired) row("qr-refresh", RowKind::Action, "Refresh code", "qr-refresh");
         else if (state_.account().authentication == AuthState::Failed) row("qr-retry", RowKind::Action, "Retry", "qr-retry");
         else row("qr-cancel", RowKind::Action, "Cancel", "qr-cancel");
-        if (state_.account().authentication != AuthState::Syncing)
+        if (state_.account().authentication != AuthState::Syncing) {
             row("signin-password-mode", RowKind::Action, "Sign in with account name and password", "signin-password-mode");
+            row("signin-stay", RowKind::Toggle, "Stay signed in", "signin-stay").selected = state_.stay_signed_in;
+        }
         if (!live() && state_.account().authentication != AuthState::Syncing) row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
     } else if (state_.navigation.route == Route::Home) {
         view_.title = "Home";
@@ -5299,6 +5305,11 @@ bool Simulation::sign_in_action(const std::string& action_name) {
         state_.navigation.focus_key = password ? (name.empty() ? "signin-account" : "signin-password") : "qr-cancel";
         if (live()) queue_service_action(password ? ServiceAction::UsePassword : ServiceAction::UseQr);
         else if (!password) scenario("qr-waiting");
+    } else if (action_name == "signin-stay") {
+        // In force at once: a sign-in that completes from now on follows the new choice.
+        state_.stay_signed_in = !state_.stay_signed_in;
+        save_profile();
+        if (live()) queue_service_action(ServiceAction::StaySignedIn);
     } else if (action_name == "signin-account") {
         start_editor("Account name", form.account_name);
     } else if (action_name == "signin-password") {

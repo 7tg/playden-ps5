@@ -1505,6 +1505,17 @@ void live_details_focus_moves_to_play_once_enabled() {
           "notes are skipped");
 }
 
+// Stay signed in: on by default; a saved Off comes back with the preferences.
+void live_stay_signed_in_preference_loads() {
+    auto model = make_live();
+    check(model.state().stay_signed_in && model.ExportPreferences().steam_stay_signed_in, "stay signed in by default");
+    playden::PreferencesLoadResult stay_off;
+    stay_off.preferences.steam_stay_signed_in = false;
+    check(model.ApplyPreferences(model.BeginPreferencesLoad(), stay_off) && !model.state().stay_signed_in &&
+              !model.ExportPreferences().steam_stay_signed_in,
+          "a saved stay signed in off loads");
+}
+
 // Settings › Sync Cloud saves automatically, on (it starts off).
 void sync_automatically(Simulation& model) {
     playden::PreferencesLoadResult loaded;
@@ -2833,6 +2844,7 @@ int main() {
     live_import_choice_and_details();
     store_art_follows_the_store();
     non_canonical_game_keys_select_nothing();
+    live_stay_signed_in_preference_loads();
     live_launch_failure_remains_visible_without_a_details_status_line();
     live_download_reorder_reaches_service();
     live_play_does_the_next_useful_thing();

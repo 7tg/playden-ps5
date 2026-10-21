@@ -406,6 +406,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::Storage> auth_storage;
     std::unique_ptr<playden::steam::CmClient> auth_cm;
     std::unique_ptr<playden::steam::AuthClient> auth;
+    std::unique_ptr<playden::SessionVault> session_vault;  // declared first: every session repository uses it
     std::unique_ptr<playden::LocalSessionRepository> sessions;
     std::unique_ptr<playden::steam::LibraryClient> owned_library;
     std::unique_ptr<playden::LocalSessionRepository> library_sessions;
@@ -491,10 +492,17 @@ int main(int argc, char** argv) {
             std::snprintf(line, sizeof(line), "auth_failure method=%s http=%ld eresult=%d", method, http_status, eresult);
             playden::app::AppendLogLine(log_directory, "auth.log", line);
         });
+        // "Stay signed in" is known before the controller restores the session.
+        const bool stay_signed_in = playden::PreferencesStore(*auth_storage).Load().preferences.steam_stay_signed_in;
+        session_vault = std::make_unique<playden::SessionVault>(stay_signed_in);
         sessions = std::make_unique<playden::LocalSessionRepository>(
-            options->data_directory.string());
+            options->data_directory.string(), [log_directory](const std::string& diagnostic) {
+                playden::app::AppendLogLine(log_directory, "storage.log", diagnostic);
+            }, session_vault.get());
+        // Off: a session.v1 left from before is deleted unread.
+        if (!stay_signed_in) (void)sessions->Clear();
         owned_library = std::make_unique<playden::steam::LibraryClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
-        library_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        library_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string(), playden::LocalSessionRepository::DiagnosticReport{}, session_vault.get());
         library_storage = std::make_unique<playden::Storage>(options->data_directory.string());
         cm_client = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         library_backend = std::make_unique<playden::steam::EntitledLibraryBackend>(*owned_library, *cm_client);
@@ -507,11 +515,11 @@ int main(int argc, char** argv) {
         details_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         details_source = std::make_unique<playden::steam::CmAppDetailsSource>(*details_cm);
         details_source->SetLicensedDepots(&licensed_depots);
-        details_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        details_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string(), playden::LocalSessionRepository::DiagnosticReport{}, session_vault.get());
         app_details = std::make_unique<playden::steam::AppDetailsService>(*details_source, *details_sessions);
         install_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         install_cdn = std::make_unique<playden::steam::CdnClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
-        install_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        install_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string(), playden::LocalSessionRepository::DiagnosticReport{}, session_vault.get());
         install_runner = std::make_unique<playden::steam::SteamInstallRunner>(*install_sessions, *install_cm, *install_cdn);
         install_runner->SetLog([log_directory](std::uint32_t app, const char* step, const char* category, const char* detail) {
             char line[640];
@@ -547,7 +555,7 @@ int main(int argc, char** argv) {
         cloud_runner->SetLog([log_directory](std::uint32_t app, const char* event, const std::string& message) {
             playden::app::AppendLogLine(log_directory, "cloud.log", "app=" + std::to_string(app) + " event=" + event + " " + message);
         });
-        cloud_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string());
+        cloud_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string(), playden::LocalSessionRepository::DiagnosticReport{}, session_vault.get());
         cloud = std::make_unique<playden::steam::CloudService>(*cloud_runner, *cloud_sessions);
         simulation.SetLogDirectory(options->data_directory / "logs");
         simulation.SetRecipeExportTarget(options->data_directory / "logs", "");
@@ -586,6 +594,11 @@ int main(int argc, char** argv) {
         services = std::make_unique<playden::homebrew::Controller>(simulation, *stores, persistence.get(), installs.get(),
                                                                    cloud.get(), nullptr, auth_log);
         services->SetLocalLibrary(local);
+        services->SetStaySignedIn([repository = sessions.get(), log_directory](bool stay) {
+            const auto moved = repository->SetPersist(stay);
+            playden::app::AppendLogLine(log_directory, "auth.log", std::string("stay signed in ") + (stay ? "on" : "off") +
+                                                                       " moved=" + (moved.ok() ? "1" : "0"));
+        });
         store_details = std::make_unique<playden::steam::StoreDetailsService>(playden::homebrew::StoreFetch(PLAYDEN_HOMEBREW_CA_BUNDLE));
         services->SetStoreDetails(store_details.get());
     }
