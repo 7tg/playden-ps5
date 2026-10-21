@@ -770,7 +770,10 @@ void ImportedGamePlaysInPlace() {
     Write(sky / "Game.exe", pe + std::string(4096, 'x'), 0755);
     Write(sky / "Data/sky.ini", "[sky]", 0644);
     CHECK(chmod((sky / "Data").c_str(), 0755) == 0 && chmod(sky.c_str(), 0755) == 0);
-    model.RequestImport({hb::ImportRequestKind::Add, {}, "internal", "Sky", "Game.exe"});
+    // Added to play in place: it is prepared without Play, its files opened first.
+    const auto opens_at_add = drop_opens.load();
+    const auto launches_at_add = launched.size();
+    model.RequestImport({hb::ImportRequestKind::Add, {}, "internal", "Sky", "Game.exe", true});
     std::string sky_id;
     tick_until([&] {
       for (const auto& game : source.Snapshot()->games)
@@ -780,6 +783,12 @@ void ImportedGamePlaysInPlace() {
              game_of(model, GameId::Local(sky_id));
     });
     const auto game = GameId::Local(sky_id);
+    tick_until([&] {
+      const auto found = model.state().runtime_games.find(game);
+      return !host.Snapshot().preparing_app && found != model.state().runtime_games.end() &&
+             (found->second.prepared || found->second.awaiting_registration);
+    });
+    CHECK(drop_opens.load() == opens_at_add + 2 && launched.size() == launches_at_add);  // at the add, then before preparing
     CHECK(source.Snapshot()->games.size() == 2);
     CHECK(Mode(sky) == 0777 && Mode(sky / "Data") == 0777 && Mode(sky / "Data/sky.ini") == 0666 &&
           Mode(sky / "Game.exe") == 0777 && drop_raises > 0);

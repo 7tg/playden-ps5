@@ -144,6 +144,9 @@ class Controller {
   // Copies and moves into Playden whose game's first runtime number waits for the runtime worker
   // (starting up, or in a batch): asked again on the next tick, in order.
   std::vector<ImportRequest> held_import_transfers_;
+  // Games added to play in place, or moved into Playden, that join the preparation queue once their
+  // folder is listed: true for a move, which waits for Playden's own folder.
+  std::map<GameId, bool> prepare_after_import_;
   // Runtime calls whose game's first number waited for the runtime worker: made again on the next
   // tick, in order. The main thread never waits for that worker.
   std::vector<std::function<void()>> deferred_runtime_;
@@ -209,7 +212,7 @@ class Controller {
   // prepared yet. Play then starts it once it is Ready; the refusal seen when Prepare
   // was queued tells a new refusal from an old one.
   std::set<GameId> downloading_;
-  std::vector<GameId> auto_prepare_;  // in the order their downloads finished
+  std::vector<GameId> auto_prepare_;  // in the order their downloads (copies, imports) finished
   std::optional<GameId> prepare_next_pending_;  // Prepare next on a game not in the runtime's queue yet
   struct PlayAfterPrepare {
     bool queued = false;

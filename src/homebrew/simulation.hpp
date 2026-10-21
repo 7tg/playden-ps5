@@ -226,6 +226,7 @@ struct LiveImportCandidate {
     bool operator==(const LiveImportCandidate&) const = default;
 };
 // Requests for the Local store: look for games, add a candidate (in place), remove an imported game.
+// A game moved into Playden is prepared once it is there, as a finished copy is.
 // CopyIntoPlayden: copy an imported game playing in place into Playden's own storage (volume_id:
 // an install volume, empty for the default one). MoveIntoPlayden: rename a drop-folder game into
 // Playden's games folder on the console storage (instant; its PS5 title, if any, follows).
@@ -236,6 +237,7 @@ struct ImportRequest {
     std::string volume_id;   // Add, CopyIntoPlayden
     std::string folder;      // Add: relative to the volume's mount
     std::string program;     // Add: relative to the folder
+    bool prepare = false;    // Add: prepare the game once it is in the library (it plays in place)
 };
 // Live Steam Cloud save state for one game, projected from the cloud service.
 // Waiting: transfers that need no choice wait for the player (an uninstalled game's saves, or

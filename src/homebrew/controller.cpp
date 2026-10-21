@@ -808,7 +808,6 @@ void Controller::TickRuntime() {
       pending->second.submitted_at = std::chrono::steady_clock::now();
     SubmitPrepare(id, announce);
   }
-  // A game Playden still holds back moves to the front once it is asked for.
   // The latest choice wins: a game Playden still holds back moves first once it is asked for.
   for (const auto id : model_.TakePrepareNextRequests()) {
     bool busy = false;
@@ -922,7 +921,7 @@ void Controller::TickRuntime() {
         }
         if (cloud_busy_.count(*it)) { ++it; continue; }  // a move waits for saves in transit
         play_after_prepare_.erase(*it);
-        RequestPrepare(*it);
+        if (!HoldForDropFolder(*it, DropFolderNext::kPrepare)) RequestPrepare(*it);  // a drop-folder game's files open first
         it = auto_prepare_.erase(it);
       }
     // A title still waiting for the PS5 when Playden started is checked once: the
@@ -1359,6 +1358,7 @@ void Controller::BeginUninstall(GameId id, bool delete_saves) {
     if (const auto app = RuntimeApp(*runtime_, id, &busy)) runtime_->WithdrawPrepare(*app);
   }
   std::erase(auto_prepare_, id);
+  prepare_after_import_.erase(id);
   prepare_after_details_.erase(id);
   play_after_prepare_.erase(id);
   if (prepare_next_pending_ == id) prepare_next_pending_.reset();
@@ -1484,7 +1484,10 @@ void Controller::TickImports() {
     for (const auto& id : std::exchange(held_import_removals_, {})) {
       // A game with a folder to play from goes like an uninstall: its PS5 title first.
       if (LocationOf(id)) BeginUninstall(id, false);
-      else track(local_->Remove(id.value), {ImportRequestKind::Remove, id});
+      else {
+        prepare_after_import_.erase(id);
+        track(local_->Remove(id.value), {ImportRequestKind::Remove, id});
+      }
     }
   // A drive plugged in or out: its games become (un)available and its folders are looked at.
   const auto now = std::chrono::steady_clock::now();
@@ -1498,11 +1501,26 @@ void Controller::TickImports() {
     const auto outcome = std::find_if(snapshot->outcomes.begin(), snapshot->outcomes.end(),
                                       [&](const stores::local::ImportOutcome& o) { return o.request == it->first; });
     if (outcome == snapshot->outcomes.end()) { ++it; continue; }
-    if (!outcome->ok) model_.NotifyImportFailed(it->second, outcome->message);
-    // A game just added: the program chosen with it goes into its Game settings.
-    else if (it->second.kind == ImportRequestKind::Add && !outcome->id.empty())
+    if (!outcome->ok) {
+      model_.NotifyImportFailed(it->second, outcome->message);
+    } else if (it->second.kind == ImportRequestKind::Add && !outcome->id.empty()) {
+      // A game just added: the program chosen with it goes into its Game settings.
       model_.SeedGameProgram(GameId::Local(outcome->id), it->second.program);
+      if (it->second.prepare) prepare_after_import_[GameId::Local(outcome->id)] = false;
+    } else if (it->second.kind == ImportRequestKind::MoveIntoPlayden) {
+      prepare_after_import_[it->second.game_id] = true;
+    }
     it = import_requests_.erase(it);
+  }
+  // Their folder listed, they join the preparation queue as a finished download does (which skips a
+  // game already prepared there). One listed that can't play (its drive gone, a name the PS5 can't
+  // open) is left for the player.
+  for (auto it = prepare_after_import_.begin(); it != prepare_after_import_.end();) {
+    const auto* location = LocationOf(it->first);
+    if (!location || location->managed() != it->second) { ++it; continue; }
+    if (game_roots_.count(it->first) && std::find(auto_prepare_.begin(), auto_prepare_.end(), it->first) == auto_prepare_.end())
+      auto_prepare_.push_back(it->first);
+    it = prepare_after_import_.erase(it);
   }
   // Once imports.json is read: copies that finished or stopped while Playden was closed are settled.
   // A move a restart interrupted is finished then too, once the runtime has started (its PS5 title

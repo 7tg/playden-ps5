@@ -2569,8 +2569,9 @@ void live_import_sheet_sends_requests() {
     activate(model, "import-play-in-place");
     requests = model.TakeImportRequests();
     check(requests.size() == 1 && requests.front().kind == ImportRequestKind::Add && requests.front().volume_id == "internal" &&
-              requests.front().folder == "playden-import/Delores" && requests.front().program == "Delores.exe",
-          "choosing the program adds the folder");
+              requests.front().folder == "playden-import/Delores" && requests.front().program == "Delores.exe" &&
+              requests.front().prepare,
+          "choosing the program adds the folder, to be prepared there");
     check(model.view().surface == "import-games" &&
               model.state().navigation.focus_key == "import-candidate-internal:playden-import/Delores",
           "back on the sheet at the folder");
@@ -2651,8 +2652,8 @@ void live_import_choice_and_details() {
     activate(model, "volume-usb1");
     requests = model.TakeImportRequests();
     check(requests.size() == 1 && requests[0].kind == ImportRequestKind::Add && requests[0].volume_id == "usb0" &&
-              requests[0].program == "Rally.exe",
-          "Import here adds the folder first");
+              requests[0].program == "Rally.exe" && !requests[0].prepare,
+          "Import here adds the folder first, prepared once copied");
     check(model.view().surface == "import-games" && find_row(model, "import-candidate-usb0:playden/import/Rally")->value == "Adding…",
           "the sheet says the folder is being added");
     const auto id = playden::GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11");

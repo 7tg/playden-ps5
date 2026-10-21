@@ -1097,7 +1097,10 @@ void Simulation::choose_import_volume(const std::string& volume_id) {
 void Simulation::add_import_candidate(const std::string& key, std::optional<ImportRequestKind> then, const std::string& volume_id) {
     const auto* candidate = import_candidate(key);
     if (!candidate) return;
-    RequestImport({ImportRequestKind::Add, {}, candidate->volume_id, candidate->folder, candidate->programs[import_program_index_].path});
+    // Played in place, it is prepared once added; a copy or move chosen with it prepares it once it is
+    // in Playden instead.
+    RequestImport({ImportRequestKind::Add, {}, candidate->volume_id, candidate->folder, candidate->programs[import_program_index_].path,
+                   !then});
     pending_imports_[key] = {then, volume_id, state_.navigation.route};
     import_failures_.erase(key);
     if (!live()) {
