@@ -1086,6 +1086,7 @@ private:
     void open_steam_programs(GameId id);
     void choose_steam_launch(GameId id, const std::string& program);
     std::vector<LaunchProgram> steam_programs_shown_;
+    std::set<GameId> steam_programs_asked_;  // games whose waiting setup asked once already
     GameId steam_programs_game_;
     std::size_t import_program_index_ = 0;
     bool import_program_chosen_ = false;  // the program was clear (ClearGameProgram): its list was skipped

@@ -8023,16 +8023,19 @@ void Simulation::SetGameSetups(std::map<GameId, LiveGameSetup> setups) {
         std::equal(setups.begin(), setups.end(), game_setups_.begin(),
                    [&](const auto& a, const auto& b) { return a.first == b.first && same(a.second, b.second); }))
         return;
-    std::set<GameId> asked_before;
-    for (const auto& [id, setup] : game_setups_)
-        if (!setup.steam_choices.empty()) asked_before.insert(id);
     game_setups_ = std::move(setups);
     for (const auto& [id, setup] : game_setups_)
         if (setup.scanned) requested_program_scans_.erase(id);
     // A setup that now waits for its program asks once: the sheet over the game's own page, otherwise
     // a notification; the Play row asks until then.
+    // Asked until the runtime no longer waits: a setup still waiting right after the player chose
+    // (the runtime hasn't taken the new request yet) doesn't ask again.
+    std::erase_if(steam_programs_asked_, [&](GameId id) {
+        const auto found = game_setups_.find(id);
+        return found == game_setups_.end() || found->second.steam_choices.empty();
+    });
     for (const auto& [id, setup] : game_setups_) {
-        if (setup.steam_choices.empty() || asked_before.count(id)) continue;
+        if (setup.steam_choices.empty() || !steam_programs_asked_.insert(id).second) continue;
         if (state_.navigation.route == Route::Details && state_.navigation.detail_id == id && state_.navigation.modals.empty()) {
             open_steam_programs(id);
         } else if (const auto* game = find_game(state_, id)) {

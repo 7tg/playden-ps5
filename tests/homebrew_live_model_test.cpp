@@ -857,6 +857,9 @@ void live_setup_asks_for_a_steam_program(const std::filesystem::path& base) {
     const auto prepares = model.TakeRuntimePrepareRequests();
     check(std::count(prepares.begin(), prepares.end(), SteamId(449610)) == 1, "steam program: the game is set up again");
     check(model.view().surface != "steam-programs", "steam program: the sheet closes");
+    // The runtime still reports the old wait until it takes the new request: no second question.
+    model.SetGameSetups({{SteamId(449610), setup}});
+    check(model.view().surface != "steam-programs", "steam program: a stale wait doesn't ask again");
 
     // Over the game's own page, the sheet opens by itself.
     model.SetGameSetups({});
