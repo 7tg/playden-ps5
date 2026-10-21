@@ -100,8 +100,11 @@ bool BuiltInScope(const std::string& value) {
   return value == "all" || value == "favorites" || value == "hidden";
 }
 
+// The Library rails of installed and imported games: scopes, never collection IDs.
+bool RailScope(const std::string& value) { return value == "installed" || value == "imported"; }
+
 bool ReservedCollectionId(const std::string& value) {
-  return BuiltInScope(value) || value == "installed" || value == "new-collection";
+  return BuiltInScope(value) || RailScope(value) || value == "new-collection";
 }
 
 bool ValidSort(const std::string& value) {
@@ -153,8 +156,7 @@ bool Validate(const OrganizationSnapshot& snapshot, std::uint16_t version) {
     }
     for (const GameId& id : collection.members) if (!AddGameId(game_ids, id, version)) return false;
   }
-  // "installed" is the Library rail of installed games; it is a scope, never a collection ID.
-  if (!BuiltInScope(snapshot.scope) && snapshot.scope != "installed" && !collection_ids.count(snapshot.scope))
+  if (!BuiltInScope(snapshot.scope) && !RailScope(snapshot.scope) && !collection_ids.count(snapshot.scope))
     return false;
 
   if (snapshot.ratings.size() > kMaximumGameIds || snapshot.notes.size() > kMaximumGameIds)

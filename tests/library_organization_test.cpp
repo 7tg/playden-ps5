@@ -131,6 +131,7 @@ void RejectsInvalidValuesWithoutReplacingGoodData() {
   invalid = expected; invalid.collections.push_back(invalid.collections.front()); rejects(invalid, "duplicate collection ID rejected");
   invalid = expected; invalid.collections.front().id = "../escape"; rejects(invalid, "unsafe collection ID rejected");
   invalid = expected; invalid.collections.front().id = "installed"; rejects(invalid, "simulation rail ID cannot be a collection ID");
+  invalid = expected; invalid.collections.front().id = "imported"; rejects(invalid, "Imported rail ID cannot be a collection ID");
   invalid = expected; invalid.collections.front().id = "new-collection"; rejects(invalid, "collection action ID cannot be a collection ID");
   invalid = expected; invalid.collections.front().name.assign(129, 'n'); rejects(invalid, "oversized collection name rejected");
   invalid = expected; invalid.collections.front().name = "   \t"; rejects(invalid, "whitespace-only collection name rejected");
@@ -150,6 +151,14 @@ void RejectsInvalidValuesWithoutReplacingGoodData() {
     const auto restored = store.Load(kDevice);
     Check(restored.ok() && restored.value() && restored.value()->scope == "installed", "installed scope restored");
     Check(store.Save(kDevice, expected).ok(), "restore the expected organization file after installed scope");
+  }
+  {
+    // So is the Imported rail: choosing it was undone as "too large to save".
+    auto imported = expected; imported.scope = "imported";
+    Check(store.Save(kDevice, imported).ok(), "imported scope accepted");
+    const auto restored = store.Load(kDevice);
+    Check(restored.ok() && restored.value() && restored.value()->scope == "imported", "imported scope restored");
+    Check(store.Save(kDevice, expected).ok(), "restore the expected organization file after imported scope");
   }
   invalid = expected; invalid.scope = "new-collection"; rejects(invalid, "collection action cannot be restored as scope");
   invalid = expected; invalid.sort = "install-size"; rejects(invalid, "simulation-only metadata sort rejected");
