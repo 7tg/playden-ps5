@@ -88,10 +88,12 @@ struct PeFacts {
   std::string entry_section;
   // A writable section shared between processes that doesn't fill whole console pages.
   bool unaligned_shared = false;
+  bool pe64 = false;                 // PE32+ (x64), otherwise PE32 (x86)
   std::vector<std::string> imports;  // lower case
+  std::vector<std::string> delay_imports;  // lower case; read only when asked
 };
 
-PeFacts ReadPe(const std::string& path) {
+PeFacts ReadPe(const std::string& path, bool delay_imports = false) {
   PeFacts facts;
   Program program(path);
   unsigned char dos[64];
@@ -114,7 +116,9 @@ PeFacts ReadPe(const std::string& path) {
     return at + 8 <= optional.size() ? U32(optional.data() + at) : 0;
   };
   const std::uint32_t import_rva = directory(1);
+  const std::uint32_t delay_rva = directory(13);
   facts.clr = directory(14) != 0;
+  facts.pe64 = magic == 0x20b;
 
   std::vector<unsigned char> table(sections * 40u);
   if (!program.ReadAt(pe + 24 + optional_size, table.data(), table.size())) return facts;
@@ -154,6 +158,21 @@ PeFacts ReadPe(const std::string& path) {
     char name[128] = {};
     const auto got = program.ReadSome(*name_at, reinterpret_cast<unsigned char*>(name), sizeof(name) - 1);
     facts.imports.push_back(Lower(std::string(name, strnlen(name, got))));
+  }
+  // Delay-load descriptors (32 bytes each): the DLL's name at +4, an address relative to the image when
+  // bit 0 of the attributes is set (the only form linkers have written since Visual C++ 7).
+  auto delay = delay_imports && delay_rva ? file_offset(delay_rva) : std::nullopt;
+  for (unsigned count = 0; delay && count < 512; ++count, *delay += 32) {
+    unsigned char row[32];
+    if (!program.ReadAt(*delay, row, sizeof(row))) break;
+    const std::uint32_t name_rva = U32(row + 4);
+    if (name_rva == 0) break;
+    if (!(U32(row) & 1)) continue;
+    const auto name_at = file_offset(name_rva);
+    if (!name_at) continue;
+    char name[128] = {};
+    const auto got = program.ReadSome(*name_at, reinterpret_cast<unsigned char*>(name), sizeof(name) - 1);
+    facts.delay_imports.push_back(Lower(std::string(name, strnlen(name, got))));
   }
   return facts;
 }
@@ -254,7 +273,45 @@ std::string FindShipping(const fs::path& root, const std::string& relative, int 
   return {};
 }
 
+// Microsoft's MFC library, which Wine doesn't provide: mfc140.dll, mfc140u.dll, mfcm140.dll, mfcm140u.dll (and
+// whatever later 140 builds add).
+bool MfcLibrary(const std::string& lower) {
+  return (lower.rfind("mfc140", 0) == 0 || lower.rfind("mfcm140", 0) == 0) && EndsWith(lower, ".dll");
+}
+
+void ScanMfc(const fs::path& root, const std::string& relative, int depth, MfcImports* out, std::size_t* seen) {
+  const auto entries = Entries(relative.empty() ? root : root / relative);
+  for (const auto& [name, directory] : entries) {
+    if (directory) continue;
+    const auto lower = Lower(name);
+    if (!EndsWith(lower, ".exe") && !EndsWith(lower, ".dll")) continue;
+    if (*seen >= kMfcScanPrograms) {
+      out->truncated = true;
+      return;
+    }
+    ++*seen;
+    const auto path = relative.empty() ? name : relative + "/" + name;
+    const auto facts = ReadPe((root / path).string(), true);
+    if (!facts.valid) continue;
+    auto& program = facts.pe64 ? out->x64_program : out->x86_program;
+    if (!program.empty()) continue;
+    for (const auto* list : {&facts.imports, &facts.delay_imports})
+      if (std::any_of(list->begin(), list->end(), MfcLibrary)) program = path;
+  }
+  if (depth >= kMfcScanDepth) return;
+  for (const auto& [name, directory] : entries)
+    if (directory && !out->truncated) ScanMfc(root, relative.empty() ? name : relative + "/" + name, depth + 1, out, seen);
+}
+
 }  // namespace
+
+MfcImports FindMfcImports(const std::string& install_root) {
+  MfcImports out;
+  std::size_t seen = 0;
+  ScanMfc(fs::path(install_root), std::string(), 0, &out, &seen);
+  out.programs = seen;
+  return out;
+}
 
 GameProbe ProbeGame(const std::string& install_root, const std::string& executable) {
   GameProbe probe;

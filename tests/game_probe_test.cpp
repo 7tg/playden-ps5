@@ -32,6 +32,7 @@ struct PeSpec {
   std::string text;          // bytes placed in the code section (names loaded at run time)
   std::size_t data_at = 0x1400;  // file offset of the section holding the import table
   bool shared_data = false;  // the data section is writable and shared, on 4 KB pages
+  std::vector<std::string> delay_imports;  // delay-loaded DLLs (descriptors at RVA 0x2a00)
 };
 
 void Put32(std::string* bytes, std::size_t at, std::uint32_t value) {
@@ -74,6 +75,14 @@ void WritePe(const fs::path& path, const PeSpec& spec) {
     Put32(&bytes, spec.data_at + i * 20 + 12, name_rva);
     bytes.replace(spec.data_at + (name_rva - 0x2000), spec.imports[i].size(), spec.imports[i]);
     name_rva += static_cast<std::uint32_t>(spec.imports[i].size() + 1);
+  }
+  if (!spec.delay_imports.empty()) Put32(&bytes, directories + 13 * 8, 0x2a00);
+  for (std::size_t i = 0; i < spec.delay_imports.size(); ++i) {
+    const auto row = spec.data_at + 0xa00 + i * 32;
+    Put32(&bytes, row, 1);  // addresses are relative to the image
+    Put32(&bytes, row + 4, name_rva);
+    bytes.replace(spec.data_at + (name_rva - 0x2000), spec.delay_imports[i].size(), spec.delay_imports[i]);
+    name_rva += static_cast<std::uint32_t>(spec.delay_imports[i].size() + 1);
   }
   std::ofstream(path, std::ios::binary) << bytes;
 }
@@ -500,6 +509,33 @@ int main() {
     choices.program = "Launcher.exe";
     CHECK(GenerateGameRecipe(544580, "BULLET SOUL", {{"", "", "Launcher.exe", "", ""}}, root.string(), &recipe, &reason, {}, choices));
     CHECK(recipe.launch_entries[0].executable == "Launcher.exe" && recipe.launch_entries[0].id == kProgramEntryId);
+  }
+
+  {  // MFC: a Unity plugin deep in the game's data imports mfc140u.dll (Moonlighter); per architecture.
+    const auto root = fresh();
+    WritePe(root / "Moonlighter.exe", {true, {"UnityPlayer.dll", "KERNEL32.dll"}});
+    WritePe(root / "Moonlighter_Data/Plugins/UnityNativeChromaSDK.dll", {true, {"KERNEL32.dll", "MFC140U.dll"}});
+    fs::create_directories(root / "Moonlighter_Data/Managed");
+    auto found = FindMfcImports(root.string());
+    CHECK(found.x64_program == "Moonlighter_Data/Plugins/UnityNativeChromaSDK.dll" && found.x86_program.empty());
+    CHECK(found.programs == 2 && !found.truncated);
+    // A 32-bit helper that delay-loads mfcm140.dll counts for x86; other DLLs named alike don't.
+    WritePe(root / "Tools/Editor.exe", {false, {"KERNEL32.dll"}, false, false, "", 0x1400, false, {"mfcm140.dll"}});
+    WritePe(root / "Tools/Other.dll", {false, {"mfc42.dll", "mfc140x.lib", "msvcp140.dll"}});
+    found = FindMfcImports(root.string());
+    CHECK(found.x86_program == "Tools/Editor.exe" && !found.x64_program.empty());
+    // Neither: a game without MFC.
+    const auto plain = fresh();
+    WritePe(plain / "Game.exe", {true, {"KERNEL32.dll", "VCRUNTIME140.dll", "d3d11.dll"}});
+    found = FindMfcImports(plain.string());
+    CHECK(found.x86_program.empty() && found.x64_program.empty() && found.programs == 1);
+    // Too deep is not looked into; a link is not followed.
+    WritePe(plain / "a/b/c/d/e/f/g/Deep.dll", {true, {"mfc140.dll"}});
+    fs::create_directory_symlink(root, plain / "linked");
+    found = FindMfcImports(plain.string());
+    CHECK(found.x86_program.empty() && found.x64_program.empty());
+    WritePe(plain / "a/b/c/d/e/f/Six.dll", {true, {"mfc140.dll"}});
+    CHECK(FindMfcImports(plain.string()).x64_program == "a/b/c/d/e/f/Six.dll");
   }
 
   // The player's words for what was found.
