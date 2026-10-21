@@ -10,6 +10,7 @@
 #include "runtime/install_service.h"
 #include "runtime/launch_service.h"
 #include "runtime/package_installer.h"
+#include "runtime/redist_install.h"
 
 #include <algorithm>
 #include <chrono>
@@ -111,6 +112,14 @@ struct RuntimeHostConfig {
   // nothing (the kit's icon stays). Runs on the worker; may use the network.
   // Named by the game, so a runtime number never reaches a store's artwork.
   std::function<std::optional<std::string>(const GameId& game)> title_icon;
+  // One ranged HTTPS GET for what Playden downloads for a game's bottle: Microsoft's Visual C++ redistributable,
+  // for a game whose files import MFC (runtime/redist_install.h). Runs on the worker, while Play or a preparation
+  // waits. Empty: nothing is downloaded, and such games start without MFC.
+  runtime::RangeFetch fetch_range;
+  // The redistributables MFC comes from, by architecture; kept under <console data>/playden/redist.
+  std::vector<runtime::VcRedist> vc_redists = runtime::MicrosoftVcRedists();
+  // How long a failed download is not tried again (a preparation runs its steps more than once).
+  std::chrono::seconds redist_retry_wait{60};
   // Native start of a prepared title with its arguments ("session=<UUID>").
   // Called only on the application thread, from Handoff. Empty disables Play.
   std::function<ps5::TitleResult(const std::string& title_id, const std::vector<std::string>& arguments)> launch_title;
@@ -553,6 +562,7 @@ class RuntimeHost {
   std::string BottleEnvironmentStep(const GameFiles& files);
   std::string RecipeRegistryStep(const GameFiles& files);
   std::string DotnetHeapStep(const GameFiles& files);
+  void MfcStep(const GameFiles& files);  // an upgrade: never stops the start
   // Steam-file steps.
   std::string SteamStubStep(const GameFiles& files);
   std::string SteamworksStep(const GameFiles& files, bool steam_account_known);  // and the legacy steam.dll
@@ -632,6 +642,9 @@ class RuntimeHost {
   void LearnNumber(const GameId& game, std::uint32_t runtime_number);
 
   RuntimeHostConfig config_;
+  // When each redistributable's download last failed (worker only): a preparation runs its steps more than once,
+  // and Play shouldn't wait for a network that just failed.
+  std::map<std::string, std::chrono::steady_clock::time_point> redist_download_failed_;
   mutable std::mutex mutex_;
   std::condition_variable wake_;
   std::condition_variable published_;  // notified on every Publish

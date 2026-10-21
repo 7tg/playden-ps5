@@ -447,12 +447,17 @@ MfcInstallResult InstallMfcRuntime(const VcRedist& redist, const std::string& ca
           chunk.reset();
         }
       }
-      if (!chunk) return fail("the download failed at byte " + std::to_string(offset) + ": " + error);
+      if (!chunk) {
+        out.download_failed = true;
+        return fail("the download failed at byte " + std::to_string(offset) + ": " + error);
+      }
       bundle += *chunk;
       offset += length;
     }
-    if (HashArtifactBytes(bundle).value_or("") != redist.sha256)
+    if (HashArtifactBytes(bundle).value_or("") != redist.sha256) {
+      out.download_failed = true;
       return fail("the download is not the redistributable Playden expects (SHA-256 mismatch)");
+    }
     out.source = "download";
     // Kept for other games: written beside, then renamed into place.
     std::error_code error;

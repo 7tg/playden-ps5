@@ -73,6 +73,7 @@ struct MfcInstallResult {
   std::string source;  // "download" or "cache", when installed
   std::size_t files = 0;
   std::string cache_problem;  // the download installed but could not be kept for other games: why
+  bool download_failed = false;  // failed because the bundle could not be downloaded (or wasn't the pinned one)
 };
 
 // Installs redist's MFC files into the stopped bottle at prefix_dir, once: the bottle's .playden-redist lists the

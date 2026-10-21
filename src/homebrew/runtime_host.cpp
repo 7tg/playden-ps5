@@ -9,6 +9,7 @@
 #include "runtime/prospero_profile.h"
 #include "runtime/settings_publication_journal.h"
 #include "runtime/dotnet_heap.h"
+#include "runtime/game_probe.h"
 #include "runtime/install_script.h"
 #include "runtime/layout_migration.h"
 #include "runtime/redist_install.h"
@@ -890,6 +891,62 @@ std::string RuntimeHost::InstallScriptsStep(const GameFiles& files) {
   return {};
 }
 
+// Generic step: Microsoft's MFC for a game whose files import it (Wine has none; a Unity plugin of Moonlighter's
+// stops the game without it), downloaded once per console and installed into the bottle once. An upgrade, not a
+// condition: a failed download or install is logged, the game still starts, and the next Play tries again.
+void RuntimeHost::MfcStep(const GameFiles& files) {
+  const auto needs = rt::FindMfcImports(files.root.string());
+  const auto app = std::to_string(files.record.runtime_number);
+  if (needs.truncated) Log("mfc scan app=" + app + " stopped after " + std::to_string(needs.programs) + " programs");
+  if (needs.x86_program.empty() && needs.x64_program.empty()) return;
+  // Paths come from the game's files: one line each, whatever they hold.
+  const auto field = [](std::string text) {
+    if (text.size() > 240) text.resize(240);
+    for (auto& value : text)
+      if (static_cast<unsigned char>(value) < 0x20 || value == 0x7f) value = '?';
+    return text;
+  };
+  struct stat hive {};
+  if (::lstat((files.prefix + "/system.reg").c_str(), &hive) != 0) {
+    Log("mfc upgrade app=" + app + " skipped: the bottle is not made yet");
+    return;
+  }
+  const auto cache = HostPath(config_.package_paths.console_data_root + "/playden/redist").string();
+  for (const auto& [architecture, program] : {std::pair<std::string, std::string>{"x86", needs.x86_program},
+                                              std::pair<std::string, std::string>{"x64", needs.x64_program}}) {
+    if (program.empty()) continue;
+    const auto redist = std::find_if(config_.vc_redists.begin(), config_.vc_redists.end(),
+                                     [&](const rt::VcRedist& candidate) { return candidate.architecture == architecture; });
+    const auto line = "mfc upgrade app=" + app + " arch=" + architecture + " program=" + field(program);
+    if (redist == config_.vc_redists.end()) {
+      Log(line + " skipped: no redistributable for it");
+      continue;
+    }
+    // A download that failed a moment ago (the same preparation, or a Play right after) isn't tried again yet;
+    // a kept copy still installs.
+    const auto began = std::chrono::steady_clock::now();
+    const auto failed = redist_download_failed_.find(redist->sha256);
+    const bool waits = failed != redist_download_failed_.end() && began - failed->second < config_.redist_retry_wait;
+    const auto result = rt::InstallMfcRuntime(*redist, cache, files.prefix, waits ? rt::RangeFetch{} : config_.fetch_range,
+                                              config_.unix_time());
+    if (result.result == "already") continue;
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count();
+    if (result.result != "installed") {
+      if (result.download_failed) redist_download_failed_[redist->sha256] = std::chrono::steady_clock::now();
+      if (waits && !result.download_failed)
+        Log(line + " skipped: its download failed " +
+            std::to_string(std::chrono::duration_cast<std::chrono::seconds>(began - failed->second).count()) +
+            " s ago; it is tried again from " + std::to_string(config_.redist_retry_wait.count()) + " s");
+      else
+        Log(line + " skipped: " + result.detail);
+      continue;
+    }
+    redist_download_failed_.erase(redist->sha256);
+    Log(line + " installed files=" + std::to_string(result.files) + " from=" + result.source + " ms=" + std::to_string(ms) +
+        (result.cache_problem.empty() ? std::string() : " not kept: " + result.cache_problem));
+  }
+}
+
 // Generic step: registry values the recipe carries (docs/community-recipes.md), written the way an install
 // script's are.
 std::string RuntimeHost::RecipeRegistryStep(const GameFiles& files) {
@@ -917,7 +974,7 @@ std::string RuntimeHost::DotnetHeapStep(const GameFiles& files) {
 }
 
 // The steps run in this order for every game, whatever its store: generic ones (media, EULA, Direct3D 12,
-// the bottle's Environment, the recipe's registry values, the .NET heap) and Steam-file ones, which act only
+// the bottle's Environment, MFC, the recipe's registry values, the .NET heap) and Steam-file ones, which act only
 // on the Steam files a game has (SteamStub, Steamworks and steam.dll, install scripts and redistributables).
 std::string RuntimeHost::ApplyPreparationSteps(Composition& c, const rt::RuntimeInstall& record, bool steam_account_known) {
   MediaStep(c, record);
@@ -957,6 +1014,7 @@ std::string RuntimeHost::ApplyPreparationSteps(Composition& c, const rt::Runtime
   if (auto refused = Direct3D12Step(c, files); !refused.empty()) return refused;
   if (auto refused = BottleEnvironmentStep(files); !refused.empty()) return refused;
   if (auto refused = InstallScriptsStep(files); !refused.empty()) return refused;
+  MfcStep(files);
   if (auto refused = RecipeRegistryStep(files); !refused.empty()) return refused;
   return DotnetHeapStep(files);
 }

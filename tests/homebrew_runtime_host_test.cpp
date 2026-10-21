@@ -1,5 +1,6 @@
 #include "homebrew/runtime_host.hpp"
 #include "runtime_host_fixture.h"
+#include "msi_fixture.h"
 #include "platform/managed_directory.h"
 #include "platform/ps5/title_allow_list.h"
 #include "platform/storage.h"
@@ -3200,6 +3201,146 @@ void PreparesUdkGameWithEulaAccepted() {
   host.Shutdown();
 }
 
+// A Windows DLL that imports one other DLL: a PE32 or PE32+ header, one section, an import table.
+std::string ImportingDll(bool pe64, const std::string& import) {
+  std::string bytes(0x600, '\0');
+  const auto put16 = [&](std::size_t at, unsigned value) { bytes[at] = char(value & 0xff); bytes[at + 1] = char(value >> 8); };
+  const auto put32 = [&](std::size_t at, std::uint32_t value) { put16(at, value & 0xffff); put16(at + 2, value >> 16); };
+  const std::size_t optional_size = pe64 ? 0xf0 : 0xe0, optional = 0x58;
+  bytes[0] = 'M'; bytes[1] = 'Z'; put32(0x3c, 0x40); bytes[0x40] = 'P'; bytes[0x41] = 'E';
+  put16(0x44, pe64 ? 0x8664 : 0x014c);
+  put16(0x46, 1);
+  put16(0x54, static_cast<unsigned>(optional_size));
+  put16(optional, pe64 ? 0x20b : 0x10b);
+  put32(optional + (pe64 ? 112 : 96) + 8, 0x1000);  // imports at the section's start
+  const std::size_t row = optional + optional_size;
+  bytes.replace(row, 5, ".data");
+  put32(row + 8, 0x200); put32(row + 12, 0x1000); put32(row + 16, 0x200); put32(row + 20, 0x400);
+  put32(0x400 + 12, 0x1100);  // the descriptor's DLL name
+  bytes.replace(0x500, import.size(), import);
+  return bytes;
+}
+
+// A game whose plugin imports Microsoft's MFC gets MFC's files in its bottle from the Visual C++ redistributable.
+// An upgrade, not a condition: the preparation that can't download it still ends Ready, and the next Play installs
+// it (also for a game prepared before Playden knew of MFC); later Plays neither download nor install it again.
+void PlayInstallsMfcForGameThatImportsIt() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.session_data_root = fixture.root / "data";
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  std::string session;
+  config.launch_title = [&session](const std::string&, const std::vector<std::string>& arguments) {
+    session = arguments.at(0).substr(8);  // "session=<UUID>"
+    return TitleResult{true, 0, "launch"};
+  };
+  std::vector<std::string> lines;
+  std::mutex lines_mutex;
+  config.log = [&](const std::string& line) {
+    std::lock_guard<std::mutex> lock(lines_mutex);
+    lines.push_back(line);
+  };
+  const auto mfc_lines = [&] {
+    std::lock_guard<std::mutex> lock(lines_mutex);
+    std::vector<std::string> found;
+    for (const auto& line : lines)
+      if (line.rfind("mfc ", 0) == 0) found.push_back(line);
+    return found;
+  };
+  // Microsoft's bundles stand in for by synthetic ones, at their own pinned hashes.
+  const auto x64_bundle = playden::test::msi::MfcBundle(true), x86_bundle = playden::test::msi::MfcBundle(false);
+  config.vc_redists = {
+      {"x86", "https://download.example/x86/VC_redist.x86.exe", *HashArtifactBytes(x86_bundle), x86_bundle.size(),
+       "vcRuntimeAdditional_x86", "14.44.35211"},
+      {"x64", "https://download.example/x64/VC_redist.x64.exe", *HashArtifactBytes(x64_bundle), x64_bundle.size(),
+       "vcRuntimeAdditional_x64", "14.44.35211"}};
+  config.redist_retry_wait = std::chrono::seconds(1);
+  std::atomic<bool> online{false};
+  std::atomic<int> fetches{0};
+  config.fetch_range = [&](const std::string& url, std::uint64_t offset, std::uint64_t length,
+                           std::string* error) -> std::optional<std::string> {
+    ++fetches;
+    if (!online) {
+      *error = "offline";
+      return std::nullopt;
+    }
+    const auto& bundle = url.find("x64") != std::string::npos ? x64_bundle : x86_bundle;
+    return bundle.substr(offset, length);
+  };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  Write(game / "hl2.exe", "existing-game", 0644);
+  Write(game / "bin/chroma.dll", ImportingDll(true, "MFC140U.dll"), 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(220) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220) && done.installs.size() == 1);
+  auto logged = mfc_lines();
+  CHECK(logged.size() == 2);
+  CHECK(logged[0] == "mfc upgrade app=220 arch=x64 program=bin/chroma.dll skipped: the download failed at byte 0: offline");
+  // Three attempts; the preparation's later pass over its steps doesn't wait for the network again.
+  CHECK(logged[1] == "mfc upgrade app=220 arch=x64 program=bin/chroma.dll skipped: its download failed 0 s ago; "
+                     "it is tried again from 1 s");
+  CHECK(fetches == 3);
+  const auto windows = fixture.root / "data/playden/games/steam-220/library/prefixes/game/drive_c/windows";
+  CHECK(!fs::exists(windows / "system32/mfc140u.dll"));
+
+  // The game updates with a 32-bit tool that needs MFC as well; the next Play installs both.
+  Write(game / "tools/editor.dll", ImportingDll(false, "mfc140.dll"), 0644);
+  online = true;
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  host.Play(220);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(Read(windows / "system32/mfc140u.dll") == "MFC64U" && Read(windows / "system32/mfcm140.dll") == "MFCM64");
+  CHECK(Read(windows / "syswow64/mfc140u.dll") == "MFC32U");
+  CHECK(!fs::exists(windows / "system32/msvcp140.dll") && !fs::exists(windows / "syswow64/msvcp140.dll"));
+  CHECK(Read(fixture.root / "data/playden/redist/vc-14.44.35211/x64/VC_redist.x64.exe") == x64_bundle);
+  CHECK(Read(fixture.root / "data/playden/redist/vc-14.44.35211/x86/VC_redist.x86.exe") == x86_bundle);
+  logged = mfc_lines();
+  CHECK(logged.size() >= 3);
+  CHECK(logged[logged.size() - 2].rfind("mfc upgrade app=220 arch=x86 program=tools/editor.dll installed files=2 from=download ms=", 0) == 0);
+  CHECK(logged.back().rfind("mfc upgrade app=220 arch=x64 program=bin/chroma.dll installed files=2 from=download ms=", 0) == 0);
+  CHECK(host.Handoff());
+  // The game runs and exits (the wrapper's session record).
+  const auto sessions = fixture.root / "data/playden/games/steam-220/logs/sessions";
+  fs::create_directories(sessions);
+  CHECK(chmod((fixture.root / "data/playden/games/steam-220/logs").c_str(), 0700) == 0);
+  CHECK(chmod(sessions.c_str(), 0700) == 0);
+  Write(sessions / (session + ".json"),
+        R"({"schema_version":1,"session_id":")" + session +
+            R"(","install_id":"steam-220","title_id":"FAKE78001","origin":"playden","settings_revision":0,)"
+            R"("runtime_bundle_id":"wine-wow64","phase":"exited"})" "\n", 0600);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.launch && s.launch->state == LaunchState::kExited; }, 30);
+  // Installed once: the next Play only finds it there, without the kept download.
+  const auto count = logged.size();
+  const int fetched = fetches;
+  fs::remove_all(fixture.root / "data/playden/redist");
+  host.Play(220);
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30);
+  CHECK(mfc_lines().size() == count && fetches == fetched);
+  CHECK(Read(windows / "system32/mfc140u.dll") == "MFC64U");
+  host.Shutdown();
+}
+
 // Playden ships more recipes than the one the kit carries: a game with its own shipped recipe
 // (FF XIII) is prepared by a kit packaged for HL2, with the recipe's bottle values written.
 void ShippedRecipePreparesWithAnotherKitsRecipe() {
@@ -4895,6 +5036,7 @@ int main(int argc, char** argv) {
   PreparesSteamProgramChosenAfterDownload();
   SteamEntryWithoutFolderStartsInInstallRoot();
   PreparesUdkGameWithEulaAccepted();
+  PlayInstallsMfcForGameThatImportsIt();
   ResumesInterruptedCaptureFromSavedRequest();
   ResumesInterruptedCaptureFromSavedRequest(true);
   RefreshesInstalledTitleToRespunKit();
