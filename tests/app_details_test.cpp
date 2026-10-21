@@ -213,6 +213,33 @@ void SizesCountOnlyLicensedDepots() {
 
 }  // namespace
 
+// Options only for other branches (RuneScape: Dragonwilds and GUILTY GEAR -STRIVE-, trimmed): a betakey list naming
+// "public" is the public branch's; with none, every branch's Windows options are kept and marked.
+void OtherBranchOptionsAreCandidates() {
+  const std::string listed = R"("appinfo"
+{
+  "config" { "launch" {
+    "0" { "executable" "Dungeons.exe" "type" "default" "config" { "betakey" "public, build_debug, latest\t" "oslist" "windows" } }
+  } }
+  "depots" { "1912411" { "manifests" { "public" { "gid" "1" "size" "10" "download" "5" } } } }
+})";
+  const auto dungeons = DetailsFromAppInfo(1912410, listed);
+  assert(dungeons.windows_installable && !dungeons.launches_any_branch && dungeons.launches.size() == 1);
+  const std::string branches = R"("appinfo"
+{
+  "config" { "launch" {
+    "0" { "executable" "RSDragonwilds.exe" "type" "default" "config" { "betakey" "any-undefined" } }
+    "1" { "executable" "Aqua-Coyote.exe" "type" "default" "config" { "betakey" "adventurerbranch" } }
+    "3" { "executable" "RSDragonwilds.exe" "type" "option1" "config" { "betakey" "trunk.dev.latest" "ownsdlc" "4179820" } }
+  } }
+  "depots" { "1374491" { "config" { "oslist" "windows" } "manifests" { "public" { "gid" "1" "size" "10" "download" "5" } } } }
+})";
+  const auto dragonwilds = DetailsFromAppInfo(1374490, branches);
+  assert(dragonwilds.windows_installable && dragonwilds.launches_any_branch);
+  assert(dragonwilds.launches.size() == 2 && dragonwilds.launches[0].executable == "RSDragonwilds.exe" &&
+         dragonwilds.launches[1].executable == "Aqua-Coyote.exe");
+}
+
 int main() {
   SizesCountOnlyLicensedDepots();
   RequestsAreDeduplicatedPerGeneration();
@@ -220,5 +247,6 @@ int main() {
   FailuresAreRetryable();
   AppInfoBecomesWindowsEstimate();
   DefaultBetaKeyIsThePublicBranch();
+  OtherBranchOptionsAreCandidates();
   ImpossibleDownloadSizeFallsBackToInstallSize();
 }

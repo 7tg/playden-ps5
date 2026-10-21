@@ -1758,8 +1758,12 @@ void Controller::TickAppDetails() {
       std::vector<LaunchProgram> programs;
       if (details.launches_any_branch)
         for (const auto& option : details.launches) {
+          // Only a Windows program can be the game's Program (game settings take .exe files only).
           const auto path = steam::RelativeGamePath(option.executable);
-          if (!path) continue;
+          if (!path || path->size() < 5 || !std::equal(path->end() - 4, path->end(), ".exe", [](char a, char b) {
+                return std::tolower(static_cast<unsigned char>(a)) == b;
+              }))
+            continue;
           const auto same = [&](const LaunchProgram& other) {
             return std::equal(path->begin(), path->end(), other.path.begin(), other.path.end(), [](char a, char b) {
               return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
