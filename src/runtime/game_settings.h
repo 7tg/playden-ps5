@@ -151,11 +151,14 @@ struct GameSettingsRecord {
   // A game from another store that uses Steamworks: its Steam app ID for the emulator, when the game's
   // folder has no steam_appid.txt (the game's own file wins). 0: not set. Saved only when set.
   std::uint32_t steam_app_id = 0;
+  // A Steam game whose launch options are all for other branches: the program the player chose at
+  // Install. Its option goes first when the game is prepared. Empty: not set. Saved only when set.
+  std::string steam_launch;
 };
 
 inline bool operator==(const GameSettingsRecord& left, const GameSettingsRecord& right) {
   return left.preset_id == right.preset_id && left.overrides == right.overrides && left.revision == right.revision &&
-         left.steam_app_id == right.steam_app_id;
+         left.steam_app_id == right.steam_app_id && left.steam_launch == right.steam_launch;
 }
 inline bool operator!=(const GameSettingsRecord& left, const GameSettingsRecord& right) { return !(left == right); }
 

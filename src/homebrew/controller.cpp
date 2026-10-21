@@ -1820,6 +1820,16 @@ void Controller::SubmitPrepare(GameId id, bool announce) {
   if (const auto found = launch_options_.find(id); found != launch_options_.end())
     for (const auto& option : found->second)
       request.launches.push_back({"", option.description, option.executable, option.working_directory, option.arguments});
+  // The program chosen at Install when Steam listed options only for other branches goes first.
+  if (const auto record = model_.state().game_settings.find(id);
+      record != model_.state().game_settings.end() && !record->second.steam_launch.empty())
+    std::stable_partition(request.launches.begin(), request.launches.end(), [&](const auto& launch) {
+      const auto path = steam::RelativeGamePath(launch.executable);
+      const auto& chosen = record->second.steam_launch;
+      return path && std::equal(path->begin(), path->end(), chosen.begin(), chosen.end(), [](char a, char b) {
+               return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+             });
+    });
   // Steam's launch options and app details are for Steam games only: another store's game starts the
   // program the player picks in Game settings.
   const bool steam = id.store == Store::kSteam;

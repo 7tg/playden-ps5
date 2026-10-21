@@ -840,8 +840,12 @@ void live_install_asks_for_a_steam_program(const std::filesystem::path& base) {
     auto requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Install && requests[0].game_id == SteamId(1374490),
           "steam program: choosing one installs");
-    check(model.state().game_settings.at(SteamId(1374490)).overrides.at("program") == "Aqua-Coyote.exe",
-          "steam program: the choice goes into Game settings");
+    check(model.state().game_settings.at(SteamId(1374490)).steam_launch == "Aqua-Coyote.exe" &&
+              model.state().game_settings.at(SteamId(1374490)).overrides.empty(),
+          "steam program: the choice is kept as Steam's option, not as a Program");
+    activate(model, "details-install");
+    check(model.view().surface != "steam-programs" && model.TakeInstallRequests().size() == 1,
+          "steam program: an earlier choice isn't asked for again");
 
     // One program besides installers and tools: no question.
     check(model.action("details:1384160") &&
@@ -852,6 +856,12 @@ void live_install_asks_for_a_steam_program(const std::filesystem::path& base) {
     check(model.view().surface != "steam-programs" && requests.size() == 1 && requests[0].game_id == SteamId(1384160),
           "steam program: one clear program installs at once");
     check(!model.state().game_settings.count(SteamId(1384160)), "steam program: Steam's first option needs no setting");
+    // An installer or tool listed before the game: the game's option goes first.
+    check(model.UpdateAppDetails(SteamId(1384160), 100, 200, true, {{"Redist/vcredist.exe", true}, {"GGST.exe", false}}),
+          "steam program: details with a tool first");
+    activate(model, "details-install");
+    check(model.TakeInstallRequests().size() == 1 && model.state().game_settings.at(SteamId(1384160)).steam_launch == "GGST.exe",
+          "steam program: the clear program goes before the tool");
 }
 
 } // namespace

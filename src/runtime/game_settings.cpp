@@ -1219,6 +1219,8 @@ bool RecordFromValue(const storage_json::Value& root, GameSettingsRecord* out) {
   // A malformed app ID is dropped, not the record: the rest of the player's settings still load.
   if (const auto* app = root.Find("steam_app_id"); app && app->is_string())
     out->steam_app_id = ParseSteamAppId(app->text()).value_or(0);
+  if (const auto* launch = root.Find("steam_launch"); launch && launch->is_string())
+    out->steam_launch = steam::RelativeGamePath(launch->text()).value_or(std::string());
   // Settings this build does not know are dropped so an older record still loads.
   for (auto it = out->overrides.begin(); it != out->overrides.end();)
     it = FindSetting(it->first) || IsUnlockKey(it->first) ? std::next(it) : out->overrides.erase(it);
@@ -1256,6 +1258,7 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record) {
   }
   text += "}";
   if (record.steam_app_id) text += ",\"steam_app_id\":\"" + std::to_string(record.steam_app_id) + "\"";
+  if (!record.steam_launch.empty()) text += ",\"steam_launch\":\"" + json::escape(record.steam_launch) + "\"";
   return text + "}";
 }
 
@@ -1877,7 +1880,7 @@ std::string SerializeSettingsFile(
   bool first = true;
   for (const auto& [id, record] : records) {
     if (!id.valid() || (record.preset_id.empty() && record.overrides.empty() && record.revision == 0 &&
-                         !record.steam_app_id))
+                         !record.steam_app_id && record.steam_launch.empty()))
       continue;
     if (!first) text += ",";
     first = false;

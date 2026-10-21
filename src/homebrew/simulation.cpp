@@ -1190,13 +1190,14 @@ bool Simulation::ask_steam_program(GameId id) {
     const auto* game = find_game(state_, id);
     if (!game || game->launch_programs.empty()) return false;
     const auto programs = steam_programs(*game);
-    // A program the player already chose in Game settings is kept.
-    if (const auto found = state_.game_settings.find(id);
-        found != state_.game_settings.end() && found->second.overrides.count("program"))
+    // A program the player already chose (in Game settings, or here for an earlier install) is kept.
+    if (const auto found = state_.game_settings.find(id); found != state_.game_settings.end() &&
+                                                          (found->second.overrides.count("program") ||
+                                                           !found->second.steam_launch.empty()))
         return false;
     if (const auto clear = playden::stores::local::ClearGameProgram(programs)) {
         // Steam's first option is tried first; an installer or tool listed before the game isn't.
-        if (programs[*clear].path != game->launch_programs.front().path) SeedGameProgram(id, programs[*clear].path);
+        if (programs[*clear].path != game->launch_programs.front().path) choose_steam_launch(id, programs[*clear].path);
         return false;
     }
     steam_programs_shown_ = programs;
@@ -1209,13 +1210,13 @@ bool Simulation::ask_steam_program(GameId id) {
     return true;
 }
 
-bool Simulation::SeedGameProgram(GameId id, const std::string& program, bool chosen) {
+bool Simulation::SeedGameProgram(GameId id, const std::string& program) {
     if (!live() || !id.valid() || settings_load_failed_ || game_settings_file_.empty()) return false;
     if (!rt::ValidateSettingValue(rt::GameRecipe{}, "program", program, nullptr)) return false;
     // Only a record never saved: once the player changed anything (a Program reset included), the
     // choice is theirs.
-    if (const auto found = state_.game_settings.find(id); !chosen && found != state_.game_settings.end() &&
-                                                          (found->second.revision != 0 || !found->second.overrides.empty()))
+    if (const auto found = state_.game_settings.find(id);
+        found != state_.game_settings.end() && (found->second.revision != 0 || !found->second.overrides.empty()))
         return false;
     auto& record = state_.game_settings[id];
     record.overrides["program"] = program;
@@ -2004,6 +2005,14 @@ bool live_install_allowed(InstallReadiness readiness, bool free_space_supported)
 }
 
 }  // namespace
+
+// The Steam option is kept as Steam's (its arguments, folder and the launcher and Unreal rules
+// preparation applies), only first; Game settings › Program still lists the others.
+void Simulation::choose_steam_launch(GameId id, const std::string& program) {
+    if (!live() || !id.valid()) return;
+    state_.game_settings[id].steam_launch = program;
+    save_profile();
+}
 
 void Simulation::start_live_install(GameId id) {
     // Install at once when the game fits the default drive (or its size is checked later);
@@ -6443,7 +6452,7 @@ void Simulation::activate() {
         const auto index = static_cast<std::size_t>(std::stoul(action_name.substr(14)));
         if (index >= steam_programs_shown_.size()) return;
         const auto id = steam_programs_game_;
-        SeedGameProgram(id, steam_programs_shown_[index].path, true);
+        choose_steam_launch(id, steam_programs_shown_[index].path);
         close_modal();
         start_live_install(id);
     } else if (live() && action_name == "open-downloads") {

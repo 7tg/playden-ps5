@@ -148,6 +148,18 @@ int main(int argc, char** argv) {
     CHECK(ParseGameSettingsRecord("{\"steam_app_id\":\" 4294967295\\n\"}", &parsed, &reason) &&
           parsed.steam_app_id == 4294967295u);
     CHECK(!ParseSteamAppId("+5") && !ParseSteamAppId("") && ParseSteamAppId("\t7\r\n") == 7u);
+    // The Steam program chosen at Install is saved only when set, as a game-relative path.
+    GameSettingsRecord only_launch;
+    only_launch.steam_launch = "Win64/RSDragonwilds.exe";
+    const auto launches = root / "launches.json";
+    CHECK(SaveGameSettingsFile(launches.string(), {{SteamId(1374490), only_launch}}, &reason));
+    CHECK(Read(launches).find("\"steam_launch\":\"Win64/RSDragonwilds.exe\"") != std::string::npos);
+    std::map<playden::GameId, GameSettingsRecord> launches_loaded;
+    CHECK(LoadGameSettingsFile(launches.string(), &launches_loaded, &reason) &&
+          launches_loaded.at(SteamId(1374490)) == only_launch);
+    CHECK(ParseGameSettingsRecord("{\"steam_launch\":\"Bin\\\\Game.exe\"}", &parsed, &reason) &&
+          parsed.steam_launch == "Bin/Game.exe");
+    CHECK(ParseGameSettingsRecord("{\"steam_launch\":\"../x.exe\"}", &parsed, &reason) && parsed.steam_launch.empty());
   }
 
   const auto public_private_root = root / "public-settings";

@@ -734,8 +734,7 @@ public:
     // Writes the program an imported game starts with into its Game settings when the game has no
     // saved settings yet (just added); never over anything the player changed, a reset Program
     // included. Saved at once so the next preparation reads it. True when it was written.
-    // `chosen`: the player picked it just now (Install's program sheet), so it is written anyway.
-    bool SeedGameProgram(GameId id, const std::string& program, bool chosen = false);
+    bool SeedGameProgram(GameId id, const std::string& program);
     [[nodiscard]] std::vector<GameId> TakeKeptDeleteRequests();
     // Live mode: maintenance the player confirmed (and settings to apply when the sheet
     // closes), and games whose title activity the sheet needs to know.
@@ -1087,6 +1086,7 @@ private:
     // (the import rules: installers and tools last, one clear program isn't asked for).
     [[nodiscard]] static std::vector<LaunchProgram> steam_programs(const Game& game);
     bool ask_steam_program(GameId id);
+    void choose_steam_launch(GameId id, const std::string& program);
     void start_live_install(GameId id);
     std::vector<LaunchProgram> steam_programs_shown_;
     GameId steam_programs_game_;
