@@ -891,6 +891,7 @@ private:
     std::uint64_t cancelled_challenge_generation_ = 0;
     std::uint64_t next_collection_serial_ = 1;
     std::uint64_t next_job_serial_ = 1;
+    bool controller_seen_ = false;  // a connected controller has been reported this run
     std::vector<ServiceRequest> pending_service_actions_;
     std::optional<SignInCredentials> pending_credentials_;
     std::optional<std::string> pending_guard_code_;

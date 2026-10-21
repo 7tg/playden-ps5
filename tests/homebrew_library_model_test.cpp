@@ -585,7 +585,12 @@ void live_install_notifications() {
     model.SetWallClock(1'040);
     check(!find_notice(model, "install-42") && !find_notice(model, "install-44"), "visible notifications expire");
 
-    // Controller: a lasting warning while disconnected, a short notice on reconnect.
+    // Controller: the pad reads as disconnected for the first frames after start; that says nothing.
+    model.SetControllerConnected(false);
+    model.SetControllerConnected(true);
+    check(!find_notice(model, "controller") && !find_notice(model, "controller-connected"),
+          "the controller found at start is not announced");
+    // Then a lasting warning while disconnected, a short notice on reconnect.
     model.SetControllerConnected(false);
     const auto* lost = find_notice(model, "controller");
     check(lost && lost->persistent && lost->failure, "a disconnected controller raises a lasting warning");

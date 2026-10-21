@@ -725,7 +725,11 @@ void Simulation::reset_default_state() {
 void Simulation::SetControllerConnected(bool connected) {
     const bool changed = state_.controller_connected != connected;
     state_.controller_connected = connected;
-    if (live() && changed) {
+    // The pad reads as disconnected for the first frames after start: only a change after the
+    // controller has been seen once is a real disconnect or reconnect.
+    const bool announce = live() && changed && controller_seen_;
+    if (connected) controller_seen_ = true;
+    if (announce) {
         if (!connected) {
             push_notice({"controller", "Controller disconnected", "", true, 0, true, "Reconnect it to keep playing"});
         } else {
