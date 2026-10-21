@@ -279,9 +279,19 @@ bool MfcLibrary(const std::string& lower) {
   return (lower.rfind("mfc140", 0) == 0 || lower.rfind("mfcm140", 0) == 0) && EndsWith(lower, ".dll");
 }
 
+bool MfcScanDone(const MfcImports& out) {
+  return out.truncated || (!out.x86_program.empty() && !out.x64_program.empty());
+}
+
 void ScanMfc(const fs::path& root, const std::string& relative, int depth, MfcImports* out, std::size_t* seen) {
+  if (out->folders >= kMfcScanFolders) {
+    out->truncated = true;
+    return;
+  }
+  ++out->folders;
   const auto entries = Entries(relative.empty() ? root : root / relative);
   for (const auto& [name, directory] : entries) {
+    if (MfcScanDone(*out)) return;
     if (directory) continue;
     const auto lower = Lower(name);
     if (!EndsWith(lower, ".exe") && !EndsWith(lower, ".dll")) continue;
@@ -300,7 +310,7 @@ void ScanMfc(const fs::path& root, const std::string& relative, int depth, MfcIm
   }
   if (depth >= kMfcScanDepth) return;
   for (const auto& [name, directory] : entries)
-    if (directory && !out->truncated) ScanMfc(root, relative.empty() ? name : relative + "/" + name, depth + 1, out, seen);
+    if (directory && !MfcScanDone(*out)) ScanMfc(root, relative.empty() ? name : relative + "/" + name, depth + 1, out, seen);
 }
 
 }  // namespace

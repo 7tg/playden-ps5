@@ -38,16 +38,19 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
 
 // Which of a game's programs and libraries import Microsoft's MFC library (mfc140*.dll, mfcm140*.dll, directly
 // or delay-loaded), which Wine doesn't provide: Playden installs Microsoft's own into the game's bottle. Every
-// .exe and .dll of the game folder is read, kMfcScanDepth folders deep and at most kMfcScanPrograms of them
-// (headers only), without following links. The first program found per architecture, relative to the root.
+// .exe and .dll of the game folder is read, kMfcScanDepth folders deep, at most kMfcScanPrograms of them (headers
+// only) in at most kMfcScanFolders folders, without following links; the walk ends once both architectures are
+// found. The first program found per architecture, relative to the root.
 struct MfcImports {
   std::string x86_program;  // a PE32 one
   std::string x64_program;  // a PE32+ one
   std::size_t programs = 0;  // programs read
-  bool truncated = false;    // stopped at kMfcScanPrograms
+  std::size_t folders = 0;   // folders listed
+  bool truncated = false;    // stopped at kMfcScanPrograms or kMfcScanFolders
 };
 inline constexpr int kMfcScanDepth = 6;
 inline constexpr std::size_t kMfcScanPrograms = 4096;
+inline constexpr std::size_t kMfcScanFolders = 4096;
 MfcImports FindMfcImports(const std::string& install_root);
 
 // How a game without a shipped recipe starts, from its probe.

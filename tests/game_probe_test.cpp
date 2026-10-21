@@ -536,6 +536,14 @@ int main() {
     CHECK(found.x86_program.empty() && found.x64_program.empty());
     WritePe(plain / "a/b/c/d/e/f/Six.dll", {true, {"mfc140.dll"}});
     CHECK(FindMfcImports(plain.string()).x64_program == "a/b/c/d/e/f/Six.dll");
+    // Once both are found the walk ends: the folder after them isn't listed.
+    const auto both = fresh();
+    WritePe(both / "A.dll", {true, {"mfc140u.dll"}});
+    WritePe(both / "B.dll", {false, {"mfc140u.dll"}});
+    WritePe(both / "later/C.dll", {true, {"KERNEL32.dll"}});
+    found = FindMfcImports(both.string());
+    CHECK(!found.x86_program.empty() && !found.x64_program.empty() && found.folders == 1 && found.programs == 2);
+    CHECK(!found.truncated);
   }
 
   // The player's words for what was found.
