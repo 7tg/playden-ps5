@@ -26,6 +26,7 @@ PersistenceController::PersistenceController(homebrew::Simulation& model,
                                              PersistenceService& service)
     : model_(model), service_(service) {
   BeginPreferencesLoad();
+  BeginOrganizationLoad();
 }
 
 void PersistenceController::BeginPreferencesLoad() {
@@ -42,47 +43,23 @@ void PersistenceController::BeginPreferencesLoad() {
 }
 
 void PersistenceController::BeginOrganizationLoad() {
-  if (!account_id_) return;
-  organization_load_token_ = model_.BeginOrganizationLoad(account_id_);
+  organization_load_token_ = model_.BeginOrganizationLoad(kDeviceOrganization);
   organization_load_request_ =
-      service_.LoadOrganization(account_id_, account_generation_);
+      service_.LoadOrganization(kDeviceOrganization, organization_generation_);
   organization_load_failed_ = false;
   if (organization_load_request_) return;
 
-  model_.FailOrganizationLoad(account_id_, organization_load_token_,
+  model_.FailOrganizationLoad(kDeviceOrganization, organization_load_token_,
                               StorageError::kReadFailed);
   organization_load_failed_ = true;
 }
 
-void PersistenceController::Activate(std::uint64_t account) {
-  if (!account || shutting_down_ || clear_request_) return;
-  if (account == account_id_) return;
-
-  if (account_id_) {
-    ObserveAndSave();
-    service_.InvalidateOrganization(++account_generation_);
-    model_.OrganizationCleared(account_id_);
-  } else {
-    ++account_generation_;
-  }
-  account_id_ = account;
-  organization_load_request_ = 0;
-  organization_load_failed_ = false;
-  submitted_organization_revision_ = 0;
-  BeginOrganizationLoad();
-}
+// Organization belongs to the device: store accounts coming and going leave it alone.
+void PersistenceController::Activate(std::uint64_t) {}
 
 void PersistenceController::Reset() {
   if (shutting_down_) return;
   ObserveAndSave();
-  service_.InvalidateOrganization(++account_generation_);
-  if (account_id_) model_.OrganizationCleared(account_id_);
-  account_id_ = 0;
-  organization_load_request_ = 0;
-  organization_load_failed_ = false;
-  submitted_organization_revision_ = 0;
-  clear_request_ = 0;
-  clear_result_.reset();
 }
 
 void PersistenceController::Tick() {
@@ -93,33 +70,19 @@ void PersistenceController::Tick() {
 }
 
 void PersistenceController::Retry() {
-  if (shutting_down_ || clear_request_) return;
+  if (shutting_down_) return;
   if (preferences_load_failed_) BeginPreferencesLoad();
   else submitted_preferences_revision_ = 0;
 
-  if (!account_id_) return;
   if (organization_load_failed_) BeginOrganizationLoad();
   else submitted_organization_revision_ = 0;
 }
 
 void PersistenceController::Clear() {
-  if (shutting_down_ || clear_request_ || clear_result_) return;
-  if (!account_id_) {
-    clear_result_ = StorageError::kNone;
-    return;
-  }
-
+  // Signing out keeps the device's organization; there is nothing to delete.
+  if (shutting_down_ || clear_result_) return;
   ObserveAndSave();
-  const auto generation = account_generation_ + 1;
-  const auto request = service_.ClearOrganization(account_id_, generation);
-  if (!request) {
-    clear_result_ = StorageError::kWriteFailed;
-    return;
-  }
-  account_generation_ = generation;
-  clear_request_ = request;
-  clear_had_pending_load_ = organization_load_request_ != 0;
-  organization_load_request_ = 0;
+  clear_result_ = StorageError::kNone;
 }
 
 std::optional<StorageError> PersistenceController::TakeClearResult() {
@@ -145,40 +108,18 @@ void PersistenceController::Apply(PersistenceEvent event) {
     model_.PreferencesSaveResult(event.revision, event.error);
     return;
   }
-  if (event.kind == PersistenceEventKind::kOrganizationCleared) {
-    if (event.request_id != clear_request_ || event.account_id != account_id_)
-      return;
-    clear_request_ = 0;
-    clear_result_ = event.error;
-    if (event.error == StorageError::kNone) {
-      organization_load_failed_ = false;
-      submitted_organization_revision_ = model_.OrganizationRevision();
-      model_.OrganizationCleared(account_id_);
-    } else if (clear_had_pending_load_) {
-      organization_load_failed_ = true;
-      model_.FailOrganizationLoad(account_id_, organization_load_token_,
-                                  event.error);
-    } else {
-      organization_load_failed_ = false;
-      // Root presents the destructive-operation error. The already loaded
-      // model remains authoritative; do not mislabel deletion as a save
-      // failure or leave a clean model with an unresolvable save notice.
-      submitted_organization_revision_ = 0;
-    }
-    clear_had_pending_load_ = false;
-    return;
-  }
-  if (event.account_id != account_id_ ||
-      event.account_generation != account_generation_) return;
+  if (event.kind == PersistenceEventKind::kOrganizationCleared) return;
+  if (event.account_id != kDeviceOrganization ||
+      event.account_generation != organization_generation_) return;
   if (event.kind == PersistenceEventKind::kOrganizationLoaded) {
     if (event.request_id != organization_load_request_) return;
     organization_load_request_ = 0;
     if (event.error == StorageError::kNone) {
       organization_load_failed_ = !model_.ApplyOrganization(
-          account_id_, organization_load_token_, std::move(event.organization));
+          kDeviceOrganization, organization_load_token_, std::move(event.organization));
     } else {
       organization_load_failed_ = true;
-      model_.FailOrganizationLoad(account_id_, organization_load_token_,
+      model_.FailOrganizationLoad(kDeviceOrganization, organization_load_token_,
                                   event.error);
     }
     return;
@@ -200,16 +141,16 @@ void PersistenceController::ObserveAndSave() {
     }
   }
 
-  if (!account_id_ || clear_request_ || organization_load_request_ ||
+  if (organization_load_request_ ||
       organization_load_failed_ || !model_.OrganizationReadyForSave() ||
       !model_.OrganizationDirty()) return;
   const auto revision = model_.OrganizationRevision();
   if (revision == submitted_organization_revision_) return;
   const auto request = service_.SaveOrganization(
-      account_id_, account_generation_, revision, model_.ExportOrganization());
+      kDeviceOrganization, organization_generation_, revision, model_.ExportOrganization());
   submitted_organization_revision_ = revision;
   if (!request)
-    model_.OrganizationSaveResult(account_id_, revision,
+    model_.OrganizationSaveResult(kDeviceOrganization, revision,
                                   StorageError::kWriteFailed);
 }
 

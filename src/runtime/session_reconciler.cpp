@@ -199,6 +199,11 @@ SessionReconciler::Reconcile(const std::vector<RuntimeInstall> &records) {
 
 SessionReconcileStatus SessionReconciler::Process(
     const RuntimeInstall &record, const WrapperSession &session) {
+  // Cloud reconciliation is for stores with Cloud saves only: another store's
+  // session ends here, without touching the journal or the Cloud.
+  if (!Traits(record.game.store).cloud_saves)
+    return Status(session.session_id, SessionReconcileState::kCompleted,
+                  "cloud-unsupported", "the game's store has no Cloud saves");
   const auto loaded = journal_.Load(session.session_id);
   if (!loaded.ok)
     return Status(session.session_id, SessionReconcileState::kPersistenceFailed,

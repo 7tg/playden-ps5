@@ -604,7 +604,12 @@ void StatsAndRemovalLogs(const std::filesystem::path& root) {
   CHECK(line.find("dl_ms=300000") != std::string::npos && line.find("reuse=1") != std::string::npos);
   CmClient cm(CmClientHooks{}, cm::DeviceIdentity{});
   CdnClient cdn([](const HttpRequest&, const std::atomic<bool>&) { return HttpResponse{}; });
-  SteamInstallRunner runner(cm, cdn);
+  struct NoSessions final : SessionRepository {
+    Result<std::optional<StoredSession>> Load() const override { return Result<std::optional<StoredSession>>::Success(std::nullopt); }
+    Result<void> Save(const StoredSession&) const override { return Result<void>::Success(); }
+    Result<void> Clear() const override { return Result<void>::Success(); }
+  } sessions;
+  SteamInstallRunner runner(sessions, cm, cdn);
   int removals = 0;
   std::uint32_t expected_app = 440;
   const char* expected_ok = "ok=1";

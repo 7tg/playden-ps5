@@ -127,10 +127,11 @@ class Sessions final : public playden::SessionRepository {
   playden::Result<void> Clear() const override { return playden::Result<void>::Success(); }
 };
 
-class Runner final : public playden::steam::InstallRunner {
+class Runner final : public playden::steam::SessionInstallRunner {
  public:
+  explicit Runner(playden::SessionRepository& sessions) : SessionInstallRunner(sessions) {}
   std::atomic<int> installs{0};
-  Result Install(const playden::StoredSession&, std::uint32_t, const std::string&, const std::atomic<bool>&,
+  Result InstallApp(const playden::StoredSession&, std::uint32_t, const std::string&, const std::atomic<bool>&,
                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>&,
                  const std::function<void(playden::steam::InstallStep)>&) override {
     ++installs;
@@ -173,10 +174,10 @@ void RegistryKeepsSteamLines() {
   // 220 finished at the dismissed time; 400's drive has no folder for it (unavailable).
   Write(games / "220/.playden-install.json", Read(fixtures / ".playden-install.json"));
   SetTime(games / "220/.playden-install.json", 1760000000);
-  Runner runner;
   Sessions sessions;
+  Runner runner(sessions);
   {
-    InstallService service(runner, sessions, Volumes(directory.path));
+    InstallService service(runner, Volumes(directory.path));
     const auto snapshot = service.Snapshot();
     CHECK(snapshot.installed.size() == 2 && snapshot.installed[0].id == GameId::Steam(220));
     CHECK(snapshot.installed[0].install_bytes == 5000000000u && snapshot.installed[0].available);
@@ -207,7 +208,7 @@ void RegistryKeepsSteamLines() {
   SetTime(local_games / (c_key + "/.playden-install.json"), 1760000500);
   Write(local_games / ".playden-downloads-dismissed", c_key + "\t1760000500\n");
   {
-    InstallService service(runner, sessions, Volumes(local.path));
+    InstallService service(runner, Volumes(local.path));
     const auto snapshot = service.Snapshot();
     CHECK(snapshot.installed.size() == 2 && snapshot.installed[0].id == kLocalA && !snapshot.installed[0].available);
     CHECK(snapshot.installed[1].id == kLocalC && snapshot.installed[1].install_bytes == 4096);
@@ -231,7 +232,7 @@ void RegistryKeepsSteamLines() {
   Write(junk.path / "games/.playden-games",
         "0220\tinternal\t1\nlocal-0F8FAD5B-D9CB-469F-A165-70867728950E\tinternal\t1\ngog-1\tinternal\t1\n");
   {
-    InstallService service(runner, sessions, Volumes(junk.path));
+    InstallService service(runner, Volumes(junk.path));
     CHECK(service.Snapshot().installed.empty() && service.Snapshot().jobs.empty());
   }
 }

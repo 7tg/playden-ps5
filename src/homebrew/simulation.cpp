@@ -715,7 +715,7 @@ std::optional<std::string> Simulation::TakeGuardCode() {
     return code;
 }
 
-std::vector<ServiceAction> Simulation::TakeServiceActions() {
+std::vector<ServiceRequest> Simulation::TakeServiceActions() {
     auto actions = std::move(pending_service_actions_);
     pending_service_actions_.clear();
     return actions;
@@ -1562,39 +1562,70 @@ void Simulation::apply_live_volume_usage() {
     }
 }
 
-void Simulation::queue_service_action(ServiceAction action) {
+void Simulation::queue_service_action(ServiceAction action, Store store) {
     constexpr std::size_t kMaxPendingActions = 32;
     const bool barrier = action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount;
-    if (barrier && std::find(pending_service_actions_.begin(), pending_service_actions_.end(), action) != pending_service_actions_.end()) return;
+    if (barrier && std::find_if(pending_service_actions_.begin(), pending_service_actions_.end(), [&](const ServiceRequest& pending) {
+            return pending.action == action && pending.store == store;
+        }) != pending_service_actions_.end()) return;
     if (pending_service_actions_.size() >= kMaxPendingActions) {
         if (!barrier) return;
-        const auto disposable = std::find_if(pending_service_actions_.begin(), pending_service_actions_.end(), [](ServiceAction pending) {
+        const auto disposable = std::find_if(pending_service_actions_.begin(), pending_service_actions_.end(), [](const ServiceRequest& pending) {
             return pending != ServiceAction::SignOut && pending != ServiceAction::SwitchAccount;
         });
         if (disposable == pending_service_actions_.end()) return;
         pending_service_actions_.erase(disposable);
     }
-    pending_service_actions_.push_back(action);
+    pending_service_actions_.push_back({action, store});
+}
+
+bool Simulation::beyond_steam() const {
+    for (const auto& [store, account] : state_.accounts)
+        if (store != Store::kSteam &&
+            (account.authentication == AuthState::SignedIn || account.authentication == AuthState::Offline)) return true;
+    return std::any_of(state_.games.begin(), state_.games.end(),
+                       [](const Game& game) { return game.id.store != Store::kSteam; });
+}
+
+void Simulation::leave_steam_sign_in() {
+    if (beyond_steam()) {
+        state_.navigation.route = Route::Home;
+        state_.navigation.focus_key = state_.games.empty() ? "home-library" : game_key(state_.games.front().id);
+    } else {
+        state_.navigation.route = Route::Startup;
+        state_.navigation.focus_key = "startup-connect";
+    }
 }
 
 void Simulation::clear_account_specific_state() {
     ++state_.account_generation;
-    state_.account.challenge_url.clear();
-    state_.account.challenge_expiry = 0;
-    state_.account.last_sync = 0;
-    state_.account.cache_available = false;
-    state_.account.error.clear();
-    state_.games.clear();
-    library_catalog_received_ = false;
-    state_.library = {};
-    state_.installations.clear();
-    state_.jobs.clear();
+    state_.account().challenge_url.clear();
+    state_.account().challenge_expiry = 0;
+    state_.account().last_sync = 0;
+    state_.account().cache_available = false;
+    state_.account().error.clear();
+    // Only Steam's games go; other stores' games stay.
+    state_.games.erase(std::remove_if(state_.games.begin(), state_.games.end(),
+                                      [](const Game& game) { return game.id.store == Store::kSteam; }),
+                       state_.games.end());
+    catalog_sources_.erase(Store::kSteam);
+    loading_sources_.erase(Store::kSteam);
+    library_catalog_received_ = !catalog_sources_.empty();
+    // Live organization (favorites, collections, ratings, notes) belongs to the device and stays.
+    if (live()) state_.library.view_sort.clear();
+    else state_.library = {};
+    // Steam's installs and downloads go with its account; other stores' stay listed.
+    std::erase_if(state_.installations, [](const Installation& item) { return item.game_id.store == Store::kSteam; });
+    std::erase_if(state_.jobs, [](const Job& job) { return job.game_id.store == Store::kSteam; });
     state_.volumes.clear();
     state_.cloud.clear();
     // Bottle settings belong to the installed game, independently of Steam sign-in.
     if (!live()) state_.game_settings.clear();
     state_.navigation.detail_id.reset();
-    state_.navigation.selected_game_id = {};
+    // A game of another store that is still listed stays selected.
+    if (std::none_of(state_.games.begin(), state_.games.end(),
+                     [this](const Game& game) { return game.id == state_.navigation.selected_game_id; }))
+        state_.navigation.selected_game_id = {};
     state_.navigation.selected_index = 0;
     state_.navigation.home_shelf = 0;
     state_.navigation.home_shelf_focus.clear();
@@ -1605,8 +1636,8 @@ void Simulation::clear_account_specific_state() {
     state_.session_game_id = {};
     state_.session_error.clear();
     state_.runtime = RuntimeState::Unavailable;
-    state_.library_syncing = false;
-    state_.library_loading = false;
+    state_.library_loading = !loading_sources_.empty();
+    state_.library_syncing = state_.library_loading;
     state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
                                         [](const Notice& notice) { return notice.id != "persistence" && notice.id != "runtime"; }),
                          state_.notices.end());
@@ -1618,19 +1649,6 @@ void Simulation::clear_account_specific_state() {
     selected_volume_id_.clear();
     editing_setting_id_.clear();
     editing_target_id_.clear();
-    organization_account_ = 0;
-    organization_revision_ = 0;
-    organization_saved_revision_ = 0;
-    organization_load_token_ = {};
-    organization_load_pending_ = false;
-    organization_load_failed_ = false;
-    organization_save_failed_ = false;
-    organization_journal_full_ = false;
-    organization_save_suppressed_ = false;
-    organization_journal_.clear();
-    organization_journal_bytes_ = 0;
-    captured_organization_ = {};
-    persisted_organization_ = {};
     update_persistence_notice();
 }
 
@@ -1639,16 +1657,16 @@ void Simulation::UpdateAccount(AccountUpdate update) {
     if (update.clear_library) clear_account_specific_state();
     // The saved sign-in is retried every few seconds; a repeat of the same failure leaves the
     // screen, its focus and any open list alone.
-    const bool repeat = update.authentication == AuthState::Failed && state_.account.authentication == AuthState::Failed &&
+    const bool repeat = update.authentication == AuthState::Failed && state_.account().authentication == AuthState::Failed &&
                         update.sign_in == SignInStep::Qr && state_.sign_in.step == SignInStep::Qr &&
-                        update.error == state_.account.error && update.storage_full == state_.account.storage_full;
-    state_.account.storage_full = update.authentication == AuthState::Failed && update.storage_full;
-    state_.account.authentication = update.authentication;
-    state_.account.id = std::move(update.id);
-    state_.account.display_name = std::move(update.display_name);
-    state_.account.challenge_url = std::move(update.challenge_url);
-    state_.account.error = std::move(update.error);
-    state_.account.challenge_expiry = 0;
+                        update.error == state_.account().error && update.storage_full == state_.account().storage_full;
+    state_.account().storage_full = update.authentication == AuthState::Failed && update.storage_full;
+    state_.account().authentication = update.authentication;
+    state_.account().id = std::move(update.id);
+    state_.account().display_name = std::move(update.display_name);
+    state_.account().challenge_url = std::move(update.challenge_url);
+    state_.account().error = std::move(update.error);
+    state_.account().challenge_expiry = 0;
     state_.library_syncing = update.authentication == AuthState::Syncing;
 
     if (update.signed_in_with_password && *update.signed_in_with_password != state_.sign_in_password) {
@@ -1657,6 +1675,9 @@ void Simulation::UpdateAccount(AccountUpdate update) {
     }
     if (repeat) {
         // Nothing changed.
+    } else if (update.authentication == AuthState::Failed && update.restoring && beyond_steam()) {
+        // Another store's games are there to play: a Steam restore that failed doesn't take the screen.
+        if (state_.navigation.route == Route::Startup || state_.navigation.route == Route::SignIn) leave_steam_sign_in();
     } else if (update.authentication == AuthState::Waiting || update.authentication == AuthState::Expired || update.authentication == AuthState::Failed) {
         state_.navigation.route = Route::SignIn;
         auto& form = state_.sign_in;
@@ -1666,14 +1687,14 @@ void Simulation::UpdateAccount(AccountUpdate update) {
             form.error.clear();
             set_route_focus(update.authentication == AuthState::Expired ? "qr-refresh"
                             : update.authentication != AuthState::Failed ? "qr-cancel"
-                            : state_.account.storage_full && !state_.installations.empty() ? "signin-installed" : "qr-retry");
+                            : state_.account().storage_full && !state_.installations.empty() ? "signin-installed" : "qr-retry");
         } else if (update.authentication != AuthState::Waiting) {
             // A failed password sign-in returns to the form, with the reason and the account name kept.
             clear_sign_in_secrets();
             form.step = SignInStep::Password;
             form.code_entry = false;
-            form.error = state_.account.error;
-            state_.account.error.clear();
+            form.error = state_.account().error;
+            state_.account().error.clear();
             set_route_focus(form.account_name.empty() ? "signin-account" : "signin-password");
         } else {
             // A code typed instead of approving was wrong: approval in the app still works, so say both.
@@ -1703,12 +1724,16 @@ void Simulation::UpdateAccount(AccountUpdate update) {
         if (state_.navigation.route == Route::Startup || state_.navigation.route == Route::SignIn) state_.navigation.route = Route::Home;
         state_.navigation.focus_key = state_.games.empty() ? "home-library" : game_key(state_.games.front().id);
     } else if (update.authentication == AuthState::SignedOut || update.authentication == AuthState::Cancelled) {
-        state_.navigation.route = Route::Startup;
-        state_.navigation.focus_key = "startup-connect";
+        leave_steam_sign_in();
     } else if (update.authentication == AuthState::Restoring) {
-        state_.navigation.route = Route::Startup;
-        state_.navigation.focus_key = "startup-loading";
+        // Another store's games stay on screen while Steam restores; with none, Startup waits for it.
+        if (!beyond_steam() || state_.navigation.route == Route::Startup || state_.navigation.route == Route::SignIn) {
+            state_.navigation.route = Route::Startup;
+            state_.navigation.focus_key = "startup-loading";
+        }
     }
+    if (!repeat) restore_failed_sign_in_ = update.authentication == AuthState::Failed && update.restoring &&
+                                           state_.navigation.route == Route::SignIn;
     if (state_.navigation.route != Route::SignIn) {
         // Leaving the sign-in screen: a sign-in field still open closes, and nothing secret stays.
         if (state_.editor.active && state_.editor.opener_focus_key.rfind("signin-", 0) == 0) state_.editor.active = false;
@@ -1762,11 +1787,13 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
                     > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))) {
             return false;
         }
+        if (summary.id.store != update.source) return false;
     }
     if (update.retrieved_at && *update.retrieved_at < 0) return false;
 
     if (!update.loading && update.error.empty()) {
         library_catalog_received_ = true;
+        catalog_sources_.insert(update.source);
         const auto prior_visible = visible_games();
         const GameId prior_id = state_.navigation.selected_game_id;
         const auto prior_detail_id = state_.navigation.detail_id;
@@ -1788,7 +1815,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             game.title = std::move(summary.title);
             game.folded_title = FoldLibraryText(game.title);
             game.description = std::move(summary.description);
-            game.source = "Steam";
+            game.source = std::string(Traits(update.source).name);
             game.artwork_source = std::move(summary.artwork_source);
             game.playtime_minutes = summary.playtime_minutes;
             if (summary.last_played_unix_seconds)
@@ -1802,7 +1829,15 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             }
             projected.push_back(std::move(game));
         }
-        state_.games = std::move(projected);
+        // Each store's games replace only that store's: the list stays grouped by store, in store order.
+        std::vector<Game> merged;
+        merged.reserve(state_.games.size() + projected.size());
+        for (auto& game : state_.games)
+            if (game.id.store < update.source) merged.push_back(std::move(game));
+        for (auto& game : projected) merged.push_back(std::move(game));
+        for (auto& game : state_.games)
+            if (game.id.store > update.source) merged.push_back(std::move(game));
+        state_.games = std::move(merged);
 
         const auto current_visible = visible_games();
         const auto retained = std::find_if(current_visible.begin(), current_visible.end(), [prior_id](const Game* game) {
@@ -1886,12 +1921,25 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
         }
     }
 
-    state_.library_loading = update.loading;
-    state_.library_syncing = update.loading;
-    state_.library_offline = update.stale;
-    state_.account.cache_available = update.cache_available;
-    state_.account.error = std::move(update.error);
-    if (update.retrieved_at) state_.account.last_sync = *update.retrieved_at;
+    if (update.loading) loading_sources_.insert(update.source);
+    else loading_sources_.erase(update.source);
+    state_.library_loading = !loading_sources_.empty();
+    state_.library_syncing = state_.library_loading;
+    if (update.source == Store::kSteam) state_.library_offline = update.stale;
+    auto& account = state_.account(update.source);
+    account.cache_available = update.cache_available;
+    account.error = std::move(update.error);
+    if (update.retrieved_at) account.last_sync = *update.retrieved_at;
+    // A store without an account brought games while nothing is signed in (or Steam's saved sign-in
+    // failed to restore): they open on Home.
+    const bool waiting_route = state_.navigation.route == Route::Startup ||
+                               (state_.navigation.route == Route::SignIn && restore_failed_sign_in_);
+    if (waiting_route && !state_.startup_loading && !state_.root_access_missing &&
+        state_.account().authentication != AuthState::Restoring && beyond_steam()) {
+        restore_failed_sign_in_ = false;
+        state_.navigation.route = Route::Home;
+        state_.navigation.focus_key = state_.games.empty() ? "home-library" : game_key(state_.games.front().id);
+    }
     captured_organization_.selected_game_id = state_.navigation.selected_game_id;
     rebuild_view();
     return true;
@@ -2304,11 +2352,11 @@ void Simulation::load_fixtures() {
         }
     }
     if (const auto* account = root->get("account")) {
-        state_.account.id = string_value(account->get("id"));
-        state_.account.display_name = string_value(account->get("display_name"));
-        state_.account.authentication = AuthState::SignedIn;
-        state_.account.last_sync = static_cast<std::int64_t>(uint_value(account->get("last_sync")));
-        state_.account.cache_available = bool_value(account->get("cache_available"));
+        state_.account().id = string_value(account->get("id"));
+        state_.account().display_name = string_value(account->get("display_name"));
+        state_.account().authentication = AuthState::SignedIn;
+        state_.account().last_sync = static_cast<std::int64_t>(uint_value(account->get("last_sync")));
+        state_.account().cache_available = bool_value(account->get("cache_available"));
     }
     if (const auto* organization = root->get("organization")) {
         if (const auto* favorites = organization->get("favorites"); favorites && favorites->array())
@@ -2406,29 +2454,29 @@ void Simulation::load_profile() {
     const auto saved_account = string_value(root->get("account_id"));
     const auto saved_auth = string_value(root->get("authentication"));
     const auto restored_auth = parse_auth_state(saved_auth);
-    if (saved_account != state_.account.id) {
+    if (saved_account != state_.account().id) {
         state_.library = {};
         state_.game_settings.clear();
     }
-    state_.account.id = saved_account;
-    state_.account.display_name = saved_account.empty() ? std::string{} : string_value(root->get("account_display_name"), "Connected fixture account");
+    state_.account().id = saved_account;
+    state_.account().display_name = saved_account.empty() ? std::string{} : string_value(root->get("account_display_name"), "Connected fixture account");
     state_.reduced_motion = bool_value(root->get("reduced_motion"));
     if (saved_auth == "signed-out" || saved_auth == "cancelled" || (saved_auth == "waiting" && saved_account.empty())) {
-        state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear();
-        state_.account.cache_available = false; state_.account.challenge_expiry = 0; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
+        state_.account().authentication = AuthState::SignedOut; state_.account().id.clear(); state_.account().display_name.clear();
+        state_.account().cache_available = false; state_.account().challenge_expiry = 0; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
     } else if (saved_auth == "syncing") {
-        state_.account.authentication = AuthState::Failed; state_.account.cache_available = false; state_.account.challenge_expiry = 0;
-        state_.account.error = "Account sync was interrupted"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-retry";
+        state_.account().authentication = AuthState::Failed; state_.account().cache_available = false; state_.account().challenge_expiry = 0;
+        state_.account().error = "Account sync was interrupted"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-retry";
     } else if (saved_auth == "waiting" || saved_auth == "expired") {
-        state_.account.authentication = AuthState::Expired; state_.account.cache_available = false; state_.account.challenge_expiry = 0;
-        state_.account.error = "Challenge expired during restart"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-refresh";
+        state_.account().authentication = AuthState::Expired; state_.account().cache_available = false; state_.account().challenge_expiry = 0;
+        state_.account().error = "Challenge expired during restart"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-refresh";
     } else if (saved_auth == "failed") {
-        state_.account.authentication = AuthState::Failed; state_.account.cache_available = false; state_.account.challenge_expiry = 0;
-        state_.account.error = "Account connection needs retry"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-retry";
+        state_.account().authentication = AuthState::Failed; state_.account().cache_available = false; state_.account().challenge_expiry = 0;
+        state_.account().error = "Account connection needs retry"; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-retry";
     } else if (!saved_auth.empty()) {
-        state_.account.authentication = restored_auth; state_.account.cache_available = restored_auth == AuthState::SignedIn || restored_auth == AuthState::Offline;
+        state_.account().authentication = restored_auth; state_.account().cache_available = restored_auth == AuthState::SignedIn || restored_auth == AuthState::Offline;
     }
-    state_.account.last_sync = static_cast<std::int64_t>(uint_value(root->get("account_last_sync"), static_cast<std::uint64_t>(state_.account.last_sync)));
+    state_.account().last_sync = static_cast<std::int64_t>(uint_value(root->get("account_last_sync"), static_cast<std::uint64_t>(state_.account().last_sync)));
     state_.library.query = string_value(root->get("query"), state_.library.query);
     state_.library.scope = string_value(root->get("scope"), state_.library.scope);
     if (const auto* favorites = root->get("favorites"); favorites && favorites->array()) {
@@ -2523,7 +2571,7 @@ void Simulation::load_profile() {
             found->available = bool_value(item.get("available"), found->available);
         }
     }
-    if (state_.account.authentication == AuthState::SignedOut) {
+    if (state_.account().authentication == AuthState::SignedOut) {
         state_.library = {};
         state_.game_settings.clear();
     }
@@ -2548,8 +2596,8 @@ bool Simulation::save_profile() {
     }
     std::error_code error;
     if (!profile_path_.parent_path().empty()) std::filesystem::create_directories(profile_path_.parent_path(), error);
-    std::string output = "{\"account_id\":\"" + json::escape(state_.account.id) + "\",\"account_display_name\":\"" + json::escape(state_.account.display_name)
-        + "\",\"authentication\":\"" + auth_name(state_.account.authentication) + "\",\"account_last_sync\":" + std::to_string(state_.account.last_sync)
+    std::string output = "{\"account_id\":\"" + json::escape(state_.account().id) + "\",\"account_display_name\":\"" + json::escape(state_.account().display_name)
+        + "\",\"authentication\":\"" + auth_name(state_.account().authentication) + "\",\"account_last_sync\":" + std::to_string(state_.account().last_sync)
         + ",\"next_job_serial\":" + std::to_string(next_job_serial_) + ",\"reduced_motion\":"
         + (state_.reduced_motion ? "true" : "false") + ",\"query\":\"" + json::escape(state_.library.query)
         + "\",\"scope\":\"" + json::escape(state_.library.scope) + "\",\"favorites\":[";
@@ -2633,7 +2681,7 @@ bool Simulation::save_profile() {
 bool Simulation::scenario(const std::string& name) {
     if (live()) return false;
     if (name == "default") {
-        state_.account.authentication = AuthState::SignedIn;
+        state_.account().authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Home;
         state_.navigation.selected_index = 0;
         state_.navigation.selected_game_id = state_.games.empty() ? GameId{} : state_.games.front().id;
@@ -2648,15 +2696,15 @@ bool Simulation::scenario(const std::string& name) {
             }
         }
     } else if (name == "first-run" || name == "signed-out") {
-        state_.account.authentication = AuthState::SignedOut;
-        state_.account.id.clear();
-        state_.account.display_name.clear();
-        state_.account.cache_available = false;
+        state_.account().authentication = AuthState::SignedOut;
+        state_.account().id.clear();
+        state_.account().display_name.clear();
+        state_.account().cache_available = false;
         state_.navigation.route = Route::Startup;
         state_.navigation.focus_key = "startup-connect";
     } else if (name == "saves" || name == "saves-sync-all") {
         // The Saves tab with one game in each state, as in the mockup.
-        state_.account.authentication = AuthState::SignedIn;
+        state_.account().authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Saves;
         state_.navigation.focus_key = "saves-filter-0";
         state_.clock_ticks = 1'800'000'000;
@@ -2710,7 +2758,7 @@ bool Simulation::scenario(const std::string& name) {
         const auto shape = shapes.find(name);
         if (shape == shapes.end() || state_.games.size() < 13) return false;
         const auto [downloads, preparations, history] = shape->second;
-        state_.account.authentication = AuthState::SignedIn;
+        state_.account().authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Downloads;
         state_.navigation.modals.clear();
         state_.clock_ticks = 1'800'000'000;
@@ -2770,33 +2818,33 @@ bool Simulation::scenario(const std::string& name) {
         state_.notices.push_back({"persistence", "Saved state is unavailable", "retry-save", true, 0});
     } else if (name == "qr-waiting") {
         state_.navigation.route = Route::SignIn;
-        state_.account.authentication = AuthState::Waiting;
-        state_.account.challenge_expiry = state_.clock_ticks + 30;
+        state_.account().authentication = AuthState::Waiting;
+        state_.account().challenge_expiry = state_.clock_ticks + 30;
         ++challenge_generation_;
         state_.navigation.focus_key = "qr-cancel";
     } else if (name == "qr-expired") {
         state_.navigation.route = Route::SignIn;
-        state_.account.authentication = AuthState::Expired;
+        state_.account().authentication = AuthState::Expired;
         state_.navigation.focus_key = "qr-refresh";
     } else if (name == "qr-failure" || name == "qr-denied") {
         state_.navigation.route = Route::SignIn;
-        state_.account.authentication = AuthState::Failed;
-        state_.account.error = name == "qr-denied" ? "Challenge denied" : "Network unavailable";
+        state_.account().authentication = AuthState::Failed;
+        state_.account().error = name == "qr-denied" ? "Challenge denied" : "Network unavailable";
         state_.navigation.focus_key = "qr-retry";
     } else if (name == "qr-approved") {
-        if (state_.account.authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) {
-            if (state_.account.id.empty()) { state_.account.id = "fixture-connected"; state_.account.display_name = "Connected fixture account"; }
+        if (state_.account().authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) {
+            if (state_.account().id.empty()) { state_.account().id = "fixture-connected"; state_.account().display_name = "Connected fixture account"; }
             if (state_.sign_in.step != SignInStep::Qr) state_.sign_in_password = true;
             clear_sign_in_secrets();
             state_.sign_in.step = SignInStep::Qr;
-            state_.account.authentication = AuthState::Syncing;
+            state_.account().authentication = AuthState::Syncing;
             state_.navigation.route = Route::SignIn;
             state_.navigation.focus_key = "sync-status";
         }
     } else if (name == "late-approval") {
-        if (state_.account.authentication != AuthState::Cancelled) state_.account.authentication = AuthState::Syncing;
+        if (state_.account().authentication != AuthState::Cancelled) state_.account().authentication = AuthState::Syncing;
     } else if (name == "syncing") {
-        state_.account.authentication = AuthState::Syncing;
+        state_.account().authentication = AuthState::Syncing;
         state_.library_syncing = true;
         state_.navigation.route = Route::Home;
     } else if (name == "empty") {
@@ -2807,7 +2855,7 @@ bool Simulation::scenario(const std::string& name) {
         state_.library.filters.insert("empty-fixture");
     } else if (name == "offline") {
         state_.navigation.route = Route::Library;
-        state_.account.authentication = AuthState::Offline;
+        state_.account().authentication = AuthState::Offline;
         state_.library_offline = true;
         state_.notices.push_back({"offline", "Offline — showing cached library", "retry-sync", true, 0});
     } else if (name == "no-results") {
@@ -2901,7 +2949,7 @@ bool Simulation::scenario(const std::string& name) {
         }
     } else if (name == "sync-complete") {
         state_.library_syncing = false;
-        state_.account.authentication = AuthState::SignedIn;
+        state_.account().authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Home;
     } else {
         last_error_ = "Unknown scenario: " + name;
@@ -3478,8 +3526,8 @@ void Simulation::rebuild_view() {
                 if (!is_installed(state_, state_.navigation.selected_game_id)) { item.enabled = false; item.subtitle = "Game is not installed"; }
             } else if (action_key == "hide") item.title = state_.library.hidden.contains(state_.navigation.selected_game_id) ? "Unhide" : "Hide";
             else if (action_key == "runtime-retry") item.subtitle = state_.runtime == RuntimeState::Ready ? "Ready — simulated" : state_.runtime == RuntimeState::Checking ? "Checking — simulated" : state_.runtime == RuntimeState::Failed ? "Failed — retry available" : "Unavailable — retry available";
-            else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account.authentication); item.subtitle = state_.account.error; item.enabled = false; }
-            else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account.last_sync == 0 ? "Never" : std::to_string(state_.account.last_sync); item.enabled = false; }
+            else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account().authentication); item.subtitle = state_.account().error; item.enabled = false; }
+            else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account().last_sync == 0 ? "Never" : std::to_string(state_.account().last_sync); item.enabled = false; }
             else if (action_key.rfind("open-game:", 0) == 0) item.title = "Open game";
             else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + state_.self_update.current : "Simulated"; item.enabled = false; }
             else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? "Live service model" : "UI comparison fixture"; item.enabled = false; }
@@ -3591,8 +3639,8 @@ void Simulation::rebuild_view() {
     } else if (state_.navigation.route == Route::Startup) {
         view_.title = "Welcome to Playden";
         view_.subtitle = live() ? "Connect Steam to load your library." : "Browse the local UI fixture or connect a simulated Steam account.";
-        if (state_.startup_loading || state_.account.authentication == AuthState::Restoring) {
-            row("startup-loading", RowKind::Status, live() ? "Restoring Steam session…" : "Loading saved fixture state…", "").enabled = false;
+        if (state_.startup_loading || state_.account().authentication == AuthState::Restoring) {
+            row("startup-loading", RowKind::Status, live() ? "Restoring your accounts…" : "Loading saved fixture state…", "").enabled = false;
             if (!live()) row("startup-advance", RowKind::Action, "Advance fixture clock", "advance-clock");
         }
         else if (!state_.persistence_available) {
@@ -3603,7 +3651,7 @@ void Simulation::rebuild_view() {
             row("startup-skip", RowKind::Action, "Skip for now", "skip");
         }
     } else if (state_.navigation.route == Route::SignIn && state_.sign_in.step != SignInStep::Qr &&
-               state_.account.authentication != AuthState::Syncing) {
+               state_.account().authentication != AuthState::Syncing) {
         view_.title = "Connect Steam";
         const auto& form = state_.sign_in;
         const bool code_step = form.step == SignInStep::EmailCode || form.step == SignInStep::AuthenticatorCode ||
@@ -3638,11 +3686,11 @@ void Simulation::rebuild_view() {
         }
         if (!live() && (form.step == SignInStep::Approval || form.step == SignInStep::Submitting))
             row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
-    } else if (state_.navigation.route == Route::SignIn && state_.account.authentication == AuthState::Failed &&
-               state_.account.storage_full) {
+    } else if (state_.navigation.route == Route::SignIn && state_.account().authentication == AuthState::Failed &&
+               state_.account().storage_full) {
         // The saved sign-in keeps being retried; uninstalling games here gives it the room it needs.
         view_.title = "Console storage is full";
-        view_.subtitle = state_.account.error;
+        view_.subtitle = state_.account().error;
         auto& installed = row("signin-installed", RowKind::Action, "Installed games", "installed-manage");
         installed.subtitle = "Uninstall games you no longer play to free up space";
         if (state_.installations.empty()) {
@@ -3656,25 +3704,25 @@ void Simulation::rebuild_view() {
         row("qr-retry", RowKind::Action, "Retry", "qr-retry");
     } else if (state_.navigation.route == Route::SignIn) {
         view_.title = "Connect Steam";
-        view_.subtitle = state_.account.authentication == AuthState::Waiting
+        view_.subtitle = state_.account().authentication == AuthState::Waiting
             ? (live() ? "Scan the QR code with the Steam mobile app." : "Simulated QR challenge — not a working Steam code")
-            : state_.account.authentication == AuthState::Syncing ? "Loading your library…" : state_.account.error;
-        if (state_.account.authentication == AuthState::Syncing) {
+            : state_.account().authentication == AuthState::Syncing ? "Loading your library…" : state_.account().error;
+        if (state_.account().authentication == AuthState::Syncing) {
             if (live()) row("sync-status", RowKind::Status, "Loading library…", "").enabled = false;
             else row("sync-advance", RowKind::Action, "Advance fixture sync", "advance-clock");
         }
-        else if (state_.account.authentication == AuthState::Expired) row("qr-refresh", RowKind::Action, "Refresh code", "qr-refresh");
-        else if (state_.account.authentication == AuthState::Failed) row("qr-retry", RowKind::Action, "Retry", "qr-retry");
+        else if (state_.account().authentication == AuthState::Expired) row("qr-refresh", RowKind::Action, "Refresh code", "qr-refresh");
+        else if (state_.account().authentication == AuthState::Failed) row("qr-retry", RowKind::Action, "Retry", "qr-retry");
         else row("qr-cancel", RowKind::Action, "Cancel", "qr-cancel");
-        if (state_.account.authentication != AuthState::Syncing)
+        if (state_.account().authentication != AuthState::Syncing)
             row("signin-password-mode", RowKind::Action, "Sign in with account name and password", "signin-password-mode");
-        if (!live() && state_.account.authentication != AuthState::Syncing) row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
+        if (!live() && state_.account().authentication != AuthState::Syncing) row("qr-fixture-controls", RowKind::Action, "QR fixture controls", "qr-fixture-controls");
     } else if (state_.navigation.route == Route::Home) {
         view_.title = "Home";
-        view_.subtitle = state_.account.authentication == AuthState::SignedIn
-            ? (live() ? (state_.account.error.empty() ? "Your Steam library" : state_.account.error) : "Fixture history — simulated")
-            : state_.account.authentication == AuthState::Offline
-                ? (state_.account.error.empty() ? "Offline — showing available library" : state_.account.error)
+        view_.subtitle = state_.account().authentication == AuthState::SignedIn
+            ? (live() ? (state_.account().error.empty() ? "Your library" : state_.account().error) : "Fixture history — simulated")
+            : state_.account().authentication == AuthState::Offline
+                ? (state_.account().error.empty() ? "Offline — showing available library" : state_.account().error)
                 : "Signed out";
         for (const auto* game : visible_games()) {
             if (view_.rows.size() >= 12) break;
@@ -3684,7 +3732,7 @@ void Simulation::rebuild_view() {
         }
         if (view_.rows.empty()) {
             row("home-library", RowKind::Action, "Open Library", "library");
-            if (state_.account.authentication != AuthState::SignedIn) row("home-connect", RowKind::Action, "Connect Steam", "connect");
+            if (state_.account().authentication != AuthState::SignedIn) row("home-connect", RowKind::Action, "Connect a store", "connect");
         }
         auto add_shelf = [this](const playden::homebrew::Shelf& source, int shelf_index) {
             ViewData::Shelf shelf;
@@ -3717,7 +3765,7 @@ void Simulation::rebuild_view() {
         view_.subtitle = std::to_string(games.size()) + " games";
         if (state_.library_loading) view_.subtitle += live() ? " · Refreshing library…" : " · Refreshing fixture library…";
         else if (live() && state_.library_offline) view_.subtitle += " · Cached library";
-        if (live() && !state_.account.error.empty()) view_.subtitle += " · " + state_.account.error;
+        if (live() && !state_.account().error.empty()) view_.subtitle += " · " + state_.account().error;
         const std::size_t window_size = 24;
         const std::size_t selected = static_cast<std::size_t>(std::max(0, state_.navigation.selected_index));
         view_.first_index = games.size() <= window_size ? 0 : std::min(selected > window_size / 2 ? selected - window_size / 2 : 0, games.size() - window_size);
@@ -3729,12 +3777,12 @@ void Simulation::rebuild_view() {
             if (state_.library.favorites.contains(game->id)) item.badge = "Favorite";
             if (game->art_failed) item.subtitle = "Artwork unavailable";
         }
-        // An empty grid offers the way back to the games it hides; Connect Steam is only for a missing catalog.
+        // An empty grid offers the way back to the games it hides; Connect a store is only for a missing catalog.
         if (view_.rows.empty()) {
             if (!state_.library.query.empty()) row("clear-search", RowKind::Action, "Clear search", "clear-search");
             else if (!state_.library.filters.empty()) row("library-empty", RowKind::Action, "Reset filters", "filters-reset");
             else if (!state_.games.empty() && state_.library.scope != "all") row("library-empty", RowKind::Action, "Show all games", "library-show-all");
-            else row("library-empty", RowKind::Action, "Connect Steam", "connect");
+            else row("library-empty", RowKind::Action, "Connect a store", "connect");
         }
         // The footer shows five legends; with a search applied, Circle clears it in place of Square Favorite.
         view_.legends = state_.library.query.empty()
@@ -3811,22 +3859,25 @@ void Simulation::rebuild_view() {
                                              std::to_string(static_cast<int>(*value.progress * 100.0F)) + "%";
                         }
                     }
-                    // Steam Cloud saves: sync on demand; a pending choice opens its dialog.
-                    const auto cloud = state_.cloud.find(game->id);
-                    const auto cloud_status = cloud == state_.cloud.end() ? CloudStatus::None : cloud->second.status;
-                    const bool busy = cloud_status == CloudStatus::Checking || cloud_status == CloudStatus::Syncing;
-                    const bool choice = cloud_status == CloudStatus::Conflict || cloud_status == CloudStatus::NeedsAccount;
-                    // Stays a button while it works, disabled, so it keeps its place in the row.
-                    auto& saves = row("details-cloud", RowKind::Action, "Cloud saves",
-                                      busy ? "" : choice ? "cloud-choose" : "cloud-sync");
-                    saves.value = cloud_status == CloudStatus::None        ? "Sync"
-                                  : busy                                  ? (cloud_status == CloudStatus::Checking ? "Checking…" : "Syncing…")
-                                  : choice                                ? "Choose"
-                                  : cloud_status == CloudStatus::Failed   ? "Retry"
-                                  : cloud_status == CloudStatus::Unsupported ? "Unavailable"
-                                                                          : "Synced";
-                    if (cloud != state_.cloud.end()) saves.subtitle = cloud->second.message;
-                    saves.enabled = !busy;
+                    // Steam Cloud saves: sync on demand; a pending choice opens its dialog. Only stores
+                    // with Cloud saves have the row.
+                    if (Traits(game->id.store).cloud_saves) {
+                        const auto cloud = state_.cloud.find(game->id);
+                        const auto cloud_status = cloud == state_.cloud.end() ? CloudStatus::None : cloud->second.status;
+                        const bool busy = cloud_status == CloudStatus::Checking || cloud_status == CloudStatus::Syncing;
+                        const bool choice = cloud_status == CloudStatus::Conflict || cloud_status == CloudStatus::NeedsAccount;
+                        // Stays a button while it works, disabled, so it keeps its place in the row.
+                        auto& saves = row("details-cloud", RowKind::Action, "Cloud saves",
+                                          busy ? "" : choice ? "cloud-choose" : "cloud-sync");
+                        saves.value = cloud_status == CloudStatus::None        ? "Sync"
+                                      : busy                                  ? (cloud_status == CloudStatus::Checking ? "Checking…" : "Syncing…")
+                                      : choice                                ? "Choose"
+                                      : cloud_status == CloudStatus::Failed   ? "Retry"
+                                      : cloud_status == CloudStatus::Unsupported ? "Unavailable"
+                                                                              : "Synced";
+                        if (cloud != state_.cloud.end()) saves.subtitle = cloud->second.message;
+                        saves.enabled = !busy;
+                    }
                 }
             } else if (job) {
                 auto& status = row("details-download", RowKind::Action, "Download", "open-downloads");
@@ -4100,7 +4151,7 @@ void Simulation::rebuild_view() {
         view_.legends = {"Cross Select", "Circle Back"};
     } else if (state_.navigation.route == Route::Settings) {
         view_.title = "Settings";
-        if (live()) view_.subtitle = state_.account.error;
+        if (live()) view_.subtitle = state_.account().error;
         // Rows come grouped by the macOS sections; the rail shows the focused row's section.
         std::string section = "Account";
         const auto add = [&](std::string key, RowKind kind, std::string title, std::string action) -> ViewRow& {
@@ -4109,12 +4160,12 @@ void Simulation::rebuild_view() {
             return added;
         };
         auto& account = add("settings-account", RowKind::Action, "Account", "account");
-        account.value = state_.account.display_name;
-        account.subtitle = state_.account.authentication == AuthState::Offline ? "Cached library · Offline"
-            : state_.account.authentication == AuthState::SignedIn
-                ? (!live() || state_.account.last_sync > 0 ? "Steam connected · Synced" : "Steam connected")
+        account.value = state_.account().display_name;
+        account.subtitle = state_.account().authentication == AuthState::Offline ? "Cached library · Offline"
+            : state_.account().authentication == AuthState::SignedIn
+                ? (!live() || state_.account().last_sync > 0 ? "Steam connected · Synced" : "Steam connected")
                 : "Connect Steam";
-        if (state_.account.authentication != AuthState::SignedOut)
+        if (state_.account().authentication != AuthState::SignedOut)
             add("settings-signout", RowKind::Action, "Sign out", "signout-confirm").dangerous = true;
         section = "Library";
         if (live()) {
@@ -4505,9 +4556,9 @@ void Simulation::open_sign_in(bool reauthenticate) {
     state_.sign_in = {};
     state_.sign_in.account_name = name;
     state_.sign_in.step = password ? SignInStep::Password : SignInStep::Qr;
-    state_.account.authentication = AuthState::Waiting;
-    state_.account.challenge_url.clear();
-    state_.account.error.clear();
+    state_.account().authentication = AuthState::Waiting;
+    state_.account().challenge_url.clear();
+    state_.account().error.clear();
     state_.navigation.route = Route::SignIn;
     state_.navigation.focus_key = password ? (name.empty() ? "signin-account" : "signin-password") : "qr-cancel";
     if (live()) queue_service_action(reauthenticate ? ServiceAction::Reauthenticate
@@ -4524,9 +4575,9 @@ bool Simulation::sign_in_action(const std::string& action_name) {
         form = {};
         form.account_name = name;
         form.step = password ? SignInStep::Password : SignInStep::Qr;
-        state_.account.authentication = AuthState::Waiting;
-        state_.account.challenge_url.clear();
-        state_.account.error.clear();
+        state_.account().authentication = AuthState::Waiting;
+        state_.account().challenge_url.clear();
+        state_.account().error.clear();
         state_.navigation.focus_key = password ? (name.empty() ? "signin-account" : "signin-password") : "qr-cancel";
         if (live()) queue_service_action(password ? ServiceAction::UsePassword : ServiceAction::UseQr);
         else if (!password) scenario("qr-waiting");
@@ -4542,8 +4593,8 @@ bool Simulation::sign_in_action(const std::string& action_name) {
         pending_credentials_ = SignInCredentials{form.account_name, form.password};
         steam::ZeroizeSecret(form.password);
         form.step = SignInStep::Submitting;
-        state_.account.authentication = AuthState::Waiting;
-        state_.account.error.clear();
+        state_.account().authentication = AuthState::Waiting;
+        state_.account().error.clear();
         state_.navigation.focus_key = "signin-cancel";
         queue_service_action(ServiceAction::BeginPassword);
     } else if (action_name == "guard-code") {
@@ -4583,7 +4634,7 @@ void Simulation::submit_fixture_sign_in() {
         const auto& name = form.account_name;
         if (name == "wrong" || name == "limited") {
             clear_sign_in_secrets();
-            state_.account.authentication = AuthState::Failed;
+            state_.account().authentication = AuthState::Failed;
             form.error = name == "wrong" ? "Steam did not accept the account name or password. Check them and try again."
                                          : "Steam is limiting sign-in attempts. Wait a while before you try again, or use the QR code.";
             state_.navigation.focus_key = "signin-password";
@@ -4751,9 +4802,8 @@ void Simulation::cancel() {
         pending_guard_code_.reset();
         state_.sign_in.error.clear();
         cancelled_challenge_generation_ = challenge_generation_;
-        state_.account.authentication = AuthState::Cancelled;
-        state_.navigation.route = Route::Startup;
-        state_.navigation.focus_key = "startup-connect";
+        state_.account().authentication = AuthState::Cancelled;
+        leave_steam_sign_in();
     } else if (state_.navigation.route == Route::SaveDetails) {
         state_.navigation.route = Route::Saves;
         state_.navigation.focus_key = "save-" + ToKey(state_.navigation.save_id);
@@ -4936,7 +4986,7 @@ void Simulation::ask_upload_all() {
     ModalEntry confirm{"confirmation", count == 1 ? "Upload saves to this Steam account?" : "Upload all saves to this Steam account?",
                        state_.navigation.focus_key, {"cloud-confirm-account-all", "cancel"}, 0, false};
     confirm.body = "Playden has not synced " + (count == 1 ? std::string("1 game's saves") : std::to_string(count) + " games' saves") +
-                   " for " + (state_.account.display_name.empty() ? std::string("this account") : state_.account.display_name) +
+                   " for " + (state_.account().display_name.empty() ? std::string("this account") : state_.account().display_name) +
                    " before. Confirm to upload this console's saves to its Steam Cloud.";
     open_modal(std::move(confirm));
 }
@@ -4946,6 +4996,8 @@ std::vector<GameId> Simulation::save_games(bool filtered) const {
     for (const auto& installation : state_.installations) ids.insert(installation.game_id);
     for (const auto& kept : state_.kept_bottles) ids.insert(kept.game_id);
     if (!live()) for (const auto& [id, cloud] : state_.cloud) ids.insert(id);
+    // Saves lists Cloud saves: games of a store without them are not there.
+    std::erase_if(ids, [](const GameId& id) { return !Traits(id.store).cloud_saves; });
     std::vector<std::pair<std::string, GameId>> named;
     for (const auto id : ids) {
         const auto* game = find_game(state_, id);
@@ -5225,9 +5277,9 @@ void Simulation::activate() {
         state_.sign_in.step = SignInStep::Qr;
         if (live()) {
             queue_service_action(ServiceAction::BeginQr);
-            state_.account.authentication = AuthState::Waiting;
-            state_.account.challenge_url.clear();
-            state_.account.error.clear();
+            state_.account().authentication = AuthState::Waiting;
+            state_.account().challenge_url.clear();
+            state_.account().error.clear();
             state_.navigation.route = Route::SignIn;
             state_.navigation.focus_key = "qr-cancel";
         } else scenario("qr-waiting");
@@ -5492,7 +5544,7 @@ void Simulation::activate() {
         quit_to_home();
     } else if (live() && action_name == "cloud-sync") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id.valid()) pending_cloud_requests_.push_back({CloudRequestKind::Sync, id});
+        if (id.valid() && Traits(id.store).cloud_saves) pending_cloud_requests_.push_back({CloudRequestKind::Sync, id});
     } else if (live() && action_name == "cloud-choose") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         const auto cloud = state_.cloud.find(id);
@@ -5519,7 +5571,7 @@ void Simulation::activate() {
             ModalEntry confirm{"confirmation", "Upload saves to this Steam account?", state_.navigation.focus_key,
                                {"cloud-confirm-account", "cancel"}, 0, false};
             confirm.body = "Playden has not synced this game's saves for " +
-                           (state_.account.display_name.empty() ? std::string("this account") : state_.account.display_name) +
+                           (state_.account().display_name.empty() ? std::string("this account") : state_.account().display_name) +
                            " before. Confirm to upload this console's saves to its Steam Cloud.";
             open_modal(std::move(confirm));
         }
@@ -5700,7 +5752,8 @@ void Simulation::activate() {
                 const auto runtime_game = state_.runtime_games.find(id);
                 const bool has_title = runtime_game != state_.runtime_games.end() && runtime_game->second.has_title;
                 const auto cloud = state_.cloud.find(id);
-                const bool no_cloud = cloud != state_.cloud.end() && cloud->second.status == CloudStatus::Unsupported;
+                const bool no_cloud = !Traits(id.store).cloud_saves ||
+                                      (cloud != state_.cloud.end() && cloud->second.status == CloudStatus::Unsupported);
                 title = "Uninstall this game?";
                 body = has_title ? uninstall_body_kept
                                  : "The game's files are removed from this console. You can install it again from Steam.";
@@ -5738,7 +5791,8 @@ void Simulation::activate() {
             ? ready_prompt_game_ : state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         const auto cloud = state_.cloud.find(id);
         // With automatic sync off, saves move only when the player chooses Sync in Saves.
-        const bool syncs = id.valid() && state_.cloud_saves_auto && state_.account.authentication == AuthState::SignedIn &&
+        const bool syncs = id.valid() && Traits(id.store).cloud_saves && state_.cloud_saves_auto &&
+                           state_.account().authentication == AuthState::SignedIn &&
                            (cloud == state_.cloud.end() || cloud->second.status != CloudStatus::Unsupported);
         state_.navigation.modals.clear();
         ready_prompt_game_ = {};
@@ -5960,14 +6014,14 @@ void Simulation::activate() {
             }
         }
         else if (pending_destructive_action_ == "signout-confirm") {
-            if (live()) { queue_service_action(ServiceAction::SignOut); state_.account.authentication = AuthState::SigningOut; }
-            else { state_.account.authentication = AuthState::SignedOut; state_.account.id.clear(); state_.account.display_name.clear(); state_.account.cache_available = false; state_.library = {}; clear_profile_customizations(state_); state_.navigation.route = Route::Startup; }
+            if (live()) { queue_service_action(ServiceAction::SignOut); state_.account().authentication = AuthState::SigningOut; }
+            else { state_.account().authentication = AuthState::SignedOut; state_.account().id.clear(); state_.account().display_name.clear(); state_.account().cache_available = false; state_.library = {}; clear_profile_customizations(state_); state_.navigation.route = Route::Startup; }
         }
         else if (pending_destructive_action_ == "account-switch") {
-            if (live()) { queue_service_action(ServiceAction::SwitchAccount); state_.account.authentication = AuthState::SigningOut; }
+            if (live()) { queue_service_action(ServiceAction::SwitchAccount); state_.account().authentication = AuthState::SigningOut; }
             else {
-                state_.library = {}; clear_profile_customizations(state_); state_.account = {};
-                state_.account.authentication = AuthState::Waiting; state_.account.challenge_expiry = state_.clock_ticks + 30;
+                state_.library = {}; clear_profile_customizations(state_); state_.account() = {};
+                state_.account().authentication = AuthState::Waiting; state_.account().challenge_expiry = state_.clock_ticks + 30;
                 ++challenge_generation_; state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel";
             }
         }
@@ -6330,19 +6384,19 @@ void Simulation::activate() {
     }
     else if (action_name == "account") {
         std::vector<std::string> actions = {"account-auth", "account-last-sync"};
-        if (state_.account.authentication == AuthState::SignedIn) actions.push_back("account-sync");
+        if (state_.account().authentication == AuthState::SignedIn) actions.push_back("account-sync");
         else actions.push_back("account-recover");
         // A new QR sign-in for the same account: a fresh token, keeping the library and organization.
-        if (live() && (state_.account.authentication == AuthState::SignedIn || state_.account.authentication == AuthState::Offline))
+        if (live() && (state_.account().authentication == AuthState::SignedIn || state_.account().authentication == AuthState::Offline))
             actions.push_back("account-reauth");
         actions.push_back("account-switch");
-        if (state_.account.authentication != AuthState::SignedOut) actions.push_back("signout-confirm");
+        if (state_.account().authentication != AuthState::SignedOut) actions.push_back("signout-confirm");
         actions.push_back("cancel");
-        open_modal({"account", state_.account.display_name.empty() ? "Account" : state_.account.display_name, state_.navigation.focus_key, std::move(actions), 0, false});
+        open_modal({"account", state_.account().display_name.empty() ? "Account" : state_.account().display_name, state_.navigation.focus_key, std::move(actions), 0, false});
     }
     else if (action_name == "account-sync") {
         close_modal();
-        if (!live()) state_.account.authentication = AuthState::Syncing;
+        if (!live()) state_.account().authentication = AuthState::Syncing;
         state_.library_syncing = true;
         state_.library_loading = true;
         state_.navigation.route = Route::Home;
@@ -6357,7 +6411,7 @@ void Simulation::activate() {
             state_.library_loading = true;
             queue_service_action(ServiceAction::RefreshLibrary);
         } else {
-            state_.account.last_sync = state_.clock_ticks;
+            state_.account().last_sync = state_.clock_ticks;
         }
     }
     else if (action_name == "account-recover") {
@@ -6399,15 +6453,15 @@ bool Simulation::action(const std::string& logical_action) {
         if (logical_action == "qr-retry" || logical_action == "qr-refresh") {
             state_.sign_in.step = SignInStep::Qr;
             queue_service_action(ServiceAction::BeginQr);
-            state_.account.authentication = AuthState::Waiting;
-            state_.account.challenge_url.clear(); state_.account.error.clear();
+            state_.account().authentication = AuthState::Waiting;
+            state_.account().challenge_url.clear(); state_.account().error.clear();
             state_.navigation.route = Route::SignIn; state_.navigation.focus_key = "qr-cancel";
             rebuild_view(); return true;
         }
         if (logical_action == "qr-cancel") {
             queue_service_action(ServiceAction::CancelQr);
-            state_.account.authentication = AuthState::Cancelled;
-            state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
+            state_.account().authentication = AuthState::Cancelled;
+            leave_steam_sign_in();
             rebuild_view(); return true;
         }
         if (logical_action == "account-sync" || logical_action == "refresh-library") {
@@ -6418,7 +6472,7 @@ bool Simulation::action(const std::string& logical_action) {
         }
         if (logical_action == "signout" || logical_action == "account-switch") {
             queue_service_action(logical_action == "signout" ? ServiceAction::SignOut : ServiceAction::SwitchAccount);
-            state_.account.authentication = AuthState::SigningOut;
+            state_.account().authentication = AuthState::SigningOut;
             rebuild_view(); return true;
         }
         const bool synthetic = logical_action.rfind("scenario:", 0) == 0 || logical_action.rfind("inject:", 0) == 0
@@ -6783,7 +6837,7 @@ bool Simulation::action(const std::string& logical_action) {
         } else if (injected == "library-refresh") state_.library_loading = true;
         else if (injected == "startup-loading") { state_.startup_loading = true; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-loading"; }
         else if (injected == "late-approval") {
-            if (state_.account.authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) state_.account.authentication = AuthState::Syncing;
+            if (state_.account().authentication != AuthState::Cancelled && challenge_generation_ != cancelled_challenge_generation_) state_.account().authentication = AuthState::Syncing;
         } else {
             if (!scenario(injected)) return false;
             if (live() || state_.persistence_available) save_profile();
@@ -6865,14 +6919,14 @@ void Simulation::tick(int ticks) {
         if (!state_.screenshot_mode) {
             ++state_.clock_ticks;
             advance_jobs();
-            if (state_.account.authentication == AuthState::Waiting && state_.clock_ticks >= state_.account.challenge_expiry) {
-                state_.account.authentication = AuthState::Expired;
+            if (state_.account().authentication == AuthState::Waiting && state_.clock_ticks >= state_.account().challenge_expiry) {
+                state_.account().authentication = AuthState::Expired;
                 state_.navigation.focus_key = "qr-refresh";
             }
-            if (state_.account.authentication == AuthState::Syncing) {
-                state_.account.authentication = AuthState::SignedIn;
-                state_.account.cache_available = true;
-                state_.account.last_sync = state_.clock_ticks;
+            if (state_.account().authentication == AuthState::Syncing) {
+                state_.account().authentication = AuthState::SignedIn;
+                state_.account().cache_available = true;
+                state_.account().last_sync = state_.clock_ticks;
                 state_.library_syncing = false;
                 state_.navigation.route = Route::Home;
                 state_.navigation.focus_key = game_key(state_.navigation.selected_game_id);
@@ -6899,7 +6953,7 @@ std::string Simulation::snapshot() const {
     output << "{\"simulation\":" << (state_.simulation_mode ? "true" : "false") << ",\"clock\":" << state_.clock_ticks << ",\"route\":\""
            << route_name(state_.navigation.route) << "\",\"surface\":\"" << json::escape(view_.surface)
            << "\",\"focus\":\"" << json::escape(state_.navigation.focus_key) << "\",\"selected_game_id\":"
-           << state_.navigation.selected_game_id << ",\"account\":\"" << auth_name(state_.account.authentication)
+           << state_.navigation.selected_game_id << ",\"account\":\"" << auth_name(state_.account().authentication)
            << "\",\"detail_id\":";
     if (state_.navigation.detail_id) output << *state_.navigation.detail_id; else output << "null";
     output << ",\"query\":\"" << json::escape(state_.library.query) << "\",\"scope\":\""

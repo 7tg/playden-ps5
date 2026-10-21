@@ -330,7 +330,8 @@ int main() {
         install_cm.SetOwner("install");
         install_cm.SetSharedSession(steam_cm);
         playden::steam::CdnClient install_cdn(paths.trust_store);
-        playden::steam::SteamInstallRunner install_runner(install_cm, install_cdn);
+        playden::LocalSessionRepository install_sessions(user_root);
+        playden::steam::SteamInstallRunner install_runner(install_sessions, install_cm, install_cdn);
         install_runner.SetTuning([root = paths.title_root] {
             // A developer's tuning file wins over the setting.
             const auto file = root + "/dev/download-tuning.txt";
@@ -347,7 +348,6 @@ int main() {
                 std::snprintf(line, sizeof(line), "app=%u step=%s result=%s detail=%s", app, step, category, detail);
             playden::app::AppendLogLine(log_root, "install.log", line);
         });
-        playden::LocalSessionRepository install_sessions(user_root);
         playden::steam::CmClient cloud_cm(paths.trust_store, library_storage);
         cloud_cm.SetOwner("cloud");
         cloud_cm.SetSharedSession(steam_cm);
@@ -554,7 +554,7 @@ int main() {
         for (const auto& volume : install_volumes)
             playden::app::AppendLogLine(log_root, "install.log", "volume id=" + volume.id + " root=" + volume.games_root +
                                         " writable=" + (volume.available ? "1" : "0"));
-        playden::steam::InstallService installs(install_runner, install_sessions, std::move(install_volumes));
+        playden::steam::InstallService installs(install_runner, std::move(install_volumes));
         // A games folder made over FTP is often root's and 0755: checked (and opened up) as a download starts.
         // Only the games folder itself: the primary volume's parent is /data, never chmodded.
         installs.SetFolderCheck([](const std::string& games_root) {
@@ -564,10 +564,12 @@ int main() {
                 [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); },
                 [](const std::string& line) { playden::app::AppendLogLine(log_root, "install.log", line); });
         });
-        playden::homebrew::Controller services(simulation, auth, sessions,&library_service,&persistence,&app_details,&installs,&cloud,
-                                               runtime_host.get(), [](const std::string& line) {
-            playden::app::AppendLogLine(log_root, "auth.log", "sign-in " + line);
-        });
+        const auto auth_log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "auth.log", "sign-in " + line); };
+        playden::stores::Registry stores;
+        stores.Add(std::make_unique<playden::stores::SteamAccount>(auth, sessions, auth_log));
+        stores.Add(std::make_unique<playden::stores::SteamLibrarySource>(library_service));
+        stores.Add(std::make_unique<playden::stores::SteamDetailsSource>(app_details));
+        playden::homebrew::Controller services(simulation, stores, &persistence, &installs, &cloud, runtime_host.get(), auth_log);
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
         services.SetSelfUpdate(&self_update);

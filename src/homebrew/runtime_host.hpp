@@ -222,6 +222,21 @@ struct RuntimeGameSetup {
 };
 
 
+// The Steam app ID a game's Steamworks emulator is given (RuntimeSnapshot::steamworks_apps).
+struct SteamworksAppView {
+  enum class Source {
+    kNone,      // none: the game keeps its own Steam files ("Steam features" acts as "game")
+    kStore,     // a Steam game's own app ID
+    kGameFile,  // the game's steam_appid.txt
+    kSettings,  // the "Steam app ID" in Game settings
+  };
+  std::uint32_t app_id = 0;  // 0 with kNone
+  Source source = Source::kNone;
+  // Game settings names another app ID, which the game's own steam_appid.txt overrides.
+  bool overridden = false;
+  bool operator==(const SteamworksAppView&) const = default;
+};
+
 // A preparation that ended Ready. Queue lists it after the waiting games until the player dismisses it;
 // a dismissal names the finish time, so preparing the game again lists it again.
 struct PreparedGame {
@@ -290,6 +305,9 @@ struct RuntimeSnapshot {
   // What Play does before the launch is requested, per runtime number, while it runs: a game whose
   // folder moved in Playden 0.6 is republished first (kPlayUpdatingForLayout).
   std::map<std::uint32_t, std::string> play_progress;
+  // The Steam app ID each game from another store was last prepared with, by runtime number. Steam
+  // games are not listed: theirs is their own.
+  std::map<std::uint32_t, SteamworksAppView> steamworks_apps;
 };
 
 // Whether the game's preparation waits in the runtime's queue.
@@ -437,11 +455,29 @@ class RuntimeHost {
   // Runs one maintenance action; empty message on refusal means none; *ok tells success.
   std::string RunMaintenance(Composition& composition, std::uint32_t runtime_number, RuntimeMaintenance action, bool* ok);
   std::filesystem::path SaveBackupRoot(const std::string& install_id) const;
-  // Puts the game's steam_api DLLs in the state its "Steam features" setting asks for. Call
-  // only while the game is stopped; empty on success, otherwise why not (for the player).
+  // A game's files and settings as the preparation steps see them.
+  struct GameFiles;
+  // Puts the game's files and bottle in the state its recipe and settings ask for, before it starts:
+  // generic steps for every store, and Steam-file steps that act on the Steam files a game has,
+  // whatever its store (the steam_api DLLs follow its "Steam features" setting). Call only while the
+  // game is stopped; empty on success, otherwise why not (for the player).
   // steam_account_known false: the emulator's files (which name the account) are left as they are.
-  std::string ApplySteamworks(Composition& composition, const runtime::RuntimeInstall& record,
-                              bool steam_account_known = true);
+  std::string ApplyPreparationSteps(Composition& composition, const runtime::RuntimeInstall& record,
+                                    bool steam_account_known = true);
+  // Generic steps.
+  void MediaStep(Composition& composition, const runtime::RuntimeInstall& record);
+  std::string Ue3EulaStep(const GameFiles& files);
+  std::string Direct3D12Step(Composition& composition, const GameFiles& files);
+  std::string BottleEnvironmentStep(const GameFiles& files);
+  std::string RecipeRegistryStep(const GameFiles& files);
+  std::string DotnetHeapStep(const GameFiles& files);
+  // Steam-file steps.
+  std::string SteamStubStep(const GameFiles& files);
+  std::string SteamworksStep(const GameFiles& files, bool steam_account_known);  // and the legacy steam.dll
+  std::string InstallScriptsStep(const GameFiles& files);                        // and redistributables
+  // The Steam app ID the game's emulator uses; *folders: where a game from another store's own
+  // steam_appid.txt is looked for, in order.
+  SteamworksAppView SteamworksAppFor(const GameFiles& files, std::vector<std::filesystem::path>* folders) const;
   // Empty while the kit on disk is the one admitted at startup; otherwise what to tell the player.
   std::string KitReplaced(const Composition& composition) const;
   // Makes an owned, world-writable folder from root down to working 0755 (dxvk.conf goes there).

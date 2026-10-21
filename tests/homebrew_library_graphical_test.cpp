@@ -90,7 +90,7 @@ int main(int argc,char** argv) {
       assert(false && "graphical library service deadline");
     };
     controller.Activate(123,false);settle();
-    assert(model.state().games.size()==3 && model.state().account.cache_available);
+    assert(model.state().games.size()==3 && model.state().account().cache_available);
     Render renderer(PLAYDEN_HOMEBREW_ASSETS_DIR);
     auto capture=[&](const char* name) {
       for(int i=0;i<16;++i) renderer.draw(model,1920,1080);
@@ -348,7 +348,7 @@ int main(int argc,char** argv) {
         playden::app::PersistenceService persistence(preferences,organization);
         playden::app::PersistenceController bridge(model,persistence);bridge.Activate(123);
         persistence.WaitIdle();bridge.Tick();
-        assert(model.OrganizationAccount()==123);
+        assert(model.OrganizationAccount()==playden::kDeviceOrganization);
         assert(model.action("square") && model.state().library.favorites.contains(SteamId(43)));
         assert(model.action("circle"));
         for(int n=0;n<4 && model.state().navigation.route!=Route::Settings;++n)assert(model.action("r1"));

@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -264,6 +265,34 @@ Result<void> Storage::Remove(const std::string& relative_path) const {
   return Result<void>::Failure(StorageError::kRemoveFailed,
                                "storage remove failed for '" + relative_path + "' (errno " +
                                    std::to_string(remove_error) + ")");
+}
+
+Result<std::vector<StoredFile>> Storage::ListFiles() const {
+  using Listed = Result<std::vector<StoredFile>>;
+  if (root_.empty()) return Listed::Failure(StorageError::kInvalidPath, "storage root is empty");
+  DIR* directory = opendir(root_.c_str());
+  if (!directory) {
+    if (errno == ENOENT) return Listed::Success({});
+    return Listed::Failure(StorageError::kOpenFailed,
+                           "storage listing failed (errno " + std::to_string(errno) + ")");
+  }
+  std::vector<StoredFile> files;
+  while (const dirent* entry = readdir(directory)) {
+    const std::string name = entry->d_name;
+    if (name == "." || name == "..") continue;
+    struct stat info{};
+    const std::string path = root_ + "/" + name;
+    if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode)) continue;
+#if defined(__APPLE__)
+    const auto& modified = info.st_mtimespec;
+#else
+    const auto& modified = info.st_mtim;
+#endif
+    files.push_back({name, static_cast<std::int64_t>(modified.tv_sec) * 1000000000 +
+                               static_cast<std::int64_t>(modified.tv_nsec)});
+  }
+  closedir(directory);
+  return Listed::Success(std::move(files));
 }
 
 }  // namespace playden

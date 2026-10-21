@@ -1,8 +1,10 @@
 #include "app/library_controller.h"
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include "fake_library_source.h"
 #include "steam_id.h"
 
 using namespace playden;
@@ -54,16 +56,16 @@ void FreshRefreshAndFailure() {
   app::LibraryController controller(model,service);
   controller.Activate(123,false);
   Wait(controller,[&]{return !model.state().library_loading && model.state().games.size()==1;});
-  assert(model.state().games[0].id==SteamId(42) && model.state().account.cache_available);
-  assert(model.state().account.last_sync==12345 && model.state().account.authentication==AuthState::SignedIn);
+  assert(model.state().games[0].id==SteamId(42) && model.state().account().cache_available);
+  assert(model.state().account().last_sync==12345 && model.state().account().authentication==AuthState::SignedIn);
   backend.result={LibraryError::kNetwork,{},false};
   controller.Refresh();
-  Wait(controller,[&]{return !model.state().library_loading && !model.state().account.error.empty();});
+  Wait(controller,[&]{return !model.state().library_loading && !model.state().account().error.empty();});
   assert(model.state().games.size()==1 && model.state().library_offline);
   backend.result={LibraryError::kNone,{},false};
   controller.Refresh();
   Wait(controller,[&]{return !model.state().library_loading && model.state().games.empty();});
-  assert(model.state().account.error.empty() && model.state().account.cache_available);
+  assert(model.state().account().error.empty() && model.state().account().cache_available);
 }
 void OfflineCacheAndClear() {
   Simulation model({}, {},ModelMode::Live);
@@ -75,7 +77,7 @@ void OfflineCacheAndClear() {
   app::LibraryController controller(model,service);
   controller.Activate(123,true);
   Wait(controller,[&]{return !model.state().library_loading && model.state().games.size()==1;});
-  assert(backend.calls==0 && model.state().library_offline && model.state().account.authentication==AuthState::Offline);
+  assert(backend.calls==0 && model.state().library_offline && model.state().account().authentication==AuthState::Offline);
   cache.fail_clear=true; controller.Clear();
   std::optional<LibraryError> cleared;
   Wait(controller,[&]{cleared=controller.TakeClearResult();return cleared.has_value();});
@@ -104,7 +106,7 @@ void RejectedRequestStopsLoading() {
   Sessions sessions;Cache cache;Backend backend;
   LibraryService service(backend,sessions,&cache);service.Shutdown();
   app::LibraryController controller(model,service);controller.Activate(123,false);
-  assert(!model.state().library_loading && !model.state().account.error.empty());
+  assert(!model.state().library_loading && !model.state().account().error.empty());
 }
 void StaleCompletionCannotRepopulate() {
   Simulation model({}, {},ModelMode::Live);
@@ -117,7 +119,80 @@ void StaleCompletionCannotRepopulate() {
   controller.Reset();
   model.UpdateAccount({AuthState::SignedOut,{},{},{},{},true});
   backend.release=true;service.Shutdown();controller.Tick();
-  assert(model.state().games.empty() && model.state().account.id.empty());
+  assert(model.state().games.empty() && model.state().account().id.empty());
+}
+constexpr const char* kImported="0f8fad5b-d9cb-469f-a165-70867728950e";
+bool Shows(const Simulation& model,const GameId& id) {
+  for(const auto& game:model.state().games) if(game.id==id) return true;
+  return false;
+}
+// Another store's games sit next to Steam's: Steam refreshing, failing or signing out leaves them alone.
+void OtherSourceSurvivesSteam() {
+  Simulation model({}, {},ModelMode::Live);
+  model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+  Sessions sessions;Cache cache;Backend backend;
+  LibraryService service(backend,sessions,&cache);
+  test::FakeLibrarySource imported;imported.games={test::ImportedGame(kImported,"Imported title")};
+  app::LibraryController controller(model,service);
+  controller.AddSource(imported);
+  controller.Activate(123,false);
+  Wait(controller,[&]{return !model.state().library_loading && model.state().games.size()==2;});
+  const auto local=GameId::Local(kImported);
+  assert(model.state().games[0].id==SteamId(42) && model.state().games[0].source=="Steam");
+  assert(model.state().games[1].id==local && model.state().games[1].source=="Imported");
+  assert(model.state().navigation.route==Route::Home && model.view().subtitle=="Your library");
+  // The player looks at the imported game while Steam refreshes.
+  assert(model.action("select:"+ToKey(local)));
+  const auto selected=model.state().navigation.selected_game_id;
+  assert(selected==local);
+  backend.result={LibraryError::kNone,{{SteamId(43),"Another title",{},{},{}}},false};
+  controller.Refresh();
+  Wait(controller,[&]{return !model.state().library_loading && Shows(model,SteamId(43));});
+  assert(!Shows(model,SteamId(42)) && Shows(model,local) && model.state().games.size()==2);
+  assert(model.state().navigation.selected_game_id==selected);
+  backend.result={LibraryError::kNetwork,{},false};
+  controller.Refresh();
+  Wait(controller,[&]{return !model.state().library_loading && !model.state().account().error.empty();});
+  assert(Shows(model,SteamId(43)) && Shows(model,local) && model.state().library_offline);
+  assert(model.state().navigation.selected_game_id==selected);
+  // The other store failing keeps its games and leaves Steam's status alone.
+  imported.fail=true;backend.result={LibraryError::kNone,{{SteamId(43),"Another title",{},{},{}}},false};
+  controller.Refresh();
+  Wait(controller,[&]{return !model.state().library_loading && !model.state().account(Store::kLocal).error.empty();});
+  assert(Shows(model,local) && Shows(model,SteamId(43)) && model.state().account().error.empty());
+  // Signing out of Steam: only Steam's games go, and Playden stays on Home with the imported one.
+  controller.Reset();
+  model.UpdateAccount({AuthState::SignedOut,{},{},{},{},true});
+  assert(model.state().games.size()==1 && Shows(model,local));
+  assert(model.state().navigation.route==Route::Home);
+  { const auto& v=model.view(); assert(v.focused_row>=0 && v.rows[static_cast<std::size_t>(v.focused_row)].key==model.state().navigation.focus_key); }
+  const auto& rows=model.view().rows;
+  assert(std::any_of(rows.begin(),rows.end(),[](const ViewRow& row) { return row.key=="home-connect" && row.title=="Connect a store"; }));
+}
+// A Steam answer that arrives after sign-out brings nothing back, and the other store's game stays.
+void StaleSteamCompletionKeepsOtherSource() {
+  Simulation model({}, {},ModelMode::Live);
+  model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+  Sessions sessions;Cache cache;Backend backend;backend.block=true;
+  LibraryService service(backend,sessions,&cache);
+  test::FakeLibrarySource imported;imported.games={test::ImportedGame(kImported,"Imported title")};
+  app::LibraryController controller(model,service);
+  controller.AddSource(imported);
+  controller.Activate(123,false);
+  Wait(controller,[&]{return backend.calls>0 && Shows(model,GameId::Local(kImported));});
+  controller.Reset();
+  model.UpdateAccount({AuthState::SignedOut,{},{},{},{},true});
+  backend.release=true;service.Shutdown();controller.Tick();
+  assert(model.state().games.size()==1 && Shows(model,GameId::Local(kImported)));
+  assert(!model.state().library_loading && model.state().navigation.route==Route::Home);
+}
+// A library update names its store: games of another store in it are refused.
+void UpdateRefusesAnotherStoresGames() {
+  Simulation model({}, {},ModelMode::Live);
+  model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+  assert(!model.UpdateLibrary({{test::ImportedGame(kImported,"Imported title")},false,{},false,false,{}}));
+  assert(!model.UpdateLibrary({{{SteamId(42),"Synthetic title",{},{},{}}},false,{},false,false,{},Store::kLocal}));
+  assert(model.state().games.empty());
 }
 }
-int main(){FreshRefreshAndFailure();OfflineCacheAndClear();StaleCompletionCannotRepopulate();RejectedCacheStillAcceptsFreshResult();RejectedRequestStopsLoading();}
+int main(){OtherSourceSurvivesSteam();StaleSteamCompletionKeepsOtherSource();UpdateRefusesAnotherStoresGames();FreshRefreshAndFailure();OfflineCacheAndClear();StaleCompletionCannotRepopulate();RejectedCacheStillAcceptsFreshResult();RejectedRequestStopsLoading();}

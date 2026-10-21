@@ -89,10 +89,12 @@ void Settings(Simulation& model) {
   assert(model.state().navigation.route==Route::Settings);
 }
 void SignOut(Simulation& model) {Settings(model);Choose(model,"signout-confirm");Choose(model,"confirm-destructive");}
-void RestartAndDeletion(const std::filesystem::path& root) {
+// Organization belongs to the device: it outlives sign-out, and edits made signed out are saved.
+void RestartAndSignOut(const std::filesystem::path& root) {
   Storage storage(root.string());PreferencesStore preferences(storage);Organization organization(storage);LibraryCache cache(storage);
+  // An upgrade: the account's version 1 file is what the device has.
   OrganizationSnapshot seed;seed.favorites.insert(SteamId(42));seed.notes[SteamId(42)]="Saved note";seed.selected_game_id= SteamId(42);
-  assert(organization.Save(123,seed).ok());assert(preferences.Save({true}).ok());
+  assert(organization.store.SaveV1(123,seed).ok());assert(preferences.Save({true}).ok());
   Sessions sessions;Auth auth;Library backend;
   {
     Simulation model({}, {},ModelMode::Live);
@@ -101,28 +103,50 @@ void RestartAndDeletion(const std::filesystem::path& root) {
     Controller controller(model,auth,sessions,&library,&persistence);
     Wait(controller,[&]{return model.state().games.size()==1 && model.state().library.favorites.contains(SteamId(42)) && model.state().reduced_motion;});
     assert(model.state().library.notes.at(SteamId(42))=="Saved note");
+    assert(model.state().navigation.selected_game_id==SteamId(42));
     assert(model.action("r1"));if(model.state().navigation.library_rail_focused)assert(model.action("right"));
     assert(model.action("square"));
     Settings(model);Choose(model,"toggle-motion");
     controller.Shutdown();
-    auto saved=organization.Load(123);assert(saved.ok() && saved.value() && saved.value()->favorites.empty());
+    auto saved=organization.Load(kDeviceOrganization);assert(saved.ok() && saved.value() && saved.value()->favorites.empty());
     assert(saved.value()->notes.at(SteamId(42))=="Saved note" && !preferences.Load().preferences.reduce_motion);
+    // The version 1 file is left as it was.
+    const auto legacy=organization.store.LoadV1(123);
+    assert(legacy.ok() && legacy.value() && legacy.value()->favorites.contains(SteamId(42)));
   }
   {
     Simulation model({}, {},ModelMode::Live);LibraryService library(backend,sessions,&cache);
     app::PersistenceService persistence(preferences,organization);Controller controller(model,auth,sessions,&library,&persistence);
     Wait(controller,[&]{return model.state().library.notes.count(SteamId(42))>0 && model.state().games.size()==1;});
     assert(model.state().library.favorites.empty() && !model.state().reduced_motion);
+    // A failing Clear would not matter: sign-out deletes no organization.
     organization.fail_clear=true;SignOut(model);controller.Tick();
-    Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedIn && !model.state().account.error.empty();});
-    assert(sessions.Load().value() && organization.Load(123).value());
-    assert(model.action("r1") && model.state().navigation.route==Route::Home);
-    assert(model.action("square") && model.state().library.favorites.contains(SteamId(42)));
-    Wait(controller,[&]{const auto saved=organization.Load(123);return saved.ok() && saved.value() && saved.value()->favorites.count(SteamId(42))>0;});
-    organization.fail_clear=false;SignOut(model);controller.Tick();
-    Wait(controller,[&]{return model.state().account.authentication==AuthState::SignedOut;});
-    assert(!sessions.Load().value() && !organization.Load(123).value());
+    Wait(controller,[&]{return model.state().account().authentication==AuthState::SignedOut;});
+    assert(!sessions.Load().value());
+    // Signed out, the organization is still there, in memory and on disk.
+    assert(model.state().library.notes.at(SteamId(42))=="Saved note");
+    const auto kept=organization.Load(kDeviceOrganization);
+    assert(kept.ok() && kept.value() && kept.value()->notes.at(SteamId(42))=="Saved note");
     assert(preferences.Load().status==PreferencesLoadStatus::kLoaded);
+    controller.Shutdown();
+  }
+  // Signed out from the start: a favorite of a game of no store account is saved and restored.
+  const GameId local=GameId::Local("0b8f6c1e-4d2a-4f3b-9a1c-2e5d7f8a9b0c");
+  {
+    Simulation model({}, {},ModelMode::Live);LibraryService library(backend,sessions,&cache);
+    app::PersistenceService persistence(preferences,organization);Controller controller(model,auth,sessions,&library,&persistence);
+    persistence.WaitIdle();controller.Tick();
+    model.UpdateLibrary({{{local,"Imported game",{},{},{},{},{}}},false,{},false,false,{},Store::kLocal});
+    assert(model.action("select:"+ToKey(local)) && model.action("square"));
+    Wait(controller,[&]{const auto saved=organization.Load(kDeviceOrganization);return saved.ok() && saved.value() && saved.value()->favorites.count(local)>0;});
+    controller.Shutdown();
+  }
+  {
+    Simulation model({}, {},ModelMode::Live);LibraryService library(backend,sessions,&cache);
+    app::PersistenceService persistence(preferences,organization);Controller controller(model,auth,sessions,&library,&persistence);
+    Wait(controller,[&]{return model.state().library.favorites.count(local)>0;});
+    assert(model.state().library.notes.at(SteamId(42))=="Saved note");
+    controller.Shutdown();
   }
 }
 // The sort chosen in Sort and filters is the one the Library opens with after a restart, also when
@@ -141,10 +165,10 @@ void SortSurvivesRestart(const std::filesystem::path& root) {
     for(int step=0;step<30 && model.state().navigation.focus_key!="shelf-continue-more";++step) model.action("right");
     assert(model.action("cross") && model.state().navigation.route==Route::Library);
     assert(model.visible_games().front()->id==SteamId(25) && model.visible_games()[1]->id==SteamId(24));
-    Wait(controller,[&]{const auto saved=organization.Load(123);return saved.ok() && saved.value() && saved.value()->sort=="playtime";});
+    Wait(controller,[&]{const auto saved=organization.Load(kDeviceOrganization);return saved.ok() && saved.value() && saved.value()->sort=="playtime";});
     controller.Shutdown();
   }
-  const auto saved=organization.Load(123);
+  const auto saved=organization.Load(kDeviceOrganization);
   assert(saved.ok() && saved.value() && saved.value()->sort=="playtime");
   {
     Simulation model({}, {},ModelMode::Live);LibraryService library(backend,sessions,&cache);
@@ -158,7 +182,7 @@ void SortSurvivesRestart(const std::filesystem::path& root) {
 void EditWhileLoading(const std::filesystem::path& root) {
   Storage storage(root.string());PreferencesStore preferences(storage);Organization organization(storage);LibraryCache cache(storage);
   OrganizationSnapshot seed;seed.favorites.insert(SteamId(77));seed.notes[SteamId(77)]="Keep unrelated note";
-  assert(organization.Save(123,seed).ok());organization.block_load=true;
+  assert(organization.Save(kDeviceOrganization,seed).ok());organization.block_load=true;
   Sessions sessions;Auth auth;Library backend;Simulation model({}, {},ModelMode::Live);
   LibraryService library(backend,sessions,&cache);app::PersistenceService persistence(preferences,organization);
   Controller controller(model,auth,sessions,&library,&persistence);
@@ -168,7 +192,7 @@ void EditWhileLoading(const std::filesystem::path& root) {
   organization.release=true;
   Wait(controller,[&]{return model.state().library.favorites.contains(SteamId(77)) && model.state().library.favorites.contains(SteamId(42));});
   controller.Shutdown();
-  const auto loaded=organization.Load(123);
+  const auto loaded=organization.Load(kDeviceOrganization);
   assert(loaded.ok() && loaded.value() && loaded.value()->favorites==std::set<GameId>({SteamId(42),SteamId(77)}));
   assert(loaded.value()->notes.at(SteamId(77))=="Keep unrelated note");
 }
@@ -176,5 +200,5 @@ void EditWhileLoading(const std::filesystem::path& root) {
 }
 int main() {
   const auto root=std::filesystem::temp_directory_path()/("playden-persistence-integration-"+std::to_string(getpid()));
-  std::filesystem::create_directories(root);RestartAndDeletion(root);EditWhileLoading(root/"delayed");SortSurvivesRestart(root/"sort");std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root);RestartAndSignOut(root);EditWhileLoading(root/"delayed");SortSurvivesRestart(root/"sort");std::filesystem::remove_all(root);
 }

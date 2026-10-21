@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -147,10 +148,14 @@ struct GameSettingsRecord {
   std::string preset_id;  // empty = Playden default
   std::map<std::string, std::string> overrides;
   std::uint64_t revision = 0;
+  // A game from another store that uses Steamworks: its Steam app ID for the emulator, when the game's
+  // folder has no steam_appid.txt (the game's own file wins). 0: not set. Saved only when set.
+  std::uint32_t steam_app_id = 0;
 };
 
 inline bool operator==(const GameSettingsRecord& left, const GameSettingsRecord& right) {
-  return left.preset_id == right.preset_id && left.overrides == right.overrides && left.revision == right.revision;
+  return left.preset_id == right.preset_id && left.overrides == right.overrides && left.revision == right.revision &&
+         left.steam_app_id == right.steam_app_id;
 }
 inline bool operator!=(const GameSettingsRecord& left, const GameSettingsRecord& right) { return !(left == right); }
 
@@ -233,6 +238,9 @@ GameId RecipeGame(const GameRecipe& recipe);
 bool ParseGameRecipe(std::string_view json, GameRecipe* recipe, std::string* reason);
 bool ParseSettingsPresets(std::string_view json, std::vector<SettingsPreset>* presets, std::string* reason);
 bool ParseGameSettingsRecord(std::string_view json, GameSettingsRecord* record, std::string* reason);
+// A Steam app ID as a steam_appid.txt or the "steam_app_id" setting holds it: canonical decimal
+// 1..UINT32_MAX (no sign, no leading zero) once surrounding whitespace is trimmed; nothing otherwise.
+std::optional<std::uint32_t> ParseSteamAppId(std::string_view text);
 // The recipe as JSON that ParseGameRecipe reads back.
 std::string SerializeGameRecipe(const GameRecipe& recipe);
 

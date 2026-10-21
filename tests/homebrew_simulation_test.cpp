@@ -42,16 +42,16 @@ void t01_authentication_ignores_late_approval(const std::filesystem::path& fixtu
     check(simulation.state().navigation.route == playden::homebrew::Route::Startup,
           "T01 signed-out scenario starts at first run");
     simulation.action("cross");
-    check(simulation.state().account.authentication == playden::homebrew::AuthState::Waiting,
+    check(simulation.state().account().authentication == playden::homebrew::AuthState::Waiting,
           "T01 Connect Steam opens a waiting challenge");
     playden::homebrew::Simulation waiting_restart(fixtures, profile);
-    check(waiting_restart.state().account.authentication == playden::homebrew::AuthState::SignedOut
+    check(waiting_restart.state().account().authentication == playden::homebrew::AuthState::SignedOut
               && waiting_restart.state().navigation.route == playden::homebrew::Route::Startup
-              && waiting_restart.state().account.id.empty() && waiting_restart.state().account.display_name.empty()
-              && !waiting_restart.state().account.cache_available,
+              && waiting_restart.state().account().id.empty() && waiting_restart.state().account().display_name.empty()
+              && !waiting_restart.state().account().cache_available,
           "T01 restarting an anonymous waiting challenge invalidates it without leaking catalog identity");
     simulation.scenario("qr-expired");
-    check(simulation.state().account.authentication == playden::homebrew::AuthState::Expired,
+    check(simulation.state().account().authentication == playden::homebrew::AuthState::Expired,
           "T01 injected QR expiry is visible");
     simulation.action("cross");
     simulation.scenario("qr-approved");
@@ -63,7 +63,7 @@ void t01_authentication_ignores_late_approval(const std::filesystem::path& fixtu
     simulation.action("circle");
     simulation.scenario("late-approval");
     simulation.tick(5);
-    check(simulation.state().account.authentication == playden::homebrew::AuthState::Cancelled,
+    check(simulation.state().account().authentication == playden::homebrew::AuthState::Cancelled,
           "T01 late approval cannot revive a cancelled challenge");
     simulation.scenario("signed-out"); simulation.action("focus:startup-skip"); simulation.action("cross");
     check(std::any_of(simulation.view().rows.begin(), simulation.view().rows.end(),
@@ -71,12 +71,12 @@ void t01_authentication_ignores_late_approval(const std::filesystem::path& fixtu
           "T01 empty signed-out Home offers both Library and Connect");
     simulation.scenario("signed-out"); simulation.action("cross"); simulation.action("inject:qr-approved");
     playden::homebrew::Simulation syncing_restart(fixtures, profile);
-    check(syncing_restart.state().account.authentication == playden::homebrew::AuthState::Failed
+    check(syncing_restart.state().account().authentication == playden::homebrew::AuthState::Failed
               && syncing_restart.state().navigation.route == playden::homebrew::Route::SignIn
               && syncing_restart.state().navigation.focus_key == "qr-retry",
           "T01 interrupted sync restarts at a controller-recoverable retry state");
     syncing_restart.action("cross");
-    check(syncing_restart.state().account.authentication == playden::homebrew::AuthState::Waiting,
+    check(syncing_restart.state().account().authentication == playden::homebrew::AuthState::Waiting,
           "T01 retry creates a fresh challenge after interrupted sync");
 }
 
@@ -640,20 +640,20 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     restored.action("circle"); activate(restored, "settings-account"); activate(restored, "account-switch");
     check(restored.state().navigation.modals.back().focused_action == 0, "T11 account switch defaults to Cancel");
     activate(restored, "confirm-destructive");
-    check(restored.state().account.authentication == playden::homebrew::AuthState::Waiting
-              && restored.state().account.id.empty() && restored.state().library.favorites.empty(),
+    check(restored.state().account().authentication == playden::homebrew::AuthState::Waiting
+              && restored.state().account().id.empty() && restored.state().library.favorites.empty(),
           "T11 account switch clears identity and account-visible cache");
     restored.action("inject:qr-approved"); restored.tick(1);
-    check(restored.state().account.authentication == playden::homebrew::AuthState::SignedIn
-              && !restored.state().account.id.empty() && restored.state().account.last_sync > 0,
+    check(restored.state().account().authentication == playden::homebrew::AuthState::SignedIn
+              && !restored.state().account().id.empty() && restored.state().account().last_sync > 0,
           "T11 account recovery restores a new fixture identity and last-sync state");
     restored.action("route:library"); restored.action("search"); restored.text("Night Orchard"); restored.action("done"); restored.action("square");
-    const auto switched_id = restored.state().account.id;
-    const auto switched_name = restored.state().account.display_name;
-    const auto switched_sync = restored.state().account.last_sync;
+    const auto switched_id = restored.state().account().id;
+    const auto switched_name = restored.state().account().display_name;
+    const auto switched_sync = restored.state().account().last_sync;
     playden::homebrew::Simulation switched_restart(fixtures, profile);
-    check(switched_restart.state().account.id == switched_id && switched_restart.state().account.display_name == switched_name
-              && switched_restart.state().account.last_sync == switched_sync
+    check(switched_restart.state().account().id == switched_id && switched_restart.state().account().display_name == switched_name
+              && switched_restart.state().account().last_sync == switched_sync
               && switched_restart.state().library.query == "Night Orchard"
               && switched_restart.state().library.favorites.contains(SteamId(900010)),
           "T11 switched account identity and organization restore only from its profile");
@@ -1017,7 +1017,7 @@ void t15_password_sign_in(const std::filesystem::path& fixtures, const std::file
           "T15 a wrong code shows inline");
     type_into(simulation, "guard-code", "ab12c");
     activate(simulation, "guard-submit");
-    check(simulation.state().account.authentication == playden::homebrew::AuthState::Syncing &&
+    check(simulation.state().account().authentication == playden::homebrew::AuthState::Syncing &&
               simulation.state().sign_in_password,
           "T15 the right code signs in and remembers the password method");
 
@@ -1027,7 +1027,7 @@ void t15_password_sign_in(const std::filesystem::path& fixtures, const std::file
     check(simulation.state().sign_in.step == SignInStep::Password, "T15 the remembered method opens");
     activate(simulation, "signin-qr-mode");
     check(simulation.state().sign_in.step == SignInStep::Qr &&
-              simulation.state().account.authentication == playden::homebrew::AuthState::Waiting,
+              simulation.state().account().authentication == playden::homebrew::AuthState::Waiting,
           "T15 Use QR code instead shows the QR code");
     activate(simulation, "signin-password-mode");
 

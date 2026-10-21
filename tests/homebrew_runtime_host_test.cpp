@@ -882,9 +882,10 @@ void ResumesInterruptedCaptureFromSavedRequest(bool tamper_backup = false) {
     fs::rename(aside, title);
     fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
   }
-  const auto before = host.Snapshot().revision;
+  // Waits for this request's own answer: a refusal can come back before a poll sees the old one cleared.
+  const auto before = host.Snapshot().prepares_handled;
   host.Prepare(Hl2());
-  WaitFor(host, [before](const RuntimeSnapshot& s) { return s.revision > before && !s.refusals.count(220); });
+  WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before; });
   const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
     return !s.preparing_app && !s.installs.empty() &&
         (s.installs[0].state == PreparationState::kReady || s.refusals.count(220));
@@ -2176,6 +2177,142 @@ void PreparesGameInstalledAgainElsewhere() {
   host.Shutdown();
 }
 
+// A game from another store gets its Steamworks app ID from its own steam_appid.txt (the program's folder,
+// then the game folder), else from Game settings, else none (it keeps its own Steam DLL). Its runtime number
+// is never one, the account follows the Steam session, and Playden's own steam_appid.txt never stands in for
+// the game's.
+void LocalGameSteamworksAppId() {
+  const auto local = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-0000000000") + (uuids < 10 ? "0" : "") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.steamworks_dir = (fs::path(g_runtime_dir) / "steamworks").string();
+  std::mutex log_mutex;
+  std::vector<std::string> lines;
+  config.log = [&](const std::string& line) { std::lock_guard<std::mutex> lock(log_mutex); lines.push_back(line); };
+  const auto logged = [&](const std::string& prefix) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) { return line.rfind(prefix, 0) == 0; });
+  };
+  std::mutex settings_mutex;
+  GameSettingsRecord saved;
+  config.settings_record = [&](const playden::GameId& game) -> std::optional<GameSettingsRecord> {
+    std::lock_guard<std::mutex> lock(settings_mutex);
+    CHECK(game == local);
+    return saved;
+  };
+  const auto set_field = [&](std::uint32_t app) { std::lock_guard<std::mutex> lock(settings_mutex); saved.steam_app_id = app; };
+  const auto game = fixture.root / "data/playden-import/Imported";
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  Write(game / "Bin/Game.exe", pe, 0644);
+  const std::string own_api = pe + std::string("\0SteamUser021\0", 14);
+  Write(game / "Bin/steam_api64.dll", own_api, 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  const auto emulator = Read(fs::path(g_runtime_dir) / "steamworks/steam_api64.dll");
+  const auto settings_app = [&] { return Read(game / "Bin/steam_settings/steam_appid.txt"); };
+  const auto account = [&] {
+    const auto user = Read(game / "Bin/steam_settings/configs.user.ini");
+    const auto at = user.find("account_name=");
+    return at == std::string::npos ? std::string() : user.substr(at + 13, user.find('\n', at) - at - 13);
+  };
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  const auto number = *host.RuntimeNumberFor(local);
+  CHECK(number >= 0xF0000000u);
+  // No steam_appid.txt and no app ID in Game settings: no emulation, the game's own DLL stays. No Steam
+  // session is needed for any of it.
+  RuntimePrepareRequest request{number, "/data/playden-import/Imported", "internal", "Imported"};
+  request.launches = {{"", "", "Bin/Game.exe", "", ""}};
+  request.game = local;
+  host.Prepare(request);
+  const auto ready = WaitFor(host, [number](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(number) ||
+        (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (ready.refusals.count(number)) std::fprintf(stderr, "Prepare refused: %s\n", ready.refusals.at(number).c_str());
+  CHECK(!ready.refusals.count(number) && ready.installs.size() == 1);
+  CHECK(Read(game / "Bin/steam_api64.dll") == own_api && !fs::exists(game / "Bin/steam_api64.dll.orig"));
+  CHECK(ready.steamworks_apps.at(number) == SteamworksAppView{});
+  CHECK(logged("steamworks app=" + std::to_string(number) + " steam_app_id=- source=none"));
+  CHECK(logged("steamworks app=" + std::to_string(number) + " mode=game found=1 changed=-"));
+
+  // Each call applies the saved settings again, as Play does before the game starts.
+  const auto apply = [&]() {
+    const auto before = host.Snapshot().maintenance_handled;
+    host.Maintain(number, RuntimeMaintenance::kApplySettings);
+    const auto done = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; });
+    if (!done.maintenance.at(number).ok) std::fprintf(stderr, "Apply: %s\n", done.maintenance.at(number).message.c_str());
+    CHECK(done.maintenance.at(number).ok);
+    return done.steamworks_apps.at(number);
+  };
+  using Source = SteamworksAppView::Source;
+  // The app ID from Game settings only: emulated with it, signed out (the emulator's default account).
+  // Playden's steam_appid.txt beside the DLL is taken away again; the emulator's own copy has it.
+  set_field(4000);
+  CHECK((apply() == SteamworksAppView{4000, Source::kSettings, false}));
+  CHECK(Read(game / "Bin/steam_api64.dll") == emulator && Read(game / "Bin/steam_api64.dll.orig") == own_api);
+  CHECK(settings_app() == "4000" && !fs::exists(game / "Bin/steam_appid.txt") && account() == "Playden");
+  // A new app ID in Game settings reaches the emulator.
+  set_field(4001);
+  CHECK((apply() == SteamworksAppView{4001, Source::kSettings, false}) && settings_app() == "4001");
+  // Signed in, the emulator names the account; signed out again, the default.
+  host.SetSteamAccount("player", 76561198000000001ull);
+  apply();
+  CHECK(account() == "player");
+  host.SetSteamAccount({}, 0);
+  apply();
+  CHECK(account() == "Playden");
+  // The game's own file in its folder wins over Game settings, which shows as overridden.
+  Write(game / "steam_appid.txt", "99700\n", 0644);
+  CHECK((apply() == SteamworksAppView{99700, Source::kGameFile, true}) && settings_app() == "99700");
+  CHECK(Read(game / "steam_appid.txt") == "99700\n");  // the game's own stays
+  // One in the program's folder comes first; whitespace around the number is fine.
+  Write(game / "Bin/steam_appid.txt", " 99701\r\n", 0644);
+  CHECK((apply() == SteamworksAppView{99701, Source::kGameFile, true}) && settings_app() == "99701");
+  CHECK(Read(game / "Bin/steam_appid.txt") == " 99701\r\n");
+  // A malformed one (a leading zero, words, zero, beyond 32 bits) is not an app ID: the next place is asked.
+  for (const char* malformed : {"099701", "app 99701", "0", "4294967296", "-5", ""}) {
+    Write(game / "Bin/steam_appid.txt", malformed, 0644);
+    CHECK((apply() == SteamworksAppView{99700, Source::kGameFile, true}));
+  }
+  // The same app ID as Game settings is no conflict.
+  set_field(99700);
+  CHECK((apply() == SteamworksAppView{99700, Source::kGameFile, false}));
+  // Neither a file nor the field: the game's own Steam DLL comes back.
+  fs::remove(game / "steam_appid.txt");
+  set_field(0);
+  CHECK(apply() == SteamworksAppView{});
+  CHECK(Read(game / "Bin/steam_api64.dll") == own_api);
+  CHECK(logged("steamworks app=" + std::to_string(number) + " mode=game found=1 changed=Bin/steam_api64.dll"));
+  // The runtime number never reached the emulator.
+  {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    CHECK(std::none_of(lines.begin(), lines.end(), [&](const std::string& line) {
+      return line.find("steam_app_id=" + std::to_string(number)) != std::string::npos;
+    }));
+  }
+  host.Shutdown();
+}
+
 // Kept bottles are not Steam-only: an imported game's marker names its game, lists after a restart
 // and gives the game its runtime number back. A Steam marker from before (fixture) still lists.
 void LocalGameKeepsItsBottle() {
@@ -2246,7 +2383,8 @@ void LocalGameKeepsItsBottle() {
     CHECK(std::find(icons.begin(), icons.end(), local) != icons.end());  // named by game, not by number
     CHECK(ready.generated_recipes.size() == 1 && ready.generated_recipes[0].id == playden::GeneratedRecipeId(local) &&
           playden::runtime::RecipeGame(ready.generated_recipes[0]) == local);
-    host.SetTitleNames({{number, "Imported"}});
+    // A store's name in the title name (any store's) is not the game's: the kept bottle names the game.
+    host.SetTitleNames({{number, "Imported (Epic)"}});
     Write(games / "local-0f8fad5b-d9cb-469f-a165-70867728950e" / save, "player-save", 0600);
     const auto before = host.Snapshot().removals_handled;
     host.Remove(number, false);
@@ -3047,7 +3185,7 @@ void CheckRepublishedAtNewRoot(Fixture& fixture) {
   };
   const auto metadata = Read(profiles / ".playden-publication");
   CHECK(metadata.find("dxvk.path_hex=" + hex("/data/playden-games/220/dxvk.conf") + "\n") != std::string::npos);
-  // The install script's path follows the folder (ApplySteamworks runs in the republication).
+  // The install script's path follows the folder (ApplyPreparationSteps runs in the republication).
   const auto system_reg = Read(fixture.root / "data/playden/games/steam-220/library/prefixes/game/system.reg");
   CHECK(system_reg.find("playden-games\\\\220") != std::string::npos && system_reg.find("FAKE77031") == std::string::npos);
 }
@@ -4015,6 +4153,7 @@ int main(int argc, char** argv) {
   StartupReportsJournalsWithoutResuming();
   LocalGameGetsRuntimeNumber();
   LocalGameKeepsItsBottle();
+  LocalGameSteamworksAppId();
   PublicStateRootIsUnavailable();
   PreparesExistingDownloadToReady();
   PreparesGameOnUnownedDrive();

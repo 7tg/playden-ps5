@@ -614,7 +614,25 @@ void EnumerationAndIdentityBoundsFailClosed() {
 
 } // namespace
 
+// A game of a store without Cloud saves (an imported game) never reaches the
+// Cloud, signed in or not: its sessions end without a journal entry.
+void StoreWithoutCloudSavesNeverDispatches() {
+  for (const char *account : {"account-a", ""}) {
+    Fixture f;
+    f.account = account;
+    f.records.front().game = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+    f.records.front().runtime_number = 0xF0000000u;
+    auto reconciler = f.Reconciler();
+    const auto result = reconciler.Reconcile(f.records);
+    const auto *status = Status(result, kSession);
+    CHECK(status && status->state == SessionReconcileState::kCompleted && status->code == "cloud-unsupported");
+    CHECK(f.cloud.starts == 0 && f.cloud.polls == 0 && f.cloud.cancels == 0);
+    CHECK(f.journal.saves == 0 && f.journal.entries.empty());
+  }
+}
+
 int main() {
+  StoreWithoutCloudSavesNeverDispatches();
   ActualWrapperRecordsAreAccepted();
   CleanExitUsesActualBottleAndCompletesOnlyAfterTerminalCloudResult();
   HomeOriginIsAcceptedAndBoundToCloudRequest();

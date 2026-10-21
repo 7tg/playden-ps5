@@ -28,21 +28,50 @@ GameId GameIn(const RuntimeSnapshot& snapshot, std::uint32_t number) {
 bool IsNumber(const RuntimeSnapshot& snapshot, const std::optional<std::uint32_t>& number, const GameId& id) {
   return number && GameIn(snapshot, *number) == id;
 }
+std::unique_ptr<stores::Registry> SteamRegistry(steam::AuthBackend& backend, SessionRepository& repository,
+                                                LibraryService* library_service, steam::AppDetailsService* app_details,
+                                                std::function<void(const std::string&)> auth_log) {
+  auto registry = std::make_unique<stores::Registry>();
+  registry->Add(std::make_unique<stores::SteamAccount>(backend, repository, std::move(auth_log)));
+  if (library_service) registry->Add(std::make_unique<stores::SteamLibrarySource>(*library_service));
+  if (app_details) registry->Add(std::make_unique<stores::SteamDetailsSource>(*app_details));
+  return registry;
+}
 }  // namespace
+std::string TitleStoreSuffix(Store store) {
+  if (store == Store::kLocal) return {};
+  return " (" + std::string(Traits(store).name) + ")";
+}
+Controller::Controller(Simulation& model, stores::Registry& stores, app::PersistenceService* persistence_service,
+                       steam::InstallService* installs, steam::CloudService* cloud, RuntimeHost* runtime,
+                       std::function<void(const std::string&)> auth_log)
+    : model_(model), stores_(stores), installs_(installs), cloud_(cloud), runtime_(runtime), auth_log_(std::move(auth_log)) {
+  Start(persistence_service);
+}
 Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
                        LibraryService* library_service, app::PersistenceService* persistence_service,
                        steam::AppDetailsService* app_details, steam::InstallService* installs,
                        steam::CloudService* cloud, RuntimeHost* runtime,
                        std::function<void(const std::string&)> auth_log)
-    : model_(model), app_details_(app_details), installs_(installs), cloud_(cloud), runtime_(runtime),
-      library_service_(library_service), auth_log_(std::move(auth_log)) {
+    : model_(model), owned_stores_(SteamRegistry(backend, repository, library_service, app_details, auth_log)),
+      stores_(*owned_stores_), installs_(installs), cloud_(cloud), runtime_(runtime), auth_log_(std::move(auth_log)) {
+  Start(persistence_service);
+}
+void Controller::Start(app::PersistenceService* persistence_service) {
   if (model_.state().simulation_mode) return;
-  if(library_service_) library_=std::make_unique<app::LibraryController>(model_,*library_service_);
-  service_ = std::make_unique<steam::SteamService>(backend,repository,auth_log_);
+  app_details_ = stores_.details(Store::kSteam);
+  if (auto* steam = stores_.library(Store::kSteam)) {
+    library_ = std::make_unique<app::LibraryController>(model_, *steam);
+  }
+  service_ = stores_.steam_account();
   phase_ = Phase::Restore;
   Update(AuthState::Restoring,{},true);
   if(persistence_service) persistence_=std::make_unique<app::PersistenceController>(model_,*persistence_service);
   request_ = service_->RestoreSession();
+  // Every other store's library loads now, next to Steam's.
+  if (library_)
+    for (auto* source : stores_.libraries())
+      if (source->store() != Store::kSteam) library_->AddSource(*source);
   if (cloud_)
     // On the Cloud worker, just before a job checks a game: never while its title may run.
     cloud_->SetGate([this](GameId id) {
@@ -60,7 +89,7 @@ void Controller::Shutdown() {
   if (!service_) return;
   // Preserve a confirmed sign-out queued by the last input frame before exit.
   for (const auto action : model_.TakeServiceActions()) {
-    if ((action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount) &&
+    if (action.store == Store::kSteam && (action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount) &&
         phase_!=Phase::ClearLibrary && phase_!=Phase::ClearOrganization && phase_!=Phase::SignOut) SignOut(false);
   }
   begin_after_clear_=false;
@@ -74,27 +103,29 @@ void Controller::Shutdown() {
                     std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started).count()));
   };
-  if(library_service_) step("library", [&] { library_service_->Shutdown(); library_->Tick(); AdvanceClear(); });
+  if(library_) step("library", [&] { library_->Shutdown(); library_->Tick(); AdvanceClear(); });
   if(persistence_) step("persistence", [&] { persistence_->FlushAndShutdown(); AdvanceOrganizationClear(); });
   if(app_details_) step("details", [&] { app_details_->Shutdown(); });
   if(installs_) step("installs", [&] { installs_->Shutdown(); });
   if(cloud_) step("cloud", [&] { cloud_->Shutdown(); });
   if(runtime_) step("runtime", [&] { runtime_->Shutdown(); });
-  service_.reset();
+  service_->Shutdown();
+  service_ = nullptr;
   persistence_.reset();
   library_.reset();
   phase_ = Phase::Idle;
   Update(AuthState::SignedOut,{},true);
 }
 void Controller::Update(AuthState state,const std::string& error,bool clear,const std::string& challenge,
-                        SignInStep step,const steam::SteamEvent* prompt,bool storage_full) {
+                        SignInStep step,const steam::SteamEvent* prompt,bool storage_full,bool restoring) {
   AccountUpdate update;
   update.authentication = state;
-  update.id = clear ? std::string{} : model_.state().account.id;
-  update.display_name = clear ? std::string{} : model_.state().account.display_name;
+  update.id = clear ? std::string{} : model_.state().account().id;
+  update.display_name = clear ? std::string{} : model_.state().account().display_name;
   update.error = error; update.challenge_url = challenge; update.clear_library = clear;
   update.sign_in = step;
   update.storage_full = storage_full;
+  update.restoring = restoring;
   if (prompt) {
     update.email_domain = prompt->email_domain;
     update.code_allowed = prompt->code_allowed;
@@ -112,8 +143,8 @@ void Controller::Begin(bool password) {
   if (phase_ == Phase::SignOut || phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization) {
     begin_after_clear_ = true; begin_password_after_clear_ = password; return;
   }
-  if(!model_.state().account.id.empty() && established_auth_==AuthState::Offline) { Restore();return; }
-  if(!model_.state().account.id.empty() && established_auth_==AuthState::SignedIn) {
+  if(!model_.state().account().id.empty() && established_auth_==AuthState::Offline) { Restore();return; }
+  if(!model_.state().account().id.empty() && established_auth_==AuthState::SignedIn) {
     SignOut(true); begin_password_after_clear_ = password; return;
   }
   if(library_) library_->Reset();
@@ -145,10 +176,10 @@ void Controller::UseMethod(bool password) {
 void Controller::BeginPassword() {
   auto credentials = model_.TakeSignInCredentials();
   if (!credentials) return;
-  const bool ready = phase_ == Phase::SignIn || (phase_ == Phase::Idle && model_.state().account.id.empty());
+  const bool ready = phase_ == Phase::SignIn || (phase_ == Phase::Idle && model_.state().account().id.empty());
   if (!ready || credentials->account_name.empty() || credentials->password.empty()) {
     steam::ZeroizeSecret(credentials->password);
-    Update(model_.state().account.authentication == AuthState::Failed ? AuthState::Failed : AuthState::Waiting,
+    Update(model_.state().account().authentication == AuthState::Failed ? AuthState::Failed : AuthState::Waiting,
            {},false,{},SignInStep::Password);
     return;
   }
@@ -163,7 +194,7 @@ void Controller::BeginPassword() {
   Update(AuthState::Waiting,{},!reauthenticating_,{},SignInStep::Submitting);
 }
 void Controller::Reauthenticate() {
-  if (phase_ != Phase::Idle || model_.state().account.id.empty()) return;
+  if (phase_ != Phase::Idle || model_.state().account().id.empty()) return;
   reauthenticating_ = true;
   phase_ = Phase::SignIn;
   password_sign_in_ = model_.state().sign_in_password;
@@ -200,7 +231,7 @@ void Controller::AdvanceClear() {
     BeginOrganizationClear();
   } else {
     phase_=Phase::Idle;begin_after_clear_=false;
-    Update(model_.state().account.id.empty()?AuthState::Failed:established_auth_,
+    Update(model_.state().account().id.empty()?AuthState::Failed:established_auth_,
            "Sign-out failed. Your saved library remains. Retry sign-out in Settings.");
   }
 }
@@ -215,7 +246,7 @@ void Controller::AdvanceOrganizationClear() {
   if(*result==StorageError::kNone) {phase_=Phase::SignOut;service_->SignOut();}
   else {
     phase_=Phase::Idle;begin_after_clear_=false;
-    Update(model_.state().account.id.empty()?AuthState::Failed:established_auth_,
+    Update(model_.state().account().id.empty()?AuthState::Failed:established_auth_,
            "Sign-out failed. Your saved organization remains. Retry sign-out in Settings.");
   }
 }
@@ -223,8 +254,10 @@ void Controller::Tick() {
   if (!service_) return;
   model_.SetWallClock(std::chrono::duration_cast<std::chrono::seconds>(
       std::chrono::system_clock::now().time_since_epoch()).count());
-  for (const auto action : model_.TakeServiceActions()) {
-    switch (action) {
+  for (const auto request : model_.TakeServiceActions()) {
+    // Only Steam has an account to act on.
+    if (request.store != Store::kSteam) continue;
+    switch (request.action) {
       case ServiceAction::BeginQr: Begin(false); break;
       case ServiceAction::Reauthenticate: Reauthenticate(); break;
       case ServiceAction::UsePassword: UseMethod(true); break;
@@ -265,12 +298,12 @@ void Controller::Tick() {
       case ServiceAction::SignOut: SignOut(false); break;
       case ServiceAction::SwitchAccount: SignOut(true); break;
       case ServiceAction::RefreshLibrary:
-        if (phase_ == Phase::Idle && !model_.state().account.id.empty()) {
+        if (phase_ == Phase::Idle && !model_.state().account().id.empty()) {
           if(library_) {
             if(established_auth_==AuthState::Offline || library_->NeedsRenewal()) Restore();
             else library_->Refresh();
           } else model_.UpdateLibrary({{},false,"Library sync is unavailable. Try again later.",
-                                        model_.state().library_offline,model_.state().account.cache_available,{}});
+                                        model_.state().library_offline,model_.state().account().cache_available,{}});
         }
         break;
     }
@@ -326,7 +359,8 @@ bool Controller::SessionActive(GameId id) const {
   return state == LaunchState::kReadyToHandoff || state == LaunchState::kLaunching || state == LaunchState::kRunning;
 }
 std::optional<steam::CloudLocation> Controller::CloudLocationFor(GameId id, bool for_job) const {
-  if (saves_root_.empty()) return std::nullopt;
+  // A store without Cloud saves has nothing to sync: every request for its games is answered as such.
+  if (saves_root_.empty() || !Traits(id.store).cloud_saves) return std::nullopt;
   steam::CloudLocation location{id, {}, saves_root_ + "/" + ToKey(id)};
   if (const auto root = game_roots_.find(id); root != game_roots_.end()) {
     location.game_root = root->second;
@@ -364,11 +398,12 @@ void Controller::QueueSavesJob(steam::CloudJobKind kind) {
   if (pending_job_ && (pending_job_->kind == kind || kind == steam::CloudJobKind::kQuickCheck)) return;
   PendingJob job;
   job.kind = kind;
-  for (const auto& [id, root] : game_roots_) job.ids.push_back(id);
+  for (const auto& [id, root] : game_roots_)
+    if (CloudCapable(id)) job.ids.push_back(id);
   if (runtime_) {
     const auto kept_bottles_shared = runtime_->Shared();
     for (const auto& kept : kept_bottles_shared->kept_bottles)
-      if (!game_roots_.count(kept.game)) job.ids.push_back(kept.game);
+      if (!game_roots_.count(kept.game) && CloudCapable(kept.game)) job.ids.push_back(kept.game);
   }
   job.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
   pending_job_ = std::move(job);
@@ -393,7 +428,7 @@ void Controller::TickCloud() {
   }
   for (const auto id : cloud_->TakeDeferred()) after_play_.insert(id);
   const auto now = std::chrono::steady_clock::now();
-  const bool signed_in = model_.state().account.authentication == AuthState::SignedIn;
+  const bool signed_in = model_.state().account().authentication == AuthState::SignedIn;
   auto requests = model_.TakeCloudRequests();
   std::vector<CloudRequest> transfers;
   for (const auto& request : requests) {
@@ -416,7 +451,7 @@ void Controller::TickCloud() {
         // The kept bottle and the game's sync state; no PS5 title is involved.
         if (runtime_)
           if (const auto app = RuntimeApp(*runtime_, request.game_id)) runtime_->DeleteKeptBottle(*app);
-        if (!saves_root_.empty())
+        if (!saves_root_.empty() && CloudCapable(request.game_id))
           cloud_->Forget({request.game_id, {}, saves_root_ + "/" + ToKey(request.game_id)});
         after_play_.erase(request.game_id);
         break;
@@ -446,7 +481,7 @@ void Controller::TickCloud() {
     cloud_foreground_[id] = kNotDispatched;
   }
   for (auto it = sync_after_session_.begin(); it != sync_after_session_.end();) {
-    if (!auto_sync) {
+    if (!auto_sync || !CloudCapable(*it)) {
       it = sync_after_session_.erase(it);  // automatic sync is off: the player syncs from Saves
     } else if (game_roots_.count(*it) && !saves_root_.empty()) {
       transfers.push_back({CloudRequestKind::Sync, *it});
@@ -458,16 +493,22 @@ void Controller::TickCloud() {
   // Games that may have been running when a job started sync once they stop; asked again
   // every half minute.
   if (!auto_sync) after_play_.clear();
+  std::erase_if(after_play_, [this](const GameId& id) { return !CloudCapable(id); });
   if (!after_play_.empty() && (!after_play_checked_ || now - *after_play_checked_ >= std::chrono::seconds(30))) {
     after_play_checked_ = now;
     for (const auto id : after_play_)
       if (std::none_of(cloud_held_.begin(), cloud_held_.end(), [id](const HeldCloudRequest& held) { return held.request.game_id == id; }))
         transfers.push_back({CloudRequestKind::Sync, id});
   }
-  for (const auto& request : transfers) cloud_held_.push_back({request, false, 0});
+  // A game whose store has no Cloud saves never waits for the console: its request is answered at
+  // once, as one with nothing to sync.
+  std::vector<CloudRequest> confirmed;
+  for (const auto& request : transfers) {
+    if (CloudCapable(request.game_id)) cloud_held_.push_back({request, false, 0});
+    else confirmed.push_back(request);
+  }
   // Saves move only once the console confirms the game's own title is stopped,
   // whoever started it (Playden or the PS5 Home screen). Unknown counts as running.
-  std::vector<CloudRequest> confirmed;
   if (!runtime_) {
     for (const auto& held : cloud_held_) confirmed.push_back(held.request);
     cloud_held_.clear();
@@ -711,8 +752,7 @@ void Controller::TickRuntime() {
     for (const auto& [id, root] : game_roots_)
       for (const auto& game : model_.state().games)
         if (const auto number = NumberIn(*numbers_shared, id); game.id == id && !game.title.empty() && number)
-          names[number] = model_.state().title_store_suffix && id.store == Store::kSteam ? game.title + " (Steam)"
-                                                                                          : game.title;
+          names[number] = model_.state().title_store_suffix ? game.title + TitleStoreSuffix(id.store) : game.title;
     runtime_->SetTitleNames(std::move(names));
   }
   // A quit to Home waits for the running preparation; the queued ones would be cut off.
@@ -865,8 +905,8 @@ void Controller::TickRuntime() {
         ready_notices_.push_back(id);
         // The bottle is complete now and the game will first start from Home, maybe with Playden
         // closed: bring its Cloud saves in while Playden is still open (#50). With automatic sync
-        // off this does nothing (TickCloud drops it).
-        sync_after_session_.insert(id);
+        // off, or for a store without Cloud saves, this does nothing (TickCloud drops it).
+        if (CloudCapable(id)) sync_after_session_.insert(id);
       }
       it = ready_watch_.erase(it);
     }
@@ -956,7 +996,7 @@ void Controller::TickRuntime() {
     if (sync_before_play_.count(id)) continue;
     // Play checks Cloud saves first, as Steam does before a game starts; the
     // game starts once its saves are in step.
-    const bool cloud_known = cloud_ && game_roots_.count(id) && !saves_root_.empty() && model_.state().cloud_saves_auto;
+    const bool cloud_known = CloudCapable(id) && game_roots_.count(id) && !saves_root_.empty() && model_.state().cloud_saves_auto;
     if (cloud_known && !play_without_sync_.erase(id)) {
       sync_before_play_[id] = false;
       play_notes_[id] = "Checking Cloud saves before starting…";
@@ -991,7 +1031,7 @@ void Controller::TickRuntime() {
   if (snapshot.plays_handled >= plays_requested_) play_queued_.clear();
   if (snapshot.launch) {
     const std::pair<GameId, runtime::LaunchState> current{snapshot.launch->game, snapshot.launch->state};
-    if (current.second == runtime::LaunchState::kExited && last_launch_ != current)
+    if (current.second == runtime::LaunchState::kExited && last_launch_ != current && CloudCapable(current.first))
       sync_after_session_.insert(current.first);
     last_launch_ = current;
   }
@@ -1025,6 +1065,7 @@ void Controller::TickRuntime() {
     model_.UpdatePreparationQueue(std::move(queue));
   }
   if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
+      locations_revision_ == runtime_locations_revision_ &&
       cloud_revision_ == runtime_cloud_revision_ && play_notes_revision_ == runtime_notes_revision_) {
     announce_ready();
     return;
@@ -1032,6 +1073,7 @@ void Controller::TickRuntime() {
   runtime_notes_revision_ = play_notes_revision_;
   runtime_revision_ = snapshot.revision;
   runtime_install_revision_ = install_revision_;
+  runtime_locations_revision_ = locations_revision_;
   runtime_cloud_revision_ = cloud_revision_;
   const bool usable = snapshot.status == RuntimeHostStatus::kReady && snapshot.kit_available;
   const auto state = snapshot.status == RuntimeHostStatus::kStarting ? RuntimeState::Checking
@@ -1233,6 +1275,8 @@ void Controller::TickRuntime() {
   announce_ready();
 }
 void Controller::BeginUninstall(GameId id, bool delete_saves) {
+  // Only Playden's own installs are uninstalled: a game played in place is never deleted.
+  if (const auto* location = LocationOf(id); location && !location->managed()) return;
   // Without the runtime there is no PS5 title to remove: the download goes as before.
   if (!runtime_) { if (installs_) installs_->Uninstall(id); return; }
   // A preparation still waiting would make a title for files about to be deleted: it leaves the queue.
@@ -1243,7 +1287,8 @@ void Controller::BeginUninstall(GameId id, bool delete_saves) {
   play_after_prepare_.erase(id);
   if (prepare_next_pending_ == id) prepare_next_pending_.reset();
   // With automatic sync off, nothing moves to or from Steam Cloud unless the player syncs from Saves.
-  if (uninstalls_.Begin(id, delete_saves, cloud_ && game_roots_.count(id) && !saves_root_.empty() && model_.state().cloud_saves_auto))
+  if (uninstalls_.Begin(id, delete_saves, CloudCapable(id) && game_roots_.count(id) && !saves_root_.empty() &&
+                                              model_.state().cloud_saves_auto))
     ++play_notes_revision_;
 }
 void Controller::StopUninstall(GameId id, const std::string& reason) {
@@ -1284,8 +1329,31 @@ void Controller::TickUninstalls() {
     }
   }
 }
+void Controller::ProjectLocations(const std::vector<steam::InstalledGame>& managed) {
+  auto locations = installs::ProjectInstalledLocations(
+      managed, external_locations_ ? external_locations_() : std::vector<installs::InstalledLocation>{});
+  if (locations != locations_) {
+    locations_ = std::move(locations);
+    ++locations_revision_;
+  }
+  game_roots_.clear();
+  game_volumes_.clear();
+  for (const auto& location : locations_)
+    if (location.available) {
+      game_roots_[location.game] = location.root;
+      game_volumes_[location.game] = location.volume_id;
+    }
+}
+const installs::InstalledLocation* Controller::LocationOf(GameId id) const {
+  for (const auto& location : locations_)
+    if (location.game == id) return &location;
+  return nullptr;
+}
 void Controller::TickInstalls() {
-  if (!installs_) return;
+  if (!installs_) {
+    ProjectLocations({});
+    return;
+  }
   for (const auto& request : model_.TakeInstallRequests()) {
     switch (request.kind) {
       case InstallRequestKind::Install: {
@@ -1309,10 +1377,7 @@ void Controller::TickInstalls() {
     }
   }
   const auto snapshot = installs_->Snapshot();
-  game_roots_.clear();
-  game_volumes_.clear();
-  for (const auto& game : snapshot.installed)
-    if (game.available) { game_roots_[game.id] = game.root; game_volumes_[game.id] = game.volume_id; }
+  ProjectLocations(snapshot.installed);
   // A download that finished in this session is prepared next, so the game is ready to play.
   std::set<GameId> downloading;
   for (const auto& job : snapshot.jobs) downloading.insert(job.id);
@@ -1398,12 +1463,13 @@ void Controller::TickAppDetails() {
     prepare_after_details_.clear();
   }
   // Fetch Steam app info when the player opens a game's details while signed in.
-  if (state.account.authentication == AuthState::SignedIn && state.navigation.detail_id &&
+  if (state.account().authentication == AuthState::SignedIn && state.navigation.detail_id &&
       state.navigation.detail_id != requested_detail_) {
     requested_detail_ = state.navigation.detail_id;
-    app_details_->Request(*state.navigation.detail_id, generation);
+    if (auto* details = Details(requested_detail_->store); details && details == app_details_)
+      app_details_->Request(*state.navigation.detail_id, generation);
   }
-  for (const auto& details : app_details_->Pump()) {
+  for (const auto& details : app_details_->Pump(8)) {
     if (details.account_generation != generation) continue;
     if (details.available) {
       model_.UpdateAppDetails(details.id, details.download_bytes, details.install_bytes, details.windows_installable);
@@ -1418,8 +1484,8 @@ void Controller::TickAppDetails() {
 void Controller::RequestPrepare(GameId id) {
   if (!game_roots_.count(id)) return;
   // Without Steam's launch options yet, ask Steam first; TickAppDetails submits it.
-  if (app_details_ && !launch_options_.count(id) && !launch_options_reason_.count(id) &&
-      model_.state().account.authentication == AuthState::SignedIn) {
+  if (app_details_ && Details(id.store) == app_details_ && !launch_options_.count(id) && !launch_options_reason_.count(id) &&
+      model_.state().account().authentication == AuthState::SignedIn) {
     prepare_after_details_.insert(id);
     app_details_->Request(id, model_.state().account_generation);
     return;
@@ -1436,16 +1502,22 @@ void Controller::SubmitPrepare(GameId id, bool announce) {
   RuntimePrepareRequest request{*app, root->second, game_volumes_[id], {}};
   request.game = id;
   for (const auto& game : model_.state().games) if (game.id == id) request.title_name = game.title;
-  if (model_.state().title_store_suffix && !request.title_name.empty()) request.title_name += " (Steam)";
+  if (model_.state().title_store_suffix && !request.title_name.empty()) request.title_name += TitleStoreSuffix(id.store);
   if (const auto found = launch_options_.find(id); found != launch_options_.end())
     for (const auto& option : found->second)
       request.launches.push_back({"", option.description, option.executable, option.working_directory, option.arguments});
-  if (const auto reason = launch_options_reason_.find(id); reason != launch_options_reason_.end())
+  // Steam's launch options and app details are for Steam games only: another store's game starts the
+  // program the player picks in Game settings.
+  const bool steam = id.store == Store::kSteam;
+  if (!steam)
+    request.launch_reason = "Choose the program that starts this game in Game settings.";
+  else if (const auto reason = launch_options_reason_.find(id); reason != launch_options_reason_.end())
     request.launch_reason = "Playden could not read how to start this game from Steam: " + reason->second;
   else if (!launch_options_.count(id))
     request.launch_reason = "Sign in to Steam so Playden can read how to start this game.";
   // After a failed answer, ask Steam again so a later Prepare can use the options.
-  if (app_details_ && !launch_options_.count(id)) app_details_->Request(id, model_.state().account_generation);
+  if (auto* details = Details(id.store); steam && details && !launch_options_.count(id))
+    details->Request(id, model_.state().account_generation);
   runtime_->Prepare(std::move(request));
   if (prepare_next_pending_ == id) {
     runtime_->PrepareNext(*app);
@@ -1498,13 +1570,15 @@ void Controller::Apply(const steam::SteamEvent& event) {
       AccountUpdate update;
       update.authentication = established_auth_;
       update.id = std::to_string(event.steam_id); update.display_name = event.account_name;
-      update.clear_library = model_.state().account.id!=update.id;
+      update.clear_library = model_.state().account().id!=update.id;
       if(!library_) update.error = "Library sync is unavailable. Try again later.";
       if (signed_in) update.signed_in_with_password = password_sign_in_;
       model_.UpdateAccount(std::move(update));
       if(persistence_) persistence_->Activate(event.steam_id);
       if(runtime_) runtime_->SetSteamAccount(event.account_name, event.steam_id);
       if(library_) library_->Activate(event.steam_id,offline);
+      // Steam downloads that waited for a sign-in start now, not after their wait (up to a minute).
+      if(installs_ && !offline) installs_->RetryWaiting(Store::kSteam);
       break;
     }
     case steam::SteamEventKind::kSignedOut: {
@@ -1561,7 +1635,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       }
       retry_saved_session_ = false;
       if(!clearing) { established_auth_=AuthState::SignedOut;if(library_)library_->Reset();if(persistence_)persistence_->Reset(); }
-      if (clearing) Update(model_.state().account.id.empty() ? AuthState::Failed : established_auth_,
+      if (clearing) Update(model_.state().account().id.empty() ? AuthState::Failed : established_auth_,
                            "Sign-out failed. Your saved account remains. Retry sign-out in Settings.");
       else if (restoring && event.error == steam::AuthError::kNoSession) Update(AuthState::SignedOut,{},true);
       else if (restoring && (event.error == steam::AuthError::kRejected || event.error == steam::AuthError::kCredentialsRevoked)) {
@@ -1573,7 +1647,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       else if (event.error == steam::AuthError::kCanceled) Update(AuthState::Cancelled,{},true);
       else if (event.error == steam::AuthError::kExpired) Update(AuthState::Expired,diagnostics::AuthMessage(event.error),true);
       else Update(AuthState::Failed,diagnostics::AuthMessage(event.error),true,{},
-                  password ? SignInStep::Password : SignInStep::Qr);
+                  password ? SignInStep::Password : SignInStep::Qr,nullptr,false,restoring);
       break;
     }
   }
@@ -1586,7 +1660,7 @@ void Controller::TickLicenseChanges() {
   if (seen_license_changes_ && changes != *seen_license_changes_) license_refresh_at_ = now + license_refresh_delay_;
   seen_license_changes_ = changes;
   if (!license_refresh_at_) return;
-  if (established_auth_ != AuthState::SignedIn || model_.state().account.id.empty()) { license_refresh_at_.reset(); return; }
+  if (established_auth_ != AuthState::SignedIn || model_.state().account().id.empty()) { license_refresh_at_.reset(); return; }
   // A refresh, sign-in or sign-out in progress: wait for it, then refresh with the new licenses.
   if (now < *license_refresh_at_ || phase_ != Phase::Idle || library_->Busy() || library_->NeedsRenewal()) return;
   license_refresh_at_.reset();

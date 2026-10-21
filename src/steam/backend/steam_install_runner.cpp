@@ -69,7 +69,7 @@ const char* InstallFailureText(InstallError error) {
   return "Install failed.";
 }
 
-InstallRunner::Result SteamInstallRunner::Install(const StoredSession& session, std::uint32_t id, const std::string& root,
+InstallRunner::Result SteamInstallRunner::InstallApp(const StoredSession& session, std::uint32_t id, const std::string& root,
                                                   const std::atomic<bool>& cancel,
                                                   const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
                                                   const std::function<void(InstallStep)>& step) {

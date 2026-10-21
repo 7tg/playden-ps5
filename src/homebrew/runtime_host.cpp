@@ -650,48 +650,98 @@ std::string RuntimeHost::KitReplaced(const Composition& c) const {
   return "The compatibility kit changed while Playden was running. Quit Playden and start it again.";
 }
 
-std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstall& record, bool steam_account_known) {
-  if (c.kit) {
-    std::string reason;
-    // Media support is an upgrade for older bottles, not a condition to play: a game that doesn't use it
-    // still starts, and the next Play tries again.
-    if (!rt::ApplyMediaRegistry((c.kit->view.root / c.kit->view.runtime.path).string(),
-                               (HostPath(record.data_root) / "library/prefixes/game").string(),
-                               config_.unix_time(), &reason))
-      Log("media upgrade app=" + std::to_string(record.runtime_number) + " skipped: " + reason);
-  }
+// What a game's preparation steps work from: its recipe and effective settings, its folder, the bottle
+// and the programs that may start.
+struct RuntimeHost::GameFiles {
+  const rt::RuntimeInstall& record;
   const rt::GameRecipe* recipe = nullptr;
-  for (const auto& candidate : c.recipes)
-    if (RecipeFits(candidate, record) && candidate.id == record.recipe_id) recipe = &candidate;
-  if (!recipe) return {};  // publication reports the missing recipe
-  const auto saved = config_.settings_record ? config_.settings_record(GameOf(record)) : std::nullopt;
-  const rt::SettingsPreset* preset = nullptr;
-  if (saved)
-    for (const auto& candidate : c.presets)
-      if (candidate.id == saved->preset_id) preset = &candidate;
+  std::optional<rt::GameSettingsRecord> saved;
   rt::EffectiveSettings settings;
-  rt::SettingsError error;
-  static const std::map<std::string, std::string> none;
-  const auto kit = c.kit ? rt::KitCapabilitiesFromManifest(c.kit->capabilities, true) : rt::KitCapabilities{};
-  if (!rt::BuildEffectiveSettings(*recipe, preset, saved ? saved->overrides : none, kit, &settings, &error))
-    return {};  // publication reports invalid settings
-  const auto root = config_.host_namespace_prefix.empty()
-      ? std::filesystem::path(record.install_path)
-      : config_.host_namespace_prefix / std::filesystem::path(record.install_path).relative_path();
-  // A program wrapped in SteamStub can't start without the Steam client, whichever Steam
-  // library the game uses, so it is unpacked first (runtime/steam_stub.h).
+  std::filesystem::path root;  // the game folder, as this process sees it
+  std::string prefix;          // the game's bottle, as this process sees it
   std::vector<std::string> programs;
-  for (const auto& entry : recipe->launch_entries) {
-    auto program = entry.executable;
-    std::replace(program.begin(), program.end(), '\\', '/');
-    programs.push_back(std::move(program));
+};
+
+namespace {
+// A steam_appid.txt's app ID (ParseSteamAppId); nothing when there is none or it holds something else.
+std::optional<std::uint32_t> ReadSteamAppIdFile(const std::filesystem::path& path) {
+  const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return std::nullopt;
+  struct stat info {};
+  char buffer[64];
+  ssize_t count = -1;
+  if (::fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_size < static_cast<off_t>(sizeof(buffer)))
+    count = ::read(fd, buffer, sizeof(buffer));
+  ::close(fd);
+  if (count <= 0 || count >= static_cast<ssize_t>(sizeof(buffer))) return std::nullopt;
+  std::string_view text(buffer, static_cast<std::size_t>(count));
+  if (text.substr(0, 3) == "\xEF\xBB\xBF") text.remove_prefix(3);  // a UTF-8 byte order mark
+  return rt::ParseSteamAppId(text);
+}
+
+bool RegularFileAt(const std::filesystem::path& path) {
+  struct stat info {};
+  return ::lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
+}
+}  // namespace
+
+// Steam games: their own app ID. Other stores: the game's steam_appid.txt (the folder of the program that
+// starts, then the game folder), else the one in Game settings, else none. The runtime number is never one.
+SteamworksAppView RuntimeHost::SteamworksAppFor(const GameFiles& files, std::vector<std::filesystem::path>* folders) const {
+  SteamworksAppView view;
+  auto game = GameOf(files.record);
+  // A record copy that doesn't carry its game (read back from a journal) is another store's when its
+  // number is one of theirs: its number is not a Steam app ID.
+  if (files.record.game == GameId{}) {
+    std::lock_guard<std::mutex> lock(numbers_mutex_);
+    for (const auto& [known, number] : numbers_)
+      if (number == files.record.runtime_number) game = known;
   }
-  // A program picked from the game folder may not be one of the recipe's.
-  if (auto own = record.launch_path; !own.empty()) {
-    std::replace(own.begin(), own.end(), '\\', '/');
-    if (std::find(programs.begin(), programs.end(), own) == programs.end()) programs.push_back(std::move(own));
+  if (const auto app = game.steam_app()) {
+    view.app_id = *app;
+    view.source = SteamworksAppView::Source::kStore;
+    return view;
   }
-  const auto unpacked = rt::UnpackSteamStubPrograms(root.string(), programs);
+  auto program = files.record.launch_path;
+  std::replace(program.begin(), program.end(), '\\', '/');
+  if (program.empty() && !files.programs.empty()) program = files.programs.front();
+  std::vector<std::filesystem::path> places;
+  if (!program.empty()) places.push_back((files.root / program).parent_path());
+  if (places.empty() || places.front().lexically_normal() != files.root.lexically_normal()) places.push_back(files.root);
+  if (folders) *folders = places;
+  for (const auto& folder : places)
+    if (const auto app = ReadSteamAppIdFile(folder / "steam_appid.txt")) {
+      view.app_id = *app;
+      view.source = SteamworksAppView::Source::kGameFile;
+      break;
+    }
+  const auto field = files.saved ? files.saved->steam_app_id : 0;
+  if (view.app_id) {
+    view.overridden = field && field != view.app_id;
+  } else if (field) {
+    view.app_id = field;
+    view.source = SteamworksAppView::Source::kSettings;
+  }
+  return view;
+}
+
+// Generic step: the kit's media support in the bottle.
+void RuntimeHost::MediaStep(Composition& c, const rt::RuntimeInstall& record) {
+  if (!c.kit) return;
+  std::string reason;
+  // Media support is an upgrade for older bottles, not a condition to play: a game that doesn't use it
+  // still starts, and the next Play tries again.
+  if (!rt::ApplyMediaRegistry((c.kit->view.root / c.kit->view.runtime.path).string(),
+                             (HostPath(record.data_root) / "library/prefixes/game").string(),
+                             config_.unix_time(), &reason))
+    Log("media upgrade app=" + std::to_string(record.runtime_number) + " skipped: " + reason);
+}
+
+// Steam-file step: a program wrapped in SteamStub can't start without the Steam client, whichever Steam
+// library the game uses, so it is unpacked first (runtime/steam_stub.h).
+std::string RuntimeHost::SteamStubStep(const GameFiles& files) {
+  const auto& record = files.record;
+  const auto unpacked = rt::UnpackSteamStubPrograms(files.root.string(), files.programs);
   if (!unpacked.found.empty() || !unpacked.ok) {
     std::string found, changed;
     for (const auto& path : unpacked.found) found += (found.empty() ? "" : ",") + path;
@@ -699,8 +749,34 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     Log("steamstub app=" + std::to_string(record.runtime_number) + " found=" + found + " changed=" + (changed.empty() ? "-" : changed) +
         (unpacked.ok ? std::string() : " failed=" + unpacked.message));
   }
-  if (!unpacked.ok) return unpacked.message;
-  const bool emulate = settings.values.at("steam_features").value == "emulate";
+  return unpacked.ok ? std::string() : unpacked.message;
+}
+
+// Steam-file step: the game's steam_api DLLs in the state its "Steam features" setting asks for, emulated
+// with its Steam app ID (SteamworksAppFor) and the signed-in account, or the game's own; then the legacy
+// steam.dll of a game from before Steamworks.
+std::string RuntimeHost::SteamworksStep(const GameFiles& files, bool steam_account_known) {
+  const auto& record = files.record;
+  const auto& root = files.root;
+  std::vector<std::filesystem::path> folders;
+  const auto steam_app = SteamworksAppFor(files, &folders);
+  const bool other_store = steam_app.source != SteamworksAppView::Source::kStore;
+  if (other_store) {
+    const char* source = steam_app.source == SteamworksAppView::Source::kGameFile ? "game-file"
+                         : steam_app.source == SteamworksAppView::Source::kSettings ? "settings" : "none";
+    Log("steamworks app=" + std::to_string(record.runtime_number) + " steam_app_id=" +
+        (steam_app.app_id ? std::to_string(steam_app.app_id) : std::string("-")) + " source=" + source +
+        (steam_app.overridden ? " overridden=settings" : ""));
+    bool changed = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto found = snapshot_.steamworks_apps.find(record.runtime_number);
+      changed = found == snapshot_.steamworks_apps.end() || found->second != steam_app;
+    }
+    if (changed) Publish([&](RuntimeSnapshot& s) { s.steamworks_apps[record.runtime_number] = steam_app; });
+  }
+  // Without a Steam app ID there is nothing to emulate: the game keeps its own Steam files.
+  const bool emulate = files.settings.values.at("steam_features").value == "emulate" && steam_app.app_id != 0;
   rt::SteamworksResult result;
   // The emulator's files name the signed-in account; before it is known they keep what Play wrote.
   const bool emulator_waits = emulate && !steam_account_known;
@@ -708,7 +784,7 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     Log("steamworks app=" + std::to_string(record.runtime_number) + " mode=emulate waits: the Steam account is not known yet");
   } else if (emulate) {
     rt::SteamworksIdentity identity;
-    identity.app_id = record.runtime_number;
+    identity.app_id = steam_app.app_id;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       identity.account_name = steam_account_name_;
@@ -717,7 +793,17 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     if (!rt::ReadSteamworksFacts(root.string(), &identity))
       Log("steamworks app=" + std::to_string(record.runtime_number) + " no download facts: no DLC or depots listed");
     const auto emulator = config_.steamworks_dir.empty() ? config_.runtime_dir + "/steamworks" : config_.steamworks_dir;
+    // The emulator writes a steam_appid.txt beside a DLL that has none. Where the next preparation looks
+    // for the game's own (a game from another store), Playden's is taken away again: it would hide the
+    // game's lack of one, and a later app ID in Game settings would never reach the emulator, which
+    // reads its own copy in steam_settings/.
+    std::vector<std::filesystem::path> absent;
+    if (other_store)
+      for (const auto& folder : folders)
+        if (!RegularFileAt(folder / "steam_appid.txt")) absent.push_back(folder / "steam_appid.txt");
     result = rt::EmulateSteamworks(root.string(), emulator, identity);
+    for (const auto& written : absent)
+      if (RegularFileAt(written)) ::unlink(written.c_str());
   } else {
     result = rt::RestoreSteamworks(root.string());
   }
@@ -733,8 +819,8 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
   // (GUN: "Failed to find Steam."); emulation gives it the minimal one, the game's mode takes it away.
   if (!emulator_waits && (!emulate || result.found.empty())) {
     const auto emulator = config_.steamworks_dir.empty() ? config_.runtime_dir + "/steamworks" : config_.steamworks_dir;
-    const auto legacy = emulate ? rt::ProvideLegacySteam(root.string(), emulator, programs)
-                                : rt::RemoveLegacySteam(root.string(), programs);
+    const auto legacy = emulate ? rt::ProvideLegacySteam(root.string(), emulator, files.programs)
+                                : rt::RemoveLegacySteam(root.string(), files.programs);
     if (!legacy.changed.empty() || !legacy.ok) {
       std::string added;
       for (const auto& path : legacy.changed) added += (added.empty() ? "" : ",") + path;
@@ -743,92 +829,157 @@ std::string RuntimeHost::ApplySteamworks(Composition& c, const rt::RuntimeInstal
     }
     if (!legacy.ok) return legacy.message;
   }
-  // An Unreal Engine 3 game asks for its EULA through a second program the PS5 cannot start.
-  const auto eula = rt::AcceptUe3Eula(root.string(), programs,
-                                      (HostPath(record.data_root) / "library/prefixes/game").string(), config_.unix_time());
+  return {};
+}
+
+// Generic step: an Unreal Engine 3 game asks for its EULA through a second program the PS5 cannot start.
+std::string RuntimeHost::Ue3EulaStep(const GameFiles& files) {
+  const auto& record = files.record;
+  const auto eula = rt::AcceptUe3Eula(files.root.string(), files.programs, files.prefix, config_.unix_time());
   if (eula.found)
     Log("ue3 eula app=" + std::to_string(record.runtime_number) + " guid=" + (eula.guid.empty() ? "-" : eula.guid) +
         " written=" + (eula.written ? "1" : "0") + (eula.ok ? std::string() : " failed=" + eula.message));
   if (!eula.ok) return "The game's EULA could not be marked accepted: " + eula.message + ".";
-  // Direct3D 12 through vkd3d-proton: its DLLs go into the bottle, where the profile's overrides load them.
-  if (c.kit) {
-    std::string reason;
-    if (!rt::ApplyD3D12Library((c.kit->view.root / c.kit->view.runtime.path).string(),
-                               (c.kit->view.root / c.kit->view.template_path).string(),
-                               (HostPath(record.data_root) / "library/prefixes/game").string(), settings.vkd3d_proton,
-                               &reason)) {
-      Log("d3d12 app=" + std::to_string(record.runtime_number) + " vkd3d-proton=" + (settings.vkd3d_proton ? "1" : "0") +
-          " failed=" + reason);
-      return std::string(settings.vkd3d_proton ? "vkd3d-proton could not be set up: "
-                                               : "Wine's Direct3D 12 could not be put back: ") + reason + ".";
-    } else if (settings.vkd3d_proton) {
-      Log("d3d12 app=" + std::to_string(record.runtime_number) + " vkd3d-proton=1");
-    }
+  return {};
+}
+
+// Generic step: Direct3D 12 through vkd3d-proton: its DLLs go into the bottle, where the profile's overrides
+// load them.
+std::string RuntimeHost::Direct3D12Step(Composition& c, const GameFiles& files) {
+  if (!c.kit) return {};
+  const auto& record = files.record;
+  const auto& settings = files.settings;
+  std::string reason;
+  if (!rt::ApplyD3D12Library((c.kit->view.root / c.kit->view.runtime.path).string(),
+                             (c.kit->view.root / c.kit->view.template_path).string(), files.prefix,
+                             settings.vkd3d_proton, &reason)) {
+    Log("d3d12 app=" + std::to_string(record.runtime_number) + " vkd3d-proton=" + (settings.vkd3d_proton ? "1" : "0") +
+        " failed=" + reason);
+    return std::string(settings.vkd3d_proton ? "vkd3d-proton could not be set up: "
+                                             : "Wine's Direct3D 12 could not be put back: ") + reason + ".";
+  } else if (settings.vkd3d_proton) {
+    Log("d3d12 app=" + std::to_string(record.runtime_number) + " vkd3d-proton=1");
   }
-  // vkd3d-proton's variables reach the game through the bottle's Environment key. Some change how it draws, so a
-  // bottle that exists but cannot take them stops the start; one not made yet gets them on the next Play.
-  {
-    const auto prefix = (HostPath(record.data_root) / "library/prefixes/game").string();
-    struct stat hive {};
-    std::string reason;
-    if (::lstat((prefix + "/user.reg").c_str(), &hive) == 0 &&
-        !rt::ApplyBottleRegistryValues(rt::RenderBottleEnvironment(settings), prefix, config_.unix_time(), "user.reg",
-                                       &reason)) {
-      Log("bottle environment app=" + std::to_string(record.runtime_number) + " failed=" + reason);
-      return "The game's vkd3d-proton variables could not be written: " + reason + ".";
-    }
+  return {};
+}
+
+// Generic step: vkd3d-proton's variables reach the game through the bottle's Environment key. Some change how
+// it draws, so a bottle that exists but cannot take them stops the start; one not made yet gets them on the
+// next Play.
+std::string RuntimeHost::BottleEnvironmentStep(const GameFiles& files) {
+  struct stat hive {};
+  std::string reason;
+  if (::lstat((files.prefix + "/user.reg").c_str(), &hive) == 0 &&
+      !rt::ApplyBottleRegistryValues(rt::RenderBottleEnvironment(files.settings), files.prefix, config_.unix_time(),
+                                     "user.reg", &reason)) {
+    Log("bottle environment app=" + std::to_string(files.record.runtime_number) + " failed=" + reason);
+    return "The game's vkd3d-proton variables could not be written: " + reason + ".";
   }
-  // Registry keys Steam's install script writes on a game's first start (Fallout: New Vegas's
-  // launcher wants its install path there).
-  if (const auto install_dir = rt::ProsperoWindowsPath(record.install_path)) {
-    const auto script = rt::ApplyInstallScripts(root.string(), *install_dir,
-                                                (HostPath(record.data_root) / "library/prefixes/game").string(),
-                                                config_.unix_time());
-    if (!script.found.empty()) {
-      std::string names;
-      for (const auto& name : script.found) names += (names.empty() ? "" : ",") + name;
-      Log("install script app=" + std::to_string(record.runtime_number) + " found=" + names +
-          " values=" + std::to_string(script.values) + " skipped=" + std::to_string(script.skipped.size()) +
-          (script.ok ? std::string() : " failed=" + script.message));
-    }
-    if (!script.ok) return "The game's install script could not be applied: " + script.message + ".";
-    // The redistributables those scripts run (PhysX and the like): packages Playden can install
-    // go into the bottle once; a package that fails is logged and the game still starts.
-    const auto redist = rt::InstallRedistributables(root.string(), *install_dir,
-                                                    (HostPath(record.data_root) / "library/prefixes/game").string(),
-                                                    config_.unix_time());
-    // Names and reasons come from the game's files: one line each, whatever they hold.
-    const auto field = [](std::string text) {
-      if (text.size() > 240) text.resize(240);
-      for (auto& value : text)
-        if (static_cast<unsigned char>(value) < 0x20 || value == 0x7f) value = '?';
-      return text;
-    };
-    for (const auto& outcome : redist.outcomes)
-      if (outcome.result != "already" && outcome.result != "covered")
-        Log("redist app=" + std::to_string(record.runtime_number) + " script=" + field(outcome.script) + " name=" +
-            field(outcome.name) + " result=" + outcome.result + " detail=" + field(outcome.detail) +
-            (outcome.files ? " files=" + std::to_string(outcome.files) : std::string()));
+  return {};
+}
+
+// Steam-file step: registry keys Steam's install script writes on a game's first start (Fallout: New Vegas's
+// launcher wants its install path there), and the redistributables those scripts run.
+std::string RuntimeHost::InstallScriptsStep(const GameFiles& files) {
+  const auto& record = files.record;
+  const auto install_dir = rt::ProsperoWindowsPath(record.install_path);
+  if (!install_dir) return {};
+  const auto script = rt::ApplyInstallScripts(files.root.string(), *install_dir, files.prefix, config_.unix_time());
+  if (!script.found.empty()) {
+    std::string names;
+    for (const auto& name : script.found) names += (names.empty() ? "" : ",") + name;
+    Log("install script app=" + std::to_string(record.runtime_number) + " found=" + names +
+        " values=" + std::to_string(script.values) + " skipped=" + std::to_string(script.skipped.size()) +
+        (script.ok ? std::string() : " failed=" + script.message));
   }
-  // Registry values the recipe carries (docs/community-recipes.md), written the way an install script's are.
-  if (!recipe->registry.empty()) {
-    std::string reason;
-    const bool ok = rt::ApplyBottleRegistryValues(recipe->registry, (HostPath(record.data_root) / "library/prefixes/game").string(),
-                                                  config_.unix_time(), "user.reg", &reason);
-    Log("recipe registry app=" + std::to_string(record.runtime_number) + " values=" + std::to_string(recipe->registry.size()) +
-        (ok ? std::string() : " failed=" + reason));
-    if (!ok) return "The recipe's registry values could not be applied: " + reason + ".";
-  }
-  // Self-contained .NET games reserve more address space than the console grants unless
-  // their garbage collector is given a heap limit (runtime/dotnet_heap.h).
-  const auto dotnet = rt::LimitDotnetHeap(root.string());
+  if (!script.ok) return "The game's install script could not be applied: " + script.message + ".";
+  // The redistributables those scripts run (PhysX and the like): packages Playden can install
+  // go into the bottle once; a package that fails is logged and the game still starts.
+  const auto redist = rt::InstallRedistributables(files.root.string(), *install_dir, files.prefix, config_.unix_time());
+  // Names and reasons come from the game's files: one line each, whatever they hold.
+  const auto field = [](std::string text) {
+    if (text.size() > 240) text.resize(240);
+    for (auto& value : text)
+      if (static_cast<unsigned char>(value) < 0x20 || value == 0x7f) value = '?';
+    return text;
+  };
+  for (const auto& outcome : redist.outcomes)
+    if (outcome.result != "already" && outcome.result != "covered")
+      Log("redist app=" + std::to_string(record.runtime_number) + " script=" + field(outcome.script) + " name=" +
+          field(outcome.name) + " result=" + outcome.result + " detail=" + field(outcome.detail) +
+          (outcome.files ? " files=" + std::to_string(outcome.files) : std::string()));
+  return {};
+}
+
+// Generic step: registry values the recipe carries (docs/community-recipes.md), written the way an install
+// script's are.
+std::string RuntimeHost::RecipeRegistryStep(const GameFiles& files) {
+  const auto& registry = files.recipe->registry;
+  if (registry.empty()) return {};
+  std::string reason;
+  const bool ok = rt::ApplyBottleRegistryValues(registry, files.prefix, config_.unix_time(), "user.reg", &reason);
+  Log("recipe registry app=" + std::to_string(files.record.runtime_number) + " values=" + std::to_string(registry.size()) +
+      (ok ? std::string() : " failed=" + reason));
+  if (!ok) return "The recipe's registry values could not be applied: " + reason + ".";
+  return {};
+}
+
+// Generic step: self-contained .NET games reserve more address space than the console grants unless their
+// garbage collector is given a heap limit (runtime/dotnet_heap.h).
+std::string RuntimeHost::DotnetHeapStep(const GameFiles& files) {
+  const auto dotnet = rt::LimitDotnetHeap(files.root.string());
   if (!dotnet.found.empty() || !dotnet.ok) {
     std::string limited;
     for (const auto& path : dotnet.changed) limited += (limited.empty() ? "" : ",") + path;
-    Log("dotnet heap app=" + std::to_string(record.runtime_number) + " found=" + std::to_string(dotnet.found.size()) +
+    Log("dotnet heap app=" + std::to_string(files.record.runtime_number) + " found=" + std::to_string(dotnet.found.size()) +
         " changed=" + (limited.empty() ? "-" : limited) + (dotnet.ok ? std::string() : " failed=" + dotnet.message));
   }
   return dotnet.ok ? std::string() : dotnet.message;
+}
+
+// The steps run in this order for every game, whatever its store: generic ones (media, EULA, Direct3D 12,
+// the bottle's Environment, the recipe's registry values, the .NET heap) and Steam-file ones, which act only
+// on the Steam files a game has (SteamStub, Steamworks and steam.dll, install scripts and redistributables).
+std::string RuntimeHost::ApplyPreparationSteps(Composition& c, const rt::RuntimeInstall& record, bool steam_account_known) {
+  MediaStep(c, record);
+  GameFiles files{record};
+  for (const auto& candidate : c.recipes)
+    if (RecipeFits(candidate, record) && candidate.id == record.recipe_id) files.recipe = &candidate;
+  if (!files.recipe) return {};  // publication reports the missing recipe
+  files.saved = config_.settings_record ? config_.settings_record(GameOf(record)) : std::nullopt;
+  const rt::SettingsPreset* preset = nullptr;
+  if (files.saved)
+    for (const auto& candidate : c.presets)
+      if (candidate.id == files.saved->preset_id) preset = &candidate;
+  rt::SettingsError error;
+  static const std::map<std::string, std::string> none;
+  const auto kit = c.kit ? rt::KitCapabilitiesFromManifest(c.kit->capabilities, true) : rt::KitCapabilities{};
+  if (!rt::BuildEffectiveSettings(*files.recipe, preset, files.saved ? files.saved->overrides : none, kit, &files.settings,
+                                  &error))
+    return {};  // publication reports invalid settings
+  files.root = config_.host_namespace_prefix.empty()
+      ? std::filesystem::path(record.install_path)
+      : config_.host_namespace_prefix / std::filesystem::path(record.install_path).relative_path();
+  files.prefix = (HostPath(record.data_root) / "library/prefixes/game").string();
+  for (const auto& entry : files.recipe->launch_entries) {
+    auto program = entry.executable;
+    std::replace(program.begin(), program.end(), '\\', '/');
+    files.programs.push_back(std::move(program));
+  }
+  // A program picked from the game folder may not be one of the recipe's.
+  if (auto own = record.launch_path; !own.empty()) {
+    std::replace(own.begin(), own.end(), '\\', '/');
+    if (std::find(files.programs.begin(), files.programs.end(), own) == files.programs.end())
+      files.programs.push_back(std::move(own));
+  }
+  if (auto refused = SteamStubStep(files); !refused.empty()) return refused;
+  if (auto refused = SteamworksStep(files, steam_account_known); !refused.empty()) return refused;
+  if (auto refused = Ue3EulaStep(files); !refused.empty()) return refused;
+  if (auto refused = Direct3D12Step(c, files); !refused.empty()) return refused;
+  if (auto refused = BottleEnvironmentStep(files); !refused.empty()) return refused;
+  if (auto refused = InstallScriptsStep(files); !refused.empty()) return refused;
+  if (auto refused = RecipeRegistryStep(files); !refused.empty()) return refused;
+  return DotnetHeapStep(files);
 }
 
 void RuntimeHost::SetTitleNames(std::map<std::uint32_t, std::string> names) {
@@ -1105,7 +1256,7 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
   if (input.record.revision != record.settings_revision)
     return failed("settings-changed", "The game's settings changed during preparation; prepare it again.");
   // The first start may come from the PS5 Home screen, so the game's Steam files are set up now.
-  if (const auto steamworks = ApplySteamworks(c, record); !steamworks.empty()) return failed("steamworks", steamworks);
+  if (const auto steamworks = ApplyPreparationSteps(c, record); !steamworks.empty()) return failed("steamworks", steamworks);
   if (!rt::BuildSettingsLaunchPlan(input, &plan, &reason)) {
     Log("publication plan refused: " + reason);
     return failed("settings-plan", reason);
@@ -1357,7 +1508,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
   const auto current = c.records.Find(record.install_id);
   if (!current || current->journal) return refused;
   // As before the upgrade existed: Play brings the Steam files in line; startup leaves them.
-  return steam_account_known ? ApplySteamworks(c, *current, true) : std::string{};
+  return steam_account_known ? ApplyPreparationSteps(c, *current, true) : std::string{};
 }
 
 std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
@@ -1378,7 +1529,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   if (unowned_upgrade) Log("settings update app=" + std::to_string(record.runtime_number) + " publishes the game folder unowned");
   // "Steam features" only swaps the game's own files, so it follows the saved value at once.
   if (saved.revision <= record.settings_revision && !moved && !unowned_upgrade)
-    return ApplySteamworks(c, record, steam_account_known);
+    return ApplyPreparationSteps(c, record, steam_account_known);
   if (!c.kit) return "No verified compatibility kit is installed.";
   if (saved.revision < record.settings_revision)
     return again("The game's saved settings are older than its PS5 title's; prepare it again.");
@@ -1450,7 +1601,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
     if (const auto unwritable = EnsureWritable(next.install_path, working); !unwritable.empty()) return unwritable;
   }
   // SteamStub unpacking and the Steam emulator follow the program that starts now.
-  if (const auto steamworks = ApplySteamworks(c, next, steam_account_known); !steamworks.empty()) return steamworks;
+  if (const auto steamworks = ApplyPreparationSteps(c, next, steam_account_known); !steamworks.empty()) return steamworks;
   rt::SettingsLaunchInput input;
   input.recipe = recipe;
   input.record = saved;
@@ -2544,11 +2695,16 @@ std::uint64_t TreeBytes(const std::filesystem::path& root) {
   return total;
 }
 
-// The game's own name: a PS5 title name may carry the store, "Half-Life 2 (Steam)".
+// The game's own name: a PS5 title name may carry its store, "Half-Life 2 (Steam)" or "(GOG)", "(Epic)".
+// Imported games carry none.
 std::string WithoutStoreSuffix(std::string name) {
-  static const std::string suffix = " (Steam)";
-  if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
-    name.resize(name.size() - suffix.size());
+  for (const auto store : {Store::kSteam, Store::kGog, Store::kEpic}) {
+    const auto suffix = " (" + std::string(Traits(store).name) + ")";
+    if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+      name.resize(name.size() - suffix.size());
+      break;
+    }
+  }
   return name;
 }
 

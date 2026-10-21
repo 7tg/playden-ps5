@@ -37,7 +37,7 @@ add_library(playden_steam_core STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/service.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/app_details_service.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/store_details_service.cpp"
-    "${CMAKE_SOURCE_DIR}/src/steam/install_service.cpp"
+    "${CMAKE_SOURCE_DIR}/src/installs/install_service.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/install_volumes.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/cloud_service.cpp")
 target_include_directories(playden_steam_core PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -48,7 +48,8 @@ endif()
 target_link_libraries(playden_steam_core PUBLIC playden_library playden_storage playden_steam_protocol Threads::Threads)
 
 add_library(playden_library_service STATIC
-    "${CMAKE_SOURCE_DIR}/src/library/service.cpp")
+    "${CMAKE_SOURCE_DIR}/src/library/service.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stores/registry.cpp")
 target_include_directories(playden_library_service PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_library_service PUBLIC cxx_std_17)
 target_link_libraries(playden_library_service PUBLIC playden_steam_core)

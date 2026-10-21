@@ -113,15 +113,27 @@ def game_table(rows):
     return "\n".join(lines)
 
 
+# What Playden's "Store name in PS5 titles" setting adds to a title name; imported games get none.
+STORE_SUFFIXES = (" (Steam)", " (GOG)", " (Epic)")
+
+
+def without_store_suffix(name):
+    """The game's own name: a title name without the store Playden added to it."""
+    for suffix in STORE_SUFFIXES:
+        if name and len(name) > len(suffix) and name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
 def title_name(ftp, title):
-    """The game's name from its PS5 title, without Playden's " (Steam)" suffix."""
+    """The game's name from its PS5 title, without Playden's store suffix, such as " (Steam)"."""
     try:
         param = json.loads(fetch(ftp, f"/data/homebrew/{title}/sce_sys/param.json"))
     except (ftplib.Error, ValueError):
         return None
     localized = param.get("localizedParameters") or {}
     name = (localized.get(localized.get("defaultLanguage", "en-US")) or {}).get("titleName")
-    return name[:-len(" (Steam)")] if name and name.endswith(" (Steam)") else name
+    return without_store_suffix(name)
 
 
 def ask(rows):

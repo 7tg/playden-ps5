@@ -18,8 +18,8 @@ constexpr int kLibraryColumns = 6;
 
 bool catalog_available(const State& state)
 {
-    return state.account.cache_available || state.account.authentication == AuthState::SignedIn ||
-           state.account.authentication == AuthState::Offline;
+    return state.account().cache_available || state.account().authentication == AuthState::SignedIn ||
+           state.account().authentication == AuthState::Offline;
 }
 
 bool installed(const State& state, GameId id)

@@ -34,7 +34,7 @@ void activate(Simulation& model, const std::string& key) {
     check(model.action("cross"), "requested live row must activate");
 }
 
-bool has_action(const std::vector<ServiceAction>& actions, ServiceAction expected) {
+bool has_action(const std::vector<playden::homebrew::ServiceRequest>& actions, ServiceAction expected) {
     return std::find(actions.begin(), actions.end(), expected) != actions.end();
 }
 
@@ -45,7 +45,7 @@ Simulation make_live(const std::filesystem::path& base) {
 void live_starts_clean_and_never_reads_or_writes_fixtures(const std::filesystem::path& base) {
     auto model = make_live(base);
     const auto& state = model.state();
-    check(!state.simulation_mode && state.account.authentication == AuthState::SignedOut,
+    check(!state.simulation_mode && state.account().authentication == AuthState::SignedOut,
           "live model starts signed out and identifies itself as live");
     check(state.games.empty() && state.jobs.empty() && state.installations.empty() && state.volumes.empty(),
           "live model does not inherit fixture library or operation state");
@@ -62,7 +62,7 @@ void live_starts_clean_and_never_reads_or_writes_fixtures(const std::filesystem:
               && !model.action("runtime-retry"),
           "synthetic scenario, injection, route, install and runtime actions are unavailable live");
     model.tick(100);
-    check(model.state().clock_ticks == clock && model.state().account.authentication == AuthState::SignedOut,
+    check(model.state().clock_ticks == clock && model.state().account().authentication == AuthState::SignedOut,
           "manual ticks cannot advance live authentication or fixture time");
     check(!std::filesystem::exists(base / "missing" / "profile.json"),
           "live interactions do not create the comparison profile");
@@ -80,15 +80,15 @@ void live_dispatches_bounded_service_effects_and_replaces_challenges(const std::
     check(model.TakeServiceActions().empty(), "taking service actions drains the queue");
 
     model.UpdateAccount({AuthState::Waiting, {}, {}, "https://example.invalid/first-secret", {}, false});
-    check(model.state().account.challenge_url == "https://example.invalid/first-secret",
+    check(model.state().account().challenge_url == "https://example.invalid/first-secret",
           "external challenge is accepted for presentation");
     model.UpdateAccount({AuthState::Waiting, {}, {}, "https://example.invalid/replacement-secret", {}, false});
-    check(model.state().account.challenge_url == "https://example.invalid/replacement-secret",
+    check(model.state().account().challenge_url == "https://example.invalid/replacement-secret",
           "new external challenge replaces the prior challenge");
     check(model.snapshot().find("replacement-secret") == std::string::npos,
           "diagnostic snapshot omits the private challenge URL");
     model.UpdateAccount({AuthState::Expired, {}, {}, {}, "Code expired", false});
-    check(model.state().account.challenge_url.empty() && model.view().subtitle == "Code expired",
+    check(model.state().account().challenge_url.empty() && model.view().subtitle == "Code expired",
           "external update can clear the challenge and expose a static recovery error");
 
     activate(model, "qr-refresh");
@@ -108,7 +108,7 @@ void live_dispatches_bounded_service_effects_and_replaces_challenges(const std::
 void failed_signout_preserves_account_until_external_clear(const std::filesystem::path& base) {
     auto model = make_live(base);
     model.UpdateAccount({AuthState::SignedIn, "76561198000000001", "Synthetic Tester", {}, {}, false});
-    check(model.state().navigation.route == Route::Home && !model.state().account.cache_available,
+    check(model.state().navigation.route == Route::Home && !model.state().account().cache_available,
           "authentication success does not invent a delivered cache");
     check(model.snapshot().find("76561198000000001") == std::string::npos
               && model.snapshot().find("Synthetic Tester") == std::string::npos,
@@ -119,20 +119,20 @@ void failed_signout_preserves_account_until_external_clear(const std::filesystem
     activate(model, "settings-signout");
     activate(model, "confirm-destructive");
     auto actions = model.TakeServiceActions();
-    check(has_action(actions, ServiceAction::SignOut) && model.state().account.authentication == AuthState::SigningOut,
+    check(has_action(actions, ServiceAction::SignOut) && model.state().account().authentication == AuthState::SigningOut,
           "confirmed signout dispatches a barrier and waits for the service result");
-    check(model.state().account.id == "76561198000000001",
+    check(model.state().account().id == "76561198000000001",
           "pending signout does not clear account state before durable service completion");
 
     model.UpdateAccount({AuthState::Failed, "76561198000000001", "Synthetic Tester", {}, "Sign out failed", false});
-    check(model.state().account.authentication == AuthState::Failed
-              && model.state().account.id == "76561198000000001"
-              && model.state().account.error == "Sign out failed"
+    check(model.state().account().authentication == AuthState::Failed
+              && model.state().account().id == "76561198000000001"
+              && model.state().account().error == "Sign out failed"
               && model.view().subtitle == "Sign out failed",
           "failed signout preserves the account and shows the external error without fake success");
 
     model.UpdateAccount({AuthState::SignedOut, {}, {}, {}, {}, true});
-    check(model.state().account.id.empty() && model.state().account.display_name.empty()
+    check(model.state().account().id.empty() && model.state().account().display_name.empty()
               && model.state().games.empty() && model.state().navigation.modals.empty()
               && model.state().navigation.route == Route::Startup,
           "confirmed external account clear removes account-specific state and restores safe startup focus");
@@ -146,7 +146,7 @@ void account_commands_dispatch_refresh_and_switch_barriers(const std::filesystem
     activate(refresh, "account-sync");
     auto actions = refresh.TakeServiceActions();
     check(actions.size() == 1 && actions.front() == ServiceAction::RefreshLibrary
-              && refresh.state().account.authentication == AuthState::SignedIn
+              && refresh.state().account().authentication == AuthState::SignedIn
               && refresh.state().library_loading && refresh.state().library_syncing,
           "account sync dispatches refresh and remains pending external completion");
 
@@ -158,8 +158,8 @@ void account_commands_dispatch_refresh_and_switch_barriers(const std::filesystem
     activate(switching, "confirm-destructive");
     actions = switching.TakeServiceActions();
     check(actions.size() == 1 && actions.front() == ServiceAction::SwitchAccount
-              && switching.state().account.authentication == AuthState::SigningOut
-              && switching.state().account.id == "76561198000000003",
+              && switching.state().account().authentication == AuthState::SigningOut
+              && switching.state().account().id == "76561198000000003",
           "confirmed account switch dispatches a barrier without prematurely clearing identity");
 }
 

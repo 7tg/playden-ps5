@@ -78,6 +78,11 @@ class Result<void> {
   std::string message_;
 };
 
+struct StoredFile {
+  std::string name;
+  std::int64_t modified_ns = 0;  // modification time, nanoseconds since the epoch
+};
+
 class Storage {
  public:
   // The platform supplies an app-owned root. Relative path validation does not
@@ -119,6 +124,10 @@ class Storage {
   // Removes only an owned regular file and syncs its parent. Missing also syncs
   // the parent. A sync failure may follow removal and requires reconciliation.
   Result<void> RemoveDurable(const std::string& relative_path) const;
+
+  // Regular files directly in the root (no links, no folders), in no particular
+  // order. A missing root lists nothing.
+  Result<std::vector<StoredFile>> ListFiles() const;
 
   // Missing files are already removed and therefore succeed.
   Result<void> Remove(const std::string& relative_path) const;

@@ -15,17 +15,18 @@ class PersistenceController {
  public:
   PersistenceController(homebrew::Simulation&, PersistenceService&);
 
-  // Starts an account-scoped organization load. Re-activating the current
-  // account is idempotent.
+  // Organization is device-wide (kDeviceOrganization): it loads at
+  // construction and is saved whether or not a store account is signed in.
+  // A store account arriving changes nothing.
   void Activate(std::uint64_t account_id);
 
-  // Invalidates account-scoped work while preserving global preferences.
+  // A store account left: saves pending edits; preferences and organization stay.
   void Reset();
   void Tick();
   void Retry();
 
-  // Begins the non-droppable organization deletion barrier. The terminal
-  // result remains available until consumed.
+  // Sign-out step: organization outlives accounts, so this only saves pending
+  // edits and reports success. The result remains available until consumed.
   void Clear();
   std::optional<StorageError> TakeClearResult();
 
@@ -42,11 +43,10 @@ class PersistenceController {
 
   homebrew::Simulation& model_;
   PersistenceService& service_;
-  std::uint64_t account_id_ = 0;
-  std::uint64_t account_generation_ = 0;
+  // Always 0: device-wide organization is never invalidated by an account change.
+  std::uint64_t organization_generation_ = 0;
   PersistenceRequestId preferences_load_request_ = 0;
   PersistenceRequestId organization_load_request_ = 0;
-  PersistenceRequestId clear_request_ = 0;
   homebrew::PersistenceLoadToken preferences_load_token_;
   homebrew::PersistenceLoadToken organization_load_token_;
   std::uint64_t submitted_preferences_revision_ = 0;
@@ -54,7 +54,6 @@ class PersistenceController {
   std::optional<StorageError> clear_result_;
   bool preferences_load_failed_ = false;
   bool organization_load_failed_ = false;
-  bool clear_had_pending_load_ = false;
   bool shutting_down_ = false;
 };
 

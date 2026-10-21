@@ -27,6 +27,13 @@ enum class ModelMode { Simulation, Live };
 // secrets, which the controller takes with TakeSignInCredentials and TakeGuardCode.
 enum class ServiceAction { BeginQr, CancelQr, SignOut, SwitchAccount, RefreshLibrary, Reauthenticate,
                            UsePassword, UseQr, BeginPassword, SubmitCode };
+// A service action for one store's account. The sign-in actions (QR, password, Steam Guard code) are Steam's.
+struct ServiceRequest {
+    ServiceAction action = ServiceAction::BeginQr;
+    Store store = Store::kSteam;
+};
+inline bool operator==(const ServiceRequest& request, ServiceAction action) { return request.action == action; }
+inline bool operator!=(const ServiceRequest& request, ServiceAction action) { return request.action != action; }
 enum class AuthState { SignedOut, Restoring, Waiting, Expired, Failed, Cancelled, Syncing, SigningOut, SignedIn, Offline };
 enum class JobState { Queued, Downloading, Pausing, Paused, Verifying, Downloaded, Failed, Cancelled, Interrupted };
 enum class JobStage { Download, Verify, Install, Uninstall };
@@ -277,6 +284,9 @@ struct AccountUpdate {
     // Authenticated by a sign-in (not a restore): whether it used the password, remembered for next time.
     std::optional<bool> signed_in_with_password;
     bool storage_full = false;  // Failed: console storage is full
+    // Failed: the saved sign-in could not be restored (Steam out of reach, say), not a sign-in the
+    // player started. With another store's games, Playden stays on (or goes to) Home.
+    bool restoring = false;
 };
 
 struct LibraryUpdate {
@@ -286,6 +296,7 @@ struct LibraryUpdate {
     bool stale = false;
     bool cache_available = false;
     std::optional<std::int64_t> retrieved_at;
+    Store source = Store::kSteam;  // the store whose games these are; other stores' games stay
 };
 
 struct PersistenceLoadToken {
@@ -472,7 +483,14 @@ struct ControllerState {
 };
 
 struct State {
-    Account account;
+    // Each store's account. Steam's has its own sign-in screens (sign_in, sign_in_password below).
+    std::map<Store, Account> accounts;
+    Account& account(Store store = Store::kSteam) { return accounts[store]; }
+    const Account& account(Store store = Store::kSteam) const {
+        static const Account none;
+        const auto found = accounts.find(store);
+        return found == accounts.end() ? none : found->second;
+    }
     std::uint64_t account_generation = 1; // Invalidates account-scoped presentation resources.
     std::vector<Game> games;
     UserLibrary library;
@@ -493,8 +511,9 @@ struct State {
     std::map<GameId, std::uint64_t> save_sizes;         // live: Windows user folders of games without Steam Cloud
     Navigation navigation;
     EditorState editor;
+    // The Steam account's sign-in screen and its preference: the last sign-in used the account name and password.
     SignInForm sign_in;
-    bool sign_in_password = false;    // preference: the last sign-in used the account name and password
+    bool sign_in_password = false;
     std::vector<Notice> notices;
     // Per-game settings: preset and player overrides (see runtime/game_settings.h).
     std::map<GameId, playden::runtime::GameSettingsRecord> game_settings;
@@ -704,7 +723,7 @@ public:
                                 playden::StorageError error);
     void PreferencesSaveResult(std::uint64_t revision, playden::StorageError error);
     bool TakePersistenceRetryRequest();
-    [[nodiscard]] std::vector<ServiceAction> TakeServiceActions();
+    [[nodiscard]] std::vector<ServiceRequest> TakeServiceActions();
     // The password sign-in's secrets, handed over once; the form keeps no copy of the password.
     [[nodiscard]] std::optional<SignInCredentials> TakeSignInCredentials();
     [[nodiscard]] std::optional<std::string> TakeGuardCode();
@@ -790,7 +809,7 @@ private:
     std::uint64_t cancelled_challenge_generation_ = 0;
     std::uint64_t next_collection_serial_ = 1;
     std::uint64_t next_job_serial_ = 1;
-    std::vector<ServiceAction> pending_service_actions_;
+    std::vector<ServiceRequest> pending_service_actions_;
     std::optional<SignInCredentials> pending_credentials_;
     std::optional<std::string> pending_guard_code_;
     std::uint64_t editor_serial_ = 0;
@@ -806,6 +825,10 @@ private:
     std::vector<GameId> pending_runtime_play_requests_;
     bool pending_runtime_cleanup_ = false;
     bool library_catalog_received_ = false;
+    std::set<Store> catalog_sources_;  // stores whose library arrived at least once
+    // The sign-in screen shows because Steam's saved sign-in failed to restore, not for a sign-in the player started.
+    bool restore_failed_sign_in_ = false;
+    std::set<Store> loading_sources_;  // stores whose library is loading now
     // Live install events become notifications; the first snapshot is restored history, not an event.
     bool live_installs_seen_ = false;
     std::map<GameId, JobState> live_job_states_;
@@ -959,7 +982,11 @@ private:
     [[nodiscard]] const playden::runtime::SettingsPreset* preset_for(GameId id) const;
     void start_logs();
     void finish_logs();
-    void queue_service_action(ServiceAction action);
+    void queue_service_action(ServiceAction action, Store store = Store::kSteam);
+    // Another store has a signed-in account or games: then Playden opens on Home without Steam.
+    [[nodiscard]] bool beyond_steam() const;
+    // Steam's sign-in ended without an account: Home when another store has games, else Startup.
+    void leave_steam_sign_in();
     void clear_account_specific_state();
     void apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot);
     void reconcile_applied_organization_selection(GameId prior_selected_id);

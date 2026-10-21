@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     choose(simulation, "startup-connect");
     choose(simulation, "qr-fixture-controls");
     choose(simulation, "inject-qr-expired");
-    require(simulation.state().account.authentication == AuthState::Expired, "controller can expire QR challenge");
+    require(simulation.state().account().authentication == AuthState::Expired, "controller can expire QR challenge");
     choose(simulation, "qr-refresh");
     choose(simulation, "qr-fixture-controls");
     choose(simulation, "inject-qr-approved");
@@ -106,9 +106,9 @@ int main(int argc, char** argv) {
     choose(simulation, "settings-signout");
     choose(simulation, "confirm-destructive");
     Simulation restored(argv[1], profile);
-    require(restored.state().account.authentication == AuthState::SignedOut &&
+    require(restored.state().account().authentication == AuthState::SignedOut &&
             restored.visible_games().empty(), "controller sign-out remains signed out after restart");
-    require(restored.state().account.id.empty() && restored.state().account.display_name.empty(),
+    require(restored.state().account().id.empty() && restored.state().account().display_name.empty(),
             "sign-out removes visible identity on restart");
     simulation.scenario("default");
     press(simulation, "l1");

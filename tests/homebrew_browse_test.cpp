@@ -75,10 +75,10 @@ void filtering_uses_real_fixture(const std::filesystem::path& fixtures)
     check(filtered_games(state).size() == 2, "compatibility filter accepts Works and Playable only");
 
     state.library.filters.clear();
-    state.account.authentication = AuthState::SignedOut;
-    state.account.cache_available = false;
+    state.account().authentication = AuthState::SignedOut;
+    state.account().cache_available = false;
     check(filtered_games(state).empty(), "signed out without cache has no browsable catalog");
-    state.account.cache_available = true;
+    state.account().cache_available = true;
     check(filtered_games(state).size() == 23, "signed out cached catalog remains browsable");
 }
 
@@ -270,7 +270,7 @@ void live_unicode_query() {
     state.simulation_mode=false;
     const auto scopes=library_rail_scopes(state);
     check(scopes.front()=="installed" && scopes[1]=="all","live scopes offer Installed now that installs are real");
-    state.account.authentication=AuthState::SignedIn;
+    state.account().authentication=AuthState::SignedIn;
     for(const auto& [id,title]:std::vector<std::pair<playden::GameId,std::string>>{
         {SteamId(9),"Straße"},{SteamId(8),"STRASSE"},{SteamId(7),"CAFÉ: Beyond"},{SteamId(6),"Αθήνα"},{SteamId(5),"東京物語"},{SteamId(4),std::string("bad\xff",4)}}) {
         Game game;game.id=id;game.title=title;state.games.push_back(game);

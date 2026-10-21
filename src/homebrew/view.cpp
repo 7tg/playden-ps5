@@ -1091,7 +1091,7 @@ class Render::Impl
             scene_.circle(130.0F, 558.0F, 7.0F, kAccent);
             ui::text(scene_, fonts_.semibold,
                      state.simulation_mode ? "Loading saved fixture state…" :
-                                             "Restoring your Steam session…",
+                                             "Restoring your accounts…",
                      154.0F, 566.0F,
                      24.0F, kText);
             scene_.rounded_rect({128.0F, 594.0F, 496.0F, 6.0F}, 3.0F,
@@ -1135,16 +1135,16 @@ class Render::Impl
             link_qr_url_ = link;
             link_qr_ = link.empty() ? QrMatrix{} : encode_qr(link);
         }
-        const bool usable = state.account.authentication == AuthState::Waiting &&
-                            !state.account.challenge_url.empty();
+        const bool usable = state.account().authentication == AuthState::Waiting &&
+                            !state.account().challenge_url.empty();
         if (!usable) {
             clear_qr_cache();
             return;
         }
-        if (cached_qr_url_ == state.account.challenge_url)
+        if (cached_qr_url_ == state.account().challenge_url)
             return;
         clear_qr_cache();
-        cached_qr_url_ = state.account.challenge_url;
+        cached_qr_url_ = state.account().challenge_url;
         cached_qr_ = encode_qr(cached_qr_url_, &cached_qr_error_);
     }
 
@@ -1253,34 +1253,34 @@ class Render::Impl
 
     void draw_sign_in(ui::Canvas &, const ViewData &view, const State &state)
     {
-        const bool storage_full = state.account.authentication == AuthState::Failed && state.account.storage_full;
+        const bool storage_full = state.account().authentication == AuthState::Failed && state.account().storage_full;
         section_label(storage_full ? "Console storage" : "Connect Steam", 96.0F, 78.0F);
         draw_title(view, 96.0F, 272.0F, 720.0F);
         draw_actions(view, 96.0F, 594.0F, 540.0F);
         constexpr float qr_x = 1116.0F;
         constexpr float qr_y = 224.0F;
         constexpr int qr_side = 430;
-        if (state.sign_in.step != SignInStep::Qr && state.account.authentication != AuthState::Syncing)
+        if (state.sign_in.step != SignInStep::Qr && state.account().authentication != AuthState::Syncing)
         {
             draw_password_panel(state);
             return;
         }
-        if (state.simulation_mode && state.account.challenge_url.empty()) {
+        if (state.simulation_mode && state.account().challenge_url.empty()) {
             draw_simulated_qr(qr_x, qr_y, static_cast<float>(qr_side));
-        } else if (state.account.authentication == AuthState::Waiting &&
-                   state.account.challenge_url.empty()) {
+        } else if (state.account().authentication == AuthState::Waiting &&
+                   state.account().challenge_url.empty()) {
             draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
                                 "Preparing QR code", "Waiting for a secure challenge…");
-        } else if (state.account.authentication == AuthState::Syncing) {
+        } else if (state.account().authentication == AuthState::Syncing) {
             draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
                                 "Sign-in approved", "Loading your library…");
-        } else if (state.account.authentication == AuthState::Expired) {
+        } else if (state.account().authentication == AuthState::Expired) {
             draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
                                 "QR code expired", "Refresh to continue");
         } else if (storage_full) {
             draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
                                 "Storage is full", "Uninstall games to sign in");
-        } else if (state.account.authentication == AuthState::Failed) {
+        } else if (state.account().authentication == AuthState::Failed) {
             draw_qr_placeholder(qr_x, qr_y, static_cast<float>(qr_side),
                                 "Connection failed", "Retry the connection");
         } else if (!cached_qr_error_.empty() || !draw_encoded_qr(qr_x, qr_y, qr_side)) {
@@ -1293,7 +1293,7 @@ class Render::Impl
             ui::text(scene_, fonts_.semibold, "SIMULATED QR — NOT LIVE", 1331.0F, 706.0F,
                      18.0F, kAmber, gfx::Align::center);
         }
-        const char *status = !state.simulation_mode && state.account.challenge_url.empty() ?
+        const char *status = !state.simulation_mode && state.account().challenge_url.empty() ?
             "Connecting securely" : "Waiting for approval";
         gfx::Color color = kAccent;
         if (!cached_qr_error_.empty())
@@ -1301,7 +1301,7 @@ class Render::Impl
             status = "QR code unavailable · Retry connection";
             color = kRed;
         }
-        else if (state.account.authentication == AuthState::Expired)
+        else if (state.account().authentication == AuthState::Expired)
         {
             status = "Challenge expired";
             color = kAmber;
@@ -1311,21 +1311,21 @@ class Render::Impl
             status = "Console storage is full · Retrying";
             color = kRed;
         }
-        else if (state.account.authentication == AuthState::Failed)
+        else if (state.account().authentication == AuthState::Failed)
         {
-            status = state.account.error.empty() ? "Connection failed" : state.account.error.c_str();
+            status = state.account().error.empty() ? "Connection failed" : state.account().error.c_str();
             color = kRed;
         }
-        else if (state.account.authentication == AuthState::Syncing)
+        else if (state.account().authentication == AuthState::Syncing)
         {
             status = state.simulation_mode ? "Approved · Syncing library" : "Approved · Loading library";
             color = kGreen;
         }
-        else if (state.account.authentication == AuthState::Restoring)
+        else if (state.account().authentication == AuthState::Restoring)
         {
-            status = state.simulation_mode ? "Restoring fixture state" : "Restoring your Steam session";
+            status = state.simulation_mode ? "Restoring fixture state" : "Restoring your accounts";
         }
-        else if (state.account.authentication == AuthState::SigningOut)
+        else if (state.account().authentication == AuthState::SigningOut)
         {
             status = "Signing out securely";
         }
@@ -1713,7 +1713,7 @@ class Render::Impl
         const bool simulated = current_state_ != nullptr && current_state_->simulation_mode;
         const std::uint32_t texture = simulated
             ? (game.art_failed || game.art_pending ? 0 : art_[texture_index])
-            : (live_artwork_ && current_state_ && !current_state_->account.id.empty()
+            : (live_artwork_ && current_state_ && !current_state_->account().id.empty()
                 ? store_texture(game.id, CoverUrl(game)) : 0);
         const TileStatus status = tile_status(game.id);
         // Glow first: it is a filled soft shape, and the art must cover its middle so only the
@@ -2461,7 +2461,7 @@ class Render::Impl
                 return;
             }
         }
-        if (live_artwork_ && !state.account.id.empty())
+        if (live_artwork_ && !state.account().id.empty())
             if (const std::uint32_t cover = store_texture(id, CoverUrl(id)))
             {
                 scene_.image(cover, rect, gfx::kFullUv, kText, 6.0F);
@@ -2770,7 +2770,7 @@ class Render::Impl
         const GameId id = state.navigation.detail_id.value_or(state.navigation.selected_game_id);
         const Game *game = game_by_id(state, id);
         const gfx::Rect hero{0.0F, 0.0F, kWidth, 620.0F};
-        const bool live_art = !state.simulation_mode && live_artwork_ && !state.account.id.empty() && id.valid();
+        const bool live_art = !state.simulation_mode && live_artwork_ && !state.account().id.empty() && id.valid();
         const std::uint32_t hero_texture = state.simulation_mode ? hero_ :
             live_art ? store_texture(id, HeroUrl(id)) : 0;
         if (hero_texture != 0)

@@ -95,11 +95,11 @@ void projects_only_owned_facts_and_delivery_status() {
               && !projected->download_bytes && !projected->install_bytes
               && !projected->added_at && !projected->art_pending && !projected->art_failed,
           "projection does not invent install, controller, metadata or artwork state");
-    check(model.state().account.authentication == AuthState::SignedIn
-              && model.state().account.cache_available
-              && model.state().account.last_sync == 1234
+    check(model.state().account().authentication == AuthState::SignedIn
+              && model.state().account().cache_available
+              && model.state().account().last_sync == 1234
               && !model.state().library_loading && !model.state().library_syncing
-              && !model.state().library_offline && model.state().account.error.empty(),
+              && !model.state().library_offline && model.state().account().error.empty(),
           "successful delivery updates library status without repurposing authentication");
 }
 
@@ -112,20 +112,20 @@ void loading_and_failure_preserve_last_good_snapshot() {
     check(model.UpdateLibrary({{}, true, {}, false, true, std::nullopt}),
           "loading delivery status accepted");
     check(model.state().games.size() == 2 && model.state().library_loading
-              && model.state().library_syncing && model.state().account.last_sync == 100,
+              && model.state().library_syncing && model.state().account().last_sync == 100,
           "loading preserves games and prior retrieval time");
 
     check(model.UpdateLibrary({{}, false, "Refresh failed", true, true, std::nullopt}),
           "failure delivery status accepted");
     check(model.state().games.size() == 2 && !model.state().library_loading
               && !model.state().library_syncing && model.state().library_offline
-              && model.state().account.error == "Refresh failed",
+              && model.state().account().error == "Refresh failed",
           "failed refresh keeps the last good catalog and exposes stale error state");
 
     check(model.UpdateLibrary({{}, false, {}, false, true, 200}),
           "genuine successful empty snapshot accepted");
-    check(model.state().games.empty() && model.state().account.last_sync == 200
-              && model.state().account.error.empty() && !model.state().library_offline,
+    check(model.state().games.empty() && model.state().account().last_sync == 200
+              && model.state().account().error.empty() && !model.state().library_offline,
           "successful empty ownership replaces stale games and clears failure state");
 
     check(model.UpdateLibrary({{game(SteamId(3), "Three")}, false, {}, false, true, 201})
@@ -147,9 +147,9 @@ void rejects_invalid_snapshots_transactionally_and_leaves_simulation_alone() {
 
     const auto assert_unchanged = [&model](const char* message) {
         check(model.state().games.size() == 1 && model.state().games.front().id == SteamId(5)
-                  && model.state().account.last_sync == 50
-                  && model.state().account.cache_available
-                  && model.state().account.error.empty() && !model.state().library_offline,
+                  && model.state().account().last_sync == 50
+                  && model.state().account().cache_available
+                  && model.state().account().error.empty() && !model.state().library_offline,
               message);
     };
     check(!model.UpdateLibrary({{game(SteamId(0), "Zero")}, false, "must not leak", true, false, 60}),
@@ -786,21 +786,21 @@ void refresh_actions_preserve_authentication_and_wall_clock_is_external() {
     activate(model, "account-sync");
     const auto actions = model.TakeServiceActions();
     check(actions.size() == 1 && actions.front() == ServiceAction::RefreshLibrary
-              && model.state().account.authentication == AuthState::SignedIn
+              && model.state().account().authentication == AuthState::SignedIn
               && model.state().library_syncing && model.state().library_loading,
           "visible refresh action starts library delivery without changing account authentication");
     check(model.UpdateLibrary({{}, true, {}, false, true, std::nullopt})
-              && model.state().account.authentication == AuthState::SignedIn,
+              && model.state().account().authentication == AuthState::SignedIn,
           "loading update retains authenticated account state");
     check(model.UpdateLibrary({{game(SteamId(1), "One refreshed")}, false, {}, false, true, 101})
-              && model.state().account.authentication == AuthState::SignedIn
+              && model.state().account().authentication == AuthState::SignedIn
               && !model.state().library_syncing && !model.state().library_loading,
           "terminal library update clears delivery status without restoring authentication");
 
     auto offline = make_live();
     offline.UpdateAccount({AuthState::Offline, "account", "Owner", {}, {}, false});
     check(offline.action("refresh-library")
-              && offline.state().account.authentication == AuthState::Offline
+              && offline.state().account().authentication == AuthState::Offline
               && offline.state().library_syncing && offline.state().library_loading,
           "direct refresh preserves offline authentication state");
 
@@ -835,7 +835,7 @@ void live_empty_filter_keeps_the_signed_in_account() {
     activate(model,"library-empty");
     const auto actions=model.TakeServiceActions();
     check(std::find(actions.begin(),actions.end(),ServiceAction::BeginQr)==actions.end() &&
-          model.state().account.authentication==AuthState::SignedIn,"resetting filters keeps the Steam sign-in");
+          model.state().account().authentication==AuthState::SignedIn,"resetting filters keeps the Steam sign-in");
     check(model.state().library.filters.empty() && model.visible_games().size()==1 &&
           model.state().navigation.focus_key=="game-42","reset filters shows the library again");
 
@@ -847,7 +847,7 @@ void live_empty_filter_keeps_the_signed_in_account() {
     check(empty!=nullptr && empty->action=="library-show-all","an empty scope offers Show all games");
     activate(model,"library-empty");
     check(model.state().library.scope=="all" && model.visible_games().size()==1 &&
-          model.state().account.authentication==AuthState::SignedIn,"Show all games returns to every game");
+          model.state().account().authentication==AuthState::SignedIn,"Show all games returns to every game");
 
     // Without a catalog there is nothing to show yet, so Connect Steam stays.
     auto signed_out=make_live();
@@ -899,7 +899,7 @@ void live_sort_sheet_refreshes_the_library() {
     check(actions.size()==1 && actions.front()==ServiceAction::RefreshLibrary,"Refresh library asks for a refresh");
     check(model.state().navigation.modals.empty() && model.state().navigation.route==Route::Library &&
           model.state().library_syncing && model.state().library_loading &&
-          model.state().account.authentication==AuthState::SignedIn,"the Library stays while it refreshes");
+          model.state().account().authentication==AuthState::SignedIn,"the Library stays while it refreshes");
     check(model.action("triangle"),"filter modal opens while refreshing");
     row=find_row(model,"refresh-library");
     check(row!=nullptr && !row->enabled,"a refresh in progress is not started again");
@@ -2443,6 +2443,89 @@ void store_art_follows_the_store() {
     check(CoverUrl(playden::GameId{}).empty(), "an invalid game has no art");
 }
 
+// A game of a store without Cloud saves (an imported game Playden copied in), with Steam signed in or
+// out and automatic sync on: Details has no Cloud saves row, Play starts it and Finish setup quits to
+// Home without asking the Cloud, Saves doesn't list it, and uninstalling says its saves are only here.
+// A new Steam sign-in clears Steam's installs and downloads only.
+void live_store_without_cloud_never_asks_the_cloud() {
+    using playden::homebrew::LiveInstallJob;
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RuntimeState;
+    const auto local = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+    const auto key = playden::ToKey(local);
+    for (const auto authentication : {AuthState::SignedIn, AuthState::SignedOut}) {
+        auto model = make_live();
+        sync_automatically(model);
+        model.UpdateAccount({authentication, "123", "Synthetic", {}, {}, authentication == AuthState::SignedIn});
+        if (authentication == AuthState::SignedIn)
+            check(model.UpdateLibrary({{game(SteamId(42), "Steam game")}, false, {}, false, false, {}}), "Steam library");
+        LibraryUpdate imported{{game(local, "Imported")}, false, {}, false, false, {}};
+        imported.source = playden::Store::kLocal;
+        check(model.UpdateLibrary(imported), "imported library");
+        model.UpdateInstalls({}, {{local, 100'000'000, "internal", true}, {SteamId(42), 600'000'000, "internal", true}});
+        LiveRuntimeGame ready; ready.game_id = local; ready.status = "Ready"; ready.ready = true; ready.can_play = true;
+        ready.has_title = true; ready.prepared = true;
+        model.UpdateRuntime(RuntimeState::Ready, {ready});
+        (void)model.TakeCloudRequests();
+
+        check(model.action("details:" + key), "details open");
+        check(!has_row(model, "details-cloud"), "no Cloud saves row for an imported game");
+        const auto* play = find_row(model, "details-play");
+        check(play && play->enabled && play->action == "runtime-play", "Play starts it");
+        activate(model, "details-play");
+        check(model.TakeRuntimePlayRequests() == std::vector<playden::GameId>{local}, "Play reaches the runtime");
+        check(model.TakeCloudRequests().empty(), "Play asks nothing of the Cloud");
+        // Waiting for the PS5: Finish setup quits to Home straight away.
+        LiveRuntimeGame waiting = ready; waiting.ready = false; waiting.can_play = false; waiting.status = "Waiting for the PS5";
+        waiting.awaiting_registration = true; waiting.can_prepare = true;
+        model.UpdateRuntime(RuntimeState::Ready, {waiting});
+        check(find_row(model, "details-play")->action == "quit-to-home", "Finish setup quits to Home");
+        activate(model, "details-play");
+        check(model.state().quit_requested && model.TakeCloudRequests().empty(), "it quits without syncing saves");
+    }
+    {
+        auto model = make_live();
+        sync_automatically(model);
+        model.SetWallClock(1'800'000'000);
+        model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+        check(model.UpdateLibrary({{game(SteamId(42), "Steam game")}, false, {}, false, false, {}}), "Steam library");
+        LibraryUpdate imported{{game(local, "Imported")}, false, {}, false, false, {}};
+        imported.source = playden::Store::kLocal;
+        check(model.UpdateLibrary(imported), "imported library");
+        const auto other = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+        LibraryUpdate more{{game(local, "Imported"), game(other, "Copying")}, false, {}, false, false, {}};
+        more.source = playden::Store::kLocal;
+        check(model.UpdateLibrary(more), "imported library");
+        model.UpdateInstalls({{other, playden::homebrew::JobState::Downloading, 10, 100, {}, "internal"},
+                              {SteamId(43), playden::homebrew::JobState::Queued, 0, 0, {}, "internal"}},
+                             {{local, 100'000'000, "internal", true}, {SteamId(42), 600'000'000, "internal", true}});
+        // Saves lists the Steam game only.
+        model.action("l1");
+        model.action("l1");
+        check(model.state().navigation.route == Route::Saves, "Saves open");
+        check(saves_row(model, "save-42") && !saves_row(model, "save-" + key), "Saves lists Steam games only");
+        (void)model.TakeCloudRequests();  // opening Saves checks the Steam game
+        // Uninstalling it says its saves exist only on this console.
+        check(model.action("details:" + key) && model.action("focus:details-more") && model.action("cross"), "context opens");
+        activate(model, "uninstall");
+        check(model.state().navigation.modals.back().body.find("its saves exist only on this console") != std::string::npos,
+              "no Cloud sync before uninstalling");
+        check(model.action("circle") && model.TakeCloudRequests().empty(), "nothing asked of the Cloud");
+        // A new Steam sign-in takes Steam's installs and downloads away, not the imported ones.
+        model.UpdateAccount({AuthState::Waiting, {}, {}, "https://s.team/q/synthetic", {}, true});
+        const auto& state = model.state();
+        check(std::none_of(state.installations.begin(), state.installations.end(),
+                           [](const playden::homebrew::Installation& item) { return item.game_id.store == playden::Store::kSteam; }) &&
+                  std::any_of(state.installations.begin(), state.installations.end(),
+                              [&](const playden::homebrew::Installation& item) { return item.game_id == local; }),
+              "Steam's installs go, the imported game's stay");
+        check(std::none_of(state.jobs.begin(), state.jobs.end(),
+                           [](const playden::homebrew::Job& job) { return job.game_id.store == playden::Store::kSteam; }) &&
+                  std::any_of(state.jobs.begin(), state.jobs.end(), [&](const playden::homebrew::Job& job) { return job.game_id == other; }),
+              "Steam's downloads go, the imported game's copy stays");
+    }
+}
+
 int main() {
     store_art_follows_the_store();
     non_canonical_game_keys_select_nothing();
@@ -2470,6 +2553,7 @@ int main() {
     live_cloud_saves();
     live_saves_tab();
     live_saves_upload_all();
+    live_store_without_cloud_never_asks_the_cloud();
     live_filters_only_use_available_facts();
     live_sort_sheet_refreshes_the_library();
     continue_playing_more_keeps_the_chosen_sort();

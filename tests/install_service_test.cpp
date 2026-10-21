@@ -40,8 +40,9 @@ class Sessions final : public SessionRepository {
   Result<void> Clear() const override { return Result<void>::Success(); }
 };
 
-class Runner final : public InstallRunner {
+class Runner final : public SessionInstallRunner {
  public:
+  explicit Runner(SessionRepository& sessions) : SessionInstallRunner(sessions) {}
   std::atomic<bool> block{false};
   std::atomic<bool> checking_licenses{false};  // holds the run in the license check
   bool telemetry = false;
@@ -52,7 +53,7 @@ class Runner final : public InstallRunner {
   std::mutex mutex;
   std::vector<std::string> removed;
   std::vector<std::string> install_roots;
-  Result Install(const StoredSession&, std::uint32_t, const std::string& root, const std::atomic<bool>& cancel,
+  Result InstallApp(const StoredSession&, std::uint32_t, const std::string& root, const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
                  const std::function<void(InstallStep)>& step) override {
     ++installs;
@@ -114,9 +115,9 @@ bool Installed(const InstallSnapshot& snapshot, GameId id) {
 
 void SpaceAdmission(const std::filesystem::path& root) {
   std::filesystem::create_directories(root);
-  Runner runner; runner.block = true;
   Sessions sessions;
-  InstallService service(runner, sessions, root.string());
+  Runner runner(sessions); runner.block = true;
+  InstallService service(runner, root.string());
   // No wraparound can turn an impossible estimate into an accepted install.
   service.Install(SteamId(901), std::numeric_limits<std::uint64_t>::max());
   auto snapshot = service.Snapshot();
@@ -158,8 +159,8 @@ void SpaceAdmission(const std::filesystem::path& root) {
 
   // An unreadable destination is not equivalent to infinite (or zero) capacity.
   std::ofstream(root) << "not a directory";
-  Runner unavailable_runner;
-  InstallService unavailable(unavailable_runner, sessions, (root / "games").string());
+  Runner unavailable_runner(sessions);
+  InstallService unavailable(unavailable_runner, (root / "games").string());
   unavailable.Install(SteamId(905));
   snapshot = unavailable.Snapshot();
   CHECK(JobOf(snapshot, SteamId(905)) && JobOf(snapshot, SteamId(905))->state == InstallJobState::kFailed);
@@ -170,9 +171,9 @@ void SpaceAdmission(const std::filesystem::path& root) {
 }
 
 void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
-  Runner runner; runner.block = true; runner.telemetry = true;
   Sessions sessions;
-  InstallService service(runner, sessions, root.string());
+  Runner runner(sessions); runner.block = true; runner.telemetry = true;
+  InstallService service(runner, root.string());
   service.Install(SteamId(900));
   AwaitAt(__LINE__, service, [](const InstallSnapshot& snapshot) {
     const auto* job = JobOf(snapshot, SteamId(900));
@@ -240,8 +241,8 @@ void CompletedDownloadsList(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
   Sessions sessions;
   {
-    Runner runner;
-    InstallService service(runner, sessions, root.string());
+    Runner runner(sessions);
+    InstallService service(runner, root.string());
     service.Install(SteamId(70));
     service.Install(SteamId(71));
     AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(70)) && Installed(s, SteamId(71)); });
@@ -255,8 +256,8 @@ void CompletedDownloadsList(const std::filesystem::path& root) {
     CHECK(Installed(dismissed, SteamId(70)));
   }
   {
-    Runner runner;
-    InstallService restarted(runner, sessions, root.string());
+    Runner runner(sessions);
+    InstallService restarted(runner, root.string());
     const auto snapshot = restarted.Snapshot();
     CHECK(snapshot.completed.size() == 1 && snapshot.completed[0].id == SteamId(71) && snapshot.completed[0].finished_at > 0);
     restarted.ClearCompleted();
@@ -274,8 +275,8 @@ void CompletedDownloadsList(const std::filesystem::path& root) {
 
   // Clear dismisses every finished download, not only the `kMaxCompleted` the list shows.
   {
-    Runner runner;
-    InstallService service(runner, sessions, root.string());
+    Runner runner(sessions);
+    InstallService service(runner, root.string());
     const std::uint32_t count = kMaxCompleted + 3;
     for (std::uint32_t id = 100; id < 100 + count; ++id) service.Install(SteamId(id));
     AwaitAt(__LINE__, service, [count](const InstallSnapshot& s) {
@@ -290,24 +291,177 @@ void CompletedDownloadsList(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
 }
 
-// A download that cannot reach Steam keeps its place and waits instead of failing.
+// A download that cannot reach Steam keeps its place and waits instead of failing; the job behind
+// it runs meanwhile.
 void UnreachableSteamWaits(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
   Sessions sessions;
-  Runner runner;
+  Runner runner(sessions);
   runner.unreachable = 1;
-  InstallService service(runner, sessions, root.string());
+  InstallService service(runner, root.string());
+  service.SetRetryDelays(10s, 60s);
   service.Install(SteamId(80));
   service.Install(SteamId(81));
   AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
     const auto* job = JobOf(s, SteamId(80));
-    return job && job->state == InstallJobState::kQueued && job->failure.find("Waiting to reach Steam") == 0;
+    return job && job->state == InstallJobState::kQueued && job->failure.find("Waiting to reach Steam") == 0 &&
+           Installed(s, SteamId(81));
   });
-  const auto waiting = service.Snapshot();
-  CHECK(waiting.jobs.size() == 2 && waiting.jobs[0].id == SteamId(80) && waiting.jobs[1].id == SteamId(81) &&
-        waiting.jobs[1].state == InstallJobState::kQueued);
-  service.Resume(SteamId(80));  // a request ends the wait at once
-  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(80)) && Installed(s, SteamId(81)); });
+  CHECK(runner.installs == 2);
+  service.Resume(SteamId(80));  // the player's request ends the wait at once
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(80)) && s.jobs.empty(); });
+  std::filesystem::remove_all(root);
+}
+
+int AttemptsAt(Runner& runner, const std::filesystem::path& root) {
+  std::lock_guard<std::mutex> lock(runner.mutex);
+  return static_cast<int>(std::count(runner.install_roots.begin(), runner.install_roots.end(), root.string()));
+}
+
+// Installs another store's games; holds them while `block` is set.
+class LocalRunner final : public InstallRunner {
+ public:
+  std::atomic<bool> block{false};
+  std::mutex mutex;
+  std::vector<GameId> installed;
+  std::vector<std::string> removed;
+  Result Install(const GameId& id, const std::string& root, const std::atomic<bool>& cancel,
+                 const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
+                 const std::function<void(InstallStep)>&) override {
+    while (block) {
+      if (cancel) return {false, true, {}, 0};
+      std::this_thread::sleep_for(1ms);
+    }
+    std::filesystem::create_directories(root);
+    std::ofstream(std::filesystem::path(root) / ".playden-install.json") << "{\"install_bytes\":7}";
+    progress(7, 7, 0);
+    std::lock_guard<std::mutex> lock(mutex);
+    installed.push_back(id);
+    return {true, false, {}, 7};
+  }
+  bool Remove(const std::string& root) override {
+    std::lock_guard<std::mutex> lock(mutex);
+    removed.push_back(root);
+    std::filesystem::remove_all(root);
+    return true;
+  }
+};
+
+// Jobs waiting to try again never hold up the queue: another store's job behind a Steam job that
+// waits for the sign-in runs, two waiting Steam jobs both keep trying, and a waiting job can be
+// canceled, paused and resumed.
+void WaitingJobsDontBlockTheQueue(const std::filesystem::path& root) {
+  const auto local = GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+  {
+    std::filesystem::remove_all(root);
+    Sessions sessions;
+    sessions.present = false;
+    Runner steam(sessions);
+    LocalRunner imports;
+    InstallService service({{Store::kSteam, &steam}, {Store::kLocal, &imports}},
+                           {{InstallService::kPrimaryVolumeId, "Console storage", root.string(), true}});
+    service.Install(SteamId(80));
+    service.Install(local);
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      const auto* job = JobOf(s, SteamId(80));
+      return Installed(s, local) && job && job->state == InstallJobState::kQueued &&
+             job->failure == "Waiting for the Steam sign-in.";
+    });
+    CHECK(steam.installs == 0 && std::filesystem::exists(root / ToKey(local) / ".playden-install.json"));
+    // The Local game's removal goes to its own runner.
+    service.Uninstall(local);
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) { return !Installed(s, local); });
+    for (auto deadline = std::chrono::steady_clock::now() + 6s;; std::this_thread::sleep_for(1ms)) {
+      std::lock_guard<std::mutex> lock(imports.mutex);
+      if (!imports.removed.empty()) { CHECK(imports.removed[0] == (root / ToKey(local)).string()); break; }
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    }
+    {
+      std::lock_guard<std::mutex> lock(steam.mutex);
+      CHECK(steam.removed.empty());
+    }
+    // Signed in: the waiting job carries on by itself after its wait.
+    service.SetRetryDelays(5ms, 20ms);
+    sessions.present = true;
+    service.Resume(SteamId(80));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(80)); });
+  }
+  {
+    // Two Steam jobs out of reach both keep trying, each after its own wait, and finish by themselves.
+    std::filesystem::remove_all(root);
+    Sessions sessions;
+    Runner runner(sessions);
+    runner.unreachable = 1000;
+    InstallService service(runner, root.string());
+    service.SetRetryDelays(5ms, 40ms);
+    service.Install(SteamId(80));
+    service.Install(SteamId(81));
+    for (auto deadline = std::chrono::steady_clock::now() + 6s;
+         AttemptsAt(runner, root / "80") < 3 || AttemptsAt(runner, root / "81") < 3; std::this_thread::sleep_for(1ms))
+      CHECK(std::chrono::steady_clock::now() < deadline);
+    runner.unreachable = 0;
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(80)) && Installed(s, SteamId(81)); });
+  }
+  {
+    // Other requests don't cut a wait short; Pause keeps a waiting job off the worker, Resume tries it
+    // at once, and Cancel takes it out of the queue.
+    std::filesystem::remove_all(root);
+    Sessions sessions;
+    Runner runner(sessions);
+    runner.unreachable = 1000;
+    InstallService service(runner, root.string());
+    service.SetRetryDelays(30s, 60s);
+    service.Install(SteamId(80));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
+      const auto* job = JobOf(s, SteamId(80));
+      return job && job->state == InstallJobState::kQueued && !job->failure.empty();
+    });
+    service.Install(SteamId(81));
+    service.Install(SteamId(82));
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot&) { return AttemptsAt(runner, root / "82") == 1; });
+    CHECK(AttemptsAt(runner, root / "80") == 1 && AttemptsAt(runner, root / "81") == 1);
+    service.Pause(SteamId(80));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
+      const auto* job = JobOf(s, SteamId(80));
+      return job && job->state == InstallJobState::kPaused && job->failure.empty();
+    });
+    service.Cancel(SteamId(81));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return !JobOf(s, SteamId(81)); });
+    runner.unreachable = 0;
+    std::this_thread::sleep_for(50ms);
+    CHECK(AttemptsAt(runner, root / "80") == 1 && JobOf(service.Snapshot(), SteamId(80))->state == InstallJobState::kPaused);
+    service.Resume(SteamId(80));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(80)); });
+    CHECK(AttemptsAt(runner, root / "81") == 1 && JobOf(service.Snapshot(), SteamId(82)));
+    service.Cancel(SteamId(82));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return s.jobs.empty(); });
+  }
+  std::filesystem::remove_all(root);
+}
+
+// A Steam sign-in ends the wait of Steam jobs waiting for one (their next try may be a minute away);
+// another store's waiting jobs keep theirs.
+void SignInEndsSteamWait(const std::filesystem::path& root) {
+  std::filesystem::remove_all(root);
+  Sessions sessions;
+  sessions.present = false;
+  Runner steam(sessions);
+  InstallService service({{Store::kSteam, &steam}},
+                         {{InstallService::kPrimaryVolumeId, "Console storage", root.string(), true}});
+  service.SetRetryDelays(60s, 60s);
+  service.Install(SteamId(80));
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
+    const auto* job = JobOf(s, SteamId(80));
+    return job && job->state == InstallJobState::kQueued && job->failure == "Waiting for the Steam sign-in.";
+  });
+  sessions.present = true;
+  service.RetryWaiting(Store::kLocal);  // not Steam's: the wait goes on
+  std::this_thread::sleep_for(50ms);
+  CHECK(steam.installs == 0 && !Installed(service.Snapshot(), SteamId(80)));
+  const auto started = std::chrono::steady_clock::now();
+  service.RetryWaiting(Store::kSteam);
+  AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(80)) && s.jobs.empty(); });
+  CHECK(std::chrono::steady_clock::now() - started < 10s && steam.installs == 1);
   std::filesystem::remove_all(root);
 }
 
@@ -315,9 +469,9 @@ void UnreachableSteamWaits(const std::filesystem::path& root) {
 void RunningJobReportsItsStep(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
   Sessions sessions;
-  Runner runner;
+  Runner runner(sessions);
   runner.checking_licenses = true;
-  InstallService service(runner, sessions, root.string());
+  InstallService service(runner, root.string());
   const auto before = std::chrono::steady_clock::now();
   service.Install(SteamId(70));
   AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
@@ -335,8 +489,8 @@ void RunningJobReportsItsStep(const std::filesystem::path& root) {
 void FolderCheckGuardsDownloadStart(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
   Sessions sessions;
-  Runner runner;
-  InstallService service(runner, sessions, root.string());
+  Runner runner(sessions);
+  InstallService service(runner, root.string());
   std::mutex mutex;
   std::string answer = "The folder /games is not writable.";
   std::string checked;
@@ -369,6 +523,8 @@ int main() {
   SpaceAdmission(std::filesystem::temp_directory_path() / ("playden-space-service-" + std::to_string(::getpid())));
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));
   UnreachableSteamWaits(std::filesystem::temp_directory_path() / ("playden-unreachable-service-" + std::to_string(::getpid())));
+  WaitingJobsDontBlockTheQueue(std::filesystem::temp_directory_path() / ("playden-waiting-service-" + std::to_string(::getpid())));
+  SignInEndsSteamWait(std::filesystem::temp_directory_path() / ("playden-signin-wait-service-" + std::to_string(::getpid())));
   CompletedDownloadsList(std::filesystem::temp_directory_path() / ("playden-completed-service-" + std::to_string(::getpid())));
   const auto requests = ParseInstallRequests("uninstall 439490\n439490\ncancel 108600\n108600\n");
   CHECK(requests.size() == 4);
@@ -391,9 +547,9 @@ int main() {
     std::ofstream(stable / "games/220/.playden-install.json") << "{\"install_bytes\":8192}";
     auto candidates = ConsoleVolumeCandidates(stable.string());
     candidates.resize(1);
-    Runner runner;
     Sessions sessions;
-    InstallService service(runner, sessions, DiscoverInstallVolumes(candidates));
+    Runner runner(sessions);
+    InstallService service(runner, DiscoverInstallVolumes(candidates));
     const auto installed = service.Snapshot().installed;
     CHECK(installed.size() == 1 && installed[0].id == SteamId(220) && installed[0].available);
     CHECK(installed[0].root == (stable / "games/220").string() && installed[0].install_bytes == 8192);
@@ -409,14 +565,14 @@ int main() {
   std::ofstream(root / ".playden-games") << "100\n200\nnot-a-number\n0\n";
 
   Sessions sessions;
-  Runner runner;
+  Runner runner(sessions);
   {
     // Queue order survives progress snapshots and restart without interrupting the active download.
     const auto reorder_root = root / "reorder";
-    Runner reorder_runner;
+    Runner reorder_runner(sessions);
     reorder_runner.block = true;
     {
-      InstallService service(reorder_runner, sessions, reorder_root.string());
+      InstallService service(reorder_runner, reorder_root.string());
       service.Install(SteamId(10));
       AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
         return JobOf(s, SteamId(10)) && JobOf(s, SteamId(10))->state == InstallJobState::kRunning;
@@ -441,7 +597,7 @@ int main() {
       CHECK(service.Snapshot().jobs[3].id == SteamId(20));
     }
     {
-      InstallService restored(reorder_runner, sessions, reorder_root.string());
+      InstallService restored(reorder_runner, reorder_root.string());
       const auto snapshot = restored.Snapshot();
       CHECK(snapshot.jobs.size() == 4);
       CHECK(snapshot.jobs[0].id == SteamId(10) && snapshot.jobs[1].id == SteamId(40) &&
@@ -451,7 +607,7 @@ int main() {
     std::filesystem::remove_all(reorder_root);
   }
   {
-    InstallService service(runner, sessions, root.string());
+    InstallService service(runner, root.string());
     const auto start = service.Snapshot();
     CHECK(start.installed.size() == 1 && start.installed[0].id == SteamId(100) && start.installed[0].install_bytes == 777);
     CHECK(start.jobs.size() == 1 && start.jobs[0].id == SteamId(200) && start.jobs[0].state == InstallJobState::kPaused);
@@ -552,7 +708,7 @@ int main() {
     std::ifstream registry(root / ".playden-games");
     const std::string text((std::istreambuf_iterator<char>(registry)), std::istreambuf_iterator<char>());
     CHECK(text.find("300") != std::string::npos);
-    InstallService again(runner, sessions, root.string());
+    InstallService again(runner, root.string());
     CHECK(Installed(again.Snapshot(), SteamId(300)));
     // 500 was paused before it wrote anything; it comes back paused instead of disappearing.
     const auto restored = again.Snapshot();
@@ -567,9 +723,9 @@ int main() {
     const auto resume_root = std::filesystem::temp_directory_path() / ("playden-install-resume-" + std::to_string(::getpid()));
     std::filesystem::remove_all(resume_root);
     Sessions resume_sessions;
-    Runner resume_runner;
+    Runner resume_runner(resume_sessions);
     {
-      InstallService service(resume_runner, resume_sessions, resume_root.string());
+      InstallService service(resume_runner, resume_root.string());
       resume_runner.block = true;
       service.Install(SteamId(600));
       AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { auto* job = JobOf(s, SteamId(600)); return job && job->state == InstallJobState::kRunning; });
@@ -587,7 +743,7 @@ int main() {
     CHECK(!line_of("700").empty() && line_of("700").find("paused") == std::string::npos);
     CHECK(line_of("800").find("\tpaused") != std::string::npos);
     resume_runner.block = false;
-    InstallService again(resume_runner, resume_sessions, resume_root.string());
+    InstallService again(resume_runner, resume_root.string());
     AwaitAt(__LINE__, again, [](const InstallSnapshot& s) { return Installed(s, SteamId(600)) && Installed(s, SteamId(700)); });
     const auto restored = again.Snapshot();
     auto* paused = JobOf(restored, SteamId(800));
@@ -613,8 +769,8 @@ int main() {
   };
   sessions.present = true;
   {
-    Runner multi;
-    InstallService service(multi, sessions, volumes);
+    Runner multi(sessions);
+    InstallService service(multi, volumes);
     auto start = service.Snapshot();
     CHECK(start.default_volume_id == "internal");
     CHECK(start.volumes.size() == 3);
@@ -662,8 +818,8 @@ int main() {
   }
   {
     // The default volume and every game's volume survive a restart.
-    Runner multi;
-    InstallService again(multi, sessions, volumes);
+    Runner multi(sessions);
+    InstallService again(multi, volumes);
     const auto snapshot = again.Snapshot();
     CHECK(snapshot.default_volume_id == "m2");
     CHECK(Installed(snapshot, SteamId(800)) && Installed(snapshot, SteamId(500)) && Installed(snapshot, SteamId(100)) && !Installed(snapshot, SteamId(600)));
@@ -677,8 +833,8 @@ int main() {
     // saved again; it is available once its folder is back, and Uninstall can forget it.
     std::filesystem::rename(second / "800", second / "800.aside");
     {
-      Runner multi;
-      InstallService missing(multi, sessions, volumes);
+      Runner multi(sessions);
+      InstallService missing(multi, volumes);
       bool listed = false;
       for (const auto& game : missing.Snapshot().installed)
         if (game.id == SteamId(800)) listed = !game.available && game.volume_id == "m2" && game.install_bytes > 0;
@@ -690,8 +846,8 @@ int main() {
     }
     std::filesystem::rename(second / "800.aside", second / "800");
     {
-      Runner multi;
-      InstallService back(multi, sessions, volumes);
+      Runner multi(sessions);
+      InstallService back(multi, volumes);
       bool available = false;
       for (const auto& game : back.Snapshot().installed)
         if (game.id == SteamId(800)) available = game.available;
@@ -699,8 +855,8 @@ int main() {
     }
     std::filesystem::rename(second / "800", second / "800.aside");
     {
-      Runner multi;
-      InstallService forget(multi, sessions, volumes);
+      Runner multi(sessions);
+      InstallService forget(multi, volumes);
       forget.Uninstall(SteamId(800));
       AwaitAt(__LINE__, forget, [](const InstallSnapshot& s) { return !Installed(s, SteamId(800)); });
       // Its path names no install now, so nothing is removed.
@@ -708,8 +864,8 @@ int main() {
       CHECK(multi.removed.empty());
     }
     {
-      Runner multi;
-      InstallService after(multi, sessions, volumes);
+      Runner multi(sessions);
+      InstallService after(multi, volumes);
       CHECK(!Installed(after.Snapshot(), SteamId(800)));
     }
   }
@@ -717,8 +873,8 @@ int main() {
     // A remembered default whose drive is now absent falls back to the primary volume.
     auto without_m2 = volumes;
     without_m2[1].available = false;
-    Runner multi;
-    InstallService fallback(multi, sessions, without_m2);
+    Runner multi(sessions);
+    InstallService fallback(multi, without_m2);
     CHECK(fallback.Snapshot().default_volume_id == "internal");
     for (const auto& game : fallback.Snapshot().installed)
       if (game.id == SteamId(800)) CHECK(!game.available);

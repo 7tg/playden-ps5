@@ -1,4 +1,4 @@
-#include "steam/install_service.h"
+#include "installs/install_service.h"
 #include "steam/install_volumes.h"
 
 #include <sys/stat.h>
@@ -10,7 +10,13 @@
 #include <cstring>
 #include <string_view>
 
-namespace playden::steam {
+namespace playden::installs {
+using steam::DownloadEstimate;
+using steam::kInstallSpaceMargin;
+using steam::PendingInstallBytes;
+using steam::QueryVolumeSpace;
+using steam::VolumeSpaceSupported;
+
 std::vector<InstallRequest> ParseInstallRequests(const std::string& text) {
   std::vector<InstallRequest> requests;
   std::string_view remaining(text);
@@ -80,10 +86,8 @@ constexpr const char* kRegistry = ".playden-games";
 constexpr const char* kDefaultVolume = ".playden-default-volume";
 constexpr const char* kDismissed = ".playden-downloads-dismissed";
 constexpr const char* kVolumeUnavailable = "The game's storage is not available.";
-constexpr std::chrono::seconds kSessionRetry{5};
-// A download that could not reach Steam waits this long before it tries again by itself.
-constexpr std::chrono::seconds kNetworkRetry{30};
-constexpr const char* kWaitingForSteam = "Waiting to reach Steam. It tries again by itself.";
+// What Downloads says while a job waits to try again, when its runner says nothing.
+constexpr const char* kWaiting = "Waiting. It tries again by itself.";
 
 bool Exists(const std::string& path) {
   struct stat info {};
@@ -159,11 +163,15 @@ std::optional<RegistryEntry> ParseRegistryLine(std::string_view line) {
 
 }  // namespace
 
-InstallService::InstallService(InstallRunner& runner, SessionRepository& sessions, std::string games_root)
-    : InstallService(runner, sessions, std::vector<InstallVolume>{{kPrimaryVolumeId, "Console storage", std::move(games_root), true}}) {}
+InstallService::InstallService(InstallRunner& steam, std::string games_root)
+    : InstallService(Runners{{Store::kSteam, &steam}},
+                     std::vector<InstallVolume>{{kPrimaryVolumeId, "Console storage", std::move(games_root), true}}) {}
 
-InstallService::InstallService(InstallRunner& runner, SessionRepository& sessions, std::vector<InstallVolume> volumes)
-    : runner_(runner), sessions_(sessions), volumes_(std::move(volumes)) {
+InstallService::InstallService(InstallRunner& steam, std::vector<InstallVolume> volumes)
+    : InstallService(Runners{{Store::kSteam, &steam}}, std::move(volumes)) {}
+
+InstallService::InstallService(Runners runners, std::vector<InstallVolume> volumes)
+    : runners_(std::move(runners)), volumes_(std::move(volumes)) {
   if (volumes_.empty()) volumes_.push_back({kPrimaryVolumeId, "Console storage", "games", true});
   volumes_.front().available = true;
   default_volume_id_ = volumes_.front().id;
@@ -172,6 +180,37 @@ InstallService::InstallService(InstallRunner& runner, SessionRepository& session
 }
 
 InstallService::~InstallService() { Shutdown(); }
+
+InstallRunner* InstallService::RunnerFor(Store store) const {
+  const auto found = runners_.find(store);
+  return found == runners_.end() ? nullptr : found->second;
+}
+
+void InstallService::ClearWait(Job& job) {
+  if (job.waiting) job.view.failure.clear();
+  job.waiting = false;
+  job.not_before = {};
+  job.retry_delay = std::chrono::milliseconds{0};
+}
+
+void InstallService::RetryWaiting(Store store) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  bool woken = false;
+  for (auto& job : jobs_)
+    if (job.waiting && job.view.id.store == store && job.view.state == InstallJobState::kQueued) {
+      // What Downloads says while it waits stays until the job runs.
+      job.not_before = {};
+      job.retry_delay = std::chrono::milliseconds{0};
+      woken = true;
+    }
+  if (woken) wake_.notify_all();
+}
+
+void InstallService::SetRetryDelays(std::chrono::milliseconds first, std::chrono::milliseconds most) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  first_retry_ = first;
+  most_retry_ = std::max(first, most);
+}
 
 const InstallVolume* InstallService::FindVolume(const std::string& id) const {
   for (const auto& volume : volumes_)
@@ -364,8 +403,8 @@ void InstallService::Publish() {
 
 void InstallService::Install(GameId id, std::optional<std::uint64_t> estimated_bytes, const std::string& volume_id) {
   std::lock_guard<std::mutex> lock(mutex_);
-  // Steam games only: the registry and the runner take Steam app IDs.
-  if (stopping_ || !id.steam_app() || Find(id) || jobs_.size() >= kMaxJobs) return;
+  // Only a store with a runner installs.
+  if (stopping_ || !id.valid() || !RunnerFor(id.store) || Find(id) || jobs_.size() >= kMaxJobs) return;
   if (std::any_of(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; })) return;
   Job job;
   job.view.id = id;
@@ -409,13 +448,17 @@ void InstallService::Pause(GameId id) {
   job->view.state = InstallJobState::kPaused;
   job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset();
   job->view.failure.clear();
+  job->waiting = false;
   Publish();
+  wake_.notify_all();
 }
 
 void InstallService::Resume(GameId id) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto* job = Find(id);
   if (!job || job->view.state == InstallJobState::kRunning) return;
+  // The player asks for it now: a job that waited to try again tries at once.
+  ClearWait(*job);
   job->view.state = InstallJobState::kQueued;
   job->view.failure.clear();
   Publish();
@@ -428,6 +471,7 @@ void InstallService::DownloadNow(GameId id) {
   if (found == jobs_.end() || found->view.state == InstallJobState::kRunning || found->cancel_requested) return;
   Job job = *found;
   jobs_.erase(found);
+  ClearWait(job);
   job.view.state = InstallJobState::kQueued;
   job.view.failure.clear();
   jobs_.push_front(job);
@@ -477,7 +521,7 @@ void InstallService::Cancel(GameId id) {
     const auto root = volume && volume->available ? RootOn(job->view.volume_id, id) : std::string();
     jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [id](const Job& entry) { return entry.view.id == id; }),
                 jobs_.end());
-    if (!root.empty()) removals_.push_back(root);
+    if (!root.empty()) removals_.push_back({id.store, root});
   }
   Publish();
   wake_.notify_all();
@@ -493,7 +537,7 @@ void InstallService::Uninstall(GameId id) {
   if (!found->available && (!volume || !volume->available)) return;
   const auto root = found->available ? RootOn(found->volume_id, id) : std::string();
   installed_.erase(found);
-  if (!root.empty()) removals_.push_back(root);
+  if (!root.empty()) removals_.push_back({id.store, root});
   Publish();
   wake_.notify_all();
 }
@@ -544,25 +588,41 @@ void InstallService::Shutdown() {
 void InstallService::Run() {
   for (;;) {
     std::optional<GameId> next;
+    InstallRunner* runner = nullptr;
     std::string next_root;
     std::string next_games_root;
-    std::optional<std::string> removal;
+    std::optional<Removal> removal;
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      wake_.wait(lock, [this] {
-        return stopping_ || !removals_.empty() ||
-               std::any_of(jobs_.begin(), jobs_.end(), [](const Job& job) { return job.view.state == InstallJobState::kQueued; });
-      });
-      if (stopping_) return;
+      // The first queued job whose wait is over runs; jobs waiting to try again are skipped, and the
+      // worker sleeps until the earliest of them or a request (Install, Pause, Resume, Cancel,
+      // Shutdown) wakes it.
+      for (;;) {
+        if (stopping_) return;
+        if (!removals_.empty()) break;
+        const auto now = std::chrono::steady_clock::now();
+        std::optional<std::chrono::steady_clock::time_point> earliest;
+        bool ready = false;
+        for (const auto& job : jobs_) {
+          if (job.view.state != InstallJobState::kQueued) continue;
+          if (job.not_before <= now) { ready = true; break; }
+          if (!earliest || job.not_before < *earliest) earliest = job.not_before;
+        }
+        if (ready) break;
+        if (earliest) wake_.wait_until(lock, *earliest);
+        else wake_.wait(lock);
+      }
       if (!removals_.empty()) {
         removal = removals_.front();
         removals_.pop_front();
       } else {
+        const auto now = std::chrono::steady_clock::now();
         for (auto& job : jobs_) {
-          if (job.view.state != InstallJobState::kQueued) continue;
+          if (job.view.state != InstallJobState::kQueued || job.not_before > now) continue;
           const auto* volume = FindVolume(job.view.volume_id);
-          if (!job.view.id.steam_app()) {
-            // Only Steam games download; another store's job in the registry waits as failed.
+          runner = RunnerFor(job.view.id.store);
+          if (!runner) {
+            // A store without a runner can't install; its job in the registry waits as failed.
             job.view.state = InstallJobState::kFailed;
             job.view.failure = "This game can't be downloaded.";
             Publish();
@@ -575,7 +635,8 @@ void InstallService::Run() {
             continue;
           }
           job.view.state = InstallJobState::kRunning;
-          if (job.view.failure == kWaitingForSteam) job.view.failure.clear();
+          // Trying again: what it said while it waited no longer applies.
+          if (job.waiting) { job.waiting = false; job.view.failure.clear(); }
           job.rate.Reset();
           job.view.bytes_per_second.reset(); job.view.eta_seconds.reset();
           job.view.step = InstallStep::kStarting;
@@ -591,7 +652,7 @@ void InstallService::Run() {
       }
     }
     if (removal) {
-      runner_.Remove(*removal);
+      if (auto* remover = RunnerFor(removal->store)) remover->Remove(removal->root);
       std::lock_guard<std::mutex> lock(mutex_);
       Publish();
       continue;
@@ -605,6 +666,7 @@ void InstallService::Run() {
         std::lock_guard<std::mutex> lock(mutex_);
         active_.reset();
         if (auto* job = Find(*next); job && job->view.state == InstallJobState::kRunning) {
+          ClearWait(*job);
           job->view.state = InstallJobState::kFailed;
           job->view.failure = unwritable;
         }
@@ -613,42 +675,28 @@ void InstallService::Run() {
       }
     }
 
-    InstallRunner::Result result;
-    const auto session = sessions_.Load();
-    if (!session.ok() || !session.value()) {
-      // No saved sign-in yet: right after Playden starts it may still be restoring it. The job
-      // stays queued and is tried again shortly, instead of failing without a word in the log.
-      std::unique_lock<std::mutex> lock(mutex_);
-      active_.reset();
-      if (auto* job = Find(*next); job && job->view.state == InstallJobState::kRunning) {
-        job->view.state = InstallJobState::kQueued;
-        job->view.failure = "Waiting for the Steam sign-in.";
-      }
-      Publish();
-      // Any request (Install, Resume, Shutdown) also ends the wait.
-      if (!stopping_) wake_.wait_for(lock, kSessionRetry);
-      continue;
-    } else {
-      result = runner_.Install(*session.value(), *next->steam_app(), next_root, active_cancel_,
-                               [this, id = *next](std::uint64_t done, std::uint64_t total, std::uint64_t held) {
-                                 std::lock_guard<std::mutex> lock(mutex_);
-                                 if (auto* job = Find(id)) {
-                                   if (job->view.state == InstallJobState::kRunning) job->rate.Record(done, RateNowMs());
-                                   job->view.done_bytes = done;
-                                   job->view.total_bytes = total;
-                                   job->view.held_bytes = held;
-                                   ++revision_;  // progress only; the registry is unchanged
-                                 }
-                               },
-                               [this, id = *next](InstallStep step) {
-                                 std::lock_guard<std::mutex> lock(mutex_);
-                                 if (auto* job = Find(id); job && job->view.step != step) {
-                                   job->view.step = step;
-                                   job->view.step_since = std::chrono::steady_clock::now();
-                                   ++revision_;
-                                 }
-                               });
-    }
+    const auto result = runner->Install(*next, next_root, active_cancel_,
+                                        [this, id = *next](std::uint64_t done, std::uint64_t total, std::uint64_t held) {
+                                          std::lock_guard<std::mutex> lock(mutex_);
+                                          if (auto* job = Find(id)) {
+                                            // Under way: a later wait starts short again.
+                                            job->retry_delay = std::chrono::milliseconds{0};
+                                            if (job->view.state == InstallJobState::kRunning) job->rate.Record(done, RateNowMs());
+                                            job->view.done_bytes = done;
+                                            job->view.total_bytes = total;
+                                            job->view.held_bytes = held;
+                                            ++revision_;  // progress only; the registry is unchanged
+                                          }
+                                        },
+                                        [this, id = *next](InstallStep step) {
+                                          std::lock_guard<std::mutex> lock(mutex_);
+                                          if (auto* job = Find(id)) job->retry_delay = std::chrono::milliseconds{0};
+                                          if (auto* job = Find(id); job && job->view.step != step) {
+                                            job->view.step = step;
+                                            job->view.step_since = std::chrono::steady_clock::now();
+                                            ++revision_;
+                                          }
+                                        });
 
     bool remove_files = false;
     {
@@ -668,24 +716,25 @@ void InstallService::Run() {
         // Playden is closing: the download stays queued, so the next start carries on with it.
         job->view.state = InstallJobState::kQueued;
       } else if (job && job->view.state == InstallJobState::kRunning && !result.ok && !result.canceled && result.retry_later) {
-        // Steam or the network is out of reach (it often is for a moment after Playden starts): the
-        // download keeps its place and tries again shortly instead of failing.
+        // Not yet (no sign-in, or the store is out of reach, as it often is for a moment after Playden
+        // starts): the job keeps its place and tries again after a wait that doubles each time, while
+        // the worker goes on with the other jobs.
         job->view.state = InstallJobState::kQueued;
-        job->view.failure = kWaitingForSteam;
+        job->view.failure = result.waiting.empty() ? kWaiting : result.waiting;
+        job->waiting = true;
+        job->retry_delay = job->retry_delay.count() == 0 ? first_retry_ : std::min(job->retry_delay * 2, most_retry_);
+        job->not_before = std::chrono::steady_clock::now() + job->retry_delay;
         job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset();
-        Publish();
-        // Any request (Pause, Resume, Install, Shutdown) also ends the wait.
-        if (!stopping_) wake_.wait_for(lock, kNetworkRetry);
-        continue;
       } else if (job && job->view.state == InstallJobState::kRunning) {
         // A Pause or Resume that arrived while the run was stopping already chose the state.
+        ClearWait(*job);
         job->view.state = result.canceled ? InstallJobState::kPaused : InstallJobState::kFailed;
         job->view.failure = result.canceled ? std::string() : result.failure;
       }
       Publish();
     }
-    if (remove_files) runner_.Remove(next_root);
+    if (remove_files) runner->Remove(next_root);
   }
 }
 
-}  // namespace playden::steam
+}  // namespace playden::installs

@@ -42,6 +42,15 @@ class CollectLogsTests(unittest.TestCase):
         self.assertIn('Half-Life 2  (FAKE78001, app 220', table)
         self.assertIn('last run never', table)
 
+    def test_title_names_lose_any_store_suffix(self):
+        self.assertEqual(collect_logs.without_store_suffix('Half-Life 2 (Steam)'), 'Half-Life 2')
+        self.assertEqual(collect_logs.without_store_suffix('Delores (Epic)'), 'Delores')
+        self.assertEqual(collect_logs.without_store_suffix('Gothic (GOG)'), 'Gothic')
+        self.assertEqual(collect_logs.without_store_suffix('Imported'), 'Imported')
+        self.assertEqual(collect_logs.without_store_suffix('Game (Steam) (GOG)'), 'Game (Steam)')
+        self.assertEqual(collect_logs.without_store_suffix(' (Steam)'), ' (Steam)')
+        self.assertIsNone(collect_logs.without_store_suffix(None))
+
     def test_redacts_the_account_name_and_steam_ids(self):
         text = title_log(220) + 'cloud user=alice id=76561198000000001 path=C:/users/Alice/saves\n'
         names = collect_logs.account_names([text])

@@ -13,10 +13,11 @@ void LogInstallTrace(const InstallLogFn& log, std::uint32_t app, const char* mar
 
 // Installs a Steam game: PICS app info for the depot selection (Windows, English, public
 // branch), then the resumable depot installer.
-class SteamInstallRunner final : public InstallRunner {
+class SteamInstallRunner final : public SessionInstallRunner {
  public:
-  SteamInstallRunner(CmClient& cm, CdnClient& cdn) : cm_(cm), installer_(cm, cdn) {}
-  Result Install(const StoredSession& session, std::uint32_t id, const std::string& root,
+  SteamInstallRunner(SessionRepository& sessions, CmClient& cm, CdnClient& cdn)
+      : SessionInstallRunner(sessions), cm_(cm), installer_(cm, cdn) {}
+  Result InstallApp(const StoredSession& session, std::uint32_t id, const std::string& root,
                  const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
                  const std::function<void(InstallStep)>& step) override;

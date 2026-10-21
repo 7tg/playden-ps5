@@ -1,26 +1,48 @@
 #pragma once
 #include "homebrew/simulation.hpp"
 #include "library/service.h"
+#include "stores/library_source.h"
+#include <memory>
 #include <optional>
+#include <vector>
 
 namespace playden::app {
-// Presentation-thread projection. The service owns IO and outlives this bridge.
+// Presentation-thread projection. The sources own IO and outlive this bridge. Each store's library
+// has its own request and generation; the model merges them, so one store's refresh, failure or
+// sign-out leaves the others' games alone.
 class LibraryController {
  public:
+  LibraryController(homebrew::Simulation& model,stores::LibrarySource& steam);
+  // Steam's library service, wrapped as its source.
   LibraryController(homebrew::Simulation& model,LibraryService& service);
+  // Another store's library (one without a Steam account): loaded now and on every Refresh.
+  void AddSource(stores::LibrarySource& source);
+  // Steam: the signed-in account's library.
   void Activate(std::uint64_t account_id,bool offline);
   void Refresh();
+  // Steam only: Reset drops Steam's pending work, Clear deletes Steam's saved library.
   void Reset();
   void Clear();
   void Tick();
+  void Shutdown();
   std::optional<steam::LibraryError> TakeClearResult();
   bool NeedsRenewal() const { return offline_ || needs_renewal_; }
-  // A load, refresh or clear is still running.
+  // A Steam load, refresh or clear is still running.
   bool Busy() const { return request_ != 0 || clearing_; }
  private:
+  struct Other {
+    stores::LibrarySource* source = nullptr;
+    std::uint64_t generation = 1,request = 0;
+  };
   void Loading();
+  void TickSteam(LibraryEvent& event);
+  void TickOther(Other& other,LibraryEvent& event);
+  void RefreshOther(Other& other);
+  bool SteamGamesShown() const;
   homebrew::Simulation& model_;
-  LibraryService& service_;
+  std::unique_ptr<stores::LibrarySource> owned_steam_;
+  stores::LibrarySource& steam_;
+  std::vector<Other> others_;
   std::uint64_t account_=0,generation_=0,request_=0;
   bool offline_=false,clearing_=false;
   bool needs_renewal_=false;

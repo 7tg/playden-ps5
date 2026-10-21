@@ -8,8 +8,11 @@
 #include "steam/app_details_service.h"
 #include "steam/store_details_service.h"
 #include "steam/install_service.h"
+#include "installs/installed_location.h"
 #include "steam/cloud_service.h"
 #include "homebrew/runtime_host.hpp"
+#include "stores/registry.h"
+#include "stores/steam.h"
 #include "steam/download_rate.h"
 #include "update/update_service.h"
 #include <chrono>
@@ -20,10 +23,19 @@
 #include <set>
 
 namespace playden::homebrew {
+// What the "Store name in PS5 titles" setting adds to a game's title name: " (Steam)"; imported games
+// have no store to name.
+std::string TitleStoreSuffix(Store store);
 // Main-thread bridge. The backend/repository outlive this object. IO stays on service
 // workers; the presentation receives no credential tokens.
 class Controller {
  public:
+  // The stores' accounts, libraries and details come from the registry, which must hold Steam's account.
+  // Every other store's library is merged with Steam's.
+  Controller(Simulation& model, stores::Registry& stores, app::PersistenceService* persistence_service = nullptr,
+             steam::InstallService* installs = nullptr, steam::CloudService* cloud = nullptr,
+             RuntimeHost* runtime = nullptr, std::function<void(const std::string&)> auth_log = {});
+  // Steam only: a registry of Steam's account over the backend, and of the given services.
   Controller(Simulation& model, steam::AuthBackend& backend, SessionRepository& repository,
              LibraryService* library_service = nullptr, app::PersistenceService* persistence_service = nullptr,
              steam::AppDetailsService* app_details = nullptr, steam::InstallService* installs = nullptr,
@@ -47,10 +59,19 @@ class Controller {
     license_changes_ = std::move(changes);
     license_refresh_delay_ = delay;
   }
+  // Games a source plays in place (external locations), asked for on every tick next to the install
+  // service's own games, so they are prepared, played and re-checked after a restart like those. They
+  // never reach a managed uninstall or the Installed games list. Keep it cheap: it runs on the main thread.
+  void SetExternalLocations(std::function<std::vector<installs::InstalledLocation>()> locations) {
+    external_locations_ = std::move(locations);
+  }
   Controller(const Controller&) = delete;
   Controller& operator=(const Controller&) = delete;
  private:
   enum class Phase { Idle, Restore, SignIn, ClearLibrary, ClearOrganization, SignOut };
+  void Start(app::PersistenceService* persistence_service);
+  // The store's details source, if it has one.
+  stores::DetailsSource* Details(Store store) const { return stores_.details(store); }
   // A new sign-in in the given method; without one, in the method the last sign-in used.
   void Begin();
   void Begin(bool password);
@@ -67,7 +88,7 @@ class Controller {
   void Apply(const steam::SteamEvent& event);
   void Update(AuthState state, const std::string& error = {}, bool clear = false,
               const std::string& challenge = {}, SignInStep step = SignInStep::Qr,
-              const steam::SteamEvent* prompt = nullptr, bool storage_full = false);
+              const steam::SteamEvent* prompt = nullptr, bool storage_full = false, bool restoring = false);
   void TickAppDetails();
   void TickStoreDetails();
   steam::StoreDetailsService* store_details_ = nullptr;
@@ -87,13 +108,25 @@ class Controller {
   void TickCloud();
   void TickRuntime();
   Simulation& model_;
-  steam::AppDetailsService* app_details_ = nullptr;
+  std::unique_ptr<stores::Registry> owned_stores_;
+  stores::Registry& stores_;
+  stores::DetailsSource* app_details_ = nullptr;  // Steam's
   steam::InstallService* installs_ = nullptr;
   std::uint64_t install_revision_ = 0;
   std::uint64_t install_generation_ = 0;
   steam::CloudService* cloud_ = nullptr;
   std::uint64_t cloud_revision_ = 0;
-  std::map<GameId, std::string> game_roots_;  // installed games' folders, for Steam Cloud
+  // Every installed game's location, managed and external; the folders of those available now, and
+  // their volume ids, are what Prepare, Play and Cloud use.
+  std::function<std::vector<installs::InstalledLocation>()> external_locations_;
+  std::vector<installs::InstalledLocation> locations_;
+  std::uint64_t locations_revision_ = 0;
+  std::uint64_t runtime_locations_revision_ = 0;
+  void ProjectLocations(const std::vector<steam::InstalledGame>& managed);
+  const installs::InstalledLocation* LocationOf(GameId id) const;
+  // Whether Cloud saves apply to the game: a Cloud service exists and the game's store has them.
+  bool CloudCapable(GameId id) const { return cloud_ && Traits(id.store).cloud_saves; }
+  std::map<GameId, std::string> game_roots_;  // installed games' folders, for Prepare, Play and Cloud
   std::map<GameId, std::string> game_volumes_;  // installed games' volume ids
   // Steam's Windows launch options per game, from app details. A game Playden ships
   // no recipe for is prepared from them; Prepare waits while they are fetched.
@@ -219,9 +252,8 @@ class Controller {
   std::optional<std::chrono::steady_clock::time_point> licenses_notice_at_;  // when a license check starts showing
   std::optional<GameId> requested_detail_;
   std::uint64_t requested_generation_ = 0;
-  std::unique_ptr<steam::SteamService> service_;
+  stores::SteamAccount* service_ = nullptr;  // Steam's account, in the registry; null once shut down
   std::function<void(const std::string&)> auth_log_;  // sign-in steps and results (auth.log)
-  LibraryService* library_service_ = nullptr;
   std::unique_ptr<app::LibraryController> library_;
   std::unique_ptr<app::PersistenceController> persistence_;
   AuthState established_auth_ = AuthState::SignedOut;

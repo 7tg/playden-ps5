@@ -125,6 +125,30 @@ int main(int argc, char** argv) {
   CHECK(::chmod(records.c_str(), 0660) == 0);
   CHECK(!LoadGameSettingsFile(records.string(), &loaded, &reason));
   CHECK(::chmod(records.c_str(), 0600) == 0);
+  {
+    // A game's Steam app ID (another store's game) is saved only when set, even as the record's only
+    // value; a malformed one is dropped and the rest of the record loads.
+    const auto imported = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+    GameSettingsRecord only_app;
+    only_app.steam_app_id = 99700;
+    const auto apps = root / "apps.json";
+    CHECK(SaveGameSettingsFile(apps.string(), {{SteamId(220), {"", {}, 3}}, {imported, only_app}}, &reason));
+    const auto text = Read(apps);
+    CHECK(text.find("\"220\":{\"preset\":\"\",\"revision\":3,\"overrides\":{}}") != std::string::npos);
+    CHECK(text.find("\"overrides\":{},\"steam_app_id\":\"99700\"}") != std::string::npos);
+    std::map<playden::GameId, GameSettingsRecord> apps_loaded;
+    CHECK(LoadGameSettingsFile(apps.string(), &apps_loaded, &reason));
+    CHECK(apps_loaded.at(imported) == only_app && apps_loaded.at(SteamId(220)).steam_app_id == 0);
+    GameSettingsRecord parsed;
+    for (const char* value : {"\"0123\"", "\"0\"", "\"4294967296\"", "\"12a\"", "99700"}) {
+      CHECK(ParseGameSettingsRecord(std::string("{\"preset\":\"p\",\"revision\":2,\"steam_app_id\":") + value + "}",
+                                    &parsed, &reason));
+      CHECK(parsed.steam_app_id == 0 && parsed.preset_id == "p" && parsed.revision == 2);
+    }
+    CHECK(ParseGameSettingsRecord("{\"steam_app_id\":\" 4294967295\\n\"}", &parsed, &reason) &&
+          parsed.steam_app_id == 4294967295u);
+    CHECK(!ParseSteamAppId("+5") && !ParseSteamAppId("") && ParseSteamAppId("\t7\r\n") == 7u);
+  }
 
   const auto public_private_root = root / "public-settings";
   fs::create_directory(public_private_root);

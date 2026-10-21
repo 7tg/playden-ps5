@@ -1216,6 +1216,9 @@ bool RecordFromValue(const storage_json::Value& root, GameSettingsRecord* out) {
     if (!parsed) return false;
     out->revision = *parsed;
   }
+  // A malformed app ID is dropped, not the record: the rest of the player's settings still load.
+  if (const auto* app = root.Find("steam_app_id"); app && app->is_string())
+    out->steam_app_id = ParseSteamAppId(app->text()).value_or(0);
   // Settings this build does not know are dropped so an older record still loads.
   for (auto it = out->overrides.begin(); it != out->overrides.end();)
     it = FindSetting(it->first) || IsUnlockKey(it->first) ? std::next(it) : out->overrides.erase(it);
@@ -1223,6 +1226,13 @@ bool RecordFromValue(const storage_json::Value& root, GameSettingsRecord* out) {
 }
 
 }  // namespace
+
+std::optional<std::uint32_t> ParseSteamAppId(std::string_view text) {
+  const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+  while (!text.empty() && space(text.front())) text.remove_prefix(1);
+  while (!text.empty() && space(text.back())) text.remove_suffix(1);
+  return GameId{Store::kSteam, std::string(text)}.steam_app();
+}
 
 bool ParseGameSettingsRecord(std::string_view text, GameSettingsRecord* record, std::string* reason) {
   const auto root = storage_json::Parse(text);
@@ -1244,7 +1254,9 @@ std::string SerializeGameSettingsRecord(const GameSettingsRecord& record) {
     first = false;
     text += "\"" + json::escape(id) + "\":\"" + json::escape(value) + "\"";
   }
-  return text + "}}";
+  text += "}";
+  if (record.steam_app_id) text += ",\"steam_app_id\":\"" + std::to_string(record.steam_app_id) + "\"";
+  return text + "}";
 }
 
 std::string SerializeGameRecipe(const GameRecipe& recipe) {
@@ -1864,7 +1876,9 @@ std::string SerializeSettingsFile(
   std::string text = "{\"version\":1,\"games\":{";
   bool first = true;
   for (const auto& [id, record] : records) {
-    if (!id.valid() || (record.preset_id.empty() && record.overrides.empty() && record.revision == 0)) continue;
+    if (!id.valid() || (record.preset_id.empty() && record.overrides.empty() && record.revision == 0 &&
+                         !record.steam_app_id))
+      continue;
     if (!first) text += ",";
     first = false;
     text += "\"" + ToKey(id) + "\":" + SerializeGameSettingsRecord(record);
