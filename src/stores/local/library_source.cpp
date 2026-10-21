@@ -1,6 +1,9 @@
 #include "stores/local/library_source.h"
 
+#include "stores/local/copy_plan.h"
+
 #include <cerrno>
+#include <dirent.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -215,6 +218,11 @@ std::uint64_t LocalLibrarySource::Reconcile(std::function<installs::InstallSnaps
   return Submit(std::move(job));
 }
 
+void LocalLibrarySource::SetRuntimeNumber(std::function<std::uint32_t(const GameId&)> runtime_number) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  runtime_number_ = std::move(runtime_number);
+}
+
 std::vector<LibraryEvent> LocalLibrarySource::Pump(std::size_t max_events) {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<LibraryEvent> result;
@@ -334,6 +342,8 @@ void LocalLibrarySource::Execute(const Job& job) {
           " program=" + job.program);
       for (auto& candidate : candidates_)
         if (candidate.volume == job.volume && candidate.folder == folder) candidate.imported_id = added.value().id;
+      // Numbered here, on this worker, before the game is listed: the main thread never waits for it.
+      WarmRuntimeNumber(job.number_for, added.value().id);
       ++games_revision_;
       return Outcome(job, true, added.value().id, {});
     }
@@ -403,6 +413,7 @@ void LocalLibrarySource::Execute(const Job& job) {
         return std::any_of(service.jobs.begin(), service.jobs.end(),
                            [&](const installs::InstallJobView& view) { return view.id == id; });
       };
+      std::set<std::string> numbered;  // asked for already, in this pass
       for (const auto& game : store_.Games()) {
         if (game.state != ImportState::kCopyQueued && game.state != ImportState::kCopying) continue;
         const auto id = GameId::Local(game.id);
@@ -421,6 +432,7 @@ void LocalLibrarySource::Execute(const Job& job) {
             const auto source = HostPath(Join(volume->mount, game.folder));
             if (::lstat(source.c_str(), &info) != 0 && errno == ENOENT) {
               const auto number = job.number_for ? job.number_for(id) : 0u;
+              numbered.insert(game.id);
               const auto failure = config_.move_into_playden(game, source, number);
               Log("import move reconciled id=" + game.id + (failure.empty() ? " copied" : ": " + failure));
               changed = true;
@@ -440,6 +452,34 @@ void LocalLibrarySource::Execute(const Job& job) {
         Log("import copy job cancelled id=" + view.id.value + " (not being copied)");
         job.cancel_job(view.id);
       }
+      // Copy plan folders no copy owns: a stop between the plan being saved and its job queued
+      // (Enqueue), or a copy put back in place above. Its game is gone or plays in place, the
+      // service has no job or install for it. Enqueue runs on this worker too, so none is half made.
+      if (config_.remove_copy_folder)
+        for (const auto& volume : service.volumes) {
+          if (!volume.available || volume.games_root.empty()) continue;
+          DIR* folder = ::opendir(volume.games_root.c_str());
+          if (!folder) continue;
+          std::vector<std::string> roots;
+          while (const auto* item = ::readdir(folder)) {
+            const auto key = ParseKey(item->d_name);
+            if (!key || key->store != Store::kLocal || queued(*key) || installed(*key)) continue;
+            const auto game = store_.Find(key->value);
+            if (game && game->state != ImportState::kInPlace) continue;
+            const auto root = volume.games_root + "/" + item->d_name;
+            struct stat journal {};
+            if (::lstat((root + "/" + kCopyJournalDir).c_str(), &journal) == 0 && S_ISDIR(journal.st_mode))
+              roots.push_back(root);
+          }
+          ::closedir(folder);
+          for (const auto& root : roots) {
+            const bool removed = config_.remove_copy_folder(root);
+            Log("import copy folder " + std::string(removed ? "removed" : "not removed") + " root=" + root +
+                " (no copy owns it)");
+          }
+        }
+      for (const auto& game : store_.Games())
+        if (!numbered.count(game.id)) WarmRuntimeNumber(job.number_for, game.id);
       if (changed) ++games_revision_;
       return Outcome(job, true, {}, {});
     }
@@ -456,6 +496,15 @@ void LocalLibrarySource::Execute(const Job& job) {
       return Outcome(job, true, job.id, {});
     }
   }
+}
+
+void LocalLibrarySource::WarmRuntimeNumber(const std::function<std::uint32_t(const GameId&)>& given, const std::string& id) {
+  std::function<std::uint32_t(const GameId&)> number_for = given;
+  if (!number_for) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    number_for = runtime_number_;
+  }
+  if (number_for) number_for(GameId::Local(id));
 }
 
 void LocalLibrarySource::Outcome(const Job& job, bool ok, std::string id, std::string message) {

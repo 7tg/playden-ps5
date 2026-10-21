@@ -2594,7 +2594,7 @@ void live_import_choice_and_details() {
                          {"usb1", "USB drive 2", true, 900'000'000'000, 500'000'000'000}}, "internal");
     LiveImportCandidate rally;
     rally.volume_id = "usb0"; rally.folder = "playden/import/Rally"; rally.path = "/mnt/usb0/playden/import/Rally";
-    rally.title = "Rally"; rally.total_bytes = 8'900'000'000; rally.ascii_ok = true;
+    rally.title = "Rally"; rally.total_bytes = 8'900'000'000; rally.ascii_ok = true; rally.file_count = 5000;
     rally.programs = {{"Rally.exe", 9'000'000, false}};
     LiveImportCandidate cafe = rally;
     cafe.folder = "playden/import/Café"; cafe.path = "/mnt/usb0/playden/import/Café"; cafe.title = "Café"; cafe.ascii_ok = false;
@@ -2624,7 +2624,7 @@ void live_import_choice_and_details() {
     activate(model, "import-candidate-usb0:playden/import/Rally");
     activate(model, "import-program-0");
     check(find_row(model, "import-play-in-place")->title == "Play from the drive" &&
-              find_row(model, "import-copy")->value == "8.9 GB · about 14 min" && !has_row(model, "import-move") &&
+              find_row(model, "import-copy")->value == "8.9 GB · about 4 min" && !has_row(model, "import-move") &&
               find_row(model, "storage-picker")->title == "Copy to" && find_row(model, "storage-picker")->value == "Console storage",
           "a drive folder plays from there or is copied, with its size, time and drive");
     activate(model, "storage-picker");
@@ -2659,6 +2659,11 @@ void live_import_choice_and_details() {
     check(find_row(model, "details-copy") && find_row(model, "details-copy")->title == "Copy into Playden" &&
               find_row(model, "details-remove") && !has_row(model, "details-cloud") && !has_row(model, "details-uninstall"),
           "an imported game on a drive offers Copy into Playden and Remove from library");
+    // The page's sheet shows the size and estimate the add flow showed (from the scan, the game has no size).
+    activate(model, "details-copy");
+    check(model.view().surface == "import-choice" && find_row(model, "import-copy")->value == "8.9 GB · about 4 min",
+          "the page's copy sheet has the folder's size and the same estimate");
+    model.action("circle");
     // A folder the PS5 can't play from (its name) still offers the copy.
     model.UpdateExternalGames({{id, "usb0", true, "The game's folder name has characters the PS5 can't play from."}});
     check(has_row(model, "details-installed") && has_row(model, "details-copy") && has_row(model, "details-remove"),
@@ -2669,11 +2674,36 @@ void live_import_choice_and_details() {
     check(copying && copying->title == "Copying" && copying->progress > 0.49F && copying->progress < 0.51F &&
               !has_row(model, "details-copy") && !find_row(model, "details-remove")->enabled,
           "the copy's progress replaces Copy into Playden");
+    // A failed copy can be cancelled from the page; the game plays in place again.
+    model.UpdateInstalls({{id, playden::homebrew::JobState::Failed, 4'450'000'000, 8'900'000'000, "Copy failed", "usb1"}}, {});
+    check(find_row(model, "details-cancel-copy") && !find_row(model, "details-remove")->enabled, "a failed copy offers Cancel copy");
+    activate(model, "details-cancel-copy");
+    check(model.view().surface == "confirmation", "Cancel copy asks first");
+    activate(model, "confirm-destructive");
+    const auto cancels = model.TakeInstallRequests();
+    check(cancels.size() == 1 && cancels[0].kind == playden::homebrew::InstallRequestKind::Cancel && cancels[0].game_id == id,
+          "Cancel copy cancels the copy job like Queue does");
+    model.UpdateInstalls({}, {});
+    check(has_row(model, "details-copy") && !has_row(model, "details-cancel-copy") && find_row(model, "details-remove")->enabled,
+          "after the cancel the game plays in place again");
     // Copied: Uninstall, not Remove from library.
     model.UpdateInstalls({}, {{id, 8'900'000'000, "usb1", true}});
     model.UpdateExternalGames({});
     check(has_row(model, "details-uninstall") && !has_row(model, "details-remove") && !has_row(model, "details-copy"),
           "a copied game uninstalls");
+    playden::homebrew::LiveRuntimeGame titled;
+    titled.game_id = id; titled.status = "Ready"; titled.ready = true; titled.can_play = true; titled.has_title = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {titled});
+    activate(model, "details-uninstall");
+    check(model.state().navigation.modals.back().body.find("adding the game again brings them back") != std::string::npos &&
+              model.state().navigation.modals.back().body.find("installing") == std::string::npos,
+          "an imported game's uninstall dialog says adding it again brings the saves back");
+    activate(model, "uninstall-delete-saves");
+    activate(model, "uninstall-delete-saves");
+    check(model.state().navigation.modals.back().body.find("adding the game again") != std::string::npos,
+          "the saves choice keeps the imported wording");
+    model.action("circle");
+    model.TakeInstallRequests();
 
     // A refused copy or add is said to the player.
     model.NotifyImportFailed({ImportRequestKind::CopyIntoPlayden, id, "usb1"}, "Not enough space on USB drive 2.");

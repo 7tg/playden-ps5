@@ -578,6 +578,7 @@ int main(int argc, char** argv) {
                                               std::uint32_t runtime_number) {
             return runner->Move(*service, entry, source, runtime_number);
         };
+        import_config.remove_copy_folder = [runner = copy_runner.get()](const std::string& root) { return runner->Remove(root); };
         auto local_library = std::make_unique<playden::stores::local::LocalLibrarySource>(*imports, std::move(import_config));
         auto* local = local_library.get();
         copy_runner->SetChanged([local] { local->Reload(); });
@@ -728,6 +729,11 @@ int main(int argc, char** argv) {
     if (controller) SDL_GameControllerClose(controller);
     SDL_StopTextInput();
     if (services) services->Shutdown();
+    // The install service stops before the Local store goes (`stores` is destroyed before
+    // `installs`): its copy runner's change callback calls into the Local store. Explicit here, so
+    // it doesn't rest on the controller's shutdown or on declaration order.
+    if (installs) installs->Shutdown();
+    if (copy_runner) copy_runner->SetChanged({});
     if (artwork) artwork->Shutdown();
     render.reset();
     SDL_GL_DeleteContext(context);

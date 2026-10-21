@@ -1239,7 +1239,7 @@ static void t18_imported_game_page(const std::filesystem::path& fixtures, const 
           "T18 an imported game's page plays in place and offers Copy and Remove");
     // Copy: the drive choice, then the copy's progress on the page.
     press("details-copy");
-    check(simulation.view().surface == "import-choice" && !row("import-play-in-place") && row("import-copy")->value == "412 MB · about 1 min",
+    check(simulation.view().surface == "import-choice" && !row("import-play-in-place") && row("import-copy")->value == "412 MB · under a minute",
           "T18 Copy into Playden from the page asks for the drive");
     press("storage-picker");
     check(simulation.view().surface == "storage" && simulation.view().title == "Copy to", "T18 the copy's drive picker");
@@ -1252,6 +1252,13 @@ static void t18_imported_game_page(const std::filesystem::path& fixtures, const 
           "T18 the copy runs on the chosen drive and shows on the page");
     check(simulation.scenario("import-copying"), "T18 import-copying scenario");
     check(row("details-download")->progress > 0.39F && row("details-download")->progress < 0.41F, "T18 the copy is 40% done");
+    // Cancel copy: asks, then the game plays in place again.
+    check(row("details-cancel-copy") && row("details-remove") && !row("details-remove")->enabled, "T18 a copy offers Cancel copy");
+    press("details-cancel-copy");
+    check(simulation.view().surface == "confirmation", "T18 Cancel copy asks first");
+    press("confirm-destructive");
+    check(row("details-copy") && !row("details-download") && !row("details-cancel-copy") && row("details-remove")->enabled,
+          "T18 a cancelled copy returns the game to playing in place");
 
     // Remove from library: the folder stays, and can be added again.
     check(simulation.scenario("import-details"), "T18 import-details again");

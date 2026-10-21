@@ -99,6 +99,7 @@ struct Fixture {
   std::vector<std::string> log;
   std::mutex log_mutex;
   int next_id = 0;
+  std::atomic<bool> usb_present{true};  // the source drive
 
   Fixture() {
     char name[] = "/tmp/playden-local-copy-XXXXXX";
@@ -140,13 +141,14 @@ struct Fixture {
     LocalLibraryConfig config;
     config.volumes = {{"internal", "/data", "playden-import", false}, {"usb0", "/mnt/usb0", "playden/import", false}};
     config.host_prefix = root.string();
-    config.present = [](const ImportVolume&) { return true; };
+    config.present = [this](const ImportVolume& volume) { return volume.volume != "usb0" || usb_present.load(); };
     config.log = options.log;
     config.copy_into_playden = [this](const ImportEntry& entry, const std::string& from, const std::string& volume,
                                       std::uint32_t number) { return runner->Enqueue(*service, entry, from, volume, number); };
     config.move_into_playden = [this](const ImportEntry& entry, const std::string& from, std::uint32_t number) {
       return runner->Move(*service, entry, from, number);
     };
+    config.remove_copy_folder = [this](const std::string& folder) { return runner->Remove(folder); };
     local = std::make_unique<LocalLibrarySource>(*store, std::move(config));
     runner->SetChanged([source = local.get()] { source->Reload(); });
     WaitFor([&] { return local->Snapshot()->loaded || !local->Snapshot()->load_error.empty(); }, "imports loaded");
@@ -688,6 +690,34 @@ void ProgramMissingIsRefused() {
   CHECK(fixture.State() == ImportState::kInPlace && !fs::exists(fixture.Dest()));
 }
 
+// The copy lives on Playden's storage: it uninstalls, and its game leaves the library, while the
+// drive it was copied from is unplugged.
+void UninstallWithoutTheSourceDrive() {
+  Fixture fixture;
+  fixture.Start();
+  fixture.Add();
+  CHECK(fixture.Outcome(fixture.local->CopyIntoPlayden(kId)).ok);
+  WaitFor([&] { return fixture.Installed() && fixture.State() == ImportState::kCopied; }, "copied");
+  // The drive goes: its folder with it.
+  fixture.usb_present = false;
+  fs::rename(fixture.root / "mnt/usb0", fixture.root / "unplugged");
+  fixture.local->CheckVolumes();
+  WaitFor([&] { return !fixture.local->Snapshot()->present_volumes.count("usb0"); }, "the drive gone");
+  // A restart without the drive, too.
+  fixture.Stop();
+  fixture.Start();
+  CHECK(fixture.Installed() && fixture.State() == ImportState::kCopied);
+  auto* service = fixture.service.get();
+  CHECK(fixture.Outcome(fixture.local->Reconcile([service] { return service->Snapshot(); },
+                                                 [service](const GameId& id) { service->Cancel(id); })).ok);
+  CHECK(fixture.local->Locations().empty());
+  fixture.service->Uninstall(fixture.Game());
+  WaitFor([&] { return !fs::exists(fixture.Dest()); }, "the files removed");
+  WaitFor([&] { return fixture.local->Snapshot()->games.empty(); }, "the game out of the library");
+  CHECK(!fixture.store->Find(kId) && fixture.store->Removed().size() == 1);
+  CHECK(fs::is_regular_file(fixture.root / "unplugged/playden/import/Rally/Bin/Rally.exe"));
+}
+
 void CrashBetweenCommitSteps() {
   Fixture fixture;
   // Playden stops after the install record, before imports.json says copied.
@@ -725,6 +755,46 @@ void ReconcileWithoutJob() {
   WaitFor([&] { const auto job = fixture.Job(); return job && job->state == InstallJobState::kFailed; }, "the stale job");
   fixture.local->Reconcile([service] { return service->Snapshot(); }, [service](const GameId& id) { service->Cancel(id); });
   WaitFor([&] { return !fixture.Job(); }, "the stale job cancelled");
+}
+
+// Playden stopped between saving a copy's plan and queuing its job: the folder has a plan and no
+// job. The next start's reconcile puts the game back in place and removes the folder, and a plan
+// folder whose game isn't in the library goes too; a copy with its job keeps its folder.
+void OrphanCopyFoldersRemoved() {
+  Fixture fixture;
+  std::atomic<bool> pause{false};
+  fixture.options.after_file = [&](const std::string&) {
+    if (pause.exchange(false)) fixture.service->Pause(GameId::Local(kId));
+  };
+  fixture.Start();
+  fixture.Add();
+  auto build = BuildCopyPlan(fixture.source.string());
+  CHECK(build.ok);
+  build.plan.program = "Bin/Rally.exe";
+  CHECK(SaveCopyPlan(build.plan, fixture.Dest().string()).empty());
+  CHECK(fixture.store->QueueCopy(kId).ok());
+  const auto stray = fixture.games / "local-16fd2706-8baf-433b-82eb-8c7fada847da";
+  CHECK(SaveCopyPlan(build.plan, stray.string()).empty());
+  // Not Playden's: a folder without a plan, and one that isn't a Local key.
+  fs::create_directories(fixture.games / "local-6fa459ea-ee8a-4ca4-894e-db77e160355e/saves");
+  fs::create_directories(fixture.games / "other/.playden-copy");
+  auto* service = fixture.service.get();
+  const auto reconciled = fixture.local->Reconcile([service] { return service->Snapshot(); },
+                                                   [service](const GameId& id) { service->Cancel(id); });
+  CHECK(fixture.Outcome(reconciled).ok);
+  CHECK(fixture.State() == ImportState::kInPlace);
+  CHECK(!fs::exists(fixture.Dest()) && !fs::exists(stray));
+  CHECK(fixture.Logged("import copy folder removed root=" + fixture.Dest().string()));
+  CHECK(fs::is_directory(fixture.games / "local-6fa459ea-ee8a-4ca4-894e-db77e160355e/saves"));
+  CHECK(fs::is_directory(fixture.games / "other/.playden-copy"));
+  // A copy with its job keeps its plan folder.
+  pause = true;
+  CHECK(fixture.Outcome(fixture.local->CopyIntoPlayden(kId)).ok);
+  WaitFor([&] { const auto job = fixture.Job(); return job && job->state == InstallJobState::kPaused; }, "paused");
+  CHECK(fs::exists(fixture.Dest() / ".playden-copy/plan.json"));
+  CHECK(fixture.Outcome(fixture.local->Reconcile([service] { return service->Snapshot(); },
+                                                 [service](const GameId& id) { service->Cancel(id); })).ok);
+  CHECK(fs::exists(fixture.Dest() / ".playden-copy/plan.json") && fixture.State() != ImportState::kInPlace);
 }
 
 void FreeSpaceRefused() {
@@ -781,12 +851,14 @@ int main() {
   PlanCoversTheTree();
   LinksAreRefused();
   CopiesIntoPlayden();
+  UninstallWithoutTheSourceDrive();
   ResumesAfterPauseAndRestart();
   CancelLeavesNothing();
   ChangedSourceFails();
   ProgramMissingIsRefused();
   CrashBetweenCommitSteps();
   ReconcileWithoutJob();
+  OrphanCopyFoldersRemoved();
   FreeSpaceRefused();
   CopyRelocatesItsTitle();
   MovesDropFolderGame();

@@ -94,6 +94,10 @@ struct LocalLibraryConfig {
   // empty string, or a sentence for the player. Empty: games can't be moved.
   std::function<std::string(const ImportEntry& entry, const std::string& source, std::uint32_t runtime_number)>
       move_into_playden;
+  // Deletes a copy's folder (<games_root>/local-<id>, holding a copy plan) that no copy owns any
+  // more; LocalCopyRunner::Remove, which only deletes what Playden recognizes as its own. Reconcile
+  // calls it. Empty: such folders stay.
+  std::function<bool(const std::string& root)> remove_copy_folder;
 };
 
 // The words for a game that can't play from its folder because of its name (the descriptor rule).
@@ -155,10 +159,17 @@ class LocalLibrarySource final : public LibrarySource {
   // as an install goes back to in_place, unless it is a move whose rename happened (its drop
   // folder is gone): that one is finished (move_into_playden, with `runtime_number`'s number); and
   // a copy job whose game isn't being copied (back in place, or gone) is cancelled, which removes
-  // its partial folder.
+  // its partial folder. Last, a copy plan folder in an available games folder that no copy owns (a
+  // stop between saving the plan and queuing its job; a game back in place, or gone) is removed
+  // (LocalLibraryConfig::remove_copy_folder).
   std::uint64_t Reconcile(std::function<installs::InstallSnapshot()> installs,
                           std::function<void(const GameId&)> cancel_job,
                           std::function<std::uint32_t(const GameId&)> runtime_number = {});
+
+  // The runtime's number for a game, which may wait for the runtime worker: called on this store's
+  // worker for every game it adds and for every game at Reconcile, so the number is known (and the
+  // runtime's cache warm) before the main thread, which must never wait, asks for it.
+  void SetRuntimeNumber(std::function<std::uint32_t(const GameId&)> runtime_number);
 
   std::shared_ptr<const LocalSnapshot> Snapshot() const;
   // Cheap: a copy of the last projection.
@@ -180,6 +191,7 @@ class LocalLibrarySource final : public LibrarySource {
   std::uint64_t Submit(Job job);
   void Run();
   void Execute(const Job& job);
+  void WarmRuntimeNumber(const std::function<std::uint32_t(const GameId&)>& given, const std::string& id);
   void EnsureLoaded();
   bool CheckPresence();  // true when the present volumes changed
   void Scan();
@@ -201,6 +213,7 @@ class LocalLibrarySource final : public LibrarySource {
   std::vector<ImportOutcome> outcomes_;
   std::uint64_t games_revision_ = 0;
 
+  std::function<std::uint32_t(const GameId&)> runtime_number_;  // guarded by mutex_
   mutable std::mutex mutex_;
   std::condition_variable wake_;
   std::deque<Job> pending_;

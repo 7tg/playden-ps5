@@ -36,6 +36,9 @@ bool WithRoot(const std::function<bool()>& work);
 // against the effective UID, so a root raise elsewhere in the middle of them refuses Playden's own
 // folders. Work on the holding thread may still use WithRoot.
 std::shared_ptr<void> HoldEffectiveUid();
+// HoldEffectiveUid without waiting: nothing when another thread holds the token (the runtime
+// worker in a batch), so a caller that holds other locks can come back later instead.
+std::shared_ptr<void> TryHoldEffectiveUid();
 
 // runtime::kTitleRuleAllowList on the console, as root.
 bool WriteTitleAllowList(const std::string& contents, std::string* error);

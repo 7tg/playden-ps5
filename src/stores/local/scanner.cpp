@@ -208,7 +208,7 @@ FolderScan ScanGameFolder(const std::string& folder_path) {
     if (name.front() == '.') continue;
     if (entry->d_type == DT_LNK) continue;
     const auto listed = static_cast<std::uint64_t>(entry->d_fileno);
-    const int child = platform::OpenWalkChild(frame.fd, name.c_str(), kOpenAny, listed);
+    const int child = platform::OpenWalkChildUnprivileged(frame.fd, name.c_str(), kOpenAny, listed);
     if (child < 0) {
       const int error = errno;
       if (Unsupported(error)) { scan.error = error; status = ScanStatus::kUnsupported; break; }
@@ -261,7 +261,8 @@ ProgramCheck CheckProgram(const std::string& folder, const std::string& program)
   const auto parts = Split(program);
   for (std::size_t i = 0; i < parts.size(); ++i) {
     const bool last = i + 1 == parts.size();
-    const int child = platform::OpenWalkChild(fd, parts[i].c_str(), last ? kOpenAny : kOpenFolder);
+    const int child = last ? platform::OpenWalkChildUnprivileged(fd, parts[i].c_str(), kOpenAny)
+                           : platform::OpenWalkChild(fd, parts[i].c_str(), kOpenFolder);
     const int error = errno;
     ::close(fd);
     if (child < 0) {

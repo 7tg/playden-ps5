@@ -317,6 +317,8 @@ std::vector<std::string> context_actions(bool live) {
 
 constexpr const char* uninstall_body_kept = "The game's files and its PS5 title are removed from this console. Its saves and "
                                             "settings are kept, and installing the game again brings them back.";
+constexpr const char* uninstall_body_kept_imported = "The game's files and its PS5 title are removed from this console. Its saves and "
+                                                     "settings are kept, and adding the game again brings them back.";
 constexpr const char* uninstall_body_deleted = "The game's files, its PS5 title and its saves and settings on this console are "
                                                "deleted.";
 constexpr const char* uninstall_batch_body_kept = "Their files and PS5 titles are removed from this console. Their saves and "
@@ -627,10 +629,14 @@ std::string import_volume_name(const std::string& volume) {
     return volume;
 }
 
-// How long a copy takes at the console's copy speed (about 11 MB/s): "about 14 min".
-std::string import_copy_estimate(std::uint64_t bytes) {
-    constexpr std::uint64_t kBytesPerSecond = 11'000'000;
-    const auto minutes = std::max<std::uint64_t>(1, (bytes / kBytesPerSecond + 59) / 60);
+// How long a copy takes on the console: about 80 MB/s of data plus 15 ms to create each file (file
+// creation is serialized, so many small files copy slowly): "under a minute", "about 14 min".
+std::string import_copy_estimate(std::uint64_t bytes, std::uint64_t files) {
+    constexpr std::uint64_t kBytesPerSecond = 80'000'000;
+    constexpr std::uint64_t kMillisecondsPerFile = 15;
+    const auto seconds = (bytes + kBytesPerSecond - 1) / kBytesPerSecond + (files * kMillisecondsPerFile + 999) / 1000;
+    if (seconds < 60) return "under a minute";
+    const auto minutes = (seconds + 59) / 60;
     if (minutes <= 90) return "about " + std::to_string(minutes) + " min";
     return "about " + std::to_string((minutes + 30) / 60) + " h";
 }
@@ -643,23 +649,24 @@ std::string import_candidate_key(const LiveImportCandidate& candidate) {
 std::vector<LiveImportCandidate> fixture_import_candidates() {
     std::vector<LiveImportCandidate> candidates;
     const auto add = [&](std::string volume, std::string folder, std::string path, std::string title,
-                         std::uint64_t bytes, bool ascii_ok, std::vector<LiveImportProgram> programs) {
+                         std::uint64_t bytes, bool ascii_ok, std::vector<LiveImportProgram> programs,
+                         std::uint64_t files = 0) {
         LiveImportCandidate candidate;
         candidate.volume_id = std::move(volume); candidate.folder = std::move(folder); candidate.path = std::move(path);
         candidate.title = std::move(title); candidate.total_bytes = bytes; candidate.ascii_ok = ascii_ok;
-        candidate.programs = std::move(programs);
+        candidate.programs = std::move(programs); candidate.file_count = files;
         candidates.push_back(std::move(candidate));
     };
     add("usb0", "playden/import/Night Sky", "/mnt/usb0/playden/import/Night Sky", "Night Sky", 412'000'000, true,
-        {{"NightSky.exe", 18'000'000, false}});
+        {{"NightSky.exe", 18'000'000, false}}, 120);
     add("usb0", "playden/import/Old School Rally", "/mnt/usb0/playden/import/Old School Rally", "Old School Rally",
-        938'000'000, true, {{"OldSchoolRally.exe", 640'000'000, false}, {"UnityCrashHandler64.exe", 1'400'000, true}});
+        938'000'000, true, {{"OldSchoolRally.exe", 640'000'000, false}, {"UnityCrashHandler64.exe", 1'400'000, true}}, 2400);
     add("usb0", "playden/import/Café Étoile", "/mnt/usb0/playden/import/Café Étoile", "Café Étoile", 1'250'000'000,
-        false, {{"CafeEtoile.exe", 96'000'000, false}, {"redist/vcredist_x64.exe", 14'000'000, true}});
+        false, {{"CafeEtoile.exe", 96'000'000, false}, {"redist/vcredist_x64.exe", 14'000'000, true}}, 300);
     add("m2", "playden/import/Delores", "/mnt/ext1/playden/import/Delores", "Delores", 230'000'000, true,
-        {{"Delores.exe", 9'000'000, false}});
+        {{"Delores.exe", 9'000'000, false}}, 80);
     add("internal", "playden-import/Hollow Knight", "/data/playden-import/Hollow Knight", "Hollow Knight",
-        8'900'000'000, true, {{"hollow_knight.exe", 650'000, false}});
+        8'900'000'000, true, {{"hollow_knight.exe", 650'000, false}}, 1500);
     add("internal", "playden-import/Tools", "/data/playden-import/Tools", "Tools", 3'000'000, true, {});
     return candidates;
 }
@@ -1100,8 +1107,12 @@ void Simulation::NotifyImportFailed(const ImportRequest& request, const std::str
 bool Simulation::SeedGameProgram(GameId id, const std::string& program) {
     if (!live() || !id.valid() || settings_load_failed_ || game_settings_file_.empty()) return false;
     if (!rt::ValidateSettingValue(rt::GameRecipe{}, "program", program, nullptr)) return false;
+    // Only a record never saved: once the player changed anything (a Program reset included), the
+    // choice is theirs.
+    if (const auto found = state_.game_settings.find(id);
+        found != state_.game_settings.end() && (found->second.revision != 0 || !found->second.overrides.empty()))
+        return false;
     auto& record = state_.game_settings[id];
-    if (record.overrides.count("program")) return false;
     record.overrides["program"] = program;
     ++record.revision;
     save_profile();
@@ -3562,15 +3573,22 @@ void Simulation::rebuild_view() {
             view_.subtitle = import_programs->ascii_ok ? "Choose the program that starts the game." : kImportCopyOnlyText;
         // The add choice: its folder's candidate, or the game added already (its page's Copy or Move).
         const LiveImportCandidate* import_choice = nullptr;
-        std::uint64_t import_choice_bytes = 0;
+        std::uint64_t import_choice_bytes = 0, import_choice_files = 0;
         std::string import_choice_volume;
         if (modal.id == "import-choice") {
             if (import_choice_game_.valid()) {
                 const auto* game = find_game(state_, import_choice_game_);
                 if (game && game->install_bytes) import_choice_bytes = *game->install_bytes;
+                // An in-place game's size and file count come from the import scan.
+                for (const auto& candidate : state_.import_candidates)
+                    if (candidate.imported == import_choice_game_) {
+                        if (!import_choice_bytes) import_choice_bytes = candidate.total_bytes;
+                        import_choice_files = candidate.file_count;
+                    }
                 if (const auto* external = external_game(import_choice_game_)) import_choice_volume = external->volume_id;
             } else if ((import_choice = import_candidate(import_programs_key_))) {
                 import_choice_bytes = import_choice->total_bytes;
+                import_choice_files = import_choice->file_count;
                 import_choice_volume = import_choice->volume_id;
             }
             const bool drop = import_choice_volume == kImportDropVolume;
@@ -3967,7 +3985,7 @@ void Simulation::rebuild_view() {
             else if (modal.id == "import-choice" && action_key == "import-copy") {
                 item.title = "Copy into Playden";
                 item.value = format_bytes(import_choice_bytes);
-                item.value += (item.value.empty() ? "" : " · ") + import_copy_estimate(import_choice_bytes);
+                item.value += (item.value.empty() ? "" : " · ") + import_copy_estimate(import_choice_bytes, import_choice_files);
             }
             else if (modal.id == "import-choice" && action_key == "import-move") {
                 item.title = "Move into Playden";
@@ -4462,6 +4480,8 @@ void Simulation::rebuild_view() {
                 status.value = job_state_name(copying->state);
                 status.progress = copying->total_bytes == 0 ? 0.0F
                     : static_cast<float>(copying->completed_bytes) / static_cast<float>(copying->total_bytes);
+                // A copy that failed (or runs too long) can be cancelled here; the game plays in place again.
+                row("details-cancel-copy", RowKind::Action, "Cancel copy", "import-cancel-copy");
             } else if (const auto* external = in_place ? external_game(game->id) : nullptr; external && external->available) {
                 // Its drive is there: a folder the PS5 can't play from (its name) can still be copied.
                 row("details-copy", RowKind::Action, in_place->volume_id == kImportDropVolume ? "Move into Playden" : "Copy into Playden",
@@ -6371,7 +6391,7 @@ void Simulation::activate() {
                                       (cloud != state_.cloud.end() && cloud->second.status == CloudStatus::Unsupported);
                 title = "Uninstall this game?";
                 const bool steam = id.store == Store::kSteam;
-                body = has_title ? uninstall_body_kept
+                body = has_title ? (id.store == Store::kLocal ? uninstall_body_kept_imported : uninstall_body_kept)
                      : steam ? "The game's files are removed from this console. You can install it again from Steam."
                              : "The game's files are removed from this console.";
                 // Only a store with Cloud saves is worth a word about them.
@@ -6396,7 +6416,8 @@ void Simulation::activate() {
         if (!state_.navigation.modals.empty()) {
             auto& body = state_.navigation.modals.back().body;
             const bool batch = pending_destructive_action_ == "installed-selection-uninstall";
-            const std::string_view kept = batch ? uninstall_batch_body_kept : uninstall_body_kept;
+            const std::string_view kept = batch ? uninstall_batch_body_kept
+                : state_.navigation.selected_game_id.store == Store::kLocal ? uninstall_body_kept_imported : uninstall_body_kept;
             const std::string_view deleted = batch ? uninstall_batch_body_deleted : uninstall_body_deleted;
             const std::string_view from = uninstall_delete_saves_ ? kept : deleted;
             const std::string_view to = uninstall_delete_saves_ ? deleted : kept;
@@ -6570,6 +6591,15 @@ void Simulation::activate() {
         // An imported game playing from its folder: Copy (a drive) or Move (the drop folder) into Playden.
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         if (const auto* external = external_game(id); external && external->available && !import_copy_job(id)) open_import_choice(0, id);
+    } else if (action_name == "import-cancel-copy") {
+        // The same cancel as Queue's, from the game's page.
+        const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
+        const auto* job = import_copy_job(id);
+        if (!job) return;
+        pending_destructive_action_ = "job-cancel-" + job->id;
+        ModalEntry confirmation{"confirmation", "Cancel the copy?", state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
+        confirmation.body = "Stops the copy and deletes what was copied so far. The game keeps playing from its folder.";
+        open_modal(std::move(confirmation));
     } else if (action_name == "import-open-copy") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
         state_.navigation.route = Route::Downloads;

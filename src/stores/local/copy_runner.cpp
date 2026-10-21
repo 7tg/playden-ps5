@@ -92,7 +92,7 @@ class SourceWalk {
       chain_.push_back(Level{parts[index], fd, {}, false});
     }
     Level& folder = chain_.empty() ? root_ : chain_.back();
-    return platform::OpenWalkChild(folder.fd, parts.back().c_str(), kOpenFile, Listed(folder, parts.back()));
+    return platform::OpenWalkChildUnprivileged(folder.fd, parts.back().c_str(), kOpenFile, Listed(folder, parts.back()));
   }
 
  private:

@@ -71,6 +71,8 @@ class Controller {
   // model's import requests (look for games, add, remove) go to it, and removing an imported game
   // removes its PS5 title first, keeping its bottle as kept data. Set before the first Tick.
   void SetLocalLibrary(stores::local::LocalLibrarySource* local) { local_ = local; }
+  // Tests: how long a Play or preparation waits for a drop-folder game's files to be opened.
+  void SetDropFolderOpenTimeout(std::chrono::milliseconds timeout) { drop_folder_open_timeout_ = timeout; }
   Controller(const Controller&) = delete;
   Controller& operator=(const Controller&) = delete;
  private:
@@ -139,22 +141,36 @@ class Controller {
   // Removals asked for before the Local store's first snapshot reached the locations: until then a
   // game's folder (and so its PS5 title's removal first) isn't known.
   std::vector<GameId> held_import_removals_;
+  // Copies and moves into Playden whose game's first runtime number waits for the runtime worker
+  // (starting up, or in a batch): asked again on the next tick, in order.
+  std::vector<ImportRequest> held_import_transfers_;
+  // Runtime calls whose game's first number waited for the runtime worker: made again on the next
+  // tick, in order. The main thread never waits for that worker.
+  std::vector<std::function<void()>> deferred_runtime_;
+  void WithApp(const GameId& id, std::function<void(std::uint32_t)> use);
   // The player's add, copy, move and removal requests sent to the Local store, by request number,
   // until their outcome: a refusal reaches the model as a notice.
   std::map<std::uint64_t, ImportRequest> import_requests_;
   // Copies into Playden were reconciled with the install service after the first imports.json read.
   bool copies_reconciled_ = false;
-  // Play and Prepare of a game playing from the drop folder wait for its files to be opened
-  // (LocalLibrarySource::OpenForPlay); a failure stops them with the walk's sentence.
+  // Play and every preparation of a game playing from the drop folder (the player's Prepare,
+  // Recreate bottle, the startup check of a title waiting for the PS5) wait for its files to be
+  // opened (LocalLibrarySource::OpenForPlay); a failure stops them with the walk's sentence, and so
+  // does an opening with no outcome within the timeout (its outcome may have left the store's list).
+  enum class DropFolderNext { kPlay, kPrepare, kRecreate, kRegistrationCheck };
   struct DropFolderOpen {
     std::uint64_t request = 0;
-    bool play = false, prepare = false;
+    bool play = false, prepare = false, recreate = false, registration_check = false;
+    std::chrono::steady_clock::time_point started;
   };
   std::map<GameId, DropFolderOpen> drop_folder_opens_;
+  std::chrono::milliseconds drop_folder_open_timeout_ = std::chrono::seconds(60);
   // True when the request waits (or was stopped) for the drop folder.
-  bool HoldForDropFolder(GameId id, bool play);
-  // Finished openings: their requests go on (into plays and prepares) or stop.
-  void ReleaseDropFolderOpens(std::vector<GameId>& plays, std::vector<GameId>& prepares);
+  bool HoldForDropFolder(GameId id, DropFolderNext next);
+  // Finished openings: their requests go on (into plays, prepares and direct submissions, with
+  // their announce flag) or stop.
+  void ReleaseDropFolderOpens(std::vector<GameId>& plays, std::vector<GameId>& prepares,
+                              std::vector<std::pair<GameId, bool>>& submits);
   const installs::InstalledLocation* LocationOf(GameId id) const;
   // Whether Cloud saves apply to the game: a Cloud service exists and the game's store has them.
   bool CloudCapable(GameId id) const { return cloud_ && Traits(id.store).cloud_saves; }
@@ -294,6 +310,7 @@ class Controller {
   steam::RequestId request_ = 0;
   std::uint64_t generation_ = 0;
   Phase phase_ = Phase::Idle;
+  bool shut_down_ = false;  // Shutdown ran
   bool begin_after_clear_ = false;
   // A QR sign-in for an account that is already signed in: its library and organization stay, and
   // a cancel or failure goes back to the saved sign-in.

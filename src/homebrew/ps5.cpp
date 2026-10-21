@@ -503,6 +503,11 @@ int main() {
             // An any-title kit's helper serves the game titles listed here (root-owned).
             config.write_title_allow_list = playden::ps5::WriteTitleAllowList;
             config.hold_effective_uid = playden::ps5::HoldEffectiveUid;
+            config.try_hold_effective_uid = [](bool* busy) {
+                auto held = playden::ps5::TryHoldEffectiveUid();
+                *busy = !held;
+                return held;
+            };
             // Play: start a prepared title with its session argument. LncUtil is
             // resolved through the system service module (its static imports are null).
             config.launch_title = [](const std::string& title, const std::vector<std::string>& arguments) {
@@ -636,6 +641,7 @@ int main() {
                                                   std::uint32_t runtime_number) {
                 return runner->Move(installs, entry, source, runtime_number);
             };
+            import_config.remove_copy_folder = [runner = copy_runner.get()](const std::string& root) { return runner->Remove(root); };
             auto source = std::make_unique<playden::stores::local::LocalLibrarySource>(*imports, std::move(import_config));
             local_library = source.get();
             copy_runner->SetChanged([local_library] { local_library->Reload(); });
@@ -837,6 +843,11 @@ int main() {
 #if !PLAYDEN_UI_SIMULATION
         playden::app::AppendLogLine(log_root, "launch.log", "quit requested");
         services.Shutdown();
+        // The install service stops before the Local store goes (`stores` is destroyed before
+        // `installs`): its copy runner's change callback calls into the Local store. Explicit here,
+        // so it doesn't rest on the controller's shutdown or on declaration order.
+        installs.Shutdown();
+        if (copy_runner) copy_runner->SetChanged({});
         playden::app::AppendLogLine(log_root, "launch.log", "shutdown artwork start");
         artwork.Shutdown();
         playden::app::AppendLogLine(log_root, "launch.log", "shutdown self-update start");

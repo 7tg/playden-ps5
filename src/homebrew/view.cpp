@@ -3054,8 +3054,13 @@ class Render::Impl
                                                 Compatibility::Untested : rating->second;
         const bool installed = installation != nullptr && installation->installed_bytes > 0;
         // One size for a game: what it takes on the drive (installed, or the install estimate).
+        std::optional<std::uint64_t> scanned_bytes;  // an imported game playing in place: its folder's size
+        for (const auto &candidate : state.import_candidates)
+            if (candidate.imported == game->id && candidate.total_bytes > 0)
+                scanned_bytes = candidate.total_bytes;
         const std::string size = installed ? short_size(installation->installed_bytes) :
-            game->install_bytes ? short_size(*game->install_bytes) : std::string("Unknown");
+            game->install_bytes ? short_size(*game->install_bytes) :
+            scanned_bytes ? short_size(*scanned_bytes) : std::string("Unknown");
         const std::string playtime = game->playtime_minutes && *game->playtime_minutes > 0 ?
             playtime_label(game->playtime_minutes) : std::string("Never played");
         std::string compat = rating_label(compatibility);

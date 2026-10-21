@@ -25,4 +25,10 @@ std::shared_ptr<void> HoldEffectiveUid() {
   return std::make_shared<std::unique_lock<std::recursive_mutex>>(RootLock());
 }
 
+std::shared_ptr<void> TryHoldEffectiveUid() {
+  auto lock = std::make_shared<std::unique_lock<std::recursive_mutex>>(RootLock(), std::try_to_lock);
+  if (!lock->owns_lock()) return nullptr;
+  return lock;
+}
+
 }  // namespace playden::ps5

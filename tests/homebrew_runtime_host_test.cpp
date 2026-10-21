@@ -1,5 +1,7 @@
 #include "homebrew/runtime_host.hpp"
+#include "runtime_host_fixture.h"
 #include "platform/managed_directory.h"
+#include "platform/ps5/title_allow_list.h"
 #include "platform/storage.h"
 #include "runtime/layout_migration.h"
 #include "runtime/artifact_hash.h"
@@ -20,86 +22,17 @@
 #include <thread>
 #include <atomic>
 #include <condition_variable>
+#include <future>
 #include <memory>
 #include <unistd.h>
 
 using namespace playden::homebrew;
 using namespace playden::runtime;
 using namespace playden::ps5;
-#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
+using namespace playden::test::runtime_host;
 
 namespace fs = std::filesystem;
 namespace {
-std::string g_runtime_dir;  // the repository's bundled runtime data (recipes, presets, input)
-
-void Write(const fs::path& path, const std::string& bytes, unsigned mode) {
-  fs::create_directories(path.parent_path());
-  std::ofstream(path, std::ios::binary | std::ios::trunc) << bytes;
-  CHECK(chmod(path.c_str(), mode) == 0);
-}
-std::string Read(const fs::path& path) {
-  std::ifstream in(path, std::ios::binary);
-  return {std::istreambuf_iterator<char>(in), {}};
-}
-
-struct Fixture {
-  fs::path root;
-  unsigned database_reads = 0, registry_mutations = 0;
-  bool registered = false;
-  // ShadowMountPlus postpones scans while a title runs: with registers false a
-  // submission is accepted and listed, but not installed until registered is set.
-  bool registers = true, submitted = false;
-  std::shared_ptr<std::atomic<int>> activity = std::make_shared<std::atomic<int>>(static_cast<int>(NativeActivity::kStopped));
-  Fixture() {
-    char name[] = "/tmp/playden-runtime-host-XXXXXX"; CHECK(mkdtemp(name));
-    root = fs::canonical(name);
-    fs::create_directories(root / "data/homebrew");
-  }
-  ~Fixture() { std::error_code ignored; fs::remove_all(root, ignored); }
-  RuntimeHostConfig Config() {
-    RuntimeHostConfig config;
-    config.boundary = root / "data";
-    config.state_root = root / "data/runtime-state";
-    config.homebrew_root = root / "data/homebrew";
-    config.native.database = [this](const std::string& title) {
-      ++database_reads;
-      if (!registered) return TitleDatabaseObservation{TitleAvailability::kFree, {}};
-      return TitleDatabaseObservation{TitleAvailability::kOccupied,
-          InstalledTitleIdentity{title, "UP9000-FAKE78001_00-PROSPEROWIN00001", "/user/app/FAKE78001/sce_sys"}};
-    };
-    config.native.activity = [activity = activity](const std::string&) { return static_cast<NativeActivity>(activity->load()); };
-    // ShadowMount loopback API: registration makes the title appear installed.
-    config.registry_transport = [this](const std::string& route, const std::string&) -> std::optional<std::string> {
-      if (route != "/api/v1/games") { ++registry_mutations; submitted = true; registered = registers; return R"({"status":0})"; }
-      if (!registered && submitted)
-        return R"({"status":0,"games":[{"title_id":"FAKE78001","installed":false,"managed":true,)"
-               R"("source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78001"}]})";
-      if (!registered) return R"({"status":0,"games":[]})";
-      return R"({"status":0,"games":[{"title_id":"FAKE78001","installed":true,"managed":true,)"
-             R"("source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78001"}]})";
-    };
-    config.admit_kit = [](std::string* reason) -> std::optional<RuntimeKit> {
-      *reason = "No verified compatibility kit is installed.";
-      return std::nullopt;
-    };
-    config.runtime_dir = g_runtime_dir;
-    return config;
-  }
-};
-
-// Generous: a loaded build machine (parallel ctest, other builds) can stretch a step past 10 s.
-RuntimeSnapshot WaitFor(const RuntimeHost& host, const std::function<bool(const RuntimeSnapshot&)>& done,
-                        int seconds = 30) {
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
-  for (;;) {
-    auto snapshot = host.Snapshot();
-    if (done(snapshot)) return snapshot;
-    CHECK(std::chrono::steady_clock::now() < deadline);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  }
-}
-bool Started(const RuntimeSnapshot& s) { return s.status != RuntimeHostStatus::kStarting; }
-
 RuntimePrepareRequest Hl2() { return {220, "/data/homebrew/FAKE77031/games/220", "internal", "Half-Life \"2\""}; }
 
 RuntimeInstall Record() {
@@ -111,45 +44,6 @@ RuntimeInstall Record() {
   return record;
 }
 
-// A synthetic admitted kit with the production file layout, real SHA-256 and
-// the repository's HL2 recipe. It is not a runnable Wine runtime.
-RuntimeKit SyntheticKit(const fs::path& kit, const std::string& eboot = "native",
-                        const std::string& kit_id = "kit-1", char files_digest = 'a',
-                        const std::string& runtime = "runtime", const std::string& revision = "rev") {
-  Write(kit / "titles/variant/eboot.bin", eboot, 0755);
-  Write(kit / "titles/variant/sce_sys/param.json",
-        "{\n  \"contentId\": \"UP9000-FAKE78001_00-PROSPEROWIN00001\",\n  \"localizedParameters\": {\n"
-        "    \"en-US\": {\n      \"titleName\": \"Prospero Win\"\n    }\n  },\n  \"titleId\": \"FAKE78001\"\n}\n", 0644);
-  Write(kit / "titles/variant/sce_sys/icon0.png", "kit-icon", 0644);
-  Write(kit / ("runtime/wine/" + revision + "/lib/core.prx"), runtime, 0755);
-  Write(kit / "template/bottle/system.reg", "WINE REGISTRY Version 2\n", 0644);
-  Write(kit / "template/bottle/user.reg", "WINE REGISTRY Version 2\n", 0644);
-  Write(kit / "template/bottle/drive_c/windows/win.ini", "", 0644);
-  Write(kit / "template/bottle/dosdevices/.pw-symlinks", "c:\t../drive_c\nz:\t/\n", 0644);
-  Write(kit / "recipes/hl2.json", Read(fs::path(g_runtime_dir) / "recipes/steam-220-hl2-v1.json"), 0644);
-  RuntimeKit admitted;
-  auto& view = admitted.view;
-  view.root = kit; view.kit_id = kit_id; view.files_sha256 = std::string(64, files_digest);
-  view.runtime = {"wine-wow64", revision, "runtime/wine/" + revision};
-  view.template_path = "template/bottle";
-  view.template_drive_table = "template/bottle/dosdevices/.pw-symlinks";
-  view.recipe = {"steam-220-hl2-v1", "1", "recipes/hl2.json", *HashArtifactFile(kit / "recipes/hl2.json")};
-  view.variants.push_back({"variant", "FAKE78001", "titles/variant"});
-  for (const auto& [path, mode] : std::vector<std::pair<std::string, unsigned>>{
-           {"titles/variant/eboot.bin", 0755}, {"titles/variant/sce_sys/param.json", 0644},
-           {"titles/variant/sce_sys/icon0.png", 0644},
-           {"runtime/wine/" + revision + "/lib/core.prx", 0755}, {"template/bottle/system.reg", 0644},
-           {"template/bottle/user.reg", 0644}, {"template/bottle/drive_c/windows/win.ini", 0644},
-           {"template/bottle/dosdevices/.pw-symlinks", 0644}, {"recipes/hl2.json", 0644}})
-    view.files.push_back({path, fs::file_size(kit / path), *HashArtifactFile(kit / path), mode});
-  view.artifacts = {
-      {"runtime", revision, *HashArtifactFile(kit / ("runtime/wine/" + revision + "/lib/core.prx")),
-       ImmutableArtifactLocation::kStagedTitle, "win/wine/lib/core.prx"},
-      {"recipe", "steam-220-hl2-v1-1", *HashArtifactFile(kit / "recipes/hl2.json"),
-       ImmutableArtifactLocation::kKit, "recipes/hl2.json"}};
-  admitted.capabilities = {"dxvk", "game-root-unowned", "offline_bottle", "per_game_title", "wow64_i386"};
-  return admitted;
-}
 // A kit before 0.10: game folders must be the app user's and 0700/0755, except on drives
 // that record no owners, which it can't start games from.
 RuntimeKit WithoutUnownedRoots(RuntimeKit kit) {
@@ -712,7 +606,9 @@ void PreparesExistingDownloadToReady() {
   {
     RuntimeHost restarted(config);
     CHECK(restarted.Start());
-    CHECK((WaitFor(restarted, Started).prepared == std::vector<PreparedGame>{{220, 1760000000}}));
+    // The list is published after the status turns ready: wait for it, not for the status alone.
+    const std::vector<PreparedGame> listed{{220, 1760000000}};
+    CHECK(WaitFor(restarted, [&](const RuntimeSnapshot& s) { return Started(s) && s.prepared == listed; }, 60).prepared == listed);
     restarted.DismissPrepared(220, 1759999999);
     restarted.DismissPrepared(220, 1760000000);
     CHECK(WaitFor(restarted, [](const RuntimeSnapshot& s) { return s.prepared.empty(); }).prepared.empty());
@@ -2315,6 +2211,89 @@ void LocalGameSteamworksAppId() {
 
 // Kept bottles are not Steam-only: an imported game's marker names its game, lists after a restart
 // and gives the game its runtime number back. A Steam marker from before (fixture) still lists.
+// A first number for a Local game is written to installs.json, which takes the process-wide
+// effective-UID hold. The worker keeps that hold around its whole startup (and each batch) while
+// using the repository: a lookup that took the repository's lock first and then waited for the hold
+// stopped both threads for good (Playden froze on its first frame with a copy request in
+// dev/install-request.txt). The lookup takes the hold first and waits for the worker, or, asked not
+// to wait, says the worker is busy and gives nothing out.
+void RuntimeNumberWaitsForTheWorkersHold() {
+  const auto local_a = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+  const auto local_b = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+  Fixture fixture;
+  auto config = fixture.Config();
+  // The console's hold: one recursive lock shared with every durable write.
+  config.hold_effective_uid = playden::ps5::HoldEffectiveUid;
+  config.try_hold_effective_uid = [](bool* busy) {
+    auto held = playden::ps5::TryHoldEffectiveUid();
+    *busy = !held;
+    return held;
+  };
+  // The worker stops inside its startup, hold taken and records shared, until the test lets it go.
+  std::mutex gate_mutex;
+  std::condition_variable gate_changed;
+  bool gated = true, at_gate = false;
+  config.log = [&](const std::string& line) {
+    if (line.rfind("startup records loaded", 0) != 0) return;
+    std::unique_lock<std::mutex> lock(gate_mutex);
+    at_gate = true;
+    gate_changed.notify_all();
+    gate_changed.wait(lock, [&] { return !gated; });
+  };
+  RuntimeHost host(std::move(config));
+  CHECK(host.Start());
+  {
+    std::unique_lock<std::mutex> lock(gate_mutex);
+    CHECK(gate_changed.wait_for(lock, std::chrono::seconds(10), [&] { return at_gate; }));
+  }
+  // Each lookup runs on its own thread: one that never answers (the lookup inside the repository,
+  // the worker waiting for it) fails the test instead of stopping it.
+  struct Answer { std::optional<std::uint32_t> number; bool busy = false; };
+  const auto ask = [&host](const playden::GameId& game, bool wait) {
+    return std::async(std::launch::async, [&host, game, wait] {
+      Answer answer;
+      answer.number = host.RuntimeNumberFor(game, wait ? nullptr : &answer.busy);
+      return answer;
+    });
+  };
+  const auto answered = [](std::future<Answer>& answer, int seconds) {
+    return answer.wait_for(std::chrono::seconds(seconds)) == std::future_status::ready;
+  };
+  // Asked not to wait (the application thread, every frame): busy, nothing given out, no number taken.
+  auto at_once = ask(local_a, false);
+  CHECK(answered(at_once, 20));
+  const auto refused = at_once.get();
+  CHECK(!refused.number && refused.busy);
+  auto steam = ask(playden::GameId::Steam(220), false);
+  CHECK(answered(steam, 20));
+  const auto steam_answer = steam.get();
+  CHECK(steam_answer.number == 220u && !steam_answer.busy);
+  // Asked to wait (the Local store's worker): the number arrives once the worker's startup is over.
+  auto waiting = ask(local_a, true);
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK(!answered(waiting, 0));  // still waiting
+  {
+    std::lock_guard<std::mutex> lock(gate_mutex);
+    gated = false;
+  }
+  gate_changed.notify_all();
+  CHECK(answered(waiting, 20));
+  const auto given = waiting.get();
+  CHECK(given.number == 0xF0000000u && !given.busy);
+  CHECK(WaitFor(host, Started).status == RuntimeHostStatus::kReady);
+  CHECK(host.Snapshot().runtime_games.at(0xF0000000u) == local_a);
+  bool busy = false;
+  CHECK(host.RuntimeNumberFor(local_a, &busy) == 0xF0000000u && !busy);  // known: no hold needed
+  // Idle, the worker holds nothing: a new number is given out at once.
+  std::optional<std::uint32_t> second;
+  for (int i = 0; i < 2500 && !second; ++i) {
+    second = host.RuntimeNumberFor(local_b, &busy);
+    if (!second) { CHECK(busy); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
+  }
+  CHECK(second == 0xF0000001u);
+  host.Shutdown();
+}
+
 void LocalGameKeepsItsBottle() {
   const auto local = playden::GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
   const auto other = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
@@ -4443,6 +4422,95 @@ void RelocationFallsBackToANewTitle() {
   host.Shutdown();
 }
 
+// A republish refused for a reason that isn't the moved publication failing its check (here the
+// saved settings, which a restart or Play gets past): the old title stays, its record marked moved,
+// and the next start publishes it at the new folder, as after the 0.6 games move.
+void RelocationKeepsTheTitleWhenTheRepublishWaits() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  auto config = MoveConfig(fixture, kit, &uuids, move);
+  const std::string drop = "/data/playden-import/Imported";
+  const auto imported = PrepareImported(fixture, config, drop);
+  fs::create_directories(fixture.root / "data/playden-games");
+  const auto from = fixture.root / fs::path(drop).relative_path();
+  const auto to = fixture.root / fs::path(kImportedRoot).relative_path();
+  auto stale = std::make_shared<std::atomic<bool>>(true);
+  const auto saved = config.settings_record;
+  config.settings_record = [stale, saved](const playden::GameId& game) -> std::optional<GameSettingsRecord> {
+    auto record = saved(game);
+    if (record && stale->load()) record->revision = 0;
+    return record;
+  };
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    WaitFor(host, Started);
+    const auto result = RelocateNow(host, imported.number, [&]() -> std::string {
+      return ::rename(from.c_str(), to.c_str()) == 0 ? std::string() : std::string("rename failed");
+    });
+    CHECK(result.outcome == RuntimeRelocationResult::Outcome::kDone && !result.prepare_again && !result.message.empty());
+    CHECK(move.Logged("relocate app=" + std::to_string(imported.number) + " republish waits"));
+    CHECK(!move.Logged("relocate app=" + std::to_string(imported.number) + " republish failed"));
+    const auto snapshot = host.Snapshot();
+    CHECK(snapshot.installs.size() == 1 && snapshot.installs[0].title_id == imported.title_id);
+    CHECK(snapshot.installs[0].install_path == kImportedRoot);
+    CHECK(Read(fixture.root / "data/runtime-state/installs.json").find("moved_from") != std::string::npos);
+    host.Shutdown();
+  }
+  // The next start republishes it like a game the 0.6 move left marked.
+  stale->store(false);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  CHECK(move.Logged("startup moved app=" + std::to_string(imported.number) + " republished"));
+  CheckRelocated(fixture, host, imported, "internal");
+  host.Shutdown();
+}
+
+// Quitting while a relocation waits for the worker: the caller stops waiting at once ("Playden is
+// closing"), the relocation never runs, and later ones are refused the same way.
+void RelocationStopsWaitingWhenPlaydenCloses() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  const std::string drive = "/mnt/usb0/playden/import/Imported";
+  const auto imported = PrepareImported(fixture, config, drive);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  // A handoff waiting holds relocations back on the worker.
+  host.Play(imported.number);
+  const auto number = imported.number;
+  const auto played = WaitFor(host, [number](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(number); }, 30);
+  CHECK(played.handoff_ready);
+  std::atomic<bool> moved{false};
+  RuntimeRelocationResult result;
+  std::atomic<bool> answered{false};
+  std::thread waiting([&] {
+    result = RelocateNow(host, imported.number, [&]() -> std::string { moved = true; return {}; });
+    answered = true;
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK(!answered.load());
+  const auto closing = std::chrono::steady_clock::now();
+  host.BeginClosing();
+  waiting.join();
+  CHECK(std::chrono::steady_clock::now() - closing < std::chrono::seconds(5));
+  CHECK(result.outcome == RuntimeRelocationResult::Outcome::kBusy && result.message == kRelocationClosing);
+  const auto again = RelocateNow(host, imported.number);
+  CHECK(again.outcome == RuntimeRelocationResult::Outcome::kBusy && again.message == kRelocationClosing);
+  // The handoff goes on; the abandoned relocation never runs.
+  CHECK(host.Handoff());
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK(!moved.load() && host.Snapshot().installs[0].install_path == drive);
+  CHECK(!move.Logged("relocate result app="));
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -4454,6 +4522,7 @@ int main(int argc, char** argv) {
   HoldsEffectiveUidWhileWorking();
   StartupReportsJournalsWithoutResuming();
   LocalGameGetsRuntimeNumber();
+  RuntimeNumberWaitsForTheWorkersHold();
   LocalGameKeepsItsBottle();
   LocalGameSteamworksAppId();
   PublicStateRootIsUnavailable();
@@ -4503,6 +4572,8 @@ int main(int argc, char** argv) {
   MovedGameKeepsItsTitle();
   RelocationResumesAfterRestart();
   RelocationFallsBackToANewTitle();
+  RelocationKeepsTheTitleWhenTheRepublishWaits();
+  RelocationStopsWaitingWhenPlaydenCloses();
   std::puts("runtime host tests passed");
   return 0;
 }

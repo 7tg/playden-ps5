@@ -20,7 +20,14 @@
 #endif
 
 namespace playden::platform {
-#if defined(PLAYDEN_WALK_BY_PATH)
+// Strict: an entry must be the one the parent lists (privileged walks). ReadOnlyFiles: a regular
+// file that fails only the inode comparison is still accepted. exFAT/msdosfs numbers an empty file
+// (no clusters) differently in readdir than in stat, so every 0-byte file in a game fails the
+// comparison. Use it only where the walk reads as the app user, which can't gain anything by
+// swapping in a file of its own; directories always keep the strict check.
+enum class WalkTrust { kStrict, kReadOnlyFiles };
+
+// The by-path walk is compiled everywhere so host tests can drive it; only PS5 builds use it.
 namespace walk_detail {
 struct Opened {
   std::filesystem::path path;
@@ -73,10 +80,9 @@ inline bool ValidName(const char* name) {
   const std::string text = name ? name : "";
   return !text.empty() && text != "." && text != ".." && text.find('/') == std::string::npos;
 }
-}  // namespace walk_detail
 
 // `listed_inode`: the inode the caller read from the parent's listing, saving a second scan.
-inline int OpenWalkChild(int parent, const char* name, int flags, std::uint64_t listed_inode = 0) {
+inline int OpenChildByPath(int parent, const char* name, int flags, std::uint64_t listed_inode, WalkTrust trust) {
   std::filesystem::path parent_path;
   if (!walk_detail::ValidName(name)) { errno = EINVAL; return -1; }
   if (!walk_detail::PathOf(parent, &parent_path)) return -1;
@@ -94,13 +100,25 @@ inline int OpenWalkChild(int parent, const char* name, int flags, std::uint64_t 
     const std::uint64_t listed = listed_inode ? listed_inode : walk_detail::ListedInode(parent, name);
     same = listed != 0 && listed == static_cast<std::uint64_t>(opened.st_ino);
   }
+  // Opened without following links and on the parent's device, so a regular file is accepted.
+  if (!same && trust == WalkTrust::kReadOnlyFiles && S_ISREG(opened.st_mode) && opened.st_dev == parent_info.st_dev)
+    same = true;
   if (!same) {
     ::close(fd);
     errno = ESTALE;
     return -1;
   }
-  walk_detail::Remember(fd, path);
+  Remember(fd, path);
   return fd;
+}
+}  // namespace walk_detail
+
+#if defined(PLAYDEN_WALK_BY_PATH)
+inline int OpenWalkChild(int parent, const char* name, int flags, std::uint64_t listed_inode = 0) {
+  return walk_detail::OpenChildByPath(parent, name, flags, listed_inode, WalkTrust::kStrict);
+}
+inline int OpenWalkChildUnprivileged(int parent, const char* name, int flags, std::uint64_t listed_inode = 0) {
+  return walk_detail::OpenChildByPath(parent, name, flags, listed_inode, WalkTrust::kReadOnlyFiles);
 }
 inline int MakeWalkChild(int parent, const char* name, mode_t mode) {
   std::filesystem::path parent_path;
@@ -118,6 +136,9 @@ inline int MakeWalkChild(int parent, const char* name, mode_t mode) {
 }
 #else
 inline int OpenWalkChild(int parent, const char* name, int flags, std::uint64_t = 0) {
+  return ::openat(parent, name, flags);
+}
+inline int OpenWalkChildUnprivileged(int parent, const char* name, int flags, std::uint64_t = 0) {
   return ::openat(parent, name, flags);
 }
 inline int MakeWalkChild(int parent, const char* name, mode_t mode) {

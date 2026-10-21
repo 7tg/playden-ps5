@@ -740,6 +740,43 @@ void live_imported_game_steam_app_id(const std::filesystem::path& base) {
     check(saved() == 0, "an empty Steam app ID clears it");
 }
 
+// The program chosen when a game was imported goes into its Game settings only while it has none
+// saved: a Program the player reset (or changed) in Game settings stays theirs at the next prepare.
+void live_imported_program_seeds_once(const std::filesystem::path& base) {
+    std::filesystem::create_directories(base);
+    std::filesystem::permissions(base, std::filesystem::perms::owner_all);
+    const auto file = base / "seed-settings.json";
+    const auto fresh = playden::GameId::Local("1b4e28ba-2fa1-41d2-883f-0016d3cca427");
+    const auto reset = playden::GameId::Local("6fa459ea-ee8a-4ca4-894e-db77e160355e");
+    const auto chosen = playden::GameId::Local("16fd2706-8baf-433b-82eb-8c7fada847da");
+    playden::runtime::GameSettingsRecord was_reset;  // Program reset to the recipe's: no override, saved
+    was_reset.revision = 2;
+    playden::runtime::GameSettingsRecord was_chosen;
+    was_chosen.revision = 1;
+    was_chosen.overrides["program"] = "Other.exe";
+    std::string reason;
+    check(playden::runtime::SaveGameSettingsFile(file.string(), {{reset, was_reset}, {chosen, was_chosen}}, &reason),
+          "seed: settings written");
+    auto model = make_live(base);
+    model.SetGameSettingsFile(file);
+    check(model.SeedGameProgram(fresh, "Bin/Game.exe") &&
+              model.state().game_settings.at(fresh).overrides.at("program") == "Bin/Game.exe",
+          "seed: a game with no saved settings gets its program");
+    check(!model.SeedGameProgram(fresh, "Bin/Other.exe") &&
+              model.state().game_settings.at(fresh).overrides.at("program") == "Bin/Game.exe",
+          "seed: written once");
+    check(!model.SeedGameProgram(reset, "Bin/Game.exe") && !model.state().game_settings.at(reset).overrides.count("program") &&
+              model.state().game_settings.at(reset).revision == 2,
+          "seed: a Program the player reset stays reset");
+    check(!model.SeedGameProgram(chosen, "Bin/Game.exe") &&
+              model.state().game_settings.at(chosen).overrides.at("program") == "Other.exe",
+          "seed: a Program the player chose stays");
+    std::map<playden::GameId, playden::runtime::GameSettingsRecord> loaded;
+    check(playden::runtime::LoadGameSettingsFile(file.string(), &loaded, &reason) &&
+              loaded.at(fresh).overrides.at("program") == "Bin/Game.exe" && !loaded.at(reset).overrides.count("program"),
+          "seed: saved at once");
+}
+
 } // namespace
 
 int main() {
@@ -754,6 +791,7 @@ int main() {
     live_settings_follow_the_prepared_title(base);
     live_program_change_applies_like_other_settings(base);
     live_imported_game_steam_app_id(base);
+    live_imported_program_seeds_once(base);
     live_starts_clean_and_never_reads_or_writes_fixtures(base);
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);

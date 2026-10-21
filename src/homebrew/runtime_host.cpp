@@ -64,6 +64,14 @@ constexpr std::int64_t kPreflightFreshMs = 5000;
 constexpr char kActivityUnknown[] =
     "The PS5 could not tell Playden whether the game is running. Restart the PS5, then try again.";
 
+// A relocated game's republish refused because its old publication can't be verified against the
+// new folder (VerifyMovedPublication, or the title's artifacts): only a new title gets past that.
+// The capture step reports its moved-publication check under its own code, so its words tell.
+bool UnverifiableMovedPublication(const std::string& code, const std::string& message) {
+  return code == "publication-moved" || code == "publication-preflight-previous" || code == "artifact-invalid" ||
+         (code == "publication-request-capture" && message.find("not the verified publication") != std::string::npos);
+}
+
 // A moved game whose publication can't be redone: Recreate bottle (confirmed) prepares it again.
 constexpr char kRecreateHint[] = " Use Maintenance > Recreate bottle on the game page to prepare it again.";
 
@@ -1091,11 +1099,27 @@ void RuntimeHost::Publish(const std::function<void(RuntimeSnapshot&)>& change) {
   published_.notify_all();
 }
 
-std::optional<std::uint32_t> RuntimeHost::RuntimeNumberFor(const GameId& game) {
+std::optional<std::uint32_t> RuntimeHost::RuntimeNumberFor(const GameId& game, bool* busy) {
+  if (busy) *busy = false;
   if (const auto app = game.steam_app()) return app;
   if (!game.valid()) {
     Log("runtime number refused: invalid game " + ToKey(game));
     return std::nullopt;
+  }
+  {
+    std::lock_guard<std::mutex> lock(numbers_mutex_);
+    if (const auto found = numbers_.find(game); found != numbers_.end()) return found->second;
+  }
+  // A new number is written to installs.json, which takes the effective-UID hold: taken here first,
+  // before the repository's lock. The worker holds it around startup and each batch while using the
+  // repository, so a lookup already inside the repository would wait for the worker and the worker
+  // for the lookup.
+  std::shared_ptr<void> held;
+  if (busy && config_.try_hold_effective_uid) {
+    held = config_.try_hold_effective_uid(busy);
+    if (*busy) return std::nullopt;
+  } else if (config_.hold_effective_uid) {
+    held = config_.hold_effective_uid();
   }
   std::uint32_t number = 0;
   {
@@ -1157,22 +1181,33 @@ RuntimeRelocationResult RuntimeHost::Relocate(RuntimeRelocation request, std::ch
   RuntimeRelocationResult busy;
   busy.outcome = RuntimeRelocationResult::Outcome::kBusy;
   busy.message = "Playden is busy with this game. Try again in a moment.";
+  RuntimeRelocationResult closing = busy;
+  closing.message = kRelocationClosing;
   auto pending = std::make_shared<PendingRelocation>();
   pending->request = std::move(request);
   std::unique_lock<std::mutex> lock(mutex_);
-  if (stopping_) return busy;
+  if (stopping_ || closing_) return closing;
   relocation_requests_.push_back(pending);
   wake_.notify_all();
   const auto settled = [&] { return pending->result.has_value() || (stopping_ && !pending->started); };
-  if (!published_.wait_for(lock, timeout, [&] { return settled() || pending->started; })) {
+  const bool answered = published_.wait_for(lock, timeout, [&] { return settled() || pending->started || closing_; });
+  if (!answered || (!pending->started && !pending->result)) {
     // Not started yet: it never will.
     pending->abandoned = true;
-    return busy;
+    return answered ? closing : busy;
   }
   // Once started it runs to the end (the files may be moving): wait for its answer.
   published_.wait(lock, settled);
   if (!pending->result) return busy;
   return *pending->result;
+}
+
+void RuntimeHost::BeginClosing() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    closing_ = true;
+  }
+  published_.notify_all();
 }
 
 void RuntimeHost::ReportWork(std::uint64_t done, std::uint64_t total) {
@@ -1494,8 +1529,9 @@ std::string RuntimeHost::UnlinkDxvkConfig(const rt::RuntimeInstall& record) {
 
 std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
                                            bool steam_account_known, bool* prepare_again,
-                                           std::string* upgrade_deferred) {
+                                           std::string* upgrade_deferred, std::string* code) {
   if (published) *published = false;
+  if (code) code->clear();
   if (prepare_again) *prepare_again = false;
   if (upgrade_deferred) upgrade_deferred->clear();
   // A recipe this kit cannot run is refused before the game's files or bottle change.
@@ -1520,7 +1556,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
       return {};
     }
   }
-  auto refused = PublishSavedSettings(c, record, published, steam_account_known, prepare_again);
+  auto refused = PublishSavedSettings(c, record, published, steam_account_known, prepare_again, code);
   if (refused.empty() || !upgrade_only) return refused;
   Log("settings update app=" + std::to_string(record.runtime_number) + " unowned upgrade deferred, owned publication kept: " +
       refused);
@@ -1534,7 +1570,8 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
 }
 
 std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
-                                              bool steam_account_known, bool* prepare_again) {
+                                              bool steam_account_known, bool* prepare_again, std::string* code) {
+  if (code) code->clear();
   // Refusals only a new preparation gets past (the title's recipe or settings can't be published again).
   const auto again = [prepare_again](std::string message) {
     if (prepare_again) *prepare_again = true;
@@ -1667,7 +1704,10 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   Log("settings update request app=" + std::to_string(record.runtime_number) + " transaction=" + request.transaction_id +
       " revision=" + std::to_string(record.settings_revision) + "->" + std::to_string(saved.revision) + " state=" +
       std::to_string(static_cast<int>(requested.state)) + " code=" + requested.code + " message=" + requested.message);
-  if (requested.state != rt::PackageActionState::kComplete) return "The settings could not be applied: " + requested.message;
+  if (requested.state != rt::PackageActionState::kComplete) {
+    if (code) *code = requested.code;
+    return "The settings could not be applied: " + requested.message;
+  }
   const auto armed = c.records.Find(record.install_id);
   if (!armed) return "The game's install record is missing.";
   const auto resumed = c.owner->ResumeRequested(*armed, c.request_directory, config_.host_namespace_prefix);
@@ -1683,7 +1723,10 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
     DropUpgradeRequest(c, record.install_id, resumed.message);
   PublishInstalls(c, record.install_id);
   // A failed update keeps its journal, so Play waits until Resume on the PS5 title finishes it.
-  if (resumed.state != rt::PackageActionState::kComplete) return "The settings could not be applied: " + resumed.message;
+  if (resumed.state != rt::PackageActionState::kComplete) {
+    if (code) *code = resumed.code;
+    return "The settings could not be applied: " + resumed.message;
+  }
   if (published) *published = true;
   if (const auto current = c.records.Find(record.install_id)) OpenGameFolders(c, *current);
   if (moved) FinishGamesMove(c);
@@ -1882,18 +1925,22 @@ RuntimeRelocationResult RuntimeHost::RunRelocate(Composition& c, const RuntimeRe
     return answer(Outcome::kDone, busy);
   }
   bool published = false;
-  const auto refused = RepublishSettings(c, *current, &published);
+  std::string code;
+  const auto refused = RepublishSettings(c, *current, &published, true, nullptr, nullptr, &code);
   if (refused.empty()) {
     Log("relocate app=" + app + " republished at " + request.to);
     return answer(Outcome::kDone);
   }
-  if (!c.kit) {
-    Log("relocate app=" + app + " republish waits: " + refused);
+  if (!c.kit || !UnverifiableMovedPublication(code, refused)) {
+    // Anything else (the title running or its activity unknown, the lease or the storage busy, no
+    // kit): the record stays marked moved, and Play or the next start publishes it, as after the
+    // 0.6 games move.
+    Log("relocate app=" + app + " republish waits" + (code.empty() ? std::string() : " code=" + code) + ": " + refused);
     return answer(Outcome::kDone, refused);
   }
   // The moved publication can't be verified: as for a game installed again on another drive, the
   // old title goes, keeping its saves, and the game is prepared again where it is now.
-  Log("relocate app=" + app + " republish failed, removing the old title keeping saves: " + refused);
+  Log("relocate app=" + app + " republish failed code=" + code + ", removing the old title keeping saves: " + refused);
   auto result = answer(Outcome::kDone);
   result.prepare_again = true;
   Publish([&](RuntimeSnapshot& s) { s.removing_app = request.runtime_number; });

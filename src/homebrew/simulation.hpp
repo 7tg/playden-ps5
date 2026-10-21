@@ -222,6 +222,7 @@ struct LiveImportCandidate {
     bool ascii_ok = false;  // can play in place
     bool partial = false;   // the scan stopped at a limit or depth
     GameId imported;        // already in the library as this game; invalid when not
+    std::uint64_t file_count = 0;  // files in the folder (0 when unknown)
     bool operator==(const LiveImportCandidate&) const = default;
 };
 // Requests for the Local store: look for games, add a candidate (in place), remove an imported game.
@@ -709,8 +710,9 @@ public:
     // Live mode: a request from TakeImportRequests that the Local store refused (an add, copy, move
     // or removal), with its sentence for the player: shown as a notice, and what waited on it dropped.
     void NotifyImportFailed(const ImportRequest& request, const std::string& message);
-    // Writes the program an imported game starts with into its Game settings, unless the player
-    // chose one already; saved at once so the next preparation reads it. True when it was written.
+    // Writes the program an imported game starts with into its Game settings when the game has no
+    // saved settings yet (just added); never over anything the player changed, a reset Program
+    // included. Saved at once so the next preparation reads it. True when it was written.
     bool SeedGameProgram(GameId id, const std::string& program);
     [[nodiscard]] std::vector<GameId> TakeKeptDeleteRequests();
     // Live mode: maintenance the player confirmed (and settings to apply when the sheet

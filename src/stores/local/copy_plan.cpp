@@ -208,7 +208,7 @@ CopyPlanBuild BuildCopyPlan(const std::string& source_path, std::size_t max_file
     if (name == "." || name == "..") continue;
     const auto relative = frame.relative.empty() ? name : frame.relative + "/" + name;
     if (entry->d_type == DT_LNK) return fail(LinkWords(relative), ELOOP);
-    const int child = platform::OpenWalkChild(frame.fd, name.c_str(), kOpenAny, static_cast<std::uint64_t>(entry->d_fileno));
+    const int child = platform::OpenWalkChildUnprivileged(frame.fd, name.c_str(), kOpenAny, static_cast<std::uint64_t>(entry->d_fileno));
     if (child < 0) {
       const int error = errno;
       if (Unsupported(error)) return fail("The game's folder can't be read on this console.", error);

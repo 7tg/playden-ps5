@@ -10,8 +10,16 @@ namespace playden::homebrew {
 namespace {
 // RuntimeHost names games by runtime number (a Steam game's app ID); 0 stands for no game, as it
 // did. For a call: the game's number, given out on first use. Nothing when the runtime has none for
-// it (RuntimeHost logs why to the runtime log); the call is then not made.
-std::optional<std::uint32_t> RuntimeApp(RuntimeHost& runtime, const GameId& id) {
+// it (RuntimeHost logs why to the runtime log); the call is then not made. A first number that
+// would wait for the runtime worker is not given out: *busy says to ask again later. This is the
+// one for the main thread, which never waits for the runtime worker.
+std::optional<std::uint32_t> RuntimeApp(RuntimeHost& runtime, const GameId& id, bool* busy) {
+  *busy = false;
+  if (id == GameId{}) return 0u;
+  return runtime.RuntimeNumberFor(id, busy);
+}
+// For a store's own worker thread, which may wait for the runtime worker (never the main thread).
+std::optional<std::uint32_t> RuntimeAppWaiting(RuntimeHost& runtime, const GameId& id) {
   if (id == GameId{}) return 0u;
   return runtime.RuntimeNumberFor(id);
 }
@@ -81,19 +89,23 @@ void Controller::Start(app::PersistenceService* persistence_service) {
         std::lock_guard<std::mutex> lock(gate_mutex_);
         if (gate_blocked_.count(id)) return false;
       }
-      if (!runtime_) return true;
-      const auto app = RuntimeApp(*runtime_, id);
+      // Only Steam's games have Cloud saves: another store's game needs no runtime number here.
+      if (!CloudCapable(id) || !runtime_) return true;
+      bool busy = false;
+      const auto app = RuntimeApp(*runtime_, id, &busy);
       return app && runtime_->ActivityNow(*app, std::chrono::seconds(5)) == runtime::NativeActivity::kStopped;
     });
 }
 Controller::~Controller() { Shutdown(); }
 void Controller::Shutdown() {
-  if (!service_) return;
+  if (shut_down_) return;
+  shut_down_ = true;
   // Preserve a confirmed sign-out queued by the last input frame before exit.
-  for (const auto action : model_.TakeServiceActions()) {
-    if (action.store == Store::kSteam && (action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount) &&
-        phase_!=Phase::ClearLibrary && phase_!=Phase::ClearOrganization && phase_!=Phase::SignOut) SignOut(false);
-  }
+  if (service_)
+    for (const auto action : model_.TakeServiceActions()) {
+      if (action.store == Store::kSteam && (action == ServiceAction::SignOut || action == ServiceAction::SwitchAccount) &&
+          phase_!=Phase::ClearLibrary && phase_!=Phase::ClearOrganization && phase_!=Phase::SignOut) SignOut(false);
+    }
   begin_after_clear_=false;
   // Each step is logged before it starts and with its time after, so a hang shows where it stopped.
   const auto step = [this](const char* name, const auto& work) {
@@ -108,13 +120,20 @@ void Controller::Shutdown() {
   if(library_) step("library", [&] { library_->Shutdown(); library_->Tick(); AdvanceClear(); });
   if(persistence_) step("persistence", [&] { persistence_->FlushAndShutdown(); AdvanceOrganizationClear(); });
   if(app_details_) step("details", [&] { app_details_->Shutdown(); });
+  // A copy or move waiting for the runtime (RuntimeHost::Relocate) stops waiting first, so the
+  // install service and the Local store's worker it blocks are joined at once; it resumes at the
+  // next start.
+  if(runtime_) runtime_->BeginClosing();
+  // The install service stops whether or not a Steam account is registered: its Local copy runner
+  // calls into the Local store, which the caller destroys after this (host.cpp, ps5.cpp).
   if(installs_) step("installs", [&] { installs_->Shutdown(); });
   if(cloud_) step("cloud", [&] { cloud_->Shutdown(); });
   if(runtime_) step("runtime", [&] { runtime_->Shutdown(); });
-  service_->Shutdown();
-  service_ = nullptr;
   persistence_.reset();
   library_.reset();
+  if (!service_) return;
+  service_->Shutdown();
+  service_ = nullptr;
   phase_ = Phase::Idle;
   Update(AuthState::SignedOut,{},true);
 }
@@ -453,7 +472,7 @@ void Controller::TickCloud() {
       case CloudRequestKind::RemoveLeftover:
         // The kept bottle and the game's sync state; no PS5 title is involved.
         if (runtime_)
-          if (const auto app = RuntimeApp(*runtime_, request.game_id)) runtime_->DeleteKeptBottle(*app);
+          WithApp(request.game_id, [this](std::uint32_t app) { runtime_->DeleteKeptBottle(app); });
         if (!saves_root_.empty() && CloudCapable(request.game_id))
           cloud_->Forget({request.game_id, {}, saves_root_ + "/" + ToKey(request.game_id)});
         after_play_.erase(request.game_id);
@@ -523,9 +542,12 @@ void Controller::TickCloud() {
       const auto id = held.request.game_id;
       if (runtime.status == RuntimeHostStatus::kStarting) { waiting.push_back(held); continue; }
       if (!held.asked) {
+        bool busy = false;
+        const auto app = RuntimeApp(*runtime_, id, &busy);
+        if (busy) { waiting.push_back(held); continue; }  // asked again next tick
         held.asked = true;
         held.after = runtime.activity_serial;
-        if (const auto app = RuntimeApp(*runtime_, id)) runtime_->CheckActivity(*app);
+        if (app) runtime_->CheckActivity(*app);
         waiting.push_back(held);
         continue;
       }
@@ -601,7 +623,7 @@ void Controller::TickCloud() {
         // so wait long enough for the answers instead (#51).
         job.deadline = now + kJobActivityWait;
         for (const auto& id : job.ids)
-          if (const auto app = RuntimeApp(*runtime_, id)) runtime_->CheckActivity(*app);
+          WithApp(id, [this](std::uint32_t app) { runtime_->CheckActivity(app); });
         answered = false;
       } else {
         for (const auto id : job.ids) {
@@ -745,8 +767,21 @@ void Controller::TickCloud() {
 // Per-game runtime: queue Prepare with the Steam install's location, queue Play,
 // and project the runtime host's state for installed games. The worker checks a
 // Play request; this thread, the application thread, then starts the title.
+// Runs `use` with the game's runtime number. The main thread never waits for the runtime worker: a
+// first number that would is asked for again next tick (a game the Local store added or reconciled
+// already has one). Nothing runs for a game the runtime has no number for.
+void Controller::WithApp(const GameId& id, std::function<void(std::uint32_t)> use) {
+  if (!runtime_) return;
+  bool busy = false;
+  const auto app = RuntimeApp(*runtime_, id, &busy);
+  if (busy) { deferred_runtime_.push_back([this, id, use = std::move(use)] { WithApp(id, use); }); return; }
+  if (app) use(*app);
+}
+
 void Controller::TickRuntime() {
   if (!runtime_) return;
+  // Calls that waited for the runtime worker (a game's first number) are asked again, in order.
+  for (auto& again : std::exchange(deferred_runtime_, {})) again();
   {
     // The name each installed game's PS5 title should carry.
     // Keyed by runtime number; a game with none yet has no title to name.
@@ -762,46 +797,53 @@ void Controller::TickRuntime() {
   runtime_->HoldPreparations(model_.state().quit_waiting);
   // A drop-folder game's files are opened before each Play and Prepare.
   std::vector<GameId> opened_plays, opened_prepares;
-  ReleaseDropFolderOpens(opened_plays, opened_prepares);
+  std::vector<std::pair<GameId, bool>> opened_submits;
+  ReleaseDropFolderOpens(opened_plays, opened_prepares, opened_submits);
   for (const auto id : model_.TakeRuntimePrepareRequests())
-    if (!HoldForDropFolder(id, false)) RequestPrepare(id);
+    if (!HoldForDropFolder(id, DropFolderNext::kPrepare)) RequestPrepare(id);
   for (const auto id : opened_prepares) RequestPrepare(id);
+  for (const auto& [id, announce] : opened_submits) {
+    // Recreate bottle's wait for its preparation to start counts from now.
+    if (const auto pending = recreate_.find(id); pending != recreate_.end())
+      pending->second.submitted_at = std::chrono::steady_clock::now();
+    SubmitPrepare(id, announce);
+  }
   // A game Playden still holds back moves to the front once it is asked for.
   // The latest choice wins: a game Playden still holds back moves first once it is asked for.
   for (const auto id : model_.TakePrepareNextRequests()) {
-    const auto app = RuntimeApp(*runtime_, id);
+    bool busy = false;
+    const auto app = RuntimeApp(*runtime_, id, &busy);
     if (app && runtime_->PrepareNext(*app)) prepare_next_pending_.reset();
     else prepare_next_pending_ = id;
   }
   for (const auto& done : model_.TakePreparedDismissals())
-    if (const auto app = RuntimeApp(*runtime_, done.game_id)) runtime_->DismissPrepared(*app, done.finished_at);
+    WithApp(done.game_id, [this, done](std::uint32_t app) { runtime_->DismissPrepared(app, done.finished_at); });
   if (model_.TakePreparedClear()) runtime_->ClearPrepared();
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   for (const auto& id : model_.TakeKeptDeleteRequests())
-    if (const auto app = RuntimeApp(*runtime_, id)) runtime_->DeleteKeptBottle(*app);
+    WithApp(id, [this](std::uint32_t app) { runtime_->DeleteKeptBottle(app); });
   for (const auto& id : model_.TakeActivityRequests())
-    if (const auto app = RuntimeApp(*runtime_, id)) runtime_->CheckActivity(*app);
+    WithApp(id, [this](std::uint32_t app) { runtime_->CheckActivity(app); });
   for (const auto id : model_.TakeProgramScanRequests())
     if (const auto root = game_roots_.find(id); root != game_roots_.end())
-      if (const auto app = RuntimeApp(*runtime_, id)) runtime_->ScanPrograms(*app, root->second);
-  for (const auto& [id, kind] : model_.TakeMaintenanceRequests()) {
-    const auto app = RuntimeApp(*runtime_, id);
-    if (!app) continue;
-    if (kind == MaintenanceKind::RecreateBottle) {
-      if (recreate_.count(id)) continue;
-      recreate_[id] = {runtime_->Shared()->removals_handled, false, false, {}, {}};
-      recreate_results_.erase(id);
-      runtime_->Remove(*app, false);
+      WithApp(id, [this, path = root->second](std::uint32_t app) { runtime_->ScanPrograms(app, path); });
+  for (const auto& [id, kind] : model_.TakeMaintenanceRequests())
+    WithApp(id, [this, id = id, kind = kind](std::uint32_t app) {
+      if (kind == MaintenanceKind::RecreateBottle) {
+        if (recreate_.count(id)) return;
+        recreate_[id] = {runtime_->Shared()->removals_handled, false, false, {}, {}};
+        recreate_results_.erase(id);
+        runtime_->Remove(app, false);
+        ++play_notes_revision_;
+        return;
+      }
+      recreate_results_.erase(id);  // the sheet shows the newest request
       ++play_notes_revision_;
-      continue;
-    }
-    recreate_results_.erase(id);  // the sheet shows the newest request
-    ++play_notes_revision_;
-    runtime_->Maintain(*app, kind == MaintenanceKind::ClearShaderCache ? RuntimeMaintenance::kClearShaderCache
-                         : kind == MaintenanceKind::Repair ? RuntimeMaintenance::kRepair
-                         : kind == MaintenanceKind::BackupSaves ? RuntimeMaintenance::kBackupSaves
-                                                                : RuntimeMaintenance::kApplySettings);
-  }
+      runtime_->Maintain(app, kind == MaintenanceKind::ClearShaderCache ? RuntimeMaintenance::kClearShaderCache
+                           : kind == MaintenanceKind::Repair ? RuntimeMaintenance::kRepair
+                           : kind == MaintenanceKind::BackupSaves ? RuntimeMaintenance::kBackupSaves
+                                                                  : RuntimeMaintenance::kApplySettings);
+    });
   {
     const auto current_shared = runtime_->Shared();
     const auto& current = *current_shared;
@@ -813,7 +855,7 @@ void Controller::TickRuntime() {
     }
   }
   auto plays = model_.TakeRuntimePlayRequests();
-  std::erase_if(plays, [this](GameId id) { return HoldForDropFolder(id, true); });
+  std::erase_if(plays, [this](GameId id) { return HoldForDropFolder(id, DropFolderNext::kPlay); });
   plays.insert(plays.end(), opened_plays.begin(), opened_plays.end());
   {
     const auto prepared_shared = runtime_->Shared();
@@ -895,7 +937,8 @@ void Controller::TickRuntime() {
       if (prepared.preparing_app) break;
       if (!game_roots_.count(*it)) { ++it; continue; }
       const auto* record = record_of(*it);
-      if (record && record->awaiting_registration) SubmitPrepare(*it, false);
+      if (record && record->awaiting_registration && !HoldForDropFolder(*it, DropFolderNext::kRegistrationCheck))
+        SubmitPrepare(*it, false);
       it = startup_awaiting_.erase(it);
       break;  // one at a time, after the worker takes it
     }
@@ -940,10 +983,17 @@ void Controller::TickRuntime() {
         pending.prepare_submitted = true;
         pending.refusal = refusal_of(id);
         pending.submitted_at = std::chrono::steady_clock::now();
-        SubmitPrepare(id);
+        if (!HoldForDropFolder(id, DropFolderNext::kRecreate)) {
+          SubmitPrepare(id);
+        } else if (!drop_folder_opens_.count(id)) {
+          finish(false, "Playden is busy. Try again in a moment.");
+          continue;
+        }
         ++it;
         continue;
       }
+      // Its drop folder's files are still being opened (that has a timeout of its own).
+      if (drop_folder_opens_.count(id)) { ++it; continue; }
       if (IsNumber(prepared, prepared.preparing_app, id)) { pending.seen_preparing = true; ++it; continue; }
       const bool unseen_too_long = !pending.seen_preparing && !PrepareQueued(prepared, NumberIn(prepared, id)) &&
           std::chrono::steady_clock::now() - pending.submitted_at > std::chrono::seconds(15);
@@ -1021,7 +1071,9 @@ void Controller::TickRuntime() {
   for (const auto id : plays_ready_) {
     // Never start a game while its saves are moving; it starts once they stop.
     if (cloud_busy_.count(id)) { later.push_back(id); continue; }
-    const auto app = RuntimeApp(*runtime_, id);
+    bool busy = false;
+    const auto app = RuntimeApp(*runtime_, id, &busy);
+    if (busy) { later.push_back(id); continue; }  // the game's first number waits for the runtime worker
     if (!app) continue;
     play_queued_.insert(id);
     ++plays_requested_;
@@ -1301,7 +1353,11 @@ void Controller::BeginUninstall(GameId id, bool delete_saves) {
   if (!runtime_) { if (installs_) installs_->Uninstall(id); return; }
   // A preparation still waiting would make a title for files about to be deleted: it leaves the queue.
   // One already running finishes first (TickUninstalls waits), so its title is removed with the rest.
-  if (const auto app = RuntimeApp(*runtime_, id)) runtime_->WithdrawPrepare(*app);
+  // A game with no number yet has nothing queued to withdraw (queuing gives it one).
+  {
+    bool busy = false;
+    if (const auto app = RuntimeApp(*runtime_, id, &busy)) runtime_->WithdrawPrepare(*app);
+  }
   std::erase(auto_prepare_, id);
   prepare_after_details_.erase(id);
   play_after_prepare_.erase(id);
@@ -1340,7 +1396,7 @@ void Controller::TickUninstalls() {
     switch (action.kind) {
       case UninstallAction::Kind::kNone: break;
       case UninstallAction::Kind::kRemoveTitle:
-        if (const auto app = RuntimeApp(*runtime_, id)) runtime_->Remove(*app, action.delete_saves);
+        WithApp(id, [this, delete_saves = action.delete_saves](std::uint32_t app) { runtime_->Remove(app, delete_saves); });
         ++play_notes_revision_;
         break;
       // The title is gone, so no title points at the files about to be deleted.
@@ -1391,7 +1447,23 @@ void Controller::TickImports() {
     // Outcomes are kept for the latest requests only: one never answered is dropped with the oldest.
     while (import_requests_.size() > stores::local::LocalLibrarySource::kMaxOutcomes * 2) import_requests_.erase(import_requests_.begin());
   };
-  for (const auto& request : model_.TakeImportRequests()) {
+  // A copy or move's install record carries the game's runtime number (given out now if it has
+  // none); a game set up from its drive folder keeps its PS5 title, which follows the files. A
+  // first number is written to the runtime records, which wait while the runtime worker starts up
+  // or works through a batch: the request waits here instead, a tick at a time, and the frame
+  // goes on.
+  const auto transfer_number = [this](const ImportRequest& request, std::uint32_t* number) {
+    *number = 0;
+    if (!runtime_) return true;
+    bool busy = false;
+    *number = RuntimeApp(*runtime_, request.game_id, &busy).value_or(0u);
+    if (busy) held_import_transfers_.push_back(request);
+    return !busy;
+  };
+  auto requests = std::exchange(held_import_transfers_, {});
+  for (auto& request : model_.TakeImportRequests()) requests.push_back(std::move(request));
+  for (const auto& request : requests) {
+    std::uint32_t number = 0;
     switch (request.kind) {
       case ImportRequestKind::LookForGames: local_->LookForGames(); break;
       case ImportRequestKind::Add: track(local_->Add(request.volume_id, request.folder, request.program), request); break;
@@ -1399,18 +1471,12 @@ void Controller::TickImports() {
         if (request.game_id.store == Store::kLocal) held_import_removals_.push_back(request.game_id);
         break;
       case ImportRequestKind::CopyIntoPlayden:
-        if (request.game_id.store == Store::kLocal) {
-          // The copy's install record carries the game's runtime number (given out now if it has
-          // none); a game set up from its drive folder keeps its PS5 title, which follows the copy.
-          const auto number = runtime_ ? RuntimeApp(*runtime_, request.game_id).value_or(0u) : 0u;
+        if (request.game_id.store == Store::kLocal && transfer_number(request, &number))
           track(local_->CopyIntoPlayden(request.game_id.value, request.volume_id, number), request);
-        }
         break;
       case ImportRequestKind::MoveIntoPlayden:
-        if (request.game_id.store == Store::kLocal) {
-          const auto number = runtime_ ? RuntimeApp(*runtime_, request.game_id).value_or(0u) : 0u;
+        if (request.game_id.store == Store::kLocal && transfer_number(request, &number))
           track(local_->MoveIntoPlayden(request.game_id.value, number), request);
-        }
         break;
     }
   }
@@ -1433,6 +1499,9 @@ void Controller::TickImports() {
                                       [&](const stores::local::ImportOutcome& o) { return o.request == it->first; });
     if (outcome == snapshot->outcomes.end()) { ++it; continue; }
     if (!outcome->ok) model_.NotifyImportFailed(it->second, outcome->message);
+    // A game just added: the program chosen with it goes into its Game settings.
+    else if (it->second.kind == ImportRequestKind::Add && !outcome->id.empty())
+      model_.SeedGameProgram(GameId::Local(outcome->id), it->second.program);
     it = import_requests_.erase(it);
   }
   // Once imports.json is read: copies that finished or stopped while Playden was closed are settled.
@@ -1444,7 +1513,8 @@ void Controller::TickImports() {
     auto* installs = installs_;  // outlives the Local store's worker
     auto* runtime = runtime_;    // so does the runtime host
     local_->Reconcile([installs] { return installs->Snapshot(); }, [installs](const GameId& id) { installs->Cancel(id); },
-                      [runtime](const GameId& id) { return runtime ? RuntimeApp(*runtime, id).value_or(0u) : 0u; });
+                      [runtime](const GameId& id) { return runtime ? RuntimeAppWaiting(*runtime, id).value_or(0u) : 0u; });
+    local_->SetRuntimeNumber([runtime](const GameId& id) { return runtime ? RuntimeAppWaiting(*runtime, id).value_or(0u) : 0u; });
     // A copy restored at start waited for imports.json: it carries on now.
     installs_->RetryWaiting(Store::kLocal);
   }
@@ -1453,7 +1523,7 @@ void Controller::TickImports() {
   std::vector<LiveImportCandidate> candidates;
   for (const auto& candidate : snapshot->candidates) {
     LiveImportCandidate live{candidate.volume, candidate.folder, candidate.path, candidate.title, {},
-                             candidate.total_bytes, candidate.ascii_ok, candidate.partial, {}};
+                             candidate.total_bytes, candidate.ascii_ok, candidate.partial, {}, candidate.file_count};
     for (const auto& program : candidate.programs) live.programs.push_back({program.path, program.bytes, program.helper});
     if (!candidate.imported_id.empty()) live.imported = GameId::Local(candidate.imported_id);
     candidates.push_back(std::move(live));
@@ -1465,39 +1535,66 @@ void Controller::TickImports() {
     if (library_) library_->Refresh(Store::kLocal);
   }
 }
-bool Controller::HoldForDropFolder(GameId id, bool play) {
+bool Controller::HoldForDropFolder(GameId id, DropFolderNext next) {
   if (id.store != Store::kLocal || !local_) return false;
   const auto* location = LocationOf(id);
   if (!location || location->managed() || !location->available ||
       location->volume_id != stores::local::ImportStore::kDropFolderVolume)
     return false;
+  // The player asked: a stop is said, and the game page says what it waits for.
+  const bool asked = next == DropFolderNext::kPlay || next == DropFolderNext::kPrepare;
   auto& open = drop_folder_opens_[id];
-  if (!open.request && !(open.request = local_->OpenForPlay(id.value))) {
+  if (!open.request) {
+    open.request = local_->OpenForPlay(id.value);
+    open.started = std::chrono::steady_clock::now();
+  }
+  if (!open.request) {
+    // The Local store is busy: the caller stops (a Recreate bottle loop finishes its own entry).
     drop_folder_opens_.erase(id);
-    model_.NotifyPlayStopped(id, "Playden is busy. Press Play again in a moment.");
+    if (asked) model_.NotifyPlayStopped(id, "Playden is busy. Press Play again in a moment.");
     return true;
   }
-  (play ? open.play : open.prepare) = true;
-  play_notes_[id] = "Opening the game's files…";
-  ++play_notes_revision_;
+  switch (next) {
+    case DropFolderNext::kPlay: open.play = true; break;
+    case DropFolderNext::kPrepare: open.prepare = true; break;
+    case DropFolderNext::kRecreate: open.recreate = true; break;
+    case DropFolderNext::kRegistrationCheck: open.registration_check = true; break;
+  }
+  if (asked) {
+    play_notes_[id] = "Opening the game's files…";
+    ++play_notes_revision_;
+  }
   return true;
 }
-void Controller::ReleaseDropFolderOpens(std::vector<GameId>& plays, std::vector<GameId>& prepares) {
+void Controller::ReleaseDropFolderOpens(std::vector<GameId>& plays, std::vector<GameId>& prepares,
+                                        std::vector<std::pair<GameId, bool>>& submits) {
   if (drop_folder_opens_.empty() || !local_) return;
   const auto snapshot = local_->Snapshot();
+  const auto now = std::chrono::steady_clock::now();
   for (auto it = drop_folder_opens_.begin(); it != drop_folder_opens_.end();) {
     const auto outcome = std::find_if(snapshot->outcomes.begin(), snapshot->outcomes.end(),
                                       [&](const stores::local::ImportOutcome& o) { return o.request == it->second.request; });
-    if (outcome == snapshot->outcomes.end()) { ++it; continue; }
+    const bool timed_out = outcome == snapshot->outcomes.end() && now - it->second.started >= drop_folder_open_timeout_;
+    if (outcome == snapshot->outcomes.end() && !timed_out) { ++it; continue; }
     const auto id = it->first;
-    play_notes_.erase(id);
-    ++play_notes_revision_;
-    if (!outcome->ok) {
-      model_.NotifyPlayStopped(id, outcome->message);
-    } else {
-      if (it->second.play) plays.push_back(id);
-      // Play prepares a game that needs it on its own.
-      else if (it->second.prepare) prepares.push_back(id);
+    const auto& open = it->second;
+    if (play_notes_.erase(id)) ++play_notes_revision_;
+    if (timed_out || !outcome->ok) {
+      const auto message = timed_out ? std::string("Playden couldn't open the game's folder in time.") : outcome->message;
+      if (open.play || open.prepare) model_.NotifyPlayStopped(id, message);
+      if (open.recreate) {
+        recreate_results_[id] = {false, message};
+        recreate_.erase(id);
+        ++play_notes_revision_;
+      }
+    } else if (open.play) {
+      plays.push_back(id);  // Play prepares a game that needs it on its own
+      if (open.recreate) submits.emplace_back(id, true);
+    } else if (open.prepare) {
+      prepares.push_back(id);
+      if (open.recreate) submits.emplace_back(id, true);
+    } else if (open.recreate || open.registration_check) {
+      submits.emplace_back(id, open.recreate);
     }
     it = drop_folder_opens_.erase(it);
   }
@@ -1653,12 +1750,18 @@ void Controller::RequestPrepare(GameId id) {
 void Controller::SubmitPrepare(GameId id, bool announce) {
   const auto root = game_roots_.find(id);
   if (!runtime_ || root == game_roots_.end()) return;
-  const auto app = RuntimeApp(*runtime_, id);
+  bool busy = false;
+  const auto app = RuntimeApp(*runtime_, id, &busy);
+  if (busy) {  // the game's first number waits for the runtime worker: again next tick
+    deferred_runtime_.push_back([this, id, announce] { SubmitPrepare(id, announce); });
+    return;
+  }
   if (!app) return;
   if (announce) ready_watch_[id] = {false, std::chrono::steady_clock::now()};
   else ready_watch_.erase(id);
-  // An imported game starts the program chosen when it was added: Game settings has it before its
-  // first preparation, unless the player picked another one there.
+  // An imported game starts the program chosen when it was added: written into Game settings when
+  // it was added, or here before its first preparation if that couldn't be; never over the player's
+  // own choice or reset (SeedGameProgram).
   if (id.store == Store::kLocal && local_) {
     const auto snapshot = local_->Snapshot();
     for (const auto& game : snapshot->games)

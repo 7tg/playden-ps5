@@ -1,6 +1,7 @@
 // Ports of the macOS LocalWindowsGameTests, plus the console's walk rules. Built twice: once with
 // the host's descriptor walk, once with the PS5's walk by path (PLAYDEN_PLATFORM_PS5).
 #include "stores/local/scanner.h"
+#include "platform/directory_walk.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -267,7 +268,33 @@ void HelperRules() {
 
 }  // namespace
 
+#if defined(PLAYDEN_PLATFORM_PS5)
+// exFAT lists an empty file under a different inode than stat reports; force that mismatch.
+void ListingMismatchOnlyFailsForUnprivilegedRegularFiles() {
+  TemporaryDirectory root;
+  File(root.path / "game" / "empty.lock", 0);
+  fs::create_directories(root.path / "game" / "sub");
+  const int parent = playden::platform::OpenDirectoryWalk(root.path / "game");
+  CHECK(parent >= 0);
+  const std::uint64_t wrong = 1;
+  const int flags = O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC;
+  int fd = playden::platform::OpenWalkChild(parent, "empty.lock", flags, wrong);
+  CHECK(fd < 0 && errno == ESTALE);
+  fd = playden::platform::OpenWalkChildUnprivileged(parent, "empty.lock", flags, wrong);
+  CHECK(fd >= 0);
+  ::close(fd);
+  fd = playden::platform::OpenWalkChildUnprivileged(parent, "sub", flags, wrong);
+  CHECK(fd < 0 && errno == ESTALE);
+  fd = playden::platform::OpenWalkChildUnprivileged(parent, "sub", flags | O_DIRECTORY, wrong);
+  CHECK(fd < 0 && errno == ESTALE);
+  ::close(parent);
+}
+#endif
+
 int main() {
+#if defined(PLAYDEN_PLATFORM_PS5)
+  ListingMismatchOnlyFailsForUnprivilegedRegularFiles();
+#endif
   ExecutablesListTheGameFirstAndHelpersLast();
   GenericFolderNamesUseTheParentAsTitle();
   ProgramChecks();

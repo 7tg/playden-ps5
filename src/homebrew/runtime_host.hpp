@@ -93,6 +93,10 @@ struct RuntimeHostConfig {
   // else may raise root, which is process-wide and would fail the worker's ownership checks
   // (ps5::HoldEffectiveUid). Empty holds nothing.
   std::function<std::shared_ptr<void>()> hold_effective_uid;
+  // hold_effective_uid without waiting, for RuntimeNumberFor's callers that would rather come back
+  // later than wait for a batch: sets *busy and returns nothing when another thread holds it
+  // (ps5::TryHoldEffectiveUid). Empty: RuntimeNumberFor waits, with hold_effective_uid.
+  std::function<std::shared_ptr<void>(bool* busy)> try_hold_effective_uid;
   // Runs work with root raised (ps5::WithRoot), as UpdateConfig::as_root; used on the worker,
   // whose batch hold keeps other threads from raising root meanwhile. Empty: folders can't be fixed.
   std::function<bool(const std::function<bool()>& work)> as_root;
@@ -345,6 +349,9 @@ struct RuntimeRelocation {
   std::function<std::string()> move_files;
 };
 
+// What RuntimeHost::Relocate answers once Playden is closing (BeginClosing).
+inline constexpr const char* kRelocationClosing = "Playden is closing.";
+
 struct RuntimeRelocationResult {
   enum class Outcome {
     kDone,    // the game plays from `to` (its record names it; a marked republish may still wait)
@@ -422,10 +429,12 @@ class RuntimeHost {
   void Maintain(std::uint32_t runtime_number, RuntimeMaintenance action);
   // A game's runtime number, which every call above takes: a Steam game's app ID; for a game from
   // another store, the number of its install record, or a new one, saved before it is returned.
-  // Any thread; it may write installs.json (briefly waiting for the worker's write in progress).
-  // Nothing when the game is invalid, the runtime records are not loaded (yet) or the write fails;
-  // the runtime log says which. RuntimeSnapshot::runtime_games lists the number before it returns.
-  std::optional<std::uint32_t> RuntimeNumberFor(const GameId& game);
+  // Any thread. A new number is written to installs.json under the effective-UID hold, so it waits
+  // while the worker starts up or works through a batch; with `busy`, it returns nothing at once
+  // and sets *busy instead (ask again later). Nothing otherwise when the game is invalid, the
+  // runtime records are not loaded (yet) or the write fails; the runtime log says which.
+  // RuntimeSnapshot::runtime_games lists the number before it returns.
+  std::optional<std::uint32_t> RuntimeNumberFor(const GameId& game, bool* busy = nullptr);
   // Makes `request.to` the game's folder, keeping its PS5 title, runtime number and bottle (the
   // 0.6 games move's republish, for one game): with the game's publication lease held and its title
   // stopped, move_files runs, then one record write names the new folder (moved_from the old one)
@@ -433,8 +442,13 @@ class RuntimeHost {
   // back to removing the old title, keeping its saves (prepare_again). A record already naming `to`
   // (a restart after its write) only finishes the republish. Blocks the calling thread (never the
   // worker's) until the worker answers; a request the worker hasn't started within `timeout` is
-  // dropped and answers kBusy.
+  // dropped and answers kBusy. Once Playden is closing (BeginClosing), a request not started yet
+  // answers kBusy with kRelocationClosing at once: the copy or move resumes at the next start.
   RuntimeRelocationResult Relocate(RuntimeRelocation request, std::chrono::milliseconds timeout);
+  // Playden is quitting: callers waiting in Relocate for a relocation the worker hasn't started stop
+  // waiting now, and new ones are refused, so the install and Local workers they block can be
+  // joined before this host shuts down. Doesn't stop the worker (Shutdown does); safe to call twice.
+  void BeginClosing();
   // Application thread only: starts the title of a prepared launch session.
   // Returns false when no session is waiting.
   bool Handoff();
@@ -465,12 +479,15 @@ class RuntimeHost {
   // *prepare_again: refused for a reason only a new preparation gets past (recipe or settings).
   // The unowned upgrade alone (not moved, no newer settings) never refuses: its failure is in
   // *upgrade_deferred and the owned publication stays, as it played before.
+  // `code`: the publication's failure code when the publication itself refused (empty otherwise).
   std::string RepublishSettings(Composition& composition, const runtime::RuntimeInstall& record,
                                 bool* published = nullptr, bool steam_account_known = true,
-                                bool* prepare_again = nullptr, std::string* upgrade_deferred = nullptr);
+                                bool* prepare_again = nullptr, std::string* upgrade_deferred = nullptr,
+                                std::string* code = nullptr);
   // RepublishSettings without the upgrade's fallback.
   std::string PublishSavedSettings(Composition& composition, const runtime::RuntimeInstall& record,
-                                   bool* published, bool steam_account_known, bool* prepare_again);
+                                   bool* published, bool steam_account_known, bool* prepare_again,
+                                   std::string* code = nullptr);
   // A Ready game published owned (schema 2, before 0.6 or by a kit before 0.10) while the kit
   // admits unowned game folders: published again as unowned, so folders the player opened pass.
   bool NeedsUnownedPublication(const Composition& composition, const runtime::RuntimeInstall& record);
@@ -617,12 +634,15 @@ class RuntimeHost {
   runtime::LaunchService* launch_ = nullptr;
   Composition* launch_composition_ = nullptr;
   pthread_t application_thread_{};
-  // Runtime numbers of games from other stores. Lock order: numbers_mutex_, then the repository's
-  // own lock (never the other way round), then mutex_.
+  // Runtime numbers of games from other stores. Lock order: the effective-UID hold (which the
+  // worker keeps around startup and each batch, repository use included), then numbers_mutex_,
+  // then the repository's own lock (never the other way round), then mutex_. A number lookup that
+  // may write the repository takes the hold first: a repository write waits for the hold itself.
   mutable std::mutex numbers_mutex_;
   std::unordered_map<GameId, std::uint32_t> numbers_;     // guarded by numbers_mutex_
   runtime::RuntimeInstallRepository* numbers_repository_ = nullptr;  // guarded by numbers_mutex_
   bool stopping_ = false;
+  bool closing_ = false;  // BeginClosing: relocations not started answer at once
   bool started_ = false;
   void* thread_ = nullptr;  // pthread_t storage, owned by the implementation
 };
