@@ -1,6 +1,9 @@
+#include "runtime/burn_bundle.h"
 #include "runtime/install_script.h"
 #include "runtime/msi_package.h"
 #include "runtime/redist_install.h"
+
+#include "msi_fixture.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -23,273 +26,9 @@
   } while (0)
 
 using namespace playden::runtime;
+using namespace playden::test::msi;
 
 namespace {
-
-void Put16(std::string* out, unsigned value) {
-  out->push_back(static_cast<char>(value & 0xff));
-  out->push_back(static_cast<char>((value >> 8) & 0xff));
-}
-
-void Put32(std::string* out, std::uint32_t value) {
-  Put16(out, value & 0xffff);
-  Put16(out, value >> 16);
-}
-
-// Deflate bits, least significant first; Huffman codes go in most significant bit first.
-struct Bits {
-  std::string bytes;
-  unsigned current = 0, count = 0;
-  void Put(unsigned value, unsigned width) {
-    for (unsigned bit = 0; bit < width; ++bit) Push((value >> bit) & 1);
-  }
-  void Code(unsigned value, unsigned width) {
-    for (unsigned bit = width; bit-- > 0;) Push((value >> bit) & 1);
-  }
-  void Push(unsigned bit) {
-    current |= bit << count;
-    if (++count == 8) Flush();
-  }
-  void Flush() {
-    if (count) bytes.push_back(static_cast<char>(current));
-    current = count = 0;
-  }
-};
-
-// A cabinet with one MSZIP folder of two blocks: a stored block "0123456789", then a fixed
-// Huffman block that copies those ten bytes back (length 10, distance 10) — only right when
-// the second block sees the first one's output. Members: "first" (block 1), "second" (block 2),
-// "empty" (no bytes).
-std::string TwoBlockCabinet() {
-  std::string block1 = "CK";
-  {
-    Bits bits;
-    bits.Put(1, 1);  // final
-    bits.Put(0, 2);  // stored
-    bits.Flush();
-    block1 += bits.bytes;
-    Put16(&block1, 10);
-    Put16(&block1, 0xffff ^ 10);
-    block1 += "0123456789";
-  }
-  std::string block2 = "CK";
-  {
-    Bits bits;
-    bits.Put(1, 1);           // final
-    bits.Put(1, 2);           // fixed Huffman
-    bits.Code(264 - 256, 7);  // length 10
-    bits.Code(6, 5);          // distance 9-12
-    bits.Put(1, 2);           // + 1 = 10
-    bits.Code(0, 7);          // end of block
-    bits.Flush();
-    block2 += bits.bytes;
-  }
-  struct Member { const char* name; std::uint32_t size, offset; };
-  const Member members[] = {{"first", 10, 0}, {"second", 10, 10}, {"empty", 0, 20}};
-  std::string files;
-  for (const auto& member : members) {
-    Put32(&files, member.size);
-    Put32(&files, member.offset);
-    Put16(&files, 0);  // folder
-    Put16(&files, 0);
-    Put16(&files, 0);
-    Put16(&files, 0x20);
-    files += member.name;
-    files.push_back('\0');
-  }
-  const std::uint32_t header = 36, folder = 8;
-  const std::uint32_t files_at = header + folder;
-  const std::uint32_t data_at = files_at + static_cast<std::uint32_t>(files.size());
-  std::string data;
-  for (const auto* block : {&block1, &block2}) {
-    Put32(&data, 0);
-    Put16(&data, static_cast<unsigned>(block->size()));
-    Put16(&data, 10);
-    data += *block;
-  }
-  std::string cabinet = "MSCF";
-  Put32(&cabinet, 0);
-  Put32(&cabinet, data_at + static_cast<std::uint32_t>(data.size()));
-  Put32(&cabinet, 0);
-  Put32(&cabinet, files_at);
-  Put32(&cabinet, 0);
-  cabinet.push_back(3);
-  cabinet.push_back(1);
-  Put16(&cabinet, 1);  // folders
-  Put16(&cabinet, 3);  // files
-  Put16(&cabinet, 0);  // flags
-  Put16(&cabinet, 0);
-  Put16(&cabinet, 0);
-  Put32(&cabinet, data_at);
-  Put16(&cabinet, 2);  // blocks
-  Put16(&cabinet, 1);  // MSZIP
-  return cabinet + files + data;
-}
-
-// ---------------------------------------------------------------------------------------------
-// A minimal Windows Installer package: a compound file (512-byte sectors, every stream in
-// ordinary sectors) holding the string pool, _Columns and a few tables.
-
-std::vector<std::uint16_t> EncodeStreamName(const std::string& name) {
-  static const std::string kAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz._";
-  std::vector<std::uint16_t> out;
-  std::size_t at = 0;
-  if (!name.empty() && name[0] == '!') {
-    out.push_back(0x4840);
-    at = 1;
-  }
-  while (at < name.size()) {
-    const auto first = kAlphabet.find(name[at]);
-    if (first == std::string::npos) {
-      out.push_back(static_cast<unsigned char>(name[at++]));
-      continue;
-    }
-    const auto second = at + 1 < name.size() ? kAlphabet.find(name[at + 1]) : std::string::npos;
-    if (second != std::string::npos) {
-      out.push_back(static_cast<std::uint16_t>(0x3800 + first + (second << 6)));
-      at += 2;
-    } else {
-      out.push_back(static_cast<std::uint16_t>(0x4800 + first));
-      ++at;
-    }
-  }
-  return out;
-}
-
-std::string CompoundFile(const std::vector<std::pair<std::string, std::string>>& streams) {
-  constexpr std::uint32_t kSector = 512, kEnd = 0xfffffffe, kFree = 0xffffffff;
-  std::vector<std::uint32_t> stream_sectors;
-  std::uint32_t data_sectors = 0;
-  for (const auto& stream : streams) {
-    const auto count = static_cast<std::uint32_t>((stream.second.size() + kSector - 1) / kSector);
-    stream_sectors.push_back(count);
-    data_sectors += count;
-  }
-  const auto directory_sectors = static_cast<std::uint32_t>(((streams.size() + 1) * 128 + kSector - 1) / kSector);
-  std::uint32_t fat_sectors = 1;
-  while (fat_sectors * (kSector / 4) < fat_sectors + directory_sectors + data_sectors) ++fat_sectors;
-  const std::uint32_t total = fat_sectors + directory_sectors + data_sectors;
-  std::vector<std::uint32_t> fat(fat_sectors * (kSector / 4), kFree);
-  for (std::uint32_t index = 0; index < fat_sectors; ++index) fat[index] = 0xfffffffd;
-  const auto chain = [&](std::uint32_t first, std::uint32_t count) {
-    for (std::uint32_t index = 0; index < count; ++index) fat[first + index] = index + 1 < count ? first + index + 1 : kEnd;
-  };
-  chain(fat_sectors, directory_sectors);
-  std::string directory;
-  const auto entry = [&](const std::vector<std::uint16_t>& name, int type, std::uint32_t start, std::uint32_t size) {
-    std::string out;
-    for (const auto unit : name) Put16(&out, unit);
-    out.resize(64, '\0');
-    Put16(&out, static_cast<unsigned>((name.size() + 1) * 2));
-    out.push_back(static_cast<char>(type));
-    out.push_back(1);
-    Put32(&out, 0xffffffff);
-    Put32(&out, 0xffffffff);
-    Put32(&out, type == 5 ? 1 : 0xffffffff);
-    out.resize(0x74, '\0');
-    Put32(&out, start);
-    Put32(&out, size);
-    Put32(&out, 0);
-    directory += out;
-  };
-  entry({'R', 'o', 'o', 't', ' ', 'E', 'n', 't', 'r', 'y'}, 5, kEnd, 0);
-  std::uint32_t next = fat_sectors + directory_sectors;
-  std::string body;
-  for (std::size_t index = 0; index < streams.size(); ++index) {
-    const auto& [name, data] = streams[index];
-    entry(EncodeStreamName(name), 2, stream_sectors[index] ? next : kEnd, static_cast<std::uint32_t>(data.size()));
-    chain(next, stream_sectors[index]);
-    next += stream_sectors[index];
-    std::string padded = data;
-    padded.resize(stream_sectors[index] * kSector, '\0');
-    body += padded;
-  }
-  directory.resize(directory_sectors * kSector, '\0');
-  std::string header = "\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1";
-  header.resize(0x18, '\0');
-  Put16(&header, 0x3e);
-  Put16(&header, 3);
-  Put16(&header, 0xfffe);
-  Put16(&header, 9);
-  Put16(&header, 6);
-  header.resize(0x2c, '\0');
-  Put32(&header, fat_sectors);
-  Put32(&header, fat_sectors);  // first directory sector
-  Put32(&header, 0);
-  Put32(&header, 0);  // mini stream cutoff: nothing in the mini stream
-  Put32(&header, kEnd);
-  Put32(&header, 0);
-  Put32(&header, kEnd);
-  Put32(&header, 0);
-  for (std::uint32_t index = 0; index < 109; ++index) Put32(&header, index < fat_sectors ? index : kFree);
-  std::string fat_bytes;
-  for (const auto value : fat) Put32(&fat_bytes, value);
-  (void)total;
-  return header + fat_bytes + directory + body;
-}
-
-struct Column {
-  std::string name;
-  char kind;  // 's' string, 'i' 2-byte integer, 'l' 4-byte integer
-};
-
-struct TableSpec {
-  std::string name;
-  std::vector<Column> columns;
-  std::vector<std::vector<std::string>> rows;  // "" is null for strings; integers as text, "" null
-};
-
-std::string Package(const std::vector<TableSpec>& tables, const std::vector<std::pair<std::string, std::string>>& extra) {
-  std::vector<std::string> strings{""};
-  std::map<std::string, std::uint16_t> ids;
-  const auto id = [&](const std::string& text) -> std::uint16_t {
-    if (text.empty()) return 0;
-    const auto found = ids.find(text);
-    if (found != ids.end()) return found->second;
-    strings.push_back(text);
-    return ids[text] = static_cast<std::uint16_t>(strings.size() - 1);
-  };
-  std::vector<std::pair<std::string, std::string>> streams;
-  std::vector<std::string> column_table, column_name;
-  std::vector<unsigned> column_number, column_type;
-  for (const auto& table : tables) {
-    for (std::size_t index = 0; index < table.columns.size(); ++index) {
-      column_table.push_back(table.name);
-      column_name.push_back(table.columns[index].name);
-      column_number.push_back(static_cast<unsigned>(index + 1));
-      const char kind = table.columns[index].kind;
-      column_type.push_back(kind == 's' ? 0x1dff : kind == 'i' ? 0x1502 : 0x1104);
-    }
-    std::string data;
-    for (std::size_t column = 0; column < table.columns.size(); ++column) {
-      for (const auto& row : table.rows) {
-        const auto& cell = row[column];
-        const char kind = table.columns[column].kind;
-        if (kind == 's') Put16(&data, id(cell));
-        else if (kind == 'i') Put16(&data, cell.empty() ? 0 : static_cast<unsigned>(std::atoi(cell.c_str()) + 0x8000));
-        else Put32(&data, cell.empty() ? 0 : static_cast<std::uint32_t>(std::atoll(cell.c_str()) + 0x80000000ll));
-      }
-    }
-    streams.emplace_back("!" + table.name, data);
-  }
-  std::string columns;
-  for (const auto& name : column_table) Put16(&columns, id(name));
-  for (const auto number : column_number) Put16(&columns, number + 0x8000);
-  for (const auto& name : column_name) Put16(&columns, id(name));
-  for (const auto type : column_type) Put16(&columns, type | 0x8000);
-  streams.emplace_back("!_Columns", columns);
-  std::string pool, pool_data;
-  Put32(&pool, 1252);
-  for (std::size_t index = 1; index < strings.size(); ++index) {
-    Put16(&pool, static_cast<unsigned>(strings[index].size()));
-    Put16(&pool, 1);
-    pool_data += strings[index];
-  }
-  streams.emplace_back("!_StringPool", pool);
-  streams.emplace_back("!_StringData", pool_data);
-  for (const auto& stream : extra) streams.push_back(stream);
-  return CompoundFile(streams);
-}
 
 // A package like NVIDIA's legacy PhysX one: a 32-bit loader in Vendor\Common (added to PATH),
 // an engine in Vendor\Engine\v1 found through a registry value, a 64-bit feature turned on by
@@ -461,6 +200,44 @@ void TestPlan() {
   CHECK(plan.path_append.empty());
 }
 
+void TestBurnBundle() {
+  std::string reason;
+  for (const bool x64 : {true, false})
+    for (const auto& [signed_form, with_section] : {std::pair{true, true}, std::pair{false, true}, std::pair{true, false}}) {
+      BurnMsiPackage package;
+      const auto id = std::string("vcRuntimeAdditional_") + (x64 ? "x64" : "x86");
+      const bool ok = ReadBurnMsiPackage(MfcBundle(x64, signed_form, with_section), id, &package, &reason);
+      if (!ok) std::fprintf(stderr, "bundle: %s\n", reason.c_str());
+      CHECK(ok);
+      CHECK(package.msi_name == std::string("vc_runtimeAdditional_") + (x64 ? "x64" : "x86") + ".msi");
+      CHECK(package.msi == MfcPackage(x64));
+      CHECK(package.beside.size() == 1 && package.beside.at("cab1.cab") == MfcCabinet(x64));
+      // The other package of the chain, by its own payloads.
+      CHECK(ReadBurnMsiPackage(MfcBundle(x64, signed_form, with_section), std::string("vcRuntimeMinimum_") + (x64 ? "x64" : "x86"),
+                               &package, &reason));
+      CHECK(package.msi == "minimum-msi" && package.beside.at("cab1.cab") == StoredCabinet({{"vcruntime140.dll", "CRT"}}));
+    }
+  BurnMsiPackage package;
+  CHECK(!ReadBurnMsiPackage(MfcBundle(true), "vcRuntimeAdditional_arm64", &package, &reason));
+  CHECK(reason == "the bundle has no package vcRuntimeAdditional_arm64");
+  CHECK(!ReadBurnMsiPackage("MZ not a bundle", "x", &package, &reason));
+  CHECK(reason == "not a setup bundle Playden can read");
+  // A payload that isn't the size the manifest lists is refused.
+  auto bundle = MfcBundle(true);
+  const auto listed = "FileSize=\"" + std::to_string(MfcCabinet(true).size()) + "\"";
+  // The manifest is stored, so its text is in the bundle as is; same length keeps the cabinet valid.
+  auto wrong = std::to_string(MfcCabinet(true).size() + 1);
+  wrong.resize(std::to_string(MfcCabinet(true).size()).size(), '9');
+  const auto at = bundle.find(listed);
+  CHECK(at != std::string::npos);
+  bundle.replace(at, listed.size(), "FileSize=\"" + wrong + "\"");
+  CHECK(!ReadBurnMsiPackage(bundle, "vcRuntimeAdditional_x64", &package, &reason));
+  CHECK(reason == "the bundle's copy of cab1.cab is not the size its manifest lists");
+  // A cut bundle has no attached container to read.
+  const auto whole = MfcBundle(true);
+  CHECK(!ReadBurnMsiPackage(whole.substr(0, whole.size() - 200), "vcRuntimeAdditional_x64", &package, &reason));
+}
+
 void TestPath() {
   CHECK(ExtendPath("A;B", {"C:\\X"}, {}) == "C:\\X;A;B");
   CHECK(ExtendPath("A;c:\\x\\", {"C:\\X"}, {"D"}) == "A;c:\\x\\;D");
@@ -623,6 +400,7 @@ int main() {
   TestCabinet();
   TestPlan();
   TestPath();
+  TestBurnBundle();
   TestScripts();
   TestInstall();
   TestPhysxPackage();
