@@ -329,9 +329,25 @@ int RemoveWalkChild(int parent, const char* name, bool folder) {
 #endif
 }
 
+// Stats `name` in the held folder `parent` without following it.
+int StatWalkChild(int parent, const char* name, struct stat* info) {
+  if (!PlainName(name ? name : "")) { errno = EINVAL; return -1; }
+#if defined(PLAYDEN_WALK_BY_PATH)
+  // By path, as RemoveWalkChild: once the path still names the held parent; lstat never follows.
+  fs::path parent_path;
+  if (!platform::walk_detail::PathOf(parent, &parent_path)) return -1;
+  struct stat held{}, named{};
+  if (::fstat(parent, &held) != 0 || ::lstat(parent_path.c_str(), &named) != 0) return -1;
+  if (!S_ISDIR(named.st_mode) || named.st_dev != held.st_dev || named.st_ino != held.st_ino) { errno = ESTALE; return -1; }
+  return ::lstat((parent_path / name).c_str(), info);
+#else
+  return ::fstatat(parent, name, info, AT_SYMLINK_NOFOLLOW);
+#endif
+}
+
 class Removal {
  public:
-  Removal(const std::function<bool(const std::string&)>& planned, const runtime::WritableFoldersAsRoot& as_root)
+  Removal(const DropFolderPlanned& planned, const runtime::WritableFoldersAsRoot& as_root)
       : planned_(planned), as_root_(as_root) {}
   ~Removal() {
     for (auto& frame : stack_) if (frame.fd >= 0) ::close(frame.fd);
@@ -443,8 +459,13 @@ class Removal {
       if (child.type == DT_DIR || error != ENOTDIR) { Fail(relative, "open=" + Error(error)); return; }
     }
     if (child.type != DT_REG && child.type != DT_UNKNOWN) { ++result_.kept; return; }
-    // A file: only one the copy took goes.
-    if (!planned_ || !planned_(relative.generic_string())) { ++result_.kept; return; }
+    // A file: only one the copy took goes, and only as the copy took it.
+    struct stat info{};
+    if (StatWalkChild(folder.fd, child.name.c_str(), &info) != 0) {
+      if (errno != ENOENT) ++result_.kept;  // can't be checked: left alone
+      return;
+    }
+    if (!S_ISREG(info.st_mode) || !planned_ || !planned_(relative.generic_string(), info)) { ++result_.kept; return; }
     if (Remove(folder.fd, child.name, false)) ++result_.files;
     else if (errno != ENOENT) Fail(relative, "unlink=" + Error(errno));
   }
@@ -458,7 +479,7 @@ class Removal {
     return result_;
   }
 
-  const std::function<bool(const std::string&)>& planned_;
+  const DropFolderPlanned& planned_;
   const runtime::WritableFoldersAsRoot& as_root_;
   std::vector<Frame> stack_;
   std::size_t entries_ = 0;
@@ -469,7 +490,7 @@ class Removal {
 }  // namespace
 
 DropFolderRemoval RemoveDropFolderEntry(const std::string& drop_folder, const std::string& name,
-                                        const std::function<bool(const std::string& relative)>& planned,
+                                        const DropFolderPlanned& planned,
                                         const runtime::WritableFoldersAsRoot& as_root,
                                         const std::function<void(const std::string&)>& log) {
   DropFolderRemoval result;

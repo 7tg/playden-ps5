@@ -337,6 +337,9 @@ void CopyRelocatesItsTitle() {
     if (running) {
       result.outcome = LocalRelocationResult::Outcome::kBusy;
       result.message = "Close the game first.";
+    } else {
+      // Once the title is stopped: the files changed since they were copied (none here).
+      CHECK(relocation.move_files && relocation.move_files().empty());
     }
     return result;
   };
@@ -354,7 +357,7 @@ void CopyRelocatesItsTitle() {
   {
     std::lock_guard<std::mutex> lock(mutex);
     CHECK(asked[0].game == fixture.Game() && asked[0].runtime_number == kNumber &&
-          asked[0].root == fixture.Dest().string() && !asked[0].move_files);
+          asked[0].root == fixture.Dest().string());
   }
   running = false;
   WaitFor([&] { return fixture.Installed() && fixture.State() == ImportState::kCopied; }, "the relocated copy");
@@ -847,6 +850,80 @@ void FreeSpaceRefused() {
   }, "the refused copy gone");
 }
 
+// A link in place of one of the copy's folders is refused, never written through.
+void LinkInTheCopyRefused() {
+  Fixture fixture;
+  fixture.Start(false);
+  const auto added = fixture.store->Add("usb0", "playden/import/Rally", "Rally", "Bin/Rally.exe");
+  CHECK(added.ok());
+  auto build = BuildCopyPlan(fixture.source.string());
+  CHECK(build.ok);
+  build.plan.program = "Bin/Rally.exe";
+  CHECK(SaveCopyPlan(build.plan, fixture.Dest().string()).empty());
+  const auto elsewhere = fixture.root / "elsewhere";
+  fs::create_directories(elsewhere);
+  fs::create_directory_symlink(elsewhere, fixture.Dest() / "data");
+  CHECK(fixture.store->QueueCopy(kId).ok());
+  fixture.service->Install(fixture.Game(), build.plan.total);
+  WaitFor([&] { const auto job = fixture.Job(); return job && job->state == InstallJobState::kFailed; }, "the refused folder");
+  CHECK(fixture.Job()->failure == "Could not write the game files." && fs::is_empty(elsewhere));
+}
+
+// A restart without the drive a copy was queued to: its install is listed unavailable, and the
+// reconcile leaves the entry copying (not copied) until the drive is back, when the copy carries on.
+void ReconcileWaitsForTheDrive() {
+  Fixture fixture;
+  const auto games = fixture.root / "mnt/ext1/playden/games";
+  fs::create_directories(games);
+  fixture.extra_volumes = {{"m2", "M.2 SSD", games.string(), true}};
+  std::atomic<bool> pause{true};
+  fixture.options.after_file = [&](const std::string&) {
+    if (pause.exchange(false)) fixture.service->Pause(GameId::Local(kId));
+  };
+  fixture.Start();
+  fixture.Add();
+  CHECK(fixture.Outcome(fixture.local->CopyIntoPlayden(kId, "m2", kNumber)).ok);
+  WaitFor([&] { const auto job = fixture.Job(); return job && job->state == InstallJobState::kPaused; }, "paused");
+  fixture.Stop();
+  fixture.extra_volumes[0].available = false;
+  fixture.Start();
+  const auto snapshot = fixture.service->Snapshot();
+  CHECK(snapshot.jobs.empty() && snapshot.installed.size() == 1 && !snapshot.installed[0].available);
+  auto* service = fixture.service.get();
+  CHECK(fixture.Outcome(fixture.local->Reconcile([service] { return service->Snapshot(); },
+                                                 [service](const GameId& id) { service->Cancel(id); })).ok);
+  CHECK(fixture.State() == ImportState::kCopying);
+  CHECK(fixture.Logged("import copy reconcile waits id=" + std::string(kId)));
+  fixture.Stop();
+  fixture.extra_volumes[0].available = true;
+  fixture.Start();
+  WaitFor([&] { return fixture.Job().has_value() || fixture.Installed(); }, "the copy job back");  // paused, or carrying on
+  fixture.service->Resume(fixture.Game());
+  WaitFor([&] { return fixture.Installed() && fixture.State() == ImportState::kCopied; }, "the copy finished");
+  CHECK(Read(games / ("local-" + std::string(kId)) / "data/big.pak") == Read(fixture.source / "data/big.pak"));
+}
+
+// A copied game whose folder went missing from Playden's storage: Uninstall forgets it, and its
+// entry leaves the library (nothing to delete).
+void UninstallMissingCopy() {
+  Fixture fixture;
+  fixture.Start();
+  fixture.Add();
+  CHECK(fixture.Outcome(fixture.local->CopyIntoPlayden(kId)).ok);
+  WaitFor([&] { return fixture.Installed() && fixture.State() == ImportState::kCopied; }, "copied");
+  fixture.Stop();
+  fs::remove_all(fixture.Dest());
+  fixture.Start();
+  const auto snapshot = fixture.service->Snapshot();
+  CHECK(snapshot.installed.size() == 1 && !snapshot.installed[0].available);
+  fixture.service->Uninstall(fixture.Game());
+  WaitFor([&] { return !fixture.store->Find(kId).has_value(); }, "the entry gone");
+  CHECK(fixture.store->Removed().size() == 1 && fixture.store->Removed()[0].id == kId);
+  CHECK(fixture.service->Snapshot().installed.empty() && fixture.Logged("import copy uninstalled id=" + std::string(kId)));
+  WaitFor([&] { return fixture.local->Snapshot()->games.empty(); }, "the game out of the library");
+  CHECK(fs::exists(fixture.source / "Bin/Rally.exe"));
+}
+
 }  // namespace
 
 // A drop-folder game copied to another drive: once the copy is committed its drop-folder files go
@@ -943,6 +1020,78 @@ void DropFolderCopyFreesTheDropFolder() {
     ::chmod(parent.c_str(), 0755);
   }
   {
+    // A copied file changed in the drop folder before the title followed the copy (the game played
+    // from there meanwhile): copied again, then the whole drop folder goes.
+    Fixture fixture;
+    const auto dest = m2(fixture);
+    std::string changed;
+    fixture.options.after_file = [&](const std::string& path) {
+      if (!changed.empty()) return;
+      changed = path;
+      std::ofstream(fixture.Drop() / path, std::ios::binary | std::ios::app) << "saved by the game";
+    };
+    fixture.Start();
+    fixture.AddDrop();
+    copy(fixture);
+    CHECK(!changed.empty() && Has(Read(dest / changed), "saved by the game"));
+    CHECK(fixture.Logged("import copy copies again id=" + std::string(kId) + " path=" + changed));
+    CHECK(!fs::exists(fixture.Drop()) && fixture.store->Find(kId)->failure.empty());
+    const auto plan_total = fixture.service->Snapshot().installed[0].install_bytes;
+    CHECK(plan_total == 70000 + 3 * 1024 * 1024 + 17 + 4 + 21 + 7 + 17);
+    CHECK(Has(Read(dest / ".playden-install.json"), "\"install_bytes\":" + std::to_string(plan_total)));
+  }
+  {
+    // A copied file changed after the title followed the copy: the drop folder keeps it.
+    Fixture fixture;
+    const auto dest = m2(fixture);
+    fixture.options.relocate = [&](const LocalRelocation& relocation) {
+      LocalRelocationResult result;
+      if (relocation.move_files) result.message = relocation.move_files();
+      if (!result.message.empty()) result.outcome = LocalRelocationResult::Outcome::kFailed;
+      std::ofstream(fixture.Drop() / "data/big.pak", std::ios::binary | std::ios::app) << "late";
+      return result;
+    };
+    fixture.Start();
+    fixture.AddDrop();
+    const auto original = Read(fixture.Drop() / "data/big.pak");
+    copy(fixture);
+    CHECK(Read(dest / "data/big.pak") == original);
+    const auto left = Files(fixture.Drop());
+    CHECK(left.size() == 1 && left[0].first == "data/big.pak" && left[0].second == original + "late");
+    CHECK(Has(fixture.store->Find(kId)->failure, "still in /data/playden-import/Rally"));
+    CHECK(fixture.Installed() && fixture.State() == ImportState::kCopied);
+  }
+  {
+    // Playden's own names at the top of the game's folder are left out, and stay in the drop
+    // folder; deeper down they are the game's. A game file next to its ".part" name copies both.
+    Fixture fixture;
+    const auto dest = m2(fixture);
+    Write(fixture.source / ".playden-install.json", "the game's own record");
+    Write(fixture.source / ".playden-files", "the game's own list");
+    Write(fixture.source / ".playden-copy/plan.json", "{}");
+    Write(fixture.source / ".playden-download/journal", "journal");
+    Write(fixture.source / "data/.playden-files", "nested");
+    Write(fixture.source / "data/asset", "asset");
+    Write(fixture.source / "data/asset.part", "asset part");
+    const auto build = BuildCopyPlan(fixture.source.string());
+    CHECK(build.ok);
+    CHECK(std::set<std::string>(build.skipped.begin(), build.skipped.end()) ==
+          std::set<std::string>({".playden-install.json", ".playden-files", ".playden-copy", ".playden-download"}));
+    CHECK(!PlanHasFile(build.plan, ".playden-install.json") && !PlanHasFile(build.plan, ".playden-copy/plan.json") &&
+          PlanHasFile(build.plan, "data/.playden-files"));
+    fixture.Start();
+    fixture.AddDrop();
+    copy(fixture);
+    CHECK(fixture.Logged("import copy leaves out id=" + std::string(kId) + " path=.playden-install.json"));
+    CHECK(Read(dest / "data/asset") == "asset" && Read(dest / "data/asset.part") == "asset part");
+    CHECK(Read(dest / "data/.playden-files") == "nested" && !fs::exists(dest / ".playden-copy"));
+    CHECK(Has(Read(dest / ".playden-install.json"), "\"store\":\"local\""));
+    CHECK(!fs::exists(dest / ".playden-download"));
+    const auto left = Files(fixture.Drop());
+    CHECK(left.size() == 4 && Read(fixture.Drop() / ".playden-install.json") == "the game's own record");
+    CHECK(fs::exists(fixture.Drop() / ".playden-copy/plan.json") && !fs::exists(fixture.Drop() / "data/asset.part"));
+  }
+  {
     // A crash after the commit's record: the files are gone already, the next start commits the entry.
     Fixture fixture;
     m2(fixture);
@@ -981,6 +1130,9 @@ int main() {
   MoveRefusedWhileTheTitleRuns();
   MoveFinishesAfterRestart();
   DropFolderCopyFreesTheDropFolder();
+  LinkInTheCopyRefused();
+  ReconcileWaitsForTheDrive();
+  UninstallMissingCopy();
   std::puts("local copy tests passed");
   return 0;
 }

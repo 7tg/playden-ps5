@@ -20,6 +20,12 @@ constexpr int kOpenAny = O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC;
 constexpr std::size_t kMaxLineBytes = 16 * 1024;
 constexpr const char* kFileList = ".playden-files";  // DepotInstaller::kFileList
 
+// Names Playden writes at the top of a managed install (DepotInstaller's and the copy's own).
+bool ReservedName(const std::string& name) {
+  return name == kCopyJournalDir || name == kFileList || name == ".playden-files.tmp" || name == ".playden-install.json" ||
+         name == ".playden-install.json.tmp" || name == ".playden-download";
+}
+
 bool Unsupported(int error) { return error == ENOSYS || error == EINVAL; }
 bool IsLinkError(int error) { return error == ELOOP || error == EMLINK; }
 
@@ -119,7 +125,7 @@ bool WriteDurably(const std::string& path, const std::string& text) {
 bool MakeFolder(const std::string& path) {
   if (::mkdir(path.c_str(), 0777) == 0) return true;
   struct stat info {};
-  return errno == EEXIST && ::stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+  return errno == EEXIST && ::lstat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
 }
 
 // One value of the plan's line layout: the line without its end and trailing comma.
@@ -206,6 +212,10 @@ CopyPlanBuild BuildCopyPlan(const std::string& source_path, std::size_t max_file
     }
     const std::string name = entry->d_name;
     if (name == "." || name == "..") continue;
+    if (frame.relative.empty() && ReservedName(name)) {
+      build.skipped.push_back(name);
+      continue;
+    }
     const auto relative = frame.relative.empty() ? name : frame.relative + "/" + name;
     if (entry->d_type == DT_LNK) return fail(LinkWords(relative), ELOOP);
     const int child = platform::OpenWalkChildUnprivileged(frame.fd, name.c_str(), kOpenAny, static_cast<std::uint64_t>(entry->d_fileno));

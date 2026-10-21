@@ -27,6 +27,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <sys/stat.h>
 #include <sys/types.h>
 
 namespace playden::stores::local {
@@ -64,8 +65,9 @@ DropFolderAccessResult OpenDropFolderEntry(const std::string& entry, const DropF
 // twice. Only the entry `name` (one plain folder name) directly inside `drop_folder` (the drop
 // folder as this process opens it: /data/playden-import on the console) is walked, through
 // platform/directory_walk.h, never following a link: a link is never followed nor deleted, and
-// neither is a file `planned` doesn't name (relative to the entry, '/' separators: what the copy
-// took). A folder still holding something then stays, and the result says so. Root is raised (as_root)
+// neither is a file `planned` doesn't name (relative to the entry, '/' separators, with the file's
+// lstat: what the copy took, unchanged since). A folder still holding something then stays, and the
+// result says so. Root is raised (as_root)
 // only for one removal the app user may not do (FTP leaves root-owned folders). Run with no root
 // held by this thread.
 struct DropFolderRemoval {
@@ -75,8 +77,9 @@ struct DropFolderRemoval {
   std::size_t kept = 0;                // entries left: links, files the copy didn't take
   std::size_t raises = 0;
 };
+using DropFolderPlanned = std::function<bool(const std::string& relative, const struct stat& info)>;
 DropFolderRemoval RemoveDropFolderEntry(const std::string& drop_folder, const std::string& name,
-                                        const std::function<bool(const std::string& relative)>& planned,
+                                        const DropFolderPlanned& planned,
                                         const runtime::WritableFoldersAsRoot& as_root,
                                         const std::function<void(const std::string&)>& log = {});
 

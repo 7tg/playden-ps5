@@ -3,14 +3,15 @@
 // imported game is copied from its drive folder into <games_root>/local-<id> on the chosen volume
 // and becomes a managed install there; the drive folder is never touched. A drop-folder game's
 // folder (/data/playden-import/<name>) is deleted once its copy is committed, so the game isn't
-// stored twice; until then it plays from the drop folder.
+// stored twice (files changed since they were copied stay); until then it plays from the drop folder.
 //
 // Flow: Enqueue (on the Local source's worker) walks the folder into a copy plan, saves it in the
 // destination (copy_plan.h), sets the entry copy_queued and queues the job with the plan's total
 // (the service's free-space check). Install (on the service's worker) sets it copying, checks free
-// space again, copies the files in plan order (<path>.part, fsync, rename; a resume skips files
-// already at their planned size), verifies every file and the program, writes the install record
-// and sets the entry copied. Remove (cancel or uninstall) deletes the folder and moves the entry
+// space again, copies the files in plan order (.playden-copy/<index>.part, fsync, rename; a resume
+// skips files already at their planned size), verifies every file and the program, has the title
+// follow the copy (files changed in the drive folder meanwhile are copied again), writes the
+// install record and sets the entry copied. Remove (cancel or uninstall) deletes the folder and moves the entry
 // back to in_place (a copy) or to the removed list (a copied game).
 //
 // A game already prepared to play from its folder keeps its PS5 title, runtime number and bottle:
@@ -54,8 +55,8 @@ struct LocalRelocation {
   std::uint32_t runtime_number = 0;  // 0: none yet (no PS5 title)
   std::string root;                  // the folder in Playden, as this process opens it
   std::string volume_id;             // the install volume of `root`; empty: the game's copy job's
-  // The move's rename (empty for a copy): run once the game's title is stopped; empty, or why not.
-  // Safe to run again after it succeeded.
+  // Run once the game's title is stopped: the move's rename, or for a copy, copying again the files
+  // that changed since they were copied. Empty, or why not. Safe to run again after it succeeded.
   std::function<std::string()> move_files;
 };
 struct LocalRelocationResult {
@@ -71,7 +72,7 @@ struct LocalCopyOptions {
   std::function<std::optional<steam::VolumeSpace>(const std::string& path)> space;
   std::size_t buffer_bytes = 1024 * 1024;
   // Moves the game's PS5 title to its folder in Playden (RuntimeHost::Relocate): after a copy is
-  // verified, and for a move (which runs move_files). Empty: no game has a title (move_files runs at
+  // verified, and for a move; both run move_files. Empty: no game has a title (move_files runs at
   // once).
   std::function<LocalRelocationResult(const LocalRelocation&)> relocate;
   // Runs work with root raised (ps5::WithRoot): the move's rename of a root-owned drop folder.
@@ -112,13 +113,19 @@ class LocalCopyRunner final : public installs::InstallRunner {
                  const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress,
                  const std::function<void(installs::InstallStep)>& step) override;
   bool Remove(const std::string& root) override;
+  void Forget(const GameId& id) override;
 
  private:
   LocalRelocationResult Relocate(const LocalRelocation& relocation);
-  // After a drop-folder game's copy committed: its drop-folder files (those the copy took) are
-  // deleted. Empty, or the sentence kept on the entry when some stay.
-  std::string RemoveDropFolderSource(const ImportEntry& entry, const CopyPlan& plan);
-  Result Abandon(const ImportEntry& entry, const std::string& root, const CopyPlan* plan, const std::string& failure);
+  // Before the title follows the copy (LocalRelocation::move_files): every planned file the source
+  // has changed since it was copied is planned again as it is now (the plan saved) and copied again.
+  // A file gone from the source stays as copied. Empty, or why not.
+  std::string CopyChangedFiles(const std::string& id, const std::string& root, CopyPlan& plan);
+  // After a drop-folder game's copy (in `root`) committed: the copy's folders are synced, then its
+  // drop-folder files (those the copy took, unchanged since) are deleted. Empty, or the sentence
+  // kept on the entry when some stay.
+  std::string RemoveDropFolderSource(const ImportEntry& entry, const CopyPlan& plan, const std::string& root);
+  Result Abandon(const ImportEntry& entry, const std::string& root, const std::string& failure);
   void Changed();
   void Log(const std::string& line) const;
 

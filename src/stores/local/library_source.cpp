@@ -409,6 +409,10 @@ void LocalLibrarySource::Execute(const Job& job) {
         return std::any_of(service.installed.begin(), service.installed.end(),
                            [&](const installs::InstalledGame& game) { return game.id == id; });
       };
+      const auto available = [&](const GameId& id) {
+        return std::any_of(service.installed.begin(), service.installed.end(),
+                           [&](const installs::InstalledGame& game) { return game.id == id && game.available; });
+      };
       const auto queued = [&](const GameId& id) {
         return std::any_of(service.jobs.begin(), service.jobs.end(),
                            [&](const installs::InstallJobView& view) { return view.id == id; });
@@ -417,12 +421,16 @@ void LocalLibrarySource::Execute(const Job& job) {
       for (const auto& game : store_.Games()) {
         if (game.state != ImportState::kCopyQueued && game.state != ImportState::kCopying) continue;
         const auto id = GameId::Local(game.id);
-        if (installed(id)) {
+        if (available(id)) {
           // The copy committed its install record; Playden stopped before imports.json said so.
           if (game.state == ImportState::kCopyQueued) store_.StartCopy(game.id);
           const auto finished = store_.FinishCopy(game.id);
           Log("import copy reconciled id=" + game.id + (finished.ok() ? " copied" : " failed: " + finished.message()));
           changed = true;
+        } else if (installed(id)) {
+          // Listed on a drive that isn't there (a copy queued there, or its folder missing): nothing
+          // says whether it finished, so it stays as it is until the drive is back.
+          Log("import copy reconcile waits id=" + game.id + ": its install is unavailable");
         } else if (!queued(id)) {
           // A move renames the drop folder away: one whose rename happened is finished, never put
           // back in place (its folder is in Playden now).

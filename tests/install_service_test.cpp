@@ -322,14 +322,16 @@ int AttemptsAt(Runner& runner, const std::filesystem::path& root) {
 class LocalRunner final : public InstallRunner {
  public:
   std::atomic<bool> block{false};
+  std::atomic<bool> ignore_cancel{false};  // the run finishes whatever a cancel says (it came too late)
   std::mutex mutex;
   std::vector<GameId> installed;
   std::vector<std::string> removed;
+  std::vector<GameId> forgotten;
   Result Install(const GameId& id, const std::string& root, const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
                  const std::function<void(InstallStep)>&) override {
     while (block) {
-      if (cancel) return {false, true, {}, 0};
+      if (cancel && !ignore_cancel) return {false, true, {}, 0};
       std::this_thread::sleep_for(1ms);
     }
     std::filesystem::create_directories(root);
@@ -345,7 +347,60 @@ class LocalRunner final : public InstallRunner {
     std::filesystem::remove_all(root);
     return true;
   }
+  void Forget(const GameId& id) override {
+    std::lock_guard<std::mutex> lock(mutex);
+    forgotten.push_back(id);
+  }
 };
+
+// A cancel that arrives while the run finishes comes too late: the run's install stays, and
+// nothing is removed (a copy may already have deleted its source). An uninstall of a game whose
+// folder is missing deletes nothing but tells its runner to forget it.
+void LateCancelKeepsTheInstall(const std::filesystem::path& root) {
+  const auto local = GameId::Local("0f8fad5b-d9cb-469f-a165-70867728950e");
+  std::filesystem::remove_all(root);
+  {
+    Sessions sessions;
+    Runner steam(sessions);
+    LocalRunner imports;
+    imports.block = true;
+    imports.ignore_cancel = true;
+    InstallService service({{Store::kSteam, &steam}, {Store::kLocal, &imports}},
+                           {{InstallService::kPrimaryVolumeId, "Console storage", root.string(), true}});
+    service.Install(local, 7);
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      const auto* job = JobOf(s, local);
+      return job && job->state == InstallJobState::kRunning;
+    });
+    service.Cancel(local);
+    imports.block = false;
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) { return Installed(s, local) && s.jobs.empty(); });
+    {
+      std::lock_guard<std::mutex> lock(imports.mutex);
+      CHECK(imports.removed.empty() && imports.installed.size() == 1);
+    }
+    CHECK(std::filesystem::exists(root / ToKey(local) / ".playden-install.json"));
+  }
+  // Its folder goes missing while Playden is closed: listed unavailable, then uninstalled.
+  std::filesystem::remove_all(root / ToKey(local));
+  {
+    Sessions sessions;
+    Runner steam(sessions);
+    LocalRunner imports;
+    InstallService service({{Store::kSteam, &steam}, {Store::kLocal, &imports}},
+                           {{InstallService::kPrimaryVolumeId, "Console storage", root.string(), true}});
+    const auto listed = service.Snapshot();
+    CHECK(listed.installed.size() == 1 && listed.installed[0].id == local && !listed.installed[0].available);
+    service.Uninstall(local);
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      std::lock_guard<std::mutex> lock(imports.mutex);
+      return !Installed(s, local) && imports.forgotten.size() == 1;
+    });
+    std::lock_guard<std::mutex> lock(imports.mutex);
+    CHECK(imports.forgotten[0] == local && imports.removed.empty());
+  }
+  std::filesystem::remove_all(root);
+}
 
 // Jobs waiting to try again never hold up the queue: another store's job behind a Steam job that
 // waits for the sign-in runs, two waiting Steam jobs both keep trying, and a waiting job can be
@@ -524,6 +579,7 @@ int main() {
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));
   UnreachableSteamWaits(std::filesystem::temp_directory_path() / ("playden-unreachable-service-" + std::to_string(::getpid())));
   WaitingJobsDontBlockTheQueue(std::filesystem::temp_directory_path() / ("playden-waiting-service-" + std::to_string(::getpid())));
+  LateCancelKeepsTheInstall(std::filesystem::temp_directory_path() / ("playden-late-cancel-service-" + std::to_string(::getpid())));
   SignInEndsSteamWait(std::filesystem::temp_directory_path() / ("playden-signin-wait-service-" + std::to_string(::getpid())));
   CompletedDownloadsList(std::filesystem::temp_directory_path() / ("playden-completed-service-" + std::to_string(::getpid())));
   const auto requests = ParseInstallRequests("uninstall 439490\n439490\ncancel 108600\n108600\n");
@@ -685,6 +741,8 @@ int main() {
     CHECK(JobOf(service.Snapshot(), SteamId(610))->state == InstallJobState::kRunning);
     service.Cancel(SteamId(620));
     service.Cancel(SteamId(610));
+    // The run stops for the cancel first (one that finished meanwhile would stay installed).
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return !JobOf(s, SteamId(610)); });
     runner.block = false;
     AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
       std::lock_guard<std::mutex> lock(runner.mutex);

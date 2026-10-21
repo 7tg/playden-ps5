@@ -51,11 +51,14 @@ struct CopyPlanBuild {
   CopyPlan plan;
   std::string failure;  // a sentence for the player, naming the path when one is at fault
   int error = 0;        // errno of the failure, when there was one
+  std::vector<std::string> skipped;  // top-level names left out: Playden's own (for the log)
 };
 
 // Walks `source` (absolute): every folder and regular file, hidden ones included, no depth limit.
 // A link anywhere fails it, naming the link; so do an unreadable entry and more than `max_files`
-// files or `max_bytes` bytes. Other kinds of entries (sockets, devices) are left out.
+// files or `max_bytes` bytes. Other kinds of entries (sockets, devices) are left out, and so are
+// Playden's own names at the top level (the copy journal, the install record and file list, the
+// download journal): never copied over Playden's, and never deleted from a drop folder.
 CopyPlanBuild BuildCopyPlan(const std::string& source, std::size_t max_files = kMaxCopyFiles,
                             std::uint64_t max_bytes = kMaxCopyBytes);
 

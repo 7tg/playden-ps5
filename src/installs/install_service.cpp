@@ -570,7 +570,7 @@ void InstallService::Cancel(GameId id) {
     const auto root = volume && volume->available ? RootOn(job->view.volume_id, id) : std::string();
     jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [id](const Job& entry) { return entry.view.id == id; }),
                 jobs_.end());
-    if (!root.empty()) removals_.push_back({id.store, root});
+    if (!root.empty()) removals_.push_back({id.store, root, std::nullopt});
   }
   Publish();
   wake_.notify_all();
@@ -586,7 +586,9 @@ void InstallService::Uninstall(GameId id) {
   if (!found->available && (!volume || !volume->available)) return;
   const auto root = found->available ? RootOn(found->volume_id, id) : std::string();
   installed_.erase(found);
-  if (!root.empty()) removals_.push_back({id.store, root});
+  // Its runner still hears of it, to forget what it keeps of the game.
+  if (!root.empty()) removals_.push_back({id.store, root, std::nullopt});
+  else removals_.push_back({id.store, {}, id});
   Publish();
   wake_.notify_all();
 }
@@ -716,7 +718,10 @@ void InstallService::Run() {
       }
     }
     if (removal) {
-      if (auto* remover = RunnerFor(removal->store)) remover->Remove(removal->root);
+      if (auto* remover = RunnerFor(removal->store)) {
+        if (removal->forget) remover->Forget(*removal->forget);
+        else remover->Remove(removal->root);
+      }
       std::lock_guard<std::mutex> lock(mutex_);
       Publish();
       continue;
@@ -767,15 +772,17 @@ void InstallService::Run() {
       std::unique_lock<std::mutex> lock(mutex_);
       active_.reset();
       auto* job = Find(*next);
-      if (job && job->cancel_requested) {
-        jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [&](const Job& entry) { return entry.view.id == *next; }),
-                    jobs_.end());
-        remove_files = true;
-      } else if (job && result.ok) {
+      if (job && result.ok) {
+        // Installed, even when a cancel arrived meanwhile: it came too late (a copy may already have
+        // deleted its source), so the game stays and can be uninstalled.
         const auto volume_id = job->view.volume_id;
         jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [&](const Job& entry) { return entry.view.id == *next; }),
                     jobs_.end());
         installed_.push_back({*next, result.install_bytes, next_root, volume_id, true, WallNow()});
+      } else if (job && job->cancel_requested) {
+        jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [&](const Job& entry) { return entry.view.id == *next; }),
+                    jobs_.end());
+        remove_files = true;
       } else if (job && job->view.state == InstallJobState::kRunning && result.canceled && stopping_) {
         // Playden is closing: the download stays queued, so the next start carries on with it.
         job->view.state = InstallJobState::kQueued;

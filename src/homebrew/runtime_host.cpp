@@ -1821,6 +1821,16 @@ RuntimeRelocationResult RuntimeHost::RunRelocate(Composition& c, const RuntimeRe
     return result;
   };
   const auto app = std::to_string(request.runtime_number);
+  // A queued preparation names the old folder and would move the game back there (RunPrepare's
+  // drive move): it goes first, and the caller tries again later.
+  if (request.runtime_number != 0) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (std::any_of(prepare_requests_.begin(), prepare_requests_.end(),
+                    [&](const auto& waiting) { return waiting.runtime_number == request.runtime_number; })) {
+      Log("relocate app=" + app + " waits: a preparation is queued");
+      return answer(Outcome::kBusy, "Finish setting up the game first.");
+    }
+  }
   std::optional<rt::RuntimeInstall> found;
   if (request.runtime_number != 0)
     for (const auto& record : c.repository.Snapshot())

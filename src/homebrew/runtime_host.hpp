@@ -345,7 +345,8 @@ struct RuntimeRelocation {
   std::string volume_id;             // the install volume of `to`
   // The move itself, run on the worker under the game's publication lease once its title is
   // stopped (and at once for a game without a title): empty, or why not. It must be safe to run
-  // again after it succeeded (a restart in between). Empty: the files are at `to` already (a copy).
+  // again after it succeeded (a restart in between). For a copy it copies again the files
+  // changed since they were copied. Empty: the files are at `to` already.
   std::function<std::string()> move_files;
 };
 
@@ -440,9 +441,10 @@ class RuntimeHost {
   // stopped, move_files runs, then one record write names the new folder (moved_from the old one)
   // and the game is published again at its revision. A publication that can't be verified falls
   // back to removing the old title, keeping its saves (prepare_again). A record already naming `to`
-  // (a restart after its write) only finishes the republish. Blocks the calling thread (never the
-  // worker's) until the worker answers; a request the worker hasn't started within `timeout` is
-  // dropped and answers kBusy. Once Playden is closing (BeginClosing), a request not started yet
+  // (a restart after its write) only finishes the republish. A preparation queued for the game
+  // answers kBusy (it names the old folder). Blocks the calling thread (never the worker's) until
+  // the worker answers; a request the worker hasn't started within `timeout` is dropped and answers
+  // kBusy. Once Playden is closing (BeginClosing), a request not started yet
   // answers kBusy with kRelocationClosing at once: the copy or move resumes at the next start.
   RuntimeRelocationResult Relocate(RuntimeRelocation request, std::chrono::milliseconds timeout);
   // Playden is quitting: callers waiting in Relocate for a relocation the worker hasn't started stop

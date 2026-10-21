@@ -128,6 +128,8 @@ class InstallRunner {
                          const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress,
                          const std::function<void(InstallStep)>& step) = 0;
   virtual bool Remove(const std::string& root) = 0;
+  // An uninstalled game whose folder is missing: forgotten with nothing to delete (on the worker).
+  virtual void Forget(const GameId& id) { (void)id; }
 };
 
 // Install queue for real games under <volume games_root>/<key>. One install runs at a time; jobs
@@ -203,6 +205,7 @@ class InstallService {
   struct Removal {
     Store store = Store::kSteam;
     std::string root;
+    std::optional<GameId> forget;  // set: InstallRunner::Forget instead of deleting `root`
   };
   void Run();
   void Scan();

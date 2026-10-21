@@ -148,8 +148,15 @@ bool WriteAll(int fd, const char* data, std::size_t size, int* error) {
   return true;
 }
 
-CopyStatus CopyOne(SourceWalk& walk, const CopyFile& file, const std::string& destination, std::vector<char>& buffer,
-                   const std::atomic<bool>& cancel, const std::function<void(std::uint64_t)>& copied_bytes) {
+// The temporary name of the plan's file `index`: in the copy journal, so it never meets a game file.
+std::string PartPath(const std::string& root, std::size_t index) {
+  return root + "/" + kCopyJournalDir + "/" + std::to_string(index) + ".part";
+}
+
+// Copies the file through `part` (fsync, rename to `destination`), checking it against the plan.
+CopyStatus CopyOne(SourceWalk& walk, const CopyFile& file, const std::string& part, const std::string& destination,
+                   std::vector<char>& buffer, const std::atomic<bool>& cancel,
+                   const std::function<void(std::uint64_t)>& copied_bytes) {
   const int in = walk.OpenFile(file.path);
   if (in < 0) {
     const int error = errno;
@@ -161,8 +168,7 @@ CopyStatus CopyOne(SourceWalk& walk, const CopyFile& file, const std::string& de
   struct stat before {};
   if (::fstat(in, &before) != 0) { ::close(in); return CopyStatus::kReadFailed; }
   if (!AsPlanned(before, file)) { ::close(in); return CopyStatus::kChanged; }
-  const auto part = destination + ".part";
-  const int out = ::open(part.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+  const int out = ::open(part.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0666);
   if (out < 0) {
     const int error = errno;
     ::close(in);
@@ -206,10 +212,11 @@ CopyStatus CopyOne(SourceWalk& walk, const CopyFile& file, const std::string& de
   return CopyStatus::kOk;
 }
 
+// A link in place of a folder is refused, not followed.
 bool MakeFolder(const std::string& path) {
   if (::mkdir(path.c_str(), 0777) == 0) return true;
   struct stat info {};
-  return errno == EEXIST && ::stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+  return errno == EEXIST && ::lstat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
 }
 
 // The install record, as the depot installer writes it for another store's game.
@@ -234,10 +241,19 @@ bool WriteRecord(const std::string& root, const GameId& game, const CopyPlan& pl
   return ok;
 }
 
-// Partial files the plan's list doesn't name, so RemoveManagedInstall can remove exactly its paths.
-void RemoveParts(const std::string& root, const CopyPlan* plan) {
-  if (!plan) return;
-  for (const auto& file : plan->files) std::remove((root + "/" + file.path + ".part").c_str());
+// Partial files in the copy journal, which RemoveManagedInstall doesn't know, so it can remove
+// exactly the plan's paths and then the journal folder.
+void RemoveParts(const std::string& root) {
+  const auto journal = root + "/" + kCopyJournalDir;
+  DIR* folder = ::opendir(journal.c_str());
+  if (!folder) return;
+  std::vector<std::string> parts;
+  while (const auto* item = ::readdir(folder)) {
+    const std::string name = item->d_name;
+    if (name.size() > 5 && name.compare(name.size() - 5, 5, ".part") == 0) parts.push_back(name);
+  }
+  ::closedir(folder);
+  for (const auto& name : parts) std::remove((journal + "/" + name).c_str());
 }
 
 bool IsFolder(const std::string& path) {
@@ -321,6 +337,8 @@ std::string LocalCopyRunner::Enqueue(installs::InstallService& service, const Im
     Log("import copy plan failed id=" + entry.id + " errno=" + std::to_string(build.error) + ": " + build.failure);
     return build.failure;
   }
+  for (const auto& name : build.skipped)
+    Log("import copy leaves out id=" + entry.id + " path=" + name + " (Playden's own name)");
   auto& plan = build.plan;
   plan.program = entry.program;
   plan.runtime_number = runtime_number;
@@ -362,8 +380,8 @@ std::string LocalCopyRunner::Enqueue(installs::InstallService& service, const Im
 }
 
 installs::InstallRunner::Result LocalCopyRunner::Abandon(const ImportEntry& entry, const std::string& root,
-                                                         const CopyPlan* plan, const std::string& failure) {
-  RemoveParts(root, plan);
+                                                         const std::string& failure) {
+  RemoveParts(root);
   steam::RemoveManagedInstall(root);
   store_.CancelCopy(entry.id, failure);
   Log("import copy failed id=" + entry.id + ": " + failure);
@@ -409,8 +427,8 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
     }
     Changed();
   }
-  const auto plan = LoadCopyPlan(root);
-  if (!plan) return Abandon(*entry, root, nullptr, kCopyStoppedFailure);
+  auto plan = LoadCopyPlan(root);
+  if (!plan) return Abandon(*entry, root, kCopyStoppedFailure);
 
   // What a resume already has: files at their final name and planned size.
   std::vector<char> done(plan->files.size(), 0);
@@ -461,7 +479,7 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
     }
     const auto& file = plan->files[index];
     const auto before = copied;
-    const auto status = CopyOne(walk, file, root + "/" + file.path, buffer, cancel, on_bytes);
+    const auto status = CopyOne(walk, file, PartPath(root, index), root + "/" + file.path, buffer, cancel, on_bytes);
     if (status != CopyStatus::kOk && copied != before) {
       copied = before;  // the file's bytes went with its .part
       if (progress) progress(copied, plan->total, copied);
@@ -471,7 +489,7 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
       case CopyStatus::kCanceled: result.canceled = true; return result;
       case CopyStatus::kChanged:
         Log("import copy source changed id=" + entry->id + " path=" + file.path);
-        return Abandon(*entry, root, &*plan, kCopyChangedFailure);
+        return Abandon(*entry, root, kCopyChangedFailure);
       case CopyStatus::kReadFailed:
         Log("import copy read failed id=" + entry->id + " path=" + file.path + " errno=" + std::to_string(errno));
         result.failure = "Could not read the game's files. Check the drive, then Resume.";
@@ -490,11 +508,11 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
     const auto size = FileSize(root + "/" + file.path);
     if (!size || *size != file.bytes) {
       Log("import copy verify failed id=" + entry->id + " path=" + file.path);
-      return Abandon(*entry, root, &*plan, "The copy could not be verified. Copy it again.");
+      return Abandon(*entry, root, "The copy could not be verified. Copy it again.");
     }
   }
   if (!PlanHasFile(*plan, plan->program) || CheckProgram(root, plan->program) != ProgramCheck::kOk)
-    return Abandon(*entry, root, &*plan, "The game's program is missing from the copy. Copy it again.");
+    return Abandon(*entry, root, "The game's program is missing from the copy. Copy it again.");
 
   // A game set up to play from its drive folder: its PS5 title follows the copy first. Until that
   // commits the drive folder stays the active one; a resume after a restart finds the files copied
@@ -504,6 +522,9 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
     relocation.game = id;
     relocation.runtime_number = plan->runtime_number;
     relocation.root = root;  // its volume: the job's (the relocate hook asks the service)
+    // Once the title is stopped (the game may have played from its folder meanwhile): files
+    // changed since they were copied are copied again. Runs before Relocate returns.
+    relocation.move_files = [this, &plan, &root, id = entry->id]() { return CopyChangedFiles(id, root, *plan); };
     const auto relocated = Relocate(relocation);
     if (relocated.outcome == LocalRelocationResult::Outcome::kBusy) {
       Log("import copy waits id=" + entry->id + ": " + relocated.message);
@@ -524,13 +545,14 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
     return result;
   }
   const auto journal = root + "/" + kCopyJournalDir;
+  RemoveParts(root);
   std::remove(CopyPlanPath(root).c_str());
   ::rmdir(journal.c_str());
   result.ok = true;
   result.install_bytes = plan->total;
   // A drop-folder game copied to a drive: committed, it plays from the copy, so its drop-folder
   // files go and it isn't stored twice. A failure there leaves them, and the copy stays done.
-  const auto left_behind = RemoveDropFolderSource(*entry, *plan);
+  const auto left_behind = RemoveDropFolderSource(*entry, *plan, root);
   if (options_.before_finish && !options_.before_finish(id, root)) {
     Log("import copy complete id=" + entry->id + "; entry left copying");
     return result;
@@ -543,7 +565,68 @@ installs::InstallRunner::Result LocalCopyRunner::Install(
   return result;
 }
 
-std::string LocalCopyRunner::RemoveDropFolderSource(const ImportEntry& entry, const CopyPlan& plan) {
+std::string LocalCopyRunner::CopyChangedFiles(const std::string& id, const std::string& root, CopyPlan& plan) {
+  // Each planned file as the source has it now, through the same walk as the copy (no links).
+  SourceWalk walk(plan.source);
+  std::vector<std::size_t> changed;
+  for (std::size_t index = 0; index < plan.files.size(); ++index) {
+    auto& file = plan.files[index];
+    const int fd = walk.OpenFile(file.path);
+    if (fd < 0) {
+      const int error = errno;
+      if (error == ENOENT) continue;  // gone from the source: the copy keeps what it took
+      Log("import copy recheck failed id=" + id + " path=" + file.path + " errno=" + std::to_string(error));
+      return "Playden can't check the game's files. Check the drive, then Resume.";
+    }
+    struct stat info {};
+    const bool read = ::fstat(fd, &info) == 0;
+    ::close(fd);
+    if (!read || !S_ISREG(info.st_mode)) {
+      Log("import copy recheck failed id=" + id + " path=" + file.path + (read ? " not a file" : " fstat"));
+      return "Playden can't check the game's files. Check the drive, then Resume.";
+    }
+    if (AsPlanned(info, file)) continue;
+    file.bytes = info.st_size > 0 ? static_cast<std::uint64_t>(info.st_size) : 0;
+#if defined(__APPLE__)
+    file.mtime = std::max<std::int64_t>(0, static_cast<std::int64_t>(info.st_mtimespec.tv_sec));
+    file.mtime_nsec = static_cast<std::int64_t>(info.st_mtimespec.tv_nsec);
+#else
+    file.mtime = std::max<std::int64_t>(0, static_cast<std::int64_t>(info.st_mtim.tv_sec));
+    file.mtime_nsec = static_cast<std::int64_t>(info.st_mtim.tv_nsec);
+#endif
+    changed.push_back(index);
+  }
+  if (changed.empty()) return {};
+  // The plan first: a stop while copying leaves the file short of its new size, so Resume copies it.
+  plan.total = 0;
+  for (const auto& file : plan.files) plan.total += file.bytes;
+  if (const auto saved = SaveCopyPlan(plan, root); !saved.empty()) return saved;
+  std::vector<char> buffer(options_.buffer_bytes);
+  const std::atomic<bool> never{false};
+  bool program = false;
+  for (const auto index : changed) {
+    const auto& file = plan.files[index];
+    Log("import copy copies again id=" + id + " path=" + file.path + " bytes=" + std::to_string(file.bytes));
+    const auto status =
+        CopyOne(walk, file, PartPath(root, index), root + "/" + file.path, buffer, never, [](std::uint64_t) {});
+    const auto size = status == CopyStatus::kOk ? FileSize(root + "/" + file.path) : std::nullopt;
+    if (!size || *size != file.bytes) {
+      Log("import copy copy again failed id=" + id + " path=" + file.path +
+          " status=" + std::to_string(static_cast<int>(status)));
+      if (status == CopyStatus::kNoSpace) return "Not enough free space. Make room, then Resume.";
+      if (status == CopyStatus::kChanged) return "The game's files are still changing. Close the game, then Resume.";
+      return "Could not copy the game's changed files. Check the drive, then Resume.";
+    }
+    program = program || file.path == plan.program;
+    if (options_.after_file) options_.after_file(file.path);
+  }
+  if (program && CheckProgram(root, plan.program) != ProgramCheck::kOk)
+    return "The game's program is not a program any more. Check the game's folder.";
+  return {};
+}
+
+std::string LocalCopyRunner::RemoveDropFolderSource(const ImportEntry& entry, const CopyPlan& plan,
+                                                    const std::string& root) {
   if (entry.volume != ImportStore::kDropFolderVolume) return {};
   // Only playden-import/<name>, and only when the copy's source is that very folder.
   constexpr const char* kPrefix = "playden-import/";
@@ -555,11 +638,26 @@ std::string LocalCopyRunner::RemoveDropFolderSource(const ImportEntry& entry, co
     Log("import copy keeps the drop folder id=" + entry.id + ": " + plan.source + " is not " + console);
     return "The game is in Playden, but Playden didn't delete " + console + ". Delete it over FTP.";
   }
-  std::set<std::string> copied;
-  for (const auto& file : plan.files) copied.insert(file.path);
+  // The copy's folders on the storage first: the drop folder goes only once its copy would survive
+  // a power cut.
+  bool synced = SyncFolder(root);
+  for (const auto& dir : plan.dirs) synced = SyncFolder(root + "/" + dir) && synced;
+  if (!synced) {
+    Log("import copy keeps the drop folder id=" + entry.id + ": the copy's folders could not be synced errno=" +
+        std::to_string(errno));
+    return "The game is in Playden, but Playden didn't delete " + console + ". Delete it over FTP.";
+  }
+  // Only files the copy took, and only as it took them: one changed since (played from the drop
+  // folder, or rewritten over FTP) stays.
+  std::unordered_map<std::string, const CopyFile*> copied;
+  for (const auto& file : plan.files) copied.emplace(file.path, &file);
   const auto removal = RemoveDropFolderEntry(
-      drop_folder, name, [&copied](const std::string& relative) { return copied.count(relative) > 0; }, options_.as_root,
-      [this](const std::string& line) { Log(line); });
+      drop_folder, name,
+      [&copied](const std::string& relative, const struct stat& info) {
+        const auto found = copied.find(relative);
+        return found != copied.end() && AsPlanned(info, *found->second);
+      },
+      options_.as_root, [this](const std::string& line) { Log(line); });
   if (removal.ok) {
     Log("import copy freed the drop folder id=" + entry.id + " path=" + console);
     return {};
@@ -617,6 +715,8 @@ std::string LocalCopyRunner::Move(installs::InstallService& service, const Impor
       Log("import move plan failed id=" + entry.id + " errno=" + std::to_string(build.error) + ": " + build.failure);
       return build.failure;
     }
+    for (const auto& name : build.skipped)
+      Log("import move leaves out id=" + entry.id + " path=" + name + " (Playden's own name)");
     plan = std::move(build.plan);
     if (!PlanHasFile(plan, entry.program)) return "The program is not in the game's folder.";
     MakeFolder(volume->games_root);
@@ -708,8 +808,7 @@ std::string LocalCopyRunner::Move(installs::InstallService& service, const Impor
 }
 
 bool LocalCopyRunner::Remove(const std::string& root) {
-  const auto plan = LoadCopyPlan(root);
-  RemoveParts(root, plan ? &*plan : nullptr);
+  RemoveParts(root);
   const bool removed = steam::RemoveManagedInstall(root);
   const auto game = ParseKey(Basename(root));
   if (!game || game->store != Store::kLocal || !store_.loaded()) return removed;
@@ -727,6 +826,22 @@ bool LocalCopyRunner::Remove(const std::string& root) {
     Changed();
   }
   return removed;
+}
+
+void LocalCopyRunner::Forget(const GameId& id) {
+  // As Remove, with no folder to delete (its folder is missing).
+  if (id.store != Store::kLocal || !store_.loaded()) return;
+  const auto entry = store_.Find(id.value);
+  if (!entry) return;
+  if (entry->state == ImportState::kCopyQueued || entry->state == ImportState::kCopying) {
+    store_.CancelCopy(entry->id);
+    Log("import copy forgotten id=" + entry->id + " (its folder is missing)");
+    Changed();
+  } else if (entry->state == ImportState::kCopied) {
+    store_.Uninstalled(entry->id);
+    Log("import copy uninstalled id=" + entry->id + " (its folder is missing)");
+    Changed();
+  }
 }
 
 }  // namespace playden::stores::local

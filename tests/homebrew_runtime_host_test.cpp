@@ -4235,6 +4235,38 @@ void CopiedGameKeepsItsTitle() {
   host.Shutdown();
 }
 
+// A preparation queued for the game names its old folder (it would move the game back there):
+// the relocation waits for it, and goes once it's withdrawn.
+void RelocationWaitsForQueuedPreparation() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  const std::string drive = "/mnt/usb0/playden/import/Imported";
+  const auto imported = PrepareImported(fixture, config, drive);
+  fs::create_directories(fixture.root / "data/playden-games");
+  fs::copy(fixture.root / fs::path(drive).relative_path(), fixture.root / fs::path(kImportedRoot).relative_path(),
+           fs::copy_options::recursive);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  host.HoldPreparations(true);
+  host.Prepare(ImportedRequest(imported.number, drive));
+  unsigned copies = 0;
+  const auto refused = RelocateNow(host, imported.number, [&]() -> std::string { ++copies; return {}; });
+  CHECK(refused.outcome == RuntimeRelocationResult::Outcome::kBusy &&
+        refused.message == "Finish setting up the game first.");
+  CHECK(copies == 0 && host.Snapshot().installs[0].install_path == drive);
+  CHECK(host.WithdrawPrepare(imported.number));
+  host.HoldPreparations(false);
+  const auto result = RelocateNow(host, imported.number, [&]() -> std::string { ++copies; return {}; });
+  if (!result.message.empty()) std::fprintf(stderr, "Relocate: %s\n", result.message.c_str());
+  CHECK(result.outcome == RuntimeRelocationResult::Outcome::kDone && copies == 1);
+  CheckRelocated(fixture, host, imported, "internal");
+  host.Shutdown();
+}
+
 // Move: the drop folder renamed under the title's publication lease; refused while the title runs.
 void MovedGameKeepsItsTitle() {
   Fixture fixture;
@@ -4569,6 +4601,7 @@ int main(int argc, char** argv) {
   for (int scenario = 0; scenario <= 9; ++scenario) UnownedUpgradeAfterCommittedSettingsUpdates(scenario);
   MovedGameWithUnreadableOperationRepublishes();
   CopiedGameKeepsItsTitle();
+  RelocationWaitsForQueuedPreparation();
   MovedGameKeepsItsTitle();
   RelocationResumesAfterRestart();
   RelocationFallsBackToANewTitle();
