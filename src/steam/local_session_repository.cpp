@@ -5,8 +5,8 @@
 #include <sys/stat.h>
 
 namespace playden {
-LocalSessionRepository::LocalSessionRepository(std::string root, DiagnosticReport report)
-    : root_(std::move(root)),storage_(root_),store_(storage_),report_(std::move(report)) {}
+LocalSessionRepository::LocalSessionRepository(std::string root, DiagnosticReport report, SessionVault* vault)
+    : root_(std::move(root)),storage_(root_),store_(storage_),report_(std::move(report)),vault_(vault) {}
 Result<void> LocalSessionRepository::Prepare() const {
   if (prepared_) return Result<void>::Success();
   if (root_.empty() || root_.find('\0') != std::string::npos)
@@ -48,22 +48,78 @@ Result<void> LocalSessionRepository::Prepare() const {
   prepared_ = true;
   return Result<void>::Success();
 }
-Result<std::optional<StoredSession>> LocalSessionRepository::Load() const {
+Result<std::optional<StoredSession>> LocalSessionRepository::LoadSaved() const {
   const auto ready = Prepare();
   if (!ready.ok()) return Result<std::optional<StoredSession>>::Failure(ready.error(),ready.message());
   auto result = store_.Load();
   if (!result.ok() && report_) report_("session storage load failed: " + result.message());
   return result;
 }
-Result<void> LocalSessionRepository::Save(const StoredSession& session) const {
+Result<void> LocalSessionRepository::SaveToDisk(const StoredSession& session) const {
   const auto ready = Prepare();
   if (!ready.ok()) return ready;
   return store_.Save(session);
 }
-Result<void> LocalSessionRepository::Clear() const {
+Result<void> LocalSessionRepository::ClearSaved() const {
   // Clearing must remain possible even if the private-write probe now fails.
   if (root_.empty() || root_.find('\0') != std::string::npos)
     return Result<void>::Failure(StorageError::kInvalidPath,"Session storage path is invalid");
-  return store_.Clear();
+  const auto cleared = store_.Clear();
+  if (!cleared.ok() && report_) report_("session storage clear failed: " + cleared.message());
+  return cleared;
+}
+Result<std::optional<StoredSession>> LocalSessionRepository::Load() const {
+  if (!vault_) return LoadSaved();
+  std::lock_guard<std::mutex> lock(vault_->mutex_);
+  // The session in memory wins: it is the newest sign-in, whichever the setting.
+  if (vault_->session_) return Result<std::optional<StoredSession>>::Success(*vault_->session_);
+  if (!vault_->persist_) return Result<std::optional<StoredSession>>::Success(std::nullopt);
+  return LoadSaved();
+}
+Result<void> LocalSessionRepository::Save(const StoredSession& session) const {
+  if (!vault_) return SaveToDisk(session);
+  std::lock_guard<std::mutex> lock(vault_->mutex_);
+  if (vault_->persist_) {
+    auto saved = SaveToDisk(session);
+    if (saved.ok()) vault_->Drop();
+    return saved;
+  }
+  // A session.v1 that can't be deleted fails the sign-in: the player asked for no token on disk.
+  vault_->Keep(session);
+  auto cleared = ClearSaved();
+  if (!cleared.ok()) vault_->Drop();
+  return cleared;
+}
+Result<void> LocalSessionRepository::Clear() const {
+  if (!vault_) return ClearSaved();
+  std::lock_guard<std::mutex> lock(vault_->mutex_);
+  vault_->Drop();
+  return ClearSaved();
+}
+Result<void> LocalSessionRepository::SetPersist(bool persist) const {
+  if (!vault_) return Result<void>::Success();
+  std::lock_guard<std::mutex> lock(vault_->mutex_);
+  if (vault_->persist_ == persist) return Result<void>::Success();
+  vault_->persist_ = persist;
+  if (persist) {
+    if (!vault_->session_) return Result<void>::Success();
+    auto saved = SaveToDisk(*vault_->session_);
+    // Not saved: the session stays in memory and keeps working until Playden closes.
+    if (!saved.ok()) {
+      if (report_) report_("session storage save failed: " + saved.message());
+      return saved;
+    }
+    vault_->Drop();
+    return saved;
+  }
+  if (!vault_->session_) {
+    auto loaded = LoadSaved();
+    if (loaded.ok() && loaded.value()) {
+      vault_->Keep(*loaded.value());
+      steam::ZeroizeSecret(loaded.value()->refresh_token);
+      steam::ZeroizeSecret(loaded.value()->access_token);
+    }
+  }
+  return ClearSaved();
 }
 }
