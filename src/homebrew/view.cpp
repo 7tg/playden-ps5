@@ -3430,7 +3430,7 @@ class Render::Impl
         static const std::map<std::string, std::string> names = {
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
             {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
-            {"import-games", "Library"}, {"import-programs", "Import games"}, {"import-choice", "Import games"},
+            {"import-games", "Library"}, {"import-programs", "Import games"}, {"steam-programs", "Install"}, {"import-choice", "Import games"},
             {"import-storage", "Import games"},
             {"job-actions", "Downloads"}, {"prep-actions", "Preparation"}, {"storage-details", "Storage"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
             {"filters", "Library"}, {"logs-controls", "Logs"}, {"setting-value", "Settings"}, {"diagnostics", "Settings"},
@@ -3478,7 +3478,7 @@ class Render::Impl
                           view.surface == "controller" || view.surface == "logs" ||
                           view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" ||
                           view.surface == "installed-games" || view.surface == "import-games" ||
-                          view.surface == "import-programs";
+                          view.surface == "import-programs" || view.surface == "steam-programs";
         const float width = overlay_transition_.panel_width(wide ? 960.0F : 640.0F);
         const gfx::Rect panel{kWidth - width + (1.0F - ease) * width, 0.0F, width, kHeight};
         overlay_.shadow({panel.x - 18.0F, 0.0F, panel.w + 18.0F, panel.h}, 0.0F, 36.0F,
@@ -3836,7 +3836,8 @@ class Render::Impl
         if (row.title.empty())
             std::replace(label.begin(), label.end(), '-', ' ');
         // A program path ("redist/setup.exe") is shown as it is on the drive.
-        if (!label.empty() && label.front() >= 'a' && label.front() <= 'z' && row.action.rfind("import-program-", 0) != 0)
+        if (!label.empty() && label.front() >= 'a' && label.front() <= 'z' && row.action.rfind("import-program-", 0) != 0 &&
+            row.action.rfind("steam-program-", 0) != 0)
             label.front() = static_cast<char>(label.front() - 'a' + 'A');
         return label;
     }
@@ -3949,7 +3950,7 @@ class Render::Impl
                                     view.surface == "game-maintenance";
         // The Import sheets: each folder's path (or why it can't be added) under its name.
         const bool import_sheet = view.surface == "import-games" || view.surface == "import-programs" ||
-                                  view.surface == "import-choice";
+                                  view.surface == "import-choice" || view.surface == "steam-programs";
         // The import wizard's hints wrap onto a second line rather than being cut.
         const float hint_width = bounds.w - 48.0F;
         const auto hint_extra = [&](const ViewRow &row) {

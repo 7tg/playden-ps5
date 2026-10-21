@@ -1,8 +1,11 @@
 #include "homebrew/controller.hpp"
 #include "diagnostics/redaction.h"
+#include "steam/backend/app_info.h"
+#include "stores/local/scanner.h"
 #include "steam/install_volumes.h"
 #include "steam/secret.h"
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <utility>
 
@@ -1751,7 +1754,22 @@ void Controller::TickAppDetails() {
   for (const auto& details : app_details_->Pump(8)) {
     if (details.account_generation != generation) continue;
     if (details.available) {
-      model_.UpdateAppDetails(details.id, details.download_bytes, details.install_bytes, details.windows_installable);
+      // Options from every branch don't say which program starts the game: Install asks.
+      std::vector<LaunchProgram> programs;
+      if (details.launches_any_branch)
+        for (const auto& option : details.launches) {
+          const auto path = steam::RelativeGamePath(option.executable);
+          if (!path) continue;
+          const auto same = [&](const LaunchProgram& other) {
+            return std::equal(path->begin(), path->end(), other.path.begin(), other.path.end(), [](char a, char b) {
+              return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+            });
+          };
+          if (std::none_of(programs.begin(), programs.end(), same))
+            programs.push_back({*path, playden::stores::local::IsLikelyHelper(*path)});
+        }
+      model_.UpdateAppDetails(details.id, details.download_bytes, details.install_bytes, details.windows_installable,
+                              std::move(programs));
       launch_options_[details.id] = details.launches;
       launch_options_reason_.erase(details.id);
     } else if (!launch_options_.count(details.id)) {

@@ -160,6 +160,19 @@ int main(int argc,char** argv) {
       capture_update("release-notes-short.png");
     }
     {
+      // Steam's options name no clear program: Install asks which one starts the game.
+      Simulation live({}, {}, ModelMode::Live);
+      live.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
+      assert(live.UpdateLibrary({backend.games,false,{},false,false,{}}));
+      live.UpdateVolumes({{"internal","Console storage",true,200'000'000'000,1'000'000'000}},"internal");
+      live.UpdateAppDetails(SteamId(42), 300'000'000, 600'000'000, true,
+                            {{"RSDragonwilds.exe",false},{"Aqua-Coyote.exe",false},{"Redist/Setup.exe",true}});
+      assert(live.action("details:42") && live.action("focus:details-install") && live.action("cross"));
+      assert(live.view().surface=="steam-programs");
+      for(int i=0;i<16;++i) renderer.draw(live,1920,1080);
+      assert(renderer.capture_png(output/"steam-programs.png",1920,1080));
+    }
+    {
       // An installed, prepared game: Play is the same height as the other actions,
       // in either state, and the uninstall dialog's choice fits its button.
       Simulation live({}, {}, ModelMode::Live);

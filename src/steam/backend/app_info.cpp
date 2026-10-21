@@ -458,24 +458,43 @@ std::vector<std::uint32_t> MissingBaseDepots(const AppInfo& app,
   return missing;
 }
 
-bool EligibleLaunches(const AppInfo& app, const std::set<std::uint32_t>& owned_apps,
-                      std::vector<AppLaunch>* launches, std::string* reason) {
-  std::vector<AppLaunch> eligible;
-  std::set<std::string> ids;
-  for (const AppLaunch& launch : app.launches) {
-    // "default" tags the public branch's option when other branches have their own (Half-Life 2, issue #10).
-    const bool beta_ok = !launch.beta_key || launch.beta_key->empty() || *launch.beta_key == "public" ||
-                         *launch.beta_key == "default";
-    const bool dlc_ok = !launch.required_dlc || *launch.required_dlc == 0 ||
-                        owned_apps.count(*launch.required_dlc) != 0;
-    // A level editor or a dedicated server is not the game (Selaco lists its .NET editor).
-    const auto type = LowerString(launch.type);
-    const bool game = type != "editor" && type != "server";
-    if (OsListMatchesWindows(launch.os_list) && beta_ok && dlc_ok && game) {
-      eligible.push_back(launch);
-      ids.insert(launch.id);
-    }
+bool BetaKeyMatchesPublic(std::string_view beta_key) {
+  if (Trim(beta_key).empty()) return true;
+  // A comma list of branches (Minecraft Dungeons II lists "public, build_debug, ..."). "default"
+  // tags the public branch's option when other branches have their own (Half-Life 2, issue #10).
+  while (!beta_key.empty()) {
+    const std::size_t comma = beta_key.find(',');
+    const auto branch = LowerString(Trim(beta_key.substr(0, comma)));
+    if (branch == "public" || branch == "default") return true;
+    if (comma == std::string_view::npos) break;
+    beta_key.remove_prefix(comma + 1);
   }
+  return false;
+}
+
+bool EligibleLaunches(const AppInfo& app, const std::set<std::uint32_t>& owned_apps,
+                      std::vector<AppLaunch>* launches, std::string* reason, bool* any_branch) {
+  const auto eligible_for = [&](bool ignore_branch) {
+    std::vector<AppLaunch> eligible;
+    for (const AppLaunch& launch : app.launches) {
+      const bool beta_ok = ignore_branch || !launch.beta_key || BetaKeyMatchesPublic(*launch.beta_key);
+      const bool dlc_ok = !launch.required_dlc || *launch.required_dlc == 0 ||
+                          owned_apps.count(*launch.required_dlc) != 0;
+      // A level editor or a dedicated server is not the game (Selaco lists its .NET editor).
+      const auto type = LowerString(launch.type);
+      const bool game = type != "editor" && type != "server";
+      if (OsListMatchesWindows(launch.os_list) && beta_ok && dlc_ok && game) eligible.push_back(launch);
+    }
+    return eligible;
+  };
+  auto eligible = eligible_for(false);
+  // Steam still starts a game whose only options name other branches (GUILTY GEAR -STRIVE- lists
+  // one for "debug"): every branch's options are then candidates.
+  const bool fallback = eligible.empty();
+  if (fallback) eligible = eligible_for(true);
+  if (any_branch != nullptr) *any_branch = fallback && !eligible.empty();
+  std::set<std::string> ids;
+  for (const AppLaunch& launch : eligible) ids.insert(launch.id);
   if (eligible.empty() || ids.size() != eligible.size()) {
     return Fail(reason, "The game has no valid Windows launch configuration.");
   }

@@ -805,6 +805,55 @@ void live_imported_program_seeds_once(const std::filesystem::path& base) {
           "seed: saved at once");
 }
 
+// Steam options only for other branches don't say which program starts the game: Install asks
+// when two or more could be it, and asks nothing for one clear program (the import rules).
+void live_install_asks_for_a_steam_program(const std::filesystem::path& base) {
+    using playden::homebrew::InstallRequestKind;
+    using playden::homebrew::LaunchProgram;
+    std::filesystem::create_directories(base);
+    auto model = make_live(base);
+    model.SetGameSettingsFile(base / "steam-program-settings.json");
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    playden::GameSummary dragonwilds;
+    dragonwilds.id = SteamId(1374490);
+    dragonwilds.title = "RuneScape: Dragonwilds";
+    playden::GameSummary strive;
+    strive.id = SteamId(1384160);
+    strive.title = "GUILTY GEAR -STRIVE-";
+    check(model.UpdateLibrary({{dragonwilds, strive}, false, {}, false, true, 100}), "steam program: library delivered");
+    model.UpdateVolumes({{"internal", "Console storage", true, 200'000'000'000, 1'000'000'000}}, "internal");
+
+    check(model.action("details:1374490") &&
+              model.UpdateAppDetails(SteamId(1374490), 100, 200, true,
+                                     {{"RSDragonwilds.exe", false}, {"Aqua-Coyote.exe", false}, {"Setup.exe", true}}),
+          "steam program: details with two programs");
+    activate(model, "details-install");
+    check(model.view().surface == "steam-programs" && model.TakeInstallRequests().empty(),
+          "steam program: Install asks first");
+    check(model.state().navigation.modals.back().action_keys.size() == 4, "steam program: every program and Cancel");
+    activate(model, "cancel");
+    check(model.view().surface != "steam-programs" && model.TakeInstallRequests().empty() &&
+              !model.state().game_settings.count(SteamId(1374490)),
+          "steam program: Cancel installs nothing");
+    activate(model, "details-install");
+    activate(model, "steam-program-1");
+    auto requests = model.TakeInstallRequests();
+    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Install && requests[0].game_id == SteamId(1374490),
+          "steam program: choosing one installs");
+    check(model.state().game_settings.at(SteamId(1374490)).overrides.at("program") == "Aqua-Coyote.exe",
+          "steam program: the choice goes into Game settings");
+
+    // One program besides installers and tools: no question.
+    check(model.action("details:1384160") &&
+              model.UpdateAppDetails(SteamId(1384160), 100, 200, true, {{"GGST.exe", false}, {"Redist/vcredist.exe", true}}),
+          "steam program: details with one clear program");
+    activate(model, "details-install");
+    requests = model.TakeInstallRequests();
+    check(model.view().surface != "steam-programs" && requests.size() == 1 && requests[0].game_id == SteamId(1384160),
+          "steam program: one clear program installs at once");
+    check(!model.state().game_settings.count(SteamId(1384160)), "steam program: Steam's first option needs no setting");
+}
+
 } // namespace
 
 int main() {
@@ -820,6 +869,7 @@ int main() {
     live_program_change_applies_like_other_settings(base);
     live_imported_game_steam_app_id(base);
     live_imported_program_seeds_once(base);
+    live_install_asks_for_a_steam_program(base);
     live_starts_clean_and_never_reads_or_writes_fixtures(base);
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);

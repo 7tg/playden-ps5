@@ -1179,13 +1179,43 @@ void Simulation::NotifyImportFailed(const ImportRequest& request, const std::str
     rebuild_view();
 }
 
-bool Simulation::SeedGameProgram(GameId id, const std::string& program) {
+std::vector<LaunchProgram> Simulation::steam_programs(const Game& game) {
+    auto programs = game.launch_programs;
+    // Installers and tools last, each group in Steam's order (its default option first).
+    std::stable_partition(programs.begin(), programs.end(), [](const LaunchProgram& program) { return !program.helper; });
+    return programs;
+}
+
+bool Simulation::ask_steam_program(GameId id) {
+    const auto* game = find_game(state_, id);
+    if (!game || game->launch_programs.empty()) return false;
+    const auto programs = steam_programs(*game);
+    // A program the player already chose in Game settings is kept.
+    if (const auto found = state_.game_settings.find(id);
+        found != state_.game_settings.end() && found->second.overrides.count("program"))
+        return false;
+    if (const auto clear = playden::stores::local::ClearGameProgram(programs)) {
+        // Steam's first option is tried first; an installer or tool listed before the game isn't.
+        if (programs[*clear].path != game->launch_programs.front().path) SeedGameProgram(id, programs[*clear].path);
+        return false;
+    }
+    steam_programs_shown_ = programs;
+    steam_programs_game_ = id;
+    std::vector<std::string> actions;
+    for (std::size_t index = 0; index < programs.size(); ++index)
+        actions.push_back("steam-program-" + std::to_string(index));
+    actions.push_back("cancel");
+    open_modal({"steam-programs", game->title, "details-install", std::move(actions), 0, false});
+    return true;
+}
+
+bool Simulation::SeedGameProgram(GameId id, const std::string& program, bool chosen) {
     if (!live() || !id.valid() || settings_load_failed_ || game_settings_file_.empty()) return false;
     if (!rt::ValidateSettingValue(rt::GameRecipe{}, "program", program, nullptr)) return false;
     // Only a record never saved: once the player changed anything (a Program reset included), the
     // choice is theirs.
-    if (const auto found = state_.game_settings.find(id);
-        found != state_.game_settings.end() && (found->second.revision != 0 || !found->second.overrides.empty()))
+    if (const auto found = state_.game_settings.find(id); !chosen && found != state_.game_settings.end() &&
+                                                          (found->second.revision != 0 || !found->second.overrides.empty()))
         return false;
     auto& record = state_.game_settings[id];
     record.overrides["program"] = program;
@@ -1975,6 +2005,17 @@ bool live_install_allowed(InstallReadiness readiness, bool free_space_supported)
 
 }  // namespace
 
+void Simulation::start_live_install(GameId id) {
+    // Install at once when the game fits the default drive (or its size is checked later);
+    // otherwise the sheet says why and offers another drive for this install.
+    install_volume_id_.clear();
+    if (id.valid() && live_install_allowed(assess_install(state_, id, selected_volume_id_, steam::kInstallSpaceMargin).readiness,
+                                        free_space_supported_))
+        pending_install_requests_.push_back({InstallRequestKind::Install, id});
+    else if (id.valid())
+        open_modal({"install", "Install game", "details-install", {"install-confirm", "storage-picker", "cancel"}, 0, false});
+}
+
 // Used space is what the drive reports, which already includes what downloads have written or
 // preallocated; reserved space is the rest of each download's install estimate, as the install
 // service reserves it when admitting a download.
@@ -2192,7 +2233,8 @@ void Simulation::UpdateAccount(AccountUpdate update) {
 
 bool Simulation::UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
                                   std::optional<std::uint64_t> install_bytes,
-                                  std::optional<bool> windows_installable) {
+                                  std::optional<bool> windows_installable,
+                                  std::vector<LaunchProgram> launch_programs) {
     if (!live()) return false;
     const auto game = std::find_if(state_.games.begin(), state_.games.end(),
                                    [id](const Game& candidate) { return candidate.id == id; });
@@ -2200,6 +2242,7 @@ bool Simulation::UpdateAppDetails(GameId id, std::optional<std::uint64_t> downlo
     game->download_bytes = download_bytes;
     game->install_bytes = install_bytes;
     game->windows_installable = windows_installable;
+    game->launch_programs = std::move(launch_programs);
     apply_live_volume_usage();
     rebuild_view();
     return true;
@@ -3682,6 +3725,8 @@ void Simulation::rebuild_view() {
         const auto* import_programs = modal.id == "import-programs" ? import_candidate(import_programs_key_) : nullptr;
         if (import_programs)
             view_.subtitle = import_programs->ascii_ok ? "Choose the program that starts the game." : kImportCopyOnlyText;
+        if (modal.id == "steam-programs")
+            view_.subtitle = "Steam doesn't say which program starts the game. Choose one; you can change it in Game settings.";
         // The import wizard: what it imports, where from, and how big it is.
         const bool import_wizard = modal.id == "import-choice" || modal.id == "import-storage";
         const auto import_wizard_subject = import_wizard ? import_subject() : ImportSubject{};
@@ -4083,6 +4128,13 @@ void Simulation::rebuild_view() {
                     }
                 }
             }
+            else if (modal.id == "steam-programs" && action_key.rfind("steam-program-", 0) == 0) {
+                const auto index = static_cast<std::size_t>(std::stoul(action_key.substr(14)));
+                if (index < steam_programs_shown_.size()) {
+                    item.title = steam_programs_shown_[index].path;
+                    if (steam_programs_shown_[index].helper) item.subtitle = "Installer or tool";
+                }
+            }
             else if (import_programs && action_key.rfind("import-program-", 0) == 0) {
                 const auto index = static_cast<std::size_t>(std::stoul(action_key.substr(15)));
                 if (index < import_programs->programs.size()) {
@@ -4258,6 +4310,7 @@ void Simulation::rebuild_view() {
         else if (modal.id == "game-maintenance") view_.legends = {"Cross Select", "L1/R1 Jump", "Circle Cancel"};
         else if (modal.id == "import-games") view_.legends = {"Cross Select", "Circle Close"};
         else if (modal.id == "import-programs" || modal.id == "import-choice") view_.legends = {"Cross Select", "Circle Back"};
+        else if (modal.id == "steam-programs") view_.legends = {"Cross Install", "Circle Cancel"};
         else if (modal.id == "import-storage") view_.legends = {"Cross Import here", "Circle Back"};
         else if (modal.id == "installed-games")
             // The batch's rows only report; Cross does something only on its buttons.
@@ -6385,14 +6438,14 @@ void Simulation::activate() {
         }
     } else if (live() && action_name == "live-install") {
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        // Install at once when the game fits the default drive (or its size is checked later);
-        // otherwise the sheet says why and offers another drive for this install.
-        install_volume_id_.clear();
-        if (id.valid() && live_install_allowed(assess_install(state_, id, selected_volume_id_, steam::kInstallSpaceMargin).readiness,
-                                            free_space_supported_))
-            pending_install_requests_.push_back({InstallRequestKind::Install, id});
-        else if (id.valid())
-            open_modal({"install", "Install game", "details-install", {"install-confirm", "storage-picker", "cancel"}, 0, false});
+        if (!ask_steam_program(id)) start_live_install(id);
+    } else if (live() && action_name.rfind("steam-program-", 0) == 0) {
+        const auto index = static_cast<std::size_t>(std::stoul(action_name.substr(14)));
+        if (index >= steam_programs_shown_.size()) return;
+        const auto id = steam_programs_game_;
+        SeedGameProgram(id, steam_programs_shown_[index].path, true);
+        close_modal();
+        start_live_install(id);
     } else if (live() && action_name == "open-downloads") {
         state_.navigation.route = Route::Downloads;
         state_.navigation.focus_key = "job-" + ToKey(state_.navigation.detail_id.value_or(GameId{}));

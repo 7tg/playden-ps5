@@ -38,7 +38,7 @@ AppDetails DetailsFromAppInfo(std::uint32_t id, const std::string& buffer,
   if (install) details.install_bytes = install;
   if (download) details.download_bytes = download;
   std::vector<AppLaunch> launches;
-  details.windows_installable = EligibleLaunches(*app, owned, &launches, &reason);
+  details.windows_installable = EligibleLaunches(*app, owned, &launches, &reason, &details.launches_any_branch);
   if (!details.windows_installable) details.reason = "No Windows launch configuration.";
   for (const auto& launch : launches)
     details.launches.push_back({launch.executable, launch.arguments, launch.working_directory,

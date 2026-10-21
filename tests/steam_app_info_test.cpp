@@ -376,6 +376,26 @@ void TestEligibleLaunches() {
   with_editor.launches[0].type = "Server";
   CHECK(EligibleLaunches(with_editor, {kApp, 999}, &launches, &reason));
   CHECK((LaunchIds(launches) == Strings{"10"}));
+
+  // Steam's betakey is a comma list of branches.
+  AppInfo listed = *app;
+  listed.launches[2].beta_key = "build_debug, Public ,latest\t";
+  bool any_branch = true;
+  CHECK(EligibleLaunches(listed, {kApp}, &launches, &reason, &any_branch));
+  CHECK((LaunchIds(launches) == Strings{"0", "2", "10"}) && !any_branch);
+  listed.launches[2].beta_key = "default, valve_review";
+  CHECK(EligibleLaunches(listed, {kApp}, &launches, &reason));
+  CHECK((LaunchIds(launches) == Strings{"0", "2", "10"}));
+  CHECK(!BetaKeyMatchesPublic("publicbeta") && !BetaKeyMatchesPublic("debug") && BetaKeyMatchesPublic(" "));
+
+  // Options only for other branches (GUILTY GEAR -STRIVE-: "debug"; RuneScape: Dragonwilds):
+  // every branch's options, still without DLC the account lacks.
+  AppInfo branches = *app;
+  for (auto& launch : branches.launches) launch.beta_key = "debug";
+  CHECK(EligibleLaunches(branches, {kApp}, &launches, &reason, &any_branch));
+  CHECK((LaunchIds(launches) == Strings{"0", "2", "10"}) && any_branch);
+  CHECK(EligibleLaunches(branches, {kApp, 999}, &launches, &reason, &any_branch));
+  CHECK((LaunchIds(launches) == Strings{"0", "2", "3", "10"}) && any_branch);
 }
 
 void TestWindowsArguments() {

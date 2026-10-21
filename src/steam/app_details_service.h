@@ -36,6 +36,9 @@ struct AppDetails {
   bool windows_installable = false;  // depots and a launch entry exist for Windows/English
   std::string reason;                // short, user-facing, no identifiers
   std::vector<LaunchOption> launches;  // Windows launch options, default first
+  // No option was for the public branch, so `launches` are every branch's: Steam doesn't say
+  // which program starts the game.
+  bool launches_any_branch = false;
 };
 
 // Runs on the service worker; may block on the network.

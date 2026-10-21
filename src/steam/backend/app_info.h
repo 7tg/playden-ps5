@@ -103,9 +103,13 @@ std::vector<std::uint32_t> MissingBaseDepots(const AppInfo& app,
                                              const std::optional<std::set<std::uint32_t>>& owned_depots,
                                              const std::vector<DepotInfo>& selected);
 
-// Windows launch entries usable on the public branch, default type first, then by id.
+// Steam `betakey`: empty, or a comma list that names "public" or "default".
+bool BetaKeyMatchesPublic(std::string_view beta_key);
+
+// Windows launch entries usable on the public branch, default type first, then by id. When no entry
+// is for the public branch, every branch's entries; `any_branch` then says so.
 bool EligibleLaunches(const AppInfo& app, const std::set<std::uint32_t>& owned_apps,
-                      std::vector<AppLaunch>* launches, std::string* reason);
+                      std::vector<AppLaunch>* launches, std::string* reason, bool* any_branch = nullptr);
 
 // Normalizes a game-relative Windows path to forward slashes. Rejects absolute paths, drive
 // colons, control characters, "..", and the download scratch folder.

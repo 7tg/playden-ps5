@@ -356,6 +356,12 @@ inline bool operator==(PersistenceLoadToken left, PersistenceLoadToken right) {
     return left.id == right.id && left.baseline_revision == right.baseline_revision;
 }
 
+// A program a Steam launch option names, as a path in the game folder.
+struct LaunchProgram {
+    std::string path;
+    bool helper = false;  // an installer or tool (the import rules)
+};
+
 struct Game {
     GameId id;
     std::string title;
@@ -374,6 +380,9 @@ struct Game {
     std::optional<std::int64_t> last_played;
     std::optional<std::uint64_t> playtime_minutes;
     std::optional<bool> windows_installable;  // from Steam app info; absent until fetched
+    // Steam lists no option for the public branch: the programs of every branch's options, which
+    // Install asks the player to choose from when more than one could be the game.
+    std::vector<LaunchProgram> launch_programs;
     bool art_pending = false;
     bool art_failed = false;
 };
@@ -725,7 +734,8 @@ public:
     // Writes the program an imported game starts with into its Game settings when the game has no
     // saved settings yet (just added); never over anything the player changed, a reset Program
     // included. Saved at once so the next preparation reads it. True when it was written.
-    bool SeedGameProgram(GameId id, const std::string& program);
+    // `chosen`: the player picked it just now (Install's program sheet), so it is written anyway.
+    bool SeedGameProgram(GameId id, const std::string& program, bool chosen = false);
     [[nodiscard]] std::vector<GameId> TakeKeptDeleteRequests();
     // Live mode: maintenance the player confirmed (and settings to apply when the sheet
     // closes), and games whose title activity the sheet needs to know.
@@ -770,7 +780,8 @@ public:
     void SetFreeSpaceSupported(bool supported) noexcept { free_space_supported_ = supported; }
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
     bool UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
-                          std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable);
+                          std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable,
+                          std::vector<LaunchProgram> launch_programs = {});
     // Live mode: the Steam store's description, genres and controller support for one game;
     // kept across library refreshes.
     void UpdateStoreDetails(GameId id, std::string description, std::vector<std::string> genres,
@@ -1072,6 +1083,13 @@ private:
     // Imported games playing in place from their folder (State::external_games), and a copy running.
     [[nodiscard]] const LiveExternalGame* external_game(GameId id) const;
     [[nodiscard]] const Job* import_copy_job(GameId id) const;
+    // Install for a Steam game whose launch options name no clear program asks for one first
+    // (the import rules: installers and tools last, one clear program isn't asked for).
+    [[nodiscard]] static std::vector<LaunchProgram> steam_programs(const Game& game);
+    bool ask_steam_program(GameId id);
+    void start_live_install(GameId id);
+    std::vector<LaunchProgram> steam_programs_shown_;
+    GameId steam_programs_game_;
     std::size_t import_program_index_ = 0;
     bool import_program_chosen_ = false;  // the program was clear (ClearGameProgram): its list was skipped
     GameId import_choice_game_;
