@@ -549,7 +549,8 @@ struct State {
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
     std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
     PreparationQueue preparation_queue;                 // live: games being prepared, waiting and done
-    // Queue: the section the player expanded ("downloads", "preparation"); empty until they choose.
+    // Queue: the section the player expanded ("downloads", "preparation"), "none" once they closed it;
+    // empty until they choose.
     std::string queue_expanded;
     std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
     LiveKitInfo kit;                                    // live: the compatibility kit in use

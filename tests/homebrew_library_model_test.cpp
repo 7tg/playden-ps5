@@ -2334,6 +2334,17 @@ void live_queue_shows_downloads_and_preparations() {
           "Down from the last download reaches the Preparation heading");
     check(has_row(model, "job-21") && !has_row(model, "prep-11"), "moving onto the other heading doesn't open it");
 
+    activate(model, "queue-downloads");
+    check((queue_keys(model) == std::vector<std::string>{"queue-downloads", "job-20", "queue-preparation", "prep-active-10"}),
+          "the open section's heading closes it, both keeping their cards");
+    check(model.state().navigation.focus_key == "queue-downloads", "focus stays on the heading");
+    check(queue_row(model, "queue-downloads")->value == "2 more games queued · 1 completed", "closed Downloads counts");
+    model.UpdateInstalls({{SteamId(20), JobState::Downloading, 80, 100, {}}, {SteamId(21), JobState::Queued, 0, 100, {}},
+                          {SteamId(22), JobState::Queued, 0, 100, {}}},
+                         {{SteamId(10), 1, "internal", true}, {SteamId(11), 1, "internal", true}, {SteamId(12), 1, "internal", true},
+                          {SteamId(13), 1, "internal", true}, {SteamId(14), 1, "internal", true}, {SteamId(23), 1, "internal", true}},
+                         {{SteamId(23), 1, "internal", 1'000}});
+    check(!has_row(model, "job-21") && !has_row(model, "prep-11"), "both stay closed while the queues change");
     activate(model, "queue-preparation");
     activate(model, "prep-11");
     check(!has_row(model, "prep-next-11") && has_row(model, "prep-open-11"), "the game up next has no Prepare next");
@@ -2386,7 +2397,7 @@ void live_queue_history_and_empty_states() {
     check(model.TakePreparedClear() && model.TakeInstallRequests().empty(), "Clear completed clears only preparations");
     // Games waiting with none being prepared (Steam details still on their way) still count when collapsed.
     model.UpdatePreparationQueue({std::nullopt, {SteamId(14)}, {{SteamId(15), 4'000}}, {}});
-    activate(model, "queue-downloads");
+    check(model.state().queue_expanded == "downloads", "focus left on a download keeps Downloads open");
     check(queue_row(model, "queue-preparation")->value == "1 waiting · 1 completed", "a collapsed section counts what waits");
     model.UpdatePreparationQueue({});
     check(!has_row(model, "queue-preparation") && has_row(model, "job-23"), "Preparation empties; Downloads keeps its entry");

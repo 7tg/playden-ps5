@@ -13,6 +13,7 @@
 namespace playden::homebrew {
 inline constexpr const char* kQueueDownloads = "downloads";
 inline constexpr const char* kQueuePreparation = "preparation";
+inline constexpr const char* kQueueCollapsed = "none";  // the player closed the open section
 
 // One game in a section. Downloads point at their job; preparations carry what their row says.
 struct QueueEntry {
@@ -57,7 +58,7 @@ struct QueueLayout {
 };
 
 // The section shown expanded: the one whose row has focus, else the player's choice when it still
-// has something to show, else Preparation when games wait there, Downloads with unfinished work,
+// has something to show (none when they closed it), else Preparation when games wait there, Downloads with unfinished work,
 // then whichever has anything.
 QueueLayout BuildQueueLayout(const State& state);
 // The section a Queue focus key belongs to (a heading, card or row); empty for other keys.

@@ -211,7 +211,7 @@ QueueLayout BuildQueueLayout(const State& state) {
             if (row.key == focus) open = section->id;
     const auto section = [&](const std::string& id) -> QueueSection& { return id == kQueueDownloads ? download : prepare; };
     if (open.empty() && !state.queue_expanded.empty() && !section(state.queue_expanded).empty()) open = state.queue_expanded;
-    if (open.empty()) {
+    if (open.empty() && state.queue_expanded != kQueueCollapsed) {
         if (prepare.waiting > 0) open = kQueuePreparation;
         else if (download.unfinished()) open = kQueueDownloads;
         else if (prepare.unfinished()) open = kQueuePreparation;

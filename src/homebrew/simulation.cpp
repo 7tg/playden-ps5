@@ -6166,7 +6166,8 @@ void Simulation::activate() {
         prepare_next(selected.game_id);
         state_.navigation.focus_key = selected.key;
     } else if (action_name == "queue-expand") {
-        state_.queue_expanded = selected.section;
+        // The open section's heading closes it; the other's opens that one instead.
+        state_.queue_expanded = state_.queue_expanded == selected.section ? kQueueCollapsed : selected.section;
     } else if (action_name == "prep-action") {
         // The same kind of menu as a download's: what this preparation allows, then Cancel.
         const auto& key = selected.key;
