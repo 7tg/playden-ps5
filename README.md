@@ -104,6 +104,8 @@ Other versions can work, but these are the ones we know.
   on the PS5 Home screen, and it is isolated: its files, settings and crashes stay inside it.
 - **The runtime kit is separate from Playden.** The kit holds Wine for PS5, the graphics drivers, a clean Windows
   environment and the per-game app shell. Playden checks that the installed kit is complete before it uses it.
+- **Microsoft's MFC library.** Wine doesn't include it. When a game needs it, Playden downloads Microsoft's Visual C++
+  redistributable (about 25 MB, once per console) and installs only its MFC files into that game's Windows folder.
 
 ## Install
 
