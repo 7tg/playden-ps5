@@ -37,6 +37,7 @@ struct QueueSection {
     // Unfinished entries after the card (waiting, then needing attention), then completed ones, newest first.
     std::vector<QueueEntry> rows;
     std::size_t running = 0;    // downloading or preparing now
+    std::size_t copying = 0;    // of those running, imported games copied into Playden
     std::size_t waiting = 0;    // queued to run, card included when it only waits
     std::size_t attention = 0;  // paused, failed or blocked: not ordinary waiting work
     std::size_t completed = 0;

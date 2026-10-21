@@ -52,7 +52,10 @@ QueueSection downloads(const State& state) {
     std::vector<const Job*> finished;
     std::size_t paused = 0, failed = 0;
     for (const auto* job : jobs) {
-        if (running(*job)) ++section.running;
+        if (running(*job)) {
+            ++section.running;
+            if (job->game_id.store == Store::kLocal) ++section.copying;
+        }
         else if (job->state == JobState::Queued) ++section.waiting;
         else if (job->state == JobState::Paused || job->state == JobState::Interrupted) ++paused;
         else if (job->state == JobState::Failed) ++failed;
@@ -73,7 +76,8 @@ QueueSection downloads(const State& state) {
 
 std::string downloads_words(const QueueSection& section, std::size_t paused, std::size_t failed) {
     std::string text;
-    if (section.running) join(text, std::to_string(section.running) + " downloading");
+    if (section.running > section.copying) join(text, std::to_string(section.running - section.copying) + " downloading");
+    if (section.copying) join(text, std::to_string(section.copying) + " copying");
     if (section.waiting) join(text, std::to_string(section.waiting) + " waiting");
     if (paused) join(text, std::to_string(paused) + " paused");
     if (failed) join(text, std::to_string(failed) + " failed");
@@ -234,7 +238,8 @@ QueueLayout BuildQueueLayout(const State& state) {
     summarize(prepare, prepare_words, prepare_attention, "No preparation queued");
 
     std::string summary;
-    if (download.running) join(summary, std::to_string(download.running) + " downloading");
+    if (download.running > download.copying) join(summary, std::to_string(download.running - download.copying) + " downloading");
+    if (download.copying) join(summary, std::to_string(download.copying) + " copying");
     if (prepare.running) join(summary, "1 preparing");
     if (download.waiting + prepare.waiting) join(summary, std::to_string(download.waiting + prepare.waiting) + " waiting");
     if (download.attention + prepare.attention)

@@ -2065,7 +2065,7 @@ class Render::Impl
                 if (entry->completed)
                 {
                     // The files are here; preparing them is the Preparation section's.
-                    value = "Downloaded";
+                    value = job->game_id.store == Store::kLocal ? "Copied" : "Downloaded";
                     tone = "good";
                     aside = byte_count(job->total_bytes);
                     if (job->finished_at > 0 && !state.simulation_mode)

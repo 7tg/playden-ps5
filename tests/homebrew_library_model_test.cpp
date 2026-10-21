@@ -2259,6 +2259,27 @@ const playden::homebrew::ViewRow* queue_row(const Simulation& model, const std::
     return nullptr;
 }
 
+// Queue: an imported game copied into Playden runs in Downloads, counted as copying, not downloading.
+void live_queue_counts_copies() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    const auto rally = playden::GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11");
+    const auto sky = playden::GameId::Local("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+    check(model.UpdateLibrary({{game(SteamId(20), "Hollow")}, false, {}, false, false, {}}), "Steam library");
+    LibraryUpdate imported{{game(rally, "Rally"), game(sky, "Sky")}, false, {}, false, false, {}};
+    imported.source = playden::Store::kLocal;
+    check(model.UpdateLibrary(imported), "imported library");
+    model.UpdateInstalls({{rally, JobState::Downloading, 64, 100, {}}, {SteamId(20), JobState::Queued, 0, 100, {}}},
+                         {{sky, 1, "internal", true}}, {{sky, 1, "internal", 1'000}});
+    model.action("r1");
+    model.action("r1");
+    check(model.state().navigation.route == Route::Downloads && model.view().subtitle == "1 copying · 1 waiting",
+          "the page counts the copy as copying");
+    check(queue_row(model, "queue-downloads")->value == "1 copying · 1 waiting · 1 completed",
+          "Downloads counts the copy as copying");
+}
+
 // Queue: both workflows, one section expanded at a time. A collapsed section keeps its card and counts.
 // Waiting preparations are numbered in the runtime's order, completed ones follow them in the same list,
 // and Prepare next moves a waiting game first without touching the one being prepared.
@@ -2829,6 +2850,7 @@ int main() {
     live_details_keep_personal_edits_and_block_fixture_operations();
     refresh_actions_preserve_authentication_and_wall_clock_is_external();
     live_queue_shows_downloads_and_preparations();
+    live_queue_counts_copies();
     live_queue_history_and_empty_states();
     live_queue_lists_preparations_needing_attention();
     live_details_prepare_next();
