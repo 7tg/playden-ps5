@@ -805,63 +805,63 @@ void live_imported_program_seeds_once(const std::filesystem::path& base) {
           "seed: saved at once");
 }
 
-// Steam options only for other branches don't say which program starts the game: Install asks
-// when two or more could be it, and asks nothing for one clear program (the import rules).
-void live_install_asks_for_a_steam_program(const std::filesystem::path& base) {
-    using playden::homebrew::InstallRequestKind;
-    using playden::homebrew::LaunchProgram;
+// Steam options only for other branches don't say which program starts the game: once the download is
+// there, setting up waits for the player's choice. The sheet lists installers and tools last, and the
+// choice is kept as Steam's option (steam_launch), not as a Program, and sets the game up again.
+void live_setup_asks_for_a_steam_program(const std::filesystem::path& base) {
+    using playden::homebrew::LiveGameSetup;
     std::filesystem::create_directories(base);
     auto model = make_live(base);
     model.SetGameSettingsFile(base / "steam-program-settings.json");
     model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
-    playden::GameSummary dragonwilds;
-    dragonwilds.id = SteamId(1374490);
-    dragonwilds.title = "RuneScape: Dragonwilds";
-    playden::GameSummary strive;
-    strive.id = SteamId(1384160);
-    strive.title = "GUILTY GEAR -STRIVE-";
-    check(model.UpdateLibrary({{dragonwilds, strive}, false, {}, false, true, 100}), "steam program: library delivered");
-    model.UpdateVolumes({{"internal", "Console storage", true, 200'000'000'000, 1'000'000'000}}, "internal");
+    playden::GameSummary monster;
+    monster.id = SteamId(449610);
+    monster.title = "Monster Boy";
+    playden::GameSummary other;
+    other.id = SteamId(220);
+    other.title = "Half-Life 2";
+    check(model.UpdateLibrary({{monster, other}, false, {}, false, true, 100}), "steam program: library delivered");
+    model.UpdateInstalls({}, {{SteamId(449610), 1024, "internal", true}});
+    playden::homebrew::LiveRuntimeGame runtime;
+    runtime.game_id = SteamId(449610);
+    runtime.status = "Not prepared";
+    runtime.can_prepare = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    LiveGameSetup setup;
+    setup.steam_choices = {{"x86/Setup.exe", true}, {"x64/Launcher64.exe", false}, {"x86/Launcher.exe", false}};
 
-    check(model.action("details:1374490") &&
-              model.UpdateAppDetails(SteamId(1374490), 100, 200, true,
-                                     {{"RSDragonwilds.exe", false}, {"Aqua-Coyote.exe", false}, {"Setup.exe", true}}),
-          "steam program: details with two programs");
-    activate(model, "details-install");
-    check(model.view().surface == "steam-programs" && model.TakeInstallRequests().empty(),
-          "steam program: Install asks first");
-    check(model.state().navigation.modals.back().action_keys.size() == 4, "steam program: every program and Cancel");
-    activate(model, "cancel");
-    check(model.view().surface != "steam-programs" && model.TakeInstallRequests().empty() &&
-              !model.state().game_settings.count(SteamId(1374490)),
-          "steam program: Cancel installs nothing");
-    activate(model, "details-install");
+    // Elsewhere, a notification says so; the game's Play row asks.
+    check(model.action("details:220"), "steam program: another page");
+    model.SetGameSetups({{SteamId(449610), setup}});
+    check(std::any_of(model.state().notices.begin(), model.state().notices.end(),
+                      [](const auto& notice) { return notice.id.rfind("steam-programs-", 0) == 0; }) &&
+              model.state().navigation.modals.empty(),
+          "steam program: a notification away from the game's page");
+    check(model.action("details:449610"), "steam program: its page");
+    const auto play = std::find_if(model.view().rows.begin(), model.view().rows.end(),
+                                   [](const auto& row) { return row.key == "details-play"; });
+    check(play != model.view().rows.end() && play->title == "Choose program" && play->enabled, "steam program: Play asks");
+    activate(model, "details-play");
+    check(model.view().surface == "steam-programs" && model.state().navigation.modals.back().action_keys.size() == 4,
+          "steam program: every program and Cancel");
+    const auto title = [&](const std::string& key) {
+        for (const auto& row : model.view().rows) if (row.action == key) return row.title;
+        return std::string();
+    };
+    check(title("steam-program-0") == "x64/Launcher64.exe" && title("steam-program-2") == "x86/Setup.exe",
+          "steam program: installers and tools last");
     activate(model, "steam-program-1");
-    auto requests = model.TakeInstallRequests();
-    check(requests.size() == 1 && requests[0].kind == InstallRequestKind::Install && requests[0].game_id == SteamId(1374490),
-          "steam program: choosing one installs");
-    check(model.state().game_settings.at(SteamId(1374490)).steam_launch == "Aqua-Coyote.exe" &&
-              model.state().game_settings.at(SteamId(1374490)).overrides.empty(),
-          "steam program: the choice is kept as Steam's option, not as a Program");
-    activate(model, "details-install");
-    check(model.view().surface != "steam-programs" && model.TakeInstallRequests().size() == 1,
-          "steam program: an earlier choice isn't asked for again");
+    const auto& record = model.state().game_settings.at(SteamId(449610));
+    check(record.steam_launch == "x86/Launcher.exe" && record.overrides.empty(),
+          "steam program: kept as Steam's option, not as a Program");
+    const auto prepares = model.TakeRuntimePrepareRequests();
+    check(std::count(prepares.begin(), prepares.end(), SteamId(449610)) == 1, "steam program: the game is set up again");
+    check(model.view().surface != "steam-programs", "steam program: the sheet closes");
 
-    // One program besides installers and tools: no question.
-    check(model.action("details:1384160") &&
-              model.UpdateAppDetails(SteamId(1384160), 100, 200, true, {{"GGST.exe", false}, {"Redist/vcredist.exe", true}}),
-          "steam program: details with one clear program");
-    activate(model, "details-install");
-    requests = model.TakeInstallRequests();
-    check(model.view().surface != "steam-programs" && requests.size() == 1 && requests[0].game_id == SteamId(1384160),
-          "steam program: one clear program installs at once");
-    check(!model.state().game_settings.count(SteamId(1384160)), "steam program: Steam's first option needs no setting");
-    // An installer or tool listed before the game: the game's option goes first.
-    check(model.UpdateAppDetails(SteamId(1384160), 100, 200, true, {{"Redist/vcredist.exe", true}, {"GGST.exe", false}}),
-          "steam program: details with a tool first");
-    activate(model, "details-install");
-    check(model.TakeInstallRequests().size() == 1 && model.state().game_settings.at(SteamId(1384160)).steam_launch == "GGST.exe",
-          "steam program: the clear program goes before the tool");
+    // Over the game's own page, the sheet opens by itself.
+    model.SetGameSetups({});
+    model.SetGameSetups({{SteamId(449610), setup}});
+    check(model.view().surface == "steam-programs", "steam program: the sheet opens over the game's page");
 }
 
 } // namespace
@@ -879,7 +879,7 @@ int main() {
     live_program_change_applies_like_other_settings(base);
     live_imported_game_steam_app_id(base);
     live_imported_program_seeds_once(base);
-    live_install_asks_for_a_steam_program(base);
+    live_setup_asks_for_a_steam_program(base);
     live_starts_clean_and_never_reads_or_writes_fixtures(base);
     live_dispatches_bounded_service_effects_and_replaces_challenges(base);
     failed_signout_preserves_account_until_external_clear(base);

@@ -214,6 +214,12 @@ struct RuntimeLaunchView {
 
 enum class RuntimeHostStatus { kStarting, kUnavailable, kReady, kStopped };
 
+// A program one of Steam's launch options names, found in the game's folder.
+struct SteamLaunchChoice {
+  std::string path;     // as Steam names it, '/' separated
+  bool helper = false;  // an installer or tool (the import rules)
+};
+
 // What Game settings needs to pick a game's program: the Windows programs in its folder and,
 // for a game Playden could not prepare, a draft recipe to start the sheet from.
 struct RuntimeGameSetup {
@@ -223,6 +229,9 @@ struct RuntimeGameSetup {
   // no launch entry yet) and whether a choice (a program, "Try anyway") can get past the refusal.
   std::optional<runtime::GameRecipe> draft;
   bool refusal_soft = false;
+  // Steam's options are all for other branches and more than one of their programs is in the game's
+  // folder: preparing waits for the player to choose one (Game settings' steam_launch).
+  std::vector<SteamLaunchChoice> steam_choices;
 };
 
 
@@ -333,6 +342,9 @@ struct RuntimePrepareRequest {
   // ships no recipe for the game. launch_reason says why they are missing.
   std::vector<runtime::LaunchEntry> launches;
   std::string launch_reason;
+  // No option is for the public branch: `launches` are every branch's, and Steam doesn't say
+  // which program starts the game.
+  bool launches_any_branch = false;
   // The game; a default one stands for the Steam game runtime_number names.
   GameId game;
 };

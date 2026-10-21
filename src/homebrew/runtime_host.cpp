@@ -20,8 +20,10 @@
 #include "platform/managed_file_lock.h"
 #include "steam/backend/cloud_mapping.h"
 #include "steam/backend/json.h"
+#include "stores/local/scanner.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -2270,17 +2272,58 @@ const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const Runtim
   const auto saved = config_.settings_record ? config_.settings_record(GameOf(request)) : std::nullopt;
   const auto choices = saved ? rt::RecipeChoicesFrom(*saved) : rt::RecipeChoices{};
   const auto kit = c.kit ? rt::KitCapabilitiesFromManifest(c.kit->capabilities, true) : rt::KitCapabilities{};
+  // Steam's options all for other branches: the program the player chose goes first, and with no
+  // choice yet, the options whose program is in the folder decide (the import rules: one clear
+  // program starts the game, two or more are the player's choice).
+  auto launches = request.launches;
+  const auto same_program = [](const std::string& path, const std::string& other) {
+    return std::equal(path.begin(), path.end(), other.begin(), other.end(), [](char a, char b) {
+      return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+    });
+  };
+  const auto put_first = [&](const std::string& program) {
+    std::stable_partition(launches.begin(), launches.end(), [&](const rt::LaunchEntry& launch) {
+      const auto path = steam::RelativeGamePath(launch.executable);
+      return path && same_program(*path, program);
+    });
+  };
+  std::vector<SteamLaunchChoice> steam_choices;
+  if (saved && !saved->steam_launch.empty()) {
+    put_first(saved->steam_launch);
+  } else if (request.launches_any_branch && choices.program.empty()) {
+    for (const auto& launch : launches) {
+      const auto path = steam::RelativeGamePath(launch.executable);
+      if (!path || rt::GameProgramArchitecture(root.string(), *path).empty()) continue;
+      if (std::none_of(steam_choices.begin(), steam_choices.end(),
+                       [&](const SteamLaunchChoice& other) { return same_program(*path, other.path); }))
+        steam_choices.push_back({*path, stores::local::IsLikelyHelper(*path)});
+    }
+    if (const auto clear = stores::local::ClearGameProgram(steam_choices)) put_first(steam_choices[*clear].path);
+    if (steam_choices.size() < 2 || stores::local::ClearGameProgram(steam_choices)) steam_choices.clear();
+  }
+  if (!steam_choices.empty()) {
+    *reason = "Choose the program that starts this game.";
+    Log("prepare waits app=" + std::to_string(request.runtime_number) + " steam programs=" +
+        std::to_string(steam_choices.size()));
+    Publish([&](RuntimeSnapshot& s) {
+      auto& setup = s.game_setups[request.runtime_number];
+      setup.steam_choices = std::move(steam_choices);
+      setup.draft.reset();
+      setup.refusal_soft = false;
+    });
+    return nullptr;
+  }
   rt::GameRecipe generated;
   bool soft = true;
   rt::GameRecipeDiagnostics diagnostics;
-  const bool made = (!request.launches.empty() || !choices.program.empty()) &&
-      rt::GenerateGameRecipe(GameOf(request), request.runtime_number, request.title_name, request.launches, root.string(),
+  const bool made = (!launches.empty() || !choices.program.empty()) &&
+      rt::GenerateGameRecipe(GameOf(request), request.runtime_number, request.title_name, launches, root.string(),
                              &generated, reason, kit, choices, &soft, &diagnostics);
   // The same line an unpack writes, so a refused SteamStub program is found the same way.
   if (!made && !diagnostics.steam_stub_program.empty())
     Log("steamstub app=" + std::to_string(request.runtime_number) + " found=" + diagnostics.steam_stub_program +
         " changed=- failed=" + *reason + " (" + (diagnostics.steam_stub_detail.empty() ? "unknown" : diagnostics.steam_stub_detail) + ")");
-  if (!made && request.launches.empty() && choices.program.empty())
+  if (!made && launches.empty() && choices.program.empty())
     *reason = request.launch_reason.empty() ? "Steam lists no Windows program this console can start for this game."
                                             : request.launch_reason;
   // A refused game gets the folder's programs and a draft for Game settings to start from; a
@@ -2293,7 +2336,7 @@ const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const Runtim
     tried.try_anyway = true;
     rt::GameRecipe permissive;
     std::string ignored;
-    if (!rt::GenerateGameRecipe(GameOf(request), request.runtime_number, request.title_name, request.launches, root.string(),
+    if (!rt::GenerateGameRecipe(GameOf(request), request.runtime_number, request.title_name, launches, root.string(),
                                 &permissive, &ignored, kit, tried)) {
       // No program yet: the sheet starts from the Program row.
       permissive = {};
@@ -2310,6 +2353,7 @@ const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const Runtim
   }
   Publish([&](RuntimeSnapshot& s) {
     auto& setup = s.game_setups[request.runtime_number];
+    setup.steam_choices.clear();
     if (!made) setup.programs = std::move(programs), setup.scanned = true;
     setup.draft = std::move(draft);
     setup.refusal_soft = !made && soft;

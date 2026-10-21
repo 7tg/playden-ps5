@@ -1,11 +1,8 @@
 #include "homebrew/controller.hpp"
 #include "diagnostics/redaction.h"
-#include "steam/backend/app_info.h"
-#include "stores/local/scanner.h"
 #include "steam/install_volumes.h"
 #include "steam/secret.h"
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <utility>
 
@@ -1326,6 +1323,7 @@ void Controller::TickRuntime() {
       live.scanned = setup.scanned;
       live.draft = setup.draft;
       live.refusal_soft = setup.refusal_soft;
+      for (const auto& choice : setup.steam_choices) live.steam_choices.push_back({choice.path, choice.helper});
       if (const auto refusal = snapshot.refusals.find(app); refusal != snapshot.refusals.end()) live.refusal = refusal->second;
     }
     model_.SetGameSetups(std::move(setups));
@@ -1742,6 +1740,7 @@ void Controller::TickAppDetails() {
     requested_detail_.reset();
     launch_options_.clear();
     launch_options_reason_.clear();
+    launches_any_branch_.clear();
     prepare_after_details_.clear();
   }
   // Fetch Steam app info when the player opens a game's details while signed in.
@@ -1754,26 +1753,9 @@ void Controller::TickAppDetails() {
   for (const auto& details : app_details_->Pump(8)) {
     if (details.account_generation != generation) continue;
     if (details.available) {
-      // Options from every branch don't say which program starts the game: Install asks.
-      std::vector<LaunchProgram> programs;
-      if (details.launches_any_branch)
-        for (const auto& option : details.launches) {
-          // Only a Windows program can be the game's Program (game settings take .exe files only).
-          const auto path = steam::RelativeGamePath(option.executable);
-          if (!path || path->size() < 5 || !std::equal(path->end() - 4, path->end(), ".exe", [](char a, char b) {
-                return std::tolower(static_cast<unsigned char>(a)) == b;
-              }))
-            continue;
-          const auto same = [&](const LaunchProgram& other) {
-            return std::equal(path->begin(), path->end(), other.path.begin(), other.path.end(), [](char a, char b) {
-              return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
-            });
-          };
-          if (std::none_of(programs.begin(), programs.end(), same))
-            programs.push_back({*path, playden::stores::local::IsLikelyHelper(*path)});
-        }
-      model_.UpdateAppDetails(details.id, details.download_bytes, details.install_bytes, details.windows_installable,
-                              std::move(programs));
+      model_.UpdateAppDetails(details.id, details.download_bytes, details.install_bytes, details.windows_installable);
+      if (details.launches_any_branch) launches_any_branch_.insert(details.id);
+      else launches_any_branch_.erase(details.id);
       launch_options_[details.id] = details.launches;
       launch_options_reason_.erase(details.id);
     } else if (!launch_options_.count(details.id)) {
@@ -1820,16 +1802,7 @@ void Controller::SubmitPrepare(GameId id, bool announce) {
   if (const auto found = launch_options_.find(id); found != launch_options_.end())
     for (const auto& option : found->second)
       request.launches.push_back({"", option.description, option.executable, option.working_directory, option.arguments});
-  // The program chosen at Install when Steam listed options only for other branches goes first.
-  if (const auto record = model_.state().game_settings.find(id);
-      record != model_.state().game_settings.end() && !record->second.steam_launch.empty())
-    std::stable_partition(request.launches.begin(), request.launches.end(), [&](const auto& launch) {
-      const auto path = steam::RelativeGamePath(launch.executable);
-      const auto& chosen = record->second.steam_launch;
-      return path && std::equal(path->begin(), path->end(), chosen.begin(), chosen.end(), [](char a, char b) {
-               return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
-             });
-    });
+  request.launches_any_branch = launches_any_branch_.count(id) != 0;
   // Steam's launch options and app details are for Steam games only: another store's game starts the
   // program the player picks in Game settings.
   const bool steam = id.store == Store::kSteam;

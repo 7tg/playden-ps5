@@ -2688,6 +2688,70 @@ void SteamEntryWithoutFolderStartsInInstallRoot() {
   host.Shutdown();
 }
 
+// Steam's options all for other branches (Monster Boy lists x64/Launcher64.exe and x86/Launcher.exe
+// for a debug branch): preparing waits for the player's choice when two of their programs are in the
+// folder, then starts the chosen one as Steam's option. One clear program is used without asking.
+void PreparesSteamProgramChosenAfterDownload() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/449610";
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  std::filesystem::create_directories(game / "x64");
+  std::filesystem::create_directories(game / "x86");
+  Write(game / "x64/Launcher64.exe", pe, 0644);
+  Write(game / "x86/Launcher.exe", pe, 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  GameSettingsRecord saved;
+  config.settings_record = [&](const playden::GameId&) -> std::optional<GameSettingsRecord> { return saved; };
+  RuntimePrepareRequest request{449610, "/data/homebrew/FAKE77031/games/449610", "internal", "Monster Boy"};
+  // Missing.exe (another branch's program) isn't in the download, so it isn't offered.
+  request.launches = {{"", "", "x64\\Launcher64.exe", "", ""}, {"", "", "Missing.exe", "", ""},
+                      {"", "", "x86\\Launcher.exe", "", "-safe"}};
+  request.launches_any_branch = true;
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(request);
+  const auto asked = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(449610) != 0; });
+  CHECK(asked.refusals.at(449610).find("Choose the program") != std::string::npos && asked.installs.empty());
+  const auto& choices = asked.game_setups.at(449610).steam_choices;
+  CHECK(choices.size() == 2 && choices[0].path == "x64/Launcher64.exe" && choices[1].path == "x86/Launcher.exe" &&
+        !choices[0].helper && !asked.game_setups.at(449610).draft);
+
+  // The player chooses the second: it is prepared as Steam's option, with Steam's arguments.
+  saved.steam_launch = "x86/Launcher.exe";
+  host.Prepare(request);
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && !s.installs.empty() && s.installs[0].state == PreparationState::kReady;
+  }, 60);
+  if (done.refusals.count(449610)) std::fprintf(stderr, "refused: %s\n", done.refusals.at(449610).c_str());
+  CHECK(!done.refusals.count(449610) && done.game_setups.at(449610).steam_choices.empty());
+  CHECK(done.generated_recipes.size() == 1 && done.generated_recipes[0].launch_entries[0].executable == "x86/Launcher.exe" &&
+        done.generated_recipes[0].launch_entries[0].id != kProgramEntryId &&
+        done.generated_recipes[0].launch_entries[0].arguments == "-safe");
+  host.Shutdown();
+}
+
 void PreparesProgramChosenInSettings() {
   Fixture fixture;
   auto config = fixture.Config();
@@ -4566,6 +4630,7 @@ int main(int argc, char** argv) {
   PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();
   PreparesProgramChosenInSettings();
+  PreparesSteamProgramChosenAfterDownload();
   SteamEntryWithoutFolderStartsInInstallRoot();
   PreparesUdkGameWithEulaAccepted();
   ResumesInterruptedCaptureFromSavedRequest();

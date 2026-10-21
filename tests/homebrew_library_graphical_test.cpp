@@ -160,17 +160,23 @@ int main(int argc,char** argv) {
       capture_update("release-notes-short.png");
     }
     {
-      // Steam's options name no clear program: Install asks which one starts the game.
+      // Steam's options name no clear program: setting up asks which one starts the game.
       Simulation live({}, {}, ModelMode::Live);
       live.UpdateAccount({AuthState::SignedIn,"123","Synthetic account",{},{},true});
       assert(live.UpdateLibrary({backend.games,false,{},false,false,{}}));
-      live.UpdateVolumes({{"internal","Console storage",true,200'000'000'000,1'000'000'000}},"internal");
-      live.UpdateAppDetails(SteamId(42), 300'000'000, 600'000'000, true,
-                            {{"RSDragonwilds.exe",false},{"Aqua-Coyote.exe",false},{"Redist/Setup.exe",true}});
-      assert(live.action("details:42") && live.action("focus:details-install") && live.action("cross"));
+      live.UpdateInstalls({}, {{SteamId(42), 600'000'000}});
+      LiveRuntimeGame waiting; waiting.game_id=SteamId(42); waiting.status="Not prepared"; waiting.can_prepare=true;
+      live.UpdateRuntime(RuntimeState::Ready, {waiting});
+      assert(live.action("details:42"));
+      playden::homebrew::LiveGameSetup setup;
+      setup.steam_choices={{"x64/Launcher64.exe",false},{"x86/Launcher.exe",false},{"Redist/Setup.exe",true}};
+      live.SetGameSetups({{SteamId(42),setup}});
       assert(live.view().surface=="steam-programs");
       for(int i=0;i<16;++i) renderer.draw(live,1920,1080);
       assert(renderer.capture_png(output/"steam-programs.png",1920,1080));
+      assert(live.action("focus:cancel") && live.action("cross"));
+      for(int i=0;i<16;++i) renderer.draw(live,1920,1080);
+      assert(renderer.capture_png(output/"steam-programs-play.png",1920,1080));
     }
     {
       // An installed, prepared game: Play is the same height as the other actions,
