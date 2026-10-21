@@ -2,6 +2,7 @@
 
 #include "platform/managed_directory.h"
 #include "runtime/artifact_hash.h"
+#include "runtime/burn_bundle.h"
 #include "runtime/game_settings.h"
 #include "runtime/msi_package.h"
 
@@ -10,6 +11,7 @@
 #include <chrono>
 #include <fcntl.h>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <set>
 #include <unistd.h>
@@ -252,25 +254,38 @@ bool RecordPackage(const std::filesystem::path& prefix, const std::string& sha25
   return directory && WriteFileAt(*directory, kStateFile, text);
 }
 
-// Installs one package; returns the number of files written, or a reason in *reason.
-bool InstallPackage(const std::filesystem::path& package_path, const std::filesystem::path& prefix,
-                    const RedistEntry& entry, std::int64_t unix_time, std::size_t* files, std::string* reason) {
-  std::string package;
-  if (!ReadFile(package_path, kMaxPackageBytes, &package)) {
-    *reason = "the package could not be read";
-    return false;
-  }
+// Reads a cabinet the package names as a file beside it into *bytes.
+using CabinetSource = std::function<bool(const std::string& name, std::string* bytes)>;
+
+// Installs one package: its files (those keep accepts, when given) and its registry and PATH values.
+// Counts the files written in *files, or gives a reason in *reason.
+bool InstallPlan(std::string_view package, const CabinetSource& beside, const std::filesystem::path& prefix,
+                 const RedistEntry& entry, std::int64_t unix_time, const std::function<bool(const MsiFile&)>& keep,
+                 std::size_t* files, std::string* reason) {
   MsiInstallPlan plan;
   if (!ReadMsiPackage(package, &plan, reason)) return false;
   if (plan.unsupported_files) {
     *reason = std::to_string(plan.unsupported_files) + " of the package's files are stored in a way Playden can't install";
     return false;
   }
+  if (keep) {
+    plan.files.erase(std::remove_if(plan.files.begin(), plan.files.end(), [&](const MsiFile& file) { return !keep(file); }),
+                     plan.files.end());
+    if (plan.files.empty()) {
+      *reason = "the package has none of the files Playden takes from it";
+      return false;
+    }
+  }
   std::map<std::string, std::vector<const MsiFile*>> wanted;  // member → files
-  for (const auto& file : plan.files) wanted[file.member].push_back(&file);
+  std::set<std::size_t> used;  // cabinets holding a wanted file
+  for (const auto& file : plan.files) {
+    wanted[file.member].push_back(&file);
+    used.insert(file.cabinet);
+  }
   std::set<const MsiFile*> delivered;
   const auto drive = prefix / "drive_c";
   for (std::size_t index = 0; index < plan.cabinets.size(); ++index) {
+    if (!used.count(index)) continue;
     const auto& cabinet = plan.cabinets[index];
     std::string bytes;
     if (cabinet.embedded) {
@@ -281,7 +296,7 @@ bool InstallPackage(const std::filesystem::path& package_path, const std::filesy
       }
       bytes = std::move(*stream);
     } else if (cabinet.name.find('/') != std::string::npos || cabinet.name.find('\\') != std::string::npos ||
-               !ReadFile(package_path.parent_path() / cabinet.name, kMaxPackageBytes, &bytes)) {
+               !beside(cabinet.name, &bytes)) {
       *reason = "the cabinet " + cabinet.name + " beside the package could not be read";
       return false;
     }
@@ -333,6 +348,20 @@ bool InstallPackage(const std::filesystem::path& package_path, const std::filesy
   return true;
 }
 
+// Installs a package from the game folder, its external cabinets beside it.
+bool InstallPackage(const std::filesystem::path& package_path, const std::filesystem::path& prefix,
+                    const RedistEntry& entry, std::int64_t unix_time, std::size_t* files, std::string* reason) {
+  std::string package;
+  if (!ReadFile(package_path, kMaxPackageBytes, &package)) {
+    *reason = "the package could not be read";
+    return false;
+  }
+  const auto beside = [&](const std::string& name, std::string* bytes) {
+    return ReadFile(package_path.parent_path() / name, kMaxPackageBytes, bytes);
+  };
+  return InstallPlan(package, beside, prefix, entry, unix_time, {}, files, reason);
+}
+
 }  // namespace
 
 RedistAction ClassifyRedist(const RedistEntry& entry, const std::string& install_dir, std::string* package) {
@@ -358,6 +387,118 @@ RedistAction ClassifyRedist(const RedistEntry& entry, const std::string& install
   for (const auto* prefix : kCovered)
     if (program.rfind(prefix, 0) == 0) return RedistAction::kCovered;
   return RedistAction::kNotRun;
+}
+
+std::vector<VcRedist> MicrosoftVcRedists() {
+  constexpr const char* kBase = "https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/";
+  return {
+      {"x86", std::string(kBase) + "0C09F2611660441084CE0DF425C51C11E147E6447963C3690F97E0B25C55ED64/VC_redist.x86.exe",
+       "0c09f2611660441084ce0df425c51c11e147e6447963c3690f97e0b25c55ed64", 13953392, "vcRuntimeAdditional_x86", "14.44.35211"},
+      {"x64", std::string(kBase) + "CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe",
+       "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b", 25635768, "vcRuntimeAdditional_x64", "14.44.35211"},
+  };
+}
+
+bool MfcFileName(std::string_view name) {
+  const auto lower = Lower(name);
+  return (lower.rfind("mfc140", 0) == 0 || lower.rfind("mfcm140", 0) == 0) && lower.size() > 4 &&
+         lower.compare(lower.size() - 4, 4, ".dll") == 0 && lower.find('/') == std::string::npos;
+}
+
+MfcInstallResult InstallMfcRuntime(const VcRedist& redist, const std::string& cache_root, const std::string& prefix_dir,
+                                   const RangeFetch& fetch, std::int64_t unix_time) {
+  MfcInstallResult out;
+  const auto fail = [&](std::string why) {
+    out.result = "failed";
+    out.detail = std::move(why);
+    return out;
+  };
+  const std::filesystem::path prefix(prefix_dir);
+  if (InstalledPackages(prefix).count(redist.sha256)) {
+    out.result = "already";
+    return out;
+  }
+  const auto slash = redist.url.rfind('/');
+  const auto file_name = slash == std::string::npos ? std::string() : redist.url.substr(slash + 1);
+  if (file_name.empty() || file_name == "." || file_name == ".." || redist.bytes == 0 || redist.bytes > kMaxPackageBytes)
+    return fail("the redistributable's download is not one Playden can use");
+  const auto folder = std::filesystem::path(cache_root) / ("vc-" + redist.version) / redist.architecture;
+  const auto cached = folder / file_name;
+  // The kept copy, when it is still the pinned one.
+  std::string bundle;
+  if (ReadFile(cached, redist.bytes + 1, &bundle) && bundle.size() == redist.bytes &&
+      HashArtifactBytes(bundle).value_or("") == redist.sha256) {
+    out.source = "cache";
+  } else {
+    bundle.clear();
+    std::error_code ignored;
+    std::filesystem::remove(cached, ignored);
+    if (!fetch) return fail("Playden can't download it here");
+    // In ranges: one HTTP response is kept small.
+    bundle.reserve(redist.bytes);
+    for (std::uint64_t offset = 0; offset < redist.bytes;) {
+      const auto length = std::min<std::uint64_t>(kRedistChunkBytes, redist.bytes - offset);
+      std::optional<std::string> chunk;
+      std::string error;
+      for (int attempt = 0; attempt < 3 && !chunk; ++attempt) {
+        chunk = fetch(redist.url, offset, length, &error);
+        if (chunk && chunk->size() != length) {
+          error = "the server sent " + std::to_string(chunk->size()) + " bytes for " + std::to_string(length);
+          chunk.reset();
+        }
+      }
+      if (!chunk) return fail("the download failed at byte " + std::to_string(offset) + ": " + error);
+      bundle += *chunk;
+      offset += length;
+    }
+    if (HashArtifactBytes(bundle).value_or("") != redist.sha256)
+      return fail("the download is not the redistributable Playden expects (SHA-256 mismatch)");
+    out.source = "download";
+    // Kept for other games: written beside, then renamed into place.
+    std::error_code error;
+    std::filesystem::create_directories(folder, error);
+    const auto temporary = folder / (file_name + ".part-" + std::to_string(static_cast<long long>(::getpid())));
+    const int file = error ? -1 : ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0644);
+    std::size_t written = 0;
+    if (file >= 0) {
+      while (written < bundle.size()) {
+        const auto count = ::write(file, bundle.data() + written, bundle.size() - written);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        written += static_cast<std::size_t>(count);
+      }
+      const bool synced = ::fsync(file) == 0;
+      const bool closed = ::close(file) == 0;
+      if (written != bundle.size() || !synced || !closed || ::rename(temporary.c_str(), cached.c_str()) != 0) {
+        out.cache_problem = "could not write " + cached.string() + " (errno " + std::to_string(errno) + ")";
+        ::unlink(temporary.c_str());
+      }
+    } else {
+      out.cache_problem = "could not create " + folder.string() + (error ? ": " + error.message() : " (errno " + std::to_string(errno) + ")");
+    }
+  }
+  BurnMsiPackage package;
+  std::string reason;
+  if (!ReadBurnMsiPackage(bundle, redist.package_id, &package, &reason)) return fail(reason);
+  bundle = std::string();  // its packages are copied out; the console's memory is better spent elsewhere
+  const auto beside = [&](const std::string& name, std::string* bytes) {
+    for (const auto& [candidate, data] : package.beside)
+      if (Lower(candidate) == Lower(name)) {
+        *bytes = data;
+        return true;
+      }
+    return false;
+  };
+  const auto keep = [](const MsiFile& file) {
+    const auto slash = file.target.rfind('/');
+    return MfcFileName(slash == std::string::npos ? file.target : file.target.substr(slash + 1));
+  };
+  if (!InstallPlan(package.msi, beside, prefix, RedistEntry{}, unix_time, keep, &out.files, &reason))
+    return fail(package.msi_name + ": " + reason);
+  if (!RecordPackage(prefix, redist.sha256, "vc-" + redist.version + "-" + redist.architecture + "-mfc"))
+    return fail("installed, but could not be recorded");
+  out.result = "installed";
+  return out;
 }
 
 std::string ExtendPath(const std::string& current, const std::vector<std::string>& prepend,

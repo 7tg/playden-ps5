@@ -3,6 +3,8 @@
 #include "runtime/install_script.h"
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,6 +41,46 @@ struct RedistInstallResult {
 // fails is reported and left out; the others still install.
 RedistInstallResult InstallRedistributables(const std::string& game_root, const std::string& install_dir,
                                             const std::string& prefix_dir, std::int64_t unix_time);
+
+// Microsoft's MFC library, which Wine doesn't provide, for the games that import it (runtime/game_probe.h
+// FindMfcImports): Playden downloads Microsoft's Visual C++ 2015-2022 redistributable once per console, keeps the
+// verified setup program, and installs only the MFC files of its "Additional" package into a game's bottle.
+
+// The redistributable for one architecture, pinned to a release: the URL embeds its SHA-256.
+struct VcRedist {
+  std::string architecture;  // "x86" or "x64"
+  std::string url;
+  std::string sha256;        // lower case
+  std::uint64_t bytes = 0;
+  std::string package_id;    // the bundle's MsiPackage with MFC
+  std::string version;       // names the cache folder
+};
+// Microsoft's 14.44.35211 for x86 and x64.
+std::vector<VcRedist> MicrosoftVcRedists();
+
+// Whether a file the package installs is one of MFC's (mfc140*.dll, mfcm140*.dll): the only ones Playden takes
+// from it, so the C runtime never replaces the kit's Wine builtins.
+bool MfcFileName(std::string_view name);
+
+// One ranged GET: the bytes [offset, offset + length) of url, or nothing with a reason.
+using RangeFetch = std::function<std::optional<std::string>(const std::string& url, std::uint64_t offset,
+                                                            std::uint64_t length, std::string* error)>;
+inline constexpr std::uint64_t kRedistChunkBytes = 8ull << 20;
+
+struct MfcInstallResult {
+  std::string result;  // "installed", "already" or "failed"
+  std::string detail;  // why it failed
+  std::string source;  // "download" or "cache", when installed
+  std::size_t files = 0;
+  std::string cache_problem;  // the download installed but could not be kept for other games: why
+};
+
+// Installs redist's MFC files into the stopped bottle at prefix_dir, once: the bottle's .playden-redist lists the
+// bundle's SHA-256 afterwards. The bundle is <cache_root>/vc-<version>/<architecture>/<file name of url> when that
+// file has the pinned SHA-256 (a file that doesn't is removed), otherwise fetched in kRedistChunkBytes ranges,
+// verified, and kept there for other games.
+MfcInstallResult InstallMfcRuntime(const VcRedist& redist, const std::string& cache_root, const std::string& prefix_dir,
+                                   const RangeFetch& fetch, std::int64_t unix_time);
 
 // Adds folders to a PATH value: prepend in order before the existing entries, append after
 // them, each only when not already listed (case-insensitive).

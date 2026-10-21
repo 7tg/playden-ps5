@@ -1,3 +1,4 @@
+#include "runtime/artifact_hash.h"
 #include "runtime/burn_bundle.h"
 #include "runtime/install_script.h"
 #include "runtime/msi_package.h"
@@ -353,6 +354,172 @@ void TestInstall() {
   std::filesystem::remove_all(base);
 }
 
+// A bottle as Wine makes it: hives and the system folders, private to Playden.
+std::filesystem::path MakeBottle(const std::filesystem::path& prefix) {
+  WriteText(prefix / "system.reg", "WINE REGISTRY Version 2\n;; All keys relative to \\\\Machine\n\n#arch=win64\n");
+  WriteText(prefix / "user.reg", "WINE REGISTRY Version 2\n;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n");
+  std::filesystem::create_directories(prefix / "drive_c/windows/system32");
+  std::filesystem::create_directories(prefix / "drive_c/windows/syswow64");
+  WriteText(prefix / "drive_c/windows/system32/msvcp140.dll", "WINE-BUILTIN");
+  std::filesystem::permissions(prefix, std::filesystem::perms::owner_all, std::filesystem::perm_options::replace);
+  return prefix;
+}
+
+VcRedist SyntheticRedist(bool x64, const std::string& bundle) {
+  const std::string arch = x64 ? "x64" : "x86";
+  return {arch, "https://download.example/pr/" + *HashArtifactBytes(bundle) + "/VC_redist." + arch + ".exe",
+          *HashArtifactBytes(bundle), bundle.size(), "vcRuntimeAdditional_" + arch, "14.44.35211"};
+}
+
+void TestMfcFilter() {
+  CHECK(MfcFileName("mfc140u.dll") && MfcFileName("MFC140.DLL") && MfcFileName("mfcm140u.dll") && MfcFileName("mfc140chs.dll"));
+  CHECK(!MfcFileName("msvcp140.dll") && !MfcFileName("vcruntime140.dll") && !MfcFileName("concrt140.dll"));
+  CHECK(!MfcFileName("mfc42.dll") && !MfcFileName("mfc140u.pdb") && !MfcFileName("mfc140u.dll.bak"));
+  // The package's own folder mapping: x64 files go to system32, x86 ones to SysWOW64 (64-bit Windows).
+  for (const bool x64 : {true, false}) {
+    MsiInstallPlan plan;
+    std::string reason;
+    CHECK(ReadMsiPackage(MfcPackage(x64), &plan, &reason));
+    CHECK(plan.files.size() == 3 && plan.cabinets.size() == 1 && plan.cabinets[0].name == "cab1.cab" && !plan.cabinets[0].embedded);
+    CHECK(plan.files[0].target == std::string(x64 ? "windows/system32" : "windows/syswow64") + "/mfc140u.dll");
+  }
+}
+
+void TestMfcInstall() {
+  char pattern[] = "/tmp/playden-mfc-XXXXXX";
+  CHECK(::mkdtemp(pattern));
+  const auto base = std::filesystem::canonical(pattern);
+  const auto cache = base / "data/playden/redist";
+  // Padded past one range, so the download takes two.
+  const auto x64_bundle = MfcBundle(true) + std::string(kRedistChunkBytes, '\0');
+  const auto x64 = SyntheticRedist(true, x64_bundle);
+  int fetches = 0, failures_left = 1;
+  std::string served = x64_bundle;
+  const RangeFetch fetch = [&](const std::string& url, std::uint64_t offset, std::uint64_t length,
+                               std::string* error) -> std::optional<std::string> {
+    ++fetches;
+    if (failures_left > 0) {  // one network error, which the next attempt gets past
+      --failures_left;
+      *error = "timed out";
+      return std::nullopt;
+    }
+    CHECK(url.rfind("https://download.example/pr/" + *HashArtifactBytes(served) + "/VC_redist.", 0) == 0 ||
+          (url == x64.url && served.size() == x64.bytes));
+    if (offset >= served.size()) return std::string();
+    return served.substr(offset, length);
+  };
+  // Installed from the download: only MFC, the bottle's Wine msvcp140 stays.
+  const auto first = MakeBottle(base / "one");
+  auto result = InstallMfcRuntime(x64, cache.string(), first.string(), fetch, 1700000000);
+  if (result.result != "installed") std::fprintf(stderr, "mfc: %s\n", result.detail.c_str());
+  CHECK(result.result == "installed" && result.source == "download" && result.files == 2 && result.cache_problem.empty());
+  CHECK(fetches == 3);  // the failed attempt and two ranges
+  CHECK(ReadText(first / "drive_c/windows/system32/mfc140u.dll") == "MFC64U");
+  CHECK(ReadText(first / "drive_c/windows/system32/mfcm140.dll") == "MFCM64");
+  CHECK(ReadText(first / "drive_c/windows/system32/msvcp140.dll") == "WINE-BUILTIN");
+  CHECK(!std::filesystem::exists(first / "drive_c/windows/syswow64/mfc140u.dll"));
+  CHECK(ReadText(first / "system.reg").find("RuntimeAdditional]") != std::string::npos);
+  CHECK(ReadText(first / ".playden-redist") == x64.sha256 + " vc-14.44.35211-x64-mfc\n");
+  const auto kept = cache / "vc-14.44.35211/x64/VC_redist.x64.exe";
+  CHECK(ReadText(kept) == x64_bundle);
+  // Once per bottle: nothing is read or fetched again.
+  result = InstallMfcRuntime(x64, cache.string(), first.string(), fetch, 1700000100);
+  CHECK(result.result == "already" && fetches == 3);
+  // Another game's bottle takes the kept copy.
+  const auto second = MakeBottle(base / "two");
+  result = InstallMfcRuntime(x64, cache.string(), second.string(), nullptr, 1700000200);
+  CHECK(result.result == "installed" && result.source == "cache" && fetches == 3);
+  CHECK(ReadText(second / "drive_c/windows/system32/mfc140u.dll") == "MFC64U");
+  // A kept copy that isn't the pinned one counts as missing: removed and fetched again.
+  WriteText(kept, "damaged");
+  const auto third = MakeBottle(base / "three");
+  result = InstallMfcRuntime(x64, cache.string(), third.string(), nullptr, 1700000300);
+  CHECK(result.result == "failed" && result.detail == "Playden can't download it here" && !std::filesystem::exists(kept));
+  CHECK(!std::filesystem::exists(third / ".playden-redist"));
+  result = InstallMfcRuntime(x64, cache.string(), third.string(), fetch, 1700000300);
+  CHECK(result.result == "installed" && result.source == "download" && ReadText(kept) == x64_bundle);
+  // A download that isn't the pinned bundle is refused before it is read, and not kept.
+  served[served.size() - 1] = 'x';
+  std::filesystem::remove(kept);
+  const auto fourth = MakeBottle(base / "four");
+  result = InstallMfcRuntime(x64, cache.string(), fourth.string(), fetch, 1700000400);
+  CHECK(result.result == "failed" && result.detail.find("SHA-256 mismatch") != std::string::npos);
+  CHECK(!std::filesystem::exists(kept) && !std::filesystem::exists(fourth / ".playden-redist"));
+  CHECK(!std::filesystem::exists(fourth / "drive_c/windows/system32/mfc140u.dll"));
+  // A server that keeps failing.
+  failures_left = 100;
+  result = InstallMfcRuntime(x64, cache.string(), fourth.string(), fetch, 1700000400);
+  CHECK(result.result == "failed" && result.detail == "the download failed at byte 0: timed out");
+  // x86: into SysWOW64, from its own folder of the cache.
+  failures_left = 0;
+  served = MfcBundle(false);
+  const auto x86 = SyntheticRedist(false, served);
+  result = InstallMfcRuntime(x86, cache.string(), fourth.string(), fetch, 1700000500);
+  CHECK(result.result == "installed" && result.files == 2);
+  CHECK(ReadText(fourth / "drive_c/windows/syswow64/mfc140u.dll") == "MFC32U");
+  CHECK(!std::filesystem::exists(fourth / "drive_c/windows/syswow64/msvcp140.dll"));
+  CHECK(std::filesystem::exists(cache / "vc-14.44.35211/x86/VC_redist.x86.exe"));
+  // A bundle whose package has no MFC files installs nothing.
+  served = MfcBundle(true);
+  auto minimum_only = SyntheticRedist(true, served);
+  minimum_only.package_id = "vcRuntimeMinimum_x64";
+  minimum_only.version = "other";
+  const auto fifth = MakeBottle(base / "five");
+  result = InstallMfcRuntime(minimum_only, cache.string(), fifth.string(), fetch, 1700000600);
+  CHECK(result.result == "failed" && !std::filesystem::exists(fifth / ".playden-redist"));
+  // The cache can't be written: the game still gets MFC.
+  served = MfcBundle(true);
+  auto uncached = SyntheticRedist(true, served);
+  WriteText(base / "blocked", "a file where the cache folder would be");
+  const auto sixth = MakeBottle(base / "six");
+  result = InstallMfcRuntime(uncached, (base / "blocked").string(), sixth.string(), fetch, 1700000700);
+  CHECK(result.result == "installed" && !result.cache_problem.empty());
+  std::filesystem::remove_all(base);
+}
+
+// Microsoft's own bundles, when PLAYDEN_TEST_VC_REDIST_X64 / _X86 name copies: read, mapped and installed (from a
+// cache seeded with the copy, so nothing is downloaded).
+void TestMicrosoftVcRedist() {
+  for (const auto& redist : MicrosoftVcRedists()) {
+    const char* path = std::getenv(redist.architecture == "x64" ? "PLAYDEN_TEST_VC_REDIST_X64" : "PLAYDEN_TEST_VC_REDIST_X86");
+    if (!path || !*path) continue;
+    const auto bundle = ReadText(path);
+    CHECK(bundle.size() == redist.bytes && HashArtifactBytes(bundle) == redist.sha256);
+    BurnMsiPackage package;
+    std::string reason;
+    CHECK(ReadBurnMsiPackage(bundle, redist.package_id, &package, &reason));
+    MsiInstallPlan plan;
+    CHECK(ReadMsiPackage(package.msi, &plan, &reason));
+    const auto system = redist.architecture == "x64" ? "windows/system32/" : "windows/syswow64/";
+    std::size_t mfc = 0;
+    for (const auto& file : plan.files) {
+      const bool kept = MfcFileName(file.target.substr(file.target.rfind('/') + 1));
+      std::fprintf(stderr, "%s %s %s\n", redist.architecture.c_str(), kept ? "mfc  " : "other", file.target.c_str());
+      if (!kept) continue;
+      CHECK(file.target.rfind(system, 0) == 0);
+      ++mfc;
+    }
+    for (const auto& value : plan.machine)
+      std::fprintf(stderr, "%s registry %s \\ %s = %s\n", redist.architecture.c_str(), value.key.c_str(), value.name.c_str(),
+                   value.data.c_str());
+    std::fprintf(stderr, "%s: %s, %zu files (%zu MFC), %zu cabinets, %zu custom actions, %zu machine values\n",
+                 redist.architecture.c_str(), package.msi_name.c_str(), plan.files.size(), mfc, plan.cabinets.size(),
+                 plan.custom_actions, plan.machine.size());
+    CHECK(mfc >= 4);
+    char pattern[] = "/tmp/playden-vc-redist-XXXXXX";
+    CHECK(::mkdtemp(pattern));
+    const auto base = std::filesystem::canonical(pattern);
+    WriteText(base / "cache" / ("vc-" + redist.version) / redist.architecture / ("VC_redist." + redist.architecture + ".exe"), bundle);
+    const auto prefix = MakeBottle(base / "prefix");
+    const auto result = InstallMfcRuntime(redist, (base / "cache").string(), prefix.string(), nullptr, 1700000000);
+    if (result.result != "installed") std::fprintf(stderr, "install: %s\n", result.detail.c_str());
+    CHECK(result.result == "installed" && result.source == "cache" && result.files == mfc);
+    CHECK(std::filesystem::file_size(prefix / "drive_c" / system / "mfc140u.dll") > 1000000);
+    CHECK(ReadText(prefix / "drive_c/windows/system32/msvcp140.dll") == "WINE-BUILTIN");
+    std::filesystem::remove_all(base);
+  }
+}
+
 // NVIDIA's legacy PhysX package (Bullet Witch's), when PLAYDEN_TEST_PHYSX_MSI names a copy.
 void TestPhysxPackage() {
   const char* path = std::getenv("PLAYDEN_TEST_PHYSX_MSI");
@@ -404,5 +571,8 @@ int main() {
   TestScripts();
   TestInstall();
   TestPhysxPackage();
+  TestMfcFilter();
+  TestMfcInstall();
+  TestMicrosoftVcRedist();
   return 0;
 }
