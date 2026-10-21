@@ -2432,6 +2432,14 @@ void live_queue_lists_preparations_needing_attention() {
     check(model.TakeRuntimePrepareRequests() == std::vector<GameId>{SteamId(31)}, "Try again asks for it");
     activate(model, "prep-attn-30");
     check(!has_row(model, "prep-retry-30"), "a game waiting for the PS5 is not prepared again from here");
+    model.action("circle");
+    // Closed with one being prepared: what needs the player is never counted as queued.
+    model.UpdatePreparationQueue({SteamId(33), {}, {}, {{SteamId(32), "No verified compatibility kit is installed."}}});
+    check(model.action("focus:queue-preparation"), "the heading takes focus");
+    activate(model, "queue-preparation");
+    check(!has_row(model, "prep-attn-30") &&
+              queue_row(model, "queue-preparation")->value == "No other games queued · 3 need attention",
+          "closed, it counts what needs attention apart from the queue");
 }
 
 // The game page of a waiting game names the game right ahead of it and offers Prepare next.

@@ -174,7 +174,10 @@ QueueSection preparations(const State& state) {
 void summarize(QueueSection& section, const std::string& expanded_words, const std::string& attention_words,
                const char* idle) {
     std::string text;
-    const std::size_t more = section.rows.size() - section.completed;  // unfinished, after the card
+    // Games after the card waiting their turn; what needs the player is counted apart.
+    const std::size_t more = static_cast<std::size_t>(std::count_if(section.rows.begin(), section.rows.end(), [](const QueueEntry& row) {
+        return row.job ? row.job->state == JobState::Queued || running(*row.job) : row.position > 0;
+    }));
     if (section.expanded) {
         text = expanded_words;
         if (section.running && !section.waiting && !section.attention) join(text, "No games waiting");
