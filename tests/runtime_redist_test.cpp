@@ -477,6 +477,45 @@ void TestMfcInstall() {
   std::filesystem::remove_all(base);
 }
 
+void TestMfcScanRecord() {
+  char pattern[] = "/tmp/playden-mfc-scan-XXXXXX";
+  CHECK(::mkdtemp(pattern));
+  const auto base = std::filesystem::canonical(pattern);
+  const auto prefix = MakeBottle(base / "prefix");
+  CHECK(!ReadMfcScan(prefix.string()));
+  CHECK(WriteMfcScan(prefix.string(), {"files-1", "", "Game_Data/Plugins/Chroma.dll"}));
+  auto read = ReadMfcScan(prefix.string());
+  CHECK(read && read->fingerprint == "files-1" && read->x86_program.empty() && read->x64_program == "Game_Data/Plugins/Chroma.dll");
+  CHECK(WriteMfcScan(prefix.string(), {"", "", ""}));  // scanned, no MFC, no fingerprint
+  read = ReadMfcScan(prefix.string());
+  CHECK(read && read->fingerprint.empty() && read->x64_program.empty());
+  // The fingerprint follows the install record and file list Playden writes at the game's root.
+  const auto game = base / "game";
+  std::filesystem::create_directories(game);
+  CHECK(GameFilesFingerprint(game.string()).empty());
+  WriteText(game / ".playden-install.json", "{}");
+  const auto first = GameFilesFingerprint(game.string());
+  CHECK(!first.empty() && GameFilesFingerprint(game.string()) == first);
+  WriteText(game / ".playden-files", "a.exe\n");
+  const auto second = GameFilesFingerprint(game.string());
+  CHECK(second != first);
+  WriteText(game / ".playden-files", "a.exe\nb.dll\n");
+  CHECK(GameFilesFingerprint(game.string()) != second);
+  // A stale part of an earlier download in the cache goes when the next copy is kept.
+  const auto bundle = MfcBundle(true);
+  const auto redist = SyntheticRedist(true, bundle);
+  const auto folder = base / "cache/vc-14.44.35211/x64";
+  WriteText(folder / "VC_redist.x64.exe.part-1", "partial");
+  const RangeFetch fetch = [&](const std::string&, std::uint64_t offset, std::uint64_t length, std::string*) {
+    return std::optional<std::string>(bundle.substr(offset, length));
+  };
+  CHECK(!MfcInstalled(redist, prefix.string()));
+  CHECK(InstallMfcRuntime(redist, (base / "cache").string(), prefix.string(), fetch, 1700000000).result == "installed");
+  CHECK(MfcInstalled(redist, prefix.string()));
+  CHECK(!std::filesystem::exists(folder / "VC_redist.x64.exe.part-1") && ReadText(folder / "VC_redist.x64.exe") == bundle);
+  std::filesystem::remove_all(base);
+}
+
 // Microsoft's own bundles, when PLAYDEN_TEST_VC_REDIST_X64 / _X86 name copies: read, mapped and installed (from a
 // cache seeded with the copy, so nothing is downloaded).
 void TestMicrosoftVcRedist() {
@@ -573,6 +612,7 @@ int main() {
   TestPhysxPackage();
   TestMfcFilter();
   TestMfcInstall();
+  TestMfcScanRecord();
   TestMicrosoftVcRedist();
   return 0;
 }

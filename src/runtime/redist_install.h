@@ -83,6 +83,24 @@ struct MfcInstallResult {
 MfcInstallResult InstallMfcRuntime(const VcRedist& redist, const std::string& cache_root, const std::string& prefix_dir,
                                    const RangeFetch& fetch, std::int64_t unix_time);
 
+// Whether the bottle at prefix_dir lists redist's MFC as installed.
+bool MfcInstalled(const VcRedist& redist, const std::string& prefix_dir);
+
+// The latest MFC scan of a game (runtime/game_probe.h FindMfcImports), kept in its bottle (.playden-mfc) so Play
+// doesn't walk the game folder each time: the programs found, per architecture, and the game files' fingerprint
+// then.
+struct MfcScanRecord {
+  std::string fingerprint;
+  std::string x86_program;
+  std::string x64_program;
+};
+std::optional<MfcScanRecord> ReadMfcScan(const std::string& prefix_dir);
+bool WriteMfcScan(const std::string& prefix_dir, const MfcScanRecord& record);
+// What changes when a game's files are installed or updated: the size and time of the install record and file
+// list Playden's downloads and copies write at the game's root (.playden-install.json, .playden-files). Empty for
+// a folder without them (a game added over FTP), whose scan is never reused.
+std::string GameFilesFingerprint(const std::string& game_root);
+
 // Adds folders to a PATH value: prepend in order before the existing entries, append after
 // them, each only when not already listed (case-insensitive).
 std::string ExtendPath(const std::string& current, const std::vector<std::string>& prepend,

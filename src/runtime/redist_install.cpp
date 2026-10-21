@@ -14,6 +14,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace playden::runtime {
@@ -26,6 +27,7 @@ constexpr std::size_t kMaxPackageBytes = 256u * 1024u * 1024u;
 constexpr std::size_t kMaxScripts = 32;
 constexpr int kMaxDepth = 4;
 constexpr const char* kStateFile = ".playden-redist";
+constexpr const char* kMfcScanFile = ".playden-mfc";
 constexpr const char* kEnvironmentKey = "System\\CurrentControlSet\\Control\\Session Manager\\Environment";
 
 std::string Lower(std::string_view text) {
@@ -462,6 +464,12 @@ MfcInstallResult InstallMfcRuntime(const VcRedist& redist, const std::string& ca
     // Kept for other games: written beside, then renamed into place.
     std::error_code error;
     std::filesystem::create_directories(folder, error);
+    // Copies an earlier write left behind (Playden stopped part way).
+    std::vector<std::filesystem::path> stale;
+    for (std::filesystem::directory_iterator it(folder, error), end; !error && it != end; it.increment(error))
+      if (it->path().filename().string().rfind(file_name + ".part-", 0) == 0) stale.push_back(it->path());
+    for (const auto& path : stale) std::filesystem::remove(path, error);
+    error.clear();
     const auto temporary = folder / (file_name + ".part-" + std::to_string(static_cast<long long>(::getpid())));
     const int file = error ? -1 : ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0644);
     std::size_t written = 0;
@@ -487,9 +495,9 @@ MfcInstallResult InstallMfcRuntime(const VcRedist& redist, const std::string& ca
   if (!ReadBurnMsiPackage(bundle, redist.package_id, &package, &reason)) return fail(reason);
   bundle = std::string();  // its packages are copied out; the console's memory is better spent elsewhere
   const auto beside = [&](const std::string& name, std::string* bytes) {
-    for (const auto& [candidate, data] : package.beside)
+    for (auto& [candidate, data] : package.beside)
       if (Lower(candidate) == Lower(name)) {
-        *bytes = data;
+        *bytes = std::move(data);  // each cabinet is read once
         return true;
       }
     return false;
@@ -503,6 +511,57 @@ MfcInstallResult InstallMfcRuntime(const VcRedist& redist, const std::string& ca
   if (!RecordPackage(prefix, redist.sha256, "vc-" + redist.version + "-" + redist.architecture + "-mfc"))
     return fail("installed, but could not be recorded");
   out.result = "installed";
+  return out;
+}
+
+bool MfcInstalled(const VcRedist& redist, const std::string& prefix_dir) {
+  return InstalledPackages(prefix_dir).count(redist.sha256) != 0;
+}
+
+std::optional<MfcScanRecord> ReadMfcScan(const std::string& prefix_dir) {
+  std::string text;
+  if (!ReadFile(std::filesystem::path(prefix_dir) / kMfcScanFile, 64 * 1024, &text)) return std::nullopt;
+  MfcScanRecord record;
+  bool versioned = false;
+  for (std::size_t at = 0; at < text.size();) {
+    auto end = text.find('\n', at);
+    if (end == std::string::npos) end = text.size();
+    const auto line = text.substr(at, end - at);
+    at = end + 1;
+    const auto space = line.find(' ');
+    const auto key = line.substr(0, space), value = space == std::string::npos ? std::string() : line.substr(space + 1);
+    if (key == "mfc-scan" && value == "1") versioned = true;
+    else if (key == "files") record.fingerprint = value;
+    else if (key == "x86") record.x86_program = value;
+    else if (key == "x64") record.x64_program = value;
+  }
+  if (!versioned) return std::nullopt;
+  return record;
+}
+
+bool WriteMfcScan(const std::string& prefix_dir, const MfcScanRecord& record) {
+  const auto line = [](const char* key, const std::string& value) {
+    return value.empty() || value.find('\n') != std::string::npos ? std::string() : std::string(key) + " " + value + "\n";
+  };
+  const auto text = "mfc-scan 1\n" + line("files", record.fingerprint) + line("x86", record.x86_program) +
+                    line("x64", record.x64_program);
+  auto directory = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kApprovedTree);
+  return directory && WriteFileAt(*directory, kMfcScanFile, text);
+}
+
+std::string GameFilesFingerprint(const std::string& game_root) {
+  std::string out;
+  for (const char* name : {".playden-install.json", ".playden-files"}) {
+    struct stat info {};
+    if (::lstat((std::filesystem::path(game_root) / name).c_str(), &info) != 0 || !S_ISREG(info.st_mode)) continue;
+#if defined(__APPLE__)
+    const auto nanoseconds = static_cast<long long>(info.st_mtimespec.tv_sec) * 1000000000ll + info.st_mtimespec.tv_nsec;
+#else
+    const auto nanoseconds = static_cast<long long>(info.st_mtim.tv_sec) * 1000000000ll + info.st_mtim.tv_nsec;
+#endif
+    out += std::string(out.empty() ? "" : ",") + name + ":" + std::to_string(static_cast<long long>(info.st_size)) + ":" +
+           std::to_string(nanoseconds);
+  }
   return out;
 }
 
