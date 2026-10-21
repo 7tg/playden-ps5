@@ -21,7 +21,7 @@ class SteamInstallRunner final : public SessionInstallRunner {
                  const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
                  const std::function<void(InstallStep)>& step) override;
-  bool Remove(const std::string& root) override;
+  std::string Remove(const std::string& root) override;
   void SetTuning(std::function<DownloadTuning()> tuning) { tuning_ = std::move(tuning); }
   // Optional sanitized log: the Steam app ID, step, error category and a short detail; never
   // tokens or account identifiers. Called on the install worker.

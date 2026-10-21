@@ -133,6 +133,8 @@ class DepotInstaller {
 
 // Removes a managed install directory: only paths under install_root, and only when it holds
 // Playden's install record, download journal or an imported game's copy journal (.playden-copy).
-bool RemoveManagedInstall(const std::string& install_root);
+// The record is deleted last, so a folder that could not be emptied is still recognized next time.
+// `failure`, when given, says why it failed.
+bool RemoveManagedInstall(const std::string& install_root, std::string* failure = nullptr);
 
 }  // namespace playden::steam

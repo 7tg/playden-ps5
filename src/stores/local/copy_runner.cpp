@@ -807,30 +807,46 @@ std::string LocalCopyRunner::Move(installs::InstallService& service, const Impor
   return {};
 }
 
-bool LocalCopyRunner::Remove(const std::string& root) {
-  RemoveParts(root);
-  const bool removed = steam::RemoveManagedInstall(root);
+bool LocalCopyRunner::StoreLoaded() {
+  if (!store_.loaded()) {
+    const auto loaded = store_.Load();
+    Log("import store read for a removal" + (loaded.ok() ? std::string() : ": " + loaded.message()));
+  }
+  return store_.loaded();
+}
+
+std::string LocalCopyRunner::Remove(const std::string& root) {
   const auto game = ParseKey(Basename(root));
-  if (!game || game->store != Store::kLocal || !store_.loaded()) return removed;
+  const bool local = game && game->store == Store::kLocal;
+  // An uninstall Playden stopped carries on at the next start, before the library has read the
+  // imports. They are read now, so the game leaves the library with its folder; while they can't
+  // be read, nothing is deleted.
+  if (local && !StoreLoaded()) return "Playden's list of imported games can't be read.";
+  RemoveParts(root);
+  std::string failure;
+  const bool removed = steam::RemoveManagedInstall(root, &failure);
+  if (!local) return failure;
   const auto entry = store_.Find(game->value);
-  if (!entry) return removed;
+  if (!entry) return failure;
   if (entry->state == ImportState::kCopyQueued || entry->state == ImportState::kCopying) {
     store_.CancelCopy(entry->id);
     Log("import copy cancelled id=" + entry->id + (removed ? "" : " (folder not removed)"));
     Changed();
-  } else if (entry->state == ImportState::kCopied) {
-    // Uninstalled: the game leaves the library (its bottle stays, like any kept data). The service
-    // has already forgotten the install, so a folder that didn't go is left as it is.
+  } else if (entry->state == ImportState::kCopied && removed) {
+    // Uninstalled: the game leaves the library (its bottle stays, like any kept data).
     store_.Uninstalled(entry->id);
-    Log("import copy uninstalled id=" + entry->id + (removed ? "" : " (folder not removed)"));
+    Log("import copy uninstalled id=" + entry->id);
     Changed();
+  } else if (entry->state == ImportState::kCopied) {
+    // The service lists the game again, so it stays in the library and uninstalling it again tries again.
+    Log("import copy uninstall stopped id=" + entry->id + ": " + failure);
   }
-  return removed;
+  return failure;
 }
 
 void LocalCopyRunner::Forget(const GameId& id) {
   // As Remove, with no folder to delete (its folder is missing).
-  if (id.store != Store::kLocal || !store_.loaded()) return;
+  if (id.store != Store::kLocal || !StoreLoaded()) return;
   const auto entry = store_.Find(id.value);
   if (!entry) return;
   if (entry->state == ImportState::kCopyQueued || entry->state == ImportState::kCopying) {

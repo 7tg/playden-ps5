@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -122,20 +123,33 @@ std::uint64_t DefaultFreeBytes(const std::string& path) {
   return VolumeSpaceSupported() ? 0 : std::numeric_limits<std::uint64_t>::max();
 }
 
-bool RemoveTree(const std::string& path) {
-  struct stat info {};
-  if (lstat(path.c_str(), &info) != 0) return true;
-  if (!S_ISDIR(info.st_mode)) return unlink(path.c_str()) == 0;
+// Deletes a tree without following links. `error` keeps the first failure's errno.
+// A folder's entries other than "." and "..", read before any is deleted: deleting while reading
+// can make readdir skip entries. False when the folder cannot be opened.
+bool ListEntries(const std::string& path, std::vector<std::string>& names) {
   DIR* dir = opendir(path.c_str());
   if (!dir) return false;
-  bool ok = true;
   while (dirent* entry = readdir(dir)) {
-    const std::string name = entry->d_name;
-    if (name == "." || name == "..") continue;
-    ok = RemoveTree(path + "/" + name) && ok;
+    std::string name = entry->d_name;
+    if (name != "." && name != "..") names.push_back(std::move(name));
   }
   closedir(dir);
-  return rmdir(path.c_str()) == 0 && ok;
+  return true;
+}
+
+bool RemoveTree(const std::string& path, int* error = nullptr) {
+  const auto failed = [error] {
+    if (error && *error == 0) *error = errno;
+    return false;
+  };
+  struct stat info {};
+  if (lstat(path.c_str(), &info) != 0) return errno == ENOENT || failed();
+  if (!S_ISDIR(info.st_mode)) return unlink(path.c_str()) == 0 || failed();
+  std::vector<std::string> names;
+  if (!ListEntries(path, names)) return failed();
+  bool ok = true;
+  for (const auto& name : names) ok = RemoveTree(path + "/" + name, error) && ok;
+  return (rmdir(path.c_str()) == 0 || failed()) && ok;
 }
 
 // Bytes the filesystem has allocated to a file, at most its size; 0 when absent.
@@ -838,14 +852,19 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   return outcome;
 }
 
-bool RemoveManagedInstall(const std::string& install_root) {
-  if (install_root.size() < 2 || install_root[0] != '/' || install_root.find("/..") != std::string::npos) return false;
+bool RemoveManagedInstall(const std::string& install_root, std::string* failure) {
+  const auto fail = [failure](std::string reason) {
+    if (failure) *failure = std::move(reason);
+    return false;
+  };
+  if (install_root.size() < 2 || install_root[0] != '/' || install_root.find("/..") != std::string::npos)
+    return fail("The game's folder path is not valid.");
   if (!Exists(install_root)) return true;
   // The copy of an imported game keeps its plan in .playden-copy (stores/local/copy_plan.h).
   const std::string copy_dir = install_root + "/" + kCopyJournalDir;
   if (!Exists(install_root + "/" + DepotInstaller::kInstallRecord) &&
       !Exists(install_root + "/" + DepotInstaller::kJournalDir) && !Exists(copy_dir))
-    return false;  // not a Playden-managed folder
+    return fail("The game's folder holds no Playden install record, so it was left as it is.");
   // Remove exactly the paths the install recorded, deepest first, then Playden's own files.
   std::vector<std::string> files;
   std::vector<std::string> directories;
@@ -872,17 +891,30 @@ bool RemoveManagedInstall(const std::string& install_root) {
   std::sort(parents.begin(), parents.end(),
             [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
   for (const auto& parent : parents) rmdir(parent.c_str());
-  const std::string journal_dir = install_root + "/" + DepotInstaller::kJournalDir;
-  std::remove((journal_dir + "/journal").c_str());
-  rmdir(journal_dir.c_str());
-  std::remove((copy_dir + "/plan.json").c_str());
-  std::remove((copy_dir + "/plan.json.tmp").c_str());
-  rmdir(copy_dir.c_str());
-  std::remove((install_root + "/" + DepotInstaller::kFileList).c_str());
-  std::remove((install_root + "/" + DepotInstaller::kInstallRecord).c_str());
-  if (rmdir(install_root.c_str()) == 0) return true;
-  // Files the list did not cover (for example written by the game itself): fall back to a walk.
-  return RemoveTree(install_root);
+  // Files the list did not cover (Playden's journals, files the game or other tools wrote) go in a walk.
+  // The install record goes last: a folder that could not be emptied stays Playden's, so
+  // uninstalling it again tries again.
+  int error = 0;
+  bool emptied = true;
+  std::vector<std::string> names;
+  if (ListEntries(install_root, names)) {
+    for (const auto& name : names)
+      if (name != DepotInstaller::kInstallRecord) emptied = RemoveTree(install_root + "/" + name, &error) && emptied;
+  } else {
+    emptied = false;
+    error = errno;
+  }
+  if (emptied) {
+    if (std::remove((install_root + "/" + DepotInstaller::kInstallRecord).c_str()) != 0 && errno != ENOENT) {
+      emptied = false;
+      error = errno;
+    } else if (rmdir(install_root.c_str()) != 0) {
+      emptied = false;
+      error = errno;
+    }
+  }
+  if (emptied) return true;
+  return fail("Some of the game's files could not be deleted (" + std::string(std::strerror(error)) + ").");
 }
 
 }  // namespace playden::steam

@@ -1656,6 +1656,9 @@ void Controller::TickInstalls() {
       case InstallRequestKind::ClearCompleted: installs_->ClearCompleted(); break;
     }
   }
+  // An uninstall whose files could not be deleted lists the game again and says why.
+  for (const auto& failure : installs_->TakeRemovalFailures())
+    StopUninstall(failure.id, failure.reason + " Uninstall the game again to try again.");
   const auto snapshot = installs_->Snapshot();
   ProjectLocations(snapshot.installed);
   // A download that finished in this session is prepared next, so the game is ready to play.

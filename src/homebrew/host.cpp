@@ -586,7 +586,7 @@ int main(int argc, char** argv) {
                                               std::uint32_t runtime_number) {
             return runner->Move(*service, entry, source, runtime_number);
         };
-        import_config.remove_copy_folder = [runner = copy_runner.get()](const std::string& root) { return runner->Remove(root); };
+        import_config.remove_copy_folder = [runner = copy_runner.get()](const std::string& root) { return runner->Remove(root).empty(); };
         auto local_library = std::make_unique<playden::stores::local::LocalLibrarySource>(*imports, std::move(import_config));
         auto* local = local_library.get();
         copy_runner->SetChanged([local] { local->Reload(); });

@@ -133,7 +133,7 @@ class LicenseCheckRunner final : public SessionInstallRunner {
     while (!release && !cancel) std::this_thread::sleep_for(1ms);
     return {false,true,{},0};
   }
-  bool Remove(const std::string&) override { return true; }
+  std::string Remove(const std::string&) override { return {}; }
 };
 void Wait(Controller& controller,const std::function<bool()>& predicate) {
   const auto deadline = std::chrono::steady_clock::now()+4s;

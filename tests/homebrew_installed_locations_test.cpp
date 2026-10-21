@@ -79,7 +79,7 @@ class NoDownloads final : public playden::steam::SessionInstallRunner {
                     const std::function<void(playden::steam::InstallStep)>&) override {
     return {false, false, "no downloads here", 0};
   }
-  bool Remove(const std::string&) override { return true; }
+  std::string Remove(const std::string&) override { return {}; }
 };
 // Records every game the Cloud is asked about.
 class RecordingCloud final : public playden::steam::CloudRunner {

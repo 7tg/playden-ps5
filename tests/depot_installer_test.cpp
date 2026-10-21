@@ -18,6 +18,7 @@
 #include <iterator>
 #include <map>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace playden;
@@ -618,14 +619,14 @@ void StatsAndRemovalLogs(const std::filesystem::path& root) {
     CHECK(std::string(detail) == expected_ok);
     ++removals;
   });
-  CHECK(runner.Remove((root / "440").string()));
+  CHECK(runner.Remove((root / "440").string()).empty());
   CHECK(removals == 1);
-  expected_app = 441; expected_ok = "ok=0";
+  expected_app = 441; expected_ok = "ok=0 The game's folder holds no Playden install record, so it was left as it is.";
   std::filesystem::create_directories(root / "441");
   std::ofstream(root / "441" / "keep.txt") << "unmanaged";
-  CHECK(!runner.Remove((root / "441").string()));
+  CHECK(runner.Remove((root / "441").string()).find("no Playden install record") != std::string::npos);
   CHECK(removals == 2);
-  CHECK(!runner.Remove((root / "account-name").string() + "/.."));
+  CHECK(!runner.Remove((root / "account-name").string() + "/..").empty());
   CHECK(removals == 2); // no unvalidated path/name is logged
 }
 
@@ -1012,6 +1013,29 @@ void RemovesOnlyManagedFolders(const std::filesystem::path& base) {
   CHECK(RemoveManagedInstall(managed.string()));
   CHECK(!std::filesystem::exists(managed));
   CHECK(!RemoveManagedInstall("relative/path"));
+
+  // Files the install did not record (written by the game or other tools, in open folders) go too.
+  InstallsMergedDepotsAndWritesRecord(managed);
+  std::filesystem::create_directories(managed / "bottle/drive_c");
+  std::filesystem::permissions(managed / "bottle", std::filesystem::perms::all);
+  std::ofstream(managed / "bottle/drive_c/user.reg") << "written later";
+  std::ofstream(managed / "config.ini") << "written later";
+  std::string failure;
+  CHECK(RemoveManagedInstall(managed.string(), &failure) && failure.empty());
+  CHECK(!std::filesystem::exists(managed));
+
+  // A folder that cannot be emptied says why and keeps its install record, so a retry is
+  // still recognized as Playden's and finishes the job.
+  InstallsMergedDepotsAndWritesRecord(managed);
+  std::filesystem::create_directories(managed / "locked");
+  std::ofstream(managed / "locked/file.bin") << "stuck";
+  CHECK(chmod((managed / "locked").c_str(), 0500) == 0);
+  CHECK(!RemoveManagedInstall(managed.string(), &failure));
+  CHECK(failure.find("could not be deleted") != std::string::npos);
+  CHECK(std::filesystem::exists(managed / DepotInstaller::kInstallRecord));
+  CHECK(chmod((managed / "locked").c_str(), 0700) == 0);
+  CHECK(RemoveManagedInstall(managed.string()));
+  CHECK(!std::filesystem::exists(managed));
 }
 
 }  // namespace

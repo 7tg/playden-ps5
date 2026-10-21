@@ -84,11 +84,13 @@ class Runner final : public SessionInstallRunner {
     progress(100, 100, held);
     return {true, false, {}, 4096};
   }
-  bool Remove(const std::string& root) override {
+  std::string remove_failure;  // the next removals fail with this, leaving the folder
+  std::string Remove(const std::string& root) override {
     std::lock_guard<std::mutex> lock(mutex);
     removed.push_back(root);
+    if (!remove_failure.empty()) return remove_failure;
     std::filesystem::remove_all(root);
-    return true;
+    return {};
   }
 };
 
@@ -341,11 +343,11 @@ class LocalRunner final : public InstallRunner {
     installed.push_back(id);
     return {true, false, {}, 7};
   }
-  bool Remove(const std::string& root) override {
+  std::string Remove(const std::string& root) override {
     std::lock_guard<std::mutex> lock(mutex);
     removed.push_back(root);
     std::filesystem::remove_all(root);
-    return true;
+    return {};
   }
   void Forget(const GameId& id) override {
     std::lock_guard<std::mutex> lock(mutex);
@@ -572,8 +574,109 @@ void FolderCheckGuardsDownloadStart(const std::filesystem::path& root) {
   std::filesystem::remove_all(root);
 }
 
+bool Uninstalling(const InstallSnapshot& snapshot, GameId id) {
+  return std::find(snapshot.uninstalling.begin(), snapshot.uninstalling.end(), id) != snapshot.uninstalling.end();
+}
+
+void InstalledGameFolder(const std::filesystem::path& root) {
+  std::filesystem::create_directories(root / "bin");
+  std::ofstream(root / ".playden-install.json") << "{\"install_bytes\":4096}";
+  std::ofstream(root / "bin/game.exe") << "game";
+}
+
+// Uninstalling deletes the game's folder on any drive, prepared or not, even while a long
+// download runs; an uninstall Playden stopped carries on at the next start, and one whose files
+// could not be deleted lists the game again and says why.
+void UninstallDeletesFilesWhileDownloading(const std::filesystem::path& base) {
+  std::filesystem::remove_all(base);
+  const auto primary = base / "data";
+  const auto m2 = base / "ext1";
+  for (const auto id : {11, 12, 13}) InstalledGameFolder(primary / std::to_string(id));
+  InstalledGameFolder(m2 / "21");
+  std::filesystem::create_directories(primary);
+  std::ofstream(primary / ".playden-games") << "11\tinternal\t4096\n12\tinternal\t4096\n13\tinternal\t4096\n21\tm2\t4096\n";
+  const std::vector<InstallVolume> volumes{{"internal", "Console storage", primary.string(), true},
+                                           {"m2", "M.2 SSD", m2.string(), true}};
+  Sessions sessions;
+  {
+    Runner runner(sessions);
+    runner.block = true;
+    InstallService service(runner, volumes);
+    service.Install(SteamId(30));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) {
+      const auto* job = JobOf(s, SteamId(30));
+      return job && job->state == InstallJobState::kRunning;
+    });
+    // The download is still running: the folders go now, on console storage and on the M.2 drive.
+    service.Uninstall(SteamId(11));
+    service.Uninstall(SteamId(21));
+    CHECK(!Installed(service.Snapshot(), SteamId(11)) && !Installed(service.Snapshot(), SteamId(21)));
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      return !Uninstalling(s, SteamId(11)) && !Uninstalling(s, SteamId(21)) && !std::filesystem::exists(primary / "11") &&
+             !std::filesystem::exists(m2 / "21");
+    });
+    CHECK(runner.block);
+    // The download stepped back into the queue and carried on.
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      const auto* job = JobOf(s, SteamId(30));
+      return runner.installs >= 2 && job && job->state == InstallJobState::kRunning;
+    });
+
+    // Files that cannot be deleted: the game is listed again and the reason is reported once.
+    {
+      std::lock_guard<std::mutex> lock(runner.mutex);
+      runner.remove_failure = "Some of the game's files could not be deleted (Permission denied).";
+    }
+    service.Uninstall(SteamId(12));
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(12)) && !Uninstalling(s, SteamId(12)); });
+    auto failures = service.TakeRemovalFailures();
+    CHECK(failures.size() == 1 && failures[0].id == SteamId(12) && failures[0].reason.find("Permission denied") != std::string::npos);
+    CHECK(service.TakeRemovalFailures().empty());
+    CHECK(std::filesystem::exists(primary / "12/.playden-install.json"));
+    // Uninstalling it again tries again.
+    {
+      std::lock_guard<std::mutex> lock(runner.mutex);
+      runner.remove_failure.clear();
+    }
+    service.Uninstall(SteamId(12));
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      return !Installed(s, SteamId(12)) && !Uninstalling(s, SteamId(12)) && !std::filesystem::exists(primary / "12");
+    });
+    CHECK(service.TakeRemovalFailures().empty());
+    runner.block = false;
+    AwaitAt(__LINE__, service, [](const InstallSnapshot& s) { return Installed(s, SteamId(30)); });
+  }
+  {
+    // Playden stopped before the folder was gone: the registry still names the uninstall, so the
+    // next start deletes the folder instead of forgetting it.
+    std::ofstream(primary / ".playden-games") << "13\tinternal\t4096\tremoving\n30\tinternal\t4096\n22\tusb0\t4096\tremoving\n"
+                                              << "local-3bb51844-7741-4ff2-a345-cdcc1e62a872\tusb0\t4096\tremoving\n";
+    Runner runner(sessions);
+    InstallService service(runner, volumes);
+    AwaitAt(__LINE__, service, [&](const InstallSnapshot& s) {
+      return !Uninstalling(s, SteamId(13)) && !std::filesystem::exists(primary / "13");
+    });
+    const auto snapshot = service.Snapshot();
+    CHECK(!Installed(snapshot, SteamId(13)) && Installed(snapshot, SteamId(30)));
+    // One on a drive that is not connected waits for the drive, and the game cannot be installed meanwhile.
+    CHECK(Uninstalling(snapshot, SteamId(22)) && !Installed(snapshot, SteamId(22)));
+    service.Install(SteamId(22));
+    CHECK(!JobOf(service.Snapshot(), SteamId(22)));
+  }
+  {
+    std::ifstream registry(primary / ".playden-games");
+    const std::string text((std::istreambuf_iterator<char>(registry)), std::istreambuf_iterator<char>());
+    CHECK(text.find("13\t") == std::string::npos && text.find("22\tusb0\t4096\tremoving") != std::string::npos);
+    // An imported game's key is kept as it was.
+    CHECK(text.find("local-3bb51844-7741-4ff2-a345-cdcc1e62a872\tusb0\t4096\tremoving") != std::string::npos);
+  }
+  std::filesystem::remove_all(base);
+}
+
 int main() {
   FolderCheckGuardsDownloadStart(std::filesystem::temp_directory_path() / ("playden-foldercheck-service-" + std::to_string(::getpid())));
+  UninstallDeletesFilesWhileDownloading(std::filesystem::temp_directory_path() /
+                                        ("playden-uninstall-service-" + std::to_string(::getpid())));
   RunningJobReportsItsStep(std::filesystem::temp_directory_path() / ("playden-step-service-" + std::to_string(::getpid())));
   SpaceAdmission(std::filesystem::temp_directory_path() / ("playden-space-service-" + std::to_string(::getpid())));
   LiveTelemetryDecaysWithoutCallbacks(std::filesystem::temp_directory_path() / ("playden-rate-service-" + std::to_string(::getpid())));

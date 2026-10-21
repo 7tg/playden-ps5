@@ -99,10 +99,17 @@ std::vector<CompletedDownload> CompletedDownloads(const std::vector<InstalledGam
                                                   const std::vector<std::pair<GameId, std::int64_t>>& dismissed,
                                                   std::int64_t now);
 
+// An uninstall whose files could not be deleted: the game is listed as installed again.
+struct RemovalFailure {
+  GameId id;
+  std::string reason;  // short, user-facing
+};
+
 struct InstallSnapshot {
   std::uint64_t revision = 0;
   std::vector<InstallJobView> jobs;
   std::vector<InstalledGame> installed;
+  std::vector<GameId> uninstalling;  // games whose files are being deleted
   std::vector<CompletedDownload> completed;
   std::vector<InstallVolume> volumes;
   std::string default_volume_id;
@@ -112,7 +119,8 @@ struct InstallSnapshot {
 // One game's install, run synchronously on the service worker, for the store it is registered
 // for. Implementations report progress and honor cancel. A runner that can't start yet (no
 // sign-in, the store out of reach) returns `retry_later`: the job keeps its place, waits and is
-// tried again by itself while other jobs run.
+// tried again by itself while other jobs run. Remove deletes a game's folder and returns an empty
+// string on success or a short failure text.
 class InstallRunner {
  public:
   virtual ~InstallRunner() = default;
@@ -127,7 +135,7 @@ class InstallRunner {
   virtual Result Install(const GameId& id, const std::string& root, const std::atomic<bool>& cancel,
                          const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress,
                          const std::function<void(InstallStep)>& step) = 0;
-  virtual bool Remove(const std::string& root) = 0;
+  virtual std::string Remove(const std::string& root) = 0;
   // An uninstalled game whose folder is missing: forgotten with nothing to delete (on the worker).
   virtual void Forget(const GameId& id) { (void)id; }
 };
@@ -135,7 +143,10 @@ class InstallRunner {
 // Install queue for real games under <volume games_root>/<key>. One install runs at a time; jobs
 // go to the runner of their game's store, and a store without one can't install.
 // Pause keeps the partial download for Resume; Cancel and Uninstall delete only Playden-managed
-// folders. The first volume is primary: it holds the registry of every managed game (with the
+// folders. A deletion never waits for a download: the running download steps back into the queue
+// and carries on after it. An uninstall is in the registry until its folder is gone, so one that
+// Playden stopped before it finished carries on at the next start; one that fails lists the game
+// again and is reported by TakeRemovalFailures. The first volume is primary: it holds the registry of every managed game (with the
 // volume each is on) and the default-volume choice. At start the registry is read: complete
 // installs are listed and interrupted downloads come back paused. New installs go to the default
 // volume. A job whose runner asks to retry later waits (5 s, doubling up to a minute) while the
@@ -166,9 +177,12 @@ class InstallService {
   void MoveQueued(GameId id, bool up);
   void Cancel(GameId id);
   void Uninstall(GameId id);
+  // Uninstalls whose files could not be deleted since the last call.
+  std::vector<RemovalFailure> TakeRemovalFailures();
   // Lists a complete managed install that was made outside the queue (an imported game moved
   // into Playden): its folder on `volume_id` holds the install record. True when it is listed now
-  // (or was already); false when the game has a job, its store no runner, or the record is missing.
+  // (or was already); false when the game has a job or files being deleted, its store no runner, or
+  // the record is missing.
   bool Adopt(GameId id, const std::string& volume_id, std::uint64_t install_bytes);
   // Chooses the volume for installs queued from now on; ignored unless it names an available volume.
   void SetDefaultVolume(const std::string& volume_id);
@@ -206,9 +220,11 @@ class InstallService {
     Store store = Store::kSteam;
     std::string root;
     std::optional<GameId> forget;  // set: InstallRunner::Forget instead of deleting `root`
+    std::optional<InstalledGame> game;  // an uninstall's folder; none for a canceled download
   };
   void Run();
   void Scan();
+  void QueueRemoval(Removal removal);
   Job* Find(GameId id);
   void Publish();
   void SaveRegistry();
@@ -235,6 +251,8 @@ class InstallService {
   std::vector<InstalledGame> installed_;
   std::vector<std::pair<GameId, std::int64_t>> dismissed_;  // finished downloads taken off Completed
   std::deque<Removal> removals_;  // folders to delete, by the runner of their store
+  std::vector<InstalledGame> uninstalling_;  // uninstalls whose folder is not deleted yet
+  std::vector<RemovalFailure> removal_failures_;
   std::optional<GameId> active_;
   std::atomic<bool> active_cancel_{false};
   std::uint64_t revision_ = 0;

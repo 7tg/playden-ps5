@@ -112,10 +112,13 @@ class LocalCopyRunner final : public installs::InstallRunner {
   Result Install(const GameId& id, const std::string& root, const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress,
                  const std::function<void(installs::InstallStep)>& step) override;
-  bool Remove(const std::string& root) override;
+  std::string Remove(const std::string& root) override;
   void Forget(const GameId& id) override;
 
  private:
+  // Reads the imports if nobody has yet (removals run from the install worker, which can start
+  // first). False while they can't be read.
+  bool StoreLoaded();
   LocalRelocationResult Relocate(const LocalRelocation& relocation);
   // Before the title follows the copy (LocalRelocation::move_files): every planned file the source
   // has changed since it was copied is planned again as it is now (the plan saved) and copied again.

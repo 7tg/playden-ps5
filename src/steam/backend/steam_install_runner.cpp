@@ -43,15 +43,16 @@ std::string FormatInstallStats(const char* phase, const InstallStats& stats) {
   return detail;
 }
 
-bool SteamInstallRunner::Remove(const std::string& root) {
-  const bool ok = RemoveManagedInstall(root);
+std::string SteamInstallRunner::Remove(const std::string& root) {
+  std::string failure;
+  const bool ok = RemoveManagedInstall(root, &failure);
   const auto slash = root.rfind('/');
   const auto name = root.substr(slash == std::string::npos ? 0 : slash + 1);
   std::uint32_t app = 0;
   const auto parsed = std::from_chars(name.data(), name.data() + name.size(), app);
   if (log_ && app != 0 && parsed.ec == std::errc{} && parsed.ptr == name.data() + name.size())
-    log_(app, "install-removal", "done", ok ? "ok=1" : "ok=0");
-  return ok;
+    log_(app, "install-removal", "done", ok ? "ok=1" : ("ok=0 " + failure).c_str());
+  return ok ? std::string() : failure;
 }
 
 const char* InstallFailureText(InstallError error) {

@@ -182,11 +182,13 @@ struct RegistryEntry {
   std::uint64_t install_bytes = 0;
   bool queued = false;  // written for a job in Downloads: "<id>\t<volume>\t0"
   bool paused = false;  // "<id>\t<volume>\t0\tpaused": the player paused it, or it failed
+  bool removing = false;  // "<id>\t<volume>\t<install bytes>\tremoving": uninstalled, folder not deleted yet
 };
 
 // One line per game: "<key>" (legacy, primary volume) or "<key>\t<volume id>\t<install bytes>",
-// followed by "\tpaused" for a job that should wait for Resume after a restart. The key is ToKey:
-// a Steam game's app ID, "local-<uuid>" for an imported game.
+// followed by "\tpaused" for a job that should wait for Resume after a restart, or "\tremoving" for
+// an uninstall whose folder is not deleted yet. The key is ToKey: a Steam game's app ID,
+// "local-<uuid>" for an imported game.
 std::optional<RegistryEntry> ParseRegistryLine(std::string_view line) {
   RegistryEntry entry;
   const auto first_tab = line.find('\t');
@@ -205,7 +207,9 @@ std::optional<RegistryEntry> ParseRegistryLine(std::string_view line) {
     const auto bytes = fields.substr(0, third_tab);
     std::from_chars(bytes.data(), bytes.data() + bytes.size(), entry.install_bytes);
     entry.queued = entry.install_bytes == 0;
-    entry.paused = third_tab != std::string_view::npos && fields.substr(third_tab + 1) == "paused";
+    const auto flag = third_tab == std::string_view::npos ? std::string_view{} : fields.substr(third_tab + 1);
+    entry.paused = flag == "paused";
+    entry.removing = flag == "removing";
   }
   return entry;
 }
@@ -312,6 +316,15 @@ void InstallService::Scan() {
   }
   for (const auto& entry : entries) {
     const auto* volume = FindVolume(entry.volume_id);
+    if (entry.removing) {
+      // An uninstall Playden stopped before the folder was gone carries on; one on an absent
+      // drive waits for the drive.
+      InstalledGame game{entry.id, entry.install_bytes, RootOn(entry.volume_id, entry.id), entry.volume_id,
+                         volume && volume->available};
+      uninstalling_.push_back(game);
+      if (game.available) removals_.push_back({entry.id.store, game.root, std::nullopt, game});
+      continue;
+    }
     if (!volume || !volume->available) {
       // Keep games on an absent drive listed so they come back when it does.
       installed_.push_back({entry.id, entry.install_bytes, RootOn(entry.volume_id, entry.id), entry.volume_id, false});
@@ -379,6 +392,9 @@ void InstallService::SaveRegistry() {
     const bool waits = job.view.state == InstallJobState::kPaused || job.view.state == InstallJobState::kFailed;
     std::fprintf(registry, "%s\t%s\t0%s\n", ToKey(job.view.id).c_str(), job.view.volume_id.c_str(), waits ? "\tpaused" : "");
   }
+  for (const auto& game : uninstalling_)
+    std::fprintf(registry, "%s\t%s\t%llu\tremoving\n", ToKey(game.id).c_str(), game.volume_id.c_str(),
+                 static_cast<unsigned long long>(game.install_bytes));
   if (std::fclose(registry) == 0) std::rename(temporary.c_str(), path.c_str());
 }
 
@@ -455,6 +471,8 @@ void InstallService::Install(GameId id, std::optional<std::uint64_t> estimated_b
   // Only a store with a runner installs.
   if (stopping_ || !id.valid() || !RunnerFor(id.store) || Find(id) || jobs_.size() >= kMaxJobs) return;
   if (std::any_of(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; })) return;
+  // A game whose files are still being deleted can be installed again once they are gone.
+  if (std::any_of(uninstalling_.begin(), uninstalling_.end(), [id](const InstalledGame& game) { return game.id == id; })) return;
   Job job;
   job.view.id = id;
   const auto& target = volume_id.empty() ? default_volume_id_ : volume_id;
@@ -570,7 +588,7 @@ void InstallService::Cancel(GameId id) {
     const auto root = volume && volume->available ? RootOn(job->view.volume_id, id) : std::string();
     jobs_.erase(std::remove_if(jobs_.begin(), jobs_.end(), [id](const Job& entry) { return entry.view.id == id; }),
                 jobs_.end());
-    if (!root.empty()) removals_.push_back({id.store, root, std::nullopt});
+    if (!root.empty()) QueueRemoval({id.store, root, std::nullopt, std::nullopt});
   }
   Publish();
   wake_.notify_all();
@@ -584,11 +602,11 @@ void InstallService::Uninstall(GameId id) {
   // drive is only forgotten: whatever its path names now isn't this install, so nothing is removed.
   const auto* volume = FindVolume(found->volume_id);
   if (!found->available && (!volume || !volume->available)) return;
-  const auto root = found->available ? RootOn(found->volume_id, id) : std::string();
+  const auto game = *found;
   installed_.erase(found);
-  // Its runner still hears of it, to forget what it keeps of the game.
-  if (!root.empty()) removals_.push_back({id.store, root, std::nullopt});
-  else removals_.push_back({id.store, {}, id});
+  // Its runner still hears of a game whose folder is missing, to forget what it keeps of the game.
+  if (game.available) QueueRemoval({id.store, RootOn(game.volume_id, id), std::nullopt, game});
+  else QueueRemoval({id.store, {}, id, std::nullopt});
   Publish();
   wake_.notify_all();
 }
@@ -599,6 +617,8 @@ bool InstallService::Adopt(GameId id, const std::string& volume_id, std::uint64_
     return true;
   const auto* volume = FindVolume(volume_id);
   if (stopping_ || !id.valid() || !RunnerFor(id.store) || Find(id) || !volume || !volume->available) return false;
+  if (std::any_of(uninstalling_.begin(), uninstalling_.end(), [id](const InstalledGame& game) { return game.id == id; }))
+    return false;
   const auto root = RootOn(volume_id, id);
   if (!Exists(root + "/" + kRecord)) return false;
   installed_.push_back({id, install_bytes, root, volume_id, true, RecordTime(root + "/" + kRecord)});
@@ -606,6 +626,26 @@ bool InstallService::Adopt(GameId id, const std::string& volume_id, std::uint64_
             [](const InstalledGame& left, const InstalledGame& right) { return left.id < right.id; });
   Publish();
   return true;
+}
+
+// Callers hold the lock. An uninstall does not wait for the running download, which can take
+// hours: the download steps back into the queue, keeping its place, and carries on afterwards.
+// Other removals (a canceled download's folder, a game to forget) wait for it.
+void InstallService::QueueRemoval(Removal removal) {
+  const bool uninstall = removal.game.has_value();
+  if (uninstall) uninstalling_.push_back(*removal.game);
+  removals_.push_back(std::move(removal));
+  if (!uninstall || !active_) return;
+  if (auto* running = Find(*active_); running && running->view.state == InstallJobState::kRunning && !running->cancel_requested) {
+    running->view.state = InstallJobState::kQueued;
+    running->rate.Reset(); running->view.bytes_per_second.reset(); running->view.eta_seconds.reset();
+    active_cancel_.store(true);
+  }
+}
+
+std::vector<RemovalFailure> InstallService::TakeRemovalFailures() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return std::exchange(removal_failures_, {});
 }
 
 void InstallService::SetDefaultVolume(const std::string& volume_id) {
@@ -633,6 +673,7 @@ InstallSnapshot InstallService::Snapshot() {
   snapshot.revision = revision_;
   for (const auto& job : jobs_) snapshot.jobs.push_back(job.view);
   snapshot.installed = installed_;
+  for (const auto& game : uninstalling_) snapshot.uninstalling.push_back(game.id);
   snapshot.completed = CompletedDownloads(installed_, dismissed_, WallNow());
   snapshot.volumes = volumes_;
   snapshot.default_volume_id = default_volume_id_;
@@ -718,11 +759,29 @@ void InstallService::Run() {
       }
     }
     if (removal) {
+      std::string failure;
       if (auto* remover = RunnerFor(removal->store)) {
         if (removal->forget) remover->Forget(*removal->forget);
-        else remover->Remove(removal->root);
+        else failure = remover->Remove(removal->root);
+      } else if (removal->game) {
+        failure = "Playden can't delete this game's files.";
       }
       std::lock_guard<std::mutex> lock(mutex_);
+      if (const auto& game = removal->game) {
+        uninstalling_.erase(std::remove_if(uninstalling_.begin(), uninstalling_.end(),
+                                           [&](const InstalledGame& entry) { return entry.id == game->id; }),
+                            uninstalling_.end());
+        if (!failure.empty()) {
+          // The folder keeps its install record until everything else is gone, so the game is
+          // listed again and uninstalling it again tries again.
+          if (!Find(game->id)) {
+            installed_.push_back(*game);
+            std::sort(installed_.begin(), installed_.end(),
+                      [](const InstalledGame& left, const InstalledGame& right) { return left.id < right.id; });
+          }
+          removal_failures_.push_back({game->id, failure});
+        }
+      }
       Publish();
       continue;
     }

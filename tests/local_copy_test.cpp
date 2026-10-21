@@ -150,7 +150,7 @@ struct Fixture {
     config.move_into_playden = [this](const ImportEntry& entry, const std::string& from, std::uint32_t number) {
       return runner->Move(*service, entry, from, number);
     };
-    config.remove_copy_folder = [this](const std::string& folder) { return runner->Remove(folder); };
+    config.remove_copy_folder = [this](const std::string& folder) { return runner->Remove(folder).empty(); };
     local = std::make_unique<LocalLibrarySource>(*store, std::move(config));
     runner->SetChanged([source = local.get()] { source->Reload(); });
     WaitFor([&] { return local->Snapshot()->loaded || !local->Snapshot()->load_error.empty(); }, "imports loaded");
@@ -924,6 +924,31 @@ void UninstallMissingCopy() {
   CHECK(fs::exists(fixture.source / "Bin/Rally.exe"));
 }
 
+// Playden stopped while a copied game's folder was being deleted: at the next start the uninstall
+// carries on before the library has read the imports, and the game still leaves the library.
+void UninstallResumesAfterRestart() {
+  Fixture fixture;
+  fixture.Start();
+  fixture.Add();
+  CHECK(fixture.Outcome(fixture.local->CopyIntoPlayden(kId)).ok);
+  WaitFor([&] { return fixture.Installed() && fixture.State() == ImportState::kCopied; }, "copied");
+  fixture.Stop();
+  // The registry as an uninstall leaves it until the folder is gone.
+  const auto registry = fixture.games / ".playden-games";
+  auto text = Read(registry);
+  const auto line = text.find("local-" + std::string(kId));
+  CHECK(line != std::string::npos);
+  text.insert(text.find('\n', line), "\tremoving");
+  Write(registry, text);
+  fixture.Start();
+  WaitFor([&] { return !fs::exists(fixture.Dest()) && !fixture.store->Find(kId).has_value(); }, "the uninstall finished");
+  CHECK(fixture.store->Removed().size() == 1 && fixture.store->Removed()[0].id == kId);
+  const auto snapshot = fixture.service->Snapshot();
+  CHECK(snapshot.installed.empty() && snapshot.uninstalling.empty());
+  CHECK(!Has(Read(registry), "local-" + std::string(kId)));
+  WaitFor([&] { return fixture.local->Snapshot()->games.empty(); }, "the game out of the library");
+}
+
 }  // namespace
 
 // A drop-folder game copied to another drive: once the copy is committed its drop-folder files go
@@ -1133,6 +1158,7 @@ int main() {
   LinkInTheCopyRefused();
   ReconcileWaitsForTheDrive();
   UninstallMissingCopy();
+  UninstallResumesAfterRestart();
   std::puts("local copy tests passed");
   return 0;
 }

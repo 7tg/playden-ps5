@@ -137,7 +137,7 @@ class Runner final : public playden::steam::SessionInstallRunner {
     ++installs;
     return {false, false, "unexpected", 0};
   }
-  bool Remove(const std::string&) override { return true; }
+  std::string Remove(const std::string&) override { return {}; }
 };
 
 template <typename Ready>
