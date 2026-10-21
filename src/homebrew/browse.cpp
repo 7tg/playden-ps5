@@ -18,12 +18,18 @@ constexpr int kLibraryColumns = 6;
 
 bool catalog_available(const State& state)
 {
+    // Steam's catalog needs its account; another store's games (imported ones) are listed signed out too.
     return state.account().cache_available || state.account().authentication == AuthState::SignedIn ||
-           state.account().authentication == AuthState::Offline;
+           state.account().authentication == AuthState::Offline ||
+           std::any_of(state.games.begin(), state.games.end(), [](const Game& game) { return game.id.store != Store::kSteam; });
 }
 
 bool installed(const State& state, GameId id)
 {
+    // A game playing in place from its own folder (imported) counts as installed here.
+    if (std::any_of(state.external_games.begin(), state.external_games.end(),
+                    [id](const LiveExternalGame& value) { return value.game_id == id; }))
+        return true;
     return std::any_of(state.installations.begin(), state.installations.end(),
                        [&state, id](const Installation& value) {
                            // Live installs are known from the install service's records, even

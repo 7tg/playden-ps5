@@ -1153,6 +1153,28 @@ rt::NativeActivity RuntimeHost::ActivityNow(std::uint32_t app_id, std::chrono::m
   return snapshot_.activity.at(app_id).first;
 }
 
+RuntimeRelocationResult RuntimeHost::Relocate(RuntimeRelocation request, std::chrono::milliseconds timeout) {
+  RuntimeRelocationResult busy;
+  busy.outcome = RuntimeRelocationResult::Outcome::kBusy;
+  busy.message = "Playden is busy with this game. Try again in a moment.";
+  auto pending = std::make_shared<PendingRelocation>();
+  pending->request = std::move(request);
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (stopping_) return busy;
+  relocation_requests_.push_back(pending);
+  wake_.notify_all();
+  const auto settled = [&] { return pending->result.has_value() || (stopping_ && !pending->started); };
+  if (!published_.wait_for(lock, timeout, [&] { return settled() || pending->started; })) {
+    // Not started yet: it never will.
+    pending->abandoned = true;
+    return busy;
+  }
+  // Once started it runs to the end (the files may be moving): wait for its answer.
+  published_.wait(lock, settled);
+  if (!pending->result) return busy;
+  return *pending->result;
+}
+
 void RuntimeHost::ReportWork(std::uint64_t done, std::uint64_t total) {
   if (total == 0) return;
   const int percent = static_cast<int>(std::min<std::uint64_t>(done, total) * 100 / total);
@@ -1776,6 +1798,113 @@ void RuntimeHost::FinishGamesMove(Composition& c) {
   const bool done = config_.finish_games_move && config_.finish_games_move(&error);
   Log(std::string("layout move ") + (done ? "done" : "not marked done: " + error));
   if (done) c.games_move.reset();
+}
+
+RuntimeRelocationResult RuntimeHost::RunRelocate(Composition& c, const RuntimeRelocation& request) {
+  using Outcome = RuntimeRelocationResult::Outcome;
+  const auto answer = [](Outcome outcome, std::string message = {}) {
+    RuntimeRelocationResult result;
+    result.outcome = outcome;
+    result.message = std::move(message);
+    return result;
+  };
+  const auto app = std::to_string(request.runtime_number);
+  std::optional<rt::RuntimeInstall> found;
+  if (request.runtime_number != 0)
+    for (const auto& record : c.repository.Snapshot())
+      if (record.runtime_number == request.runtime_number) found = record;
+  if (!found) {
+    // No PS5 title: nothing names the folder but the caller's own records. Preparations run on
+    // this worker too, so none starts until the files are in place.
+    if (!request.move_files) return answer(Outcome::kDone);
+    const auto moved = request.move_files();
+    Log("relocate app=" + app + " to=" + request.to + " no title " + (moved.empty() ? "moved" : "failed: " + moved));
+    return moved.empty() ? answer(Outcome::kDone) : answer(Outcome::kFailed, moved);
+  }
+  auto record = *found;
+  if (record.install_path != request.to) {
+    if (record.state == rt::PreparationState::kRemoving)
+      return answer(Outcome::kBusy, "This game's PS5 title is being removed. Uninstall or Play finishes that first.");
+    // As the 0.6 games move: the lease first, then the title's activity, both held through the
+    // move and the record write.
+    const auto control_path = HostPath(record.data_root) / ".playden-control";
+    auto control = platform::ManagedDirectory::Open(control_path, platform::DirectoryPolicy::kPrivate);
+    auto lease = control ? platform::ManagedFileLock::Acquire(*control, "publication.lock", platform::LockMode::kPublisher)
+                         : std::nullopt;
+    if (!lease) {
+      Log("relocate app=" + app + " waits: the publication lock for " + record.title_id + " is unavailable or held");
+      return answer(Outcome::kBusy, "The game's PS5 title is in use. Close it, then try again.");
+    }
+    std::string refusal;
+    if (record.state == rt::PreparationState::kReady) {
+      refusal = MaintenanceRefusal(c, record);
+    } else if (record.state == rt::PreparationState::kPreparing || record.state == rt::PreparationState::kRegistering) {
+      // Staged titles name the old folder and nothing would republish them.
+      refusal = "Finish setting up the game first.";
+    } else if (record.journal) {
+      refusal = "Finish the PS5 title's recovery first.";
+    } else if (!record.title_id.empty()) {
+      const auto activity = c.coordinator->Activity(record.title_id);
+      if (activity == rt::NativeActivity::kUnknown) refusal = kActivityUnknown;
+      else if (activity != rt::NativeActivity::kStopped) refusal = "Close the game first.";
+    }
+    if (!refusal.empty()) {
+      Log("relocate app=" + app + " waits: " + refusal);
+      return answer(Outcome::kBusy, refusal);
+    }
+    if (request.move_files) {
+      if (const auto moved = request.move_files(); !moved.empty()) {
+        Log("relocate app=" + app + " move failed: " + moved);
+        return answer(Outcome::kFailed, moved);
+      }
+    }
+    // One write names the new folder. A published title keeps the old one in moved_from until a
+    // publication names the new folder; one never published has nothing to verify.
+    const auto from = record.install_path;
+    if (record.state == rt::PreparationState::kReady) record.moved_from = from;
+    record.install_path = request.to;
+    if (!request.volume_id.empty()) record.volume_id = request.volume_id;
+    const auto written = c.repository.UpdateAll({record});
+    Log("relocate app=" + app + " title=" + record.title_id + " from=" + from + " to=" + request.to + " " +
+        (written.ok() ? std::string("record rewritten") : "failed: " + written.message()));
+    PublishInstalls(c, record.install_id);
+    if (!written.ok()) return answer(Outcome::kFailed, "The game's record could not be saved. Try again.");
+    // The publication takes the lease itself.
+  }
+  const auto current = c.records.Find(record.install_id);
+  if (!current || current->moved_from.empty() || current->state != rt::PreparationState::kReady)
+    return answer(Outcome::kDone);
+  // The marked republish, as after the 0.6 games move: same revision, the new folder in the
+  // descriptor, profile and dxvk.conf; the old publication is checked against the new folder.
+  if (const auto busy = MaintenanceRefusal(c, *current); !busy.empty()) {
+    // Committed: Play and the next start publish it.
+    Log("relocate app=" + app + " republish waits: " + busy);
+    return answer(Outcome::kDone, busy);
+  }
+  bool published = false;
+  const auto refused = RepublishSettings(c, *current, &published);
+  if (refused.empty()) {
+    Log("relocate app=" + app + " republished at " + request.to);
+    return answer(Outcome::kDone);
+  }
+  if (!c.kit) {
+    Log("relocate app=" + app + " republish waits: " + refused);
+    return answer(Outcome::kDone, refused);
+  }
+  // The moved publication can't be verified: as for a game installed again on another drive, the
+  // old title goes, keeping its saves, and the game is prepared again where it is now.
+  Log("relocate app=" + app + " republish failed, removing the old title keeping saves: " + refused);
+  auto result = answer(Outcome::kDone);
+  result.prepare_again = true;
+  Publish([&](RuntimeSnapshot& s) { s.removing_app = request.runtime_number; });
+  const auto removed = RunRemove(c, request.runtime_number, false, true);
+  PublishKeptBottles(c);
+  Publish([&](RuntimeSnapshot& s) { s.removing_app.reset(); });
+  if (!removed.empty()) {
+    Log("relocate app=" + app + " old title removal stopped: " + removed);
+    result.message = "The game's old PS5 title could not be removed yet. Play tries again.";
+  }
+  return result;
 }
 
 // Fresh facts for one launch, from the package layer, the bottle's start check
@@ -3498,6 +3627,7 @@ void RuntimeHost::Run() {
     bool names_changed = false;
     std::vector<PreparedGame> dismissals;
     bool clear_prepared = false;
+    std::vector<std::shared_ptr<PendingRelocation>> relocations;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       // Preparation changes install records that Handoff reads on the
@@ -3509,7 +3639,8 @@ void RuntimeHost::Run() {
                (!remove_requests_.empty() && !snapshot_.handoff_ready) ||
                (!kept_delete_requests_.empty() && !snapshot_.handoff_ready) ||
                !scan_requests_.empty() || !prepared_dismissals_.empty() || prepared_clear_requested_ ||
-               (!maintenance_requests_.empty() && !snapshot_.handoff_ready);
+               (!maintenance_requests_.empty() && !snapshot_.handoff_ready) ||
+               (!relocation_requests_.empty() && !snapshot_.handoff_ready);
       };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
@@ -3521,6 +3652,8 @@ void RuntimeHost::Run() {
       scans.swap(scan_requests_);
       // Maintenance changes the bottle and install record, like removal.
       if (!snapshot_.handoff_ready) maintenance.swap(maintenance_requests_);
+      // A relocation rewrites the install record, like maintenance.
+      if (!snapshot_.handoff_ready) relocations.swap(relocation_requests_);
       poll = launch_poll_;
       cleanup = cleanup_requested_;
       cleanup_requested_ = false;
@@ -3597,9 +3730,11 @@ void RuntimeHost::Run() {
         remove_requests_.insert(remove_requests_.begin(), removals.begin(), removals.end());
         kept_delete_requests_.insert(kept_delete_requests_.begin(), kept_deletes.begin(), kept_deletes.end());
         maintenance_requests_.insert(maintenance_requests_.begin(), maintenance.begin(), maintenance.end());
+        relocation_requests_.insert(relocation_requests_.begin(), relocations.begin(), relocations.end());
         removals.clear();
         kept_deletes.clear();
         maintenance.clear();
+        relocations.clear();
       }
     }
     for (const auto& [app, delete_saves] : removals) {
@@ -3643,6 +3778,31 @@ void RuntimeHost::Run() {
         s.maintenance[app] = {action, false, ok, message};
         ++s.maintenance_handled;
       });
+    }
+    for (const auto& pending : relocations) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (pending->abandoned) continue;
+        pending->started = true;
+      }
+      published_.notify_all();
+      RuntimeRelocationResult result;
+      if (!composition) {
+        result.outcome = RuntimeRelocationResult::Outcome::kBusy;
+        const auto current = Snapshot();
+        result.message = current.reason.empty() ? "The runtime services are unavailable." : current.reason;
+      } else {
+        result = RunRelocate(*composition, pending->request);
+      }
+      ClearWork();
+      Log("relocate result app=" + std::to_string(pending->request.runtime_number) + " outcome=" +
+          std::to_string(static_cast<int>(result.outcome)) + (result.prepare_again ? " prepare-again" : "") +
+          (result.message.empty() ? std::string() : " " + result.message));
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        pending->result = std::move(result);
+      }
+      published_.notify_all();
     }
     if (poll && composition) {
       const bool again = PollLaunch(*composition);

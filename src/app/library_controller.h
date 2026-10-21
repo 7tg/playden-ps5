@@ -20,6 +20,8 @@ class LibraryController {
   // Steam: the signed-in account's library.
   void Activate(std::uint64_t account_id,bool offline);
   void Refresh();
+  // One store's library only (not Steam's): its games changed (an imported game was added or removed).
+  void Refresh(Store store);
   // Steam only: Reset drops Steam's pending work, Clear deletes Steam's saved library.
   void Reset();
   void Clear();

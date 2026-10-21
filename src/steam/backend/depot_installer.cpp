@@ -25,6 +25,8 @@
 
 namespace playden::steam {
 namespace {
+// An imported game's copy journal (stores/local/copy_plan.h kCopyJournalDir).
+constexpr const char* kCopyJournalDir = ".playden-copy";
 
 using Clock = std::chrono::steady_clock;
 struct ScopeExit {
@@ -839,8 +841,10 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
 bool RemoveManagedInstall(const std::string& install_root) {
   if (install_root.size() < 2 || install_root[0] != '/' || install_root.find("/..") != std::string::npos) return false;
   if (!Exists(install_root)) return true;
+  // The copy of an imported game keeps its plan in .playden-copy (stores/local/copy_plan.h).
+  const std::string copy_dir = install_root + "/" + kCopyJournalDir;
   if (!Exists(install_root + "/" + DepotInstaller::kInstallRecord) &&
-      !Exists(install_root + "/" + DepotInstaller::kJournalDir))
+      !Exists(install_root + "/" + DepotInstaller::kJournalDir) && !Exists(copy_dir))
     return false;  // not a Playden-managed folder
   // Remove exactly the paths the install recorded, deepest first, then Playden's own files.
   std::vector<std::string> files;
@@ -871,6 +875,9 @@ bool RemoveManagedInstall(const std::string& install_root) {
   const std::string journal_dir = install_root + "/" + DepotInstaller::kJournalDir;
   std::remove((journal_dir + "/journal").c_str());
   rmdir(journal_dir.c_str());
+  std::remove((copy_dir + "/plan.json").c_str());
+  std::remove((copy_dir + "/plan.json.tmp").c_str());
+  rmdir(copy_dir.c_str());
   std::remove((install_root + "/" + DepotInstaller::kFileList).c_str());
   std::remove((install_root + "/" + DepotInstaller::kInstallRecord).c_str());
   if (rmdir(install_root.c_str()) == 0) return true;

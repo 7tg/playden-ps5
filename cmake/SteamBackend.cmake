@@ -166,6 +166,17 @@ if(PLAYDEN_PLATFORM_PS5)
     target_compile_options(playden_steam_cm PRIVATE -fno-exceptions -fno-rtti)
 endif()
 
+# "Copy into Playden" for imported games: the install service's runner for Store::kLocal (it
+# removes partial copies with the depot installer's RemoveManagedInstall).
+add_library(playden_local_copy STATIC "${CMAKE_SOURCE_DIR}/src/stores/local/copy_runner.cpp")
+target_include_directories(playden_local_copy PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_local_copy PUBLIC cxx_std_17)
+target_link_libraries(playden_local_copy PUBLIC playden_local_store playden_steam_cm playden_steam_core)
+if(PLAYDEN_PLATFORM_PS5)
+    target_compile_definitions(playden_local_copy PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_compile_options(playden_local_copy PRIVATE -fno-exceptions -fno-rtti)
+endif()
+
 set(PLAYDEN_STEAM_CA_BUNDLE "${PLAYDEN_STEAM_PREFIX}/cacert.pem"
     CACHE INTERNAL "Verified Steam HTTPS trust bundle")
 set(PLAYDEN_STEAM_LINK_ARCHIVES
@@ -251,6 +262,18 @@ function(playden_register_steam_backend_tests)
         add_executable(install_volumes_test "${CMAKE_SOURCE_DIR}/tests/install_volumes_test.cpp")
         target_link_libraries(install_volumes_test PRIVATE playden_steam_core)
         add_test(NAME install_volumes COMMAND install_volumes_test)
+        add_executable(local_copy_test "${CMAKE_SOURCE_DIR}/tests/local_copy_test.cpp")
+        target_link_libraries(local_copy_test PRIVATE playden_local_copy)
+        add_test(NAME local_copy COMMAND local_copy_test)
+        # The console's walk by path (no descriptor-relative opens), run on the host.
+        add_executable(local_copy_native_policy_test "${CMAKE_SOURCE_DIR}/tests/local_copy_test.cpp"
+            "${CMAKE_SOURCE_DIR}/src/stores/local/copy_runner.cpp" "${CMAKE_SOURCE_DIR}/src/stores/local/copy_plan.cpp"
+            "${CMAKE_SOURCE_DIR}/src/stores/local/scanner.cpp" "${CMAKE_SOURCE_DIR}/src/stores/local/import_store.cpp"
+            "${CMAKE_SOURCE_DIR}/src/stores/local/library_source.cpp"
+            "${CMAKE_SOURCE_DIR}/src/stores/local/drop_folder_access.cpp")
+        target_compile_definitions(local_copy_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+        target_link_libraries(local_copy_native_policy_test PRIVATE playden_steam_cm playden_storage playden_library)
+        add_test(NAME local_copy_native_policy COMMAND local_copy_native_policy_test)
         add_executable(depot_installer_test "${CMAKE_SOURCE_DIR}/tests/depot_installer_test.cpp")
         target_link_libraries(depot_installer_test PRIVATE playden_steam_cm)
         add_test(NAME depot_installer COMMAND depot_installer_test)

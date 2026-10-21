@@ -192,6 +192,46 @@ struct LiveKeptBottle {
     std::uint64_t bytes = 0;
     bool operator==(const LiveKeptBottle&) const = default;
 };
+// A game that plays in place from a folder Playden doesn't manage (an imported game on a drive):
+// never in Installed games, its files never deleted.
+struct LiveExternalGame {
+    GameId game_id;
+    std::string volume_id;
+    bool available = true;  // its drive and folder are there and the PS5 can play from them
+    std::string reason;     // why a folder that is there can't be played from; empty otherwise
+    bool operator==(const LiveExternalGame&) const = default;
+};
+// A folder in an import folder that could be added to the library (stores/local/library_source.h).
+struct LiveImportProgram {
+    std::string path;  // inside the game folder, '/' separators
+    std::uint64_t bytes = 0;
+    bool helper = false;  // an installer or tool, ranked last
+    bool operator==(const LiveImportProgram&) const = default;
+};
+struct LiveImportCandidate {
+    std::string volume_id;
+    std::string folder;  // relative to the volume's mount
+    std::string path;    // console path
+    std::string title;
+    std::vector<LiveImportProgram> programs;  // ranked: the likely game first
+    std::uint64_t total_bytes = 0;  // estimate
+    bool ascii_ok = false;  // can play in place
+    bool partial = false;   // the scan stopped at a limit or depth
+    GameId imported;        // already in the library as this game; invalid when not
+    bool operator==(const LiveImportCandidate&) const = default;
+};
+// Requests for the Local store: look for games, add a candidate (in place), remove an imported game.
+// CopyIntoPlayden: copy an imported game playing in place into Playden's own storage (volume_id:
+// an install volume, empty for the default one). MoveIntoPlayden: rename a drop-folder game into
+// Playden's games folder on the console storage (instant; its PS5 title, if any, follows).
+enum class ImportRequestKind { LookForGames, Add, Remove, CopyIntoPlayden, MoveIntoPlayden };
+struct ImportRequest {
+    ImportRequestKind kind = ImportRequestKind::LookForGames;
+    GameId game_id;          // Remove, CopyIntoPlayden, MoveIntoPlayden
+    std::string volume_id;   // Add, CopyIntoPlayden
+    std::string folder;      // Add: relative to the volume's mount
+    std::string program;     // Add: relative to the folder
+};
 // Live Steam Cloud save state for one game, projected from the cloud service.
 // Waiting: transfers that need no choice wait for the player (an uninstalled game's saves, or
 // saves deleted here that Cloud still has).
@@ -507,6 +547,9 @@ struct State {
     LiveKitInfo kit;                                    // live: the compatibility kit in use
     LiveSelfUpdate self_update;                         // live: Playden's own update
     std::vector<LiveKeptBottle> kept_bottles;           // live: saves kept from uninstalled games
+    std::vector<LiveExternalGame> external_games;       // live: games playing in place (imported)
+    std::vector<LiveImportCandidate> import_candidates; // live: folders on the drives that could be imported
+    bool import_scanning = false;                       // live: Playden is looking for games to import
     LiveSavesJob saves_job;                             // live: the Saves tab's running check or Sync all
     std::map<GameId, std::uint64_t> save_sizes;         // live: Windows user folders of games without Steam Cloud
     Navigation navigation;
@@ -653,6 +696,15 @@ public:
     [[nodiscard]] bool TakeRuntimeCleanupRequest();
     // Live mode: kept game data, deletions the player confirmed, and why an uninstall stopped.
     void UpdateKeptBottles(std::vector<LiveKeptBottle> kept);
+    // Live mode: games playing in place, and what the drives offer to import.
+    void UpdateExternalGames(std::vector<LiveExternalGame> games);
+    void UpdateImportCandidates(std::vector<LiveImportCandidate> candidates, bool scanning);
+    // Live mode: requests for the Local store (the Import sheet, the dev request file).
+    void RequestImport(ImportRequest request);
+    [[nodiscard]] std::vector<ImportRequest> TakeImportRequests();
+    // Writes the program an imported game starts with into its Game settings, unless the player
+    // chose one already; saved at once so the next preparation reads it. True when it was written.
+    bool SeedGameProgram(GameId id, const std::string& program);
     [[nodiscard]] std::vector<GameId> TakeKeptDeleteRequests();
     // Live mode: maintenance the player confirmed (and settings to apply when the sheet
     // closes), and games whose title activity the sheet needs to know.
@@ -815,6 +867,7 @@ private:
     std::uint64_t editor_serial_ = 0;
     bool system_keyboard_available_ = false;
     std::vector<InstallRequest> pending_install_requests_;
+    std::vector<ImportRequest> pending_import_requests_;
     std::vector<GameId> pending_runtime_prepare_requests_;
     std::vector<GameId> pending_prepare_next_requests_;
     std::vector<LiveCompletedPreparation> pending_prepared_dismissals_;

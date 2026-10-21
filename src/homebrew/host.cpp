@@ -7,6 +7,8 @@
 #include "homebrew/simulation.hpp"
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
+#include "stores/local/copy_runner.h"
+#include "stores/local/library_source.h"
 #include "app/diagnostic_log.h"
 #include "runtime/settings_storage.h"
 #include "homebrew/input_adapter.hpp"
@@ -424,6 +426,9 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::steam::CdnClient> install_cdn;
     std::unique_ptr<playden::steam::SteamInstallRunner> install_runner;
     std::unique_ptr<playden::LocalSessionRepository> install_sessions;
+    std::unique_ptr<playden::Storage> import_storage;  // imports.json; declared first: the copy runner and the Local store use it
+    std::unique_ptr<playden::stores::local::ImportStore> imports;
+    std::unique_ptr<playden::stores::local::LocalCopyRunner> copy_runner;  // declared first: the install service uses it
     std::unique_ptr<playden::steam::InstallService> installs;
     std::unique_ptr<playden::steam::CmClient> cloud_cm;
     std::unique_ptr<playden::steam::HttpClient> cloud_http;
@@ -524,8 +529,18 @@ int main(int argc, char** argv) {
             candidates.push_back({"extra" + std::to_string(index + 1), "Extra drive " + std::to_string(index + 1),
                                   mount.string(), (mount / "playden" / "games").string()});
         }
-        installs = std::make_unique<playden::steam::InstallService>(*install_runner,
-                                                                    playden::steam::DiscoverInstallVolumes(candidates));
+        // Imported games: imports.json, and "Copy into Playden" as the install service's Local runner.
+        import_storage = std::make_unique<playden::Storage>(options->data_directory.string());
+        imports = std::make_unique<playden::stores::local::ImportStore>(*import_storage);
+        playden::stores::local::LocalCopyOptions copy_options;
+        copy_options.log = [log_directory](const std::string& line) {
+            playden::app::AppendLogLine(log_directory, "install.log", line);
+        };
+        copy_runner = std::make_unique<playden::stores::local::LocalCopyRunner>(*imports, std::move(copy_options));
+        installs = std::make_unique<playden::steam::InstallService>(
+            playden::installs::InstallService::Runners{{playden::Store::kSteam, install_runner.get()},
+                                                       {playden::Store::kLocal, copy_runner.get()}},
+            playden::steam::DiscoverInstallVolumes(candidates));
         cloud_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
         cloud_http = std::make_unique<playden::steam::HttpClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
         cloud_runner = std::make_unique<playden::steam::SteamCloudRunner>(*cloud_cm, *cloud_http);
@@ -543,8 +558,33 @@ int main(int argc, char** argv) {
         stores->Add(std::make_unique<playden::stores::SteamAccount>(*auth, *sessions, auth_log));
         stores->Add(std::make_unique<playden::stores::SteamLibrarySource>(*library_service));
         stores->Add(std::make_unique<playden::stores::SteamDetailsSource>(*app_details));
+        // Imported games: <data>/playden-import is the drop folder, playden/import on each extra drive.
+        playden::stores::local::LocalLibraryConfig import_config;
+        import_config.volumes = {{playden::steam::InstallService::kPrimaryVolumeId, options->data_directory.string(),
+                                  "playden-import", false}};
+        for (std::size_t index = 0; index < options->extra_volumes.size(); ++index)
+            import_config.volumes.push_back({"extra" + std::to_string(index + 1), options->extra_volumes[index].string(),
+                                             "playden/import", false});
+        import_config.log = [log_directory](const std::string& line) {
+            playden::app::AppendLogLine(log_directory, "install.log", line);
+        };
+        import_config.copy_into_playden = [service = installs.get(), runner = copy_runner.get()](
+                                              const playden::stores::local::ImportEntry& entry, const std::string& source,
+                                              const std::string& volume_id, std::uint32_t runtime_number) {
+            return runner->Enqueue(*service, entry, source, volume_id, runtime_number);
+        };
+        import_config.move_into_playden = [service = installs.get(), runner = copy_runner.get()](
+                                              const playden::stores::local::ImportEntry& entry, const std::string& source,
+                                              std::uint32_t runtime_number) {
+            return runner->Move(*service, entry, source, runtime_number);
+        };
+        auto local_library = std::make_unique<playden::stores::local::LocalLibrarySource>(*imports, std::move(import_config));
+        auto* local = local_library.get();
+        copy_runner->SetChanged([local] { local->Reload(); });
+        stores->Add(std::move(local_library));
         services = std::make_unique<playden::homebrew::Controller>(simulation, *stores, persistence.get(), installs.get(),
                                                                    cloud.get(), nullptr, auth_log);
+        services->SetLocalLibrary(local);
         store_details = std::make_unique<playden::steam::StoreDetailsService>(playden::homebrew::StoreFetch(PLAYDEN_HOMEBREW_CA_BUNDLE));
         services->SetStoreDetails(store_details.get());
     }

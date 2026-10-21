@@ -28,4 +28,12 @@ std::string PrepareRuntimeRoot(const std::filesystem::path& root, const Writable
                                const std::function<void(const std::string&)>& log,
                                const std::filesystem::path& namespace_root = "/");
 
+// The drop folder, /data/playden-import (0777): FTP copies games into it and Playden plays them in
+// place (stores/local/drop_folder_access.h opens each game's files). Made, or opened to 0777, as
+// root after the grant; a link or a file at that path is refused. Failing doesn't stop Playden:
+// the message is for the log, and games can still come from a drive.
+std::string PrepareDropFolder(const std::filesystem::path& folder, const WritableFoldersAsRoot& as_root,
+                              const std::function<void(const std::string&)>& log,
+                              const std::filesystem::path& namespace_root = "/");
+
 }  // namespace playden::runtime

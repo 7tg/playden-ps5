@@ -7,6 +7,8 @@
 #include "homebrew/store_art.hpp"
 #include "homebrew/controller.hpp"
 #include "steam/install_volumes.h"
+#include "stores/local/copy_runner.h"
+#include "stores/local/library_source.h"
 #include "app/diagnostic_log.h"
 #include "platform/ps5/title_remover.h"
 #include "platform/ps5/title_runtime.h"
@@ -153,8 +155,8 @@ std::vector<playden::steam::InstallRequest> take_install_requests(bool runtime_r
     FILE* request = std::fopen(request_path.c_str(), "r");
     if (!request) return {};
     std::string text;
-    char line[64] = {};
-    while (text.size() < 4096 && std::fgets(line, sizeof(line), request)) {
+    char line[512] = {};
+    while (text.size() < 16384 && std::fgets(line, sizeof(line), request)) {
         // Reject an overlong line rather than executing its truncated prefix.
         if (!std::strchr(line, '\n') && !std::feof(request)) {
             int value;
@@ -554,7 +556,51 @@ int main() {
         for (const auto& volume : install_volumes)
             playden::app::AppendLogLine(log_root, "install.log", "volume id=" + volume.id + " root=" + volume.games_root +
                                         " writable=" + (volume.available ? "1" : "0"));
-        playden::steam::InstallService installs(install_runner, std::move(install_volumes));
+        // imports.json, declared before the install service and the registry: the copy runner and the
+        // Local store read it until they stop.
+        std::unique_ptr<playden::Storage> import_storage;
+        std::unique_ptr<playden::stores::local::ImportStore> imports;
+        std::unique_ptr<playden::stores::local::LocalCopyRunner> copy_runner;
+        if (!paths.runtime_data_root.empty()) {
+            import_storage = std::make_unique<playden::Storage>(
+                (std::filesystem::path(paths.runtime_data_root) / "runtime-state").string());
+            imports = std::make_unique<playden::stores::local::ImportStore>(*import_storage);
+            // "Copy into Playden": imported games become managed installs.
+            playden::stores::local::LocalCopyOptions copy_options;
+            copy_options.log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "install.log", line); };
+            // A game set up to play from its folder keeps its PS5 title: the title follows the copy,
+            // or the move's rename runs under the title's lease (RuntimeHost::Relocate).
+            copy_options.relocate = [host = runtime_host.get(), volumes = install_volumes](
+                                        const playden::stores::local::LocalRelocation& relocation) {
+                using Local = playden::stores::local::LocalRelocationResult;
+                using Runtime = playden::homebrew::RuntimeRelocationResult;
+                Local answer;
+                if (!host) {
+                    answer.outcome = Local::Outcome::kBusy;
+                    answer.message = "The runtime services are unavailable.";
+                    return answer;
+                }
+                playden::homebrew::RuntimeRelocation request;
+                request.runtime_number = relocation.runtime_number;
+                request.to = relocation.root;
+                request.volume_id = relocation.volume_id;
+                if (request.volume_id.empty())
+                    for (const auto& volume : volumes)
+                        if (relocation.root.rfind(volume.games_root + "/", 0) == 0) request.volume_id = volume.id;
+                request.move_files = relocation.move_files;
+                const auto result = host->Relocate(std::move(request), std::chrono::minutes(2));
+                answer.outcome = result.outcome == Runtime::Outcome::kDone   ? Local::Outcome::kDone
+                                 : result.outcome == Runtime::Outcome::kBusy ? Local::Outcome::kBusy
+                                                                             : Local::Outcome::kFailed;
+                answer.message = result.message;
+                return answer;
+            };
+            copy_options.as_root = [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); };
+            copy_runner = std::make_unique<playden::stores::local::LocalCopyRunner>(*imports, std::move(copy_options));
+        }
+        playden::installs::InstallService::Runners install_runners{{playden::Store::kSteam, &install_runner}};
+        if (copy_runner) install_runners[playden::Store::kLocal] = copy_runner.get();
+        playden::steam::InstallService installs(std::move(install_runners), std::move(install_volumes));
         // A games folder made over FTP is often root's and 0755: checked (and opened up) as a download starts.
         // Only the games folder itself: the primary volume's parent is /data, never chmodded.
         installs.SetFolderCheck([](const std::string& games_root) {
@@ -569,7 +615,34 @@ int main() {
         stores.Add(std::make_unique<playden::stores::SteamAccount>(auth, sessions, auth_log));
         stores.Add(std::make_unique<playden::stores::SteamLibrarySource>(library_service));
         stores.Add(std::make_unique<playden::stores::SteamDetailsSource>(app_details));
+        // Imported games: imports.json next to installs.json in the runtime state folder; their
+        // folders in /data/playden-import and playden/import on each drive (a drive counts while mounted).
+        playden::stores::local::LocalLibrarySource* local_library = nullptr;
+        if (imports) {
+            playden::stores::local::LocalLibraryConfig import_config;
+            import_config.log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "install.log", line); };
+            // A drop-folder game's root-owned FTP files are opened (0777/0666) at Add and before each Play.
+            playden::stores::local::DropFolderAccessOptions drop_access;
+            drop_access.as_root = [](const std::function<bool()>& work) { return playden::ps5::WithRoot(work); };
+            drop_access.log = import_config.log;
+            import_config.open_drop_folder = playden::stores::local::MakeDropFolderOpener(std::move(drop_access));
+            import_config.copy_into_playden = [&installs, runner = copy_runner.get()](
+                                                  const playden::stores::local::ImportEntry& entry, const std::string& source,
+                                                  const std::string& volume_id, std::uint32_t runtime_number) {
+                return runner->Enqueue(installs, entry, source, volume_id, runtime_number);
+            };
+            import_config.move_into_playden = [&installs, runner = copy_runner.get()](
+                                                  const playden::stores::local::ImportEntry& entry, const std::string& source,
+                                                  std::uint32_t runtime_number) {
+                return runner->Move(installs, entry, source, runtime_number);
+            };
+            auto source = std::make_unique<playden::stores::local::LocalLibrarySource>(*imports, std::move(import_config));
+            local_library = source.get();
+            copy_runner->SetChanged([local_library] { local_library->Reload(); });
+            stores.Add(std::move(source));
+        }
         playden::homebrew::Controller services(simulation, stores, &persistence, &installs, &cloud, runtime_host.get(), auth_log);
+        services.SetLocalLibrary(local_library);
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
         services.SetSelfUpdate(&self_update);
@@ -616,6 +689,8 @@ int main() {
         std::array<hui::PadSample, 64> samples{};
         bool presented = false;
         bool was_connected = true;
+        std::vector<playden::GameId> dev_prepares;  // imported games the request file asked to prepare
+        std::uint64_t dev_prepares_until = 0;
         std::uint64_t last_render_us = 0;
         int slow_frames = 0;
         for (;;) {
@@ -705,16 +780,57 @@ int main() {
 #if !PLAYDEN_UI_SIMULATION
                 for (const auto& request : take_install_requests(native_access.runtime_ready)) {
                     using Action = playden::steam::InstallRequest::Action;
+                    using playden::homebrew::ImportRequest;
+                    using playden::homebrew::ImportRequestKind;
                     const char* action = "queued";
-                    const auto game = playden::GameId::Steam(request.app);
-                    if (request.action == Action::kUninstall) { action = "uninstall"; installs.Uninstall(game); }
+                    const auto& game = request.game;
+                    if (request.action == Action::kCopy) {
+                        action = "copy";
+                        simulation.RequestImport({ImportRequestKind::CopyIntoPlayden, game, request.volume, {}, {}});
+                    } else if (request.action == Action::kMove) {
+                        action = "move";
+                        simulation.RequestImport({ImportRequestKind::MoveIntoPlayden, game, {}, {}, {}});
+                    } else if (request.action == Action::kImport) {
+                        // The same path as the Import sheet's add: the Local store checks the folder and program.
+                        action = "import";
+                        simulation.RequestImport({ImportRequestKind::Add, {}, request.volume, request.folder, request.program});
+                    } else if (game.store == playden::Store::kLocal) {
+                        if (request.action == Action::kUninstall) {
+                            action = "remove";
+                            simulation.RequestImport({ImportRequestKind::Remove, game, {}, {}, {}});
+                        } else {
+                            // Prepared once the Local store has said where the game's folder is.
+                            action = "prepare";
+                            dev_prepares.push_back(game);
+                        }
+                    } else if (request.action == Action::kUninstall) { action = "uninstall"; installs.Uninstall(game); }
                     else if (request.action == Action::kCancel) { action = "cancel"; installs.Cancel(game); }
                     else installs.Install(game);
                     playden::app::AppendLogLine(log_root, "install.log", "install-request " + std::string(action) +
-                                               " app=" + std::to_string(request.app));
+                                               (request.action == Action::kImport
+                                                    ? " volume=" + request.volume + " folder=" + request.folder +
+                                                          " program=" + request.program
+                                                    : " game=" + playden::ToKey(game)));
                 }
+                dev_prepares_until = now + 60ull * 1000000ull;
 #endif
             }
+#if !PLAYDEN_UI_SIMULATION
+            // dev/install-request.txt's imported games to prepare, once their folder is known (a minute at most).
+            if (!dev_prepares.empty()) {
+                for (auto it = dev_prepares.begin(); it != dev_prepares.end();) {
+                    if (!simulation.state().runtime_games.count(*it)) { ++it; continue; }
+                    simulation.RequestRuntimePrepare(*it);
+                    it = dev_prepares.erase(it);
+                }
+                if (now > dev_prepares_until) {
+                    for (const auto& game : dev_prepares)
+                        playden::app::AppendLogLine(log_root, "install.log", "install-request prepare dropped game=" +
+                                                                                 playden::ToKey(game) + ": no folder to play from");
+                    dev_prepares.clear();
+                }
+            }
+#endif
             // Work advances only through the documented manual fixture clock.
             pad.tick(1.0F / 60.0F);
         }

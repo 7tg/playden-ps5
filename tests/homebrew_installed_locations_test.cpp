@@ -2,10 +2,12 @@
 // Task 2.5) and never reaches Steam Cloud (Task 2.6), against a real RuntimeHost.
 #include "homebrew/controller.hpp"
 #include "homebrew/runtime_host.hpp"
+#include "stores/local/library_source.h"
 #include "fake_library_source.h"
 #include "platform/managed_directory.h"
 #include "platform/storage.h"
 #include "runtime/layout_migration.h"
+#include "runtime/settings_storage.h"
 #include "runtime/artifact_hash.h"
 
 #include <algorithm>
@@ -40,6 +42,11 @@ void Write(const fs::path& path, const std::string& bytes, unsigned mode) {
   fs::create_directories(path.parent_path());
   std::ofstream(path, std::ios::binary | std::ios::trunc) << bytes;
   CHECK(chmod(path.c_str(), mode) == 0);
+}
+unsigned Mode(const fs::path& path) {
+  struct stat info{};
+  CHECK(lstat(path.c_str(), &info) == 0);
+  return info.st_mode & 07777;
 }
 std::string Read(const fs::path& path) {
   std::ifstream in(path, std::ios::binary);
@@ -449,11 +456,360 @@ void ImportedGamePreparesWithoutSteam() {
   host.Shutdown();
 }
 
+// The Local store end to end (import-games Task 3.3): a folder on a USB drive is found, added and
+// listed with its title; Details offers Play, which prepares it from its folder with the program
+// chosen at add (written into Game settings first) under a runtime number from 0xF0000000. An
+// unplugged drive leaves it listed but unavailable; a folder name the PS5 can't open never plays in
+// place. Removing it keeps its files and its bottle (kept data); adding it again brings back its ID
+// and settings. Signed out of Steam, Playden opens on Home; signed in, the game is still there.
+void ImportedGamePlaysInPlace() {
+  using playden::GameId;
+  namespace hb = playden::homebrew;
+  namespace local = playden::stores::local;
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-0000000000") + (uuids < 10 ? "0" : "") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  // Game settings as the console keeps them: one file, read by the worker at each preparation.
+  fs::create_directories(fixture.root / "user");
+  std::string settings_reason;
+  const auto prepared_settings = PrepareGameSettingsStorage(fixture.root / "user", &settings_reason);
+  if (!prepared_settings) std::fprintf(stderr, "settings: %s\n", settings_reason.c_str());
+  CHECK(prepared_settings);
+  const auto settings_file = *prepared_settings;
+  config.settings_record = [settings_file](const GameId& game) -> std::optional<GameSettingsRecord> {
+    std::map<GameId, GameSettingsRecord> records;
+    std::string reason;
+    if (!LoadGameSettingsFile(settings_file.string(), &records, &reason)) return std::nullopt;
+    const auto found = records.find(game);
+    return found == records.end() ? std::nullopt : std::optional<GameSettingsRecord>(found->second);
+  };
+  // Play starts the prepared title (on the application thread, from the controller's Tick). Nothing
+  // runs it here: without the wrapper's evidence the session soon ends, as a title closed at once would.
+  config.launch_evidence_wait_ms = 300;
+  // Removing the game removes its PS5 title through the title remover.
+  config.unregister_title = [&fixture](const std::string&, const std::string&) {
+    fixture.registered = false; fixture.submitted = false;
+    return TitleRemoverResult{true, 0, "answered"};
+  };
+  std::vector<std::string> launched;
+  config.launch_title = [&launched](const std::string& title, const std::vector<std::string>& arguments) {
+    if (arguments.size() == 1 && arguments[0].rfind("session=", 0) == 0) launched.push_back(title);
+    return TitleResult{true, 0, "launch"};
+  };
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  const auto usb = fixture.root / "mnt/usb0/playden/import";
+  Write(usb / "Rally/Bin/Rally.exe", pe + std::string(4096, 'x'), 0644);
+  Write(usb / "Rally/Redist/vcredist_x64.exe", pe, 0644);
+  Write(usb / "Rally/data.pak", "data", 0644);
+  Write(usb / "Caf\xc3\xa9/Game.exe", pe, 0644);
+  CHECK(chmod((usb / "Rally").c_str(), 0755) == 0);
+  const std::string console_root = "/mnt/usb0/playden/import/Rally";
+  std::atomic<bool> usb_present{true};
+  // The drop folder's games: FTP leaves them root-owned, simulated by telling the walk the app user
+  // is someone else; the fake root raise runs the work and is counted.
+  std::atomic<unsigned> drop_raises{0};
+  // imports.json sits next to installs.json, in the folder the runtime host makes private at its start.
+  playden::Storage import_storage((fixture.root / "data/runtime-state").string());
+  std::string id;
+
+  const auto run = [&](bool signed_in, const std::function<void(hb::Simulation&, hb::Controller&, RuntimeHost&,
+                                                                local::LocalLibrarySource&,
+                                                                const std::function<void(const std::function<bool()>&)>&)>& body) {
+    hb::Simulation model({}, {}, hb::ModelMode::Live);
+    model.SetGameSettingsFile(settings_file);
+    MemorySessions sessions;
+    if (signed_in) sessions.value = playden::StoredSession{12345, "Synthetic account", "refresh", "access", {}};
+    RestoringBackend backend;
+    local::ImportStore imports(import_storage);
+    local::LocalLibraryConfig local_config;
+    local_config.volumes = {{"internal", "/data", "playden-import", false}, {"usb0", "/mnt/usb0", "playden/import", true}};
+    local_config.host_prefix = fixture.root.string();
+    local_config.present = [&usb_present](const local::ImportVolume& volume) {
+      return volume.volume != "usb0" || usb_present.load();
+    };
+    local::DropFolderAccessOptions drop_access;
+    drop_access.namespace_root = fixture.root;
+    drop_access.app_uid = ::geteuid() + 1;
+    drop_access.as_root = [&drop_raises](const std::function<bool()>& work) { ++drop_raises; return work(); };
+    local_config.open_drop_folder = local::MakeDropFolderOpener(drop_access);
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    WaitFor(host, Started);
+    playden::stores::Registry registry;
+    registry.Add(std::make_unique<playden::stores::SteamAccount>(backend, sessions));
+    registry.Add(std::make_unique<playden::test::FakeLibrarySource>(playden::Store::kSteam));
+    auto source = std::make_unique<local::LocalLibrarySource>(imports, local_config);
+    auto* local_library = source.get();
+    registry.Add(std::move(source));
+    hb::Controller controller(model, registry, nullptr, nullptr, nullptr, &host);
+    controller.SetLocalLibrary(local_library);
+    const auto tick_until = [&](const std::function<bool()>& done) {
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+      for (;;) {
+        controller.Tick();
+        if (done()) return;
+        if (std::chrono::steady_clock::now() >= deadline) {
+          const auto local_snapshot = local_library->Snapshot();
+          std::fprintf(stderr, "runtime=%d scanning=%d candidates=%zu games=%zu imports=%zu external=%zu outcomes=%zu\n",
+                       (int)model.state().runtime, (int)model.state().import_scanning, model.state().import_candidates.size(),
+                       model.state().games.size(), local_snapshot->games.size(), model.state().external_games.size(),
+                       local_snapshot->outcomes.size());
+        }
+        CHECK(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+    };
+    tick_until([&] {
+      return host.Snapshot().status == RuntimeHostStatus::kReady && model.state().runtime == hb::RuntimeState::Ready &&
+             !model.state().import_scanning && model.state().import_candidates.size() == 2;
+    });
+    body(model, controller, host, *local_library, tick_until);
+    controller.Shutdown();
+    host.Shutdown();
+  };
+  const auto game_of = [](const hb::Simulation& model, const GameId& game) -> const hb::Game* {
+    for (const auto& value : model.state().games) if (value.id == game) return &value;
+    return nullptr;
+  };
+  const auto external_of = [](const hb::Simulation& model, const GameId& game) -> const hb::LiveExternalGame* {
+    for (const auto& value : model.state().external_games) if (value.game_id == game) return &value;
+    return nullptr;
+  };
+  const auto row_of = [](const hb::Simulation& model, const std::string& key) -> const hb::ViewRow* {
+    for (const auto& row : model.view().rows) if (row.key == key) return &row;
+    return nullptr;
+  };
+  const auto open_details = [](hb::Simulation& model, const GameId& game) {
+    for (int i = 0; i < 8 && model.state().navigation.route != hb::Route::Library; ++i) model.action("r1");
+    CHECK(model.state().navigation.route == hb::Route::Library);
+    CHECK(model.action("focus:game-" + playden::ToKey(game)) && model.action("cross"));
+    CHECK(model.state().navigation.route == hb::Route::Details);
+  };
+
+  // Signed out of Steam.
+  run(false, [&](hb::Simulation& model, hb::Controller&, RuntimeHost& host, local::LocalLibrarySource& source,
+                 const std::function<void(const std::function<bool()>&)>& tick_until) {
+    // The two folders on the drive are candidates: Rally with its game first and the redistributable
+    // flagged, and the one whose name the PS5 can't play from.
+    const auto& candidates = model.state().import_candidates;
+    const auto rally = std::find_if(candidates.begin(), candidates.end(), [](const hb::LiveImportCandidate& c) { return c.title == "Rally"; });
+    CHECK(rally != candidates.end() && rally->volume_id == "usb0" && rally->folder == "playden/import/Rally");
+    CHECK(rally->ascii_ok && !rally->imported.valid() && rally->programs.size() == 2);
+    CHECK(rally->programs[0].path == "Bin/Rally.exe" && !rally->programs[0].helper && rally->programs[1].helper);
+    CHECK(rally->total_bytes > 4096);
+    const auto cafe = std::find_if(candidates.begin(), candidates.end(), [](const hb::LiveImportCandidate& c) { return !c.ascii_ok; });
+    CHECK(cafe != candidates.end() && cafe->folder == "playden/import/Caf\xc3\xa9");
+
+    // Add: the game is in the library with its folder's name, and plays in place.
+    model.RequestImport({hb::ImportRequestKind::Add, {}, "usb0", "Rally", "Bin/Rally.exe"});
+    tick_until([&] {
+      const auto snapshot = source.Snapshot();
+      if (snapshot->games.empty()) return false;
+      id = snapshot->games.front().id;
+      const auto* external = external_of(model, GameId::Local(id));
+      return game_of(model, GameId::Local(id)) && external && external->available &&
+             model.state().runtime_games.count(GameId::Local(id));
+    });
+    const auto game = GameId::Local(id);
+    CHECK(game_of(model, game)->title == "Rally");
+    CHECK(model.state().navigation.route == hb::Route::Home);
+    // Never one of Playden's installs.
+    CHECK(model.state().installations.empty());
+    // A bad program or an unknown drive is refused, and nothing is added.
+    const auto refused = source.Add("usb0", "Rally", "Bin/Missing.exe");
+    const auto unknown = source.Add("usb9", "Rally", "Bin/Rally.exe");
+    tick_until([&] {
+      const auto snapshot = source.Snapshot();
+      const auto outcome = [&](std::uint64_t request) {
+        return std::any_of(snapshot->outcomes.begin(), snapshot->outcomes.end(), [&](const local::ImportOutcome& o) { return o.request == request && !o.ok; });
+      };
+      return outcome(refused) && outcome(unknown) && snapshot->games.size() == 1;
+    });
+
+    // Details offers Play; it prepares the game from its folder with the chosen program, then starts it.
+    open_details(model, game);
+    const auto* play = row_of(model, "details-play");
+    CHECK(play && play->enabled && play->action == "runtime-play" && play->title == "Play");
+    CHECK(model.action("focus:details-play") && model.action("cross"));
+    tick_until([&] { return !launched.empty(); });
+    CHECK(launched.front() == "FAKE78001");
+    tick_until([&] {
+      const auto s = host.Snapshot();
+      return s.launch && s.launch->game == game && s.launch->state != LaunchState::kReadyToHandoff &&
+             s.launch->state != LaunchState::kLaunching;
+    });
+    {
+      const auto snapshot = host.Snapshot();
+      const auto number = NumberOf(snapshot, game);
+      CHECK(number >= 0xF0000000u && !snapshot.refusals.count(number));
+      const auto view = std::find_if(snapshot.installs.begin(), snapshot.installs.end(), [&](const RuntimeInstallView& v) { return v.game == game; });
+      CHECK(view->install_path == console_root);
+      CHECK(model.state().game_settings.at(game).overrides.at("program") == "Bin/Rally.exe");
+      std::map<GameId, GameSettingsRecord> saved;
+      std::string reason;
+      CHECK(LoadGameSettingsFile(settings_file.string(), &saved, &reason) && saved.at(game).overrides.at("program") == "Bin/Rally.exe");
+    }
+  });
+
+  // Started again: drives come and go, and the game leaves the library.
+  run(false, [&](hb::Simulation& model, hb::Controller&, RuntimeHost& host, local::LocalLibrarySource& source,
+                 const std::function<void(const std::function<bool()>&)>& tick_until) {
+    const auto game = GameId::Local(id);
+    tick_until([&] {
+      const auto snapshot = host.Snapshot();
+      return game_of(model, game) && model.state().runtime_games.count(game) &&
+             (!snapshot.launch || (snapshot.launch->state != LaunchState::kLaunching &&
+                                   snapshot.launch->state != LaunchState::kRunning));
+    });
+    open_details(model, game);
+
+    // Unplugged: still listed, unavailable, and Details says to connect the drive.
+    usb_present = false;
+    source.CheckVolumes();
+    tick_until([&] {
+      const auto* external = external_of(model, game);
+      return external && !external->available && !model.state().runtime_games.count(game) &&
+             model.state().import_candidates.empty();
+    });
+    CHECK(game_of(model, game));
+    CHECK(row_of(model, "details-installed") && row_of(model, "details-installed")->title == "Storage disconnected");
+    CHECK(!row_of(model, "details-play"));
+    usb_present = true;
+    source.CheckVolumes();
+    tick_until([&] {
+      const auto* external = external_of(model, game);
+      return external && external->available && model.state().runtime_games.count(game);
+    });
+
+    // The folder the PS5 can't open can be added, but never plays in place.
+    model.RequestImport({hb::ImportRequestKind::Add, {}, "usb0", "playden/import/Caf\xc3\xa9", "Game.exe"});
+    tick_until([&] { return source.Snapshot()->games.size() == 2 && model.state().external_games.size() == 2; });
+    const auto cafe_game = GameId::Local(source.Snapshot()->games[1].id);
+    CHECK(!external_of(model, cafe_game)->available && external_of(model, cafe_game)->reason == local::kNotAsciiReason);
+    CHECK(!model.state().runtime_games.count(cafe_game));
+    model.RequestImport({hb::ImportRequestKind::Remove, cafe_game, {}, {}, {}});
+    tick_until([&] { return source.Snapshot()->games.size() == 1 && !game_of(model, cafe_game); });
+
+    // Removed: out of the library, its files where they were, its bottle kept.
+    for (int i = 0; i < 4 && model.state().navigation.route != hb::Route::Home; ++i) model.action("circle");
+    model.RequestImport({hb::ImportRequestKind::Remove, game, {}, {}, {}});
+    tick_until([&] {
+      const auto snapshot = host.Snapshot();
+      return !game_of(model, game) && source.Snapshot()->games.empty() &&
+             std::any_of(snapshot.kept_bottles.begin(), snapshot.kept_bottles.end(), [&](const auto& kept) { return kept.game == game; });
+    });
+    CHECK(fs::is_regular_file(usb / "Rally/Bin/Rally.exe") && fs::is_regular_file(usb / "Rally/data.pak"));
+    CHECK(model.state().external_games.empty());
+
+    // Added again: the same ID, its settings and the program chosen before.
+    model.RequestImport({hb::ImportRequestKind::Add, {}, "usb0", "Rally", "Bin/Rally.exe"});
+    tick_until([&] { return game_of(model, game) && external_of(model, game) && external_of(model, game)->available; });
+    CHECK(source.Snapshot()->games.front().id == id);
+    CHECK(model.state().game_settings.at(game).overrides.at("program") == "Bin/Rally.exe");
+  });
+
+  // Signed in to Steam, after a restart: the imported game is listed from imports.json and Details offers Play.
+  run(true, [&](hb::Simulation& model, hb::Controller&, RuntimeHost&, local::LocalLibrarySource&,
+                const std::function<void(const std::function<bool()>&)>& tick_until) {
+    const auto game = GameId::Local(id);
+    tick_until([&] {
+      return model.state().account().authentication == hb::AuthState::SignedIn && game_of(model, game) &&
+             model.state().runtime_games.count(game);
+    });
+    const auto rally = std::find_if(model.state().import_candidates.begin(), model.state().import_candidates.end(),
+                                    [](const hb::LiveImportCandidate& c) { return c.title == "Rally"; });
+    CHECK(rally != model.state().import_candidates.end() && rally->imported == game);
+    open_details(model, game);
+    const auto* play = row_of(model, "details-play");
+    CHECK(play && play->enabled);
+  });
+
+  // A game copied over FTP into the drop folder: its files are opened when it is added and again
+  // before each Play; a link out of its folder stops Play with the folder named.
+  const auto sky = fixture.root / "data/playden-import/Sky";
+  run(false, [&](hb::Simulation& model, hb::Controller&, RuntimeHost& host, local::LocalLibrarySource& source,
+                 const std::function<void(const std::function<bool()>&)>& tick_until) {
+    Write(sky / "Game.exe", pe + std::string(4096, 'x'), 0755);
+    Write(sky / "Data/sky.ini", "[sky]", 0644);
+    CHECK(chmod((sky / "Data").c_str(), 0755) == 0 && chmod(sky.c_str(), 0755) == 0);
+    model.RequestImport({hb::ImportRequestKind::Add, {}, "internal", "Sky", "Game.exe"});
+    std::string sky_id;
+    tick_until([&] {
+      for (const auto& game : source.Snapshot()->games)
+        if (game.volume == "internal") sky_id = game.id;
+      const auto* external = sky_id.empty() ? nullptr : external_of(model, GameId::Local(sky_id));
+      return external && external->available && model.state().runtime_games.count(GameId::Local(sky_id)) &&
+             game_of(model, GameId::Local(sky_id));
+    });
+    const auto game = GameId::Local(sky_id);
+    CHECK(source.Snapshot()->games.size() == 2);
+    CHECK(Mode(sky) == 0777 && Mode(sky / "Data") == 0777 && Mode(sky / "Data/sky.ini") == 0666 &&
+          Mode(sky / "Game.exe") == 0777 && drop_raises > 0);
+
+    // FTP replaced the .ini (root-owned 0644 again): Play opens it before the game starts.
+    CHECK(chmod((sky / "Data/sky.ini").c_str(), 0644) == 0);
+    const auto launches = launched.size();
+    open_details(model, game);
+    CHECK(model.action("focus:details-play") && model.action("cross"));
+    tick_until([&] { return launched.size() > launches; });
+    CHECK(Mode(sky / "Data/sky.ini") == 0666);
+    {
+      const auto snapshot = host.Snapshot();
+      const auto view = std::find_if(snapshot.installs.begin(), snapshot.installs.end(), [&](const RuntimeInstallView& v) { return v.game == game; });
+      CHECK(view != snapshot.installs.end() && view->install_path == "/data/playden-import/Sky");
+    }
+    tick_until([&] {
+      const auto s = host.Snapshot();
+      return !s.launch || (s.launch->state != LaunchState::kReadyToHandoff && s.launch->state != LaunchState::kLaunching &&
+                           s.launch->state != LaunchState::kRunning);
+    });
+
+    // A link out of the game's folder: Play stops and says which.
+    fs::create_directories(fixture.root / "outside");
+    CHECK(symlink("../../../outside", (sky / "Data/out").c_str()) == 0);
+    const auto before = launched.size();
+    // The synthetic title never starts, so that session ended with a "Can't play" of its own.
+    tick_until([&] { return !model.state().navigation.modals.empty(); });
+    CHECK(model.action("focus:alert-ok") && model.action("cross"));
+    open_details(model, game);
+    CHECK(model.action("focus:details-play") && model.action("cross"));
+    tick_until([&] {
+      const auto& modals = model.state().navigation.modals;
+      if (modals.empty()) return false;
+      if (modals.back().body.find("/data/playden-import/Sky/Data/out") != std::string::npos)
+        return modals.back().title == "Can't play";
+      // The earlier session's own "could not start" may still come up first.
+      CHECK(model.action("focus:alert-ok") && model.action("cross"));
+      return false;
+    });
+    CHECK(launched.size() == before);
+    CHECK(unlink((sky / "Data/out").c_str()) == 0);
+  });
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
   ExternalGameRegistersAfterRestartWithoutCloud();
   ImportedGamePreparesWithoutSteam();
+  ImportedGamePlaysInPlace();
   std::puts("installed locations tests passed");
   return 0;
 }

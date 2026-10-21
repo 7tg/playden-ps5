@@ -534,6 +534,34 @@ int main() {
   CHECK(requests[3].action == InstallRequest::Action::kInstall && requests[3].app == 108600);
   CHECK(ParseInstallRequests("0\n-1\n4294967296\n12x\nuninstall 12 extra\nunknown 12\n").empty());
   CHECK(ParseInstallRequests("  cancel 42  \r\n")[0].app == 42);
+  CHECK(requests[0].game == playden::GameId::Steam(439490));
+  {
+    // Imported games: by their key, and `import` adds one in place (quoted words may hold spaces).
+    const std::string uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const auto local = ParseInstallRequests("local-" + uuid + "\nuninstall local-" + uuid + "\n"
+                                            "import usb0 Delores Delores.exe\n"
+                                            "import\tusb0 \"Old School Rally\" \"bin/Old School Rally.exe\"\r\n"
+                                            "import internal playden-import/Night-Sky NightSky.exe\n");
+    CHECK(local.size() == 5);
+    CHECK(local[0].action == InstallRequest::Action::kInstall && local[0].game == playden::GameId::Local(uuid) && local[0].app == 0);
+    CHECK(local[1].action == InstallRequest::Action::kUninstall && local[1].game == playden::GameId::Local(uuid));
+    CHECK(local[2].action == InstallRequest::Action::kImport && local[2].volume == "usb0" && local[2].folder == "Delores" &&
+          local[2].program == "Delores.exe" && !local[2].game.valid());
+    CHECK(local[3].folder == "Old School Rally" && local[3].program == "bin/Old School Rally.exe");
+    CHECK(local[4].volume == "internal" && local[4].folder == "playden-import/Night-Sky");
+    // `copy` copies an imported game into Playden, to the default volume or the one named.
+    const auto copies = ParseInstallRequests("copy local-" + uuid + "\ncopy local-" + uuid + " usb0\ncopy 220\n"
+                                             "copy local-" + uuid + " usb0 extra\ncopy\n");
+    CHECK(copies.size() == 2);
+    CHECK(copies[0].action == InstallRequest::Action::kCopy && copies[0].game == playden::GameId::Local(uuid) &&
+          copies[0].volume.empty());
+    CHECK(copies[1].action == InstallRequest::Action::kCopy && copies[1].volume == "usb0");
+    // Refused: a cancel (imported games have no download), a malformed key, missing or extra words,
+    // unclosed or empty quotes, a quote glued to the next word.
+    CHECK(ParseInstallRequests("cancel local-" + uuid + "\nlocal-XYZ\nlocal-" + uuid + " extra\n"
+                               "import usb0 Delores\nimport usb0 Delores a.exe b.exe\nimport usb0 \"Delores a.exe\n"
+                               "import usb0 \"\" a.exe\nimport usb0 \"Del\"ores a.exe\nimport\n").empty());
+  }
   std::string many_requests;
   for (int app = 1; app <= 70; ++app) many_requests += std::to_string(app) + "\n";
   CHECK(ParseInstallRequests(many_requests).size() == 64);

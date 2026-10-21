@@ -20,13 +20,15 @@ struct InstalledLocation {
   std::string volume_id;
   bool available = true;  // the folder is there now
   Ownership ownership = Ownership::kManaged;
+  // Why an available drive's folder still can't be played from (a name the PS5 can't open); empty otherwise.
+  std::string reason;
 
   bool managed() const { return ownership == Ownership::kManaged; }
 };
 
 inline bool operator==(const InstalledLocation& left, const InstalledLocation& right) {
   return left.game == right.game && left.root == right.root && left.volume_id == right.volume_id &&
-         left.available == right.available && left.ownership == right.ownership;
+         left.available == right.available && left.ownership == right.ownership && left.reason == right.reason;
 }
 inline bool operator!=(const InstalledLocation& left, const InstalledLocation& right) { return !(left == right); }
 
@@ -36,7 +38,7 @@ inline std::vector<InstalledLocation> ProjectInstalledLocations(const std::vecto
                                                                 const std::vector<InstalledLocation>& external) {
   std::vector<InstalledLocation> locations;
   for (const auto& game : managed)
-    locations.push_back({game.id, game.root, game.volume_id, game.available, InstalledLocation::Ownership::kManaged});
+    locations.push_back({game.id, game.root, game.volume_id, game.available, InstalledLocation::Ownership::kManaged, {}});
   for (const auto& location : external) {
     if (!location.game.valid() || location.root.empty()) continue;
     if (std::any_of(locations.begin(), locations.end(), [&](const InstalledLocation& known) { return known.game == location.game; }))

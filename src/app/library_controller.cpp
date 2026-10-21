@@ -66,6 +66,9 @@ void LibraryController::Refresh() {
   Loading();request_=steam_.Refresh(account_,generation_);offline_=false;
   if(!request_) model_.UpdateLibrary({{},false,"Library is busy. Retry to refresh.",model_.state().library_offline,model_.state().account().cache_available,{}});
 }
+void LibraryController::Refresh(Store store) {
+  for(auto& other:others_) if(other.source->store()==store) RefreshOther(other);
+}
 void LibraryController::Reset() {
   steam_.Invalidate(++generation_);request_=0;account_=0;clearing_=false;clear_result_.reset();offline_=false;needs_renewal_=false;
 }

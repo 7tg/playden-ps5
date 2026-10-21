@@ -36,9 +36,10 @@ int Probe(const std::filesystem::path& folder) {
 mode_t RepairMode(const std::filesystem::path& folder, const std::filesystem::path& namespace_root) {
   const auto relative = folder.lexically_relative(namespace_root).generic_string();
   if (relative == "data/playden" || relative == "data/homebrew") return 01777;
-  if (relative == "data/playden-games") return 0777;
+  if (relative == "data/playden-games" || relative == "data/playden-import") return 0777;
   for (const auto* volume : {"ext0", "ext1", "usb0", "usb1"})
-    if (relative == std::string("mnt/") + volume + "/playden/games") return 0777;
+    for (const auto* folder : {"/playden/games", "/playden/import"})
+      if (relative == std::string("mnt/") + volume + folder) return 0777;
   return 0;
 }
 
@@ -136,6 +137,49 @@ std::string PrepareRuntimeRoot(const std::filesystem::path& root, const Writable
   if (log) log("runtime root repair failed path=" + root.string() + " " + detail);
   return "Playden can't write to " + root.string() + " (" + detail +
          "). Make the folder writable over FTP (permissions 777), then try again.";
+}
+
+std::string PrepareDropFolder(const std::filesystem::path& folder, const WritableFoldersAsRoot& as_root,
+                              const std::function<void(const std::string&)>& log,
+                              const std::filesystem::path& namespace_root) {
+  if (folder != namespace_root / "data/playden-import") {
+    if (log) log("drop folder refused path=" + folder.string());
+    return "Playden can't make this import folder.";
+  }
+  std::string failed = "root access";
+  int failed_error = 0;
+  bool made = false;
+  const bool prepared = as_root && as_root([&] {
+    const auto fail = [&](const char* step) { failed = step; failed_error = errno; return false; };
+    const int parent = platform::OpenDirectoryWalk(folder.parent_path());
+    if (parent < 0) return fail("open /data");
+    constexpr int kFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+    int fd = platform::OpenWalkChild(parent, "playden-import", kFlags);
+    if (fd < 0 && errno == ENOENT) {
+      made = platform::MakeWalkChild(parent, "playden-import", 0777) == 0;
+      if (made || errno == EEXIST) fd = platform::OpenWalkChild(parent, "playden-import", kFlags);
+    }
+    // A link or a file in its place is left alone (O_NOFOLLOW, O_DIRECTORY).
+    bool ok = fd >= 0 || fail("open the folder");
+    // 0777 without the sticky bit, like /data/playden-games (whose /data drops it anyway): FTP
+    // writes games here as root, Playden opens them in place, and "Move into Playden" renames
+    // folders out of here whoever made them. mkdir is umasked, and an FTP-made folder is 0755.
+    struct stat info{};
+    if (ok && ::fstat(fd, &info) != 0) ok = fail("stat");
+    if (ok && (info.st_mode & 07777) != 0777 && ::fchmod(fd, 0777) != 0) ok = fail("chmod");
+    if (ok && made && ::fsync(parent) != 0 && log) log("drop folder path=" + folder.string() + " parent fsync=" + Error(errno));
+    if (fd >= 0) ::close(fd);
+    ::close(parent);
+    return ok;
+  });
+  if (!prepared && failed == "root access") failed_error = as_root ? errno : ENOSYS;
+  if (prepared) {
+    if (made && log) log("drop folder made path=" + folder.string());
+    return {};
+  }
+  const std::string detail = failed + " failed" + (failed_error ? " error=" + Error(failed_error) : "");
+  if (log) log("drop folder failed path=" + folder.string() + " " + detail);
+  return "Playden can't make " + folder.string() + " (" + detail + "). Games can still be imported from a drive.";
 }
 
 }  // namespace playden::runtime

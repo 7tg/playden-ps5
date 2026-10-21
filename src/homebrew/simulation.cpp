@@ -764,6 +764,37 @@ void Simulation::UpdateKeptBottles(std::vector<LiveKeptBottle> kept) {
     rebuild_view();
 }
 
+void Simulation::UpdateExternalGames(std::vector<LiveExternalGame> games) {
+    if (!live() || games == state_.external_games) return;
+    state_.external_games = std::move(games);
+    rebuild_view();
+}
+
+void Simulation::UpdateImportCandidates(std::vector<LiveImportCandidate> candidates, bool scanning) {
+    if (!live() || (candidates == state_.import_candidates && scanning == state_.import_scanning)) return;
+    state_.import_candidates = std::move(candidates);
+    state_.import_scanning = scanning;
+    rebuild_view();
+}
+
+void Simulation::RequestImport(ImportRequest request) {
+    if (live()) pending_import_requests_.push_back(std::move(request));
+}
+
+std::vector<ImportRequest> Simulation::TakeImportRequests() { return std::exchange(pending_import_requests_, {}); }
+
+bool Simulation::SeedGameProgram(GameId id, const std::string& program) {
+    if (!live() || !id.valid() || settings_load_failed_ || game_settings_file_.empty()) return false;
+    if (!rt::ValidateSettingValue(rt::GameRecipe{}, "program", program, nullptr)) return false;
+    auto& record = state_.game_settings[id];
+    if (record.overrides.count("program")) return false;
+    record.overrides["program"] = program;
+    ++record.revision;
+    save_profile();
+    rebuild_view();
+    return saved_game_settings_ == state_.game_settings;
+}
+
 std::vector<std::string> Simulation::collection_sheet_actions(const std::string& sheet) const {
     std::vector<std::string> actions;
     if (sheet == "collections") {
@@ -1635,7 +1666,9 @@ void Simulation::clear_account_specific_state() {
     state_.session = SessionState::Idle;
     state_.session_game_id = {};
     state_.session_error.clear();
-    state_.runtime = RuntimeState::Unavailable;
+    // The live runtime belongs to the console: the controller projects it only when it changes, so a
+    // Steam sign-in or sign-out must not reset it (games of other stores still play).
+    if (!live()) state_.runtime = RuntimeState::Unavailable;
     state_.library_loading = !loading_sources_.empty();
     state_.library_syncing = state_.library_loading;
     state_.notices.erase(std::remove_if(state_.notices.begin(), state_.notices.end(),
@@ -3724,16 +3757,18 @@ void Simulation::rebuild_view() {
             : state_.account().authentication == AuthState::Offline
                 ? (state_.account().error.empty() ? "Offline — showing available library" : state_.account().error)
                 : "Signed out";
+        bool steam_shown = false;
         for (const auto* game : visible_games()) {
             if (view_.rows.size() >= 12) break;
             auto& item = row(game_key(game->id), RowKind::Game, game->title, "open-game");
             item.game_id = game->id;
             item.badge = state_.library.favorites.contains(game->id) ? "Favorite" : "";
+            steam_shown = steam_shown || game->id.store == Store::kSteam;
         }
-        if (view_.rows.empty()) {
-            row("home-library", RowKind::Action, "Open Library", "library");
-            if (state_.account().authentication != AuthState::SignedIn) row("home-connect", RowKind::Action, "Connect a store", "connect");
-        }
+        // Signed out with only other stores' games (imported ones) listed, Steam is still offered.
+        const bool connect = state_.account().authentication != AuthState::SignedIn && !steam_shown;
+        if (view_.rows.empty()) row("home-library", RowKind::Action, "Open Library", "library");
+        if (connect) row("home-connect", RowKind::Action, "Connect a store", "connect");
         auto add_shelf = [this](const playden::homebrew::Shelf& source, int shelf_index) {
             ViewData::Shelf shelf;
             shelf.key = source.key; shelf.title = source.title;
@@ -3793,6 +3828,19 @@ void Simulation::rebuild_view() {
         view_.title = game ? game->title : "Game unavailable";
         view_.subtitle = game ? game->description : "The selected fixture no longer exists.";
         Installation* installation = game ? find_installation(state_, game->id) : nullptr;
+        // A game playing in place from its own folder (an imported game) has the same Play and setup
+        // rows as an installed one; it is never in Installed games.
+        std::optional<Installation> in_place;
+        std::string in_place_reason;
+        if (!installation && game && live())
+            for (const auto& external : state_.external_games)
+                if (external.game_id == game->id) {
+                    const auto runtime_game = state_.runtime_games.find(game->id);
+                    in_place = Installation{game->id, external.volume_id, 0, external.available && external.reason.empty(),
+                                            runtime_game != state_.runtime_games.end() && runtime_game->second.ready, false};
+                    in_place_reason = external.reason;
+                    installation = &*in_place;
+                }
         // Live installations are only finished installs; their size may be unknown on an absent drive.
         const bool installed = installation && (live() || installation->installed_bytes > 0);
         if (!live()) {
@@ -3805,7 +3853,11 @@ void Simulation::rebuild_view() {
             // Real install state: an install job, a finished install, or what Steam allows.
             const auto* job = find_job(state_, ToKey(game->id));
             if (installed) {
-                if (!installation->available) {
+                if (!installation->available && !in_place_reason.empty()) {
+                    auto& status = row("details-installed", RowKind::Status, "Can't play from this folder", "");
+                    status.subtitle = in_place_reason;
+                    status.enabled = false;
+                } else if (!installation->available) {
                     const auto* volume = find_volume(state_, installation->volume_id);
                     auto& status = row("details-installed", RowKind::Status, "Storage disconnected", "");
                     status.subtitle = "Connect " + (volume ? volume->label : std::string("its storage")) + " to use this game";

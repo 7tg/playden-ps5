@@ -2,7 +2,9 @@
 #include "diagnostics/redaction.h"
 #include "steam/install_volumes.h"
 #include "steam/secret.h"
+#include <algorithm>
 #include <chrono>
+#include <utility>
 
 namespace playden::homebrew {
 namespace {
@@ -327,6 +329,7 @@ void Controller::Tick() {
   lap(3);
   TickStoreDetails();
   lap(4);
+  TickImports();
   TickInstalls();
   TickSelfUpdate();
   lap(5);
@@ -757,7 +760,12 @@ void Controller::TickRuntime() {
   }
   // A quit to Home waits for the running preparation; the queued ones would be cut off.
   runtime_->HoldPreparations(model_.state().quit_waiting);
-  for (const auto id : model_.TakeRuntimePrepareRequests()) RequestPrepare(id);
+  // A drop-folder game's files are opened before each Play and Prepare.
+  std::vector<GameId> opened_plays, opened_prepares;
+  ReleaseDropFolderOpens(opened_plays, opened_prepares);
+  for (const auto id : model_.TakeRuntimePrepareRequests())
+    if (!HoldForDropFolder(id, false)) RequestPrepare(id);
+  for (const auto id : opened_prepares) RequestPrepare(id);
   // A game Playden still holds back moves to the front once it is asked for.
   // The latest choice wins: a game Playden still holds back moves first once it is asked for.
   for (const auto id : model_.TakePrepareNextRequests()) {
@@ -805,6 +813,8 @@ void Controller::TickRuntime() {
     }
   }
   auto plays = model_.TakeRuntimePlayRequests();
+  std::erase_if(plays, [this](GameId id) { return HoldForDropFolder(id, true); });
+  plays.insert(plays.end(), opened_plays.begin(), opened_plays.end());
   {
     const auto prepared_shared = runtime_->Shared();
     const auto& prepared = *prepared_shared;
@@ -1275,8 +1285,13 @@ void Controller::TickRuntime() {
   announce_ready();
 }
 void Controller::BeginUninstall(GameId id, bool delete_saves) {
-  // Only Playden's own installs are uninstalled: a game played in place is never deleted.
-  if (const auto* location = LocationOf(id); location && !location->managed()) return;
+  // Only Playden's own installs are uninstalled: a game played in place is never deleted. An imported
+  // one leaves the library instead, once its PS5 title is gone (its files stay, its bottle is kept).
+  const auto* location = LocationOf(id);
+  const bool external = location && !location->managed();
+  if (external && !(id.store == Store::kLocal && local_)) return;
+  if (external) delete_saves = false;
+  if (!runtime_ && external) { local_->Remove(id.value); return; }
   // Without the runtime there is no PS5 title to remove: the download goes as before.
   if (!runtime_) { if (installs_) installs_->Uninstall(id); return; }
   // A preparation still waiting would make a title for files about to be deleted: it leaves the queue.
@@ -1324,25 +1339,149 @@ void Controller::TickUninstalls() {
         ++play_notes_revision_;
         break;
       // The title is gone, so no title points at the files about to be deleted.
-      case UninstallAction::Kind::kRemoveDownload: if (installs_) installs_->Uninstall(id); ++play_notes_revision_; break;
+      case UninstallAction::Kind::kRemoveDownload:
+        if (const auto* location = LocationOf(id); location && !location->managed()) {
+          if (id.store == Store::kLocal && local_) local_->Remove(id.value);
+        } else if (installs_) {
+          installs_->Uninstall(id);
+        }
+        ++play_notes_revision_;
+        break;
       case UninstallAction::Kind::kStop: StopUninstall(id, action.reason); break;
     }
   }
 }
 void Controller::ProjectLocations(const std::vector<steam::InstalledGame>& managed) {
-  auto locations = installs::ProjectInstalledLocations(
-      managed, external_locations_ ? external_locations_() : std::vector<installs::InstalledLocation>{});
+  auto external = external_locations_ ? external_locations_() : std::vector<installs::InstalledLocation>{};
+  if (local_)
+    for (auto& location : local_->Locations()) external.push_back(std::move(location));
+  auto locations = installs::ProjectInstalledLocations(managed, external);
   if (locations != locations_) {
     locations_ = std::move(locations);
     ++locations_revision_;
+    // The model's details page offers Play for games played in place too.
+    std::vector<LiveExternalGame> games;
+    for (const auto& location : locations_)
+      if (!location.managed()) games.push_back({location.game, location.volume_id, location.available, location.reason});
+    if (games != external_projected_) {
+      external_projected_ = games;
+      model_.UpdateExternalGames(std::move(games));
+    }
   }
   game_roots_.clear();
   game_volumes_.clear();
   for (const auto& location : locations_)
-    if (location.available) {
+    if (location.available && location.reason.empty()) {
       game_roots_[location.game] = location.root;
       game_volumes_[location.game] = location.volume_id;
     }
+}
+void Controller::TickImports() {
+  if (!local_) return;
+  // The locations reflect a Local snapshot once one was seen on an earlier tick (TickInstalls projects them).
+  const bool locations_known = local_revision_ != 0;
+  for (const auto& request : model_.TakeImportRequests()) {
+    switch (request.kind) {
+      case ImportRequestKind::LookForGames: local_->LookForGames(); break;
+      case ImportRequestKind::Add: local_->Add(request.volume_id, request.folder, request.program); break;
+      case ImportRequestKind::Remove:
+        if (request.game_id.store == Store::kLocal) held_import_removals_.push_back(request.game_id);
+        break;
+      case ImportRequestKind::CopyIntoPlayden:
+        if (request.game_id.store == Store::kLocal) {
+          // The copy's install record carries the game's runtime number (given out now if it has
+          // none); a game set up from its drive folder keeps its PS5 title, which follows the copy.
+          const auto number = runtime_ ? RuntimeApp(*runtime_, request.game_id).value_or(0u) : 0u;
+          local_->CopyIntoPlayden(request.game_id.value, request.volume_id, number);
+        }
+        break;
+      case ImportRequestKind::MoveIntoPlayden:
+        if (request.game_id.store == Store::kLocal) {
+          const auto number = runtime_ ? RuntimeApp(*runtime_, request.game_id).value_or(0u) : 0u;
+          local_->MoveIntoPlayden(request.game_id.value, number);
+        }
+        break;
+    }
+  }
+  if (locations_known)
+    for (const auto& id : std::exchange(held_import_removals_, {})) {
+      // A game with a folder to play from goes like an uninstall: its PS5 title first.
+      if (LocationOf(id)) BeginUninstall(id, false);
+      else local_->Remove(id.value);
+    }
+  // A drive plugged in or out: its games become (un)available and its folders are looked at.
+  const auto now = std::chrono::steady_clock::now();
+  if (now - local_volumes_checked_at_ >= std::chrono::seconds(5)) {
+    local_->CheckVolumes();
+    local_volumes_checked_at_ = now;
+  }
+  const auto snapshot = local_->Snapshot();
+  // Once imports.json is read: copies that finished or stopped while Playden was closed are settled.
+  // A move a restart interrupted is finished then too, once the runtime has started (its PS5 title
+  // follows the folder).
+  if (!copies_reconciled_ && snapshot->loaded && installs_ &&
+      (!runtime_ || runtime_->Shared()->status != RuntimeHostStatus::kStarting)) {
+    copies_reconciled_ = true;
+    auto* installs = installs_;  // outlives the Local store's worker
+    auto* runtime = runtime_;    // so does the runtime host
+    local_->Reconcile([installs] { return installs->Snapshot(); }, [installs](const GameId& id) { installs->Cancel(id); },
+                      [runtime](const GameId& id) { return runtime ? RuntimeApp(*runtime, id).value_or(0u) : 0u; });
+    // A copy restored at start waited for imports.json: it carries on now.
+    installs_->RetryWaiting(Store::kLocal);
+  }
+  if (snapshot->revision == local_revision_) return;
+  local_revision_ = snapshot->revision;
+  std::vector<LiveImportCandidate> candidates;
+  for (const auto& candidate : snapshot->candidates) {
+    LiveImportCandidate live{candidate.volume, candidate.folder, candidate.path, candidate.title, {},
+                             candidate.total_bytes, candidate.ascii_ok, candidate.partial, {}};
+    for (const auto& program : candidate.programs) live.programs.push_back({program.path, program.bytes, program.helper});
+    if (!candidate.imported_id.empty()) live.imported = GameId::Local(candidate.imported_id);
+    candidates.push_back(std::move(live));
+  }
+  model_.UpdateImportCandidates(std::move(candidates), snapshot->scanning);
+  // Added or removed games: the Local library loads again (Steam's is left alone).
+  if (snapshot->games_revision != local_games_revision_) {
+    local_games_revision_ = snapshot->games_revision;
+    if (library_) library_->Refresh(Store::kLocal);
+  }
+}
+bool Controller::HoldForDropFolder(GameId id, bool play) {
+  if (id.store != Store::kLocal || !local_) return false;
+  const auto* location = LocationOf(id);
+  if (!location || location->managed() || !location->available ||
+      location->volume_id != stores::local::ImportStore::kDropFolderVolume)
+    return false;
+  auto& open = drop_folder_opens_[id];
+  if (!open.request && !(open.request = local_->OpenForPlay(id.value))) {
+    drop_folder_opens_.erase(id);
+    model_.NotifyPlayStopped(id, "Playden is busy. Press Play again in a moment.");
+    return true;
+  }
+  (play ? open.play : open.prepare) = true;
+  play_notes_[id] = "Opening the game's files…";
+  ++play_notes_revision_;
+  return true;
+}
+void Controller::ReleaseDropFolderOpens(std::vector<GameId>& plays, std::vector<GameId>& prepares) {
+  if (drop_folder_opens_.empty() || !local_) return;
+  const auto snapshot = local_->Snapshot();
+  for (auto it = drop_folder_opens_.begin(); it != drop_folder_opens_.end();) {
+    const auto outcome = std::find_if(snapshot->outcomes.begin(), snapshot->outcomes.end(),
+                                      [&](const stores::local::ImportOutcome& o) { return o.request == it->second.request; });
+    if (outcome == snapshot->outcomes.end()) { ++it; continue; }
+    const auto id = it->first;
+    play_notes_.erase(id);
+    ++play_notes_revision_;
+    if (!outcome->ok) {
+      model_.NotifyPlayStopped(id, outcome->message);
+    } else {
+      if (it->second.play) plays.push_back(id);
+      // Play prepares a game that needs it on its own.
+      else if (it->second.prepare) prepares.push_back(id);
+    }
+    it = drop_folder_opens_.erase(it);
+  }
 }
 const installs::InstalledLocation* Controller::LocationOf(GameId id) const {
   for (const auto& location : locations_)
@@ -1499,6 +1638,13 @@ void Controller::SubmitPrepare(GameId id, bool announce) {
   if (!app) return;
   if (announce) ready_watch_[id] = {false, std::chrono::steady_clock::now()};
   else ready_watch_.erase(id);
+  // An imported game starts the program chosen when it was added: Game settings has it before its
+  // first preparation, unless the player picked another one there.
+  if (id.store == Store::kLocal && local_) {
+    const auto snapshot = local_->Snapshot();
+    for (const auto& game : snapshot->games)
+      if (game.id == id.value) model_.SeedGameProgram(id, game.program);
+  }
   RuntimePrepareRequest request{*app, root->second, game_volumes_[id], {}};
   request.game = id;
   for (const auto& game : model_.state().games) if (game.id == id) request.title_name = game.title;

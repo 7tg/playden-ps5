@@ -4141,6 +4141,308 @@ void MovedGameWithUnreadableOperationRepublishes() {
   host.Shutdown();
 }
 
+// "Copy into Playden" and "Move into Playden" of an imported game already prepared to play from its
+// folder (import-games 4.3, 4.4): RuntimeHost::Relocate.
+constexpr const char* kImportedId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+constexpr const char* kImportedRoot = "/data/playden-games/local-0f8fad5b-d9cb-469f-a165-70867728950e";
+constexpr const char* kImportedSave = "data/playden/games/local-0f8fad5b-d9cb-469f-a165-70867728950e/library/prefixes/game/drive_c/users/steamuser/save.dat";
+
+struct Imported {
+  std::uint32_t number = 0;
+  std::string title_id;
+};
+
+void WriteImportedGame(const fs::path& folder) {
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  Write(folder / "Bin/Game.exe", pe, 0644);
+  Write(folder / "Data/game.pak", "pak", 0644);
+  CHECK(chmod(folder.c_str(), 0777) == 0);
+}
+
+RuntimePrepareRequest ImportedRequest(std::uint32_t number, const std::string& folder) {
+  RuntimePrepareRequest request{number, folder, folder.rfind("/data/", 0) == 0 ? "internal" : "usb0", "Imported"};
+  request.launches = {{"", "", "Bin/Game.exe", "", ""}};
+  request.game = playden::GameId::Local(kImportedId);
+  return request;
+}
+
+// Prepares the imported game at `folder` (a console path) and leaves a save in its bottle.
+Imported PrepareImported(Fixture& fixture, const RuntimeHostConfig& config, const std::string& folder) {
+  WriteImportedGame(fixture.root / fs::path(folder).relative_path());
+  Imported imported;
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  imported.number = *host.RuntimeNumberFor(playden::GameId::Local(kImportedId));
+  host.Prepare(ImportedRequest(imported.number, folder));
+  const auto number = imported.number;
+  const auto ready = WaitFor(host, [number](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(number) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (ready.refusals.count(number)) std::fprintf(stderr, "Prepare refused: %s\n", ready.refusals.at(number).c_str());
+  CHECK(!ready.refusals.count(number) && ready.installs.size() == 1 && ready.installs[0].install_path == folder);
+  imported.title_id = ready.installs[0].title_id;
+  host.Shutdown();
+  Write(fixture.root / kImportedSave, "player-save", 0600);
+  return imported;
+}
+
+// The relocated game: same title, number and bottle; its record and publication name the new folder.
+void CheckRelocated(Fixture& fixture, RuntimeHost& host, const Imported& imported, const std::string& volume) {
+  const auto snapshot = host.Snapshot();
+  CHECK(snapshot.installs.size() == 1);
+  const auto& view = snapshot.installs[0];
+  CHECK(view.title_id == imported.title_id && view.runtime_number == imported.number && view.state == PreparationState::kReady);
+  CHECK(view.install_path == kImportedRoot && view.admission == "ok" && view.settings_revision == 1);
+  const auto records = Read(fixture.root / "data/runtime-state/installs.json");
+  CHECK(records.find(std::string("\"install_path\":\"") + kImportedRoot + "\"") != std::string::npos);
+  CHECK(records.find("\"volume_id\":\"" + volume + "\"") != std::string::npos && records.find("moved_from") == std::string::npos);
+  const auto descriptor = Read(fixture.root / "data/homebrew" / imported.title_id / "game-launch.json");
+  CHECK(descriptor.find(std::string("\"game_root\":\"") + kImportedRoot + "\"") != std::string::npos);
+  CHECK(Read(fixture.root / kImportedSave) == "player-save");
+  // Play passes the title's whole start check.
+  host.Play(imported.number);
+  const auto number = imported.number;
+  const auto played = WaitFor(host, [number](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(number); }, 30);
+  if (played.play_refusals.count(number)) std::fprintf(stderr, "Play refused: %s\n", played.play_refusals.at(number).c_str());
+  CHECK(played.handoff_ready && host.Handoff());
+}
+
+RuntimeRelocationResult RelocateNow(RuntimeHost& host, std::uint32_t number, std::function<std::string()> move_files = {}) {
+  RuntimeRelocation request;
+  request.runtime_number = number;
+  request.to = kImportedRoot;
+  request.volume_id = "internal";
+  request.move_files = std::move(move_files);
+  return host.Relocate(std::move(request), std::chrono::seconds(60));
+}
+
+// Copy later: a game prepared on a USB drive, copied into Playden. Its title follows the copy;
+// the drive folder stays as it was.
+void CopiedGameKeepsItsTitle() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  const std::string drive = "/mnt/usb0/playden/import/Imported";
+  const auto imported = PrepareImported(fixture, config, drive);
+  const auto registrations = fixture.registry_mutations;
+  fs::create_directories(fixture.root / "data/playden-games");
+  fs::copy(fixture.root / fs::path(drive).relative_path(), fixture.root / fs::path(kImportedRoot).relative_path(),
+           fs::copy_options::recursive);
+  {
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    WaitFor(host, Started);
+    const auto result = RelocateNow(host, imported.number);
+    if (!result.message.empty()) std::fprintf(stderr, "Relocate: %s\n", result.message.c_str());
+    CHECK(result.outcome == RuntimeRelocationResult::Outcome::kDone && !result.prepare_again && result.message.empty());
+    CHECK(move.Logged("relocate app=" + std::to_string(imported.number) + " republished"));
+    CheckRelocated(fixture, host, imported, "internal");
+    CHECK(fixture.registry_mutations == registrations);  // the same title: nothing registered again
+    CHECK(fs::is_regular_file(fixture.root / fs::path(drive).relative_path() / "Bin/Game.exe"));
+    host.Shutdown();
+  }
+  // After a restart (the copy runner asks again when it stopped before its install record): done.
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  const auto again = RelocateNow(host, imported.number);
+  CHECK(again.outcome == RuntimeRelocationResult::Outcome::kDone && again.message.empty());
+  CHECK(host.Snapshot().installs[0].install_path == kImportedRoot);
+  host.Shutdown();
+}
+
+// Move: the drop folder renamed under the title's publication lease; refused while the title runs.
+void MovedGameKeepsItsTitle() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  const auto config = MoveConfig(fixture, kit, &uuids, move);
+  const std::string drop = "/data/playden-import/Imported";
+  const auto imported = PrepareImported(fixture, config, drop);
+  fs::create_directories(fixture.root / "data/playden-games");
+  const auto from = fixture.root / fs::path(drop).relative_path();
+  const auto to = fixture.root / fs::path(kImportedRoot).relative_path();
+  const auto lock_path = fixture.root / "data/playden/games" / ("local-" + std::string(kImportedId)) / ".playden-control/publication.lock";
+  const auto held = [&] {
+    const int fd = ::open(lock_path.c_str(), O_RDONLY);
+    CHECK(fd >= 0);
+    const bool busy = ::flock(fd, LOCK_SH | LOCK_NB) != 0;
+    ::close(fd);
+    return busy;
+  };
+  unsigned renames = 0;
+  const auto rename = [&]() -> std::string {
+    ++renames;
+    CHECK(held());  // the lease is held through the rename
+    if (!fs::exists(from) && fs::is_directory(to)) return {};
+    return ::rename(from.c_str(), to.c_str()) == 0 ? std::string() : std::string("rename failed");
+  };
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  // Its title runs (or is suspended): nothing moves.
+  fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+  auto refused = RelocateNow(host, imported.number, rename);
+  CHECK(refused.outcome == RuntimeRelocationResult::Outcome::kBusy && refused.message == "Close the game first." && renames == 0);
+  fixture.activity->store(static_cast<int>(NativeActivity::kUnknown));
+  refused = RelocateNow(host, imported.number, rename);
+  CHECK(refused.outcome == RuntimeRelocationResult::Outcome::kBusy && renames == 0);
+  // A Home launch's reader lease refuses it too, whatever the activity says.
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  const int reader = ::open(lock_path.c_str(), O_RDONLY);
+  CHECK(reader >= 0 && ::flock(reader, LOCK_SH | LOCK_NB) == 0);
+  refused = RelocateNow(host, imported.number, rename);
+  CHECK(refused.outcome == RuntimeRelocationResult::Outcome::kBusy && renames == 0);
+  ::close(reader);
+  CHECK(fs::exists(from / "Bin/Game.exe") && host.Snapshot().installs[0].install_path == drop);
+  // Stopped: renamed, then republished.
+  const auto result = RelocateNow(host, imported.number, rename);
+  if (!result.message.empty()) std::fprintf(stderr, "Relocate: %s\n", result.message.c_str());
+  CHECK(result.outcome == RuntimeRelocationResult::Outcome::kDone && !result.prepare_again && renames == 1);
+  CHECK(!fs::exists(from) && fs::is_regular_file(to / "Bin/Game.exe") && !held());
+  CheckRelocated(fixture, host, imported, "internal");
+  // A game without a PS5 title: the files move at once.
+  const auto other = fixture.root / "data/playden-import/Other";
+  WriteImportedGame(other);
+  unsigned plain = 0;
+  RuntimeRelocation unprepared;
+  unprepared.to = "/data/playden-games/local-other";
+  unprepared.move_files = [&]() -> std::string {
+    ++plain;
+    return ::rename(other.c_str(), (fixture.root / "data/playden-games/local-other").c_str()) == 0 ? std::string() : "failed";
+  };
+  const auto moved = host.Relocate(std::move(unprepared), std::chrono::seconds(30));
+  CHECK(moved.outcome == RuntimeRelocationResult::Outcome::kDone && plain == 1);
+  CHECK(fs::is_regular_file(fixture.root / "data/playden-games/local-other/Bin/Game.exe"));
+  host.Shutdown();
+}
+
+// Restarts: after the rename (record not written), after the record (republish not done), after
+// the republish. Each start leaves the game consistent and the next Relocate finishes it.
+void RelocationResumesAfterRestart() {
+  const std::string drop = "/data/playden-import/Imported";
+  for (const int step : {1, 2}) {
+    Fixture fixture;
+    GamesMove move;
+    const auto kit = SyntheticKit(fixture.root / "kit");
+    unsigned uuids = 0;
+    const auto config = MoveConfig(fixture, kit, &uuids, move);
+    const auto imported = PrepareImported(fixture, config, drop);
+    fs::create_directories(fixture.root / "data/playden-games");
+    const auto from = fixture.root / fs::path(drop).relative_path();
+    const auto to = fixture.root / fs::path(kImportedRoot).relative_path();
+    unsigned renames = 0;
+    const auto rename = [&]() -> std::string {
+      ++renames;
+      if (!fs::exists(from) && fs::is_directory(to)) return {};
+      return ::rename(from.c_str(), to.c_str()) == 0 ? std::string() : std::string("rename failed");
+    };
+    if (step == 2) {
+      // The record written (moved_from), then Playden stopped before the republish.
+      playden::Storage storage(config.state_root.string());
+      RuntimeInstallRepository repository(storage, "installs.json", {});
+      CHECK(repository.Load().ok());
+      auto record = repository.Snapshot().front();
+      record.moved_from = record.install_path;
+      record.install_path = kImportedRoot;
+      CHECK(repository.UpdateAll({record}).ok());
+    }
+    // Step 1: renamed, then Playden stopped; the record still names the drop folder.
+    CHECK(::rename(from.c_str(), to.c_str()) == 0);
+    {
+      RuntimeHost host(config);
+      CHECK(host.Start());
+      WaitFor(host, Started);
+      const auto logged = move.Logged("startup moved app=" + std::to_string(imported.number) + " republished");
+      if (step == 1) {
+        // Nothing moves the record by itself: Relocate (the copy runner's resume) finishes it.
+        CHECK(!logged && host.Snapshot().installs[0].install_path == drop);
+      } else {
+        // The next start republishes it like a game the 0.6 move left marked.
+        CHECK(logged && host.Snapshot().installs[0].install_path == kImportedRoot);
+      }
+      const auto result = RelocateNow(host, imported.number, rename);
+      if (!result.message.empty()) std::fprintf(stderr, "Relocate: %s\n", result.message.c_str());
+      CHECK(result.outcome == RuntimeRelocationResult::Outcome::kDone && !result.prepare_again);
+      CHECK(renames == (step == 1 ? 1u : 0u));  // after its record, nothing renames again
+      CheckRelocated(fixture, host, imported, "internal");
+      host.Shutdown();
+    }
+    // After the republish: a start changes nothing.
+    std::size_t before = 0;
+    {
+      std::lock_guard<std::mutex> lock(move.mutex);
+      before = move.lines.size();
+    }
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    WaitFor(host, Started);
+    {
+      std::lock_guard<std::mutex> lock(move.mutex);
+      for (std::size_t index = before; index < move.lines.size(); ++index)
+        CHECK(move.lines[index].rfind("startup moved app=", 0) != 0);
+    }
+    CHECK(host.Snapshot().installs[0].install_path == kImportedRoot);
+    host.Shutdown();
+  }
+}
+
+// The moved publication can't be verified (its descriptor changed): the old title goes, keeping its
+// saves, and the game is prepared again at its new folder with them.
+void RelocationFallsBackToANewTitle() {
+  Fixture fixture;
+  GamesMove move;
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  unsigned uuids = 0;
+  auto config = MoveConfig(fixture, kit, &uuids, move);
+  config.removal_confirm_polls = 3;
+  config.removal_poll_interval = std::chrono::milliseconds(1);
+  config.unregister_title = [&fixture](const std::string&, const std::string&) {
+    fixture.registered = false; fixture.submitted = false;
+    return TitleRemoverResult{true, 0, "answered"};
+  };
+  const std::string drop = "/data/playden-import/Imported";
+  const auto imported = PrepareImported(fixture, config, drop);
+  fs::create_directories(fixture.root / "data/playden-games");
+  const auto from = fixture.root / fs::path(drop).relative_path();
+  const auto to = fixture.root / fs::path(kImportedRoot).relative_path();
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  WaitFor(host, Started);
+  const auto descriptor = fixture.root / "data/homebrew" / imported.title_id / "game-launch.json";
+  const auto bytes = Read(descriptor);
+  CHECK(!bytes.empty());
+  fs::permissions(descriptor, fs::perms::owner_read | fs::perms::owner_write);
+  std::ofstream(descriptor, std::ios::binary | std::ios::trunc) << bytes << " ";
+  const auto result = RelocateNow(host, imported.number, [&]() -> std::string {
+    return ::rename(from.c_str(), to.c_str()) == 0 ? std::string() : std::string("rename failed");
+  });
+  if (!result.message.empty()) std::fprintf(stderr, "Relocate: %s\n", result.message.c_str());
+  CHECK(result.outcome == RuntimeRelocationResult::Outcome::kDone && result.prepare_again && result.message.empty());
+  const auto removed = host.Snapshot();
+  CHECK(removed.installs.empty() && fs::is_regular_file(to / "Bin/Game.exe"));
+  const auto kept = std::find_if(removed.kept_bottles.begin(), removed.kept_bottles.end(),
+                                 [](const KeptBottleView& view) { return view.game == playden::GameId::Local(kImportedId); });
+  CHECK(kept != removed.kept_bottles.end() && kept->runtime_number == imported.number);
+  // Play prepares it again where it is now; the saves come back.
+  host.Prepare(ImportedRequest(imported.number, kImportedRoot));
+  const auto number = imported.number;
+  const auto ready = WaitFor(host, [number](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(number) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (ready.refusals.count(number)) std::fprintf(stderr, "Prepare refused: %s\n", ready.refusals.at(number).c_str());
+  CHECK(!ready.refusals.count(number) && ready.installs[0].install_path == kImportedRoot);
+  CHECK(ready.installs[0].runtime_number == imported.number);
+  CHECK(Read(fixture.root / kImportedSave) == "player-save");
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -4197,6 +4499,10 @@ int main(int argc, char** argv) {
   UnownedUpgradeSkippedWhenFolderMissing();
   for (int scenario = 0; scenario <= 9; ++scenario) UnownedUpgradeAfterCommittedSettingsUpdates(scenario);
   MovedGameWithUnreadableOperationRepublishes();
+  CopiedGameKeepsItsTitle();
+  MovedGameKeepsItsTitle();
+  RelocationResumesAfterRestart();
+  RelocationFallsBackToANewTitle();
   std::puts("runtime host tests passed");
   return 0;
 }

@@ -188,6 +188,11 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
       result.runtime_ready = false;
       result.error = moved.notice;
     }
+    // The drop folder for games copied over FTP (/data/playden-import, 0777). Still single-threaded;
+    // a failure is only logged: games can still be imported from a drive.
+    if (result.runtime_ready)
+      runtime::PrepareDropFolder(data_root.parent_path() / "playden-import", WithRoot,
+                                 [&layout_lines](const std::string& line) { layout_lines.push_back(line); });
   }
   const std::string logs = result.launcher_ready ? EffectiveLogRoot(result.paths) : "/app0/logs";
   for (const auto& line : layout_lines) app::AppendLogLine(logs, "native-startup.log", line);

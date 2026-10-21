@@ -333,6 +333,31 @@ struct RuntimePrepareRequest {
   GameId game;
 };
 
+// An imported game's folder becoming its folder in Playden ("Copy into Playden" once the copy is
+// verified, "Move into Playden" for a drop-folder game): RuntimeHost::Relocate.
+struct RuntimeRelocation {
+  std::uint32_t runtime_number = 0;  // 0: the game has no number yet, so no PS5 title
+  std::string to;                    // console path of the game's folder in Playden
+  std::string volume_id;             // the install volume of `to`
+  // The move itself, run on the worker under the game's publication lease once its title is
+  // stopped (and at once for a game without a title): empty, or why not. It must be safe to run
+  // again after it succeeded (a restart in between). Empty: the files are at `to` already (a copy).
+  std::function<std::string()> move_files;
+};
+
+struct RuntimeRelocationResult {
+  enum class Outcome {
+    kDone,    // the game plays from `to` (its record names it; a marked republish may still wait)
+    kBusy,    // nothing changed: its title runs or is unknown, or the runtime is busy; try again
+    kFailed,  // nothing changed, or the files moved but the record could not follow (try again)
+  };
+  Outcome outcome = Outcome::kFailed;
+  std::string message;  // for the player
+  // The moved publication could not be verified: the old PS5 title was removed keeping its saves,
+  // and the next Play prepares the game again where it is now.
+  bool prepare_again = false;
+};
+
 // The worker constructs and owns every runtime collaborator, so durable work and
 // native inventory never run on the main thread. The main thread reads snapshots
 // and queues requests. Play is split the same way: the worker checks the game
@@ -401,6 +426,15 @@ class RuntimeHost {
   // Nothing when the game is invalid, the runtime records are not loaded (yet) or the write fails;
   // the runtime log says which. RuntimeSnapshot::runtime_games lists the number before it returns.
   std::optional<std::uint32_t> RuntimeNumberFor(const GameId& game);
+  // Makes `request.to` the game's folder, keeping its PS5 title, runtime number and bottle (the
+  // 0.6 games move's republish, for one game): with the game's publication lease held and its title
+  // stopped, move_files runs, then one record write names the new folder (moved_from the old one)
+  // and the game is published again at its revision. A publication that can't be verified falls
+  // back to removing the old title, keeping its saves (prepare_again). A record already naming `to`
+  // (a restart after its write) only finishes the republish. Blocks the calling thread (never the
+  // worker's) until the worker answers; a request the worker hasn't started within `timeout` is
+  // dropped and answers kBusy.
+  RuntimeRelocationResult Relocate(RuntimeRelocation request, std::chrono::milliseconds timeout);
   // Application thread only: starts the title of a prepared launch session.
   // Returns false when no session is waiting.
   bool Handoff();
@@ -450,6 +484,14 @@ class RuntimeHost {
   bool MoveGames(Composition& composition, std::string* error);
   bool MoveGameRecords(Composition& composition);
   void FinishGamesMove(Composition& composition);
+  // Relocate on the worker.
+  RuntimeRelocationResult RunRelocate(Composition& composition, const RuntimeRelocation& request);
+  struct PendingRelocation {
+    RuntimeRelocation request;
+    bool started = false;
+    bool abandoned = false;  // the caller stopped waiting before it started
+    std::optional<RuntimeRelocationResult> result;
+  };
   // Empty when the game's Ready title is stopped with no launch pending, otherwise why not.
   std::string MaintenanceRefusal(Composition& composition, const runtime::RuntimeInstall& record);
   // Runs one maintenance action; empty message on refusal means none; *ok tells success.
@@ -557,6 +599,7 @@ class RuntimeHost {
   std::vector<std::pair<std::uint32_t, std::string>> scan_requests_;
   std::vector<std::pair<std::uint32_t, RuntimeMaintenance>> maintenance_requests_;
   std::vector<std::uint32_t> activity_requests_;
+  std::vector<std::shared_ptr<PendingRelocation>> relocation_requests_;  // guarded by mutex_
   int work_percent_ = -1;  // worker thread only: the published work percent, -1 for none
   bool launch_poll_ = false;
   bool cleanup_requested_ = false;

@@ -13,6 +13,7 @@
 #include "homebrew/runtime_host.hpp"
 #include "stores/registry.h"
 #include "stores/steam.h"
+#include "stores/local/library_source.h"
 #include "steam/download_rate.h"
 #include "update/update_service.h"
 #include <chrono>
@@ -65,6 +66,11 @@ class Controller {
   void SetExternalLocations(std::function<std::vector<installs::InstalledLocation>()> locations) {
     external_locations_ = std::move(locations);
   }
+  // The Local store (imported games), registered in the registry as Store::kLocal's library. Its
+  // games playing in place become external locations next to SetExternalLocations' ones; the
+  // model's import requests (look for games, add, remove) go to it, and removing an imported game
+  // removes its PS5 title first, keeping its bottle as kept data. Set before the first Tick.
+  void SetLocalLibrary(stores::local::LocalLibrarySource* local) { local_ = local; }
   Controller(const Controller&) = delete;
   Controller& operator=(const Controller&) = delete;
  private:
@@ -123,6 +129,29 @@ class Controller {
   std::uint64_t locations_revision_ = 0;
   std::uint64_t runtime_locations_revision_ = 0;
   void ProjectLocations(const std::vector<steam::InstalledGame>& managed);
+  // The Local store: model requests in, candidates and library changes out.
+  void TickImports();
+  stores::local::LocalLibrarySource* local_ = nullptr;
+  std::uint64_t local_revision_ = 0;
+  std::uint64_t local_games_revision_ = 0;
+  std::chrono::steady_clock::time_point local_volumes_checked_at_{};
+  std::vector<LiveExternalGame> external_projected_;
+  // Removals asked for before the Local store's first snapshot reached the locations: until then a
+  // game's folder (and so its PS5 title's removal first) isn't known.
+  std::vector<GameId> held_import_removals_;
+  // Copies into Playden were reconciled with the install service after the first imports.json read.
+  bool copies_reconciled_ = false;
+  // Play and Prepare of a game playing from the drop folder wait for its files to be opened
+  // (LocalLibrarySource::OpenForPlay); a failure stops them with the walk's sentence.
+  struct DropFolderOpen {
+    std::uint64_t request = 0;
+    bool play = false, prepare = false;
+  };
+  std::map<GameId, DropFolderOpen> drop_folder_opens_;
+  // True when the request waits (or was stopped) for the drop folder.
+  bool HoldForDropFolder(GameId id, bool play);
+  // Finished openings: their requests go on (into plays and prepares) or stop.
+  void ReleaseDropFolderOpens(std::vector<GameId>& plays, std::vector<GameId>& prepares);
   const installs::InstalledLocation* LocationOf(GameId id) const;
   // Whether Cloud saves apply to the game: a Cloud service exists and the game's store has them.
   bool CloudCapable(GameId id) const { return cloud_ && Traits(id.store).cloud_saves; }

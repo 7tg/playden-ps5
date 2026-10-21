@@ -120,6 +120,27 @@ target_compile_features(playden_runtime_session_reconciler PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_session_reconciler PUBLIC playden_runtime_install_service playden_storage
     PRIVATE playden_steam_protocol)
 
+# Windows games imported from a drive or the drop folder: the folder scanner, imports.json and
+# the Local store's library source.
+add_library(playden_local_store STATIC
+    "${CMAKE_SOURCE_DIR}/src/stores/local/scanner.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stores/local/import_store.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stores/local/library_source.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stores/local/drop_folder_access.cpp"
+    "${CMAKE_SOURCE_DIR}/src/stores/local/copy_plan.cpp")
+target_include_directories(playden_local_store PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_compile_features(playden_local_store PUBLIC cxx_std_17)
+if(PLAYDEN_PLATFORM_PS5)
+    target_compile_definitions(playden_local_store PRIVATE PLAYDEN_PLATFORM_PS5=1)
+endif()
+target_link_libraries(playden_local_store PUBLIC playden_storage playden_library Threads::Threads PRIVATE playden_steam_protocol)
+
+# Host tool: what the import scanner sees in a game folder (tools/import-scan/main.cpp).
+if(NOT PLAYDEN_PLATFORM_PS5)
+    add_executable(import-scan "${CMAKE_SOURCE_DIR}/tools/import-scan/main.cpp")
+    target_link_libraries(import-scan PRIVATE playden_local_store)
+endif()
+
 add_library(playden_native_access STATIC
     "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_access.cpp"
     "${CMAKE_SOURCE_DIR}/src/platform/ps5/native_access_posix.cpp")
@@ -216,6 +237,31 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(runtime_game_install_test "${CMAKE_SOURCE_DIR}/tests/runtime_game_install_test.cpp")
     target_link_libraries(runtime_game_install_test PRIVATE playden_runtime_installs ${CMAKE_DL_LIBS})
     add_test(NAME runtime_game_install COMMAND runtime_game_install_test)
+    add_executable(local_scanner_test "${CMAKE_SOURCE_DIR}/tests/local_scanner_test.cpp")
+    target_link_libraries(local_scanner_test PRIVATE playden_local_store)
+    add_test(NAME local_scanner COMMAND local_scanner_test)
+    # The console's walk by path (no descriptor-relative opens), run on the host.
+    add_executable(local_scanner_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/local_scanner_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/stores/local/scanner.cpp")
+    target_include_directories(local_scanner_native_policy_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_compile_features(local_scanner_native_policy_test PRIVATE cxx_std_17)
+    target_compile_definitions(local_scanner_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    add_test(NAME local_scanner_native_policy COMMAND local_scanner_native_policy_test)
+    add_executable(local_drop_folder_access_test "${CMAKE_SOURCE_DIR}/tests/local_drop_folder_access_test.cpp")
+    target_link_libraries(local_drop_folder_access_test PRIVATE playden_local_store)
+    add_test(NAME local_drop_folder_access COMMAND local_drop_folder_access_test)
+    # The console's walk by path (no descriptor-relative opens), run on the host.
+    add_executable(local_drop_folder_access_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/local_drop_folder_access_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/stores/local/drop_folder_access.cpp")
+    target_include_directories(local_drop_folder_access_native_policy_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_compile_features(local_drop_folder_access_native_policy_test PRIVATE cxx_std_17)
+    target_compile_definitions(local_drop_folder_access_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    add_test(NAME local_drop_folder_access_native_policy COMMAND local_drop_folder_access_native_policy_test)
+    add_executable(local_import_store_test "${CMAKE_SOURCE_DIR}/tests/local_import_store_test.cpp")
+    target_link_libraries(local_import_store_test PRIVATE playden_local_store)
+    add_test(NAME local_import_store COMMAND local_import_store_test)
     add_executable(diagnostic_log_test "${CMAKE_SOURCE_DIR}/tests/diagnostic_log_test.cpp")
     target_link_libraries(diagnostic_log_test PRIVATE playden_diagnostic_log)
     add_test(NAME diagnostic_log COMMAND diagnostic_log_test)

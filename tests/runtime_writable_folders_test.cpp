@@ -131,6 +131,32 @@ int main() {
   CHECK(EnsureWritableFolders({target}, runs, log, root).empty());
   CHECK(Mode(target) == 0777 && calls == before_calls);
   CHECK(chmod(target.c_str(), 0755) == 0);
+  // The drop folder: made 0777 (not sticky) after the grant, an FTP-made 0755 one opened, a link refused.
+  {
+    const auto drop = root / "data/playden-import";
+    const auto before = calls;
+    CHECK(!PrepareDropFolder(root / "data/other", runs, log, root).empty() && calls == before);
+    CHECK(PrepareDropFolder(drop, runs, log, root).empty());
+    CHECK(fs::is_directory(drop) && Mode(drop) == 0777 && calls == before + 1);
+    CHECK(chmod(drop.c_str(), 0755) == 0);
+    CHECK(PrepareDropFolder(drop, runs, log, root).empty() && Mode(drop) == 0777);
+    CHECK(PrepareDropFolder(drop, runs, log, root).empty() && Mode(drop) == 0777);
+    CHECK(!PrepareDropFolder(drop, nullptr, log, root).empty());
+    CHECK(!PrepareDropFolder(drop, refuses, log, root).empty());
+    // An approved root: EnsureWritableFolders repairs it (and an import folder on a drive) to 0777.
+    if (geteuid() != 0) {
+      const auto drive_import = root / "mnt/usb0/playden/import";
+      fs::create_directories(drive_import);
+      CHECK(chmod(drop.c_str(), 0555) == 0 && chmod(drive_import.c_str(), 0555) == 0);
+      CHECK(EnsureWritableFolders({drop, drive_import}, runs, log, root).empty());
+      CHECK(Mode(drop) == 0777 && Mode(drive_import) == 0777);
+    }
+    CHECK(rmdir(drop.c_str()) == 0);
+    CHECK(symlink(target.c_str(), drop.c_str()) == 0);
+    CHECK(chmod(target.c_str(), 0755) == 0);
+    CHECK(!PrepareDropFolder(drop, runs, log, root).empty() && Mode(target) == 0755 && fs::is_symlink(drop));
+    CHECK(unlink(drop.c_str()) == 0);
+  }
   // /data swapped for a link to an outside folder: neither repair follows it as root.
   {
     const auto outside = root / "outside-data";

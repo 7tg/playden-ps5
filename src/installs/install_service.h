@@ -21,11 +21,29 @@
 namespace playden::installs {
 
 struct InstallRequest {
-  enum class Action { kInstall, kUninstall, kCancel };
+  enum class Action { kInstall, kUninstall, kCancel, kImport, kCopy, kMove };
   Action action = Action::kInstall;
-  std::uint32_t app = 0;
+  std::uint32_t app = 0;  // a Steam game's app ID; 0 for other games
+  GameId game;            // the game (kImport: none yet)
+  // kImport: the drive (install volume id), the game's folder and the program, as LocalLibrarySource::Add takes them.
+  // kCopy: the install volume to copy to (empty: the default).
+  std::string volume;
+  std::string folder;
+  std::string program;
 };
-// Development request file: strict app IDs, preserving command order, at most 64 commands.
+// Development request file (dev/install-request.txt), one command per line, in order, at most 64:
+//   <game>                              Steam: install; Local: prepare (set up) the imported game
+//   uninstall <game>                    Steam: uninstall; Local: remove from the library (files stay)
+//   cancel <app id>                     Steam only: cancel the download
+//   copy <local game> [volume]          copy an imported game playing in place into Playden (volume:
+//                                       an install volume id; default: the default volume)
+//   move <local game>                   move an imported game from the drop folder into Playden
+//   import <volume> <folder> <program>  add a game playing in place (volume: internal, m2, extended,
+//                                       usb0, usb1; folder: a name in that drive's import folder, or a
+//                                       path from the drive's root; program: inside the folder)
+// <game> is a Steam app ID (strict decimal) or "local-<uuid>". Words are separated by spaces or tabs;
+// a word with spaces goes in double quotes ("Old School Rally"), which can't hold a quote themselves.
+// A line that doesn't parse is skipped.
 std::vector<InstallRequest> ParseInstallRequests(const std::string& text);
 
 enum class InstallJobState { kQueued, kRunning, kPaused, kFailed };
@@ -146,6 +164,10 @@ class InstallService {
   void MoveQueued(GameId id, bool up);
   void Cancel(GameId id);
   void Uninstall(GameId id);
+  // Lists a complete managed install that was made outside the queue (an imported game moved
+  // into Playden): its folder on `volume_id` holds the install record. True when it is listed now
+  // (or was already); false when the game has a job, its store no runner, or the record is missing.
+  bool Adopt(GameId id, const std::string& volume_id, std::uint64_t install_bytes);
   // Chooses the volume for installs queued from now on; ignored unless it names an available volume.
   void SetDefaultVolume(const std::string& volume_id);
   // Takes a finished download, or every one, off the Completed list in Downloads.

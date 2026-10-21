@@ -24,10 +24,20 @@ std::vector<InstallRequest> ParseInstallRequests(const std::string& text) {
     const auto newline = remaining.find('\n');
     auto line = remaining.substr(0, newline);
     remaining = newline == std::string_view::npos ? std::string_view{} : remaining.substr(newline + 1);
-    const auto token = [&line]() {
+    bool malformed = false;
+    // The next word; a quoted one runs to its closing quote and must be followed by a space or the end.
+    const auto token = [&line, &malformed]() {
       const auto first = line.find_first_not_of(" \t\r\v\f");
       if (first == std::string_view::npos) { line = {}; return std::string_view{}; }
       line.remove_prefix(first);
+      if (line.front() == '"') {
+        const auto close = line.find('"', 1);
+        if (close == std::string_view::npos || close == 1) { malformed = true; line = {}; return std::string_view{}; }
+        const auto word = line.substr(1, close - 1);
+        line.remove_prefix(close + 1);
+        if (!line.empty() && line.find_first_of(" \t\r\v\f") != 0) malformed = true;
+        return word;
+      }
       const auto end = line.find_first_of(" \t\r\v\f");
       const auto word = line.substr(0, end);
       line = end == std::string_view::npos ? std::string_view{} : line.substr(end);
@@ -36,14 +46,53 @@ std::vector<InstallRequest> ParseInstallRequests(const std::string& text) {
     auto id = token();
     if (id.empty()) continue;
     InstallRequest request;
+    if (id == "import") {
+      request.action = InstallRequest::Action::kImport;
+      request.volume = std::string(token());
+      request.folder = std::string(token());
+      request.program = std::string(token());
+      if (malformed || request.volume.empty() || request.folder.empty() || request.program.empty() || !token().empty() ||
+          malformed)
+        continue;
+      requests.push_back(std::move(request));
+      continue;
+    }
+    if (id == "copy") {
+      // copy local-<uuid> [volume]
+      request.action = InstallRequest::Action::kCopy;
+      const auto game = ParseKey(token());
+      request.volume = std::string(token());
+      if (malformed || !game || game->store != Store::kLocal || !token().empty() || malformed) continue;
+      request.game = *game;
+      requests.push_back(std::move(request));
+      continue;
+    }
+    if (id == "move") {
+      // move local-<uuid>: a drop-folder game into Playden's games folder on the console storage
+      request.action = InstallRequest::Action::kMove;
+      const auto game = ParseKey(token());
+      if (malformed || !game || game->store != Store::kLocal || !token().empty() || malformed) continue;
+      request.game = *game;
+      requests.push_back(std::move(request));
+      continue;
+    }
     if (id == "uninstall" || id == "cancel") {
       request.action = id == "uninstall" ? InstallRequest::Action::kUninstall : InstallRequest::Action::kCancel;
       id = token();
     }
-    if (id.empty() || !token().empty()) continue;
+    if (malformed || id.empty() || !token().empty() || malformed) continue;
+    if (id.rfind("local-", 0) == 0) {
+      // Imported games have no download to cancel.
+      const auto game = ParseKey(id);
+      if (!game || game->store != Store::kLocal || request.action == InstallRequest::Action::kCancel) continue;
+      request.game = *game;
+      requests.push_back(std::move(request));
+      continue;
+    }
     const auto parsed = std::from_chars(id.data(), id.data() + id.size(), request.app);
     if (parsed.ec != std::errc{} || parsed.ptr != id.data() + id.size() || request.app == 0) continue;
-    requests.push_back(request);
+    request.game = GameId::Steam(request.app);
+    requests.push_back(std::move(request));
   }
   return requests;
 }
@@ -540,6 +589,21 @@ void InstallService::Uninstall(GameId id) {
   if (!root.empty()) removals_.push_back({id.store, root});
   Publish();
   wake_.notify_all();
+}
+
+bool InstallService::Adopt(GameId id, const std::string& volume_id, std::uint64_t install_bytes) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (std::any_of(installed_.begin(), installed_.end(), [id](const InstalledGame& game) { return game.id == id; }))
+    return true;
+  const auto* volume = FindVolume(volume_id);
+  if (stopping_ || !id.valid() || !RunnerFor(id.store) || Find(id) || !volume || !volume->available) return false;
+  const auto root = RootOn(volume_id, id);
+  if (!Exists(root + "/" + kRecord)) return false;
+  installed_.push_back({id, install_bytes, root, volume_id, true, RecordTime(root + "/" + kRecord)});
+  std::sort(installed_.begin(), installed_.end(),
+            [](const InstalledGame& left, const InstalledGame& right) { return left.id < right.id; });
+  Publish();
+  return true;
 }
 
 void InstallService::SetDefaultVolume(const std::string& volume_id) {
