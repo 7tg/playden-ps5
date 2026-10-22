@@ -4002,8 +4002,12 @@ void Simulation::rebuild_view() {
                     item.enabled = stale && runtime->can_prepare && closed && !busy;
                     // While it runs the title is being prepared, no longer "Kit update available".
                     const bool updating = busy && runtime->maintenance == MaintenanceKind::UpdateRuntime;
+                    // A setup an earlier kit left has no title to update: it is made again.
                     if (!stale && !updating)
-                        item.subtitle = runtime && runtime->status == "No kit" ? "Needs a usable compatibility kit." : "Already up to date.";
+                        item.subtitle = runtime && runtime->status == "No kit" ? "Needs a usable compatibility kit."
+                                      : runtime && runtime->setup_other_kit
+                                          ? "Setup was started with an earlier kit. Use Recreate bottle to finish it; saves are kept."
+                                          : "Already up to date.";
                     else if (!updating && !closed) item.subtitle = closed_reason;
                     else if (!updating && !runtime->can_prepare && !busy) item.subtitle = "Wait for the game's setup to finish.";
                 } else {

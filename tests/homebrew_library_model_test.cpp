@@ -2637,6 +2637,20 @@ void live_setup_from_an_earlier_kit_offers_recreate() {
     check(model.TakeMaintenanceRequests() == Requests{{SteamId(34), MaintenanceKind::RecreateBottle}},
           "the game page's Recreate bottle asks for the same");
     check(find_row(model, "details-play") && !find_row(model, "details-play")->enabled, "it waits while it runs");
+
+    // Maintenance › Update runtime has nothing to update: it points to Recreate bottle, never "Already up to date".
+    spire.activity = TitleActivity::Stopped;
+    model.UpdateRuntime(RuntimeState::Ready, {spire, broke});
+    activate(model, "details-more");
+    activate(model, "game-maintenance");
+    model.TakeActivityRequests();
+    model.UpdateRuntime(RuntimeState::Ready, {spire, broke});
+    const auto* update = find_row(model, "maintenance-update");
+    check(update && !update->enabled &&
+              update->subtitle == "Setup was started with an earlier kit. Use Recreate bottle to finish it; saves are kept.",
+          "Update runtime points to Recreate bottle");
+    const auto* recreate = find_row(model, "maintenance-recreate");
+    check(recreate && recreate->enabled, "Recreate bottle is there to use");
 }
 
 // The game page of a waiting game names the game right ahead of it and offers Prepare next.
