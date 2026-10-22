@@ -63,9 +63,8 @@ you sign in:
 - **It is an unofficial Steam client.** Playden talks to Steam's servers directly, the way the Steam client does. Valve
   does not support third-party clients. We know of no account problems from this, but the risk is yours to accept.
 - **Your Steam session stays on the console.** Playden stores a Steam sign-in token on the PS5, **without encryption**.
-  On a jailbroken console, anyone with file access (for example through FTP) can read it. Signing out in Playden
-  deletes the token from the console. If you sign in with your password, Playden sends it to Steam encrypted with
-  Steam's key and never saves it; only the token stays.
+  On a jailbroken console, anyone with file access (for example through FTP) can read it. To keep it off the console, turn off "Stay
+  signed in", then sign in again each time Playden starts.
 - **It writes to your Steam Cloud saves.** Playden uploads saves after you play. A bug can overwrite good saves with
   older or broken ones. Back up saves you care about. When Playden shows a conflict, read it before you choose.
 - **It needs a jailbroken console with root-level helpers.** A running game can get elevated rights on the console.
