@@ -33,6 +33,8 @@ struct Release {
 
 // The JSON of GET /repos/<owner>/<repo>/releases/latest. The tag must be a version ("v0.3.0").
 std::optional<Release> ParseRelease(std::string_view json, std::string* error);
+// The JSON of GET /repos/<owner>/<repo>/releases: newest first, releases whose tag isn't a version left out.
+std::optional<std::vector<Release>> ParseReleases(std::string_view json, std::string* error);
 
 struct KitPart {
   std::string kit_id;           // stays the same across revisions ("hl2-fw1360-dev1")

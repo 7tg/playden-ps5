@@ -10,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "update/asset_download.h"
 #include "update/release.h"
@@ -24,6 +25,10 @@ struct UpdateConfig {
   std::string installed_root;                   // /data/homebrew/FAKE77031
   std::string work_root;                        // /data/playden/self-update
   std::string kits_root;                        // /data/playden/kits; the kit lives at <kits_root>/<kit_id>
+  // The kit this build was made for (runtime/kit_trust.h): CheckKit offers it when the installed kit
+  // is missing, incomplete or another one. Empty: no kit-only install.
+  std::string kit_id;
+  std::string kit_manifest_sha256;
   std::string appmeta_root;                     // /user/appmeta/FAKE77031
   std::string registered_app_root;              // /user/app/FAKE77031
   // The 0.6 layout move's record (/data/playden/runtime-state/layout-0.6.json). While it exists,
@@ -59,6 +64,31 @@ enum class UpdatePhase {
 
 const char* UpdatePhaseName(UpdatePhase phase);
 
+// The kit-only install (CheckKit, InstallKit): the running version's kit, put in place at once.
+enum class KitInstallPhase {
+  kIdle,
+  kChecking,
+  kNotNeeded,    // the installed kit is this version's
+  kUnavailable,  // no release on GitHub has this version's kit (a development build)
+  kAvailable,    // can be downloaded
+  kDownloading,
+  kUnpacking,
+  kInstalled,    // in place: the runtime can admit it now
+  kFailed,
+};
+
+const char* KitInstallPhaseName(KitInstallPhase phase);
+
+struct KitInstallSnapshot {
+  KitInstallPhase phase = KitInstallPhase::kIdle;
+  bool replaces = false;             // another, complete kit is installed: this one replaces it
+  std::string version;               // the release that has the kit ("0.6.0")
+  std::uint64_t download_bytes = 0;  // 0 when a copy is ready on the console already
+  std::uint64_t done = 0;
+  std::uint64_t total = 0;
+  std::string error;                 // for kFailed: one short sentence
+};
+
 struct UpdateSnapshot {
   std::uint64_t revision = 0;
   UpdatePhase phase = UpdatePhase::kIdle;
@@ -86,6 +116,7 @@ struct UpdateSnapshot {
   // One-shot result of the previous run's update ("Playden was updated to 0.3.0."), shown once.
   std::string finished_message;
   bool finished_failed = false;
+  KitInstallSnapshot kit;
 };
 
 class UpdateService {
@@ -103,6 +134,12 @@ class UpdateService {
   // Downloads, unpacks and stages the available release in the background.
   void Install();
   void Cancel();
+  // Looks for the running version's kit when the installed one is missing, incomplete or another
+  // one. Skipped while an update is staged (its restart brings a kit). In the background.
+  void CheckKit();
+  // Downloads the kit CheckKit found and puts it in place at once (the installed one, if any, is
+  // moved aside). In the background.
+  void InstallKit();
   // Marks a staged update to be applied when Playden quits.
   void RequestRestart();
   // Marks the previous version (and its kit) to be put back when Playden quits.
@@ -140,7 +177,12 @@ class UpdateService {
   // The folder holding a checked copy of the release's kit: the installed kit, a kit staged
   // earlier (".next-<kit_id>-<revision>"), or empty when it must be downloaded.
   std::string ReadyKit(const KitPart& kit) const;
-  bool StageKit(const Release& release, const UpdateManifest& manifest);
+  // Downloads and unpacks the kit into ".next-<kit_id>-<revision>"; kit_only reports in snapshot.kit.
+  bool StageKit(const ReleaseAsset& asset, const KitPart& kit, bool kit_only);
+  void DoCheckKit();
+  void DoInstallKit();
+  void FailKit(const std::string& message, const std::string& detail);
+  std::optional<std::vector<Release>> FetchReleases(std::string* error);
   bool StageApp(const Release& release, const UpdateManifest& manifest);
   void Fail(const std::string& message, const std::string& detail);
   void Set(const std::function<void(UpdateSnapshot&)>& change);
@@ -151,7 +193,7 @@ class UpdateService {
   std::string StagedFields() const;
   bool PrepareWorkRoot();
   bool RemoveOwnedTree(const std::string& path);
-  void RemoveEmptyReplacedKits();
+  void RemoveReplacedKits();
   void CleanUpLeftovers();
 
   UpdateConfig config_;
@@ -164,6 +206,9 @@ class UpdateService {
   Version staged_version_;
   std::string staged_kit_;
   std::string staged_kit_id_;
+  // What CheckKit found: the kit zip (from the running version's release or an older one with the same zip).
+  std::optional<ReleaseAsset> kit_asset_;
+  std::optional<KitPart> kit_part_;
 };
 
 }  // namespace playden::update

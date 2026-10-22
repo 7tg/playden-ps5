@@ -83,9 +83,9 @@ const ReleaseAsset* Release::Find(std::string_view name) const {
   return nullptr;
 }
 
-std::optional<Release> ParseRelease(std::string_view json, std::string* error) {
-  const auto doc = ParseObject(json, error);
-  if (!doc) return std::nullopt;
+namespace {
+
+std::optional<Release> ReleaseFrom(const Json* doc, std::string* error) {
   Release release;
   const auto* tag = Text(*doc, "tag_name");
   const auto version = tag ? ParseVersion(*tag) : std::nullopt;
@@ -117,6 +117,30 @@ std::optional<Release> ParseRelease(std::string_view json, std::string* error) {
     release.assets.push_back(std::move(asset));
   }
   return release;
+}
+
+}  // namespace
+
+std::optional<Release> ParseRelease(std::string_view json, std::string* error) {
+  const auto doc = ParseObject(json, error);
+  if (!doc) return std::nullopt;
+  return ReleaseFrom(&*doc, error);
+}
+
+std::optional<std::vector<Release>> ParseReleases(std::string_view json, std::string* error) {
+  steam::json::Limits limits;
+  limits.max_bytes = 4 << 20;
+  limits.max_values = 1 << 18;
+  const auto doc = steam::json::Parse(json, limits);
+  if (!doc || !doc->is_array()) {
+    if (error) *error = "not a JSON array";
+    return std::nullopt;
+  }
+  std::vector<Release> releases;
+  for (const auto& item : doc->array())
+    if (item.is_object())
+      if (auto release = ReleaseFrom(&item, nullptr)) releases.push_back(std::move(*release));  // a tag that isn't a version is skipped
+  return releases;
 }
 
 std::optional<UpdateManifest> ParseUpdateManifest(std::string_view json, std::string* error) {

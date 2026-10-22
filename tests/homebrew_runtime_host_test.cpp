@@ -177,6 +177,42 @@ void NoKitRefusesPreparationWithoutDurableEffects() {
   CHECK(fs::is_empty(fixture.root / "data/homebrew"));
 }
 
+// A kit put in place while Playden runs (the first-run kit download) is admitted by ReloadKit: the
+// services start again with it, also over a kit already in use (one this version wasn't made for).
+void ReloadKitAdmitsAKitInstalledWhileRunning() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  const auto kit = AnyTitleKit(fixture.root / "kit");
+  std::atomic<bool> installed{false};
+  std::atomic<int> admissions{0};
+  config.admit_kit = [&](std::string* reason) -> std::optional<RuntimeKit> {
+    ++admissions;
+    if (installed) return kit;
+    *reason = "No verified compatibility kit is installed.";
+    return std::nullopt;
+  };
+  RuntimeHost host(std::move(config));
+  CHECK(host.Start());
+  CHECK(!WaitFor(host, Started).kit_available);
+  host.Prepare(Hl2());
+  WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
+  installed = true;
+  host.ReloadKit();
+  const auto reloaded = WaitFor(host, [](const RuntimeSnapshot& s) { return Started(s) && s.kit_available; });
+  CHECK(reloaded.status == RuntimeHostStatus::kReady && reloaded.kit_reason.empty());
+  CHECK(reloaded.refusals.empty());  // the refusal for want of a kit is gone
+  CHECK(admissions == 2);
+  // Preparation goes past the kit check now (this fixture has no game folder to prepare).
+  host.Prepare(Hl2());
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepares_handled == 2; }, 60);
+  CHECK(!done.refusals.count(220) || done.refusals.at(220) != "No verified compatibility kit is installed.");
+  host.ReloadKit();
+  WaitFor(host, [&](const RuntimeSnapshot& s) { return Started(s) && admissions == 3; });
+  CHECK(host.Snapshot().kit_available);
+  host.Shutdown();
+  CHECK(host.Snapshot().status == RuntimeHostStatus::kStopped);
+}
+
 // Root is process-wide on the console: while the worker starts up or works through a batch it holds
 // the effective UID, so a root raise elsewhere (an update's cleanup) can't fail its ownership checks.
 // Waiting for work, it holds nothing.
@@ -552,6 +588,7 @@ void PreparesExistingDownloadToReady() {
         (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
   }, 60);
   if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+  if (done.refusals.count(220)) std::fprintf(stderr, "refusal: %s\n", done.refusals.at(220).c_str());
   CHECK(!done.refusals.count(220));
   CHECK(done.installs.size() == 1);
   const auto& ready = done.installs[0];
@@ -674,6 +711,7 @@ void PrepareFixesRootOwnedHomebrewFolder() {
         (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
   }, 60);
   if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+  if (done.refusals.count(220)) std::fprintf(stderr, "refusal: %s\n", done.refusals.at(220).c_str());
   CHECK(!done.refusals.count(220));
   CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
   CHECK(raises == 1);  // only the folder that failed its probe
@@ -1930,7 +1968,8 @@ void OwnedPublicationOpenedUpRecovers(int route) {
     host.Prepare(Hl2());
     const auto done = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before; }, 60);
     if (done.refusals.count(220)) std::fprintf(stderr, "Update refused: %s\n", done.refusals.at(220).c_str());
-    CHECK(!done.refusals.count(220));
+    if (done.refusals.count(220)) std::fprintf(stderr, "refusal: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220));
   } else if (route == 4) {
     host.Play(220);
     const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready || s.play_refusals.count(220); }, 30);
@@ -2991,7 +3030,8 @@ void PreparesGameOnUnownedDrive() {
       CHECK(done.installs.empty());
     } else {
       if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
-      CHECK(!done.refusals.count(220));
+      if (done.refusals.count(220)) std::fprintf(stderr, "refusal: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220));
       CHECK(done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
       const auto metadata = Read(fixture.root / "data/playden/games/steam-220/library/profiles/.playden-publication");
       CHECK(metadata.find("schema=3\n") != std::string::npos);
@@ -5171,6 +5211,7 @@ int main(int argc, char** argv) {
   g_runtime_dir = argv[1];
   WorkerMovesGamesUnderPublicationLease();
   NoKitRefusesPreparationWithoutDurableEffects();
+  ReloadKitAdmitsAKitInstalledWhileRunning();
   QueuedPreparationIsPublishedUntilTaken();
   PrepareNextReordersWaitingPreparations();
   HeldPreparationsWait();

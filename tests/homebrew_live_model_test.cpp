@@ -646,6 +646,96 @@ void live_download_telemetry() {
 }
 
 
+// The kit-only install: offered before sign-in, downloaded while the player signs in, and listed on
+// the Queue and in Settings until it is in place.
+void live_kit_install(const std::filesystem::path& base) {
+    using namespace playden::homebrew;
+    std::filesystem::create_directories(base);
+    auto model = make_live(base);
+    check(model.state().navigation.route == Route::Startup, "kit: a first start shows Connect Steam");
+    LiveSelfUpdate update;
+    update.current = "0.6.0";
+    update.kit_phase = "checking";
+    model.UpdateSelfUpdate(update);
+    check(model.state().navigation.modals.empty(), "kit: nothing is offered while it is looked for");
+    update.kit_phase = "available";
+    update.kit_download_bytes = 300000000;
+    model.UpdateSelfUpdate(update);
+    check(!model.state().navigation.modals.empty() &&
+              model.state().navigation.modals.back().title == "Download the compatibility kit?" &&
+              model.state().navigation.modals.back().body.find("sign in") != std::string::npos,
+          "kit: offered before sign-in, with the download size");
+    check(model.action("cross") && model.state().navigation.modals.empty() &&
+              model.TakeSelfUpdateRequests() == std::vector<std::string>{"kit-install"},
+          "kit: Download asks for the kit");
+
+    update.kit_phase = "downloading";
+    update.kit_done = 100;
+    update.kit_total = 400;
+    model.UpdateSelfUpdate(update);
+    // Cancelled: the kit is available again, but not offered again until the next check.
+    update.kit_phase = "available";
+    model.UpdateSelfUpdate(update);
+    check(model.state().navigation.modals.empty(), "kit: a cancelled download isn't offered again");
+    update.kit_phase = "downloading";
+    model.UpdateSelfUpdate(update);
+    const auto job = std::find_if(model.state().jobs.begin(), model.state().jobs.end(),
+                                  [](const Job& item) { return item.id == "kit-install"; });
+    check(job != model.state().jobs.end() && job->title == "Compatibility kit" && job->completed_bytes == 100 &&
+              job->stage_text == "Downloading the compatibility kit",
+          "kit: the download shows on the Queue");
+
+    // Signed in while it downloads: Settings shows the progress.
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(model.UpdateLibrary({{}, false, {}, false, true, 100}), "kit: library delivered");
+    for (int i = 0; i < 6 && model.state().navigation.route != Route::Settings; ++i) model.action("r1");
+    check(find_row(model, "settings-kit") && find_row(model, "settings-kit")->value == "25%",
+          "kit: Settings shows the progress");
+
+    update.kit_phase = "installed";
+    model.UpdateSelfUpdate(update);
+    check(std::none_of(model.state().jobs.begin(), model.state().jobs.end(),
+                       [](const Job& item) { return item.id == "kit-install"; }) &&
+              !find_row(model, "settings-kit") &&
+              std::any_of(model.state().notices.begin(), model.state().notices.end(),
+                          [](const Notice& notice) { return notice.id == "kit-installed"; }),
+          "kit: once in place, the job and row go and a notice says so");
+
+    // Another kit is installed: the offer says it replaces it; a failed download says why.
+    auto other = make_live(base / "other");
+    LiveSelfUpdate replace;
+    replace.current = "0.6.0";
+    replace.kit_phase = "available";
+    replace.kit_replaces = true;
+    other.UpdateSelfUpdate(replace);
+    check(!other.state().navigation.modals.empty() &&
+              other.state().navigation.modals.back().title == "Replace the compatibility kit?",
+          "kit: replacing another kit is said");
+    other.action("circle");
+    replace.kit_phase = "downloading";
+    other.UpdateSelfUpdate(replace);
+    replace.kit_phase = "failed";
+    replace.kit_error = "The kit download failed.";
+    other.UpdateSelfUpdate(replace);
+    // Like every alert, it waits for sign-in.
+    other.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    check(other.UpdateLibrary({{}, false, {}, false, true, 100}), "kit: library delivered");
+    other.action("r1");  // a queued alert shows after the next press
+    check(!other.state().navigation.modals.empty() &&
+              other.state().navigation.modals.back().title == "Compatibility kit download stopped",
+          "kit: a failed download says why");
+
+    // An update on offer brings the kit itself: the kit isn't offered on top of it.
+    auto both = make_live(base / "both");
+    LiveSelfUpdate newer;
+    newer.current = "0.6.0";
+    newer.phase = "available";
+    newer.available = "0.7.0";
+    newer.kit_phase = "available";
+    both.UpdateSelfUpdate(newer);
+    check(both.state().navigation.modals.empty(), "kit: no kit offer while a newer Playden is on offer");
+}
+
 // Playden's own update: the prompts, the Downloads job, the Settings row and the requests.
 void live_self_update(const std::filesystem::path& base) {
     using namespace playden::homebrew;
@@ -1067,6 +1157,7 @@ int main() {
     failed_signout_preserves_account_until_external_clear(base);
     account_commands_dispatch_refresh_and_switch_barriers(base);
     live_self_update(base);
+    live_kit_install(base / "kit");
 
     std::filesystem::remove_all(base, error);
     std::cout << "homebrew_live_model_test passed\n";

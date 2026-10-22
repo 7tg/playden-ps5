@@ -620,6 +620,15 @@ void RuntimeHost::MeasureSaves() {
   wake_.notify_all();
 }
 
+void RuntimeHost::ReloadKit() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    kit_reload_requested_ = true;
+  }
+  wake_.notify_all();
+}
+
 void RuntimeHost::Maintain(std::uint32_t app_id, RuntimeMaintenance action) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -3681,6 +3690,10 @@ std::string RuntimeHost::DeleteKept(Composition& c, std::uint32_t app) {
 }
 
 void RuntimeHost::Run() {
+  while (RunServices()) Log("kit reload: starting the runtime services again");
+}
+
+bool RuntimeHost::RunServices() {
   const auto hold = [this] { return config_.hold_effective_uid ? config_.hold_effective_uid() : nullptr; };
   auto startup_hold = hold();
   auto unavailable = [this](std::string reason) {
@@ -3903,6 +3916,7 @@ void RuntimeHost::Run() {
     PublishPrepared(composition.get());
   }
   startup_hold.reset();
+  bool reload = false;
   for (;;) {
     std::vector<std::uint32_t> plays;
     std::vector<std::pair<std::uint32_t, bool>> removals;
@@ -3929,11 +3943,19 @@ void RuntimeHost::Run() {
                (!kept_delete_requests_.empty() && !snapshot_.handoff_ready) ||
                !scan_requests_.empty() || !prepared_dismissals_.empty() || prepared_clear_requested_ ||
                (!maintenance_requests_.empty() && !snapshot_.handoff_ready) ||
-               (!relocation_requests_.empty() && !snapshot_.handoff_ready);
+               (!relocation_requests_.empty() && !snapshot_.handoff_ready) ||
+               (kit_reload_requested_ && !snapshot_.handoff_ready && !launch_poll_);
       };
       if (launch_poll_) wake_.wait_for(lock, kLaunchPollInterval, ready);
       else wake_.wait(lock, [&] { return ready() || launch_poll_; });
       if (stopping_) break;
+      // Between batches, with no launch to hand off or follow: the services hold no work, and PS5
+      // titles run their own copy of the runtime, so the kit's folder can change under them.
+      if (kit_reload_requested_ && !snapshot_.handoff_ready && !launch_poll_) {
+        kit_reload_requested_ = false;
+        reload = true;
+        break;
+      }
       plays.swap(play_requests_);
       // Removal changes install records that Handoff reads, like preparation.
       if (!snapshot_.handoff_ready) removals.swap(remove_requests_);
@@ -4175,7 +4197,15 @@ void RuntimeHost::Run() {
   }
   ShareNumbers(nullptr);
   composition.reset();
-  Publish([](RuntimeSnapshot& s) { s.status = RuntimeHostStatus::kStopped; });
+  Publish([&](RuntimeSnapshot& s) {
+    s.status = reload ? RuntimeHostStatus::kStarting : RuntimeHostStatus::kStopped;
+    // Refused for want of a kit: the services starting again with one answer anew.
+    if (reload) {
+      s.refusals.clear();
+      s.play_refusals.clear();
+    }
+  });
+  return reload;
 }
 
 }  // namespace playden::homebrew

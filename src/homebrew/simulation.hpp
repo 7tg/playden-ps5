@@ -120,6 +120,14 @@ struct LiveSelfUpdate {
     bool quiet = false;          // the available version is one the player went back from: no dialog
     std::string finished_message;  // the previous run's update result, shown once
     bool finished_failed = false;
+    // The kit-only install (first run, or a kit that isn't this version's): idle, checking, not-needed,
+    // unavailable, available, downloading, unpacking, installed, failed.
+    std::string kit_phase = "idle";
+    bool kit_replaces = false;   // another kit is installed: this one replaces it
+    std::uint64_t kit_download_bytes = 0;
+    std::uint64_t kit_done = 0;
+    std::uint64_t kit_total = 0;
+    std::string kit_error;
 };
 // Live: what Game settings needs to choose a game's program, projected from the runtime host.
 // A program a Steam launch option names, as a path in the game folder.
@@ -880,6 +888,7 @@ private:
     std::vector<std::string> self_update_requests_;
     std::string self_update_prompted_;   // "available 0.3.0" or "staged 0.3.0": each prompt shows once
     std::string pending_update_prompt_;  // a prompt waiting for the open dialog to close
+    bool kit_prompted_ = false;          // the kit was offered since its last check (a cancel doesn't offer it again)
     void show_update_prompt();
     void sync_self_update_job();
     void request_self_update_restart(const std::string& request = "restart");

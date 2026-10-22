@@ -92,7 +92,8 @@ you sign in:
     (port 2120), and optionally [ps5-web-file-manager](https://github.com/owendswang/ps5-web-file-manager)
     (port 8888).
 - **Windows games:** a Steam account with games, or game folders you already have (see [Import Windows games](#import-windows-games)).
-- **A computer on the same network as the PS5**, to copy Playden and the kit to it. The kit upload needs Python 3.
+- **A computer on the same network as the PS5**, to copy Playden to it. Python 3 is needed only for the optional
+  install tools.
 - **To build it yourself (optional):** a Mac with Apple Silicon. Linux should also work, but we have not tested it
   yet. See [Build from source](#build-from-source).
 
@@ -111,13 +112,9 @@ Other versions can work, but these are the ones we know.
 
 ## Install
 
-Download both files from the latest [release](../../releases):
-
-- `playden-ps5-0.6.0.zip`: the Playden app (`FAKE77031`) and the console tools used below.
-- `playden-kit-0.12.zip`: the runtime kit 0.12, with its source list and license texts.
-
-Unzip both files next to each other. Installing takes two copies over the network: the app folder, then the
-runtime kit folder. After that, Playden updates itself (see [Update Playden](#update-playden)).
+Download `playden-ps5-<version>.zip` from the latest [release](../../releases): the Playden app (`FAKE77031`) and
+the console tools used below. Unzip it. Installing takes one copy over the network, the app folder. Playden
+downloads its runtime kit on its first start, and after that it updates itself (see [Update Playden](#update-playden)).
 
 Like other PS5 homebrew, Playden is a folder in `/data/homebrew/`, and
 ShadowMountPlus adds its tile to the Home screen.
@@ -147,8 +144,8 @@ ShadowMountPlus adds its tile to the Home screen.
    The app folder keeps empty `playden-data` and `logs` folders, and a `MOVED.txt` in each old place says where
    the data went.
 2. Wait about 10 seconds. ShadowMountPlus adds the Playden tile to the Home screen.
-3. Install the runtime kit (next section).
-4. Start Playden and sign in to Steam.
+3. Start Playden. It offers to download the runtime kit (next section); choose Download.
+4. Sign in to Steam while the kit downloads.
 
 ### Update Playden
 
@@ -177,19 +174,21 @@ You can also update by hand: copy the new `FAKE77031` folder over the old one, o
 `--install`. The command copies only the changed files, keeps a backup of what it replaced, and puts those three
 folders' modes right if they changed.
 
-### Install the runtime kit
+### The runtime kit
 
-This release uses **kit 0.12**. Upload the kit folder from `playden-kit-0.12.zip` with the upload tool. This step
-needs Python 3. A plain FTP copy does not work for the kit: Playden checks each kit file's permissions against the
-kit's manifest, and a plain copy doesn't set them. Run it from the `playden-ps5-<version>` folder:
+The runtime kit (the "compatibility kit" in Playden) is what runs Windows games: Wine, Mesa and DXVK. Playden
+downloads the kit its version was made for from this repository's releases, on its first start and whenever the
+installed kit isn't that one. It installs in the background, shows on the Queue screen, and games can be prepared
+as soon as it is in place. If you choose Later, or the download fails, Settings › About › Compatibility kit starts
+it again. Games pick up a new kit when you press Play.
+
+You can also install the kit by hand, with Python 3: download `playden-kit-<version>.zip` from the release, unzip it
+next to `playden-ps5-<version>`, and run this from the `playden-ps5-<version>` folder. A plain FTP copy does not
+work for the kit, because Playden checks each kit file's permissions against the kit's manifest.
 
 ```sh
-python3 tools/console_kit_upload.py ../playden-kit-0.12 --host <PS5 IP> --replace
+python3 tools/console_kit_upload.py ../playden-kit-<version> --host <PS5 IP> --replace
 ```
-
-The upload checks every file before it switches to the new kit, and creates `/data/playden/kits` on a console that
-doesn't have it yet. Playden accepts only the kit version it was tested with. Games pick up a new kit when you press
-Play.
 
 The kit is built on a **Linux x86-64 machine or VM** from prospero-win, Wine, Mesa and DXVK. To build it yourself,
 see [Build the kit](CONTRIBUTING.md#build-the-kit). The scripts are a record of how we built it, not a turnkey build

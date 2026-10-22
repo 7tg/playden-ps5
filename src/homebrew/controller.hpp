@@ -120,6 +120,8 @@ class Controller {
   std::uint64_t self_update_revision_ = ~0ull;
   steam::DownloadRate self_update_rate_;
   std::string self_update_rate_part_;
+  bool kit_check_asked_ = false;  // the runtime started without a kit: CheckKit asked once
+  bool kit_reload_asked_ = false;  // the kit-only install finished: the runtime asked to admit it
   void TickCloud();
   void TickRuntime();
   Simulation& model_;

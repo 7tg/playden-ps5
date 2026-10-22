@@ -22,6 +22,7 @@ using zip_fixture::Entry;
 
 namespace {
 const std::string kLatest = "https://api.github.com/repos/o/r/releases/latest";
+const std::string kReleases = "https://api.github.com/repos/o/r/releases?per_page=100";
 const std::string kDownload = "https://github.com/o/r/releases/download/v0.3.0/";
 const std::string kKitSha = std::string(64, 'c');
 
@@ -46,16 +47,20 @@ void Put(const std::string& path, const std::string& text) {
 struct Server {
   std::map<std::string, std::string> files;
   std::string latest;
+  std::string releases;  // the list, newest first
   int kit_downloads = 0;
+  int requests = 0;
 
   HttpResponse operator()(const HttpRequest& request) {
     HttpResponse response;
     std::string range;
     for (const auto& [key, value] : request.headers)
       if (key == "Range") range = value;
-    if (request.url == kLatest) {
+    ++requests;
+    if (request.url == kLatest || request.url == kReleases) {
+      const std::string& body = request.url == kLatest ? latest : releases;
       response.status_code = 200;
-      response.body.assign(latest.begin(), latest.end());
+      response.body.assign(body.begin(), body.end());
       return response;
     }
     const auto found = files.find(request.url);
@@ -157,6 +162,26 @@ void Wait(const UpdateService& service) {
   CHECK(!service.Busy());
 }
 
+// The kit-only install for version 0.3.0, on a console with `installed` as its kit (empty: none).
+struct KitOnly {
+  Fixture fixture;
+  std::string kits;
+  explicit KitOnly(const std::string& name, const std::string& installed) {
+    fixture.root = zip_fixture::TempFolder(name.c_str());
+    kits = fixture.root + "/playden/kits";
+    if (!installed.empty()) {
+      Put(kits + "/kitid/manifest.json", installed);
+      Put(kits + "/kitid/runtime/wine.bin", "old");
+    }
+  }
+  UpdateConfig Config() {
+    auto config = fixture.Config({0, 3, 0});
+    config.kit_id = "kitid";
+    config.kit_manifest_sha256 = kKitSha;
+    return config;
+  }
+};
+
 void Installed(const std::string& root) {
   Put(root + "/homebrew/FAKE77031/eboot.bin", "eboot 0.2.0");
   Put(root + "/homebrew/FAKE77031/sce_sys/param.json", "old param");
@@ -171,6 +196,118 @@ void Installed(const std::string& root) {
 }  // namespace
 
 int main() {
+  // First run on a console without a kit: the running version's kit is found and put in place at once.
+  {
+    KitOnly test("kit-fresh", "");
+    Publish(test.fixture.server, "v0.3.0");
+    test.fixture.server.releases = "[" + test.fixture.server.latest + "]";
+    UpdateService service(test.Config());
+    service.Start();
+    service.CheckKit();
+    Wait(service);
+    auto kit = service.Snapshot().kit;
+    CHECK(kit.phase == KitInstallPhase::kAvailable && !kit.replaces && kit.version == "0.3.0");
+    CHECK(kit.download_bytes == test.fixture.server.files[kDownload + "playden-kit-h-r9.zip"].size());
+    CHECK(service.Snapshot().phase == UpdatePhase::kIdle);  // the update's own state is untouched
+    service.InstallKit();
+    Wait(service);
+    kit = service.Snapshot().kit;
+    CHECK(kit.phase == KitInstallPhase::kInstalled);
+    CHECK(Read(test.kits + "/kitid/manifest.json") == kKitSha && Read(test.kits + "/kitid/runtime/wine.bin").size() == 100);
+    CHECK(!Exists(test.kits + "/.next-kitid-r9") && !Exists(test.kits + "/.staging-kitid-r9"));
+    CHECK(ListFolder(test.fixture.root + "/playden/self-update/downloads").empty());
+    // Installed: the next check needs nothing, and asks GitHub for nothing.
+    const int requests = test.fixture.server.requests;
+    service.CheckKit();
+    Wait(service);
+    CHECK(service.Snapshot().kit.phase == KitInstallPhase::kNotNeeded && test.fixture.server.requests == requests);
+    service.Shutdown();
+  }
+  // Another kit is installed: the right one replaces it, and the old one is left as a ".replaced-" leftover.
+  {
+    KitOnly test("kit-replace", std::string(64, 'b'));
+    Publish(test.fixture.server, "v0.3.0");
+    test.fixture.server.releases = "[" + test.fixture.server.latest + "]";
+    UpdateService service(test.Config());
+    service.InstallKit();  // checks first
+    Wait(service);
+    const auto kit = service.Snapshot().kit;
+    CHECK(kit.phase == KitInstallPhase::kInstalled && kit.replaces);
+    CHECK(Read(test.kits + "/kitid/manifest.json") == kKitSha);
+    CHECK(Read(test.kits + "/.replaced-kitid-1000/manifest.json") == std::string(64, 'b'));
+    service.Shutdown();
+  }
+  // The running version's release left the kit zip out (its kit did not change): an older release has it.
+  {
+    KitOnly test("kit-older", "");
+    Publish(test.fixture.server, "v0.2.0");
+    const std::string older = test.fixture.server.latest;
+    Publish(test.fixture.server, "v0.3.0", "0.2.0", "00.003.000", false);
+    Publish(test.fixture.server, "v0.4.0");  // newer than this version: never its kit's source
+    const std::string newer = test.fixture.server.latest;
+    Publish(test.fixture.server, "v0.3.0", "0.2.0", "00.003.000", false);
+    test.fixture.server.releases = "[" + newer + "," + test.fixture.server.latest + "," + older + "]";
+    UpdateService service(test.Config());
+    service.CheckKit();
+    Wait(service);
+    const auto kit = service.Snapshot().kit;
+    CHECK(kit.phase == KitInstallPhase::kAvailable && kit.version == "0.2.0");
+    service.Shutdown();
+  }
+  // A staged update brings its kit at the restart: the kit-only install leaves it alone, even when asked.
+  {
+    KitOnly test("kit-staged", "");
+    Installed(test.fixture.root);
+    unlink((test.kits + "/kitid/manifest.json").c_str());  // no complete kit
+    Publish(test.fixture.server, "v0.3.0");
+    test.fixture.server.releases = "[" + test.fixture.server.latest + "]";
+    auto config = test.Config();
+    config.current = {0, 2, 0};
+    UpdateService service(std::move(config));
+    service.Check(true);
+    Wait(service);
+    service.Install();
+    Wait(service);
+    CHECK(service.Snapshot().phase == UpdatePhase::kStaged && Exists(test.kits + "/.next-kitid-r9"));
+    service.CheckKit();
+    Wait(service);
+    CHECK(service.Snapshot().kit.phase == KitInstallPhase::kIdle);
+    service.InstallKit();
+    Wait(service);
+    CHECK(service.Snapshot().kit.phase == KitInstallPhase::kIdle && Exists(test.kits + "/.next-kitid-r9"));
+    service.Shutdown();
+  }
+  // A replaced kit (here one uploaded over FTP) is removed at the next start.
+  {
+    KitOnly test("kit-leftover", "");
+    Put(test.kits + "/.replaced-kitid-5/manifest.json", std::string(64, 'b'));
+    Put(test.kits + "/.replaced-kitid-5/runtime/wine.bin", "old");
+    UpdateService service(test.Config());
+    service.Start();
+    CHECK(!Exists(test.kits + "/.replaced-kitid-5"));
+    service.Shutdown();
+  }
+  // A development build has no release, and a release made with another kit doesn't offer it.
+  {
+    KitOnly test("kit-none", "");
+    Publish(test.fixture.server, "v0.2.0");
+    test.fixture.server.releases = "[" + test.fixture.server.latest + "]";
+    UpdateService service(test.Config());
+    service.CheckKit();
+    Wait(service);
+    CHECK(service.Snapshot().kit.phase == KitInstallPhase::kUnavailable);
+    auto other = test.Config();
+    other.kit_manifest_sha256 = std::string(64, 'd');
+    Publish(test.fixture.server, "v0.3.0");
+    test.fixture.server.releases = "[" + test.fixture.server.latest + "]";
+    UpdateService another(std::move(other));
+    another.CheckKit();
+    Wait(another);
+    CHECK(another.Snapshot().kit.phase == KitInstallPhase::kUnavailable);
+    CHECK(!Exists(test.kits + "/kitid"));
+    service.Shutdown();
+    another.Shutdown();
+  }
   // Full run: check, install (kit and app), restart, swap, then confirm on the next start.
   {
     Fixture fixture;

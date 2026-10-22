@@ -495,6 +495,7 @@ std::string action_label(const std::string& key) {
         {"prep-clear-completed", "Clear completed"}, {"storage-close", "Close"}, {"collection-new", "New collection"}, {"collection-manage", "Manage collections"},
         {"about-version", "Version"}, {"self-update-install", "Download and install"},
         {"self-update-restart", "Restart Playden"}, {"self-update-cancel", "Cancel update"},
+        {"kit-install", "Download"}, {"kit-cancel", "Cancel download"},
         {"self-update-back-confirm", "Go back"}, {"release-notes-ok", "OK"},
         {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
         {"about-kit", "Compatibility kit"}, {"about-kit-source", "Built from"},
@@ -1600,6 +1601,8 @@ void Simulation::UpdateSelfUpdate(const LiveSelfUpdate& update) {
                          before.bytes_per_second != update.bytes_per_second || before.previous != update.previous ||
                          before.quiet != update.quiet || before.current_notes_url != update.current_notes_url ||
                          before.whats_new != update.whats_new ||
+                         before.kit_phase != update.kit_phase || before.kit_done != update.kit_done ||
+                         before.kit_total != update.kit_total || before.kit_error != update.kit_error ||
                          !update.finished_message.empty();
     if (!changed) {
         show_update_prompt();
@@ -1633,6 +1636,20 @@ void Simulation::UpdateSelfUpdate(const LiveSelfUpdate& update) {
         push_notice({"self-update-check", "Playden is up to date", "", false, kLiveNoticeSeconds, false,
                      "Version " + update.current});
     }
+    // The kit-only install. An update on offer or under way brings the kit itself, so it asks first.
+    const bool update_brings_kit = update.phase == "available" || update.phase == "downloading" ||
+                                   update.phase == "unpacking" || update.phase == "staged";
+    if (update.kit_phase == "checking") kit_prompted_ = false;
+    if (update.kit_phase == "available" && !kit_prompted_ && !update_brings_kit && pending_update_prompt_.empty()) {
+        kit_prompted_ = true;
+        pending_update_prompt_ = "kit";
+    } else if (update.kit_phase == "failed" && before.kit_phase != "failed" &&
+               (before.kit_phase == "downloading" || before.kit_phase == "unpacking")) {
+        show_alert("Compatibility kit download stopped", update.kit_error);
+    } else if (update.kit_phase == "installed" && before.kit_phase != "installed") {
+        push_notice({"kit-installed", "Compatibility kit installed", "", false, kLiveNoticeSeconds, false,
+                     "Games can be prepared and played now"});
+    }
     sync_self_update_job();
     show_update_prompt();
     rebuild_view();
@@ -1647,11 +1664,28 @@ std::vector<std::string> Simulation::TakeSelfUpdateRequests() {
 // The update's prompts wait, like alerts, until no other dialog, sheet or keyboard is open.
 void Simulation::show_update_prompt() {
     const auto route = state_.navigation.route;
+    // The kit's offer shows before sign-in too (Connect Steam and the sign-in screens, not while the
+    // saved account loads): it downloads while the player signs in.
+    const bool kit = pending_update_prompt_ == "kit";
+    const bool before_sign_in = (route == Route::Startup && !state_.startup_loading) || route == Route::SignIn;
     if (pending_update_prompt_.empty() || !state_.navigation.modals.empty() || state_.editor.active ||
-        route == Route::Startup || route == Route::SignIn || route == Route::Session)
+        route == Route::Session || (route == Route::Startup && !(kit && before_sign_in)) ||
+        (route == Route::SignIn && !kit))
         return;
     const auto& update = state_.self_update;
-    if (pending_update_prompt_ == "available" && update.phase == "available") {
+    if (kit && update.kit_phase == "available") {
+        ModalEntry prompt{"confirmation", update.kit_replaces ? "Replace the compatibility kit?" : "Download the compatibility kit?",
+                          state_.navigation.focus_key, {"kit-install", "ready-later"}, 0, false};
+        const std::string size = update.kit_download_bytes ? "The download is " + format_bytes(update.kit_download_bytes) + ". "
+                                                           : std::string();
+        prompt.body = (update.kit_replaces
+                           ? "The installed compatibility kit isn't the one Playden " + update.current +
+                                 " was made for, so games may not run as this version expects. Playden can put the "
+                                 "right one in its place. "
+                           : std::string("Playden needs its compatibility kit to prepare and play Windows games. ")) +
+                      size + "You can sign in and keep using Playden while it downloads.";
+        open_modal(std::move(prompt));
+    } else if (pending_update_prompt_ == "available" && update.phase == "available") {
         ModalEntry prompt{"confirmation", "Playden " + update.available + " is available", state_.navigation.focus_key,
                           {"self-update-install", "ready-later"}, 0, false};
         prompt.body = (update.notes.empty() ? std::string() : update.notes + "\n\n") + "The download is " +
@@ -1678,6 +1712,24 @@ void Simulation::sync_self_update_job() {
                                      [](const Job& job) { return job.kind == "self-update"; }),
                       state_.jobs.end());
     const auto& update = state_.self_update;
+    if (update.kit_phase == "downloading" || update.kit_phase == "unpacking") {
+        Job job;
+        job.id = "kit-install";
+        job.kind = "self-update";
+        job.queue_order = -1;
+        job.title = "Compatibility kit";
+        const bool downloading = update.kit_phase == "downloading";
+        job.state = downloading ? JobState::Downloading : JobState::Verifying;
+        job.stage_text = downloading ? "Downloading the compatibility kit" : "Unpacking the compatibility kit";
+        job.state_text = downloading ? "Downloading" : "Unpacking";
+        if (downloading) {
+            job.bytes_per_second = update.bytes_per_second;
+            job.eta_seconds = update.eta_seconds;
+        }
+        job.completed_bytes = update.kit_done;
+        job.total_bytes = update.kit_total;
+        state_.jobs.push_back(std::move(job));
+    }
     if (update.phase != "downloading" && update.phase != "unpacking" && update.phase != "staged") return;
     const bool kit = update.part == "kit";
     Job job;
@@ -5068,6 +5120,32 @@ void Simulation::rebuild_view() {
                                                               : "Version " + update.current;
             }
         }
+        // The kit-only install, while it has something to offer or say.
+        if (live()) {
+            const auto& update = state_.self_update;
+            const auto& phase = update.kit_phase;
+            // An update on offer or under way brings the kit itself: its own row says so.
+            const bool update_brings_kit = update.phase == "available" || update.phase == "downloading" ||
+                                           update.phase == "unpacking" || update.phase == "staged";
+            if ((phase == "available" && !update_brings_kit) || phase == "checking" || phase == "downloading" ||
+                phase == "unpacking" || phase == "failed") {
+                auto& kit = add("settings-kit", RowKind::Action, "Compatibility kit", "kit");
+                if (phase == "available") {
+                    kit.value = "Download";
+                    kit.subtitle = update.kit_replaces ? "The installed kit isn't the one this version was made for"
+                                                       : "Needed to prepare and play games";
+                } else if (phase == "checking") {
+                    kit.value = "Checking…";
+                    kit.subtitle = "Looking for this version's kit on GitHub";
+                } else if (phase == "failed") {
+                    kit.value = "Try again";
+                    kit.subtitle = update.kit_error;
+                } else {
+                    kit.value = update.kit_total ? std::to_string(update.kit_done * 100 / update.kit_total) + "%" : "Working…";
+                    kit.subtitle = phase == "downloading" ? "Downloading the compatibility kit" : "Unpacking the compatibility kit";
+                }
+            }
+        }
         if (kOfferGoBack && live() && !state_.self_update.previous.empty() &&
             state_.self_update.phase != "downloading" && state_.self_update.phase != "unpacking") {
             auto& back = add("settings-update-back", RowKind::Action, "Go back to Playden " + state_.self_update.previous,
@@ -6218,6 +6296,8 @@ void Simulation::activate() {
         }
     } else if (action_name == "install-estimate-retry") {
         state_.notices.push_back({"estimate", "Fixture estimate is still unavailable", "install-estimate-retry", true, 0});
+    } else if (action_name == "job-action" && selected.key == "job-kit-install") {
+        open_modal({"job-actions", "Compatibility kit", selected.key, {"kit-cancel", "cancel"}, 0, false});
     } else if (action_name == "job-action" && selected.key == "job-playden-update") {
         const auto& phase = state_.self_update.phase;
         std::vector<std::string> actions;
@@ -7305,6 +7385,16 @@ void Simulation::activate() {
         } else if (phase != "checking") self_update_requests_.push_back("check");
     }
     else if (live() && action_name == "self-update-install") { close_modal(); self_update_requests_.push_back("install"); }
+    else if (live() && action_name == "kit") {
+        const auto& phase = state_.self_update.kit_phase;
+        if (phase == "available") { pending_update_prompt_ = "kit"; show_update_prompt(); }
+        else if (phase == "downloading" || phase == "unpacking") {
+            state_.navigation.route = Route::Downloads;
+            state_.navigation.focus_key = "job-kit-install";
+        } else if (phase == "failed" || phase == "idle") self_update_requests_.push_back("kit-check");
+    }
+    else if (live() && action_name == "kit-install") { close_modal(); self_update_requests_.push_back("kit-install"); }
+    else if (live() && action_name == "kit-cancel") { close_modal(); self_update_requests_.push_back("kit-cancel"); }
     else if (live() && action_name == "self-update-cancel") { close_modal(); self_update_requests_.push_back("cancel"); }
     else if (live() && action_name == "self-update-restart") { close_modal(); request_self_update_restart(); }
     else if (live() && action_name == "self-update-notes") open_release_notes(false);
