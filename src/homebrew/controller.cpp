@@ -834,15 +834,27 @@ void Controller::TickRuntime() {
       WithApp(id, [this, path = root->second](std::uint32_t app) { runtime_->ScanPrograms(app, path); });
   for (const auto& [id, kind] : model_.TakeMaintenanceRequests())
     WithApp(id, [this, id = id, kind = kind](std::uint32_t app) {
+      if (kind == MaintenanceKind::UpdateRuntime) {
+        if (runtime_updates_.count(id) || recreate_.count(id)) return;
+        runtime_updates_[id] = {runtime_->Shared()->prepares_handled, false, std::chrono::steady_clock::now()};
+        runtime_update_results_.erase(id);
+        recreate_results_.erase(id);
+        ++play_notes_revision_;
+        // As Play does for such a title: a drop-folder game's files are opened first.
+        if (!HoldForDropFolder(id, DropFolderNext::kPrepare)) RequestPrepare(id);
+        return;
+      }
       if (kind == MaintenanceKind::RecreateBottle) {
         if (recreate_.count(id)) return;
         recreate_[id] = {runtime_->Shared()->removals_handled, false, false, {}, {}};
         recreate_results_.erase(id);
+        runtime_update_results_.erase(id);
         runtime_->Remove(app, false);
         ++play_notes_revision_;
         return;
       }
       recreate_results_.erase(id);  // the sheet shows the newest request
+      runtime_update_results_.erase(id);
       ++play_notes_revision_;
       runtime_->Maintain(app, kind == MaintenanceKind::ClearShaderCache ? RuntimeMaintenance::kClearShaderCache
                            : kind == MaintenanceKind::Repair ? RuntimeMaintenance::kRepair
@@ -1010,6 +1022,24 @@ void Controller::TickRuntime() {
       else
         finish(false, refusal_of(id).empty() ? "The game could not be prepared again; press Prepare on the game page."
                                               : refusal_of(id));
+    }
+    // Update runtime: done when its preparation ends, with the title on the kit's runtime or with the refusal.
+    for (auto it = runtime_updates_.begin(); it != runtime_updates_.end();) {
+      const auto id = it->first;
+      auto& pending = it->second;
+      if (drop_folder_opens_.count(id)) { ++it; continue; }  // its files are still being opened
+      if (IsNumber(prepared, prepared.preparing_app, id)) { pending.seen_preparing = true; ++it; continue; }
+      const bool queued = PrepareQueued(prepared, NumberIn(prepared, id)) || prepare_after_details_.count(id);
+      const bool handled = !queued && prepared.prepares_handled > pending.prepares_handled;
+      const bool unseen_too_long = !pending.seen_preparing && !queued && !prepared.preparing_app &&
+          std::chrono::steady_clock::now() - pending.submitted_at > std::chrono::seconds(15);
+      if (!pending.seen_preparing && !handled && !unseen_too_long) { ++it; continue; }
+      const auto* record = record_of(id);
+      const auto refusal = refusal_of(id);
+      runtime_update_results_[id] = ready(record) ? std::pair<bool, std::string>{true, "Runtime updated."}
+          : std::pair<bool, std::string>{false, refusal.empty() ? "The runtime could not be updated." : refusal};
+      ++play_notes_revision_;
+      it = runtime_updates_.erase(it);
     }
     for (auto it = play_after_prepare_.begin(); it != play_after_prepare_.end();) {
       const auto id = it->first;
@@ -1317,6 +1347,17 @@ void Controller::TickRuntime() {
       game.maintenance_ok = result->second.first;
       game.maintenance_message = result->second.second;
     }
+    if (runtime_updates_.count(id)) {
+      game.maintenance = MaintenanceKind::UpdateRuntime;
+      game.maintenance_running = true;
+      game.maintenance_message.clear();
+    } else if (const auto result = runtime_update_results_.find(id); result != runtime_update_results_.end() &&
+               (!game.maintenance || !game.maintenance_running)) {
+      game.maintenance = MaintenanceKind::UpdateRuntime;
+      game.maintenance_running = false;
+      game.maintenance_ok = result->second.first;
+      game.maintenance_message = result->second.second;
+    }
     games.push_back(std::move(game));
   }
   model_.SetGeneratedRecipes(snapshot.generated_recipes);
@@ -1373,6 +1414,7 @@ void Controller::BeginUninstall(GameId id, bool delete_saves) {
   prepare_after_import_.erase(id);
   prepare_after_details_.erase(id);
   play_after_prepare_.erase(id);
+  runtime_updates_.erase(id);
   if (prepare_next_pending_ == id) prepare_next_pending_.reset();
   // With automatic sync off, nothing moves to or from Steam Cloud unless the player syncs from Saves.
   if (uninstalls_.Begin(id, delete_saves, CloudCapable(id) && game_roots_.count(id) && !saves_root_.empty() &&
@@ -1618,6 +1660,10 @@ void Controller::ReleaseDropFolderOpens(std::vector<GameId>& plays, std::vector<
       if (open.recreate) {
         recreate_results_[id] = {false, message};
         recreate_.erase(id);
+        ++play_notes_revision_;
+      }
+      if (open.prepare && runtime_updates_.erase(id)) {
+        runtime_update_results_[id] = {false, message};
         ++play_notes_revision_;
       }
     } else if (open.play) {

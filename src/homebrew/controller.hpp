@@ -247,6 +247,15 @@ class Controller {
   };
   std::map<GameId, Recreate> recreate_;
   std::map<GameId, std::pair<bool, std::string>> recreate_results_;
+  // Maintenance › Update runtime: the preparation Play runs first for a title on an older kit's runtime (RunPrepare's
+  // update, with its settings republish), without starting the game. Results stay for the maintenance sheet.
+  struct RuntimeUpdate {
+    std::uint64_t prepares_handled = 0;  // the worker's count when it was asked for
+    bool seen_preparing = false;
+    std::chrono::steady_clock::time_point submitted_at{};
+  };
+  std::map<GameId, RuntimeUpdate> runtime_updates_;
+  std::map<GameId, std::pair<bool, std::string>> runtime_update_results_;
   // The verified kit's capabilities, which gate Game settings rows.
   std::optional<std::vector<std::string>> kit_capabilities_;
   // Titles waiting for the PS5 when Playden started are checked once (query only).

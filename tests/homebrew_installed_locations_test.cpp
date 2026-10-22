@@ -490,7 +490,8 @@ void ImportedGamePlaysInPlace() {
   config.package_operations.validate_bottle = [](const fs::path& bottle) {
     return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
   };
-  const auto kit = SyntheticKit(fixture.root / "kit");
+  // Replaced by a newer kit for Update runtime, at the end.
+  auto kit = SyntheticKit(fixture.root / "kit");
   config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
   unsigned uuids = 0;
   config.uuid = [&uuids]() -> std::optional<std::string> {
@@ -599,7 +600,7 @@ void ImportedGamePlaysInPlace() {
     };
     tick_until([&] {
       return host.Snapshot().status == RuntimeHostStatus::kReady && model.state().runtime == hb::RuntimeState::Ready &&
-             !model.state().import_scanning && model.state().import_candidates.size() == 2;
+             !model.state().import_scanning && model.state().import_candidates.size() >= 2;  // Sky joins later
     });
     body(model, controller, host, *local_library, tick_until);
     controller.Shutdown();
@@ -878,6 +879,90 @@ void ImportedGamePlaysInPlace() {
     });
     hold_opens = false;
     controller.SetDropFolderOpenTimeout(std::chrono::seconds(60));
+    for (int i = 0; i < 50; ++i) { controller.Tick(); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
+    CHECK(launched.size() == plays_before);
+  });
+
+  // A newer kit with 120 Hz output: Sky's title keeps the older runtime until it is updated. 120 Hz output and Frame
+  // limit 120 chosen now wait for that; Maintenance › Update runtime moves the title to the kit's runtime without
+  // starting the game, and publishes them.
+  kit = SyntheticKit(fixture.root / "kit-display", "native-2", "kit-1", 'c');
+  kit.capabilities.push_back("display-120hz");
+  std::sort(kit.capabilities.begin(), kit.capabilities.end());
+  run(false, [&](hb::Simulation& model, hb::Controller& controller, RuntimeHost& host, local::LocalLibrarySource& source,
+                 const std::function<void(const std::function<bool()>&)>& tick_until) {
+    std::string sky_id;
+    for (const auto& imported : source.Snapshot()->games)
+      if (imported.volume == "internal") sky_id = imported.id;
+    CHECK(!sky_id.empty());
+    const auto game = GameId::Local(sky_id);
+    const auto runtime_of = [&]() -> const hb::LiveRuntimeGame* {
+      const auto found = model.state().runtime_games.find(game);
+      return found == model.state().runtime_games.end() ? nullptr : &found->second;
+    };
+    tick_until([&] {
+      const auto* runtime = runtime_of();
+      const auto snapshot = host.Snapshot();
+      return game_of(model, game) && runtime && runtime->status == "Kit update available" && !runtime->runtime_current &&
+             (!snapshot.launch || (snapshot.launch->state != LaunchState::kLaunching &&
+                                   snapshot.launch->state != LaunchState::kRunning));
+    });
+    fs::path profile;
+    for (const auto& entry : fs::recursive_directory_iterator(fixture.root / "data/playden/games"))
+      if (entry.path().extension() == ".profile" && entry.path().string().find(sky_id) != std::string::npos) profile = entry.path();
+    CHECK(!profile.empty());
+    const auto plays_before = launched.size();
+    open_details(model, game);
+    CHECK(model.action("focus:details-more") && model.action("cross"));
+    CHECK(model.action("focus:game-settings") && model.action("cross"));
+    CHECK(model.action("focus:section-more") && model.action("cross"));
+    // Sky's recipe leaves Graphics automatic; 120 Hz output is for DXVK and OpenGL.
+    tick_until([&] { const auto* row = row_of(model, "setting-graphics"); return row && row->enabled; });
+    CHECK(model.action("focus:setting-graphics") && model.action("cross"));
+    CHECK(model.action("focus:choice-2") && model.action("cross"));
+    tick_until([&] { const auto* row = row_of(model, "setting-refresh"); return row && row->enabled; });
+    CHECK(row_of(model, "setting-refresh")->subtitle.rfind(kAppliesAfterKitUpdate, 0) == 0);
+    CHECK(model.action("focus:setting-refresh") && model.action("cross"));
+    CHECK(model.action("focus:choice-1") && model.action("cross"));
+    CHECK(model.action("focus:setting-frame_limit") && model.action("cross"));
+    CHECK(model.action("focus:choice-1") && model.action("cross"));
+    CHECK(model.state().game_settings.at(game).overrides.at("refresh") == "120" &&
+          model.state().game_settings.at(game).overrides.at("frame_limit") == "120");
+    CHECK(model.action("circle"));  // closing the sheet applies the settings
+    tick_until([&] {
+      const auto* runtime = runtime_of();
+      return runtime && runtime->maintenance == hb::MaintenanceKind::ApplySettings && !runtime->maintenance_running &&
+             runtime->settings_revision == model.state().game_settings.at(game).revision;
+    });
+    CHECK(Read(profile).find("frame_rate") == std::string::npos && Read(profile).find("refresh = 120") == std::string::npos);
+
+    // Not while the game runs.
+    fixture.activity->store(static_cast<int>(NativeActivity::kActive));
+    CHECK(model.action("focus:game-maintenance") && model.action("cross"));
+    tick_until([&] {
+      const auto* row = row_of(model, "maintenance-update");
+      return row && !row->enabled && row->subtitle == "Quit Sky to change this.";
+    });
+    CHECK(model.action("circle"));
+    fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+    CHECK(model.action("focus:game-maintenance") && model.action("cross"));
+    tick_until([&] { const auto* row = row_of(model, "maintenance-update"); return row && row->enabled; });
+    CHECK(model.action("focus:maintenance-update") && model.action("cross"));
+    CHECK(model.action("focus:confirm-destructive") && model.action("cross"));
+    tick_until([&] {
+      const auto* runtime = runtime_of();
+      return runtime && runtime->maintenance == hb::MaintenanceKind::UpdateRuntime && !runtime->maintenance_running;
+    });
+    {
+      const auto& updated = *runtime_of();
+      if (!updated.maintenance_ok) std::fprintf(stderr, "Update runtime: %s\n", updated.maintenance_message.c_str());
+      CHECK(updated.maintenance_ok && updated.maintenance_message == "Runtime updated.");
+      CHECK(updated.runtime_current && updated.status != "Kit update available");
+    }
+    CHECK(Read(profile).find("\nrefresh = 120\nframe_rate = 120\n") != std::string::npos);
+    const auto* update = row_of(model, "maintenance-update");
+    CHECK(update && !update->enabled && update->subtitle == "Runtime updated.");
+    // The game does not start.
     for (int i = 0; i < 50; ++i) { controller.Tick(); std::this_thread::sleep_for(std::chrono::milliseconds(2)); }
     CHECK(launched.size() == plays_before);
   });

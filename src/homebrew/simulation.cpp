@@ -3964,6 +3964,7 @@ void Simulation::rebuild_view() {
                                 : action_key == "maintenance-shader" ? MaintenanceKind::ClearShaderCache
                                 : action_key == "maintenance-backup" ? MaintenanceKind::BackupSaves
                                 : action_key == "maintenance-recreate" ? MaintenanceKind::RecreateBottle
+                                : action_key == "maintenance-update" ? MaintenanceKind::UpdateRuntime
                                                                        : MaintenanceKind::ApplySettings;
                 std::string closed_reason;
                 const bool closed = game_closed(settings_game, &closed_reason);
@@ -3976,6 +3977,19 @@ void Simulation::rebuild_view() {
                         item.subtitle = settings_record != state_.game_settings.end() && !settings_record->second.overrides.empty()
                             ? "Nothing else to reset. The program you chose stays; change it in the Program row."
                             : "Nothing to reset: the settings follow the preset.";
+                } else if (kind == MaintenanceKind::UpdateRuntime) {
+                    // What Play does first for a title on an older kit's runtime ("Kit update available"), alone.
+                    const bool stale = runtime && (runtime->status == "Kit update available" || runtime->status == "Update available");
+                    item.title = "Update runtime";
+                    item.subtitle = "Moves the game to the installed kit's runtime without starting it.";
+                    item.badge = "Game must be closed";
+                    item.enabled = stale && runtime->can_prepare && closed && !busy;
+                    // While it runs the title is being prepared, no longer "Kit update available".
+                    const bool updating = busy && runtime->maintenance == MaintenanceKind::UpdateRuntime;
+                    if (!stale && !updating)
+                        item.subtitle = runtime && runtime->status == "No kit" ? "Needs a usable compatibility kit." : "Already up to date.";
+                    else if (!updating && !closed) item.subtitle = closed_reason;
+                    else if (!updating && !runtime->can_prepare && !busy) item.subtitle = "Wait for the game's setup to finish.";
                 } else {
                     item.title = kind == MaintenanceKind::Repair ? "Repair"
                                : kind == MaintenanceKind::ClearShaderCache ? "Clear shader cache"
@@ -6863,6 +6877,7 @@ void Simulation::activate() {
                         : chosen == "maintenance-shader" ? MaintenanceKind::ClearShaderCache
                         : chosen == "maintenance-backup" ? MaintenanceKind::BackupSaves
                         : chosen == "maintenance-recreate" ? MaintenanceKind::RecreateBottle
+                        : chosen == "maintenance-update" ? MaintenanceKind::UpdateRuntime
                                                            : MaintenanceKind::ApplySettings;
         if (chosen == "maintenance-reset") {
             auto& record = state_.game_settings[state_.navigation.selected_game_id];
@@ -7008,6 +7023,10 @@ void Simulation::activate() {
         if (action_name == "maintenance-reset") {
             heading = "Reset settings?";
             body = "Your changes to " + title + "'s settings are removed. The chosen preset and program stay; saves are not touched.";
+        } else if (action_name == "maintenance-update") {
+            heading = "Update the runtime?";
+            body = title + " moves to the runtime of the installed compatibility kit, and settings that need it apply. "
+                   "The game doesn't start; saves are not touched.";
         } else if (action_name == "maintenance-repair") {
             heading = "Repair the game?";
             body = "Playden checks the files " + title + " needs to start, fixes their permissions and writes its settings again. Saves are not touched.";
@@ -8202,7 +8221,8 @@ std::vector<std::string> Simulation::details_context_actions() const {
 }
 
 std::vector<std::string> Simulation::maintenance_actions() const {
-    return {"maintenance-reset", "maintenance-repair", "maintenance-shader", "maintenance-backup", "maintenance-recreate", "cancel"};
+    return {"maintenance-reset", "maintenance-update", "maintenance-repair", "maintenance-shader", "maintenance-backup",
+            "maintenance-recreate", "cancel"};
 }
 
 bool Simulation::game_prepared(GameId id) const {
@@ -8239,7 +8259,8 @@ void Simulation::request_maintenance(GameId id, MaintenanceKind kind) {
         const char* words = kind == MaintenanceKind::ClearShaderCache ? "Shader cache cleared"
                           : kind == MaintenanceKind::Repair ? "Repaired"
                           : kind == MaintenanceKind::BackupSaves ? "Saves backed up"
-                          : kind == MaintenanceKind::RecreateBottle ? "Bottle recreated" : "Settings applied";
+                          : kind == MaintenanceKind::RecreateBottle ? "Bottle recreated"
+                          : kind == MaintenanceKind::UpdateRuntime ? "Runtime updated" : "Settings applied";
         push_notice({"maintenance-" + ToKey(id), words, "", false, kLiveNoticeSeconds, false, "Simulated"});
         return;
     }

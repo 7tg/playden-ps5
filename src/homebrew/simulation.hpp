@@ -49,7 +49,7 @@ struct InstallRequest {
     bool delete_saves = false;  // Uninstall only: also delete the game's kept saves and settings
 };
 // Game maintenance the details page offers (simulated in fixture mode).
-enum class MaintenanceKind { ApplySettings, ClearShaderCache, Repair, BackupSaves, RecreateBottle };
+enum class MaintenanceKind { ApplySettings, ClearShaderCache, Repair, BackupSaves, RecreateBottle, UpdateRuntime };
 // Whether a game's PS5 title runs now, as the console last answered.
 enum class TitleActivity { Unknown, Stopped, Running };
 // Live install state projected from the real install service.

@@ -310,6 +310,94 @@ void live_120hz_waits_for_the_title_update(const std::filesystem::path& base) {
           "after Reset the rows show the preset's values");
 }
 
+// Maintenance › Update runtime runs the update Play does first for a title on an older kit's runtime, without
+// starting the game: only while the title waits for it and the game is closed.
+void live_update_runtime_from_maintenance(const std::filesystem::path& base) {
+    using playden::homebrew::MaintenanceKind;
+    using playden::homebrew::TitleActivity;
+    using Requests = std::vector<std::pair<playden::homebrew::GameId, MaintenanceKind>>;
+    std::filesystem::create_directories(base);
+    auto model = make_live(base);
+    model.SetGameSettingsFile(base / "update-settings.json");
+    model.SetSettingsData({{"playden-default", "Playden default", "Most games", "", {}}}, {});
+    model.SetKitCapabilities(playden::runtime::KitCapabilitiesFromManifest({"dxvk", "display-120hz"}, true));
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    playden::GameSummary game;
+    game.id = SteamId(220);
+    game.title = "Half-Life 2";
+    check(model.UpdateLibrary({{game}, false, {}, false, true, 100}), "update game library delivered");
+    model.UpdateInstalls({}, {{SteamId(220), 1024, "internal", true}});
+    playden::homebrew::LiveRuntimeGame runtime;
+    runtime.game_id = SteamId(220);
+    runtime.status = "Kit update available";
+    runtime.prepared = runtime.has_title = runtime.can_prepare = true;
+    runtime.runtime_current = false;
+    runtime.launch_entry_id = "game";
+    runtime.activity = TitleActivity::Stopped;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(model.action("details:220"), "open the stale game's details");
+    activate(model, "details-more");
+    activate(model, "game-maintenance");
+    check(!find_row(model, "maintenance-update")->enabled, "Update runtime waits for the console's answer");
+    model.TakeActivityRequests();
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    const auto* update = find_row(model, "maintenance-update");
+    check(update && update->enabled && update->title == "Update runtime" &&
+              update->subtitle == "Moves the game to the installed kit's runtime without starting it." &&
+              update->badge == "Game must be closed",
+          "Update runtime is offered for a closed game whose title waits for its kit update");
+
+    // Not while the game runs.
+    runtime.activity = TitleActivity::Running;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    update = find_row(model, "maintenance-update");
+    check(update && !update->enabled && update->subtitle == "Quit Half-Life 2 to change this.", "Update runtime waits while the game runs");
+    (void)model.action("focus:maintenance-update");
+    (void)model.action("cross");
+    check(model.TakeMaintenanceRequests().empty(), "a running game's title is not updated");
+    // Nor while its setup is queued or running.
+    runtime.activity = TitleActivity::Stopped;
+    runtime.can_prepare = false;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    update = find_row(model, "maintenance-update");
+    check(update && !update->enabled && update->subtitle == "Wait for the game's setup to finish.", "Update runtime waits for setup");
+    runtime.can_prepare = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+
+    activate(model, "maintenance-update");
+    check(model.state().navigation.modals.back().title == "Update the runtime?", "Update runtime asks first");
+    activate(model, "confirm-destructive");
+    check(model.TakeMaintenanceRequests() == Requests{{SteamId(220), MaintenanceKind::UpdateRuntime}},
+          "a confirmed Update runtime goes to the runtime");
+    check(model.TakeRuntimePlayRequests().empty(), "Update runtime does not start the game");
+    check(find_row(model, "maintenance-update")->value == "Working…" && !find_row(model, "maintenance-repair")->enabled,
+          "the update shows its progress and holds the other actions");
+    runtime.maintenance = MaintenanceKind::UpdateRuntime;
+    runtime.maintenance_running = true;
+    runtime.status = "Preparing";
+    runtime.can_prepare = false;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    update = find_row(model, "maintenance-update");
+    check(update && !update->enabled && update->value == "Working…" &&
+              update->subtitle == "Moves the game to the installed kit's runtime without starting it.",
+          "the running update keeps saying what it does");
+    runtime.can_prepare = true;
+    runtime.maintenance_running = false;
+    runtime.maintenance_ok = true;
+    runtime.maintenance_message = "Runtime updated.";
+    runtime.status = "Ready";
+    runtime.ready = true;
+    runtime.runtime_current = true;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    check(has_notice(model, "maintenance-220"), "the finished update reports its outcome");
+    update = find_row(model, "maintenance-update");
+    check(update && !update->enabled && update->subtitle == "Runtime updated.", "the row shows the outcome");
+    runtime.maintenance.reset();
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    update = find_row(model, "maintenance-update");
+    check(update && !update->enabled && update->subtitle == "Already up to date.", "a current title has nothing to update");
+}
+
 // A prepared game's settings and maintenance: rows that need the game closed wait for the
 // console's answer, a closed sheet asks for the settings to be applied, and maintenance
 // requests go to the runtime after a confirmation.
@@ -969,6 +1057,7 @@ int main() {
     settings_survive_account_restore_and_cache_action_is_honest(base);
     live_settings_follow_the_prepared_title(base);
     live_120hz_waits_for_the_title_update(base / "display");
+    live_update_runtime_from_maintenance(base / "update-runtime");
     live_program_change_applies_like_other_settings(base);
     live_imported_game_steam_app_id(base);
     live_imported_program_seeds_once(base);
