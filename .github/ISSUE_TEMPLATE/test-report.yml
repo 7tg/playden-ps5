@@ -1,5 +1,5 @@
 name: Game test report
-description: Tell us how a game ran on Playden, whether it worked or not.
+description: Tell me how a game ran on Playden, whether it worked or not.
 title: "[Test] <game name>"
 labels: ["test report"]
 body:
@@ -22,7 +22,7 @@ body:
     id: game
     attributes:
       label: Game
-      description: The name and the Steam store link (the link has the app ID).
+      description: The name and the Steam store link (the link has the app ID). For an imported game, its name and where it comes from (GOG, Epic, a disc).
       placeholder: "Vampire Survivors — https://store.steampowered.com/app/1794680"
     validations:
       required: true
@@ -58,7 +58,9 @@ body:
       label: Where the game is installed
       options:
         - Console storage
+        - M.2 SSD
         - exFAT USB drive
+        - Imported, played where it is (drop folder or a drive's playden/import)
         - Other (say below)
     validations:
       required: true
@@ -100,5 +102,5 @@ body:
       options:
         - label: kstuff and ShadowMountPlus were loaded when I tested.
           required: true
-        - label: I own this game on Steam.
+        - label: I own this game (on Steam, or a copy I bought for an imported game).
           required: true

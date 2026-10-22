@@ -1,5 +1,11 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
+  - name: Questions and help on Discord
+    url: https://discord.gg/wd8UjExpPA
+    about: Ask about setup, installing or anything that isn't a bug.
+  - name: Questions and news on Reddit
+    url: https://www.reddit.com/r/Playden_PS5/
+    about: Ask questions and share what you play on r/Playden_PS5.
   - name: Compatibility list
     url: https://github.com/leolobato/playden-ps5/blob/main/COMPATIBILITY.md
     about: See which games have been tested before you report one.

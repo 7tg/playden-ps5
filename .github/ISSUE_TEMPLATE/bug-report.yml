@@ -1,0 +1,82 @@
+name: Bug report
+description: Something in Playden does not work as it should, once it is installed and running.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For questions and help with setup, ask on [Discord](https://discord.gg/wd8UjExpPA) or
+        [r/Playden_PS5](https://www.reddit.com/r/Playden_PS5/) instead. A problem with one game goes in a
+        [game test report](https://github.com/leolobato/playden-ps5/issues/new?template=test-report.yml), and a problem
+        installing, updating or starting Playden in an
+        [install or update problem](https://github.com/leolobato/playden-ps5/issues/new?template=install-problem.yml).
+
+        Collect the logs **after you start Playden once more**, from your computer:
+
+        ```sh
+        python3 tools/collect_logs.py --host <PS5 IP>
+        ```
+
+        Paste the table it prints into **Versions** and attach the zip below.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Steam sign-in
+        - Library
+        - Downloads and installs
+        - Importing games
+        - Game setup (preparation, PS5 title, Game settings)
+        - Cloud saves
+        - Uninstall and storage
+        - Controller or display
+        - Other (say below)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, step by step, what you saw and what you expected instead. Copy any message Playden showed.
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often
+      options:
+        - Every time
+        - Sometimes
+        - Once
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: Paste the table from `collect_logs.py`. Without it, give the firmware, the Playden version (Settings > About) and the kit.
+      placeholder: |
+        | Field | Value |
+        | --- | --- |
+        | firmware | 13.60 |
+        | kit runtime | ... |
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: |
+        Drag the zip from `collect_logs.py` here, and a photo or screenshot of the screen if it helps.
+        The script hides your Steam account name, but look through the logs before you post them.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: kstuff and ShadowMountPlus were loaded.
+          required: true
+        - label: I looked at the [known issues](https://github.com/leolobato/playden-ps5#known-issues) and the open issues first.
+          required: true

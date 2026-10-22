@@ -1,0 +1,77 @@
+name: Install or update problem
+description: Playden or the runtime kit won't install, update or start.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [Requirements](https://github.com/leolobato/playden-ps5#requirements) first: most install problems are
+        a missing payload (kstuff, ShadowMountPlus, elfldr) or a kit copied by hand. For questions and help with setup,
+        ask on [Discord](https://discord.gg/wd8UjExpPA) or [r/Playden_PS5](https://www.reddit.com/r/Playden_PS5/).
+
+        If Playden starts, collect the logs from your computer and attach the zip below:
+
+        ```sh
+        python3 tools/collect_logs.py --host <PS5 IP>
+        ```
+  - type: dropdown
+    id: step
+    attributes:
+      label: Where it fails
+      options:
+        - Copying Playden with console_title_deploy.py
+        - Copying the kit with console_kit_upload.py
+        - Playden doesn't start, or stays on the splash screen
+        - Playden starts and shows an error (runtime, kit or storage)
+        - Updating Playden from Settings > About
+        - Other (say below)
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware
+      placeholder: "13.60"
+    validations:
+      required: true
+  - type: textarea
+    id: jailbreak
+    attributes:
+      label: Jailbreak and payloads
+      description: How you jailbreak the console, and which payloads you load, with versions if you know them.
+      placeholder: |
+        WebKit autoloader; kstuff-lite 1.11, ShadowMountPlus 1.7-beta5fix1, elfldr 0.26, zftpd 1.6.0
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Playden and kit versions
+      description: The zips you downloaded, or Settings > About if Playden starts.
+      placeholder: playden-ps5-0.6.0.zip, playden-kit-0.12.zip
+    validations:
+      required: true
+  - type: input
+    id: computer
+    attributes:
+      label: Your computer
+      description: For problems with the Python tools, the operating system and `python3 --version`.
+      placeholder: Windows 11, Python 3.12.4
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: The full output of the command that failed, or the message on the PS5 screen.
+      render: shell
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What you did
+      description: The steps you followed and anything you changed by hand (renamed folders, edited files, other payloads).
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Drag the zip from `collect_logs.py` here if Playden starts, and a photo of the screen if it helps.

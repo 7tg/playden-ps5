@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest something Playden should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Look through the [open issues](https://github.com/leolobato/playden-ps5/issues?q=is%3Aissue+is%3Aopen) and the
+        README's [planned features](https://github.com/leolobato/playden-ps5#planned) first. If your idea is there, add a
+        comment or a 👍 to that issue instead of opening a new one.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: What you are trying to do with Playden, and what stops you today.
+      placeholder: I play some games with a flight stick, and Playden only sees the DualSense.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you picture it working. Screens, settings or examples from other launchers are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do now
+      description: Any workaround you use today, or other ways it could work. Leave empty if none.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I looked for an existing issue about this.
+          required: true

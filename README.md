@@ -4,6 +4,9 @@
 
 **Play your Steam library's Windows games on a jailbroken PS5.**
 
+[![Discord](https://img.shields.io/discord/1562443095629373590?label=Discord&logo=discord&logoColor=white)](https://discord.gg/wd8UjExpPA)
+[![Reddit](https://img.shields.io/badge/Reddit-r%2FPlayden__PS5-FF4500?logo=reddit&logoColor=white)](https://www.reddit.com/r/Playden_PS5/)
+
 Playden is a launcher that runs on the PS5, adapted from [Playden for macOS](https://github.com/leolobato/playden).
 You sign in to Steam with a QR code or your account name and password, browse your library, download games, and play them. The Windows games run through
 [prospero-win](https://github.com/mpereiraesaa/prospero-win), a port of Wine to the PS5. Each game gets its own
@@ -339,7 +342,11 @@ Every test helps, including games that work. To report one:
 3. [Open a game test report](../../issues/new?template=test-report.yml) and attach the zip. See a
    [sample report](docs/sample-test-report.md) for what to fill in.
 
-For a problem that is not about one game, open a regular issue with the same zip.
+For a problem that is not about one game, [open a bug report](../../issues/new?template=bug-report.yml) with the
+same zip. A problem installing or updating Playden goes in an
+[install or update problem](../../issues/new?template=install-problem.yml), and ideas in a
+[feature request](../../issues/new?template=feature-request.yml). Questions and help with setup go to
+[Discord](https://discord.gg/wd8UjExpPA) or [r/Playden_PS5](https://www.reddit.com/r/Playden_PS5/), not to issues.
 
 ## Built on
 
