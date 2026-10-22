@@ -2376,10 +2376,18 @@ class Render::Impl
                     ui::text(scene_, fonts_.display, row.value, right, head.cy() + 9.0F, 26.0F, kMuted,
                              gfx::Align::right);
             }
+            else if (row.value.empty())
+            {
+                // Nothing to say: the chevron alone says another screen comes first.
+                const float chevron = right - 8.0F;
+                const gfx::Color ink = row.dangerous ? kRed : kText;
+                scene_.line(chevron - 7.0F, head.cy() - 11.0F, chevron + 3.0F, head.cy(), 2.6F, ink);
+                scene_.line(chevron + 3.0F, head.cy(), chevron - 7.0F, head.cy() + 11.0F, 2.6F, ink);
+            }
             else
             {
                 // "Manage ›" on macOS; the chevron is drawn, as the console fonts lack it.
-                const std::string label = row.value.empty() ? std::string(row.dangerous ? "Review" : "Open") : row.value;
+                const std::string& label = row.value;
                 const float pill = fonts_.display.measure(label, 26.0F) + 64.0F;
                 const gfx::Rect button{right - pill, head.cy() - 28.0F, pill, 56.0F};
                 scene_.bordered_rect(button, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kText.with_alpha(0.2F));
