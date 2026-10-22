@@ -316,6 +316,34 @@ void imported_scope_lists_local_games(const std::filesystem::path& fixtures)
     check(filtered_games(state).size() > 1, "All still lists every game");
 }
 
+// Signed out with only imported games playing from their folders, Home shows them under Recently
+// installed, newest first, and the Installed scope lists them.
+void imported_games_fill_home_signed_out()
+{
+    State state;
+    state.simulation_mode = false;
+    state.account().authentication = AuthState::SignedOut;
+    const auto add = [&state](const char* uuid, const char* title, std::int64_t added) {
+        Game game;
+        game.id = playden::GameId::Local(uuid);
+        game.title = title;
+        game.added_at = added;
+        state.games.push_back(game);
+        state.external_games.push_back({game.id, "usb0", true, ""});
+        return game.id;
+    };
+    const auto older = add("0f8fad5b-d9cb-469f-a165-70867728950e", "Bastion", 100);
+    const auto newer = add("7c9e6679-7425-40de-944b-e07fc1f90ae7", "GRIS", 200);
+    const auto projected = shelves(state);
+    const auto recent = std::find_if(projected.begin(), projected.end(), [](const Shelf& shelf) {
+        return shelf.key == "installed";
+    });
+    check(recent != projected.end() && recent->game_ids == std::vector<GameId>{newer, older},
+          "Recently installed lists imported games newest first");
+    state.library.scope = "installed";
+    check(filtered_games(state).size() == 2, "the Installed scope lists imported games playing in place");
+}
+
 } // namespace
 
 void continue_playing_ends_in_more(const std::filesystem::path& fixtures)
@@ -374,6 +402,7 @@ int main(int argc, char** argv)
     utf8_caret_boundaries();
     disconnected_installations_remain_installed(fixtures);
     imported_scope_lists_local_games(fixtures);
+    imported_games_fill_home_signed_out();
     std::cout << "homebrew browse tests passed\n";
     return 0;
 }

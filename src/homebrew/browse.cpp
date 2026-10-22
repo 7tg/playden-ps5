@@ -234,6 +234,17 @@ std::vector<Shelf> shelves(const State& state)
          ++installation)
         if (installation->installed_bytes > 0)
             append_known(state, recent, installation->game_id, seen);
+    // Imported games playing from their folder, newest first: without a store sign-in, they are
+    // the whole of Home.
+    std::vector<const Game*> in_place;
+    for (const LiveExternalGame& external : state.external_games)
+        if (const Game* game = find_game(state, external.game_id))
+            in_place.push_back(game);
+    std::stable_sort(in_place.begin(), in_place.end(), [](const Game* left, const Game* right) {
+        return optional_descending(left->added_at, right->added_at);
+    });
+    for (const Game* game : in_place)
+        append_known(state, recent, game->id, seen);
     append_shelf(result, std::move(recent));
 
     Shelf favorites{"favorites", "Favorites", {}};

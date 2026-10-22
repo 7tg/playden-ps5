@@ -1538,11 +1538,12 @@ class Render::Impl
             std::string value;
             bool selected = false;
         };
+        // As the Installed scope counts them: imported games playing from their folder too.
         const std::size_t installed = std::count_if(
             state.installations.begin(), state.installations.end(),
             [&state](const Installation &installation) {
                 return installation.installed_bytes > 0 || !state.simulation_mode;
-            });
+            }) + state.external_games.size();
         std::vector<RailEntry> entries = {
             {"rail-installed", "Installed", std::to_string(installed), state.library.scope == "installed"},
             {"rail-all", "All", std::to_string(state.games.size()), state.library.scope == "all"},
