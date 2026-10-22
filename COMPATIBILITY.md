@@ -190,7 +190,7 @@ Development builds carry the version they lead to, such as `0.12-dev.20261020.1`
 
 | Kit | What changed for games |
 | --- | --- |
-| 0.12 | 120 Hz output: Game settings › 120 Hz output runs DXVK, vkd3d-proton and OpenGL games at 120 Hz on a TV that supports it, and Frame limit (Off, 120, 60, 40, 30) is paced by the display. Games set up on 0.11 keep 60 Hz until their next Play updates them. |
+| 0.12 | 120 Hz output: Game settings › 120 Hz output runs DXVK, vkd3d-proton and OpenGL games at 120 Hz on a TV that supports it, and Frame limit (Off, 120, 60, 40, 30) is paced by the display. Games set up on 0.11 keep 60 Hz until their next Play or Maintenance › Update runtime updates them; 120 Hz output can be chosen before that and applies with the update. |
 | 0.11 | Direct3D 12 through vkd3d-proton: Playden turns it on for games that use Direct3D 12, except Unity and Unreal games, where Game settings › Direct3D 12 turns it on (they then get `-force-d3d12` or `-dx12`). 64-bit games can reserve more address space (Cyberpunk 2077). |
 | 0.10 | First stable kit. Windows video and audio decoding through GStreamer and FFmpeg, so games play their movies and compressed audio (Fallout 4, Bulletstorm, Metal Wolf Chaos XD). Source games (Portal 2, Team Fortress 2, Black Mesa) no longer hang at start-up with the controller. Call of Juarez Gunslinger's audio no longer freezes the game. A game that crashes now quits instead of freezing. |
 | Earlier | Test kits before the first stable release, named by letter and revision (D to H r9). Kit 0.10 follows H r9: games set up on H r6 or later need nothing, and games set up earlier need Recreate bottle. |
