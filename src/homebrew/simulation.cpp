@@ -1395,14 +1395,23 @@ void Simulation::request_uninstall(GameId id, bool delete_saves, bool batch) {
     pending_install_requests_.push_back({InstallRequestKind::Uninstall, id, {}, delete_saves});
     pending_uninstalls_.insert(id);
     if (const auto* game = find_game(state_, id); game && !game->title.empty()) uninstall_titles_[id] = game->title;
-    // Asked again: an earlier stop no longer applies.
-    std::erase_if(state_.ended_uninstalls, [id](const EndedUninstall& ended) { return ended.game_id == id && !ended.stopped.empty(); });
+    // Asked again: how it ended before is no longer listed, so the game shows once, as it goes now.
+    std::erase_if(state_.ended_uninstalls, [id](const EndedUninstall& ended) { return ended.game_id == id; });
+    previous_account_uninstalls_.erase(id);
     if (batch) batch_uninstalls_.insert(id);
     else batch_uninstalls_.erase(id);
 }
 
 // Queue keeps how this session's uninstalls ended, newest first: a game's latest stop, and every finish.
 void Simulation::end_uninstall(GameId id, const std::string& stopped) {
+    // It is no longer at work: Queue lists it as ended at once, not also as running until the
+    // controller's next list.
+    std::erase_if(state_.preparation_queue.uninstalls, [id](const LiveUninstall& item) { return item.game_id == id; });
+    pending_uninstalls_.erase(id);
+    if (previous_account_uninstalls_.erase(id)) {
+        uninstall_titles_.erase(id);
+        return;
+    }
     auto& ended = state_.ended_uninstalls;
     std::erase_if(ended, [id](const EndedUninstall& entry) { return entry.game_id == id && !entry.stopped.empty(); });
     std::string title;
@@ -1410,7 +1419,6 @@ void Simulation::end_uninstall(GameId id, const std::string& stopped) {
     else if (const auto known = uninstall_titles_.find(id); known != uninstall_titles_.end()) title = known->second;
     ended.insert(ended.begin(), {id, std::move(title), stopped, state_.clock_ticks});
     uninstall_titles_.erase(id);
-    pending_uninstalls_.erase(id);
 }
 
 const EndedUninstall* Simulation::uninstall_stop(GameId id) const {
@@ -2103,8 +2111,17 @@ void Simulation::clear_account_specific_state() {
     // Live organization (favorites, collections, ratings, notes) belongs to the device and stays.
     if (live()) state_.library.view_sort.clear();
     else state_.library = {};
-    // Steam's installs and downloads go with its account; other stores' stay listed.
+    // Steam's installs and downloads go with its account; other stores' stay listed. So do its ended
+    // uninstalls; one still running may finish, but how it ends is not listed for the next account.
     std::erase_if(state_.installations, [](const Installation& item) { return item.game_id.store == Store::kSteam; });
+    std::erase_if(state_.ended_uninstalls, [](const EndedUninstall& ended) { return ended.game_id.store == Store::kSteam; });
+    for (const auto& uninstall : state_.preparation_queue.uninstalls)
+        if (uninstall.game_id.store == Store::kSteam) previous_account_uninstalls_.insert(uninstall.game_id);
+    for (const auto id : pending_uninstalls_)
+        if (id.store == Store::kSteam) previous_account_uninstalls_.insert(id);
+    std::erase_if(pending_uninstalls_, [](GameId id) { return id.store == Store::kSteam; });
+    std::erase_if(batch_uninstalls_, [](GameId id) { return id.store == Store::kSteam; });
+    std::erase_if(uninstall_titles_, [](const auto& entry) { return entry.first.store == Store::kSteam; });
     std::erase_if(state_.jobs, [](const Job& job) { return job.game_id.store == Store::kSteam; });
     state_.volumes.clear();
     state_.cloud.clear();

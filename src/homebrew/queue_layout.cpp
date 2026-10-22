@@ -213,7 +213,8 @@ QueueSection preparations(const State& state) {
         finished.push_back(std::move(item));
     }
     for (const auto& ended : state.ended_uninstalls) {
-        if (!ended.stopped.empty()) continue;
+        // A game shows once: while it is being uninstalled again, not also as done.
+        if (!ended.stopped.empty() || uninstalling(ended.game_id)) continue;
         QueueEntry item;
         item.key = "prep-unin-done-" + ToKey(ended.game_id) + "-" + std::to_string(ended.finished_at);
         item.game_id = ended.game_id;

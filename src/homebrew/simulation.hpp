@@ -951,6 +951,8 @@ private:
     // no notice of their own when they finish, and a stop is a corner notice, not a dialog.
     std::set<GameId> batch_uninstalls_;
     std::map<GameId, std::string> uninstall_titles_;  // names of games being uninstalled, for once they are gone
+    // Steam games still being uninstalled when their account signed out: how they end is not listed.
+    std::set<GameId> previous_account_uninstalls_;
     std::string installed_list_focus_;  // the game row the focus left for the footer
     std::string installed_message_;  // the list's note when a confirmed uninstall could not start
     bool rebuilding_overlay_ = false;  // rebuild_view is building the screen under an open sheet

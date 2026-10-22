@@ -2516,6 +2516,27 @@ void live_queue_lists_uninstalls() {
     activate(model, done_key);
     activate(model, "prep-clear-completed");
     check(model.TakePreparedClear() && model.state().ended_uninstalls.empty(), "Clear completed clears both");
+
+    // A game shows once: finished, it leaves the running list at once (before the controller's next
+    // list); uninstalled again, its earlier finish is not listed while it goes.
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {}, {{SteamId(42), "Deleting files…"}}});
+    model.NotifyUninstallFinished(SteamId(42));
+    const auto gamma_done = "prep-unin-done-42-" + std::to_string(now);
+    check((queue_keys(model) == std::vector<std::string>{"queue-preparation", gamma_done}),
+          "a finished uninstall is listed once, as done, at once");
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {}, {{SteamId(42), "Deleting files…"}}});
+    check((queue_keys(model) == std::vector<std::string>{"queue-preparation", "prep-unin-42"}),
+          "while the game is uninstalled again its earlier finish is not listed");
+
+    // Signing out drops the account's ended uninstalls; one still running may finish, unlisted.
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {}, {{SteamId(41), "Removing PS5 title…"}}});
+    model.NotifyUninstallStopped(SteamId(40), "Its drive is not connected. Connect it, then uninstall again.");
+    while (!model.state().navigation.modals.empty()) model.action("circle");
+    check(model.state().ended_uninstalls.size() == 2, "a finish and a stop are listed");
+    model.UpdateAccount({AuthState::SignedOut, {}, {}, {}, {}, true});
+    check(model.state().ended_uninstalls.empty(), "signing out drops the previous account's ended uninstalls");
+    model.NotifyUninstallFinished(SteamId(41));
+    check(model.state().ended_uninstalls.empty(), "an uninstall of the previous account that ends later is not listed");
 }
 
 // A game whose preparation needs the player stays in Preparation without a running preparation.
