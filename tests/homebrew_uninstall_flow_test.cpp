@@ -220,6 +220,49 @@ int main() {
   fifo.Abandon(SteamId(20));
   CHECK(fifo.Begin(SteamId(20), false, false) && fifo.Begin(SteamId(5), false, false));
   CHECK(fifo.Active() == std::vector<GameId>({SteamId(30), SteamId(10), SteamId(20), SteamId(5)}));
+
+  // The install service deletes one game at a time, in its order: only the first of these uninstalls
+  // it lists is at work; one not listed (an imported game leaving the library) is at work too.
+  UninstallFlow deleting;
+  for (const auto app : {70u, 71u, 72u}) {
+    CHECK(deleting.Begin(SteamId(app), false, false));
+    CHECK(deleting.Advance(SteamId(app), UninstallFacts{}).kind == Kind::kRemoveDownload);
+  }
+  const std::vector<GameId> queued{SteamId(99), SteamId(71), SteamId(70)};
+  CHECK(deleting.Started(SteamId(71), queued) && !deleting.Started(SteamId(70), queued));
+  CHECK(deleting.Started(SteamId(72), queued));
+  CHECK(deleting.Started(SteamId(70)));
+
+  // A drive that is not connected stops the uninstall before its PS5 title is removed...
+  UninstallFlow absent;
+  UninstallFacts unplugged;
+  unplugged.has_title = true;
+  unplugged.drive_absent = true;
+  CHECK(absent.Begin(SteamId(80), false, false));
+  action = absent.Advance(SteamId(80), unplugged);
+  CHECK(action.kind == Kind::kStop && action.reason == "Its drive is not connected. Connect it, then uninstall again.");
+  CHECK(!absent.Step(SteamId(80)));
+  // ...lets a removal already sent finish, then stops before asking for the download.
+  CHECK(absent.Begin(SteamId(81), false, false));
+  unplugged.drive_absent = false;
+  CHECK(absent.Advance(SteamId(81), unplugged).kind == Kind::kRemoveTitle);
+  unplugged.drive_absent = true;
+  unplugged.removing = true;
+  CHECK(absent.Advance(SteamId(81), unplugged).kind == Kind::kNone && absent.Step(SteamId(81)) == UninstallStep::kRemoveTitle);
+  UninstallFacts removed_unplugged;
+  removed_unplugged.removals_handled = 1;
+  removed_unplugged.drive_absent = true;
+  CHECK(absent.Advance(SteamId(81), removed_unplugged).kind == Kind::kStop && !absent.Step(SteamId(81)));
+
+  // A sync Cloud did not take stops that uninstall, and the next one's sync goes out.
+  UninstallFlow refused;
+  CHECK(refused.Begin(SteamId(90), false, true) && refused.Begin(SteamId(91), false, true));
+  CHECK(refused.SyncRefused(SteamId(90)).kind == Kind::kNone);  // not issued yet
+  CHECK(refused.TakeSyncRequests() == std::vector<GameId>({SteamId(90)}));
+  refused.SyncDispatched(SteamId(90));
+  action = refused.SyncRefused(SteamId(90));
+  CHECK(action.kind == Kind::kStop && action.reason.find("Uninstall again") != std::string::npos && !refused.Step(SteamId(90)));
+  CHECK(refused.TakeSyncRequests() == std::vector<GameId>({SteamId(91)}));
   std::puts("uninstall flow tests passed");
   return 0;
 }

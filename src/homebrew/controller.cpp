@@ -599,6 +599,7 @@ void Controller::TickCloud() {
       continue;
     }
     // Busy from now on, before Cloud reports it, so Play cannot slip in.
+    const bool busy_before = cloud_busy_.count(request.game_id) != 0;
     cloud_busy_.insert(request.game_id);
     if (request.kind == CloudRequestKind::Sync) uninstalls_.SyncDispatched(request.game_id);
     std::uint64_t serial = 0;
@@ -609,6 +610,13 @@ void Controller::TickCloud() {
       case CloudRequestKind::ConfirmAccount: serial = cloud_->Resolve(*location, steam::CloudResolution::kAutomatic, true); break;
       case CloudRequestKind::RemoveLocal: serial = cloud_->RemoveLocal(*location); break;
       default: break;
+    }
+    if (serial == 0) {
+      // Cloud took nothing: no transfer runs for the game, and an uninstall waiting on it stops.
+      if (!busy_before) cloud_busy_.erase(request.game_id);
+      if (request.kind == CloudRequestKind::Sync)
+        if (const auto stopped = uninstalls_.SyncRefused(request.game_id); stopped.kind == UninstallAction::Kind::kStop)
+          StopUninstall(request.game_id, stopped.reason);
     }
     // The answer is the game's first settled report after this serial.
     if (const auto foreground = cloud_foreground_.find(request.game_id); foreground != cloud_foreground_.end()) {
@@ -1169,7 +1177,7 @@ void Controller::TickRuntime() {
         queue.refused[id] = refusal;
     // Uninstalls in the order they run; only those at work say their step.
     for (const auto id : uninstalls_.Active())
-      queue.uninstalls.push_back({id, uninstalls_.Started(id) ? UninstallStatus(id) : std::string()});
+      queue.uninstalls.push_back({id, uninstalls_.Started(id, files_deleting_) ? UninstallStatus(id) : std::string()});
     model_.UpdatePreparationQueue(std::move(queue));
   }
   if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
@@ -1439,7 +1447,7 @@ std::string Controller::UninstallStatus(GameId id) const {
   const auto step = uninstalls_.Step(id);
   if (!step) return {};
   // Only the uninstalls at work say what they do; the others wait their turn.
-  if (!uninstalls_.Started(id)) return "Waiting to uninstall";
+  if (!uninstalls_.Started(id, files_deleting_)) return "Waiting to uninstall";
   switch (*step) {
     case UninstallStep::kSync: return "Syncing saves…";
     case UninstallStep::kRemoveTitle: return "Removing PS5 title…";
@@ -1486,7 +1494,10 @@ void Controller::TickUninstalls() {
     // The install service lists a game as installed no more once it starts deleting it: the
     // uninstall is over once the deletion is too. Without the service there is nothing to wait for.
     const auto* location = LocationOf(id);
-    facts.download_gone = (!location && !files_deleting_.count(id)) || (location && location->managed() && !installs_);
+    facts.download_gone = (!location && std::find(files_deleting_.begin(), files_deleting_.end(), id) == files_deleting_.end()) ||
+                          (location && location->managed() && !installs_);
+    // As the install service sees it: a game missing from a drive that is gone can't be deleted.
+    facts.drive_absent = location && location->managed() && !location->available && !drives_present_.count(location->volume_id);
     const auto action = uninstalls_.Advance(id, facts);
     switch (action.kind) {
       case UninstallAction::Kind::kNone: break;
@@ -1498,8 +1509,14 @@ void Controller::TickUninstalls() {
       case UninstallAction::Kind::kRemoveDownload:
         if (location && !location->managed()) {
           // Its outcome is watched: a refusal stops the uninstall (TickImports).
-          if (id.store == Store::kLocal && local_)
-            if (const auto number = local_->Remove(id.value)) import_requests_[number] = {ImportRequestKind::Remove, id};
+          if (id.store == Store::kLocal && local_) {
+            if (const auto number = local_->Remove(id.value)) {
+              import_requests_[number] = {ImportRequestKind::Remove, id};
+            } else {
+              uninstalls_.Abandon(id);
+              StopUninstall(id, "Playden could not take the game out of the library now. Uninstall again to try again.");
+            }
+          }
         } else if (installs_) {
           installs_->Uninstall(id);
         }
@@ -1602,7 +1619,24 @@ void Controller::TickImports() {
   for (auto it = import_requests_.begin(); it != import_requests_.end();) {
     const auto outcome = std::find_if(snapshot->outcomes.begin(), snapshot->outcomes.end(),
                                       [&](const stores::local::ImportOutcome& o) { return o.request == it->first; });
-    if (outcome == snapshot->outcomes.end()) { ++it; continue; }
+    if (outcome == snapshot->outcomes.end()) {
+      // An uninstall's removal answered so long ago its outcome scrolled off the list: the game still
+      // in the library means it was refused; one gone ends as usual once its location is gone.
+      const bool lost = snapshot->outcomes.size() >= stores::local::LocalLibrarySource::kMaxOutcomes &&
+                        it->first < snapshot->outcomes.front().request;
+      const auto id = it->second.game_id;
+      if (lost && it->second.kind == ImportRequestKind::Remove && uninstalls_.Step(id)) {
+        if (std::any_of(snapshot->games.begin(), snapshot->games.end(),
+                        [&id](const stores::local::ImportEntry& entry) { return GameId::Local(entry.id) == id; })) {
+          uninstalls_.Abandon(id);
+          StopUninstall(id, "Playden could not take the game out of the library. Uninstall again to try again.");
+        }
+        it = import_requests_.erase(it);
+        continue;
+      }
+      ++it;
+      continue;
+    }
     if (!outcome->ok && it->second.kind == ImportRequestKind::Remove && uninstalls_.Step(it->second.game_id)) {
       // An uninstall's last step was refused: the game stays, and the uninstall says why.
       uninstalls_.Abandon(it->second.game_id);
@@ -1765,7 +1799,10 @@ void Controller::TickInstalls() {
     StopUninstall(failure.id, failure.reason + " Uninstall the game again to try again.");
   }
   const auto snapshot = installs_->Snapshot();
-  files_deleting_ = {snapshot.uninstalling.begin(), snapshot.uninstalling.end()};
+  files_deleting_ = snapshot.uninstalling;
+  drives_present_.clear();
+  for (const auto& volume : snapshot.volumes)
+    if (volume.available) drives_present_.insert(volume.id);
   ProjectLocations(snapshot.installed);
   // A download that finished in this session is prepared next, so the game is ready to play.
   std::set<GameId> downloading;

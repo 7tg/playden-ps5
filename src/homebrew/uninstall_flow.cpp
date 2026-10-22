@@ -69,6 +69,11 @@ UninstallAction UninstallFlow::CloudRefused(GameId id) {
   return Stop(id, "The game's PS5 title may still be running. Close it, then uninstall again.");
 }
 
+UninstallAction UninstallFlow::SyncRefused(GameId id) {
+  if (!WaitingForCloud(id)) return {};
+  return Stop(id, "Steam Cloud could not take the sync now. Uninstall again to try again.");
+}
+
 void UninstallFlow::CloudSkipped(GameId id) {
   if (const auto found = entries_.find(id); found != entries_.end() && found->second.step == UninstallStep::kSync)
     found->second.step = UninstallStep::kRemoveTitle;
@@ -78,6 +83,12 @@ UninstallAction UninstallFlow::Advance(GameId id, const UninstallFacts& facts) {
   const auto found = entries_.find(id);
   if (found == entries_.end()) return {};
   auto& entry = found->second;
+  // Nothing can be deleted on a drive that is not there: the uninstall stops before it removes the
+  // PS5 title (which would leave the files without one), or before it asks for the download.
+  static constexpr const char* kDriveAbsent = "Its drive is not connected. Connect it, then uninstall again.";
+  if (facts.drive_absent && entry.step != UninstallStep::kRemoveDownload &&
+      !(entry.step == UninstallStep::kRemoveTitle && entry.remove_sent))
+    return Stop(id, kDriveAbsent);
   if (entry.step == UninstallStep::kRemoveTitle) {
     if (!entry.remove_sent) {
       if (!facts.has_title) {
@@ -108,6 +119,7 @@ UninstallAction UninstallFlow::Advance(GameId id, const UninstallFacts& facts) {
   if (entry.step == UninstallStep::kRemoveDownload) {
     // The uninstall lasts until the files are gone; a failure to delete them comes back as Abandon.
     if (!entry.download_sent) {
+      if (facts.drive_absent) return Stop(id, kDriveAbsent);
       entry.download_sent = true;
       return {UninstallAction::Kind::kRemoveDownload, false, {}};
     }
@@ -125,15 +137,22 @@ std::optional<UninstallStep> UninstallFlow::Step(GameId id) const {
   return found == entries_.end() ? std::nullopt : std::optional<UninstallStep>(found->second.step);
 }
 
-bool UninstallFlow::Started(GameId id) const {
+bool UninstallFlow::Started(GameId id, const std::vector<GameId>& deletions) const {
   const auto found = entries_.find(id);
   if (found == entries_.end()) return false;
   const auto& entry = found->second;
   switch (entry.step) {
     case UninstallStep::kSync: return entry.sync_dispatched;
     case UninstallStep::kRemoveTitle: return entry.remove_sent;
-    case UninstallStep::kRemoveDownload: return true;
+    case UninstallStep::kRemoveDownload: break;
   }
+  if (!entry.download_sent) return false;
+  // Not listed: removed elsewhere (an imported game leaving the library), or just asked for.
+  if (std::find(deletions.begin(), deletions.end(), id) == deletions.end()) return true;
+  for (const auto other : deletions)
+    if (const auto listed = entries_.find(other);
+        listed != entries_.end() && listed->second.step == UninstallStep::kRemoveDownload && listed->second.download_sent)
+      return other == id;
   return false;
 }
 

@@ -37,6 +37,7 @@ struct UninstallFacts {
   bool saves_moving = false;         // a Cloud transfer runs for the game
   bool session_active = false;       // the game's title may be running
   bool download_gone = false;        // the game's files are no longer installed
+  bool drive_absent = false;         // the game's files are on a drive that is not connected
 };
 
 class UninstallFlow {
@@ -57,14 +58,18 @@ class UninstallFlow {
   UninstallAction CloudRefused(GameId id);
   // The game has nothing Cloud could sync (no folder): continue.
   void CloudSkipped(GameId id);
+  // Cloud did not take the sync (stopping, or too many waiting): stop, so later uninstalls go on.
+  UninstallAction SyncRefused(GameId id);
   // What to do next for a game, given what the runtime reports now.
   UninstallAction Advance(GameId id, const UninstallFacts& facts);
   // The download removal failed outside the flow: the uninstall is over.
   void Abandon(GameId id);
   std::optional<UninstallStep> Step(GameId id) const;
   // Whether the uninstall works now: its sync was sent, or its PS5 title or download is being
-  // removed. One that waits its turn does not.
-  bool Started(GameId id) const;
+  // removed. One that waits its turn does not. `deletions` lists the games whose files the install
+  // service deletes, in its order: it deletes one at a time, so of the games listed only the first
+  // of these uninstalls is at work.
+  bool Started(GameId id, const std::vector<GameId>& deletions = {}) const;
   // Uninstalls in the order they were asked for.
   std::vector<GameId> Active() const;
 
