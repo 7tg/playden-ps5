@@ -388,25 +388,68 @@ int main(int argc, char** argv) {
     CHECK(profile.text.find("env = DXVK_FRAME_RATE=60\n") != std::string::npos);
 
     // Mixed versions: the kit has the capability, the game's title still runs an older runtime. Frame limit keeps
-    // its DXVK behaviour, 120 Hz waits for Update, and the profile has no frame_rate an older runtime would refuse.
+    // its DXVK behaviour, 120 Hz can be chosen but waits for Update, and the profile has no frame_rate an older
+    // runtime would refuse.
     const auto stale = KitForTitleRuntime(display, false);
     CHECK(!stale.display_120hz && stale.display_120hz_needs_update);
     CHECK(KitForTitleRuntime(display, true).display_120hz);
     CHECK(!KitForTitleRuntime(KitCapabilities{}, false).display_120hz_needs_update);
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", "60"}}, stale, &shown, &error));
-    CHECK(!shown.values.at("refresh").available && shown.values.at("refresh").reason == "Play this game once to update its runtime first.");
+    {
+      const auto& refresh = shown.values.at("refresh");
+      CHECK(!refresh.available && refresh.waits_for_update && refresh.reason == kAppliesAfterKitUpdate);
+      CHECK(refresh.value == "60" && refresh.after_update == "120" && ChosenValue(refresh) == "120");
+      CHECK(refresh.source == ValueSource::kUser);
+    }
     CHECK(shown.values.at("frame_limit").available && Value(shown, "frame_limit") == "60");
+    CHECK(shown.values.at("frame_limit").after_update.empty() && !shown.values.at("frame_limit").waits_for_update);
     CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
     CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("refresh") == std::string::npos);
     CHECK(CheckProsperoProfile(profile.text, &reason));  // the old key set
     CHECK(RenderDxvkConfig(shown).find("\ndxgi.maxFrameRate = 60\nd3d9.maxFrameRate = 60\n") != std::string::npos);
+    // 120 and 40 need 120 Hz output, chosen or not; with it they wait for Update and nothing caps the game until then.
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "40"}}, stale, &shown, &error));
-    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Play this game once to update its runtime first.");
+    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Only with 120 Hz output.");
+    CHECK(shown.values.at("frame_limit").after_update.empty());
+    CHECK(SettingChoiceUnavailable(shown, "frame_limit", "120") == "Only with 120 Hz output.");
     CHECK(RenderDxvkConfig(shown).find("maxFrameRate") == std::string::npos);
+    for (const char* limit : {"120", "40"}) {
+      CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", limit}}, stale, &shown, &error));
+      const auto& row = shown.values.at("frame_limit");
+      CHECK(row.available && row.waits_for_update && row.value == "off" && row.after_update == limit);
+      CHECK(row.reason == kAppliesAfterKitUpdate && ChosenValue(row) == limit);
+      CHECK(SettingChoiceUnavailable(shown, "frame_limit", limit).empty());
+      CHECK(SettingChoiceWaitsForUpdate(shown, "frame_limit", limit));
+      CHECK(!SettingChoiceWaitsForUpdate(shown, "frame_limit", "60") && !SettingChoiceWaitsForUpdate(shown, "frame_limit", "30"));
+      CHECK(RenderDxvkConfig(shown).find("maxFrameRate") == std::string::npos);
+      CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
+      CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("refresh") == std::string::npos);
+      CHECK(CheckProsperoProfile(profile.text, &reason));
+      // Once the title runs the kit's runtime, the same saved values apply.
+      CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", limit}}, display, &shown, &error));
+      CHECK(Value(shown, "frame_limit") == limit && shown.values.at("frame_limit").after_update.empty());
+      CHECK(!shown.values.at("frame_limit").waits_for_update && !shown.values.at("refresh").waits_for_update);
+      CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
+      CHECK(profile.text.find("\nrefresh = 120\nframe_rate = " + std::string(limit) + "\n") != std::string::npos);
+    }
+    // 30 at 120 Hz output stays DXVK's cap, now and after Update.
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, stale, &shown, &error));
+    CHECK(Value(shown, "frame_limit") == "30" && !shown.values.at("frame_limit").waits_for_update);
+    CHECK(RenderDxvkConfig(shown).find("\ndxgi.maxFrameRate = 30\n") != std::string::npos);
+    // OpenGL on the older runtime has no cap: every Frame limit waits for Update, and the profile keeps refresh = 60.
     CHECK(BuildEffectiveSettings(opengl, nullptr, {{"refresh", "120"}, {"frame_limit", "60"}}, stale, &shown, &error));
-    CHECK(!shown.values.at("frame_limit").available && shown.values.at("frame_limit").reason == "Play this game once to update its runtime first.");
+    {
+      const auto& row = shown.values.at("frame_limit");
+      CHECK(!row.available && row.waits_for_update && row.reason == kAppliesAfterKitUpdate && row.after_update == "60");
+      CHECK(SettingChoiceWaitsForUpdate(shown, "frame_limit", "60"));
+      CHECK(SettingChoiceUnavailable(shown, "frame_limit", "30") == "At 120 Hz output, only with DXVK.");
+    }
     CHECK(RenderProsperoProfile(opengl, shown, target, &profile, &reason));
     CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("\nrefresh = 60\n") != std::string::npos);
+    // A saved choice the kit's runtime would not take either is dropped with its reason.
+    CHECK(BuildEffectiveSettings(opengl, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, stale, &shown, &error));
+    CHECK(shown.values.at("frame_limit").after_update.empty() &&
+          shown.values.at("frame_limit").reason == "At 120 Hz output, only with DXVK.");
     CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, stale, &shown, &error));
     for (const auto& value : RenderBottleEnvironment(shown))
       CHECK(value.name != "VKD3D_FRAME_RATE" || value.data.empty());
@@ -825,7 +868,8 @@ int main(int argc, char** argv) {
     const auto display = KitCapabilitiesFromManifest({kKitDxvk, kKitDisplay120Hz}, false);
     CHECK(CommunityPresetSupported(needs_display, display));
     CHECK(!CommunityPresetSupported(needs_display, KitCapabilitiesFromManifest({kKitDxvk}, false)));
-    CHECK(!CommunityPresetSupported(needs_display, KitForTitleRuntime(display, false)));
+    // A title that waits for its update may take the preset as well: its values wait with the rows they set.
+    CHECK(CommunityPresetSupported(needs_display, KitForTitleRuntime(display, false)));
   }
   CHECK(BuildEffectiveSettings(hl2, &community.preset, {}, KitCapabilities{}, &settings, &error));
   CHECK(settings.values.at("controller").value == "keyboard");

@@ -376,8 +376,9 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
     if (!display_graphics) return "Only with DXVK or OpenGL.";
   } else if (id == "frame_limit" || id == "vsync" || id == "frame_latency" || id == "reported_vram" ||
              id == "reported_gpu") {
+    // The older runtime's OpenGL has no cap at all; the kit's display paces one once the title is updated.
     if (id == "frame_limit" && !dxvk && graphics == "opengl" && kit.display_120hz_needs_update)
-      return "Play this game once to update its runtime first.";
+      return kAppliesAfterKitUpdate;
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
     // Checked on the console (results/20261005-dxvk-conf-probe): the cap works, DXVK applies
@@ -424,7 +425,7 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   }
   if (id == "refresh") {
     if (!display_graphics) return "Only with DXVK or OpenGL.";
-    if (kit.display_120hz_needs_update) return "Play this game once to update its runtime first.";
+    if (kit.display_120hz_needs_update) return kAppliesAfterKitUpdate;
     if (!kit.display_120hz) return "Needs a runtime kit with 120 Hz output.";
   }
   if (id == "pointer_speed") {
@@ -478,17 +479,25 @@ bool IsUnlockKey(std::string_view key) {
 std::string SettingChoiceUnavailable(const EffectiveSettings& settings, std::string_view id, std::string_view value) {
   if (id != "frame_limit" || value == "off") return {};
   const bool high = value == "120" || value == "40";
-  if (!settings.display_120hz) {
+  if (!settings.display_120hz && !settings.display_120hz_needs_update) {
     // Without a runtime that paces it, the cap is DXVK's maxFrameRate: 30 and 60 as before.
-    if (!high) return {};
-    return settings.display_120hz_needs_update ? "Play this game once to update its runtime first." : "Needs a runtime kit with 120 Hz output.";
+    return high ? "Needs a runtime kit with 120 Hz output." : std::string();
   }
+  // A title not on the kit's runtime yet is checked against the choices it gets with it: 120 Hz output as saved.
   const auto refresh = settings.values.find("refresh");
-  const bool at_120 = refresh != settings.values.end() && refresh->second.available && refresh->second.value == "120";
+  const bool at_120 = refresh != settings.values.end() &&
+                      (refresh->second.available || refresh->second.waits_for_update) &&
+                      ChosenValue(refresh->second) == "120";
   if (high && !at_120) return "Only with 120 Hz output.";
   // 30 at 120 Hz takes four vblanks per frame, which the display cannot pace; DXVK's and vkd3d-proton's limiters can.
   if (value == "30" && at_120 && settings.graphics != "dxvk") return "At 120 Hz output, only with DXVK.";
   return {};
+}
+
+bool SettingChoiceWaitsForUpdate(const EffectiveSettings& settings, std::string_view id, std::string_view value) {
+  if (id != "frame_limit" || value == "off" || !settings.display_120hz_needs_update) return false;
+  // The older runtime's OpenGL has no cap; with DXVK it caps 60 and 30 now, and only the display paces 120 and 40.
+  return settings.graphics != "dxvk" || value == "120" || value == "40";
 }
 
 bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::string_view value, std::string* reason) {
@@ -651,17 +660,37 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     if (reason.empty()) continue;
     value.available = false;
     value.reason = reason;
+    // A row the kit's runtime takes keeps the player's choice for the title's update; until then it is not applied.
+    if (reason == kAppliesAfterKitUpdate) {
+      value.waits_for_update = true;
+      if (value.value != definition.playden_default) value.after_update = value.value;
+    }
     value.value = definition.playden_default;
   }
   // A choice that needs other values (Frame limit 120 needs 120 Hz output) falls back to the default, and the row
   // says why. The refresh row comes after Frame limit in the catalogue, so this runs once every row is resolved.
+  // A choice that waits for the title's update (Frame limit 120 on an older runtime) is kept for then, and the
+  // default applies until the update.
   for (const char* id : {"frame_limit"}) {
     auto& value = out.values[id];
-    if (!value.available) continue;
-    auto reason = SettingChoiceUnavailable(out, id, value.value);
-    if (reason.empty()) continue;
-    value.value = FindSetting(id)->playden_default;
-    value.reason = std::move(reason);
+    const auto& fallback = FindSetting(id)->playden_default;
+    if (!value.available) {
+      if (value.after_update.empty()) continue;
+      if (auto reason = SettingChoiceUnavailable(out, id, value.after_update); !reason.empty()) {
+        value.after_update.clear();
+        value.reason = std::move(reason);
+      }
+      continue;
+    }
+    if (auto reason = SettingChoiceUnavailable(out, id, value.value); !reason.empty()) {
+      value.value = fallback;
+      value.reason = std::move(reason);
+    } else if (SettingChoiceWaitsForUpdate(out, id, value.value)) {
+      value.after_update = value.value;
+      value.value = fallback;
+      value.reason = kAppliesAfterKitUpdate;
+      value.waits_for_update = true;
+    }
   }
 
   // The program: the chosen launch entry, or a program the player picked in the game folder.
@@ -2976,8 +3005,9 @@ bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabil
     else if (feature == "input-tuning") { if (!kit.input_tuning) return false; }
     else if (feature == "input-wheel") { if (!kit.input_wheel) return false; }
     else if (feature == "audio-volume") { if (!kit.audio_volume) return false; }
-    // A runtime name, not a settings one: 120 Hz output counts only for a title on that runtime (KitForTitleRuntime).
-    else if (feature == "display-120hz") { if (!kit.display_120hz) return false; }
+    // A runtime name, not a settings one: its values apply once the game's title runs the kit's runtime, like the
+    // rows they set (KitForTitleRuntime), so a title that waits for its update may choose the preset too.
+    else if (feature == "display-120hz") { if (!kit.display_120hz && !kit.display_120hz_needs_update) return false; }
     // Legacy PR references are informational sidecar provenance. Unknown feature
     // names or version requirements need verified support before a preset is shown.
     else if (feature.size() < 2 || feature.front() != '#' ||

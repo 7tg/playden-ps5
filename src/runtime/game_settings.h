@@ -173,7 +173,19 @@ struct EffectiveValue {
   bool unlocked = false;   // locked by the recipe, but the player chose "Change anyway"
   bool available = true;   // false: the row is disabled and the value is not applied
   std::string reason;      // why it is unavailable or locked
+  // The row needs the kit's runtime, which the game's title does not run yet (KitCapabilities::
+  // display_120hz_needs_update): it can be chosen and saved now, but `value` stays what the title's runtime takes
+  // until the title is updated. after_update is the saved choice that applies then, when it differs from `value`.
+  bool waits_for_update = false;
+  std::string after_update;
 };
+
+// Why a row's saved choice waits: the title must move to the kit's runtime first.
+inline constexpr const char* kAppliesAfterKitUpdate = "Applies after the kit update: Play or Maintenance › Update runtime.";
+// The value a row shows and the player chose: the one that applies after the kit update, else the applied one.
+inline const std::string& ChosenValue(const EffectiveValue& value) {
+  return value.after_update.empty() ? value.value : value.after_update;
+}
 
 struct EffectiveSettings {
   std::map<std::string, EffectiveValue> values;
@@ -222,7 +234,12 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
 
 // Why one choice of a row cannot apply with the other effective values (Frame limit 120 and 40 need 120 Hz output),
 // or empty when it can. BuildEffectiveSettings turns such a saved choice into the Playden default, with this reason.
+// On a title that still runs an older runtime, a choice that needs the kit's (Frame limit 120 with 120 Hz output
+// chosen) is not unavailable: it waits for the update (SettingChoiceWaitsForUpdate).
 std::string SettingChoiceUnavailable(const EffectiveSettings& settings, std::string_view id, std::string_view value);
+// Whether a choice SettingChoiceUnavailable allows applies only once the game's title runs the kit's runtime. It can
+// be saved now; until then the row applies the Playden default (EffectiveValue::after_update).
+bool SettingChoiceWaitsForUpdate(const EffectiveSettings& settings, std::string_view id, std::string_view value);
 
 // Checks one player value for one setting; used by the UI before saving an override.
 bool ValidateSettingValue(const GameRecipe& recipe, std::string_view id, std::string_view value, std::string* reason);

@@ -221,8 +221,8 @@ bool has_notice(const Simulation& model, const std::string& id) {
     return std::any_of(notices.begin(), notices.end(), [&id](const auto& notice) { return notice.id == id; });
 }
 
-// 120 Hz output needs the game's title on a runtime that takes it: a title waiting for Update says so, and Frame
-// limit choices that need 120 Hz output are disabled with their reason.
+// 120 Hz output and the Frame limit choices it brings can be chosen while the game's title waits for its kit
+// update: they are saved, show as chosen and say they apply after the update; Reset takes them back.
 void live_120hz_waits_for_the_title_update(const std::filesystem::path& base) {
     std::filesystem::create_directories(base);
     auto model = make_live(base);
@@ -237,7 +237,7 @@ void live_120hz_waits_for_the_title_update(const std::filesystem::path& base) {
     model.UpdateInstalls({}, {{SteamId(220), 1024, "internal", true}});
     playden::homebrew::LiveRuntimeGame runtime;
     runtime.game_id = SteamId(220);
-    runtime.status = "Update available";
+    runtime.status = "Kit update available";
     runtime.prepared = runtime.has_title = true;
     runtime.runtime_current = false;
     runtime.launch_entry_id = "game";
@@ -247,25 +247,67 @@ void live_120hz_waits_for_the_title_update(const std::filesystem::path& base) {
     activate(model, "details-more");
     activate(model, "game-settings");
     activate(model, "section-more");
-    const auto* refresh = find_row(model, "setting-refresh");
-    check(refresh && !refresh->enabled && refresh->subtitle == "Play this game once to update its runtime first.",
-          "120 Hz output waits for the title's Update");
+    const std::string after_update = playden::runtime::kAppliesAfterKitUpdate;
+    const auto says_after_update = [&](const char* key) {
+        const auto* row = find_row(model, key);
+        return row && row->enabled && row->subtitle.rfind(after_update, 0) == 0;
+    };
+    check(says_after_update("setting-refresh") && find_row(model, "setting-refresh")->value == "60 Hz",
+          "120 Hz output can be chosen before the title's update and says when it applies");
     activate(model, "setting-frame_limit");
     const auto* limit_120 = find_row(model, "choice-1");
-    check(limit_120 && limit_120->title == "120" && !limit_120->enabled && limit_120->subtitle == "Play this game once to update its runtime first.",
-          "Frame limit 120 waits for the title's Update");
+    check(limit_120 && limit_120->title == "120" && !limit_120->enabled && limit_120->subtitle == "Only with 120 Hz output.",
+          "Frame limit 120 needs 120 Hz output first");
     check(find_row(model, "choice-2") && find_row(model, "choice-2")->enabled, "Frame limit 60 stays available");
     check(model.action("circle"), "close the Frame limit picker");
+
+    activate(model, "setting-refresh");
+    activate(model, "choice-1");
+    check(says_after_update("setting-refresh") && find_row(model, "setting-refresh")->value == "120 Hz" &&
+              find_row(model, "setting-refresh")->modified,
+          "the saved 120 Hz output shows as the player's choice, waiting for the update");
+    activate(model, "setting-frame_limit");
+    limit_120 = find_row(model, "choice-1");
+    check(limit_120 && limit_120->enabled && limit_120->subtitle == after_update,
+          "with 120 Hz output chosen, Frame limit 120 can be chosen and waits for the update");
+    check(find_row(model, "choice-3") && find_row(model, "choice-3")->enabled, "Frame limit 40 can be chosen too");
+    check(find_row(model, "choice-2")->subtitle.empty(), "Frame limit 60 applies now, as DXVK's cap");
+    activate(model, "choice-1");
+    check(says_after_update("setting-frame_limit") && find_row(model, "setting-frame_limit")->value == "120",
+          "the saved Frame limit 120 shows as chosen, waiting for the update");
+    const auto& saved = model.state().game_settings.at(SteamId(220)).overrides;
+    check(saved.count("refresh") && saved.at("refresh") == "120" && saved.count("frame_limit") && saved.at("frame_limit") == "120",
+          "both choices are saved at once");
+    check(find_row(model, "preset-picker")->value == "Custom · from Playden default", "the sheet marks the settings as changed");
+    activate(model, "setting-frame_limit");
+    check(find_row(model, "choice-1")->selected && find_row(model, "choice-1")->value == "Your choice" &&
+              !find_row(model, "choice-0")->selected,
+          "the picker marks the saved choice, not the value that applies until the update");
+    check(model.action("circle"), "close the Frame limit picker again");
 
     runtime.status = "Ready";
     runtime.ready = true;
     runtime.runtime_current = true;
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
-    refresh = find_row(model, "setting-refresh");
-    check(refresh && refresh->enabled, "an updated title offers 120 Hz output");
+    const auto* refresh = find_row(model, "setting-refresh");
+    check(refresh && refresh->enabled && refresh->value == "120 Hz" && refresh->subtitle.find(after_update) == std::string::npos,
+          "an updated title applies the saved 120 Hz output");
+    const auto* limit = find_row(model, "setting-frame_limit");
+    check(limit && limit->value == "120" && limit->subtitle.find(after_update) == std::string::npos,
+          "an updated title applies the saved Frame limit");
     activate(model, "setting-frame_limit");
-    const auto* at_60 = find_row(model, "choice-1");
-    check(at_60 && !at_60->enabled && at_60->subtitle == "Only with 120 Hz output.", "Frame limit 120 needs 120 Hz output");
+    check(find_row(model, "choice-1")->enabled && find_row(model, "choice-1")->subtitle.empty(), "Frame limit 120 applies now");
+    check(model.action("circle"), "close the Frame limit picker on the updated title");
+
+    // Reset takes the waiting choices back.
+    runtime.status = "Kit update available";
+    runtime.ready = false;
+    runtime.runtime_current = false;
+    model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {runtime});
+    activate(model, "reset-settings");
+    check(model.state().game_settings.at(SteamId(220)).overrides.empty(), "Reset removes the waiting choices");
+    check(find_row(model, "setting-refresh")->value == "60 Hz" && find_row(model, "setting-frame_limit")->value == "Off",
+          "after Reset the rows show the preset's values");
 }
 
 // A prepared game's settings and maintenance: rows that need the game closed wait for the

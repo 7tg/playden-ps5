@@ -3644,7 +3644,7 @@ void Simulation::rebuild_view() {
                 };
                 view_.subtitle = definition->effect;
                 view_.subtitle += settings_custom || inherited.source != rt::ValueSource::kPlayden
-                    ? std::string(" ") + source_label(inherited.source) + ": " + (modal.setting_id == "launch_option" ? launch_label(settings_game, inherited.value) : choice_label(*definition, inherited.value)) + "."
+                    ? std::string(" ") + source_label(inherited.source) + ": " + (modal.setting_id == "launch_option" ? launch_label(settings_game, inherited.value) : choice_label(*definition, rt::ChosenValue(inherited))) + "."
                     : "";
                 const auto closed = !game_closed(settings_game) && definition->apply == rt::ApplyMode::kGameClosed;
                 // A game that was never prepared gets its bottle from these values on the next Play.
@@ -3786,12 +3786,14 @@ void Simulation::rebuild_view() {
                 else if (id == "program_folder")
                     item.value = value.value.empty() ? "Program's folder" : value.value == "." ? "Game folder" : value.value;
                 else if (definition->kind == rt::SettingKind::kText) item.value = value.value.empty() ? "Empty" : value.value;
-                else item.value = choice_label(*definition, value.value);
+                // A choice that waits for the kit update shows as chosen; the subtitle says when it applies.
+                else item.value = choice_label(*definition, rt::ChosenValue(value));
                 item.badge = value.unlocked ? "Changed anyway" : value.locked ? "Required by this game"
                     : definition->apply == rt::ApplyMode::kGameClosed ? "Game must be closed"
                     : definition->apply == rt::ApplyMode::kPreparesBottle ? "Prepares bottle" : "";
                 // A locked row opens "Change anyway"; the program type only follows the program.
-                item.enabled = value.available && id != "architecture";
+                // A row the kit's runtime takes can be chosen before the title's update (it applies then).
+                item.enabled = (value.available || value.waits_for_update) && id != "architecture";
                 item.modified = value.source == rt::ValueSource::kUser || value.unlocked;
                 if (value.unlocked) item.subtitle = value.reason;
                 if (id == "architecture") item.subtitle = "Follows the program you choose.";
@@ -3869,6 +3871,8 @@ void Simulation::rebuild_view() {
                     if (auto why = rt::SettingChoiceUnavailable(settings_values, modal.setting_id, value); !why.empty()) {
                         item.subtitle = std::move(why);
                         item.enabled = false;
+                    } else if (rt::SettingChoiceWaitsForUpdate(settings_values, modal.setting_id, value)) {
+                        item.subtitle = rt::kAppliesAfterKitUpdate;
                     }
                 }
                 const bool button = modal.setting_id.rfind("button.", 0) == 0;
@@ -3878,9 +3882,9 @@ void Simulation::rebuild_view() {
                     settings_values.launch->id == rt::kProgramEntryId &&
                     BottlePath(settings_values.launch->executable) == BottlePath(recipe.launch_entries[index].executable);
                 item.selected = button && index == 0 ? current.source != rt::ValueSource::kUser
-                    : (value == current.value || picked_here) && !(button && current.source != rt::ValueSource::kUser);
+                    : (value == rt::ChosenValue(current) || picked_here) && !(button && current.source != rt::ValueSource::kUser);
                 item.value = button ? (item.selected && index != 0 ? "Your choice" : "")
-                    : value == inherited.value ? source_label(inherited.source) : item.selected ? "Your choice" : "";
+                    : value == rt::ChosenValue(inherited) ? source_label(inherited.source) : item.selected ? "Your choice" : "";
             } else if (settings_ready && action_key == "choice-custom") {
                 item.kind = RowKind::Text;
                 item.title = "Other key…";
@@ -8270,13 +8274,13 @@ void Simulation::build_preset_comparison(GameId id, const std::string& preset_id
         const auto& value = values.values.at(definition.id);
         if (definition.id == "launch_option") return values.launch ? values.launch->label : value.value;
         if (definition.kind == rt::SettingKind::kText) return value.value.empty() ? std::string("Empty") : value.value;
-        auto text = choice_label(definition, value.value);
+        auto text = choice_label(definition, rt::ChosenValue(value));
         if (value.locked || (definition.id == "graphics" && value.source == rt::ValueSource::kRecipe)) text += " (game)";
         return text;
     };
     int changes = 0, buttons = 0;
     for (const auto& definition : rt::SettingsCatalogue()) {
-        const bool differs = current.values.at(definition.id).value != after.values.at(definition.id).value;
+        const bool differs = rt::ChosenValue(current.values.at(definition.id)) != rt::ChosenValue(after.values.at(definition.id));
         if (definition.id.rfind("button.", 0) == 0) { buttons += differs ? 1 : 0; continue; }
         const bool key = definition.id == "controller" || definition.id == "resolution" ||
                          definition.id == "performance_overlay" || definition.id == "graphics";
@@ -8303,7 +8307,7 @@ void Simulation::open_setting(const std::string& id) {
     rt::EffectiveSettings values;
     if (!definition || !EffectiveSettingsFor(state_.navigation.selected_game_id, &values)) return;
     const auto& value = values.values.at(id);
-    if (!value.available || id == "architecture" ||
+    if ((!value.available && !value.waits_for_update) || id == "architecture" ||
         (definition->apply == rt::ApplyMode::kGameClosed && !game_closed(state_.navigation.selected_game_id))) {
         // Disabled rows stay focusable so their reason can be read; Cross does nothing.
     } else if (value.locked && !value.unlocked) {
@@ -8353,7 +8357,7 @@ void Simulation::open_setting(const std::string& id) {
                 in_folder(recipe.launch_entries[index].executable))
                 continue;
             const auto& choice = launch ? recipe.launch_entries[index].id : definition->choices[index].value;
-            if (choice == value.value ||
+            if (choice == rt::ChosenValue(value) ||
                 (picked && BottlePath(recipe.launch_entries[index].executable) == BottlePath(values.launch->executable)))
                 focused = static_cast<int>(actions.size());
             actions.push_back("choice-" + std::to_string(index));
@@ -8521,7 +8525,7 @@ void Simulation::set_game_setting(const std::string& id, const std::string& valu
     rt::SettingsError error;
     // Choosing the inherited value removes the override, so the row is no longer "changed".
     const bool inherited = rt::BuildEffectiveSettings(RecipeFor(game), preset_for(game), overrides, kit_for(game), &base, &error)
-        && base.values.at(id).value == value;
+        && rt::ChosenValue(base.values.at(id)) == value;
     if (inherited) record.overrides.erase(id);
     else record.overrides[id] = value;
     ++record.revision;

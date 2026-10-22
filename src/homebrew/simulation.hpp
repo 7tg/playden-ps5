@@ -160,7 +160,7 @@ struct LiveRuntimeGame {
     // quits: the game is ready to play from Home, and Play quits there.
     bool awaiting_registration = false;
     // The title runs the installed kit's runtime (false while a Ready title waits for Update): settings only the
-    // newer runtime takes, such as 120 Hz output, are offered only then.
+    // newer runtime takes, such as 120 Hz output, can be chosen before but apply only then.
     bool runtime_current = true;
     // Has a prepared title (Ready, perhaps with an update or repair to make): its Game
     // settings and maintenance apply to it.
@@ -1129,7 +1129,7 @@ private:
     void build_preset_comparison(GameId id, const std::string& preset_id);
     [[nodiscard]] const playden::runtime::SettingsPreset* preset_for(GameId id) const;
     // The kit's capabilities as the game's PS5 title can use them: a title still on an earlier kit's runtime (Update
-    // pending) gets no 120 Hz output until it is updated (runtime::KitForTitleRuntime).
+    // pending) gets no 120 Hz output until it is updated (runtime::KitForTitleRuntime); the rows wait for it.
     [[nodiscard]] playden::runtime::KitCapabilities kit_for(GameId id) const;
     void start_logs();
     void finish_logs();

@@ -2112,6 +2112,40 @@ void UpdateWithoutSavedSettingsKeepsThePublication() {
   host.Shutdown();
 }
 
+// 120 Hz output and Frame limit 120 chosen while the title still runs the older runtime: saving them publishes nothing
+// that runtime would refuse (no refresh, no frame_rate, and no DXVK cap at 120), and the Update before Play publishes
+// them for the kit's runtime, so that same launch runs at 120 Hz.
+void StaleTitleKeeps120HzChoicesForUpdate() {
+  Fixture fixture;
+  unsigned uuids = 0;
+  GameSettingsRecord saved;
+  auto config = DisplayConfig(fixture, &uuids, &saved);
+  const auto display = PrepareStaleFor120Hz(fixture, config, &saved);
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/220";
+  const auto profile = fixture.root / "data/playden/games/steam-220/library/profiles/playden-steam-220.profile";
+  config.admit_kit = [display](std::string*) { return std::optional<RuntimeKit>(display); };
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(!started.installs[0].title_current && !started.installs[0].runtime_current);
+  saved.revision = 2;
+  saved.overrides = {{"refresh", "120"}, {"frame_limit", "120"}};
+  const auto before = host.Snapshot().maintenance_handled;
+  host.Maintain(220, RuntimeMaintenance::kApplySettings);
+  const auto applied = WaitFor(host, [before](const RuntimeSnapshot& s) { return s.maintenance_handled > before; }, 60);
+  if (!applied.maintenance.at(220).ok) std::fprintf(stderr, "stale apply: %s\n", applied.maintenance.at(220).message.c_str());
+  CHECK(applied.maintenance.at(220).ok && applied.installs[0].settings_revision == 2);
+  CHECK(Read(profile).find("frame_rate") == std::string::npos && Read(profile).find("refresh") == std::string::npos);
+  CHECK(!fs::exists(game / "dxvk.conf") || Read(game / "dxvk.conf").find("maxFrameRate") == std::string::npos);
+  const auto updated = UpdateHl2(host);
+  if (updated.refusals.count(220)) std::fprintf(stderr, "Update refused: %s\n", updated.refusals.at(220).c_str());
+  CHECK(!updated.refusals.count(220) && updated.installs[0].title_current && updated.installs[0].runtime_current);
+  CHECK(updated.installs[0].settings_revision == 2);
+  CHECK(Read(profile).find("\nrefresh = 120\nframe_rate = 120\n") != std::string::npos);
+  CHECK(!fs::exists(game / "dxvk.conf") || Read(game / "dxvk.conf").find("maxFrameRate") == std::string::npos);
+  host.Shutdown();
+}
+
 // A game prepared on a kit with 120 Hz output publishes its 120 Hz settings with the first profile.
 void FreshPrepareOn120HzKitPublishesIt() {
   Fixture fixture;
@@ -5092,6 +5126,7 @@ int main(int argc, char** argv) {
   FreshPrepareOn120HzKitPublishesIt();
   UpdateFinishesAFailedRepublish();
   UpdateWithoutSavedSettingsKeepsThePublication();
+  StaleTitleKeeps120HzChoicesForUpdate();
   RemovesTitleKeepingSaves();
   PreparesGameInstalledAgainElsewhere();
   SharedProfileKitOpensSaves();
