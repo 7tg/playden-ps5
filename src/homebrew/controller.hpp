@@ -53,6 +53,9 @@ class Controller {
   void SetSelfUpdate(update::UpdateService* self_update) { self_update_ = self_update; }
   // Receives one line per shutdown step with how long it took, so a quit that hangs names the step.
   void SetShutdownLog(std::function<void(const std::string&)> log) { shutdown_log_ = std::move(log); }
+  // Preferences and organization load/save failures (app::PersistenceController::SetLog). The first loads
+  // report on a later Tick, so setting it right after construction still sees them.
+  void SetPersistenceLog(std::function<void(const std::string&)> log);
   // The player turned "Stay signed in" on or off: the host moves the Steam session to disk or memory.
   void SetStaySignedIn(std::function<void(bool)> apply) { stay_signed_in_ = std::move(apply); }
   // Counts changes to the account's Steam licenses (steam::CmLicenseChanges): the library refreshes
@@ -107,6 +110,7 @@ class Controller {
   void TickSelfUpdate();
   void TickLicenseChanges();
   std::function<void(const std::string&)> shutdown_log_;
+  std::function<void(const std::string&)> persistence_log_;
   std::function<void(bool)> stay_signed_in_;
   std::function<std::uint64_t()> license_changes_;
   std::chrono::steady_clock::duration license_refresh_delay_{};

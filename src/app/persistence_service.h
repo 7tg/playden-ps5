@@ -31,6 +31,7 @@ struct PersistenceEvent {
   std::uint64_t account_generation = 0;
   std::uint64_t revision = 0;
   StorageError error = StorageError::kNone;
+  std::string message;  // the store's reason when the load or save failed
   PreferencesLoadStatus preferences_status = PreferencesLoadStatus::kLoaded;
   std::optional<Preferences> preferences;
   std::optional<OrganizationSnapshot> organization;

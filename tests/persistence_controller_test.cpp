@@ -11,6 +11,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <thread>
+#include <vector>
 #include <unistd.h>
 #include "steam_id.h"
 
@@ -359,6 +360,40 @@ void InitialPreferencesFailureRetriesWithoutOverwritingUnknownData() {
 
 }  // namespace
 
+// "Saved UI data is unavailable" names no file or reason, so the log does: one line per new failure, with the
+// store's message, and one when the same kind of save works again.
+void LogsSaveFailuresOnceAndRecovery() {
+  TemporaryDirectory directory;
+  Storage storage(directory.path());
+  PreferencesStore preferences(storage);
+  Repository repository;
+  repository.save_error = StorageError::kWriteFailed;
+  PersistenceService service(preferences, repository);
+  Simulation model({}, {}, ModelMode::Live);
+  PersistenceController controller(model, service);
+  std::vector<std::string> lines;
+  controller.SetLog([&lines](const std::string& line) { lines.push_back(line); });
+  service.WaitIdle();
+  controller.Tick();
+  const GameId local = GameId::Local("0b8f6c1e-4d2a-4f3b-9a1c-2e5d7f8a9b0c");
+  model.UpdateLibrary({{{local, "Imported game", {}, {}, {}, {}, {}}}, false, {}, false, false, {}, Store::kLocal});
+  assert(model.action("select:" + ToKey(local)));
+  assert(model.action("square"));
+  Wait(controller, [&] { return !lines.empty(); });
+  assert(lines.size() == 1 && lines[0] == "organization save failed: write failed: save");
+  // The same failure again is not logged twice.
+  assert(model.action("square"));
+  const int saves = repository.saves.load();
+  Wait(controller, [&] { return repository.saves.load() > saves; });
+  service.WaitIdle();
+  controller.Tick();
+  assert(lines.size() == 1);
+  repository.save_error = StorageError::kNone;
+  assert(model.action("square"));
+  Wait(controller, [&] { return lines.size() == 2; });
+  assert(lines[1] == "organization save works again");
+}
+
 int main() {
   PendingLoadReplaysLocalEditAndSavesMergedSnapshot();
   SignOutClearKeepsOrganization();
@@ -368,4 +403,5 @@ int main() {
   ShutdownWaitsForLoadBeforeMergingFinalEdit();
   InvalidMergedLoadStaysUnsavedUntilEditAndRetryResolveIt();
   InitialPreferencesFailureRetriesWithoutOverwritingUnknownData();
+  LogsSaveFailuresOnceAndRecovery();
 }

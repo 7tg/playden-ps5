@@ -13,6 +13,27 @@ bool PreferencesLoadFailed(PreferencesLoadStatus status) {
          status == PreferencesLoadStatus::kDefaultReadError;
 }
 
+const char* ErrorName(StorageError error) {
+  switch (error) {
+    case StorageError::kNone: return "none";
+    case StorageError::kInvalidPath: return "invalid path";
+    case StorageError::kNotFound: return "not found";
+    case StorageError::kOpenFailed: return "open failed";
+    case StorageError::kReadFailed: return "read failed";
+    case StorageError::kWriteFailed: return "write failed";
+    case StorageError::kRenameFailed: return "rename failed";
+    case StorageError::kInvalidData: return "invalid data";
+    case StorageError::kPermissionFailed: return "permission failed";
+    case StorageError::kRemoveFailed: return "remove failed";
+    case StorageError::kSyncFailed: return "sync failed";
+  }
+  return "unknown";
+}
+
+std::string Failure(StorageError error, const std::string& message) {
+  return message.empty() ? ErrorName(error) : std::string(ErrorName(error)) + ": " + message;
+}
+
 PreferencesLoadResult PreferenceResult(const PersistenceEvent& event) {
   PreferencesLoadResult result;
   if (event.preferences) result.preferences = *event.preferences;
@@ -40,6 +61,7 @@ void PersistenceController::BeginPreferencesLoad() {
   failure.diagnostic = "Preferences are busy and could not be loaded.";
   model_.ApplyPreferences(preferences_load_token_, failure);
   preferences_load_failed_ = true;
+  Report(kPreferencesLoad, failure.diagnostic);
 }
 
 void PersistenceController::BeginOrganizationLoad() {
@@ -52,6 +74,7 @@ void PersistenceController::BeginOrganizationLoad() {
   model_.FailOrganizationLoad(kDeviceOrganization, organization_load_token_,
                               StorageError::kReadFailed);
   organization_load_failed_ = true;
+  Report(kOrganizationLoad, "busy");
 }
 
 // Organization belongs to the device: store accounts coming and going leave it alone.
@@ -101,10 +124,12 @@ void PersistenceController::Apply(PersistenceEvent event) {
     preferences_load_request_ = 0;
     const auto loaded = PreferenceResult(event);
     preferences_load_failed_ = PreferencesLoadFailed(loaded.status);
+    Report(kPreferencesLoad, preferences_load_failed_ ? Failure(event.error, event.message) : std::string());
     model_.ApplyPreferences(preferences_load_token_, loaded);
     return;
   }
   if (event.kind == PersistenceEventKind::kPreferencesSaved) {
+    Report(kPreferencesSave, event.error == StorageError::kNone ? std::string() : Failure(event.error, event.message));
     model_.PreferencesSaveResult(event.revision, event.error);
     return;
   }
@@ -117,15 +142,30 @@ void PersistenceController::Apply(PersistenceEvent event) {
     if (event.error == StorageError::kNone) {
       organization_load_failed_ = !model_.ApplyOrganization(
           kDeviceOrganization, organization_load_token_, std::move(event.organization));
+      // Read fine, but holds more than the Library can show.
+      Report(kOrganizationLoad, organization_load_failed_ ? "too large for the Library" : "");
     } else {
       organization_load_failed_ = true;
+      Report(kOrganizationLoad, Failure(event.error, event.message));
       model_.FailOrganizationLoad(kDeviceOrganization, organization_load_token_,
                                   event.error);
     }
     return;
   }
-  if (event.kind == PersistenceEventKind::kOrganizationSaved)
+  if (event.kind == PersistenceEventKind::kOrganizationSaved) {
+    Report(kOrganizationSave, event.error == StorageError::kNone ? std::string() : Failure(event.error, event.message));
     model_.OrganizationSaveResult(event.account_id, event.revision, event.error);
+  }
+}
+
+void PersistenceController::Report(Channel channel, const std::string& failure) {
+  static const char* const kNames[kChannels] = {"preferences load", "preferences save", "organization load",
+                                                "organization save"};
+  auto& last = reported_[channel];
+  if (failure == last) return;
+  if (log_) log_(failure.empty() ? std::string(kNames[channel]) + " works again"
+                                 : std::string(kNames[channel]) + " failed: " + failure);
+  last = failure;
 }
 
 void PersistenceController::ObserveAndSave() {

@@ -702,6 +702,8 @@ int main() {
         // A game bought or added to the library elsewhere: Steam pushes the new license list.
         services.SetLicenseChanges([steam_cm] { return playden::steam::CmLicenseChanges(*steam_cm); });
         services.SetShutdownLog([](const std::string& line) { playden::app::AppendLogLine(log_root, "launch.log", line); });
+        // "Saved UI data is unavailable" names no file or reason: the log does.
+        services.SetPersistenceLog([](const std::string& line) { playden::app::AppendLogLine(log_root, "launch.log", line); });
         services.SetStaySignedIn([&sessions](bool stay) {
             const auto moved = sessions.SetPersist(stay);
             playden::app::AppendLogLine(log_root, "auth.log", std::string("stay signed in ") + (stay ? "on" : "off") +

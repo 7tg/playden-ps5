@@ -255,6 +255,7 @@ void PersistenceService::Run() {
       event.account_generation = failed.generation;
       event.revision = failed.revision;
       event.error = StorageError::kInvalidData;
+      event.message = "unexpected exception";
       if (failed.command == Command::kLoadPreferences)
         event.kind = PersistenceEventKind::kPreferencesLoaded;
       else if (failed.command == Command::kSavePreferences)
@@ -297,6 +298,7 @@ void PersistenceService::Execute(Job job) {
     event.preferences_status = loaded.status;
     event.error = PreferenceLoadError(loaded.status);
     event.preferences = loaded.preferences;
+    event.message = loaded.diagnostic;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!stopping_) PushEvent(std::move(event));
     return;
@@ -305,6 +307,7 @@ void PersistenceService::Execute(Job job) {
     const auto saved = preferences_.Save(job.preferences);
     event.kind = PersistenceEventKind::kPreferencesSaved;
     event.error = saved.ok() ? StorageError::kNone : saved.error();
+    if (!saved.ok()) event.message = saved.message();
     std::lock_guard<std::mutex> lock(mutex_);
     PushEvent(std::move(event));
     return;
@@ -314,6 +317,7 @@ void PersistenceService::Execute(Job job) {
     event.kind = PersistenceEventKind::kOrganizationLoaded;
     event.error = loaded.ok() ? StorageError::kNone : loaded.error();
     if (loaded.ok()) event.organization = loaded.value();
+    else event.message = loaded.message();
     std::lock_guard<std::mutex> lock(mutex_);
     if (!stopping_ && job.account == organization_account_ &&
         job.generation == organization_generation_) PushEvent(std::move(event));
@@ -323,6 +327,7 @@ void PersistenceService::Execute(Job job) {
     const auto saved = organizations_.Save(job.account, job.organization);
     event.kind = PersistenceEventKind::kOrganizationSaved;
     event.error = saved.ok() ? StorageError::kNone : saved.error();
+    if (!saved.ok()) event.message = saved.message();
     std::lock_guard<std::mutex> lock(mutex_);
     if (job.account == organization_account_ &&
         job.generation == organization_generation_) PushEvent(std::move(event));

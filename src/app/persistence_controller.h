@@ -5,7 +5,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
+#include <string>
 
 namespace playden::app {
 
@@ -34,12 +36,19 @@ class PersistenceController {
   // drains accepted saves before stopping the worker.
   void FlushAndShutdown();
 
+  // Receives one line when preferences or organization fail to load or save, and one when they work again
+  // ("Saved UI data is unavailable" says nothing else). A repeat of the same failure is not logged again.
+  void SetLog(std::function<void(const std::string&)> log) { log_ = std::move(log); }
+
  private:
   void Pump(std::size_t maximum);
   void ObserveAndSave();
   void BeginPreferencesLoad();
   void BeginOrganizationLoad();
   void Apply(PersistenceEvent);
+  enum Channel { kPreferencesLoad, kPreferencesSave, kOrganizationLoad, kOrganizationSave, kChannels };
+  // failure: empty when the channel worked.
+  void Report(Channel channel, const std::string& failure);
 
   homebrew::Simulation& model_;
   PersistenceService& service_;
@@ -55,6 +64,8 @@ class PersistenceController {
   bool preferences_load_failed_ = false;
   bool organization_load_failed_ = false;
   bool shutting_down_ = false;
+  std::function<void(const std::string&)> log_;
+  std::string reported_[kChannels];  // the last failure logged per channel; empty once it worked again
 };
 
 }  // namespace playden::app

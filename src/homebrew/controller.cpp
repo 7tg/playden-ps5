@@ -67,6 +67,11 @@ Controller::Controller(Simulation& model, steam::AuthBackend& backend, SessionRe
       stores_(*owned_stores_), installs_(installs), cloud_(cloud), runtime_(runtime), auth_log_(std::move(auth_log)) {
   Start(persistence_service);
 }
+void Controller::SetPersistenceLog(std::function<void(const std::string&)> log) {
+  persistence_log_ = std::move(log);
+  if (persistence_) persistence_->SetLog(persistence_log_);
+}
+
 void Controller::Start(app::PersistenceService* persistence_service) {
   if (model_.state().simulation_mode) return;
   app_details_ = stores_.details(Store::kSteam);
@@ -76,7 +81,10 @@ void Controller::Start(app::PersistenceService* persistence_service) {
   service_ = stores_.steam_account();
   phase_ = Phase::Restore;
   Update(AuthState::Restoring,{},true);
-  if(persistence_service) persistence_=std::make_unique<app::PersistenceController>(model_,*persistence_service);
+  if(persistence_service) {
+    persistence_=std::make_unique<app::PersistenceController>(model_,*persistence_service);
+    persistence_->SetLog(persistence_log_);
+  }
   request_ = service_->RestoreSession();
   // Every other store's library loads now, next to Steam's.
   if (library_)
