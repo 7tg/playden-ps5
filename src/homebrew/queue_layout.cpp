@@ -1,4 +1,4 @@
-// queue_layout.cpp - What the Queue screen shows: downloads and preparations, each section's rows and counts.
+// queue_layout.cpp - What the Queue screen shows: downloads, and preparations and uninstalls, each section's rows and counts.
 // Copyright (c) 2026 Playden contributors
 // SPDX-License-Identifier: MIT
 #include "homebrew/queue_layout.hpp"
@@ -105,6 +105,32 @@ QueueSection preparations(const State& state) {
         section.active = item;
         section.running = 1;
     }
+    // Uninstalls run apart from preparations, first in, first out. The first at work takes the card when
+    // no preparation does; the others at work come first after it, and those waiting after the waiting
+    // preparations. They are not numbered: their order is not the preparation queue's.
+    std::vector<QueueEntry> uninstalls_running, uninstalls_waiting;
+    for (const auto& uninstall : queue.uninstalls) {
+        QueueEntry item;
+        item.key = "prep-unin-" + ToKey(uninstall.game_id);
+        item.game_id = uninstall.game_id;
+        item.title = game_title(state, uninstall.game_id);
+        item.uninstall = true;
+        if (uninstall.step.empty()) {
+            item.status = "Waiting to uninstall";
+            item.tone = "quiet";
+            uninstalls_waiting.push_back(std::move(item));
+            ++section.waiting;
+            continue;
+        }
+        item.status = "Uninstalling";
+        item.note = uninstall.step;
+        item.tone = "busy";
+        ++section.running;
+        ++section.uninstalling;
+        if (!section.active) section.active = std::move(item);
+        else uninstalls_running.push_back(std::move(item));
+    }
+    section.rows = std::move(uninstalls_running);
     int position = 0;
     for (const auto id : queue.waiting) {
         if (queue.active && id == *queue.active) continue;
@@ -120,9 +146,14 @@ QueueSection preparations(const State& state) {
         section.rows.push_back(std::move(item));
         ++section.waiting;
     }
-    // Games whose preparation needs the player: it failed, stopped part way or waits for the PS5.
+    for (auto& item : uninstalls_waiting) section.rows.push_back(std::move(item));
+    // Games whose preparation needs the player: it failed, stopped part way or waits for the PS5. A game
+    // being uninstalled is listed as such only.
+    const auto uninstalling = [&queue](GameId id) {
+        return std::any_of(queue.uninstalls.begin(), queue.uninstalls.end(), [id](const LiveUninstall& item) { return item.game_id == id; });
+    };
     const auto listed = [&](GameId id) {
-        return (queue.active && *queue.active == id) ||
+        return (queue.active && *queue.active == id) || uninstalling(id) ||
                std::find(queue.waiting.begin(), queue.waiting.end(), id) != queue.waiting.end();
     };
     for (const auto& [id, game] : state.runtime_games) {
@@ -154,6 +185,22 @@ QueueSection preparations(const State& state) {
         section.rows.push_back(std::move(item));
         ++section.attention;
     }
+    // Uninstalls that stopped: the reason, until the game goes again or the player dismisses it.
+    for (const auto& ended : state.ended_uninstalls) {
+        if (ended.stopped.empty() || uninstalling(ended.game_id)) continue;
+        QueueEntry item;
+        item.key = "prep-unin-attn-" + ToKey(ended.game_id);
+        item.game_id = ended.game_id;
+        item.title = !ended.title.empty() ? ended.title : game_title(state, ended.game_id);
+        item.status = "Uninstall stopped";
+        item.note = ended.stopped;
+        item.tone = "attention";
+        item.uninstall = true;
+        section.rows.push_back(std::move(item));
+        ++section.attention;
+    }
+    // Finished preparations and uninstalls together, newest first.
+    std::vector<QueueEntry> finished;
     for (const auto& done : queue.completed) {
         QueueEntry item;
         item.key = "prep-done-" + ToKey(done.game_id) + "-" + std::to_string(done.finished_at);
@@ -163,9 +210,25 @@ QueueSection preparations(const State& state) {
         item.tone = "good";
         item.completed = true;
         item.finished_at = done.finished_at;
-        section.rows.push_back(std::move(item));
-        ++section.completed;
+        finished.push_back(std::move(item));
     }
+    for (const auto& ended : state.ended_uninstalls) {
+        if (!ended.stopped.empty()) continue;
+        QueueEntry item;
+        item.key = "prep-unin-done-" + ToKey(ended.game_id) + "-" + std::to_string(ended.finished_at);
+        item.game_id = ended.game_id;
+        item.title = !ended.title.empty() ? ended.title : game_title(state, ended.game_id);
+        item.status = "Uninstalled";
+        item.tone = "good";
+        item.uninstall = true;
+        item.completed = true;
+        item.finished_at = ended.finished_at;
+        finished.push_back(std::move(item));
+    }
+    std::stable_sort(finished.begin(), finished.end(),
+                     [](const QueueEntry& left, const QueueEntry& right) { return left.finished_at > right.finished_at; });
+    section.completed = finished.size();
+    for (auto& item : finished) section.rows.push_back(std::move(item));
     return section;
 }
 
@@ -176,7 +239,8 @@ void summarize(QueueSection& section, const std::string& expanded_words, const s
     std::string text;
     // Games after the card waiting their turn; what needs the player is counted apart.
     const std::size_t more = static_cast<std::size_t>(std::count_if(section.rows.begin(), section.rows.end(), [](const QueueEntry& row) {
-        return row.job ? row.job->state == JobState::Queued || running(*row.job) : row.position > 0;
+        if (row.job) return row.job->state == JobState::Queued || running(*row.job);
+        return row.position > 0 || (row.uninstall && !row.completed && row.tone != "attention");
     }));
     if (section.expanded) {
         text = expanded_words;
@@ -194,6 +258,14 @@ void summarize(QueueSection& section, const std::string& expanded_words, const s
     section.summary = text;
 }
 }  // namespace
+
+std::size_t QueuePending(const State& state) {
+    auto pending = static_cast<std::size_t>(std::count_if(state.jobs.begin(), state.jobs.end(), [](const Job& job) {
+        return job.state != JobState::Cancelled && job.state != JobState::Downloaded && job.stage != JobStage::Uninstall;
+    }));
+    const auto& preparation = state.preparation_queue;
+    return pending + preparation.waiting.size() + (preparation.active ? 1U : 0U) + preparation.uninstalls.size();
+}
 
 std::string QueueSectionOf(const std::string& key) {
     if (key == "queue-downloads" || key.rfind("job-", 0) == 0) return kQueueDownloads;
@@ -234,7 +306,8 @@ QueueLayout BuildQueueLayout(const State& state) {
     if (failed) join(download_attention, std::to_string(failed) + " failed");
     summarize(download, downloads_words(download, paused, failed), download_attention, "No downloads");
     std::string prepare_words, prepare_attention;
-    if (prepare.running) join(prepare_words, "1 preparing");
+    if (prepare.running > prepare.uninstalling) join(prepare_words, "1 preparing");
+    if (prepare.uninstalling) join(prepare_words, std::to_string(prepare.uninstalling) + " uninstalling");
     if (prepare.waiting) join(prepare_words, std::to_string(prepare.waiting) + " waiting");
     if (prepare.attention) join(prepare_attention, need_attention(prepare.attention));
     join(prepare_words, prepare_attention);
@@ -243,7 +316,8 @@ QueueLayout BuildQueueLayout(const State& state) {
     std::string summary;
     if (download.running > download.copying) join(summary, std::to_string(download.running - download.copying) + " downloading");
     if (download.copying) join(summary, std::to_string(download.copying) + " copying");
-    if (prepare.running) join(summary, "1 preparing");
+    if (prepare.running > prepare.uninstalling) join(summary, "1 preparing");
+    if (prepare.uninstalling) join(summary, std::to_string(prepare.uninstalling) + " uninstalling");
     if (download.waiting + prepare.waiting) join(summary, std::to_string(download.waiting + prepare.waiting) + " waiting");
     if (download.attention + prepare.attention)
         join(summary, need_attention(download.attention + prepare.attention));

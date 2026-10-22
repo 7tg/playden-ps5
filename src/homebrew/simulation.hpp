@@ -191,6 +191,20 @@ struct LiveCompletedPreparation {
     std::int64_t finished_at = 0;  // Unix seconds
     bool operator==(const LiveCompletedPreparation&) const = default;
 };
+// An uninstall that runs or waits its turn, listed in Queue's Preparation section.
+struct LiveUninstall {
+    GameId game_id;
+    std::string step;  // what it does now, e.g. "Removing PS5 title…"; empty while it waits its turn
+    bool operator==(const LiveUninstall&) const = default;
+};
+// An uninstall that ended this session: uninstalled, or stopped with the reason.
+struct EndedUninstall {
+    GameId game_id;
+    std::string title;  // kept: an imported game leaves the library once it is uninstalled
+    std::string stopped;  // why it stopped; empty once uninstalled
+    std::int64_t finished_at = 0;  // Unix seconds, 0 unknown
+    bool operator==(const EndedUninstall&) const = default;
+};
 // Live: the runtime's preparation queue, for Queue's Preparation section.
 struct PreparationQueue {
     std::optional<GameId> active;  // being prepared now
@@ -198,6 +212,7 @@ struct PreparationQueue {
     std::vector<LiveCompletedPreparation> completed;  // newest first
     // Why the latest preparation of a game that is neither prepared nor waiting was refused.
     std::map<GameId, std::string> refused;
+    std::vector<LiveUninstall> uninstalls;  // in the order they were asked for
     bool operator==(const PreparationQueue&) const = default;
 };
 // Saves and settings kept from an uninstalled game (its private bottle).
@@ -561,6 +576,7 @@ struct State {
     std::map<GameId, LiveCloudGame> cloud;  // live: Steam Cloud save state by game
     std::map<GameId, LiveRuntimeGame> runtime_games;  // live: per-game runtime state
     PreparationQueue preparation_queue;                 // live: games being prepared, waiting and done
+    std::vector<EndedUninstall> ended_uninstalls;       // live: this session's, newest first; one stop per game
     // Queue: the section the player expanded ("downloads", "preparation"), "none" once they closed it;
     // empty until they choose.
     std::string queue_expanded;
@@ -744,6 +760,8 @@ public:
     [[nodiscard]] std::vector<std::pair<GameId, MaintenanceKind>> TakeMaintenanceRequests();
     [[nodiscard]] std::vector<GameId> TakeActivityRequests();
     void NotifyUninstallStopped(GameId id, const std::string& reason);
+    // The uninstall is over: the game's PS5 title and files are gone. Queue lists it as done.
+    void NotifyUninstallFinished(GameId id);
     // Play prepared the game first and that ended without a playable title.
     void NotifyPlayStopped(GameId id, const std::string& reason);
     // A preparation the player started left the game waiting for the PS5: ask, when
@@ -929,16 +947,10 @@ private:
     // Installed games (Settings > Storage): the checked games and the list's order.
     std::set<GameId> installed_selected_;
     bool installed_by_played_ = false;  // false: largest first; true: never played, then the oldest
-    // The games the player uninstalled together from the list, while the list stays open: their
-    // size when confirmed and how each ended ("" while it runs, "Uninstalled" or the stop reason).
-    struct UninstallBatch {
-        std::vector<GameId> ids;
-        std::map<GameId, std::uint64_t> bytes;
-        std::map<GameId, std::string> stopped;
-        std::set<GameId> uninstalled;
-    };
-    std::optional<UninstallBatch> uninstall_batch_;
-    std::map<GameId, std::string> installed_stops_;  // why games stopped in the batch last shown
+    // Games uninstalled together from the Installed games list: Queue follows them, so they post
+    // no notice of their own when they finish, and a stop is a corner notice, not a dialog.
+    std::set<GameId> batch_uninstalls_;
+    std::map<GameId, std::string> uninstall_titles_;  // names of games being uninstalled, for once they are gone
     std::string installed_list_focus_;  // the game row the focus left for the footer
     std::string installed_message_;  // the list's note when a confirmed uninstall could not start
     bool rebuilding_overlay_ = false;  // rebuild_view is building the screen under an open sheet
@@ -1107,8 +1119,10 @@ private:
     [[nodiscard]] std::string installed_blocker(GameId id) const;
     [[nodiscard]] std::vector<std::string> installed_manager_actions() const;
     void refresh_installed_manager();
-    [[nodiscard]] bool installed_list_open() const;
-    [[nodiscard]] bool uninstall_batch_done() const;
+    // Asks the controller to uninstall a game; batch: from the Installed games list.
+    void request_uninstall(GameId id, bool delete_saves, bool batch);
+    void end_uninstall(GameId id, const std::string& stopped);
+    [[nodiscard]] const EndedUninstall* uninstall_stop(GameId id) const;
     void move_installed_manager(int delta_x, int delta_y);
     [[nodiscard]] std::vector<std::string> collection_sheet_actions(const std::string& sheet) const;
     void refresh_collection_sheets(const std::string& focus = {});

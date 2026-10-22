@@ -281,19 +281,31 @@ int main(int argc,char** argv) {
       assert(live.action("cross"));
       assert(live.action("focus:installed-toggle-43") && live.action("cross"));
       capture_live("installed-games.png");
-      // A batch: one game stops on Cloud, the other is uninstalled; the list shows how each went.
+      // A batch: the list closes and Queue follows it; one game is uninstalled, the other stops on Cloud.
       assert(live.action("focus:installed-toggle-42") && live.action("cross"));
       assert(live.action("focus:installed-selection-uninstall") && live.action("cross"));
       capture_live("installed-games-confirm.png");
       assert(live.action("focus:confirm-destructive") && live.action("cross"));
       titled.uninstall_status="Removing PS5 title…";
       live.UpdateRuntime(RuntimeState::Ready, {titled, playing});
-      capture_live("installed-games-progress.png");
+      live.UpdatePreparationQueue({std::nullopt, {}, {}, {}, {{SteamId(42), "Syncing saves…"}, {SteamId(43), ""}}});
+      capture_live("installed-games-queued.png");
+      live.action("l1");
+      live.action("l1");
+      assert(live.state().navigation.route==Route::Downloads);
+      capture_live("queue-uninstalls.png");
       live.NotifyUninstallStopped(SteamId(43), "Cloud saves could not be synced. Fix them in Saves, then try again.");
+      live.UpdatePreparationQueue({std::nullopt, {}, {}, {}, {{SteamId(42), "Removing PS5 title…"}}});
+      capture_live("queue-uninstalls-stopped.png");
       titled.uninstall_status.clear();
       live.UpdateRuntime(RuntimeState::Ready, {playing});
+      live.UpdatePreparationQueue({});
       live.UpdateInstalls({}, {{SteamId(43), 8'400'000'000ull, "internal"}, {SteamId(44), 1'200'000'000ull, "internal"}});
-      capture_live("installed-games-done.png");
+      live.NotifyUninstallFinished(SteamId(42));
+      capture_live("queue-uninstalls-done.png");
+      live.action("r1");
+      live.action("r1");
+      assert(live.state().navigation.route==Route::Settings);
       // With every Storage row shown the list scrolls; back on the first row the usage card shows again.
       while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
       live.SetRuntimeLeftovers(1);

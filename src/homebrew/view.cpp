@@ -825,15 +825,7 @@ class Render::Impl
         if (current_state_->simulation_mode)
             pending = 1;
         else
-        {
-            // Unfinished downloads and preparations (the one running and those waiting).
-            pending = static_cast<std::size_t>(std::count_if(current_state_->jobs.begin(), current_state_->jobs.end(),
-                [](const Job &job) {
-                    return job.state != JobState::Cancelled && job.state != JobState::Downloaded && job.stage != JobStage::Uninstall;
-                }));
-            const auto &preparation = current_state_->preparation_queue;
-            pending += preparation.waiting.size() + (preparation.active ? 1U : 0U);
-        }
+            pending = QueuePending(*current_state_);
         // Saves: the games that need the player, or a spinner while a check or Sync all runs.
         std::size_t needs_you = 0;
         for (const auto &[id, cloud] : current_state_->cloud)
@@ -2041,14 +2033,15 @@ class Render::Impl
                 }
                 else
                 {
-                    // Preparing: the actual step, with a spinner; no percentage or time is made up.
-                    const float status_width = fonts_.semibold.measure("Preparing", 24.0F);
+                    // Preparing or uninstalling: the actual step, with a spinner; no percentage or time is made up.
+                    const char *label = entry->uninstall ? "Uninstalling" : "Preparing";
+                    const float status_width = fonts_.semibold.measure(label, 24.0F);
                     spinner(right - status_width - 22.0F, top + 36.0F, 9.0F, kBlue);
-                    ui::text(scene_, fonts_.semibold, "Preparing", right, top + 44.0F, 24.0F, kBlue, gfx::Align::right);
+                    ui::text(scene_, fonts_.semibold, label, right, top + 44.0F, 24.0F, kBlue, gfx::Align::right);
                     ui::text(scene_, fonts_.regular, fit(fonts_.regular, entry->note.empty() ? "Starting…" : entry->note, 24.0F, 1100.0F),
                              text_x, top + 88.0F, 24.0F, kText);
-                    ui::text(scene_, fonts_.regular, "Setting up for this PS5", right, top + 88.0F, 21.0F, kSecondary,
-                             gfx::Align::right);
+                    ui::text(scene_, fonts_.regular, entry->uninstall ? "Removing from this PS5" : "Setting up for this PS5", right,
+                             top + 88.0F, 21.0F, kSecondary, gfx::Align::right);
                 }
                 focus_ring(scene_, box, amount, true);
                 continue;
@@ -3899,7 +3892,7 @@ class Render::Impl
                 if (focused) head.focused_row = static_cast<int>(head.rows.size());
                 head.rows.push_back(row);
             }
-            else if (row.key.rfind("installed-toggle-", 0) == 0 || row.key.rfind("installed-step-", 0) == 0)
+            else if (row.key.rfind("installed-toggle-", 0) == 0)
             {
                 if (focused) list.focused_row = static_cast<int>(list.rows.size());
                 list.rows.push_back(row);

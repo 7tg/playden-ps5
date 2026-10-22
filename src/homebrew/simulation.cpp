@@ -471,7 +471,7 @@ std::string action_label(const std::string& key) {
         {"cloud-use-local", "Use console saves"}, {"cloud-confirm-account", "Use this account"},
         {"cloud-confirm-account-all", "Upload all"},
         {"saves-delete-confirm", "Delete saves"}, {"manage-saves", "Manage saves"}, {"saves-leftover-confirm", "Remove"}, {"saves-quit-anyway", "Play without syncing"},
-        {"install-confirm", "Install"}, {"storage-picker", "Change storage"}, {"installed-close", "Close"}, {"installed-show-all", "Show all games"},
+        {"install-confirm", "Install"}, {"storage-picker", "Change storage"}, {"installed-close", "Close"},
         {"value-edit", "Edit…"}, {"value-reset", "Reset to recipe"}, {"override-add", "Add an override…"},
         {"unlock-setting", "Change anyway"}, {"export-recipe", "Export as recipe"}, {"program-scan", "Looking for programs…"},
         {"preset-picker", "Preset"}, {"game-settings", "Game settings"}, {"game-maintenance", "Maintenance"}, {"runtime-check-again", "Check again"}, {"reset-settings", "Reset all to preset"}, {"clear-shader-cache", "Clear shader cache"},
@@ -506,7 +506,8 @@ std::string action_label(const std::string& key) {
              {"job-pause-", "Pause download"}, {"job-resume-", "Resume download"}, {"job-retry-", "Retry download"},
              {"job-cancel-", "Cancel download"}, {"job-now-", "Download now"}, {"job-up-", "Move up"}, {"job-down-", "Move down"},
              {"job-open-", "Open game"}, {"job-dismiss-", "Dismiss"}, {"prep-next-", "Prepare next"},
-             {"prep-open-", "Game details"}, {"prep-retry-", "Try again"}, {"prep-dismiss-", "Dismiss"}})
+             {"prep-open-", "Game details"}, {"prep-retry-", "Try again"}, {"prep-dismiss-", "Dismiss"},
+             {"uninstall-dismiss-", "Dismiss"}})
         if (key.rfind(prefix, 0) == 0) return label;
     std::string title = key;
     std::replace(title.begin(), title.end(), '-', ' ');
@@ -1296,21 +1297,9 @@ std::string Simulation::installed_blocker(GameId id) const {
     return {};
 }
 
-bool Simulation::uninstall_batch_done() const {
-    return uninstall_batch_ && uninstall_batch_->uninstalled.size() + uninstall_batch_->stopped.size() >= uninstall_batch_->ids.size();
-}
-
-// The list: Sort and Select all, the games, then the footer's Uninstall selected and Close. While
-// a batch runs it lists only the batch's games, with Close (and Show all games once all are done).
+// The list: Sort and Select all, the games, then the footer's Uninstall selected and Close.
 std::vector<std::string> Simulation::installed_manager_actions() const {
-    std::vector<std::string> actions;
-    if (uninstall_batch_) {
-        for (const auto id : uninstall_batch_->ids) actions.push_back("installed-step-" + ToKey(id));
-        if (uninstall_batch_done()) actions.push_back("installed-show-all");
-        actions.push_back("installed-close");
-        return actions;
-    }
-    actions = {"installed-sort", "installed-select-all"};
+    std::vector<std::string> actions = {"installed-sort", "installed-select-all"};
     for (const auto id : installed_list()) actions.push_back("installed-toggle-" + ToKey(id));
     actions.push_back("installed-selection-uninstall");
     actions.push_back("installed-close");
@@ -1320,7 +1309,7 @@ std::vector<std::string> Simulation::installed_manager_actions() const {
 // Where a key of the Installed games list sits: 0 Sort and Select all, 1 the games, 2 the footer.
 static int installed_part(const std::string& key) {
     if (key == "installed-sort" || key == "installed-select-all") return 0;
-    if (key.rfind("installed-toggle-", 0) == 0 || key.rfind("installed-step-", 0) == 0) return 1;
+    if (key.rfind("installed-toggle-", 0) == 0) return 1;
     return 2;
 }
 
@@ -1362,7 +1351,7 @@ void Simulation::refresh_installed_manager() {
         auto& modal = modals[index];
         if (modal.id != "installed-games") continue;
         auto actions = installed_manager_actions();
-        if (!uninstall_batch_ && actions.size() == 4) {
+        if (actions.size() == 4) {
             if (index + 1 == modals.size()) close_modal();
             break;
         }
@@ -1402,20 +1391,47 @@ std::vector<GameId> Simulation::TakeActivityRequests() {
     return requests;
 }
 
-void Simulation::NotifyUninstallStopped(GameId id, const std::string& reason) {
-    // A game the open Installed games list uninstalls says why in its row instead.
-    if (uninstall_batch_ && installed_list_open() &&
-        std::find(uninstall_batch_->ids.begin(), uninstall_batch_->ids.end(), id) != uninstall_batch_->ids.end()) {
-        uninstall_batch_->stopped[id] = reason;
-        pending_uninstalls_.erase(id);
-        refresh_installed_manager();
-        rebuild_view();
-        return;
-    }
-    const auto* game = find_game(state_, id);
-    push_notice({"uninstall-" + ToKey(id), "Uninstall stopped", "", false, kLiveNoticeSeconds * 2, true,
-                 (game ? game->title : std::string("A game")) + " · " + reason});
+void Simulation::request_uninstall(GameId id, bool delete_saves, bool batch) {
+    pending_install_requests_.push_back({InstallRequestKind::Uninstall, id, {}, delete_saves});
+    pending_uninstalls_.insert(id);
+    if (const auto* game = find_game(state_, id); game && !game->title.empty()) uninstall_titles_[id] = game->title;
+    // Asked again: an earlier stop no longer applies.
+    std::erase_if(state_.ended_uninstalls, [id](const EndedUninstall& ended) { return ended.game_id == id && !ended.stopped.empty(); });
+    if (batch) batch_uninstalls_.insert(id);
+    else batch_uninstalls_.erase(id);
+}
+
+// Queue keeps how this session's uninstalls ended, newest first: a game's latest stop, and every finish.
+void Simulation::end_uninstall(GameId id, const std::string& stopped) {
+    auto& ended = state_.ended_uninstalls;
+    std::erase_if(ended, [id](const EndedUninstall& entry) { return entry.game_id == id && !entry.stopped.empty(); });
+    std::string title;
+    if (const auto* game = find_game(state_, id); game && !game->title.empty()) title = game->title;
+    else if (const auto known = uninstall_titles_.find(id); known != uninstall_titles_.end()) title = known->second;
+    ended.insert(ended.begin(), {id, std::move(title), stopped, state_.clock_ticks});
+    uninstall_titles_.erase(id);
     pending_uninstalls_.erase(id);
+}
+
+const EndedUninstall* Simulation::uninstall_stop(GameId id) const {
+    for (const auto& ended : state_.ended_uninstalls)
+        if (ended.game_id == id && !ended.stopped.empty()) return &ended;
+    return nullptr;
+}
+
+void Simulation::NotifyUninstallStopped(GameId id, const std::string& reason) {
+    end_uninstall(id, reason);
+    const auto* game = find_game(state_, id);
+    const auto text = (game ? game->title : std::string("A game")) + " · " + reason;
+    // A game of a batch is followed in Queue, which keeps the reason: a corner notice is enough there.
+    const bool batch = batch_uninstalls_.erase(id) > 0;
+    push_notice({"uninstall-" + ToKey(id), "Uninstall stopped", "", false, kLiveNoticeSeconds * 2, true, text, !batch});
+    rebuild_view();
+}
+
+void Simulation::NotifyUninstallFinished(GameId id) {
+    end_uninstall(id, {});
+    batch_uninstalls_.erase(id);
     rebuild_view();
 }
 
@@ -1449,6 +1465,10 @@ void Simulation::UpdatePreparationQueue(PreparationQueue queue) {
         if (found == queue.waiting.end() || found == queue.waiting.begin()) prepare_next_asked_.reset();
         else std::rotate(queue.waiting.begin(), found, found + 1);
     }
+    // Uninstalled games may leave the library (imported ones): their names are kept for Queue.
+    for (const auto& uninstall : queue.uninstalls)
+        if (const auto* game = find_game(state_, uninstall.game_id); game && !game->title.empty())
+            uninstall_titles_[uninstall.game_id] = game->title;
     if (queue == state_.preparation_queue) return;
     state_.preparation_queue = std::move(queue);
     rebuild_view();
@@ -1890,15 +1910,10 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
             push_notice({"install-" + ToKey(job.game_id), "Download failed", "", false, kLiveNoticeSeconds * 2, true,
                          title(job.game_id) + (job.failure.empty() ? std::string() : " · " + job.failure), false});
         }
-        const bool batch_open = uninstall_batch_ && installed_list_open();
         for (const auto id : live_installed_ids_) {
             if (installed_ids.contains(id) || job_states.contains(id) || !pending_uninstalls_.contains(id)) continue;
-            // The open Installed games list says so in the game's row.
-            if (batch_open && std::find(uninstall_batch_->ids.begin(), uninstall_batch_->ids.end(), id) != uninstall_batch_->ids.end()) {
-                uninstall_batch_->stopped.erase(id);
-                uninstall_batch_->uninstalled.insert(id);
-                continue;
-            }
+            // A batch's games are followed in Queue instead.
+            if (batch_uninstalls_.contains(id)) continue;
             push_notice({"install-" + ToKey(id), "Game uninstalled", "", false, kLiveNoticeSeconds, false, title(id)});
         }
     }
@@ -3538,17 +3553,10 @@ std::vector<const Game*> Simulation::visible_games() const {
     return filtered_games(state_);
 }
 
-bool Simulation::installed_list_open() const {
-    return std::any_of(state_.navigation.modals.begin(), state_.navigation.modals.end(),
-                       [](const ModalEntry& modal) { return modal.id == "installed-games"; });
-}
-
 void Simulation::rebuild_view() {
     // The Library left for another tab: the order "More" showed ends with that visit.
     if (state_.navigation.route != Route::Library && state_.navigation.route != Route::Details)
         state_.library.view_sort.clear();
-    // An uninstall batch lives while its list is open; later stops are notices again.
-    if (!rebuilding_overlay_ && uninstall_batch_ && !installed_list_open()) uninstall_batch_.reset();
     const bool has_overlay = state_.editor.active || !state_.navigation.modals.empty();
     if (has_overlay) {
         // Only the flag is set aside: a copy of the editor would keep a password in memory.
@@ -3684,31 +3692,13 @@ void Simulation::rebuild_view() {
             view_.subtitle = "For this game only." + (fallback ? " Other games still install to " + fallback->label + "." : std::string());
         }
         if (modal.id == "installed-games") {
-            if (!uninstall_batch_) {
-                view_.subtitle = !installed_message_.empty() ? installed_message_
-                    : "Choose games to uninstall. Their saves and settings are kept unless you choose to delete them.";
-                std::uint64_t bytes = 0;
-                for (const auto& installation : state_.installations)
-                    if (installed_selected_.contains(installation.game_id)) bytes += installation.installed_bytes;
-                view_.footer = installed_selected_.empty() ? std::string("Select games to uninstall")
-                    : std::to_string(installed_selected_.size()) + " selected · " + format_bytes(bytes);
-            } else {
-                view_.subtitle = uninstall_batch_done() ? "Finished uninstalling." : "Uninstalling the selected games.";
-                const auto& batch = *uninstall_batch_;
-                const auto ended = batch.uninstalled.size() + batch.stopped.size();
-                if (ended < batch.ids.size()) {
-                    view_.footer = "Uninstalling " + std::to_string(ended + 1) + " of " + std::to_string(batch.ids.size()) + "…";
-                } else {
-                    std::uint64_t freed = 0;
-                    for (const auto id : batch.uninstalled) freed += batch.bytes.at(id);
-                    std::vector<std::string> parts;
-                    if (!batch.uninstalled.empty())
-                        parts.push_back(std::to_string(batch.uninstalled.size()) + " uninstalled" +
-                                        (freed > 0 ? " · about " + format_bytes(freed) + " freed" : std::string()));
-                    if (!batch.stopped.empty()) parts.push_back(std::to_string(batch.stopped.size()) + " stopped");
-                    for (const auto& part : parts) view_.footer += (view_.footer.empty() ? "" : " · ") + part;
-                }
-            }
+            view_.subtitle = !installed_message_.empty() ? installed_message_
+                : "Choose games to uninstall. Their saves and settings are kept unless you choose to delete them.";
+            std::uint64_t bytes = 0;
+            for (const auto& installation : state_.installations)
+                if (installed_selected_.contains(installation.game_id)) bytes += installation.installed_bytes;
+            view_.footer = installed_selected_.empty() ? std::string("Select games to uninstall")
+                : std::to_string(installed_selected_.size()) + " selected · " + format_bytes(bytes);
         }
         if (modal.id == "import-games")
             view_.subtitle = state_.import_candidates.empty() ? kImportEmptyText
@@ -4069,13 +4059,12 @@ void Simulation::rebuild_view() {
                 item.selected = installed_selected_.contains(id);
                 item.value = installation ? format_bytes(installation->installed_bytes) : std::string();
                 const auto blocker = installed_blocker(id);
-                const auto stopped = installed_stops_.find(id);
                 if (!blocker.empty()) {
                     item.subtitle = blocker;
                     item.enabled = false;
-                } else if (stopped != installed_stops_.end()) {
-                    // Stopped in the batch just shown: the reason stays until the list closes.
-                    item.subtitle = "Stopped: " + stopped->second;
+                } else if (const auto* stopped = uninstall_stop(id)) {
+                    // Its uninstall stopped: the reason stays until it goes again or is dismissed in Queue.
+                    item.subtitle = "Stopped: " + stopped->stopped;
                     item.tone = "problem";
                 } else {
                     const auto when = game && game->last_played ? time_ago(state_.clock_ticks, *game->last_played) : std::string();
@@ -4086,28 +4075,6 @@ void Simulation::rebuild_view() {
                     if (drives.size() > 1 && installation)
                         if (const auto* volume = find_volume(state_, installation->volume_id))
                             item.subtitle = volume->label + " · " + item.subtitle;
-                }
-            }
-            else if (action_key.rfind("installed-step-", 0) == 0 && uninstall_batch_) {
-                // A game of the running batch: how far its uninstall is, then how it ended.
-                const auto id = key_id(std::string_view(action_key).substr(15));
-                const auto* game = find_game(state_, id);
-                const auto& batch = *uninstall_batch_;
-                item.kind = RowKind::Status;
-                item.game_id = id;
-                item.title = game && !game->title.empty() ? game->title : "Steam app " + ToKey(id);
-                item.value = format_bytes(batch.bytes.count(id) ? batch.bytes.at(id) : 0);
-                const auto runtime = state_.runtime_games.find(id);
-                if (batch.uninstalled.contains(id)) {
-                    item.subtitle = "Uninstalled";
-                    item.tone = "good";
-                } else if (const auto stopped = batch.stopped.find(id); stopped != batch.stopped.end()) {
-                    item.subtitle = "Stopped: " + stopped->second;
-                    item.tone = "problem";
-                } else if (runtime != state_.runtime_games.end() && !runtime->second.uninstall_status.empty()) {
-                    item.subtitle = runtime->second.uninstall_status;
-                } else {
-                    item.subtitle = "Waiting";
                 }
             }
             else if (action_key == "installed-selection-uninstall") {
@@ -4328,11 +4295,7 @@ void Simulation::rebuild_view() {
         else if (modal.id == "import-programs" || modal.id == "import-choice") view_.legends = {"Cross Select", "Circle Back"};
         else if (modal.id == "steam-programs") view_.legends = {"Cross Choose", "Circle Cancel"};
         else if (modal.id == "import-storage") view_.legends = {"Cross Import here", "Circle Back"};
-        else if (modal.id == "installed-games")
-            // The batch's rows only report; Cross does something only on its buttons.
-            view_.legends = !uninstall_batch_ ? std::vector<std::string>{"Cross Select", "Triangle Uninstall", "Circle Close"}
-                : installed_part(state_.navigation.focus_key) == 2 ? std::vector<std::string>{"Cross Choose", "Circle Close"}
-                                                                  : std::vector<std::string>{"Circle Close"};
+        else if (modal.id == "installed-games") view_.legends = {"Cross Select", "Triangle Uninstall", "Circle Close"};
         else if (!modal.setting_id.empty()) view_.legends = {"Cross Select", "Triangle Reset", "L1/R1 Jump", "Circle Back"};
     } else if (state_.navigation.route == Route::Startup && state_.root_access_missing) {
         if (state_.root_access_granted) {
@@ -6261,9 +6224,26 @@ void Simulation::activate() {
         const auto& key = selected.key;
         const auto id = ToKey(selected.game_id);
         std::vector<std::string> actions;
-        if (key.rfind("prep-done-", 0) == 0) {
+        std::string title = "Preparation actions";
+        // Clear completed is offered with more than one finished preparation or uninstall.
+        const auto completed_count = [this] {
+            return state_.preparation_queue.completed.size() +
+                   static_cast<std::size_t>(std::count_if(state_.ended_uninstalls.begin(), state_.ended_uninstalls.end(),
+                                                          [](const EndedUninstall& ended) { return ended.stopped.empty(); }));
+        };
+        if (key.rfind("prep-unin-", 0) == 0) {
+            // An uninstall: its game's page while the library has it; one that ended leaves the list.
+            if (find_game(state_, selected.game_id)) actions.push_back("prep-open-" + id);
+            if (key.rfind("prep-unin-done-", 0) == 0) {
+                actions.push_back("uninstall-dismiss-" + key.substr(std::strlen("prep-unin-done-")));
+            } else if (const auto* stopped = uninstall_stop(selected.game_id); stopped && key.rfind("prep-unin-attn-", 0) == 0) {
+                actions.push_back("uninstall-dismiss-" + id + "-" + std::to_string(stopped->finished_at));
+            }
+            if (key.rfind("prep-unin-done-", 0) == 0 && completed_count() > 1) actions.push_back("prep-clear-completed");
+            title = "Uninstall actions";
+        } else if (key.rfind("prep-done-", 0) == 0) {
             actions = {"prep-open-" + id, "prep-dismiss-" + key.substr(std::strlen("prep-done-"))};
-            if (state_.preparation_queue.completed.size() > 1) actions.push_back("prep-clear-completed");
+            if (completed_count() > 1) actions.push_back("prep-clear-completed");
         } else if (key.rfind("prep-attn-", 0) == 0) {
             const auto runtime = state_.runtime_games.find(selected.game_id);
             if (runtime != state_.runtime_games.end() && runtime->second.can_prepare && !runtime->second.awaiting_registration)
@@ -6278,7 +6258,7 @@ void Simulation::activate() {
             actions.push_back("prep-open-" + id);
         }
         actions.push_back("cancel");
-        open_modal({"prep-actions", "Preparation actions", key, std::move(actions), 0, false});
+        open_modal({"prep-actions", std::move(title), key, std::move(actions), 0, false});
     } else if (action_name == "storage-details") {
         open_modal({"storage-details", selected.title, selected.key, {"storage-close"}, 0, false});
     } else if (action_name == "storage-close") {
@@ -6305,12 +6285,22 @@ void Simulation::activate() {
         pending_prepared_dismissals_.push_back(done);
         prepared_dismissed_.push_back(done);
         std::erase(state_.preparation_queue.completed, done);
+    } else if (action_name.rfind("uninstall-dismiss-", 0) == 0) {
+        // uninstall-dismiss-<game>-<time>: that ended uninstall leaves Queue.
+        const auto rest = action_name.substr(std::strlen("uninstall-dismiss-"));
+        const auto dash = rest.rfind('-');
+        const auto id = key_id(std::string_view(rest).substr(0, dash));
+        const std::int64_t at = dash == std::string::npos ? 0 : std::strtoll(rest.c_str() + dash + 1, nullptr, 10);
+        close_modal();
+        std::erase_if(state_.ended_uninstalls, [&](const EndedUninstall& ended) { return ended.game_id == id && ended.finished_at == at; });
     } else if (action_name == "prep-clear-completed") {
         close_modal();
         pending_prepared_clear_ = true;
         auto& completed = state_.preparation_queue.completed;
         prepared_dismissed_.insert(prepared_dismissed_.end(), completed.begin(), completed.end());
         completed.clear();
+        // Finished uninstalls go too; stopped ones still need the player.
+        std::erase_if(state_.ended_uninstalls, [](const EndedUninstall& ended) { return ended.stopped.empty(); });
     } else if (action_name == "saves-filter") {
         state_.navigation.saves_filter = std::clamp(std::atoi(selected.key.c_str() + std::strlen("saves-filter-")), 0,
                                                     static_cast<int>(kSavesFilters.size()) - 1);
@@ -6434,10 +6424,7 @@ void Simulation::activate() {
     } else if (live() && action_name == "runtime-remove-retry") {
         // Continues the saved removal (with its first choice about saves), then removes the download.
         const auto id = state_.navigation.detail_id.value_or(state_.navigation.selected_game_id);
-        if (id.valid()) {
-            pending_install_requests_.push_back({InstallRequestKind::Uninstall, id, {}, false});
-            pending_uninstalls_.insert(id);
-        }
+        if (id.valid()) request_uninstall(id, false, false);
     } else if (live() && action_name == "runtime-cleanup") {
         // Deleting data asks first, as the row's disclosure promises.
         const auto count = state_.runtime_leftover_requests;
@@ -6669,28 +6656,13 @@ void Simulation::activate() {
     } else if (live() && action_name == "installed-manage") {
         if (state_.installations.empty()) return;
         installed_selected_.clear();
-        uninstall_batch_.reset();
         installed_message_.clear();
-        installed_stops_.clear();
         installed_list_focus_.clear();
         auto actions = installed_manager_actions();
         // Focus starts on the first game; Sort and Select all are above it.
         open_modal({"installed-games", "Installed games", state_.navigation.focus_key, std::move(actions), 2, false});
     } else if (action_name == "installed-close") {
         close_modal();
-    } else if (live() && action_name == "installed-show-all") {
-        // The finished batch gives way to the list of what is installed now; a stopped game keeps
-        // its reason there and can be chosen again.
-        if (uninstall_batch_) installed_stops_ = uninstall_batch_->stopped;
-        uninstall_batch_.reset();
-        refresh_installed_manager();
-        if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "installed-games") {
-            auto& list = state_.navigation.modals.back();
-            const auto game = std::find_if(list.action_keys.begin(), list.action_keys.end(),
-                                           [](const std::string& key) { return key.rfind("installed-toggle-", 0) == 0; });
-            list.focused_action = game == list.action_keys.end() ? 0 : static_cast<int>(game - list.action_keys.begin());
-            state_.navigation.focus_key = list.action_keys[static_cast<std::size_t>(list.focused_action)];
-        }
     } else if (live() && action_name == "installed-sort") {
         installed_by_played_ = !installed_by_played_;
         refresh_installed_manager();
@@ -6737,41 +6709,34 @@ void Simulation::activate() {
                            : all_steam ? "Their files are removed from this console. You can install them again from Steam."
                                        : "Their files are removed from this console.";
         if (any_cloud && state_.cloud_saves_auto)
-            confirmation.body += " Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its row says why.";
+            confirmation.body += " Steam Cloud saves are synced first. If that fails for a game, that game stays installed and Queue says why.";
         else if (any_cloud)
             confirmation.body += " Automatic Cloud sync is off, so their saves are not synced first.";
         open_modal(std::move(confirmation));
     } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_ == "installed-selection-uninstall") {
-        GameId first;
+        // In the list's order (its current sort), which is the order they run in.
+        std::vector<GameId> started;
         installed_message_.clear();
         for (const auto id : installed_list()) {
-            if (!installed_selected_.contains(id) || !installed_blocker(id).empty()) continue;
-            const auto* installation = find_installation(state_, id);
-            if (!installation) continue;
-            if (!uninstall_batch_) uninstall_batch_.emplace();
-            auto& batch = *uninstall_batch_;
-            pending_install_requests_.push_back({InstallRequestKind::Uninstall, id, {}, uninstall_delete_saves_});
-            pending_uninstalls_.insert(id);
-            if (std::find(batch.ids.begin(), batch.ids.end(), id) == batch.ids.end()) batch.ids.push_back(id);
-            batch.bytes[id] = installation->installed_bytes;
-            batch.stopped.erase(id);
-            installed_stops_.erase(id);
-            if (!first.valid()) first = id;
+            if (!installed_selected_.contains(id) || !installed_blocker(id).empty() || !find_installation(state_, id)) continue;
+            request_uninstall(id, uninstall_delete_saves_, true);
+            started.push_back(id);
         }
-        // Every checked game started running or downloading while the dialog was open.
-        if (!first.valid()) installed_message_ = "None of the selected games can be uninstalled now.";
         installed_selected_.clear();
         uninstall_delete_saves_ = false;
         pending_destructive_action_.clear();
-        close_modal();  // back to the list, which shows how each game goes
-        refresh_installed_manager();
-        if (first.valid() && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "installed-games") {
-            auto& list = state_.navigation.modals.back();
-            const auto found = std::find(list.action_keys.begin(), list.action_keys.end(), "installed-step-" + ToKey(first));
-            if (found != list.action_keys.end()) {
-                list.focused_action = static_cast<int>(found - list.action_keys.begin());
-                state_.navigation.focus_key = *found;
-            }
+        if (started.empty()) {
+            // Every checked game started running or downloading while the dialog was open.
+            installed_message_ = "None of the selected games can be uninstalled now.";
+            close_modal();  // back to the list, which says so
+            refresh_installed_manager();
+        } else {
+            // Queue follows the uninstalls: the list closes, back to Settings.
+            state_.navigation.focus_key = state_.navigation.modals.front().opener_focus_key;
+            state_.navigation.modals.clear();
+            const auto* game = started.size() == 1 ? find_game(state_, started.front()) : nullptr;
+            push_notice({"uninstall-batch", "Uninstalling " + (game && !game->title.empty() ? game->title : kept_count(started.size())),
+                         "", false, kLiveNoticeSeconds, false, started.size() == 1 ? "Follow it in Queue" : "Follow them in Queue"});
         }
     } else if (action_name == "import-manage") {
         open_import_sheet();
@@ -6923,9 +6888,7 @@ void Simulation::activate() {
     } else if (action_name == "confirm-destructive" && live() &&
                (pending_destructive_action_.rfind("job-cancel-", 0) == 0 || pending_destructive_action_ == "uninstall")) {
         if (pending_destructive_action_ == "uninstall") {
-            pending_install_requests_.push_back({InstallRequestKind::Uninstall, state_.navigation.selected_game_id, {},
-                                                 uninstall_delete_saves_});
-            pending_uninstalls_.insert(state_.navigation.selected_game_id);
+            request_uninstall(state_.navigation.selected_game_id, uninstall_delete_saves_, false);
             uninstall_delete_saves_ = false;
         } else if (const auto* job = find_job(state_, pending_destructive_action_.substr(11))) {
             pending_install_requests_.push_back({InstallRequestKind::Cancel, job->game_id});

@@ -1167,6 +1167,9 @@ void Controller::TickRuntime() {
       if (const auto id = GameIn(snapshot, app); game_roots_.count(id) && queue.active != id &&
           std::find(queue.waiting.begin(), queue.waiting.end(), id) == queue.waiting.end())
         queue.refused[id] = refusal;
+    // Uninstalls in the order they run; only those at work say their step.
+    for (const auto id : uninstalls_.Active())
+      queue.uninstalls.push_back({id, uninstalls_.Started(id) ? UninstallStatus(id) : std::string()});
     model_.UpdatePreparationQueue(std::move(queue));
   }
   if (snapshot.revision == runtime_revision_ && install_revision_ == runtime_install_revision_ &&
@@ -1503,7 +1506,10 @@ void Controller::TickUninstalls() {
         ++play_notes_revision_;
         break;
       case UninstallAction::Kind::kStop: StopUninstall(id, action.reason); break;
-      case UninstallAction::Kind::kFinished: ++play_notes_revision_; break;
+      case UninstallAction::Kind::kFinished:
+        model_.NotifyUninstallFinished(id);
+        ++play_notes_revision_;
+        break;
     }
   }
   project();

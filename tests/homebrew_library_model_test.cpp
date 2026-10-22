@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Playden contributors
 // SPDX-License-Identifier: MIT
 
+#include "homebrew/queue_layout.hpp"
 #include "homebrew/simulation.hpp"
 #include "homebrew/store_art.hpp"
 
@@ -1290,8 +1291,8 @@ void live_storage_section_and_installed_games() {
     const auto& confirm = model.state().navigation.modals.back();
     check(confirm.destructive && confirm.title == "Uninstall 3 games?", "the confirmation counts the games");
     check(confirm.body.find("Beta, Alpha and Gamma. Frees about 30.0 GB.") == 0, "it names them and the space freed");
-    check(confirm.body.find("Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its "
-                            "row says why.") != std::string::npos, "Cloud is synced first, and a failure keeps that game");
+    check(confirm.body.find("Steam Cloud saves are synced first. If that fails for a game, that game stays installed and Queue "
+                            "says why.") != std::string::npos, "Cloud is synced first, and a failure keeps that game");
     const auto* saves = find_row(model, "uninstall-delete-saves");
     check(saves && !saves->selected, "deleting saves is a choice, off by default");
     activate(model, "uninstall-delete-saves");
@@ -1308,60 +1309,43 @@ void live_storage_section_and_installed_games() {
                   return request.kind == InstallRequestKind::Uninstall && !request.delete_saves;
               }),
           "each checked game is uninstalled, keeping its saves");
-    check(model.state().navigation.modals.size() == 1 && model.state().navigation.modals.back().id == "installed-games",
-          "the list stays open as the progress view");
-    // While the batch runs the list shows only its games, in the batch's order, as status rows.
-    check(model.state().navigation.modals.back().action_keys ==
-              std::vector<std::string>{"installed-step-11", "installed-step-10", "installed-step-12", "installed-close"},
-          "the batch view lists only the batch's games, then Close");
-    check(!has_row(model, "installed-sort") && !has_row(model, "installed-select-all") &&
-              !has_row(model, "installed-toggle-13"), "Sort, Select all and the other games are hidden");
-    check(model.state().navigation.focus_key == "installed-step-11", "focus is on the batch's first game");
-    check(model.view().footer == "Uninstalling 1 of 3…", "the footer says how far the batch is");
-    check(model.view().subtitle == "Uninstalling the selected games.", "the header says what the list shows");
-    const auto* waiting = find_row(model, "installed-step-12");
-    check(waiting && waiting->kind == RowKind::Status && waiting->subtitle == "Waiting" && waiting->value == "5.0 GB",
-          "a game not started yet waits, without a checkbox");
-    const auto batch_notices = model.state().notices.size();
-    check(!model.action("triangle") || model.TakeInstallRequests().empty(), "Triangle starts nothing in the batch view");
-    titled.uninstall_status = "Syncing saves…";
+    // The list closes: Queue follows the uninstalls, and a notice says so.
+    check(model.state().navigation.modals.empty() && model.state().navigation.focus_key == "settings-installed",
+          "the confirmed list closes back to Settings");
+    check(!model.state().notices.empty() && model.state().notices.back().id == "uninstall-batch" &&
+              model.state().notices.back().message == "Uninstalling 3 games" &&
+              model.state().notices.back().detail == "Follow them in Queue" && !model.state().notices.back().failure,
+          "a notice sends the player to Queue");
+    const auto notices = model.state().notices.size();
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {}, {{SteamId(11), "Removing PS5 title…"}, {SteamId(10), ""}, {SteamId(12), ""}}});
+    titled.uninstall_status = "Waiting to uninstall";
     model.UpdateRuntime(RuntimeState::Ready, {titled, running, preparing});
-    check(find_row(model, "installed-step-10")->subtitle == "Syncing saves…", "a row shows its game's uninstall step");
+    activate(model, "settings-installed");
+    check(!find_row(model, "installed-toggle-10")->enabled && find_row(model, "installed-toggle-10")->subtitle == "Waiting to uninstall",
+          "a game waiting to uninstall says so and can't be chosen");
+    model.action("circle");
 
-    // One stops on Cloud: its row says why, without a notice.
-    const auto notices = batch_notices;
+    // One stops on Cloud: Queue keeps the reason, and a corner notice says so instead of a dialog.
     model.NotifyUninstallStopped(SteamId(12), "Cloud saves could not be synced.");
-    check(model.state().notices.size() == notices && model.state().navigation.modals.back().id == "installed-games",
-          "a stop in the batch posts no notice");
-    const auto* stopped = find_row(model, "installed-step-12");
-    check(stopped && stopped->subtitle == "Stopped: Cloud saves could not be synced." && stopped->tone == "problem",
-          "the stopped game shows the reason");
-    check(model.view().footer == "Uninstalling 2 of 3…", "a stop counts as done");
-    check(!has_row(model, "installed-show-all"), "Show all games waits for the batch to finish");
+    check(model.state().navigation.modals.empty() && model.state().notices.size() == notices + 1 &&
+              model.state().notices.back().message == "Uninstall stopped" && !model.state().notices.back().alert,
+          "a stop in the batch is a corner notice, not a dialog");
 
-    // The other two finish: their rows say so and the totals count only them.
+    // The other two finish without a notice each.
+    model.UpdatePreparationQueue({});
     titled.uninstall_status.clear();
     model.UpdateRuntime(RuntimeState::Ready, {running, preparing});
     model.UpdateInstalls({LiveInstallJob{SteamId(15), JobState::Queued, 0, gb, {}, "internal"}},
                          {{SteamId(12), 5 * gb, "internal"}, {SteamId(13), 1 * gb, "internal"}, {SteamId(14), 2 * gb, "internal"},
                           {SteamId(15), 3 * gb, "internal"}, {SteamId(16), 4 * gb, "internal"}});
-    check(model.state().notices.size() == notices, "the batch posts no Game uninstalled notices");
-    const auto* gone = find_row(model, "installed-step-11");
-    check(gone && gone->subtitle == "Uninstalled" && gone->tone == "good" && gone->value == "20.0 GB", "an uninstalled game says so");
-    check(model.view().footer == "2 uninstalled · about 25.0 GB freed · 1 stopped", "the totals count freed space and stops");
-    check(model.state().navigation.modals.back().action_keys.size() == 5 && has_row(model, "installed-show-all") &&
-              find_row(model, "installed-show-all")->title == "Show all games",
-          "a finished batch offers Show all games beside Close");
-    check(model.view().subtitle == "Finished uninstalling.", "the header says the batch is done");
-    check(model.view().legends == std::vector<std::string>{"Circle Close"}, "a status row offers no Cross");
-    check(model.action("focus:installed-show-all"), "Show all games is focused");
-    check(model.view().legends == std::vector<std::string>{"Cross Choose", "Circle Close"}, "a footer button offers Cross");
+    model.NotifyUninstallFinished(SteamId(11));
+    model.NotifyUninstallFinished(SteamId(10));
+    check(model.state().notices.size() == notices + 1, "the batch posts no Game uninstalled notices");
 
-    // Show all games returns to the installed games; the stopped one keeps its reason and can go again.
-    activate(model, "installed-show-all");
+    // The list shows the stopped game with its reason; it can go again.
+    activate(model, "settings-installed");
     check(installed_order(model) == std::vector<std::string>{"12", "16", "15", "14", "13"},
-          "the full list shows what is installed now, without the uninstalled games");
-    check(model.state().navigation.focus_key == "installed-toggle-12", "focus is on the first game");
+          "the list shows what is installed now, without the uninstalled games");
     check(find_row(model, "installed-toggle-12")->enabled &&
               find_row(model, "installed-toggle-12")->subtitle == "Stopped: Cloud saves could not be synced.",
           "the stopped game says why and can be chosen");
@@ -1372,13 +1356,16 @@ void live_storage_section_and_installed_games() {
     activate(model, "confirm-destructive");
     requests = model.TakeInstallRequests();
     check(requests.size() == 1 && requests[0].game_id == SteamId(12), "the stopped game is uninstalled again");
-    check(model.view().footer == "Uninstalling 1 of 1…" && find_row(model, "installed-step-12")->subtitle == "Waiting",
-          "the retry is a batch of its own");
+    check(model.state().navigation.modals.empty() && model.state().notices.back().message == "Uninstalling Gamma" &&
+              model.state().notices.back().detail == "Follow it in Queue", "one game's notice names it");
+    check(model.state().ended_uninstalls.size() == 2 &&
+              std::all_of(model.state().ended_uninstalls.begin(), model.state().ended_uninstalls.end(),
+                          [](const auto& ended) { return ended.stopped.empty(); }),
+          "going again clears the stop; the finished ones stay");
     model.UpdateInstalls({LiveInstallJob{SteamId(15), JobState::Queued, 0, gb, {}, "internal"}},
                          {{SteamId(13), 1 * gb, "internal"}, {SteamId(14), 2 * gb, "internal"}, {SteamId(15), 3 * gb, "internal"},
                           {SteamId(16), 4 * gb, "internal"}});
-    check(model.view().footer == "1 uninstalled · about 5.0 GB freed", "the retry's totals");
-    activate(model, "installed-show-all");
+    activate(model, "settings-installed");
     check(!has_row(model, "installed-toggle-12"), "the uninstalled game leaves the list");
 
     // The footer is reached from the last game and left again; Left/Right move between its buttons.
@@ -1420,7 +1407,7 @@ void live_storage_section_and_installed_games() {
     check(model.TakeInstallRequests().empty() && model.view().subtitle == "None of the selected games can be uninstalled now.",
           "without a batch the list says nothing could go");
 
-    // Closing the list ends the batch: later stops are notices again.
+    // The list closes with Close. A game uninstalled on its own still says why it stopped in a dialog.
     const auto* close = find_row(model, "installed-close");
     check(close && close->title == "Close", "the list closes with Close");
     activate(model, "installed-close");
@@ -1428,7 +1415,7 @@ void live_storage_section_and_installed_games() {
     check(find_row(model, "settings-installed")->value == "4 games · 10.0 GB", "the Settings row follows");
     model.NotifyUninstallStopped(SteamId(13), "Cloud saves could not be synced.");
     check(!model.state().navigation.modals.empty() && model.state().navigation.modals.back().title == "Uninstall stopped",
-          "after the list closes a stop is told as before");
+          "a stop outside a batch is told in a dialog");
     model.action("circle");
 
     // Without a batch the list follows the installs, and closes when none is left.
@@ -1438,9 +1425,10 @@ void live_storage_section_and_installed_games() {
     model.UpdateInstalls({}, {{SteamId(12), 5 * gb, "internal"}, {SteamId(13), 1 * gb, "usb0"}});
     activate(model, "settings-installed");
     check(installed_order(model) == std::vector<std::string>{"12", "13"}, "the list shows what is installed now");
-    check(find_row(model, "installed-toggle-13")->subtitle == "USB drive · Played yesterday" &&
-              find_row(model, "installed-toggle-12")->subtitle == "Console storage · Played 100 days ago",
+    check(find_row(model, "installed-toggle-12")->subtitle == "Console storage · Played 100 days ago",
           "with games on two drives each row names its drive");
+    check(find_row(model, "installed-toggle-13")->subtitle == "Stopped: Cloud saves could not be synced.",
+          "a stopped uninstall keeps its reason in the list until the game goes again or Queue dismisses it");
     check(model.action("focus:installed-toggle-13"), "the last game is focused");
     model.UpdateInstalls({}, {{SteamId(12), 5 * gb, "internal"}});
     check(installed_order(model) == std::vector<std::string>{"12"}, "the list follows an uninstall that finished");
@@ -2446,6 +2434,90 @@ void live_queue_history_and_empty_states() {
     check(!has_row(model, "queue-preparation") && has_row(model, "job-23"), "Preparation empties; Downloads keeps its entry");
 }
 
+// Queue lists uninstalls in Preparation: those at work, those waiting their turn, a stop with its reason
+// and finished ones, counted with the preparations and in the tab's badge.
+void live_queue_lists_uninstalls() {
+    using namespace playden::homebrew;
+    constexpr std::int64_t now = 1'800'000'000;
+    auto model = make_live();
+    model.SetWallClock(now);
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(SteamId(10), "Ninja"), game(SteamId(11), "Shovel"), game(SteamId(40), "Alpha"), game(SteamId(41), "Beta"),
+                                game(SteamId(42), "Gamma")}, false, {}, false, false, {}}), "library loaded");
+    model.UpdateInstalls({}, {{SteamId(10), 1, "internal", true}, {SteamId(11), 1, "internal", true}, {SteamId(40), 1, "internal", true},
+                              {SteamId(41), 1, "internal", true}, {SteamId(42), 1, "internal", true}});
+    model.UpdatePreparationQueue({SteamId(10), {SteamId(11)}, {}, {},
+                                  {{SteamId(40), "Removing PS5 title…"}, {SteamId(41), ""}, {SteamId(42), ""}}});
+    model.action("r1");
+    model.action("r1");
+    check((queue_keys(model) == std::vector<std::string>{"queue-preparation", "prep-active-10", "prep-unin-40", "prep-11", "prep-unin-41",
+                                                         "prep-unin-42"}),
+          "a preparation keeps the card; the uninstall at work follows it, those waiting come after the waiting preparations");
+    check(queue_row(model, "queue-preparation")->value == "1 preparing · 1 uninstalling · 3 waiting" &&
+              model.view().subtitle == "1 preparing · 1 uninstalling · 3 waiting",
+          "the heading and the page count uninstalls at work and waiting");
+    check(queue_row(model, "prep-unin-40")->value == "Uninstalling" && queue_row(model, "prep-unin-40")->subtitle == "Removing PS5 title…" &&
+              queue_row(model, "prep-unin-40")->tone == "busy",
+          "the uninstall at work says its step");
+    check(queue_row(model, "prep-unin-41")->value == "Waiting to uninstall" && queue_row(model, "prep-unin-41")->subtitle.empty() &&
+              queue_row(model, "prep-11")->value == "Up next",
+          "a waiting uninstall says so, unnumbered; the preparation queue keeps its own order");
+    check(QueuePending(model.state()) == 5, "the tab badge counts preparations and uninstalls running or waiting");
+    activate(model, "prep-unin-41");
+    check(has_row(model, "prep-open-41") && !has_row(model, "prep-next-41") && model.view().title == "Uninstall actions",
+          "a waiting uninstall offers its game's page");
+    model.action("circle");
+
+    // With no preparation running the first uninstall at work takes the card.
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {},
+                                  {{SteamId(40), "Deleting files…"}, {SteamId(41), "Removing PS5 title…"}, {SteamId(42), ""}}});
+    const auto layout = BuildQueueLayout(model.state());
+    check(layout.preparation.active && layout.preparation.active->key == "prep-unin-40" && layout.preparation.active->uninstall &&
+              layout.preparation.active->status == "Uninstalling" && layout.preparation.active->note == "Deleting files…",
+          "the uninstall at work takes the card");
+    check((queue_keys(model) == std::vector<std::string>{"queue-preparation", "prep-unin-40", "prep-unin-41", "prep-unin-42"}),
+          "a second one at work is a row after the card, then the one waiting");
+    check(queue_row(model, "queue-preparation")->value == "2 uninstalling · 1 waiting", "both at work are counted");
+    activate(model, "queue-preparation");
+    check(queue_row(model, "queue-preparation")->value == "2 more games queued", "a closed section counts uninstalls after its card");
+    activate(model, "queue-preparation");
+
+    // One finishes, one stops (on its own, so the stop is a dialog too), one goes on.
+    model.NotifyUninstallFinished(SteamId(40));
+    model.NotifyUninstallStopped(SteamId(41), "Choose which Cloud saves to keep, then uninstall again.");
+    activate(model, "alert-ok");
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {}, {{SteamId(42), "Removing PS5 title…"}}});
+    const auto done_key = "prep-unin-done-40-" + std::to_string(now);
+    check((queue_keys(model) == std::vector<std::string>{"queue-preparation", "prep-unin-42", "prep-unin-attn-41", done_key}),
+          "the one at work, then the stop, then the finished one");
+    check(queue_row(model, "prep-unin-attn-41")->value == "Uninstall stopped" &&
+              queue_row(model, "prep-unin-attn-41")->subtitle == "Choose which Cloud saves to keep, then uninstall again." &&
+              queue_row(model, "prep-unin-attn-41")->tone == "attention",
+          "a stopped uninstall needs the player and says why");
+    check(queue_row(model, done_key)->value == "Uninstalled" && queue_row(model, done_key)->tone == "good", "a finished one says so");
+    check(queue_row(model, "queue-preparation")->value == "1 uninstalling · 1 needs attention · 1 completed" &&
+              model.view().subtitle == "1 uninstalling · 1 needs attention",
+          "stops and finishes are counted apart from the work");
+    check(QueuePending(model.state()) == 1, "the badge counts only what runs or waits");
+
+    // A stop and a finish can be dismissed; Clear completed takes finished uninstalls with finished preparations.
+    activate(model, "prep-unin-attn-41");
+    check(has_row(model, "prep-open-41") && has_row(model, "uninstall-dismiss-41-" + std::to_string(now)),
+          "a stopped uninstall offers its game's page and Dismiss");
+    activate(model, "uninstall-dismiss-41-" + std::to_string(now));
+    check(!has_row(model, "prep-unin-attn-41"), "Dismiss takes the stop off the list");
+    activate(model, done_key);
+    check(has_row(model, "uninstall-dismiss-40-" + std::to_string(now)) && !has_row(model, "prep-clear-completed"),
+          "a finished uninstall offers Dismiss");
+    model.action("circle");
+    model.UpdatePreparationQueue({std::nullopt, {}, {{SteamId(10), now - 60}}, {}, {}});
+    check((queue_keys(model) == std::vector<std::string>{"queue-preparation", done_key, "prep-done-10-" + std::to_string(now - 60)}),
+          "finished uninstalls and preparations are listed together, newest first");
+    activate(model, done_key);
+    activate(model, "prep-clear-completed");
+    check(model.TakePreparedClear() && model.state().ended_uninstalls.empty(), "Clear completed clears both");
+}
+
 // A game whose preparation needs the player stays in Preparation without a running preparation.
 void live_queue_lists_preparations_needing_attention() {
     using namespace playden::homebrew;
@@ -2916,6 +2988,7 @@ int main() {
     live_queue_counts_copies();
     live_queue_history_and_empty_states();
     live_queue_lists_preparations_needing_attention();
+    live_queue_lists_uninstalls();
     live_details_prepare_next();
     std::cout << "homebrew_library_model_test passed\n";
     return 0;
