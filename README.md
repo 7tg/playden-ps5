@@ -366,8 +366,8 @@ I keep a fork of each, with Playden's changes on the fork's `main` branch, and s
 | Project | What it does for Playden |
 | --- | --- |
 | [prospero-win](https://github.com/mpereiraesaa/prospero-win) | Wine for the PS5. Runs the Windows games: memory management, a 32-bit x86 translator, display, input and audio for the console. Also builds the per-game app shell. |
-| [ps5-homebrew-ui](https://github.com/blackbearreloaded/ps5-homebrew-ui) | The UI toolkit Playden's screens are drawn with: layout, fonts, controller focus and navigation, on OpenGL. |
-| [ps5-opengl](https://github.com/blackbearreloaded/ps5-opengl) | OpenGL for PS5 homebrew. Draws Playden's own interface. |
+| [ps5-homebrew-ui](https://github.com/leolobato/ps5-homebrew-ui) | The UI toolkit Playden's screens are drawn with: layout, fonts, controller focus and navigation, on OpenGL. |
+| [ps5-opengl](https://github.com/leolobato/ps5-opengl) | OpenGL for PS5 homebrew. Draws Playden's own interface. |
 | [ps5-native-app-boilerplate](https://github.com/mpereiraesaa/ps5-native-app-boilerplate) (mpereiraesaa) | Tools to build native PS5 apps and modules, used for the per-game app shell in the kit. Our fork is named `prospero-foundation`. |
 | [PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon) | The root helper. Gives a game's app just enough rights to reach its own files in `/data`. |
 
@@ -375,7 +375,7 @@ I keep a fork of each, with Playden's changes on the fork's `main` branch, and s
 
 | Project | What it does for Playden |
 | --- | --- |
-| [ps5-native-app-boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate) (blackbearreloaded) | Tools to build Playden as a native PS5 app, and its `libc.prx`. |
+| [ps5-native-app-boilerplate](https://github.com/drakmor/ps5-native-app-boilerplate) (drakmor) | Tools to build Playden as a native PS5 app, and its `libc.prx`. |
 | [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) | The SDK for PS5 homebrew. |
 | [gbe_fork](https://github.com/Detanup01/gbe_fork) | Steamworks emulator (LGPL-3.0), shipped with Playden in `runtime/steamworks/`, so games run without the Steam client. |
 
