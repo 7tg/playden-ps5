@@ -1554,6 +1554,17 @@ bool FilesystemPackageInstaller::TitleCurrent(const RuntimeInstall& record) {
          MarkerEquals(paths->bottle / kTemplateOwner, OwnerMarker(record, kit_, "template"));
 }
 
+bool FilesystemPackageInstaller::SetupFromOtherKit(const RuntimeInstall& record) {
+  const auto paths = Resolve(record);
+  if (!paths) return false;
+  // Only folders whose markers name this install count; another owner's folder is a collision, not this.
+  const auto other_kit = [&](const fs::path& folder, const char* marker, const char* kind) {
+    return IsDirectoryNoSymlink(folder) && MarkerIdentifies(folder / marker, record, kind) &&
+           !MarkerEquals(folder / marker, OwnerMarker(record, kit_, kind));
+  };
+  return other_kit(paths->title, kTitleOwner, "title") || other_kit(paths->bottle, kTemplateOwner, "template");
+}
+
 PackageActionResult FilesystemPackageInstaller::RefreshTitle(const RuntimeInstall& record) {
   const auto paths = Resolve(record);
   if (!paths) return Failed("kit-invalid", "record or verified kit view is invalid");

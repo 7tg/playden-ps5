@@ -604,11 +604,22 @@ void CompletePublicationAndFreshInspection() {
   Write(title / ".playden-title-owner", marker + "kit_id=other\n", 0644);
   owned = installer.InspectOwnership(record);
   CHECK(owned.known && owned.manifest_matches && !installer.TitleCurrent(record));
+  // This install's title from another kit: a setup stopped before Ready can't finish over it.
+  CHECK(installer.SetupFromOtherKit(record));
   auto other = record; other.install_id = "another-install";
+  CHECK(!installer.SetupFromOtherKit(other));  // someone else's title is a collision, not this
   Write(title / ".playden-title-owner", marker, 0644);
   CHECK(!installer.InspectOwnership(other).manifest_matches);
+  CHECK(!installer.SetupFromOtherKit(record));
+  // The bottle alone from another kit counts too.
+  const auto template_marker = Read(bottle / ".playden-template-owner");
+  Write(bottle / ".playden-template-owner", template_marker + "kit_id=other\n", 0600);
+  CHECK(installer.SetupFromOtherKit(record));
+  Write(bottle / ".playden-template-owner", template_marker, 0600);
+  CHECK(!installer.SetupFromOtherKit(record));
   std::filesystem::remove(title / ".playden-title-owner");
   CHECK(!installer.InspectOwnership(record).manifest_matches);
+  CHECK(!installer.SetupFromOtherKit(record));
 }
 
 unsigned ModeOf(const std::filesystem::path& path) {
@@ -982,7 +993,7 @@ void FixedTitleRefreshesToAnyTitleShell() {
     CHECK(installer.WriteTitleMetadata(record, own, std::nullopt).state == PackageActionState::kComplete);
     CHECK(installer.StageTitle(record).state == PackageActionState::kComplete);
     CHECK(installer.CopyTemplate(record).state == PackageActionState::kComplete);
-    CHECK(installer.TitleCurrent(record));
+    CHECK(installer.TitleCurrent(record) && !installer.SetupFromOtherKit(record));
   }
   Write(fixture.kit / "titles/variant/eboot.bin", "any-title-shell", 0755);
   for (auto& file : fixture.view.files)
@@ -997,7 +1008,7 @@ void FixedTitleRefreshesToAnyTitleShell() {
   fixture.view.files_sha256 = std::string(64, 'b');
   fixture.view.variants = {{"any-title", "FAKE78000", "titles/variant", true}};
   auto respun = fixture.Installer();
-  CHECK(!respun.TitleCurrent(record));
+  CHECK(!respun.TitleCurrent(record) && respun.SetupFromOtherKit(record));
   // The new kit does not make the title someone else's: settings still apply to it,
   // while the full inspection (launch) waits for Update (#5).
   const auto owned = respun.InspectOwnership(record);
@@ -1010,7 +1021,7 @@ void FixedTitleRefreshesToAnyTitleShell() {
         fixture.progress.back().first == fixture.progress.back().second && fixture.progress.back().second > 0);
   if (refreshed.state != PackageActionState::kComplete) std::fprintf(stderr, "refresh: %s %s\n", refreshed.code.c_str(), refreshed.message.c_str());
   CHECK(refreshed.state == PackageActionState::kComplete);
-  CHECK(respun.TitleCurrent(record));
+  CHECK(respun.TitleCurrent(record) && !respun.SetupFromOtherKit(record));
   CHECK(Read(fixture.host_data / "homebrew/FAKE78001/eboot.bin") == "any-title-shell");
   CHECK(Read(fixture.host_data / "homebrew/FAKE78001/sce_sys/param.json") == own);
   CHECK(Read(fixture.host_data / "homebrew/FAKE78001/win/mesa-zink/i386-windows/opengl32.dll") == "MZ zink");

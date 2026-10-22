@@ -184,6 +184,10 @@ struct RuntimeInstallView {
   // Whether the title runs the installed kit's runtime (its files and artifacts are the kit's). Unlike title_current,
   // a new game name or icon does not count. Settings only the newer runtime takes (120 Hz output) wait for Update.
   bool runtime_current = true;
+  // A setup that stopped before Ready (Failed, Unavailable or Downloaded) left a title or bottle made with
+  // another kit: Try again can't finish over it, and Prepare refuses. Recreate bottle (remove, then prepare)
+  // does, keeping saves and settings.
+  bool setup_other_kit = false;
   // Publication admission result for Ready titles ("ok" or the refusal); a
   // refusal means the next start would be refused, and Prepare repairs it.
   std::string admission = "ok";

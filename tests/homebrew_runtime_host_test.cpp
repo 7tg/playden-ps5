@@ -961,6 +961,90 @@ void RetryAfterKitRespinBindsTheNewArtifacts() {
   host.Shutdown();
 }
 
+// A preparation that stopped after its title and bottle were made, then a kit swap: the title is the
+// earlier kit's, so every Try again would fail the same way. The snapshot says so, Prepare refuses
+// with the way out instead of retrying, and Recreate bottle (remove, then prepare) finishes it.
+// The same stop under the installed kit is not flagged: Try again finishes that one.
+void SetupFromAnEarlierKitAsksForRecreate() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  // The bottle fails its check at first: the preparation stops with the title and bottle made.
+  auto bottle_valid = std::make_shared<std::atomic<bool>>(false);
+  config.package_operations.validate_bottle = [bottle_valid](const fs::path& bottle) {
+    return *bottle_valid && fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-0000000000") + (uuids < 10 ? "0" : "") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.removal_confirm_polls = 3;
+  config.removal_poll_interval = std::chrono::milliseconds(1);
+  config.unregister_title = [&fixture](const std::string&, const std::string&) {
+    fixture.registered = false; fixture.submitted = false;
+    return TitleRemoverResult{true, 0, "answered"};
+  };
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  const auto prepare = [](RuntimeHost& host) {
+    const auto before = host.Snapshot().prepares_handled;
+    host.Prepare(Hl2());
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return !s.preparing_app && s.prepares_handled > before; }, 60);
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  {
+    auto first = config;
+    first.admit_kit = [kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+    RuntimeHost host(first);
+    CHECK(host.Start());
+    WaitFor(host, Started);
+    const auto failed = prepare(host);
+    CHECK(failed.installs.size() == 1 && failed.installs[0].state == PreparationState::kFailed);
+    CHECK(fs::is_directory(fixture.root / "data/homebrew/FAKE78001"));
+    // Stopped under the installed kit: nothing from another kit, and Try again goes on as before.
+    CHECK(!failed.installs[0].setup_other_kit);
+    const auto again = prepare(host);
+    CHECK(!again.installs[0].setup_other_kit && again.installs[0].state == PreparationState::kFailed);
+    CHECK(!again.refusals.count(220) || again.refusals.at(220).find("another compatibility kit") == std::string::npos);
+    host.Shutdown();
+  }
+  *bottle_valid = true;
+  const auto save = fixture.root / "data/playden/games/steam-220/library/prefixes/game/drive_c/users/steamuser/save.dat";
+  Write(save, "player-save", 0600);
+  const auto other = SyntheticKit(fixture.root / "kit-other", "native", "kit-2", 'b');
+  auto second = config;
+  second.admit_kit = [other](std::string*) { return std::optional<RuntimeKit>(other); };
+  RuntimeHost host(second);
+  CHECK(host.Start());
+  const auto started = WaitFor(host, Started);
+  CHECK(started.installs.size() == 1 && started.installs[0].setup_other_kit);
+  const auto records_before = Read(fixture.root / "data/runtime-state/installs.json");
+  const auto refused = prepare(host);
+  CHECK(refused.refusals.count(220) && refused.refusals.at(220).find("another compatibility kit") != std::string::npos &&
+        refused.refusals.at(220).find("Recreate bottle") != std::string::npos);
+  CHECK(refused.installs[0].setup_other_kit && refused.installs[0].state == PreparationState::kFailed);
+  // Nothing was rebound or retried.
+  CHECK(Read(fixture.root / "data/runtime-state/installs.json") == records_before);
+
+  // Recreate bottle: the title goes through the normal removal, keeping saves, then the game is prepared again.
+  const auto removals = host.Snapshot().removals_handled;
+  host.Remove(220, false);
+  const auto removed = WaitFor(host, [removals](const RuntimeSnapshot& s) { return s.removals_handled > removals; }, 30);
+  if (removed.removal_failures.count(220)) std::fprintf(stderr, "Remove failed: %s\n", removed.removal_failures.at(220).c_str());
+  CHECK(!removed.removal_failures.count(220) && removed.installs.empty());
+  const auto done = prepare(host);
+  if (done.refusals.count(220)) std::fprintf(stderr, "Prepare refused: %s\n", done.refusals.at(220).c_str());
+  CHECK(!done.refusals.count(220) && done.installs.size() == 1 && done.installs[0].state == PreparationState::kReady);
+  CHECK(done.installs[0].title_current && !done.installs[0].setup_other_kit);
+  CHECK(Read(save) == "player-save");
+  host.Shutdown();
+}
+
 // A game run that leaves the bottle registry wider than admission accepts
 // (Wine saving with umask 0) is reported at startup, and Prepare repairs it.
 void RepairsBottleRegistryModes() {
@@ -5113,6 +5197,7 @@ int main(int argc, char** argv) {
   ResumesInterruptedCaptureFromSavedRequest(true);
   RefreshesInstalledTitleToRespunKit();
   RetryAfterKitRespinBindsTheNewArtifacts();
+  SetupFromAnEarlierKitAsksForRecreate();
   RepairsBottleRegistryModes();
   PlaysReadyTitleThroughHandoff();
   ReplacedKitAsksForRestart();

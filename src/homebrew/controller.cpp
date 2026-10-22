@@ -1273,6 +1273,12 @@ void Controller::TickRuntime() {
          game.status == "Needs recovery" || game.status == "Failed" || game.status == "Registration pending"))
       game.status = "No kit";
     if (refusal != snapshot.refusals.end() && !game.ready) game.detail = refusal->second;
+    // A setup left over from an earlier kit: what to do, not the check that failed (or the refusal saying so).
+    if (record && record->setup_other_kit && usable &&
+        (game.status == "Needs recovery" || game.status == "Failed" || game.status == "Not prepared")) {
+      game.setup_other_kit = true;
+      game.detail = "Started with an earlier kit · Recreate the bottle to finish (saves are kept)";
+    }
     if (const auto refused = snapshot.play_refusals.find(NumberIn(snapshot, id)); refused != snapshot.play_refusals.end())
       game.play_detail = "Could not start: " + refused->second;
     const bool launching = snapshot.launch && snapshot.launch->game == id;

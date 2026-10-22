@@ -92,6 +92,10 @@ public:
   }
   // Whether a staged title was made from the admitted kit (cheap marker check).
   virtual bool TitleCurrent(const RuntimeInstall &) { return true; }
+  // Whether this install's title, or its bottle, is there and was made from another kit (or
+  // another build of this one): owner markers that name the install but not the admitted kit.
+  // A setup stopped before Ready can't finish over it (cheap marker check).
+  virtual bool SetupFromOtherKit(const RuntimeInstall &) { return false; }
   virtual PackageActionResult WriteTitleMetadata(const RuntimeInstall &, const std::string &,
                                                  const std::optional<std::string> &) {
     return {PackageActionState::kFailed, "unsupported", "title metadata is unsupported"};

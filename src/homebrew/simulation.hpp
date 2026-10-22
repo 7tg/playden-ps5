@@ -162,6 +162,9 @@ struct LiveRuntimeGame {
     // The title runs the installed kit's runtime (false while a Ready title waits for Update): settings only the
     // newer runtime takes, such as 120 Hz output, can be chosen before but apply only then.
     bool runtime_current = true;
+    // Its setup stopped before Ready and left a PS5 title or bottle made with an earlier kit: Try again
+    // can't finish it, Recreate bottle does (RuntimeInstallView::setup_other_kit).
+    bool setup_other_kit = false;
     // Has a prepared title (Ready, perhaps with an update or repair to make): its Game
     // settings and maintenance apply to it.
     bool prepared = false;

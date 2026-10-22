@@ -506,13 +506,22 @@ std::string action_label(const std::string& key) {
              {"job-pause-", "Pause download"}, {"job-resume-", "Resume download"}, {"job-retry-", "Retry download"},
              {"job-cancel-", "Cancel download"}, {"job-now-", "Download now"}, {"job-up-", "Move up"}, {"job-down-", "Move down"},
              {"job-open-", "Open game"}, {"job-dismiss-", "Dismiss"}, {"prep-next-", "Prepare next"},
-             {"prep-open-", "Game details"}, {"prep-retry-", "Try again"}, {"prep-dismiss-", "Dismiss"},
+             {"prep-open-", "Game details"}, {"prep-retry-", "Try again"}, {"prep-recreate-", "Recreate bottle"},
+             {"prep-dismiss-", "Dismiss"},
              {"uninstall-dismiss-", "Dismiss"}})
         if (key.rfind(prefix, 0) == 0) return label;
     std::string title = key;
     std::replace(title.begin(), title.end(), '-', ' ');
     if (!title.empty()) title.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(title.front())));
     return title;
+}
+
+// Recreate bottle asks first, from Maintenance and for a setup an earlier kit left (Queue, the game page).
+ModalEntry recreate_confirmation(const std::string& title, std::string opener) {
+    ModalEntry confirmation{"confirmation", "Recreate the bottle?", std::move(opener), {"cancel", "confirm-destructive"}, 1, false};
+    confirmation.body = title + "'s Windows environment is made again from the runtime kit, with its saves and settings brought back. "
+                        "The PS5 title is removed and prepared again, so the game then waits for the PS5 Home screen once more.";
+    return confirmation;
 }
 
 std::string trimmed(std::string value) {
@@ -4571,6 +4580,13 @@ void Simulation::rebuild_view() {
                             play.value.clear();
                             play.enabled = value.uninstall_status.empty();
                         }
+                        // Finish setup would fail as before over a title or bottle an earlier kit made: make it again.
+                        if (value.setup_other_kit) {
+                            play.title = "Recreate bottle";
+                            play.action = "prep-recreate-" + ToKey(game->id);
+                            play.value = value.maintenance_running ? "Working…" : std::string{};
+                            play.enabled = !value.maintenance_running;
+                        }
                         if (!value.uninstall_status.empty()) {
                             play.value = value.uninstall_status;
                             play.action.clear();
@@ -4730,6 +4746,8 @@ void Simulation::rebuild_view() {
             else if (status == "Removal incomplete") hint = "Removing " + game->title + " from the PS5 Home screen stopped partway.";
             else if (status == "Needs repair") hint = "Some of " + game->title + "'s setup files changed.";
             else if (status == "No kit") hint = "Playden needs its compatibility kit to set up games.";
+            else if (runtime && runtime->setup_other_kit)
+                hint = "Setup started with an earlier kit. Recreate bottle makes it again; saves and settings are kept.";
             else if (runtime && (status == "Needs recovery" || status == "Failed")) {
                 const bool stopped = status == "Needs recovery";
                 if (runtime->failure_code.rfind("kit-", 0) == 0 ||
@@ -6263,7 +6281,10 @@ void Simulation::activate() {
             if (completed_count() > 1) actions.push_back("prep-clear-completed");
         } else if (key.rfind("prep-attn-", 0) == 0) {
             const auto runtime = state_.runtime_games.find(selected.game_id);
-            if (runtime != state_.runtime_games.end() && runtime->second.can_prepare && !runtime->second.awaiting_registration)
+            // A setup an earlier kit left fails the same way on every Try again: the bottle is made again instead.
+            if (runtime != state_.runtime_games.end() && runtime->second.setup_other_kit)
+                actions.push_back("prep-recreate-" + id);
+            else if (runtime != state_.runtime_games.end() && runtime->second.can_prepare && !runtime->second.awaiting_registration)
                 actions.push_back("prep-retry-" + id);
             actions.push_back("prep-open-" + id);
         } else if (key.rfind("prep-active-", 0) == 0) {
@@ -6288,6 +6309,19 @@ void Simulation::activate() {
         close_modal();
         state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
         state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
+    } else if (action_name.rfind("prep-recreate-", 0) == 0) {
+        // The same request as Maintenance › Recreate bottle. The runtime refuses to remove a title that runs,
+        // so this doesn't wait for the console's answer on whether the game runs, as Maintenance's rows do.
+        const auto id = key_id(std::string_view(action_name).substr(std::strlen("prep-recreate-")));
+        const auto runtime = state_.runtime_games.find(id);
+        if (!live() || runtime == state_.runtime_games.end() || !runtime->second.setup_other_kit ||
+            runtime->second.maintenance_running)
+            return;
+        const auto* known = find_game(state_, id);
+        if (!state_.navigation.modals.empty() && state_.navigation.modals.back().id == "prep-actions") close_modal();
+        state_.navigation.selected_game_id = id;
+        pending_destructive_action_ = "maintenance-recreate";
+        open_modal(recreate_confirmation(known ? known->title : "the game", state_.navigation.focus_key));
     } else if (action_name.rfind("prep-retry-", 0) == 0) {
         const auto id = key_id(std::string_view(action_name).substr(std::strlen("prep-retry-")));
         close_modal();
@@ -7021,9 +7055,9 @@ void Simulation::activate() {
             heading = "Back up saves?";
             body = "The Windows user folders of " + title + " are copied aside on this console. Playden keeps the newest 3 backups. Saves the game keeps in its own folder are not included.";
         } else if (action_name == "maintenance-recreate") {
-            heading = "Recreate the bottle?";
-            body = title + "'s Windows environment is made again from the runtime kit, with its saves and settings brought back. "
-                   "The PS5 title is removed and prepared again, so the game then waits for the PS5 Home screen once more.";
+            pending_destructive_action_ = action_name;
+            open_modal(recreate_confirmation(title, action_name));
+            return;
         } else {
             return;
         }

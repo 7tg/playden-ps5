@@ -2578,6 +2578,67 @@ void live_queue_lists_preparations_needing_attention() {
           "closed, it counts what needs attention apart from the queue");
 }
 
+// A setup an earlier kit left (its title or bottle from that kit) can't be finished by Try again: Queue and the
+// game page offer Recreate bottle instead, say so in plain words, and ask before it runs.
+void live_setup_from_an_earlier_kit_offers_recreate() {
+    using namespace playden::homebrew;
+    using Requests = std::vector<std::pair<GameId, MaintenanceKind>>;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(SteamId(34), "Spire"), game(SteamId(35), "Broke")}, false, {}, false, false, {}}),
+          "library loaded");
+    model.UpdateInstalls({}, {{SteamId(34), 600'000'000}, {SteamId(35), 600'000'000}});
+    const std::string words = "Started with an earlier kit · Recreate the bottle to finish (saves are kept)";
+    LiveRuntimeGame spire; spire.game_id = SteamId(34); spire.status = "Needs recovery"; spire.has_title = true;
+    spire.can_prepare = true; spire.setup_other_kit = true; spire.detail = words;
+    LiveRuntimeGame broke; broke.game_id = SteamId(35); broke.status = "Failed"; broke.has_title = true;
+    broke.can_prepare = true; broke.detail = "immutable artifacts or template provenance do not match";
+    model.UpdateRuntime(RuntimeState::Ready, {spire, broke});
+    model.action("r1");
+    model.action("r1");
+    check(queue_row(model, "prep-attn-34") && queue_row(model, "prep-attn-34")->value == "Interrupted" &&
+              queue_row(model, "prep-attn-34")->subtitle == words,
+          "the row says what to do, not the check that failed");
+    activate(model, "prep-attn-34");
+    check(has_row(model, "prep-recreate-34") && !has_row(model, "prep-retry-34") && has_row(model, "prep-open-34"),
+          "Recreate bottle takes Try again's place");
+    check(find_row(model, "prep-recreate-34")->title == "Recreate bottle", "the action is named");
+    activate(model, "prep-recreate-34");
+    check(model.state().navigation.modals.size() == 1 && model.state().navigation.modals.back().title == "Recreate the bottle?",
+          "it asks first, as Maintenance does");
+    model.action("circle");
+    check(model.state().navigation.modals.empty() && model.TakeMaintenanceRequests().empty(), "Cancel asks for nothing");
+    activate(model, "prep-attn-34");
+    activate(model, "prep-recreate-34");
+    activate(model, "confirm-destructive");
+    check(model.TakeMaintenanceRequests() == Requests{{SteamId(34), MaintenanceKind::RecreateBottle}} &&
+              model.TakeRuntimePrepareRequests().empty(),
+          "confirmed, it is Maintenance's Recreate bottle for that game");
+    // A setup that failed under the installed kit is still tried again, with its own words.
+    activate(model, "prep-attn-35");
+    check(has_row(model, "prep-retry-35") && !has_row(model, "prep-recreate-35"), "other failures keep Try again");
+    model.action("circle");
+    check(queue_row(model, "prep-attn-35")->subtitle == "immutable artifacts or template provenance do not match",
+          "a real integrity failure keeps its message");
+
+    // The game page: the main action and its hint.
+    spire.maintenance.reset(); spire.maintenance_running = false;
+    model.UpdateRuntime(RuntimeState::Ready, {spire, broke});
+    check(model.action("details:34"), "details open");
+    const auto* play = find_row(model, "details-play");
+    check(play && play->enabled && play->title == "Recreate bottle" && play->action == "prep-recreate-34",
+          "the game page offers Recreate bottle instead of Finish setup");
+    check(find_row(model, "details-hint") &&
+              find_row(model, "details-hint")->title ==
+                  "Setup started with an earlier kit. Recreate bottle makes it again; saves and settings are kept.",
+          "the hint says why");
+    activate(model, "details-play");
+    activate(model, "confirm-destructive");
+    check(model.TakeMaintenanceRequests() == Requests{{SteamId(34), MaintenanceKind::RecreateBottle}},
+          "the game page's Recreate bottle asks for the same");
+    check(find_row(model, "details-play") && !find_row(model, "details-play")->enabled, "it waits while it runs");
+}
+
 // The game page of a waiting game names the game right ahead of it and offers Prepare next.
 void live_details_prepare_next() {
     using namespace playden::homebrew;
@@ -3009,6 +3070,7 @@ int main() {
     live_queue_counts_copies();
     live_queue_history_and_empty_states();
     live_queue_lists_preparations_needing_attention();
+    live_setup_from_an_earlier_kit_offers_recreate();
     live_queue_lists_uninstalls();
     live_details_prepare_next();
     std::cout << "homebrew_library_model_test passed\n";

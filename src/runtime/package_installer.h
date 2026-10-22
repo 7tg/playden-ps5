@@ -188,6 +188,7 @@ class FilesystemPackageInstaller final : public PackageInstaller {
   PackageActionResult ValidateArtifacts(const RuntimeInstall& record) override;
   PackageActionResult PublishProfile(const RuntimeInstall& record) override;
   bool TitleCurrent(const RuntimeInstall& record) override;
+  bool SetupFromOtherKit(const RuntimeInstall& record) override;
   std::string AdmissionDiagnostic(const RuntimeInstall& record) override;
   std::string QuickAdmission(const RuntimeInstall& record) override;
   // Also settles the bottle's modes (SettleBottleModes).

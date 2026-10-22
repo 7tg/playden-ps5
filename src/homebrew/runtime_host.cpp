@@ -38,6 +38,7 @@
 #include <unistd.h>
 #include <set>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 namespace playden::homebrew {
@@ -1311,6 +1312,12 @@ void RuntimeHost::ClearWork() {
   Publish([](RuntimeSnapshot& s) { s.work_progress.reset(); });
 }
 
+// A setup that stopped before Ready, which Prepare starts again from its saved step (Retry) or from the start.
+static bool SetupRestarts(const rt::RuntimeInstall& record) {
+  return record.state == rt::PreparationState::kFailed || record.state == rt::PreparationState::kUnavailable ||
+         record.state == rt::PreparationState::kDownloaded;
+}
+
 // Whether the install is bound to exactly the installed kit's runtime artifacts.
 static bool ArtifactsBound(const auto& kit_artifacts, const rt::RuntimeInstall& record) {
   return record.artifacts.size() == kit_artifacts.size() &&
@@ -1323,10 +1330,11 @@ static bool ArtifactsBound(const auto& kit_artifacts, const rt::RuntimeInstall& 
 }
 
 void RuntimeHost::PublishInstalls(const Composition& composition, const std::string& only) {
-  std::map<std::string, std::pair<bool, bool>> checked;  // title_current, runtime_current
+  std::map<std::string, std::tuple<bool, bool, bool>> checked;  // title_current, runtime_current, setup_other_kit
   if (!only.empty()) {
     std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& view : snapshot_.installs) checked[view.install_id] = {view.title_current, view.runtime_current};
+    for (const auto& view : snapshot_.installs)
+      checked[view.install_id] = {view.title_current, view.runtime_current, view.setup_other_kit};
   }
   std::vector<RuntimeInstallView> installs;
   for (const auto& record : composition.repository.Snapshot()) {
@@ -1345,12 +1353,13 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
       view.failure_code = record.last_failure->code;
     }
     if (const auto kept = checked.find(record.install_id); !only.empty() && record.install_id != only && kept != checked.end()) {
-      view.title_current = kept->second.first;
-      view.runtime_current = kept->second.second;
+      std::tie(view.title_current, view.runtime_current, view.setup_other_kit) = kept->second;
     } else if (record.state == rt::PreparationState::kReady && composition.kit) {
       const bool files_current = composition.installer->TitleCurrent(record);
       view.title_current = files_current && composition.installer->TitleMetadataCurrent(record) && TitleNameCurrent(record);
       view.runtime_current = files_current && ArtifactsBound(composition.kit->view.artifacts, record);
+    } else if (composition.kit && SetupRestarts(record) && !view.moving) {
+      view.setup_other_kit = composition.installer->SetupFromOtherKit(record);
     }
     if (const auto found = composition.admission.find(record.install_id); found != composition.admission.end())
       view.admission = found->second;
@@ -2679,8 +2688,9 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       return refused;
   }
   // Reservations survive a failed allow-list or metadata write. Complete these
-  // prerequisites again before a fresh start. Nothing is published yet, so a
-  // reservation bound to an earlier kit's artifacts is bound to this kit's.
+  // prerequisites again before a fresh start. Nothing is published yet (a title or
+  // bottle left by another kit is refused first), so a reservation bound to an
+  // earlier kit's artifacts is bound to this kit's.
   const auto initialize_reserved = [&](rt::RuntimeInstall& record) -> std::string {
     std::vector<rt::RuntimeArtifactIdentity> current;
     for (const auto& artifact : c.kit->view.artifacts)
@@ -2842,6 +2852,13 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       if (!recipe) return reason;
       if (recipe->id != existing->recipe_id || std::to_string(recipe->version) != existing->recipe_version)
         return "This game's setup changed; remove its PS5 title before preparing it again.";
+    }
+    // A setup that stopped before a kit swap left its title or bottle made with the earlier kit. Neither
+    // Retry nor a fresh start finishes over it (both check them against this kit's), so each Try again
+    // would fail the same way: Recreate bottle removes the title and prepares the game again.
+    if (fresh_start && c.installer->SetupFromOtherKit(*existing)) {
+      Log("prepare refused app=" + std::to_string(request.runtime_number) + ": title or bottle from another kit");
+      return std::string("This game's setup was started with another compatibility kit.") + kRecreateHint;
     }
     if (fresh_start)
       if (const auto initialized = initialize_reserved(*existing); !initialized.empty()) return initialized;
