@@ -114,7 +114,9 @@ CloudReport SteamCloudRunner::Apply(const StoredSession& session, const CloudLoc
     report.local_latest = outcome.local_latest;
     report.remote_latest = outcome.remote_latest;
   }
-  if (log_) log_(App(location), outcome.ok ? "apply-ok" : "apply-failed", outcome.message);
+  if (log_)
+    log_(App(location), outcome.ok ? "apply-ok" : "apply-failed",
+         outcome.detail.empty() ? outcome.message : outcome.message + " (" + outcome.detail + ")");
   report.first_sync = false;
   report.first_overwrite = false;
   return report;

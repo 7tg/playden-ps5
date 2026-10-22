@@ -90,6 +90,7 @@ using ApplyProgress = std::function<void(std::uint64_t done, std::uint64_t total
 struct CloudOutcome {
   bool ok = false;
   std::string message;  // short, user-facing
+  std::string detail;   // for the log only: the file and what failed
   std::size_t downloaded = 0, uploaded = 0, removed_local = 0, removed_remote = 0;
   // Both sides once the transfers are done (when ok).
   std::size_t local_files = 0, remote_files = 0;

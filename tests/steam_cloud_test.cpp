@@ -142,6 +142,7 @@ struct FakeCloud {
   std::uint64_t steam_id = kSteamId;
   bool declares_ufs = true;
   bool corrupt_downloads = false;
+  long download_status = 200;  // another status refuses every download
   std::uint64_t next_batch = 700;
   std::map<std::string, std::vector<std::uint8_t>> pending;  // uploads in the open batch
   std::vector<std::string> pending_deletes;
@@ -253,6 +254,10 @@ struct FakeCloud {
       const auto& file = files.at(path.substr(4));
       response.body = file.zipped ? StoredZip("f", file.data) : file.data;
       if (corrupt_downloads && !response.body.empty()) response.body.back() ^= 0xff;
+      if (download_status != 200) {
+        response.status_code = download_status;
+        response.body.clear();
+      }
     } else if (path.rfind("/up/", 0) == 0) {
       CHECK(request.method == HttpMethod::kPut);
       pending[path.substr(4)] = request.body;
@@ -514,8 +519,19 @@ void SyncEndToEnd() {
   cloud.corrupt_downloads = true;
   outcome = sync.Apply(session, location, plan, Resolution::kUseCloud, true, cancel);
   CHECK(!outcome.ok && outcome.message.find("damaged") != std::string::npos);
+  CHECK(outcome.detail.find("file=%WinMyDocuments%My Games/Cloud Game/slot3.sav") != std::string::npos &&
+        outcome.detail.find("sha1_match=0") != std::string::npos);
   CHECK(!std::filesystem::exists(docs / "slot3.sav"));
   cloud.corrupt_downloads = false;
+
+  // A download the server refuses: the player reads a short message, the log gets the file and the HTTP status.
+  plan = sync.Check(session, location, cancel);
+  cloud.download_status = 403;
+  outcome = sync.Apply(session, location, plan, Resolution::kUseCloud, true, cancel);
+  CHECK(!outcome.ok && outcome.message == "A Cloud save could not be downloaded. Try again.");
+  CHECK(outcome.detail.find("file=%WinMyDocuments%My Games/Cloud Game/slot3.sav http error=") != std::string::npos &&
+        outcome.detail.find(" status=403 ") != std::string::npos && outcome.detail.find("x-test-signature") == std::string::npos);
+  cloud.download_status = 200;
 
   // A game without Steam Cloud says so.
   cloud.declares_ufs = false;

@@ -16,6 +16,7 @@
 #include <mbedtls/sha256.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -684,9 +685,10 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
                               Resolution resolution, bool confirm_account, const std::atomic<bool>& cancel,
                               const ApplyProgress& progress) {
   CloudOutcome outcome;
-  const auto fail = [&](std::string message) {
+  const auto fail = [&](std::string message, std::string detail = {}) {
     outcome.ok = false;
     outcome.message = std::move(message);
+    outcome.detail = std::move(detail);
     return outcome;
   };
   if (plan.status == PlanStatus::kFailed || plan.status == PlanStatus::kUnsupported) return fail(plan.message);
@@ -737,6 +739,7 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
   };
 
   std::string failure;
+  std::string detail;  // for the log: which file and what failed (never a URL path or header: they carry tokens)
   std::optional<RemoteFileList> final_list;
   const auto result = hooks_.session(session, kSessionDeadlineMs, cancel,
                                      [&](const CmClient::ServiceCall& call, std::uint64_t steam_id) {
@@ -765,14 +768,23 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
     const auto fetch = [&](const Decision& decision) -> std::optional<std::vector<std::uint8_t>> {
       PLAYDEN_CLOUD_TRACE("download");
       reply.clear();
-      if (call(kClientFileDownload, EncodeFileDownloadRequest(location.app_id, decision.remote_name), &reply, nullptr) !=
+      const auto named = "file=" + decision.remote_name;
+      int eresult = 0;
+      if (call(kClientFileDownload, EncodeFileDownloadRequest(location.app_id, decision.remote_name), &reply, &eresult) !=
           CmError::kNone) {
         failure = "Steam refused a Cloud save download.";
+        detail = named + " download-request eresult=" + std::to_string(eresult);
         return std::nullopt;
       }
       const auto ticket = DecodeFileDownloadResponse(reply);
       if (!ticket || ticket->encrypted || ticket->explicit_delete || ticket->sha1 != decision.remote_fact.sha1 ||
           ticket->raw_file_size != decision.remote_fact.size || ticket->file_size > kMaxHttpResponseBytes) {
+        detail = !ticket ? named + " ticket=undecodable"
+                         : named + " ticket encrypted=" + std::to_string(ticket->encrypted) +
+                               " deleted=" + std::to_string(ticket->explicit_delete) +
+                               " sha1_match=" + std::to_string(ticket->sha1 == decision.remote_fact.sha1) +
+                               " raw_size=" + std::to_string(ticket->raw_file_size) + " listed_size=" +
+                               std::to_string(decision.remote_fact.size) + " file_size=" + std::to_string(ticket->file_size);
         failure = ticket && ticket->file_size > kMaxHttpResponseBytes ? "A Cloud save is too large to download yet."
                                                                        : "Steam described a Cloud save Playden cannot use.";
         return std::nullopt;
@@ -780,6 +792,7 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
       const auto url = TransferUrl(ticket->use_https, ticket->host, ticket->path);
       if (!url) {
         failure = "Steam described a Cloud save Playden cannot use.";
+        detail = named + " transfer-url refused host=" + ticket->host;
         return std::nullopt;
       }
       HttpRequest request;
@@ -790,6 +803,9 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
       const auto response = hooks_.http(request, cancel);
       if (!response.ok() || response.status_code != 200) {
         failure = "A Cloud save could not be downloaded. Try again.";
+        detail = named + " http error=" + HttpErrorName(response.error) + " status=" + std::to_string(response.status_code) +
+                 " host=" + ticket->host + " file_size=" + std::to_string(ticket->file_size) +
+                 " raw_size=" + std::to_string(ticket->raw_file_size) + " body=" + std::to_string(response.body.size());
         return std::nullopt;
       }
       std::vector<std::uint8_t> data = response.body;
@@ -797,12 +813,15 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
         std::vector<std::uint8_t> unpacked;
         if (!UnzipFirstEntry(response.body, InflateRaw, &unpacked)) {
           failure = "A downloaded Cloud save was damaged.";
+          detail = named + " unzip failed body=" + std::to_string(response.body.size());
           return std::nullopt;
         }
         data = std::move(unpacked);
       }
       if (data.size() != decision.remote_fact.size || Sha1(data) != decision.remote_fact.sha1) {
         failure = "A downloaded Cloud save was damaged.";
+        detail = named + " content size=" + std::to_string(data.size()) + " listed_size=" +
+                 std::to_string(decision.remote_fact.size) + " sha1_match=0";
         return std::nullopt;
       }
       return data;
@@ -815,6 +834,7 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
       const auto target = Absolute(location, decision.local);
       if (!backup(decision) || !WriteFileAtomic(target, data)) {
         failure = "A Cloud save could not be written on this device.";
+        detail = "file=" + decision.remote_name + " write failed errno=" + std::to_string(errno);
         return CmError::kProtocol;
       }
       SetModified(target, decision.remote_fact.time);
@@ -892,8 +912,10 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
         if (call(kClientBeginFileUpload,
                  EncodeBeginFileUploadRequest(location.app_id, data.size(), decision.local_fact.sha1, time_stamp,
                                               decision.remote_name, batch->batch_id),
-                 &reply, &eresult) != CmError::kNone)
+                 &reply, &eresult) != CmError::kNone) {
+          detail = "file=" + decision.remote_name + " upload-request eresult=" + std::to_string(eresult);
           return abort_batch("Steam refused a Cloud save upload (" + std::to_string(eresult) + ").", CmError::kRejected);
+        }
         const auto upload = DecodeBeginFileUploadResponse(reply);
         if (!upload || upload->encrypt_file) return abort_batch("Steam asked for an upload Playden cannot make.", CmError::kProtocol);
         bool transferred = true;
@@ -901,6 +923,8 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
           const auto url = TransferUrl(block.use_https, block.host, block.path);
           if (!url || (block.http_method != 3 && block.http_method != 4) ||
               (!block.explicit_body && block.offset + block.length > data.size())) {
+            detail = "file=" + decision.remote_name + " upload block refused method=" + std::to_string(block.http_method) +
+                     " host=" + block.host;
             transferred = false;
             break;
           }
@@ -914,6 +938,9 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
                                                                          data.begin() + static_cast<std::ptrdiff_t>(block.offset + block.length));
           const auto response = hooks_.http(request, cancel);
           if (!response.ok() || response.status_code < 200 || response.status_code >= 300) {
+            detail = "file=" + decision.remote_name + " upload http error=" + HttpErrorName(response.error) +
+                     " status=" + std::to_string(response.status_code) + " host=" + block.host +
+                     " bytes=" + std::to_string(request.body.size());
             transferred = false;
             break;
           }
@@ -924,8 +951,12 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
                                                                   decision.remote_name),
                                     &reply, nullptr);
         const auto committed_ok = committed == CmError::kNone ? DecodeCommitFileUploadResponse(reply) : std::nullopt;
-        if (!transferred || !committed_ok || !*committed_ok)
+        if (!transferred || !committed_ok || !*committed_ok) {
+          if (transferred)
+            detail = "file=" + decision.remote_name + " commit " +
+                     (committed != CmError::kNone ? "request failed" : !committed_ok ? "reply undecodable" : "refused");
           return abort_batch("A Cloud save could not be uploaded. Try again.", CmError::kNetwork);
+        }
         ++outcome.uploaded;
         count_bytes(decision.local_fact.size);
       }
@@ -953,7 +984,7 @@ CloudOutcome CloudSync::Apply(const StoredSession& session, const GameSaveLocati
     return CmError::kNone;
   });
   if (backed_up) PruneBackups(location.state_root);
-  if (result != CmError::kNone) return fail(failure.empty() ? "Steam is not reachable. Try again." : failure);
+  if (result != CmError::kNone) return fail(failure.empty() ? "Steam is not reachable. Try again." : failure, detail);
 
   // The verified common state becomes the next baseline: every Cloud file that maps locally and
   // now matches its local copy.
