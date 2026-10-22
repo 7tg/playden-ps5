@@ -16,10 +16,13 @@ namespace playden::homebrew {
 // Steam Cloud syncs first (a conflict or a failure stops and asks the player), then
 // the game's PS5 title is removed (journaled by the runtime host), and only then the
 // Steam download. A failure stops the uninstall with the reason; nothing is skipped.
+// Uninstalls go first in, first out: syncs and title removals are handed out one at a
+// time, in the order the uninstalls were asked for.
 enum class UninstallStep { kSync, kRemoveTitle, kRemoveDownload };
 
 struct UninstallAction {
-  enum class Kind { kNone, kRemoveTitle, kRemoveDownload, kStop } kind = Kind::kNone;
+  // kFinished: the download is gone and the uninstall is over.
+  enum class Kind { kNone, kRemoveTitle, kRemoveDownload, kStop, kFinished } kind = Kind::kNone;
   bool delete_saves = false;
   std::string reason;  // kStop: what the player is told
 };
@@ -33,6 +36,7 @@ struct UninstallFacts {
   std::string removal_failure;       // the runtime's latest removal refusal or failure
   bool saves_moving = false;         // a Cloud transfer runs for the game
   bool session_active = false;       // the game's title may be running
+  bool download_gone = false;        // the game's files are no longer installed
 };
 
 class UninstallFlow {
@@ -40,7 +44,8 @@ class UninstallFlow {
   // Starts an uninstall; false when one already runs for the game. With Cloud the
   // saves sync first, unless the player chose to go on after a failed sync.
   bool Begin(GameId id, bool delete_saves, bool cloud_available);
-  // Games whose Cloud sync should be issued now (each once).
+  // The game whose Cloud sync should be issued now (each once), the first waiting one in
+  // order, while no other sync is out.
   std::vector<GameId> TakeSyncRequests();
   bool WaitingForCloud(GameId id) const;
   // The sync went to the Cloud service: from now on its results settle the uninstall
@@ -54,7 +59,13 @@ class UninstallFlow {
   void CloudSkipped(GameId id);
   // What to do next for a game, given what the runtime reports now.
   UninstallAction Advance(GameId id, const UninstallFacts& facts);
+  // The download removal failed outside the flow: the uninstall is over.
+  void Abandon(GameId id);
   std::optional<UninstallStep> Step(GameId id) const;
+  // Whether the uninstall works now: its sync was sent, or its PS5 title or download is being
+  // removed. One that waits its turn does not.
+  bool Started(GameId id) const;
+  // Uninstalls in the order they were asked for.
   std::vector<GameId> Active() const;
 
  private:
@@ -64,10 +75,13 @@ class UninstallFlow {
     bool sync_issued = false;
     bool sync_dispatched = false;
     bool remove_sent = false;
+    bool download_sent = false;
     std::uint64_t removals_before = 0;
+    std::uint64_t order = 0;  // when it was asked for
   };
   UninstallAction Stop(GameId id, std::string reason);
   std::map<GameId, Entry> entries_;
   std::set<GameId> without_sync_;
+  std::uint64_t next_order_ = 0;
 };
 }  // namespace playden::homebrew

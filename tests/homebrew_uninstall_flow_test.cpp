@@ -44,6 +44,11 @@ int main() {
   UninstallFacts gone;
   gone.removals_handled = 8;
   CHECK(flow.Advance(SteamId(42), gone).kind == Kind::kRemoveDownload);
+  // The uninstall lasts until the files are gone, and the download is asked for once.
+  CHECK(flow.Step(SteamId(42)) == UninstallStep::kRemoveDownload && flow.Started(SteamId(42)));
+  CHECK(flow.Advance(SteamId(42), gone).kind == Kind::kNone);
+  gone.download_gone = true;
+  CHECK(flow.Advance(SteamId(42), gone).kind == Kind::kFinished);
   CHECK(!flow.Step(SteamId(42)) && flow.Active().empty());
 
   // A failed removal stops with the runtime's reason and keeps the download.
@@ -140,6 +145,9 @@ int main() {
   UninstallFacts second_done;
   second_done.removals_handled = 7;
   CHECK(flow.Advance(SteamId(61), second_done).kind == Kind::kRemoveDownload);
+  // A download that could not be deleted ends the uninstall outside the flow.
+  flow.Abandon(SteamId(60));
+  flow.Abandon(SteamId(61));
   CHECK(!flow.Step(SteamId(60)) && !flow.Step(SteamId(61)));
 
   // A stopped removal frees the slot for the waiting game.
@@ -158,18 +166,60 @@ int main() {
 
   // One game's Cloud conflict stops only that game; the other goes on to its removal.
   CHECK(flow.Begin(SteamId(64), false, true) && flow.Begin(SteamId(65), false, true));
-  CHECK(flow.TakeSyncRequests() == std::vector<GameId>({SteamId(64), SteamId(65)}));
+  CHECK(flow.TakeSyncRequests() == std::vector<GameId>({SteamId(64)}));
   flow.SyncDispatched(SteamId(64));
-  flow.SyncDispatched(SteamId(65));
   CHECK(flow.CloudSettled(SteamId(64), CloudStatus::Conflict).kind == Kind::kStop);
   CHECK(!flow.Step(SteamId(64)) && flow.Step(SteamId(65)) == UninstallStep::kSync);
+  CHECK(flow.TakeSyncRequests() == std::vector<GameId>({SteamId(65)}));
+  flow.SyncDispatched(SteamId(65));
   CHECK(flow.CloudSettled(SteamId(65), CloudStatus::Synced).kind == Kind::kNone);
   UninstallFacts after_sync;
   after_sync.has_title = true;
   CHECK(flow.Advance(SteamId(65), after_sync).kind == Kind::kRemoveTitle);
   after_sync = {};
   after_sync.removals_handled = 1;
-  CHECK(flow.Advance(SteamId(65), after_sync).kind == Kind::kRemoveDownload && !flow.Step(SteamId(65)));
+  CHECK(flow.Advance(SteamId(65), after_sync).kind == Kind::kRemoveDownload && flow.Step(SteamId(65)) == UninstallStep::kRemoveDownload);
+
+  // First in, first out: uninstalls go in the order they were asked for, whatever their app IDs,
+  // and only the one at work says it has started.
+  UninstallFlow fifo;
+  for (const auto app : {30u, 10u, 20u}) CHECK(fifo.Begin(SteamId(app), false, true));
+  CHECK(fifo.Active() == std::vector<GameId>({SteamId(30), SteamId(10), SteamId(20)}));
+  // One sync at a time, in that order: the next goes out once the one before settles.
+  CHECK(fifo.TakeSyncRequests() == std::vector<GameId>({SteamId(30)}));
+  CHECK(fifo.TakeSyncRequests().empty());
+  CHECK(!fifo.Started(SteamId(30)));  // issued, not yet sent to Cloud
+  fifo.SyncDispatched(SteamId(30));
+  CHECK(fifo.Started(SteamId(30)) && !fifo.Started(SteamId(10)) && !fifo.Started(SteamId(20)));
+  CHECK(fifo.CloudSettled(SteamId(30), CloudStatus::Synced).kind == Kind::kNone);
+  CHECK(!fifo.Started(SteamId(30)));  // synced, waiting for its title removal
+  CHECK(fifo.TakeSyncRequests() == std::vector<GameId>({SteamId(10)}));
+  fifo.SyncDispatched(SteamId(10));
+  CHECK(fifo.CloudSettled(SteamId(10), CloudStatus::UpToDate).kind == Kind::kNone);
+  CHECK(fifo.TakeSyncRequests() == std::vector<GameId>({SteamId(20)}));
+  fifo.CloudSkipped(SteamId(20));
+  CHECK(fifo.TakeSyncRequests().empty());
+  // Title removals follow the same order: walking Active() hands the one slot to the first.
+  UninstallFacts listed;
+  listed.has_title = true;
+  std::vector<GameId> removed;
+  for (const auto id : fifo.Active())
+    if (fifo.Advance(id, listed).kind == Kind::kRemoveTitle) removed.push_back(id);
+  CHECK(removed == std::vector<GameId>({SteamId(30)}));
+  CHECK(fifo.Started(SteamId(30)) && !fifo.Started(SteamId(10)) && !fifo.Started(SteamId(20)));
+  UninstallFacts removed_one;
+  removed_one.removals_handled = 1;
+  CHECK(fifo.Advance(SteamId(30), removed_one).kind == Kind::kRemoveDownload);
+  removed.clear();
+  listed.removals_handled = 1;
+  for (const auto id : fifo.Active())
+    if (fifo.Advance(id, listed).kind == Kind::kRemoveTitle) removed.push_back(id);
+  CHECK(removed == std::vector<GameId>({SteamId(10)}));
+  // A game asked for again after a stop goes to the back of the line.
+  CHECK(fifo.CloudRefused(SteamId(20)).kind == Kind::kNone);
+  fifo.Abandon(SteamId(20));
+  CHECK(fifo.Begin(SteamId(20), false, false) && fifo.Begin(SteamId(5), false, false));
+  CHECK(fifo.Active() == std::vector<GameId>({SteamId(30), SteamId(10), SteamId(20), SteamId(5)}));
   std::puts("uninstall flow tests passed");
   return 0;
 }

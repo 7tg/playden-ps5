@@ -270,6 +270,12 @@ class Controller {
   void BeginUninstall(GameId id, bool delete_saves);
   void StopUninstall(GameId id, const std::string& reason);
   void TickUninstalls();
+  // What a game's uninstall does now ("Waiting to uninstall" until its turn); empty without one.
+  std::string UninstallStatus(GameId id) const;
+  // Games whose files the install service is deleting now (it lists them as installed no more).
+  std::set<GameId> files_deleting_;
+  // The uninstalls with their status, in order, as last projected.
+  std::vector<std::pair<GameId, std::string>> uninstall_statuses_;
   std::uint64_t kept_revision_ = 0;
   std::vector<LiveKeptBottle> kept_projected_;
   std::map<GameId, std::string> play_notes_;

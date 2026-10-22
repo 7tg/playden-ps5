@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: MIT
 #include "homebrew/uninstall_flow.hpp"
 
+#include <algorithm>
+
 namespace playden::homebrew {
 
 bool UninstallFlow::Begin(GameId id, bool delete_saves, bool cloud_available) {
@@ -10,18 +12,22 @@ bool UninstallFlow::Begin(GameId id, bool delete_saves, bool cloud_available) {
   Entry entry;
   entry.delete_saves = delete_saves;
   entry.step = cloud_available && !without_sync_.erase(id) ? UninstallStep::kSync : UninstallStep::kRemoveTitle;
+  entry.order = next_order_++;
   entries_[id] = entry;
   return true;
 }
 
 std::vector<GameId> UninstallFlow::TakeSyncRequests() {
-  std::vector<GameId> ids;
-  for (auto& [id, entry] : entries_)
-    if (entry.step == UninstallStep::kSync && !entry.sync_issued) {
+  // One sync at a time: the next waits until the one out settles, so the order holds and only
+  // the game being synced says so.
+  for (const auto& [id, entry] : entries_)
+    if (entry.step == UninstallStep::kSync && entry.sync_issued) return {};
+  for (const auto id : Active())
+    if (auto& entry = entries_[id]; entry.step == UninstallStep::kSync) {
       entry.sync_issued = true;
-      ids.push_back(id);
+      return {id};
     }
-  return ids;
+  return {};
 }
 
 bool UninstallFlow::WaitingForCloud(GameId id) const {
@@ -81,7 +87,7 @@ UninstallAction UninstallFlow::Advance(GameId id, const UninstallFacts& facts) {
         if (facts.saves_moving || facts.session_active) return {};
         // The runtime counts removals for all games together, so only one may be in flight to tell whose finished.
         for (const auto& [other_id, other] : entries_)
-          if (other_id != id && other.remove_sent) return {};
+          if (other_id != id && other.step == UninstallStep::kRemoveTitle && other.remove_sent) return {};
         entry.remove_sent = true;
         entry.removals_before = facts.removals_handled;
         return {UninstallAction::Kind::kRemoveTitle, entry.delete_saves, {}};
@@ -100,20 +106,43 @@ UninstallAction UninstallFlow::Advance(GameId id, const UninstallFacts& facts) {
     }
   }
   if (entry.step == UninstallStep::kRemoveDownload) {
+    // The uninstall lasts until the files are gone; a failure to delete them comes back as Abandon.
+    if (!entry.download_sent) {
+      entry.download_sent = true;
+      return {UninstallAction::Kind::kRemoveDownload, false, {}};
+    }
+    if (!facts.download_gone) return {};
     entries_.erase(found);
-    return {UninstallAction::Kind::kRemoveDownload, false, {}};
+    return {UninstallAction::Kind::kFinished, false, {}};
   }
   return {};
 }
+
+void UninstallFlow::Abandon(GameId id) { entries_.erase(id); }
 
 std::optional<UninstallStep> UninstallFlow::Step(GameId id) const {
   const auto found = entries_.find(id);
   return found == entries_.end() ? std::nullopt : std::optional<UninstallStep>(found->second.step);
 }
 
+bool UninstallFlow::Started(GameId id) const {
+  const auto found = entries_.find(id);
+  if (found == entries_.end()) return false;
+  const auto& entry = found->second;
+  switch (entry.step) {
+    case UninstallStep::kSync: return entry.sync_dispatched;
+    case UninstallStep::kRemoveTitle: return entry.remove_sent;
+    case UninstallStep::kRemoveDownload: return true;
+  }
+  return false;
+}
+
 std::vector<GameId> UninstallFlow::Active() const {
+  std::vector<std::pair<std::uint64_t, GameId>> ordered;
+  for (const auto& [id, entry] : entries_) ordered.emplace_back(entry.order, id);
+  std::sort(ordered.begin(), ordered.end());
   std::vector<GameId> ids;
-  for (const auto& [id, entry] : entries_) ids.push_back(id);
+  for (const auto& [order, id] : ordered) ids.push_back(id);
   return ids;
 }
 }  // namespace playden::homebrew

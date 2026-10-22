@@ -1308,9 +1308,8 @@ void Controller::TickRuntime() {
     if (const auto pending = play_after_prepare_.find(id); pending != play_after_prepare_.end()) {
       game.play_status = pending->second.words; game.can_prepare = false;
     }
-    if (const auto step = uninstalls_.Step(id)) {
-      game.uninstall_status = *step == UninstallStep::kSync ? "Syncing saves…"
-                            : *step == UninstallStep::kRemoveTitle ? "Removing PS5 title…" : "Uninstalling…";
+    if (auto status = UninstallStatus(id); !status.empty()) {
+      game.uninstall_status = std::move(status);
       game.can_play = false; game.can_prepare = false;
     }
     // A retry is in flight: do not republish its previous refusal as a new outcome.
@@ -1433,13 +1432,37 @@ void Controller::StopUninstall(GameId id, const std::string& reason) {
   ++play_notes_revision_;
   model_.NotifyUninstallStopped(id, reason);
 }
+std::string Controller::UninstallStatus(GameId id) const {
+  const auto step = uninstalls_.Step(id);
+  if (!step) return {};
+  // Only the uninstalls at work say what they do; the others wait their turn.
+  if (!uninstalls_.Started(id)) return "Waiting to uninstall";
+  switch (*step) {
+    case UninstallStep::kSync: return "Syncing saves…";
+    case UninstallStep::kRemoveTitle: return "Removing PS5 title…";
+    case UninstallStep::kRemoveDownload: break;
+  }
+  // An imported game played from its drive leaves the library; its files stay.
+  const auto* location = LocationOf(id);
+  return location && !location->managed() ? "Removing from Playden…" : "Deleting files…";
+}
 void Controller::TickUninstalls() {
   if (!runtime_) return;
+  // A status that changed (a sync sent, a title removed) is projected again.
+  const auto project = [this] {
+    std::vector<std::pair<GameId, std::string>> statuses;
+    for (const auto id : uninstalls_.Active()) statuses.emplace_back(id, UninstallStatus(id));
+    if (statuses != uninstall_statuses_) {
+      uninstall_statuses_ = std::move(statuses);
+      ++play_notes_revision_;
+    }
+  };
   const auto ids = uninstalls_.Active();
-  if (ids.empty()) return;
+  if (ids.empty()) return project();
   const auto snapshot_shared = runtime_->Shared();
   const auto& snapshot = *snapshot_shared;
   if (snapshot.status == RuntimeHostStatus::kStarting) return;
+  // In the order they were asked for: the first that can go takes the one title removal at a time.
   for (const auto id : ids) {
     if (IsNumber(snapshot, snapshot.preparing_app, id)) continue;  // its title is removed once the preparation ends
     UninstallFacts facts;
@@ -1457,6 +1480,10 @@ void Controller::TickUninstalls() {
       facts.removal_failure = failure->second;
     facts.saves_moving = cloud_busy_.count(id) != 0;
     facts.session_active = SessionActive(id);
+    // The install service lists a game as installed no more once it starts deleting it: the
+    // uninstall is over once the deletion is too. Without the service there is nothing to wait for.
+    const auto* location = LocationOf(id);
+    facts.download_gone = (!location && !files_deleting_.count(id)) || (location && location->managed() && !installs_);
     const auto action = uninstalls_.Advance(id, facts);
     switch (action.kind) {
       case UninstallAction::Kind::kNone: break;
@@ -1466,16 +1493,20 @@ void Controller::TickUninstalls() {
         break;
       // The title is gone, so no title points at the files about to be deleted.
       case UninstallAction::Kind::kRemoveDownload:
-        if (const auto* location = LocationOf(id); location && !location->managed()) {
-          if (id.store == Store::kLocal && local_) local_->Remove(id.value);
+        if (location && !location->managed()) {
+          // Its outcome is watched: a refusal stops the uninstall (TickImports).
+          if (id.store == Store::kLocal && local_)
+            if (const auto number = local_->Remove(id.value)) import_requests_[number] = {ImportRequestKind::Remove, id};
         } else if (installs_) {
           installs_->Uninstall(id);
         }
         ++play_notes_revision_;
         break;
       case UninstallAction::Kind::kStop: StopUninstall(id, action.reason); break;
+      case UninstallAction::Kind::kFinished: ++play_notes_revision_; break;
     }
   }
+  project();
 }
 void Controller::ProjectLocations(const std::vector<steam::InstalledGame>& managed) {
   auto external = external_locations_ ? external_locations_() : std::vector<installs::InstalledLocation>{};
@@ -1566,7 +1597,11 @@ void Controller::TickImports() {
     const auto outcome = std::find_if(snapshot->outcomes.begin(), snapshot->outcomes.end(),
                                       [&](const stores::local::ImportOutcome& o) { return o.request == it->first; });
     if (outcome == snapshot->outcomes.end()) { ++it; continue; }
-    if (!outcome->ok) {
+    if (!outcome->ok && it->second.kind == ImportRequestKind::Remove && uninstalls_.Step(it->second.game_id)) {
+      // An uninstall's last step was refused: the game stays, and the uninstall says why.
+      uninstalls_.Abandon(it->second.game_id);
+      StopUninstall(it->second.game_id, outcome->message);
+    } else if (!outcome->ok) {
       model_.NotifyImportFailed(it->second, outcome->message);
     } else if (it->second.kind == ImportRequestKind::Add && !outcome->id.empty()) {
       // A game just added: the program chosen with it goes into its Game settings.
@@ -1719,9 +1754,12 @@ void Controller::TickInstalls() {
     }
   }
   // An uninstall whose files could not be deleted lists the game again and says why.
-  for (const auto& failure : installs_->TakeRemovalFailures())
+  for (const auto& failure : installs_->TakeRemovalFailures()) {
+    uninstalls_.Abandon(failure.id);
     StopUninstall(failure.id, failure.reason + " Uninstall the game again to try again.");
+  }
   const auto snapshot = installs_->Snapshot();
+  files_deleting_ = {snapshot.uninstalling.begin(), snapshot.uninstalling.end()};
   ProjectLocations(snapshot.installed);
   // A download that finished in this session is prepared next, so the game is ready to play.
   std::set<GameId> downloading;
