@@ -92,7 +92,7 @@ you sign in:
     (port 2120), and optionally [ps5-web-file-manager](https://github.com/owendswang/ps5-web-file-manager)
     (port 8888).
 - **Windows games:** a Steam account with games, or game folders you already have (see [Import Windows games](#import-windows-games)).
-- **A computer with Python 3** on the same network as the PS5, to copy Playden and the kit to it.
+- **A computer on the same network as the PS5**, to copy Playden and the kit to it. The kit upload needs Python 3.
 - **To build it yourself (optional):** a Mac with Apple Silicon. Linux should also work, but we have not tested it
   yet. See [Build from source](#build-from-source).
 
@@ -114,23 +114,27 @@ Other versions can work, but these are the ones we know.
 Download both files from the latest [release](../../releases):
 
 - `playden-ps5-0.6.0.zip`: the Playden app (`FAKE77031`) and the console tools used below.
-- `playden-kit-0.12.zip`: the runtime kit 0.12 (`hl2-fw1360-dev1`), with its source list and license texts.
+- `playden-kit-0.12.zip`: the runtime kit 0.12, with its source list and license texts.
 
-You need Python 3 on your computer for the tools. Unzip both files next to each other, then run the commands from
-the `playden-ps5-<version>` folder, which holds `tools/`.
+Unzip both files next to each other. Installing takes two copies over the network: the app folder, then the
+runtime kit folder. After that, Playden updates itself (see [Update Playden](#update-playden)).
+
+Like other PS5 homebrew, Playden is a folder in `/data/homebrew/`, and
+ShadowMountPlus adds its tile to the Home screen.
 
 ### Install Playden
 
-1. Copy the app to the console over FTP. `--install` creates `/data/homebrew/FAKE77031` and its folders, so it also
-   works on a console that has never had Playden (or was just reinstalled):
+1. Copy the `FAKE77031` folder from `playden-ps5-<version>` into `/data/homebrew/` on the console. Use any FTP client
+   (FileZilla, Cyberduck, etc.) or the web file manager in a browser. Create `/data/homebrew` first if it isn't there.
+   You do not need to `chmod` anything: Playden checks the folders it writes to and fixes their permissions before
+   it writes. If it can't fix one, it names that folder.
+
+   Or, from a computer with Python 3, run this in the `playden-ps5-<version>` folder. It creates the folders, copies
+   only what changed, and keeps a backup of the files it replaces:
 
    ```sh
    python3 tools/console_title_deploy.py --host <PS5 IP> deploy --install FAKE77031 --backup backups/<name>
    ```
-
-   Copying the `FAKE77031` folder by hand with an FTP client or the web file manager also works. You do not need to
-   `chmod` any folder: Playden checks the folders it writes to and fixes their permissions itself before it writes.
-   If it can't fix one, it names that folder.
 
    From 0.6.0, Playden keeps its data outside the app folder and moves it there once, at startup:
 
@@ -164,20 +168,23 @@ The previous app and kit are kept until the next update, in `/data/playden/self-
 closes, swaps the previous version and its kit in, and opens again. If the swap does not take and the previous
 version opens again, it says so and puts its kit back. If the new version itself fails to start, nothing can report it: reinstall Playden over FTP as
 described above (your games, sign-in and settings are kept), and put the previous kit folder back in place of
-`hl2-fw1360-dev1` if the new kit is at fault.
+the installed one if the new kit is at fault.
 
 After the version that added import, going back to an older version keeps your old favorites, but loses the favorites
 and collections you changed since. The console's organization data now lives in one file that older versions don't read.
 
-You can also update by hand: run the install command without `--install`. It copies only the changed files, keeps a
-backup of what it replaced, and puts those three folders' modes right if they changed.
+You can also update by hand: copy the new `FAKE77031` folder over the old one, or run the install command without
+`--install`. The command copies only the changed files, keeps a backup of what it replaced, and puts those three
+folders' modes right if they changed.
 
 ### Install the runtime kit
 
-This release uses **kit 0.12**. Upload the kit folder from `playden-kit-0.12.zip`:
+This release uses **kit 0.12**. Upload the kit folder from `playden-kit-0.12.zip` with the upload tool. This step
+needs Python 3. A plain FTP copy does not work for the kit: Playden checks each kit file's permissions against the
+kit's manifest, and a plain copy doesn't set them. Run it from the `playden-ps5-<version>` folder:
 
 ```sh
-python3 tools/console_kit_upload.py ../playden-kit-0.12/hl2-fw1360-dev1 --host <PS5 IP> --replace
+python3 tools/console_kit_upload.py ../playden-kit-0.12 --host <PS5 IP> --replace
 ```
 
 The upload checks every file before it switches to the new kit, and creates `/data/playden/kits` on a console that
