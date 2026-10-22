@@ -11,7 +11,7 @@ These are compiled into Playden's PS5 package (`FAKE77031`) or copied into it.
 | Component | Version | License | Source |
 | --- | --- | --- | --- |
 | ps5-homebrew-ui | fork `0a6fb4b` | GPL-3.0 | by blackbearreloaded (the original repository is gone); my fork [leolobato/ps5-homebrew-ui](https://github.com/leolobato/ps5-homebrew-ui) in `third_party/ps5-homebrew-ui` |
-| ps5-opengl (`libPS5OpenGL`) | 1.0.0, fork `7234923` | GPL-3.0 | by blackbearreloaded (the original repository is gone); my fork [leolobato/ps5-opengl](https://github.com/leolobato/ps5-opengl) in `third_party/ps5-opengl` |
+| ps5-opengl (`libPS5OpenGL`) | 1.0.2, fork `384d1bd` | GPL-3.0 | by blackbearreloaded (the original repository is gone); my fork [leolobato/ps5-opengl](https://github.com/leolobato/ps5-opengl) in `third_party/ps5-opengl` |
 | ps5-native-app-boilerplate (build tools and `libc.prx`) | `f98de73` | GPL-3.0 | [drakmor/ps5-native-app-boilerplate](https://github.com/drakmor/ps5-native-app-boilerplate); its `main` no longer has the pinned commit, so the submodule uses my copy [leolobato/ps5-native-app-boilerplate](https://github.com/leolobato/ps5-native-app-boilerplate) |
 | ProsperoStore's system keyboard (adapted in `src/platform/ps5/system_keyboard.cpp` and `common_dialog_stub.cpp`) | `f73ec17` | GPL-3.0 | [darkxex/ProsperoStore](https://github.com/darkxex/ProsperoStore) |
 | ps5-payload-sdk | v0.43 (v0.42 for the root helper) | GPL-3.0 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) |
