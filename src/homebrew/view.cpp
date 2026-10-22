@@ -1738,12 +1738,14 @@ class Render::Impl
         else
         {
             scene_.gradient_rect(rect, 8.0F, id_color(game.id), gfx::Color::rgb(0x24201D));
-            if (game.art_pending)
+            // A thumbnail (the Queue's) is too narrow for words: its row names the game.
+            const bool words_fit = rect.w >= 120.0F;
+            if (words_fit && game.art_pending)
             {
                 ui::text(scene_, fonts_.display, "Artwork loading", rect.cx(), rect.y + rect.h * 0.52F,
                          25.0F, kText, gfx::Align::center);
             }
-            else
+            else if (words_fit)
             {
                 // The focus overlay names a focused tile, so the placeholder need not repeat it.
                 const float placeholder = title_overlay ? 1.0F - amount : 1.0F;
