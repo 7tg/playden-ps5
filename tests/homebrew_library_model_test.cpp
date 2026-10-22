@@ -952,6 +952,8 @@ void continue_playing_more_keeps_the_chosen_sort() {
           model.visible_games().front()->id==SteamId(1),"and stays chosen");
 }
 
+void sync_automatically(Simulation& model);
+
 void live_uninstall_removes_title_and_keeps_saves() {
     using playden::homebrew::InstallRequestKind;
     using playden::homebrew::LiveRuntimeGame;
@@ -967,12 +969,23 @@ void live_uninstall_removes_title_and_keeps_saves() {
     plain.game_id = SteamId(43); plain.status = "Not prepared"; plain.can_prepare = true;
     model.UpdateRuntime(playden::homebrew::RuntimeState::Ready, {ready, plain});
 
+    // With automatic Cloud sync off the uninstall does not sync, and the dialog does not say it does.
+    check(model.action("details:42") && model.action("focus:details-more") && model.action("cross"), "context opens");
+    activate(model, "uninstall");
+    check(model.state().navigation.modals.back().body.find("Steam Cloud saves are synced first") == std::string::npos &&
+              model.state().navigation.modals.back().body.find("Automatic Cloud sync is off, so its saves are not synced first.") !=
+                  std::string::npos,
+          "with automatic sync off the dialog says the saves are not synced first");
+    activate(model, "cancel");
+    while (!model.state().navigation.modals.empty()) model.action("circle");
+    sync_automatically(model);
+
     // A prepared game: the dialog says the PS5 title goes too and offers deleting saves, off by default.
     check(model.action("details:42") && model.action("focus:details-more") && model.action("cross"), "context opens");
     activate(model, "uninstall");
     const auto& modal = model.state().navigation.modals.back();
     check(modal.body.find("PS5 title are removed") != std::string::npos, "the dialog names the PS5 title");
-    check(modal.body.find("Steam Cloud saves are synced first") != std::string::npos, "Cloud is synced first");
+    check(modal.body.find("Steam Cloud saves are synced first") != std::string::npos, "with automatic sync on, Cloud is synced first");
     const auto* toggle = find_row(model, "uninstall-delete-saves");
     check(toggle && toggle->kind == RowKind::Toggle && !toggle->selected, "deleting saves is a choice, off by default");
     activate(model, "uninstall-delete-saves");
@@ -1255,7 +1268,21 @@ void live_storage_section_and_installed_games() {
     activate(model, "installed-select-all");
     check(!find_row(model, "installed-toggle-10")->selected, "Clear selection unchecks every game");
 
-    // A batch of three: the confirmation names them and the space, with the saves choice.
+    // A batch of three: the confirmation names them and the space, with the saves choice. With automatic
+    // Cloud sync off it does not claim a sync.
+    activate(model, "installed-toggle-10");
+    activate(model, "installed-toggle-11");
+    activate(model, "installed-toggle-12");
+    activate(model, "installed-selection-uninstall");
+    check(model.state().navigation.modals.back().body.find("Steam Cloud saves are synced first") == std::string::npos &&
+              model.state().navigation.modals.back().body.find("Automatic Cloud sync is off, so their saves are not synced first.") !=
+                  std::string::npos,
+          "with automatic sync off the batch dialog says the saves are not synced first");
+    activate(model, "cancel");
+    model.action("circle");
+    activate(model, "settings-cloud-saves");
+    check(model.state().cloud_saves_auto, "automatic Cloud sync is turned on");
+    activate(model, "settings-installed");
     activate(model, "installed-toggle-10");
     activate(model, "installed-toggle-11");
     activate(model, "installed-toggle-12");

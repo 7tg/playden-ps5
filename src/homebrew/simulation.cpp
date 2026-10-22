@@ -6604,10 +6604,12 @@ void Simulation::activate() {
                 body = has_title ? (id.store == Store::kLocal ? uninstall_body_kept_imported : uninstall_body_kept)
                      : steam ? "The game's files are removed from this console. You can install it again from Steam."
                              : "The game's files are removed from this console.";
-                // Only a store with Cloud saves is worth a word about them.
+                // Only a store with Cloud saves is worth a word about them. With automatic sync off the
+                // uninstall does not sync them (Controller::BeginUninstall).
                 if (!Traits(id.store).cloud_saves) body += " Its saves exist only on this console.";
-                else body += no_cloud ? " This game has no Steam Cloud saves: its saves exist only on this console."
-                                      : " Steam Cloud saves are synced first; if that fails, Playden asks before going on.";
+                else if (no_cloud) body += " This game has no Steam Cloud saves: its saves exist only on this console.";
+                else if (state_.cloud_saves_auto) body += " Steam Cloud saves are synced first; if that fails, Playden asks before going on.";
+                else body += " Automatic Cloud sync is off, so its saves are not synced first.";
             }
         }
         std::vector<std::string> actions{"cancel", "confirm-destructive"};
@@ -6734,8 +6736,10 @@ void Simulation::activate() {
         confirmation.body += any_title ? uninstall_batch_body_kept
                            : all_steam ? "Their files are removed from this console. You can install them again from Steam."
                                        : "Their files are removed from this console.";
-        if (any_cloud)
+        if (any_cloud && state_.cloud_saves_auto)
             confirmation.body += " Steam Cloud saves are synced first. If that fails for a game, that game stays installed and its row says why.";
+        else if (any_cloud)
+            confirmation.body += " Automatic Cloud sync is off, so their saves are not synced first.";
         open_modal(std::move(confirmation));
     } else if (action_name == "confirm-destructive" && live() && pending_destructive_action_ == "installed-selection-uninstall") {
         GameId first;
