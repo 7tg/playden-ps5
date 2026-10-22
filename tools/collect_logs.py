@@ -186,12 +186,12 @@ def active_kit(ftp):
             manifest = json.loads(fetch(ftp, f"{KITS}/{name}/manifest.json"))
         except (ftplib.Error, ValueError):
             continue
+        # No kit_id: every kit release shares the same one (the install folder), so it says nothing.
         return {
-            "kit": manifest.get("kit_id", name),
             "kit runtime": (manifest.get("runtime") or {}).get("artifact_revision"),
             "kit capabilities": ", ".join(manifest.get("capabilities") or []),
         }
-    return {"kit": None}
+    return {"kit runtime": None}
 
 
 def main():

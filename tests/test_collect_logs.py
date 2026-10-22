@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -69,6 +70,20 @@ class CollectLogsTests(unittest.TestCase):
     def test_reports_the_latest_firmware(self):
         self.assertEqual(collect_logs.firmware(['console_firmware=13.40 x', 'a\nconsole_firmware=13.60 y']), '13.60')
         self.assertIsNone(collect_logs.firmware(['nothing']))
+
+    def test_reports_the_kit_runtime_not_its_folder_id(self):
+        manifest = {'kit_id': 'hl2-fw1360-dev1', 'runtime': {'artifact_revision': 'f729534-kit-0.12'},
+                    'capabilities': ['dxvk', 'wine-mono']}
+        folders, fetch = collect_logs.folders, collect_logs.fetch
+        collect_logs.folders = lambda ftp, path: ['hl2-fw1360-dev1']
+        collect_logs.fetch = lambda ftp, path: json.dumps(manifest).encode()
+        try:
+            self.assertEqual(collect_logs.active_kit(None),
+                             {'kit runtime': 'f729534-kit-0.12', 'kit capabilities': 'dxvk, wine-mono'})
+            collect_logs.folders = lambda ftp, path: []
+            self.assertEqual(collect_logs.active_kit(None), {'kit runtime': None})
+        finally:
+            collect_logs.folders, collect_logs.fetch = folders, fetch
 
 
 
