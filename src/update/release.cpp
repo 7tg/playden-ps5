@@ -17,6 +17,26 @@ bool SafePrefix(const std::string& prefix) {
   return !prefix.empty() && prefix.back() == '/' && SafeEntryName(prefix);
 }
 
+// A number of min_digits to max_digits digits at the front of text, taken off it.
+bool TakeNumber(std::string_view* text, std::size_t min_digits, std::size_t max_digits, unsigned* out) {
+  std::size_t digits = 0;
+  unsigned value = 0;
+  while (digits < text->size() && (*text)[digits] >= '0' && (*text)[digits] <= '9') {
+    value = value * 10 + static_cast<unsigned>((*text)[digits] - '0');
+    if (++digits > max_digits) return false;
+  }
+  if (digits < min_digits) return false;
+  text->remove_prefix(digits);
+  *out = value;
+  return true;
+}
+
+bool TakeChar(std::string_view* text, char c) {
+  if (text->empty() || text->front() != c) return false;
+  text->remove_prefix(1);
+  return true;
+}
+
 // The summary shown on the console: plain text with line breaks, no control characters (GitHub's
 // "\r\n" would draw as "?"), at most one blank line in a row, and short enough for the dialog.
 std::string Summary(std::string_view text) {
@@ -141,6 +161,29 @@ std::optional<std::vector<Release>> ParseReleases(std::string_view json, std::st
     if (item.is_object())
       if (auto release = ReleaseFrom(&item, nullptr)) releases.push_back(std::move(*release));  // a tag that isn't a version is skipped
   return releases;
+}
+
+std::optional<KitVersion> ParseKitVersion(std::string_view text) {
+  KitVersion version;
+  if (!TakeNumber(&text, 1, 6, &version.generation) || !TakeChar(&text, '.') ||
+      !TakeNumber(&text, 1, 6, &version.revision))
+    return std::nullopt;
+  if (text.empty()) return version;
+  constexpr std::string_view kDevelopment = "-dev.";
+  if (text.substr(0, kDevelopment.size()) != kDevelopment) return std::nullopt;
+  text.remove_prefix(kDevelopment.size());
+  version.development = true;
+  if (!TakeNumber(&text, 8, 8, &version.date) || !TakeChar(&text, '.') || !TakeNumber(&text, 1, 6, &version.build) ||
+      !text.empty())
+    return std::nullopt;
+  return version;
+}
+
+std::optional<KitVersion> KitVersionFromArtifact(std::string_view artifact) {
+  constexpr std::string_view kKit = "-kit-";
+  const auto at = artifact.find(kKit);
+  if (at == std::string_view::npos) return std::nullopt;
+  return ParseKitVersion(artifact.substr(at + kKit.size()));
 }
 
 std::optional<UpdateManifest> ParseUpdateManifest(std::string_view json, std::string* error) {

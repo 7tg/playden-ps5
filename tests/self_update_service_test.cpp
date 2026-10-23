@@ -103,14 +103,15 @@ std::string KitZip() {
 }
 
 void Publish(Server& server, const std::string& tag, const std::string& min_from = "0.2.0",
-             const std::string& content_version = "00.003.000", bool with_kit = true, bool with_digests = true) {
+             const std::string& content_version = "00.003.000", bool with_kit = true, bool with_digests = true,
+             const std::string& kit_revision = "r9") {
   const std::string version_text = tag.substr(1);
   const std::string app = AppZip(version_text, content_version);
   const std::string kit = KitZip();
   const std::string manifest =
       R"({"format":1,"app":{"version":")" + version_text + R"(","title_id":"FAKE77031","min_from":")" + min_from +
       R"(","asset":"playden-ps5-)" + version_text + R"(.zip","prefix":"playden-ps5-)" + version_text +
-      R"(/FAKE77031/"},"kit":{"kit_id":"kitid","revision":"r9","manifest_sha256":")" + kKitSha +
+      R"(/FAKE77031/"},"kit":{"kit_id":"kitid","revision":")" + kit_revision + R"(","manifest_sha256":")" + kKitSha +
       R"(","asset":"playden-kit-h-r9.zip","prefix":"playden-kit-h-r9/kitid/"},"notes":"New things."})";
   server.files[kDownload + "playden-update.json"] = manifest;
   server.files[kDownload + "playden-ps5-" + version_text + ".zip"] = app;
@@ -235,6 +236,32 @@ int main() {
     CHECK(kit.phase == KitInstallPhase::kInstalled && kit.replaces);
     CHECK(Read(test.kits + "/kitid/manifest.json") == kKitSha);
     CHECK(Read(test.kits + "/.replaced-kitid-1000/manifest.json") == std::string(64, 'b'));
+    service.Shutdown();
+  }
+  // Only a missing or older kit is replaced: a newer one (a development kit) or the same version built elsewhere
+  // stays, and nothing is downloaded. An older one is offered as before.
+  {
+    const auto kit_manifest = [](const std::string& version) {
+      return R"({"schema":"playden-prospero-kit/1","runtime":{"artifact_revision":"f729534-kit-)" + version + R"("}})";
+    };
+    for (const char* kept : {"0.13-dev.20261023.1", "0.12"}) {
+      KitOnly test(std::string("kit-kept-") + kept, kit_manifest(kept));
+      Publish(test.fixture.server, "v0.3.0", "0.2.0", "00.003.000", true, true, "0.12");
+      test.fixture.server.releases = "[" + test.fixture.server.latest + "]";
+      UpdateService service(test.Config());
+      service.InstallKit();  // checks first
+      Wait(service);
+      CHECK(service.Snapshot().kit.phase == KitInstallPhase::kNotNeeded);
+      CHECK(Read(test.kits + "/kitid/manifest.json") == kit_manifest(kept) && test.fixture.server.kit_downloads == 0);
+      service.Shutdown();
+    }
+    KitOnly test("kit-older-version", kit_manifest("0.11"));
+    Publish(test.fixture.server, "v0.3.0", "0.2.0", "00.003.000", true, true, "0.12");
+    test.fixture.server.releases = "[" + test.fixture.server.latest + "]";
+    UpdateService service(test.Config());
+    service.CheckKit();
+    Wait(service);
+    CHECK(service.Snapshot().kit.phase == KitInstallPhase::kAvailable && service.Snapshot().kit.replaces);
     service.Shutdown();
   }
   // The running version's release left the kit zip out (its kit did not change): an older release has it.

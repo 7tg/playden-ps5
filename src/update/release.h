@@ -44,6 +44,29 @@ struct KitPart {
   std::string prefix;           // folder inside the zip ("playden-kit-0.12/hl2-fw1360-dev1/")
 };
 
+// A kit's version: "<generation>.<revision>" ("0.12"), or a development build of one with "-dev.<YYYYMMDD>.<N>"
+// ("0.13-dev.20261023.1"), which comes before that release and after the one before it.
+struct KitVersion {
+  unsigned generation = 0;
+  unsigned revision = 0;
+  bool development = false;
+  unsigned date = 0;
+  unsigned build = 0;
+
+  friend bool operator<(const KitVersion& a, const KitVersion& b) {
+    if (a.generation != b.generation) return a.generation < b.generation;
+    if (a.revision != b.revision) return a.revision < b.revision;
+    if (a.development != b.development) return a.development;
+    if (a.date != b.date) return a.date < b.date;
+    return a.build < b.build;
+  }
+};
+
+// Anything else, such as the letters of kits before 0.10 ("h-r9"), is refused.
+std::optional<KitVersion> ParseKitVersion(std::string_view text);
+// The version in a kit's runtime artifact name, "<wine revision>-kit-<version>" ("f729534-kit-0.12").
+std::optional<KitVersion> KitVersionFromArtifact(std::string_view artifact);
+
 struct UpdateManifest {
   Version app_version;
   std::string title_id;

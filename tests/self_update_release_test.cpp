@@ -85,6 +85,24 @@ int main() {
 
   CHECK(IsSha256(kSha) && !IsSha256(std::string(63, 'a')) && !IsSha256(std::string(64, 'A')));
   CHECK(SafeFolderName("hl2-fw1360-dev1-r9") && !SafeFolderName("a/b") && !SafeFolderName("..") && !SafeFolderName(""));
+
+  // Kit versions: releases "0.12", development builds "0.13-dev.20261023.1" before the release they lead to.
+  const auto kit_version = [](const char* text) { return *ParseKitVersion(text); };
+  CHECK(kit_version("0.12").generation == 0 && kit_version("0.12").revision == 12 && !kit_version("0.12").development);
+  const auto dev = kit_version("0.13-dev.20261023.1");
+  CHECK(dev.revision == 13 && dev.development && dev.date == 20261023 && dev.build == 1);
+  for (const char* bad : {"", "r9", "h-r9", "0", "0.", ".12", "0.12.1", "0.12-dev", "0.12-dev.2026102.1",
+                          "0.12-dev.20261023", "0.12-dev.20261023.", "0.12-rc.20261023.1", "0.12 ", "1234567.0"})
+    CHECK(!ParseKitVersion(bad));
+  CHECK(kit_version("0.9") < kit_version("0.10") && kit_version("0.12") < kit_version("1.0"));
+  CHECK(kit_version("0.12") < dev && dev < kit_version("0.13"));
+  CHECK(kit_version("0.13-dev.20261023.1") < kit_version("0.13-dev.20261023.2"));
+  CHECK(kit_version("0.13-dev.20261023.9") < kit_version("0.13-dev.20261024.1"));
+  CHECK(!(kit_version("0.12") < kit_version("0.12")));
+  CHECK(KitVersionFromArtifact("f729534-kit-0.12") && KitVersionFromArtifact("f729534-kit-0.12")->revision == 12);
+  CHECK(KitVersionFromArtifact("f729534-kit-0.13-dev.20261023.1")->development);
+  CHECK(!KitVersionFromArtifact("bceed2d-kit-h-r1") && !KitVersionFromArtifact("f729534") &&
+        !KitVersionFromArtifact("0.12"));
   std::puts("ok");
   return 0;
 }

@@ -44,6 +44,22 @@ std::string Quote(const std::string& text) {
   return out + "\"";
 }
 
+// The version of the kit in kit_root, from its runtime's artifact name; none for a kit that names none
+// (kits before 0.10) or a manifest that can't be read.
+std::optional<KitVersion> InstalledKitVersion(const std::string& kit_root) {
+  std::string text;
+  if (!ReadSmallFile(kit_root + "/manifest.json", &text, 8 << 20)) return std::nullopt;
+  steam::json::Limits limits;
+  limits.max_bytes = 8 << 20;
+  limits.max_values = 1 << 18;
+  limits.max_string_bytes = 1 << 20;
+  const auto manifest = steam::json::Parse(text, limits);
+  const auto* runtime = manifest && manifest->is_object() ? manifest->Find("runtime") : nullptr;
+  const auto* artifact = runtime && runtime->is_object() ? runtime->Find("artifact_revision") : nullptr;
+  if (!artifact || !artifact->is_string()) return std::nullopt;
+  return KitVersionFromArtifact(artifact->text());
+}
+
 std::string Gigabytes(std::uint64_t bytes) {
   char text[32];
   std::snprintf(text, sizeof text, "%.1f GB", static_cast<double>(bytes) / 1e9);
@@ -812,6 +828,17 @@ void UpdateService::DoCheckKit() {
   if (!manifest) return FailKit("The kit information of " + own->tag + " is not valid.", error);
   if (manifest->kit.kit_id != config_.kit_id || manifest->kit.manifest_sha256 != config_.kit_manifest_sha256)
     return unavailable("release " + own->tag + " names kit " + manifest->kit.kit_id + " " + manifest->kit.manifest_sha256);
+  // Only a missing or older kit is replaced: one as new or newer (a development kit, or the same version
+  // built here) stays. A kit whose version can't be read is older than 0.10, or unreadable.
+  if (installed_sha) {
+    const auto installed_version = InstalledKitVersion(installed);
+    const auto offered_version = ParseKitVersion(manifest->kit.revision);
+    if (installed_version && offered_version && !(*installed_version < *offered_version)) {
+      Log("kit check: the installed kit is not older than " + manifest->kit.revision + ", kept");
+      Set([](UpdateSnapshot& s) { s.kit = {}; s.kit.phase = KitInstallPhase::kNotNeeded; });
+      return;
+    }
+  }
   // A release whose kit did not change may leave the kit zip out: an older release has the same zip.
   const Release* source = own;
   const ReleaseAsset* zip = own->Find(manifest->kit.asset);
