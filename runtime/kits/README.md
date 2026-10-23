@@ -1,4 +1,4 @@
-# prospero-win compatibility kits
+# prospero-win runtime kits
 
 A kit is the Windows runtime Playden installs on the console: Wine and its PS5 libraries, DXVK, the template bottle every
 game's bottle is copied from, the PS5 title shell and the shipped recipes. Kits are built outside this repository and

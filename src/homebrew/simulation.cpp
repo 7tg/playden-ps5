@@ -498,7 +498,7 @@ std::string action_label(const std::string& key) {
         {"kit-install", "Download"}, {"kit-cancel", "Cancel download"},
         {"self-update-back-confirm", "Go back"}, {"release-notes-ok", "OK"},
         {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
-        {"about-kit", "Compatibility kit"}, {"about-kit-source", "Built from"},
+        {"about-kit", "Runtime kit"}, {"about-kit-source", "Built from"},
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
         {"inject-startup-loading", "Show startup loading"}};
     if (const auto found = labels.find(key); found != labels.end()) return found->second;
@@ -1645,9 +1645,9 @@ void Simulation::UpdateSelfUpdate(const LiveSelfUpdate& update) {
         pending_update_prompt_ = "kit";
     } else if (update.kit_phase == "failed" && before.kit_phase != "failed" &&
                (before.kit_phase == "downloading" || before.kit_phase == "unpacking")) {
-        show_alert("Compatibility kit download stopped", update.kit_error);
+        show_alert("Runtime kit download stopped", update.kit_error);
     } else if (update.kit_phase == "installed" && before.kit_phase != "installed") {
-        push_notice({"kit-installed", "Compatibility kit installed", "", false, kLiveNoticeSeconds, false,
+        push_notice({"kit-installed", "Runtime kit installed", "", false, kLiveNoticeSeconds, false,
                      "Games can be prepared and played now"});
     }
     sync_self_update_job();
@@ -1674,15 +1674,15 @@ void Simulation::show_update_prompt() {
         return;
     const auto& update = state_.self_update;
     if (kit && update.kit_phase == "available") {
-        ModalEntry prompt{"confirmation", update.kit_replaces ? "Replace the compatibility kit?" : "Download the compatibility kit?",
+        ModalEntry prompt{"confirmation", update.kit_replaces ? "Replace the runtime kit?" : "Download the runtime kit?",
                           state_.navigation.focus_key, {"kit-install", "ready-later"}, 0, false};
         const std::string size = update.kit_download_bytes ? "The download is " + format_bytes(update.kit_download_bytes) + ". "
                                                            : std::string();
         prompt.body = (update.kit_replaces
-                           ? "The installed compatibility kit isn't the one Playden " + update.current +
+                           ? "The installed runtime kit isn't the one Playden " + update.current +
                                  " was made for, so games may not run as this version expects. Playden can put the "
                                  "right one in its place. "
-                           : std::string("Playden needs its compatibility kit to prepare and play Windows games. ")) +
+                           : std::string("Playden needs its runtime kit to prepare and play Windows games. ")) +
                       size + "You can sign in and keep using Playden while it downloads.";
         open_modal(std::move(prompt));
     } else if (pending_update_prompt_ == "available" && update.phase == "available") {
@@ -1690,7 +1690,7 @@ void Simulation::show_update_prompt() {
                           {"self-update-install", "ready-later"}, 0, false};
         prompt.body = (update.notes.empty() ? std::string() : update.notes + "\n\n") + "The download is " +
                       format_bytes(update.download_bytes) +
-                      (update.kit_needed ? ", with a new compatibility kit." : ".") +
+                      (update.kit_needed ? ", with a new runtime kit." : ".") +
                       " You can keep using Playden while it downloads.";
         prompt.link = update.notes_url;
         open_modal(std::move(prompt));
@@ -1717,10 +1717,10 @@ void Simulation::sync_self_update_job() {
         job.id = "kit-install";
         job.kind = "self-update";
         job.queue_order = -1;
-        job.title = "Compatibility kit";
+        job.title = "Runtime kit";
         const bool downloading = update.kit_phase == "downloading";
         job.state = downloading ? JobState::Downloading : JobState::Verifying;
-        job.stage_text = downloading ? "Downloading the compatibility kit" : "Unpacking the compatibility kit";
+        job.stage_text = downloading ? "Downloading the runtime kit" : "Unpacking the runtime kit";
         job.state_text = downloading ? "Downloading" : "Unpacking";
         if (downloading) {
             job.bytes_per_second = update.bytes_per_second;
@@ -1739,13 +1739,13 @@ void Simulation::sync_self_update_job() {
     job.title = "Playden " + update.available;
     if (update.phase == "downloading") {
         job.state = JobState::Downloading;
-        job.stage_text = kit ? "Downloading the compatibility kit" : "Downloading Playden";
+        job.stage_text = kit ? "Downloading the runtime kit" : "Downloading Playden";
         job.state_text = "Downloading";
         job.bytes_per_second = update.bytes_per_second;
         job.eta_seconds = update.eta_seconds;
     } else if (update.phase == "unpacking") {
         job.state = JobState::Verifying;
-        job.stage_text = kit ? "Unpacking the compatibility kit" : "Unpacking Playden";
+        job.stage_text = kit ? "Unpacking the runtime kit" : "Unpacking Playden";
         job.state_text = "Unpacking";
     } else {
         job.state = JobState::Downloaded;
@@ -4056,7 +4056,7 @@ void Simulation::rebuild_view() {
                     const bool updating = busy && runtime->maintenance == MaintenanceKind::UpdateRuntime;
                     // A setup an earlier kit left has no title to update: it is made again.
                     if (!stale && !updating)
-                        item.subtitle = runtime && runtime->status == "No kit" ? "Needs a usable compatibility kit."
+                        item.subtitle = runtime && runtime->status == "No kit" ? "Needs a usable runtime kit."
                                       : runtime && runtime->setup_other_kit
                                           ? "Setup was started with an earlier kit. Use Recreate bottle to finish it; saves are kept."
                                           : "Already up to date.";
@@ -4801,14 +4801,14 @@ void Simulation::rebuild_view() {
             else if (status == "Registration pending") hint = "The PS5 hasn't confirmed " + game->title + " yet.";
             else if (status == "Removal incomplete") hint = "Removing " + game->title + " from the PS5 Home screen stopped partway.";
             else if (status == "Needs repair") hint = "Some of " + game->title + "'s setup files changed.";
-            else if (status == "No kit") hint = "Playden needs its compatibility kit to set up games.";
+            else if (status == "No kit") hint = "Playden needs its runtime kit to set up games.";
             else if (runtime && runtime->setup_other_kit)
                 hint = "Setup started with an earlier kit. Recreate bottle makes it again; saves and settings are kept.";
             else if (runtime && (status == "Needs recovery" || status == "Failed")) {
                 const bool stopped = status == "Needs recovery";
                 if (runtime->failure_code.rfind("kit-", 0) == 0 ||
                     runtime->detail == "kit source is missing, linked, or has wrong mode")
-                    hint = "The compatibility kit is damaged. Reinstall it.";
+                    hint = "The runtime kit is damaged. Reinstall it.";
                 else if (runtime->failure_code == "space-unavailable" ||
                          runtime->detail == "insufficient verified free space for package copy")
                     hint = stopped ? "Setup stopped early: console storage was full." : "Setup failed: console storage was full.";
@@ -5129,7 +5129,7 @@ void Simulation::rebuild_view() {
                                            update.phase == "unpacking" || update.phase == "staged";
             if ((phase == "available" && !update_brings_kit) || phase == "checking" || phase == "downloading" ||
                 phase == "unpacking" || phase == "failed") {
-                auto& kit = add("settings-kit", RowKind::Action, "Compatibility kit", "kit");
+                auto& kit = add("settings-kit", RowKind::Action, "Runtime kit", "kit");
                 if (phase == "available") {
                     kit.value = "Download";
                     kit.subtitle = update.kit_replaces ? "The installed kit isn't the one this version was made for"
@@ -5142,7 +5142,7 @@ void Simulation::rebuild_view() {
                     kit.subtitle = update.kit_error;
                 } else {
                     kit.value = update.kit_total ? std::to_string(update.kit_done * 100 / update.kit_total) + "%" : "Working…";
-                    kit.subtitle = phase == "downloading" ? "Downloading the compatibility kit" : "Unpacking the compatibility kit";
+                    kit.subtitle = phase == "downloading" ? "Downloading the runtime kit" : "Unpacking the runtime kit";
                 }
             }
         }
@@ -5150,7 +5150,7 @@ void Simulation::rebuild_view() {
             state_.self_update.phase != "downloading" && state_.self_update.phase != "unpacking") {
             auto& back = add("settings-update-back", RowKind::Action, "Go back to Playden " + state_.self_update.previous,
                              "self-update-back");
-            back.subtitle = "Put the previous version and its compatibility kit back";
+            back.subtitle = "Put the previous version and its runtime kit back";
         }
         if (live() && !state_.self_update.current_notes_url.empty()) {
             auto& notes = add("settings-release-notes", RowKind::Action, "Release notes", "self-update-notes");
@@ -6297,7 +6297,7 @@ void Simulation::activate() {
     } else if (action_name == "install-estimate-retry") {
         state_.notices.push_back({"estimate", "Fixture estimate is still unavailable", "install-estimate-retry", true, 0});
     } else if (action_name == "job-action" && selected.key == "job-kit-install") {
-        open_modal({"job-actions", "Compatibility kit", selected.key, {"kit-cancel", "cancel"}, 0, false});
+        open_modal({"job-actions", "Runtime kit", selected.key, {"kit-cancel", "cancel"}, 0, false});
     } else if (action_name == "job-action" && selected.key == "job-playden-update") {
         const auto& phase = state_.self_update.phase;
         std::vector<std::string> actions;
@@ -7127,7 +7127,7 @@ void Simulation::activate() {
             body = "Your changes to " + title + "'s settings are removed. The chosen preset and program stay; saves are not touched.";
         } else if (action_name == "maintenance-update") {
             heading = "Update the runtime?";
-            body = title + " moves to the runtime of the installed compatibility kit, and settings that need it apply. "
+            body = title + " moves to the installed runtime kit, and settings that need it apply. "
                    "The game doesn't start; saves are not touched.";
         } else if (action_name == "maintenance-repair") {
             heading = "Repair the game?";
@@ -7403,7 +7403,7 @@ void Simulation::activate() {
         ModalEntry confirm{"confirmation", "Go back to Playden " + state_.self_update.previous + "?",
                            state_.navigation.focus_key, {"self-update-back-confirm", "cancel"}, 1, false};
         confirm.body = "Playden closes, puts version " + state_.self_update.previous +
-                       " and its compatibility kit back, and opens again. If it doesn't open by itself, open it from the "
+                       " and its runtime kit back, and opens again. If it doesn't open by itself, open it from the "
                        "Home screen.";
         open_modal(std::move(confirm));
     }

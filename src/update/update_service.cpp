@@ -789,7 +789,7 @@ void UpdateService::DoCheckKit() {
   };
   std::string error;
   const auto releases = FetchReleases(&error);
-  if (!releases) return FailKit("Playden could not reach GitHub to download its compatibility kit.", error);
+  if (!releases) return FailKit("Playden could not reach GitHub to download its runtime kit.", error);
   const Release* own = nullptr;
   for (const auto& release : *releases)
     if (!release.draft && release.version == config_.current) own = &release;

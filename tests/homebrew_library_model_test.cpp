@@ -1803,7 +1803,7 @@ void live_play_does_the_next_useful_thing() {
         {"Failed", "Finish setup", "", "Setup failed.", "Failed", "problem", "runtime-prepare"},
         {"Registration pending", "Check again", "", "The PS5 hasn't confirmed Synthetic yet.", "Not confirmed", "attention", "runtime-prepare"},
         {"Removal incomplete", "Finish removing", "", "Removing Synthetic from the PS5 Home screen stopped partway.", "Removing", "attention", "runtime-remove-retry"},
-        {"No kit", "Open Settings", "", "Playden needs its compatibility kit to set up games.", "No kit", "problem", ""},
+        {"No kit", "Open Settings", "", "Playden needs its runtime kit to set up games.", "No kit", "problem", ""},
     };
     for (const auto& expected : cases) {
         LiveRuntimeGame state; state.game_id = SteamId(42); state.status = expected.status;
@@ -1832,7 +1832,7 @@ void live_play_does_the_next_useful_thing() {
             check(model.state().navigation.route == Route::Settings, "missing kit opens Settings");
             check(model.TakeRuntimePlayRequests().empty() && model.TakeRuntimePrepareRequests().empty(),
                   "missing kit does not queue an impossible preparation");
-            check(model.state().navigation.focus_key == "about-kit", "missing kit opens Compatibility kit in About");
+            check(model.state().navigation.focus_key == "about-kit", "missing kit opens Runtime kit in About");
             while (!model.state().navigation.modals.empty()) check(model.action("circle"), "close kit information");
         } else {
             check(play->action == expected.action, "redesigned action preserves existing behavior");
@@ -1849,7 +1849,7 @@ void live_play_does_the_next_useful_thing() {
         for (const auto& [detail, expected] : std::vector<std::pair<std::string, std::string>>{
                  {"insufficient verified free space for package copy", status == "Failed"
                      ? "Setup failed: console storage was full." : "Setup stopped early: console storage was full."},
-                 {"kit source is missing, linked, or has wrong mode", "The compatibility kit is damaged. Reinstall it."},
+                 {"kit source is missing, linked, or has wrong mode", "The runtime kit is damaged. Reinstall it."},
                  {"unknown failure /private/technical/path", status == "Failed" ? "Setup failed." : "Setup stopped early."},
                  {"", status == "Failed" ? "Setup failed." : "Setup stopped early."}}) {
             LiveRuntimeGame state; state.game_id = SteamId(42); state.status = status; state.detail = detail; state.can_prepare = true;
@@ -1867,7 +1867,7 @@ void live_play_does_the_next_useful_thing() {
             model.UpdateRuntime(RuntimeState::Ready, {state});
             const std::string expected = code == "space-unavailable"
                 ? (status == "Failed" ? "Setup failed: console storage was full." : "Setup stopped early: console storage was full.")
-                : code.starts_with("kit-") ? "The compatibility kit is damaged. Reinstall it."
+                : code.starts_with("kit-") ? "The runtime kit is damaged. Reinstall it."
                 : status == "Failed" ? "Setup failed." : "Setup stopped early.";
             check(find_row(model, "details-hint") && find_row(model, "details-hint")->title == expected,
                   "recorded failure code determines the plain hint");
@@ -2551,7 +2551,7 @@ void live_queue_lists_preparations_needing_attention() {
     LiveRuntimeGame refused; refused.game_id = SteamId(32); refused.status = "Not prepared"; refused.can_prepare = true;
     LiveRuntimeGame fine; fine.game_id = SteamId(33); fine.status = "Ready"; fine.ready = true;
     model.UpdateRuntime(RuntimeState::Ready, {waits, broke, refused, fine});
-    model.UpdatePreparationQueue({std::nullopt, {}, {}, {{SteamId(32), "No verified compatibility kit is installed."}}});
+    model.UpdatePreparationQueue({std::nullopt, {}, {}, {{SteamId(32), "No verified runtime kit is installed."}}});
     model.action("r1");
     model.action("r1");
     check((queue_keys(model) == std::vector<std::string>{"queue-preparation", "prep-attn-30", "prep-attn-31", "prep-attn-32"}),
@@ -2560,7 +2560,7 @@ void live_queue_lists_preparations_needing_attention() {
           "they are not counted as waiting work");
     check(queue_row(model, "prep-attn-30")->value == "Waiting for the PS5" &&
               queue_row(model, "prep-attn-31")->subtitle == "Disk full" &&
-              queue_row(model, "prep-attn-32")->subtitle == "No verified compatibility kit is installed.",
+              queue_row(model, "prep-attn-32")->subtitle == "No verified runtime kit is installed.",
           "each says why");
     activate(model, "prep-attn-31");
     check(has_row(model, "prep-retry-31"), "a failed preparation can be tried again");
@@ -2570,7 +2570,7 @@ void live_queue_lists_preparations_needing_attention() {
     check(!has_row(model, "prep-retry-30"), "a game waiting for the PS5 is not prepared again from here");
     model.action("circle");
     // Closed with one being prepared: what needs the player is never counted as queued.
-    model.UpdatePreparationQueue({SteamId(33), {}, {}, {{SteamId(32), "No verified compatibility kit is installed."}}});
+    model.UpdatePreparationQueue({SteamId(33), {}, {}, {{SteamId(32), "No verified runtime kit is installed."}}});
     check(model.action("focus:queue-preparation"), "the heading takes focus");
     activate(model, "queue-preparation");
     check(!has_row(model, "prep-attn-30") &&

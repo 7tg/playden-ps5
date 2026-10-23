@@ -176,10 +176,10 @@ folders' modes right if they changed.
 
 ### The runtime kit
 
-The runtime kit (the "compatibility kit" in Playden) is what runs Windows games: Wine, Mesa and DXVK. Playden
+The runtime kit is what runs Windows games: Wine, Mesa and DXVK. Playden
 downloads the kit its version was made for from this repository's releases, on its first start and whenever the
 installed kit isn't that one. It installs in the background, shows on the Queue screen, and games can be prepared
-as soon as it is in place. If you choose Later, or the download fails, Settings › About › Compatibility kit starts
+as soon as it is in place. If you choose Later, or the download fails, Settings › About › Runtime kit starts
 it again. Games pick up a new kit when you press Play.
 
 You can also install the kit by hand, with Python 3: download `playden-kit-<version>.zip` from the release, unzip it

@@ -102,7 +102,7 @@ std::string KitLacksForRecipe(const rt::GameRecipe& recipe, const rt::VerifiedKi
   if (recipe.id == kit.recipe.id) return {};
   const auto unmet = rt::UnmetRecipeRequirements(recipe.requirements, kit);
   return unmet.empty() ? std::string()
-                       : "The installed compatibility kit lacks what this game needs (" + unmet + "); install a newer kit.";
+                       : "The installed runtime kit lacks what this game needs (" + unmet + "); install a newer kit.";
 }
 
 // Staged, its registration submitted, and only waiting for ShadowMountPlus, which
@@ -652,7 +652,7 @@ std::string RuntimeHost::KitReplaced(const Composition& c) const {
   if (!c.kit || c.kit->manifest_sha256.empty() || !config_.package_operations.hash_file) return {};
   const auto current = config_.package_operations.hash_file(c.kit->view.root / "manifest.json");
   if (current && *current == c.kit->manifest_sha256) return {};
-  return "The compatibility kit changed while Playden was running. Quit Playden and start it again.";
+  return "The runtime kit changed while Playden was running. Quit Playden and start it again.";
 }
 
 // What a game's preparation steps work from: its recipe and effective settings, its folder, the bottle
@@ -1425,7 +1425,7 @@ rt::PackageActionResult RuntimeHost::DrivePublication(Composition& c, const rt::
         std::to_string(static_cast<int>(resumed.state)) + " code=" + resumed.code + " message=" + resumed.message);
     return resumed;
   }
-  if (!c.kit) return failed("kit-unavailable", "No verified compatibility kit is installed.");
+  if (!c.kit) return failed("kit-unavailable", "No verified runtime kit is installed.");
 
   const rt::GameRecipe* recipe = nullptr;
   for (const auto& candidate : c.recipes)
@@ -1731,7 +1731,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   // "Steam features" only swaps the game's own files, so it follows the saved value at once.
   if (!force && saved.revision <= record.settings_revision && !moved && !unowned_upgrade)
     return ApplyPreparationSteps(c, record, steam_account_known);
-  if (!c.kit) return "No verified compatibility kit is installed.";
+  if (!c.kit) return "No verified runtime kit is installed.";
   if (saved.revision < record.settings_revision)
     return again("The game's saved settings are older than its PS5 title's; prepare it again.");
   const rt::GameRecipe* recipe = nullptr;
@@ -2403,7 +2403,7 @@ rt::PackageActionResult RuntimeHost::WriteTitleMetadata(Composition& c, const rt
   const auto failed = [](std::string message) {
     return rt::PackageActionResult{rt::PackageActionState::kFailed, "title-metadata", std::move(message)};
   };
-  if (!c.kit) return failed("No verified compatibility kit is installed.");
+  if (!c.kit) return failed("No verified runtime kit is installed.");
   const rt::KitTitleVariant* variant = rt::KitVariantFor(c.kit->view, record.title_id);
   if (!variant) return failed("The kit has no title for this game.");
   // The kit's param.json with the game's name in place of the kit's.
@@ -2867,7 +2867,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     // would fail the same way: Recreate bottle removes the title and prepares the game again.
     if (fresh_start && c.installer->SetupFromOtherKit(*existing)) {
       Log("prepare refused app=" + std::to_string(request.runtime_number) + ": title or bottle from another kit");
-      return std::string("This game's setup was started with another compatibility kit.") + kRecreateHint;
+      return std::string("This game's setup was started with another runtime kit.") + kRecreateHint;
     }
     if (fresh_start)
       if (const auto initialized = initialize_reserved(*existing); !initialized.empty()) return initialized;
@@ -2899,7 +2899,7 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
     // Playden ships its recipes (runtime/recipes) and the kit carries a copy of one of them;
     // only that one must agree with the kit, as the kit's shell was packaged for it.
     if (recipe->id == c.kit->view.recipe.id && std::to_string(recipe->version) != c.kit->view.recipe.version)
-      return "The installed compatibility kit was built for another version of this game's setup.";
+      return "The installed runtime kit was built for another version of this game's setup.";
     if (const auto lacks = KitLacksForRecipe(*recipe, c.kit->view); !lacks.empty()) return lacks;
     if (recipe->launch_entries.empty()) return "Steam lists no Windows program this console can start for this game.";
     const auto settings = config_.settings_record ? config_.settings_record(GameOf(request)) : std::nullopt;
@@ -3736,7 +3736,7 @@ bool RuntimeHost::RunServices() {
       installer->ShareBottleProfiles(rt::KitCapabilitiesFromManifest(c.kit->capabilities, true).bottle_profile_shared);
       c.installer = std::move(installer);
     } else {
-      if (kit_reason.empty()) kit_reason = "No verified compatibility kit is installed.";
+      if (kit_reason.empty()) kit_reason = "No verified runtime kit is installed.";
       c.installer = std::make_unique<UnavailablePackageInstaller>(kit_reason);
     }
     auto native = config_.native;

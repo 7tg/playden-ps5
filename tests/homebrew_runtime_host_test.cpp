@@ -163,13 +163,13 @@ void NoKitRefusesPreparationWithoutDurableEffects() {
   CHECK(host.Start());
   const auto started = WaitFor(host, Started);
   CHECK(started.status == RuntimeHostStatus::kReady);
-  CHECK(!started.kit_available && started.kit_reason == "No verified compatibility kit is installed.");
+  CHECK(!started.kit_available && started.kit_reason == "No verified runtime kit is installed.");
   CHECK(started.installs.empty());
   struct stat info{};
   CHECK(stat((fixture.root / "data/runtime-state").c_str(), &info) == 0 && (info.st_mode & 0777) == 0700);
   host.Prepare(Hl2());
   const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.refusals.count(220) != 0; });
-  CHECK(refused.refusals.at(220) == "No verified compatibility kit is installed.");
+  CHECK(refused.refusals.at(220) == "No verified runtime kit is installed.");
   host.Shutdown();
   CHECK(host.Snapshot().status == RuntimeHostStatus::kStopped);
   CHECK(!fs::exists(fixture.root / "data/runtime-state/installs.json"));
@@ -188,7 +188,7 @@ void ReloadKitAdmitsAKitInstalledWhileRunning() {
   config.admit_kit = [&](std::string* reason) -> std::optional<RuntimeKit> {
     ++admissions;
     if (installed) return kit;
-    *reason = "No verified compatibility kit is installed.";
+    *reason = "No verified runtime kit is installed.";
     return std::nullopt;
   };
   RuntimeHost host(std::move(config));
@@ -205,7 +205,7 @@ void ReloadKitAdmitsAKitInstalledWhileRunning() {
   // Preparation goes past the kit check now (this fixture has no game folder to prepare).
   host.Prepare(Hl2());
   const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepares_handled == 2; }, 60);
-  CHECK(!done.refusals.count(220) || done.refusals.at(220) != "No verified compatibility kit is installed.");
+  CHECK(!done.refusals.count(220) || done.refusals.at(220) != "No verified runtime kit is installed.");
   host.ReloadKit();
   WaitFor(host, [&](const RuntimeSnapshot& s) { return Started(s) && admissions == 3; });
   CHECK(host.Snapshot().kit_available);
@@ -227,7 +227,7 @@ void HoldsEffectiveUidWhileWorking() {
   };
   config.admit_kit = [&](std::string* reason) -> std::optional<RuntimeKit> {
     admitted_while_held = holds > 0;
-    *reason = "No verified compatibility kit is installed.";
+    *reason = "No verified runtime kit is installed.";
     return std::nullopt;
   };
   RuntimeHost host(std::move(config));
@@ -298,7 +298,7 @@ void PrepareNextReordersWaitingPreparations() {
     return nullptr;
   };
   config.admit_kit = [](std::string* reason) -> std::optional<RuntimeKit> {
-    *reason = "No verified compatibility kit is installed.";
+    *reason = "No verified runtime kit is installed.";
     return std::nullopt;
   };
   RuntimeHost host(std::move(config));
@@ -1048,7 +1048,7 @@ void SetupFromAnEarlierKitAsksForRecreate() {
     CHECK(!failed.installs[0].setup_other_kit);
     const auto again = prepare(host);
     CHECK(!again.installs[0].setup_other_kit && again.installs[0].state == PreparationState::kFailed);
-    CHECK(!again.refusals.count(220) || again.refusals.at(220).find("another compatibility kit") == std::string::npos);
+    CHECK(!again.refusals.count(220) || again.refusals.at(220).find("another runtime kit") == std::string::npos);
     host.Shutdown();
   }
   *bottle_valid = true;
@@ -1063,7 +1063,7 @@ void SetupFromAnEarlierKitAsksForRecreate() {
   CHECK(started.installs.size() == 1 && started.installs[0].setup_other_kit);
   const auto records_before = Read(fixture.root / "data/runtime-state/installs.json");
   const auto refused = prepare(host);
-  CHECK(refused.refusals.count(220) && refused.refusals.at(220).find("another compatibility kit") != std::string::npos &&
+  CHECK(refused.refusals.count(220) && refused.refusals.at(220).find("another runtime kit") != std::string::npos &&
         refused.refusals.at(220).find("Recreate bottle") != std::string::npos);
   CHECK(refused.installs[0].setup_other_kit && refused.installs[0].state == PreparationState::kFailed);
   // Nothing was rebound or retried.

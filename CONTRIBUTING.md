@@ -129,9 +129,9 @@ python3 tools/console_title_deploy.py --host <PS5 IP> deploy build/homebrew-ps5/
 The tool backs up each console file it replaces. `restore` puts a backup back. It never touches game downloads,
 logs or user data.
 
-### The compatibility kit
+### The runtime kit
 
-Games run with a compatibility kit: the Wine runtime, a prepared bottle template and the per-game title files. The
+Games run with a runtime kit: the Wine runtime, a prepared bottle template and the per-game title files. The
 launcher accepts only the kit whose manifest is pinned in `dependencies.lock.json` and `src/runtime/kit_trust.cpp`.
 
 Most people install the kit from a release download. To install a kit on the console:

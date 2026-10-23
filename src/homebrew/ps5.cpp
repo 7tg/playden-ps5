@@ -451,7 +451,7 @@ int main() {
                     " prospero_win=" + revision + (admitted.source_dirty ? "-dirty" : "") +
                     " ignored_capabilities=" + (ignored.empty() ? "-" : ignored));
                 if (admitted.status != rt::KitManifestStatus::kVerified || !admitted.view) {
-                    *reason = "The compatibility kit is missing or incomplete.";
+                    *reason = "The runtime kit is missing or incomplete.";
                     return std::nullopt;
                 }
                 return playden::homebrew::RuntimeKit{*admitted.view, admitted.capabilities, admitted.manifest_sha256,

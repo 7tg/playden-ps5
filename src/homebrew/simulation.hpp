@@ -88,7 +88,7 @@ struct LiveVolume {
     std::optional<std::uint64_t> free_bytes;
     bool writable = true;    // Playden can make its games folder there
 };
-// The compatibility kit in use, for Settings > About. Every field is empty when no kit is usable.
+// The runtime kit in use, for Settings > About. Every field is empty when no kit is usable.
 struct LiveKitInfo {
     std::string kit_id;
     std::string manifest_sha256;
@@ -592,7 +592,7 @@ struct State {
     // empty until they choose.
     std::string queue_expanded;
     std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
-    LiveKitInfo kit;                                    // live: the compatibility kit in use
+    LiveKitInfo kit;                                    // live: the runtime kit in use
     LiveSelfUpdate self_update;                         // live: Playden's own update
     std::vector<LiveKeptBottle> kept_bottles;           // live: saves kept from uninstalled games
     std::vector<LiveExternalGame> external_games;       // live: games playing in place (imported)

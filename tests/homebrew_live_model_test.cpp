@@ -662,7 +662,7 @@ void live_kit_install(const std::filesystem::path& base) {
     update.kit_download_bytes = 300000000;
     model.UpdateSelfUpdate(update);
     check(!model.state().navigation.modals.empty() &&
-              model.state().navigation.modals.back().title == "Download the compatibility kit?" &&
+              model.state().navigation.modals.back().title == "Download the runtime kit?" &&
               model.state().navigation.modals.back().body.find("sign in") != std::string::npos,
           "kit: offered before sign-in, with the download size");
     check(model.action("cross") && model.state().navigation.modals.empty() &&
@@ -681,8 +681,8 @@ void live_kit_install(const std::filesystem::path& base) {
     model.UpdateSelfUpdate(update);
     const auto job = std::find_if(model.state().jobs.begin(), model.state().jobs.end(),
                                   [](const Job& item) { return item.id == "kit-install"; });
-    check(job != model.state().jobs.end() && job->title == "Compatibility kit" && job->completed_bytes == 100 &&
-              job->stage_text == "Downloading the compatibility kit",
+    check(job != model.state().jobs.end() && job->title == "Runtime kit" && job->completed_bytes == 100 &&
+              job->stage_text == "Downloading the runtime kit",
           "kit: the download shows on the Queue");
 
     // Signed in while it downloads: Settings shows the progress.
@@ -709,7 +709,7 @@ void live_kit_install(const std::filesystem::path& base) {
     replace.kit_replaces = true;
     other.UpdateSelfUpdate(replace);
     check(!other.state().navigation.modals.empty() &&
-              other.state().navigation.modals.back().title == "Replace the compatibility kit?",
+              other.state().navigation.modals.back().title == "Replace the runtime kit?",
           "kit: replacing another kit is said");
     other.action("circle");
     replace.kit_phase = "downloading";
@@ -722,7 +722,7 @@ void live_kit_install(const std::filesystem::path& base) {
     check(other.UpdateLibrary({{}, false, {}, false, true, 100}), "kit: library delivered");
     other.action("r1");  // a queued alert shows after the next press
     check(!other.state().navigation.modals.empty() &&
-              other.state().navigation.modals.back().title == "Compatibility kit download stopped",
+              other.state().navigation.modals.back().title == "Runtime kit download stopped",
           "kit: a failed download says why");
 
     // An update on offer brings the kit itself: the kit isn't offered on top of it.
@@ -772,7 +772,7 @@ void live_self_update(const std::filesystem::path& base) {
     model.UpdateSelfUpdate(update);
     check(!model.state().navigation.modals.empty() &&
               model.state().navigation.modals.back().title == "Playden 0.3.0 is available" &&
-              model.state().navigation.modals.back().body.find("compatibility kit") != std::string::npos,
+              model.state().navigation.modals.back().body.find("runtime kit") != std::string::npos,
           "update: a newer release is offered");
     check(model.action("cross") && model.state().navigation.modals.empty() &&
               model.TakeSelfUpdateRequests() == std::vector<std::string>{"install"},
@@ -789,7 +789,7 @@ void live_self_update(const std::filesystem::path& base) {
     const auto job = std::find_if(model.state().jobs.begin(), model.state().jobs.end(),
                                   [](const Job& item) { return item.id == "playden-update"; });
     check(job != model.state().jobs.end() && job->title == "Playden 0.3.0" &&
-              job->stage_text == "Downloading the compatibility kit" && job->completed_bytes == 100,
+              job->stage_text == "Downloading the runtime kit" && job->completed_bytes == 100,
           "update: the download shows on Downloads");
     check(find_row(model, "settings-update")->value == "25%", "update: Settings shows the progress");
     model.UpdateInstalls({}, {});
