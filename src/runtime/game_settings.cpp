@@ -193,6 +193,14 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"wine", "Wine", "Wine's own Direct3D 12."},
                          {"vkd3d-proton", "vkd3d-proton", "Direct3D 12 on Vulkan, as in Proton. Experimental."}},
                         "wine"));
+  // RADV runs pixel shaders in wave64 on the PS5's GPU; some never finish there and the console freezes.
+  list.push_back(Choice("pixel_shader_waves", "Pixel shaders",
+                        "How the GPU runs pixel shaders. Wave32 stops some games from freezing the console while loading.",
+                        "RADV_PERFTEST=pswave32", T::kCompatibility,
+                        {{"auto", "Automatic", "Wave32 for games known to freeze in wave64, wave64 for the rest."},
+                         {"wave64", "Wave64", "The driver's default."},
+                         {"wave32", "Wave32", "Fixes GPU freezes in some games; may be a little slower."}},
+                        "auto"));
   list.push_back(Choice("steam_features", "Steam features", "How the game reaches Steam without the Steam client.",
                         "steam_api.dll · steam_api64.dll", T::kCompatibility,
                         {{"emulate", "Offline emulation", "Playden's Steam emulator answers the game."},
@@ -278,6 +286,100 @@ std::vector<SettingDefinition> BuildCatalogue() {
     list.push_back(std::move(registry));
   }
   return list;
+}
+
+// Steam games whose pixel shaders hang the PS5's GPU in wave64, RADV's default there: Pixel shaders "Automatic" runs
+// them in wave32 (RADV_PERFTEST=pswave32). The driver-side cause is not known yet. Matched by the recipe's Steam app
+// ID only: an imported copy of one of these games (another store) needs Wave32 chosen by hand.
+constexpr std::uint32_t kPixelShaderWave32Games[] = {
+    1332010,  // Stray: the GPU hangs while the first save loads; with wave32 it loads and plays.
+};
+
+bool NeedsPixelShaderWave32(const GameRecipe& recipe) {
+  const auto app = RecipeGame(recipe).steam_app();
+  return app && std::find(std::begin(kPixelShaderWave32Games), std::end(kPixelShaderWave32Games), *app) !=
+                    std::end(kPixelShaderWave32Games);
+}
+
+std::string TrimSpaces(std::string text) {
+  while (!text.empty() && text.front() == ' ') text.erase(0, 1);
+  while (!text.empty() && text.back() == ' ') text.pop_back();
+  return text;
+}
+
+// The Environment variables with the one Pixel shaders sets, which wins over the player's own:
+// - wave32: RADV_PERFTEST gets pswave32 (added to the player's value when there is one) and goes first, so the entry
+//   limits never drop it; a RADV_PS5_PS_WAVE64 of the player's is left out.
+// - wave64: RADV_PS5_PS_WAVE64=1 goes first; pswave32 is taken out of the player's RADV_PERFTEST, which stays where it
+//   was (or is left out when nothing else is in it). A RADV_PERFTEST with "all" fails: it turns pswave32 on.
+// - empty (the driver's default): the player's text, unchanged.
+// debug_env: the variables go to [debug] env lines, whose values are shorter than [environment]'s. Fails with a reason
+// when RADV_PERFTEST with pswave32 no longer fits there: the game must not start without it.
+// Options are read as PS5_Mesa's parse_debug_string (src/util/u_debug.c) reads them.
+bool WithPixelShaderEnvironment(const std::string& entries, const std::string& waves, bool debug_env, std::string* out,
+                                std::string* reason) {
+  if (waves != "wave32" && waves != "wave64") {
+    *out = entries;
+    return true;
+  }
+  const bool wave32 = waves == "wave32";
+  std::string perftest;  // wave32: the player's RADV_PERFTEST options, pswave32 added
+  bool listed = false;
+  std::string rest;
+  std::size_t start = 0;
+  while (!entries.empty() && start <= entries.size()) {
+    const auto end = std::min(entries.find(';', start), entries.size());
+    const std::string entry = entries.substr(start, end - start);
+    start = end + 1;
+    const auto equals = entry.find('=');
+    const auto name = TrimSpaces(equals == std::string::npos ? entry : entry.substr(0, equals));
+    if (equals != std::string::npos && name == "RADV_PS5_PS_WAVE64") continue;
+    if (equals != std::string::npos && name == "RADV_PERFTEST") {
+      // Options split as RADV's parse_debug_string splits them: at commas, spaces and newlines. Written back with
+      // commas.
+      const auto item = entry.substr(equals + 1);
+      std::string kept;
+      std::size_t at = 0;
+      while (at <= item.size()) {
+        const auto separator = std::min(item.find_first_of(", \n", at), item.size());
+        const auto option = item.substr(at, separator - at);
+        at = separator + 1;
+        if (option.empty()) continue;
+        // parse_debug_string turns on every option for "all", and for any option that "all" starts with ("a", "al").
+        if (!wave32 && std::string_view("all").substr(0, option.size()) == option) {
+          if (reason)
+            *reason = "RADV_PERFTEST=" + option +
+                      " in Environment variables turns on wave32 pixel shaders. Remove it, or set Pixel shaders to "
+                      "Wave32 or Automatic.";
+          return false;
+        }
+        if (option == "pswave32") {
+          if (!wave32 || listed) continue;
+          listed = true;
+        }
+        kept += (kept.empty() ? "" : ",") + option;
+      }
+      if (wave32) perftest = kept;
+      else if (!kept.empty()) rest += (rest.empty() ? "" : ";") + std::string("RADV_PERFTEST=") + kept;
+      continue;
+    }
+    if (!TrimSpaces(entry).empty()) rest += (rest.empty() ? "" : ";") + entry;
+  }
+  std::string first;
+  if (wave32) {
+    if (!listed) perftest += (perftest.empty() ? "" : ",") + std::string("pswave32");
+    if (debug_env ? !IsProsperoDebugEnvEntry("RADV_PERFTEST", perftest)
+                  : !IsProsperoEnvironmentEntry("RADV_PERFTEST", perftest)) {
+      if (reason)
+        *reason = "RADV_PERFTEST in Environment variables is too long to add pswave32 for Pixel shaders. Shorten it.";
+      return false;
+    }
+    first = "RADV_PERFTEST=" + perftest;
+  } else {
+    first = "RADV_PS5_PS_WAVE64=1";
+  }
+  *out = rest.empty() ? first : first + ";" + rest;
+  return true;
 }
 
 constexpr const char* kVerboseWinedebug = "err+all,warn+all,fixme-all,+loaddll,+process,+seh";
@@ -388,7 +490,9 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   if ((id == "windows_version" || id == "text_scale") && !kit.registry)
     return "Needs a verified runtime kit with access to the game's bottle.";
   // A Zink kit's runtime (upstream prospero-win) reads MESA_, DXVK_, RADV_ and the like as [debug] env.
-  if (id == "environment" && !kit.environment && !kit.opengl_zink) return "Needs a prospero-win update that reads [environment].";
+  // Pixel shaders is an environment variable for the driver, so it goes where Environment variables go.
+  if ((id == "environment" || id == "pixel_shader_waves") && !kit.environment && !kit.opengl_zink)
+    return "Needs a prospero-win update that reads [environment].";
   if (id == "wheel_stick" && !kit.input_wheel) return "Needs a prospero-win update that turns the mouse wheel.";
   if (id == "volume" && !kit.audio_volume) return "Needs a prospero-win update with per-game volume.";
   if (id == "stick_deadzone" || id == "rumble" || id == "trigger_deadzone") {
@@ -693,6 +797,12 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     }
   }
 
+  // Pixel shaders: Automatic is wave32 for the games known to hang in wave64, and the driver's default otherwise.
+  if (const auto& waves = out.values["pixel_shader_waves"]; waves.available) {
+    if (waves.value == "auto") out.pixel_shader_waves = NeedsPixelShaderWave32(recipe) ? "wave32" : "";
+    else out.pixel_shader_waves = waves.value;
+  }
+
   // The program: the chosen launch entry, or a program the player picked in the game folder.
   // The player's folder and arguments apply to either.
   std::optional<LaunchEntry> launch;
@@ -967,13 +1077,21 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   if (value("logging") == "input") text += std::string("\n[debug]\nwinedebug = ") + kInputWinedebug + "\n";
 
   const auto& environment = settings.values.at("environment");
+  // The player's variables, with the one Pixel shaders sets (none for the driver's default).
+  std::string environment_entries;
+  if (environment.available) {
+    std::string why;
+    if (!WithPixelShaderEnvironment(environment.value, settings.pixel_shader_waves, settings.environment_as_debug_env,
+                                    &environment_entries, &why))
+      return fail(why);
+  }
   bool debug_env = false;
-  if (environment.available && !environment.value.empty() && settings.debug_env_lines) {
+  if (environment.available && !environment_entries.empty() && settings.debug_env_lines) {
     // [debug] env = NAME=value, one line per variable; names the runtime does not take are left out, and so are
     // names that go to [environment] on a kit that reads it.
     std::string lines;
     std::size_t start = 0, count = 0;
-    const auto& entries = environment.value;
+    const auto& entries = environment_entries;
     while (start <= entries.size()) {
       const auto end = std::min(entries.find(';', start), entries.size());
       std::string entry = entries.substr(start, end - start);
@@ -1015,7 +1133,7 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   }
   if (environment.available && !settings.environment_as_debug_env) {
     std::size_t start = 0;
-    const auto& entries = environment.value;
+    const auto& entries = environment_entries;
     while (!entries.empty() && start <= entries.size()) {
       const auto end = std::min(entries.find(';', start), entries.size());
       std::string entry = entries.substr(start, end - start);

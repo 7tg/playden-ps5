@@ -205,6 +205,9 @@ struct EffectiveSettings {
   bool debug_env_lines = false;
   // Direct3D 12 through vkd3d-proton: ApplyD3D12Library puts its DLLs in the bottle before the game starts.
   bool vkd3d_proton = false;
+  // Pixel shaders as the driver gets them: "wave32" or "wave64" adds a variable to the environment; empty (Automatic
+  // for a game not known to hang, or a kit without environment variables) leaves the driver's default.
+  std::string pixel_shader_waves;
   // The title's runtime honors [display] refresh on every graphics path and paces [display] frame_rate itself
   // (KitCapabilities::display_120hz); without it Frame limit is DXVK's maxFrameRate, as before.
   bool display_120hz = false;
