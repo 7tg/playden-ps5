@@ -980,6 +980,10 @@ private:
     // Games refused at Prepare whose program or "Try anyway" the player changed since: their page
     // no longer shows the old refusal.
     std::set<GameId> rechosen_after_refusal_;
+    // Launches that stopped before their store's library arrived (a start from Home reported when Playden
+    // starts): told once the game's name is known.
+    std::map<GameId, std::string> pending_play_stops_;
+    void tell_play_stopped(GameId id, const std::string& reason);
     // Game settings asked for on a game not set up yet: it opens once preparing makes a draft or a title.
     std::set<GameId> settings_after_prepare_;
     void open_settings_after_prepare();

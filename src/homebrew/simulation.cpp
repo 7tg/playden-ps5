@@ -1456,6 +1456,15 @@ void Simulation::NotifyUninstallFinished(GameId id) {
 }
 
 void Simulation::NotifyPlayStopped(GameId id, const std::string& reason) {
+    // A start from Home is reported as Playden starts, before its store's library: wait for the name.
+    if (live() && !find_game(state_, id) && !catalog_sources_.count(id.store)) {
+        pending_play_stops_[id] = reason;
+        return;
+    }
+    tell_play_stopped(id, reason);
+}
+
+void Simulation::tell_play_stopped(GameId id, const std::string& reason) {
     const auto* game = find_game(state_, id);
     rechosen_after_refusal_.erase(id);
     const auto text = (game ? game->title : std::string("A game")) + " · " + reason;
@@ -2506,6 +2515,16 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
     account.cache_available = update.cache_available;
     account.error = std::move(update.error);
     if (update.retrieved_at) account.last_sync = *update.retrieved_at;
+    // Launches that stopped before this store's library arrived are told now, by name. A library that
+    // could not load still tells them, without the name.
+    if (!update.loading) {
+        for (auto stop = pending_play_stops_.begin(); stop != pending_play_stops_.end();) {
+            if (stop->first.store != update.source) { ++stop; continue; }
+            const auto [id, reason] = *stop;
+            stop = pending_play_stops_.erase(stop);
+            tell_play_stopped(id, reason);
+        }
+    }
     // A game just added from the Import sheet is listed now: its page opens (from Startup too).
     if (!pending_imports_.empty()) settle_pending_imports();
     // A store without an account brought games while nothing is signed in (or Steam's saved sign-in

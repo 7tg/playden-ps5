@@ -1925,6 +1925,36 @@ void live_play_does_the_next_useful_thing() {
     check(!has_row(model, "details-setup") && !has_row(model, "details-hint"), "uninstalled games have no setup facts or hints");
 }
 
+// A start from Home that failed is reported as Playden starts, before the library: the dialog still names the game.
+void live_launch_failure_before_the_library_names_the_game() {
+    using playden::homebrew::LiveRuntimeGame;
+    using playden::homebrew::RuntimeState;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    LiveRuntimeGame stopped; stopped.game_id = SteamId(42); stopped.status = "Ready"; stopped.ready = true; stopped.can_play = true;
+    stopped.play_detail = "The game could not start.";
+    model.UpdateRuntime(RuntimeState::Ready, {stopped});
+    check(model.state().navigation.modals.empty() && model.state().notices.empty(),
+          "a launch failure for a game not listed yet waits for the library");
+    check(model.UpdateLibrary({{game(SteamId(42), "BeamNG.drive")}, false, {}, false, false, {}}), "library loaded");
+    const auto& modals = model.state().navigation.modals;
+    check(modals.size() == 1 && modals.back().title == "Can't play" &&
+              modals.back().body.rfind("BeamNG.drive · The game could not start.", 0) == 0,
+          "the waiting launch failure names the game once the library arrives");
+    activate(model, "alert-ok");
+    model.UpdateLibrary({{game(SteamId(42), "BeamNG.drive")}, false, {}, false, false, {}});
+    check(model.state().navigation.modals.empty(), "the launch failure is told once");
+
+    // A library that cannot load still tells a waiting failure, without the name.
+    auto offline = make_live();
+    offline.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    offline.UpdateRuntime(RuntimeState::Ready, {stopped});
+    offline.UpdateLibrary({{}, false, "Library sync is unavailable. Try again later.", false, false, {}});
+    const auto& offline_modals = offline.state().navigation.modals;
+    check(!offline_modals.empty() && offline_modals.back().body.rfind("A game · The game could not start.", 0) == 0,
+          "a library that could not load still tells the waiting failure");
+}
+
 void live_launch_failure_remains_visible_without_a_details_status_line() {
     using playden::homebrew::LiveRuntimeGame;
     using playden::homebrew::RuntimeState;
@@ -3079,6 +3109,7 @@ int main() {
     non_canonical_game_keys_select_nothing();
     live_stay_signed_in_preference_loads();
     live_launch_failure_remains_visible_without_a_details_status_line();
+    live_launch_failure_before_the_library_names_the_game();
     live_download_reorder_reaches_service();
     live_play_does_the_next_useful_thing();
     live_queued_setup_names_the_game_ahead();
