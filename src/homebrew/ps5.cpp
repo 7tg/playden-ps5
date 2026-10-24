@@ -10,6 +10,7 @@
 #include "stores/local/copy_runner.h"
 #include "stores/local/library_source.h"
 #include "app/diagnostic_log.h"
+#include "platform/ps5/title_registry.h"
 #include "platform/ps5/title_remover.h"
 #include "platform/ps5/title_runtime.h"
 #include "platform/ps5/native_startup.h"
@@ -440,7 +441,8 @@ int main() {
             config.admit_kit = [](std::string* reason) -> std::optional<playden::homebrew::RuntimeKit> {
                 const auto firmware = playden::ps5::ConsoleFirmwareVersion();
                 playden::app::AppendLogLine(log_root, "runtime.log", "console_firmware=" + firmware.value_or("unknown") + " " +
-                    playden::ps5::ConsoleFirmwareDiagnostics());
+                    playden::ps5::ConsoleFirmwareDiagnostics() + " " +
+                    playden::ps5::TitleRegistry(playden::ps5::ShadowMountPost).DescribeVersion());
                 const auto admission = rt::DevelopmentKitAdmission();
                 auto admitted = rt::VerifyInstalledKit(rt::kDevelopmentKitRoot, admission);
                 std::string ignored;

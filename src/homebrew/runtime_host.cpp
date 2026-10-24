@@ -2970,7 +2970,39 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       (c.retired_titles.count(title) ? retired : reserve.kit_title_variants).push_back(std::move(title));
     reserve.kit_title_variants.insert(reserve.kit_title_variants.end(), retired.begin(), retired.end());
     auto reserved = c.repository.Reserve(reserve);
-    if (!reserved.ok()) return "A PS5 title could not be reserved: " + reserved.message();
+    if (!reserved.ok()) {
+      if (reserved.error() != rt::RepositoryError::kTitleVariantsExhausted)
+        return "A PS5 title could not be reserved: " + reserved.message();
+      // Every ID refused at once usually means one source cannot answer, not that every ID is taken:
+      // ask the IDs no other game holds what each source says, until one is not clearly in use.
+      std::set<std::string> held;
+      for (const auto& install : c.repository.Snapshot()) held.insert(install.title_id);
+      const auto log_prefix = "title reservation refused app=" + std::to_string(request.runtime_number) +
+                              " candidates=" + std::to_string(reserve.kit_title_variants.size()) +
+                              " held=" + std::to_string(held.size());
+      std::size_t occupied = 0;
+      std::string first_occupied;
+      for (const auto& title : reserve.kit_title_variants) {
+        if (held.count(title)) continue;
+        const auto report = c.coordinator->ReportAvailability(title);
+        const bool unknown = report.database == rt::TitleAvailability::kUnknown ||
+                             report.folder == rt::TitleAvailability::kUnknown ||
+                             report.shadowmount.state == ps5::RegistrationState::kUnavailable ||
+                             report.activity == rt::NativeActivity::kUnknown;
+        if (!unknown) {
+          if (!occupied++) first_occupied = title + " " + report.Text();
+          continue;
+        }
+        Log(log_prefix + " occupied=" + std::to_string(occupied) + " " + title + " " + report.Text());
+        // Only a ShadowMountPlus that does not answer at all is fixed by loading it again.
+        if (report.shadowmount.reason == "no-response")
+          return "ShadowMountPlus isn't answering. Load it again (or restart the PS5 and jailbreak it again), then try again.";
+        return "Playden could not check that a PS5 title is free for this game. Try again; if it still fails, "
+               "open Logs in Settings for details.";
+      }
+      Log(log_prefix + " occupied=" + std::to_string(occupied) + (first_occupied.empty() ? "" : " first=" + first_occupied));
+      return "Every PS5 title this runtime kit offers is in use. Uninstall a game, then try again.";
+    }
     auto record = reserved.value();
     // Before the title exists: it may only start once its helper lists it.
     Log("prepare reserved app=" + std::to_string(request.runtime_number) + " title=" + record.title_id + " ms=" + elapsed_ms());

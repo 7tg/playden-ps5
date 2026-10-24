@@ -751,6 +751,43 @@ void PrepareNamesUnfixableFolder() {
   CHECK(chmod(homebrew.c_str(), 0755) == 0);  // so the fixture can clean up
 }
 
+// No free title is rarely the truth: the refusal names the source that could not answer.
+void TitleRefusalNamesTheSourceThatCannotAnswer() {
+  // ShadowMountPlus silent, answering with bad data, app.db unreadable, and the only title truly in use.
+  for (const int scenario : {0, 1, 2, 3}) {
+    Fixture fixture;
+    const auto kit = SyntheticKit(fixture.root / "kit");
+    auto config = WritableFoldersConfig(fixture, kit);
+    if (scenario == 0)
+      config.registry_transport = [](const std::string&, const std::string&) -> std::optional<std::string> { return {}; };
+    else if (scenario == 1)
+      config.registry_transport = [](const std::string&, const std::string&) -> std::optional<std::string> {
+        return std::string(R"({"status":0,"games":[{"title_id":"odd"}]})");
+      };
+    else
+      config.native.database = [scenario](const std::string&) {
+        return TitleDatabaseObservation{scenario == 2 ? TitleAvailability::kUnknown : TitleAvailability::kOccupied, {}};
+      };
+    Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+    config.writable_folders.clear();
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).kit_available);
+    host.Prepare(Hl2());
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); }, 60);
+    const auto& refusal = done.refusals.at(220);
+    if (scenario == 0)
+      CHECK(refusal == "ShadowMountPlus isn't answering. Load it again (or restart the PS5 and jailbreak it again), then try again.");
+    else if (scenario == 3)
+      CHECK(refusal == "Every PS5 title this runtime kit offers is in use. Uninstall a game, then try again.");
+    else
+      CHECK(refusal == "Playden could not check that a PS5 title is free for this game. Try again; if it still fails, "
+                       "open Logs in Settings for details.");
+    CHECK(done.installs.empty() && fixture.registry_mutations == 0);
+    host.Shutdown();
+  }
+}
+
 // A capture refused after control setup (the console's world-writable game
 // folder) leaves a settings-control journal. An explicit Prepare resumes the
 // saved request and reaches Ready with one registration.
@@ -5226,6 +5263,7 @@ int main(int argc, char** argv) {
   PreparesGameOnUnownedDrive();
   PrepareFixesRootOwnedHomebrewFolder();
   PrepareNamesUnfixableFolder();
+  TitleRefusalNamesTheSourceThatCannotAnswer();
   AnyTitleKitMakesTheGameItsOwnTitle();
   PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();
