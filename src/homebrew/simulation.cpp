@@ -481,7 +481,7 @@ std::string action_label(const std::string& key) {
         {"sort-name", "Name"}, {"sort-recent-played", "Recently played"}, {"sort-recent-added", "Recently added"},
         {"sort-playtime", "Playtime"}, {"sort-install-size", "Install size"}, {"filter-installed", "Installed"},
         {"filter-genre-adventure", "Adventure"}, {"filter-controller-full", "Full controller support"},
-        {"filter-compat-playable", "Playable"}, {"filters-reset", "Reset filters"}, {"refresh-library", "Refresh library"}, {"advance-clock", "Advance fixture clock"},
+        {"filter-compat-playable", "Playable"}, {"filter-hide-demos", "Demos"}, {"filters-reset", "Reset filters"}, {"refresh-library", "Refresh library"}, {"advance-clock", "Advance fixture clock"},
         {"inject-download-failed", "Inject download failure"}, {"inject-verification-failed", "Inject verification failure"},
         {"inject-uninstall-failed", "Inject uninstall failure"},
         {"inject-storage-disconnect", "Disconnect storage"}, {"inject-controller-disconnect", "Disconnect controller"},
@@ -2397,6 +2397,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
                 game.last_played = static_cast<std::int64_t>(*summary.last_played_unix_seconds);
             if (summary.added_at_unix_seconds)
                 game.added_at = static_cast<std::int64_t>(*summary.added_at_unix_seconds);
+            game.demo = summary.demo;
             if (const auto facts = store_facts_.find(game.id); facts != store_facts_.end()) {
                 if (!facts->second.description.empty()) game.description = facts->second.description;
                 game.genres = facts->second.genres;
@@ -2930,6 +2931,7 @@ void Simulation::load_fixtures() {
             if (const auto added = optional_uint(item.get("added_at"))) game.added_at = static_cast<std::int64_t>(*added);
             if (const auto played = optional_uint(item.get("last_played"))) game.last_played = static_cast<std::int64_t>(*played);
             game.playtime_minutes = optional_uint(item.get("playtime_minutes"));
+            game.demo = bool_value(item.get("demo"));
             state_.games.push_back(std::move(game));
         }
     }
@@ -3504,6 +3506,23 @@ bool Simulation::scenario(const std::string& name) {
     } else if (name == "reduced-motion") {
         state_.reduced_motion = true;
         save_profile();
+    } else if (name == "demos") {
+        // A demo next to the full game, as Steam lists one after "Download demo".
+        state_.navigation.route = Route::Library;
+        Game demo;
+        demo.id = GameId::Steam(900025);
+        demo.title = "Tiny Astronaut Demo";
+        demo.description = "A synthetic demo. UI fixture only; this is not an owned game.";
+        demo.source = "Steam";
+        demo.controller_support = "full";
+        demo.download_bytes = demo.install_bytes = 536870912;
+        demo.demo = true;
+        if (const auto* full = find_game(state_, GameId::Steam(900021))) {
+            demo.cover_key = full->cover_key, demo.hero_key = full->hero_key, demo.logo_key = full->logo_key;
+            demo.genres = full->genres;
+        }
+        if (!find_game(state_, demo.id)) state_.games.push_back(std::move(demo));
+        reconcile_library_selection(state_);
     } else if (name == "stress") {
         const auto source = read_file(fixture_directory_.parent_path() / "library.json");
         const auto root = json::parse(source);
@@ -3815,6 +3834,12 @@ void Simulation::rebuild_view() {
         for (const auto& action_key : modal.action_keys) {
             auto& item = row(action_key, RowKind::Action, action_label(action_key), action_key);
             item.dangerous = modal.destructive && action_key != "cancel";
+            // Demos is on unless the player hid them.
+            if (action_key == "filter-hide-demos") {
+                item.kind = RowKind::Toggle;
+                item.selected = !state_.library.filters.contains("hide-demos");
+                item.value = item.selected ? "On" : "Off";
+            }
             // The menu's Favorite says what it will do for this game.
             if (modal.id == "context" && action_key == "favorite")
                 item.title = state_.library.favorites.contains(state_.navigation.selected_game_id) ? "Remove from Favorites"
@@ -7834,6 +7859,9 @@ bool Simulation::action(const std::string& logical_action) {
             const bool dated = state_.library.sort == "recent-added" ||
                 std::any_of(state_.games.begin(), state_.games.end(),
                             [](const Game& game) { return game.added_at.has_value(); });
+            // Demos is listed while there are demos, or while they are hidden so they can be shown again.
+            const bool demos = state_.library.filters.contains("hide-demos") ||
+                std::any_of(state_.games.begin(), state_.games.end(), [](const Game& game) { return game.demo; });
             std::vector<std::string> actions = live()
             ? (dated ? std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime",
                                                 "filter-compat-playable", "filters-reset", "refresh-library", "cancel"}
@@ -7842,6 +7870,8 @@ bool Simulation::action(const std::string& logical_action) {
             : std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime", "sort-install-size",
                                       "filter-installed", "filter-genre-adventure", "filter-controller-full", "filter-compat-playable",
                                       "filters-reset", "refresh-library", "cancel"};
+            if (demos)
+                actions.insert(std::find(actions.begin(), actions.end(), "filters-reset"), "filter-hide-demos");
         open_modal({"filters", "Sort and filters", state_.navigation.focus_key, std::move(actions), 0, false});
         }
     }

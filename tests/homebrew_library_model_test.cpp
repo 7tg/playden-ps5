@@ -872,6 +872,7 @@ void live_filters_only_use_available_facts() {
     for(const auto& unavailable:{"sort-recent-added","sort-install-size","filter-installed","filter-genre-adventure","filter-controller-full"})
         check(std::find(actions.begin(),actions.end(),unavailable)==actions.end(),"unknown facts are not filter choices");
     check(std::find(actions.begin(),actions.end(),"filter-compat-playable")!=actions.end(),"personal compatibility remains filterable");
+    check(std::find(actions.begin(),actions.end(),"filter-hide-demos")==actions.end(),"a library without demos has no Demos row");
 
     // A CM acquisition date makes "Recently added" a real fact, sorted newest first.
     auto dated=make_live();
@@ -888,6 +889,38 @@ void live_filters_only_use_available_facts() {
     const auto ordered=dated.visible_games();
     check(ordered.size()==3 && ordered[0]->id==SteamId(43) && ordered[1]->id==SteamId(42) && ordered[2]->id==SteamId(44),
           "newest acquisition first, undated last");
+}
+
+// Demos show by default. Sort and filters › Demos hides them, the organization keeps that, and the
+// row stays while demos are hidden so they can be shown again.
+void live_demos_filter_defaults_on() {
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    auto demo=game(SteamId(43),"Synthetic Demo");demo.demo=true;
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic"),demo},false,{},false,false,{}}),"library with a demo loaded");
+    check(model.state().games.back().demo && !model.state().games.front().demo,"demo mark projected");
+    check(model.action("r1") && model.visible_games().size()==2,"demos show by default");
+    check(model.action("triangle"),"live filter modal opens");
+    const auto* row=find_row(model,"filter-hide-demos");
+    check(row!=nullptr && row->title=="Demos" && row->kind==RowKind::Toggle && row->selected && row->value=="On","Demos is a toggle, on");
+    activate(model,"filter-hide-demos");
+    check(model.visible_games().size()==1 && model.visible_games().front()->id==SteamId(42),"turning Demos off hides the demo");
+    check(model.ExportOrganization().filters==std::set<std::string>{"hide-demos"},"hidden demos are saved");
+    check(model.action("triangle"),"filter modal opens again");
+    row=find_row(model,"filter-hide-demos");
+    check(row!=nullptr && !row->selected && row->value=="Off","Demos shows off");
+    activate(model,"filter-hide-demos");
+    check(model.visible_games().size()==2 && model.ExportOrganization().filters.empty(),"turning Demos on shows it again");
+
+    // Hidden demos the library no longer has can still be shown again.
+    auto restored=make_live();
+    restored.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    check(restored.UpdateLibrary({{game(SteamId(42),"Synthetic")},false,{},false,false,{}}),"library without demos loaded");
+    auto organization=restored.ExportOrganization();organization.filters={"hide-demos"};
+    check(restored.ApplyOrganization(1,restored.BeginOrganizationLoad(1),organization),"saved organization applies");
+    check(restored.action("r1") && restored.action("triangle"),"filter modal opens");
+    row=find_row(restored,"filter-hide-demos");
+    check(row!=nullptr && !row->selected,"Demos stays listed while demos are hidden");
 }
 
 // Sort and filters offers Refresh library: it asks the controller for Steam's current list and the
@@ -3071,6 +3104,7 @@ int main() {
     live_saves_upload_all();
     live_store_without_cloud_never_asks_the_cloud();
     live_filters_only_use_available_facts();
+    live_demos_filter_defaults_on();
     live_sort_sheet_refreshes_the_library();
     continue_playing_more_keeps_the_chosen_sort();
     live_empty_filter_keeps_the_signed_in_account();

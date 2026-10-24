@@ -412,6 +412,7 @@ struct Game {
     std::optional<std::int64_t> last_played;
     std::optional<std::uint64_t> playtime_minutes;
     std::optional<bool> windows_installable;  // from Steam app info; absent until fetched
+    bool demo = false;  // a Steam demo; Sort and filters › Demos hides it
     bool art_pending = false;
     bool art_failed = false;
 };
