@@ -86,10 +86,11 @@ struct Server {
   }
 };
 
-std::string AppZip(const std::string& version_text, const std::string& content_version) {
+std::string AppZip(const std::string& version_text, const std::string& content_version, const std::string& full_version = "") {
   const std::string top = "playden-ps5-" + version_text + "/";
   return zip_fixture::Build({{top + "tools/console_title_deploy.py", "py"},
                              {top + "FAKE77031/eboot.bin", "eboot " + version_text},
+                             {top + "FAKE77031/playden-version", full_version.empty() ? version_text + "\n" : full_version},
                              {top + "FAKE77031/sce_sys/param.json",
                               R"({"titleId":"FAKE77031","contentVersion":")" + content_version + R"("})"},
                              {top + "FAKE77031/assets/a.txt", "asset " + version_text},
@@ -104,9 +105,9 @@ std::string KitZip() {
 
 void Publish(Server& server, const std::string& tag, const std::string& min_from = "0.2.0",
              const std::string& content_version = "00.003.000", bool with_kit = true, bool with_digests = true,
-             const std::string& kit_revision = "r9") {
+             const std::string& kit_revision = "r9", const std::string& full_version = "") {
   const std::string version_text = tag.substr(1);
-  const std::string app = AppZip(version_text, content_version);
+  const std::string app = AppZip(version_text, content_version, full_version);
   const std::string kit = KitZip();
   const std::string manifest =
       R"({"format":1,"app":{"version":")" + version_text + R"(","title_id":"FAKE77031","min_from":")" + min_from +
@@ -197,6 +198,106 @@ void Installed(const std::string& root) {
 }  // namespace
 
 int main() {
+  // Opt-in selects by version, never GitHub list order; disabling never downgrades.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("beta-track");
+    Installed(fixture.root);
+    Publish(fixture.server, "v0.7.1-beta.2", "0.7.0", "00.007.001");
+    auto beta = fixture.server.latest;
+    beta.replace(beta.find("\"prerelease\":false"), 18, "\"prerelease\":true");
+    fixture.server.releases = "[{\"tag_name\":\"v99.0.0\",\"draft\":true,\"assets\":[]}," + beta +
+        ",{\"tag_name\":\"nightly\",\"prerelease\":true,\"assets\":[]},"
+        "{\"tag_name\":\"v0.7.0\",\"assets\":[]}]";
+    fixture.server.latest = R"({"tag_name":"v0.7.0","assets":[]})";
+    auto config = fixture.Config({0, 7, 0});
+    config.include_betas = true;
+    UpdateService service(config);
+    service.Check(true); Wait(service);
+    CHECK(service.Snapshot().phase == UpdatePhase::kAvailable);
+    CHECK(service.Snapshot().available.ToString() == "0.7.1-beta.2");
+    // A stable release wins over every beta of its version, even if listed last.
+    Publish(fixture.server, "v0.7.1", "0.7.0", "00.007.001");
+    fixture.server.releases = "[" + beta + "," + fixture.server.latest + "]";
+    service.Check(true); Wait(service);
+    CHECK(service.Snapshot().available.ToString() == "0.7.1");
+    config.current = *ParseVersion("0.7.1-beta.2");
+    config.include_betas = false;
+    Publish(fixture.server, "v0.7.0", "0.7.0", "00.007.000");
+    UpdateService stable(config);
+    stable.Check(true); Wait(stable);
+    CHECK(stable.Snapshot().phase == UpdatePhase::kUpToDate);
+    fixture.server.latest = beta;
+    stable.Check(true); Wait(stable);
+    CHECK(stable.Snapshot().phase == UpdatePhase::kUpToDate);
+    Publish(fixture.server, "v0.7.1-beta.3", "0.7.1-beta.2", "00.007.001");
+    fixture.server.releases = "[" + fixture.server.latest + "]";
+    stable.SetIncludeBetas(true);
+    stable.Check(true); Wait(stable);
+    CHECK(stable.Snapshot().available.ToString() == "0.7.1-beta.3");
+    stable.Install(); Wait(stable);
+    CHECK(stable.Snapshot().phase == UpdatePhase::kStaged);
+    // The local override uses the same opt-in rule and needs no GitHub request.
+    config.include_betas = true;
+    config.local_release_dir = fixture.root + "/local";
+    auto local_release = fixture.server.latest;
+    local_release.replace(local_release.find("\"prerelease\":false"), 18, "\"prerelease\":true");
+    Put(config.local_release_dir + "/release.json", local_release);
+    Put(config.local_release_dir + "/playden-update.json", fixture.server.files[kDownload + "playden-update.json"]);
+    const int before = fixture.server.requests;
+    UpdateService local(config);
+    local.Check(true); Wait(local);
+    CHECK(local.Snapshot().phase == UpdatePhase::kAvailable);
+    CHECK(fixture.server.requests == before);
+    // The tag must match the full manifest version, including beta number.
+    auto mismatch = fixture.server.files[kDownload + "playden-update.json"];
+    mismatch.replace(mismatch.find("0.7.1-beta.3"), 12, "0.7.1-beta.4");
+    Put(config.local_release_dir + "/playden-update.json", mismatch);
+    local.Check(true); Wait(local);
+    CHECK(local.Snapshot().phase == UpdatePhase::kFailed);
+  }
+  // Opting out during a download and cancelling must not leave a beta installable.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("beta-cancel-opt-out");
+    Installed(fixture.root);
+    Publish(fixture.server, "v0.7.1-beta.1", "0.7.0", "00.007.001");
+    fixture.server.releases = "[" + fixture.server.latest + "]";
+    fixture.server.latest = R"({"tag_name":"v0.7.0","assets":[]})";
+    auto config = fixture.Config({0, 7, 0});
+    config.include_betas = true;
+    UpdateService* running = nullptr;
+    bool cancelled = false;
+    config.fetch = [&](const HttpRequest& request, const std::atomic<bool>&) {
+      if (!cancelled && request.url.find(".zip") != std::string::npos) {
+        cancelled = true;
+        running->SetIncludeBetas(false);
+        running->Check(true);
+        running->Cancel();
+      }
+      return fixture.server(request);
+    };
+    UpdateService service(config);
+    running = &service;
+    service.Check(true); Wait(service);
+    CHECK(service.Snapshot().phase == UpdatePhase::kAvailable);
+    service.Install(); Wait(service);
+    CHECK(cancelled && service.Snapshot().phase == UpdatePhase::kAvailable);
+    service.Install(); Wait(service);
+    CHECK(service.Snapshot().phase == UpdatePhase::kUpToDate);
+    RemoveTree(fixture.root);
+  }
+  // Present full-version metadata must be readable and match, even for stable packages.
+  for (const auto& metadata : {std::string(65, 'x'), std::string("0.7.1-beta.9\n")}) {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("bad-full-version");
+    Installed(fixture.root);
+    Publish(fixture.server, "v0.7.1", "0.7.0", "00.007.001", true, true, "r9", metadata);
+    UpdateService service(fixture.Config({0, 7, 0}));
+    service.Install(); Wait(service);
+    CHECK(service.Snapshot().phase == UpdatePhase::kFailed);
+    RemoveTree(fixture.root);
+  }
   // First run on a console without a kit: the running version's kit is found and put in place at once.
   {
     KitOnly test("kit-fresh", "");

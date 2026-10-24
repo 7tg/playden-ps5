@@ -1697,7 +1697,7 @@ void Simulation::show_update_prompt() {
                       size + "You can sign in and keep using Playden while it downloads.";
         open_modal(std::move(prompt));
     } else if (pending_update_prompt_ == "available" && update.phase == "available") {
-        ModalEntry prompt{"confirmation", "Playden " + update.available + " is available", state_.navigation.focus_key,
+        ModalEntry prompt{"confirmation", "Playden " + update.available + (update.available.find("-beta.") != std::string::npos ? " (Beta)" : "") + " is available", state_.navigation.focus_key,
                           {"self-update-install", "ready-later"}, 0, false};
         prompt.body = (update.notes.empty() ? std::string() : update.notes + "\n\n") + "The download is " +
                       format_bytes(update.download_bytes) +
@@ -1774,6 +1774,7 @@ void Simulation::open_release_notes(bool after_update) {
     const auto& update = state_.self_update;
     ModalEntry notes{"confirmation",
                      (after_update ? "What's new in Playden " : "Playden ") + update.current +
+                         (update.current.find("-beta.") != std::string::npos ? " (Beta)" : "") +
                          (after_update ? std::string() : std::string(" release notes")),
                      state_.navigation.focus_key, {"release-notes-ok"}, 0, false};
     notes.body = (after_update ? "Playden was updated to " + update.current + ".\n\n" : std::string()) +
@@ -2564,7 +2565,7 @@ playden::OrganizationSnapshot Simulation::ExportOrganization() const {
 
 playden::Preferences Simulation::ExportPreferences() const {
     return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password,
-            state_.downloads_slow_network, state_.stay_signed_in};
+            state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -2789,6 +2790,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.title_store_suffix = loaded.preferences.title_store_suffix;
         state_.cloud_saves_auto = loaded.preferences.cloud_saves_auto;
         state_.sign_in_password = loaded.preferences.steam_sign_in_password;
+        state_.beta_updates = loaded.preferences.beta_updates;
         state_.downloads_slow_network = loaded.preferences.downloads_slow_network;
         state_.stay_signed_in = loaded.preferences.steam_stay_signed_in;
         captured_preferences_ = loaded.preferences;
@@ -2869,6 +2871,7 @@ bool Simulation::record_live_persistence() {
                                       after_preferences.cloud_saves_auto != captured_preferences_.cloud_saves_auto ||
                                       after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password ||
                                       after_preferences.downloads_slow_network != captured_preferences_.downloads_slow_network ||
+                                      after_preferences.beta_updates != captured_preferences_.beta_updates ||
                                       after_preferences.steam_stay_signed_in != captured_preferences_.steam_stay_signed_in);
 
     if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
@@ -2891,6 +2894,7 @@ bool Simulation::record_live_persistence() {
                 state_.title_store_suffix = captured_preferences_.title_store_suffix;
                 state_.cloud_saves_auto = captured_preferences_.cloud_saves_auto;
                 state_.sign_in_password = captured_preferences_.steam_sign_in_password;
+                state_.beta_updates = captured_preferences_.beta_updates;
                 state_.downloads_slow_network = captured_preferences_.downloads_slow_network;
                 state_.stay_signed_in = captured_preferences_.steam_stay_signed_in;
                 organization_journal_full_ = true;
@@ -4353,7 +4357,8 @@ void Simulation::rebuild_view() {
             else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account().authentication); item.subtitle = state_.account().error; item.enabled = false; }
             else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account().last_sync == 0 ? "Never" : std::to_string(state_.account().last_sync); item.enabled = false; }
             else if (action_key.rfind("open-game:", 0) == 0) item.title = "Open game";
-            else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + state_.self_update.current : "Simulated"; item.enabled = false; }
+            else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + state_.self_update.current +
+                (state_.self_update.current.find("-beta.") != std::string::npos ? " (Beta)" : "") : "Simulated"; item.enabled = false; }
             else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? "Live service model" : "UI comparison fixture"; item.enabled = false; }
             else if (action_key == "about-framework") { item.kind = RowKind::Status; item.value = "Homebrew native model + Hui"; item.enabled = false; }
             else if (action_key == "about-platform") { item.kind = RowKind::Status; item.value = "Host / PS5 homebrew"; item.enabled = false; }
@@ -5162,8 +5167,11 @@ void Simulation::rebuild_view() {
             controller.value = state_.controller_connected ? "Connected" : "Disconnected";
             controller.subtitle = "Test the buttons and sticks";
         }
-        section = "About";
+        section = "Updates";
         if (live()) {
+            auto& beta = add("settings-beta-updates", RowKind::Toggle, "Beta updates", "toggle-beta-updates");
+            beta.selected = state_.beta_updates;
+            beta.subtitle = "Get test versions before they are released. They can have new bugs.";
             const auto& update = state_.self_update;
             auto& item = add("settings-update", RowKind::Action, "Playden updates", "self-update");
             if (update.phase == "checking") {
@@ -5184,9 +5192,14 @@ void Simulation::rebuild_view() {
                 item.subtitle = update.error;
             } else {
                 item.value = "Check now";
-                item.subtitle = update.phase == "up-to-date" ? "Version " + update.current + " is the latest"
+                item.subtitle = update.phase == "up-to-date" ? "No newer update for version " + update.current
                                                               : "Version " + update.current;
             }
+        }
+        if (live() && !state_.beta_updates && state_.self_update.current.find("-beta.") != std::string::npos) {
+            auto& note = add("settings-beta-wait", RowKind::Status, "You have a beta", "");
+            note.subtitle = "Playden moves to the next stable version when it is out.";
+            note.enabled = false;
         }
         // The kit-only install, while it has something to offer or say.
         if (live()) {
@@ -5224,6 +5237,7 @@ void Simulation::rebuild_view() {
             auto& notes = add("settings-release-notes", RowKind::Action, "Release notes", "self-update-notes");
             notes.subtitle = "What changed in Playden " + state_.self_update.current;
         }
+        section = "About";
         add("settings-about", RowKind::Action, "About", "about").subtitle = "Playden for PlayStation 5";
         auto& logs = add("settings-logs", RowKind::Action, "Logs", live() ? "logs-pick" : "logs");
         if (live()) {
@@ -7460,6 +7474,10 @@ void Simulation::activate() {
     else if (action_name == "about") open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", state_.navigation.focus_key,
         {"about-version", "about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 0, false});
     else if (action_name == "about-back") close_modal();
+    else if (live() && action_name == "toggle-beta-updates") {
+        state_.beta_updates = !state_.beta_updates;
+        self_update_requests_.push_back(state_.beta_updates ? "betas-on" : "betas-off");
+    }
     else if (live() && action_name == "self-update") {
         const auto& phase = state_.self_update.phase;
         if (phase == "available") { pending_update_prompt_ = "available"; show_update_prompt(); }

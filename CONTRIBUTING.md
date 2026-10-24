@@ -245,7 +245,7 @@ longer apply. Rebuilding the runtime and the kit follows prospero-win's `docs/WI
 ## Publish a release
 
 Playden updates itself from the latest GitHub release (`releases/latest`, which leaves out drafts and
-pre-releases), so every release needs its update manifest:
+pre-releases). Players who enable Beta updates use the releases list, including betas. Every release needs its update manifest:
 
 1. Raise the version in `CMakeLists.txt` (`project(PlaydenLauncher VERSION …)`) and build the PS5 package. The
    version becomes `param.json`'s `contentVersion` and the version Playden compares.
@@ -267,6 +267,14 @@ pre-releases), so every release needs its update manifest:
 4. Attach `playden-update.json` and both zips to the release, then publish it. GitHub records each file's SHA-256,
    and Playden checks the downloads against it. If the kit did not change, the kit zip may be left out: consoles
    that already have that kit download only the app.
+
+For a beta, keep the numeric version in `project()` (for example `0.7.1`) and configure with
+`-DPLAYDEN_PRERELEASE=beta.1`. The package writes `playden-version` as `0.7.1-beta.1`; About, the updater and log
+bundles use it. PS5's `param.json` cannot represent a pre-release: `contentVersion` stays `00.007.001` for all
+0.7.1 betas and the stable release. Set `PLAYDEN_PRERELEASE` back to empty for stable builds. Name the app zip
+`playden-ps5-0.7.1-beta.1.zip`, pass `--tag v0.7.1-beta.1` to the manifest tool to verify it matches the package,
+and **mark the GitHub release as a pre-release; never use `--latest` for a beta**. `--min-from` may name a beta.
+The kit pin and trust rules are the same as for stable releases.
 
 To try an update on a console without publishing, put `release.json` (from `--release-json`, with
 `--allow-other-kit` for a test kit), `playden-update.json` and the zips in `/data/homebrew/FAKE77031/dev/update-local/`.

@@ -269,6 +269,10 @@ def main():
         info["Playden package"] = fetch(ftp, IDENTITY).decode("utf-8", "replace").split()[-1][:12]
     except ftplib.Error:
         info["Playden package"] = None
+    try:
+        info["Playden version"] = fetch(ftp, "/data/homebrew/FAKE77031/playden-version").decode("ascii").strip()
+    except (ftplib.Error, UnicodeError):
+        info["Playden version"] = None
     info["firmware"] = firmware([playden_logs.get("runtime.log.1", ""), playden_logs.get("runtime.log", "")])
     info.update(active_kit(ftp))
     info["game titles"] = ", ".join(

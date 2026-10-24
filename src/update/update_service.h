@@ -38,6 +38,7 @@ struct UpdateConfig {
   // going back below 0.6.0 is refused whatever the current version. Empty: the version rule only.
   std::string layout_journal;
   Version current;
+  bool include_betas = false;
   Fetch fetch;
   std::function<std::optional<std::string>(const std::string& path)> hash_file;
   // The verified kit's manifest SHA-256, or nullopt when the folder is not a complete kit.
@@ -134,6 +135,8 @@ class UpdateService {
   void Start();
   // Looks for a newer release in the background. Ignored while the worker is busy.
   void Check(bool user_asked);
+  // Thread-safe: the worker reads the current preference at each check.
+  bool SetIncludeBetas(bool enabled);  // returns whether the preference changed
   // Downloads, unpacks and stages the available release in the background.
   void Install();
   void Cancel();
@@ -201,6 +204,7 @@ class UpdateService {
   void CleanUpLeftovers();
 
   UpdateConfig config_;
+  std::atomic<bool> include_betas_{false};
   std::shared_ptr<Shared> shared_;
   std::optional<Release> release_;
   std::optional<UpdateManifest> manifest_;

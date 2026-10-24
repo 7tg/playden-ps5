@@ -1204,8 +1204,8 @@ void live_storage_section_and_installed_games() {
     std::vector<std::string> sections;
     for (const auto& row : model.view().rows)
         if (sections.empty() || sections.back() != row.section) sections.push_back(row.section);
-    check(sections == std::vector<std::string>{"Account", "Library", "Storage", "Display", "About", "Quit Playden"},
-          "the rail order is Account, Library, Storage, Display, About, Quit");
+    check(sections == std::vector<std::string>{"Account", "Library", "Storage", "Display", "Updates", "About", "Quit Playden"},
+          "the rail order is Account, Library, Storage, Display, Updates, About, Quit");
     const auto* empty = find_row(model, "settings-installed");
     check(empty && !empty->enabled && empty->value == "None", "nothing installed says None");
     check(find_row(model, "settings-kept")->value == "None" && !has_row(model, "settings-runtime-cleanup"),

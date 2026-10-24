@@ -111,7 +111,7 @@ const char* KitInstallPhaseName(KitInstallPhase phase) {
   return "?";
 }
 
-UpdateService::UpdateService(UpdateConfig config) : config_(std::move(config)), shared_(std::make_shared<Shared>()) {
+UpdateService::UpdateService(UpdateConfig config) : config_(std::move(config)), include_betas_(config_.include_betas), shared_(std::make_shared<Shared>()) {
   if (!config_.as_root) config_.as_root = [](const std::function<bool()>& work) { return work(); };
   if (!config_.now) config_.now = [] { return static_cast<std::int64_t>(time(nullptr)); };
   shared_->snapshot.current = config_.current;
@@ -539,6 +539,8 @@ void UpdateService::ConfirmApplied(const std::string& text) {
   FindPrevious();
 }
 
+bool UpdateService::SetIncludeBetas(bool enabled) { return include_betas_.exchange(enabled) != enabled; }
+
 void UpdateService::Check(bool user_asked) {
   {
     std::lock_guard<std::mutex> lock(shared_->mutex);
@@ -551,6 +553,11 @@ void UpdateService::Check(bool user_asked) {
 
 void UpdateService::Install() {
   Run([this] {
+    // A track change can arrive while a download is being cancelled or a check is queued.
+    if (release_ && (release_->prerelease || release_->version.beta) && !include_betas_.load()) {
+      DoCheck(false);
+      return;
+    }
     if (!release_ || !manifest_) DoCheck(false);
     if (Snapshot().phase != UpdatePhase::kAvailable) return;
     DoInstall();
@@ -574,16 +581,28 @@ void UpdateService::DoCheck(bool user_asked) {
     return std::nullopt;
   };
   if (local) Log("reading the release from " + config_.local_release_dir);
-  const auto body = local ? read_local("release.json")
-                          : FetchSmall(config_.latest_release_url, 2 << 20, options, "application/vnd.github+json", &error);
-  if (!body) return Fail("Playden could not reach GitHub to look for updates.", error);
-  const auto release = ParseRelease(*body, &error);
-  if (!release) return Fail("The latest release on GitHub could not be read.", error);
-  if (release->draft || release->prerelease || !(config_.current < release->version)) {
-    Log("up to date: running " + config_.current.ToString() + ", latest " + release->tag);
+  const bool include_betas = include_betas_.load();
+  std::optional<Release> release;
+  if (include_betas) {
+    const auto releases = FetchReleases(&error);
+    if (!releases) return Fail("Playden could not read the releases on GitHub.", error);
+    for (const auto& candidate : *releases)
+      if (!candidate.draft && (!release || release->version < candidate.version)) release = candidate;
+  } else {
+    const auto body = local ? read_local("release.json")
+                            : FetchSmall(config_.latest_release_url, 2 << 20, options, "application/vnd.github+json", &error);
+    if (!body) return Fail("Playden could not reach GitHub to look for updates.", error);
+    release = ParseRelease(*body, &error);
+    if (!release) return Fail("The latest release on GitHub could not be read.", error);
+    if (release->draft || release->prerelease || release->version.beta) release.reset();
+  }
+  if (!release || !(config_.current < release->version)) {
+    Log("up to date: running " + config_.current.ToString());
+    release_.reset();
+    manifest_.reset();
     Set([&](UpdateSnapshot& s) {
       s.phase = UpdatePhase::kUpToDate;
-      s.available = release->version;
+      s.available = release ? release->version : config_.current;
     });
     return;
   }
@@ -987,8 +1006,15 @@ bool UpdateService::StageApp(const Release& release, const UpdateManifest& manif
   const auto* title = param && param->is_object() ? param->Find("titleId") : nullptr;
   const auto* content = param && param->is_object() ? param->Find("contentVersion") : nullptr;
   const auto content_version = content && content->is_string() ? ParseVersion(content->text()) : std::nullopt;
+  std::string full_text;
+  const bool has_full = ReadSmallFile(stage + "/playden-version", &full_text, 64);
+  if (!full_text.empty() && full_text.back() == '\n') full_text.pop_back();
+  const auto full_version = has_full ? ParseVersion(full_text)
+                                    : (Exists(stage + "/playden-version") ? std::nullopt : content_version);
+  const Version numeric{release.version.major, release.version.minor, release.version.patch};
   if (!title || !title->is_string() || title->text() != config_.title_id || !content_version ||
-      *content_version != release.version || !Exists(stage + "/eboot.bin")) {
+      *content_version != numeric || !full_version || *full_version != release.version ||
+      !Exists(stage + "/eboot.bin")) {
     RemoveOwnedTree(stage);
     Fail("The downloaded Playden is not version " + release.version.ToString() + ".", "param.json");
     return false;

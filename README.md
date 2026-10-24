@@ -151,17 +151,21 @@ ShadowMountPlus adds its tile to the Home screen.
 
 Since 0.3.0, Playden updates itself from this repository's GitHub releases:
 
-- **Check:** at startup, and with Settings › About › Playden updates › Check now. When a newer release is out,
+- **Check:** at startup, and with Settings › Updates › Playden updates › Check now. When a newer release is out,
   Playden offers it once, with its notes, its download size, and a QR code for its release page on GitHub.
 - **Download:** Download and install fetches the new app and, when the release has a new one, the runtime kit. You
   can follow the download on the Queue screen and keep using Playden meanwhile.
 - **Restart:** when the update is ready, Restart Playden closes Playden, puts the new version and kit in place, and
   opens Playden again. If it doesn't open by itself (the payload loader on port 9021 isn't running), open it from
-  the Home screen. On that first start Playden shows what's new in the version; Settings › About › Release notes
+  the Home screen. On that first start Playden shows what's new in the version; Settings › Updates › Release notes
   shows it again later.
 
+Settings › Updates › **Beta updates** opts into test versions before their stable release. It is off by default;
+betas can have new bugs and use the same app and data. Turning it off keeps an installed beta until a newer stable
+version is available. Updates never downgrade Playden.
+
 The previous app and kit are kept until the next update, in `/data/playden/self-update/backup/` and
-`/data/playden/kits/.previous-*`. Settings › About › **Go back to Playden <version>** puts them back: Playden
+`/data/playden/kits/.previous-*`. Settings › Updates › **Go back to Playden <version>** puts them back: Playden
 closes, swaps the previous version and its kit in, and opens again. If the swap does not take and the previous
 version opens again, it says so and puts its kit back. If the new version itself fails to start, nothing can report it: reinstall Playden over FTP as
 described above (your games, sign-in and settings are kept), and, if the new kit is at fault, rename the previous

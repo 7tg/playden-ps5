@@ -812,7 +812,21 @@ void live_self_update(const std::filesystem::path& base) {
     check(model.UpdateLibrary({{}, false, {}, false, true, 100}), "update: library delivered");
     for (int i = 0; i < 6 && model.state().navigation.route != Route::Settings; ++i) model.action("r1");
     check(model.state().navigation.route == Route::Settings, "update: settings open");
+    check(find_row(model, "settings-beta-updates") && !find_row(model, "settings-beta-updates")->selected,
+          "beta updates default off");
+    activate(model, "settings-beta-updates");
+    check(find_row(model, "settings-beta-updates")->selected, "beta updates turn on");
+    check(model.ExportPreferences().beta_updates, "beta opt-in exported for persistence");
+    check(model.TakeSelfUpdateRequests() == std::vector<std::string>{"betas-on"}, "enabling betas switches the track");
+    activate(model, "settings-beta-updates");
+    check(model.TakeSelfUpdateRequests() == std::vector<std::string>{"betas-off"}, "disabling betas switches back");
     LiveSelfUpdate update;
+    update.current = "0.7.1-beta.1";
+    model.UpdateSelfUpdate(update);
+    check(find_row(model, "settings-beta-wait") &&
+          find_row(model, "settings-beta-wait")->subtitle ==
+              "Playden moves to the next stable version when it is out.",
+          "opting out on a beta explains waiting for stable");
     update.current = "0.2.0";
     model.UpdateSelfUpdate(update);
     check(find_row(model, "settings-update") && find_row(model, "settings-update")->value == "Check now",

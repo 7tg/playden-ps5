@@ -2124,8 +2124,14 @@ void Controller::TickLicenseChanges() {
 }
 void Controller::TickSelfUpdate() {
   if (!self_update_) return;
+  // The track starts from the saved preference (ps5.cpp); only the Settings toggle changes it, so a
+  // preference that hasn't loaded yet can't switch tracks at startup.
   for (const auto& request : model_.TakeSelfUpdateRequests()) {
-    if (request == "check") self_update_->Check(true);
+    if (request == "check") self_update_check_pending_ = true;
+    else if (request == "betas-on" || request == "betas-off") {
+      self_update_->SetIncludeBetas(request == "betas-on");
+      self_update_check_pending_ = true;
+    }
     else if (request == "install") self_update_->Install();
     else if (request == "cancel") self_update_->Cancel();
     else if (request == "restart") self_update_->RequestRestart();
@@ -2134,6 +2140,11 @@ void Controller::TickSelfUpdate() {
     else if (request == "kit-check") self_update_->CheckKit();
     else if (request == "kit-install") self_update_->InstallKit();
     else if (request == "kit-cancel") self_update_->Cancel();
+  }
+  // Retain checks across busy downloads and occupied worker queues, including opt-out then cancel.
+  if (self_update_check_pending_ && !self_update_->Busy()) {
+    self_update_check_pending_ = false;
+    self_update_->Check(true);
   }
   // The runtime started without a usable kit (a first run), or with another kit than the one this
   // version was made for: the running version's kit is looked for once, after the startup update

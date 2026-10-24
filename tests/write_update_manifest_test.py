@@ -59,6 +59,21 @@ def main():
         check(listing["tag_name"] == "v0.3.0" and [a["name"] for a in listing["assets"]] ==
               ["playden-update.json", "playden-ps5-0.3.0.zip", "playden-kit-0.13.zip"], "local release")
         check(all(a["digest"].startswith("sha256:") and a["size"] > 0 for a in listing["assets"]), "digests")
+        # Full beta identity lives alongside the numeric PS5 version.
+        with zipfile.ZipFile(app, "w") as archive:
+            prefix = "playden-ps5-0.3.0/FAKE77031/"
+            archive.writestr(prefix + "sce_sys/param.json",
+                             json.dumps({"titleId": "FAKE77031", "contentVersion": "00.007.001"}))
+            archive.writestr(prefix + "playden-version", "0.7.1-beta.2\n")
+        result = run(*common, "--min-from", "0.7.1-beta.1", "--tag", "v0.7.1-beta.2",
+                     "--release-json", str(release))
+        check(result.returncode == 0, result.stderr)
+        check(json.loads(out.read_text())["app"]["version"] == "0.7.1-beta.2", "full beta version")
+        check(json.loads(out.read_text())["app"]["min_from"] == "0.7.1-beta.1", "beta minimum")
+        check(json.loads(release.read_text())["prerelease"], "local beta marked prerelease")
+        check(run(*common, "--tag", "v0.7.1").returncode != 0, "tag mismatch refused")
+        for bad in ("0.7.1-beta.0", "0.7.1-beta.01", "0.7.1-rc.1", "0.7.1+meta", "0.7.1\n"):
+            check(run(*common, "--min-from", bad).returncode != 0, "invalid version refused: " + repr(bad))
         # A kit the lock does not pin is refused unless a test allows it.
         (root / "lock.json").write_text(json.dumps({"prospero_kit": {"kit_id": "playden-kit", "manifest_sha256": "0" * 64}}))
         check(run(*common).returncode != 0, "unpinned kit refused")
