@@ -193,14 +193,15 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"wine", "Wine", "Wine's own Direct3D 12."},
                          {"vkd3d-proton", "vkd3d-proton", "Direct3D 12 on Vulkan, as in Proton. Experimental."}},
                         "wine"));
-  // RADV runs pixel shaders in wave64 on the PS5's GPU; some never finish there and the console freezes.
+  // RADV runs pixel shaders in wave64 on the PS5's GPU by default; some never finish there and the console freezes
+  // (Stray). Wave32 ran the same as wave64 in every game tested, so it is the default. A saved "auto" (the earlier
+  // Automatic choice) is dropped when the record loads (RecordFromValue).
   list.push_back(Choice("pixel_shader_waves", "Pixel shaders",
-                        "How the GPU runs pixel shaders. Wave32 stops some games from freezing the console while loading.",
+                        "How the GPU runs pixel shaders. Wave64 freezes the console in some games.",
                         "RADV_PERFTEST=pswave32", T::kCompatibility,
-                        {{"auto", "Automatic", "Wave32 for games known to freeze in wave64, wave64 for the rest."},
-                         {"wave64", "Wave64", "The driver's default."},
-                         {"wave32", "Wave32", "Fixes GPU freezes in some games; may be a little slower."}},
-                        "auto"));
+                        {{"wave32", "Wave32", "Stops GPU freezes in some games, such as Stray."},
+                         {"wave64", "Wave64", "The driver's own default. May freeze the console in some games."}},
+                        "wave32"));
   list.push_back(Choice("steam_features", "Steam features", "How the game reaches Steam without the Steam client.",
                         "steam_api.dll · steam_api64.dll", T::kCompatibility,
                         {{"emulate", "Offline emulation", "Playden's Steam emulator answers the game."},
@@ -288,19 +289,6 @@ std::vector<SettingDefinition> BuildCatalogue() {
   return list;
 }
 
-// Steam games whose pixel shaders hang the PS5's GPU in wave64, RADV's default there: Pixel shaders "Automatic" runs
-// them in wave32 (RADV_PERFTEST=pswave32). The driver-side cause is not known yet. Matched by the recipe's Steam app
-// ID only: an imported copy of one of these games (another store) needs Wave32 chosen by hand.
-constexpr std::uint32_t kPixelShaderWave32Games[] = {
-    1332010,  // Stray: the GPU hangs while the first save loads; with wave32 it loads and plays.
-};
-
-bool NeedsPixelShaderWave32(const GameRecipe& recipe) {
-  const auto app = RecipeGame(recipe).steam_app();
-  return app && std::find(std::begin(kPixelShaderWave32Games), std::end(kPixelShaderWave32Games), *app) !=
-                    std::end(kPixelShaderWave32Games);
-}
-
 std::string TrimSpaces(std::string text) {
   while (!text.empty() && text.front() == ' ') text.erase(0, 1);
   while (!text.empty() && text.back() == ' ') text.pop_back();
@@ -312,7 +300,7 @@ std::string TrimSpaces(std::string text) {
 //   limits never drop it; a RADV_PS5_PS_WAVE64 of the player's is left out.
 // - wave64: RADV_PS5_PS_WAVE64=1 goes first; pswave32 is taken out of the player's RADV_PERFTEST, which stays where it
 //   was (or is left out when nothing else is in it). A RADV_PERFTEST with "all" fails: it turns pswave32 on.
-// - empty (the driver's default): the player's text, unchanged.
+// - empty (the row is unavailable on this kit): the player's text, unchanged.
 // debug_env: the variables go to [debug] env lines, whose values are shorter than [environment]'s. Fails with a reason
 // when RADV_PERFTEST with pswave32 no longer fits there: the game must not start without it.
 // Options are read as PS5_Mesa's parse_debug_string (src/util/u_debug.c) reads them.
@@ -797,11 +785,8 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
     }
   }
 
-  // Pixel shaders: Automatic is wave32 for the games known to hang in wave64, and the driver's default otherwise.
-  if (const auto& waves = out.values["pixel_shader_waves"]; waves.available) {
-    if (waves.value == "auto") out.pixel_shader_waves = NeedsPixelShaderWave32(recipe) ? "wave32" : "";
-    else out.pixel_shader_waves = waves.value;
-  }
+  // Pixel shaders: only where Environment variables can carry it; empty leaves the driver's default.
+  if (const auto& waves = out.values["pixel_shader_waves"]; waves.available) out.pixel_shader_waves = waves.value;
 
   // The program: the chosen launch entry, or a program the player picked in the game folder.
   // The player's folder and arguments apply to either.
@@ -1453,6 +1438,10 @@ bool RecordFromValue(const storage_json::Value& root, GameSettingsRecord* out) {
     out->steam_app_id = ParseSteamAppId(app->text()).value_or(0);
   if (const auto* launch = root.Find("steam_launch"); launch && launch->is_string())
     out->steam_launch = steam::RelativeGamePath(launch->text()).value_or(std::string());
+  // Pixel shaders "auto" (Automatic) is gone; such a record takes the default, wave32.
+  if (const auto waves = out->overrides.find("pixel_shader_waves");
+      waves != out->overrides.end() && waves->second == "auto")
+    out->overrides.erase(waves);
   // Settings this build does not know are dropped so an older record still loads.
   for (auto it = out->overrides.begin(); it != out->overrides.end();)
     it = FindSetting(it->first) || IsUnlockKey(it->first) ? std::next(it) : out->overrides.erase(it);

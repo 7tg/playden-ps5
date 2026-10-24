@@ -299,8 +299,9 @@ int main(int argc, char** argv) {
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", "60"}}, display, &shown, &error));
     CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
     CHECK(profile.text.find("\nrefresh = 120\nframe_rate = 60\n") != std::string::npos);
-    CHECK(!CheckProsperoProfile(profile.text, &reason));  // a runtime without the capability refuses frame_rate
-    CHECK(CheckProsperoProfile(profile.text, &reason, {.display_frame_rate = true}));
+    // A runtime without the capability refuses frame_rate (the [debug] env line is the default wave32).
+    CHECK(!CheckProsperoProfile(profile.text, &reason, {.debug_env = true}));
+    CHECK(CheckProsperoProfile(profile.text, &reason, {.debug_env = true, .display_frame_rate = true}));
     CHECK(RenderDxvkConfig(shown).find("maxFrameRate") == std::string::npos);
     // 120 and 40 are paced at 120 Hz output.
     for (const char* rate : {"120", "40"}) {
@@ -405,7 +406,7 @@ int main(int argc, char** argv) {
     CHECK(shown.values.at("frame_limit").after_update.empty() && !shown.values.at("frame_limit").waits_for_update);
     CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
     CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("refresh") == std::string::npos);
-    CHECK(CheckProsperoProfile(profile.text, &reason));  // the old key set
+    CHECK(CheckProsperoProfile(profile.text, &reason, {.debug_env = true}));  // the old key set, and wave32's env line
     CHECK(RenderDxvkConfig(shown).find("\ndxgi.maxFrameRate = 60\nd3d9.maxFrameRate = 60\n") != std::string::npos);
     // 120 and 40 need 120 Hz output, chosen or not; with it they wait for Update and nothing caps the game until then.
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "40"}}, stale, &shown, &error));
@@ -424,7 +425,7 @@ int main(int argc, char** argv) {
       CHECK(RenderDxvkConfig(shown).find("maxFrameRate") == std::string::npos);
       CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
       CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("refresh") == std::string::npos);
-      CHECK(CheckProsperoProfile(profile.text, &reason));
+      CHECK(CheckProsperoProfile(profile.text, &reason, {.debug_env = true}));
       // Once the title runs the kit's runtime, the same saved values apply.
       CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", limit}}, display, &shown, &error));
       CHECK(Value(shown, "frame_limit") == limit && shown.values.at("frame_limit").after_update.empty());
@@ -538,7 +539,9 @@ int main(int argc, char** argv) {
   environment_kit.environment = true;
   CHECK(BuildEffectiveSettings(hl2, nullptr, environment, environment_kit, &settings, &error));
   CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
-  CHECK(profile.text.find("\n[environment]\nWINE_CPU_TOPOLOGY = 4:0,1,2,3\nDXVK_FRAME_RATE = 45\n") != std::string::npos);
+  // Pixel shaders' wave32 (the default) comes first among the player's variables.
+  CHECK(profile.text.find("\n[environment]\nRADV_PERFTEST = pswave32\nWINE_CPU_TOPOLOGY = 4:0,1,2,3\nDXVK_FRAME_RATE = 45\n") !=
+        std::string::npos);
   CHECK(!CheckProsperoProfile(profile.text, &reason));                // a released runtime refuses it
   CHECK(CheckProsperoProfile(profile.text, &reason, {.environment_section = true}));
   // A Zink kit that also reads [environment] (kit H r5): CPU cores and the names [environment] takes go there, the
@@ -554,7 +557,8 @@ int main(int argc, char** argv) {
     CHECK(RenderProsperoProfile(opengl, settings, target, &profile, &reason));
     CHECK(profile.text.find("\n[debug]\nenv = PW_NATIVE_PROFILE=1\n") != std::string::npos);
     CHECK(profile.text.find(
-              "\n[environment]\nWINE_CPU_TOPOLOGY = 4:0,1,2,3\nDXVK_FRAME_RATE = 60\nMESA_GL_VERSION_OVERRIDE = 3.3\n") !=
+              "\n[environment]\nWINE_CPU_TOPOLOGY = 4:0,1,2,3\nRADV_PERFTEST = pswave32\nDXVK_FRAME_RATE = 60\n"
+              "MESA_GL_VERSION_OVERRIDE = 3.3\n") !=
           std::string::npos);
     CHECK(profile.text.find("env = DXVK_") == std::string::npos && profile.text.find("env = MESA_") == std::string::npos);
     CHECK(CheckProsperoProfile(profile.text, &reason, {.environment_section = true, .debug_env = true}));
@@ -577,18 +581,23 @@ int main(int argc, char** argv) {
       for (auto at = text.find(what); at != std::string::npos; at = text.find(what, at + 1)) ++found;
       return found;
     };
-    CHECK(FindSetting("pixel_shader_waves") && FindSetting("pixel_shader_waves")->playden_default == "auto" &&
+    CHECK(FindSetting("pixel_shader_waves") && FindSetting("pixel_shader_waves")->playden_default == "wave32" &&
           FindSetting("pixel_shader_waves")->tier == SettingTier::kCompatibility);
     CHECK(!ValidateSettingValue(hl2, "pixel_shader_waves", "wave16", &reason));
-    // The Stray profile; it ends in its [environment] section.
-    const std::string base = render(hl2, {}, environment_kit);
-    CHECK(settings.pixel_shader_waves.empty() && base.find("[environment]") == std::string::npos);
+    CHECK(!ValidateSettingValue(hl2, "pixel_shader_waves", "auto", &reason));
+    // Every game runs wave32 by default; the profile ends in its [environment] section.
+    const std::string hl2_default = render(hl2, {}, environment_kit);
+    const auto environment_at = hl2_default.find("\n[environment]\n");
+    CHECK(environment_at != std::string::npos && settings.pixel_shader_waves == "wave32" &&
+          hl2_default.substr(environment_at) == "\n[environment]\nRADV_PERFTEST = pswave32\n");
+    const std::string base = hl2_default.substr(0, environment_at);
+    CHECK(base.find("[environment]") == std::string::npos);
     CHECK(render(stray, {}, environment_kit) == base + "\n[environment]\nRADV_PERFTEST = pswave32\n");
     CHECK(settings.values.at("pixel_shader_waves").available && settings.pixel_shader_waves == "wave32");
     CHECK(CheckProsperoProfile(profile.text, &reason, {.environment_section = true}));
-    if (std::getenv("PLAYDEN_PRINT_PROFILES")) std::printf("--- stray auto ---\n%s", profile.text.c_str());
-    // Another game on Automatic: byte for byte the profile this build wrote before the row, conflicting variables of
-    // the player's included (checked against the earlier build's output).
+    if (std::getenv("PLAYDEN_PRINT_PROFILES")) std::printf("--- stray default ---\n%s", profile.text.c_str());
+    // Another game on the default, with conflicting variables of the player's: pswave32 goes into the player's
+    // RADV_PERFTEST, and the player's RADV_PS5_PS_WAVE64 is left out.
     const std::map<std::string, std::string> conflicting = {
         {"environment", " ; RADV_PERFTEST = pswave32 , sam ;; RADV_PS5_PS_WAVE64=0;DXVK_FRAME_RATE = 45"},
         {"cpu_topology", "4"}};
@@ -615,12 +624,11 @@ int main(int argc, char** argv) {
         "options = escape\n"
         "\n[environment]\n"
         "WINE_CPU_TOPOLOGY = 4:0,1,2,3\n"
-        "RADV_PERFTEST = pswave32 , sam\n"
-        "RADV_PS5_PS_WAVE64 = 0\n"
+        "RADV_PERFTEST = pswave32,sam\n"
         "DXVK_FRAME_RATE = 45\n";
     CHECK(render(hl2, conflicting, environment_kit) == hl2_expected);
-    CHECK(settings.pixel_shader_waves.empty());
-    if (std::getenv("PLAYDEN_PRINT_PROFILES")) std::printf("--- hl2 auto ---\n%s", profile.text.c_str());
+    CHECK(settings.pixel_shader_waves == "wave32");
+    if (std::getenv("PLAYDEN_PRINT_PROFILES")) std::printf("--- hl2 default ---\n%s", profile.text.c_str());
     // Wave32 wins: pswave32 once (spaces and empty options dropped), the player's RADV_PS5_PS_WAVE64 left out.
     auto wave32 = conflicting;
     wave32["pixel_shader_waves"] = "wave32";
@@ -687,9 +695,9 @@ int main(int argc, char** argv) {
     too_long.record.overrides = {{"environment", perftest(119)}};
     SettingsLaunchPlan refused;
     CHECK(!BuildSettingsLaunchPlan(too_long, &refused, &reason) && reason.find("pswave32") != std::string::npos);
-    // On Automatic for another game, or Wave64, the same long value is the player's to keep.
-    CHECK(render(hl2, {{"environment", perftest(119)}}, environment_kit).find(std::string(119, 'x') + "\n") !=
-          std::string::npos);
+    // On Wave64 the same long value is the player's to keep.
+    CHECK(render(hl2, {{"environment", perftest(119)}, {"pixel_shader_waves", "wave64"}}, environment_kit)
+              .find(std::string(119, 'x') + "\n") != std::string::npos);
     CHECK(!render(stray, {{"environment", perftest(119)}, {"pixel_shader_waves", "wave64"}}, environment_kit).empty());
     // A kit without either: the row is unavailable for the same reason, and nothing is written.
     CHECK(render(stray, {{"pixel_shader_waves", "wave32"}}, KitCapabilities{}).find("RADV_") == std::string::npos);
@@ -779,7 +787,8 @@ int main(int argc, char** argv) {
   CHECK(profile.text.find("\n[audio]\nvolume = 50\n") != std::string::npos);
   CHECK(!CheckProsperoProfile(profile.text, &reason));                // a released runtime refuses both
   CHECK(CheckProsperoProfile(profile.text, &reason,
-                             {.input_tuning = true, .input_wheel = true, .audio_section = true}));
+                             {.environment_section = true, .input_tuning = true, .input_wheel = true, .audio_section = true,
+                              .debug_env = true}));
   CHECK(BuildEffectiveSettings(hl2, nullptr, {{"volume", "100"}, {"wheel_stick", "none"}}, all_kit, &settings, &error));
   CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
   CHECK(profile.text.find("[audio]") == std::string::npos && profile.text.find("wheel") == std::string::npos);
@@ -1158,6 +1167,13 @@ int main(int argc, char** argv) {
       R"({"preset":"","revision":18446744073709551616,"overrides":{}})", &loaded, &reason));
   CHECK(ParseGameSettingsRecord(R"({"preset":"","overrides":{"future_setting":"x","vsync":"on"}})", &loaded, &reason));
   CHECK(loaded.overrides.size() == 1 && loaded.overrides.count("vsync"));
+  // Pixel shaders "auto" (the removed Automatic choice) gives way to the default, wave32; a real choice stays.
+  loaded = {};
+  CHECK(ParseGameSettingsRecord(R"({"preset":"","overrides":{"pixel_shader_waves":"auto","vsync":"on"}})", &loaded, &reason));
+  CHECK(loaded.overrides.size() == 1 && loaded.overrides.count("vsync"));
+  loaded = {};
+  CHECK(ParseGameSettingsRecord(R"({"preset":"","overrides":{"pixel_shader_waves":"wave64"}})", &loaded, &reason));
+  CHECK(loaded.overrides.at("pixel_shader_waves") == "wave64");
   CHECK(!ParseGameSettingsRecord("[]", &loaded, &reason));
 
   // The bundled data loads through the recipe list, as the console title reads it.
