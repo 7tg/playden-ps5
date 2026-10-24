@@ -27,7 +27,20 @@ namespace playden::runtime {
 // A recipe only supplies starting values: the program, its folder and arguments, the
 // arguments the game needs and the library overrides each have a row the player can change.
 
-enum class SettingTier { kBasic, kCompatibility, kAdvanced };
+// Where the Game settings sheet lists a setting, in sheet order. Button mapping and Controller tuning are submenus of
+// Controls; Compatibility (with its Graphics and Windows parts) and Advanced start collapsed.
+enum class SettingGroup {
+  kGame,
+  kDisplay,
+  kControls,
+  kButtonMapping,
+  kControllerTuning,
+  kSound,
+  kCompatibility,
+  kGraphics,
+  kWindows,
+  kAdvanced,
+};
 enum class ApplyMode { kNextLaunch, kGameClosed, kPreparesBottle };
 enum class SettingKind { kChoice, kText };
 enum class ValueSource { kPlayden, kRecipe, kPreset, kUser };
@@ -69,7 +82,7 @@ struct SettingDefinition {
   std::string label;
   std::string effect;       // one-line description under the name
   std::string also_called;  // technical names: profile keys, DXVK options
-  SettingTier tier = SettingTier::kBasic;
+  SettingGroup group = SettingGroup::kGame;
   int phase = 1;            // roadmap phase that ships it
   ApplyMode apply = ApplyMode::kNextLaunch;
   SettingKind kind = SettingKind::kChoice;

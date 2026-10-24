@@ -69,6 +69,31 @@ int main(int argc, char** argv) {
     if (preset.id == "mouse-driven") mouse = &preset;
   CHECK(mouse);
 
+  // The sheet lists rows in catalogue order, grouped by topic: each group in one run, in SettingGroup order.
+  {
+    std::vector<std::string> ids;
+    for (const auto& definition : SettingsCatalogue())
+      if (definition.group != SettingGroup::kButtonMapping) ids.push_back(definition.id);
+    const std::vector<std::string> expected = {
+        "launch_option", "program", "extra_arguments",
+        "resolution", "refresh", "frame_limit", "vsync", "performance_overlay", "overlay_detail", "scaling",
+        "window_view",
+        "controller", "controller_preset",
+        "pointer_stick", "pointer_speed", "stick_deadzone", "rumble", "invert_stick", "trigger_deadzone", "wheel_stick",
+        "volume",
+        "start_check",
+        "graphics", "d3d12", "pixel_shader_waves", "frame_latency", "reported_gpu", "reported_vram",
+        "steam_features", "windows_version", "text_scale", "locale", "cpu_topology", "logging",
+        "environment", "program_folder", "program_arguments", "arguments", "architecture", "dll_overrides",
+        "library_overrides", "registry_dll_overrides"};
+    CHECK(ids == expected);
+    for (std::size_t index = 1; index < SettingsCatalogue().size(); ++index)
+      CHECK(SettingsCatalogue()[index - 1].group <= SettingsCatalogue()[index].group);
+    CHECK(FindSetting("refresh")->group == SettingGroup::kDisplay &&
+          FindSetting("button.cross")->group == SettingGroup::kButtonMapping &&
+          FindSetting("rumble")->group == SettingGroup::kControllerTuning);
+  }
+
   // Every catalogue choice default is one of its own choices.
   for (const auto& definition : SettingsCatalogue()) {
     if (definition.kind != SettingKind::kChoice || definition.choices.empty()) continue;
@@ -311,8 +336,8 @@ int main(int argc, char** argv) {
       CHECK(profile.text.find(std::string("\nframe_rate = ") + rate + "\n") != std::string::npos);
       // At 60 Hz they fall back to Off, and the row says why.
       CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", rate}}, display, &shown, &error));
-      CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Only with 120 Hz output.");
-      CHECK(SettingChoiceUnavailable(shown, "frame_limit", rate) == "Only with 120 Hz output.");
+      CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Only with Refresh rate 120 Hz.");
+      CHECK(SettingChoiceUnavailable(shown, "frame_limit", rate) == "Only with Refresh rate 120 Hz.");
       CHECK(RenderProsperoProfile(hl2, shown, target, &profile, &reason));
       CHECK(profile.text.find("\nrefresh = 60\n") != std::string::npos && profile.text.find("frame_rate") == std::string::npos);
     }
@@ -336,7 +361,7 @@ int main(int argc, char** argv) {
     CHECK(!frame_rate_env);  // not a vkd3d-proton game
     // OpenGL has no software limiter: 30 at 120 Hz falls back to Off.
     CHECK(BuildEffectiveSettings(opengl, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, display, &shown, &error));
-    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "At 120 Hz output, only with DXVK.");
+    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "At 120 Hz, only with DXVK.");
     CHECK(BuildEffectiveSettings(opengl, nullptr, {{"refresh", "120"}, {"frame_limit", "40"}}, display, &shown, &error));
     CHECK(RenderProsperoProfile(opengl, shown, target, &profile, &reason));
     CHECK(profile.text.find("\nrefresh = 120\nframe_rate = 40\n") != std::string::npos);
@@ -410,9 +435,9 @@ int main(int argc, char** argv) {
     CHECK(RenderDxvkConfig(shown).find("\ndxgi.maxFrameRate = 60\nd3d9.maxFrameRate = 60\n") != std::string::npos);
     // 120 and 40 need 120 Hz output, chosen or not; with it they wait for Update and nothing caps the game until then.
     CHECK(BuildEffectiveSettings(hl2, nullptr, {{"frame_limit", "40"}}, stale, &shown, &error));
-    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Only with 120 Hz output.");
+    CHECK(Value(shown, "frame_limit") == "off" && shown.values.at("frame_limit").reason == "Only with Refresh rate 120 Hz.");
     CHECK(shown.values.at("frame_limit").after_update.empty());
-    CHECK(SettingChoiceUnavailable(shown, "frame_limit", "120") == "Only with 120 Hz output.");
+    CHECK(SettingChoiceUnavailable(shown, "frame_limit", "120") == "Only with Refresh rate 120 Hz.");
     CHECK(RenderDxvkConfig(shown).find("maxFrameRate") == std::string::npos);
     for (const char* limit : {"120", "40"}) {
       CHECK(BuildEffectiveSettings(hl2, nullptr, {{"refresh", "120"}, {"frame_limit", limit}}, stale, &shown, &error));
@@ -443,14 +468,14 @@ int main(int argc, char** argv) {
       const auto& row = shown.values.at("frame_limit");
       CHECK(!row.available && row.waits_for_update && row.reason == kAppliesAfterKitUpdate && row.after_update == "60");
       CHECK(SettingChoiceWaitsForUpdate(shown, "frame_limit", "60"));
-      CHECK(SettingChoiceUnavailable(shown, "frame_limit", "30") == "At 120 Hz output, only with DXVK.");
+      CHECK(SettingChoiceUnavailable(shown, "frame_limit", "30") == "At 120 Hz, only with DXVK.");
     }
     CHECK(RenderProsperoProfile(opengl, shown, target, &profile, &reason));
     CHECK(profile.text.find("frame_rate") == std::string::npos && profile.text.find("\nrefresh = 60\n") != std::string::npos);
     // A saved choice the kit's runtime would not take either is dropped with its reason.
     CHECK(BuildEffectiveSettings(opengl, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, stale, &shown, &error));
     CHECK(shown.values.at("frame_limit").after_update.empty() &&
-          shown.values.at("frame_limit").reason == "At 120 Hz output, only with DXVK.");
+          shown.values.at("frame_limit").reason == "At 120 Hz, only with DXVK.");
     CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"refresh", "120"}, {"frame_limit", "30"}}, stale, &shown, &error));
     for (const auto& value : RenderBottleEnvironment(shown))
       CHECK(value.name != "VKD3D_FRAME_RATE" || value.data.empty());
@@ -582,7 +607,7 @@ int main(int argc, char** argv) {
       return found;
     };
     CHECK(FindSetting("pixel_shader_waves") && FindSetting("pixel_shader_waves")->playden_default == "wave32" &&
-          FindSetting("pixel_shader_waves")->tier == SettingTier::kCompatibility);
+          FindSetting("pixel_shader_waves")->group == SettingGroup::kGraphics);
     CHECK(!ValidateSettingValue(hl2, "pixel_shader_waves", "wave16", &reason));
     CHECK(!ValidateSettingValue(hl2, "pixel_shader_waves", "auto", &reason));
     // Every game runs wave32 by default; the profile ends in its [environment] section.

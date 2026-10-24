@@ -475,7 +475,9 @@ std::string action_label(const std::string& key) {
         {"value-edit", "Edit…"}, {"value-reset", "Reset to recipe"}, {"override-add", "Add an override…"},
         {"unlock-setting", "Change anyway"}, {"export-recipe", "Export as recipe"}, {"program-scan", "Looking for programs…"},
         {"preset-picker", "Preset"}, {"game-settings", "Game settings"}, {"game-maintenance", "Maintenance"}, {"runtime-check-again", "Check again"}, {"reset-settings", "Reset all to preset"}, {"clear-shader-cache", "Clear shader cache"},
-        {"section-more", "More settings"}, {"section-advanced", "Advanced"},
+        {"section-compatibility", "Compatibility"}, {"section-advanced", "Advanced"}, {"heading-game", "Game"},
+        {"heading-display", "Display"}, {"heading-controls", "Controls"}, {"heading-sound", "Sound"},
+        {"heading-graphics", "Graphics"}, {"heading-windows", "Windows"},
         {"sort-name", "Name"}, {"sort-recent-played", "Recently played"}, {"sort-recent-added", "Recently added"},
         {"sort-playtime", "Playtime"}, {"sort-install-size", "Install size"}, {"filter-installed", "Installed"},
         {"filter-genre-adventure", "Adventure"}, {"filter-controller-full", "Full controller support"},
@@ -3702,6 +3704,7 @@ void Simulation::rebuild_view() {
         }
         const GameId settings_game = state_.navigation.selected_game_id;
         const bool settings_modal = modal.id == "game-settings" || modal.id == "preset-picker" || modal.id == "button-mapping" ||
+                                    modal.id == "controller-tuning" ||
                                     modal.id == "game-maintenance" || !modal.setting_id.empty();
         rt::EffectiveSettings settings_values;
         const bool settings_ready = settings_modal && EffectiveSettingsFor(settings_game, &settings_values);
@@ -3897,6 +3900,17 @@ void Simulation::rebuild_view() {
                            : saved ? std::to_string(saved) : std::string("None");
                 item.subtitle = from_file ? "From the game's steam_appid.txt" : "Only for games that need Steam. Most run without it.";
                 item.modified = saved != 0;
+            } else if (settings_ready && action_key == "controller-tuning") {
+                item.kind = RowKind::Choice;
+                item.title = "Controller tuning";
+                item.subtitle = "Pointer stick, dead zones, rumble and invert.";
+                int changed = 0;
+                for (const auto& definition : rt::SettingsCatalogue())
+                    if (definition.group == rt::SettingGroup::kControllerTuning &&
+                        settings_values.values.at(definition.id).source == rt::ValueSource::kUser)
+                        ++changed;
+                item.value = changed == 0 ? "Default" : std::to_string(changed) + " changed";
+                item.modified = changed > 0;
             } else if (settings_ready && action_key == "button-mapping") {
                 item.kind = RowKind::Choice;
                 item.title = "Button mapping";
@@ -3910,14 +3924,23 @@ void Simulation::rebuild_view() {
                 }
                 item.value = bound == 0 ? "None" : std::to_string(bound) + (bound == 1 ? " button" : " buttons");
                 item.modified = changed;
-            } else if (settings_ready && (action_key == "section-more" || action_key == "section-advanced")) {
+            } else if (settings_ready && (action_key == "section-compatibility" || action_key == "section-advanced")) {
                 item.kind = RowKind::Heading;
-                const auto tier = action_key == "section-more" ? rt::SettingTier::kCompatibility : rt::SettingTier::kAdvanced;
+                const bool advanced = action_key == "section-advanced";
                 int count = 0;
-                for (const auto& definition : rt::SettingsCatalogue())
-                    if (definition.tier == tier && rt::SettingShown(definition, kit_)) ++count;
-                if (tier == rt::SettingTier::kCompatibility) ++count;  // Button mapping
+                for (const auto& definition : rt::SettingsCatalogue()) {
+                    const bool inside = advanced ? definition.group == rt::SettingGroup::kAdvanced
+                                                 : definition.group == rt::SettingGroup::kCompatibility ||
+                                                       definition.group == rt::SettingGroup::kGraphics ||
+                                                       definition.group == rt::SettingGroup::kWindows;
+                    if (inside && game_settings_row_shown(definition, settings_game)) ++count;
+                }
                 item.value = expanded_settings_sections_.count(action_key) ? "Hide" : "Show " + std::to_string(count);
+            } else if (settings_ready && action_key.rfind("heading-", 0) == 0) {
+                // Names the rows below it; not focusable (move_game_settings skips it).
+                item.kind = RowKind::Separator;
+                item.action.clear();
+                item.enabled = false;
             } else if (settings_ready && !modal.setting_id.empty() && action_key.rfind("choice-", 0) == 0 && action_key != "choice-custom") {
                 item.kind = RowKind::Choice;
                 const auto index = static_cast<std::size_t>(std::stoul(action_key.substr(7)));
@@ -4372,6 +4395,7 @@ void Simulation::rebuild_view() {
         if (modal.id == "game-settings") view_.legends = {"Cross Change", "Triangle Reset", "L1/R1 Jump", "Circle Close"};
         else if (modal.id == "preset-picker") view_.legends = {"Cross Use this preset", "L1/R1 Jump", "Circle Back"};
         else if (modal.id == "button-mapping") view_.legends = {"Cross Change", "L1/R1 Jump", "Circle Back"};
+        else if (modal.id == "controller-tuning") view_.legends = {"Cross Change", "Triangle Reset", "L1/R1 Jump", "Circle Back"};
         else if (modal.id == "game-maintenance") view_.legends = {"Cross Select", "L1/R1 Jump", "Circle Cancel"};
         else if (modal.id == "import-games") view_.legends = {"Cross Select", "Circle Close"};
         else if (modal.id == "import-programs" || modal.id == "import-choice") view_.legends = {"Cross Select", "Circle Back"};
@@ -5748,7 +5772,17 @@ void Simulation::move(int delta_x, int delta_y) {
         if (modal.id == "installed-games") { move_installed_manager(delta_x, delta_y); return; }
         if (modal.id == "import-games") { move_import_sheet(delta_y != 0 ? delta_y : delta_x); return; }
         const int delta = delta_y != 0 ? delta_y : delta_x;
-        modal.focused_action = std::clamp(modal.focused_action + delta, 0, static_cast<int>(modal.action_keys.size()) - 1);
+        const int last = static_cast<int>(modal.action_keys.size()) - 1;
+        modal.focused_action = std::clamp(modal.focused_action + delta, 0, last);
+        // Game settings' topic headings only label the rows below them: focus goes on past them.
+        if (modal.id == "game-settings" && delta != 0) {
+            const auto heading = [&modal](int index) { return modal.action_keys[static_cast<std::size_t>(index)].rfind("heading-", 0) == 0; };
+            const int step = delta > 0 ? 1 : -1;
+            while (heading(modal.focused_action) && modal.focused_action + step >= 0 && modal.focused_action + step <= last)
+                modal.focused_action += step;
+            while (heading(modal.focused_action) && modal.focused_action - step >= 0 && modal.focused_action - step <= last)
+                modal.focused_action -= step;
+        }
         state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
         return;
     }
@@ -7234,6 +7268,7 @@ void Simulation::activate() {
         if (id == "launch_option") forget_program_choices(&record.overrides);
         if (id == "dll_overrides") record.overrides.erase("library_overrides");
         ++record.revision;
+        if (id == "refresh") follow_refresh_rate(state_.navigation.selected_game_id);
         close_modal(); refresh_game_settings(); save_profile();
     } else if (action_name.rfind("program-", 0) == 0 && action_name != "program-scan" && !state_.navigation.modals.empty()) {
         // A program from the game folder; its architecture comes with it.
@@ -7261,6 +7296,12 @@ void Simulation::activate() {
         for (const auto& button : rt::ProsperoButtons()) actions.push_back("setting-button." + button);
         actions.push_back("cancel");
         open_modal({"button-mapping", "Button mapping", "button-mapping", std::move(actions), 0, false});
+    } else if (action_name == "controller-tuning") {
+        std::vector<std::string> actions;
+        for (const auto& definition : rt::SettingsCatalogue())
+            if (definition.group == rt::SettingGroup::kControllerTuning) actions.push_back("setting-" + definition.id);
+        actions.push_back("cancel");
+        open_modal({"controller-tuning", "Controller tuning", "controller-tuning", std::move(actions), 0, false});
     } else if (action_name.rfind("choice-", 0) == 0 && !state_.navigation.modals.empty() && state_.navigation.modals.back().setting_id.rfind("button.", 0) == 0) {
         const auto id = state_.navigation.modals.back().setting_id;
         const auto index = static_cast<std::size_t>(std::stoul(action_name.substr(7)));
@@ -7283,7 +7324,7 @@ void Simulation::activate() {
             set_game_setting(id, launch ? recipe.launch_entries[index].id : definition->choices[index].value);
         }
         close_modal(); refresh_game_settings(); save_profile();
-    } else if (action_name == "section-more" || action_name == "section-advanced") {
+    } else if (action_name == "section-compatibility" || action_name == "section-advanced") {
         if (!expanded_settings_sections_.erase(action_name)) expanded_settings_sections_.insert(action_name);
         refresh_game_settings();
     } else if (action_name == "reset-settings") {
@@ -7725,7 +7766,8 @@ bool Simulation::action(const std::string& logical_action) {
     else if ((logical_action == "l1" || logical_action == "r1") && !state_.navigation.modals.empty() &&
              (state_.navigation.modals.back().id == "game-settings" || state_.navigation.modals.back().id == "preset-picker" ||
               state_.navigation.modals.back().id == "game-maintenance" ||
-              state_.navigation.modals.back().id == "button-mapping" || !state_.navigation.modals.back().setting_id.empty()))
+              state_.navigation.modals.back().id == "button-mapping" || state_.navigation.modals.back().id == "controller-tuning" ||
+              !state_.navigation.modals.back().setting_id.empty()))
         move(0, logical_action == "l1" ? -5 : 5);  // L1/R1 jump five rows, as on macOS
     else if (logical_action == "l1") change_route(-1);
     else if (logical_action == "r1") change_route(1);
@@ -7757,7 +7799,8 @@ bool Simulation::action(const std::string& logical_action) {
         }
     }
     else if (logical_action == "triangle" && !state_.editor.active && !state_.navigation.modals.empty() &&
-             (state_.navigation.modals.back().id == "game-settings" || !state_.navigation.modals.back().setting_id.empty())) {
+             (state_.navigation.modals.back().id == "game-settings" || state_.navigation.modals.back().id == "controller-tuning" ||
+              !state_.navigation.modals.back().setting_id.empty())) {
         // Triangle returns the focused setting (or the open picker's setting) to the preset value.
         const auto& modal = state_.navigation.modals.back();
         const auto id = !modal.setting_id.empty() ? modal.setting_id
@@ -7779,6 +7822,7 @@ bool Simulation::action(const std::string& logical_action) {
         if (!id.empty() && !closed_needed && present() && can_change_game_settings()) {
             for (const auto& key : keys) record->second.overrides.erase(key);
             ++record->second.revision;
+            if (id == "refresh") follow_refresh_rate(state_.navigation.selected_game_id);
             if (!modal.setting_id.empty()) close_modal();
             refresh_game_settings(); save_profile();
         }
@@ -8260,27 +8304,51 @@ bool Simulation::EffectiveSettingsFor(GameId id, rt::EffectiveSettings* settings
 }
 
 std::vector<std::string> Simulation::game_settings_actions() const {
-    const auto shown = [this](const rt::SettingDefinition& definition) { return rt::SettingShown(definition, kit_); };
+    using G = rt::SettingGroup;
     const auto game = state_.navigation.selected_game_id;
     std::vector<std::string> actions = {"preset-picker"};
-    for (const auto& definition : rt::SettingsCatalogue())
-        if (definition.tier == rt::SettingTier::kBasic && shown(definition)) actions.push_back("setting-" + definition.id);
-    // Another store's game may use Steamworks: the Steam app ID its emulator is given.
-    if (game.store == Store::kLocal) actions.push_back("steam-app-id");
-    for (const auto& [section, tier] : {std::pair<const char*, rt::SettingTier>{"section-more", rt::SettingTier::kCompatibility},
-                                       std::pair<const char*, rt::SettingTier>{"section-advanced", rt::SettingTier::kAdvanced}}) {
-        actions.push_back(section);
-        if (!expanded_settings_sections_.count(section)) continue;
-        if (tier == rt::SettingTier::kCompatibility) actions.push_back("button-mapping");
+    const auto rows = [&](G group) {
         for (const auto& definition : rt::SettingsCatalogue())
-            if (definition.tier == tier && shown(definition) && (definition.id != "start_check" || known_problem(game)))
-                actions.push_back("setting-" + definition.id);
-        if (tier == rt::SettingTier::kAdvanced) actions.push_back("effective-command");
-        if (tier == rt::SettingTier::kAdvanced) actions.push_back("export-recipe");
+            if (definition.group == group && game_settings_row_shown(definition, game)) actions.push_back("setting-" + definition.id);
+    };
+    // Rows by topic under headings that only label them; Compatibility and Advanced start collapsed.
+    actions.push_back("heading-game");
+    rows(G::kGame);
+    // Another store's game may use Steamworks: the Steam app ID its emulator is given.
+    if (game.store == Store::kLocal) {
+        const auto program = std::find(actions.begin(), actions.end(), "setting-launch_option");
+        actions.insert(program == actions.end() ? actions.end() : program + 1, "steam-app-id");
+    }
+    actions.push_back("heading-display");
+    rows(G::kDisplay);
+    actions.push_back("heading-controls");
+    rows(G::kControls);
+    actions.push_back("button-mapping");
+    actions.push_back("controller-tuning");
+    actions.push_back("heading-sound");
+    rows(G::kSound);
+    actions.push_back("section-compatibility");
+    if (expanded_settings_sections_.count("section-compatibility")) {
+        rows(G::kCompatibility);
+        actions.push_back("heading-graphics");
+        rows(G::kGraphics);
+        actions.push_back("heading-windows");
+        rows(G::kWindows);
+    }
+    actions.push_back("section-advanced");
+    if (expanded_settings_sections_.count("section-advanced")) {
+        rows(G::kAdvanced);
+        actions.push_back("effective-command");
+        actions.push_back("export-recipe");
     }
     actions.push_back("reset-settings");
     actions.push_back("cancel");
     return actions;
+}
+
+// Whether the sheet lists a setting's row: Known problems only for a game that has one.
+bool Simulation::game_settings_row_shown(const rt::SettingDefinition& definition, GameId game) const {
+    return rt::SettingShown(definition, kit_) && (definition.id != "start_check" || known_problem(game));
 }
 
 // Whether Game settings shows "Known problems": Playden refused the game for a reason a run
@@ -8662,6 +8730,34 @@ void Simulation::set_game_setting(const std::string& id, const std::string& valu
     if (inherited) record.overrides.erase(id);
     else record.overrides[id] = value;
     ++record.revision;
+    if (id == "refresh") follow_refresh_rate(game);
+}
+
+// Frame limit follows Refresh rate: a cap of 120 or 40 the player chose that the new rate can't pace goes back to Off,
+// and the toast says so, instead of a saved choice that no longer applies. Runs after every change to Refresh rate.
+void Simulation::follow_refresh_rate(GameId game) {
+    const auto found = state_.game_settings.find(game);
+    if (found == state_.game_settings.end()) return;
+    auto& record = found->second;
+    const auto limit = record.overrides.find("frame_limit");
+    if (limit == record.overrides.end() || (limit->second != "120" && limit->second != "40")) return;
+    rt::EffectiveSettings after;
+    rt::SettingsError error;
+    if (!rt::BuildEffectiveSettings(RecipeFor(game), preset_for(game), record.overrides, kit_for(game), &after, &error)) return;
+    if (rt::SettingChoiceUnavailable(after, "frame_limit", limit->second).empty()) return;
+    const auto cap = limit->second;
+    // Off is saved unless the game would have it anyway: a recipe or preset cap that only falls back to Off at 60 Hz
+    // would come back at 120 Hz.
+    auto overrides = record.overrides;
+    overrides.erase("frame_limit");
+    rt::EffectiveSettings base;
+    const bool inherited_off = rt::BuildEffectiveSettings(RecipeFor(game), preset_for(game), overrides, kit_for(game), &base, &error) &&
+                               rt::ChosenValue(base.values.at("frame_limit")) == "off" && base.values.at("frame_limit").reason.empty();
+    if (inherited_off) record.overrides.erase("frame_limit");
+    else record.overrides["frame_limit"] = "off";
+    ++record.revision;
+    push_notice({"frame-limit-off", "Frame limit set to Off", "", false, kLiveNoticeSeconds, false,
+                 "A cap of " + cap + " needs Refresh rate 120 Hz.", false});
 }
 
 // Player words for a preparation journal step; never the step's identifier.

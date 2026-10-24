@@ -3432,7 +3432,7 @@ class Render::Impl
     static std::string sheet_eyebrow(const std::string &surface)
     {
         static const std::map<std::string, std::string> names = {
-            {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"},
+            {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"}, {"controller-tuning", "Game settings"},
             {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
             {"import-games", "Library"}, {"import-programs", "Import games"}, {"steam-programs", "Setup"}, {"import-choice", "Import games"},
             {"import-storage", "Import games"},
@@ -3478,7 +3478,8 @@ class Render::Impl
         const bool wide = view.surface.find("settings") != std::string::npos ||
                           view.surface.find("profile") != std::string::npos ||
                           view.surface == "choice-picker" || view.surface == "preset-picker" ||
-                          view.surface == "button-mapping" || view.surface == "game-maintenance" ||
+                          view.surface == "button-mapping" || view.surface == "controller-tuning" ||
+                          view.surface == "game-maintenance" ||
                           view.surface == "controller" || view.surface == "logs" ||
                           view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" ||
                           view.surface == "installed-games" || view.surface == "import-games" ||
@@ -3951,6 +3952,7 @@ class Render::Impl
     {
         const bool settings_sheet = view.surface == "game-settings" || view.surface == "choice-picker" ||
                                     view.surface == "preset-picker" || view.surface == "button-mapping" ||
+                                    view.surface == "controller-tuning" ||
                                     view.surface == "game-maintenance";
         // The Import sheets: each folder's path (or why it can't be added) under its name.
         const bool import_sheet = view.surface == "import-games" || view.surface == "import-programs" ||

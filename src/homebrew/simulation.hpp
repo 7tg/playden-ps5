@@ -860,6 +860,8 @@ public:
     [[nodiscard]] bool EffectiveSettingsFor(GameId id, playden::runtime::EffectiveSettings* settings) const;
     // Whether Game settings lists "Known problems" (Try anyway) for a game.
     [[nodiscard]] bool known_problem(GameId id) const;
+    void follow_refresh_rate(GameId game);
+    [[nodiscard]] bool game_settings_row_shown(const playden::runtime::SettingDefinition& definition, GameId game) const;
     // The overrides a preset change or a reset keeps: the program choices (simulation.cpp).
     [[nodiscard]] std::map<std::string, std::string> kept_start_choices(GameId id) const;
     // Opens the picker, editor or "Change anyway" for one Game settings row.

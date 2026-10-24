@@ -322,7 +322,7 @@ build/homebrew-host/playden-homebrew --simulation --scenario signed-out
   happening, use Settings › Account › **Sign in again**: it keeps your library, favorites and settings.
 - Godot games (Slay the Spire 2) need `--rendering-driver opengl3` in Game settings › Extra arguments. Playden picks
   Godot's Vulkan renderer, which did not work on this kit.
-- The "120 Hz output" game setting needs a newer runtime kit; it is not available with this kit.
+- The 120 Hz choice of the "Refresh rate" game setting needs a newer runtime kit; it is not available with this kit.
 - When you close a game from the PS5 menu, it can stay suspended. Pressing Play again resumes it instead of starting
   it again.
 - Downloads can be slow (about 1 MB/s) on some networks, far from a fast Steam server. Turn on Settings › Storage ›
