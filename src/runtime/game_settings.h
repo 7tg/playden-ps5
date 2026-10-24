@@ -52,6 +52,10 @@ struct KitCapabilities {
   // that runs this kit's runtime: an older runtime refuses a profile with frame_rate (KitForTitleRuntime).
   bool display_120hz = false;
   bool display_120hz_needs_update = false;  // the kit has it, but the game's title still runs an older runtime
+  // [runtime] version = 2: the title applies the driver's defaults (wave32 pixel shaders), and keeps wave64 for a
+  // profile without the key. Counts only for a title that runs this kit's runtime, like display_120hz.
+  bool profile_version_2 = false;
+  bool profile_version_2_needs_update = false;
 };
 
 struct SettingChoice {
@@ -208,6 +212,9 @@ struct EffectiveSettings {
   // Pixel shaders as the driver gets them: "wave32" or "wave64" adds a variable to the environment; empty (a kit
   // without environment variables) leaves the driver's default.
   std::string pixel_shader_waves;
+  // The profile's [runtime] version: 2 when the game's title applies the driver's defaults (wave32 pixel shaders, so
+  // Wave32 needs no variable); 1 (no key written) otherwise, and Wave32 adds pswave32 itself.
+  int profile_version = 1;
   // The title's runtime honors [display] refresh on every graphics path and paces [display] frame_rate itself
   // (KitCapabilities::display_120hz); without it Frame limit is DXVK's maxFrameRate, as before.
   bool display_120hz = false;
@@ -486,6 +493,9 @@ inline constexpr const char* kKitVkd3dProton = "vkd3d-proton";
 // The runtime honors [display] refresh = 60|120 on every graphics path (Wine reports the rate it asked for) and
 // [display] frame_rate = 0|120|60|40|30, which the display paces. Runtimes without it refuse a profile with frame_rate.
 inline constexpr const char* kKitDisplay120Hz = "display-120hz";
+// The title reads [runtime] version: version 2 takes the driver's defaults (pixel shaders in wave32), a profile without
+// it (version 1) keeps wave64. Runtimes without it refuse a profile with [runtime] version.
+inline constexpr const char* kKitProfileVersion2 = "profile-version-2";
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the
@@ -495,7 +505,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
 // The installed kit's capabilities for one game's title. A prepared title keeps its own copy of the runtime until
 // Update, so a capability that adds profile keys counts only when the title runs this kit's runtime
 // (title_runtime_current: the title's owner markers name this kit, PackageInstaller::TitleCurrent). Otherwise
-// display_120hz is off and display_120hz_needs_update says why.
+// display_120hz and profile_version_2 are off and their _needs_update say why.
 KitCapabilities KitForTitleRuntime(KitCapabilities kit, bool title_runtime_current);
 
 // Everything one game's settings put on disk for its next launch.

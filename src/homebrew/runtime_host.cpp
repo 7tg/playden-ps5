@@ -1403,7 +1403,8 @@ rt::KitCapabilities RuntimeHost::TitleKit(const Composition& c, const rt::Runtim
   if (!c.kit) return {};
   const auto kit = rt::KitCapabilitiesFromManifest(c.kit->capabilities, true);
   // The title's markers are read only when the kit has something an older runtime would refuse.
-  return kit.display_120hz ? rt::KitForTitleRuntime(kit, TitleRuntimeCurrent(c, record)) : kit;
+  return kit.display_120hz || kit.profile_version_2 ? rt::KitForTitleRuntime(kit, TitleRuntimeCurrent(c, record))
+                                                    : kit;
 }
 
 // The complete OWNER protocol for the publish-profile step: persist the exact

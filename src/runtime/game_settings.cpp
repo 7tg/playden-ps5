@@ -200,7 +200,7 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         "How the GPU runs pixel shaders. Wave64 freezes the console in some games.",
                         "RADV_PERFTEST=pswave32", T::kCompatibility,
                         {{"wave32", "Wave32", "Stops GPU freezes in some games, such as Stray."},
-                         {"wave64", "Wave64", "The driver's own default. May freeze the console in some games."}},
+                         {"wave64", "Wave64", "May freeze the console in some games, such as Stray."}},
                         "wave32"));
   list.push_back(Choice("steam_features", "Steam features", "How the game reaches Steam without the Steam client.",
                         "steam_api.dll · steam_api64.dll", T::kCompatibility,
@@ -301,11 +301,13 @@ std::string TrimSpaces(std::string text) {
 // - wave64: RADV_PS5_PS_WAVE64=1 goes first; pswave32 is taken out of the player's RADV_PERFTEST, which stays where it
 //   was (or is left out when nothing else is in it). A RADV_PERFTEST with "all" fails: it turns pswave32 on.
 // - empty (the row is unavailable on this kit): the player's text, unchanged.
+// driver_wave32: the title applies the driver's own default, wave32 ([runtime] version 2), so wave32 adds no pswave32;
+// the player's RADV_PERFTEST stays as typed and a RADV_PS5_PS_WAVE64 of the player's is still left out.
 // debug_env: the variables go to [debug] env lines, whose values are shorter than [environment]'s. Fails with a reason
 // when RADV_PERFTEST with pswave32 no longer fits there: the game must not start without it.
 // Options are read as PS5_Mesa's parse_debug_string (src/util/u_debug.c) reads them.
-bool WithPixelShaderEnvironment(const std::string& entries, const std::string& waves, bool debug_env, std::string* out,
-                                std::string* reason) {
+bool WithPixelShaderEnvironment(const std::string& entries, const std::string& waves, bool driver_wave32, bool debug_env,
+                                std::string* out, std::string* reason) {
   if (waves != "wave32" && waves != "wave64") {
     *out = entries;
     return true;
@@ -338,7 +340,7 @@ bool WithPixelShaderEnvironment(const std::string& entries, const std::string& w
           if (reason)
             *reason = "RADV_PERFTEST=" + option +
                       " in Environment variables turns on wave32 pixel shaders. Remove it, or set Pixel shaders to "
-                      "Wave32 or Automatic.";
+                      "Wave32.";
           return false;
         }
         if (option == "pswave32") {
@@ -354,7 +356,9 @@ bool WithPixelShaderEnvironment(const std::string& entries, const std::string& w
     if (!TrimSpaces(entry).empty()) rest += (rest.empty() ? "" : ";") + entry;
   }
   std::string first;
-  if (wave32) {
+  if (wave32 && driver_wave32) {
+    if (!perftest.empty()) first = "RADV_PERFTEST=" + perftest;
+  } else if (wave32) {
     if (!listed) perftest += (perftest.empty() ? "" : ",") + std::string("pswave32");
     if (debug_env ? !IsProsperoDebugEnvEntry("RADV_PERFTEST", perftest)
                   : !IsProsperoEnvironmentEntry("RADV_PERFTEST", perftest)) {
@@ -366,7 +370,7 @@ bool WithPixelShaderEnvironment(const std::string& entries, const std::string& w
   } else {
     first = "RADV_PS5_PS_WAVE64=1";
   }
-  *out = rest.empty() ? first : first + ";" + rest;
+  *out = first.empty() ? rest : rest.empty() ? first : first + ";" + rest;
   return true;
 }
 
@@ -725,6 +729,7 @@ bool BuildEffectiveSettings(const GameRecipe& recipe, const SettingsPreset* pres
   out.graphics = out.values["graphics"].value;
   out.environment_as_debug_env = !kit.environment && kit.opengl_zink;
   out.debug_env_lines = kit.opengl_zink;
+  out.profile_version = kit.profile_version_2 ? 2 : 1;
   out.display_120hz = kit.display_120hz;
   out.display_120hz_needs_update = kit.display_120hz_needs_update;
 
@@ -1058,6 +1063,8 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   const bool audio_section = settings.values.at("volume").available && value("volume") != "100";
   if (audio_section) text += "\n[audio]\nvolume = " + value("volume") + "\n";
 
+  // [runtime] version 2: the title takes the driver's defaults. Without the line the profile is version 1.
+  if (settings.profile_version == 2) text += "\n[runtime]\nversion = 2\n";
   if (value("logging") == "verbose") text += std::string("\n[debug]\nwinedebug = ") + kVerboseWinedebug + "\n";
   if (value("logging") == "input") text += std::string("\n[debug]\nwinedebug = ") + kInputWinedebug + "\n";
 
@@ -1066,8 +1073,8 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   std::string environment_entries;
   if (environment.available) {
     std::string why;
-    if (!WithPixelShaderEnvironment(environment.value, settings.pixel_shader_waves, settings.environment_as_debug_env,
-                                    &environment_entries, &why))
+    if (!WithPixelShaderEnvironment(environment.value, settings.pixel_shader_waves, settings.profile_version == 2,
+                                    settings.environment_as_debug_env, &environment_entries, &why))
       return fail(why);
   }
   bool debug_env = false;
@@ -1147,6 +1154,7 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   features.input_wheel = wheel;
   features.audio_section = audio_section;
   features.display_frame_rate = frame_rate;
+  features.runtime_version = settings.profile_version == 2;
   if (!CheckProsperoProfile(text, &why, features)) return fail("generated profile is invalid: " + why);
   *profile = {target.id, std::move(text)};
   return true;
@@ -2846,6 +2854,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.wine_mono = has(kKitWineMono);
   kit.vkd3d_proton = has(kKitVkd3dProton);
   kit.display_120hz = has(kKitDisplay120Hz);
+  kit.profile_version_2 = has(kKitProfileVersion2);
   kit.registry = bottle_access;
   return kit;
 }
@@ -2854,6 +2863,10 @@ KitCapabilities KitForTitleRuntime(KitCapabilities kit, bool title_runtime_curre
   if (!title_runtime_current && kit.display_120hz) {
     kit.display_120hz = false;
     kit.display_120hz_needs_update = true;
+  }
+  if (!title_runtime_current && kit.profile_version_2) {
+    kit.profile_version_2 = false;
+    kit.profile_version_2_needs_update = true;
   }
   return kit;
 }

@@ -720,6 +720,46 @@ int main(int argc, char** argv) {
     CHECK(settings.values.at("pixel_shader_waves").source == ValueSource::kRecipe);
     reread_wave.defaults["pixel_shader_waves"] = "wave16";
     CHECK(!BuildEffectiveSettings(reread_wave, nullptr, {}, environment_kit, &settings, &error));
+
+    // A kit whose title applies the profile's version (profile-version-2): Playden writes version 2, and the driver's
+    // own default is wave32, so Wave32 needs no variable at all.
+    CHECK(KitCapabilitiesFromManifest({kKitProfileVersion2}, false).profile_version_2);
+    CHECK(!KitCapabilitiesFromManifest({kKitEnvironment}, false).profile_version_2);
+    auto version_kit = environment_kit;
+    version_kit.profile_version_2 = true;
+    const std::string version_2 = "\n[runtime]\nversion = 2\n";
+    CHECK(render(hl2, {}, version_kit) == base + version_2);
+    CHECK(settings.profile_version == 2 && settings.pixel_shader_waves == "wave32");
+    CHECK(render(stray, {}, version_kit) == base + version_2);
+    CHECK(!CheckProsperoProfile(profile.text, &reason));  // a runtime without it refuses [runtime]
+    CHECK(CheckProsperoProfile(profile.text, &reason, {.runtime_version = true}));
+    CHECK(!CheckProsperoProfile(base + "\n[runtime]\nversion = 3\n", &reason, {.runtime_version = true}));
+    CHECK(!CheckProsperoProfile(base + "\n[runtime]\ncpu = native\n", &reason, {.runtime_version = true}));
+    // Wave64 is the opt-out: RADV_PS5_PS_WAVE64=1, as before.
+    CHECK(render(stray, {{"pixel_shader_waves", "wave64"}}, version_kit) ==
+          base + version_2 + "\n[environment]\nRADV_PS5_PS_WAVE64 = 1\n");
+    CHECK(CheckProsperoProfile(profile.text, &reason, {.environment_section = true, .runtime_version = true}));
+    // The player's variables: RADV_PERFTEST stays as typed, a RADV_PS5_PS_WAVE64 of the player's is left out, and a
+    // RADV_PERFTEST too long to take pswave32 is fine, since nothing is added to it.
+    CHECK(render(hl2, conflicting, version_kit) ==
+          hl2_expected.substr(0, hl2_expected.find("\n[environment]\n")) + version_2 +
+              "\n[environment]\nWINE_CPU_TOPOLOGY = 4:0,1,2,3\nRADV_PERFTEST = pswave32,sam\nDXVK_FRAME_RATE = 45\n");
+    CHECK(render(stray, {{"environment", "RADV_PERFTEST=sam"}}, version_kit) ==
+          base + version_2 + "\n[environment]\nRADV_PERFTEST = sam\n");
+    CHECK(render(stray, {{"environment", perftest(119)}}, version_kit).find(std::string(119, 'x') + "\n") !=
+          std::string::npos);
+    // A Zink kit with it: no [debug] env line for the default.
+    auto version_debug_kit = debug_kit;
+    version_debug_kit.profile_version_2 = true;
+    CHECK(render(stray, {}, version_debug_kit).find("RADV_") == std::string::npos);
+    CHECK(profile.text.find(version_2) != std::string::npos);
+    // A title still on an older runtime (Update pending) refuses [runtime] version: version 1, pswave32 written.
+    const auto stale_version = KitForTitleRuntime(version_kit, false);
+    CHECK(!stale_version.profile_version_2 && stale_version.profile_version_2_needs_update);
+    CHECK(KitForTitleRuntime(version_kit, true).profile_version_2);
+    CHECK(!KitForTitleRuntime(environment_kit, false).profile_version_2_needs_update);
+    CHECK(render(stray, {}, stale_version) == base + "\n[environment]\nRADV_PERFTEST = pswave32\n");
+    CHECK(settings.profile_version == 1);
   }
   // Stick dead zone and rumble need a runtime with controller tuning and the Xbox controller;
   // only values that differ from the runtime's defaults are written.
