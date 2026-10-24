@@ -37,11 +37,11 @@ std::optional<Release> ParseRelease(std::string_view json, std::string* error);
 std::optional<std::vector<Release>> ParseReleases(std::string_view json, std::string* error);
 
 struct KitPart {
-  std::string kit_id;           // stays the same across revisions ("hl2-fw1360-dev1")
-  std::string revision;         // "r9"
+  std::string kit_id;           // stays the same across revisions ("playden-kit")
+  std::string revision;         // "0.13"
   std::string manifest_sha256;  // the kit's manifest.json SHA-256
   std::string asset;            // release asset name
-  std::string prefix;           // folder inside the zip ("playden-kit-0.12/hl2-fw1360-dev1/")
+  std::string prefix;           // folder inside the zip ("playden-kit-0.13/playden-kit/")
 };
 
 // A kit's version: "<generation>.<revision>" ("0.12"), or a development build of one with "-dev.<YYYYMMDD>.<N>"

@@ -72,14 +72,20 @@ class CollectLogsTests(unittest.TestCase):
         self.assertIsNone(collect_logs.firmware(['nothing']))
 
     def test_reports_the_kit_runtime_not_its_folder_id(self):
-        manifest = {'kit_id': 'hl2-fw1360-dev1', 'runtime': {'artifact_revision': 'f729534-kit-0.12'},
-                    'capabilities': ['dxvk', 'wine-mono']}
+        manifests = {'old-kit': {'kit_id': 'old-kit', 'runtime': {'artifact_revision': 'f729534-kit-0.12'},
+                                 'capabilities': ['dxvk', 'wine-mono']},
+                     'playden-kit': {'kit_id': 'playden-kit', 'runtime': {'artifact_revision': 'ce28942-kit-0.13'},
+                                     'capabilities': ['dxvk']}}
         folders, fetch = collect_logs.folders, collect_logs.fetch
-        collect_logs.folders = lambda ftp, path: ['hl2-fw1360-dev1']
-        collect_logs.fetch = lambda ftp, path: json.dumps(manifest).encode()
+        collect_logs.folders = lambda ftp, path: ['old-kit']
+        collect_logs.fetch = lambda ftp, path: json.dumps(manifests[path.split('/')[-2]]).encode()
         try:
             self.assertEqual(collect_logs.active_kit(None),
                              {'kit runtime': 'f729534-kit-0.12', 'kit capabilities': 'dxvk, wine-mono'})
+            # A kit left under the id it had before is not the one Playden uses.
+            collect_logs.folders = lambda ftp, path: ['.previous-x', 'old-kit', 'playden-kit']
+            self.assertEqual(collect_logs.active_kit(None), {'kit runtime': 'ce28942-kit-0.13', 'kit capabilities': 'dxvk',
+                                                             'other kit folders': 'old-kit'})
             collect_logs.folders = lambda ftp, path: []
             self.assertEqual(collect_logs.active_kit(None), {'kit runtime': None})
         finally:

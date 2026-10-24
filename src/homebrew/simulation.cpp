@@ -4360,7 +4360,7 @@ void Simulation::rebuild_view() {
             else if (action_key == "about-kit" || action_key == "about-kit-source") {
                 // The kit in use, and the one this build was tested with when they differ.
                 LiveKitInfo kit = state_.kit;
-                if (!live()) kit = {"hl2-fw1360-dev1", std::string(64, 'b'), std::string(64, 'b'), std::string(40, '2'), false, {}};
+                if (!live()) kit = {"playden-kit", std::string(64, 'b'), std::string(64, 'b'), std::string(40, '2'), false, {}};
                 const auto short_hash = [](const std::string& hash) { return hash.substr(0, 12); };
                 item.kind = RowKind::Status; item.enabled = false;
                 if (kit.kit_id.empty()) {

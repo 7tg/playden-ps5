@@ -2754,6 +2754,73 @@ bool ApplyD3D12Library(const std::string& runtime_dir, const std::string& templa
   return true;
 }
 
+namespace {
+
+// The data of one value in a Wine registry file, in Wine's text form ("\"...\"" for a string), or nothing when
+// its key or the value isn't there or is written more than once.
+std::optional<std::string> RegistryData(const std::string& text, const std::string& key, const std::string& name) {
+  const auto header = RegistryHeader(key);
+  const auto line_prefix = "\"" + name + "\"=";
+  std::optional<std::string> data;
+  bool inside = false, seen = false;
+  for (std::size_t at = 0; at < text.size();) {
+    const auto newline = text.find('\n', at);
+    const auto next = newline == std::string::npos ? text.size() : newline + 1;
+    auto content_end = newline == std::string::npos ? text.size() : newline;
+    if (content_end > at && text[content_end - 1] == '\r') --content_end;
+    const std::string_view line(text.data() + at, content_end - at);
+    at = next;
+    if (!line.empty() && line.front() == '[') {
+      // Wine writes a key's header with its time after a space.
+      inside = line.size() >= header.size() && RegistryEqual(line.substr(0, header.size()), header) &&
+               (line.size() == header.size() || line[header.size()] == ' ');
+      if (inside && seen) return std::nullopt;
+      seen = seen || inside;
+      continue;
+    }
+    if (!inside || line.size() < line_prefix.size() || !RegistryEqual(line.substr(0, line_prefix.size()), line_prefix))
+      continue;
+    if (data || line.back() == '\\') return std::nullopt;
+    data = std::string(line.substr(line_prefix.size()));
+  }
+  return data;
+}
+
+}  // namespace
+
+bool PointBottleAtKitMono(const std::string& template_dir, const std::string& prefix_dir, std::int64_t unix_time,
+                          bool* changed, std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  *changed = false;
+  constexpr const char* kKey = "Software\\Wine\\Mono";
+  constexpr const char* kName = "RuntimePath";
+  constexpr std::size_t kMaxRegistryBytes = 32u * 1024u * 1024u;
+  auto bottle = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kPrivateTraversable);
+  if (!bottle) return errno == ENOENT ? true : fail("cannot open the bottle");
+  std::string bottle_reg;
+  const auto state = ReadRegularAt(*bottle, "user.reg", kMaxRegistryBytes, &bottle_reg, nullptr, true);
+  if (state == RelativeRead::kMissing) return true;  // the bottle comes later
+  if (state != RelativeRead::kPresent) return fail("cannot read the bottle's user.reg");
+  const auto current = RegistryData(bottle_reg, kKey, kName);
+  // The packaged template writes Z:\data\playden\kits\<kit id>\mono\wine-mono-<version>, escaped.
+  static constexpr std::string_view kKitsFolder = R"("Z:\\data\\playden\\kits\\)";
+  if (!current || current->size() <= kKitsFolder.size() ||
+      !RegistryEqual(std::string_view(*current).substr(0, kKitsFolder.size()), kKitsFolder))
+    return true;
+  auto kit = ManagedDirectory::Open(template_dir, DirectoryPolicy::kApprovedTree);
+  std::string template_reg;
+  if (!kit || ReadRegularAt(*kit, "user.reg", kMaxRegistryBytes, &template_reg) != RelativeRead::kPresent)
+    return fail("cannot read the kit template's user.reg");
+  const auto wanted = RegistryData(template_reg, kKey, kName);
+  if (!wanted || *wanted == *current) return true;
+  if (!ApplyRegistryFileValues({{kKey, kName, *wanted}}, prefix_dir, unix_time, reason)) return false;
+  *changed = true;
+  return true;
+}
+
 bool ParseUe3InstallGuid(std::string_view install_info, std::string* guid) {
   static constexpr std::string_view open = "<InstallGuidString>", close = "</InstallGuidString>";
   const auto start = install_info.find(open);

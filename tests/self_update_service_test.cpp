@@ -464,6 +464,133 @@ int main() {
     CHECK(Exists(kits + "/kitid/manifest.json"));
     RemoveTree(fixture.root);
   }
+  // A kit renamed between versions (0.6.0 keeps it at hl2-fw1360-dev1, 0.7.0 at playden-kit; here oldkit and kitid).
+  // The old Playden's update (ReadyKit, StageKit and ApplyAtQuit are 0.6.0's) puts the new kit in next to its own
+  // and leaves that one alone. The new Playden retires it as the previous kit: going back puts it back in its own
+  // folder (the new kit stays), and the next update removes it.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("service-renamed-kit");
+    Installed(fixture.root);
+    const std::string kits = fixture.root + "/playden/kits";
+    const std::string app = fixture.root + "/homebrew/FAKE77031";
+    CHECK(rename((kits + "/kitid").c_str(), (kits + "/oldkit").c_str()) == 0);
+    RemoveTree(kits + "/.previous-kitid-1");
+    const auto previous_kits = [&] {
+      std::vector<std::string> names;
+      for (const auto& name : ListFolder(kits))
+        if (name.rfind(".previous-", 0) == 0) names.push_back(name);
+      return names;
+    };
+    const auto renamed = [&](Version current) {
+      auto config = fixture.Config(current);
+      config.kit_id = "kitid";
+      config.kit_manifest_sha256 = kKitSha;
+      config.renamed_kit_ids = {"oldkit"};
+      return config;
+    };
+    Publish(fixture.server, "v0.3.0");
+    {
+      UpdateService old(fixture.Config({0, 2, 0}));
+      old.Start();
+      old.Check(true);
+      Wait(old);
+      CHECK(old.Snapshot().phase == UpdatePhase::kAvailable && old.Snapshot().kit_needed);
+      old.Install();
+      Wait(old);
+      CHECK(old.Snapshot().phase == UpdatePhase::kStaged && Read(kits + "/.next-kitid-r9/manifest.json") == kKitSha);
+      old.RequestRestart();
+      old.Shutdown();
+      CHECK(old.ApplyAtQuit());
+    }
+    CHECK(Read(app + "/eboot.bin") == "eboot 0.3.0" && Read(kits + "/kitid/manifest.json") == kKitSha);
+    CHECK(Read(kits + "/oldkit/manifest.json") == std::string(64, 'b') && previous_kits().empty());
+    // A version that has no kit under its own id yet keeps the old folder.
+    {
+      CHECK(rename((kits + "/kitid").c_str(), (kits + "/.aside").c_str()) == 0);
+      UpdateService waiting(renamed({0, 3, 0}));
+      waiting.Start();
+      Wait(waiting);
+      CHECK(Exists(kits + "/oldkit") && previous_kits().empty());
+      CHECK(rename((kits + "/.aside").c_str(), (kits + "/kitid").c_str()) == 0);
+      // The update is confirmed again below: the state was removed by this start.
+      CHECK(!Exists(fixture.root + "/playden/self-update/state.json"));
+    }
+    UpdateService next(renamed({0, 3, 0}));
+    next.Start();
+    CHECK(!Exists(kits + "/oldkit") && Read(kits + "/.previous-oldkit-1000/manifest.json") == std::string(64, 'b'));
+    CHECK(Read(kits + "/kitid/manifest.json") == kKitSha);
+    Wait(next);
+    CHECK(next.Snapshot().previous == "0.2.0");
+    next.RequestRollback();
+    next.Shutdown();
+    CHECK(next.ApplyAtQuit());
+    CHECK(Read(app + "/eboot.bin") == "eboot 0.2.0" && Read(kits + "/oldkit/manifest.json") == std::string(64, 'b'));
+    CHECK(Read(kits + "/kitid/manifest.json") == kKitSha && previous_kits().empty());
+    {
+      UpdateService back(fixture.Config({0, 2, 0}));
+      back.Start();
+      CHECK(back.Snapshot().finished_message == "Playden went back to version 0.2.0.");
+      Wait(back);
+      CHECK(Exists(kits + "/oldkit/runtime/wine.bin") && Exists(kits + "/kitid/runtime/wine.bin"));
+      // Updating again finds the new kit in place: only the app is downloaded.
+      back.Check(true);
+      Wait(back);
+      CHECK(back.Snapshot().phase == UpdatePhase::kAvailable && !back.Snapshot().kit_needed);
+      back.Install();
+      Wait(back);
+      back.RequestRestart();
+      back.Shutdown();
+      CHECK(back.ApplyAtQuit());
+    }
+    {
+      UpdateService again(renamed({0, 3, 0}));
+      again.Start();
+      Wait(again);
+      CHECK(!Exists(kits + "/oldkit") && previous_kits() == std::vector<std::string>{".previous-oldkit-1000"});
+      // The next update removes the retired kit with the other previous ones.
+      Publish(fixture.server, "v0.4.0", "0.2.0", "00.004.000");
+      again.Check(true);
+      Wait(again);
+      CHECK(again.Snapshot().phase == UpdatePhase::kAvailable && !again.Snapshot().kit_needed);
+      again.Install();
+      Wait(again);
+      again.RequestRestart();
+      again.Shutdown();
+      CHECK(again.ApplyAtQuit());
+      CHECK(Read(app + "/eboot.bin") == "eboot 0.4.0" && previous_kits().empty() && !Exists(kits + "/oldkit"));
+      CHECK(Read(kits + "/kitid/manifest.json") == kKitSha);
+    }
+    RemoveTree(fixture.root);
+  }
+  // Going back to a version whose kit was retired under its earlier id, when that version's update also replaced a kit
+  // under the new id (the same backup time): the retired kit is the one the older app reads, so it is restored.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("service-renamed-same-time");
+    Installed(fixture.root);
+    const std::string kits = fixture.root + "/playden/kits";
+    RemoveTree(kits + "/.previous-kitid-1");
+    Put(fixture.root + "/playden/self-update/backup/0.2.0-1000/eboot.bin", "eboot 0.2.0 backup");
+    Put(fixture.root + "/playden/self-update/backup/0.2.0-1000/sce_sys/param.json", "old param");
+    // The earlier id is listed first, as it is on the console.
+    Put(kits + "/.previous-kitid-1000/manifest.json", std::string(64, 'e'));
+    Put(kits + "/.previous-hl2kit-1000/manifest.json", std::string(64, 'f'));
+    auto config = fixture.Config({0, 3, 0});
+    config.kit_id = "kitid";
+    config.renamed_kit_ids = {"hl2kit"};
+    UpdateService service(config);
+    service.Start();
+    Wait(service);
+    CHECK(service.Snapshot().previous == "0.2.0");
+    service.RequestRollback();
+    service.Shutdown();
+    CHECK(service.ApplyAtQuit());
+    CHECK(Read(fixture.root + "/homebrew/FAKE77031/eboot.bin") == "eboot 0.2.0 backup");
+    CHECK(Read(kits + "/hl2kit/manifest.json") == std::string(64, 'f'));
+    CHECK(Read(kits + "/kitid/manifest.json") == std::string(64, 'b') && Exists(kits + "/.previous-kitid-1000"));
+    RemoveTree(fixture.root);
+  }
   // A staged update survives a restart without a swap, and a swap that did not take is reported.
   {
     Fixture fixture;

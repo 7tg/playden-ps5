@@ -225,12 +225,12 @@
     "purpose": "Read-only native installed-title inventory; no native database writes"
   },
   "prospero_kit": {
-    "kit_id": "hl2-fw1360-dev1",
+    "kit_id": "playden-kit",
     "published": false,
-    "status": "kit 0.12: kit 0.11 with libvulkan.prx (RADV from PS5_Mesa 156e555: 119.88 Hz output per title, display-paced flips) and win32u.prx (Wine patch 0983: Wine reports 120 Hz when the title asks for it) from prospero-win f729534, and the any-title shell rebuilt from f729534 (passes PS5_VIDEOOUT_REFRESH and PS5_VIDEOOUT_FRAME_RATE from the profile's [display] block); capability display-120hz; Mono, Mesa WGL/Zink and template unchanged, so bottles need no Recreate; titles from earlier kits keep 60 Hz until their next Play updates them. Released unchanged from dev kit 0.12-dev.20261019.1. Earlier kits (0.11, 0.10, H r1-r9): see this file's git history.",
+    "status": "Installed as playden-kit from kit 0.13 (kit 0.12 and earlier: hl2-fw1360-dev1; the manifest below is still kit 0.12's until kit 0.13 is packaged). kit 0.12: kit 0.11 with libvulkan.prx (RADV from PS5_Mesa 156e555: 119.88 Hz output per title, display-paced flips) and win32u.prx (Wine patch 0983: Wine reports 120 Hz when the title asks for it) from prospero-win f729534, and the any-title shell rebuilt from f729534 (passes PS5_VIDEOOUT_REFRESH and PS5_VIDEOOUT_FRAME_RATE from the profile's [display] block); capability display-120hz; Mono, Mesa WGL/Zink and template unchanged, so bottles need no Recreate; titles from earlier kits keep 60 Hz until their next Play updates them. Released unchanged from dev kit 0.12-dev.20261019.1. Earlier kits (0.11, 0.10, H r1-r9): see this file's git history.",
     "manifest_sha256": "888748b21e24b566f27b128001a3fdbb28484a858069525af0775d6cd2488d28",
     "files_sha256": "fd6fcb89e92d815978e309159d536fd9e79f1ef11e45e3e124578d056b7fc3db",
-    "console_root": "/data/playden/kits/hl2-fw1360-dev1",
+    "console_root": "/data/playden/kits/playden-kit",
     "firmware": [
       "13.60"
     ],

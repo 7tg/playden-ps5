@@ -1368,6 +1368,47 @@ int main(int argc, char** argv) {
   std::filesystem::create_symlink(root / "old/system.reg", media_manifest);
   CHECK(!ApplyMediaRegistry(media_runtime.string(), (root / "old").string(), 123, &reason));
 
+  // A bottle copied from a kit under another folder name (hl2-fw1360-dev1 before kit 0.13) points Wine Mono at that
+  // folder: it is pointed where the kit template points, keeping its other values. A value Playden didn't write, a
+  // bottle without the value and a bottle not made yet are left as they are.
+  {
+    const auto mono_template = root / "mono-template", mono_bottle = root / "mono-bottle";
+    std::filesystem::create_directories(mono_template);
+    std::filesystem::create_directories(mono_bottle);
+    std::filesystem::permissions(mono_bottle, std::filesystem::perms::owner_all);
+    const std::string head = "WINE REGISTRY Version 2\n;; All keys relative to REGISTRY\\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n\n";
+    const std::string drivers = "[Software\\\\Wine\\\\Drivers]\n\"Audio\"=\"ps5\"\n\n";
+    const auto mono = [](const std::string& kit, const std::string& stamp) {
+      return "[Software\\\\Wine\\\\Mono]" + stamp + "\n" + (stamp.empty() ? "" : "#time=1dc2b\n") +
+             "\"RuntimePath\"=\"Z:\\\\data\\\\playden\\\\kits\\\\" + kit + "\\\\mono\\\\wine-mono-11.3.0\"\n\n";
+    };
+    std::ofstream(mono_template / "user.reg") << head << drivers << mono("playden-kit", "");
+    const auto write_bottle = [&](const std::string& text) {
+      std::ofstream(mono_bottle / "user.reg", std::ios::trunc) << text;
+      ::chmod((mono_bottle / "user.reg").c_str(), 0600);
+    };
+    // Wine saved the bottle: its keys carry their time.
+    write_bottle(head + "[Software\\\\Wine\\\\Drivers] 1791500000\n\"Audio\"=\"ps5\"\n\n" + mono("hl2-fw1360-dev1", " 1791500000"));
+    bool changed = false;
+    CHECK(PointBottleAtKitMono(mono_template.string(), mono_bottle.string(), 1791600000, &changed, &reason) && changed);
+    CHECK(ReadText(mono_bottle / "user.reg") ==
+          head + "[Software\\\\Wine\\\\Drivers] 1791500000\n\"Audio\"=\"ps5\"\n\n" + mono("playden-kit", " 1791500000"));
+    CHECK(ReadText(mono_bottle / "user.reg.playden-backup").find("kits\\\\hl2-fw1360-dev1\\\\mono") != std::string::npos);
+    CHECK(PointBottleAtKitMono(mono_template.string(), mono_bottle.string(), 1791600000, &changed, &reason) && !changed);
+    for (const auto& kept : {head + drivers,
+                             head + "[Software\\\\Wine\\\\Mono]\n\"RuntimePath\"=\"Z:\\\\opt\\\\mono\"\n"}) {
+      write_bottle(kept);
+      CHECK(PointBottleAtKitMono(mono_template.string(), mono_bottle.string(), 1791600000, &changed, &reason) && !changed);
+      CHECK(ReadText(mono_bottle / "user.reg") == kept);
+    }
+    CHECK(PointBottleAtKitMono(mono_template.string(), (root / "mono-no-bottle").string(), 1791600000, &changed, &reason) &&
+          !changed);
+    // A kit without Mono leaves the value alone.
+    std::ofstream(mono_template / "user.reg", std::ios::trunc) << head << drivers;
+    write_bottle(head + mono("hl2-fw1360-dev1", ""));
+    CHECK(PointBottleAtKitMono(mono_template.string(), mono_bottle.string(), 1791600000, &changed, &reason) && !changed);
+  }
+
   // vkd3d-proton's DLLs go into both windows folders of the bottle and come out again, replaced by the template's,
   // without touching a bottle whose files were never vkd3d-proton's.
   {

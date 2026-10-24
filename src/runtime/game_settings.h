@@ -410,6 +410,14 @@ bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefi
 bool ApplyD3D12Library(const std::string& runtime_dir, const std::string& template_dir, const std::string& prefix_dir,
                        bool vkd3d_proton, std::string* reason);
 
+// Points the stopped bottle's Wine Mono (HKCU\Software\Wine\Mono RuntimePath) where the kit template's points: a
+// bottle copied from an earlier kit names that kit's folder, which a renamed kit (or another Mono version) no longer
+// has. Only a value that names a folder under /data/playden/kits changes; a bottle without the value (made before
+// the kit had Mono), a template without it, or a bottle not made yet is left as it is. changed tells whether
+// user.reg was written (with a user.reg.playden-backup, as ApplyBottleRegistryValues does).
+bool PointBottleAtKitMono(const std::string& template_dir, const std::string& prefix_dir, std::int64_t unix_time,
+                          bool* changed, std::string* reason);
+
 // The <InstallGuidString> of an Unreal Engine 3 (UDK) Binaries/InstallInfo.xml: exactly one,
 // a 36-character 8-4-4-4-12 hex GUID once surrounding whitespace is trimmed.
 bool ParseUe3InstallGuid(std::string_view install_info, std::string* guid);

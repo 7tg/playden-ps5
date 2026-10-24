@@ -164,8 +164,8 @@ The previous app and kit are kept until the next update, in `/data/playden/self-
 `/data/playden/kits/.previous-*`. Settings › About › **Go back to Playden <version>** puts them back: Playden
 closes, swaps the previous version and its kit in, and opens again. If the swap does not take and the previous
 version opens again, it says so and puts its kit back. If the new version itself fails to start, nothing can report it: reinstall Playden over FTP as
-described above (your games, sign-in and settings are kept), and put the previous kit folder back in place of
-the installed one if the new kit is at fault.
+described above (your games, sign-in and settings are kept), and, if the new kit is at fault, rename the previous
+kit folder (`.previous-<id>-<time>`) back to `<id>`, moving the installed folder of that name aside.
 
 After the version that added import, going back to an older version keeps your old favorites, but loses the favorites
 and collections you changed since. The console's organization data now lives in one file that older versions don't read.

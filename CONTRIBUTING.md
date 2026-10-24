@@ -250,8 +250,8 @@ pre-releases), so every release needs its update manifest:
 1. Raise the version in `CMakeLists.txt` (`project(PlaydenLauncher VERSION …)`) and build the PS5 package. The
    version becomes `param.json`'s `contentVersion` and the version Playden compares.
 2. Make the two zips as before: `playden-ps5-<version>.zip` (with the `FAKE77031` folder inside
-   `playden-ps5-<version>/`) and `playden-kit-<kit version>.zip` (with the kit folder inside
-   `playden-kit-<kit version>/`).
+   `playden-ps5-<version>/`) and `playden-kit-<kit version>.zip` (with the kit folder, named after its `kit_id`,
+   inside `playden-kit-<kit version>/`, for example `playden-kit-0.13/playden-kit/`).
 3. Write the manifest:
 
    ```sh

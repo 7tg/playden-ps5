@@ -382,6 +382,8 @@ int main() {
         // The kit this build was made for: downloaded at the first start (or over a kit it can't use).
         update_config.kit_id = playden::runtime::kDevelopmentKitId;
         update_config.kit_manifest_sha256 = playden::runtime::kExpectedKitManifestSha256;
+        for (const auto& renamed : playden::runtime::kKitIdRenames)
+            if (std::string(renamed.to) == playden::runtime::kDevelopmentKitId) update_config.renamed_kit_ids.push_back(renamed.from);
         update_config.appmeta_root = std::string("/user/appmeta/") + PLAYDEN_PS5_TITLE_ID;
         update_config.registered_app_root = std::string("/user/app/") + PLAYDEN_PS5_TITLE_ID;
         update_config.layout_journal = "/data/playden/runtime-state/layout-0.6.json";

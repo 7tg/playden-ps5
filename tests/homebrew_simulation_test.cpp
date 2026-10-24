@@ -698,7 +698,7 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     {
         const auto& rows = restored.view().rows;
         const auto kit = std::find_if(rows.begin(), rows.end(), [](const auto& row) { return row.key == "about-kit"; });
-        check(kit != rows.end() && kit->value.rfind("hl2-fw1360-dev1 · ", 0) == 0 &&
+        check(kit != rows.end() && kit->value.rfind("playden-kit · ", 0) == 0 &&
                   kit->subtitle == "The kit this version of Playden was tested with",
               "T11 About names the runtime kit and whether it is the tested one");
     }

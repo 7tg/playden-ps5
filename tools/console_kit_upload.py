@@ -169,6 +169,11 @@ def main():
                 print(f"deleted older copy {name}")
     ftp.rename(staging, final)
     print(f"verified {len(files)} files and {len(directories)} directories; installed {final}")
+    # A kit installed under another id (renamed since): Playden versions that use this id retire it at
+    # their next start, as a previous kit the next update removes; versions that use the other id keep it.
+    for name, (_, is_dir, _) in sorted(parent.items()):
+        if is_dir and not name.startswith(".") and name != kit_id:
+            print(f"note: {args.remote_parent}/{name} holds a kit under another id; it is left as it is")
     ftp.quit()
     return 0
 

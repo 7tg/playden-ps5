@@ -29,6 +29,9 @@ struct UpdateConfig {
   // is missing, incomplete or another one. Empty: no kit-only install.
   std::string kit_id;
   std::string kit_manifest_sha256;
+  // Ids the kit had before (runtime::kKitIdRenames): a Playden that used one leaves its kit at
+  // <kits_root>/<that id> when it updates to this one, and Start retires it as a previous kit.
+  std::vector<std::string> renamed_kit_ids;
   std::string appmeta_root;                     // /user/appmeta/FAKE77031
   std::string registered_app_root;              // /user/app/FAKE77031
   // The 0.6 layout move's record (/data/playden/runtime-state/layout-0.6.json). While it exists,
@@ -194,6 +197,7 @@ class UpdateService {
   bool PrepareWorkRoot();
   bool RemoveOwnedTree(const std::string& path);
   void RemoveReplacedKits();
+  void RetireRenamedKits();
   void CleanUpLeftovers();
 
   UpdateConfig config_;

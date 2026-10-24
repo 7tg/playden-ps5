@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <utility>
@@ -217,6 +218,25 @@ void UpdateService::RemoveReplacedKits() {
   }
 }
 
+// The kit under an id it had before, which the Playden that used that id left when it updated to this
+// one (the new kit went in next to it). Once the kit is installed under its own id, the old folder
+// becomes the kit this version's update replaced, ".previous-<old id>-<time>" with the newest
+// backup's time: going back puts it back, and the next update removes it. As root, at startup,
+// before the runtime and the UI run (root is process-wide).
+void UpdateService::RetireRenamedKits() {
+  if (config_.kit_id.empty() || !Exists(config_.kits_root + "/" + config_.kit_id + "/manifest.json")) return;
+  for (const auto& id : config_.renamed_kit_ids) {
+    const std::string old_kit = config_.kits_root + "/" + id;
+    if (id.empty() || id == config_.kit_id || !IsFolder(old_kit)) continue;
+    const auto backup = LatestBackup();
+    const std::string stamp = backup ? backup->path.substr(backup->path.rfind('-') + 1) : std::to_string(config_.now());
+    std::string previous = config_.kits_root + "/.previous-" + id + "-" + stamp;
+    if (Exists(previous)) previous = config_.kits_root + "/.previous-" + id + "-" + std::to_string(config_.now());
+    const bool moved = config_.as_root([&] { return !Exists(previous) && rename(old_kit.c_str(), previous.c_str()) == 0; });
+    Log(moved ? "kit folder " + id + " retired as " + previous : "kit folder " + id + " could not be retired");
+  }
+}
+
 // The app user's leftovers of a confirmed update, on the worker and without root: the stage, the
 // downloads, the replaced entries and the files of a kit left by going back.
 void UpdateService::CleanUpLeftovers() {
@@ -394,6 +414,7 @@ void UpdateService::Start() {
   FindPrevious();
   LoadCurrentNotes();
   RemoveReplacedKits();
+  RetireRenamedKits();
   std::string text;
   if (!ReadSmallFile(StatePath(), &text)) {
     CleanUpLeftovers();  // what a start closed before its cleanup finished left behind
@@ -996,8 +1017,15 @@ bool UpdateService::RollBackAtQuit() {
     if (name.compare(0, 10, ".previous-") != 0 || name.size() <= 10 + suffix.size() ||
         name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
       continue;
-    kit_id = name.substr(10, name.size() - 10 - suffix.size());
+    // A kit retired under an earlier id is the one the backed-up app used: an update from that app may also have
+    // replaced a kit under this version's id at the same time, which the older app never reads.
+    const std::string id = name.substr(10, name.size() - 10 - suffix.size());
+    const bool renamed = std::find(config_.renamed_kit_ids.begin(), config_.renamed_kit_ids.end(), id) !=
+                         config_.renamed_kit_ids.end();
+    if (!previous_kit.empty() && !renamed) continue;
+    kit_id = id;
     previous_kit = config_.kits_root + "/" + name;
+    if (renamed) break;
   }
   const std::string installed_kit = kit_id.empty() ? std::string() : config_.kits_root + "/" + kit_id;
   const std::string replaced_kit = config_.kits_root + "/.replaced-" + kit_id + "-" + stamp;
@@ -1015,13 +1043,19 @@ bool UpdateService::RollBackAtQuit() {
   SwapResult swap;
   bool kit_swapped = false;
   config_.as_root([&] {
-    if (!previous_kit.empty() && Exists(installed_kit)) {
-      if (rename(installed_kit.c_str(), replaced_kit.c_str()) != 0) {
-        swap.error = "cannot move the current kit aside";
-        return false;
+    // A previous kit under an id this version's kit no longer has (RetireRenamedKits) goes back to
+    // its own folder; this version's kit stays where it is, unused by the older Playden.
+    bool moved_aside = false;
+    if (!previous_kit.empty()) {
+      if (Exists(installed_kit)) {
+        if (rename(installed_kit.c_str(), replaced_kit.c_str()) != 0) {
+          swap.error = "cannot move the current kit aside";
+          return false;
+        }
+        moved_aside = true;
       }
       if (rename(previous_kit.c_str(), installed_kit.c_str()) != 0) {
-        rename(replaced_kit.c_str(), installed_kit.c_str());
+        if (moved_aside) rename(replaced_kit.c_str(), installed_kit.c_str());
         swap.error = "cannot put the previous kit back";
         return false;
       }
@@ -1032,7 +1066,7 @@ bool UpdateService::RollBackAtQuit() {
     if (!swap.ok) {
       if (kit_swapped) {
         rename(installed_kit.c_str(), previous_kit.c_str());
-        rename(replaced_kit.c_str(), installed_kit.c_str());
+        if (moved_aside) rename(replaced_kit.c_str(), installed_kit.c_str());
         kit_swapped = false;
       }
       return false;

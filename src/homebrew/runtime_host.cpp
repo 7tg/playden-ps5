@@ -854,6 +854,20 @@ std::string RuntimeHost::Direct3D12Step(Composition& c, const GameFiles& files) 
   return {};
 }
 
+// Generic step: the bottle's Wine Mono path follows the kit's (a bottle copied from a kit under another id names
+// that folder). Logged, never a refusal: only .NET programs need it, and the next Play tries again.
+void RuntimeHost::KitMonoStep(Composition& c, const rt::RuntimeInstall& record, const char* when) {
+  if (!c.kit || record.data_root.empty()) return;
+  bool changed = false;
+  std::string reason;
+  const auto ok = rt::PointBottleAtKitMono((c.kit->view.root / c.kit->view.template_path).string(),
+                                           (HostPath(record.data_root) / "library/prefixes/game").string(),
+                                           config_.unix_time(), &changed, &reason);
+  if (changed || !ok)
+    Log(std::string("mono path app=") + std::to_string(record.runtime_number) + " when=" + when +
+        (ok ? " pointed at kit " + c.kit->view.kit_id : " failed=" + reason));
+}
+
 // Generic step: vkd3d-proton's variables reach the game through the bottle's Environment key. Some change how
 // it draws, so a bottle that exists but cannot take them stops the start; one not made yet gets them on the
 // next Play.
@@ -1079,6 +1093,7 @@ std::string RuntimeHost::ApplyPreparationSteps(Composition& c, const rt::Runtime
   if (auto refused = SteamworksStep(files, steam_account_known); !refused.empty()) return refused;
   if (auto refused = Ue3EulaStep(files); !refused.empty()) return refused;
   if (auto refused = Direct3D12Step(c, files); !refused.empty()) return refused;
+  KitMonoStep(c, record, "prepare");
   if (auto refused = BottleEnvironmentStep(files); !refused.empty()) return refused;
   if (auto refused = InstallScriptsStep(files); !refused.empty()) return refused;
   MfcStep(files);
@@ -3853,6 +3868,12 @@ bool RuntimeHost::RunServices() {
         Log("startup bottle profiles settled=" + std::to_string(settled) + " ms=" +
             std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began).count()));
       }
+      // Bottles from a kit with another folder name point Wine Mono at it: games started from Home find Mono only
+      // once they name this kit's. Busy titles wait for Play.
+      if (c.kit)
+        for (const auto& record : c.repository.Snapshot())
+          if (record.state == rt::PreparationState::kReady && MaintenanceRefusal(c, record).empty())
+            KitMonoStep(c, record, "startup");
       // An unowned upgrade's request cut off before its publication began (a crash, a capture
       // refused on an earlier start) is dropped first: the game plays under its owned publication,
       // and the pass below tries the upgrade again. Moved games and newer settings keep theirs.

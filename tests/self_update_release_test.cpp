@@ -12,8 +12,8 @@ static std::string Manifest(const std::string& app_override = {}, const std::str
       ? R"({"version":"0.3.0","title_id":"FAKE77031","min_from":"0.2.0","asset":"playden-ps5-0.3.0.zip","prefix":"playden-ps5-0.3.0/FAKE77031/"})"
       : app_override;
   const std::string kit = kit_override.empty()
-      ? R"({"kit_id":"hl2-fw1360-dev1","revision":"r9","manifest_sha256":")" + kSha +
-            R"(","asset":"playden-kit-h-r9.zip","prefix":"playden-kit-h-r9/hl2-fw1360-dev1/"})"
+      ? R"({"kit_id":"playden-kit","revision":"0.13","manifest_sha256":")" + kSha +
+            R"(","asset":"playden-kit-0.13.zip","prefix":"playden-kit-0.13/playden-kit/"})"
       : kit_override;
   return R"({"format":1,"app":)" + app + R"(,"kit":)" + kit + R"(,"notes":"Faster downloads."})";
 }
@@ -47,8 +47,8 @@ int main() {
   CHECK(manifest->app_version == (Version{0, 3, 0}) && manifest->min_from == (Version{0, 2, 0}));
   CHECK(manifest->title_id == "FAKE77031" && manifest->app_asset == "playden-ps5-0.3.0.zip");
   CHECK(manifest->app_prefix == "playden-ps5-0.3.0/FAKE77031/");
-  CHECK(manifest->kit.kit_id == "hl2-fw1360-dev1" && manifest->kit.revision == "r9" && manifest->kit.manifest_sha256 == kSha);
-  CHECK(manifest->kit.prefix == "playden-kit-h-r9/hl2-fw1360-dev1/" && manifest->notes == "Faster downloads.");
+  CHECK(manifest->kit.kit_id == "playden-kit" && manifest->kit.revision == "0.13" && manifest->kit.manifest_sha256 == kSha);
+  CHECK(manifest->kit.prefix == "playden-kit-0.13/playden-kit/" && manifest->notes == "Faster downloads.");
 
   // The notes are a plain-text summary: GitHub's line endings and control characters go, blank lines
   // collapse to one, and a long text is cut at a word with an ellipsis.
@@ -84,7 +84,7 @@ int main() {
   for (const auto& kit : bad_kits) CHECK(!ParseUpdateManifest(Manifest({}, kit), &error));
 
   CHECK(IsSha256(kSha) && !IsSha256(std::string(63, 'a')) && !IsSha256(std::string(64, 'A')));
-  CHECK(SafeFolderName("hl2-fw1360-dev1-r9") && !SafeFolderName("a/b") && !SafeFolderName("..") && !SafeFolderName(""));
+  CHECK(SafeFolderName("playden-kit-0.13") && !SafeFolderName("a/b") && !SafeFolderName("..") && !SafeFolderName(""));
 
   // Kit versions: releases "0.12", development builds "0.13-dev.20261023.1" before the release they lead to.
   const auto kit_version = [](const char* text) { return *ParseKitVersion(text); };
