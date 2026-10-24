@@ -1682,14 +1682,27 @@ class Render::Impl
         return game.download_bytes ? "Not installed · " + short_size(*game.download_bytes) : "Not installed";
     }
 
-    void tile_badge(const gfx::Rect &rect, std::string_view text, gfx::Color dot)
+    // reserve: room kept free at the right for the demo badge.
+    void tile_badge(const gfx::Rect &rect, std::string_view text, gfx::Color dot, float reserve = 0.0F)
     {
         constexpr float size = 16.0F;
-        const float width = std::min(rect.w - 20.0F, fonts_.semibold.measure(text, size) + 44.0F);
+        const float width = std::min(rect.w - 20.0F - reserve, fonts_.semibold.measure(text, size) + 44.0F);
         scene_.rounded_rect({rect.x + 10.0F, rect.y + 10.0F, width, 32.0F}, 6.0F, kBackground.with_alpha(0.85F));
         scene_.circle(rect.x + 26.0F, rect.y + 26.0F, 4.0F, dot);
         ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, text, size, width - 44.0F), rect.x + 38.0F,
                  rect.y + 32.0F, size, kText);
+    }
+
+    // A Steam demo says so in the tile's top-right corner; returns the width it takes, gap included.
+    float demo_badge(const gfx::Rect &rect)
+    {
+        constexpr float size = 16.0F;
+        const float width = fonts_.semibold.measure("Demo", size) + 20.0F;
+        scene_.rounded_rect({rect.x + rect.w - 10.0F - width, rect.y + 10.0F, width, 32.0F}, 6.0F,
+                            kBackground.with_alpha(0.85F));
+        ui::text(scene_, fonts_.semibold, "Demo", rect.x + rect.w - 20.0F, rect.y + 32.0F, size, kAccent,
+                 gfx::Align::right);
+        return width + 8.0F;
     }
 
     void download_mark(float cx, float cy, float opacity)
@@ -1771,11 +1784,12 @@ class Render::Impl
             scene_.pop_transform();
             return;
         }
+        const float demo = game.demo ? demo_badge(rect) : 0.0F;
         if (status.job != nullptr && !downloading)
             tile_badge(rect, JobStateText(*status.job),
-                       status.job->state == JobState::Failed ? kAmber : kSecondary);
+                       status.job->state == JobState::Failed ? kAmber : kSecondary, demo);
         else if (status.disconnected)
-            tile_badge(rect, "Drive disconnected", kAmber);
+            tile_badge(rect, "Drive disconnected", kAmber, demo);
         if (show_download_mark)
             download_mark(rect.x + rect.w - 25.0F, rect.y + rect.h - 25.0F, 1.0F);
         else if (status.installed && status.installation != nullptr && status.installation->installed_bytes > 0 && amount < 1.0F && title_overlay)
