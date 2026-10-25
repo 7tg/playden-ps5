@@ -36,9 +36,12 @@ int main() {
   api.identity = [](int) { return std::optional<ProcessTitleIdentity>{}; };
   CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kUnknown);
   CHECK(reason == "pid=100 identity unavailable (+1 more)");
-  api.identity = [](int pid) { return std::optional<ProcessTitleIdentity>({pid == 201 ? 123u : 0u, ""}); };
+  // An untitled process is not a title, whatever its app_id (a payload with app_id 1, say).
+  api.identity = [](int pid) { return std::optional<ProcessTitleIdentity>({pid == 201 ? 1u : 0u, ""}); };
+  CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kStopped);
+  api.identity = [](int pid) { return std::optional<ProcessTitleIdentity>({pid == 201 ? 123u : 0u, pid == 201 ? "ABC" : ""}); };
   CHECK(QueryTitleActivity("FAKE78002", api, &reason) == NativeActivity::kUnknown);
-  CHECK(reason == "pid=201 app_id=123 title=\"\" is not a title");
+  CHECK(reason == "pid=201 app_id=123 title=\"ABC\" is not a title");
   // An untrusted identity does not hide a positively identified target.
   api.identity = [](int pid) { return std::optional<ProcessTitleIdentity>({pid == 201 ? 123u : 7u, pid == 201 ? "FAKE78001" : ""}); };
   CHECK(QueryTitleActivity("FAKE78001", api) == NativeActivity::kActive);

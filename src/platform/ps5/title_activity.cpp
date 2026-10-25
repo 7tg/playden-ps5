@@ -49,10 +49,10 @@ runtime::NativeActivity QueryTitleActivity(const std::string& title, const Title
   // The first process whose identity cannot be trusted, and how many there are.
   std::string untrusted; unsigned untrusted_count = 0;
   auto valid_identity = [&](std::int32_t pid, const std::optional<ProcessTitleIdentity>& value) {
-    // FW13.60 PID 1 has app_id zero and a valid system title. A successful
-    // title identity is authoritative regardless of app_id; only an untitled
-    // identity requires app_id zero. Failed calls never become non-apps.
-    if (value && ((value->app_id == 0 && value->title_id.empty()) || ValidTitleId(value->title_id))) return true;
+    // A running title always reports its title ID, so a successful call with no
+    // title is not a title, whatever its app_id (FW13.60 PID 1 has app_id zero;
+    // some payloads report app_id 1). Failed calls never become non-apps.
+    if (value && (value->title_id.empty() || ValidTitleId(value->title_id))) return true;
     if (!untrusted_count++)
       untrusted = "pid=" + std::to_string(pid) + (value ? " app_id=" + std::to_string(value->app_id) +
                                                           " title=\"" + value->title_id + "\" is not a title"
