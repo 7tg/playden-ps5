@@ -1047,6 +1047,46 @@ void live_root_access_missing() {
     check(!granted.action("connect") && granted.action("cross") && granted.state().quit_requested,
           "root access: the data failure only quits to Home");
 
+    // Each failed step has its own title and fix; the startup error stays as the detail line.
+    struct Case { const char* error; bool granted; const char* title; const char* advice; };
+    const Case cases[] = {
+        {"native data grant failed (code 2); helper stage=find-helper status=unavailable error=2", false,
+         "Playden's app folder is incomplete", "Copy the whole app folder"},
+        {"launcher source identity is unavailable", false, "Playden's app folder is incomplete", "release zip"},
+        {"launcher source is invalid: trust store is unavailable", false, "Playden's app folder is incomplete",
+         "console_title_deploy.py"},
+        {"native data grant failed (code 2); helper stage=open-helper status=unavailable error=2", false,
+         "Playden's app folder is incomplete", "Copy the whole app folder"},
+        {"native data grant failed (code 61); helper stage=connect status=unavailable error=61", false,
+         "The ELF loader isn't running", "port 9021"},
+        {"native data grant failed (code 50); helper stage=network status=unavailable error=50", false,
+         "Playden can't start", "network did not start"},
+        {"native data grant failed (code 55); helper stage=socket status=unavailable error=55", false,
+         "Playden can't start", "network did not start"},
+        {"native data grant failed (code 32); helper stage=stream-helper status=unavailable error=32", false,
+         "Root access is missing", "Load the ELF loader again"},
+        {"native data grant failed (code 60); helper stage=receive-prepare status=unavailable error=60", false,
+         "Root access is missing", "firmware version"},
+        {"native data grant failed (code 13); helper stage=helper-prepare status=6 error=1", false,
+         "Root access is missing", "Load kstuff and the autoloader"},
+        {"stable launcher source is invalid: assets root is unavailable", true, "Playden's app folder is incomplete",
+         "Copy the whole app folder"},
+        {"stable launcher source identity does not match", true, "Playden can't start", "restart the PS5"},
+    };
+    for (const auto& item : cases) {
+        Simulation model_case({}, {}, ModelMode::Live);
+        model_case.ShowRootAccessMissing(item.error, item.granted);
+        const auto& case_view = model_case.view();
+        const auto case_detail = std::find_if(case_view.rows.begin(), case_view.rows.end(),
+                                              [](const auto& row) { return row.key == "root-detail"; });
+        check(case_view.title == item.title && case_view.subtitle.find(item.advice) != std::string::npos &&
+                  case_detail != case_view.rows.end() && case_detail->title == std::string("Startup error: ") + item.error,
+              (std::string("root access: ") + item.error + " has its own title and fix").c_str());
+        check(item.granted || std::string(item.advice) != "Load kstuff and the autoloader" ||
+                  case_view.subtitle.find("kstuff") != std::string::npos,
+              "root access: a helper failure keeps the kstuff advice");
+    }
+
     Simulation fixture({}, {}, ModelMode::Simulation);
     fixture.ShowRootAccessMissing(error);
     check(!fixture.state().root_access_missing, "root access: the fixture model ignores it");

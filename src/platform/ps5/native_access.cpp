@@ -35,6 +35,9 @@ bool ValidatePaths(const NativeAccessOps& ops, const NativePaths& paths,
                    bool known_fresh_state, StubState stubs, std::string* error) {
   const auto stub_access = stubs == StubState::kWritable ? NativePathAccess::kReadWrite
                                                           : NativePathAccess::kRead;
+  // The grant's checks take a missing stub: since 0.6.0 the stubs hold no state, a hand copy can
+  // leave empty folders out, and startup makes them after the grant.
+  const bool stub_may_be_missing = known_fresh_state || stubs == StubState::kReadable;
   if (ops.path_kind(ops.context, paths.title_root.c_str()) !=
           NativePathKind::kDirectory ||
       !ops.path_accessible(ops.context, paths.title_root.c_str(),
@@ -58,7 +61,7 @@ bool ValidatePaths(const NativeAccessOps& ops, const NativePaths& paths,
   }
   const auto state = ops.path_kind(ops.context, paths.steam_state_root.c_str());
   if (state != NativePathKind::kDirectory &&
-      !(known_fresh_state && state == NativePathKind::kMissing)) {
+      !(stub_may_be_missing && state == NativePathKind::kMissing)) {
     *error = "existing Steam state root is unavailable";
     return false;
   }
@@ -70,7 +73,7 @@ bool ValidatePaths(const NativeAccessOps& ops, const NativePaths& paths,
   }
   const auto logs = ops.path_kind(ops.context, paths.log_root.c_str());
   if (logs != NativePathKind::kDirectory &&
-      !(known_fresh_state && logs == NativePathKind::kMissing)) {
+      !(stub_may_be_missing && logs == NativePathKind::kMissing)) {
     *error = "existing log root is unavailable";
     return false;
   }

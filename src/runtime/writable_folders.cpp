@@ -182,4 +182,54 @@ std::string PrepareDropFolder(const std::filesystem::path& folder, const Writabl
   return "Playden can't make " + folder.string() + " (" + detail + "). Games can still be imported from a drive.";
 }
 
+std::string PrepareAppFolderStubs(const std::filesystem::path& app_root, const WritableFoldersAsRoot& as_root,
+                                  const std::function<void(const std::string&)>& log,
+                                  const std::filesystem::path& namespace_root) {
+  const auto name = app_root.filename().string();
+  if (app_root.parent_path() != namespace_root / "data/homebrew" || name.empty() || name == "." || name == "..") {
+    if (log) log("app folder stubs refused path=" + app_root.string());
+    return "Playden can't repair this app folder.";
+  }
+  std::string failed = "root access", stub;
+  int failed_error = 0;
+  std::vector<std::string> made;
+  const bool prepared = as_root && as_root([&] {
+    const auto fail = [&](const char* step) { failed = step; failed_error = errno; return false; };
+    constexpr int kFlags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+    bool ok = true;
+    for (const char* child : {"playden-data", "logs"}) {
+      // The app folder is opened again for each stub: the by-path walk reads the parent's listing,
+      // whose offset a second lookup through the same descriptor would continue from.
+      const int parent = platform::OpenDirectoryWalk(app_root);
+      if (parent < 0) return fail("open the app folder");
+      stub = child;
+      int fd = platform::OpenWalkChild(parent, child, kFlags);
+      bool created = false;
+      if (fd < 0 && errno == ENOENT) {
+        created = platform::MakeWalkChild(parent, child, 0777) == 0;
+        if (created || errno == EEXIST) fd = platform::OpenWalkChild(parent, child, kFlags);
+      }
+      // A link or a file in its place is left alone (O_NOFOLLOW, O_DIRECTORY).
+      ok = fd >= 0 || fail("open the folder");
+      // mkdir is umasked: the app user writes the first log lines. An existing folder keeps its
+      // mode, since before the layout move it can still hold the user's data.
+      if (ok && created && ::fchmod(fd, 0777) != 0) ok = fail("chmod");
+      if (fd >= 0) ::close(fd);
+      if (ok && created && ::fsync(parent) != 0 && log)
+        log("app folder stubs path=" + app_root.string() + " parent fsync=" + Error(errno));
+      ::close(parent);
+      if (!ok) break;
+      if (created) made.push_back(child);
+    }
+    return ok;
+  });
+  if (!prepared && failed == "root access") failed_error = as_root ? errno : ENOSYS;
+  if (log) for (const auto& child : made) log("app folder stub made path=" + (app_root / child).string());
+  if (prepared) return {};
+  const std::string detail = failed + " failed" + (failed_error ? " error=" + Error(failed_error) : "");
+  const auto where = stub.empty() ? app_root : app_root / stub;
+  if (log) log("app folder stub failed path=" + where.string() + " " + detail);
+  return "Playden can't make " + where.string() + " (" + detail + ").";
+}
+
 }  // namespace playden::runtime

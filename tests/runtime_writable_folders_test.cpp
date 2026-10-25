@@ -157,6 +157,30 @@ int main() {
     CHECK(!PrepareDropFolder(drop, runs, log, root).empty() && Mode(target) == 0755 && fs::is_symlink(drop));
     CHECK(unlink(drop.c_str()) == 0);
   }
+  // The app folder's stubs: missing ones made 0777, an existing one (it can hold old user data) kept, a link refused.
+  {
+    const auto app = root / "data/homebrew/FAKE77031";
+    fs::create_directories(app);
+    const auto before = calls;
+    CHECK(!PrepareAppFolderStubs(root / "data/FAKE77031", runs, log, root).empty() && calls == before);
+    CHECK(!PrepareAppFolderStubs(root / "data/homebrew", runs, log, root).empty() && calls == before);
+    lines.clear();
+    CHECK(PrepareAppFolderStubs(app, runs, log, root).empty() && calls == before + 1);
+    CHECK(Mode(app / "playden-data") == 0777 && Mode(app / "logs") == 0777 && lines.size() == 2);
+    CHECK(Empty(app / "playden-data") && Empty(app / "logs"));
+    CHECK(fs::remove(app / "logs") && chmod((app / "playden-data").c_str(), 0755) == 0);
+    CHECK(PrepareAppFolderStubs(app, runs, log, root).empty());
+    CHECK(Mode(app / "playden-data") == 0755 && Mode(app / "logs") == 0777);
+    CHECK(!PrepareAppFolderStubs(app, nullptr, log, root).empty());
+    CHECK(!PrepareAppFolderStubs(app, refuses, log, root).empty());
+    CHECK(fs::remove(app / "logs") && symlink(target.c_str(), (app / "logs").c_str()) == 0);
+    const auto refused = PrepareAppFolderStubs(app, runs, log, root);
+    CHECK(refused.find("/logs") != std::string::npos && Mode(target) == 0755 && fs::is_symlink(app / "logs"));
+    CHECK(unlink((app / "logs").c_str()) == 0);
+    // Missing app folder: nothing is made.
+    CHECK(!PrepareAppFolderStubs(root / "data/homebrew/PPSA97031", runs, log, root).empty());
+    CHECK(!fs::exists(root / "data/homebrew/PPSA97031"));
+  }
   // /data swapped for a link to an outside folder: neither repair follows it as root.
   {
     const auto outside = root / "outside-data";

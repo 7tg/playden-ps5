@@ -52,8 +52,9 @@ struct NativeAccessOptions {
 
 // Package paths: the title, its assets and trust store, and the stub
 // playden-data/logs folders. Granted starts need the stubs only as readable
-// folders; the fallback without the grant still checks them as writable (its
-// live launcher only shows "Root access is missing"). After the grant, the
+// folders, and take a missing one (startup makes it after the grant); the
+// fallback without the grant still checks them as writable (its live launcher
+// only shows "Root access is missing"). After the grant, the
 // 0.6 layout move fills user_root, user_log_root and games_root (each at the
 // new place once its step has moved, else the old in-app one). Not granted:
 // they stay empty and the package paths are used.

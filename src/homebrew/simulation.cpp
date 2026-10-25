@@ -687,6 +687,55 @@ std::vector<LiveImportCandidate> fixture_import_candidates() {
 // The fixture's imported game (Night Sky, already added from the USB drive).
 GameId fixture_imported_game() { return GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5d1c7e0a9f11"); }
 
+struct StartupProblem {
+    std::string title;
+    std::string subtitle;
+};
+
+// What the startup error means for the player: the step that failed and how to fix it. The error
+// itself stays on the screen as the detail line, for reports.
+StartupProblem describe_startup_problem(const std::string& detail, bool granted) {
+    const auto has = [&detail](const char* text) { return detail.find(text) != std::string::npos; };
+    const auto stage = [&detail](std::initializer_list<const char*> stages) {
+        for (const char* name : stages)
+            if (detail.find(std::string("helper stage=") + name + " ") != std::string::npos) return true;
+        return false;
+    };
+    const StartupProblem incomplete{"Playden's app folder is incomplete",
+        "Some of Playden's files in /data/homebrew are missing or can't be read. Copy the whole app folder from the "
+        "release zip again (or use tools/console_title_deploy.py), then open Playden again."};
+    if (granted) {
+        if (has("stable launcher source is invalid")) return incomplete;
+        if (has("stable launcher source identity does not match"))
+            return {"Playden can't start",
+                    "The Playden that started is not the copy in /data/homebrew. If you just copied a new version, "
+                    "restart the PS5; if it stays, copy the whole app folder to /data/homebrew again."};
+        return {"Playden can't start", "Playden has root access but can't use its data in /data/playden. "
+                                       "Restart Playden; if it stays, check that folder's permissions over FTP."};
+    }
+    if (has("launcher source is invalid") || has("launcher source identity is unavailable") ||
+        stage({"find-helper", "validate-helper", "open-helper", "stat-helper"}))
+        return incomplete;
+    if (stage({"network", "socket", "socket-options"}))
+        return {"Playden can't start", "The console's network did not start, and Playden needs it to ask for root "
+                                       "access. Restart the PS5, jailbreak it again, then open Playden again."};
+    if (stage({"stream-helper"}))
+        return {"Root access is missing",
+                "The ELF loader on port 9021 stopped while Playden sent it the root helper. Load the ELF loader "
+                "again, then open Playden again."};
+    if (stage({"connect"}))
+        return {"The ELF loader isn't running",
+                "Playden gets root access through the ELF loader (elfldr) on port 9021, and nothing answered there. "
+                "Load the ELF loader (most autoloaders start it), then open Playden again."};
+    if (has("helper stage="))
+        return {"Root access is missing",
+                "The ELF loader ran Playden's root helper, but the helper could not give Playden access. "
+                "Load kstuff and the autoloader, then open Playden again. If it stays, report the startup error "
+                "below with your firmware version."};
+    return {"Root access is missing", "Without it, Playden can't reach its data, so it can't show your games, "
+                                      "download or play. Load kstuff and the autoloader, then open Playden again."};
+}
+
 } // namespace
 
 std::string JobStateText(const Job& job) {
@@ -4453,15 +4502,9 @@ void Simulation::rebuild_view() {
         else if (modal.id == "installed-games") view_.legends = {"Cross Select", "Triangle Uninstall", "Circle Close"};
         else if (!modal.setting_id.empty()) view_.legends = {"Cross Select", "Triangle Reset", "L1/R1 Jump", "Circle Back"};
     } else if (state_.navigation.route == Route::Startup && state_.root_access_missing) {
-        if (state_.root_access_granted) {
-            view_.title = "Playden can't start";
-            view_.subtitle = "Playden has root access but can't use its data in /data/playden. "
-                             "Restart Playden; if it stays, check that folder's permissions over FTP.";
-        } else {
-            view_.title = "Root access is missing";
-            view_.subtitle = "Without it, Playden can't reach its data, so it can't show your games, download or play. "
-                             "Load kstuff and the autoloader, then open Playden again.";
-        }
+        auto problem = describe_startup_problem(state_.root_access_detail, state_.root_access_granted);
+        view_.title = std::move(problem.title);
+        view_.subtitle = std::move(problem.subtitle);
         if (!state_.root_access_detail.empty())
             row("root-detail", RowKind::Status, "Startup error: " + state_.root_access_detail, "").enabled = false;
         row("root-quit", RowKind::Action, "Quit to Home", "root-quit");

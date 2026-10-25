@@ -36,4 +36,13 @@ std::string PrepareDropFolder(const std::filesystem::path& folder, const Writabl
                               const std::function<void(const std::string&)>& log,
                               const std::filesystem::path& namespace_root = "/");
 
+// The app folder's empty playden-data and logs folders (0777): since 0.6.0 they hold only MOVED.txt,
+// and the first startup lines go into logs before the grant. A hand copy can leave either out (some
+// FTP clients and browser uploads skip empty folders). A missing one is made 0777 as root after the
+// grant; an existing one is left as it is, and a link or a file in its place is refused. Only a folder directly in
+// /data/homebrew is accepted. Failing doesn't stop Playden: the message is for the log.
+std::string PrepareAppFolderStubs(const std::filesystem::path& app_root, const WritableFoldersAsRoot& as_root,
+                                  const std::function<void(const std::string&)>& log,
+                                  const std::filesystem::path& namespace_root = "/");
+
 }  // namespace playden::runtime

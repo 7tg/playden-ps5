@@ -313,14 +313,34 @@ void RetryIsIdempotentAndDoesNotResetStorage() {
         NativePathKind::kDirectory);
 }
 
+// A hand copy can leave the empty stubs out: the grant still runs, and startup makes them afterwards.
+// Only the fallback without the grant, which would write into them, needs them or an explicit fresh install.
 void MissingStateRequiresAnExplicitFreshInstall() {
   auto existing = OrdinaryLauncher();
   existing.paths.erase(std::string(kAppRoot) + "/playden-data");
+  existing.paths.erase(std::string(kAppRoot) + "/logs");
   NativeAccessBootstrap existing_bootstrap(Ops(existing), Options());
-  const auto rejected = existing_bootstrap.Prepare();
+  const auto granted = existing_bootstrap.Prepare();
+  CHECK(granted.launcher_ready && granted.runtime_ready && granted.error.empty());
+  CHECK(existing.grants == 1);
+
+  auto stable_missing = OrdinaryLauncher();
+  stable_missing.paths.erase(std::string(kAppRoot) + "/logs");
+  stable_missing.expose_stable_after_grant = false;
+  AddTree(stable_missing, kStableRoot, false);
+  stable_missing.identities[kStableRoot] = stable_missing.identities[kAppRoot];
+  NativeAccessBootstrap stable_missing_bootstrap(Ops(stable_missing), Options());
+  const auto stubless = stable_missing_bootstrap.Prepare();
+  CHECK(stubless.runtime_ready && stubless.paths.log_root == std::string(kStableRoot) + "/logs");
+  CHECK(stable_missing.grants == 1);
+
+  auto denied = OrdinaryLauncher();
+  denied.paths.erase(std::string(kAppRoot) + "/playden-data");
+  denied.grant_result = 2;
+  NativeAccessBootstrap denied_bootstrap(Ops(denied), Options());
+  const auto rejected = denied_bootstrap.Prepare();
   CHECK(!rejected.launcher_ready && !rejected.runtime_ready);
   CHECK(rejected.error.find("state") != std::string::npos);
-  CHECK(existing.grants == 0);
 
   auto fresh = OrdinaryLauncher();
   fresh.paths.erase(std::string(kAppRoot) + "/playden-data");

@@ -92,7 +92,11 @@ int RequestData(void* data) {
 #if PLAYDEN_NATIVE_ACCESS_SOURCE
   auto& context = *static_cast<StartupContext*>(data);
   app::AppendLogLine("/app0/logs", "native-startup.log", "data grant starting");
-  if (!steam::internal::InitializeNativeNetworkForBootstrap()) return ENETDOWN;
+  // Each failure names its stage: the startup screen tells the player which step to fix.
+  if (!steam::internal::InitializeNativeNetworkForBootstrap()) {
+    context.grant_diagnostic = "helper stage=network status=unavailable error=" + std::to_string(ENETDOWN);
+    return ENETDOWN;
+  }
   const auto ops = context.filesystem->Ops();
   std::string helper;
   for (const auto& root : {std::string("/app0"), "/data/homebrew/" + context.title_id}) {
@@ -105,7 +109,10 @@ int RequestData(void* data) {
       break;
     }
   }
-  if (helper.empty()) return ENOENT;
+  if (helper.empty()) {
+    context.grant_diagnostic = "helper stage=find-helper status=unavailable error=" + std::to_string(ENOENT);
+    return ENOENT;
+  }
   const uid_t original_effective_uid = geteuid();
   ReportSessionAccess("/app0/playden-data", "/app0/logs", "before-grant");
   struct pw_lapy_elevation_diagnostics diagnostic{};
@@ -168,6 +175,10 @@ NativeAccessResult PrepareNativeStartup(const std::string& title_id) {
   if (result.runtime_ready && !result.paths.runtime_data_root.empty()) {
     namespace fs = std::filesystem;
     const fs::path data_root = result.paths.runtime_data_root;
+    // The app folder's empty stubs, before the move writes MOVED.txt into them. A failure is only
+    // logged: the move takes a missing one.
+    runtime::PrepareAppFolderStubs(result.paths.title_root, WithRoot,
+                                   [&layout_lines](const std::string& line) { layout_lines.push_back(line); });
     runtime::LayoutPaths layout;
     layout.app_root = result.paths.title_root;
     layout.user_root = data_root / "user";
