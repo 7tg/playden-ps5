@@ -266,7 +266,9 @@ pre-releases). Players who enable Beta updates use the releases list, including 
    to this one; older versions are told to install by hand.
 4. Attach `playden-update.json` and both zips to the release, then publish it. GitHub records each file's SHA-256,
    and Playden checks the downloads against it. If the kit did not change, the kit zip may be left out: consoles
-   that already have that kit download only the app.
+   that already have that kit download only the app, and the others take the zip from an older release that has it.
+   Playden 0.7.0 and older look only in the new release, so keep the zip while a version that old can update to it
+   without having the kit (or raise `--min-from`).
 
 For a beta, keep the numeric version in `project()` (for example `0.7.1`) and configure with
 `-DPLAYDEN_PRERELEASE=beta.1`. The package writes `playden-version` as `0.7.1-beta.1`; About, the updater and log

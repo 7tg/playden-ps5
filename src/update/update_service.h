@@ -208,6 +208,9 @@ class UpdateService {
   std::shared_ptr<Shared> shared_;
   std::optional<Release> release_;
   std::optional<UpdateManifest> manifest_;
+  // The kit zip release_ needs (the console has no copy of its kit): its own, or an older release's
+  // with the same name when release_ left the zip out.
+  std::optional<ReleaseAsset> kit_zip_;
   // The staged update (from this run or a previous one): app folder, version, and the staged kit
   // folder with its kit id (empty when the installed kit is already the release's).
   std::string staged_folder_;

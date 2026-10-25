@@ -835,16 +835,45 @@ int main() {
     CHECK(Read(fixture.root + "/homebrew/FAKE77031/eboot.bin") == "eboot 0.3.0");
     RemoveTree(fixture.root);
   }
-  // Without the kit installed, a release that left its kit zip out cannot be installed.
+  // Without the kit installed, a release that left its kit zip out takes it from an older release; never from a
+  // newer one, and with no release that has it, the update cannot be installed.
   {
     Fixture fixture;
     fixture.root = zip_fixture::TempFolder("service-nokit");
     Installed(fixture.root);
+    // Each release's kit zip at its own address: only the older one's can be downloaded.
+    const auto moved = [](std::string release, const std::string& folder) {
+      const std::string from = kDownload + "playden-kit-h-r9.zip";
+      release.replace(release.find(from), from.size(), kDownload + folder + "/playden-kit-h-r9.zip");
+      return release;
+    };
+    Publish(fixture.server, "v0.2.5", "0.2.0", "00.002.005");
+    const std::string older = moved(fixture.server.latest, "older");
+    fixture.server.files[kDownload + "older/playden-kit-h-r9.zip"] = fixture.server.files[kDownload + "playden-kit-h-r9.zip"];
+    Publish(fixture.server, "v0.4.0", "0.2.0", "00.004.000");
+    const std::string newer = moved(fixture.server.latest, "newer");
     Publish(fixture.server, "v0.3.0", "0.2.0", "00.003.000", false);
+    fixture.server.releases = "[" + newer + "," + fixture.server.latest + "]";
+    {
+      UpdateService service(fixture.Config({0, 2, 0}));
+      service.Check(false);
+      Wait(service);
+      CHECK(service.Snapshot().phase == UpdatePhase::kFailed);
+      service.Shutdown();
+    }
+    fixture.server.releases = "[" + newer + "," + fixture.server.latest + "," + older + "]";
     UpdateService service(fixture.Config({0, 2, 0}));
     service.Check(false);
     Wait(service);
-    CHECK(service.Snapshot().phase == UpdatePhase::kFailed);
+    auto snapshot = service.Snapshot();
+    CHECK(snapshot.phase == UpdatePhase::kAvailable && snapshot.available == (Version{0, 3, 0}) && snapshot.kit_needed);
+    CHECK(snapshot.download_bytes == fixture.server.files[kDownload + "playden-ps5-0.3.0.zip"].size() +
+                                         fixture.server.files[kDownload + "playden-kit-h-r9.zip"].size());
+    service.Install();
+    Wait(service);
+    CHECK(service.Snapshot().phase == UpdatePhase::kStaged && fixture.server.kit_downloads > 0);
+    CHECK(Read(fixture.root + "/playden/kits/.next-kitid-r9/manifest.json") == kKitSha);
+    service.Shutdown();
     RemoveTree(fixture.root);
   }
   // Up to date, too old to update, a wrong app inside the zip, and too little free space.

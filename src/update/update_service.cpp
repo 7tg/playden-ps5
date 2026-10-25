@@ -583,8 +583,9 @@ void UpdateService::DoCheck(bool user_asked) {
   if (local) Log("reading the release from " + config_.local_release_dir);
   const bool include_betas = include_betas_.load();
   std::optional<Release> release;
+  std::optional<std::vector<Release>> releases;  // every release, when read: betas, or a kit zip left out
   if (include_betas) {
-    const auto releases = FetchReleases(&error);
+    releases = FetchReleases(&error);
     if (!releases) return Fail("Playden could not read the releases on GitHub.", error);
     for (const auto& candidate : *releases)
       if (!candidate.draft && (!release || release->version < candidate.version)) release = candidate;
@@ -600,6 +601,7 @@ void UpdateService::DoCheck(bool user_asked) {
     Log("up to date: running " + config_.current.ToString());
     release_.reset();
     manifest_.reset();
+    kit_zip_.reset();
     Set([&](UpdateSnapshot& s) {
       s.phase = UpdatePhase::kUpToDate;
       s.available = release ? release->version : config_.current;
@@ -621,13 +623,29 @@ void UpdateService::DoCheck(bool user_asked) {
   const auto* app = release->Find(manifest->app_asset);
   const auto* kit = release->Find(manifest->kit.asset);
   // A release whose kit did not change may leave the kit zip out; it is needed only when the
-  // console has no copy of that kit.
+  // console has no copy of that kit, and then an older release has the same zip.
   const bool kit_needed = ReadyKit(manifest->kit).empty();
+  if (kit_needed && !kit) {
+    if (!releases) {
+      std::string ignored;
+      releases = FetchReleases(&ignored);
+    }
+    if (releases)
+      for (const auto& older : *releases) {
+        if (older.draft || release->version < older.version) continue;
+        if ((kit = older.Find(manifest->kit.asset))) {
+          Log("update " + release->tag + " takes its kit " + manifest->kit.asset + " from " + older.tag);
+          break;
+        }
+      }
+  }
   if (!app || (kit_needed && !kit)) return Fail("Release " + release->tag + " is missing a download.", "asset");
   if (app->sha256.empty() || (kit_needed && kit->sha256.empty()))
     return Fail("Release " + release->tag + " has no checksums. Install it by hand.", "digest");
   release_ = *release;
   manifest_ = *manifest;
+  if (kit_needed) kit_zip_ = *kit;
+  else kit_zip_.reset();
   Log("update " + release->tag + " available: app " + std::to_string(app->size) + " bytes, kit " +
       (kit_needed ? std::to_string(kit->size) + " bytes" : "already installed"));
   std::string declined;
@@ -650,7 +668,7 @@ void UpdateService::DoInstall() {
   if (!PrepareWorkRoot() || !MakeFolders(config_.work_root + "/downloads"))
     return Fail("Playden could not create its update folder.", config_.work_root);
   const auto* app = release.Find(manifest.app_asset);
-  const auto* kit = release.Find(manifest.kit.asset);
+  const auto* kit = kit_zip_ ? &*kit_zip_ : release.Find(manifest.kit.asset);
   std::string kit_folder = ReadyKit(manifest.kit);
   const bool kit_needed = kit_folder.empty();
   // Zip, unpacked files and some room to spare.
