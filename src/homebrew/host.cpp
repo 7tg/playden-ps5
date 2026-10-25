@@ -482,6 +482,9 @@ int main(int argc, char** argv) {
         auth_storage = std::make_unique<playden::Storage>(options->data_directory.string());
         auth_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *auth_storage);
         auth = std::make_unique<playden::steam::AuthClient>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        auth->SetMachineId([storage = auth_storage.get()] {
+            return playden::steam::MakeDeviceIdentity(playden::steam::LoadOrCreateDeviceSeed(*storage)).machine_id;
+        });
         auth->SetCmRenewal([cm = auth_cm.get()](const playden::StoredSession& stored, const std::atomic<bool>& cancel) {
             return playden::steam::RenewThroughCm(*cm, stored, cancel);
         });
@@ -491,6 +494,10 @@ int main(int argc, char** argv) {
             char line[160];
             std::snprintf(line, sizeof(line), "auth_failure method=%s http=%ld eresult=%d", method, http_status, eresult);
             playden::app::AppendLogLine(log_directory, "auth.log", line);
+        });
+        auth->SetSignInReport([log_directory](long long persistence, std::uint64_t lifetime_seconds) {
+            playden::app::AppendLogLine(log_directory, "auth.log", "signed_in persistence=" + std::to_string(persistence) +
+                " lifetime_days=" + std::to_string(lifetime_seconds / 86400));
         });
         // "Stay signed in" is known before the controller restores the session.
         const bool stay_signed_in = playden::PreferencesStore(*auth_storage).Load().preferences.steam_stay_signed_in;

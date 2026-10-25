@@ -24,6 +24,11 @@ struct AuthClientHooks {
   // Optional report of a successful restore: which path (stored, web, cm), and the refresh token's
   // fingerprint before and after (they differ when Steam rotated it).
   std::function<void(const char* path, const std::string& before, const std::string& after)> restored;
+  // Optional: the machine ID the CM logon sends, so a sign-in names the same device (empty: none sent).
+  std::function<std::vector<std::uint8_t>()> machine_id;
+  // Optional report of a new sign-in's token claims: Steam's persistence flag (-1: none) and the token's
+  // lifetime in seconds. Never the token or the account.
+  std::function<void(long long persistence, std::uint64_t lifetime_seconds)> signed_in;
 };
 
 class AuthClient final : public AuthBackend {
@@ -37,6 +42,12 @@ class AuthClient final : public AuthBackend {
   }
   void SetRestoreReport(std::function<void(const char*, const std::string&, const std::string&)> report) {
     hooks_.restored = std::move(report);
+  }
+  void SetMachineId(std::function<std::vector<std::uint8_t>()> machine_id) {
+    hooks_.machine_id = std::move(machine_id);
+  }
+  void SetSignInReport(std::function<void(long long, std::uint64_t)> report) {
+    hooks_.signed_in = std::move(report);
   }
   void SetCmRenewal(std::function<AuthResult(const StoredSession&, const std::atomic<bool>&)> renew) {
     hooks_.cm_renew = std::move(renew);

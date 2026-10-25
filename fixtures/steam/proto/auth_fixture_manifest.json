@@ -1,7 +1,7 @@
 {
   "data_policy": "All tokens, account names, IDs, request bytes, URLs and guard data are deterministic synthetic values. No real account data is included.",
   "fixture_sources_sha256": {
-    "begin_request.textproto": "414cdea68cb63005007898d7fefa95246b692306289d05471d09a2b44ad486bf",
+    "begin_request.textproto": "17db337254ba36fca7775518114cb4a7573c88c12fedb8107ed4e39b0847984a",
     "begin_response.textproto": "31948bad47524918476c8843287d34da610b31b149095eaa5c705520c77f8149",
     "poll_pending_response.textproto": "cb44c94e45eb9c3ee3d11e172f4415ce21503f581c9633afbcf76fc383e08519",
     "poll_request.textproto": "f99423e283804b642de603749198574628f4a7298e44b4364d03642843c43229",
@@ -10,7 +10,7 @@
     "renew_response.textproto": "c6733d98720e99c9e17616a4e4bad95aab05e2f3b8ed13525a9cab406bb2dfe5"
   },
   "fixtures_sha256": {
-    "begin_request.pb": "060040dfdbfdd78849fa30502f19f6974d2c8a2f57359bd1ff39be31ca9158ca",
+    "begin_request.pb": "880faf3a018f255c580c348605f8d0ff1668e0b452b5b1a4410e8cb309ae924b",
     "begin_response.pb": "3b8d874101cf1a4f2e3e7c28adb45d495514a77879bd7da1a1ff5decfe842a8a",
     "poll_pending_response.pb": "27aebe920b830a0609b184aed1dea59b47cc4e22ce07da953652d21f1fabe02b",
     "poll_request.pb": "66b5ae5274786d5413c3a0492d75de46d3620c452a0aa78cc1f87395baf088e1",

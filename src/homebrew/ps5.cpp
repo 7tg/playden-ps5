@@ -293,6 +293,16 @@ int main() {
         auth_cm.SetOwner("auth");
         auth_cm.SetSharedSession(steam_cm);
         playden::steam::AuthClient auth(paths.trust_store);
+        // A sign-in names the machine the CM logons come from, in case Steam ties the token to it (saved sign-ins
+        // died about a day later without it).
+        auth.SetMachineId([&auth_storage] {
+            return playden::steam::MakeDeviceIdentity(playden::steam::LoadOrCreateDeviceSeed(auth_storage)).machine_id;
+        });
+        // Whether Steam kept the new session (its "per" claim) and how long the token says it lasts.
+        auth.SetSignInReport([](long long persistence, std::uint64_t lifetime_seconds) {
+            playden::app::AppendLogLine(log_root, "auth.log", "signed_in persistence=" + std::to_string(persistence) +
+                " lifetime_days=" + std::to_string(lifetime_seconds / 86400));
+        });
         auth.SetCmRenewal([&auth_cm](const playden::StoredSession& stored, const std::atomic<bool>& cancel) {
             return playden::steam::RenewThroughCm(auth_cm, stored, cancel);
         });

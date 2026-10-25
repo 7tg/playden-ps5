@@ -13,6 +13,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -184,6 +185,10 @@ std::string LoadOrCreateDeviceSeed(const Storage& storage) {
       text.pop_back();
     if (ValidSeed(text)) return text;
   }
+  // A seed that could not be saved is still this run's identity: the sign-in and the CM logons that share this
+  // storage must name the same machine.
+  static std::map<const Storage*, std::string> unsaved;
+  if (const auto kept = unsaved.find(&storage); kept != unsaved.end()) return kept->second;
   // A per-install value only has to differ from other installs, so hash several local sources
   // rather than depend on an entropy device the console may not provide.
   const auto wall = std::chrono::system_clock::now().time_since_epoch().count();
@@ -196,8 +201,9 @@ std::string LoadOrCreateDeviceSeed(const Storage& storage) {
   unsigned char digest[32] = {};
   mbedtls_sha256(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest, 0);
   const std::string seed = Hex(digest, 16);
-  if (storage.EnsureRootDirectory().ok())
-    (void)storage.WriteAtomicPrivate(kDeviceSeedFile, Bytes(seed.begin(), seed.end()));
+  if (!storage.EnsureRootDirectory().ok() ||
+      !storage.WriteAtomicPrivate(kDeviceSeedFile, Bytes(seed.begin(), seed.end())).ok())
+    unsaved[&storage] = seed;
   return seed;
 }
 

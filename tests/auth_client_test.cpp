@@ -94,6 +94,56 @@ void QrSuccessAndReplacement() {
   assert(std::string(f.requests[2].body.begin(), f.requests[2].body.end()) ==
          "input_protobuf_encoded=CMgDEhFzeW50aGV0aWMtcmVxdWVzdA%3D%3D");
 }
+// The form body Playden posts for an encoded message: standard base64, then URL-escaped.
+std::string FormBody(const std::vector<std::uint8_t>& bytes) {
+  const char* alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string b64;
+  for (std::size_t at = 0; at < bytes.size(); at += 3) {
+    const unsigned n = bytes[at] << 16 | (at + 1 < bytes.size() ? bytes[at + 1] << 8 : 0) |
+                       (at + 2 < bytes.size() ? bytes[at + 2] : 0);
+    b64 += alphabet[n >> 18 & 63]; b64 += alphabet[n >> 12 & 63];
+    b64 += at + 1 < bytes.size() ? alphabet[n >> 6 & 63] : '=';
+    b64 += at + 2 < bytes.size() ? alphabet[n & 63] : '=';
+  }
+  std::string body = "input_protobuf_encoded=";
+  for (char c : b64) body += c == '+' ? "%2B" : c == '/' ? "%2F" : c == '=' ? "%3D" : std::string(1, c);
+  return body;
+}
+// A sign-in names the CM logon's machine and reports the new token's persistence and lifetime.
+void QrNamesTheMachineAndReportsClaims() {
+  const std::string refresh = B64("{\"alg\":\"RS256\"}") + "." +
+      B64("{\"sub\":\"76561198000000001\",\"exp\":1918144000,\"iat\":1900000000,\"per\":1}") + "." + B64("sig");
+  Fixture f; f.replies.push_back(Begin()); f.replies.push_back(Success(refresh));
+  auto hooks = f.Hooks();
+  int machine_calls = 0;
+  hooks.machine_id = [&machine_calls] { ++machine_calls; return std::vector<std::uint8_t>{0x00, 0xFE, 0x08}; };
+  long long persistence = -2; std::uint64_t lifetime = 0;
+  hooks.signed_in = [&](long long per, std::uint64_t seconds) { persistence = per; lifetime = seconds; };
+  AuthClient client(hooks);
+  assert(client.AuthenticateQr(f.cancel, f.Callback()).error == AuthError::kNone);
+  auth::BeginAuthSessionViaQrRequest expected;
+  expected.device_details.device_friendly_name = "Playden (PS5)";
+  expected.device_details.machine_id = {0x00, 0xFE, 0x08};
+  std::vector<std::uint8_t> encoded;
+  assert(auth::Encode(expected, &encoded).ok());
+  assert(machine_calls == 1);
+  assert(std::string(f.requests[0].body.begin(), f.requests[0].body.end()) == FormBody(encoded));
+  assert(persistence == 1 && lifetime == 18144000);
+  // A token without the claims reports none, and the lifetime from the sign-in time.
+  Fixture g; g.replies.push_back(Begin()); g.replies.push_back(Success());
+  auto plain = g.Hooks();
+  plain.signed_in = [&](long long per, std::uint64_t seconds) { persistence = per; lifetime = seconds; };
+  AuthClient without(plain);
+  assert(without.AuthenticateQr(g.cancel, g.Callback()).error == AuthError::kNone);
+  assert(persistence == -1 && lifetime == 2000000000ULL - 1900000000ULL);
+  // A sign-in that fails after the refresh token arrives (a bad access token) is not reported.
+  persistence = -2;
+  Fixture h; h.replies.push_back(Begin()); h.replies.push_back(Success(refresh, Token("76561198000000002")));
+  auto failing = h.Hooks();
+  failing.signed_in = [&](long long per, std::uint64_t) { persistence = per; };
+  AuthClient refused(failing);
+  assert(refused.AuthenticateQr(h.cancel, h.Callback()).error == AuthError::kProtocol && persistence == -2);
+}
 void FailuresAndDeadline() {
   {
     Fixture f; f.cancel = true; AuthClient c(f.Hooks());
@@ -336,8 +386,11 @@ struct Guard {
     };
   }
 };
-AuthResult SignIn(Fixture& f, Guard& g, std::string* password_after = nullptr) {
-  AuthClient c(f.Hooks());
+AuthResult SignIn(Fixture& f, Guard& g, std::string* password_after = nullptr,
+                  std::vector<std::uint8_t> machine_id = {}) {
+  auto hooks = f.Hooks();
+  if (!machine_id.empty()) hooks.machine_id = [machine_id] { return machine_id; };
+  AuthClient c(hooks);
   playden::steam::Credentials credentials{"synthetic_account", "hunter2-synthetic"};
   auto r = c.AuthenticateCredentials(credentials, f.cancel, g.Prompt(), g.Code());
   if (password_after) *password_after = credentials.password;
@@ -359,6 +412,11 @@ void CredentialsWithoutGuard() {
          begin.url == "https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1/");
   const auto sent = Sent(begin);
   assert(sent.find("synthetic_account") != std::string::npos && sent.find("Playden (PS5)") != std::string::npos);
+  // The password sign-in names the CM logon's machine too: device details field 6.
+  Fixture named; Guard named_guard;
+  named.replies = {Key(), BeginCredentials({}), Success()};
+  assert(SignIn(named, named_guard, nullptr, {0x00, 'M', 'I', 'D', 0x08}).error == AuthError::kNone);
+  assert(Sent(named.requests[1]).find(std::string("\x32\x05\x00MID\x08", 7)) != std::string::npos);
   // Only the encrypted password goes out.
   for (const auto& request : f.requests) {
     assert(Sent(request).find("hunter2-synthetic") == std::string::npos);
@@ -502,6 +560,6 @@ void CredentialsCancelAndDeadline() {
 int main() {
   CredentialsWithoutGuard(); CredentialsEmailCode(); CredentialsAuthenticatorCode(); CredentialsApproval();
   CredentialsFailures(); CredentialsCancelAndDeadline();
-  QrSuccessAndReplacement(); FailuresAndDeadline(); HeadersAndTokens(); DeadlineAndCancellationEdges(); Restoration(); AccountNames(); FailedReplacementKeepsSavedSession();
+  QrSuccessAndReplacement(); QrNamesTheMachineAndReportsClaims(); FailuresAndDeadline(); HeadersAndTokens(); DeadlineAndCancellationEdges(); Restoration(); AccountNames(); FailedReplacementKeepsSavedSession();
   std::cout << "auth_client_test passed\n";
 }

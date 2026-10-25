@@ -26,6 +26,12 @@ int main() {
   assert(claims && claims->steam_id == 76561198012345678ULL && claims->expires_at_unix_seconds == 4102444800ULL);
   claims = playden::steam::InspectTokenClaims(Token(R"({"sub":"18446744073709551615","exp":18446744073709551615})"));
   assert(claims && claims->steam_id == UINT64_MAX && claims->expires_at_unix_seconds == UINT64_MAX);
+  assert(claims->issued_at_unix_seconds == 0 && !claims->persistence);
+  // Steam's issue time and persistence flag, when present.
+  claims = playden::steam::InspectTokenClaims(Token(R"({"sub":"1","exp":4102444800,"iat":4000000000,"per":0})"));
+  assert(claims && claims->issued_at_unix_seconds == 4000000000ULL && claims->persistence == 0ULL);
+  claims = playden::steam::InspectTokenClaims(Token(R"({"sub":"1","exp":5,"per":"1","iat":"2"})"));
+  assert(claims && claims->issued_at_unix_seconds == 0 && !claims->persistence);
 
   assert(!playden::steam::InspectTokenClaims("AA.AA"));
   assert(!playden::steam::InspectTokenClaims("AA.AA.AA.AA"));

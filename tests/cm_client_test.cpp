@@ -805,6 +805,12 @@ void DeviceSeedPersistsPerInstall() {
   assert(MakeDeviceIdentity(first).machine_id == MakeDeviceIdentity(second).machine_id);
   assert(MakeDeviceIdentity(first).login_id != MakeDeviceIdentity(kSeed).login_id);
   std::filesystem::remove_all(root);
+  // A seed that cannot be saved (the root's parent is missing) is still the same for the rest of the run, so a
+  // sign-in and the CM logons sharing the storage name one machine.
+  Storage unwritable((root / "missing-parent" / "root").string());
+  const auto unsaved = LoadOrCreateDeviceSeed(unwritable);
+  assert(unsaved.size() == 32 && LoadOrCreateDeviceSeed(unwritable) == unsaved);
+  assert(!std::filesystem::exists(root));
 }
 
 }  // namespace

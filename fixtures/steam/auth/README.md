@@ -4,4 +4,4 @@ These protobuf frames contain deterministic synthetic values only. They were enc
 
 The `.textproto` files are readable descriptions of the matching `.pb` frames. They are not captured service traffic and contain no real account IDs, request IDs, tokens, QR challenges, guard data, or endpoints.
 
-The credential sign-in frames (`rsa_key_*`, `credentials_*`, `guard_code_request`) were encoded from their `.textproto` files with `protoc --encode` against `../proto/steammessages_auth.steamclient.proto` (protoc 35.1). The same command reproduces `begin_request.pb` byte for byte.
+The credential sign-in frames (`rsa_key_*`, `credentials_*`, `guard_code_request`) were encoded from their `.textproto` files with `protoc --encode` against `../proto/steammessages_auth.steamclient.proto` (protoc 35.1). `begin_request.pb`, which now carries the device fields and a synthetic machine ID, is encoded the same way.

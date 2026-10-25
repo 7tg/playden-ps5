@@ -66,7 +66,12 @@ std::optional<TokenClaims> InspectTokenClaims(std::string_view token) {
   }
   const auto expires = expiration->AsUint64();
   if (steam_id == 0 || !expires || *expires == 0) return std::nullopt;
-  return TokenClaims{steam_id, *expires};
+  TokenClaims claims{steam_id, *expires};
+  if (const json::Value* issued = root->Find("iat"); issued && issued->is_number())
+    claims.issued_at_unix_seconds = issued->AsUint64().value_or(0);
+  if (const json::Value* persistence = root->Find("per"); persistence && persistence->is_number())
+    claims.persistence = persistence->AsUint64();
+  return claims;
 }
 
 }  // namespace playden::steam

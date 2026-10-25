@@ -187,6 +187,7 @@ AuthResult AuthClient::AuthenticateQr(const std::atomic<bool>& cancel,
   const auto started = hooks_.monotonic_ms();
   auth::BeginAuthSessionViaQrRequest begin;
   begin.device_details.device_friendly_name = "Playden (PS5)";
+  if (hooks_.machine_id) begin.device_details.machine_id = hooks_.machine_id();
   std::vector<std::uint8_t> request, response;
   if (!auth::Encode(begin, &request).ok()) return Failure(AuthError::kProtocol);
   auto error = Post("BeginAuthSessionViaQR", request, cancel, Remaining(started,hooks_), false, &response);
@@ -241,16 +242,23 @@ AuthResult AuthClient::Approved(auth::PollAuthSessionStatusResponse approval, st
   const auto now = hooks_.unix_seconds();
   if (!claims || claims->expires_at_unix_seconds <= now || !AccountNameValid(approval.account_name))
     return Failure(AuthError::kProtocol);
+  // Reported once the sign-in succeeds: the refresh token's own claims, not a promise that Steam keeps it.
+  auto signed_in = [&, issued = claims->issued_at_unix_seconds ? claims->issued_at_unix_seconds : now,
+                    expires = claims->expires_at_unix_seconds, persistence = claims->persistence](AuthResult result) {
+    if (result.error == AuthError::kNone && hooks_.signed_in)
+      hooks_.signed_in(persistence ? static_cast<long long>(*persistence) : -1, expires > issued ? expires - issued : 0);
+    return result;
+  };
   StoredSession stored{claims->steam_id, approval.account_name, std::move(approval.refresh_token),
                        std::move(approval.access_token), std::nullopt};
   if (stored.access_token.empty()) {
     auto renewed = Renew(stored,cancel,Remaining(started,hooks_,lifetime_ms),false);
     if (cancel.load()) return Failure(AuthError::kCanceled);
     if (!Remaining(started,hooks_,lifetime_ms)) return Failure(AuthError::kExpired);
-    return renewed;
+    return signed_in(std::move(renewed));
   }
   if (!ValidToken(stored.access_token,stored.steam_id,now)) return Failure(AuthError::kProtocol);
-  return {AuthError::kNone,std::move(stored)};
+  return signed_in({AuthError::kNone,std::move(stored)});
 }
 
 AuthResult AuthClient::AuthenticateCredentials(Credentials& credentials, const std::atomic<bool>& cancel,
@@ -279,6 +287,7 @@ AuthResult AuthClient::AuthenticateCredentials(Credentials& credentials, const s
   if (!auth::Decode(response, &key).ok() || !key.timestamp) return Failure(AuthError::kProtocol);
   auth::BeginAuthSessionViaCredentialsRequest begin;
   begin.device_details.device_friendly_name = "Playden (PS5)";
+  if (hooks_.machine_id) begin.device_details.machine_id = hooks_.machine_id();
   begin.account_name = credentials.account_name;
   begin.encryption_timestamp = key.timestamp;
   auto encrypted = EncryptPassword(key.publickey_mod, key.publickey_exp, credentials.password);

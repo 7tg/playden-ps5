@@ -33,6 +33,7 @@ void TestGoldenRequests(const std::string& root) {
   begin.device_details.device_friendly_name = "Playden Synthetic Device";
   begin.device_details.platform_type = auth::PlatformType::kSteamClient;
   begin.device_details.os_type = 0;
+  begin.device_details.machine_id = {0x00, 'M', 'e', 's', 's', 'a', 'g', 'e', 'O', 'b', 'j', 'e', 'c', 't', 0x00, 0x08, 0x08};
   begin.website_id = "Client";
   ExpectGoldenEncode(root + "/begin_request.pb", begin);
 

@@ -42,8 +42,11 @@ struct DeviceDetails {
   std::string device_friendly_name;
   PlatformType platform_type = PlatformType::kSteamClient;
   std::int32_t os_type = 0;
+  // The machine ID the CM logon sends (binary KeyValues), so the sign-in and the logons name one machine. Empty: not sent.
+  std::vector<std::uint8_t> machine_id;
 };
 
+// The device's friendly name and platform are also sent at the top level, like the credentials request.
 struct BeginAuthSessionViaQrRequest {
   DeviceDetails device_details;
   std::string website_id = "Client";

@@ -32,7 +32,8 @@ bool EncodeDeviceDetails(const DeviceDetails& message, Writer* writer) {
   return writer->AddString(1, message.device_friendly_name) &&
          writer->AddVarint(2, static_cast<std::uint64_t>(message.platform_type)) &&
          writer->AddVarint(
-             3, static_cast<std::uint64_t>(static_cast<std::int64_t>(message.os_type)));
+             3, static_cast<std::uint64_t>(static_cast<std::int64_t>(message.os_type))) &&
+         (message.machine_id.empty() || writer->AddBytes(6, message.machine_id));
 }
 
 Status DecodeAllowedConfirmation(Reader* reader,
@@ -63,6 +64,8 @@ Status Encode(const BeginAuthSessionViaQrRequest& message,
   Writer device;
   EncodeDeviceDetails(message.device_details, &device);
   Writer writer;
+  writer.AddString(1, message.device_details.device_friendly_name);
+  writer.AddVarint(2, static_cast<std::uint64_t>(message.device_details.platform_type));
   writer.AddMessage(3, device);
   writer.AddString(4, message.website_id);
   return WriterStatus(writer, output);
