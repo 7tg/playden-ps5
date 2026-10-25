@@ -89,12 +89,25 @@ the same call:
   `scripts/build-homebrew.sh` and `cmake/HomebrewUI.cmake`.
 - Wine is not forked. Wine changes are new patch files in prospero-win's `wine/patches/`.
 - The kit builds only on Linux x86-64. Changes meant for upstream must not name Playden, its paths, pins or issues.
-- See CONTRIBUTING.md › Dependencies for the full workflow.
+- See docs/building.md › Dependencies for the full workflow.
 
 ## Conventions
 
 - Match surrounding style. Source files carry GPL-3.0-or-later SPDX headers.
 - Reusable UI fixes belong in ps5-homebrew-ui, product behaviour here.
-- Commit format: see CONTRIBUTING.md › Code and commits. A commit that resolves an issue says `Fixes #N` (`Refs #N`
+- Commit format: see CONTRIBUTING.md › Commits. A commit that resolves an issue says `Fixes #N` (`Refs #N`
   for partial work).
 - History is linear: rebase and fast-forward, no merge commits.
+
+## Pull requests
+
+These rules are for every contributor's agent (full text in CONTRIBUTING.md):
+
+- One pull request, one change. Do not bundle a second feature or an unrelated fix; tell the user to open another
+  pull request for it.
+- Target `main`, rebased on it.
+- Never change the version (`CMakeLists.txt`, `PLAYDEN_PRERELEASE`), the runtime kit pin (`src/runtime/kit_trust.h`,
+  the kit entry in `dependencies.lock.json`) or release files. Only the maintainer releases kits.
+- Move a submodule pin only to a commit already on that fork's `main`.
+- Fill in `.github/PULL_REQUEST_TEMPLATE.md`. Describe only what is in the diff and only tests that were actually run;
+  say plainly what was not tested on a console.

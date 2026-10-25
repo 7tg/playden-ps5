@@ -195,7 +195,7 @@ python3 tools/console_kit_upload.py ../playden-kit-<version> --host <PS5 IP> --r
 ```
 
 The kit is built on a **Linux x86-64 machine or VM** from prospero-win, Wine, Mesa and DXVK. To build it yourself,
-see [Build the kit](CONTRIBUTING.md#build-the-kit). The scripts are a record of how we built it, not a turnkey build
+see [Build the kit](docs/building.md#build-the-kit). The scripts are a record of how we built it, not a turnkey build
 yet, so most people should use the release download.
 
 ### Saves and game configs over FTP
@@ -400,8 +400,9 @@ I keep a fork of each, with Playden's changes on the fork's `main` branch, and s
 
 ## Contributing
 
-Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the development setup, the tests, the
-console workflow, and how to change a forked dependency or a Wine patch.
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to report a game test and the rules for
+pull requests (one change per pull request). [docs/building.md](docs/building.md) covers the development setup, the
+tests, the console workflow, and how to change a forked dependency or a Wine patch.
 
 ## License
 
