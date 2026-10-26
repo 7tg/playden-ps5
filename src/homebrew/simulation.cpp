@@ -5392,6 +5392,7 @@ void Simulation::rebuild_view() {
             runtime.subtitle = state_.runtime_problem.empty() ? "Games run through prospero-win" : state_.runtime_problem;
             runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
         }
+        section = "Downloads";
         if (live() || download_server_fixture_) {
             auto& slow = add("settings-downloads-slow", RowKind::Toggle, "Downloads for slow networks", "toggle-downloads-slow");
             slow.selected = state_.downloads_slow_network;

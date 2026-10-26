@@ -339,9 +339,9 @@ build/homebrew-host/playden-homebrew --simulation --scenario signed-out
 - The 120 Hz choice of the "Refresh rate" game setting needs a newer runtime kit; it is not available with this kit.
 - When you close a game from the PS5 menu, it can stay suspended. Pressing Play again resumes it instead of starting
   it again.
-- Downloads can be slow (about 1 MB/s) on some networks, far from a fast Steam server. Turn on Settings › Storage ›
+- Downloads can be slow (about 1 MB/s) on some networks, far from a fast Steam server. Turn on Settings › Downloads ›
   **Downloads for slow networks**: Playden then downloads 8 pieces at the same time instead of 4. On a fast connection
-  it can be slower, so turn it off again if downloads get slower. If downloads stay slow, open Settings › Storage ›
+  it can be slower, so turn it off again if downloads get slower. If downloads stay slow, open Settings › Downloads ›
   **Download server**, use **Test servers** and choose the fastest server. The test downloads up to 160 MB.
   Automatic uses the server Steam lists first. Each provider chooses its nearby server through DNS or anycast,
   so your DNS resolver can affect the result.
