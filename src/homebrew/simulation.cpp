@@ -8,6 +8,7 @@
 
 #include "app/diagnostic_log.h"
 #include "homebrew/browse.hpp"
+#include "homebrew/i18n.hpp"
 #include "homebrew/json.hpp"
 #include "homebrew/queue_layout.hpp"
 #include "homebrew/storage_sim.hpp"
@@ -781,8 +782,16 @@ Simulation::Simulation(std::filesystem::path fixture_directory, std::filesystem:
     rebuild_view();
 }
 
+void Simulation::apply_language(const std::string& code) {
+    const auto wanted = code.empty() ? std::string(i18n::kSourceLanguage) : code;
+    state_.language = i18n::select(wanted) ? wanted : std::string(i18n::kSourceLanguage);
+    if (state_.language != wanted) i18n::select(state_.language);
+}
+
 void Simulation::reset_default_state() {
     state_ = {};
+    // The catalog follows the state back to the language a fresh install speaks.
+    apply_language(state_.language);
     state_.simulation_mode = !live();
     state_.clock_ticks = live() ? 0 : kFixtureClock;
     state_.navigation.scroll_offsets["library-grid"] = 0;
@@ -2670,7 +2679,7 @@ playden::OrganizationSnapshot Simulation::ExportOrganization() const {
 
 playden::Preferences Simulation::ExportPreferences() const {
     return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password,
-            state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates};
+            state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates, state_.language};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -2898,6 +2907,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.beta_updates = loaded.preferences.beta_updates;
         state_.downloads_slow_network = loaded.preferences.downloads_slow_network;
         state_.stay_signed_in = loaded.preferences.steam_stay_signed_in;
+        apply_language(loaded.preferences.language);
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
     }
@@ -2977,6 +2987,7 @@ bool Simulation::record_live_persistence() {
                                       after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password ||
                                       after_preferences.downloads_slow_network != captured_preferences_.downloads_slow_network ||
                                       after_preferences.beta_updates != captured_preferences_.beta_updates ||
+                                      after_preferences.language != captured_preferences_.language ||
                                       after_preferences.steam_stay_signed_in != captured_preferences_.steam_stay_signed_in);
 
     if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
@@ -3002,6 +3013,7 @@ bool Simulation::record_live_persistence() {
                 state_.beta_updates = captured_preferences_.beta_updates;
                 state_.downloads_slow_network = captured_preferences_.downloads_slow_network;
                 state_.stay_signed_in = captured_preferences_.steam_stay_signed_in;
+                apply_language(captured_preferences_.language);
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
                 force_organization_selection_ = false;
@@ -3173,6 +3185,7 @@ void Simulation::load_profile() {
     state_.account().id = saved_account;
     state_.account().display_name = saved_account.empty() ? std::string{} : string_value(root->get("account_display_name"), "Connected fixture account");
     state_.reduced_motion = bool_value(root->get("reduced_motion"));
+    apply_language(string_value(root->get("language"), std::string(i18n::kSourceLanguage)));
     if (saved_auth == "signed-out" || saved_auth == "cancelled" || (saved_auth == "waiting" && saved_account.empty())) {
         state_.account().authentication = AuthState::SignedOut; state_.account().id.clear(); state_.account().display_name.clear();
         state_.account().cache_available = false; state_.account().challenge_expiry = 0; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
@@ -3311,7 +3324,8 @@ bool Simulation::save_profile() {
     std::string output = "{\"account_id\":\"" + json::escape(state_.account().id) + "\",\"account_display_name\":\"" + json::escape(state_.account().display_name)
         + "\",\"authentication\":\"" + auth_name(state_.account().authentication) + "\",\"account_last_sync\":" + std::to_string(state_.account().last_sync)
         + ",\"next_job_serial\":" + std::to_string(next_job_serial_) + ",\"reduced_motion\":"
-        + (state_.reduced_motion ? "true" : "false") + ",\"query\":\"" + json::escape(state_.library.query)
+        + (state_.reduced_motion ? "true" : "false") + ",\"language\":\"" + json::escape(state_.language)
+        + "\",\"query\":\"" + json::escape(state_.library.query)
         + "\",\"scope\":\"" + json::escape(state_.library.scope) + "\",\"favorites\":[";
     bool first = true;
     for (const auto id : state_.library.favorites) {
@@ -5255,6 +5269,14 @@ void Simulation::rebuild_view() {
                 : "Off: 4 pieces at a time. Turn it on if downloads stay near 1 MB/s.";
         }
         section = "Display";
+        // Only worth a row when a catalog beyond English shipped.
+        if (const auto languages = i18n::available(); languages.size() > 1) {
+            auto& language = add("settings-language", RowKind::Choice, "Language", "cycle-language");
+            const auto current = std::find_if(languages.begin(), languages.end(),
+                                              [&](const i18n::Language& item) { return item.code == state_.language; });
+            language.value = current != languages.end() ? current->name : languages.front().name;
+            language.subtitle = "The language Playden speaks. Game names stay as the store writes them.";
+        }
         auto& motion = add("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion");
         motion.selected = state_.reduced_motion;
         motion.subtitle = "Keep the focus ring; turn off scaling and transitions";
@@ -7524,6 +7546,17 @@ void Simulation::activate() {
     else if (action_name.rfind("collection-delete-", 0) == 0) {
         pending_destructive_action_ = action_name;
         open_modal({"confirmation", "Delete collection? Games stay in your library.", action_name, {"cancel", "confirm-destructive"}, 0, true});
+    }
+    else if (action_name == "cycle-language") {
+        // Cross steps to the next catalog and wraps, as the other choice rows do.
+        const auto languages = i18n::available();
+        if (!languages.empty()) {
+            const auto here = std::find_if(languages.begin(), languages.end(),
+                                           [&](const i18n::Language& item) { return item.code == state_.language; });
+            const auto next = here == languages.end() || here + 1 == languages.end() ? languages.begin() : here + 1;
+            apply_language(next->code);
+            save_profile();
+        }
     }
     else if (action_name == "toggle-motion") { state_.reduced_motion = !state_.reduced_motion; save_profile(); }
     else if (action_name == "toggle-title-store") { state_.title_store_suffix = !state_.title_store_suffix; save_profile(); }

@@ -32,6 +32,21 @@ PreferencesLoadResult PreferencesStore::Load() const {
   }
 
   std::string serialized = ToString(read.value());
+  // Version 8 appends language. Peel it off and let the version 7 reader below take over.
+  std::string language = "en";
+  if (serialized.rfind("version=8\n", 0) == 0) {
+    const auto suffix = serialized.rfind("\nlanguage=");
+    if (suffix == std::string::npos || serialized.empty() || serialized.back() != '\n' ||
+        suffix + 11 > serialized.size())
+      return {Preferences{}, PreferencesLoadStatus::kDefaultCorrupt, "Preferences could not be read; defaults restored."};
+    language = serialized.substr(suffix + 10, serialized.size() - suffix - 11);
+    const bool named = !language.empty() && language.size() <= 16 &&
+                       language.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") == std::string::npos;
+    if (!named)
+      return {Preferences{}, PreferencesLoadStatus::kDefaultCorrupt, "Preferences could not be read; defaults restored."};
+    serialized.erase(suffix + 1);
+    serialized.replace(0, 9, "version=7");
+  }
   bool beta_updates = false;
   if (serialized.rfind("version=7\n", 0) == 0) {
     const auto suffix = serialized.rfind("beta_updates=");
@@ -44,7 +59,8 @@ PreferencesLoadResult PreferencesStore::Load() const {
   }
   // Version 1 holds only reduce_motion; version 2 adds title_store_suffix; version 3 cloud_saves_auto;
   // version 4 steam_sign_in_password; version 5 downloads_slow_network; version 6 steam_stay_signed_in
-  // (on in files older than that). Version 7 appends beta_updates (off in older files).
+  // (on in files older than that). Version 7 appends beta_updates (off in older files); version 8
+  // appends language (English in older files).
   for (const int motion : {0, 1}) {
     if (serialized == std::string("version=1\nreduce_motion=") + char('0' + motion) + "\n") {
       Preferences preferences;
@@ -116,6 +132,7 @@ PreferencesLoadResult PreferencesStore::Load() const {
                 preferences.downloads_slow_network = slow == 1;
                 preferences.steam_stay_signed_in = stay == 1;
                 preferences.beta_updates = beta_updates;
+                preferences.language = language;
                 return PreferencesLoadResult{preferences, PreferencesLoadStatus::kLoaded, std::string()};
               }
   }
@@ -127,13 +144,14 @@ PreferencesLoadResult PreferencesStore::Load() const {
 Result<void> PreferencesStore::Save(const Preferences& preferences) const {
   const auto ready=storage_.EnsureRootDirectory();
   if(!ready.ok()) return ready;
-  const std::string text = std::string("version=7\nreduce_motion=") + (preferences.reduce_motion ? "1" : "0") +
+  const std::string text = std::string("version=8\nreduce_motion=") + (preferences.reduce_motion ? "1" : "0") +
                            "\ntitle_store_suffix=" + (preferences.title_store_suffix ? "1" : "0") +
                            "\ncloud_saves_auto=" + (preferences.cloud_saves_auto ? "1" : "0") +
                            "\nsteam_sign_in_password=" + (preferences.steam_sign_in_password ? "1" : "0") +
                            "\ndownloads_slow_network=" + (preferences.downloads_slow_network ? "1" : "0") +
                            "\nsteam_stay_signed_in=" + (preferences.steam_stay_signed_in ? "1" : "0") +
-                           "\nbeta_updates=" + (preferences.beta_updates ? "1" : "0") + "\n";
+                           "\nbeta_updates=" + (preferences.beta_updates ? "1" : "0") +
+                           "\nlanguage=" + (preferences.language.empty() ? "en" : preferences.language) + "\n";
   return storage_.WriteAtomic(kPreferencesPath, Bytes(text.begin(), text.end()));
 }
 
