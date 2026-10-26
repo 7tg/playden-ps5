@@ -3,6 +3,7 @@
 #include "runtime/steamworks.h"
 #include "steam/backend/app_info.h"
 
+#include <algorithm>
 #include <set>
 #include <charconv>
 
@@ -13,6 +14,41 @@ void LogInstallTrace(const InstallLogFn& log, std::uint32_t app, const char* mar
   if (std::string(marker) == "journal-reset") log(app, "journal", "reset", "");
   else if (std::string(marker) == "journal-legacy") log(app, "journal", "legacy", "");
   else log(app, "trace", marker, "");
+}
+
+std::string FormatInstallServerList(const std::vector<ContentServer>& servers, const char* preference) {
+  const std::string pref = preference ? preference : "auto";
+  std::string detail = "n=" + std::to_string(servers.size()) + " https=" +
+      std::to_string(std::count_if(servers.begin(), servers.end(), [](const ContentServer& server) { return server.https; })) +
+      " pref=" + (pref == "chosen" || pref == "missing" ? pref : "auto") + " first=" +
+      (servers.empty() ? "none" : CdnServerLabel(servers.front().host) + "@0") + " order=";
+  for (std::size_t i = 0; i < std::min<std::size_t>(servers.size(), 8); ++i) {
+    if (i) detail += ',';
+    detail += CdnServerLabel(servers[i].host) + ':' + std::to_string(std::clamp(servers[i].priority, 0, 9));
+  }
+  return detail;
+}
+
+std::vector<std::string> FormatInstallServerStats(const std::vector<InstallServerStats>& servers) {
+  std::vector<std::string> lines;
+  std::string detail;
+  for (std::size_t i = 0; i < std::min<std::size_t>(servers.size(), 9); ++i) {
+    const auto& server = servers[i];
+    if (!server.requests) continue;
+    const auto& label = server.label;
+    const bool known = label == "akamai" || label == "fastly" || label == "google" || label == "alibaba" ||
+                       label == "edgenext" || label == "valve" || label == "cache" || label == "other";
+    const auto token = std::string(known ? label : "cache") + '@' + std::to_string(std::min<std::size_t>(server.index, 8)) +
+        ":req=" + std::to_string(server.requests) + ",fail=" + std::to_string(server.failures) +
+        ",mb=" + std::to_string(server.bytes / 1000000) + ",ms=" + std::to_string(server.fetch_ms);
+    // Leave room for timestamp, app, step and result in the native 640-byte log buffer.
+    if (!detail.empty() && detail.size() + 1 + token.size() > 360) { lines.push_back(std::move(detail)); detail.clear(); }
+    if (!detail.empty()) detail += ' ';
+    detail += token;
+  }
+  if (!detail.empty()) lines.push_back(std::move(detail));
+  if (lines.empty()) lines.push_back("n=0");
+  return lines;
 }
 
 std::string FormatInstallStats(const char* phase, const InstallStats& stats) {

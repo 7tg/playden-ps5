@@ -8,6 +8,8 @@
 namespace playden::steam {
 
 std::string FormatInstallStats(const char* phase, const InstallStats& stats);
+std::string FormatInstallServerList(const std::vector<ContentServer>& servers, const char* preference);
+std::vector<std::string> FormatInstallServerStats(const std::vector<InstallServerStats>& servers);
 using InstallLogFn = std::function<void(std::uint32_t app, const char* step, const char* category, const char* detail)>;
 void LogInstallTrace(const InstallLogFn& log, std::uint32_t app, const char* marker);
 
@@ -30,8 +32,19 @@ class SteamInstallRunner final : public SessionInstallRunner {
     log_ = log;
     installer_.SetStats([this, log](const char* phase, const InstallStats& stats) {
       if (log) {
+        if (std::string(phase) == "servers") {
+          for (const auto& detail : FormatInstallServerStats(stats.server_stats))
+            log(current_app_.load(), "stats", "servers", detail.c_str());
+          return;
+        }
         const auto detail = FormatInstallStats(phase, stats);
         log(current_app_.load(), "stats", phase, detail.c_str());
+      }
+    });
+    installer_.SetServerList([this, log](const std::vector<ContentServer>& servers, const char* preference) {
+      if (log) {
+        const auto detail = FormatInstallServerList(servers, preference);
+        log(current_app_.load(), "servers", "listed", detail.c_str());
       }
     });
     installer_.SetTrace([this, log](const char* step) { LogInstallTrace(log, current_app_.load(), step); });

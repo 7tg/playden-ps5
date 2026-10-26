@@ -51,10 +51,18 @@ struct InstallProgress {
 struct DownloadTuning {
   int slots = 4;
   int ahead_files = 256;
+  std::string preferred_server;  // empty uses Automatic order
 };
 
 // A missing or malformed file uses defaults; valid slot counts are clamped to 1..8.
 DownloadTuning ReadDownloadTuning(const std::string& path);
+
+// Manifest and chunk transfers, including failed and corrupt replies.
+struct InstallServerStats {
+  std::string label;  // fixed provider label, never a host
+  std::size_t index = 0;
+  std::uint64_t requests = 0, failures = 0, bytes = 0, fetch_ms = 0;
+};
 
 // Wall-clock phases and summed stages; worker durations can exceed wall time.
 // Bytes exclude resumed journal entries; peak_active counts occupied chunk slots (including waiting).
@@ -66,6 +74,7 @@ struct InstallStats : CdnStats {
   std::uint64_t files_total = 0, download_total = 0, chunks_pending = 0, files_pending = 0, bytes_pending = 0;
   std::uint32_t slots = 4, reuse = 1, ahead_files = 256;
   std::uint32_t peak_waiting = 0, peak_active = 0;
+  std::vector<InstallServerStats> server_stats;  // first eight servers, then one "other" bucket
 };
 
 struct InstallOutcome {
@@ -97,6 +106,7 @@ struct InstallerHooks {
   std::function<std::string()> last_failure;
   std::function<CdnStats()> cdn_stats;
   std::function<void(const char* phase, const InstallStats&)> stats;
+  std::function<void(const std::vector<ContentServer>&, const char* preference)> server_list;
   // Optional: step markers for diagnosing native failures (no identifiers).
   std::function<void(const char* step)> trace;
   // Optional: waits between attempts at a chunk the CDN refused (a busy server answers 503 for a
@@ -125,6 +135,9 @@ class DepotInstaller {
   InstallerHooks hooks_;
  public:
   void SetStats(std::function<void(const char*, const InstallStats&)> stats) { hooks_.stats = std::move(stats); }
+  void SetServerList(std::function<void(const std::vector<ContentServer>&, const char*)> listed) {
+    hooks_.server_list = std::move(listed);
+  }
   void SetTrace(std::function<void(const char*)> trace) { hooks_.trace = std::move(trace); }
   void SetTuning(DownloadTuning tuning) { tuning_ = tuning; }
  private:

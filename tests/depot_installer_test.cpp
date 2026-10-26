@@ -5,6 +5,7 @@
 #include <mbedtls/aes.h>
 #include <mbedtls/sha1.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -545,14 +546,183 @@ void TuningFileDefaultsAndValidation(const std::filesystem::path& root) {
   std::ofstream(path) << "slots=8\nahead=12\n";
   tuning = ReadDownloadTuning(path);
   CHECK(tuning.slots == 8 && tuning.ahead_files == 12);
+  std::ofstream(path) << "slots=6\nahead=32\nserver=fastly.cdn.steampipe.steamcontent.com\n";
+  tuning = ReadDownloadTuning(path);
+  CHECK(tuning.slots == 6 && tuning.ahead_files == 32 && tuning.preferred_server == "fastly.cdn.steampipe.steamcontent.com");
+  const std::string longest(253, 'a');
+  std::ofstream(path) << "server=" << longest << "\n";
+  CHECK(ReadDownloadTuning(path).preferred_server == longest);
   std::ofstream(path) << "slots=99\n";
   CHECK(ReadDownloadTuning(path).slots == 8);
   std::ofstream(path) << "slots=0\n";
   CHECK(ReadDownloadTuning(path).slots == 1);
-  for (const auto text : {"slots=8\nahead=-1\n", "slots=abc\n", "slots=8garbage\n", "unknown=1\n", "slots=8\nslots=1\n"}) {
+  for (const auto text : {"slots=8\nahead=-1\n", "slots=abc\n", "slots=8garbage\n", "unknown=1\n", "slots=8\nslots=1\n", "server=bad host\n",
+                          "server=https://host\n", "server=host\nserver=other\n", "server=\n"}) {
     std::ofstream(path) << text;
     tuning = ReadDownloadTuning(path);
-    CHECK(tuning.slots == 4 && tuning.ahead_files == 256);
+    CHECK(tuning.slots == 4 && tuning.ahead_files == 256 && tuning.preferred_server.empty());
+  }
+}
+
+void PreferredServerFailover(const std::filesystem::path& base) {
+  // A single slot makes the return schedule independent of thread scheduling.
+  for (int mode = 0; mode < 6; ++mode) {
+    auto world = MakeWorld();
+    std::vector<std::string> pieces(600, "chunk");
+    world.manifests[441].files = {world.AddFile("payload", pieces)};
+    world.manifests[442].files.clear();
+    auto hooks = world.Hooks();
+    std::vector<std::string> manifests, requests;
+    std::vector<int> preferred_at;
+    int done = 0;
+    hooks.manifest = [&](const ContentServer& server, const DepotGrant& grant, const std::atomic<bool>&, DepotManifest* out) {
+      manifests.push_back(server.host); *out = world.manifests.at(grant.depot_id); return InstallError::kNone;
+    };
+    const auto fetch = hooks.chunk;
+    std::atomic<bool> cancel{false};
+    hooks.chunk = [&](const ContentServer& server, std::uint32_t depot, const std::string& sha,
+                      std::size_t cap, const std::atomic<bool>& stop, std::vector<std::uint8_t>* out) {
+      requests.push_back(server.host);
+      const bool preferred = server.host == "b.example.invalid";
+      if (preferred) preferred_at.push_back(done);
+      if (mode == 5 && preferred) {
+        cancel.store(true);
+        while (!stop.load()) usleep(1000);
+        return CdnError::kCanceled;
+      }
+      if ((mode == 1 && preferred && preferred_at.size() == 1) || (mode == 2 && preferred) ||
+          ((mode == 3 || mode == 4) && requests.size() == 1)) return CdnError::kNetwork;
+      const auto result = fetch(server, depot, sha, cap, stop, out);
+      if (result == CdnError::kNone) ++done;
+      return result;
+    };
+    std::string listed;
+    hooks.server_list = [&](const std::vector<ContentServer>& servers, const char* preference) {
+      listed = FormatInstallServerList(servers, preference);
+    };
+    InstallStats last;
+    int ends = 0, server_ends = 0;
+    hooks.stats = [&](const char* phase, const InstallStats& stats) {
+      if (std::string(phase) == "end") { last = stats; ++ends; }
+      if (std::string(phase) == "servers") ++server_ends;
+    };
+    DepotInstaller installer(hooks);
+    DownloadTuning tuning{1, 256};
+    if (mode != 3 && mode != 4) tuning.preferred_server = "b.example.invalid";
+    if (mode == 4) tuning.preferred_server = "missing.example.invalid";
+    installer.SetTuning(tuning);
+    const auto outcome = installer.Run({}, Target(base / std::to_string(mode)), cancel);
+    CHECK(ends == 1 && server_ends == 1);
+    CHECK(listed.find(mode == 4 ? "pref=missing" : mode == 3 ? "pref=auto" : "pref=chosen") != std::string::npos);
+    CHECK(manifests.front() == (mode == 3 || mode == 4 ? "a.example.invalid" : "b.example.invalid"));
+    CHECK(requests.front() == manifests.front());
+    CHECK(outcome.error == (mode == 5 ? InstallError::kCanceled : InstallError::kNone));
+    CHECK(last.server_stats.size() == 2);
+    std::uint64_t counted = 0, failures = 0;
+    for (const auto& server : last.server_stats) { counted += server.requests; failures += server.failures; }
+    CHECK(counted == requests.size() + manifests.size());
+    if (mode == 0) CHECK(preferred_at.size() == 600 && failures == 0);
+    if (mode == 1) {
+      CHECK(preferred_at.size() == 569 && preferred_at[0] == 0 && preferred_at[1] == 32);
+      CHECK(requests[1] == "a.example.invalid" && failures == 1);
+    }
+    if (mode == 2) {
+      CHECK(preferred_at == std::vector<int>({0, 32, 96, 224, 480}));
+      CHECK(failures == 5 && last.server_stats[0].requests == 7);
+    }
+    if (mode == 3 || mode == 4) {
+      CHECK(requests.size() == 601 && failures == 1);
+      CHECK(requests[0] == "a.example.invalid");
+      for (std::size_t i = 1; i < requests.size(); ++i) CHECK(requests[i] == "b.example.invalid");
+    }
+    if (mode == 5) CHECK(failures == 1);
+  }
+}
+
+void ServerLogsAreBoundedAndPrivate() {
+  std::vector<ContentServer> servers{{"fastly.cdn.steampipe.steamcontent.com", "private-vhost", 0, true, 2},
+                                     {"steampipe.akamaized.net", "private-vhost", 0, true, 1},
+                                     {"isp.private.example", "private-vhost", 0, false, 9}};
+  CHECK(FormatInstallServerList(servers, "chosen") ==
+        "n=3 https=2 pref=chosen first=fastly@0 order=fastly:2,akamai:1,cache:9");
+  std::vector<InstallServerStats> stats{{"fastly", 0, 812, 0, 790000000, 301200}, {"akamai", 1, 3, 0, 2000000, 900}};
+  CHECK(FormatInstallServerStats(stats) == std::vector<std::string>{
+        "fastly@0:req=812,fail=0,mb=790,ms=301200 akamai@1:req=3,fail=0,mb=2,ms=900"});
+  for (int i = 3; i < 10; ++i) servers.push_back({"secret" + std::to_string(i) + ".example", "private-vhost", 0, true, 99});
+  const auto listed = FormatInstallServerList(servers, "auto");
+  CHECK(listed.find("secret") == std::string::npos && listed.find("private") == std::string::npos);
+  CHECK(listed.size() < 380);
+  CHECK(std::count(listed.begin(), listed.end(), ',') == 7);
+  stats.clear();
+  for (std::size_t i = 0; i < 9; ++i)
+    stats.push_back({i == 8 ? "other" : "edgenext", i, UINT64_MAX, UINT64_MAX, UINT64_MAX, UINT64_MAX});
+  const auto lines = FormatInstallServerStats(stats);
+  CHECK(lines.size() > 1);
+  for (const auto& line : lines) CHECK(line.size() < 380 && line.find("example") == std::string::npos);
+}
+
+void CorruptRepliesCountAsServerFailures(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  world.corrupt = true;
+  auto hooks = world.Hooks();
+  InstallStats last;
+  hooks.stats = [&](const char* phase, const InstallStats& stats) { if (std::string(phase) == "end") last = stats; };
+  DepotInstaller installer(hooks);
+  installer.SetTuning({1, 256});
+  std::atomic<bool> cancel{false};
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kCorrupt);
+  CHECK(last.server_stats.size() == 2);
+  CHECK(last.server_stats[0].requests == 5 && last.server_stats[0].failures == 3);
+  CHECK(last.server_stats[1].requests == 3 && last.server_stats[1].failures == 3);
+}
+
+void ExtraServersShareOneBucket(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  auto hooks = world.Hooks();
+  hooks.servers = [](std::uint32_t, const std::atomic<bool>&, std::vector<ContentServer>* out) {
+    for (int i = 0; i < 12; ++i) out->push_back({"host" + std::to_string(i) + ".example", "vhost"});
+    return CdnError::kNone;
+  };
+  const auto fetch = hooks.chunk;
+  int requests = 0;
+  hooks.chunk = [&](const ContentServer& server, std::uint32_t depot, const std::string& sha, std::size_t cap,
+                    const std::atomic<bool>& stop, std::vector<std::uint8_t>* out) {
+    ++requests;
+    usleep(600);
+    // First chunk reaches index 5; the next reaches index 9, then stays there.
+    if (requests != 6 && requests < 11) return CdnError::kNetwork;
+    return fetch(server, depot, sha, cap, stop, out);
+  };
+  InstallStats last;
+  hooks.stats = [&](const char* phase, const InstallStats& stats) { if (std::string(phase) == "end") last = stats; };
+  DepotInstaller installer(hooks);
+  std::atomic<bool> cancel{false};
+  installer.SetTuning({1, 256});
+  CHECK(installer.Run({}, Target(root), cancel).error == InstallError::kNone);
+  CHECK(last.server_stats.size() == 9 && last.server_stats[8].label == "other" && last.server_stats[8].index == 8);
+  CHECK(last.server_stats[8].requests == 3 && last.server_stats[8].failures == 1);
+  CHECK(last.server_stats[8].bytes > 0 && last.server_stats[8].fetch_ms >= 1);
+}
+
+void EarlyFailuresLogServerTotals(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  for (int mode = 0; mode < 3; ++mode) {
+    auto hooks = world.Hooks();
+    std::atomic<bool> cancel{mode == 0};
+    if (mode == 1) hooks.servers = [](std::uint32_t, const std::atomic<bool>&, std::vector<ContentServer>*) {
+      return CdnError::kNetwork;
+    };
+    if (mode == 2) hooks.manifest = [](const ContentServer&, const DepotGrant&, const std::atomic<bool>&, DepotManifest*) {
+      return InstallError::kNetwork;
+    };
+    int ends = 0, servers = 0;
+    hooks.stats = [&](const char* phase, const InstallStats&) {
+      if (std::string(phase) == "end") ++ends;
+      if (std::string(phase) == "servers") ++servers;
+    };
+    DepotInstaller installer(hooks);
+    CHECK(installer.Run({}, Target(root), cancel).error != InstallError::kNone);
+    CHECK(ends == 1 && servers == 1);
   }
 }
 
@@ -1066,6 +1236,11 @@ int main() {
   ParallelCorruptRetryAndResume(base / "parallel-resume");
   FileCreationAheadIsBounded(base / "ahead");
   TuningFileDefaultsAndValidation(base / "tuning");
+  PreferredServerFailover(base / "preferred");
+  ServerLogsAreBoundedAndPrivate();
+  EarlyFailuresLogServerTotals(base / "early-logs");
+  ExtraServersShareOneBucket(base / "server-buckets");
+  CorruptRepliesCountAsServerFailures(base / "corrupt-server");
   ParallelMergedAndFullyResumed(base / "parallel-merged");
   BorrowedDepotRefusedIsSkipped(base / "borrowed-depot");
   CountsActualUsefulCompressedBytes(base / "actual-compressed");

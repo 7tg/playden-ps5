@@ -202,18 +202,23 @@ DownloadTuning ReadDownloadTuning(const std::string& path) {
   FILE* input = std::fopen(path.c_str(), "r");
   if (!input) return tuning;
   ScopeExit close{[&] { std::fclose(input); }};
-  char line[128];
-  bool seen_slots = false, seen_ahead = false;
+  char line[272];
+  bool seen_slots = false, seen_ahead = false, seen_server = false;
   while (std::fgets(line, sizeof(line), input)) {
     std::string text(line);
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
     if (text.empty()) continue;
     const auto equals = text.find('=');
     if (equals == std::string::npos) return {};
+    const auto key = text.substr(0, equals);
+    if (key == "server" && !seen_server && ValidCdnHost(text.substr(equals + 1))) {
+      seen_server = true;
+      tuning.preferred_server = text.substr(equals + 1);
+      continue;
+    }
     int value = 0;
     const auto parsed = std::from_chars(text.data() + equals + 1, text.data() + text.size(), value);
     if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) return {};
-    const auto key = text.substr(0, equals);
     if (key == "slots" && !seen_slots) {
       seen_slots = true;
       tuning.slots = std::clamp(value, 1, 8);
@@ -338,6 +343,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     }
     hooks_.stats(phase, stats);
   };
+  ScopeExit end_stats{[&] { emit("end"); emit("servers"); }};
   auto fail = [&outcome](InstallError error, const char* detail) {
     outcome.error = error;
     outcome.detail = detail;
@@ -377,6 +383,16 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     return outcome;
   }
 
+  const auto order = PreferServer(&servers, tuning_.preferred_server);
+  if (hooks_.server_list)
+    hooks_.server_list(servers, tuning_.preferred_server.empty() ? "auto" : order.preferred_found ? "chosen" : "missing");
+  std::vector<InstallServerStats> coordinator_servers;
+  for (std::size_t i = 0; i < std::min<std::size_t>(servers.size(), 8); ++i)
+    coordinator_servers.push_back({CdnServerLabel(servers[i].host), i});
+  if (servers.size() > 8) coordinator_servers.push_back({"other", 8});
+  std::vector<Clock::duration> coordinator_fetch(coordinator_servers.size());
+  stats.server_stats = coordinator_servers;
+
   stats.servers_ms = Milliseconds(Clock::now() - phase_start);
   phase_start = Clock::now();
   trace("manifests");
@@ -389,7 +405,18 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     // cut-off body) is followed by another, after 1, 2, 4 and 8 s, as for chunks.
     const std::size_t attempts = std::min<std::size_t>(std::max<std::size_t>(servers.size() * 2, 4), 6);
     for (std::size_t attempt = 0; attempt < attempts; ++attempt) {
-      fetched = hooks_.manifest(servers[attempt % servers.size()], access.grants[index], cancel, &manifests[index]);
+      const auto server_index = attempt % servers.size();
+      const auto bucket = std::min<std::size_t>(server_index, 8);
+      const auto before = hooks_.cdn_stats ? hooks_.cdn_stats() : CdnStats{};
+      fetched = Timed(coordinator_fetch[bucket], [&] {
+        return hooks_.manifest(servers[server_index], access.grants[index], cancel, &manifests[index]);
+      });
+      auto& server = coordinator_servers[bucket];
+      ++server.requests;
+      if (fetched != InstallError::kNone) ++server.failures;
+      if (hooks_.cdn_stats) server.bytes += hooks_.cdn_stats().bytes - before.bytes;
+      server.fetch_ms = Milliseconds(coordinator_fetch[bucket]);
+      stats.server_stats = coordinator_servers;
       if (fetched != InstallError::kNetwork && fetched != InstallError::kCorrupt) break;
       network_failed = network_failed || fetched == InstallError::kNetwork;
       if (hooks_.pause && attempt + 1 < attempts) hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), cancel);
@@ -561,7 +588,6 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     return fail(InstallError::kStorage, "cannot write journal");
   }
   download_start = last_stats = Clock::now();
-  ScopeExit end_stats{[&] { emit("end"); }};
   auto report_progress = [&] {
     const auto now = Clock::now();
     if (now - last_stats >= std::chrono::seconds(60)) { emit("progress"); last_stats = now; }
@@ -596,6 +622,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     std::uint64_t compressed_bytes = 0, retries = 0, corrupt_retries = 0;
     Clock::duration fetch{}, process{}, backoff{};
     CdnStats cdn;
+    std::vector<InstallServerStats> server_stats;
     std::function<void()> run;
   };
   std::vector<std::unique_ptr<Worker>> workers;
@@ -624,9 +651,16 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     fetch = {}; process = {}; backoff = {}; worker_cdn = {};
     stats.peak_active = peak_active; stats.peak_waiting = peak_waiting;
     stats.chunk_retries = stats.corrupt_retries = 0;
+    stats.server_stats = coordinator_servers;
     for (const auto& worker : workers) {
       fetch += worker->fetch; process += worker->process; backoff += worker->backoff;
       stats.chunk_retries += worker->retries; stats.corrupt_retries += worker->corrupt_retries;
+      for (std::size_t i = 0; i < worker->server_stats.size(); ++i) {
+        auto& server = stats.server_stats[i];
+        const auto& published = worker->server_stats[i];
+        server.requests += published.requests; server.failures += published.failures;
+        server.bytes += published.bytes; server.fetch_ms += published.fetch_ms;
+      }
 #define SUM_CDN(field) worker_cdn.field += worker->cdn.field
       SUM_CDN(requests); SUM_CDN(failures); SUM_CDN(resolve_ms); SUM_CDN(connect_ms); SUM_CDN(tls_ms);
       SUM_CDN(first_byte_ms); SUM_CDN(total_ms); SUM_CDN(new_connections); SUM_CDN(bytes);
@@ -667,6 +701,13 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       // Destroy the HTTP client on the same thread that used it, after publishing its counters.
       ScopeExit release_fetcher{[self] { self->fetcher = {}; }};
       std::size_t server_cursor = 0;
+      std::uint64_t chunks_since_failover = 0;
+      unsigned failed_returns = 0;
+      bool returning = false;
+      // Both the counters and full-precision timers live on the heap, off the native worker stack.
+      std::vector<InstallServerStats> server_stats = coordinator_servers;
+      for (auto& server : server_stats) server.requests = server.failures = server.bytes = server.fetch_ms = 0;
+      std::vector<Clock::duration> server_fetch(server_stats.size());
       Clock::duration fetch_time{}, process_time{}, backoff_time{};
       std::uint64_t retries = 0, corrupt_retries = 0;
 #if defined(__cpp_exceptions)
@@ -682,6 +723,16 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
             ++occupied;
             peak_active = std::max(peak_active, static_cast<std::uint32_t>(occupied));
           }
+          if (order.preferred_found && server_cursor % servers.size() != 0 && failed_returns < 4 &&
+              chunks_since_failover >= (32u << failed_returns)) {
+            server_cursor = 0;
+            returning = true;
+          }
+          const auto failed_over = [&] {
+            if (returning && server_cursor % servers.size() == 0) { ++failed_returns; returning = false; }
+            ++server_cursor;
+            chunks_since_failover = 0;
+          };
           const auto& work = chunks[self->work];
           const auto& placement = files[work.file].placement;
           const auto& grant = access.grants[placement.depot];
@@ -694,13 +745,22 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
           for (std::size_t attempt = 0; attempt < attempts && !stop.load(); ++attempt) {
             if (attempt > 0) ++retries;
             std::vector<std::uint8_t> encrypted;
+            const auto bucket = std::min<std::size_t>(server_cursor % servers.size(), 8);
+            const auto before = self->fetcher.stats ? self->fetcher.stats() : CdnStats{};
             const auto fetched = Timed(fetch_time, [&] {
-              return self->fetcher.fetch(servers[server_cursor % servers.size()], grant.depot_id, Hex(chunk.sha),
-                                         static_cast<std::size_t>(chunk.compressed_size) + 4096, stop, &encrypted);
+              return Timed(server_fetch[bucket], [&] {
+                return self->fetcher.fetch(servers[server_cursor % servers.size()], grant.depot_id, Hex(chunk.sha),
+                                           static_cast<std::size_t>(chunk.compressed_size) + 4096, stop, &encrypted);
+              });
             });
+            auto& server = server_stats[bucket];
+            ++server.requests;
+            if (fetched != CdnError::kNone) ++server.failures;
+            server.bytes += self->fetcher.stats ? self->fetcher.stats().bytes - before.bytes : encrypted.size();
+            server.fetch_ms = Milliseconds(server_fetch[bucket]);
             if (fetched == CdnError::kCanceled || stop.load()) { result = InstallError::kCanceled; break; }
             if (fetched != CdnError::kNone) {
-              ++server_cursor;
+              failed_over();
               result = InstallError::kNetwork;
               if (hooks_.pause && attempt + 1 < attempts)
                 Timed(backoff_time, [&] { hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), stop); });
@@ -710,9 +770,13 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
               return ProcessDepotChunk(encrypted, grant.key, chunk.original_size, chunk.crc, chunk.sha, &plain);
             });
             if (processed == ChunkError::kNone) {
+              if (server_cursor % servers.size() == 0) {
+                returning = false;
+              } else ++chunks_since_failover;
               compressed_bytes = encrypted.size(); result = InstallError::kNone; break;
             }
-            ++server_cursor;
+            ++server.failures;  // received bytes that failed verification are unusable too
+            failed_over();
             if (attempt + 1 < attempts) ++corrupt_retries;
             result = InstallError::kCorrupt;
           }
@@ -729,6 +793,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
             std::lock_guard<std::mutex> lock(mutex);
             self->fetch = fetch_time; self->process = process_time; self->backoff = backoff_time;
             self->retries = retries; self->corrupt_retries = corrupt_retries; self->cdn = cdn;
+            self->server_stats = server_stats;
             if (result != InstallError::kNone) { fail_locked(result, std::move(detail)); break; }
             self->plain = std::move(plain); self->compressed_bytes = compressed_bytes;
             self->ready = true;
