@@ -259,7 +259,7 @@ add_library(playden_homebrew_artwork STATIC
 target_compile_features(playden_homebrew_artwork PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_artwork PUBLIC "${CMAKE_SOURCE_DIR}/src"
     PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}" "${CMAKE_SOURCE_DIR}/third_party/ps5-homebrew-ui/third_party/stb")
-target_link_libraries(playden_homebrew_artwork PUBLIC playden_library playden_steam_http)
+target_link_libraries(playden_homebrew_artwork PUBLIC playden_library playden_steam_http playden_managed_directory)
 
 add_library(playden_homebrew_artwork_cache STATIC "${CMAKE_SOURCE_DIR}/src/homebrew/artwork_cache.cpp")
 target_compile_features(playden_homebrew_artwork_cache PUBLIC cxx_std_20)

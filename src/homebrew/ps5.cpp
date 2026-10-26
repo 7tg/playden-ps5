@@ -242,6 +242,7 @@ int main() {
     // After the grant, user data, logs and games live outside the app folder (0.6 layout).
     log_root = playden::ps5::EffectiveLogRoot(paths);
     const std::string user_root = playden::ps5::EffectiveUserRoot(paths);
+    const std::string art_cache_dir = paths.runtime_data_root.empty() ? std::string{} : (paths.runtime_data_root + "/art");
     // Startup checkpoints: a launch that never shows its first frame can be told
     // apart from one that never opened the display.
     playden::app::AppendLogLine(log_root, "launch.log", "display open width=" + std::to_string(display.width()) +
@@ -525,12 +526,12 @@ int main() {
                 std::fclose(file);
                 if (!bytes.empty()) generic_icon = std::move(bytes);
             }
-            config.title_icon = [trust = paths.trust_store, generic_icon](const playden::GameId& game) -> std::optional<std::string> {
+            config.title_icon = [trust = paths.trust_store, art_cache_dir, generic_icon](const playden::GameId& game) -> std::optional<std::string> {
                 // A store with no cover for the game (an imported one) gets the generic icon.
                 const auto source = playden::homebrew::CoverUrl(game);
                 std::optional<playden::homebrew::ArtworkImage> cover;
                 if (!source.empty()) {
-                    playden::homebrew::HttpArtworkBackend backend(trust);
+                    playden::homebrew::HttpArtworkBackend backend(trust, art_cache_dir);
                     const std::atomic<bool> cancel{false};
                     cover = backend.Load({1, game, source}, cancel);
                 }
@@ -764,7 +765,7 @@ int main() {
 #if PLAYDEN_UI_SIMULATION
         playden::homebrew::Render renderer(paths.assets_root);
 #else
-        playden::homebrew::HttpArtworkBackend artwork_backend(paths.trust_store);
+        playden::homebrew::HttpArtworkBackend artwork_backend(paths.trust_store, art_cache_dir);
         playden::homebrew::ArtworkService artwork(artwork_backend);
         playden::homebrew::Render renderer(paths.assets_root, &artwork);
 #endif

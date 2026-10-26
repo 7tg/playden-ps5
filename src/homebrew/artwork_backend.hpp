@@ -29,7 +29,7 @@ std::optional<ArtworkImage> DecodeArtworkWithAllocationBudget(
 
 class HttpArtworkBackend final : public ArtworkBackend {
  public:
-  explicit HttpArtworkBackend(std::string ca_bundle);
+  explicit HttpArtworkBackend(std::string ca_bundle, std::string cache_dir = "");
   ~HttpArtworkBackend() override;
   HttpArtworkBackend(const HttpArtworkBackend&) = delete;
   HttpArtworkBackend& operator=(const HttpArtworkBackend&) = delete;
@@ -37,9 +37,14 @@ class HttpArtworkBackend final : public ArtworkBackend {
   std::optional<ArtworkImage> Load(
       const ArtworkKey&, const std::atomic<bool>& cancel) override;
 
+  const std::string& cache_dir() const noexcept { return cache_dir_; }
+
  private:
+  struct Cache;
   std::string ca_bundle_;
+  std::string cache_dir_;
   std::unique_ptr<steam::HttpClient> http_;
+  std::unique_ptr<Cache> cache_;
 };
 
 }  // namespace playden::homebrew

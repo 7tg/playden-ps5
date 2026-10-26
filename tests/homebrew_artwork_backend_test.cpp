@@ -1,11 +1,14 @@
 #include "homebrew/artwork_backend.hpp"
+#include "platform/managed_directory.h"
 
 #include <atomic>
 #include <cassert>
 #include <cstdio>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
+#include <unistd.h>
 #include "steam_id.h"
 
 using namespace playden::homebrew;
@@ -162,6 +165,36 @@ void InvalidHttpIdentityIsRejectedWithoutTransport() {
   assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/42/header.jpg"}, cancel));
 }
 
+void ReadsFromManagedDiskCache() {
+  char pattern[] = "/tmp/playden-art-cache-XXXXXX";
+  if (::mkdtemp(pattern)) {
+    const std::filesystem::path root = std::filesystem::canonical(pattern);
+    const std::filesystem::path art_dir = root / "art";
+    auto parent = playden::platform::ManagedDirectory::Open(root, playden::platform::DirectoryPolicy::kApprovedTree);
+    assert(parent);
+    auto managed = parent->OpenChild("art", playden::platform::DirectoryPolicy::kPrivate, true, 0700);
+    assert(managed);
+
+    const int fd = managed->CreateExclusiveFile("42_600x900.jpg", 0600);
+    assert(fd >= 0);
+    const auto jpeg = SmallJpeg();
+    assert(::write(fd, jpeg.data(), jpeg.size()) == static_cast<ssize_t>(jpeg.size()));
+    assert(::fsync(fd) == 0 && ::close(fd) == 0);
+    assert(managed->Sync());
+
+    HttpArtworkBackend backend("unused-ca.pem", art_dir.string());
+    assert(backend.cache_dir() == art_dir.string());
+    std::atomic<bool> cancel{false};
+    const auto image = backend.Load(
+        {1, SteamId(42),
+         "https://cdn.cloudflare.steamstatic.com/steam/apps/42/library_600x900.jpg"},
+        cancel);
+    assert(image && image->width > 0 && image->height > 0);
+
+    std::filesystem::remove_all(root);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -183,4 +216,5 @@ int main(int argc, char** argv) {
   RejectsEmptyCorruptAndTransferOverflow();
   RejectsOversizedPngDimensionsBeforePixelAllocation();
   InvalidHttpIdentityIsRejectedWithoutTransport();
+  ReadsFromManagedDiskCache();
 }

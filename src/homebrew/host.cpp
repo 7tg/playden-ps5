@@ -676,7 +676,8 @@ int main(int argc, char** argv) {
     }
 
     if (!options->simulation) {
-        artwork_backend = std::make_unique<playden::homebrew::HttpArtworkBackend>(PLAYDEN_HOMEBREW_CA_BUNDLE);
+        const std::string art_cache_dir = (options->data_directory / "art").string();
+        artwork_backend = std::make_unique<playden::homebrew::HttpArtworkBackend>(PLAYDEN_HOMEBREW_CA_BUNDLE, art_cache_dir);
         artwork = std::make_unique<playden::homebrew::ArtworkService>(*artwork_backend);
     }
     auto render = std::make_unique<playden::homebrew::Render>(PLAYDEN_HOMEBREW_ASSETS_DIR, artwork.get());
