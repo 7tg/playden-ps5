@@ -21,7 +21,7 @@ struct TitleRemoverConfig {
   // Exchange directory the payload reads (0755, owned by Playden; see
   // tools/title-remover/main.c) and the payload itself, shipped in Playden's title.
   std::filesystem::path request_directory = "/data/playden/title-remover";
-  std::filesystem::path payload = "/data/homebrew/FAKE77031/title-remover.elf";
+  std::filesystem::path payload;  // <title root>/title-remover.elf
   // Sends the payload's bytes to the payload loader; false with a reason on failure.
   std::function<bool(const std::string& elf, std::string* error)> send;
   int result_polls = 60;
