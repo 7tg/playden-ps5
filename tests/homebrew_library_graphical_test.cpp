@@ -266,6 +266,30 @@ int main(int argc,char** argv) {
       assert(live.action("cross"));
       assert(live.action("focus:kept-toggle-43") && live.action("cross"));
       capture_live("kept-manager.png");
+      // Leftover title folders: the title ID and size stay beside Delete, which always asks first.
+      while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
+      live.UpdateLeftoverTitles({{"FAKE78001", "A Short Hike", 12'000'000}, {"FAKE78002", "Portal", 8'000'000}});
+      assert(live.action("focus:settings-leftovers"));
+      capture_live("settings-leftover-titles.png");
+      assert(live.action("cross"));
+      assert(live.action("focus:leftover-toggle-FAKE78002"));
+      assert(live.action("cross"));
+      capture_live("leftover-titles-manager.png");
+      assert(live.action("focus:leftover-selection-delete"));
+      assert(live.action("cross"));
+      assert(live.state().navigation.focus_key == "cancel");
+      capture_live("leftover-title-confirm.png");
+      assert(live.action("circle"));
+      assert(live.action("circle"));
+      live.UpdateLeftoverDeletions({{"FAKE78001", "A Short Hike", "Deleting title files…", ""},
+                                   {"FAKE78002", "Portal", "", ""}});
+      live.action("l1"); live.action("l1");
+      assert(live.state().navigation.route == Route::Downloads);
+      capture_live("queue-leftover-titles.png");
+      live.action("r1"); live.action("r1");
+      assert(live.state().navigation.route == Route::Settings);
+      live.UpdateLeftoverTitles({});
+      live.UpdateLeftoverDeletions({});
       // Settings > Storage: the default drive's usage above the rows, then the installed games list.
       while(!live.state().navigation.modals.empty()) assert(live.action("circle"));
       live.UpdateVolumes({{"internal","Console storage",true,825'000'000'000ull,512'000'000'000ull}}, "internal");

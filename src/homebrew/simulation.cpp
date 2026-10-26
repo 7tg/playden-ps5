@@ -903,6 +903,46 @@ std::vector<GameId> Simulation::TakeRuntimePrepareRequests() {
     return requests;
 }
 
+void Simulation::UpdateLeftoverTitles(std::vector<LiveLeftoverTitle> titles) {
+    state_.leftover_titles = std::move(titles);
+    std::erase_if(leftover_selected_, [this](const std::string& id) {
+        return std::none_of(state_.leftover_titles.begin(), state_.leftover_titles.end(),
+                            [&](const LiveLeftoverTitle& item) { return item.title_id == id; });
+    });
+    // An open manager lists what is left now; with nothing left it closes.
+    auto& modals = state_.navigation.modals;
+    for (std::size_t index = 0; index < modals.size(); ++index) {
+        auto& modal = modals[index];
+        if (modal.id != "leftover-titles") continue;
+        if (state_.leftover_titles.empty()) {
+            // Nothing left to choose: the manager closes with anything over it (its confirmation).
+            if (pending_destructive_action_ == "leftover-selection-delete") pending_destructive_action_.clear();
+            state_.navigation.focus_key = modal.opener_focus_key;
+            modals.erase(modals.begin() + static_cast<std::ptrdiff_t>(index), modals.end());
+            break;
+        }
+        const auto focused = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+        modal.action_keys = leftover_manager_actions();
+        const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), focused);
+        modal.focused_action = found == modal.action_keys.end()
+            ? std::min(modal.focused_action, static_cast<int>(modal.action_keys.size()) - 1)
+            : static_cast<int>(found - modal.action_keys.begin());
+        if (index + 1 == modals.size()) state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+    }
+    rebuild_view();
+}
+
+void Simulation::UpdateLeftoverDeletions(std::vector<LiveLeftoverDelete> deletions) {
+    state_.leftover_deletions = std::move(deletions);
+    rebuild_view();
+}
+
+std::vector<std::string> Simulation::TakeLeftoverDeleteRequests() {
+    auto requests = std::move(pending_leftover_delete_requests_);
+    pending_leftover_delete_requests_.clear();
+    return requests;
+}
+
 void Simulation::UpdateKeptBottles(std::vector<LiveKeptBottle> kept) {
     state_.kept_bottles = std::move(kept);
     std::erase_if(kept_selected_, [this](GameId id) {
@@ -1332,6 +1372,20 @@ std::vector<std::string> Simulation::kept_manager_actions() const {
     actions.push_back("kept-selection-delete");
     actions.push_back("cancel");
     return actions;
+}
+
+std::vector<std::string> Simulation::leftover_manager_actions() const {
+    std::vector<std::string> actions{"leftover-select-all"};
+    for (const auto& title : state_.leftover_titles) actions.push_back("leftover-toggle-" + title.title_id);
+    actions.push_back("leftover-selection-delete");
+    actions.push_back("cancel");
+    return actions;
+}
+
+// A title whose deletion is queued or running; one that stopped with a failure can be chosen again.
+bool Simulation::leftover_queued(const std::string& title_id) const {
+    return std::any_of(state_.leftover_deletions.begin(), state_.leftover_deletions.end(),
+                       [&](const LiveLeftoverDelete& deletion) { return deletion.title_id == title_id && deletion.failure.empty(); });
 }
 
 std::vector<GameId> Simulation::installed_list() const {
@@ -3468,7 +3522,15 @@ bool Simulation::save_profile() {
 
 bool Simulation::scenario(const std::string& name) {
     if (live()) return false;
-    if (name == "download-servers") {
+    if (name == "leftover-titles") {
+        state_.account().authentication = AuthState::SignedIn;
+        state_.navigation.modals.clear();
+        state_.navigation.route = Route::Settings;
+        state_.navigation.focus_key = "settings-leftovers";
+        state_.leftover_titles = {{"FAKE78001", "A Short Hike", 12'000'000}, {"FAKE78002", "Portal", 8'000'000}};
+        state_.leftover_deletions.clear();
+        state_.jobs.clear();
+    } else if (name == "download-servers") {
         download_server_fixture_ = true;
         download_servers_ = {};
         download_servers_.phase = "listed";
@@ -4051,6 +4113,9 @@ void Simulation::rebuild_view() {
         if (modal.id == "kept-data")
             view_.subtitle = "Saves and settings kept when a game was uninstalled. Installing a game again brings its saves "
                              "back. Saves in Steam Cloud stay in Steam Cloud.";
+        if (modal.id == "leftover-titles")
+            view_.subtitle = "PS5 titles Playden made but no longer has a record of. Deleting one removes its title and Home "
+                             "tile; its saves and game files stay.";
         if (modal.id == "download-server")
             view_.subtitle = "Applies to downloads that start or resume from now.";
         for (const auto& action_key : modal.action_keys) {
@@ -4575,6 +4640,38 @@ void Simulation::rebuild_view() {
                 item.dangerous = true;
                 item.enabled = !kept_selected_.empty();
                 if (!kept_selected_.empty()) item.value = kept_count(kept_selected_.size()) + " · " + format_bytes(bytes);
+            }
+            else if (action_key == "leftover-select-all") {
+                std::size_t choosable = 0;
+                for (const auto& title : state_.leftover_titles) if (!leftover_queued(title.title_id)) ++choosable;
+                item.title = choosable > 0 && leftover_selected_.size() == choosable ? "Clear selection" : "Select all";
+                item.enabled = choosable > 0;
+            }
+            else if (action_key.rfind("leftover-toggle-", 0) == 0) {
+                const auto id = action_key.substr(std::strlen("leftover-toggle-"));
+                for (const auto& title : state_.leftover_titles) {
+                    if (title.title_id != id) continue;
+                    item.kind = RowKind::Toggle;
+                    item.title = title.name.empty() ? id : title.name;
+                    item.value = format_bytes(title.bytes);
+                    item.subtitle = id;
+                    for (const auto& deletion : state_.leftover_deletions)
+                        if (deletion.title_id == id)
+                            item.subtitle += " · " + (!deletion.failure.empty() ? deletion.failure
+                                                      : !deletion.step.empty() ? deletion.step : std::string("Queued"));
+                    item.enabled = !leftover_queued(id);
+                    item.selected = leftover_selected_.contains(id);
+                }
+            }
+            else if (action_key == "leftover-selection-delete") {
+                std::uint64_t bytes = 0;
+                for (const auto& title : state_.leftover_titles) if (leftover_selected_.contains(title.title_id)) bytes += title.bytes;
+                item.title = "Delete selected";
+                item.dangerous = true;
+                item.enabled = !leftover_selected_.empty();
+                if (!leftover_selected_.empty())
+                    item.value = std::to_string(leftover_selected_.size()) + (leftover_selected_.size() == 1 ? " title · " : " titles · ") +
+                                 format_bytes(bytes);
             }
             else if (action_key == "uninstall-delete-saves") {
                 item.kind = RowKind::Toggle;
@@ -5379,6 +5476,15 @@ void Simulation::rebuild_view() {
                 for (const auto& item : state_.kept_bottles) bytes += item.bytes;
                 kept.value = kept_count(state_.kept_bottles.size()) + " · " + format_bytes(bytes);
             }
+        }
+        if (!state_.leftover_titles.empty()) {
+            // PS5 titles Playden made but has no record of: one row that opens their manager, like kept game data.
+            std::uint64_t bytes = 0;
+            for (const auto& title : state_.leftover_titles) bytes += title.bytes;
+            const auto count = state_.leftover_titles.size();
+            auto& item = add("settings-leftovers", RowKind::Action, "Leftover PS5 titles", "leftover-manage");
+            item.subtitle = "Game titles Playden no longer has a record of";
+            item.value = std::to_string(count) + (count == 1 ? " title · " : " titles · ") + format_bytes(bytes);
         }
         if (live() && state_.runtime_leftover_requests > 0) {
             // Explicit recovery: settings requests no game is using any more.
@@ -6753,6 +6859,13 @@ void Simulation::activate() {
                    static_cast<std::size_t>(std::count_if(state_.ended_uninstalls.begin(), state_.ended_uninstalls.end(),
                                                           [](const EndedUninstall& ended) { return ended.stopped.empty(); }));
         };
+        if (key.rfind("prep-leftover-", 0) == 0) {
+            ModalEntry progress{"prep-actions", "Title deletion", selected.key, {"cancel"}, 0, false};
+            progress.body = selected.title + " · " + selected.value +
+                            (selected.subtitle.empty() ? std::string() : "\n" + selected.subtitle);
+            open_modal(std::move(progress));
+            return;
+        }
         if (key.rfind("prep-unin-", 0) == 0) {
             // An uninstall: its game's page while the library has it; one that ended leaves the list.
             if (find_game(state_, selected.game_id)) actions.push_back("prep-open-" + id);
@@ -7338,6 +7451,49 @@ void Simulation::activate() {
         confirmation.body = "The game's folder and files stay where they are, and Import games can add it again. Its PS5 "
                             "title is removed; its saves and settings on this console are kept.";
         open_modal(std::move(confirmation));
+    } else if (action_name == "leftover-manage") {
+        if (state_.leftover_titles.empty()) return;
+        leftover_selected_.clear();
+        open_modal({"leftover-titles", "Leftover PS5 titles", state_.navigation.focus_key, leftover_manager_actions(), 0, false});
+    } else if (action_name == "leftover-select-all") {
+        std::set<std::string> choosable;
+        for (const auto& title : state_.leftover_titles) if (!leftover_queued(title.title_id)) choosable.insert(title.title_id);
+        if (leftover_selected_ == choosable) leftover_selected_.clear();
+        else leftover_selected_ = std::move(choosable);
+    } else if (action_name.rfind("leftover-toggle-", 0) == 0) {
+        const auto id = action_name.substr(std::strlen("leftover-toggle-"));
+        if (leftover_queued(id)) return;
+        if (!leftover_selected_.erase(id)) leftover_selected_.insert(id);
+    } else if (action_name == "leftover-selection-delete") {
+        if (leftover_selected_.empty()) return;
+        std::uint64_t bytes = 0;
+        std::string only;
+        for (const auto& title : state_.leftover_titles)
+            if (leftover_selected_.contains(title.title_id)) {
+                bytes += title.bytes;
+                only = (title.name.empty() ? title.title_id : title.name) + " (" + title.title_id + ")";
+            }
+        pending_destructive_action_ = action_name;
+        const bool one = leftover_selected_.size() == 1;
+        ModalEntry confirmation{"confirmation", one ? "Delete leftover PS5 title?" : "Delete leftover PS5 titles?",
+                                state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
+        confirmation.body = (one ? only + " and its PS5 Home tile are" : std::to_string(leftover_selected_.size()) +
+                             " leftover PS5 titles and their Home tiles are") + " deleted (" + format_bytes(bytes) + "). " +
+                            (one ? "Its" : "Their") + " saves and game files are kept.";
+        open_modal(std::move(confirmation));
+    } else if (action_name == "confirm-destructive" && pending_destructive_action_ == "leftover-selection-delete") {
+        pending_destructive_action_.clear();
+        for (const auto& title : state_.leftover_titles) {
+            if (!leftover_selected_.contains(title.title_id) || leftover_queued(title.title_id)) continue;
+            const auto id = title.title_id;
+            std::erase_if(state_.leftover_deletions, [&](const LiveLeftoverDelete& deletion) { return deletion.title_id == id; });
+            state_.leftover_deletions.push_back({id, title.name, "", ""});
+            if (live()) pending_leftover_delete_requests_.push_back(id);
+            else if (state_.leftover_deletions.size() == 1) leftover_delete_ticks_ = 0;
+        }
+        leftover_selected_.clear();
+        state_.navigation.focus_key = state_.navigation.modals.front().opener_focus_key;
+        state_.navigation.modals.clear();
     } else if (live() && action_name == "kept-manage") {
         if (state_.kept_bottles.empty()) return;
         kept_selected_.clear();
@@ -7824,7 +7980,7 @@ void Simulation::activate() {
     }
     else if (kOfferGoBack && live() && action_name == "self-update-back-confirm") { close_modal(); request_self_update_restart("rollback"); }
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
-        {"scenario-default", "scenario-download-servers", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "scenario-import-empty", "scenario-import-candidates", "scenario-import-programs", "scenario-import-choice", "scenario-import-storage", "scenario-import-drop-choice", "scenario-import-drop-storage", "scenario-import-details", "scenario-import-copying", "scenario-import-library", "cancel"}, 0, false});
+        {"scenario-default", "scenario-leftover-titles", "scenario-download-servers", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "scenario-import-empty", "scenario-import-candidates", "scenario-import-programs", "scenario-import-choice", "scenario-import-storage", "scenario-import-drop-choice", "scenario-import-drop-storage", "scenario-import-details", "scenario-import-copying", "scenario-import-library", "cancel"}, 0, false});
     else if (action_name.rfind("scenario-", 0) == 0) { state_.navigation.modals.clear(); scenario(action_name.substr(9)); }
     else if (action_name == "session-fixture-controls") open_modal({"session-controls", "Session fixture controls", state_.navigation.focus_key,
         {"advance-clock", "inject-stop-failure", "inject-crash", "cancel"}, 0, false});
@@ -8406,6 +8562,17 @@ void Simulation::tick(int ticks) {
                     else progress.phase = "tested";
                 }
                 ApplyLiveDownloadServers(progress);
+            }
+            if (!state_.leftover_deletions.empty()) {
+                auto& deletion = state_.leftover_deletions.front();
+                ++leftover_delete_ticks_;
+                deletion.step = leftover_delete_ticks_ < 3 ? "Removing PS5 title…" : "Deleting title files…";
+                if (leftover_delete_ticks_ >= 6) {
+                    const auto id = deletion.title_id;
+                    std::erase_if(state_.leftover_titles, [&](const LiveLeftoverTitle& title) { return title.title_id == id; });
+                    state_.leftover_deletions.erase(state_.leftover_deletions.begin());
+                    leftover_delete_ticks_ = 0;
+                }
             }
             advance_jobs();
             // A finished copy of an imported game: it plays from Playden's storage, not its folder.

@@ -847,6 +847,15 @@ void Controller::TickRuntime() {
   if (model_.TakeRuntimeCleanupRequest()) runtime_->CleanUpRequests();
   for (const auto& id : model_.TakeKeptDeleteRequests())
     WithApp(id, [this](std::uint32_t app) { runtime_->DeleteKeptBottle(app); });
+  for (const auto& id : model_.TakeLeftoverDeleteRequests()) {
+    std::string error;
+    if (!runtime_->DeleteLeftoverTitle(id, &error)) {
+      auto deletions = leftover_deletions_projected_;
+      std::erase_if(deletions, [&](const LiveLeftoverDelete& deletion) { return deletion.title_id == id; });
+      deletions.push_back({id, leftover_names_[id], "", error.empty() ? "The title could not be queued for deletion." : error});
+      model_.UpdateLeftoverDeletions(std::move(deletions));
+    }
+  }
   for (const auto& id : model_.TakeActivityRequests())
     WithApp(id, [this](std::uint32_t app) { runtime_->CheckActivity(app); });
   for (const auto id : model_.TakeProgramScanRequests())
@@ -889,6 +898,28 @@ void Controller::TickRuntime() {
       std::vector<LiveKeptBottle> kept;
       for (const auto& bottle : current.kept_bottles) kept.push_back({bottle.game, bottle.name, bottle.kept_at, bottle.bytes});
       if (kept != kept_projected_) { kept_projected_ = kept; model_.UpdateKeptBottles(std::move(kept)); }
+      std::vector<LiveLeftoverTitle> leftovers;
+      for (const auto& title : current.leftover_titles) {
+        leftovers.push_back({title.title_id, title.name, title.bytes});
+        leftover_names_[title.title_id] = title.name;
+      }
+      if (leftovers != leftovers_projected_) {
+        leftovers_projected_ = leftovers;
+        model_.UpdateLeftoverTitles(std::move(leftovers));
+      }
+      std::vector<LiveLeftoverDelete> deletions;
+      if (current.deleting_leftover_title) {
+        const auto& id = *current.deleting_leftover_title;
+        deletions.push_back({id, leftover_names_[id], current.deleting_leftover_step, ""});
+      }
+      for (const auto& id : current.queued_leftover_deletes)
+        if (current.deleting_leftover_title != id) deletions.push_back({id, leftover_names_[id], "", ""});
+      for (const auto& [id, error] : current.leftover_delete_failures)
+        deletions.push_back({id, leftover_names_[id], "", error});
+      if (deletions != leftover_deletions_projected_) {
+        leftover_deletions_projected_ = deletions;
+        model_.UpdateLeftoverDeletions(std::move(deletions));
+      }
     }
   }
   auto plays = model_.TakeRuntimePlayRequests();

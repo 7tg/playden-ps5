@@ -3224,7 +3224,83 @@ void live_download_server_picker() {
           "Automatic clears the stored choice");
 }
 
+void leftover_titles_require_confirmation_and_follow_the_queue() {
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    model.action("l1");
+    check(!has_row(model, "settings-leftovers"), "no leftover row without titles");
+    model.UpdateLeftoverTitles({{"FAKE78001", "Lost game (Steam)", 12'000'000}, {"FAKE78002", "", 3'000'000}});
+    const auto* row = find_row(model, "settings-leftovers");
+    check(row && row->title == "Leftover PS5 titles" && row->value == "2 titles · 15 MB" && row->section == "Storage" &&
+              !has_row(model, "settings-leftover-FAKE78001"),
+          "Storage has one Leftover PS5 titles row with their count and size, like Kept game data");
+    activate(model, "settings-leftovers");
+    check(model.state().navigation.modals.back().id == "leftover-titles" && model.view().surface == "leftover-titles",
+          "the row opens the leftover titles manager");
+    const auto* named = find_row(model, "leftover-toggle-FAKE78001");
+    check(named && named->title == "Lost game (Steam)" && named->subtitle == "FAKE78001" && named->value == "12 MB" &&
+              named->kind == RowKind::Toggle && !named->selected,
+          "each title is a checkbox with its ID and size");
+    check(find_row(model, "leftover-toggle-FAKE78002")->title == "FAKE78002", "an unnamed title uses its ID");
+    check(!find_row(model, "leftover-selection-delete")->enabled, "nothing to delete before choosing");
+    activate(model, "leftover-toggle-FAKE78001");
+    check(find_row(model, "leftover-selection-delete")->value == "1 title · 12 MB", "Delete selected counts the choice");
+    activate(model, "leftover-selection-delete");
+    check(model.TakeLeftoverDeleteRequests().empty(), "opening the confirmation deletes nothing");
+    check(model.state().navigation.focus_key == "cancel" &&
+              model.state().navigation.modals.back().body.find("Lost game (Steam) (FAKE78001)") != std::string::npos &&
+              model.state().navigation.modals.back().body.find("saves and game files are kept") != std::string::npos,
+          "confirmation starts on Cancel and describes the deletion scope");
+    activate(model, "cancel");
+    check(model.TakeLeftoverDeleteRequests().empty() && model.state().navigation.modals.back().id == "leftover-titles",
+          "Cancel deletes nothing and returns to the manager");
+    activate(model, "leftover-select-all");
+    activate(model, "leftover-selection-delete");
+    check(model.state().navigation.modals.back().body.find("2 leftover PS5 titles") != std::string::npos,
+          "several titles are named by count");
+    activate(model, "confirm-destructive");
+    check(model.TakeLeftoverDeleteRequests() == std::vector<std::string>{"FAKE78001", "FAKE78002"},
+          "every confirmed title is requested, in list order");
+    check(model.TakeLeftoverDeleteRequests().empty(), "requests are consumed once");
+    check(model.state().navigation.modals.empty() && model.state().navigation.focus_key == "settings-leftovers",
+          "confirming closes the manager and returns to the Storage row");
+    model.UpdateLeftoverDeletions({{"FAKE78001", "Lost game (Steam)", "Removing PS5 title…", ""},
+                                  {"FAKE78002", "", "", ""}});
+    const auto layout = playden::homebrew::BuildQueueLayout(model.state());
+    check(layout.preparation.active && layout.preparation.active->key == "prep-leftover-FAKE78001" &&
+              layout.preparation.active->note == "Removing PS5 title…" && layout.preparation.waiting == 1 &&
+              playden::homebrew::QueuePending(model.state()) == 2,
+          "Queue keeps active and waiting titles distinct with the actual step");
+    activate(model, "settings-leftovers");
+    const auto* queued = find_row(model, "leftover-toggle-FAKE78002");
+    check(queued && !queued->enabled && queued->subtitle == "FAKE78002 · Queued" &&
+              find_row(model, "leftover-toggle-FAKE78001")->subtitle == "FAKE78001 · Removing PS5 title…",
+          "a queued title shows its step and cannot be chosen again");
+    check(!find_row(model, "leftover-select-all")->enabled, "Select all has nothing to choose while both are queued");
+    model.UpdateLeftoverDeletions({{"FAKE78001", "Lost game (Steam)", "", "The PS5 refused removal."}});
+    const auto stopped = playden::homebrew::BuildQueueLayout(model.state());
+    check(stopped.preparation.attention == 1 && stopped.preparation.rows.front().note == "The PS5 refused removal.",
+          "a failed leftover deletion remains visible in Queue");
+    const auto* failed = find_row(model, "leftover-toggle-FAKE78001");
+    check(failed && failed->enabled && failed->subtitle == "FAKE78001 · The PS5 refused removal.",
+          "a failed title shows why and can be chosen again");
+    activate(model, "leftover-toggle-FAKE78002");
+    activate(model, "leftover-selection-delete");
+    model.UpdateLeftoverTitles({{"FAKE78001", "Lost game (Steam)", 12'000'000}});
+    activate(model, "confirm-destructive");
+    check(model.TakeLeftoverDeleteRequests().empty(), "a title that disappeared while confirming is not requested");
+    model.UpdateLeftoverDeletions({});
+    activate(model, "settings-leftovers");
+    activate(model, "leftover-toggle-FAKE78001");
+    activate(model, "leftover-selection-delete");
+    model.UpdateLeftoverTitles({});
+    check(model.state().navigation.modals.empty() && !has_row(model, "settings-leftovers"),
+          "the manager and its confirmation close and the row disappears when no leftovers remain");
+    check(model.TakeLeftoverDeleteRequests().empty(), "closing the confirmation requested nothing");
+}
+
 int main() {
+    leftover_titles_require_confirmation_and_follow_the_queue();
     live_download_server_picker();
     live_import_sheet_sends_requests();
     live_import_choice_and_details();

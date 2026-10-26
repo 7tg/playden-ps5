@@ -5243,9 +5243,307 @@ void RelocationStopsWaitingWhenPlaydenCloses() {
   host.Shutdown();
 }
 
+namespace {
+constexpr const char* kLeftoverOperation = "00000000-0000-4000-8000-000000000001";
+
+RuntimeHostConfig LeftoverConfig(Fixture& fixture) {
+  auto config = fixture.Config();
+  config.uuid = [] { return std::optional<std::string>(kLeftoverOperation); };
+  config.removal_confirm_polls = 1;
+  config.removal_poll_interval = std::chrono::milliseconds(1);
+  // Removing a manual source does not itself register the title.
+  config.registry_transport = [&fixture](const std::string& route, const std::string&) -> std::optional<std::string> {
+    if (route != "/api/v1/games") { ++fixture.registry_mutations; return R"({"status":0})"; }
+    if (!fixture.registered) return R"({"status":0,"games":[]})";
+    return R"({"status":0,"games":[{"title_id":"FAKE78001","installed":true,"managed":true,)"
+           R"("source_available":true,"source_type":"folder","path":"/data/homebrew/FAKE78001"}]})";
+  };
+  return config;
+}
+
+fs::path MakeLeftover(Fixture& fixture) {
+  const auto title = fixture.root / "data/homebrew/FAKE78001";
+  Write(title / "sce_sys/param.json", R"({"localizedParameters":{"en-US":{"titleName":"Left Behind"}}})", 0644);
+  Write(title / "eboot.bin", "title-files", 0755);
+  CHECK(chmod(title.c_str(), 0755) == 0);
+  return title;
+}
+}  // namespace
+
+void DeletesLeftoverTitleAndResumesFailures() {
+  // Listed, already absent, unavailable build, unavailable remover, refused and silent remover.
+  for (int scenario = 0; scenario < 6; ++scenario) {
+    Fixture fixture;
+    auto config = LeftoverConfig(fixture);
+    const auto title = MakeLeftover(fixture);
+    fixture.registered = scenario != 1;
+    unsigned calls = 0;
+    if (scenario != 1 && scenario != 2)
+      config.unregister_title = [&fixture, &calls, scenario](const std::string& id, const std::string& nonce) {
+        CHECK(id == "FAKE78001" && nonce == kLeftoverOperation);
+        ++calls;
+        if (scenario == 3) return TitleRemoverResult{false, std::nullopt, "unavailable"};
+        if (scenario == 4) return TitleRemoverResult{true, -1, "refused"};
+        if (scenario == 5) return TitleRemoverResult{true, std::nullopt, "silent"};
+        fixture.registered = false;
+        return TitleRemoverResult{true, 0, "removed"};
+      };
+    const auto bottle = fixture.root / "data/playden/games/steam-220/save.dat";
+    const auto files = fixture.root / "data/playden-games/steam-220/game.exe";
+    Write(bottle, "saved-game", 0600);
+    Write(files, "downloaded-game", 0644);
+    {
+      RuntimeHost host(config);
+      CHECK(host.Start());
+      const auto started = WaitFor(host, Started);
+      CHECK(started.leftover_titles.size() == 1);
+      CHECK(started.leftover_titles[0].title_id == "FAKE78001" && started.leftover_titles[0].name == "Left Behind");
+      CHECK(started.leftover_titles[0].bytes > 11 && started.installs.empty());
+      CHECK(host.DeleteLeftoverTitle("FAKE78001"));
+      const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.leftover_deletes_handled == 1; });
+      CHECK(!done.deleting_leftover_title && done.queued_leftover_deletes.empty());
+      if (scenario <= 1) {
+        CHECK(done.leftover_titles.empty() && done.leftover_delete_failures.empty());
+        CHECK(!fs::exists(title));
+        CHECK(!fs::exists(config.state_root / "leftover-FAKE78001.json"));
+        CHECK(calls == (scenario == 0 ? 1 : 0));
+      } else {
+        CHECK(done.leftover_delete_failures.count("FAKE78001") == 1);
+        CHECK(done.leftover_titles.size() == 1);  // retry remains available after retire
+        if (scenario == 2) {
+          CHECK(fs::is_directory(title));
+          CHECK(!fs::exists(config.state_root / "leftover-FAKE78001.json"));
+        } else {
+          CHECK(!fs::exists(title));
+          const auto journal = config.state_root / "leftover-FAKE78001.json";
+          struct stat info{};
+          CHECK(lstat(journal.c_str(), &info) == 0 && (info.st_mode & 07777) == 0600);
+          CHECK(Read(journal).find("\"step\":\"unregister\"") != std::string::npos);
+          CHECK(fs::is_directory(config.state_root / "trash" / (std::string("FAKE78001-") + kLeftoverOperation)));
+          if (scenario == 3) CHECK(done.leftover_delete_failures.at("FAKE78001").find("could not start") != std::string::npos);
+          if (scenario == 4) CHECK(done.leftover_delete_failures.at("FAKE78001").find("0xffffffff") != std::string::npos);
+          if (scenario == 5) CHECK(done.leftover_delete_failures.at("FAKE78001").find("has not confirmed") != std::string::npos);
+        }
+      }
+      CHECK(Read(bottle) == "saved-game" && Read(files) == "downloaded-game");
+      host.Shutdown();
+    }
+    if (scenario < 3) continue;
+    config.unregister_title = [&fixture, &calls](const std::string&, const std::string&) {
+      ++calls;
+      fixture.registered = false;
+      return TitleRemoverResult{true, 0, "removed"};
+    };
+    RuntimeHost restarted(config);
+    CHECK(restarted.Start());
+    const auto done = WaitFor(restarted, Started);
+    CHECK(done.leftover_deletes_handled == 1 && done.leftover_titles.empty() && done.leftover_delete_failures.empty());
+    CHECK(calls == 2 && !fixture.registered);
+    CHECK(!fs::exists(config.state_root / "leftover-FAKE78001.json"));
+    CHECK(fs::is_empty(config.state_root / "trash"));
+    CHECK(Read(bottle) == "saved-game" && Read(files) == "downloaded-game");
+    restarted.Shutdown();
+  }
+}
+
+void LeftoverRemovalRevalidatesBeforeEffects() {
+  for (int scenario = 0; scenario < 4; ++scenario) {
+    Fixture fixture;
+    auto config = LeftoverConfig(fixture);
+    const auto title = MakeLeftover(fixture);
+    unsigned calls = 0;
+    config.unregister_title = [&calls](const std::string&, const std::string&) { ++calls; return TitleRemoverResult{}; };
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(WaitFor(host, Started).leftover_titles.size() == 1);
+    const auto original = title.parent_path() / "original";
+    if (scenario == 0) {
+      // Preserve the old inode so the new directory cannot accidentally reuse it.
+      fs::rename(title, original);
+      Write(title / "replacement", "another-title", 0644);
+    } else if (scenario == 1) {
+      fs::rename(title, original);
+      CHECK(symlink(original.c_str(), title.c_str()) == 0);
+    } else {
+      fixture.activity->store(static_cast<int>(scenario == 2 ? NativeActivity::kActive : NativeActivity::kUnknown));
+    }
+    CHECK(host.DeleteLeftoverTitle("FAKE78001"));
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.leftover_deletes_handled == 1; });
+    CHECK(done.leftover_delete_failures.count("FAKE78001") == 1 && calls == 0 && fixture.registry_mutations == 0);
+    CHECK(fs::exists(title));
+    CHECK(!fs::exists(config.state_root / "leftover-FAKE78001.json"));
+    host.Shutdown();
+  }
+}
+
+void LeftoverRemovalRecoversRetireWriteGap(int scenario) {
+  Fixture fixture;
+  auto config = LeftoverConfig(fixture);
+  const auto title = MakeLeftover(fixture);
+  fixture.registered = true;
+  {
+    RuntimeHost first(config);
+    CHECK(first.Start());
+    CHECK(WaitFor(first, Started).leftover_titles.size() == 1);
+    first.Shutdown();
+  }
+  struct stat info{};
+  CHECK(lstat(title.c_str(), &info) == 0);
+  const auto text = std::string("{\"schema\":1,\"title\":\"FAKE78001\",\"operation_id\":\"") + kLeftoverOperation +
+      "\",\"step\":\"retire\",\"device\":" + std::to_string(info.st_dev) + ",\"inode\":" +
+      std::to_string(info.st_ino) + ",\"name\":\"Left Behind\",\"bytes\":11}\n";
+  playden::Storage storage(config.state_root.string());
+  CHECK(storage.WriteDurable("leftover-FAKE78001.json", playden::Bytes(text.begin(), text.end())).ok());
+  const auto trash = config.state_root / "trash";
+  fs::create_directory(trash);
+  CHECK(chmod(trash.c_str(), 0700) == 0);
+  const auto retired = trash / (std::string("FAKE78001-") + kLeftoverOperation);
+  fs::rename(title, retired);
+  if (scenario == 1) {
+    fs::rename(retired, config.state_root / "protected-original");
+    Write(retired / "replacement", "another-title", 0644);
+  } else if (scenario == 2) {
+    CHECK(chmod((config.state_root / "leftover-FAKE78001.json").c_str(), 0644) == 0);
+  }
+  unsigned calls = 0;
+  config.unregister_title = [&fixture, &calls](const std::string&, const std::string&) {
+    ++calls;
+    fixture.registered = false;
+    return TitleRemoverResult{true, 0, "removed"};
+  };
+  RuntimeHost restarted(config);
+  CHECK(restarted.Start());
+  const auto done = WaitFor(restarted, Started);
+  if (scenario == 0) {
+    CHECK(done.leftover_deletes_handled == 1 && done.leftover_titles.empty() && calls == 1);
+    CHECK(!fs::exists(config.state_root / "leftover-FAKE78001.json") && fs::is_empty(trash));
+  } else {
+    CHECK(calls == 0 && fixture.registered && fixture.registry_mutations == 0);
+    CHECK(fs::exists(config.state_root / "leftover-FAKE78001.json") && fs::is_directory(retired));
+    if (scenario == 1) {
+      CHECK(done.leftover_deletes_handled == 1);
+      CHECK(done.leftover_delete_failures.at("FAKE78001").find("folder changed") != std::string::npos);
+      CHECK(Read(retired / "replacement") == "another-title");
+      CHECK(Read(config.state_root / "protected-original/eboot.bin") == "title-files");
+    } else {
+      CHECK(done.leftover_deletes_handled == 0);
+      CHECK(Read(retired / "eboot.bin") == "title-files");
+    }
+  }
+  restarted.Shutdown();
+}
+
+void LeftoverScanRequiresLoadedRecordsAndRepeatsAfterUninstall() {
+  for (bool readable : {false, true}) {
+    Fixture fixture;
+    auto config = LeftoverConfig(fixture);
+    if (!readable) {
+      Write(config.state_root / "installs.json", "broken", 0600);
+      CHECK(chmod(config.state_root.c_str(), 0700) == 0);
+      MakeLeftover(fixture);
+    }
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    const auto started = WaitFor(host, Started);
+    if (!readable) {
+      CHECK(started.status == RuntimeHostStatus::kUnavailable && started.leftover_titles.empty());
+      CHECK(started.reason.find("Runtime install records are unavailable") != std::string::npos);
+    } else {
+      CHECK(started.leftover_titles.empty());
+      MakeLeftover(fixture);
+      host.Remove(999, false);  // every completed uninstall refreshes the scan, including an absent title
+      const auto refreshed = WaitFor(host, [](const RuntimeSnapshot& s) { return s.removals_handled == 1; });
+      CHECK(refreshed.leftover_titles.size() == 1 && refreshed.leftover_titles[0].title_id == "FAKE78001");
+    }
+    host.Shutdown();
+  }
+}
+
+void LeftoverDeletionSharesThePreparationAndUninstallQueue() {
+  for (int scenario = 0; scenario < 3; ++scenario) {
+    Fixture fixture;
+    auto config = LeftoverConfig(fixture);
+    MakeLeftover(fixture);
+    std::promise<void> scanned, released;
+    auto release = released.get_future().share();
+    std::mutex order_mutex;
+    std::vector<std::string> order;
+    config.log = [&](const std::string& line) {
+      if (line == "startup trash emptied") { scanned.set_value(); release.wait(); }
+      std::lock_guard<std::mutex> lock(order_mutex);
+      if (line.rfind("prepare result app=220", 0) == 0) order.push_back("prepare");
+      if (line.rfind("remove result app=999", 0) == 0) order.push_back("uninstall");
+      if (line == "leftover delete complete title=FAKE78001") order.push_back("leftover");
+    };
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    CHECK(scanned.get_future().wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+    CHECK(host.Snapshot().leftover_titles.size() == 1);
+    const auto prepare = [&] { host.Prepare(Hl2()); };
+    const auto remove = [&] { host.Remove(999, false); };
+    const auto leftover = [&] { CHECK(host.DeleteLeftoverTitle("FAKE78001")); };
+    std::vector<std::string> expected;
+    if (scenario == 0) { prepare(); leftover(); remove(); expected = {"prepare", "leftover", "uninstall"}; }
+    if (scenario == 1) { leftover(); remove(); prepare(); expected = {"leftover", "uninstall", "prepare"}; }
+    if (scenario == 2) { remove(); prepare(); leftover(); expected = {"uninstall", "prepare", "leftover"}; }
+    CHECK(host.Snapshot().queued_leftover_deletes == std::vector<std::string>{"FAKE78001"});
+    released.set_value();
+    const auto done = WaitFor(host, [](const RuntimeSnapshot& s) {
+      return s.prepares_handled == 1 && s.removals_handled == 1 && s.leftover_deletes_handled == 1;
+    });
+    CHECK(done.leftover_delete_failures.empty() && done.leftover_titles.empty());
+    host.Shutdown();
+    CHECK(order == expected);
+  }
+}
+
+void LeftoverDeletionRefusesANewInstallUsingTheId() {
+  Fixture fixture;
+  auto config = LeftoverConfig(fixture);
+  const auto title = MakeLeftover(fixture);
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned calls = 0;
+  config.unregister_title = [&calls](const std::string&, const std::string&) { ++calls; return TitleRemoverResult{}; };
+  // Preparation needs the fixture's registration hook; its source-removal mutation must never run.
+  config.registry_transport = fixture.Config().registry_transport;
+  Write(fixture.root / "data/homebrew/FAKE77031/games/220/hl2.exe", "existing-game", 0644);
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).leftover_titles.size() == 1);
+  fs::rename(title, title.parent_path() / "original");
+  host.Prepare(Hl2());
+  const auto prepared = WaitFor(host, [](const RuntimeSnapshot& s) { return s.prepares_handled == 1; });
+  CHECK(prepared.refusals.empty() && prepared.installs.size() == 1 && prepared.installs[0].title_id == "FAKE78001");
+  const auto mutations = fixture.registry_mutations;
+  // The scan is deliberately stale: the worker must recheck its authoritative records.
+  CHECK(host.DeleteLeftoverTitle("FAKE78001"));
+  const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return s.leftover_deletes_handled == 1; });
+  CHECK(done.leftover_delete_failures.at("FAKE78001").find("now belongs to an installed game") != std::string::npos);
+  CHECK(done.installs.size() == 1 && fs::is_regular_file(title / "eboot.bin"));
+  CHECK(fixture.registry_mutations == mutations && calls == 0);
+  CHECK(!fs::exists(config.state_root / "leftover-FAKE78001.json"));
+  host.Shutdown();
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
+  LeftoverDeletionSharesThePreparationAndUninstallQueue();
+  LeftoverDeletionRefusesANewInstallUsingTheId();
+  DeletesLeftoverTitleAndResumesFailures();
+  LeftoverRemovalRevalidatesBeforeEffects();
+  for (int scenario = 0; scenario < 3; ++scenario) LeftoverRemovalRecoversRetireWriteGap(scenario);
+  LeftoverScanRequiresLoadedRecordsAndRepeatsAfterUninstall();
   WorkerMovesGamesUnderPublicationLease();
   NoKitRefusesPreparationWithoutDurableEffects();
   ReloadKitAdmitsAKitInstalledWhileRunning();

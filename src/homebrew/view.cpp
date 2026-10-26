@@ -2048,13 +2048,13 @@ class Render::Impl
                 else
                 {
                     // Preparing or uninstalling: the actual step, with a spinner; no percentage or time is made up.
-                    const char *label = entry->uninstall ? "Uninstalling" : "Preparing";
+                    const char *label = entry->leftover ? "Deleting title" : entry->uninstall ? "Uninstalling" : "Preparing";
                     const float status_width = fonts_.semibold.measure(label, 24.0F);
                     spinner(right - status_width - 22.0F, top + 36.0F, 9.0F, kBlue);
                     ui::text(scene_, fonts_.semibold, label, right, top + 44.0F, 24.0F, kBlue, gfx::Align::right);
                     ui::text(scene_, fonts_.regular, fit(fonts_.regular, entry->note.empty() ? "Starting…" : entry->note, 24.0F, 1100.0F),
                              text_x, top + 88.0F, 24.0F, kText);
-                    ui::text(scene_, fonts_.regular, entry->uninstall ? "Removing from this PS5" : "Setting up for this PS5", right,
+                    ui::text(scene_, fonts_.regular, entry->leftover || entry->uninstall ? "Removing from this PS5" : "Setting up for this PS5", right,
                              top + 88.0F, 21.0F, kSecondary, gfx::Align::right);
                 }
                 focus_ring(scene_, box, amount, true);
@@ -2400,8 +2400,9 @@ class Render::Impl
                 const std::string& label = row.value;
                 const float pill = fonts_.display.measure(label, 26.0F) + 64.0F;
                 const gfx::Rect button{right - pill, head.cy() - 28.0F, pill, 56.0F};
-                scene_.bordered_rect(button, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kText.with_alpha(0.2F));
-                ui::text(scene_, fonts_.display, label, button.x + 22.0F, button.cy() + 9.0F, 26.0F, kText);
+                const gfx::Color ink = row.dangerous ? kRed : kText;
+                scene_.bordered_rect(button, 8.0F, kBackground.with_alpha(0.0F), 2.0F, ink.with_alpha(0.2F));
+                ui::text(scene_, fonts_.display, label, button.x + 22.0F, button.cy() + 9.0F, 26.0F, ink);
                 const float chevron = button.x + button.w - 26.0F;
                 scene_.line(chevron - 3.0F, button.cy() - 6.0F, chevron + 2.5F, button.cy(), 2.2F, kText);
                 scene_.line(chevron + 2.5F, button.cy(), chevron - 3.0F, button.cy() + 6.0F, 2.2F, kText);
@@ -3447,7 +3448,7 @@ class Render::Impl
     {
         static const std::map<std::string, std::string> names = {
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"}, {"controller-tuning", "Game settings"},
-            {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
+            {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"leftover-titles", "Settings"}, {"installed-games", "Settings"},
             {"download-server", "Settings"},
             {"import-games", "Library"}, {"import-programs", "Import games"}, {"steam-programs", "Setup"}, {"import-choice", "Import games"},
             {"import-storage", "Import games"},
@@ -3496,7 +3497,7 @@ class Render::Impl
                           view.surface == "button-mapping" || view.surface == "controller-tuning" ||
                           view.surface == "game-maintenance" ||
                           view.surface == "controller" || view.surface == "logs" ||
-                          view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" ||
+                          view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" || view.surface == "leftover-titles" ||
                           view.surface == "download-server" ||
                           view.surface == "installed-games" || view.surface == "import-games" ||
                           view.surface == "import-programs" || view.surface == "steam-programs";
@@ -3989,7 +3990,7 @@ class Render::Impl
                 return 54.0F + 12.0F;
             if (row.kind == RowKind::Heading || row.kind == RowKind::Separator)
                 return 54.0F;
-            const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
+            const bool checkbox = (view.surface == "kept-data" || view.surface == "leftover-titles" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
             const bool described = (settings_sheet || checkbox || view.surface == "installed-games" || import_sheet) && !row.subtitle.empty();
             return (described ? 96.0F + hint_extra(row) : 72.0F) + 12.0F;
@@ -4062,7 +4063,7 @@ class Render::Impl
             // Game settings rows carry an effect line under the name (or the reason a row is
             // disabled), an accent dot when the player changed the value, and a tag.
             // Kept game data: each game is a checkbox row with its kept date under the name.
-            const bool checkbox = (view.surface == "kept-data" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
+            const bool checkbox = (view.surface == "kept-data" || view.surface == "leftover-titles" || view.surface == "installed-games" || (view.surface == "collections" && row.action.rfind("collection-toggle-", 0) == 0)) &&
                                   row.kind == RowKind::Toggle;
             const bool described = (settings_sheet || checkbox || view.surface == "installed-games" || import_sheet) && !row.subtitle.empty() && row.kind != RowKind::Heading;
             const gfx::Rect rect{bounds.x, y, bounds.w, described ? 96.0F + hint_extra(row) : 72.0F};

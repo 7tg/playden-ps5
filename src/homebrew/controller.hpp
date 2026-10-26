@@ -291,6 +291,9 @@ class Controller {
   std::vector<std::pair<GameId, std::string>> uninstall_statuses_;
   std::uint64_t kept_revision_ = 0;
   std::vector<LiveKeptBottle> kept_projected_;
+  std::vector<LiveLeftoverTitle> leftovers_projected_;
+  std::vector<LiveLeftoverDelete> leftover_deletions_projected_;
+  std::map<std::string, std::string> leftover_names_;
   std::map<GameId, std::string> play_notes_;
   std::uint64_t play_notes_revision_ = 0;
   std::uint64_t runtime_notes_revision_ = 0;

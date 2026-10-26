@@ -9,6 +9,7 @@
 #include "runtime/game_settings.h"
 #include "runtime/install_service.h"
 #include "runtime/launch_service.h"
+#include "runtime/leftover_titles.h"
 #include "runtime/package_installer.h"
 #include "runtime/redist_install.h"
 
@@ -305,7 +306,7 @@ struct RuntimeSnapshot {
   // Games whose preparation is asked for but not started yet, in the order they will start: each
   // waits behind another game's preparation, or for the runtime to finish starting.
   std::vector<std::uint32_t> queued_prepares;
-  // How far the current copy (preparing_app) or deletion (removing_app) is, when
+  // How far the current copy or deletion (including a leftover title) is, when
   // that is measurable; absent for steps whose progress is unknown.
   std::optional<float> work_progress;
   std::optional<RuntimeLaunchView> launch;
@@ -333,6 +334,13 @@ struct RuntimeSnapshot {
   std::uint64_t removals_handled = 0;
   // Game data kept when a game was uninstalled (bottles with no install record).
   std::vector<KeptBottleView> kept_bottles;
+  // Unrecorded PS5 titles, and their queued/running deletion or latest failure (keyed by title ID).
+  std::vector<runtime::LeftoverTitle> leftover_titles;
+  std::vector<std::string> queued_leftover_deletes;
+  std::optional<std::string> deleting_leftover_title;
+  std::string deleting_leftover_step;
+  std::map<std::string, std::string> leftover_delete_failures;
+  std::uint64_t leftover_deletes_handled = 0;
   // Maintenance per runtime number, and how many requests the worker has finished.
   std::map<std::uint32_t, RuntimeMaintenanceView> maintenance;
   std::uint64_t maintenance_handled = 0;
@@ -462,6 +470,8 @@ class RuntimeHost {
   void Remove(std::uint32_t runtime_number, bool delete_saves);
   // Queues deletion of a game's kept bottle.
   void DeleteKeptBottle(std::uint32_t runtime_number);
+  // Deletes only a scanned leftover's PS5 title and registration; its game files and saves stay.
+  bool DeleteLeftoverTitle(const std::string& title_id, std::string* error = nullptr);
   // Queues a scan of a game folder for the Program picker (RuntimeSnapshot::game_setups).
   void ScanPrograms(std::uint32_t runtime_number, std::string install_path);
   // Measures each game's Windows user folders (where saves of games without Steam Cloud live).
@@ -624,6 +634,22 @@ class RuntimeHost {
   // moving: the title goes because its game was installed again elsewhere (journal "remove-move"),
   // so Prepare, not Uninstall, finishes a removal that stopped part way.
   std::string RunRemove(Composition& composition, std::uint32_t runtime_number, bool delete_saves, bool moving = false);
+  struct RemovalFailure { std::string code, message; };
+  std::optional<RemovalFailure> RetireTitle(Composition& composition, const std::string& title_id,
+                                           const std::string& operation_id,
+                                           const runtime::LeftoverTitle* expected = nullptr);
+  std::optional<RemovalFailure> UnregisterTitle(Composition& composition, const std::string& title_id,
+                                               const std::string& operation_id);
+  std::string DeleteRetiredTitle(const std::string& title_id, const std::string& operation_id);
+  struct LeftoverDelete {
+    runtime::LeftoverTitle title;
+    std::string operation_id;
+    std::string step = "retire";
+  };
+  std::string RunDeleteLeftover(Composition& composition, LeftoverDelete request);
+  std::string SaveLeftoverDelete(Composition& composition, const LeftoverDelete& request);
+  void ResumeLeftoverDeletes(Composition& composition);
+  void PublishLeftoverTitles(Composition& composition);
   // Whether the console still lists the title (app.db or /user/app); unknown counts as listed.
   bool TitleListed(Composition& composition, const std::string& title_id);
   // Moves the saves of a kept bottle into the game's new bottle and drops the kept copy.
@@ -686,7 +712,15 @@ class RuntimeHost {
   mutable std::uint64_t shared_revision_ = 0;
   std::vector<RuntimePrepareRequest> prepare_requests_;
   std::vector<std::uint32_t> play_requests_;
-  std::vector<std::pair<std::uint32_t, bool>> remove_requests_;
+  struct RemovalRequest {
+    std::uint32_t app = 0;
+    bool delete_saves = false;
+    std::optional<LeftoverDelete> leftover;
+    std::uint64_t order = 0;
+  };
+  std::vector<RemovalRequest> remove_requests_;
+  std::uint64_t next_work_order_ = 0;
+  std::map<std::uint32_t, std::uint64_t> prepare_order_;
   std::vector<std::uint32_t> kept_delete_requests_;
   std::vector<std::pair<std::uint32_t, std::string>> scan_requests_;
   std::vector<std::pair<std::uint32_t, RuntimeMaintenance>> maintenance_requests_;

@@ -311,6 +311,9 @@ build/homebrew-host/playden-homebrew --simulation --scenario signed-out
 
 ## Known issues
 
+- Uninstall games from Playden. Title folders belong to Playden; FTP and file managers can't delete them.
+  Leftover titles appear in Settings › Storage. Deleting a leftover removes its title folder and Home tile;
+  its game files and saves stay on disk because Playden no longer has a record linking them to the title.
 - New games can stay at *Waiting for the PS5* after you quit Playden when ShadowMountPlus stops registering titles.
   Reload ShadowMountPlus.
   Until the game is registered, its Cloud saves are not synced before its first launch.

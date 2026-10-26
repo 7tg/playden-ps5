@@ -258,6 +258,20 @@ struct LiveKeptBottle {
     std::uint64_t bytes = 0;
     bool operator==(const LiveKeptBottle&) const = default;
 };
+// A PS5 title folder no install record owns; only its title is removed.
+struct LiveLeftoverTitle {
+    std::string title_id;
+    std::string name;
+    std::uint64_t bytes = 0;
+    bool operator==(const LiveLeftoverTitle&) const = default;
+};
+struct LiveLeftoverDelete {
+    std::string title_id;
+    std::string name;
+    std::string step;  // empty while queued
+    std::string failure;
+    bool operator==(const LiveLeftoverDelete&) const = default;
+};
 // A game that plays in place from a folder Playden doesn't manage (an imported game on a drive):
 // never in Installed games, its files never deleted.
 struct LiveExternalGame {
@@ -619,6 +633,8 @@ struct State {
     std::size_t runtime_leftover_requests = 0;          // live: unused settings requests to clean up
     LiveKitInfo kit;                                    // live: the runtime kit in use
     LiveSelfUpdate self_update;                         // live: Playden's own update
+    std::vector<LiveLeftoverTitle> leftover_titles;
+    std::vector<LiveLeftoverDelete> leftover_deletions;
     std::vector<LiveKeptBottle> kept_bottles;           // live: saves kept from uninstalled games
     std::vector<LiveExternalGame> external_games;       // live: games playing in place (imported)
     std::vector<LiveImportCandidate> import_candidates; // live: folders on the drives that could be imported
@@ -779,6 +795,9 @@ public:
     [[nodiscard]] bool TakeRuntimeCleanupRequest();
     // Live mode: kept game data, deletions the player confirmed, and why an uninstall stopped.
     void UpdateKeptBottles(std::vector<LiveKeptBottle> kept);
+    void UpdateLeftoverTitles(std::vector<LiveLeftoverTitle> titles);
+    void UpdateLeftoverDeletions(std::vector<LiveLeftoverDelete> deletions);
+    [[nodiscard]] std::vector<std::string> TakeLeftoverDeleteRequests();
     // Live mode: games playing in place, and what the drives offer to import.
     void UpdateExternalGames(std::vector<LiveExternalGame> games);
     void UpdateImportCandidates(std::vector<LiveImportCandidate> candidates, bool scanning);
@@ -993,10 +1012,13 @@ private:
     std::set<GameId> live_installed_ids_;
     std::set<GameId> pending_uninstalls_;
     std::vector<GameId> pending_kept_delete_requests_;
+    std::vector<std::string> pending_leftover_delete_requests_;
+    int leftover_delete_ticks_ = 0;
     std::vector<std::pair<GameId, MaintenanceKind>> pending_maintenance_requests_;
     std::vector<GameId> pending_activity_requests_;
     bool uninstall_delete_saves_ = false;  // the uninstall dialog's choice
     std::set<GameId> kept_selected_;  // the kept game data manager's checked games
+    std::set<std::string> leftover_selected_;  // the leftover titles manager's checked title IDs
     // Installed games (Settings > Storage): the checked games and the list's order.
     std::set<GameId> installed_selected_;
     bool installed_by_played_ = false;  // false: largest first; true: never played, then the oldest
@@ -1111,6 +1133,8 @@ private:
     void advance_jobs();
     [[nodiscard]] std::vector<std::string> game_settings_actions() const;
     [[nodiscard]] std::vector<std::string> kept_manager_actions() const;
+    [[nodiscard]] std::vector<std::string> leftover_manager_actions() const;
+    [[nodiscard]] bool leftover_queued(const std::string& title_id) const;
     // The Import sheet: Look for games, then the candidates grouped by drive (headings never take
     // the focus), then Close. Opened from Startup, Home's empty state and Settings › Library.
     [[nodiscard]] std::vector<std::string> import_sheet_actions() const;

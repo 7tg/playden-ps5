@@ -1414,6 +1414,39 @@ void synthetic_download_servers(const std::filesystem::path& fixtures, const std
           "the simulation profile keeps the choice across restarts");
 }
 
+void leftover_titles_simulation_uses_controller_navigation(const std::filesystem::path& fixtures,
+                                                          const std::filesystem::path& profile) {
+    using namespace playden::homebrew;
+    Simulation simulation(fixtures, profile);
+    check(simulation.scenario("leftover-titles"), "leftover title scenario exists");
+    check(simulation.state().leftover_titles.size() == 2 &&
+              simulation.state().navigation.focus_key == "settings-leftovers", "the Leftover PS5 titles row starts focused");
+    simulation.action("cross");
+    check(simulation.state().navigation.focus_key == "leftover-select-all", "the manager opens on Select all");
+    simulation.action("down");
+    simulation.action("down");
+    check(simulation.state().navigation.focus_key == "leftover-toggle-FAKE78002", "Down reaches the second title");
+    simulation.action("cross");
+    simulation.action("focus:leftover-selection-delete");
+    simulation.action("cross");
+    check(simulation.state().navigation.focus_key == "cancel", "deletion starts on Cancel");
+    simulation.action("circle");
+    check(simulation.state().navigation.modals.back().id == "leftover-titles" &&
+              simulation.state().leftover_deletions.empty(), "Circle returns to the manager without deleting");
+    simulation.action("focus:leftover-selection-delete");
+    simulation.action("cross");
+    simulation.action("focus:confirm-destructive");
+    simulation.action("cross");
+    simulation.action("l1");
+    simulation.action("l1");
+    check(simulation.state().navigation.route == Route::Downloads, "L1 reaches Queue");
+    simulation.tick(1);
+    check(simulation.state().leftover_deletions.front().step == "Removing PS5 title…", "Queue starts title removal");
+    simulation.tick(5);
+    check(simulation.state().leftover_titles.size() == 1 && simulation.state().leftover_titles.front().title_id == "FAKE78001" &&
+              simulation.state().leftover_deletions.empty(), "only the confirmed title is removed");
+}
+
 int main(int argc, char** argv) {
     check(argc == 2, "fixture directory argument is required");
     const std::filesystem::path fixtures(argv[1]);
@@ -1422,6 +1455,7 @@ int main(int argc, char** argv) {
     clean();
     synthetic_download_servers(fixtures, profile);
     clean();
+    leftover_titles_simulation_uses_controller_navigation(fixtures, profile);
     t01_authentication_ignores_late_approval(fixtures, profile);
     clean();
     t02_focus_and_nested_modal_restoration(fixtures, profile);
