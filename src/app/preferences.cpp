@@ -1,6 +1,9 @@
 #include "app/preferences.h"
 
+#include <algorithm>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace playden {
 namespace {
@@ -11,6 +14,48 @@ std::string ToString(const Bytes& bytes) {
   return std::string(bytes.begin(), bytes.end());
 }
 
+// Version 8: one "key=value" line per field, in this order, each ending in a newline.
+constexpr const char* kVersionEightKeys[] = {"reduce_motion", "title_store_suffix", "cloud_saves_auto",
+                                            "steam_sign_in_password", "downloads_slow_network", "steam_stay_signed_in",
+                                            "beta_updates", "download_server"};
+
+bool ParseFlag(const std::string& value, bool* flag) {
+  if (value != "0" && value != "1") return false;
+  *flag = value == "1";
+  return true;
+}
+
+bool ValidDownloadServer(const std::string& host) {
+  if (host.empty() || host.size() > 253) return false;
+  return std::all_of(host.begin(), host.end(), [](char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.';
+  });
+}
+
+bool ParseVersionEight(const std::string& serialized, Preferences* preferences) {
+  constexpr std::string_view kHeader = "version=8\n";
+  if (serialized.compare(0, kHeader.size(), kHeader) != 0 || serialized.back() != '\n') return false;
+  std::vector<std::string> values;
+  std::size_t start = kHeader.size();
+  for (const char* key : kVersionEightKeys) {
+    const std::string prefix = std::string(key) + "=";
+    const auto end = serialized.find('\n', start);
+    if (end == std::string::npos || serialized.compare(start, prefix.size(), prefix) != 0) return false;
+    values.push_back(serialized.substr(start + prefix.size(), end - start - prefix.size()));
+    start = end + 1;
+  }
+  if (start != serialized.size()) return false;
+  Preferences parsed;
+  if (!ParseFlag(values[0], &parsed.reduce_motion) || !ParseFlag(values[1], &parsed.title_store_suffix) ||
+      !ParseFlag(values[2], &parsed.cloud_saves_auto) || !ParseFlag(values[3], &parsed.steam_sign_in_password) ||
+      !ParseFlag(values[4], &parsed.downloads_slow_network) || !ParseFlag(values[5], &parsed.steam_stay_signed_in) ||
+      !ParseFlag(values[6], &parsed.beta_updates))
+    return false;
+  // A host the current rule refuses is dropped without resetting unrelated preferences.
+  if (ValidDownloadServer(values[7])) parsed.download_server = values[7];
+  *preferences = std::move(parsed);
+  return true;
+}
 
 }  // namespace
 
@@ -32,6 +77,9 @@ PreferencesLoadResult PreferencesStore::Load() const {
   }
 
   std::string serialized = ToString(read.value());
+  Preferences eight;
+  if (ParseVersionEight(serialized, &eight))
+    return PreferencesLoadResult{std::move(eight), PreferencesLoadStatus::kLoaded, std::string()};
   bool beta_updates = false;
   if (serialized.rfind("version=7\n", 0) == 0) {
     const auto suffix = serialized.rfind("beta_updates=");
@@ -44,7 +92,8 @@ PreferencesLoadResult PreferencesStore::Load() const {
   }
   // Version 1 holds only reduce_motion; version 2 adds title_store_suffix; version 3 cloud_saves_auto;
   // version 4 steam_sign_in_password; version 5 downloads_slow_network; version 6 steam_stay_signed_in
-  // (on in files older than that). Version 7 appends beta_updates (off in older files).
+  // (on in files older than that). Version 7 appends beta_updates (off in older files); version 8 (above)
+  // adds the download server (Automatic in older files).
   for (const int motion : {0, 1}) {
     if (serialized == std::string("version=1\nreduce_motion=") + char('0' + motion) + "\n") {
       Preferences preferences;
@@ -127,13 +176,16 @@ PreferencesLoadResult PreferencesStore::Load() const {
 Result<void> PreferencesStore::Save(const Preferences& preferences) const {
   const auto ready=storage_.EnsureRootDirectory();
   if(!ready.ok()) return ready;
-  const std::string text = std::string("version=7\nreduce_motion=") + (preferences.reduce_motion ? "1" : "0") +
+  // Never write a host that cannot be read back, including embedded newlines.
+  const std::string server = ValidDownloadServer(preferences.download_server) ? preferences.download_server : std::string();
+  const std::string text = std::string("version=8\nreduce_motion=") + (preferences.reduce_motion ? "1" : "0") +
                            "\ntitle_store_suffix=" + (preferences.title_store_suffix ? "1" : "0") +
                            "\ncloud_saves_auto=" + (preferences.cloud_saves_auto ? "1" : "0") +
                            "\nsteam_sign_in_password=" + (preferences.steam_sign_in_password ? "1" : "0") +
                            "\ndownloads_slow_network=" + (preferences.downloads_slow_network ? "1" : "0") +
                            "\nsteam_stay_signed_in=" + (preferences.steam_stay_signed_in ? "1" : "0") +
-                           "\nbeta_updates=" + (preferences.beta_updates ? "1" : "0") + "\n";
+                           "\nbeta_updates=" + (preferences.beta_updates ? "1" : "0") +
+                           "\ndownload_server=" + server + "\n";
   return storage_.WriteAtomic(kPreferencesPath, Bytes(text.begin(), text.end()));
 }
 

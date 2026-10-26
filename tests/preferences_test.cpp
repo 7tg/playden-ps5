@@ -186,9 +186,9 @@ void SignInMethodPersistsAndVersionThreeOpensQr() {
   Check(store.Save(preferences).ok(), "sign-in method preference saves");
   const auto saved = storage.Read("preferences.conf");
   Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()) ==
-                          "version=7\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
-                          "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\n",
-        "version 7 format");
+                          "version=8\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
+                          "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=\n",
+        "version 8 format includes Automatic download server");
   const auto loaded = store.Load();
   Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.steam_sign_in_password &&
             loaded.preferences.cloud_saves_auto,
@@ -269,6 +269,133 @@ void CorruptPreferencesRestoreDefaultsWithVisibleDiagnostic() {
         "diagnostic explains that preferences are corrupt");
 }
 
+void VersionEightLoadsDownloadServerWithoutResettingOtherFields() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  const std::string serialized =
+      "version=8\nreduce_motion=1\ntitle_store_suffix=1\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
+      "downloads_slow_network=1\nsteam_stay_signed_in=0\nbeta_updates=1\n"
+      "download_server=fastly.cdn.steampipe.steamcontent.com\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(serialized.begin(), serialized.end())).ok(),
+        "version 8 fixture is written");
+  const auto loaded = store.Load();
+  Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.reduce_motion &&
+            loaded.preferences.title_store_suffix && loaded.preferences.cloud_saves_auto &&
+            loaded.preferences.steam_sign_in_password && loaded.preferences.downloads_slow_network &&
+            !loaded.preferences.steam_stay_signed_in && loaded.preferences.beta_updates,
+        "version 8 loads all existing preferences alongside the download server");
+  Check(loaded.preferences.download_server == "fastly.cdn.steampipe.steamcontent.com",
+        "version 8 restores the chosen download server");
+}
+
+void OlderPreferencesUseAutomaticDownloadServer() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  const std::string fields[] = {
+      "reduce_motion=1\n", "title_store_suffix=1\n", "cloud_saves_auto=1\n",
+      "steam_sign_in_password=1\n", "downloads_slow_network=1\n", "steam_stay_signed_in=0\n",
+      "beta_updates=1\n"};
+  std::string values;
+  for (int version = 1; version <= 7; ++version) {
+    values += fields[version - 1];
+    const std::string serialized = "version=" + std::to_string(version) + "\n" + values;
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(serialized.begin(), serialized.end())).ok(),
+          "legacy preference fixture is written");
+    const auto loaded = store.Load();
+    Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.download_server.empty(),
+          "every older preference version uses Automatic downloads");
+    Check(loaded.preferences.reduce_motion && loaded.preferences.title_store_suffix == (version >= 2) &&
+              loaded.preferences.cloud_saves_auto == (version >= 3) &&
+              loaded.preferences.steam_sign_in_password == (version >= 4) &&
+              loaded.preferences.downloads_slow_network == (version >= 5) &&
+              loaded.preferences.steam_stay_signed_in == (version < 6) &&
+              loaded.preferences.beta_updates == (version >= 7),
+          "migration retains old fields and defaults later fields");
+    Check(store.Save(loaded.preferences).ok(), "migrated preferences save");
+    const auto saved = storage.Read("preferences.conf");
+    Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()).rfind("version=8\n", 0) == 0,
+          "saving a migrated file writes version 8");
+  }
+}
+
+void DownloadServerRoundTripsAndInvalidHostsUseAutomatic() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  const std::string prefix =
+      "version=8\nreduce_motion=1\ntitle_store_suffix=1\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
+      "downloads_slow_network=1\nsteam_stay_signed_in=0\nbeta_updates=1\ndownload_server=";
+  const std::string valid[] = {"", "fastly.cdn.steampipe.steamcontent.com", "CACHE-1.Example.net", std::string(253, 'a')};
+  for (const auto& host : valid) {
+    playden::Preferences preferences;
+    preferences.download_server = host;
+    Check(store.Save(preferences).ok(), "download server preference saves");
+    const auto loaded = store.Load();
+    Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.download_server == host,
+          "Automatic and valid download server hosts survive restart");
+  }
+  const std::string invalid[] = {"https://cache.example", "cache.example/path", "cache.example:443", "cache_name",
+                                 "cache name", "cache\tname", "cache\rname", "cache=name", "caf\xc3\xa9.example",
+                                 std::string("cache\0name", 10), std::string(254, 'a')};
+  for (const auto& host : invalid) {
+    const std::string serialized = prefix + host + "\n";
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(serialized.begin(), serialized.end())).ok(),
+          "invalid download server fixture is written");
+    const auto loaded = store.Load();
+    Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.download_server.empty(),
+          "an invalid download server loads as Automatic");
+    Check(loaded.preferences.reduce_motion && loaded.preferences.title_store_suffix &&
+              loaded.preferences.cloud_saves_auto && loaded.preferences.steam_sign_in_password &&
+              loaded.preferences.downloads_slow_network && !loaded.preferences.steam_stay_signed_in &&
+              loaded.preferences.beta_updates,
+          "an invalid server retains all other preferences");
+    playden::Preferences preferences;
+    preferences.reduce_motion = true;
+    preferences.download_server = host;
+    Check(store.Save(preferences).ok(), "invalid server can save as Automatic");
+    const auto saved = store.Load();
+    Check(saved.status == playden::PreferencesLoadStatus::kLoaded && saved.preferences.reduce_motion &&
+              saved.preferences.download_server.empty(),
+          "saving an invalid server keeps the file readable");
+  }
+  playden::Preferences injected;
+  injected.download_server = "cache.example\nbeta_updates=1";
+  Check(store.Save(injected).ok() && store.Load().status == playden::PreferencesLoadStatus::kLoaded &&
+            store.Load().preferences.download_server.empty() && !store.Load().preferences.beta_updates,
+        "saving a server with a newline cannot inject a preference");
+}
+
+void VersionEightRejectsTruncatedOrMalformedFiles() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  const std::string serialized =
+      "version=8\nreduce_motion=1\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=0\n"
+      "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=cache.example\n";
+  for (std::size_t length = 0; length < serialized.size(); ++length) {
+    const auto truncated = serialized.substr(0, length);
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(truncated.begin(), truncated.end())).ok(),
+          "truncated preference fixture is written");
+    const auto loaded = store.Load();
+    Check(loaded.status == playden::PreferencesLoadStatus::kDefaultCorrupt && !loaded.preferences.reduce_motion,
+          "every truncated version 8 file restores defaults as corrupt");
+  }
+  std::string invalid_flag = serialized;
+  invalid_flag.replace(invalid_flag.find("reduce_motion=1"), 15, "reduce_motion=2");
+  std::string missing_field = serialized;
+  missing_field.erase(missing_field.find("beta_updates=0\n"), 15);
+  const std::string malformed[] = {serialized + "beta_updates=1\n", serialized + "unknown=1\n", serialized + "\n",
+                                   invalid_flag, missing_field};
+  for (const auto& text : malformed) {
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(text.begin(), text.end())).ok(),
+          "malformed preference fixture is written");
+    Check(store.Load().status == playden::PreferencesLoadStatus::kDefaultCorrupt,
+          "malformed version 8 fields are corrupt");
+  }
+}
+
 void PreferencesPrepareIndependentRoot() {
   TemporaryDirectory parent;
   const auto root=parent.path()+"/preferences-root";
@@ -295,6 +422,10 @@ int main() {
   TitleStoreSuffixPersistsAndVersionOneStillLoads();
   SignInMethodPersistsAndVersionThreeOpensQr();
   StaySignedInDefaultsOnAndPersistsOff();
+  VersionEightLoadsDownloadServerWithoutResettingOtherFields();
+  OlderPreferencesUseAutomaticDownloadServer();
+  DownloadServerRoundTripsAndInvalidHostsUseAutomatic();
+  VersionEightRejectsTruncatedOrMalformedFiles();
 
   if (failures != 0) {
     std::fprintf(stderr, "%d preference test assertion(s) failed\n", failures);
