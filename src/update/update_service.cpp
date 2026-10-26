@@ -1,5 +1,6 @@
 #include "update/update_service.h"
 
+#include <dirent.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -21,7 +22,7 @@ struct UpdateService::Shared {
   UpdateSnapshot snapshot;
   std::atomic<bool> cancel{false};
   std::atomic<bool> busy{false};
-  std::function<void()> queued;  // one job asked for while another ran (under mutex)
+  std::vector<std::function<void()>> queued;  // jobs asked for while another ran, in order (under mutex)
   bool thread_started = false;
   pthread_t thread{};
 };
@@ -241,6 +242,16 @@ void UpdateService::RetireRenamedKits() {
 
 // The app user's leftovers of a confirmed update, on the worker and without root: the stage, the
 // downloads, the replaced entries and the files of a kit left by going back.
+namespace {
+// The titleId in a folder's sce_sys/param.json, or empty.
+std::string ParamTitle(const std::string& folder) {
+  std::string text;
+  const auto param = ReadSmallFile(folder + "/sce_sys/param.json", &text) ? steam::json::Parse(text) : std::nullopt;
+  const auto* title = param && param->is_object() ? param->Find("titleId") : nullptr;
+  return title && title->is_string() ? title->text() : std::string();
+}
+}  // namespace
+
 void UpdateService::CleanUpLeftovers() {
   std::vector<std::string> paths;
   for (const char* name : {"/stage", "/downloads", "/replaced"})
@@ -262,10 +273,10 @@ bool UpdateService::RemoveOwnedTree(const std::string& path) {
 void UpdateService::Run(std::function<void()> work) {
   {
     // A job asked for while another runs waits for it (the startup check behind the cleanup of a
-    // confirmed update, an install behind a check); a third request replaces nothing.
+    // confirmed update and the old title's removal, an install behind a check).
     std::lock_guard<std::mutex> lock(shared_->mutex);
     if (shared_->busy) {
-      if (!shared_->queued) shared_->queued = std::move(work);
+      shared_->queued.push_back(std::move(work));
       return;
     }
     shared_->busy = true;
@@ -282,12 +293,12 @@ void UpdateService::Run(std::function<void()> work) {
       std::function<void()> next;
       {
         std::lock_guard<std::mutex> lock(shared->mutex);
-        next = std::move(shared->queued);
-        shared->queued = nullptr;
-        if (!next) {
+        if (shared->queued.empty()) {
           shared->busy = false;
           return;
         }
+        next = std::move(shared->queued.front());
+        shared->queued.erase(shared->queued.begin());
       }
       if (!shared->cancel) next();
     }
@@ -302,7 +313,7 @@ void UpdateService::Run(std::function<void()> work) {
     {
       std::lock_guard<std::mutex> lock(shared_->mutex);
       shared_->busy = false;
-      shared_->queued = nullptr;
+      shared_->queued.clear();
     }
     Fail("Playden could not start the update.", "pthread_create " + std::to_string(rc));
     return;
@@ -335,6 +346,9 @@ std::optional<UpdateService::Backup> UpdateService::LatestBackup() const {
     const auto version = dash == std::string::npos ? std::nullopt : ParseVersion(name.substr(0, dash));
     const std::string path = config_.work_root + "/backup/" + name;
     if (!version || !Exists(path + "/eboot.bin")) continue;
+    // Another title's app (from before a move) never goes into this title's folder.
+    const auto title = ParamTitle(path);
+    if (!title.empty() && title != config_.title_id) continue;
     // Names end in the swap time; the newest has the largest.
     const auto stamp = name.substr(dash + 1);
     if (!latest || stamp.size() > latest_name.size() || (stamp.size() == latest_name.size() && stamp > latest_name)) {
@@ -398,6 +412,107 @@ std::string UpdateService::RelaunchTitle() const {
   return snapshot.restart_requested && !snapshot.rollback_requested && Moving() ? staged_title_ : config_.title_id;
 }
 
+std::string UpdateService::PredecessorRefusal() const {
+  const std::string& root = config_.predecessor_root;
+  std::string text;
+  if (!ReadSmallFile(root + "/playden-version", &text, 64)) return "no playden-version";
+  if (!text.empty() && text.back() == '\n') text.pop_back();
+  const auto version = ParseVersion(text);
+  // Before 0.6.0 the sign-in, games and logs lived in the app folder.
+  if (!version || *version < kLayoutBoundary) return "version " + text + " keeps its data in the app folder";
+  // A move to the 0.6 layout that never ran (the old version was never opened) leaves them there too.
+  // A folder that can't be read may hold them as well.
+  for (const char* data : {"/games", "/playden-data"}) {
+    DIR* folder = opendir((root + data).c_str());
+    if (!folder) {
+      if (errno == ENOENT) continue;
+      return std::string(data + 1) + " can't be read (errno=" + std::to_string(errno) + ")";
+    }
+    bool empty = true;
+    while (const dirent* entry = readdir(folder)) {
+      const std::string name = entry->d_name;
+      if (name != "." && name != ".." && name != "MOVED.txt") empty = false;
+    }
+    closedir(folder);
+    if (!empty) return std::string(data + 1) + " is not empty";
+  }
+  return {};
+}
+
+void UpdateService::RetirePredecessor() {
+  const std::string& title = config_.predecessor_title_id;
+  if (title.empty() || config_.predecessor_root.empty() || !config_.unregister_title) return;
+  const std::string retired = config_.work_root + "/retired/" + title;
+  const std::string unregistered = retired + ".unregistered";
+  if (Exists(unregistered)) {
+    if (RemoveOwnedTree(retired)) unlink(unregistered.c_str());
+    Log(Exists(retired) ? "the old " + title + " app could not be deleted" : "the old " + title + " app is deleted");
+  }
+  if (Exists(config_.predecessor_root + "/eboot.bin") && !Exists(retired)) {
+    // Right after the move the old app stays one more start: if this title fails before it has started
+    // once, the old one still works (it only points to this one).
+    std::string moving;
+    const auto pending = ReadSmallFile(StatePath(), &moving) ? steam::json::Parse(moving) : std::nullopt;
+    const auto pending_field = [&](const char* name) -> std::string {
+      const auto* value = pending && pending->is_object() ? pending->Find(name) : nullptr;
+      return value && value->is_string() ? value->text() : std::string();
+    };
+    if (pending_field("phase") == "applied" && pending_field("moved_to") == config_.title_id) {
+      Log("the old " + title + " app stays until this one has started once");
+      return;
+    }
+    const auto refusal = PredecessorRefusal();
+    if (!refusal.empty()) {
+      Log(title + " left in place: " + refusal);
+      return;
+    }
+    // ShadowMountPlus registers any folder in /data/homebrew again, so the folder leaves first. Root is
+    // process-wide: it is raised here, before the runtime starts (see ConfirmApplied).
+    const bool moved = MakeFolders(config_.work_root + "/retired") && config_.as_root([&] {
+      return rename(config_.predecessor_root.c_str(), retired.c_str()) == 0;
+    });
+    Log(moved ? "the old " + title + " app left /data/homebrew" : "the old " + title + " app could not be moved");
+    if (!moved) return;
+    // Its backups are of the old title's app, which this title must never restore into its folder.
+    for (const auto& name : ListFolder(config_.work_root + "/backup"))
+      if (ParamTitle(config_.work_root + "/backup/" + name) == title) RemoveOwnedTree(config_.work_root + "/backup/" + name);
+    // So is an update it staged (states from before 0.7.1 name no owner); only its move to this title stays.
+    std::string text;
+    const auto state = ReadSmallFile(StatePath(), &text) ? steam::json::Parse(text) : std::nullopt;
+    const auto field = [&](const char* name) -> std::string {
+      const auto* value = state && state->is_object() ? state->Find(name) : nullptr;
+      return value && value->is_string() ? value->text() : std::string();
+    };
+    const bool its = field("owner").empty() || field("owner") == title;
+    if (state && its && !(field("phase") == "applied" && field("moved_to") == config_.title_id)) {
+      Log("the old " + title + " app's update state is removed");
+      if (field("phase") == "staged") {
+        if (!field("stage").empty()) RemoveOwnedTree(field("stage"));
+        if (!field("kit").empty()) RemoveOwnedTree(field("kit"));
+      }
+      unlink(StatePath().c_str());
+    }
+  }
+  // Its tile goes from the worker once Start's own root work is over (root is process-wide; the title
+  // remover's request is written as the app's user).
+  unregister_pending_ = Exists(retired) && !Exists(unregistered);
+}
+
+void UpdateService::UnregisterPredecessor() {
+  const std::string& title = config_.predecessor_title_id;
+  const std::string retired = config_.work_root + "/retired/" + title;
+  const std::string unregistered = retired + ".unregistered";
+  if (!config_.unregister_title(title)) {
+    Log(title + " is still registered: tried again at the next start");
+    return;
+  }
+  WriteFileAtomically(unregistered, "");
+  // Most of the app's files are the app user's to delete; what is left goes at the next start, as root.
+  RemoveTree(retired);
+  if (!Exists(retired)) unlink(unregistered.c_str());
+  Log(title + " is unregistered");
+}
+
 DownloadOptions UpdateService::Downloads(const std::string& part) {
   DownloadOptions options;
   options.fetch = config_.fetch;
@@ -429,6 +544,11 @@ std::string UpdateService::ReadyKit(const KitPart& kit) const {
 }
 
 void UpdateService::Start() {
+  StartState();
+  if (unregister_pending_) Run([this] { UnregisterPredecessor(); });
+}
+
+void UpdateService::StartState() {
   // The successor title is installed (this title moved to it, or it came from ProsperoStore): updates,
   // kits and the shared update state are its business now, and this title points the player to it.
   if (!config_.successor_root.empty() && Exists(config_.successor_root + "/eboot.bin")) {
@@ -460,6 +580,7 @@ void UpdateService::Start() {
                                                                         : "new title registration not answered"); });
     return;
   }
+  RetirePredecessor();
   FindPrevious();
   LoadCurrentNotes();
   RemoveReplacedKits();
@@ -481,7 +602,8 @@ void UpdateService::Start() {
   };
   const std::string phase = field("phase");
   // Another title's state (the two share the work folder after a move) is left alone, except the move to this one.
-  const std::string owner = field("owner");
+  // Every version of a title that replaced another names the owner; a state without one is the old title's.
+  const std::string owner = field("owner").empty() ? config_.predecessor_title_id : field("owner");
   if (!owner.empty() && owner != config_.title_id && !(phase == "applied" && field("moved_to") == config_.title_id)) {
     Log("update state of " + owner + " left alone");
     return;

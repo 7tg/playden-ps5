@@ -1214,6 +1214,130 @@ int main() {
     }
     RemoveTree(fixture.root);
   }
+  // The new title removes the old one: its folder leaves /data/homebrew at the start, its tile in the
+  // background (retried at the next start), and its files at the start after that.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("service-retire");
+    const std::string old_app = fixture.root + "/homebrew/FAKE77031";
+    const std::string retired = fixture.root + "/playden/self-update/retired/FAKE77031";
+    const std::string state = fixture.root + "/playden/self-update/state.json";
+    const std::string stage = fixture.root + "/playden/self-update/stage/0.7.2";
+    const auto old_title = [&](const std::string& version) {
+      Put(old_app + "/eboot.bin", "eboot old");
+      Put(old_app + "/playden-version", version + "\n");
+      Put(old_app + "/games-MOVED.txt", "moved");
+      CHECK(MakeFolders(old_app + "/playden-data") && MakeFolders(old_app + "/logs"));
+    };
+    old_title("0.7.1");
+    // Right after the move it stays one more start (the move is confirmed at this start).
+    {
+      const std::string moved = R"({"phase":"applied","owner":"FAKE77031","version":"0.8.1","from":"0.7.1","moved_to":"PPSA97031","kit_id":"kitid","previous_kit":"","next_kit":""})";
+      Put(state, moved);
+      auto first = fixture.Config({0, 8, 1});
+      first.title_id = "PPSA97031";
+      first.installed_root = fixture.root + "/homebrew/PPSA97031";
+      first.predecessor_title_id = "FAKE77031";
+      first.predecessor_root = old_app;
+      first.unregister_title = [](const std::string&) { CHECK(false); return false; };
+      first.as_root = [](const std::function<bool()>& work) { return work(); };
+      UpdateService service(first);
+      service.Start();
+      Wait(service);
+      CHECK(Read(old_app + "/eboot.bin") == "eboot old" && !Exists(retired));
+      CHECK(service.Snapshot().finished_message == "Playden was updated to 0.8.1." && !Exists(state));
+    }
+    Put(fixture.root + "/playden/self-update/backup/0.7.0-900/eboot.bin", "eboot 0.7.0");
+    Put(fixture.root + "/playden/self-update/backup/0.7.0-900/sce_sys/param.json", R"({"titleId":"FAKE77031"})");
+    Put(fixture.root + "/playden/self-update/backup/0.8.0-950/eboot.bin", "eboot 0.8.0");
+    Put(fixture.root + "/playden/self-update/backup/0.8.0-950/sce_sys/param.json", R"({"titleId":"PPSA97031"})");
+    // An update the old title staged, before states named their owner.
+    Put(stage + "/eboot.bin", "eboot 0.7.2");
+    Put(state, R"({"phase":"staged","version":"0.7.2","stage":")" + stage + R"("})");
+    std::vector<std::string> unregistered;
+    std::mutex unregistered_mutex;
+    bool answer = false;
+    const auto config = [&] {
+      auto config = fixture.Config({0, 8, 1});
+      config.title_id = "PPSA97031";
+      config.installed_root = fixture.root + "/homebrew/PPSA97031";
+      config.predecessor_title_id = "FAKE77031";
+      config.predecessor_root = old_app;
+      config.unregister_title = [&](const std::string& title) {
+        std::lock_guard<std::mutex> lock(unregistered_mutex);
+        unregistered.push_back(title);
+        return answer;
+      };
+      config.as_root = [](const std::function<bool()>& work) { return work(); };
+      return config;
+    };
+    {
+      UpdateService service(config());
+      service.Start();
+      // Moved at once; the old app's backup and staged update go, this title's backup stays.
+      CHECK(!Exists(old_app) && Read(retired + "/eboot.bin") == "eboot old");
+      CHECK(!Exists(state) && !Exists(stage));
+      CHECK(!Exists(fixture.root + "/playden/self-update/backup/0.7.0-900"));
+      CHECK(service.Snapshot().previous == "0.8.0");
+      Wait(service);
+      CHECK(unregistered.size() == 1 && unregistered[0] == "FAKE77031" && Exists(retired));
+    }
+    answer = true;
+    {
+      UpdateService service(config());
+      service.Start();
+      Wait(service);
+      CHECK(unregistered.size() == 2 && !Exists(retired) && !Exists(retired + ".unregistered"));
+    }
+    {
+      UpdateService service(config());
+      service.Start();
+      Wait(service);
+      CHECK(unregistered.size() == 2);  // nothing left to do
+    }
+    // An old title that still holds player data, or keeps it in its folder, stays as it is.
+    old_title("0.7.1");
+    Put(old_app + "/playden-data/session.v1", "session");
+    {
+      UpdateService service(config());
+      service.Start();
+      Wait(service);
+      CHECK(Read(old_app + "/eboot.bin") == "eboot old" && !Exists(retired) && unregistered.size() == 2);
+    }
+    RemoveTree(old_app + "/playden-data/session.v1");
+    // Games left in its folder, or a data folder that can't be read, keep it too.
+    Put(old_app + "/games/220/game.exe", "game");
+    {
+      UpdateService service(config());
+      service.Start();
+      Wait(service);
+      CHECK(Read(old_app + "/eboot.bin") == "eboot old" && !Exists(retired) && unregistered.size() == 2);
+    }
+    RemoveTree(old_app + "/games");
+    Put(old_app + "/games", "not a folder");
+    {
+      UpdateService service(config());
+      service.Start();
+      Wait(service);
+      CHECK(Read(old_app + "/eboot.bin") == "eboot old" && !Exists(retired) && unregistered.size() == 2);
+    }
+    RemoveTree(old_app + "/games");
+    old_title("0.5.0");
+    {
+      // Its state names no owner and is not this title's: an applied update of the old title is left alone.
+      const std::string applied = R"({"phase":"applied","version":"0.5.1","from":"0.5.0","backup":")" + fixture.root +
+                                  R"(/playden/self-update/backup/0.5.0-800","stage":")" + stage + R"("})";
+      Put(state, applied);
+      Put(fixture.root + "/playden/self-update/backup/0.5.0-800/eboot.bin", "eboot 0.5.0");
+      UpdateService service(config());
+      service.Start();
+      Wait(service);
+      CHECK(Read(old_app + "/eboot.bin") == "eboot old" && !Exists(retired) && unregistered.size() == 2);
+      CHECK(Read(state) == applied && !Exists(fixture.root + "/homebrew/PPSA97031/eboot.bin"));
+      CHECK(service.Snapshot().finished_message.empty());
+    }
+    RemoveTree(fixture.root);
+  }
   // A staged move that this build can't make (no successor) is dropped.
   {
     Fixture fixture;

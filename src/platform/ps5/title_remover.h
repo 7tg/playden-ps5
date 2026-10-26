@@ -5,6 +5,7 @@
 #include <chrono>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -24,11 +25,14 @@ struct TitleRemoverConfig {
   std::filesystem::path payload;  // <title root>/title-remover.elf
   // Sends the payload's bytes to the payload loader; false with a reason on failure.
   std::function<bool(const std::string& elf, std::string* error)> send;
+  // Keeps root from being raised elsewhere while the request is written as the app's user (the
+  // folder's owner check and the write compare against the effective UID). Optional.
+  std::function<std::shared_ptr<void>()> hold_user;
   int result_polls = 60;
   std::chrono::milliseconds result_interval{250};
 };
 
-// Writes the request for title_id (FAKE78xxx) and nonce, sends the payload and
+// Writes the request for title_id (FAKE78xxx, or FAKE77031) and nonce, sends the payload and
 // waits (bounded) for its answer. Worker only. The answer only reports what the
 // payload saw; the caller confirms removal in the console inventory.
 TitleRemoverOutcome RunTitleRemover(const TitleRemoverConfig& config, const std::string& title_id,

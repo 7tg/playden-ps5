@@ -39,6 +39,12 @@ struct UpdateConfig {
   std::string successor_title_id;
   std::string successor_root;                   // /data/homebrew/PPSA97031
   std::function<bool(const std::string& folder)> register_title;
+  // The title this one replaced (PPSA97031 builds: FAKE77031). Start moves its app folder out of
+  // /data/homebrew once it holds no player data, and unregister_title removes its tile: true once the
+  // console no longer lists it. The folder is deleted at the next start. Empty: nothing replaced.
+  std::string predecessor_title_id;
+  std::string predecessor_root;                 // /data/homebrew/FAKE77031
+  std::function<bool(const std::string& title)> unregister_title;
   std::string appmeta_root;                     // /user/appmeta/FAKE77031
   std::string registered_app_root;              // /user/app/FAKE77031
   // The 0.6 layout move's record (/data/playden/runtime-state/layout-0.6.json). While it exists,
@@ -198,6 +204,14 @@ class UpdateService {
   void SwapKitBack(const std::string& installed_kit, const std::string& previous_kit);
   // Whether a staged update moves Playden to the successor title.
   bool Moving() const;
+  // Start without the background work it leaves for the worker.
+  void StartState();
+  // Removes the predecessor title: its folder leaves /data/homebrew now, its tile in the background
+  // (UnregisterPredecessor, queued by Start).
+  void RetirePredecessor();
+  void UnregisterPredecessor();
+  // Why the predecessor's folder must stay (it may hold player data), or empty.
+  std::string PredecessorRefusal() const;
   // Why going back to `to` is refused (it can't read the 0.6 data layout), or empty.
   std::string LayoutRefusal(const Version& to) const;
   void FindPrevious();
@@ -238,6 +252,7 @@ class UpdateService {
   // folder with its kit id (empty when the installed kit is already the release's).
   // The successor title is installed: this title no longer updates or installs kits.
   bool superseded_ = false;
+  bool unregister_pending_ = false;
   std::string staged_folder_;
   std::string staged_title_;
   Version staged_version_;

@@ -10,6 +10,7 @@
 #include "stores/local/copy_runner.h"
 #include "stores/local/library_source.h"
 #include "app/diagnostic_log.h"
+#include "platform/ps5/title_database.h"
 #include "platform/ps5/title_registry.h"
 #include "platform/ps5/title_remover.h"
 #include "platform/ps5/title_runtime.h"
@@ -41,6 +42,9 @@
 #include "platform/ps5/system.hpp"
 
 #include <array>
+#include <cerrno>
+#include <chrono>
+#include <thread>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -404,6 +408,36 @@ int main() {
                 const auto added = playden::ps5::ShadowMountPost("/api/v1/manual/add", "{\"path\":\"" + folder + "\"}");
                 playden::ps5::ShadowMountPost("/api/v1/scan", "{}");  // deferred until no title runs
                 return added && added->find("\"status\":0") != std::string::npos;
+            };
+        }
+        // Moved here from FAKE77031: the old title's folder and tile go once it holds no player data.
+        if (std::string(PLAYDEN_PS5_TITLE_ID) == "PPSA97031") {
+            update_config.predecessor_title_id = "FAKE77031";
+            update_config.predecessor_root = "/data/homebrew/FAKE77031";
+            update_config.unregister_title = [title_root = paths.title_root](const std::string& title) {
+                const auto gone = [&title] {
+                    struct stat info{};
+                    return playden::ps5::ReadNativeTitleDatabase(title).inventory == playden::runtime::TitleAvailability::kFree &&
+                           lstat(("/user/app/" + title).c_str(), &info) != 0 && errno == ENOENT;
+                };
+                // Its manual source goes first: ShadowMountPlus would add the title again from it.
+                playden::ps5::ShadowMountPost("/api/v1/manual/remove", "{\"path\":\"/data/homebrew/" + title + "\"}");
+                if (gone()) return true;
+                // ShadowMountPlus refuses to uninstall while a title runs: the title remover payload does it.
+                playden::ps5::TitleRemoverConfig remover;
+                remover.payload = title_root + "/title-remover.elf";
+                remover.send = playden::ps5::SendToPayloadLoader;
+                char nonce[24];
+                std::snprintf(nonce, sizeof nonce, "%016llx",
+                              static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+                // The request is written as the app's user: no other thread raises root meanwhile.
+                remover.hold_user = playden::ps5::HoldEffectiveUid;
+                const auto outcome = playden::ps5::RunTitleRemover(remover, title, nonce);
+                playden::app::AppendLogLine(log_root, "update.log", "self-update: title remover for " + title + " sent=" +
+                    std::to_string(outcome.sent) + " code=" + (outcome.code ? std::to_string(*outcome.code) : "none") +
+                    " detail=" + outcome.detail);
+                for (int poll = 0; poll < 60 && !gone(); ++poll) std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                return gone();
             };
         }
         update_config.appmeta_root = std::string("/user/appmeta/") + PLAYDEN_PS5_TITLE_ID;

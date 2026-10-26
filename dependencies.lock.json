@@ -21,7 +21,7 @@
     "source": "third_party/PS5-Lapy-JB-Daemon submodule, fork branch main at owned_title_revision; build with scripts/build-lapy-helper.sh"
   },
   "title_remover": {
-    "sha256": "b39725072337816d4c6d2b159849df5e5a3d86505b7450357d774cc8d8f90ca0",
+    "sha256": "5a452a90476a582b230504a841be863c6966187f998f7c29b4f222b7f2524deb",
     "payload_sdk": "ps5_payload_sdk",
     "source": "tools/title-remover/main.c; build with scripts/build-title-remover.sh (reproducible; sent by Playden to the payload loader on 127.0.0.1:9021)"
   },
