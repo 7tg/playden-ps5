@@ -46,12 +46,14 @@ class CdnClient {
   // list holds no usable server, last_failure() says how many were listed and why none fit.
   CdnError Servers(std::uint32_t cell_id, const std::atomic<bool>& cancel, std::vector<ContentServer>* out);
   CdnError Manifest(const ContentServer& server, std::uint32_t depot_id, std::uint64_t gid,
-                    std::uint64_t request_code, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out);
+                    std::uint64_t request_code, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out,
+                    std::size_t max_bytes = kMaxHttpResponseBytes);
   CdnError Chunk(const ContentServer& server, std::uint32_t depot_id, const std::string& sha_hex,
                  std::size_t max_bytes, const std::atomic<bool>& cancel, std::vector<std::uint8_t>* out);
 
   // Bounded by the HTTP client's response cap.
   static constexpr std::size_t kMaxManifestDownloadBytes = kMaxHttpResponseBytes;
+  static constexpr std::size_t kMaxServerListDownloadBytes = 512 * 1024;
   // The last failure as "http=<status>" or "transport=<category>", for sanitized logs.
   const CdnStats& stats() const { return stats_; }
   const std::string& last_failure() const { return last_failure_; }

@@ -98,7 +98,7 @@ CdnError CdnClient::Get(const std::string& url, std::size_t max_bytes, std::uint
   stats_.first_byte_ms += response.timing.first_byte_ms;
   stats_.total_ms += response.timing.total_ms;
   stats_.new_connections += response.timing.new_connections;
-  stats_.bytes += response.timing.body_bytes;
+  stats_.bytes += std::max<std::uint64_t>(response.timing.body_bytes, response.body.size());
   if (error == CdnError::kNone) {
     *out = std::move(response.body);
   } else {
@@ -114,7 +114,7 @@ CdnError CdnClient::Servers(std::uint32_t cell_id, const std::atomic<bool>& canc
   const auto error = Get(
       "https://api.steampowered.com/IContentServerDirectoryService/GetServersForSteamPipe/v1/?cell_id=" +
           std::to_string(cell_id) + "&format=json",
-      512 * 1024, 15'000, cancel, &body);
+      kMaxServerListDownloadBytes, 15'000, cancel, &body);
   if (error != CdnError::kNone) return error;
   const std::string_view text(body.empty() ? "" : reinterpret_cast<const char*>(body.data()), body.size());
   const auto root = json::Parse(text, json::Limits{512 * 1024, 8, 8192, 4096});
@@ -162,11 +162,11 @@ CdnError CdnClient::Servers(std::uint32_t cell_id, const std::atomic<bool>& canc
 
 CdnError CdnClient::Manifest(const ContentServer& server, std::uint32_t depot_id, std::uint64_t gid,
                              std::uint64_t request_code, const std::atomic<bool>& cancel,
-                             std::vector<std::uint8_t>* out) {
-  if (!ValidCdnHost(server.vhost)) return CdnError::kProtocol;
+                             std::vector<std::uint8_t>* out, std::size_t max_bytes) {
+  if (!ValidCdnHost(server.vhost) || !max_bytes) return CdnError::kProtocol;
   return Get(Scheme(server) + server.vhost + "/depot/" + std::to_string(depot_id) + "/manifest/" +
                  std::to_string(gid) + "/5/" + std::to_string(request_code),
-             kMaxManifestDownloadBytes, 60'000, cancel, out, !server.https);
+             std::min(max_bytes, kMaxManifestDownloadBytes), 60'000, cancel, out, !server.https);
 }
 
 CdnError CdnClient::Chunk(const ContentServer& server, std::uint32_t depot_id, const std::string& sha_hex,

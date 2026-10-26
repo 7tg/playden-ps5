@@ -150,6 +150,7 @@ add_library(playden_steam_cm STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/backend/entitled_library.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_app_details.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/cdn_client.cpp"
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/download_server_source.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/depot_installer.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/steam_install_runner.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/cloud_messages.cpp"
@@ -284,6 +285,13 @@ function(playden_register_steam_backend_tests)
         add_executable(cdn_client_test "${CMAKE_SOURCE_DIR}/tests/cdn_client_test.cpp")
         target_link_libraries(cdn_client_test PRIVATE playden_steam_cm)
         add_test(NAME cdn_client COMMAND cdn_client_test)
+        add_executable(download_server_service_test "${CMAKE_SOURCE_DIR}/tests/download_server_service_test.cpp")
+        target_link_libraries(download_server_service_test PRIVATE playden_steam_core)
+        add_test(NAME download_server_service COMMAND download_server_service_test)
+        add_executable(download_server_source_test "${CMAKE_SOURCE_DIR}/tests/download_server_source_test.cpp")
+        target_link_libraries(download_server_source_test PRIVATE playden_steam_cm)
+        add_test(NAME download_server_source COMMAND download_server_source_test
+            "${CMAKE_SOURCE_DIR}/fixtures/steam/manifest")
         add_test(NAME download_speed_report
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_download_speed_report.py")
         add_executable(store_details_test "${CMAKE_SOURCE_DIR}/tests/store_details_test.cpp")
