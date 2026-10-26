@@ -418,7 +418,8 @@ tests, the console workflow, and how to change a forked dependency or a Wine pat
 
 Playden is licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE). The submodules,
 vendored libraries and the runtime kit keep their own licenses: see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Game recipes in `runtime/recipes/` are CC0 1.0: see
+[runtime/recipes/LICENSE](runtime/recipes/LICENSE).
 
 Steam is a trademark of Valve Corporation. PlayStation and PS5 are trademarks of Sony Interactive Entertainment.
 This project is not affiliated with either company.

@@ -81,9 +81,10 @@ Community fields:
 | `community.base` | Optional. A prospero-win-profiles profile (repository, path, revision) that Playden uses as the base; this file's values apply on top. |
 
 Rules: `format_version` is 1; unknown fields are ignored; a file with another
-`status` or a `steam_appid` that does not match `app_id` is refused. The license
-for contributed recipes is not decided yet; do not accept
-contributions until it is.
+`status` or a `steam_appid` that does not match `app_id` is refused.
+
+Recipes are released under [CC0 1.0](../runtime/recipes/LICENSE) (public domain dedication). By sending a
+recipe, you agree to release it under CC0 1.0.
 
 Applying community recipes from the preset chooser is planned.
 

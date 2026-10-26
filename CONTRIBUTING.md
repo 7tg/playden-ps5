@@ -148,4 +148,5 @@ be understood and tested in one sitting. Thanks for your patience, and for contr
 ## License
 
 Playden's source files are marked GPL-3.0-or-later (SPDX headers). The submodules and vendored sources keep their
-own licenses.
+own licenses. Game recipes (`runtime/recipes/`) are CC0 1.0 ([LICENSE](runtime/recipes/LICENSE)): by contributing a
+recipe, you release it under CC0 1.0.
