@@ -74,10 +74,14 @@ add_library(playden_game_paths STATIC "${CMAKE_SOURCE_DIR}/src/steam/backend/gam
 target_include_directories(playden_game_paths PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_game_paths PUBLIC cxx_std_17)
 
-add_library(playden_runtime_installs STATIC "${CMAKE_SOURCE_DIR}/src/runtime/game_install.cpp")
+add_library(playden_runtime_installs STATIC "${CMAKE_SOURCE_DIR}/src/runtime/game_install.cpp"
+    "${CMAKE_SOURCE_DIR}/src/runtime/leftover_titles.cpp")
 target_include_directories(playden_runtime_installs PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_compile_features(playden_runtime_installs PUBLIC cxx_std_17)
 target_link_libraries(playden_runtime_installs PUBLIC playden_library playden_storage playden_steam_protocol playden_game_paths)
+if(PLAYDEN_PLATFORM_PS5)
+    target_compile_definitions(playden_runtime_installs PRIVATE PLAYDEN_PLATFORM_PS5=1)
+endif()
 
 add_library(playden_runtime_install_service STATIC "${CMAKE_SOURCE_DIR}/src/runtime/install_service.cpp")
 target_include_directories(playden_runtime_install_service PUBLIC "${CMAKE_SOURCE_DIR}/src")
@@ -242,6 +246,15 @@ if(BUILD_TESTING AND NOT PLAYDEN_PLATFORM_PS5)
     add_executable(runtime_game_install_test "${CMAKE_SOURCE_DIR}/tests/runtime_game_install_test.cpp")
     target_link_libraries(runtime_game_install_test PRIVATE playden_runtime_installs ${CMAKE_DL_LIBS})
     add_test(NAME runtime_game_install COMMAND runtime_game_install_test)
+    add_executable(runtime_leftover_titles_test "${CMAKE_SOURCE_DIR}/tests/runtime_leftover_titles_test.cpp")
+    target_link_libraries(runtime_leftover_titles_test PRIVATE playden_runtime_installs)
+    add_test(NAME runtime_leftover_titles COMMAND runtime_leftover_titles_test)
+    add_executable(runtime_leftover_titles_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_leftover_titles_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/leftover_titles.cpp")
+    target_compile_definitions(runtime_leftover_titles_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    target_link_libraries(runtime_leftover_titles_native_policy_test PRIVATE playden_runtime_installs)
+    add_test(NAME runtime_leftover_titles_native_policy COMMAND runtime_leftover_titles_native_policy_test)
     add_executable(local_scanner_test "${CMAKE_SOURCE_DIR}/tests/local_scanner_test.cpp")
     target_link_libraries(local_scanner_test PRIVATE playden_local_store)
     add_test(NAME local_scanner COMMAND local_scanner_test)
