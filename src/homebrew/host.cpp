@@ -47,6 +47,14 @@
 
 namespace {
 
+// Settings › Game language, read by the install and details workers when they start a job.
+std::mutex content_language_lock;
+std::string content_language{playden::steam::kDefaultContentLanguage};
+std::string selected_content_language() {
+    const std::lock_guard<std::mutex> guard(content_language_lock);
+    return content_language;
+}
+
 struct Options {
     std::string scenario;
     std::filesystem::path profile = PLAYDEN_HOMEBREW_DEFAULT_PROFILE;
@@ -552,6 +560,7 @@ int main(int argc, char** argv) {
         details_cm->SetSharedSession(steam_cm);
         details_source = std::make_unique<playden::steam::CmAppDetailsSource>(*details_cm);
         details_source->SetLicensedDepots(&licensed_depots);
+        details_source->SetContentLanguage([] { return selected_content_language(); });
         details_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string(), playden::LocalSessionRepository::DiagnosticReport{}, session_vault.get());
         app_details = std::make_unique<playden::steam::AppDetailsService>(*details_source, *details_sessions);
         install_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
@@ -574,6 +583,7 @@ int main(int argc, char** argv) {
             }
             return tuning;
         });
+        install_runner->SetContentLanguage([] { return selected_content_language(); });
         install_runner->SetLog([log_directory](std::uint32_t app, const char* step, const char* category, const char* detail) {
             char line[640];
             if (std::string(step) == "install-removal")
@@ -803,6 +813,10 @@ int main(int argc, char** argv) {
         {
             std::lock_guard lock(download_tuning_state.mutex);
             download_tuning_state.download_server = simulation.state().download_server;
+        }
+        {
+            const std::lock_guard<std::mutex> guard(content_language_lock);
+            content_language = simulation.state().content_language;
         }
         render->draw(simulation, width, height, options->headless ? 1.0F / 60.0F : frame_dt);
         rendered_once = true;

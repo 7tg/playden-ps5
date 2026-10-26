@@ -47,6 +47,7 @@
 
 #include <array>
 #include <atomic>
+#include <mutex>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -160,6 +161,14 @@ std::atomic<bool> downloads_slow_network{false};
 // The main loop updates this selection; the install worker copies it at download start.
 std::mutex download_server_mutex;
 std::string download_server;
+// Settings › Game language, read by the install worker when a download starts and by the
+// details worker when it estimates sizes. A string needs a lock; the UI writes it once a frame.
+std::mutex content_language_lock;
+std::string content_language{playden::steam::kDefaultContentLanguage};
+std::string selected_content_language() {
+    const std::lock_guard<std::mutex> guard(content_language_lock);
+    return content_language;
+}
 // Development requests are processed in file order on the first frame.
 std::vector<playden::steam::InstallRequest> take_install_requests(bool runtime_ready) {
     const std::string request_path = title_root + "/dev/install-request.txt";
@@ -358,6 +367,7 @@ int main() {
         details_cm.SetSharedSession(steam_cm);
         playden::steam::CmAppDetailsSource details_source(details_cm);
         details_source.SetLicensedDepots(&licensed_depots);
+        details_source.SetContentLanguage([] { return selected_content_language(); });
         playden::LocalSessionRepository details_sessions(user_root, {}, &session_vault);
         playden::steam::AppDetailsService app_details(details_source, details_sessions);
         playden::steam::CmClient install_cm(paths.trust_store, library_storage);
@@ -379,6 +389,7 @@ int main() {
             }
             return tuning;
         });
+        install_runner.SetContentLanguage([] { return selected_content_language(); });
         install_runner.SetLog([](std::uint32_t app, const char* step, const char* category, const char* detail) {
             char line[640];
             if (std::string(step) == "install-removal")
@@ -901,6 +912,10 @@ int main() {
             {
                 std::lock_guard lock(download_server_mutex);
                 download_server = simulation.state().download_server;
+            }
+            {
+                const std::lock_guard<std::mutex> guard(content_language_lock);
+                content_language = simulation.state().content_language;
             }
 #endif
             const auto ticked = hui::sys::monotonic_us();

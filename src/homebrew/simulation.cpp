@@ -2809,7 +2809,7 @@ void Simulation::ApplyLiveDownloadServers(const LiveDownloadServers& snapshot) {
 playden::Preferences Simulation::ExportPreferences() const {
     return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password,
             state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates, state_.download_server,
-            state_.web_access};
+            state_.web_access, state_.content_language};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -3040,6 +3040,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.download_server = loaded.preferences.download_server;
         state_.web_access = loaded.preferences.web_access;
         state_.stay_signed_in = loaded.preferences.steam_stay_signed_in;
+        state_.content_language = loaded.preferences.content_language;
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
     }
@@ -3121,6 +3122,7 @@ bool Simulation::record_live_persistence() {
                                       after_preferences.download_server != captured_preferences_.download_server ||
                                       after_preferences.web_access != captured_preferences_.web_access ||
                                       after_preferences.beta_updates != captured_preferences_.beta_updates ||
+                                      after_preferences.content_language != captured_preferences_.content_language ||
                                       after_preferences.steam_stay_signed_in != captured_preferences_.steam_stay_signed_in);
 
     if (organization_changed && !snapshot_within_model_bounds(after_organization)) {
@@ -3148,6 +3150,7 @@ bool Simulation::record_live_persistence() {
                 state_.download_server = captured_preferences_.download_server;
                 state_.web_access = captured_preferences_.web_access;
                 state_.stay_signed_in = captured_preferences_.steam_stay_signed_in;
+                state_.content_language = captured_preferences_.content_language;
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
                 force_organization_selection_ = false;
@@ -3321,6 +3324,8 @@ void Simulation::load_profile() {
     state_.account().display_name = saved_account.empty() ? std::string{} : string_value(root->get("account_display_name"), "Connected fixture account");
     state_.reduced_motion = bool_value(root->get("reduced_motion"));
     state_.download_server = string_value(root->get("download_server"));
+    if (const auto saved = string_value(root->get("content_language")); playden::steam::IsContentLanguage(saved))
+        state_.content_language = saved;
     if (saved_auth == "signed-out" || saved_auth == "cancelled" || (saved_auth == "waiting" && saved_account.empty())) {
         state_.account().authentication = AuthState::SignedOut; state_.account().id.clear(); state_.account().display_name.clear();
         state_.account().cache_available = false; state_.account().challenge_expiry = 0; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
@@ -3460,6 +3465,7 @@ bool Simulation::save_profile() {
         + "\",\"authentication\":\"" + auth_name(state_.account().authentication) + "\",\"account_last_sync\":" + std::to_string(state_.account().last_sync)
         + ",\"next_job_serial\":" + std::to_string(next_job_serial_) + ",\"reduced_motion\":"
         + (state_.reduced_motion ? "true" : "false") + ",\"download_server\":\"" + json::escape(state_.download_server)
+        + "\",\"content_language\":\"" + json::escape(state_.content_language)
         + "\",\"query\":\"" + json::escape(state_.library.query)
         + "\",\"scope\":\"" + json::escape(state_.library.scope) + "\",\"favorites\":[";
     bool first = true;
@@ -4167,6 +4173,9 @@ void Simulation::rebuild_view() {
                              "tile; its saves and settings move to Kept game data, and its game files stay in the Library.";
         if (modal.id == "download-server")
             view_.subtitle = "Applies to downloads that start or resume from now.";
+        if (modal.id == "content-language")
+            view_.subtitle = "New downloads are in this language when the game has it, and in English when it does not. "
+                             "Games already installed keep the language they were downloaded in.";
         for (const auto& action_key : modal.action_keys) {
             auto& item = row(action_key, RowKind::Action, action_label(action_key), action_key);
             item.dangerous = modal.destructive && action_key != "cancel";
@@ -4225,6 +4234,14 @@ void Simulation::rebuild_view() {
                     }
                 }
                 continue;
+            }
+            // The game-language picker: every language Steam has, with the one in use ticked.
+            if (modal.id == "content-language" && action_key.rfind("content-language-", 0) == 0) {
+                const auto code = action_key.substr(17);
+                item.kind = RowKind::Choice;
+                item.title = playden::steam::LanguageName(code);
+                item.selected = code == state_.content_language;
+                if (item.selected) item.value = "In use";
             }
             // Demos and Family sharing are on unless the player hid them.
             if (action_key == "filter-hide-demos" || action_key == "filter-hide-family") {
@@ -4846,6 +4863,7 @@ void Simulation::rebuild_view() {
         else if (modal.id == "import-games") view_.legends = {"Cross Select", "Circle Close"};
         else if (modal.id == "import-programs" || modal.id == "import-choice") view_.legends = {"Cross Select", "Circle Back"};
         else if (modal.id == "steam-programs") view_.legends = {"Cross Choose", "Circle Cancel"};
+        else if (modal.id == "content-language") view_.legends = {"Cross Use this language", "L1/R1 Jump", "Circle Back"};
         else if (modal.id == "import-storage") view_.legends = {"Cross Import here", "Circle Back"};
         else if (modal.id == "installed-games") view_.legends = {"Cross Select", "Triangle Uninstall", "Circle Close"};
         else if (!modal.setting_id.empty()) view_.legends = {"Cross Select", "Triangle Reset", "L1/R1 Jump", "Circle Back"};
@@ -5498,6 +5516,11 @@ void Simulation::rebuild_view() {
             auto& suffix = add("settings-title-store", RowKind::Toggle, "Store name in PS5 titles", "toggle-title-store");
             suffix.selected = state_.title_store_suffix;
             suffix.subtitle = "Name game titles like \"Half-Life 2 (Steam)\". Prepared games change with their next Update.";
+            // Steam ships localisations as separate depots, so the language has to be chosen
+            // before a game is downloaded.
+            auto& content = add("settings-content-language", RowKind::Action, "Game language", "content-language-picker");
+            content.value = playden::steam::LanguageName(state_.content_language);
+            content.subtitle = "Which language new downloads are in, when the game has it. Games already installed keep theirs.";
             auto& cloud = add("settings-cloud-saves", RowKind::Toggle, "Sync Cloud saves automatically", "toggle-cloud-saves");
             cloud.selected = state_.cloud_saves_auto;
             cloud.subtitle = state_.cloud_saves_auto ? "Before Play, after each game and when Playden starts."
@@ -6832,6 +6855,25 @@ void Simulation::activate() {
         }
         save_profile();
         close_modal();
+    } else if (action_name == "content-language-picker") {
+        std::vector<std::string> actions;
+        actions.reserve(playden::steam::ContentLanguages().size() + 1);
+        for (const auto& language : playden::steam::ContentLanguages())
+            actions.push_back("content-language-" + std::string(language.code));
+        actions.push_back("cancel");
+        // Opens on the language in use, so a list this long does not start at the top every time.
+        int focus = 0;
+        for (std::size_t index = 0; index < actions.size(); ++index)
+            if (actions[index] == "content-language-" + state_.content_language) focus = static_cast<int>(index);
+        open_modal({"content-language", "Game language", state_.navigation.focus_key, std::move(actions), focus, false});
+    } else if (action_name.rfind("content-language-", 0) == 0) {
+        const auto code = action_name.substr(17);
+        if (playden::steam::IsContentLanguage(code)) {
+            state_.content_language = code;
+            save_profile();
+        }
+        close_modal();
+        return;
     } else if (action_name == "storage-picker") {
         // From the install sheet the choice is for that install only; Settings changes the default.
         picking_install_volume_ = live() && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "install";
@@ -8387,6 +8429,7 @@ bool Simulation::action(const std::string& logical_action) {
     else if ((logical_action == "l1" || logical_action == "r1") && !state_.navigation.modals.empty() &&
              (state_.navigation.modals.back().id == "game-settings" || state_.navigation.modals.back().id == "preset-picker" ||
               state_.navigation.modals.back().id == "game-maintenance" ||
+              state_.navigation.modals.back().id == "content-language" ||
               state_.navigation.modals.back().id == "button-mapping" || state_.navigation.modals.back().id == "controller-tuning" ||
               !state_.navigation.modals.back().setting_id.empty()))
         move(0, logical_action == "l1" ? -5 : 5);  // L1/R1 jump five rows, as on macOS

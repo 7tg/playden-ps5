@@ -2,6 +2,7 @@
 
 #include "steam/backend/cdn_client.h"
 #include "steam/backend/cm_client.h"
+#include "steam/backend/content_language.h"
 #include "steam/backend/depot_installer.h"
 #include "steam/install_service.h"
 
@@ -37,8 +38,8 @@ std::vector<std::string> FormatInstallServerStats(const std::vector<InstallServe
 using InstallLogFn = std::function<void(std::uint32_t app, const char* step, const char* category, const char* detail)>;
 void LogInstallTrace(const InstallLogFn& log, std::uint32_t app, const char* marker);
 
-// Installs a Steam game: PICS app info for the depot selection (Windows, English, public
-// branch), then the resumable depot installer.
+// Installs a Steam game: PICS app info for the depot selection (Windows, the chosen content
+// language, public branch), then the resumable depot installer.
 class SteamInstallRunner final : public SessionInstallRunner {
  public:
   SteamInstallRunner(SessionRepository& sessions, CmClient& cm, CdnClient& cdn, FastestServerCache::Now now = {})
@@ -51,6 +52,9 @@ class SteamInstallRunner final : public SessionInstallRunner {
   std::string DownloadServerName() const override { return server_name_; }
   FastestServerCache& fastest_server() { return fastest_; }
   void SetTuning(std::function<DownloadTuning()> tuning) { tuning_ = std::move(tuning); }
+  // The content language each install selects depots for, read when the install starts so a
+  // change to the setting reaches the next download. English when unset.
+  void SetContentLanguage(std::function<std::string()> language) { language_ = std::move(language); }
   // Optional sanitized log: the Steam app ID, step, error category and a short detail; never
   // tokens or account identifiers. Called on the install worker.
   using LogFn = InstallLogFn;
@@ -92,6 +96,7 @@ class SteamInstallRunner final : public SessionInstallRunner {
   std::string server_name_;  // the install worker's own: set and read during InstallApp's progress
   LogFn log_;
   std::function<DownloadTuning()> tuning_;
+  std::function<std::string()> language_;
   std::atomic<std::uint32_t> current_app_{0};
 };
 

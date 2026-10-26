@@ -186,9 +186,10 @@ void SignInMethodPersistsAndVersionThreeOpensQr() {
   Check(store.Save(preferences).ok(), "sign-in method preference saves");
   const auto saved = storage.Read("preferences.conf");
   Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()) ==
-                          "version=9\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
-                          "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=\nweb_access=1\n",
-        "version 9 format includes Automatic download server and web access");
+                          "version=10\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
+                          "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=\nweb_access=1\n"
+                          "content_language=english\n",
+        "version 10 format includes Automatic download server, web access and English");
   const auto loaded = store.Load();
   Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.steam_sign_in_password &&
             loaded.preferences.cloud_saves_auto,
@@ -344,9 +345,10 @@ void OlderPreferencesUseAutomaticDownloadServer() {
           "migration retains old fields and defaults later fields");
     Check(store.Save(loaded.preferences).ok(), "migrated preferences save");
     const auto saved = storage.Read("preferences.conf");
-    Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()).rfind("version=9\n", 0) == 0,
-          "saving a migrated file writes version 9");
+    Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()).rfind("version=10\n", 0) == 0,
+          "saving a migrated file writes version 10");
     Check(loaded.preferences.web_access, "every older preference version has web access on");
+    Check(loaded.preferences.content_language == "english", "every older preference version downloads English");
   }
 }
 
@@ -447,6 +449,63 @@ void PreferencesPrepareIndependentRoot() {
   std::remove((root+"/preferences.conf").c_str());rmdir(root.c_str());
 }
 
+void ContentLanguagePersistsAndOlderVersionsStayEnglish() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  Check(store.Load().preferences.content_language == "english", "a fresh install downloads English");
+  const std::string version_seven =
+      "version=7\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=0\n"
+      "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=1\n";
+  const std::string version_nine =
+      "version=9\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=0\n"
+      "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=1\ndownload_server=cache.example\nweb_access=0\n";
+  const std::string version_eight =
+      "version=8\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=0\n"
+      "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=1\ndownload_server=cache.example\n";
+  for (const auto& old : {version_seven, version_eight, version_nine}) {
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(old.begin(), old.end())).ok(), "older fixture is written");
+    const auto loaded = store.Load();
+    Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.beta_updates &&
+              loaded.preferences.content_language == "english",
+          "version 7 to 9 preferences load and keep downloading English");
+  }
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(version_nine.begin(), version_nine.end())).ok(),
+        "version 9 fixture is written");
+  const auto nine = store.Load();
+  Check(!nine.preferences.web_access && nine.preferences.download_server == "cache.example",
+        "version 9 keeps web access and the download server alongside English");
+  playden::Preferences preferences;
+  preferences.content_language = "german";
+  preferences.download_server = "fastest";
+  preferences.web_access = false;
+  Check(store.Save(preferences).ok(), "a chosen game language saves");
+  const auto german = store.Load();
+  Check(german.status == playden::PreferencesLoadStatus::kLoaded && german.preferences.content_language == "german" &&
+            german.preferences.download_server == "fastest" && !german.preferences.web_access,
+        "the chosen game language survives restart with the other fields");
+  playden::Preferences unknown;
+  unknown.content_language = "klingon\nbeta_updates=1";
+  Check(store.Save(unknown).ok(), "an unknown game language saves");
+  const auto english = store.Load();
+  Check(english.status == playden::PreferencesLoadStatus::kLoaded && english.preferences.content_language == "english" &&
+            !english.preferences.beta_updates,
+        "an unknown game language is saved as English and cannot inject a preference");
+  const std::string ten =
+      "version=10\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=0\n"
+      "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=\nweb_access=1\n";
+  const std::string malformed[] = {ten + "content_language=klingon\n", ten + "content_language=\n", ten,
+                                   ten + "content_language=german\nx=1\n", version_nine + "content_language=german\n",
+                                   "version=10" + version_nine.substr(9)};
+  for (const auto& text : malformed) {
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(text.begin(), text.end())).ok(), "bad fixture is written");
+    const auto corrupt = store.Load();
+    Check(corrupt.status == playden::PreferencesLoadStatus::kDefaultCorrupt &&
+              corrupt.preferences.content_language == "english",
+          "a language Steam does not have, or a malformed version 10 file, is corrupt and restores English");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -466,6 +525,7 @@ int main() {
   OlderPreferencesUseAutomaticDownloadServer();
   DownloadServerRoundTripsAndInvalidHostsUseAutomatic();
   VersionEightRejectsTruncatedOrMalformedFiles();
+  ContentLanguagePersistsAndOlderVersionsStayEnglish();
 
   if (failures != 0) {
     std::fprintf(stderr, "%d preference test assertion(s) failed\n", failures);
