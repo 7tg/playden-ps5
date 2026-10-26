@@ -287,6 +287,9 @@ function(playden_add_homebrew_ps5_title)
 		${native_helper_package_commands}
 		COMMAND "${CMAKE_COMMAND}" -E make_directory "${app}/trust"
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PLAYDEN_STEAM_CA_BUNDLE}" "${app}/trust/cacert.pem"
+		# The app folder is the whole download (ProsperoStore, self-update), so the licenses travel inside it.
+		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_SOURCE_DIR}/LICENSE"
+			"${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md" "${app}/"
 		COMMAND "${host_tool}" self --sign --in "${out}/eboot.elf" --out "${app}/eboot.bin" --magic 0x1D3D154F
 		COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${libc_prx}" "${app}/sce_module/libc.prx"
 		COMMAND "${CMAKE_COMMAND}" -DAPP_DIR=${app} -DTITLE_ID=${PLAYDEN_PS5_TITLE_ID}
@@ -296,7 +299,8 @@ function(playden_add_homebrew_ps5_title)
 			"${CMAKE_SOURCE_DIR}/cmake/WriteNativePackageIdentity.cmake"
 			"${CMAKE_SOURCE_DIR}/sce_sys/icon0.png" "${CMAKE_SOURCE_DIR}/assets/branding/generic-title-icon.png"
 			"${CMAKE_SOURCE_DIR}/sce_sys/pic0.dds" "${CMAKE_SOURCE_DIR}/sce_sys/pic1.dds"
-			"${PLAYDEN_STEAM_CA_BUNDLE}" ${package_inputs}
+			"${PLAYDEN_STEAM_CA_BUNDLE}" "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+			${package_inputs}
 		VERBATIM)
 	add_custom_target(playden-homebrew-ps5-package ALL DEPENDS "${stamp}")
 endfunction()

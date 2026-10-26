@@ -87,14 +87,16 @@ struct Server {
 };
 
 std::string AppZip(const std::string& version_text, const std::string& content_version, const std::string& full_version = "") {
-  const std::string top = "playden-ps5-" + version_text + "/";
-  return zip_fixture::Build({{top + "tools/console_title_deploy.py", "py"},
-                             {top + "FAKE77031/eboot.bin", "eboot " + version_text},
-                             {top + "FAKE77031/playden-version", full_version.empty() ? version_text + "\n" : full_version},
-                             {top + "FAKE77031/sce_sys/param.json",
+  // The app folder at the top, as ProsperoStore installs it, with the tools next to it (0.7.1 and older zips had
+  // both one folder down).
+  return zip_fixture::Build({{"tools/console_title_deploy.py", "py"},
+                             {"FAKE77031/LICENSE", "license"},
+                             {"FAKE77031/eboot.bin", "eboot " + version_text},
+                             {"FAKE77031/playden-version", full_version.empty() ? version_text + "\n" : full_version},
+                             {"FAKE77031/sce_sys/param.json",
                               R"({"titleId":"FAKE77031","contentVersion":")" + content_version + R"("})"},
-                             {top + "FAKE77031/assets/a.txt", "asset " + version_text},
-                             {top + "FAKE77031/logs/", "", 040755}});
+                             {"FAKE77031/assets/a.txt", "asset " + version_text},
+                             {"FAKE77031/logs/", "", 040755}});
 }
 
 std::string KitZip() {
@@ -111,8 +113,7 @@ void Publish(Server& server, const std::string& tag, const std::string& min_from
   const std::string kit = KitZip();
   const std::string manifest =
       R"({"format":1,"app":{"version":")" + version_text + R"(","title_id":"FAKE77031","min_from":")" + min_from +
-      R"(","asset":"playden-ps5-)" + version_text + R"(.zip","prefix":"playden-ps5-)" + version_text +
-      R"(/FAKE77031/"},"kit":{"kit_id":"kitid","revision":")" + kit_revision + R"(","manifest_sha256":")" + kKitSha +
+      R"(","asset":"playden-ps5-)" + version_text + R"(.zip","prefix":"FAKE77031/"},"kit":{"kit_id":"kitid","revision":")" + kit_revision + R"(","manifest_sha256":")" + kKitSha +
       R"(","asset":"playden-kit-h-r9.zip","prefix":"playden-kit-h-r9/kitid/"},"notes":"New things."})";
   server.files[kDownload + "playden-update.json"] = manifest;
   server.files[kDownload + "playden-ps5-" + version_text + ".zip"] = app;

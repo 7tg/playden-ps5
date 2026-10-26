@@ -1122,11 +1122,11 @@ void live_root_access_missing() {
         {"stable launcher source is invalid: assets root is unavailable", true, "Playden's app folder is incomplete",
          "Copy the whole app folder"},
         {"stable launcher source identity does not match", true, "Playden can't start", "restart the PS5"},
-        {"launcher is not installed in /data/homebrew/PPSA97031; helper stage=done status=0 error=0", true,
-         "Install Playden on console storage", "Playden runs only from /data/homebrew/PPSA97031, on the console's"},
-        {"launcher is not installed in /data/homebrew/PPSA97031", false, "Install Playden on console storage",
+        {"launcher is not installed in /data/homebrew/FAKE77031; helper stage=done status=0 error=0", true,
+         "Install Playden on console storage", "Playden runs only from /data/homebrew/FAKE77031, on the console's"},
+        {"launcher is not installed in /data/homebrew/FAKE77031", false, "Install Playden on console storage",
          "set Settings > Install location to /data/homebrew, hold Uninstall"},
-        {"launcher is not installed in /data/homebrew/PPSA97031", false, "Install Playden on console storage",
+        {"launcher is not installed in /data/homebrew/FAKE77031", false, "Install Playden on console storage",
          "move the app folder to /data/homebrew."},
     };
     for (const auto& item : cases) {
