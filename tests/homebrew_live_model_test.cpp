@@ -1187,6 +1187,12 @@ void live_root_access_missing() {
         {"stable launcher source is invalid: assets root is unavailable", true, "Playden's app folder is incomplete",
          "Copy the whole app folder"},
         {"stable launcher source identity does not match", true, "Playden can't start", "restart the PS5"},
+        {"launcher is not installed in /data/homebrew/PPSA97031; helper stage=done status=0 error=0", true,
+         "Install Playden on console storage", "Playden runs only from /data/homebrew/PPSA97031, on the console's"},
+        {"launcher is not installed in /data/homebrew/PPSA97031", false, "Install Playden on console storage",
+         "set Settings > Install location to /data/homebrew, hold Uninstall"},
+        {"launcher is not installed in /data/homebrew/PPSA97031", false, "Install Playden on console storage",
+         "move the app folder to /data/homebrew."},
     };
     for (const auto& item : cases) {
         Simulation model_case({}, {}, ModelMode::Live);
@@ -1194,8 +1200,12 @@ void live_root_access_missing() {
         const auto& case_view = model_case.view();
         const auto case_detail = std::find_if(case_view.rows.begin(), case_view.rows.end(),
                                               [](const auto& row) { return row.key == "root-detail"; });
+        // The wrong-location screen says all there is to do; the others keep the error line for reports.
+        const bool elsewhere = item.title == std::string("Install Playden on console storage");
         check(case_view.title == item.title && case_view.subtitle.find(item.advice) != std::string::npos &&
-                  case_detail != case_view.rows.end() && case_detail->title == std::string("Startup error: ") + item.error,
+                  (elsewhere ? case_detail == case_view.rows.end()
+                             : case_detail != case_view.rows.end() &&
+                                   case_detail->title == std::string("Startup error: ") + item.error),
               (std::string("root access: ") + item.error + " has its own title and fix").c_str());
         check(item.granted || std::string(item.advice) != "Load kstuff and the autoloader" ||
                   case_view.subtitle.find("kstuff") != std::string::npos,

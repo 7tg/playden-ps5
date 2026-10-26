@@ -690,6 +690,7 @@ GameId fixture_imported_game() { return GameId::Local("6d1f3a52-0c55-4f3e-9b2a-5
 struct StartupProblem {
     std::string title;
     std::string subtitle;
+    bool show_detail = true;  // the error line, for reports; left out where it adds nothing for the player
 };
 
 // What the startup error means for the player: the step that failed and how to fix it. The error
@@ -704,6 +705,19 @@ StartupProblem describe_startup_problem(const std::string& detail, bool granted)
     const StartupProblem incomplete{"Playden's app folder is incomplete",
         "Some of Playden's files in /data/homebrew are missing or can't be read. Copy the whole app folder from the "
         "release zip again (or use tools/console_title_deploy.py), then open Playden again."};
+    constexpr const char* kElsewhere = "launcher is not installed in ";
+    if (const auto at = detail.find(kElsewhere); at != std::string::npos) {
+        const auto from = at + std::strlen(kElsewhere);
+        const auto folder = detail.substr(from, detail.find(';', from) - from);
+        const auto parent = folder.substr(0, folder.rfind('/'));
+        // ProsperoStore can install to other folders and drives; its labels are Settings > Install location and
+        // Uninstall (held) on the app's page.
+        return {"Install Playden on console storage",
+                "Playden runs only from " + folder + ", on the console's own storage. From ProsperoStore: set "
+                "Settings > Install location to " + parent + ", hold Uninstall on Playden's page, then install it "
+                "again. If you copied it by hand, move the app folder to " + parent + ".",
+                false};
+    }
     if (granted) {
         if (has("stable launcher source is invalid")) return incomplete;
         if (has("stable launcher source identity does not match"))
@@ -4547,7 +4561,7 @@ void Simulation::rebuild_view() {
         auto problem = describe_startup_problem(state_.root_access_detail, state_.root_access_granted);
         view_.title = std::move(problem.title);
         view_.subtitle = std::move(problem.subtitle);
-        if (!state_.root_access_detail.empty())
+        if (problem.show_detail && !state_.root_access_detail.empty())
             row("root-detail", RowKind::Status, "Startup error: " + state_.root_access_detail, "").enabled = false;
         row("root-quit", RowKind::Action, "Quit to Home", "root-quit");
         view_.legends = {"Cross Quit to Home"};

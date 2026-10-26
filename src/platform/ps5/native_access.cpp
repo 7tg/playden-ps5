@@ -256,6 +256,13 @@ NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
     return result;
   }
 
+  // Installed somewhere else (another drive's homebrew folder): Playden runs only from /data/homebrew,
+  // and the grant does not answer for a title started from another folder. /data/homebrew is visible
+  // before the grant; only a folder it lists as absent counts.
+  if (ops_.path_kind(ops_.context, options_.stable_homebrew_root.c_str()) == NativePathKind::kDirectory &&
+      ops_.path_kind(ops_.context, stable_root.c_str()) == NativePathKind::kMissing)
+    return LauncherFallback("launcher is not installed in " + stable_root);
+
   const int grant_code = ops_.request_data_access(ops_.context);
   if (grant_code != 0)
     return LauncherFallback(NativeFailure("native data grant", grant_code),
@@ -267,6 +274,9 @@ NativeAccessResult NativeAccessBootstrap::PrepareAccess() {
     return result;
   };
 
+  // Not visible before the grant, and missing after it: installed somewhere else too.
+  if (ops_.path_kind(ops_.context, stable_root.c_str()) == NativePathKind::kMissing)
+    return granted_fallback("launcher is not installed in " + stable_root);
   std::string path_error;
   if (!ValidatePaths(ops_, stable, options_.known_fresh_state,
                      StubState::kReadable, &path_error)) {
