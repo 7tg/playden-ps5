@@ -1212,6 +1212,28 @@ int main(int argc, char** argv) {
     CHECK(BuildEffectiveSettings(ffxiii, nullptr, {{"resolution", "1280x720"}}, KitCapabilities{}, &settings, &error));
     CHECK(settings.arguments == "-FullScreenMode=Force -Width=1280 -Height=720 -Shadow=4096 -MSAA=4");
   }
+  // Scott Pilgrim EX looks like XNA, which gets OpenGL; it draws badly or crashes at start there, and
+  // works through DXVK with the Steam emulator, so its recipe names DXVK's overrides and locks Graphics.
+  {
+    GameRecipe scott;
+    CHECK(ParseGameRecipe(ReadText(source / "runtime/recipes/steam-2640950-scottpilgrimex-v1.json"), &scott, &reason));
+    EffectiveSettings settings;
+    SettingsError error;
+    CHECK(BuildEffectiveSettings(scott, nullptr, {}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.graphics == "dxvk" && settings.dll_overrides == kDxvkOverrides);
+    CHECK(settings.values.at("graphics").locked && !settings.values.at("steam_features").locked);
+    CHECK(settings.values.at("steam_features").value == "emulate" && settings.arguments.empty());
+  }
+  // BRAZILIAN DRUG DEALER BEFORE 4 was tested with OpenGL and the Steam emulator; nothing is locked.
+  {
+    GameRecipe bdd4;
+    CHECK(ParseGameRecipe(ReadText(source / "runtime/recipes/steam-4241920-braziliandrugdealer4-v1.json"), &bdd4, &reason));
+    EffectiveSettings settings;
+    SettingsError error;
+    CHECK(BuildEffectiveSettings(bdd4, nullptr, {}, KitCapabilities{}, &settings, &error));
+    CHECK(settings.graphics == "opengl" && settings.dll_overrides.empty());
+    CHECK(settings.values.at("steam_features").value == "emulate" && !settings.values.at("graphics").locked);
+  }
   CHECK(!ParseSettingsPresets(R"({"presets":[{"id":"x","name":"X","settings":{"graphics":"gdi"}}]})", &presets, &reason));
   CHECK(!ParseSettingsPresets(R"({"presets":[{"id":"x","name":"X","settings":{"extra_arguments":"-a"}}]})", &presets, &reason));
 
@@ -1245,8 +1267,8 @@ int main(int argc, char** argv) {
   std::vector<SettingsPreset> loaded_presets;
   std::vector<GameRecipe> loaded_recipes;
   CHECK(LoadSettingsData((source / "runtime").string(), &loaded_presets, &loaded_recipes, &reason));
-  CHECK(loaded_presets.size() == 4 && loaded_recipes.size() == 2 && loaded_recipes.front().app_id == 220 &&
-        loaded_recipes.back().id == "steam-292120-ffxiii-v1");
+  CHECK(loaded_presets.size() == 4 && loaded_recipes.size() == 4 && loaded_recipes.front().app_id == 220 &&
+        loaded_recipes.back().id == "steam-4241920-braziliandrugdealer4-v1");
   CHECK(!LoadSettingsData((source / "missing").string(), &loaded_presets, &loaded_recipes, &reason));
 
   // ApplyGameSettings writes the profile and a Playden dxvk.conf, removes it when nothing is

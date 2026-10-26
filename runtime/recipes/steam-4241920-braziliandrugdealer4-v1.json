@@ -1,0 +1,20 @@
+{
+  "recipe_id": "steam-4241920-braziliandrugdealer4-v1",
+  "recipe_version": 1,
+  "app_id": 4241920,
+  "name": "BRAZILIAN DRUG DEALER BEFORE 4",
+  "launch_entries": [
+    {"id": "game", "label": "BRAZILIAN DRUG DEALER BEFORE 4", "executable": "AVIAO3GAME.exe"}
+  ],
+  "arguments": "",
+  "resolution_arguments": "",
+  "dll_overrides": "",
+  "architecture": "pe64",
+  "runtime": "wine-wow64",
+  "prefix": "game",
+  "graphics": "opengl",
+  "defaults": {
+    "steam_features": "emulate"
+  },
+  "locked": []
+}
