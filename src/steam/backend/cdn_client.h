@@ -17,6 +17,7 @@ struct ContentServer {
   std::string vhost;  // the name used in URLs and TLS
   int load = 100;
   bool https = true;  // false for a server the directory lists as plain HTTP only
+  int priority = 0;  // directory priority_class, 0..9; does not affect Automatic order
 };
 
 struct CdnStats {
@@ -65,6 +66,17 @@ class CdnClient {
   std::string last_failure_;
   CdnStats stats_;
 };
+
+// Fixed provider labels for logs; unknown hosts never appear in the returned label.
+std::string CdnServerLabel(const std::string& host);
+std::string CdnServerDisplayName(const std::string& host);
+
+struct ServerOrder {
+  bool preferred_found = false;
+  std::size_t preferred_index = 0;  // original position of the first match
+};
+// Move the first matching host to the front, preserving every other entry's order.
+ServerOrder PreferServer(std::vector<ContentServer>* servers, const std::string& preferred_host);
 
 // A host or vhost from the directory may only contain DNS name characters.
 bool ValidCdnHost(const std::string& host);
