@@ -5248,6 +5248,10 @@ constexpr const char* kLeftoverOperation = "00000000-0000-4000-8000-000000000001
 
 RuntimeHostConfig LeftoverConfig(Fixture& fixture) {
   auto config = fixture.Config();
+  // Bottles live under the fixture, where Playden looks for them.
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
   config.uuid = [] { return std::optional<std::string>(kLeftoverOperation); };
   config.removal_confirm_polls = 1;
   config.removal_poll_interval = std::chrono::milliseconds(1);
@@ -5265,6 +5269,10 @@ fs::path MakeLeftover(Fixture& fixture) {
   const auto title = fixture.root / "data/homebrew/FAKE78001";
   Write(title / "sce_sys/param.json", R"({"localizedParameters":{"en-US":{"titleName":"Left Behind"}}})", 0644);
   Write(title / "eboot.bin", "title-files", 0755);
+  // The title shell's descriptor names the game's bottle (see pw_title_launch.c).
+  Write(title / "game-launch.json",
+        R"({"schema_version":1,"app_id":220,"title_id":"FAKE78001","install_id":"steam-220",)"
+        R"("data_root":"/data/playden/games/steam-220"})", 0644);
   CHECK(chmod(title.c_str(), 0755) == 0);
   return title;
 }
@@ -5325,7 +5333,15 @@ void DeletesLeftoverTitleAndResumesFailures() {
           if (scenario == 5) CHECK(done.leftover_delete_failures.at("FAKE78001").find("has not confirmed") != std::string::npos);
         }
       }
-      CHECK(Read(bottle) == "saved-game" && Read(files) == "downloaded-game");
+      if (scenario <= 1) {
+        // The title that named the bottle is gone: its saves are kept, as Uninstall keeps them.
+        const auto kept = fixture.root / "data/playden/games/steam-220.kept";
+        CHECK(!fs::exists(bottle) && Read(kept / "save.dat") == "saved-game");
+        CHECK(done.kept_bottles.size() == 1 && done.kept_bottles[0].install_id == "steam-220");
+      } else {
+        CHECK(Read(bottle) == "saved-game" && done.kept_bottles.empty());
+      }
+      CHECK(Read(files) == "downloaded-game");
       host.Shutdown();
     }
     if (scenario < 3) continue;
@@ -5341,7 +5357,8 @@ void DeletesLeftoverTitleAndResumesFailures() {
     CHECK(calls == 2 && !fixture.registered);
     CHECK(!fs::exists(config.state_root / "leftover-FAKE78001.json"));
     CHECK(fs::is_empty(config.state_root / "trash"));
-    CHECK(Read(bottle) == "saved-game" && Read(files) == "downloaded-game");
+    CHECK(!fs::exists(bottle) && Read(fixture.root / "data/playden/games/steam-220.kept/save.dat") == "saved-game");
+    CHECK(done.kept_bottles.size() == 1 && Read(files) == "downloaded-game");
     restarted.Shutdown();
   }
 }
@@ -5535,6 +5552,77 @@ void LeftoverDeletionRefusesANewInstallUsingTheId() {
   host.Shutdown();
 }
 
+// Bottles with no install record are kept as saves (as Uninstall keeps them) once no unrecorded
+// PS5 title names them. Any doubt (unreadable records or descriptor) keeps every bottle as it is.
+void KeepsUnrecordedBottlesAsKeptSaves() {
+  for (int scenario = 0; scenario < 6; ++scenario) {
+    Fixture fixture;
+    auto config = LeftoverConfig(fixture);
+    config.unix_time = [] { return std::int64_t{1760000000}; };
+    const auto games = fixture.root / "data/playden/games";
+    Write(games / "steam-221/save.dat", "lost-record", 0600);
+    Write(games / "steam-221/title-metadata/sce_sys/param.json",
+          R"({"localizedParameters":{"en-US":{"titleName":"Old Save"}}})", 0600);
+    Write(games / "steam-220/save.dat", "named-by-title", 0600);
+    MakeLeftover(fixture);  // FAKE78001's game-launch.json names steam-220
+    Write(games / "steam-225/save.dat", "newer", 0600);
+    Write(games / "steam-225/.playden-saves-restored", "", 0600);
+    Write(games / "steam-225.kept/save.dat", "older", 0600);
+    Write(games / "steam-225.kept/playden-kept.json",
+          R"({"schema":1,"install_id":"steam-225","app_id":225,"name":"Older","kept_at":1,"bytes":5})", 0600);
+    Write(games / "steam-226.saves/1/users/save.dat", "backup", 0600);
+    // A title names its bottle by data_root even when its install_id says otherwise; one with no
+    // descriptor names none.
+    Write(games / "steam-228/save.dat", "named-by-root", 0600);
+    Write(fixture.root / "data/homebrew/FAKE78005/game-launch.json",
+          R"({"schema_version":1,"app_id":229,"title_id":"FAKE78005","install_id":"steam-229",)"
+          R"("data_root":"/data/playden/games/steam-228"})", 0644);
+    Write(fixture.root / "data/homebrew/FAKE78006/eboot.bin", "title-files", 0755);
+    Write(fixture.root / "elsewhere/save.dat", "linked", 0600);
+    fs::create_symlink(fixture.root / "elsewhere", games / "steam-227");
+    if (scenario == 1) {
+      Write(fixture.root / "data/homebrew/FAKE78003/game-launch.json", "{broken", 0644);
+    } else if (scenario == 2) {
+      Write(config.state_root / "installs.json", "broken", 0600);
+      CHECK(chmod(config.state_root.c_str(), 0700) == 0);
+    } else if (scenario == 3) {
+      // An unreadable leftover deletion journal: its retired title may still name a bottle.
+      Write(config.state_root / "leftover-FAKE78004.json", "{broken", 0600);
+      CHECK(chmod(config.state_root.c_str(), 0700) == 0);
+    } else if (scenario == 4) {
+      // A journal entry that is not even a file still reserves its title.
+      fs::create_directories(config.state_root / "leftover-FAKE78004.json");
+      CHECK(chmod(config.state_root.c_str(), 0700) == 0);
+    } else if (scenario == 5) {
+      // A title folder that cannot be inspected might name any bottle (listable, not searchable).
+      CHECK(chmod((fixture.root / "data/homebrew").c_str(), 0644) == 0);
+    }
+    RuntimeHost host(config);
+    CHECK(host.Start());
+    const auto started = WaitFor(host, Started);
+    CHECK(Read(games / "steam-220/save.dat") == "named-by-title");
+    CHECK(Read(games / "steam-228/save.dat") == "named-by-root" && !fs::exists(games / "steam-228.kept"));
+    CHECK(Read(games / "steam-226.saves/1/users/save.dat") == "backup");
+    CHECK(fs::is_symlink(games / "steam-227") && Read(fixture.root / "elsewhere/save.dat") == "linked");
+    if (scenario == 0) {
+      CHECK(!fs::exists(games / "steam-221") && Read(games / "steam-221.kept/save.dat") == "lost-record");
+      const auto marker = Read(games / "steam-221.kept/playden-kept.json");
+      CHECK(marker.find("\"install_id\":\"steam-221\",\"app_id\":221") != std::string::npos);
+      CHECK(marker.find("\"name\":\"Old Save\"") != std::string::npos);
+      // This bottle already has the older kept copy's saves: it replaces that copy.
+      CHECK(!fs::exists(games / "steam-225") && Read(games / "steam-225.kept/save.dat") == "newer");
+      std::set<std::string> kept;
+      for (const auto& view : started.kept_bottles) kept.insert(view.install_id + "=" + view.name);
+      CHECK((kept == std::set<std::string>{"steam-221=Old Save", "steam-225="}));  // steam-225 has no title metadata
+    } else {
+      CHECK(Read(games / "steam-221/save.dat") == "lost-record" && !fs::exists(games / "steam-221.kept"));
+      CHECK(Read(games / "steam-225/save.dat") == "newer" && Read(games / "steam-225.kept/save.dat") == "older");
+    }
+    host.Shutdown();
+    if (scenario == 5) CHECK(chmod((fixture.root / "data/homebrew").c_str(), 0755) == 0);
+  }
+}
+
 int main(int argc, char** argv) {
   CHECK(argc == 2);
   g_runtime_dir = argv[1];
@@ -5544,6 +5632,7 @@ int main(int argc, char** argv) {
   LeftoverRemovalRevalidatesBeforeEffects();
   for (int scenario = 0; scenario < 3; ++scenario) LeftoverRemovalRecoversRetireWriteGap(scenario);
   LeftoverScanRequiresLoadedRecordsAndRepeatsAfterUninstall();
+  KeepsUnrecordedBottlesAsKeptSaves();
   WorkerMovesGamesUnderPublicationLease();
   NoKitRefusesPreparationWithoutDurableEffects();
   ReloadKitAdmitsAKitInstalledWhileRunning();

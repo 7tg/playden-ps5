@@ -3781,6 +3781,151 @@ void RuntimeHost::ResumeLeftoverDeletes(Composition& c) {
   }
 }
 
+std::optional<RuntimeHost::RemovalFailure> RuntimeHost::KeepBottle(
+    const std::filesystem::path& bottle, const std::string& install_id, const GameId& game,
+    std::uint32_t runtime_number, const std::string& name, const std::string& operation_id) {
+  const auto kept = bottle.parent_path() / (install_id + kKeptSuffix);
+  std::error_code error;
+  struct stat info{};
+  // A Steam game's marker is as before; another store's also names its game.
+  const auto identity = game.store == Store::kSteam ? std::string()
+      : ",\"store\":\"" + std::string(Traits(game.store).key) + "\",\"game\":\"" + JsonEscaped(game.value) + "\"";
+  const auto marker = "{\"schema\":1,\"install_id\":\"" + install_id + "\",\"app_id\":" +
+                      std::to_string(runtime_number) + identity + ",\"name\":\"" + JsonEscaped(name) +
+                      "\",\"kept_at\":" + std::to_string(config_.unix_time ? config_.unix_time() : std::int64_t(time(nullptr))) +
+                      ",\"bytes\":" + std::to_string(TreeBytes(bottle)) + "}\n";
+  const int fd = open((bottle / kKeptMarker).c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+  const bool written = fd >= 0 && write(fd, marker.data(), marker.size()) == static_cast<ssize_t>(marker.size()) &&
+                       fsync(fd) == 0;
+  if (fd >= 0) close(fd);
+  if (!written) return RemovalFailure{"bottle-keep", "The game's saves could not be marked as kept."};
+  const bool restored = lstat((bottle / kRestoredMarker).c_str(), &info) == 0;
+  if (lstat(kept.c_str(), &info) == 0 && !restored) {
+    // The kept copy's saves were never brought back into this bottle (a preparation after a move or
+    // reinstall stopped before that): the kept copy holds them and stays. The newer bottle is set
+    // aside beside it, never deleted.
+    const auto aside = bottle.parent_path() / (install_id + ".set-aside-" + operation_id);
+    Log("remove keeps the unrestored kept bottle install=" + install_id + "; newer bottle set aside");
+    if (rename(bottle.c_str(), aside.c_str()) != 0)
+      return RemovalFailure{"bottle-keep", "The game's newer bottle could not be set aside (error " + std::to_string(errno) + ")."};
+  } else if (lstat(kept.c_str(), &info) == 0) {
+    // An older kept copy whose saves this bottle already has: the bottle replaces it.
+    Log("remove replaces older kept bottle install=" + install_id);
+    RemoveTreeNoFollow(kept, error);
+    if (error) return RemovalFailure{"bottle-keep", "An older copy of the game's saves could not be replaced."};
+    if (rename(bottle.c_str(), kept.c_str()) != 0)
+      return RemovalFailure{"bottle-keep", "The game's saves could not be kept (error " + std::to_string(errno) + ")."};
+  } else if (rename(bottle.c_str(), kept.c_str()) != 0) {
+    return RemovalFailure{"bottle-keep", "The game's saves could not be kept (error " + std::to_string(errno) + ")."};
+  }
+  return std::nullopt;
+}
+
+void RuntimeHost::KeepUnrecordedBottles(Composition& c) {
+  // Every reason to doubt which bottles are unrecorded stops the whole pass: a kept bottle is
+  // renamed away from where its game's title looks for it.
+  // A leftover deletion journal, even an unreadable one, may stand for a retired title that still names a bottle.
+  if (!c.repository.Loaded() || !c.leftover_journals_known || !c.blocked_leftover_titles.empty()) return;
+  const auto records = c.repository.Snapshot();
+  std::set<std::string> recorded_installs;
+  for (const auto& record : records) recorded_installs.insert(record.install_id);
+  // A PS5 title starts the bottle its game-launch.json names, running or not, whatever owns its folder and
+  // whatever the records say about it: that bottle stays until the title is deleted (Storage lists it as a leftover).
+  std::set<std::string> named_installs, named_roots;
+  {
+    std::error_code error;
+    for (std::filesystem::directory_iterator it(config_.homebrew_root, error), end; !error && it != end;
+         it.increment(error)) {
+      const auto title = it->path().filename().string();
+      if (!rt::IsManagedTitle(title)) continue;
+      struct stat info{};
+      if (lstat(it->path().c_str(), &info) != 0) {
+        Log("unrecorded bottles not kept: " + title + " cannot be inspected");
+        return;
+      }
+      if (!S_ISDIR(info.st_mode)) continue;
+      const int fd = open((it->path() / "game-launch.json").c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+      std::string bytes;
+      if (fd >= 0) {
+        char chunk[4096];
+        for (ssize_t count; (count = read(fd, chunk, sizeof(chunk))) > 0 && bytes.size() <= 8192;)
+          bytes.append(chunk, static_cast<std::size_t>(count));
+        close(fd);
+      } else if (errno == ENOENT) {
+        continue;  // no descriptor: the title names no bottle
+      }
+      const auto json = bytes.size() <= 8192 ? playden::steam::json::Parse(bytes) : std::nullopt;
+      const auto* install = json ? json->Find("install_id") : nullptr;
+      const auto* root = json ? json->Find("data_root") : nullptr;
+      if (!install || !install->is_string() || !root || !root->is_string()) {
+        Log("unrecorded bottles not kept: the game-launch.json of " + title + " cannot be read");
+        return;
+      }
+      named_installs.insert(install->text());
+      named_roots.insert(root->text());
+    }
+    if (error) {
+      Log("unrecorded bottles not kept: " + config_.homebrew_root.string() + " cannot be listed");
+      return;
+    }
+  }
+  const auto console_games = config_.package_paths.console_data_root + "/playden/games";
+  const auto games = HostPath(console_games);
+  std::vector<std::string> found;
+  {
+    std::error_code error;
+    for (std::filesystem::directory_iterator it(games, error), end; !error && it != end; it.increment(error)) {
+      const auto install_id = it->path().filename().string();
+      if (!KeptInstallId(install_id) || recorded_installs.count(install_id) || named_installs.count(install_id) ||
+          named_roots.count(console_games + "/" + install_id))
+        continue;
+      struct stat info{};
+      if (lstat(it->path().c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != geteuid()) continue;
+      found.push_back(install_id);
+    }
+  }
+  bool kept_any = false;
+  for (const auto& install_id : found) {
+    const auto game = ParseInstallId(install_id);
+    if (!game) continue;
+    std::uint32_t number = 0;
+    if (const auto app = game->steam_app()) {
+      number = *app;
+    } else {
+      const auto assigned = c.repository.RuntimeNumberFor(*game);
+      if (!assigned.ok()) {
+        Log("unrecorded bottle not kept install=" + install_id + ": " + assigned.message());
+        // A failed write leaves the records unread: every later decision would rest on them.
+        if (!c.repository.Loaded()) return;
+        continue;
+      }
+      number = assigned.value();
+    }
+    const auto operation = config_.uuid();
+    if (!operation) { Log("unrecorded bottles not kept: no secure random source"); return; }
+    const auto bottle = games / install_id;
+    std::string name;
+    {
+      const int fd = open((bottle / "title-metadata/sce_sys/param.json").c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+      if (fd >= 0) {
+        std::string bytes;
+        char chunk[4096];
+        for (ssize_t count; (count = read(fd, chunk, sizeof(chunk))) > 0 && bytes.size() < 64 * 1024;)
+          bytes.append(chunk, static_cast<std::size_t>(count));
+        close(fd);
+        name = WithoutStoreSuffix(TitleNameOf(bytes).value_or(std::string{}));
+      }
+    }
+    if (const auto failed = KeepBottle(bottle, install_id, *game, number, name, *operation)) {
+      Log("unrecorded bottle not kept install=" + install_id + ": " + failed->message);
+      continue;
+    }
+    Log("unrecorded bottle kept install=" + install_id);
+    kept_any = true;
+  }
+  if (kept_any) PublishKeptBottles(c);
+}
+
 // Removal of a game's PS5 title, journaled in its install record so an interrupted
 // removal continues where it stopped: retire the title folder out of ShadowMount's
 // scan root, unregister the title through the one-shot remover, keep or delete the
@@ -3887,38 +4032,9 @@ std::string RuntimeHost::RunRemove(Composition& c, std::uint32_t app, bool delet
       ClearWork();
       if (error) return fail("bottle-delete", "The game's saves and settings could not be deleted: " + error.message());
     } else if (present) {
-      // A Steam game's marker is as before; another store's also names its game.
-      const auto game = GameOf(record);
-      const auto identity = game.store == Store::kSteam ? std::string()
-          : ",\"store\":\"" + std::string(Traits(game.store).key) + "\",\"game\":\"" + JsonEscaped(game.value) + "\"";
-      const auto marker = "{\"schema\":1,\"install_id\":\"" + record.install_id + "\",\"app_id\":" +
-                          std::to_string(record.runtime_number) + identity + ",\"name\":\"" + JsonEscaped(game_name) +
-                          "\",\"kept_at\":" + std::to_string(config_.unix_time ? config_.unix_time() : std::int64_t(time(nullptr))) +
-                          ",\"bytes\":" + std::to_string(TreeBytes(bottle)) + "}\n";
-      const int fd = open((bottle / kKeptMarker).c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
-      const bool written = fd >= 0 && write(fd, marker.data(), marker.size()) == static_cast<ssize_t>(marker.size()) &&
-                           fsync(fd) == 0;
-      if (fd >= 0) close(fd);
-      if (!written) return fail("bottle-keep", "The game's saves could not be marked as kept.");
-      const bool restored = lstat((bottle / kRestoredMarker).c_str(), &info) == 0;
-      if (lstat(kept.c_str(), &info) == 0 && !restored) {
-        // The kept copy's saves were never brought back into this bottle (a preparation after a move or
-        // reinstall stopped before that): the kept copy holds them and stays. The newer bottle is set
-        // aside beside it, never deleted.
-        const auto aside = bottle.parent_path() / (record.install_id + ".set-aside-" + record.journal->operation_id);
-        Log("remove keeps the unrestored kept bottle install=" + record.install_id + "; newer bottle set aside");
-        if (rename(bottle.c_str(), aside.c_str()) != 0)
-          return fail("bottle-keep", "The game's newer bottle could not be set aside (error " + std::to_string(errno) + ").");
-      } else if (lstat(kept.c_str(), &info) == 0) {
-        // An older kept copy whose saves this bottle already has: the bottle replaces it.
-        Log("remove replaces older kept bottle install=" + record.install_id);
-        RemoveTreeNoFollow(kept, error);
-        if (error) return fail("bottle-keep", "An older copy of the game's saves could not be replaced.");
-        if (rename(bottle.c_str(), kept.c_str()) != 0)
-          return fail("bottle-keep", "The game's saves could not be kept (error " + std::to_string(errno) + ").");
-      } else if (rename(bottle.c_str(), kept.c_str()) != 0) {
-        return fail("bottle-keep", "The game's saves could not be kept (error " + std::to_string(errno) + ").");
-      }
+      if (const auto failed = KeepBottle(bottle, record.install_id, GameOf(record), record.runtime_number, game_name,
+                                         record.journal->operation_id))
+        return fail(failed->code, failed->message);
     }
     if (auto failed = advance("erase"); !failed.empty()) return failed;
   }
@@ -4105,6 +4221,7 @@ bool RuntimeHost::RunServices() {
       Log("startup installs published");
       ResumeLeftoverDeletes(c);
       PublishLeftoverTitles(c);
+      KeepUnrecordedBottles(c);
       // Retired title folders left by an earlier removal are outside the scan
       // root already; deleting them is only housekeeping.
       if (c.leftover_journals_known) {
@@ -4402,7 +4519,10 @@ bool RuntimeHost::RunServices() {
         });
         const auto refusal = composition ? RunDeleteLeftover(*composition, *request.leftover)
                                          : "The runtime services are unavailable.";
-        if (composition) PublishLeftoverTitles(*composition);
+        if (composition) {
+          PublishLeftoverTitles(*composition);
+          KeepUnrecordedBottles(*composition);
+        }
         ClearWork();
         Publish([&](RuntimeSnapshot& s) {
           s.deleting_leftover_title.reset();

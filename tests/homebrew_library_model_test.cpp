@@ -3249,7 +3249,7 @@ void leftover_titles_require_confirmation_and_follow_the_queue() {
     check(model.TakeLeftoverDeleteRequests().empty(), "opening the confirmation deletes nothing");
     check(model.state().navigation.focus_key == "cancel" &&
               model.state().navigation.modals.back().body.find("Lost game (Steam) (FAKE78001)") != std::string::npos &&
-              model.state().navigation.modals.back().body.find("saves and game files are kept") != std::string::npos,
+              model.state().navigation.modals.back().body.find("move to Kept game data") != std::string::npos,
           "confirmation starts on Cancel and describes the deletion scope");
     activate(model, "cancel");
     check(model.TakeLeftoverDeleteRequests().empty() && model.state().navigation.modals.back().id == "leftover-titles",

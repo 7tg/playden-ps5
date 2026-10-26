@@ -4115,7 +4115,7 @@ void Simulation::rebuild_view() {
                              "back. Saves in Steam Cloud stay in Steam Cloud.";
         if (modal.id == "leftover-titles")
             view_.subtitle = "PS5 titles Playden made but no longer has a record of. Deleting one removes its title and Home "
-                             "tile; its saves and game files stay.";
+                             "tile; its saves and settings move to Kept game data, and its game files stay in the Library.";
         if (modal.id == "download-server")
             view_.subtitle = "Applies to downloads that start or resume from now.";
         for (const auto& action_key : modal.action_keys) {
@@ -7479,7 +7479,7 @@ void Simulation::activate() {
                                 state_.navigation.focus_key, {"cancel", "confirm-destructive"}, 0, true};
         confirmation.body = (one ? only + " and its PS5 Home tile are" : std::to_string(leftover_selected_.size()) +
                              " leftover PS5 titles and their Home tiles are") + " deleted (" + format_bytes(bytes) + "). " +
-                            (one ? "Its" : "Their") + " saves and game files are kept.";
+                            (one ? "Its" : "Their") + " saves and settings move to Kept game data; game files are not touched.";
         open_modal(std::move(confirmation));
     } else if (action_name == "confirm-destructive" && pending_destructive_action_ == "leftover-selection-delete") {
         pending_destructive_action_.clear();

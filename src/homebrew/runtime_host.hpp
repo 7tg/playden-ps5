@@ -641,6 +641,13 @@ class RuntimeHost {
   std::optional<RemovalFailure> UnregisterTitle(Composition& composition, const std::string& title_id,
                                                const std::string& operation_id);
   std::string DeleteRetiredTitle(const std::string& title_id, const std::string& operation_id);
+  // Marks a bottle as kept saves (<install id>.kept), as Uninstall without "delete saves" does.
+  std::optional<RemovalFailure> KeepBottle(const std::filesystem::path& bottle, const std::string& install_id,
+                                           const GameId& game, std::uint32_t runtime_number, const std::string& name,
+                                           const std::string& operation_id);
+  // Keeps bottles no install record and no unrecorded PS5 title names (their title was deleted
+  // as a leftover, or its record was lost) as kept saves, so Storage lists them.
+  void KeepUnrecordedBottles(Composition& composition);
   struct LeftoverDelete {
     runtime::LeftoverTitle title;
     std::string operation_id;
