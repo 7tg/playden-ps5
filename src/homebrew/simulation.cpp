@@ -19,6 +19,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cerrno>
 #include <ctime>
 #include <fcntl.h>
@@ -2668,9 +2669,79 @@ playden::OrganizationSnapshot Simulation::ExportOrganization() const {
     return result;
 }
 
+std::vector<DownloadServerRequest> Simulation::TakeDownloadServerRequests() {
+    auto requests = std::move(download_server_requests_);
+    download_server_requests_.clear();
+    return requests;
+}
+
+bool Simulation::download_server_test_allowed() const {
+    return state_.account(Store::kSteam).authentication == AuthState::SignedIn &&
+           std::none_of(state_.jobs.begin(), state_.jobs.end(), [](const Job& job) {
+               return job.state == JobState::Downloading || job.state == JobState::Pausing;
+           });
+}
+
+std::string Simulation::fastest_download_server() const {
+    const DownloadServerResult* fastest = nullptr;
+    for (const auto& server : download_servers_.servers) {
+        for (const auto& rate : download_servers_.rates) {
+            if (rate.id == server.id && !rate.failed && std::isfinite(rate.mb_per_s) && rate.mb_per_s > 0 &&
+                (!fastest || rate.mb_per_s > fastest->mb_per_s)) fastest = &rate;
+        }
+    }
+    return fastest ? fastest->id : std::string{};
+}
+
+void Simulation::refresh_download_servers(const std::string& focus) {
+    for (auto& modal : state_.navigation.modals) {
+        if (modal.id != "download-server") continue;
+        const auto prior = modal.action_keys.empty() ? std::string{} :
+            modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+        modal.action_keys = {"download-server-auto"};
+        for (std::size_t index = 0; index < download_servers_.servers.size(); ++index)
+            modal.action_keys.push_back("download-server-" + std::to_string(index));
+        if (download_servers_.phase == "listing" || download_servers_.phase == "idle")
+            modal.action_keys.push_back("download-server-listing");
+        else if (download_servers_.phase == "list-failed") {
+            modal.action_keys.push_back("download-server-list-failed");
+            modal.action_keys.push_back("download-server-retry");
+        }
+        modal.action_keys.push_back("download-server-test");
+        modal.action_keys.push_back("cancel");
+        const auto wanted = focus.empty() ? prior : focus;
+        const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), wanted);
+        modal.focused_action = found == modal.action_keys.end() ? 0 : static_cast<int>(found - modal.action_keys.begin());
+        if (&modal == &state_.navigation.modals.back())
+            state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
+    }
+}
+
+void Simulation::ApplyLiveDownloadServers(const LiveDownloadServers& snapshot) {
+    const bool finished = (download_servers_.phase == "testing" || download_server_test_requested_) && snapshot.phase == "tested" &&
+                          !download_server_cancel_pending_;
+    download_servers_ = snapshot;
+    if (snapshot.phase != "testing" && snapshot.phase != "listing") {
+        download_server_cancel_pending_ = false;
+        download_server_test_requested_ = false;
+    }
+    std::string focus;
+    const auto chosen = finished ? fastest_download_server() : state_.download_server;
+    if (finished || (download_server_focus_choice_ && snapshot.phase != "listing" && snapshot.phase != "idle")) {
+        if (!finished || !chosen.empty()) {
+            focus = "download-server-auto";
+            for (std::size_t index = 0; index < snapshot.servers.size(); ++index)
+                if (snapshot.servers[index].id == chosen) focus = "download-server-" + std::to_string(index);
+        }
+        download_server_focus_choice_ = false;
+    }
+    refresh_download_servers(focus);
+    rebuild_view();
+}
+
 playden::Preferences Simulation::ExportPreferences() const {
     return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password,
-            state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates};
+            state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates, state_.download_server};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -2897,6 +2968,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.sign_in_password = loaded.preferences.steam_sign_in_password;
         state_.beta_updates = loaded.preferences.beta_updates;
         state_.downloads_slow_network = loaded.preferences.downloads_slow_network;
+        state_.download_server = loaded.preferences.download_server;
         state_.stay_signed_in = loaded.preferences.steam_stay_signed_in;
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
@@ -2976,6 +3048,7 @@ bool Simulation::record_live_persistence() {
                                       after_preferences.cloud_saves_auto != captured_preferences_.cloud_saves_auto ||
                                       after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password ||
                                       after_preferences.downloads_slow_network != captured_preferences_.downloads_slow_network ||
+                                      after_preferences.download_server != captured_preferences_.download_server ||
                                       after_preferences.beta_updates != captured_preferences_.beta_updates ||
                                       after_preferences.steam_stay_signed_in != captured_preferences_.steam_stay_signed_in);
 
@@ -3001,6 +3074,7 @@ bool Simulation::record_live_persistence() {
                 state_.sign_in_password = captured_preferences_.steam_sign_in_password;
                 state_.beta_updates = captured_preferences_.beta_updates;
                 state_.downloads_slow_network = captured_preferences_.downloads_slow_network;
+                state_.download_server = captured_preferences_.download_server;
                 state_.stay_signed_in = captured_preferences_.steam_stay_signed_in;
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
@@ -3173,6 +3247,7 @@ void Simulation::load_profile() {
     state_.account().id = saved_account;
     state_.account().display_name = saved_account.empty() ? std::string{} : string_value(root->get("account_display_name"), "Connected fixture account");
     state_.reduced_motion = bool_value(root->get("reduced_motion"));
+    state_.download_server = string_value(root->get("download_server"));
     if (saved_auth == "signed-out" || saved_auth == "cancelled" || (saved_auth == "waiting" && saved_account.empty())) {
         state_.account().authentication = AuthState::SignedOut; state_.account().id.clear(); state_.account().display_name.clear();
         state_.account().cache_available = false; state_.account().challenge_expiry = 0; state_.navigation.route = Route::Startup; state_.navigation.focus_key = "startup-connect";
@@ -3311,7 +3386,8 @@ bool Simulation::save_profile() {
     std::string output = "{\"account_id\":\"" + json::escape(state_.account().id) + "\",\"account_display_name\":\"" + json::escape(state_.account().display_name)
         + "\",\"authentication\":\"" + auth_name(state_.account().authentication) + "\",\"account_last_sync\":" + std::to_string(state_.account().last_sync)
         + ",\"next_job_serial\":" + std::to_string(next_job_serial_) + ",\"reduced_motion\":"
-        + (state_.reduced_motion ? "true" : "false") + ",\"query\":\"" + json::escape(state_.library.query)
+        + (state_.reduced_motion ? "true" : "false") + ",\"download_server\":\"" + json::escape(state_.download_server)
+        + "\",\"query\":\"" + json::escape(state_.library.query)
         + "\",\"scope\":\"" + json::escape(state_.library.scope) + "\",\"favorites\":[";
     bool first = true;
     for (const auto id : state_.library.favorites) {
@@ -3392,7 +3468,23 @@ bool Simulation::save_profile() {
 
 bool Simulation::scenario(const std::string& name) {
     if (live()) return false;
-    if (name == "default") {
+    if (name == "download-servers") {
+        download_server_fixture_ = true;
+        download_servers_ = {};
+        download_servers_.phase = "listed";
+        download_servers_.servers = {{"steampipe.akamaized.net", "Akamai"},
+            {"fastly.cdn.steampipe.steamcontent.com", "Fastly"},
+            {"google2.cdn.steampipe.steamcontent.com", "Google Cloud"},
+            {"alibaba.cdn.steampipe.steamcontent.com", "Alibaba Cloud", true},
+            {"edgenext.cdn.steampipe.steamcontent.com", "EdgeNext", true}};
+        download_server_test_requested_ = false;
+        download_server_cancel_pending_ = false;
+        state_.account().authentication = AuthState::SignedIn;
+        state_.jobs.clear();
+        state_.navigation.modals.clear();
+        state_.navigation.route = Route::Settings;
+        state_.navigation.focus_key = "settings-download-server";
+    } else if (name == "default") {
         state_.account().authentication = AuthState::SignedIn;
         state_.navigation.route = Route::Home;
         state_.navigation.selected_index = 0;
@@ -3959,9 +4051,62 @@ void Simulation::rebuild_view() {
         if (modal.id == "kept-data")
             view_.subtitle = "Saves and settings kept when a game was uninstalled. Installing a game again brings its saves "
                              "back. Saves in Steam Cloud stay in Steam Cloud.";
+        if (modal.id == "download-server")
+            view_.subtitle = "Applies to downloads that start or resume from now.";
         for (const auto& action_key : modal.action_keys) {
             auto& item = row(action_key, RowKind::Action, action_label(action_key), action_key);
             item.dangerous = modal.destructive && action_key != "cancel";
+            if (modal.id == "download-server") {
+                if (action_key == "download-server-auto") {
+                    item.title = "Automatic";
+                    item.selected = state_.download_server.empty();
+                } else if (action_key == "download-server-listing" || action_key == "download-server-list-failed") {
+                    item.title = action_key == "download-server-listing" ? "Getting the server list…" : "Could not get the server list.";
+                    item.kind = RowKind::Status;
+                    item.enabled = false;
+                } else if (action_key == "download-server-retry") {
+                    item.title = "Try again";
+                } else if (action_key == "download-server-test") {
+                    item.title = "Test servers";
+                    item.enabled = download_server_test_allowed() && download_servers_.phase != "listing" &&
+                                   download_servers_.phase != "testing" && !download_server_cancel_pending_;
+                    if (download_server_cancel_pending_) item.title = "Canceling test…";
+                    else if (download_servers_.phase == "testing" && !download_servers_.servers.empty()) {
+                        const auto index = std::min(download_servers_.testing_index, download_servers_.servers.size() - 1);
+                        item.title = "Testing " + download_servers_.servers[index].name + " (" + std::to_string(index + 1) +
+                                     " of " + std::to_string(download_servers_.servers.size()) + ")…";
+                    }
+                    if (state_.account(Store::kSteam).authentication != AuthState::SignedIn || download_servers_.needs_sign_in)
+                        item.subtitle = "Sign in to Steam to test servers.";
+                    else if (!download_server_test_allowed()) item.subtitle = "Pause downloads to test servers.";
+                    else if (download_servers_.needs_installed_game) item.subtitle = "Install a game to test servers.";
+                    else if (download_servers_.phase == "test-failed")
+                        item.subtitle = download_servers_.message.empty() ? "Could not test the servers. Try again." : download_servers_.message;
+                    else item.subtitle = "Downloads up to 160 MB to measure each server.";
+                } else if (action_key == "cancel") {
+                    item.title = "Cancel";
+                } else {
+                    std::size_t index = 0;
+                    const auto number = action_key.substr(std::string("download-server-").size());
+                    const auto parsed = std::from_chars(number.data(), number.data() + number.size(), index);
+                    if (parsed.ec == std::errc{} && index < download_servers_.servers.size()) {
+                        const auto& option = download_servers_.servers[index];
+                        item.title = option.name;
+                        item.selected = state_.download_server == option.id;
+                        if (option.plain_http) item.subtitle = "HTTP";
+                        for (const auto& rate : download_servers_.rates) if (rate.id == option.id) {
+                            if (rate.failed) item.value = "Failed";
+                            else if (std::isfinite(rate.mb_per_s) && rate.mb_per_s >= 0) {
+                                char value[64];
+                                std::snprintf(value, sizeof(value), "%.1f MB/s", rate.mb_per_s);
+                                item.value = value;
+                            }
+                        }
+                        if (option.id == fastest_download_server()) item.badge = "Fastest";
+                    }
+                }
+                continue;
+            }
             // Demos is on unless the player hid them.
             if (action_key == "filter-hide-demos") {
                 item.kind = RowKind::Toggle;
@@ -5247,12 +5392,26 @@ void Simulation::rebuild_view() {
             runtime.subtitle = state_.runtime_problem.empty() ? "Games run through prospero-win" : state_.runtime_problem;
             runtime.kind = RowKind::Status; runtime.action.clear(); runtime.enabled = false;
         }
-        if (live()) {
+        if (live() || download_server_fixture_) {
             auto& slow = add("settings-downloads-slow", RowKind::Toggle, "Downloads for slow networks", "toggle-downloads-slow");
             slow.selected = state_.downloads_slow_network;
             slow.subtitle = state_.downloads_slow_network
                 ? "8 pieces at a time. Turn it off if downloads got slower."
                 : "Off: 4 pieces at a time. Turn it on if downloads stay near 1 MB/s.";
+            auto& server = add("settings-download-server", RowKind::Action, "Download server", "download-server-picker");
+            server.value = state_.download_server.empty() ? "Automatic"
+                : download_servers_.preferred_name.empty() ? state_.download_server : download_servers_.preferred_name;
+            bool offered = false;
+            for (const auto& option : download_servers_.servers) if (option.id == state_.download_server) {
+                server.value = option.name;
+                offered = true;
+            }
+            const bool listed = download_servers_.phase == "listed" || download_servers_.phase == "testing" ||
+                                download_servers_.phase == "tested" || download_servers_.phase == "test-failed";
+            server.subtitle = state_.download_server.empty()
+                ? "Uses the server Steam lists first. Choose one if downloads are slow."
+                : listed && !offered ? "Not offered on this network now. Automatic is used."
+                : "If it stops answering, Playden uses another one.";
         }
         section = "Display";
         auto& motion = add("settings-motion", RowKind::Toggle, "Reduced motion", "toggle-motion");
@@ -5872,6 +6031,14 @@ void Simulation::cancel() {
         return;
     }
     if (!state_.navigation.modals.empty()) {
+        if (state_.navigation.modals.back().id == "download-server" &&
+            (download_servers_.phase == "testing" || download_server_test_requested_) && !download_server_cancel_pending_) {
+            if (live()) download_server_requests_.push_back(DownloadServerRequest::CancelTest);
+            download_server_cancel_pending_ = live();
+            download_server_test_requested_ = false;
+            if (!live()) download_servers_.phase = "listed";
+            return;
+        }
         const bool crash_logs = state_.navigation.modals.back().id == "logs" && state_.session == SessionState::Crashed;
         const bool settings_sheet = state_.navigation.modals.back().id == "game-settings";
         close_modal();
@@ -6425,7 +6592,49 @@ void Simulation::activate() {
         }
     } else if (action_name == "context") open_modal({"context", "Game actions", "details-more", details_context_actions(), 0, false});
     else if (action_name == "install") open_modal({"install", "Install game", "details-install", {"install-confirm", "install-estimate-retry", "storage-picker", "cancel"}, 0, false});
-    else if (action_name == "storage-picker") {
+    else if (action_name == "download-server-picker") {
+        download_server_focus_choice_ = true;
+        if (live()) {
+            download_server_requests_.push_back(DownloadServerRequest::List);
+            download_servers_.phase = "listing";
+        }
+        open_modal({"download-server", "Download server", state_.navigation.focus_key, {"download-server-auto", "cancel"}, 0, false});
+        std::string focus = "download-server-auto";
+        for (std::size_t index = 0; index < download_servers_.servers.size(); ++index)
+            if (download_servers_.servers[index].id == state_.download_server) focus = "download-server-" + std::to_string(index);
+        refresh_download_servers(focus);
+    } else if (action_name == "download-server-retry") {
+        if (live()) download_server_requests_.push_back(DownloadServerRequest::List);
+        download_servers_.phase = "listing";
+        refresh_download_servers();
+    } else if (action_name == "download-server-test") {
+        if (!download_server_test_allowed() || download_servers_.phase == "testing" ||
+            download_servers_.phase == "listing" || download_server_cancel_pending_) return;
+        if (live()) download_server_requests_.push_back(DownloadServerRequest::Test);
+        download_server_test_requested_ = true;
+        download_server_focus_choice_ = false;
+        download_servers_.phase = "testing";
+        download_servers_.testing_index = 0;
+        download_servers_.rates.clear();
+        refresh_download_servers();
+    } else if (action_name == "download-server-auto" || action_name.rfind("download-server-", 0) == 0) {
+        if (action_name == "download-server-auto") state_.download_server.clear();
+        else {
+            std::size_t index = 0;
+            const auto number = action_name.substr(std::string("download-server-").size());
+            const auto parsed = std::from_chars(number.data(), number.data() + number.size(), index);
+            if (parsed.ec != std::errc{} || parsed.ptr != number.data() + number.size() || index >= download_servers_.servers.size()) return;
+            state_.download_server = download_servers_.servers[index].id;
+            download_servers_.preferred_name = download_servers_.servers[index].name;
+        }
+        if (download_server_test_requested_ || download_servers_.phase == "testing") {
+            if (live() && !download_server_cancel_pending_) download_server_requests_.push_back(DownloadServerRequest::CancelTest);
+            if (!live()) download_servers_.phase = "listed";
+            download_server_test_requested_ = false;
+        }
+        save_profile();
+        close_modal();
+    } else if (action_name == "storage-picker") {
         // From the install sheet the choice is for that install only; Settings changes the default.
         picking_install_volume_ = live() && !state_.navigation.modals.empty() && state_.navigation.modals.back().id == "install";
         std::vector<std::string> actions;
@@ -7614,7 +7823,7 @@ void Simulation::activate() {
     }
     else if (kOfferGoBack && live() && action_name == "self-update-back-confirm") { close_modal(); request_self_update_restart("rollback"); }
     else if (action_name == "scenario-picker") open_modal({"scenarios", "Fixture scenarios", state_.navigation.focus_key,
-        {"scenario-default", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "scenario-import-empty", "scenario-import-candidates", "scenario-import-programs", "scenario-import-choice", "scenario-import-storage", "scenario-import-drop-choice", "scenario-import-drop-storage", "scenario-import-details", "scenario-import-copying", "scenario-import-library", "cancel"}, 0, false});
+        {"scenario-default", "scenario-download-servers", "scenario-first-run", "scenario-signed-out", "scenario-qr-waiting", "scenario-offline", "scenario-empty", "scenario-no-results", "scenario-delayed-art", "scenario-failed-art", "scenario-install-ready", "scenario-unknown-size", "scenario-insufficient-space", "scenario-storage-disconnect", "scenario-paused", "scenario-download-failed", "scenario-verification-failed", "scenario-restart-recovery", "scenario-save-failure", "scenario-runtime-unavailable", "scenario-launch-failure", "scenario-crash", "scenario-stop-failure", "scenario-controller-disconnected", "scenario-reduced-motion", "scenario-stress", "scenario-import-empty", "scenario-import-candidates", "scenario-import-programs", "scenario-import-choice", "scenario-import-storage", "scenario-import-drop-choice", "scenario-import-drop-storage", "scenario-import-details", "scenario-import-copying", "scenario-import-library", "cancel"}, 0, false});
     else if (action_name.rfind("scenario-", 0) == 0) { state_.navigation.modals.clear(); scenario(action_name.substr(9)); }
     else if (action_name == "session-fixture-controls") open_modal({"session-controls", "Session fixture controls", state_.navigation.focus_key,
         {"advance-clock", "inject-stop-failure", "inject-crash", "cancel"}, 0, false});
@@ -8186,6 +8395,17 @@ void Simulation::tick(int ticks) {
     for (int index = 0; index < std::max(0, ticks); ++index) {
         if (!state_.screenshot_mode) {
             ++state_.clock_ticks;
+            if (download_server_fixture_ && download_servers_.phase == "testing") {
+                auto progress = download_servers_;
+                const auto index = progress.testing_index;
+                if (index < progress.servers.size()) {
+                    constexpr double rates[] = {12.4, 41.2, 9.7, 0.0, 2.5};
+                    progress.rates.push_back({progress.servers[index].id, rates[index % 5], index == 3});
+                    if (index + 1 < progress.servers.size()) ++progress.testing_index;
+                    else progress.phase = "tested";
+                }
+                ApplyLiveDownloadServers(progress);
+            }
             advance_jobs();
             // A finished copy of an imported game: it plays from Playden's storage, not its folder.
             for (const auto& job : state_.jobs)

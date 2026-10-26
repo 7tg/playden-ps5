@@ -1373,11 +1373,54 @@ static void t18_imported_game_page(const std::filesystem::path& fixtures, const 
           "T18 a drop-folder game imported to another drive is copied there and plays in place meanwhile");
 }
 
+
+void synthetic_download_servers(const std::filesystem::path& fixtures, const std::filesystem::path& profile) {
+    using playden::homebrew::Simulation;
+    Simulation simulation(fixtures, profile);
+    check(simulation.scenario("download-servers"), "the download-server scenario exists");
+    const auto row = [&simulation](const std::string& key) -> const playden::homebrew::ViewRow* {
+        for (const auto& item : simulation.view().rows) if (item.key == key) return &item;
+        return nullptr;
+    };
+    const auto press = [&simulation](const std::string& key) {
+        check(simulation.action("focus:" + key) && simulation.action("cross"), "synthetic server action exists");
+    };
+    check(row("settings-download-server") && row("settings-download-server")->value == "Automatic",
+          "the synthetic scenario shows the Settings row");
+    press("settings-download-server");
+    check(row("download-server-4") && !row("download-server-5") && row("download-server-3")->subtitle == "HTTP",
+          "five providers are shown, with HTTP marked");
+    press("download-server-test");
+    check(row("download-server-test")->title == "Testing Akamai (1 of 5)…", "synthetic test starts with the first provider");
+    simulation.tick(1);
+    check(row("download-server-test")->title == "Testing Fastly (2 of 5)…" &&
+              row("download-server-0")->value == "12.4 MB/s", "synthetic progress produces rates");
+    simulation.action("circle");
+    check(!simulation.state().navigation.modals.empty(), "Circle cancels the synthetic test first");
+    simulation.action("circle");
+    check(simulation.state().navigation.modals.empty(), "the next Circle closes the picker");
+    press("settings-download-server");
+    press("download-server-test");
+    simulation.tick(5);
+    check(row("download-server-1")->value == "41.2 MB/s" && row("download-server-1")->badge == "Fastest" &&
+              row("download-server-3")->value == "Failed" && simulation.state().navigation.focus_key == "download-server-1" &&
+              simulation.state().download_server.empty(), "synthetic completion focuses the fastest without choosing it");
+    simulation.action("cross");
+    check(simulation.state().download_server == "fastly.cdn.steampipe.steamcontent.com" &&
+              simulation.TakeDownloadServerRequests().empty(), "the synthetic choice is saved without service requests");
+    Simulation restarted(fixtures, profile);
+    restarted.scenario("download-servers");
+    check(restarted.state().download_server == simulation.state().download_server,
+          "the simulation profile keeps the choice across restarts");
+}
+
 int main(int argc, char** argv) {
     check(argc == 2, "fixture directory argument is required");
     const std::filesystem::path fixtures(argv[1]);
     const auto profile = temp_profile();
     auto clean = [&] { std::error_code error; std::filesystem::remove(profile, error); };
+    clean();
+    synthetic_download_servers(fixtures, profile);
     clean();
     t01_authentication_ignores_late_approval(fixtures, profile);
     clean();

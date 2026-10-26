@@ -31,6 +31,7 @@
 #include "core/input.hpp"
 #include "steam/backend/auth_client.h"
 #include "steam/backend/cm_app_details.h"
+#include "steam/backend/download_server_source.h"
 #include "steam/backend/entitled_library.h"
 #include "steam/backend/steam_install_runner.h"
 #include "steam/backend/steam_cloud_runner.h"
@@ -53,6 +54,7 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include "homebrew/store_fetch.hpp"
 #include <memory>
 #include <optional>
@@ -155,6 +157,9 @@ std::string title_root = "/app0";
 std::string log_root = "/app0/logs";
 // Settings › Downloads for slow networks, read by the install worker when a download starts.
 std::atomic<bool> downloads_slow_network{false};
+// The main loop updates this selection; the install worker copies it at download start.
+std::mutex download_server_mutex;
+std::string download_server;
 // Development requests are processed in file order on the first frame.
 std::vector<playden::steam::InstallRequest> take_install_requests(bool runtime_ready) {
     const std::string request_path = title_root + "/dev/install-request.txt";
@@ -321,7 +326,7 @@ int main() {
                 " after " + after);
         });
         // "Stay signed in" is known before the controller restores the session. Off, the session lives
-        // only in this vault, which all five repositories below share.
+        // only in this vault, which all repositories below share.
         const bool stay_signed_in = playden::PreferencesStore(auth_storage).Load().preferences.steam_stay_signed_in;
         playden::SessionVault session_vault(stay_signed_in);
         playden::LocalSessionRepository sessions(user_root, [](const std::string& diagnostic) {
@@ -362,6 +367,10 @@ int main() {
             if (::access(file.c_str(), F_OK) == 0) return playden::steam::ReadDownloadTuning(file);
             playden::steam::DownloadTuning tuning;
             if (downloads_slow_network.load()) tuning.slots = 8;
+            {
+                std::lock_guard lock(download_server_mutex);
+                tuning.preferred_server = download_server;
+            }
             return tuning;
         });
         install_runner.SetLog([](std::uint32_t app, const char* step, const char* category, const char* detail) {
@@ -716,6 +725,24 @@ int main() {
         playden::installs::InstallService::Runners install_runners{{playden::Store::kSteam, &install_runner}};
         if (copy_runner) install_runners[playden::Store::kLocal] = copy_runner.get();
         playden::steam::InstallService installs(std::move(install_runners), std::move(install_volumes));
+        playden::steam::CmClient servers_cm(paths.trust_store, library_storage);
+        servers_cm.SetOwner("servers");
+        servers_cm.SetSharedSession(steam_cm);
+        playden::steam::CdnClient servers_cdn(paths.trust_store);
+        playden::LocalSessionRepository servers_sessions(user_root, {}, &session_vault);
+        playden::steam::CdnDownloadServerSource servers_source(servers_cm, servers_cdn, [&installs] {
+            const auto snapshot = installs.Snapshot();
+            const playden::steam::InstalledGame* newest = nullptr;
+            for (const auto& game : snapshot.installed)
+                if (game.available && game.id.steam_app() && (!newest || game.finished_at > newest->finished_at)) newest = &game;
+            return newest ? *newest->id.steam_app() : 0u;
+        });
+        playden::steam::DownloadServerService servers(servers_source, servers_sessions);
+        servers.SetLog([](std::uint32_t app, const char* step, const char* category, const char* detail) {
+            char line[640];
+            std::snprintf(line, sizeof(line), "app=%u step=%s result=%s detail=%s", app, step, category, detail);
+            playden::app::AppendLogLine(log_root, "install.log", line);
+        });
         // A games folder made over FTP is often root's and 0755: checked (and opened up) as a download starts.
         // Only the games folder itself: the primary volume's parent is /data, never chmodded.
         installs.SetFolderCheck([](const std::string& games_root) {
@@ -758,6 +785,7 @@ int main() {
             stores.Add(std::move(source));
         }
         playden::homebrew::Controller services(simulation, stores, &persistence, &installs, &cloud, runtime_host.get(), auth_log);
+        services.SetDownloadServers(&servers);
         services.SetLocalLibrary(local_library);
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
@@ -874,6 +902,10 @@ int main() {
 #if !PLAYDEN_UI_SIMULATION
             services.Tick();
             downloads_slow_network.store(simulation.state().downloads_slow_network);
+            {
+                std::lock_guard lock(download_server_mutex);
+                download_server = simulation.state().download_server;
+            }
 #endif
             const auto ticked = hui::sys::monotonic_us();
             if (simulation.state().quit_requested) break;
@@ -963,6 +995,7 @@ int main() {
         // The install service stops before the Local store goes (`stores` is destroyed before
         // `installs`): its copy runner's change callback calls into the Local store. Explicit here,
         // so it doesn't rest on the controller's shutdown or on declaration order.
+        servers.Shutdown();
         installs.Shutdown();
         if (copy_runner) copy_runner->SetChanged({});
         playden::app::AppendLogLine(log_root, "launch.log", "shutdown artwork start");

@@ -35,6 +35,28 @@ struct ServiceRequest {
 inline bool operator==(const ServiceRequest& request, ServiceAction action) { return request.action == action; }
 inline bool operator!=(const ServiceRequest& request, ServiceAction action) { return request.action != action; }
 enum class AuthState { SignedOut, Restoring, Waiting, Expired, Failed, Cancelled, Syncing, SigningOut, SignedIn, Offline };
+enum class DownloadServerRequest { List, Test, CancelTest };
+// The controller projects the download-server service here; no credentials or Steam backend types enter the UI.
+struct DownloadServerOption {
+    std::string id;
+    std::string name;
+    bool plain_http = false;
+};
+struct DownloadServerResult {
+    std::string id;
+    double mb_per_s = 0;
+    bool failed = false;
+};
+struct LiveDownloadServers {
+    std::string phase = "idle";  // idle, listing, listed, list-failed, testing, tested, test-failed
+    std::vector<DownloadServerOption> servers;
+    std::vector<DownloadServerResult> rates;
+    std::size_t testing_index = 0;
+    bool needs_sign_in = false;
+    bool needs_installed_game = false;
+    std::string preferred_name;  // the stored choice's display name, even when absent from this list
+    std::string message;  // user-facing explanation, supplied by the controller
+};
 enum class JobState { Queued, Downloading, Pausing, Paused, Verifying, Downloaded, Failed, Cancelled, Interrupted };
 enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
@@ -630,6 +652,7 @@ struct State {
     bool cloud_saves_auto = false;    // Cloud saves move before Play, after sessions and at startup (opt-in)
     bool beta_updates = false;
     bool downloads_slow_network = false;  // 8 download pieces at a time instead of 4 (Settings › Storage)
+    std::string download_server;  // empty: Automatic; otherwise the chosen provider's stable identifier
     bool controller_connected = true;
     ControllerState controller;
     bool persistence_available = true;
@@ -805,6 +828,8 @@ public:
     // version back at quit; quit follows) and "acknowledge" (a finished update's message was shown).
     void UpdateSelfUpdate(const LiveSelfUpdate& update);
     [[nodiscard]] std::vector<std::string> TakeSelfUpdateRequests();
+    void ApplyLiveDownloadServers(const LiveDownloadServers& snapshot);
+    [[nodiscard]] std::vector<DownloadServerRequest> TakeDownloadServerRequests();
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
     // Live mode: the drives installs can use and the one new installs go to.
@@ -892,6 +917,15 @@ private:
     std::string last_error_;
     std::string pending_destructive_action_;
     std::vector<std::string> self_update_requests_;
+    LiveDownloadServers download_servers_;
+    std::vector<DownloadServerRequest> download_server_requests_;
+    bool download_server_focus_choice_ = false;
+    bool download_server_cancel_pending_ = false;
+    bool download_server_test_requested_ = false;
+    bool download_server_fixture_ = false;
+    void refresh_download_servers(const std::string& focus = {});
+    [[nodiscard]] std::string fastest_download_server() const;
+    [[nodiscard]] bool download_server_test_allowed() const;
     std::string self_update_prompted_;   // "available 0.3.0" or "staged 0.3.0": each prompt shows once
     std::string pending_update_prompt_;  // a prompt waiting for the open dialog to close
     bool kit_prompted_ = false;          // the kit was offered since its last check (a cancel doesn't offer it again)

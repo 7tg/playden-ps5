@@ -128,6 +128,8 @@ void Controller::Shutdown() {
                     std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started).count()));
   };
+  // The server source may inspect the install snapshot for its fallback payload.
+  if(download_servers_) step("download-servers", [&] { download_servers_->Shutdown(); });
   if(library_) step("library", [&] { library_->Shutdown(); library_->Tick(); AdvanceClear(); });
   if(persistence_) step("persistence", [&] { persistence_->FlushAndShutdown(); AdvanceOrganizationClear(); });
   if(app_details_) step("details", [&] { app_details_->Shutdown(); });
@@ -247,6 +249,7 @@ void Controller::Restore(bool quiet) {
 }
 void Controller::SignOut(bool switch_account) {
   if(phase_==Phase::ClearLibrary || phase_==Phase::ClearOrganization || phase_==Phase::SignOut) return;
+  if (download_servers_) download_servers_->Invalidate();
   retry_saved_session_ = false;
   begin_after_clear_ = switch_account;
   begin_password_after_clear_ = model_.state().sign_in_password;
@@ -364,6 +367,7 @@ void Controller::Tick() {
   lap(4);
   TickImports();
   TickInstalls();
+  TickDownloadServers();
   TickSelfUpdate();
   lap(5);
   TickCloud();
@@ -1772,12 +1776,86 @@ const installs::InstalledLocation* Controller::LocationOf(GameId id) const {
     if (location.game == id) return &location;
   return nullptr;
 }
+bool Controller::DownloadServerTestAllowed() const {
+  if (model_.state().account(Store::kSteam).authentication != AuthState::SignedIn) return false;
+  if (std::any_of(model_.state().jobs.begin(), model_.state().jobs.end(), [](const Job& job) {
+        return job.state == JobState::Downloading || job.state == JobState::Pausing || job.state == JobState::Verifying;
+      })) return false;
+  // The install worker may have started since the presentation's last snapshot.
+  if (installs_) {
+    const auto snapshot = installs_->Snapshot();
+    if (std::any_of(snapshot.jobs.begin(), snapshot.jobs.end(), [](const steam::InstallJobView& job) {
+          return job.state == steam::InstallJobState::kRunning;
+        })) return false;
+  }
+  return true;
+}
+void Controller::TickDownloadServers() {
+  const auto requests = model_.TakeDownloadServerRequests();
+  if (!download_servers_) return;
+  const auto& account = model_.state().account(Store::kSteam);
+  if (download_servers_account_ != account.id) {
+    download_servers_->Invalidate();
+    download_servers_account_ = account.id;
+  }
+  const bool allowed = DownloadServerTestAllowed();
+  if (!allowed) download_servers_->CancelTest();
+  for (const auto request : requests) {
+    switch (request) {
+      case DownloadServerRequest::List: download_servers_->List(); break;
+      case DownloadServerRequest::Test:
+        if (allowed) download_servers_->Test();
+        break;
+      case DownloadServerRequest::CancelTest: download_servers_->CancelTest(); break;
+    }
+  }
+  const auto snapshot = download_servers_->Snapshot();
+  LiveDownloadServers live;
+  switch (snapshot.phase) {
+    case steam::DownloadServerSnapshot::Phase::kIdle: live.phase = "idle"; break;
+    case steam::DownloadServerSnapshot::Phase::kListing: live.phase = "listing"; break;
+    case steam::DownloadServerSnapshot::Phase::kListed: live.phase = "listed"; break;
+    case steam::DownloadServerSnapshot::Phase::kListFailed: live.phase = "list-failed"; break;
+    case steam::DownloadServerSnapshot::Phase::kTesting: live.phase = "testing"; break;
+    case steam::DownloadServerSnapshot::Phase::kTested: live.phase = "tested"; break;
+    case steam::DownloadServerSnapshot::Phase::kTestFailed: live.phase = "test-failed"; break;
+  }
+  for (const auto& server : snapshot.servers)
+    live.servers.push_back({server.id, server.name, server.plain_http});
+  for (const auto& rate : snapshot.rates)
+    live.rates.push_back({rate.id, rate.mb_per_s, rate.failed});
+  live.testing_index = snapshot.testing_index;
+  live.needs_sign_in = snapshot.needs_sign_in;
+  live.needs_installed_game = snapshot.needs_installed_game;
+  live.preferred_name = download_servers_->DisplayName(model_.state().download_server);
+  if (snapshot.needs_sign_in) live.message = "Sign in to Steam to test servers.";
+  else if (snapshot.needs_installed_game) live.message = "Install a game to test servers.";
+  if (shown_download_servers_ && requests.empty()) {
+    const auto& shown = *shown_download_servers_;
+    if (shown.phase == live.phase && shown.testing_index == live.testing_index &&
+        shown.needs_sign_in == live.needs_sign_in && shown.needs_installed_game == live.needs_installed_game &&
+        shown.preferred_name == live.preferred_name && shown.message == live.message &&
+        std::equal(shown.servers.begin(), shown.servers.end(), live.servers.begin(), live.servers.end(),
+                   [](const DownloadServerOption& a, const DownloadServerOption& b) {
+                     return a.id == b.id && a.name == b.name && a.plain_http == b.plain_http;
+                   }) &&
+        std::equal(shown.rates.begin(), shown.rates.end(), live.rates.begin(), live.rates.end(),
+                   [](const DownloadServerResult& a, const DownloadServerResult& b) {
+                     return a.id == b.id && a.mb_per_s == b.mb_per_s && a.failed == b.failed;
+                   })) return;
+  }
+  model_.ApplyLiveDownloadServers(live);
+  shown_download_servers_ = std::move(live);
+}
 void Controller::TickInstalls() {
   if (!installs_) {
     ProjectLocations({});
     return;
   }
   for (const auto& request : model_.TakeInstallRequests()) {
+    if (download_servers_ && (request.kind == InstallRequestKind::Install ||
+        request.kind == InstallRequestKind::Resume || request.kind == InstallRequestKind::DownloadNow))
+      download_servers_->CancelTest();
     switch (request.kind) {
       case InstallRequestKind::Install: {
         const auto& games = model_.state().games;

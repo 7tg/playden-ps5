@@ -15,6 +15,7 @@
 #include "stores/steam.h"
 #include "stores/local/library_source.h"
 #include "steam/download_rate.h"
+#include "steam/download_server_service.h"
 #include "update/update_service.h"
 #include <chrono>
 #include <map>
@@ -49,6 +50,8 @@ class Controller {
   void Shutdown();
   // Steam store descriptions, genres and controller support for the games the player opens.
   void SetStoreDetails(steam::StoreDetailsService* store_details) { store_details_ = store_details; }
+  // The server list and measurements run on their own worker; only their public snapshot enters the UI.
+  void SetDownloadServers(steam::DownloadServerService* servers) { download_servers_ = servers; }
   // Playden's own update: the controller passes the player's requests on and shows its state.
   void SetSelfUpdate(update::UpdateService* self_update) { self_update_ = self_update; }
   // Receives one line per shutdown step with how long it took, so a quit that hangs names the step.
@@ -107,6 +110,11 @@ class Controller {
   steam::StoreDetailsService* store_details_ = nullptr;
   std::optional<GameId> requested_store_detail_;
   void TickInstalls();
+  void TickDownloadServers();
+  bool DownloadServerTestAllowed() const;
+  steam::DownloadServerService* download_servers_ = nullptr;
+  std::string download_servers_account_;
+  std::optional<LiveDownloadServers> shown_download_servers_;
   void TickSelfUpdate();
   void TickLicenseChanges();
   std::function<void(const std::string&)> shutdown_log_;

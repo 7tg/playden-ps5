@@ -1191,7 +1191,7 @@ void live_storage_section_and_installed_games() {
     std::vector<std::string> order;
     for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
     check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept",
-                                            "settings-runtime", "settings-downloads-slow"},
+                                            "settings-runtime", "settings-downloads-slow", "settings-download-server"},
           "Storage lists its rows in order, without the hidden cleanup row");
     // Downloads for slow networks (#29): off by default, a toggle saved with the preferences.
     check(!find_row(model, "settings-downloads-slow")->selected && !model.ExportPreferences().downloads_slow_network,
@@ -1214,7 +1214,7 @@ void live_storage_section_and_installed_games() {
     order.clear();
     for (const auto& row : model.view().rows) if (row.section == "Storage") order.push_back(row.key);
     check(order == std::vector<std::string>{"settings-storage", "settings-installed", "settings-kept",
-                                            "settings-runtime-cleanup", "settings-runtime", "settings-downloads-slow"},
+                                            "settings-runtime-cleanup", "settings-runtime", "settings-downloads-slow", "settings-download-server"},
           "unused settings data sits before Runtime status when there is some");
     model.SetRuntimeLeftovers(0);
     // The Settings drive picker changes the default, not one install's drive.
@@ -1229,9 +1229,9 @@ void live_storage_section_and_installed_games() {
               model.view().rows[static_cast<std::size_t>(model.view().focused_row)].section == "Storage",
           "Up on Storage's first row does not leave the section");
     if (model.state().navigation.tabs_focused) model.action("down");
-    check(model.action("focus:settings-downloads-slow"), "Downloads for slow networks is focused");
+    check(model.action("focus:settings-download-server"), "Download server is focused");
     model.action("down");
-    check(model.state().navigation.focus_key == "settings-downloads-slow", "Down on Storage's last row stays on it");
+    check(model.state().navigation.focus_key == "settings-download-server", "Down on Storage's last row stays on it");
     model.action("left");
     model.action("down");
     model.action("right");
@@ -3102,7 +3102,126 @@ void live_import_choice_and_details() {
           "then copies it to the chosen drive");
 }
 
+
+void live_download_server_picker() {
+    using playden::homebrew::DownloadServerRequest;
+    using playden::homebrew::LiveDownloadServers;
+    using playden::homebrew::JobState;
+    auto model = make_live();
+    model.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    model.action("l1");
+    LiveDownloadServers servers;
+    servers.phase = "listed";
+    servers.servers = {{"akamai.invalid", "Akamai"}, {"fastly.invalid", "Fastly"}, {"cache.invalid", "Network cache", true}};
+    model.ApplyLiveDownloadServers(servers);
+    check(find_row(model, "settings-download-server")->value == "Automatic" &&
+              find_row(model, "settings-download-server")->subtitle ==
+                  "Uses the server Steam lists first. Choose one if downloads are slow.",
+          "the server row explains Automatic");
+    activate(model, "settings-download-server");
+    check(model.TakeDownloadServerRequests() == std::vector<DownloadServerRequest>{DownloadServerRequest::List},
+          "opening the picker asks the worker for a new list");
+    check(find_row(model, "download-server-listing")->title == "Getting the server list…" &&
+              model.state().navigation.focus_key == "download-server-auto" &&
+              model.view().subtitle == "Applies to downloads that start or resume from now.",
+          "listing keeps Automatic available and explains when the choice applies");
+    model.ApplyLiveDownloadServers(servers);
+    check(find_row(model, "download-server-2")->subtitle == "HTTP", "plain HTTP servers are marked");
+    activate(model, "download-server-1");
+    check(model.state().navigation.modals.empty() && model.state().download_server == "fastly.invalid" &&
+              model.ExportPreferences().download_server == "fastly.invalid" && model.PreferencesDirty() &&
+              find_row(model, "settings-download-server")->value == "Fastly" &&
+              find_row(model, "settings-download-server")->subtitle == "If it stops answering, Playden uses another one.",
+          "choosing a server closes the picker and records a preference change");
+    auto restarted = make_live();
+    playden::PreferencesLoadResult loaded;
+    loaded.preferences = model.ExportPreferences();
+    check(restarted.ApplyPreferences(restarted.BeginPreferencesLoad(), loaded) &&
+              restarted.state().download_server == "fastly.invalid" && !restarted.PreferencesDirty(),
+          "loading saved preferences restores the chosen server");
+    restarted.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    restarted.action("l1");
+    restarted.ApplyLiveDownloadServers(servers);
+    activate(restarted, "settings-download-server");
+    (void)restarted.TakeDownloadServerRequests();
+    restarted.ApplyLiveDownloadServers(servers);
+    check(restarted.state().navigation.focus_key == "download-server-1", "the picker opens focused on the current choice");
+    activate(restarted, "download-server-test");
+    check(restarted.TakeDownloadServerRequests() == std::vector<DownloadServerRequest>{DownloadServerRequest::Test},
+          "Test servers asks the service to test without closing the picker");
+    servers.phase = "testing";
+    servers.testing_index = 1;
+    restarted.ApplyLiveDownloadServers(servers);
+    check(find_row(restarted, "download-server-test")->title == "Testing Fastly (2 of 3)…" &&
+              !find_row(restarted, "download-server-test")->enabled, "testing names the current server and progress");
+    restarted.action("circle");
+    check(!restarted.state().navigation.modals.empty() &&
+              restarted.TakeDownloadServerRequests() == std::vector<DownloadServerRequest>{DownloadServerRequest::CancelTest},
+          "the first Circle cancels the test and keeps the picker open");
+    restarted.ApplyLiveDownloadServers(servers);  // a worker request may still be unwinding
+    restarted.action("circle");
+    check(restarted.state().navigation.modals.empty() && restarted.TakeDownloadServerRequests().empty(),
+          "a second Circle closes while cancellation is pending");
+    servers.phase = "listed";
+    restarted.ApplyLiveDownloadServers(servers);
+    activate(restarted, "settings-download-server");
+    (void)restarted.TakeDownloadServerRequests();
+    restarted.ApplyLiveDownloadServers(servers);
+    activate(restarted, "download-server-test");
+    (void)restarted.TakeDownloadServerRequests();
+    servers.phase = "tested";
+    servers.rates = {{"akamai.invalid", 41.2}, {"fastly.invalid", 3.1}, {"cache.invalid", 0, true}};
+    restarted.ApplyLiveDownloadServers(servers);
+    check(find_row(restarted, "download-server-0")->value == "41.2 MB/s" &&
+              find_row(restarted, "download-server-0")->badge == "Fastest" &&
+              find_row(restarted, "download-server-2")->value == "Failed" &&
+              restarted.state().navigation.focus_key == "download-server-0" &&
+              restarted.state().download_server == "fastly.invalid" && !restarted.PreferencesDirty(),
+          "a finished test displays rates and focuses the fastest without selecting or saving it");
+    activate(restarted, "download-server-0");
+    check(restarted.ExportPreferences().download_server == "akamai.invalid" && restarted.PreferencesDirty(),
+          "one Cross chooses the fastest result");
+    servers.servers.erase(servers.servers.begin());
+    servers.preferred_name = "Akamai";
+    restarted.ApplyLiveDownloadServers(servers);
+    check(find_row(restarted, "settings-download-server")->value == "Akamai" &&
+              find_row(restarted, "settings-download-server")->subtitle ==
+                  "Not offered on this network now. Automatic is used.", "a missing stored server falls back visibly");
+    activate(restarted, "settings-download-server");
+    (void)restarted.TakeDownloadServerRequests();
+    servers.phase = "list-failed";
+    restarted.ApplyLiveDownloadServers(servers);
+    check(find_row(restarted, "download-server-list-failed")->title == "Could not get the server list." &&
+              find_row(restarted, "download-server-retry")->title == "Try again", "a failed listing offers retry");
+    activate(restarted, "download-server-retry");
+    check(restarted.TakeDownloadServerRequests() == std::vector<DownloadServerRequest>{DownloadServerRequest::List},
+          "retry lists again on the worker");
+    servers.phase = "listed";
+    restarted.ApplyLiveDownloadServers(servers);
+    restarted.UpdateAccount({AuthState::Offline, "account", "Owner", {}, {}, false});
+    check(!find_row(restarted, "download-server-test")->enabled &&
+              find_row(restarted, "download-server-test")->subtitle == "Sign in to Steam to test servers." &&
+              find_row(restarted, "download-server-0")->enabled, "offline accounts can choose servers but cannot test");
+    activate(restarted, "download-server-test");
+    check(restarted.TakeDownloadServerRequests().empty(), "a disabled test sends no request");
+    restarted.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    restarted.UpdateLibrary({{game(SteamId(10), "Downloading game")}, false, {}, false, true, 1234});
+    activate(restarted, "settings-download-server");
+    (void)restarted.TakeDownloadServerRequests();
+    restarted.ApplyLiveDownloadServers(servers);
+    restarted.UpdateInstalls({{SteamId(10), JobState::Downloading, 1, 100}}, {});
+    check(!find_row(restarted, "download-server-test")->enabled &&
+              find_row(restarted, "download-server-test")->subtitle == "Pause downloads to test servers.",
+          "an active download disables measurement");
+    restarted.UpdateInstalls({{SteamId(10), JobState::Paused, 1, 100}}, {});
+    check(find_row(restarted, "download-server-test")->enabled, "pausing the download enables measurement");
+    activate(restarted, "download-server-auto");
+    check(restarted.state().download_server.empty() && restarted.ExportPreferences().download_server.empty(),
+          "Automatic clears the stored choice");
+}
+
 int main() {
+    live_download_server_picker();
     live_import_sheet_sends_requests();
     live_import_choice_and_details();
     store_art_follows_the_store();

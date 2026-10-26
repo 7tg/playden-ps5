@@ -3448,6 +3448,7 @@ class Render::Impl
         static const std::map<std::string, std::string> names = {
             {"choice-picker", "Game settings"}, {"preset-picker", "Game settings"}, {"button-mapping", "Game settings"}, {"controller-tuning", "Game settings"},
             {"game-settings", "Playden"}, {"game-maintenance", "Playden"}, {"kept-data", "Settings"}, {"installed-games", "Settings"},
+            {"download-server", "Settings"},
             {"import-games", "Library"}, {"import-programs", "Import games"}, {"steam-programs", "Setup"}, {"import-choice", "Import games"},
             {"import-storage", "Import games"},
             {"job-actions", "Downloads"}, {"prep-actions", "Preparation"}, {"storage-details", "Storage"}, {"context", "Game"}, {"compatibility", "Game"}, {"collections", "Game"}, {"collections-manage", "Library"},
@@ -3496,6 +3497,7 @@ class Render::Impl
                           view.surface == "game-maintenance" ||
                           view.surface == "controller" || view.surface == "logs" ||
                           view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" ||
+                          view.surface == "download-server" ||
                           view.surface == "installed-games" || view.surface == "import-games" ||
                           view.surface == "import-programs" || view.surface == "steam-programs";
         const float width = overlay_transition_.panel_width(wide ? 960.0F : 640.0F);
@@ -3965,6 +3967,7 @@ class Render::Impl
     void draw_overlay_rows(const ViewData &view, const gfx::Rect &bounds, bool scrolls = true)
     {
         const bool settings_sheet = view.surface == "game-settings" || view.surface == "choice-picker" ||
+                                    view.surface == "download-server" ||
                                     view.surface == "preset-picker" || view.surface == "button-mapping" ||
                                     view.surface == "controller-tuning" ||
                                     view.surface == "game-maintenance";
