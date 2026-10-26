@@ -1819,6 +1819,18 @@ void Simulation::sync_self_update_job() {
 
 // The running version's release notes, with its release page as a QR code: once after an update
 // ("What's new"), and from Settings › About › Release notes.
+// The selected game changed under the dialogs: the ones about a game close, Playden's own update
+// dialogs (often opened at startup, before the library arrives) stay.
+void Simulation::close_game_modals() {
+    auto& modals = state_.navigation.modals;
+    modals.erase(std::remove_if(modals.begin(), modals.end(), [](const ModalEntry& modal) {
+        return std::none_of(modal.action_keys.begin(), modal.action_keys.end(), [](const std::string& key) {
+            return key == "self-update-install" || key == "self-update-restart" || key == "release-notes-ok" ||
+                   key == "kit-install";
+        });
+    }), modals.end());
+}
+
 void Simulation::open_release_notes(bool after_update) {
     const auto& update = state_.self_update;
     ModalEntry notes{"confirmation",
@@ -2490,12 +2502,12 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
         } else if (!current_visible.empty()) {
             state_.navigation.selected_index = std::clamp(prior_index, 0, static_cast<int>(current_visible.size()) - 1);
             state_.navigation.selected_game_id = current_visible[static_cast<std::size_t>(state_.navigation.selected_index)]->id;
-            if (!state_.navigation.modals.empty()) state_.navigation.modals.clear();
+            close_game_modals();
             state_.editor.active = false;
         } else {
             state_.navigation.selected_index = 0;
             state_.navigation.selected_game_id = {};
-            state_.navigation.modals.clear();
+            close_game_modals();
             state_.editor.active = false;
         }
 
@@ -2542,6 +2554,11 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
                                                             ? "details-play" : "details-install");
             }
         } else {
+            state_.navigation.focus_key = prior_focus;
+        }
+        // An update dialog that stayed open keeps the focus; the route's new focus is where it returns to.
+        if (prior_overlay && !identity_retained && !state_.navigation.modals.empty()) {
+            state_.navigation.modals.front().opener_focus_key = state_.navigation.focus_key;
             state_.navigation.focus_key = prior_focus;
         }
 

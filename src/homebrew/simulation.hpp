@@ -896,6 +896,7 @@ private:
     void show_update_prompt();
     void sync_self_update_job();
     void request_self_update_restart(const std::string& request = "restart");
+    void close_game_modals();
     void open_release_notes(bool after_update);
     std::string selected_volume_id_;
     bool default_volume_saved_ = true;  // last install-service report, so a failed save is said once

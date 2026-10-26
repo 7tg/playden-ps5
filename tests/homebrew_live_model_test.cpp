@@ -956,6 +956,56 @@ void live_self_update(const std::filesystem::path& base) {
               updated.state().navigation.modals.back().link == fresh.current_notes_url,
           "update: the release notes open from Settings");
 
+    // The library arriving after the dialog opened (the cached list, then each store's) leaves it open.
+    {
+        auto late = make_live(base);
+        late.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+        check(late.UpdateLibrary({{}, false, {}, false, true, 100}), "update: empty library delivered");
+        LiveSelfUpdate waiting;
+        waiting.current = "0.3.0";
+        waiting.finished_message = "Playden was updated to 0.3.0.";
+        waiting.whats_new = true;
+        late.UpdateSelfUpdate(waiting);
+        check(!late.state().navigation.modals.empty() &&
+                  late.state().navigation.modals.back().title == "What's new in Playden 0.3.0",
+              "update: what's new opens before the games arrive");
+        playden::GameSummary game;
+        game.id = SteamId(220);
+        game.title = "Half-Life 2";
+        check(late.UpdateLibrary({{game}, false, {}, false, true, 100}), "update: games delivered");
+        check(!late.state().navigation.modals.empty() &&
+                  late.state().navigation.modals.back().title == "What's new in Playden 0.3.0",
+              "update: the games arriving leave what's new open");
+    }
+
+    // The offer keeps its focus on Download when the selected game leaves the list under it.
+    {
+        auto offered = make_live(base);
+        offered.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+        std::vector<playden::GameSummary> games;
+        for (int i = 0; i < 4; ++i) {
+            playden::GameSummary game;
+            game.id = SteamId(220 + i);
+            game.title = "Game " + std::to_string(i);
+            games.push_back(game);
+        }
+        check(offered.UpdateLibrary({games, false, {}, false, true, 100}), "update: four games delivered");
+        for (int i = 0; i < 3; ++i) offered.action("right");
+        LiveSelfUpdate available;
+        available.current = "0.2.0";
+        available.phase = "available";
+        available.available = "0.3.0";
+        offered.UpdateSelfUpdate(available);
+        check(!offered.state().navigation.modals.empty() &&
+                  offered.state().navigation.modals.back().title == "Playden 0.3.0 is available",
+              "update: the offer opens over the library");
+        games.pop_back();
+        games.erase(games.begin() + 2);
+        check(offered.UpdateLibrary({games, false, {}, false, true, 100}), "update: the selected game leaves");
+        check(offered.action("cross") && offered.TakeSelfUpdateRequests() == std::vector<std::string>{"install"},
+              "update: Download and install still has the focus");
+    }
+
     // A failed install says why; the previous run's result shows once.
     auto failing = make_live(base);
     failing.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
