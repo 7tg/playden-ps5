@@ -5489,7 +5489,8 @@ void Simulation::rebuild_view() {
         if (live() && state_.runtime_leftover_requests > 0) {
             // Explicit recovery: settings requests no game is using any more.
             auto& leftovers = add("settings-runtime-cleanup", RowKind::Action, "Unused game settings data", "runtime-cleanup");
-            leftovers.value = std::to_string(state_.runtime_leftover_requests);
+            // The requests are Playden's own files, always on the console, wherever the games are.
+            leftovers.value = std::to_string(state_.runtime_leftover_requests) + " · Console storage";
             leftovers.subtitle = "Left by interrupted or finished preparations. Clean up removes only what no game is using.";
         }
         auto& runtime = add("settings-runtime", RowKind::Action, "Runtime status", "settings-runtime");
@@ -7082,7 +7083,7 @@ void Simulation::activate() {
         ModalEntry confirm{"confirmation", "Clean up unused game settings data?", state_.navigation.focus_key,
                            {"cancel", "runtime-cleanup-confirm"}, 0, true};
         confirm.body = std::to_string(count) + (count == 1 ? " request" : " requests") +
-                       " left by interrupted or finished preparations. Playden removes only what no game is using; "
+                       " on Console storage, left by interrupted or finished preparations. Playden removes only what no game is using; "
                        "games and saves are not touched.";
         open_modal(std::move(confirm));
     } else if (live() && action_name == "runtime-cleanup-confirm") {

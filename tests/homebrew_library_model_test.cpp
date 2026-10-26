@@ -1483,9 +1483,13 @@ void live_settings_focus_stays_near_a_removed_row() {
     model.SetRuntimeLeftovers(2);
     model.UpdateVolumes({{"internal", "Console storage", true, {}, {}}}, "internal");
     model.action("l1");
+    check(find_row(model, "settings-runtime-cleanup")->value == "2 · Console storage",
+          "the row says where the unused settings data is");
     activate(model, "settings-runtime-cleanup");
     check(!model.TakeRuntimeCleanupRequest() && !model.state().navigation.modals.empty() &&
               model.state().navigation.modals.back().destructive, "cleanup asks before deleting");
+    check(model.state().navigation.modals.back().body.find("on Console storage") != std::string::npos,
+          "the confirmation says where the data is");
     activate(model, "cancel");
     check(!model.TakeRuntimeCleanupRequest() && has_row(model, "settings-runtime-cleanup"), "Cancel keeps the data");
     activate(model, "settings-runtime-cleanup");
