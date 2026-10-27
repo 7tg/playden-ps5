@@ -834,7 +834,7 @@ void live_self_update(const std::filesystem::path& base) {
     activate(model, "settings-about");
     check(find_row(model, "about-version") && find_row(model, "about-version")->value == "Playden 0.8.0 (Nightly)",
           "about: a nightly's version");
-    check(find_row(model, "about-build") && find_row(model, "about-build")->value == "Nightly 20261027.2 · d94c0b384d",
+    check(find_row(model, "about-build") && find_row(model, "about-build")->value == "20261027.2 · d94c0b384d",
           "about: a nightly's build and commit");
     update.current = "0.7.1-beta.1";
     model.UpdateSelfUpdate(update);

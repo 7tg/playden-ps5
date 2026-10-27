@@ -107,10 +107,10 @@ std::string version_label(const std::string& version) {
     return version + (version.find("-beta.") != std::string::npos ? " (Beta)" : "");
 }
 
-// "Nightly 20261027.2 · d94c0b384d" for a nightly, the commit for any other build.
+// "20261027.2 · d94c0b384d" for a nightly (Version already says Nightly), the commit for any other build.
 std::string build_label(const std::string& version, const std::string& commit) {
     const auto nightly = version.find("-nightly.");
-    std::string label = nightly == std::string::npos ? std::string() : "Nightly " + version.substr(nightly + 9);
+    std::string label = nightly == std::string::npos ? std::string() : version.substr(nightly + 9);
     if (!commit.empty()) label += (label.empty() ? "" : " · ") + commit;
     return label.empty() ? "Unknown" : label;
 }
@@ -515,8 +515,8 @@ std::string action_label(const std::string& key) {
         {"self-update-restart", "Restart Playden"}, {"self-update-cancel", "Cancel update"},
         {"kit-install", "Download"}, {"kit-cancel", "Cancel download"},
         {"self-update-back-confirm", "Go back"}, {"release-notes-ok", "OK"},
-        {"about-build", "Build"}, {"about-framework", "Framework"}, {"about-platform", "Platform"},
-        {"about-kit", "Runtime kit"}, {"about-kit-source", "Built from"},
+        {"about-build", "Build"},
+        {"about-kit", "Runtime kit"}, {"about-kit-source", "Kit built from"},
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
         {"inject-startup-loading", "Show startup loading"}};
     if (const auto found = labels.find(key); found != labels.end()) return found->second;
@@ -4695,13 +4695,11 @@ void Simulation::rebuild_view() {
             else if (action_key.rfind("open-game:", 0) == 0) item.title = "Open game";
             else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + version_label(state_.self_update.current) : "Simulated"; item.enabled = false; }
             else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? build_label(state_.self_update.current, state_.self_update.commit) : "UI comparison fixture"; item.enabled = false; }
-            else if (action_key == "about-framework") { item.kind = RowKind::Status; item.value = "Homebrew native model + Hui"; item.enabled = false; }
-            else if (action_key == "about-platform") { item.kind = RowKind::Status; item.value = "Host / PS5 homebrew"; item.enabled = false; }
             else if (action_key == "about-kit" || action_key == "about-kit-source") {
                 // The kit in use, and the one this build was tested with when they differ.
                 LiveKitInfo kit = state_.kit;
                 if (!live()) kit = {"playden-kit", std::string(64, 'b'), std::string(64, 'b'), std::string(40, '2'), false, {}};
-                const auto short_hash = [](const std::string& hash) { return hash.substr(0, 12); };
+                const auto short_hash = [](const std::string& hash) { return hash.substr(0, 10); };
                 item.kind = RowKind::Status; item.enabled = false;
                 if (kit.kit_id.empty()) {
                     item.value = action_key == "about-kit" ? "None" : "—";
@@ -7934,10 +7932,10 @@ void Simulation::activate() {
         state_.navigation.focus_key = "settings-about";
         settings_focus_section_ = "About";
         open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", "settings-about",
-            {"about-version", "about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 4, false});
+            {"about-version", "about-build", "about-kit", "about-kit-source", "about-back"}, 2, false});
     }
     else if (action_name == "about") open_modal({"about", live() ? "About Playden" : "About Playden UI simulation", state_.navigation.focus_key,
-        {"about-version", "about-build", "about-framework", "about-platform", "about-kit", "about-kit-source", "about-back"}, 0, false});
+        {"about-version", "about-build", "about-kit", "about-kit-source", "about-back"}, 0, false});
     else if (action_name == "about-back") close_modal();
     else if (live() && action_name == "toggle-beta-updates") {
         state_.beta_updates = !state_.beta_updates;

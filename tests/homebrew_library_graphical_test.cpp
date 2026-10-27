@@ -158,6 +158,16 @@ int main(int argc,char** argv) {
       for(int i=0;i<4 && updating.state().navigation.route!=Route::Settings;++i) assert(updating.action("r1"));
       assert(updating.action("focus:settings-release-notes") && updating.action("cross"));
       capture_update("release-notes-short.png");
+      // About: every fact in full, the kit's notes under its rows.
+      while(!updating.state().navigation.modals.empty()) assert(updating.action("circle"));
+      fresh.current="0.8.0-nightly.20261027.2"; fresh.commit="e7a30f21e8";
+      updating.UpdateSelfUpdate(fresh);
+      updating.SetKitInfo({"playden-kit",std::string(64,'d'),std::string(64,'e'),std::string(40,'f'),true,{}});
+      assert(updating.action("focus:settings-about") && updating.action("cross"));
+      assert(updating.view().surface=="about" && updating.view().rows.size()==5);
+      assert(updating.action("down") && updating.action("down") && updating.action("down"));
+      assert(updating.view().rows[static_cast<std::size_t>(updating.view().focused_row)].key=="about-kit-source");
+      capture_update("about.png");
     }
     {
       // Steam's options name no clear program: setting up asks which one starts the game.

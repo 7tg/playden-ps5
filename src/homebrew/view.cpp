@@ -3975,6 +3975,17 @@ class Render::Impl
         // The Import sheets: each folder's path (or why it can't be added) under its name.
         const bool import_sheet = view.surface == "import-games" || view.surface == "import-programs" ||
                                   view.surface == "import-choice" || view.surface == "steam-programs";
+        // About: each fact as its name over its value and note, at the row's full width, wrapped and never cut.
+        const bool about_sheet = view.surface == "about";
+        const auto about_lines = [&](const std::string &text, float size) {
+            return text.empty() ? 0.0F
+                                : static_cast<float>(fonts_.regular.font->wrap(text, size, bounds.w - 48.0F).size());
+        };
+        const auto about_height = [&](const ViewRow &row) {
+            // Room for one note line on every fact, so rows with and without one line up.
+            return 58.0F + 30.0F * std::max(1.0F, about_lines(overlay_value(row), 24.0F)) +
+                   26.0F * std::max(1.0F, about_lines(row.subtitle, 19.0F));
+        };
         // The import wizard's hints wrap onto a second line rather than being cut.
         const float hint_width = bounds.w - 48.0F;
         const auto hint_extra = [&](const ViewRow &row) {
@@ -3986,6 +3997,8 @@ class Render::Impl
         // Every row's place in the list; the list scrolls only when it is taller than the sheet,
         // just enough to keep the focused row and a little of its neighbours in view, and eases there.
         const auto pitch = [&](const ViewRow &row) {
+            if (about_sheet && row.kind == RowKind::Status)
+                return about_height(row) + 12.0F;
             if (settings_sheet && row.kind == RowKind::Heading)
                 return 54.0F + 12.0F;
             if (row.kind == RowKind::Heading || row.kind == RowKind::Separator)
@@ -4051,6 +4064,25 @@ class Render::Impl
                          kMuted, gfx::Align::right);
                 focus_ring(overlay_, rect, amount);
                 y += rect.h + 12.0F;
+                continue;
+            }
+            if (about_sheet && row.kind == RowKind::Status)
+            {
+                const gfx::Rect rect{bounds.x, y, bounds.w, about_height(row)};
+                const float amount = control_focus("sheet-" + row.key, index == view.focused_row);
+                focus_glow(overlay_, rect, amount);
+                overlay_.rounded_rect(rect, 8.0F, kPanel);
+                overlay_.rounded_rect(rect, 8.0F, kText.with_alpha(0.04F));
+                const float width = rect.w - 48.0F;
+                ui::text(overlay_, fonts_.semibold, fit(fonts_.semibold, overlay_label(row), 19.0F, width),
+                         rect.x + 24.0F, rect.y + 36.0F, 19.0F, kSecondary);
+                // The facts are disabled rows, but they are what this sheet is for: full ink.
+                const float note_y = ui::paragraph(overlay_, fonts_.regular, overlay_value(row), rect.x + 24.0F,
+                                                   rect.y + 70.0F, 24.0F, width, 30.0F, kText);
+                if (!row.subtitle.empty())
+                    ui::paragraph(overlay_, fonts_.regular, row.subtitle, rect.x + 24.0F, note_y + 2.0F, 19.0F, width,
+                                  26.0F, row.tone == "problem" ? kRed : kSecondary);
+                focus_ring(overlay_, rect, amount);
                 continue;
             }
             if (row.kind == RowKind::Heading || row.kind == RowKind::Separator)
