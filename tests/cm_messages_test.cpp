@@ -1,6 +1,7 @@
 #include "steam/backend/binary_kv.h"
 #include "steam/backend/cm_client.h"
 #include "steam/backend/cm_messages.h"
+#include "steam/backend/proto_wire.h"
 
 #include <cassert>
 #include <fstream>
@@ -94,6 +95,32 @@ void FramesRoundTripAndRejectMalformedInput() {
   assert(decoded.header.steam_id == 76561197960269970ull && decoded.header.session_id == 77);
 }
 
+// A borrowed license carries the lender's account ID, the Borrowed flag and a license type.
+void LicenseOwnerFlagsAndTypeDecode() {
+  proto::Writer license;
+  license.AddVarint(1, 77);
+  license.AddFixed32(2, 1700000000);
+  license.AddVarint(7, 0x4000);
+  license.AddVarint(9, 10);
+  license.AddVarint(12, 9999);
+  license.AddVarint(17, 31337);
+  proto::Writer body;
+  body.AddVarint(1, cm::kEResultOk);
+  body.AddMessage(2, license);
+  cm::LicenseList list;
+  assert(cm::DecodeLicenseList(body.bytes(), &list) && list.licenses.size() == 1);
+  const auto& decoded = list.licenses[0];
+  assert(decoded.package_id == 77 && decoded.time_created == 1700000000 && decoded.flags == 0x4000);
+  assert(decoded.license_type == 10 && decoded.owner_id == 9999 && decoded.access_token == 31337);
+  // A license type that is not a varint is malformed.
+  proto::Writer bad_entry;
+  bad_entry.AddVarint(1, 77);
+  bad_entry.AddFixed32(9, 10);
+  proto::Writer bad;
+  bad.AddMessage(2, bad_entry);
+  assert(!cm::DecodeLicenseList(bad.bytes(), &list));
+}
+
 void TruncatedMessagesFail() {
   auto licenses = Fixture("license_list.pb");
   licenses.resize(licenses.size() - 3);
@@ -115,5 +142,6 @@ int main(int argc, char** argv) {
   ResponsesDecode();
   LogonResponseFallsBackToLegacyAndDefaultHeartbeat();
   FramesRoundTripAndRejectMalformedInput();
+  LicenseOwnerFlagsAndTypeDecode();
   TruncatedMessagesFail();
 }

@@ -1682,7 +1682,7 @@ class Render::Impl
         return game.download_bytes ? "Not installed · " + short_size(*game.download_bytes) : "Not installed";
     }
 
-    // reserve: room kept free at the right for the demo badge.
+    // reserve: room kept free at the right for the corner badges.
     void tile_badge(const gfx::Rect &rect, std::string_view text, gfx::Color dot, float reserve = 0.0F)
     {
         constexpr float size = 16.0F;
@@ -1693,16 +1693,29 @@ class Render::Impl
                  rect.y + 32.0F, size, kText);
     }
 
-    // A Steam demo says so in the tile's top-right corner; returns the width it takes, gap included.
-    float demo_badge(const gfx::Rect &rect)
+    // A word in the tile's top-right corner, `right` px in from the corner's usual spot; returns the
+    // width it takes, gap included.
+    float corner_badge(const gfx::Rect &rect, std::string_view text, float right = 0.0F)
     {
         constexpr float size = 16.0F;
-        const float width = fonts_.semibold.measure("Demo", size) + 20.0F;
-        scene_.rounded_rect({rect.x + rect.w - 10.0F - width, rect.y + 10.0F, width, 32.0F}, 6.0F,
+        const float width = fonts_.semibold.measure(text, size) + 20.0F;
+        scene_.rounded_rect({rect.x + rect.w - 10.0F - right - width, rect.y + 10.0F, width, 32.0F}, 6.0F,
                             kBackground.with_alpha(0.85F));
-        ui::text(scene_, fonts_.semibold, "Demo", rect.x + rect.w - 20.0F, rect.y + 32.0F, size, kAccent,
+        ui::text(scene_, fonts_.semibold, text, rect.x + rect.w - 20.0F - right, rect.y + 32.0F, size, kAccent,
                  gfx::Align::right);
         return width + 8.0F;
+    }
+
+    // A Steam demo says "Demo" and a game a Steam family member shares says "Family", right to left;
+    // returns the width they take. Beside a status badge a tile has room for one: Demo.
+    float corner_badges(const Game &game, const gfx::Rect &rect, bool status_badge)
+    {
+        float taken = 0.0F;
+        if (game.demo)
+            taken += corner_badge(rect, "Demo", taken);
+        if (game.family_shared && !(game.demo && status_badge))
+            taken += corner_badge(rect, "Family", taken);
+        return taken;
     }
 
     void download_mark(float cx, float cy, float opacity)
@@ -1784,12 +1797,13 @@ class Render::Impl
             scene_.pop_transform();
             return;
         }
-        const float demo = game.demo ? demo_badge(rect) : 0.0F;
-        if (status.job != nullptr && !downloading)
+        const bool job_badge = status.job != nullptr && !downloading;
+        const float corner = corner_badges(game, rect, job_badge || status.disconnected);
+        if (job_badge)
             tile_badge(rect, JobStateText(*status.job),
-                       status.job->state == JobState::Failed ? kAmber : kSecondary, demo);
+                       status.job->state == JobState::Failed ? kAmber : kSecondary, corner);
         else if (status.disconnected)
-            tile_badge(rect, "Drive disconnected", kAmber, demo);
+            tile_badge(rect, "Drive disconnected", kAmber, corner);
         if (show_download_mark)
             download_mark(rect.x + rect.w - 25.0F, rect.y + rect.h - 25.0F, 1.0F);
         else if (status.installed && status.installation != nullptr && status.installation->installed_bytes > 0 && amount < 1.0F && title_overlay)
@@ -3100,8 +3114,11 @@ class Render::Impl
         const float facts_top = setup == view.rows.end() ? 754.0F : setup_detail.empty() ? 694.0F : 662.0F;
         detail_cell("Playtime", playtime, left, facts_top, 240.0F);
         detail_cell("Size", size, right, facts_top, 240.0F);
-        detail_cell("Store", game->id.store == Store::kLocal ? std::string("Imported") : game->source.empty() ? "Steam" : game->source,
-                    left, facts_top + 76.0F, 240.0F);
+        // A game a Steam family member shares comes from Steam Families, not the account's own library.
+        const std::string store = game->id.store == Store::kLocal ? std::string("Imported") :
+                                  game->family_shared ? std::string("Steam Family") :
+                                  game->source.empty() ? std::string("Steam") : game->source;
+        detail_cell("Store", store, left, facts_top + 76.0F, 240.0F);
         detail_cell("Location", location, right, facts_top + 76.0F, 240.0F);
         detail_cell("Compatibility", compat, left, facts_top + 152.0F, 240.0F);
         if (game->last_played && setup == view.rows.end())

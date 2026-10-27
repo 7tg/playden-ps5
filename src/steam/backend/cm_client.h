@@ -35,7 +35,8 @@ enum class CmError {
 const char* CmErrorName(CmError error);
 
 // Receives one line per CM logon and per refusal, for steam-cm.log: the owner, the step, the error
-// and Steam's result code. Never a token, account name, SteamID or endpoint. Process-wide.
+// and Steam's result code. Never a token, account name, the account's SteamID or an endpoint. Family
+// sharing lines name the owning family member's account ID, so a shared game can be traced. Process-wide.
 void SetCmLog(std::function<void(const std::string& line)> log);
 
 // After Steam refuses a logon for a reason other than the credentials (busy, rate limited), or the
@@ -55,6 +56,9 @@ struct AcquisitionResult {
   // The apps of each active licensed package, for games the owned list leaves out.
   std::map<std::uint32_t, std::vector<std::uint32_t>> package_apps;
   std::map<std::uint32_t, std::vector<std::uint32_t>> package_depots;
+  // Apps reached only through licenses borrowed from another Steam family member, not through one of the
+  // account's own. They are also in owned_apps and package_apps.
+  std::set<std::uint32_t> shared_apps;
   // Licensed packages Steam left out, sent without a token, or sent unreadable; their apps are not owned here.
   std::uint32_t skipped_packages = 0;
   bool ok() const { return error == CmError::kNone; }

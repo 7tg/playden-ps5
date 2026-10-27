@@ -106,6 +106,30 @@ const char* InstallFailureText(InstallError error) {
   return "Install failed.";
 }
 
+namespace {
+
+// Comma-separated items after a key, split so each line fits the native log buffer with room for the
+// timestamp, app and step.
+std::vector<std::string> FamilyLines(const char* key, const std::vector<std::string>& items) {
+  std::vector<std::string> lines;
+  std::string line = key;
+  bool first = true;
+  for (const auto& item : items) {
+    if (!first && line.size() + 1 + item.size() > 360) {
+      lines.push_back(std::move(line));
+      line = key;
+      first = true;
+    }
+    line += (first ? "" : ",") + item;
+    first = false;
+  }
+  if (first) line += "none";
+  lines.push_back(std::move(line));
+  return lines;
+}
+
+}  // namespace
+
 InstallRunner::Result SteamInstallRunner::InstallApp(const StoredSession& session, std::uint32_t id, const std::string& root,
                                                   const std::atomic<bool>& cancel,
                                                   const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,
@@ -154,6 +178,15 @@ InstallRunner::Result SteamInstallRunner::InstallApp(const StoredSession& sessio
   }
   if (entitlements.skipped_packages)
     log("entitlements", "partial", ("skipped_packages=" + std::to_string(entitlements.skipped_packages)).c_str());
+  // A game a Steam family member shares: which borrowed packages carry it. steam-cm.log names each
+  // package's owner (family step=license).
+  const bool family_shared = entitlements.shared_apps.count(id) > 0;
+  if (family_shared) {
+    std::vector<std::string> packages;
+    for (const auto& [package, apps] : entitlements.package_apps)
+      if (std::find(apps.begin(), apps.end(), id) != apps.end()) packages.push_back(std::to_string(package));
+    for (const auto& line : FamilyLines("packages=", packages)) log("family", "shared", line.c_str());
+  }
   std::set<std::uint32_t> owned_apps = entitlements.owned_apps;
   owned_apps.insert(id);
   if (!SelectDepots(*app, owned_apps, entitlements.owned_depots, &target.depots, &reason)) {
@@ -194,6 +227,19 @@ InstallRunner::Result SteamInstallRunner::InstallApp(const StoredSession& sessio
   std::string selected_ids;
   for (const auto& depot : target.depots) selected_ids += (selected_ids.empty() ? "" : " ") + std::to_string(depot.id);
   log("depots", "selected", selected_ids.c_str());
+  if (family_shared) {
+    // Which packages grant each selected depot, as depot:package/package.
+    std::vector<std::string> grants;
+    for (const auto& depot : target.depots) {
+      std::string grant = std::to_string(depot.id) + ":";
+      std::size_t found = 0;
+      for (const auto& [package, depots] : entitlements.package_depots)
+        if (std::find(depots.begin(), depots.end(), depot.id) != depots.end())
+          grant += (found++ ? "/" : "") + std::to_string(package);
+      grants.push_back(found ? grant : grant + "none");
+    }
+    for (const auto& line : FamilyLines("depots=", grants)) log("family", "depots", line.c_str());
+  }
   if (step) step(InstallStep::kDownloading);
   const auto outcome = installer_.Run(session, target, cancel, [&](const InstallProgress& state) {
     if (progress) progress(state.download_done, state.download_total, state.held_bytes);

@@ -451,6 +451,7 @@ struct Game {
     std::optional<std::uint64_t> playtime_minutes;
     std::optional<bool> windows_installable;  // from Steam app info; absent until fetched
     bool demo = false;  // a Steam demo; Sort and filters › Demos hides it
+    bool family_shared = false;  // shared by a Steam family member; the tile says "Family"
     bool art_pending = false;
     bool art_failed = false;
 };

@@ -497,7 +497,7 @@ std::string action_label(const std::string& key) {
         {"sort-name", "Name"}, {"sort-recent-played", "Recently played"}, {"sort-recent-added", "Recently added"},
         {"sort-playtime", "Playtime"}, {"sort-install-size", "Install size"}, {"filter-installed", "Installed"},
         {"filter-genre-adventure", "Adventure"}, {"filter-controller-full", "Full controller support"},
-        {"filter-compat-playable", "Playable"}, {"filter-hide-demos", "Demos"}, {"filters-reset", "Reset filters"}, {"refresh-library", "Refresh library"}, {"advance-clock", "Advance fixture clock"},
+        {"filter-compat-playable", "Playable"}, {"filter-hide-demos", "Demos"}, {"filter-hide-family", "Family sharing"}, {"filters-reset", "Reset filters"}, {"refresh-library", "Refresh library"}, {"advance-clock", "Advance fixture clock"},
         {"inject-download-failed", "Inject download failure"}, {"inject-verification-failed", "Inject verification failure"},
         {"inject-uninstall-failed", "Inject uninstall failure"},
         {"inject-storage-disconnect", "Disconnect storage"}, {"inject-controller-disconnect", "Disconnect controller"},
@@ -2552,6 +2552,7 @@ bool Simulation::UpdateLibrary(LibraryUpdate update) {
             if (summary.added_at_unix_seconds)
                 game.added_at = static_cast<std::int64_t>(*summary.added_at_unix_seconds);
             game.demo = summary.demo;
+            game.family_shared = summary.family_shared;
             if (const auto facts = store_facts_.find(game.id); facts != store_facts_.end()) {
                 if (!facts->second.description.empty()) game.description = facts->second.description;
                 game.genres = facts->second.genres;
@@ -3177,6 +3178,7 @@ void Simulation::load_fixtures() {
             if (const auto played = optional_uint(item.get("last_played"))) game.last_played = static_cast<std::int64_t>(*played);
             game.playtime_minutes = optional_uint(item.get("playtime_minutes"));
             game.demo = bool_value(item.get("demo"));
+            game.family_shared = bool_value(item.get("family_shared"));
             state_.games.push_back(std::move(game));
         }
     }
@@ -3794,6 +3796,24 @@ bool Simulation::scenario(const std::string& name) {
         }
         if (!find_game(state_, demo.id)) state_.games.push_back(std::move(demo));
         reconcile_library_selection(state_);
+    } else if (name == "family-sharing") {
+        // Games a Steam family member shares. The external drive is disconnected and a download is
+        // interrupted, so status badges have to fit beside "Family".
+        state_.navigation.route = Route::Library;
+        if (auto* volume = find_volume(state_, "external")) volume->available = false;
+        // The demos fixture's demo, when loaded first, shows both corner badges.
+        std::vector<GameId> shared{GameId::Steam(900014), GameId::Steam(900011), GameId::Steam(900025)};
+        if (auto* job = find_job(state_, "job-1")) {
+            job->state = JobState::Interrupted;
+            job->failure = "Storage disconnected";
+            shared.push_back(job->game_id);
+        }
+        const auto external = std::find_if(state_.installations.begin(), state_.installations.end(),
+                                           [](const Installation& item) { return item.volume_id == "external"; });
+        if (external != state_.installations.end()) shared.push_back(external->game_id);
+        for (const auto id : shared)
+            if (auto* game = const_cast<Game*>(find_game(state_, id))) game->family_shared = true;
+        reconcile_library_selection(state_);
     } else if (name == "stress") {
         const auto source = read_file(fixture_directory_.parent_path() / "library.json");
         const auto root = json::parse(source);
@@ -4161,10 +4181,10 @@ void Simulation::rebuild_view() {
                 }
                 continue;
             }
-            // Demos is on unless the player hid them.
-            if (action_key == "filter-hide-demos") {
+            // Demos and Family sharing are on unless the player hid them.
+            if (action_key == "filter-hide-demos" || action_key == "filter-hide-family") {
                 item.kind = RowKind::Toggle;
-                item.selected = !state_.library.filters.contains("hide-demos");
+                item.selected = !state_.library.filters.contains(action_key.substr(7));
                 item.value = item.selected ? "On" : "Off";
             }
             // The menu's Favorite says what it will do for this game.
@@ -8369,8 +8389,13 @@ bool Simulation::action(const std::string& logical_action) {
             : std::vector<std::string>{"sort-name", "sort-recent-played", "sort-recent-added", "sort-playtime", "sort-install-size",
                                       "filter-installed", "filter-genre-adventure", "filter-controller-full", "filter-compat-playable",
                                       "filters-reset", "refresh-library", "cancel"};
+            // Family sharing likewise, for games a Steam family member shares.
+            const bool family = state_.library.filters.contains("hide-family") ||
+                std::any_of(state_.games.begin(), state_.games.end(), [](const Game& game) { return game.family_shared; });
             if (demos)
                 actions.insert(std::find(actions.begin(), actions.end(), "filters-reset"), "filter-hide-demos");
+            if (family)
+                actions.insert(std::find(actions.begin(), actions.end(), "filters-reset"), "filter-hide-family");
         open_modal({"filters", "Sort and filters", state_.navigation.focus_key, std::move(actions), 0, false});
         }
     }

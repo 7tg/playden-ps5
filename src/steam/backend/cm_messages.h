@@ -112,6 +112,7 @@ struct License {
   std::int32_t minute_limit = 0;
   std::int32_t minutes_used = 0;
   std::uint32_t flags = 0;
+  std::uint32_t license_type = 0;  // ELicenseType, for diagnostics only
   std::uint32_t owner_id = 0;
   std::uint64_t access_token = 0;
 };

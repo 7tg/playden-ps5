@@ -704,6 +704,19 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     }
 }
 
+// The family-sharing fixture marks a few games shared by a Steam family member and leaves the rest owned.
+void family_sharing_scenario_marks_shared_games(const std::filesystem::path& fixtures,
+                                                const std::filesystem::path& profile) {
+    playden::homebrew::Simulation simulation(fixtures, profile);
+    const auto count = simulation.state().games.size();
+    check(simulation.scenario("family-sharing"), "family-sharing scenario loads");
+    const auto& games = simulation.state().games;
+    const auto shared = std::count_if(games.begin(), games.end(), [](const playden::homebrew::Game& game) { return game.family_shared; });
+    check(games.size() == count && shared > 0 && static_cast<std::size_t>(shared) < count,
+          "family-sharing marks some fixture games shared without adding games");
+    check(simulation.snapshot().find("\"route\":\"library\"") != std::string::npos, "family-sharing opens the Library");
+}
+
 void t12_stress_dataset_keeps_logical_focus(const std::filesystem::path& fixtures,
                                             const std::filesystem::path& profile) {
     playden::homebrew::Simulation simulation(fixtures, profile);
@@ -1488,6 +1501,8 @@ int main(int argc, char** argv) {
     t11_preferences_failure_and_controller_modal_recovery(fixtures, profile);
     clean();
     t12_stress_dataset_keeps_logical_focus(fixtures, profile);
+    clean();
+    family_sharing_scenario_marks_shared_games(fixtures, profile);
     clean();
     t13_settings_sections_rail(fixtures, profile);
     clean();

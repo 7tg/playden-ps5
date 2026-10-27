@@ -923,6 +923,47 @@ void live_demos_filter_defaults_on() {
     check(row!=nullptr && !row->selected,"Demos stays listed while demos are hidden");
 }
 
+// A game a Steam family member shares keeps that mark in the Library; the rest of the library does not.
+void live_family_shared_projected() {
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    auto shared=game(SteamId(43),"Synthetic Shared");shared.family_shared=true;
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic"),shared},false,{},false,false,{}}),"library with a shared game loaded");
+    check(model.state().games.back().family_shared && !model.state().games.front().family_shared,"family mark projected");
+    check(model.action("r1") && model.visible_games().size()==2,"shared games show with the rest");
+}
+
+// Family sharing works like Demos: on by default, turning it off hides shared games and is saved, and the
+// row is listed only while the library has a shared game or they are hidden.
+void live_family_filter_defaults_on() {
+    auto model=make_live();
+    model.UpdateAccount({AuthState::SignedIn,"123","Synthetic",{},{},true});
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic")},false,{},false,false,{}}),"library without shared games loaded");
+    check(model.action("r1") && model.action("triangle"),"live filter modal opens");
+    check(find_row(model,"filter-hide-family")==nullptr,"a library without shared games has no Family sharing row");
+    model.action("circle");
+
+    auto shared=game(SteamId(43),"Synthetic Shared");shared.family_shared=true;auto demo=game(SteamId(44),"Synthetic Demo");demo.demo=true;
+    check(model.UpdateLibrary({{game(SteamId(42),"Synthetic"),shared,demo},false,{},false,false,{}}),"library with a shared game loaded");
+    check(model.action("triangle"),"filter modal opens");
+    const auto* row=find_row(model,"filter-hide-family");
+    check(row!=nullptr && row->title=="Family sharing" && row->kind==RowKind::Toggle && row->selected && row->value=="On",
+          "Family sharing is a toggle, on");
+    activate(model,"filter-hide-family");
+    check(model.visible_games().size()==2 && model.ExportOrganization().filters==std::set<std::string>{"hide-family"},
+          "turning Family sharing off hides the shared game and is saved");
+    check(model.action("triangle"),"filter modal opens again");
+    activate(model,"filter-hide-demos");
+    check(model.visible_games().size()==1 && model.visible_games().front()->id==SteamId(42),"both filters compose");
+    check(model.ExportOrganization().filters==std::set<std::string>{"hide-demos","hide-family"},"both hidden kinds are saved");
+    check(model.action("triangle"),"filter modal opens again");
+    row=find_row(model,"filter-hide-family");
+    check(row!=nullptr && !row->selected && row->value=="Off","Family sharing shows off");
+    activate(model,"filter-hide-family");
+    check(model.visible_games().size()==2 && model.ExportOrganization().filters==std::set<std::string>{"hide-demos"},
+          "turning Family sharing on shows it again");
+}
+
 // Sort and filters offers Refresh library: it asks the controller for Steam's current list and the
 // Library stays on screen. While a refresh runs, the row waits.
 void live_sort_sheet_refreshes_the_library() {
@@ -3356,6 +3397,8 @@ int main() {
     live_store_without_cloud_never_asks_the_cloud();
     live_filters_only_use_available_facts();
     live_demos_filter_defaults_on();
+    live_family_shared_projected();
+    live_family_filter_defaults_on();
     live_sort_sheet_refreshes_the_library();
     continue_playing_more_keeps_the_chosen_sort();
     live_empty_filter_keeps_the_signed_in_account();

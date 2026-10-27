@@ -224,6 +224,7 @@ bool DecodeLicenseList(const std::vector<std::uint8_t>& body, LicenseList* list)
         case 4: if (!IsVarint(entry)) return false; license.minute_limit = AsInt32(entry.value); break;
         case 5: if (!IsVarint(entry)) return false; license.minutes_used = AsInt32(entry.value); break;
         case 7: if (!IsVarint(entry)) return false; license.flags = static_cast<std::uint32_t>(entry.value); break;
+        case 9: if (!IsVarint(entry)) return false; license.license_type = static_cast<std::uint32_t>(entry.value); break;
         case 12: if (!IsVarint(entry)) return false; license.owner_id = static_cast<std::uint32_t>(entry.value); break;
         case 17: if (!IsVarint(entry)) return false; license.access_token = entry.value; break;
         default: break;

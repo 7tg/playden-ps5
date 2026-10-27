@@ -148,6 +148,7 @@ endif()
 add_library(playden_steam_cm STATIC
     "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_client.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/entitled_library.cpp"
+    "${CMAKE_SOURCE_DIR}/src/steam/backend/family_groups.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/cm_app_details.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/cdn_client.cpp"
     "${CMAKE_SOURCE_DIR}/src/steam/backend/download_server_source.cpp"
@@ -303,6 +304,9 @@ function(playden_register_steam_backend_tests)
         add_executable(entitled_library_test "${CMAKE_SOURCE_DIR}/tests/entitled_library_test.cpp")
         target_link_libraries(entitled_library_test PRIVATE playden_steam_cm)
         add_test(NAME entitled_library COMMAND entitled_library_test)
+        add_executable(family_groups_test "${CMAKE_SOURCE_DIR}/tests/family_groups_test.cpp")
+        target_link_libraries(family_groups_test PRIVATE playden_steam_cm)
+        add_test(NAME family_groups COMMAND family_groups_test)
 
         add_executable(library_client_test "${CMAKE_SOURCE_DIR}/tests/library_client_test.cpp")
         target_link_libraries(library_client_test PRIVATE playden_steam_library)
