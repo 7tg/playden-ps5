@@ -3180,18 +3180,23 @@ void live_download_server_picker() {
     servers.phase = "listed";
     servers.servers = {{"akamai.invalid", "Akamai"}, {"fastly.invalid", "Fastly"}, {"cache.invalid", "Network cache", true}};
     model.ApplyLiveDownloadServers(servers);
-    check(find_row(model, "settings-download-server")->value == "Automatic" &&
+    check(find_row(model, "settings-download-server")->value == "Default" &&
               find_row(model, "settings-download-server")->subtitle ==
                   "Uses the server Steam lists first. Choose one if downloads are slow.",
-          "the server row explains Automatic");
+          "the server row explains Default");
     activate(model, "settings-download-server");
     check(model.TakeDownloadServerRequests() == std::vector<DownloadServerRequest>{DownloadServerRequest::List},
           "opening the picker asks the worker for a new list");
     check(find_row(model, "download-server-listing")->title == "Getting the server list…" &&
               model.state().navigation.focus_key == "download-server-auto" &&
               model.view().subtitle == "Applies to downloads that start or resume from now.",
-          "listing keeps Automatic available and explains when the choice applies");
+          "listing keeps Default available and explains when the choice applies");
     model.ApplyLiveDownloadServers(servers);
+    check(model.state().navigation.modals.back().action_keys ==
+                  std::vector<std::string>{"download-server-test", "download-server-auto", "download-server-0",
+                                           "download-server-1", "download-server-2", "cancel"} &&
+              find_row(model, "download-server-auto")->title == "Default",
+          "Test servers comes first, then Default and the listed servers");
     check(find_row(model, "download-server-2")->subtitle == "HTTP", "plain HTTP servers are marked");
     activate(model, "download-server-1");
     check(model.state().navigation.modals.empty() && model.state().download_server == "fastly.invalid" &&
@@ -3252,7 +3257,7 @@ void live_download_server_picker() {
     restarted.ApplyLiveDownloadServers(servers);
     check(find_row(restarted, "settings-download-server")->value == "Akamai" &&
               find_row(restarted, "settings-download-server")->subtitle ==
-                  "Not offered on this network now. Automatic is used.", "a missing stored server falls back visibly");
+                  "Not offered on this network now. Default is used.", "a missing stored server falls back visibly");
     activate(restarted, "settings-download-server");
     (void)restarted.TakeDownloadServerRequests();
     servers.phase = "list-failed";
@@ -3283,7 +3288,7 @@ void live_download_server_picker() {
     check(find_row(restarted, "download-server-test")->enabled, "pausing the download enables measurement");
     activate(restarted, "download-server-auto");
     check(restarted.state().download_server.empty() && restarted.ExportPreferences().download_server.empty(),
-          "Automatic clears the stored choice");
+          "Default clears the stored choice");
 }
 
 void leftover_titles_require_confirmation_and_follow_the_queue() {

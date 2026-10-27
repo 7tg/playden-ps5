@@ -669,7 +669,7 @@ struct State {
     bool cloud_saves_auto = false;    // Cloud saves move before Play, after sessions and at startup (opt-in)
     bool beta_updates = false;
     bool downloads_slow_network = false;  // 8 download pieces at a time instead of 4 (Settings › Storage)
-    std::string download_server;  // empty: Automatic; otherwise the chosen provider's stable identifier
+    std::string download_server;  // empty: Default (Steam's order); otherwise the chosen provider's stable identifier
     bool controller_connected = true;
     ControllerState controller;
     bool persistence_available = true;

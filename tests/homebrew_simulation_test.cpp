@@ -1398,15 +1398,16 @@ void synthetic_download_servers(const std::filesystem::path& fixtures, const std
     const auto press = [&simulation](const std::string& key) {
         check(simulation.action("focus:" + key) && simulation.action("cross"), "synthetic server action exists");
     };
-    check(row("settings-download-server") && row("settings-download-server")->value == "Automatic",
+    check(row("settings-download-server") && row("settings-download-server")->value == "Default",
           "the synthetic scenario shows the Settings row");
     press("settings-download-server");
-    check(row("download-server-4") && !row("download-server-5") && row("download-server-3")->subtitle == "HTTP",
-          "five providers are shown, with HTTP marked");
+    check(row("download-server-6") && !row("download-server-7") && row("download-server-3")->subtitle == "HTTP" &&
+              row("download-server-5")->title == "Steam (Valve) · cache5-fra1",
+          "seven servers are shown, with HTTP and the host of repeated providers marked");
     press("download-server-test");
-    check(row("download-server-test")->title == "Testing Akamai (1 of 5)…", "synthetic test starts with the first provider");
+    check(row("download-server-test")->title == "Testing Akamai (1 of 7)…", "synthetic test starts with the first provider");
     simulation.tick(1);
-    check(row("download-server-test")->title == "Testing Fastly (2 of 5)…" &&
+    check(row("download-server-test")->title == "Testing Fastly (2 of 7)…" &&
               row("download-server-0")->value == "12.4 MB/s", "synthetic progress produces rates");
     simulation.action("circle");
     check(!simulation.state().navigation.modals.empty(), "Circle cancels the synthetic test first");
@@ -1414,7 +1415,7 @@ void synthetic_download_servers(const std::filesystem::path& fixtures, const std
     check(simulation.state().navigation.modals.empty(), "the next Circle closes the picker");
     press("settings-download-server");
     press("download-server-test");
-    simulation.tick(5);
+    simulation.tick(7);
     check(row("download-server-1")->value == "41.2 MB/s" && row("download-server-1")->badge == "Fastest" &&
               row("download-server-3")->value == "Failed" && simulation.state().navigation.focus_key == "download-server-1" &&
               simulation.state().download_server.empty(), "synthetic completion focuses the fastest without choosing it");

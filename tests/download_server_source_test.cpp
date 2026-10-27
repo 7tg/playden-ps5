@@ -35,6 +35,18 @@ void ListingPolicy() {
     assert(servers[0].plain_http == !mixed);
     assert(servers[0].name == (mixed ? "Fastly" : "http.example"));
   }
+  // Servers of one provider are told apart by their host; a lone one keeps the provider name.
+  CdnClient cdn([&](const HttpRequest&, const std::atomic<bool>&) {
+    return Reply(R"({"response":{"servers":[{"type":"CDN","host":"cache5-fra1.steamcontent.com"},)"
+                 R"({"type":"CDN","host":"cache2-ams1.steamcontent.com"},{"type":"CDN","host":"fastly.cdn.steampipe.steamcontent.com"},)"
+                 R"({"type":"CDN","host":"google2.cdn.steampipe.steamcontent.com"},{"type":"CDN","host":"google3.cdn.steampipe.steamcontent.com"}]}})");
+  });
+  CdnDownloadServerSource source(cdn, {});
+  std::vector<DownloadServerView> servers;
+  assert(source.List(cancel, &servers) && servers.size() == 5);
+  assert(servers[0].name == "Steam (Valve) · cache5-fra1" && servers[1].name == "Steam (Valve) · cache2-ams1");
+  assert(servers[2].name == "Fastly");
+  assert(servers[3].name == "Google Cloud · google2" && servers[4].name == "Google Cloud · google3");
 }
 void PayloadAndTransfers(const std::string& fixtures) {
   const auto manifest = Read(fixtures + "/manifest_encrypted_deflated.zip");

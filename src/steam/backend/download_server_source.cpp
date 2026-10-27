@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <mutex>
 #include <thread>
 
@@ -16,6 +17,13 @@ std::string Hex(const std::array<std::uint8_t, 20>& bytes) {
   std::string result;
   for (const auto byte : bytes) { result += "0123456789abcdef"[byte >> 4]; result += "0123456789abcdef"[byte & 15]; }
   return result;
+}
+// The part of a host that tells servers of one provider apart: cache5-fra1 for cache5-fra1.steamcontent.com.
+std::string ShortHost(const std::string& host) {
+  for (const std::string suffix : {".cdn.steampipe.steamcontent.com", ".steamcontent.com"})
+    if (host.size() > suffix.size() && host.compare(host.size() - suffix.size(), suffix.size(), suffix) == 0)
+      return host.substr(0, host.size() - suffix.size());
+  return host;
 }
 }
 
@@ -41,6 +49,11 @@ bool CdnDownloadServerSource::List(const std::atomic<bool>& cancel, std::vector<
   servers_ = std::move(listed);
   out->clear();
   for (const auto& server : servers_) out->push_back({server.host, DisplayName(server.host), !server.https});
+  // Steam often lists several servers of one provider: name each by its host so they can be told apart.
+  std::map<std::string, int> names;
+  for (const auto& view : *out) ++names[view.name];
+  for (auto& view : *out)
+    if (names[view.name] > 1 && view.name != view.id) view.name += " · " + ShortHost(view.id);
   return !out->empty();
 }
 DownloadServerPreparation CdnDownloadServerSource::Prepare(const StoredSession& session, const std::atomic<bool>& cancel) {

@@ -2742,7 +2742,7 @@ void Simulation::refresh_download_servers(const std::string& focus) {
         if (modal.id != "download-server") continue;
         const auto prior = modal.action_keys.empty() ? std::string{} :
             modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
-        modal.action_keys = {"download-server-auto"};
+        modal.action_keys = {"download-server-test", "download-server-auto"};
         for (std::size_t index = 0; index < download_servers_.servers.size(); ++index)
             modal.action_keys.push_back("download-server-" + std::to_string(index));
         if (download_servers_.phase == "listing" || download_servers_.phase == "idle")
@@ -2751,11 +2751,10 @@ void Simulation::refresh_download_servers(const std::string& focus) {
             modal.action_keys.push_back("download-server-list-failed");
             modal.action_keys.push_back("download-server-retry");
         }
-        modal.action_keys.push_back("download-server-test");
         modal.action_keys.push_back("cancel");
         const auto wanted = focus.empty() ? prior : focus;
         const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), wanted);
-        modal.focused_action = found == modal.action_keys.end() ? 0 : static_cast<int>(found - modal.action_keys.begin());
+        modal.focused_action = found == modal.action_keys.end() ? 1 : static_cast<int>(found - modal.action_keys.begin());
         if (&modal == &state_.navigation.modals.back())
             state_.navigation.focus_key = modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
     }
@@ -3529,7 +3528,9 @@ bool Simulation::scenario(const std::string& name) {
             {"fastly.cdn.steampipe.steamcontent.com", "Fastly"},
             {"google2.cdn.steampipe.steamcontent.com", "Google Cloud"},
             {"alibaba.cdn.steampipe.steamcontent.com", "Alibaba Cloud", true},
-            {"edgenext.cdn.steampipe.steamcontent.com", "EdgeNext", true}};
+            {"edgenext.cdn.steampipe.steamcontent.com", "EdgeNext", true},
+            {"cache5-fra1.steamcontent.com", "Steam (Valve) · cache5-fra1"},
+            {"cache2-ams1.steamcontent.com", "Steam (Valve) · cache2-ams1"}};
         download_server_test_requested_ = false;
         download_server_cancel_pending_ = false;
         state_.account().authentication = AuthState::SignedIn;
@@ -4132,7 +4133,7 @@ void Simulation::rebuild_view() {
             item.dangerous = modal.destructive && action_key != "cancel";
             if (modal.id == "download-server") {
                 if (action_key == "download-server-auto") {
-                    item.title = "Automatic";
+                    item.title = "Default";
                     item.selected = state_.download_server.empty();
                 } else if (action_key == "download-server-listing" || action_key == "download-server-list-failed") {
                     item.title = action_key == "download-server-listing" ? "Getting the server list…" : "Could not get the server list.";
@@ -5523,7 +5524,7 @@ void Simulation::rebuild_view() {
                 ? "8 pieces at a time. Turn it off if downloads got slower."
                 : "Off: 4 pieces at a time. Turn it on if downloads stay near 1 MB/s.";
             auto& server = add("settings-download-server", RowKind::Action, "Download server", "download-server-picker");
-            server.value = state_.download_server.empty() ? "Automatic"
+            server.value = state_.download_server.empty() ? "Default"
                 : download_servers_.preferred_name.empty() ? state_.download_server : download_servers_.preferred_name;
             bool offered = false;
             for (const auto& option : download_servers_.servers) if (option.id == state_.download_server) {
@@ -5534,7 +5535,7 @@ void Simulation::rebuild_view() {
                                 download_servers_.phase == "tested" || download_servers_.phase == "test-failed";
             server.subtitle = state_.download_server.empty()
                 ? "Uses the server Steam lists first. Choose one if downloads are slow."
-                : listed && !offered ? "Not offered on this network now. Automatic is used."
+                : listed && !offered ? "Not offered on this network now. Default is used."
                 : "If it stops answering, Playden uses another one.";
         }
         section = "Display";
@@ -8575,8 +8576,8 @@ void Simulation::tick(int ticks) {
                 auto progress = download_servers_;
                 const auto index = progress.testing_index;
                 if (index < progress.servers.size()) {
-                    constexpr double rates[] = {12.4, 41.2, 9.7, 0.0, 2.5};
-                    progress.rates.push_back({progress.servers[index].id, rates[index % 5], index == 3});
+                    constexpr double rates[] = {12.4, 41.2, 9.7, 0.0, 2.5, 18.3, 6.1};
+                    progress.rates.push_back({progress.servers[index].id, rates[index % 7], index == 3});
                     if (index + 1 < progress.servers.size()) ++progress.testing_index;
                     else progress.phase = "tested";
                 }
