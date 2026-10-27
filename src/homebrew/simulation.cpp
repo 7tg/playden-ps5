@@ -516,7 +516,7 @@ std::string action_label(const std::string& key) {
         {"kit-install", "Download"}, {"kit-cancel", "Cancel download"},
         {"self-update-back-confirm", "Go back"}, {"release-notes-ok", "OK"},
         {"about-build", "Build"},
-        {"about-kit", "Runtime kit"}, {"about-kit-source", "Kit built from"},
+        {"about-kit", "Runtime kit in use"}, {"about-kit-source", "Kit built from"},
         {"about-back", "Back"}, {"inject-library-refresh", "Refresh library fixture"},
         {"inject-startup-loading", "Show startup loading"}};
     if (const auto found = labels.find(key); found != labels.end()) return found->second;
@@ -4696,19 +4696,18 @@ void Simulation::rebuild_view() {
             else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + version_label(state_.self_update.current) : "Simulated"; item.enabled = false; }
             else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? build_label(state_.self_update.current, state_.self_update.commit) : "UI comparison fixture"; item.enabled = false; }
             else if (action_key == "about-kit" || action_key == "about-kit-source") {
-                // The kit in use, and the one this build was tested with when they differ.
+                // The kit in use, and the one this version of Playden expects when they differ.
                 LiveKitInfo kit = state_.kit;
-                if (!live()) kit = {"playden-kit", std::string(64, 'b'), std::string(64, 'b'), std::string(40, '2'), false, {}};
+                if (!live()) kit = {"playden-kit", std::string(64, 'b'), std::string(64, 'b'), std::string(40, '2'), false, {}, "0.13"};
                 const auto short_hash = [](const std::string& hash) { return hash.substr(0, 10); };
                 item.kind = RowKind::Status; item.enabled = false;
                 if (kit.kit_id.empty()) {
                     item.value = action_key == "about-kit" ? "None" : "—";
                     if (action_key == "about-kit") item.subtitle = kit.unavailable_reason.empty() ? "Checking" : kit.unavailable_reason;
                 } else if (action_key == "about-kit") {
-                    item.value = kit.kit_id + " · " + short_hash(kit.manifest_sha256);
-                    item.subtitle = kit.manifest_sha256 == kit.expected_manifest_sha256
-                        ? "The kit this version of Playden was tested with"
-                        : "Not the kit this version was tested with (" + short_hash(kit.expected_manifest_sha256) + ")";
+                    item.value = kit.kit_id + (kit.version.empty() ? "" : " " + kit.version) + " · " + short_hash(kit.manifest_sha256);
+                    if (kit.manifest_sha256 != kit.expected_manifest_sha256)
+                        item.subtitle = "This version of Playden expects " + short_hash(kit.expected_manifest_sha256);
                 } else {
                     item.value = "prospero-win " + kit.prospero_win_revision.substr(0, 7);
                     if (kit.source_dirty) item.subtitle = "Includes uncommitted changes";

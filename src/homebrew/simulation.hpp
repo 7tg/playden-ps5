@@ -118,6 +118,7 @@ struct LiveKitInfo {
     std::string prospero_win_revision;     // what the kit's PS5 titles were built from
     bool source_dirty = false;             // built from uncommitted changes
     std::string unavailable_reason;        // why no kit is in use
+    std::string version;                   // "0.13", from its runtime's artifact name; empty for older kits
 };
 // Live: Playden's own update (update/update_service.h), projected for Settings, Downloads and prompts.
 struct LiveSelfUpdate {

@@ -162,9 +162,11 @@ int main(int argc,char** argv) {
       while(!updating.state().navigation.modals.empty()) assert(updating.action("circle"));
       fresh.current="0.8.0-nightly.20261027.2"; fresh.commit="e7a30f21e8";
       updating.UpdateSelfUpdate(fresh);
-      updating.SetKitInfo({"playden-kit",std::string(64,'d'),std::string(64,'e'),std::string(40,'f'),true,{}});
+      updating.SetKitInfo({"playden-kit",std::string(64,'d'),std::string(64,'e'),std::string(40,'f'),true,{},"0.13-dev.20261024.3"});
       assert(updating.action("focus:settings-about") && updating.action("cross"));
       assert(updating.view().surface=="about" && updating.view().rows.size()==5);
+      assert(updating.view().rows[2].value=="playden-kit 0.13-dev.20261024.3 · dddddddddd" &&
+             updating.view().rows[2].subtitle=="This version of Playden expects eeeeeeeeee");
       assert(updating.action("down") && updating.action("down") && updating.action("down"));
       assert(updating.view().rows[static_cast<std::size_t>(updating.view().focused_row)].key=="about-kit-source");
       capture_update("about.png");

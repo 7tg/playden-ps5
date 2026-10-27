@@ -698,9 +698,9 @@ void t11_preferences_failure_and_controller_modal_recovery(const std::filesystem
     {
         const auto& rows = restored.view().rows;
         const auto kit = std::find_if(rows.begin(), rows.end(), [](const auto& row) { return row.key == "about-kit"; });
-        check(kit != rows.end() && kit->value.rfind("playden-kit · ", 0) == 0 &&
-                  kit->subtitle == "The kit this version of Playden was tested with",
-              "T11 About names the runtime kit and whether it is the tested one");
+        check(kit != rows.end() && kit->title == "Runtime kit in use" && kit->value.rfind("playden-kit 0.13 · ", 0) == 0 &&
+                  kit->subtitle.empty(),
+              "T11 About names the runtime kit in use, with no note when it is the one Playden expects");
     }
 }
 

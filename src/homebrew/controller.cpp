@@ -1444,9 +1444,13 @@ void Controller::TickRuntime() {
   model_.UpdateRuntime(state, games);
   model_.SetRuntimeLeftovers(snapshot.leftover_requests);
   LiveKitInfo kit;
-  if (snapshot.kit)
+  if (snapshot.kit) {
     kit = {snapshot.kit->view.kit_id, snapshot.kit->manifest_sha256, snapshot.kit->expected_manifest_sha256,
-           snapshot.kit->prospero_win_revision, snapshot.kit->source_dirty, {}};
+           snapshot.kit->prospero_win_revision, snapshot.kit->source_dirty, {}, {}};
+    // The artifact is "<wine revision>-kit-<version>"; kits before 0.10 name no version.
+    const auto& artifact = snapshot.kit->view.runtime.artifact_revision;
+    if (update::KitVersionFromArtifact(artifact)) kit.version = artifact.substr(artifact.find("-kit-") + 5);
+  }
   else
     kit.unavailable_reason = snapshot.status == RuntimeHostStatus::kReady ? snapshot.kit_reason : std::string{};
   model_.SetKitInfo(std::move(kit));
