@@ -123,6 +123,7 @@ struct LiveKitInfo {
 struct LiveSelfUpdate {
     std::string phase = "idle";  // idle, checking, up-to-date, available, downloading, unpacking, staged, failed
     std::string current;         // "0.2.0"
+    std::string commit;          // the commit this build was made from, when known
     std::string available;       // the newer version, when known
     std::string notes;
     std::string part;            // "kit" or "app" while downloading or unpacking

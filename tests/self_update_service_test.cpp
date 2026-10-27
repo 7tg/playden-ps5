@@ -257,6 +257,34 @@ int main() {
     local.Check(true); Wait(local);
     CHECK(local.Snapshot().phase == UpdatePhase::kFailed);
   }
+  // A nightly build is offered its version's stable release, and its betas when they are opted in; its
+  // notes link to the page that lists the nightlies.
+  {
+    Fixture fixture;
+    fixture.root = zip_fixture::TempFolder("nightly-track");
+    Installed(fixture.root);
+    Publish(fixture.server, "v0.7.0", "0.7.0", "00.007.000");
+    auto config = fixture.Config(*ParseVersion("0.7.1-nightly.20261027.1"));
+    config.nightly_page = "https://builds.example/";
+    UpdateService before(config);
+    before.Start();
+    before.Check(true); Wait(before);
+    CHECK(before.Snapshot().phase == UpdatePhase::kUpToDate);  // an older release is no update
+    CHECK(before.Snapshot().current_notes_url == "https://builds.example/");
+    Publish(fixture.server, "v0.7.1-beta.1", "0.7.0", "00.007.001");
+    auto beta = fixture.server.latest;
+    beta.replace(beta.find("\"prerelease\":false"), 18, "\"prerelease\":true");
+    fixture.server.releases = "[" + beta + "]";
+    config.include_betas = true;
+    UpdateService betas(config);
+    betas.Check(true); Wait(betas);
+    CHECK(betas.Snapshot().phase == UpdatePhase::kAvailable && betas.Snapshot().available.ToString() == "0.7.1-beta.1");
+    Publish(fixture.server, "v0.7.1", "0.7.0", "00.007.001");
+    config.include_betas = false;
+    UpdateService stable(config);
+    stable.Check(true); Wait(stable);
+    CHECK(stable.Snapshot().phase == UpdatePhase::kAvailable && stable.Snapshot().available.ToString() == "0.7.1");
+  }
   // Opting out during a download and cancelling must not leave a beta installable.
   {
     Fixture fixture;

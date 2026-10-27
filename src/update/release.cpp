@@ -109,8 +109,9 @@ std::optional<Release> ReleaseFrom(const Json* doc, std::string* error) {
   Release release;
   const auto* tag = Text(*doc, "tag_name");
   const auto version = tag ? ParseVersion(*tag) : std::nullopt;
-  if (!version) {
-    if (error) *error = "release tag is not a version";
+  // Nightly builds are published elsewhere and are never offered as updates.
+  if (!version || version->nightly()) {
+    if (error) *error = "release tag is not a release version";
     return std::nullopt;
   }
   release.tag = *tag;
@@ -208,6 +209,7 @@ std::optional<UpdateManifest> ParseUpdateManifest(std::string_view json, std::st
       !app_prefix)
     return refuse("update manifest app part is incomplete");
   manifest.app_version = *ParseVersion(*version);
+  if (manifest.app_version.nightly()) return refuse("update manifest names a nightly build");
   manifest.min_from = *ParseVersion(*min_from);
   manifest.title_id = *title;
   manifest.app_asset = *app_asset;

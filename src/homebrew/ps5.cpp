@@ -395,6 +395,7 @@ int main() {
         playden::update::UpdateConfig update_config;
         update_config.latest_release_url = "https://api.github.com/repos/leolobato/playden-ps5/releases/latest";
         update_config.releases_page = "https://github.com/leolobato/playden-ps5/releases";
+        update_config.nightly_page = "https://builds.playden.club/";
         update_config.title_id = PLAYDEN_PS5_TITLE_ID;
         update_config.installed_root = std::string("/data/homebrew/") + PLAYDEN_PS5_TITLE_ID;
         update_config.work_root = "/data/playden/self-update";

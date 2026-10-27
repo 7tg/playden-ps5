@@ -161,7 +161,8 @@ void UpdateService::LoadCurrentNotes() {
       }
     }
   }
-  if (url.empty()) url = PageFor("v" + config_.current.ToString());
+  // A nightly has no release page: its notes are on the page that lists the nightly builds.
+  if (url.empty()) url = config_.current.nightly() ? config_.nightly_page : PageFor("v" + config_.current.ToString());
   Set([&](UpdateSnapshot& s) {
     s.current_notes = notes;
     s.current_notes_url = url;

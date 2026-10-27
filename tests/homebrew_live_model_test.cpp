@@ -827,6 +827,22 @@ void live_self_update(const std::filesystem::path& base) {
           find_row(model, "settings-beta-wait")->subtitle ==
               "Playden moves to the next stable version when it is out.",
           "opting out on a beta explains waiting for stable");
+    // Settings › About names a nightly as such, with its build number and commit.
+    update.current = "0.8.0-nightly.20261027.2";
+    update.commit = "d94c0b384d";
+    model.UpdateSelfUpdate(update);
+    activate(model, "settings-about");
+    check(find_row(model, "about-version") && find_row(model, "about-version")->value == "Playden 0.8.0 (Nightly)",
+          "about: a nightly's version");
+    check(find_row(model, "about-build") && find_row(model, "about-build")->value == "Nightly 20261027.2 · d94c0b384d",
+          "about: a nightly's build and commit");
+    update.current = "0.7.1-beta.1";
+    model.UpdateSelfUpdate(update);
+    check(find_row(model, "about-version")->value == "Playden 0.7.1-beta.1 (Beta)" &&
+              find_row(model, "about-build")->value == "d94c0b384d",
+          "about: a beta's version and commit");
+    model.action("circle");
+    update.commit.clear();
     update.current = "0.2.0";
     model.UpdateSelfUpdate(update);
     check(find_row(model, "settings-update") && find_row(model, "settings-update")->value == "Check now",

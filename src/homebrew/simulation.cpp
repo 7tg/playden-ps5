@@ -100,6 +100,21 @@ GameId steam_value(const json::Value* value) {
 }
 
 // The profile file names games by Steam app ID (0: none).
+// A version as players read it: "0.7.1-beta.1 (Beta)", and a nightly as "0.8.0 (Nightly)" (About names the build).
+std::string version_label(const std::string& version) {
+    if (const auto nightly = version.find("-nightly."); nightly != std::string::npos)
+        return version.substr(0, nightly) + " (Nightly)";
+    return version + (version.find("-beta.") != std::string::npos ? " (Beta)" : "");
+}
+
+// "Nightly 20261027.2 · d94c0b384d" for a nightly, the commit for any other build.
+std::string build_label(const std::string& version, const std::string& commit) {
+    const auto nightly = version.find("-nightly.");
+    std::string label = nightly == std::string::npos ? std::string() : "Nightly " + version.substr(nightly + 9);
+    if (!commit.empty()) label += (label.empty() ? "" : " · ") + commit;
+    return label.empty() ? "Unknown" : label;
+}
+
 std::string app_text(const GameId& id) { return std::to_string(id.steam_app().value_or(0)); }
 
 // The game a row key or action names; invalid (selects nothing) unless it is a canonical key.
@@ -1815,7 +1830,7 @@ void Simulation::show_update_prompt() {
                       size + "You can sign in and keep using Playden while it downloads.";
         open_modal(std::move(prompt));
     } else if (pending_update_prompt_ == "available" && update.phase == "available") {
-        ModalEntry prompt{"confirmation", "Playden " + update.available + (update.available.find("-beta.") != std::string::npos ? " (Beta)" : "") + " is available", state_.navigation.focus_key,
+        ModalEntry prompt{"confirmation", "Playden " + version_label(update.available) + " is available", state_.navigation.focus_key,
                           {"self-update-install", "ready-later"}, 0, false};
         prompt.body = (update.notes.empty() ? std::string() : update.notes + "\n\n") + "The download is " +
                       format_bytes(update.download_bytes) +
@@ -1903,8 +1918,7 @@ void Simulation::close_game_modals() {
 void Simulation::open_release_notes(bool after_update) {
     const auto& update = state_.self_update;
     ModalEntry notes{"confirmation",
-                     (after_update ? "What's new in Playden " : "Playden ") + update.current +
-                         (update.current.find("-beta.") != std::string::npos ? " (Beta)" : "") +
+                     (after_update ? "What's new in Playden " : "Playden ") + version_label(update.current) +
                          (after_update ? std::string() : std::string(" release notes")),
                      state_.navigation.focus_key, {"release-notes-ok"}, 0, false};
     notes.body = (after_update ? "Playden was updated to " + update.current + ".\n\n" : std::string()) +
@@ -4679,9 +4693,8 @@ void Simulation::rebuild_view() {
             else if (action_key == "account-auth") { item.kind = RowKind::Status; item.value = auth_name(state_.account().authentication); item.subtitle = state_.account().error; item.enabled = false; }
             else if (action_key == "account-last-sync") { item.kind = RowKind::Status; item.value = state_.account().last_sync == 0 ? "Never" : std::to_string(state_.account().last_sync); item.enabled = false; }
             else if (action_key.rfind("open-game:", 0) == 0) item.title = "Open game";
-            else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + state_.self_update.current +
-                (state_.self_update.current.find("-beta.") != std::string::npos ? " (Beta)" : "") : "Simulated"; item.enabled = false; }
-            else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? "Live service model" : "UI comparison fixture"; item.enabled = false; }
+            else if (action_key == "about-version") { item.kind = RowKind::Status; item.value = live() ? "Playden " + version_label(state_.self_update.current) : "Simulated"; item.enabled = false; }
+            else if (action_key == "about-build") { item.kind = RowKind::Status; item.value = live() ? build_label(state_.self_update.current, state_.self_update.commit) : "UI comparison fixture"; item.enabled = false; }
             else if (action_key == "about-framework") { item.kind = RowKind::Status; item.value = "Homebrew native model + Hui"; item.enabled = false; }
             else if (action_key == "about-platform") { item.kind = RowKind::Status; item.value = "Host / PS5 homebrew"; item.enabled = false; }
             else if (action_key == "about-kit" || action_key == "about-kit-source") {
@@ -5587,7 +5600,7 @@ void Simulation::rebuild_view() {
         }
         if (live() && !state_.self_update.current_notes_url.empty()) {
             auto& notes = add("settings-release-notes", RowKind::Action, "Release notes", "self-update-notes");
-            notes.subtitle = "What changed in Playden " + state_.self_update.current;
+            notes.subtitle = "What changed in Playden " + version_label(state_.self_update.current);
         }
         section = "About";
         add("settings-about", RowKind::Action, "About", "about").subtitle = "Playden for PlayStation 5";

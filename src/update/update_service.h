@@ -21,6 +21,7 @@ namespace playden::update {
 struct UpdateConfig {
   std::string latest_release_url;               // https://api.github.com/repos/<owner>/<repo>/releases/latest
   std::string releases_page;                    // https://github.com/<owner>/<repo>/releases (release notes links)
+  std::string nightly_page;                     // where nightly builds and their notes are listed
   std::string title_id = "FAKE77031";
   std::string installed_root;                   // /data/homebrew/FAKE77031
   std::string work_root;                        // /data/playden/self-update

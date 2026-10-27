@@ -38,6 +38,7 @@ int main() {
   CHECK(!release->Find("broken"));
   CHECK(ParseRelease(R"({"tag_name":"v0.3.0","prerelease":true,"assets":[]})", &error)->prerelease);
   CHECK(!ParseRelease(R"({"tag_name":"nightly","assets":[]})", &error));
+  CHECK(!ParseRelease(R"({"tag_name":"v0.8.0-nightly.20261027.1","assets":[]})", &error));  // never a release
   CHECK(!ParseRelease(R"({"tag_name":"v0.3.0"})", &error));
   CHECK(!ParseRelease("[]", &error));
   CHECK(!ParseRelease("not json", &error));
@@ -67,6 +68,11 @@ int main() {
 
   // Unsafe or incomplete manifests are refused.
   CHECK(!ParseUpdateManifest(R"({"format":2})", &error));
+  {
+    std::string nightly = Manifest();
+    nightly.replace(nightly.find(R"("version":"0.3.0")"), 17, R"("version":"0.3.0-nightly.20261027.1")");
+    CHECK(!ParseUpdateManifest(nightly, &error));
+  }
   std::string text = Manifest();
   CHECK(!ParseUpdateManifest(text.replace(text.find("\"format\":1"), 10, "\"format\":2"), &error));
   const char* bad_apps[] = {
