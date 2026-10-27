@@ -354,6 +354,39 @@ int main() {
     CHECK(service.Snapshot().kit.phase == KitInstallPhase::kNotNeeded && test.fixture.server.requests == requests);
     service.Shutdown();
   }
+  // A nightly has no release of its own: the newest release before it provides the kit when it names the same
+  // kit, and a newer release (its version's stable) is never used.
+  {
+    KitOnly test("kit-nightly", "");
+    Publish(test.fixture.server, "v0.3.0");
+    const auto older = test.fixture.server.latest;
+    test.fixture.server.releases = "[{\"tag_name\":\"v0.4.0\",\"assets\":[]}," + older + "]";
+    auto config = test.Config();
+    config.current = *ParseVersion("0.4.0-nightly.20261027.1");
+    UpdateService service(config);
+    service.Start();
+    service.CheckKit();
+    Wait(service);
+    auto kit = service.Snapshot().kit;
+    CHECK(kit.phase == KitInstallPhase::kAvailable && kit.version == "0.3.0");
+    service.InstallKit();
+    Wait(service);
+    CHECK(service.Snapshot().kit.phase == KitInstallPhase::kInstalled);
+    service.Shutdown();
+    // One naming another kit is not used.
+    KitOnly other("kit-nightly-other", "");
+    Publish(other.fixture.server, "v0.3.0");
+    other.fixture.server.releases = "[" + other.fixture.server.latest + "]";
+    auto other_config = other.Config();
+    other_config.current = *ParseVersion("0.4.0-nightly.20261027.1");
+    other_config.kit_manifest_sha256 = std::string(64, 'd');
+    UpdateService refused(other_config);
+    refused.Start();
+    refused.CheckKit();
+    Wait(refused);
+    CHECK(refused.Snapshot().kit.phase == KitInstallPhase::kUnavailable);
+    refused.Shutdown();
+  }
   // Another kit is installed: the right one replaces it, and the old one is left as a ".replaced-" leftover.
   {
     KitOnly test("kit-replace", std::string(64, 'b'));

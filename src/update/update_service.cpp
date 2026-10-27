@@ -865,9 +865,16 @@ void UpdateService::DoCheckKit() {
   std::string error;
   const auto releases = FetchReleases(&error);
   if (!releases) return FailKit("Playden could not reach GitHub to download its runtime kit.", error);
+  // The running version's release names its kit. A nightly has no release: the newest release before it
+  // stands in, and is used only if it names the same kit (checked below).
   const Release* own = nullptr;
-  for (const auto& release : *releases)
-    if (!release.draft && release.version == config_.current) own = &release;
+  for (const auto& release : *releases) {
+    if (release.draft) continue;
+    if (release.version == config_.current) own = &release;
+    else if (config_.current.nightly() && release.version < config_.current &&
+             (!own || (own->version != config_.current && own->version < release.version)))
+      own = &release;
+  }
   if (!own) return unavailable("no release has version " + config_.current.ToString());
   const auto* manifest_asset = own->Find(kUpdateManifestAsset);
   if (!manifest_asset) return unavailable("release " + own->tag + " has no update information");

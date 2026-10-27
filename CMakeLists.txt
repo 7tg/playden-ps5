@@ -5,7 +5,7 @@ set(PLAYDEN_PRERELEASE "" CACHE STRING "Pre-release suffix: empty, beta.N (1-999
 set(PLAYDEN_FULL_VERSION "${PROJECT_VERSION}")
 if(NOT PLAYDEN_PRERELEASE STREQUAL "")
     if(NOT PLAYDEN_PRERELEASE MATCHES "^beta\\.[1-9][0-9]?[0-9]?[0-9]?[0-9]?[0-9]?$" AND
-       NOT PLAYDEN_PRERELEASE MATCHES "^nightly\\.20[0-9][0-9][01][0-9][0-3][0-9]\\.[1-9][0-9]?[0-9]?$")
+       NOT PLAYDEN_PRERELEASE MATCHES "^nightly\\.20[0-9][0-9](0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])\\.[1-9][0-9]?[0-9]?$")
         message(FATAL_ERROR "PLAYDEN_PRERELEASE must be empty, beta.N (1-999999) or nightly.YYYYMMDD.N (1-999)")
     endif()
     string(APPEND PLAYDEN_FULL_VERSION "-${PLAYDEN_PRERELEASE}")
@@ -20,11 +20,20 @@ if(GIT_FOUND)
     if(NOT playden_git_result EQUAL 0 OR NOT PLAYDEN_BUILD_COMMIT MATCHES "^[0-9a-f]+$")
         set(PLAYDEN_BUILD_COMMIT "")
     endif()
-    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --path-format=absolute --git-path logs/HEAD
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE playden_head_log OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-    if(playden_head_log AND EXISTS "${playden_head_log}")
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${playden_head_log}")
+    # HEAD names the branch; the branch's ref (loose or packed) and HEAD's reflog change with each commit.
+    execute_process(COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE playden_head_ref OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    set(playden_git_paths HEAD logs/HEAD packed-refs)
+    if(playden_head_ref)
+        list(APPEND playden_git_paths "${playden_head_ref}")
     endif()
+    foreach(playden_git_path IN LISTS playden_git_paths)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --path-format=absolute --git-path "${playden_git_path}"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE playden_git_file OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        if(playden_git_file AND EXISTS "${playden_git_file}")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${playden_git_file}")
+        endif()
+    endforeach()
 endif()
 
 option(PLAYDEN_UI_SIMULATION "Package selected PS5 UI with developer simulation fixtures" OFF)
