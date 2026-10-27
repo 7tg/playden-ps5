@@ -876,6 +876,99 @@ void InstallsMergedDepotsAndWritesRecord(const std::filesystem::path& root) {
   CHECK(Read(root / DepotInstaller::kInstallRecord).rfind("{\"version\":1,\"app_id\":440,\"install_bytes\":", 0) == 0);
 }
 
+// A file and an empty folder of the same name in different depots keep the file, in either order; a folder
+// with something inside it still conflicts.
+void FileReplacesEmptyFolderFromOtherDepot(const std::filesystem::path& base) {
+  ManifestFile folder;
+  folder.path = "master.dat";
+  folder.flags = kDepotFileFlagDirectory;
+  for (const bool folder_first : {true, false}) {
+    const auto root = base / (folder_first ? "folder-first" : "file-first");
+    auto world = MakeWorld();
+    const auto file = world.AddFile("MASTER.DAT", {"game-data"});
+    world.manifests[441].files.push_back(folder_first ? folder : file);
+    world.manifests[442].files.push_back(folder_first ? file : folder);
+    std::vector<std::string> merges;
+    auto hooks = world.Hooks();
+    hooks.merge = [&](const char* result, const std::string& detail) { merges.push_back(std::string(result) + " " + detail); };
+    DepotInstaller installer(std::move(hooks));
+    std::atomic<bool> cancel{false};
+    const auto outcome = installer.Run({}, Target(root), cancel);
+    CHECK(outcome.error == InstallError::kNone);
+    CHECK(std::filesystem::is_regular_file(root / "MASTER.DAT") && Read(root / "MASTER.DAT") == "game-data");
+    const std::string folder_entry = "depot=" + std::string(folder_first ? "441" : "442") + " folder path=master.dat";
+    const std::string file_entry = "depot=" + std::string(folder_first ? "442" : "441") + " file size=9 path=MASTER.DAT";
+    CHECK(merges.size() == 1 && merges[0] == "file-over-folder " + (folder_first ? folder_entry + " | " + file_entry
+                                                                                   : file_entry + " | " + folder_entry));
+  }
+  auto world = MakeWorld();
+  world.manifests[441].files.push_back(folder);
+  world.manifests[441].files.push_back(world.AddFile("master.dat/inner.txt", {"inner"}));
+  world.manifests[442].files.push_back(world.AddFile("master.dat", {"game-data"}));
+  std::vector<std::string> merges;
+  auto hooks = world.Hooks();
+  hooks.merge = [&](const char* result, const std::string& detail) { merges.push_back(std::string(result) + " " + detail); };
+  DepotInstaller installer(std::move(hooks));
+  std::atomic<bool> cancel{false};
+  const auto outcome = installer.Run({}, Target(base / "folder-with-files"), cancel);
+  CHECK(outcome.error == InstallError::kCorrupt && outcome.detail == "conflicting depots master.dat");
+  CHECK(merges.size() == 2 && merges[1] == "folder-not-empty depot=442 file size=9 path=master.dat | "
+                                           "depot=441 file size=5 path=master.dat/inner.txt");
+  CHECK(world.chunk_calls == 0);
+
+  // Many clashes log the first lines and then a count.
+  auto many = MakeWorld();
+  for (int index = 0; index < 20; ++index) {
+    ManifestFile empty_folder;
+    empty_folder.path = "folder" + std::to_string(index);
+    empty_folder.flags = kDepotFileFlagDirectory;
+    many.manifests[441].files.push_back(empty_folder);
+    many.manifests[442].files.push_back(many.AddFile(empty_folder.path, {"x"}));
+  }
+  std::vector<std::string> many_merges;
+  auto many_hooks = many.Hooks();
+  many_hooks.merge = [&](const char* result, const std::string& detail) { many_merges.push_back(std::string(result) + " " + detail); };
+  DepotInstaller many_installer(std::move(many_hooks));
+  CHECK(many_installer.Run({}, Target(base / "many-clashes"), cancel).error == InstallError::kNone);
+  CHECK(many_merges.size() == DepotInstaller::kMergeLogLimit + 1 && many_merges.back() == "more lines=20 logged=16");
+
+  // A link does not take a folder's place.
+  auto linked = MakeWorld();
+  linked.manifests[441].files.push_back(folder);
+  ManifestFile link;
+  link.path = "master.dat";
+  link.link_target = "game.exe";
+  linked.manifests[442].files.push_back(link);
+  DepotInstaller link_installer(linked.Hooks());
+  const auto link_outcome = link_installer.Run({}, Target(base / "link-over-folder"), cancel);
+  CHECK(link_outcome.error == InstallError::kCorrupt && link_outcome.detail == "conflicting depots master.dat");
+
+  // An empty folder an earlier install left on disk makes way for the file; one with files in it does not.
+  for (const bool occupied : {false, true}) {
+    const auto root = base / (occupied ? "leftover-occupied" : "leftover-empty");
+    std::filesystem::create_directories(root / "master.dat");
+    if (occupied) std::ofstream(root / "master.dat" / "save.txt") << "kept";
+    auto leftover = MakeWorld();
+    leftover.manifests[441].files.push_back(folder);
+    leftover.manifests[442].files.push_back(leftover.AddFile("master.dat", {"game-data"}));
+    std::vector<std::string> leftover_merges;
+    auto leftover_hooks = leftover.Hooks();
+    leftover_hooks.merge = [&](const char* result, const std::string& detail) {
+      leftover_merges.push_back(std::string(result) + " " + detail);
+    };
+    DepotInstaller leftover_installer(std::move(leftover_hooks));
+    const auto leftover_outcome = leftover_installer.Run({}, Target(root), cancel);
+    CHECK(leftover_merges.size() == 2 && leftover_merges[1].rfind(occupied ? "disk-folder-kept path=master.dat errno="
+                                                                           : "disk-folder-removed path=master.dat", 0) == 0);
+    if (occupied) {
+      CHECK(leftover_outcome.error == InstallError::kStorage && leftover_outcome.detail == "cannot replace folder master.dat");
+      CHECK(Read(root / "master.dat" / "save.txt") == "kept");
+    } else {
+      CHECK(leftover_outcome.error == InstallError::kNone && Read(root / "master.dat") == "game-data");
+    }
+  }
+}
+
 // Another store's game: app_id holds its runtime number and the record names the game.
 void LocalRecordNamesItsGame(const std::filesystem::path& root) {
   auto world = MakeWorld();
@@ -1249,6 +1342,7 @@ int main() {
   RunStats(base / "stats");
   InstallsMergedDepotsAndWritesRecord(base / "install");
   LocalRecordNamesItsGame(base / "install-local");
+  FileReplacesEmptyFolderFromOtherDepot(base / "file-over-folder");
   ResumesWithoutRefetchingFinishedChunks(base / "resume");
   ChangedManifestRefetchesSameOffset(base / "manifest-update");
   JournalHeaderModes(base / "header-modes");

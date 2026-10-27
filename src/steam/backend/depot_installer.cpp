@@ -436,19 +436,68 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   stats.manifests_ms = Milliseconds(Clock::now() - phase_start);
   phase_start = Clock::now();
   trace("merge");
-  // Later depots replace the same path from earlier ones; identical copies stay with the first.
+  // Later depots replace the same path from earlier ones; identical copies stay with the first. A file and a
+  // folder of the same name keep the file, as Steam does (Fallout 2's base depot has an empty master.dat
+  // folder that its language depot fills with the real master.dat), unless something lands inside the folder.
+  // A link is not a file here: it never displaces a folder. Every such clash is logged with both entries.
+  const auto entry = [&manifests](std::size_t depot, const ManifestFile& file) {
+    std::string text = "depot=" + std::to_string(manifests[depot].depot_id) + " ";
+    if (file.is_directory()) text += "folder";
+    else if (file.is_symlink()) text += "link";
+    else text += "file size=" + std::to_string(file.size);
+    return text + " path=" + file.path;
+  };
+  std::size_t merge_lines = 0;
+  const auto log_merge = [&](const char* result, const std::string& detail) {
+    if (hooks_.merge && ++merge_lines <= kMergeLogLimit) hooks_.merge(result, detail);
+  };
   std::map<std::string, Placement> placements;
+  struct FileOverFolder { std::string key, folder; };
+  std::vector<FileOverFolder> files_over_folders;
   for (std::size_t depot = 0; depot < manifests.size(); ++depot) {
     for (const auto& file : manifests[depot].files) {
       const auto key = Lower(file.path);
       const auto found = placements.find(key);
       if (found != placements.end()) {
         if (SameFile(*found->second.file, file)) continue;
-        if (found->second.file->is_directory() != file.is_directory()) return fail(InstallError::kCorrupt, "conflicting depots");
+        if (found->second.file->is_directory() != file.is_directory()) {
+          const auto& folder = file.is_directory() ? file : *found->second.file;
+          const auto& other = file.is_directory() ? *found->second.file : file;
+          const auto detail = entry(found->second.depot, *found->second.file) + " | " + entry(depot, file);
+          if (other.is_symlink()) {
+            log_merge("link-over-folder", detail);
+            return fail(InstallError::kCorrupt, ("conflicting depots " + file.path).c_str());
+          }
+          log_merge("file-over-folder", detail);
+          files_over_folders.push_back({key, folder.path});
+          if (file.is_directory()) continue;
+        }
       }
       placements[key] = {depot, &file};
     }
   }
+  for (const auto& [key, folder] : files_over_folders) {
+    const auto& winner = placements.at(key);
+    const auto inside = placements.lower_bound(key + "/");
+    if (inside != placements.end() && inside->first.compare(0, key.size() + 1, key + "/") == 0) {
+      log_merge("folder-not-empty", entry(winner.depot, *winner.file) + " | " +
+                                        entry(inside->second.depot, *inside->second.file));
+      return fail(InstallError::kCorrupt, ("conflicting depots " + winner.file->path).c_str());
+    }
+    // An earlier install may have left the folder on disk; an empty one makes way for the file.
+    for (const auto& path : {folder, winner.file->path}) {
+      const std::string full = target.install_root + "/" + path;
+      struct stat info{};
+      if (lstat(full.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) continue;
+      if (rmdir(full.c_str()) != 0) {
+        log_merge("disk-folder-kept", "path=" + path + " errno=" + std::to_string(errno));
+        return fail(InstallError::kStorage, ("cannot replace folder " + path).c_str());
+      }
+      log_merge("disk-folder-removed", "path=" + path);
+    }
+  }
+  if (merge_lines > kMergeLogLimit && hooks_.merge)
+    hooks_.merge("more", "lines=" + std::to_string(merge_lines) + " logged=" + std::to_string(kMergeLogLimit));
 
   InstallProgress progress;
   for (const auto& [key, placement] : placements) {

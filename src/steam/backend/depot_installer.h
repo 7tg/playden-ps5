@@ -109,6 +109,9 @@ struct InstallerHooks {
   std::function<void(const std::vector<ContentServer>&, const char* preference)> server_list;
   // Optional: step markers for diagnosing native failures (no identifiers).
   std::function<void(const char* step)> trace;
+  // Optional: how the merge settled a file and a folder of the same name in different depots (the result,
+  // then both entries: depot, kind, size and path). At most DepotInstaller::kMergeLogLimit lines, then a count.
+  std::function<void(const char* result, const std::string& detail)> merge;
   // Optional: waits between attempts at a chunk the CDN refused (a busy server answers 503 for a
   // while); returns early when canceled. Without it attempts follow each other at once.
   std::function<void(int milliseconds, const std::atomic<bool>&)> pause;
@@ -130,6 +133,7 @@ class DepotInstaller {
   static constexpr const char* kInstallRecord = ".playden-install.json";
   static constexpr const char* kFileList = ".playden-files";
   static constexpr int kChunkAttempts = 3;
+  static constexpr std::size_t kMergeLogLimit = 16;
 
  private:
   InstallerHooks hooks_;
@@ -139,6 +143,7 @@ class DepotInstaller {
     hooks_.server_list = std::move(listed);
   }
   void SetTrace(std::function<void(const char*)> trace) { hooks_.trace = std::move(trace); }
+  void SetMerge(std::function<void(const char*, const std::string&)> merge) { hooks_.merge = std::move(merge); }
   void SetTuning(DownloadTuning tuning) { tuning_ = tuning; }
  private:
   DownloadTuning tuning_;
