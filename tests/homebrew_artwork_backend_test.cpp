@@ -1,5 +1,6 @@
 #include "homebrew/artwork_backend.hpp"
 #include "platform/managed_directory.h"
+#include "platform/ps5/title_allow_list.h"
 
 #include <atomic>
 #include <cassert>
@@ -8,7 +9,9 @@
 #include <ctime>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <string>
+#include <thread>
 #include <vector>
 #include <sys/time.h>
 #include <unistd.h>
@@ -118,6 +121,18 @@ void DecodesPngAndJpegToRgba() {
   const auto jpeg = DecodeArtwork(SmallJpeg());
   assert(jpeg && jpeg->width == 2 && jpeg->height == 1 && jpeg->rgba.size() == 8);
   assert(jpeg->rgba[3] == 255 && jpeg->rgba[7] == 255);
+}
+
+// A solid red 700x1 RGB PNG: wider than a card, so its framed banner is a single row.
+std::vector<std::uint8_t> RedBannerPng() {
+  return {
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+      0x44, 0x52, 0x00, 0x00, 0x02, 0xbc, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+      0x00, 0xb3, 0x13, 0xea, 0x96, 0x00, 0x00, 0x00, 0x1b, 0x49, 0x44, 0x41, 0x54, 0x78,
+      0xda, 0x63, 0xf8, 0xcf, 0xc0, 0x30, 0x8a, 0x46, 0xd1, 0x28, 0x1a, 0x45, 0xa3, 0x68,
+      0x14, 0x8d, 0xa2, 0x51, 0x44, 0x10, 0x01, 0x00, 0xa6, 0xd3, 0xb9, 0x63, 0x4a, 0x81,
+      0x15, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  };
 }
 
 void DecodeAllocatorRejectsBudgetExhaustion() {
@@ -267,6 +282,18 @@ void MissingCoverFallsBackToFramedHeader() {
   // The 2x1 banner is framed into a 600x900 portrait card.
   assert(image && image->width == 600 && image->height == 900);
   assert(image->rgba.size() == 600u * 900u * 4u);
+  // The banner fills the middle third undimmed; the margins fade to black at the edges.
+  const auto banner = DecodeArtwork(SmallPng());
+  assert(banner);
+  const auto pixel = [](const ArtworkImage& picture, std::uint32_t x, std::uint32_t y) {
+    const auto* p = &picture.rgba[(y * picture.width + x) * 4];
+    return std::vector<std::uint8_t>{p[0], p[1], p[2], p[3]};
+  };
+  auto opaque = pixel(*banner, 0, 0);
+  opaque[3] = 255;
+  assert(pixel(*image, 0, 450) == opaque);
+  assert((pixel(*image, 0, 0) == std::vector<std::uint8_t>{0, 0, 0, 255}));
+  assert((pixel(*image, 0, 899) == std::vector<std::uint8_t>{0, 0, 0, 255}));
   assert(cdn.asked("/library_600x900.jpg") && cdn.asked("/header.jpg"));
   assert(folder.Read("42_600x900.jpg") == SmallPng());
 
@@ -275,6 +302,47 @@ void MissingCoverFallsBackToFramedHeader() {
   HttpArtworkBackend again(cdn.perform(), folder.art.string());
   const auto cached = again.Load({1, SteamId(42), kCover}, cancel);
   assert(cached && cached->width == 600 && cached->height == 900 && cdn.urls.empty());
+}
+
+void VeryWideBannerKeepsARow() {
+  CacheFolder folder;
+  FakeCdn cdn;
+  cdn.answer = [](const std::string& url) {
+    return EndsWith(url, "/header.jpg") ? Status(200, RedBannerPng()) : Status(404);
+  };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  const auto image = backend.Load({1, SteamId(42), kCover}, cancel);
+  assert(image && image->width == 600 && image->height == 900);
+  // One row in the middle is the banner itself, not a dimmed margin.
+  bool banner_row = false;
+  for (std::uint32_t y = 0; y < 900; ++y) {
+    const auto* p = &image->rgba[(y * 600u) * 4];
+    banner_row = banner_row || (p[0] == 255 && p[1] == 0 && p[2] == 0);
+  }
+  assert(banner_row);
+}
+
+void SaveIsSkippedWhileTheEffectiveUidIsHeld() {
+  CacheFolder folder;
+  FakeCdn cdn;
+  cdn.answer = [](const std::string&) { return Status(200, SmallJpeg()); };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  std::promise<void> held, done;
+  std::thread holder([&] {
+    const auto uid = playden::ps5::HoldEffectiveUid();
+    held.set_value();
+    done.get_future().wait();
+  });
+  held.get_future().wait();
+  // The cover still shows; it just isn't cached, and no folder is created.
+  assert(backend.Load({1, SteamId(42), kCover}, cancel));
+  assert(!std::filesystem::exists(folder.art));
+  done.set_value();
+  holder.join();
+  assert(backend.Load({1, SteamId(42), kCover}, cancel));
+  assert(folder.Read("42_600x900.jpg") == SmallJpeg());
 }
 
 void HeroHasNoHeaderFallback() {
@@ -359,6 +427,8 @@ int main(int argc, char** argv) {
   InvalidHttpIdentityIsRejectedWithoutTransport();
   FreshCacheIsUsedWithoutTheNetwork();
   MissingCoverFallsBackToFramedHeader();
+  VeryWideBannerKeepsARow();
+  SaveIsSkippedWhileTheEffectiveUidIsHeld();
   HeroHasNoHeaderFallback();
   OtherFailuresKeepTheCachedCover();
   BadDownloadKeepsTheCachedCover();

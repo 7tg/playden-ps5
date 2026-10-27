@@ -1,6 +1,7 @@
 #include "homebrew/artwork_backend.hpp"
 
 #include "platform/managed_directory.h"
+#include "platform/ps5/title_allow_list.h"
 #include "steam/backend/http_client.h"
 
 #include <algorithm>
@@ -164,7 +165,8 @@ ArtworkImage FrameToPortrait(const ArtworkImage& src, std::uint32_t target_w = 6
   out.height = target_h;
   out.rgba.resize(target_w * target_h * 4, 0);
 
-  const int banner_h = static_cast<int>(target_w * src.height / src.width);
+  // At least one row, so a very wide image still shows its banner.
+  const int banner_h = std::max(1, static_cast<int>(target_w * src.height / src.width));
   const int offset_y = static_cast<int>((target_h - banner_h) / 2);
   const int bottom_margin = static_cast<int>(target_h) - (offset_y + banner_h);
 
@@ -202,12 +204,13 @@ struct HttpArtworkBackend::Cache {
   std::mutex mutex;
   std::optional<platform::ManagedDirectory> dir;
 
-  bool EnsureDir(const std::string& path) {
+  // Only a save creates the folder, while it holds the effective UID.
+  bool EnsureDir(const std::string& path, bool create) {
     if (dir && dir->Validate()) return true;
     if (path.empty()) return false;
     const std::filesystem::path target = std::filesystem::path(path).lexically_normal();
     dir = platform::ManagedDirectory::Open(target, platform::DirectoryPolicy::kPrivate);
-    if (dir) return true;
+    if (dir || !create) return dir.has_value();
 
     const auto parent_path = target.parent_path();
     const auto child_name = target.filename().string();
@@ -224,12 +227,16 @@ struct HttpArtworkBackend::Cache {
   // The cached file's bytes, and whether it is younger than the TTL.
   std::optional<std::vector<std::uint8_t>> Read(const std::string& path, const std::string& name, bool* fresh) {
     *fresh = false;
-    if (!EnsureDir(path)) return std::nullopt;
-    struct stat st{};
-    if (!dir->InspectChild(name, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
-        static_cast<std::size_t>(st.st_size) > kMaxArtworkTransferBytes) return std::nullopt;
+    if (!EnsureDir(path, false)) return std::nullopt;
+    // Size and age come from the opened file: another backend may rename a new copy over it.
     const int fd = dir->OpenRegularFile(name);
     if (fd < 0) return std::nullopt;
+    struct stat st{};
+    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+        static_cast<std::size_t>(st.st_size) > kMaxArtworkTransferBytes) {
+      ::close(fd);
+      return std::nullopt;
+    }
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(st.st_size));
     std::size_t offset = 0;
     while (offset < bytes.size()) {
@@ -246,9 +253,13 @@ struct HttpArtworkBackend::Cache {
   }
 
   // Writes a unique temporary file and renames it over the cached one. The title-icon builder
-  // has its own backend, so two writers can save the same file at once.
+  // has its own backend, so two writers can save the same file at once. Another thread's root raise
+  // would leave a root-owned folder or file that the app user can never use again, so a save that
+  // can't hold the effective UID right away is skipped; the next load downloads the cover again.
   void Save(const std::string& path, const std::string& name, const std::vector<std::uint8_t>& bytes) {
-    if (bytes.empty() || bytes.size() > kMaxArtworkTransferBytes || !EnsureDir(path)) return;
+    if (bytes.empty() || bytes.size() > kMaxArtworkTransferBytes) return;
+    const auto uid = ps5::TryHoldEffectiveUid();
+    if (!uid || !EnsureDir(path, true)) return;
     static std::atomic<std::uint64_t> sequence{0};
     const std::string temp_name = "." + name + "." + std::to_string(::getpid()) + "." +
                                   std::to_string(sequence.fetch_add(1)) + ".tmp";
