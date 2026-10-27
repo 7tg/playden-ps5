@@ -5,9 +5,12 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdint>
+#include <ctime>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
+#include <sys/time.h>
 #include <unistd.h>
 #include "steam_id.h"
 
@@ -165,34 +168,172 @@ void InvalidHttpIdentityIsRejectedWithoutTransport() {
   assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/42/header.jpg"}, cancel));
 }
 
-void ReadsFromManagedDiskCache() {
-  char pattern[] = "/tmp/playden-art-cache-XXXXXX";
-  if (::mkdtemp(pattern)) {
-    const std::filesystem::path root = std::filesystem::canonical(pattern);
-    const std::filesystem::path art_dir = root / "art";
+// A private cache folder under a temporary root, removed on exit.
+struct CacheFolder {
+  std::filesystem::path root;
+  std::filesystem::path art;
+  CacheFolder() {
+    char pattern[] = "/tmp/playden-art-cache-XXXXXX";
+    assert(::mkdtemp(pattern));
+    root = std::filesystem::canonical(pattern);
+    art = root / "art";
+  }
+  ~CacheFolder() { std::filesystem::remove_all(root); }
+
+  void Write(const std::string& name, const std::vector<std::uint8_t>& bytes, bool expired) {
     auto parent = playden::platform::ManagedDirectory::Open(root, playden::platform::DirectoryPolicy::kApprovedTree);
     assert(parent);
     auto managed = parent->OpenChild("art", playden::platform::DirectoryPolicy::kPrivate, true, 0700);
     assert(managed);
-
-    const int fd = managed->CreateExclusiveFile("42_600x900.jpg", 0600);
+    const int fd = managed->CreateExclusiveFile(name, 0600);
     assert(fd >= 0);
-    const auto jpeg = SmallJpeg();
-    assert(::write(fd, jpeg.data(), jpeg.size()) == static_cast<ssize_t>(jpeg.size()));
-    assert(::fsync(fd) == 0 && ::close(fd) == 0);
-    assert(managed->Sync());
-
-    HttpArtworkBackend backend("unused-ca.pem", art_dir.string());
-    assert(backend.cache_dir() == art_dir.string());
-    std::atomic<bool> cancel{false};
-    const auto image = backend.Load(
-        {1, SteamId(42),
-         "https://cdn.cloudflare.steamstatic.com/steam/apps/42/library_600x900.jpg"},
-        cancel);
-    assert(image && image->width > 0 && image->height > 0);
-
-    std::filesystem::remove_all(root);
+    assert(::write(fd, bytes.data(), bytes.size()) == static_cast<ssize_t>(bytes.size()));
+    assert(::close(fd) == 0);
+    if (expired) {
+      const std::time_t old = std::time(nullptr) - 15 * 24 * 3600;
+      const struct timeval times[2] = {{old, 0}, {old, 0}};
+      assert(::utimes((art / name).c_str(), times) == 0);
+    }
   }
+
+  std::vector<std::uint8_t> Read(const std::string& name) const {
+    std::vector<std::uint8_t> bytes;
+    FILE* file = std::fopen((art / name).c_str(), "rb");
+    if (!file) return bytes;
+    std::uint8_t buffer[4096];
+    std::size_t count = 0;
+    while ((count = std::fread(buffer, 1, sizeof(buffer), file)) > 0) bytes.insert(bytes.end(), buffer, buffer + count);
+    std::fclose(file);
+    return bytes;
+  }
+};
+
+bool EndsWith(const std::string& url, const std::string& name) {
+  return url.size() >= name.size() && url.compare(url.size() - name.size(), name.size(), name) == 0;
+}
+
+// Answers by URL and records every URL asked for.
+struct FakeCdn {
+  std::vector<std::string> urls;
+  std::function<playden::steam::HttpResponse(const std::string&)> answer;
+  HttpArtworkBackend::Perform perform() {
+    return [this](const playden::steam::HttpRequest& request, const std::atomic<bool>&) {
+      urls.push_back(request.url);
+      return answer(request.url);
+    };
+  }
+  bool asked(const std::string& name) const {
+    for (const auto& url : urls)
+      if (EndsWith(url, name)) return true;
+    return false;
+  }
+};
+
+playden::steam::HttpResponse Status(long code, std::vector<std::uint8_t> body = {}) {
+  playden::steam::HttpResponse response;
+  response.status_code = code;
+  response.body = std::move(body);
+  return response;
+}
+
+playden::steam::HttpResponse Timeout() {
+  playden::steam::HttpResponse response;
+  response.error = playden::steam::HttpError::kTimeout;
+  return response;
+}
+
+const char kCover[] = "https://cdn.cloudflare.steamstatic.com/steam/apps/42/library_600x900.jpg";
+
+void FreshCacheIsUsedWithoutTheNetwork() {
+  CacheFolder folder;
+  folder.Write("42_600x900.jpg", SmallJpeg(), false);
+  FakeCdn cdn;
+  cdn.answer = [](const std::string&) { return Status(500); };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  assert(backend.Load({1, SteamId(42), kCover}, cancel));
+  assert(cdn.urls.empty());
+}
+
+void MissingCoverFallsBackToFramedHeader() {
+  CacheFolder folder;
+  FakeCdn cdn;
+  cdn.answer = [](const std::string& url) {
+    return EndsWith(url, "/header.jpg") ? Status(200, SmallPng()) : Status(404);
+  };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  const auto image = backend.Load({1, SteamId(42), kCover}, cancel);
+  // The 2x1 banner is framed into a 600x900 portrait card.
+  assert(image && image->width == 600 && image->height == 900);
+  assert(image->rgba.size() == 600u * 900u * 4u);
+  assert(cdn.asked("/library_600x900.jpg") && cdn.asked("/header.jpg"));
+  assert(folder.Read("42_600x900.jpg") == SmallPng());
+
+  // The next start reads the cached banner and frames it the same way.
+  cdn.urls.clear();
+  HttpArtworkBackend again(cdn.perform(), folder.art.string());
+  const auto cached = again.Load({1, SteamId(42), kCover}, cancel);
+  assert(cached && cached->width == 600 && cached->height == 900 && cdn.urls.empty());
+}
+
+void HeroHasNoHeaderFallback() {
+  CacheFolder folder;
+  FakeCdn cdn;
+  cdn.answer = [](const std::string&) { return Status(404); };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  assert(!backend.Load({1, SteamId(42), "https://cdn.cloudflare.steamstatic.com/steam/apps/42/library_hero.jpg"}, cancel));
+  assert(cdn.urls.size() == 1 && !cdn.asked("/header.jpg"));
+}
+
+void OtherFailuresKeepTheCachedCover() {
+  for (const bool timeout : {false, true}) {
+    CacheFolder folder;
+    folder.Write("42_600x900.jpg", SmallJpeg(), true);
+    FakeCdn cdn;
+    cdn.answer = [timeout](const std::string&) { return timeout ? Timeout() : Status(503); };
+    HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+    std::atomic<bool> cancel{false};
+    assert(backend.Load({1, SteamId(42), kCover}, cancel));
+    // No banner is fetched on a failure that is not a 404, and the cached cover stays.
+    assert(cdn.urls.size() == 1 && !cdn.asked("/header.jpg"));
+    assert(folder.Read("42_600x900.jpg") == SmallJpeg());
+  }
+
+  // With nothing cached, a failure that is not a 404 still never fetches the banner.
+  CacheFolder folder;
+  FakeCdn cdn;
+  cdn.answer = [](const std::string&) { return Timeout(); };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  assert(!backend.Load({1, SteamId(42), kCover}, cancel));
+  assert(cdn.urls.size() == 1);
+}
+
+void BadDownloadKeepsTheCachedCover() {
+  CacheFolder folder;
+  folder.Write("42_600x900.jpg", SmallJpeg(), true);
+  FakeCdn cdn;
+  cdn.answer = [](const std::string&) { return Status(200, {1, 2, 3, 4}); };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  assert(backend.Load({1, SteamId(42), kCover}, cancel));
+  assert(cdn.urls.size() == 1);
+  assert(folder.Read("42_600x900.jpg") == SmallJpeg());
+  for (const auto& entry : std::filesystem::directory_iterator(folder.art))
+    assert(entry.path().filename() == "42_600x900.jpg");  // no temporary file left behind
+}
+
+void ExpiredCacheIsReplacedByANewCover() {
+  CacheFolder folder;
+  folder.Write("42_600x900.jpg", SmallJpeg(), true);
+  FakeCdn cdn;
+  cdn.answer = [](const std::string&) { return Status(200, SmallPng()); };
+  HttpArtworkBackend backend(cdn.perform(), folder.art.string());
+  std::atomic<bool> cancel{false};
+  assert(backend.Load({1, SteamId(42), kCover}, cancel));
+  assert(folder.Read("42_600x900.jpg") == SmallPng());
 }
 
 }  // namespace
@@ -216,5 +357,10 @@ int main(int argc, char** argv) {
   RejectsEmptyCorruptAndTransferOverflow();
   RejectsOversizedPngDimensionsBeforePixelAllocation();
   InvalidHttpIdentityIsRejectedWithoutTransport();
-  ReadsFromManagedDiskCache();
+  FreshCacheIsUsedWithoutTheNetwork();
+  MissingCoverFallsBackToFramedHeader();
+  HeroHasNoHeaderFallback();
+  OtherFailuresKeepTheCachedCover();
+  BadDownloadKeepsTheCachedCover();
+  ExpiredCacheIsReplacedByANewCover();
 }

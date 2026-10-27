@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstdint>
+#include <cerrno>
 #include <ctime>
 #include <filesystem>
 #include <limits>
@@ -219,6 +220,56 @@ struct HttpArtworkBackend::Cache {
     }
     return false;
   }
+
+  // The cached file's bytes, and whether it is younger than the TTL.
+  std::optional<std::vector<std::uint8_t>> Read(const std::string& path, const std::string& name, bool* fresh) {
+    *fresh = false;
+    if (!EnsureDir(path)) return std::nullopt;
+    struct stat st{};
+    if (!dir->InspectChild(name, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+        static_cast<std::size_t>(st.st_size) > kMaxArtworkTransferBytes) return std::nullopt;
+    const int fd = dir->OpenRegularFile(name);
+    if (fd < 0) return std::nullopt;
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(st.st_size));
+    std::size_t offset = 0;
+    while (offset < bytes.size()) {
+      const auto count = ::read(fd, bytes.data() + offset, bytes.size() - offset);
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) break;
+      offset += static_cast<std::size_t>(count);
+    }
+    ::close(fd);
+    if (offset != bytes.size()) return std::nullopt;
+    const std::time_t now = std::time(nullptr);
+    *fresh = now < st.st_mtime || now - st.st_mtime < kArtworkCacheTtlSeconds;
+    return bytes;
+  }
+
+  // Writes a unique temporary file and renames it over the cached one. The title-icon builder
+  // has its own backend, so two writers can save the same file at once.
+  void Save(const std::string& path, const std::string& name, const std::vector<std::uint8_t>& bytes) {
+    if (bytes.empty() || bytes.size() > kMaxArtworkTransferBytes || !EnsureDir(path)) return;
+    static std::atomic<std::uint64_t> sequence{0};
+    const std::string temp_name = "." + name + "." + std::to_string(::getpid()) + "." +
+                                  std::to_string(sequence.fetch_add(1)) + ".tmp";
+    const int fd = dir->CreateExclusiveFile(temp_name, 0600);
+    if (fd < 0) return;
+    std::size_t offset = 0;
+    bool written = true;
+    while (offset < bytes.size()) {
+      const auto count = ::write(fd, bytes.data() + offset, bytes.size() - offset);
+      if (count < 0 && errno == EINTR) continue;
+      if (count <= 0) { written = false; break; }
+      offset += static_cast<std::size_t>(count);
+    }
+    const bool synced = written && ::fsync(fd) == 0;
+    const bool closed = ::close(fd) == 0;
+    if (synced && closed && dir->RenameChild(temp_name, *dir, name, /*replace_existing=*/true)) {
+      dir->Sync();
+      return;
+    }
+    dir->RemoveRegularFile(temp_name);
+  }
 };
 
 std::optional<ArtworkImage> artwork_internal::DecodeArtworkWithAllocationBudget(
@@ -264,9 +315,16 @@ std::optional<ArtworkImage> DecodeArtwork(
 }
 
 HttpArtworkBackend::HttpArtworkBackend(std::string ca_bundle, std::string cache_dir)
-    : ca_bundle_(std::move(ca_bundle)),
-      cache_dir_(std::move(cache_dir)),
-      http_(std::make_unique<steam::HttpClient>(ca_bundle_)),
+    : cache_dir_(std::move(cache_dir)),
+      http_(std::make_unique<steam::HttpClient>(std::move(ca_bundle))),
+      perform_([client = http_.get()](const steam::HttpRequest& request, const std::atomic<bool>& cancel) {
+        return client->Perform(request, cancel);
+      }),
+      cache_(cache_dir_.empty() ? nullptr : std::make_unique<Cache>()) {}
+
+HttpArtworkBackend::HttpArtworkBackend(Perform perform, std::string cache_dir)
+    : cache_dir_(std::move(cache_dir)),
+      perform_(std::move(perform)),
       cache_(cache_dir_.empty() ? nullptr : std::make_unique<Cache>()) {}
 
 HttpArtworkBackend::~HttpArtworkBackend() = default;
@@ -275,146 +333,53 @@ std::optional<ArtworkImage> HttpArtworkBackend::Load(
     const ArtworkKey& key, const std::atomic<bool>& cancel) {
   if (!CanonicalKey(key) || cancel.load(std::memory_order_acquire))
     return std::nullopt;
-  if (!http_) http_ = std::make_unique<steam::HttpClient>(ca_bundle_);
 
-  const std::string file_name = CacheFileName(key);
-  bool cache_expired = false;
+  const bool cover = key.source.find("library_600x900.jpg") != std::string::npos;
+  // A wide image in the cover slot is the header.jpg fallback: frame it as a portrait card.
+  const auto framed = [cover](std::optional<ArtworkImage> image) {
+    if (image && cover && image->width > image->height) image = FrameToPortrait(*image);
+    return image;
+  };
+  const std::string file_name = cache_ ? CacheFileName(key) : std::string{};
 
-  // 1. Check persistent on-disk cache under ManagedDirectory
-  if (!file_name.empty() && cache_) {
+  // A fresh cached copy is used without asking the CDN.
+  std::optional<std::vector<std::uint8_t>> cached;
+  bool fresh = false;
+  if (!file_name.empty()) {
     std::lock_guard<std::mutex> lock(cache_->mutex);
-    if (cache_->EnsureDir(cache_dir_)) {
-      struct stat st{};
-      if (cache_->dir->InspectChild(file_name, &st) && S_ISREG(st.st_mode) &&
-          st.st_size > 0 && static_cast<std::size_t>(st.st_size) <= kMaxArtworkTransferBytes) {
-        const std::time_t now = std::time(nullptr);
-        cache_expired = (now >= st.st_mtime && (now - st.st_mtime) >= kArtworkCacheTtlSeconds);
-        if (!cache_expired) {
-          const int fd = cache_->dir->OpenRegularFile(file_name);
-          if (fd >= 0) {
-            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(st.st_size));
-            std::size_t offset = 0;
-            bool read_ok = true;
-            while (offset < bytes.size()) {
-              const auto count = read(fd, bytes.data() + offset, bytes.size() - offset);
-              if (count < 0 && errno == EINTR) continue;
-              if (count <= 0) { read_ok = false; break; }
-              offset += static_cast<std::size_t>(count);
-            }
-            close(fd);
-            if (read_ok && offset == bytes.size()) {
-              auto image = DecodeArtwork(bytes);
-              if (image) {
-                if (key.source.find("library_600x900.jpg") != std::string::npos &&
-                    image->width > image->height) {
-                  image = FrameToPortrait(*image);
-                }
-                return image;
-              }
-            }
-          }
-        }
-      }
-    }
+    cached = cache_->Read(cache_dir_, file_name, &fresh);
   }
-
+  if (cached && fresh)
+    if (auto image = DecodeArtwork(*cached)) return framed(std::move(image));
   if (cancel.load(std::memory_order_acquire)) return std::nullopt;
 
-  // 2. Fetch from Steam CDN
   steam::HttpRequest request;
   request.method = steam::HttpMethod::kGet;
   request.url = key.source;
   request.timeout_ms = kArtworkTimeoutMs;
   request.max_response_bytes = kMaxArtworkTransferBytes;
-  auto response = http_->Perform(request, cancel);
+  auto response = perform_(request, cancel);
 
-  // If library_600x900.jpg returned 404, fallback to header.jpg (standard Steam banner)
-  if ((!response.ok() || response.status_code != 200) &&
-      key.source.find("library_600x900.jpg") != std::string::npos &&
-      !cancel.load(std::memory_order_acquire)) {
-    const std::string base = "https://cdn.cloudflare.steamstatic.com/steam/apps/" +
-                             ToKey(key.game_id) + "/";
-    steam::HttpRequest fallback_req = request;
-    fallback_req.url = base + "header.jpg";
-    auto fallback_resp = http_->Perform(fallback_req, cancel);
-    if (fallback_resp.ok() && fallback_resp.status_code == 200) {
-      response = std::move(fallback_resp);
-    }
+  // A game with no portrait cover (a real 404, not a timeout or a 5xx) uses its header.jpg banner.
+  if (cover && response.ok() && response.status_code == 404 && !cancel.load(std::memory_order_acquire)) {
+    request.url = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + ToKey(key.game_id) + "/header.jpg";
+    response = perform_(request, cancel);
   }
 
-  if (!response.ok() || response.status_code != 200) {
-    // Offline / network failure fallback to existing cached image if expired
-    if (cache_expired && !file_name.empty() && cache_) {
-      std::lock_guard<std::mutex> lock(cache_->mutex);
-      if (cache_->EnsureDir(cache_dir_)) {
-        struct stat st{};
-        if (cache_->dir->InspectChild(file_name, &st) && st.st_size > 0 &&
-            static_cast<std::size_t>(st.st_size) <= kMaxArtworkTransferBytes) {
-          const int fd = cache_->dir->OpenRegularFile(file_name);
-          if (fd >= 0) {
-            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(st.st_size));
-            std::size_t offset = 0;
-            bool read_ok = true;
-            while (offset < bytes.size()) {
-              const auto count = read(fd, bytes.data() + offset, bytes.size() - offset);
-              if (count < 0 && errno == EINTR) continue;
-              if (count <= 0) { read_ok = false; break; }
-              offset += static_cast<std::size_t>(count);
-            }
-            close(fd);
-            if (read_ok && offset == bytes.size()) {
-              auto img = DecodeArtwork(bytes);
-              if (img) {
-                if (key.source.find("library_600x900.jpg") != std::string::npos &&
-                    img->width > img->height) {
-                  img = FrameToPortrait(*img);
-                }
-                return img;
-              }
-            }
-          }
-        }
+  // Only bytes that decode replace the cached copy, so a bad response never overwrites a good cover.
+  if (response.ok() && response.status_code == 200) {
+    if (auto image = DecodeArtwork(response.body)) {
+      if (!file_name.empty()) {
+        std::lock_guard<std::mutex> lock(cache_->mutex);
+        cache_->Save(cache_dir_, file_name, response.body);
       }
-    }
-    return std::nullopt;
-  }
-
-  // 3. Atomically write downloaded cover to cache via ManagedDirectory
-  if (!file_name.empty() && cache_ && !response.body.empty() &&
-      response.body.size() <= kMaxArtworkTransferBytes) {
-    std::lock_guard<std::mutex> lock(cache_->mutex);
-    if (cache_->EnsureDir(cache_dir_)) {
-      static std::atomic<std::uint64_t> sequence{0};
-      const std::string temp_name = "." + file_name + "." + std::to_string(getpid()) + "." +
-                                    std::to_string(sequence.fetch_add(1)) + ".tmp";
-      const int fd = cache_->dir->CreateExclusiveFile(temp_name, 0600);
-      if (fd >= 0) {
-        std::size_t offset = 0;
-        bool write_ok = true;
-        while (offset < response.body.size()) {
-          const auto count = write(fd, response.body.data() + offset, response.body.size() - offset);
-          if (count < 0 && errno == EINTR) continue;
-          if (count <= 0) { write_ok = false; break; }
-          offset += static_cast<std::size_t>(count);
-        }
-        const bool synced = write_ok && (fsync(fd) == 0);
-        const bool closed = (close(fd) == 0);
-        if (synced && closed) {
-          cache_->dir->RenameChild(temp_name, *cache_->dir, file_name, /*replace_existing=*/true);
-          cache_->dir->Sync();
-        } else {
-          if (!closed) close(fd);
-          cache_->dir->RemoveRegularFile(temp_name);
-        }
-      }
+      return framed(std::move(image));
     }
   }
 
-  auto image = DecodeArtwork(response.body);
-  if (image && key.source.find("library_600x900.jpg") != std::string::npos && image->width > image->height) {
-    image = FrameToPortrait(*image);
-  }
-  return image;
+  // Offline, or the CDN failed: an expired cached copy is better than none.
+  if (cached && !fresh) return framed(DecodeArtwork(*cached));
+  return std::nullopt;
 }
 
 }  // namespace playden::homebrew
