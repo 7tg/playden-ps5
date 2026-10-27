@@ -1101,7 +1101,8 @@ void live_root_access_missing() {
     const auto& data_view = granted.view();
     check(data_view.title == "Playden can't start", "root access: a data failure after the grant has its own title");
     check(data_view.subtitle == "Playden has root access but can't use its data in /data/playden. "
-                                "Restart Playden; if it stays, check that folder's permissions over FTP.",
+                                "Restart Playden. Don't change permissions inside /data/playden over FTP: its private folders "
+                                "must stay owner-only. If it stays, send logs/native-startup.log from Playden's app folder.",
           "root access: the body points at /data/playden");
     check(data_view.subtitle.find("kstuff") == std::string::npos, "root access: no kstuff advice after the grant");
     const auto data_detail = std::find_if(data_view.rows.begin(), data_view.rows.end(),

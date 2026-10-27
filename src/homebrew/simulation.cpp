@@ -741,7 +741,8 @@ StartupProblem describe_startup_problem(const std::string& detail, bool granted)
                     "The Playden that started is not the copy in /data/homebrew. If you just copied a new version, "
                     "restart the PS5; if it stays, copy the whole app folder to /data/homebrew again."};
         return {"Playden can't start", "Playden has root access but can't use its data in /data/playden. "
-                                       "Restart Playden; if it stays, check that folder's permissions over FTP."};
+                                       "Restart Playden. Don't change permissions inside /data/playden over FTP: its private folders "
+                                       "must stay owner-only. If it stays, send logs/native-startup.log from Playden's app folder."};
     }
     if (has("launcher source is invalid") || has("launcher source identity is unavailable") ||
         stage({"find-helper", "validate-helper", "open-helper", "stat-helper"}))

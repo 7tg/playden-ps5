@@ -627,6 +627,8 @@ class RuntimeHost {
   // while no ManagedDirectory of the bottle is open. Failures are logged; the start check decides.
   void SettleBottle(Composition& composition, const runtime::RuntimeInstall& record, const char* when);
   runtime::LaunchPreflight Preflight(Composition& composition, const runtime::RuntimeInstall& record);
+  // Worker only. Tightens the bottle at data_root (console path) when it looks opened up and its title is stopped.
+  void HealBottle(Composition& composition, const std::string& data_root, const std::string& title_id);
   runtime::LaunchEvidence Evidence(Composition& composition, const runtime::RuntimeInstall& record,
                                    const std::string& session_id);
   void RunPlay(Composition& composition, std::uint32_t runtime_number);

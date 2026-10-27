@@ -244,7 +244,7 @@ target_link_libraries(playden_homebrew_controller PUBLIC
 
 # Worker-owned per-game runtime composition (OWNER records, native inventory, kit layer).
 add_library(playden_homebrew_runtime_host STATIC "${CMAKE_SOURCE_DIR}/src/homebrew/runtime_host.cpp"
-    "${CMAKE_SOURCE_DIR}/src/runtime/writable_folders.cpp")
+    "${CMAKE_SOURCE_DIR}/src/runtime/writable_folders.cpp" "${CMAKE_SOURCE_DIR}/src/runtime/self_heal.cpp")
 target_compile_features(playden_homebrew_runtime_host PUBLIC cxx_std_20)
 target_include_directories(playden_homebrew_runtime_host PUBLIC "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(playden_homebrew_runtime_host PUBLIC playden_native_coordinator playden_runtime_settings_publication
@@ -441,6 +441,21 @@ if(BUILD_TESTING)
     target_include_directories(runtime_writable_folders_native_policy_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_compile_definitions(runtime_writable_folders_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
     add_test(NAME runtime_writable_folders_native_policy COMMAND runtime_writable_folders_native_policy_test)
+    add_executable(runtime_self_heal_test "${CMAKE_SOURCE_DIR}/tests/runtime_self_heal_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/self_heal.cpp")
+    target_compile_features(runtime_self_heal_test PRIVATE cxx_std_20)
+    target_include_directories(runtime_self_heal_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_link_libraries(runtime_self_heal_test PRIVATE playden_steam_protocol)
+    add_test(NAME runtime_self_heal COMMAND runtime_self_heal_test)
+    add_executable(runtime_self_heal_native_policy_test
+        "${CMAKE_SOURCE_DIR}/tests/runtime_self_heal_test.cpp"
+        "${CMAKE_SOURCE_DIR}/tests/directory_gateway_host.cpp"
+        "${CMAKE_SOURCE_DIR}/src/runtime/self_heal.cpp")
+    target_compile_features(runtime_self_heal_native_policy_test PRIVATE cxx_std_20)
+    target_include_directories(runtime_self_heal_native_policy_test PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    target_link_libraries(runtime_self_heal_native_policy_test PRIVATE playden_steam_protocol)
+    target_compile_definitions(runtime_self_heal_native_policy_test PRIVATE PLAYDEN_PLATFORM_PS5=1)
+    add_test(NAME runtime_self_heal_native_policy COMMAND runtime_self_heal_native_policy_test)
     add_executable(homebrew_title_icon_test "${CMAKE_SOURCE_DIR}/tests/homebrew_title_icon_test.cpp")
     target_compile_features(homebrew_title_icon_test PRIVATE cxx_std_20)
     target_include_directories(homebrew_title_icon_test PRIVATE "${PLAYDEN_STB_IMAGE_INCLUDE_DIR}")

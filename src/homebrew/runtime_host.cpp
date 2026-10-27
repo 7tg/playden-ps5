@@ -17,6 +17,7 @@
 #include "runtime/session_storage.h"
 #include "runtime/steam_stub.h"
 #include "runtime/steamworks.h"
+#include "runtime/self_heal.h"
 #include "runtime/writable_folders.h"
 #include "platform/managed_file_lock.h"
 #include "steam/backend/cloud_mapping.h"
@@ -2177,8 +2178,28 @@ RuntimeRelocationResult RuntimeHost::RunRelocate(Composition& c, const RuntimeRe
 // Fresh facts for one launch, from the package layer, the bottle's start check
 // and the console's inventory and activity. Runs on the worker; the application
 // thread reuses the worker's latest result while it is fresh.
+// A bottle opened up over FTP (a recursive chmod) fails the title's start check and Playden's own:
+// its modes go back first. The title can't have started from it like that, but one that is running
+// or suspended (a chmod while it played) keeps its bottle as it is: a mode change reads as ESTALE there.
+void RuntimeHost::HealBottle(Composition& c, const std::string& data_root, const std::string& title_id) {
+  const auto bottle = HostPath(data_root);
+  if (!rt::BottleTooOpen(bottle)) return;
+  if (!title_id.empty()) {
+    const auto activity = c.coordinator->Activity(title_id);
+    if (activity != rt::NativeActivity::kStopped) {
+      Log("bottle heal skipped path=" + data_root + " title=" + title_id + " activity=" +
+          std::to_string(static_cast<int>(activity)));
+      return;
+    }
+  }
+  const auto healed = rt::TightenBottleModes(bottle, [this](const std::string& line) { Log(line); });
+  Log("bottle heal path=" + data_root + " tightened=" + std::to_string(healed.tightened) +
+      " left=" + std::to_string(healed.foreign) + " failed=" + std::to_string(healed.failed));
+}
+
 rt::LaunchPreflight RuntimeHost::Preflight(Composition& c, const rt::RuntimeInstall& record) {
   if (!pthread_equal(pthread_self(), application_thread_)) {
+    HealBottle(c, record.data_root, record.title_id);
     rt::LaunchPreflight p;
     p.capability_available = c.kit.has_value() && static_cast<bool>(config_.launch_title);
     const auto root = config_.host_namespace_prefix.empty()
@@ -2669,6 +2690,9 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
   std::optional<rt::RuntimeInstall> existing;
   for (const auto& record : c.repository.Snapshot())
     if (record.runtime_number == request.runtime_number) existing = record;
+  HealBottle(c, config_.package_paths.console_data_root + "/playden/games/" +
+                    (existing ? existing->install_id : ToInstallId(GameOf(request.game, request.runtime_number))),
+             existing ? existing->title_id : std::string());
   // A title being removed because its game moved drives is finished here; any other removal by Uninstall.
   const bool moving = existing && existing->state == rt::PreparationState::kRemoving && existing->journal &&
                       existing->journal->operation == "remove-move";

@@ -739,7 +739,7 @@ void PrepareNamesUnfixableFolder() {
   host.Prepare(Hl2());
   const auto done = WaitFor(host, [](const RuntimeSnapshot& s) { return !s.preparing_app && s.refusals.count(220); }, 60);
   CHECK(done.refusals.at(220) == "Playden can't write to " + homebrew.string() +
-                                 ". Make the folder writable over FTP (permissions 777), then try again.");
+                                 ". Make that folder writable over FTP (777 on the folder only, not its contents), then try again.");
   CHECK(raises == 1);
   CHECK(done.installs.empty());
   struct stat info{};
