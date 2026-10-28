@@ -327,7 +327,8 @@ void DownloadServerRoundTripsAndInvalidHostsUseAutomatic() {
   const std::string prefix =
       "version=8\nreduce_motion=1\ntitle_store_suffix=1\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
       "downloads_slow_network=1\nsteam_stay_signed_in=0\nbeta_updates=1\ndownload_server=";
-  const std::string valid[] = {"", "fastly.cdn.steampipe.steamcontent.com", "CACHE-1.Example.net", std::string(253, 'a')};
+  // "fastest" is the Fastest choice; it needs no version change.
+  const std::string valid[] = {"", "fastest", "fastly.cdn.steampipe.steamcontent.com", "CACHE-1.Example.net", std::string(253, 'a')};
   for (const auto& host : valid) {
     playden::Preferences preferences;
     preferences.download_server = host;
@@ -335,6 +336,14 @@ void DownloadServerRoundTripsAndInvalidHostsUseAutomatic() {
     const auto loaded = store.Load();
     Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.download_server == host,
           "Automatic and valid download server hosts survive restart");
+  }
+  {
+    const std::string serialized = prefix + "fastest\n";
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(serialized.begin(), serialized.end())).ok(),
+          "version 8 fastest fixture is written");
+    const auto loaded = store.Load();
+    Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.download_server == "fastest",
+          "a version 8 file with Fastest loads it");
   }
   const std::string invalid[] = {"https://cache.example", "cache.example/path", "cache.example:443", "cache_name",
                                  "cache name", "cache\tname", "cache\rname", "cache=name", "caf\xc3\xa9.example",

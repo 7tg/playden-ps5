@@ -47,6 +47,7 @@ class Runner final : public SessionInstallRunner {
   std::atomic<bool> checking_licenses{false};  // holds the run in the license check
   bool telemetry = false;
   std::uint64_t held = 0;  // bytes the fake install reports on disk
+  std::string server;      // DownloadServerName while installing
   std::atomic<int> installs{0};
   std::atomic<int> canceled{0};
   std::atomic<int> unreachable{0};  // this many runs find Steam out of reach
@@ -84,6 +85,7 @@ class Runner final : public SessionInstallRunner {
     progress(100, 100, held);
     return {true, false, {}, 4096};
   }
+  std::string DownloadServerName() const override { return server; }
   std::string remove_failure;  // the next removals fail with this, leaving the folder
   std::string Remove(const std::string& root) override {
     std::lock_guard<std::mutex> lock(mutex);
@@ -174,7 +176,7 @@ void SpaceAdmission(const std::filesystem::path& root) {
 
 void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
   Sessions sessions;
-  Runner runner(sessions); runner.block = true; runner.telemetry = true;
+  Runner runner(sessions); runner.block = true; runner.telemetry = true; runner.server = "Fastly";
   InstallService service(runner, root.string());
   service.Install(SteamId(900));
   AwaitAt(__LINE__, service, [](const InstallSnapshot& snapshot) {
@@ -185,6 +187,7 @@ void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
   const auto* job = JobOf(moving, SteamId(900));
   CHECK(job && *job->bytes_per_second <= 100000000 && job->eta_seconds);
   CHECK(job->done_bytes == 9100000000ull); // only the fresh 100 MB belongs in the rate
+  CHECK(job->server_name == "Fastly");  // the runner's download server, with each progress report
   const auto deadline = std::chrono::steady_clock::now() + 9s;
   bool stalled = false;
   while (std::chrono::steady_clock::now() < deadline) {
@@ -203,6 +206,7 @@ void LiveTelemetryDecaysWithoutCallbacks(const std::filesystem::path& root) {
   CHECK(!JobOf(paused, SteamId(900))->bytes_per_second && !JobOf(paused, SteamId(900))->eta_seconds);
   AwaitAt(__LINE__, service, [&](const InstallSnapshot&) { return runner.canceled == 1; });
   CHECK(!JobOf(service.Snapshot(), SteamId(900))->bytes_per_second); // late callback cannot restore it
+  CHECK(JobOf(service.Snapshot(), SteamId(900))->server_name.empty());
   service.Resume(SteamId(900));
   AwaitAt(__LINE__, service, [&](const InstallSnapshot& snapshot) {
     const auto* current = JobOf(snapshot, SteamId(900));

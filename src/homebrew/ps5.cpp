@@ -370,7 +370,8 @@ int main() {
             if (downloads_slow_network.load()) tuning.slots = 8;
             {
                 std::lock_guard lock(download_server_mutex);
-                tuning.preferred_server = download_server;
+                tuning.fastest = download_server == playden::steam::kFastestDownloadServer;
+                if (!tuning.fastest) tuning.preferred_server = download_server;
             }
             return tuning;
         });

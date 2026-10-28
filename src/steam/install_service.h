@@ -45,6 +45,7 @@ class SessionInstallRunner : public InstallRunner {
     }
     const auto session = sessions_.Load();
     if (!session.ok() || !session.value()) {
+      SignedOut();
       result.retry_later = true;
       result.waiting = kWaitingForSignIn;
       return result;
@@ -55,6 +56,8 @@ class SessionInstallRunner : public InstallRunner {
   }
 
  protected:
+  // No saved session when a job starts: what the runner keeps for an account can go.
+  virtual void SignedOut() {}
   virtual Result InstallApp(const StoredSession& session, std::uint32_t app, const std::string& root,
                             const std::atomic<bool>& cancel,
                             const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>& progress,

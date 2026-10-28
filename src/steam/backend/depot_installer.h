@@ -8,8 +8,10 @@
 #include "steam/session_store.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -46,15 +48,23 @@ struct InstallProgress {
   // Bytes of install_total this install already occupies on disk: preallocated files
   // (exFAT allocates on ftruncate) or written chunks (sparse filesystems).
   std::uint64_t held_bytes = 0;
+  // Display name of the server chunks come from (CdnServerDisplayName, never a host); empty while
+  // the Fastest race runs.
+  std::string server_name;
 };
 
 struct DownloadTuning {
   int slots = 4;
   int ahead_files = 256;
-  std::string preferred_server;  // empty uses Automatic order
+  std::string preferred_server;  // empty uses Steam's order
+  bool fastest = false;          // race the servers at download start and keep checking (preferred_server is unused)
 };
 
-// A missing or malformed file uses defaults; valid slot counts are clamped to 1..8.
+// The download server choice that races the servers (DownloadTuning::fastest), as preferences store it.
+inline constexpr const char* kFastestDownloadServer = "fastest";
+
+// A missing or malformed file uses defaults; valid slot counts are clamped to 1..8. "server=fastest"
+// sets `fastest`.
 DownloadTuning ReadDownloadTuning(const std::string& path);
 
 // Manifest and chunk transfers, including failed and corrupt replies.
@@ -115,6 +125,15 @@ struct InstallerHooks {
   // Optional: waits between attempts at a chunk the CDN refused (a busy server answers 503 for a
   // while); returns early when canceled. Without it attempts follow each other at once.
   std::function<void(int milliseconds, const std::atomic<bool>&)> pause;
+  // Optional, for Fastest: the winner remembered from an earlier download (a host) and where a new
+  // winner goes; an empty host forgets it.
+  std::function<std::optional<std::string>()> cached_fastest;
+  std::function<void(const std::string& host)> remember_fastest;
+  // Optional: how a Fastest race ("race") or check ("rerace") ended, with server labels, list
+  // indexes and rates; never hosts.
+  std::function<void(const char* step, const char* result, const std::string& detail)> race;
+  // Optional: the clock for race deadlines and check windows; default steady_clock.
+  std::function<std::chrono::steady_clock::time_point()> now;
 };
 
 // Downloads and assembles an app's depots into install_root. Safe to run again after any
@@ -134,6 +153,16 @@ class DepotInstaller {
   static constexpr const char* kFileList = ".playden-files";
   static constexpr int kChunkAttempts = 3;
   static constexpr std::size_t kMergeLogLimit = 16;
+  // Fastest. Only requests of large chunks over a reused connection are scored, by transfer time.
+  static constexpr std::uint64_t kRaceChunkBytes = 256 * 1024;
+  static constexpr std::uint64_t kRaceMinPendingBytes = 200ull * 1000 * 1000;
+  static constexpr std::size_t kRaceSamples = 4;       // scored requests per server that end a race
+  static constexpr std::size_t kReraceSamples = 3;
+  static constexpr int kRaceCapSeconds = 15;
+  static constexpr int kReraceCapSeconds = 5;
+  static constexpr int kCheckWindowSeconds = 30;
+  static constexpr std::size_t kCheckMinSamples = 8;   // a window with fewer large requests is not judged
+  static constexpr int kReraceLimit = 2;
 
  private:
   InstallerHooks hooks_;
@@ -144,6 +173,11 @@ class DepotInstaller {
   }
   void SetTrace(std::function<void(const char*)> trace) { hooks_.trace = std::move(trace); }
   void SetMerge(std::function<void(const char*, const std::string&)> merge) { hooks_.merge = std::move(merge); }
+  void SetRace(std::function<void(const char*, const char*, const std::string&)> race) { hooks_.race = std::move(race); }
+  void SetFastestCache(std::function<std::optional<std::string>()> cached, std::function<void(const std::string&)> remember) {
+    hooks_.cached_fastest = std::move(cached);
+    hooks_.remember_fastest = std::move(remember);
+  }
   void SetTuning(DownloadTuning tuning) { tuning_ = tuning; }
  private:
   DownloadTuning tuning_;

@@ -45,6 +45,28 @@ std::uint64_t Milliseconds(Clock::duration elapsed) {
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
+// Fastest: one chunk request, as a worker saw it.
+struct ServerSample {
+  std::size_t server = 0;
+  std::uint64_t bytes = 0, transfer_ms = 0;  // manifest compressed size; total minus time to first byte
+  bool timed = false, new_connection = false, failed = false;
+};
+
+bool Scored(const ServerSample& sample) {
+  return sample.timed && !sample.failed && !sample.new_connection && sample.bytes >= DepotInstaller::kRaceChunkBytes;
+}
+
+double SampleRate(const ServerSample& sample) {  // MB/s
+  return static_cast<double>(sample.bytes) / static_cast<double>(std::max<std::uint64_t>(sample.transfer_ms, 1)) / 1000.0;
+}
+
+double Median(std::vector<double> values) {
+  if (values.empty()) return 0;
+  std::sort(values.begin(), values.end());
+  const auto middle = values.size() / 2;
+  return values.size() % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+}
+
 std::string Hex(const std::array<std::uint8_t, 20>& bytes) {
   static constexpr char kDigits[] = "0123456789abcdef";
   std::string text;
@@ -211,6 +233,11 @@ DownloadTuning ReadDownloadTuning(const std::string& path) {
     const auto equals = text.find('=');
     if (equals == std::string::npos) return {};
     const auto key = text.substr(0, equals);
+    if (key == "server" && !seen_server && text.substr(equals + 1) == kFastestDownloadServer) {
+      seen_server = true;
+      tuning.fastest = true;
+      continue;
+    }
     if (key == "server" && !seen_server && ValidCdnHost(text.substr(equals + 1))) {
       seen_server = true;
       tuning.preferred_server = text.substr(equals + 1);
@@ -383,9 +410,11 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     return outcome;
   }
 
-  const auto order = PreferServer(&servers, tuning_.preferred_server);
+  const bool fastest = tuning_.fastest;
+  const auto order = PreferServer(&servers, fastest ? std::string() : tuning_.preferred_server);
   if (hooks_.server_list)
-    hooks_.server_list(servers, tuning_.preferred_server.empty() ? "auto" : order.preferred_found ? "chosen" : "missing");
+    hooks_.server_list(servers, fastest ? "fastest" : tuning_.preferred_server.empty() ? "auto"
+                                : order.preferred_found ? "chosen" : "missing");
   std::vector<InstallServerStats> coordinator_servers;
   for (std::size_t i = 0; i < std::min<std::size_t>(servers.size(), 8); ++i)
     coordinator_servers.push_back({CdnServerLabel(servers[i].host), i});
@@ -662,11 +691,91 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       ++files.back().pending;
     }
   }
+  // Fastest: before the workers start, a short race on this download's largest chunks picks `primary`,
+  // or the winner remembered from an earlier download does. Every worker starts each chunk at `primary`
+  // and fails over from there. During the download the median rate of large requests to `primary` is
+  // judged every kCheckWindowSeconds; two slow windows in a row start a shorter race (a re-race).
+  const std::size_t server_count = servers.size();
+  const bool checking = fastest && server_count > 1;
+  const auto now = [this] { return hooks_.now ? hooks_.now() : Clock::now(); };
+  const auto server_tag = [&servers](std::size_t index) {
+    return CdnServerLabel(servers[index].host) + "#" + std::to_string(index);
+  };
+  enum class Probe { kNone, kRace, kRerace };
+  struct ProbeState {
+    Probe kind = Probe::kNone;
+    std::uint64_t generation = 0;
+    std::size_t race_end = 0;  // a race uses chunks [0, race_end); a re-race the next large chunks
+    std::size_t in_flight = 0;
+    bool started = false;
+    Clock::time_point start{};
+    std::vector<ServerSample> samples;
+  };
+  struct ProbeReport {
+    const char* step = "race";
+    const char* result = "";
+    std::string detail;
+    std::optional<std::string> remember;  // for remember_fastest; empty forgets
+  };
+  // Shared with the workers under `mutex` (declared below).
+  std::size_t primary = 0;
+  bool primary_chosen = order.preferred_found;  // a worker that failed over returns to primary after a while
+  ProbeState probe;
+  std::vector<ServerSample> window;  // scored requests since window_start
+  Clock::time_point window_start{};
+  // MB/s a check compares against: the first judged window after the start or a race, with every worker on
+  // `primary`. Not the race's score: a race spreads the workers over the servers, so each request there gets
+  // more of the line than once they all share one server.
+  double baseline = 0;
+  int sags = 0, reraces = 0;
+  bool limit_logged = false;
+  std::vector<ProbeReport> reports;  // logged by the coordinator, outside the lock
+  if (fastest) {
+    std::size_t large = 0;
+    for (const auto& work : chunks) if (work.chunk->compressed_size >= kRaceChunkBytes) ++large;
+    const char* skip = server_count == 1 ? "one-server"
+        : stats.bytes_pending < kRaceMinPendingBytes ? "skipped-small"
+        : large < 2 * server_count ? "skipped-no-large-chunks" : nullptr;
+    std::optional<std::size_t> cached;
+    if (hooks_.cached_fastest) {
+      if (const auto host = hooks_.cached_fastest(); host && !host->empty()) {
+        for (std::size_t i = 0; i < server_count && !cached; ++i)
+          if (Lower(servers[i].host) == Lower(*host)) cached = i;
+        if (!cached && hooks_.remember_fastest) hooks_.remember_fastest("");
+      }
+    }
+    if (cached) { primary = *cached; primary_chosen = true; }
+    if (skip || cached) {
+      if (hooks_.race) hooks_.race("race", skip ? skip : "cached", "winner=" + (cached ? server_tag(*cached) : "none"));
+    } else {
+      // The largest chunks move to the front in their own order; the others keep theirs. Two chunks per
+      // server visit with the first one unscored give chunks / 2 samples, so 8 per server.
+      const auto race_chunks = std::min<std::size_t>(server_count * 8, 64);
+      std::vector<std::size_t> candidates;
+      for (std::size_t i = 0; i < chunks.size(); ++i)
+        if (chunks[i].chunk->compressed_size >= kRaceChunkBytes) candidates.push_back(i);
+      std::stable_sort(candidates.begin(), candidates.end(), [&](std::size_t left, std::size_t right) {
+        return chunks[left].chunk->compressed_size > chunks[right].chunk->compressed_size;
+      });
+      candidates.resize(std::min(candidates.size(), race_chunks));
+      std::vector<bool> raced(chunks.size());
+      for (const auto i : candidates) raced[i] = true;
+      std::vector<ChunkWork> ordered;
+      ordered.reserve(chunks.size());
+      for (std::size_t i = 0; i < chunks.size(); ++i) if (raced[i]) ordered.push_back(std::move(chunks[i]));
+      for (std::size_t i = 0; i < chunks.size(); ++i) if (!raced[i]) ordered.push_back(std::move(chunks[i]));
+      chunks.swap(ordered);
+      probe.kind = Probe::kRace;
+      probe.race_end = candidates.size();
+    }
+  }
+  window_start = now();
   struct Worker {
     InstallerHooks::ChunkFetcher fetcher;
     pthread_t thread{};
     bool started = false, busy = false, ready = false;
     std::size_t work = 0;
+    std::size_t served = 0;  // the server the ready chunk came from
     std::vector<std::uint8_t> plain;
     std::uint64_t compressed_bytes = 0, retries = 0, corrupt_retries = 0;
     Clock::duration fetch{}, process{}, backoff{};
@@ -693,6 +802,89 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   const auto publish_failure = [&](InstallError error, std::string detail) {
     std::lock_guard<std::mutex> lock(mutex);
     fail_locked(error, std::move(detail));
+  };
+  // Ends the race or re-race once every server has its samples (or keeps failing), its chunks are done
+  // or its time is up. The winner has the best median rate; a server with more than half of its
+  // requests failed gets none.
+  const auto end_probe_locked = [&](Clock::time_point at) {
+    if (probe.kind == Probe::kNone) return;
+    const bool race = probe.kind == Probe::kRace;
+    struct Score { std::size_t requests = 0, failures = 0; std::vector<double> rates; };
+    std::vector<Score> scores(server_count);
+    for (const auto& sample : probe.samples) {
+      auto& score = scores[sample.server];
+      ++score.requests;
+      if (sample.failed) ++score.failures;
+      else if (Scored(sample)) score.rates.push_back(SampleRate(sample));
+    }
+    const std::size_t need = race ? kRaceSamples : kReraceSamples;
+    const bool settled = std::all_of(scores.begin(), scores.end(), [&](const Score& score) {
+      return score.rates.size() >= need || score.failures >= need;
+    });
+    const bool drained = probe.in_flight == 0 && (next_chunk == chunks.size() || (race && next_chunk >= probe.race_end));
+    const bool capped = probe.started &&
+        at - probe.start >= std::chrono::seconds(race ? kRaceCapSeconds : kReraceCapSeconds);
+    if (!settled && !drained && !capped) return;
+    std::optional<std::size_t> winner;
+    double best = 0;
+    std::size_t scored = 0;
+    std::string rates;
+    for (std::size_t i = 0; i < server_count; ++i) {
+      const auto& score = scores[i];
+      scored += score.rates.size();
+      const bool failing = score.failures * 2 > score.requests;
+      const auto rate = failing ? 0.0 : Median(score.rates);
+      if (!failing && !score.rates.empty() && (!winner || rate > best)) { winner = i; best = rate; }
+      if (i >= 8 || score.requests == 0 || (!failing && score.rates.empty())) continue;
+      char text[24] = "failed";
+      if (!failing) std::snprintf(text, sizeof(text), "%.1f", rate);
+      rates += (rates.empty() ? "" : ",") + server_tag(i) + ":" + text;
+    }
+    ProbeReport report;
+    report.step = race ? "race" : "rerace";
+    report.result = winner ? "won" : "timeout";
+    report.detail = "winner=" + (winner ? server_tag(*winner) : "none") + " rates=" + (rates.empty() ? "none" : rates) +
+                    " samples=" + std::to_string(scored) +
+                    " race_ms=" + std::to_string(probe.started ? Milliseconds(at - probe.start) : 0);
+    if (winner) {
+      primary = *winner;
+      primary_chosen = true;
+      report.remember = servers[*winner].host;
+    } else if (!race) {
+      report.remember = std::string();  // the remembered winner no longer holds
+    }
+    reports.push_back(std::move(report));
+    probe.kind = Probe::kNone;
+    probe.started = false;
+    probe.in_flight = 0;
+    probe.samples.clear();
+    ++probe.generation;
+    window.clear();
+    window_start = at;
+    sags = 0;
+    baseline = 0;
+  };
+  const auto check_locked = [&](Clock::time_point at) {
+    if (!checking || probe.kind != Probe::kNone || at - window_start < std::chrono::seconds(kCheckWindowSeconds)) return;
+    std::vector<double> rates;
+    for (const auto& sample : window) if (sample.server == primary) rates.push_back(SampleRate(sample));
+    window.clear();
+    window_start = at;
+    if (rates.size() < kCheckMinSamples) return;  // tiny files, or a writer that holds the workers
+    const auto rate = Median(rates);
+    if (baseline <= 0) { baseline = rate; return; }
+    if (rate >= baseline / 2) { sags = 0; return; }
+    if (++sags < 2) return;
+    sags = 0;
+    if (reraces >= kReraceLimit) {
+      if (!limit_logged) reports.push_back({"rerace", "limit", "winner=" + server_tag(primary), std::nullopt});
+      limit_logged = true;
+      return;
+    }
+    ++reraces;
+    probe.kind = Probe::kRerace;
+    probe.started = true;
+    probe.start = at;
   };
   // Workers publish their own counters under this lock. Never query their clients here.
   const auto snapshot = [&] {
@@ -746,10 +938,13 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
 #endif
     if (!worker->fetcher.fetch) { publish_failure(InstallError::kNetwork, "cannot create fetcher"); break; }
     auto* self = worker.get();
-    self->run = [&, self] {
+    self->run = [&, self, slot = static_cast<std::size_t>(index)] {
       // Destroy the HTTP client on the same thread that used it, after publishing its counters.
       ScopeExit release_fetcher{[self] { self->fetcher = {}; }};
-      std::size_t server_cursor = 0;
+      std::size_t server_cursor = 0, last_base = 0;
+      std::uint64_t probe_generation = 0;
+      std::size_t probe_taken = 0;
+      std::vector<ServerSample> attempts;
       std::uint64_t chunks_since_failover = 0;
       unsigned failed_returns = 0;
       bool returning = false;
@@ -763,6 +958,9 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       try {
 #endif
         while (!stop.load()) {
+          std::size_t base = 0;
+          bool probe_chunk = false, returns = false;
+          std::uint64_t chunk_generation = 0;
           {
             std::unique_lock<std::mutex> lock(mutex);
             changed.wait(lock, [&] { return stop.load() || !self->busy; });
@@ -771,16 +969,39 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
             self->busy = true;
             ++occupied;
             peak_active = std::max(peak_active, static_cast<std::uint32_t>(occupied));
+            base = primary;
+            returns = primary_chosen;
+            // A race goes round the servers, two chunks in a row on each: the first may open the connection.
+            if (probe.kind == Probe::kRace ? self->work < probe.race_end
+                : probe.kind == Probe::kRerace && chunks[self->work].chunk->compressed_size >= kRaceChunkBytes) {
+              if (probe_generation != probe.generation) { probe_generation = probe.generation; probe_taken = 0; }
+              base = (slot + probe_taken++ / 2) % server_count;
+              probe_chunk = true;
+              chunk_generation = probe.generation;
+              ++probe.in_flight;
+              if (!probe.started) { probe.started = true; probe.start = now(); }
+            }
           }
-          if (order.preferred_found && server_cursor % servers.size() != 0 && failed_returns < 4 &&
+          if (!probe_chunk && base != last_base) {
+            // A new primary: start there, as a new download would.
+            last_base = base;
+            server_cursor = 0;
+            chunks_since_failover = 0;
+            failed_returns = 0;
+            returning = false;
+          }
+          // A race chunk fails over from its own server and leaves the worker's failover state alone.
+          std::size_t probe_cursor = 0;
+          auto& cursor = probe_chunk ? probe_cursor : server_cursor;
+          if (!probe_chunk && returns && server_cursor % server_count != 0 && failed_returns < 4 &&
               chunks_since_failover >= (32u << failed_returns)) {
             server_cursor = 0;
             returning = true;
           }
           const auto failed_over = [&] {
-            if (returning && server_cursor % servers.size() == 0) { ++failed_returns; returning = false; }
-            ++server_cursor;
-            chunks_since_failover = 0;
+            if (!probe_chunk && returning && server_cursor % server_count == 0) { ++failed_returns; returning = false; }
+            ++cursor;
+            if (!probe_chunk) chunks_since_failover = 0;
           };
           const auto& work = chunks[self->work];
           const auto& placement = files[work.file].placement;
@@ -790,28 +1011,41 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
           std::string detail;
           std::vector<std::uint8_t> plain;
           std::uint64_t compressed_bytes = 0;
-          const auto attempts = static_cast<std::size_t>(kChunkAttempts) * std::min<std::size_t>(servers.size(), 2);
-          for (std::size_t attempt = 0; attempt < attempts && !stop.load(); ++attempt) {
+          const auto attempts_allowed = static_cast<std::size_t>(kChunkAttempts) * std::min<std::size_t>(server_count, 2);
+          attempts.clear();
+          for (std::size_t attempt = 0; attempt < attempts_allowed && !stop.load(); ++attempt) {
             if (attempt > 0) ++retries;
             std::vector<std::uint8_t> encrypted;
-            const auto bucket = std::min<std::size_t>(server_cursor % servers.size(), 8);
+            const auto server_index = (base + cursor) % server_count;
+            const auto bucket = std::min<std::size_t>(server_index, 8);
             const auto before = self->fetcher.stats ? self->fetcher.stats() : CdnStats{};
             const auto fetched = Timed(fetch_time, [&] {
               return Timed(server_fetch[bucket], [&] {
-                return self->fetcher.fetch(servers[server_cursor % servers.size()], grant.depot_id, Hex(chunk.sha),
+                return self->fetcher.fetch(servers[server_index], grant.depot_id, Hex(chunk.sha),
                                            static_cast<std::size_t>(chunk.compressed_size) + 4096, stop, &encrypted);
               });
             });
+            const auto after = self->fetcher.stats ? self->fetcher.stats() : CdnStats{};
             auto& server = server_stats[bucket];
             ++server.requests;
             if (fetched != CdnError::kNone) ++server.failures;
-            server.bytes += self->fetcher.stats ? self->fetcher.stats().bytes - before.bytes : encrypted.size();
+            server.bytes += self->fetcher.stats ? after.bytes - before.bytes : encrypted.size();
             server.fetch_ms = Milliseconds(server_fetch[bucket]);
             if (fetched == CdnError::kCanceled || stop.load()) { result = InstallError::kCanceled; break; }
+            // Transfer time only: connecting and waiting for the first byte are not the server's bandwidth.
+            ServerSample sample;
+            sample.server = server_index;
+            sample.bytes = chunk.compressed_size;
+            sample.timed = static_cast<bool>(self->fetcher.stats);
+            sample.new_connection = after.new_connections > before.new_connections;
+            const auto total_ms = after.total_ms - before.total_ms;
+            sample.transfer_ms = total_ms - std::min(total_ms, after.first_byte_ms - before.first_byte_ms);
+            sample.failed = fetched != CdnError::kNone;
+            attempts.push_back(sample);
             if (fetched != CdnError::kNone) {
               failed_over();
               result = InstallError::kNetwork;
-              if (hooks_.pause && attempt + 1 < attempts)
+              if (hooks_.pause && attempt + 1 < attempts_allowed)
                 Timed(backoff_time, [&] { hooks_.pause(1000 << std::min<std::size_t>(attempt, 3), stop); });
               continue;
             }
@@ -819,14 +1053,15 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
               return ProcessDepotChunk(encrypted, grant.key, chunk.original_size, chunk.crc, chunk.sha, &plain);
             });
             if (processed == ChunkError::kNone) {
-              if (server_cursor % servers.size() == 0) {
+              if (!probe_chunk && server_cursor % server_count == 0) {
                 returning = false;
-              } else ++chunks_since_failover;
+              } else if (!probe_chunk) ++chunks_since_failover;
               compressed_bytes = encrypted.size(); result = InstallError::kNone; break;
             }
             ++server.failures;  // received bytes that failed verification are unusable too
+            attempts.back().failed = true;
             failed_over();
-            if (attempt + 1 < attempts) ++corrupt_retries;
+            if (attempt + 1 < attempts_allowed) ++corrupt_retries;
             result = InstallError::kCorrupt;
           }
           if (stop.load()) result = InstallError::kCanceled;
@@ -843,8 +1078,16 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
             self->fetch = fetch_time; self->process = process_time; self->backoff = backoff_time;
             self->retries = retries; self->corrupt_retries = corrupt_retries; self->cdn = cdn;
             self->server_stats = server_stats;
+            if (probe_chunk && probe.kind != Probe::kNone && chunk_generation == probe.generation) {
+              --probe.in_flight;
+              probe.samples.insert(probe.samples.end(), attempts.begin(), attempts.end());
+            } else if (checking && probe.kind == Probe::kNone) {
+              for (const auto& sample : attempts) if (Scored(sample)) window.push_back(sample);
+            }
             if (result != InstallError::kNone) { fail_locked(result, std::move(detail)); break; }
+            end_probe_locked(now());
             self->plain = std::move(plain); self->compressed_bytes = compressed_bytes;
+            self->served = attempts.empty() ? base : attempts.back().server;
             self->ready = true;
             ++waiting;
             peak_waiting = std::max(peak_waiting, static_cast<std::uint32_t>(waiting));
@@ -884,6 +1127,37 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     work.prepared = true;
     return true;
   };
+  // Ends a race at its deadline, judges the check window, logs what ended and names the server for
+  // the Queue: the server the last written chunk came from, `primary` before one, none while the race runs.
+  // A provider without a display name is not shown by its host.
+  std::optional<std::size_t> named, last_served;
+  bool racing = false;
+  const auto show = [&](std::optional<std::size_t> index) {
+    if (index == named) return;
+    named = index;
+    progress.server_name.clear();
+    if (!index) return;
+    progress.server_name = CdnServerDisplayName(servers[*index].host);
+    if (Lower(progress.server_name) == Lower(servers[*index].host)) progress.server_name = "Network cache";
+  };
+  const auto tick = [&] {
+    std::vector<ProbeReport> ended;
+    std::size_t current = 0;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      const auto at = now();
+      end_probe_locked(at);
+      check_locked(at);
+      ended.swap(reports);
+      racing = probe.kind == Probe::kRace;
+      current = primary;
+    }
+    for (const auto& report : ended) {
+      if (hooks_.race) hooks_.race(report.step, report.result, report.detail);
+      if (report.remember && hooks_.remember_fastest) hooks_.remember_fastest(*report.remember);
+    }
+    show(racing ? std::nullopt : last_served ? last_served : std::optional<std::size_t>(current));
+  };
   std::size_t prepare_next = 0, front_file = 0, written_chunks = 0;
   while (true) {
     if (cancel.load()) publish_failure(InstallError::kCanceled, "canceled");
@@ -896,10 +1170,13 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       }
     }
     snapshot();
+    tick();
     report_progress();
     if (ready) {
       const auto& work = chunks[ready->work];
       const auto& file = *files[work.file].placement.file;
+      last_served = ready->served;
+      if (!racing) show(last_served);
       if (!prepare_file(work.file)) { publish_failure(InstallError::kStorage, "cannot create file"); break; }
       if (stats.chunks_done == 0) trace("first-write");
       const auto path = target.install_root + "/" + file.path;
@@ -939,6 +1216,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     changed.wait_for(lock, std::chrono::milliseconds(50), [&] { return stop.load() || waiting != 0; });
   }
   join_workers();
+  tick();  // a race that ended with the last chunk
   if (first_error != InstallError::kNone) {
     outcome.error = first_error; outcome.detail = first_detail; outcome.progress = progress;
     return outcome;

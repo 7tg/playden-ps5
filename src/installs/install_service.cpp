@@ -513,7 +513,7 @@ void InstallService::Pause(GameId id) {
   if (!job) return;
   if (active_ == id) active_cancel_.store(true);
   job->view.state = InstallJobState::kPaused;
-  job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset();
+  job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset(); job->view.server_name.clear();
   job->view.failure.clear();
   job->waiting = false;
   Publish();
@@ -639,6 +639,7 @@ void InstallService::QueueRemoval(Removal removal) {
   if (auto* running = Find(*active_); running && running->view.state == InstallJobState::kRunning && !running->cancel_requested) {
     running->view.state = InstallJobState::kQueued;
     running->rate.Reset(); running->view.bytes_per_second.reset(); running->view.eta_seconds.reset();
+    running->view.server_name.clear();
     active_cancel_.store(true);
   }
 }
@@ -745,7 +746,7 @@ void InstallService::Run() {
           // Trying again: what it said while it waited no longer applies.
           if (job.waiting) { job.waiting = false; job.view.failure.clear(); }
           job.rate.Reset();
-          job.view.bytes_per_second.reset(); job.view.eta_seconds.reset();
+          job.view.bytes_per_second.reset(); job.view.eta_seconds.reset(); job.view.server_name.clear();
           job.view.step = InstallStep::kStarting;
           job.view.step_since = std::chrono::steady_clock::now();
           next = job.view.id;
@@ -804,7 +805,9 @@ void InstallService::Run() {
     }
 
     const auto result = runner->Install(*next, next_root, active_cancel_,
-                                        [this, id = *next](std::uint64_t done, std::uint64_t total, std::uint64_t held) {
+                                        [this, runner, id = *next](std::uint64_t done, std::uint64_t total, std::uint64_t held) {
+                                          // On this worker, inside runner->Install.
+                                          auto server = runner->DownloadServerName();
                                           std::lock_guard<std::mutex> lock(mutex_);
                                           if (auto* job = Find(id)) {
                                             // Under way: a later wait starts short again.
@@ -813,6 +816,7 @@ void InstallService::Run() {
                                             job->view.done_bytes = done;
                                             job->view.total_bytes = total;
                                             job->view.held_bytes = held;
+                                            if (job->view.state == InstallJobState::kRunning) job->view.server_name = std::move(server);
                                             ++revision_;  // progress only; the registry is unchanged
                                           }
                                         },
@@ -854,7 +858,7 @@ void InstallService::Run() {
         job->waiting = true;
         job->retry_delay = job->retry_delay.count() == 0 ? first_retry_ : std::min(job->retry_delay * 2, most_retry_);
         job->not_before = std::chrono::steady_clock::now() + job->retry_delay;
-        job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset();
+        job->rate.Reset(); job->view.bytes_per_second.reset(); job->view.eta_seconds.reset(); job->view.server_name.clear();
       } else if (job && job->view.state == InstallJobState::kRunning) {
         // A Pause or Resume that arrived while the run was stopping already chose the state.
         ClearWait(*job);

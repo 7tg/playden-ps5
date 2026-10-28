@@ -348,8 +348,10 @@ build/homebrew-host/playden-homebrew --simulation --scenario signed-out
   **Downloads for slow networks**: Playden then downloads 8 pieces at the same time instead of 4. On a fast connection
   it can be slower, so turn it off again if downloads get slower. If downloads stay slow, open Settings › Downloads ›
   **Download server**, use **Test servers** and choose the fastest server. The test downloads up to 160 MB.
-  Default uses the server Steam lists first. Each provider chooses its nearby server through DNS or anycast,
-  so your DNS resolver can affect the result.
+  Or choose **Fastest**: each download of 200 MB or more then starts with a short test on its own files, uses the
+  fastest server and tests again if that server slows down. **Steam default** is still the default: it uses the
+  server Steam lists first. Each provider chooses its nearby server through DNS or anycast, so your DNS resolver
+  can affect the result.
 
 See the [compatibility list](COMPATIBILITY.md) for what we know about each game.
 

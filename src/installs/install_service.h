@@ -69,6 +69,7 @@ struct InstallJobView {
   std::string volume_id;
   std::optional<std::uint64_t> bytes_per_second;
   std::optional<int> eta_seconds;
+  std::string server_name;  // while running: where the download comes from, a display name (never a host)
   InstallStep step = InstallStep::kStarting;  // while running
   std::chrono::steady_clock::time_point step_since{};
 };
@@ -136,6 +137,9 @@ class InstallRunner {
                          const std::function<void(std::uint64_t done, std::uint64_t total, std::uint64_t held)>& progress,
                          const std::function<void(InstallStep)>& step) = 0;
   virtual std::string Remove(const std::string& root) = 0;
+  // While Install runs, called on its thread from `progress`: the display name of the server the
+  // download comes from, or empty.
+  virtual std::string DownloadServerName() const { return {}; }
   // An uninstalled game whose folder is missing: forgotten with nothing to delete (on the worker).
   virtual void Forget(const GameId& id) { (void)id; }
 };

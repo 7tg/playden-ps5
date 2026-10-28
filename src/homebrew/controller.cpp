@@ -1974,7 +1974,8 @@ void Controller::TickInstalls() {
       case steam::InstallJobState::kFailed: state = JobState::Failed; break;
     }
     jobs.push_back({job.id, state, job.done_bytes, job.total_bytes, job.failure, job.volume_id,
-                    job.bytes_per_second, job.eta_seconds, job.held_bytes, checking_licenses});
+                    job.bytes_per_second, job.eta_seconds, job.held_bytes, checking_licenses,
+                    state == JobState::Downloading ? job.server_name : std::string()});
   }
   std::vector<LiveInstalledGame> installed;
   for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes, game.volume_id, game.available});

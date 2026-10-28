@@ -675,12 +675,18 @@ void live_download_telemetry() {
     check(FormatDownloadRate(0, {}) == "0.0 MB/s · —", "stalled rate has no invented ETA");
     check(FormatDownloadRate(1048576, {}) == "1.0 MB/s · —", "unknown total keeps rate but hides ETA");
     check(FormatDownloadRate({}, 300) == "—", "unknown rate hides stale ETA");
+    check(FormatDownloadRate(1048576, 61, "Fastly") == "Fastly · 1.0 MB/s · ~2 min left", "the server comes first");
+    check(FormatDownloadRate({}, 61, "Fastly") == "—", "no rate, no server");
+    job.server_name = "Akamai";
+    model.UpdateInstalls({job}, {});
+    check(model.state().jobs[0].server_name == "Akamai", "the live server name reaches the Queue");
     check(FormatDownloadRate(1048576, 59) == "1.0 MB/s · ~59 sec left", "short ETA");
     check(FormatDownloadRate(1048576, 61) == "1.0 MB/s · ~2 min left", "ETA rounds up");
     for (const auto state : {JobState::Paused, JobState::Queued, JobState::Failed}) {
         job.state = state; // stale incoming fields must never appear outside an active transfer
         model.UpdateInstalls({job}, {});
-        check(!model.state().jobs[0].bytes_per_second && !model.state().jobs[0].eta_seconds, "inactive telemetry clears");
+        check(!model.state().jobs[0].bytes_per_second && !model.state().jobs[0].eta_seconds &&
+                  model.state().jobs[0].server_name.empty(), "inactive telemetry clears");
     }
     // An imported game's copy into Playden says "Copying" (tiles, Queue) where a store's download says
     // "Downloading"; other states and a job's own words read the same for both.

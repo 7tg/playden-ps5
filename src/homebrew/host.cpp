@@ -568,7 +568,8 @@ int main(int argc, char** argv) {
             if (download_tuning_state.downloads_slow_network.load()) tuning.slots = 8;
             {
                 std::lock_guard lock(download_tuning_state.mutex);
-                tuning.preferred_server = download_tuning_state.download_server;
+                tuning.fastest = download_tuning_state.download_server == playden::steam::kFastestDownloadServer;
+                if (!tuning.fastest) tuning.preferred_server = download_tuning_state.download_server;
             }
             return tuning;
         });

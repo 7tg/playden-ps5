@@ -2055,7 +2055,8 @@ class Render::Impl
                         ui::text(scene_, fonts_.regular,
                                  !job->failure.empty() ? job->failure
                                      : FormatDownloadRate(job->state == JobState::Downloading ? job->bytes_per_second : std::nullopt,
-                                                          job->state == JobState::Downloading ? job->eta_seconds : std::nullopt),
+                                                          job->state == JobState::Downloading ? job->eta_seconds : std::nullopt,
+                                                          job->state == JobState::Downloading ? job->server_name : std::string()),
                                  right, top + 99.0F, 21.0F, job->failure.empty() ? kSecondary : kRed, gfx::Align::right);
                     }
                 }

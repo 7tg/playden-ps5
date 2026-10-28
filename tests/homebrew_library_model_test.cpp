@@ -3180,23 +3180,27 @@ void live_download_server_picker() {
     servers.phase = "listed";
     servers.servers = {{"akamai.invalid", "Akamai"}, {"fastly.invalid", "Fastly"}, {"cache.invalid", "Network cache", true}};
     model.ApplyLiveDownloadServers(servers);
-    check(find_row(model, "settings-download-server")->value == "Default" &&
-              find_row(model, "settings-download-server")->subtitle ==
-                  "Uses the server Steam lists first. Choose one if downloads are slow.",
-          "the server row explains Default");
+    check(find_row(model, "settings-download-server")->value == "Steam default" &&
+              find_row(model, "settings-download-server")->subtitle == "Uses the server Steam lists first.",
+          "the server row explains Steam default");
     activate(model, "settings-download-server");
     check(model.TakeDownloadServerRequests() == std::vector<DownloadServerRequest>{DownloadServerRequest::List},
           "opening the picker asks the worker for a new list");
     check(find_row(model, "download-server-listing")->title == "Getting the server list…" &&
               model.state().navigation.focus_key == "download-server-auto" &&
               model.view().subtitle == "Applies to downloads that start or resume from now.",
-          "listing keeps Default available and explains when the choice applies");
+          "listing keeps Steam default available and explains when the choice applies");
     model.ApplyLiveDownloadServers(servers);
     check(model.state().navigation.modals.back().action_keys ==
-                  std::vector<std::string>{"download-server-test", "download-server-auto", "download-server-0",
-                                           "download-server-1", "download-server-2", "cancel"} &&
-              find_row(model, "download-server-auto")->title == "Default",
-          "Test servers comes first, then Default and the listed servers");
+                  std::vector<std::string>{"download-server-fastest", "download-server-auto", "download-server-0",
+                                           "download-server-1", "download-server-2", "download-server-test", "cancel"} &&
+              find_row(model, "download-server-fastest")->title == "Fastest" &&
+              find_row(model, "download-server-fastest")->subtitle ==
+                  "Tests the servers when a download starts and uses the fastest one." &&
+              !find_row(model, "download-server-fastest")->selected &&
+              find_row(model, "download-server-auto")->title == "Steam default" &&
+              find_row(model, "download-server-auto")->selected,
+          "Fastest comes first, then Steam default, the listed servers and Test servers");
     check(find_row(model, "download-server-2")->subtitle == "HTTP", "plain HTTP servers are marked");
     activate(model, "download-server-1");
     check(model.state().navigation.modals.empty() && model.state().download_server == "fastly.invalid" &&
@@ -3257,7 +3261,7 @@ void live_download_server_picker() {
     restarted.ApplyLiveDownloadServers(servers);
     check(find_row(restarted, "settings-download-server")->value == "Akamai" &&
               find_row(restarted, "settings-download-server")->subtitle ==
-                  "Not offered on this network now. Default is used.", "a missing stored server falls back visibly");
+                  "Not offered on this network now. Steam default is used.", "a missing stored server falls back visibly");
     activate(restarted, "settings-download-server");
     (void)restarted.TakeDownloadServerRequests();
     servers.phase = "list-failed";
@@ -3288,7 +3292,42 @@ void live_download_server_picker() {
     check(find_row(restarted, "download-server-test")->enabled, "pausing the download enables measurement");
     activate(restarted, "download-server-auto");
     check(restarted.state().download_server.empty() && restarted.ExportPreferences().download_server.empty(),
-          "Default clears the stored choice");
+          "Steam default clears the stored choice");
+    activate(restarted, "settings-download-server");
+    (void)restarted.TakeDownloadServerRequests();
+    restarted.ApplyLiveDownloadServers(servers);
+    activate(restarted, "download-server-fastest");
+    check(restarted.state().navigation.modals.empty() && restarted.ExportPreferences().download_server == "fastest" &&
+              find_row(restarted, "settings-download-server")->value == "Fastest" &&
+              find_row(restarted, "settings-download-server")->subtitle ==
+                  "Tests the servers when a download starts and uses the fastest one.",
+          "choosing Fastest stores it and the row says so");
+    activate(restarted, "settings-download-server");
+    (void)restarted.TakeDownloadServerRequests();
+    check(restarted.state().navigation.focus_key == "download-server-fastest", "the picker opens on Fastest while listing");
+    restarted.ApplyLiveDownloadServers(servers);
+    check(restarted.state().navigation.focus_key == "download-server-fastest" &&
+              find_row(restarted, "download-server-fastest")->selected && !find_row(restarted, "download-server-auto")->selected,
+          "the picker marks and focuses Fastest");
+    restarted.UpdateInstalls({{SteamId(10), JobState::Paused, 1, 100}}, {});
+    activate(restarted, "download-server-test");
+    (void)restarted.TakeDownloadServerRequests();
+    servers.phase = "tested";
+    servers.rates = {{"fastly.invalid", 3.1}, {"cache.invalid", 9.5}};
+    restarted.ApplyLiveDownloadServers(servers);
+    check(restarted.state().navigation.focus_key == "download-server-1" && restarted.state().download_server == "fastest",
+          "after a test the focus goes to the fastest tested server, not to Fastest");
+    // A version 8 file written with Fastest loads as Fastest.
+    auto reloaded = make_live();
+    playden::PreferencesLoadResult fastest;
+    fastest.preferences.download_server = "fastest";
+    check(reloaded.ApplyPreferences(reloaded.BeginPreferencesLoad(), fastest) &&
+              reloaded.state().download_server == "fastest", "a stored Fastest loads");
+    reloaded.UpdateAccount({AuthState::SignedIn, "account", "Owner", {}, {}, false});
+    reloaded.action("l1");
+    servers.phase = "listed";
+    reloaded.ApplyLiveDownloadServers(servers);
+    check(find_row(reloaded, "settings-download-server")->value == "Fastest", "a loaded Fastest shows in Settings");
 }
 
 void leftover_titles_require_confirmation_and_follow_the_queue() {

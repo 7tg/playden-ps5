@@ -20,7 +20,7 @@ std::string FormatInstallServerList(const std::vector<ContentServer>& servers, c
   const std::string pref = preference ? preference : "auto";
   std::string detail = "n=" + std::to_string(servers.size()) + " https=" +
       std::to_string(std::count_if(servers.begin(), servers.end(), [](const ContentServer& server) { return server.https; })) +
-      " pref=" + (pref == "chosen" || pref == "missing" ? pref : "auto") + " first=" +
+      " pref=" + (pref == "chosen" || pref == "missing" || pref == "fastest" ? pref : "auto") + " first=" +
       (servers.empty() ? "none" : CdnServerLabel(servers.front().host) + "@0") + " order=";
   for (std::size_t i = 0; i < std::min<std::size_t>(servers.size(), 8); ++i) {
     if (i) detail += ',';
@@ -77,6 +77,28 @@ std::string FormatInstallStats(const char* phase, const InstallStats& stats) {
   add("access", stats.access_ms); add("servers", stats.servers_ms); add("manifest", stats.manifests_ms); add("prep", stats.prepare_ms);
   add("http_ms", stats.total_ms); add("http_b", stats.bytes); add("fail", stats.failures);
   return detail;
+}
+
+std::optional<std::string> FastestServerCache::Get(std::uint64_t account) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (host_.empty()) return std::nullopt;
+  if (account != account_ || Time() - at_ >= std::chrono::minutes(kMinutes)) {
+    host_.clear();
+    return std::nullopt;
+  }
+  return host_;
+}
+
+void FastestServerCache::Remember(std::uint64_t account, const std::string& host) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  account_ = account;
+  host_ = host;
+  at_ = Time();
+}
+
+void FastestServerCache::Clear() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  host_.clear();
 }
 
 std::string SteamInstallRunner::Remove(const std::string& root) {
@@ -136,7 +158,11 @@ InstallRunner::Result SteamInstallRunner::InstallApp(const StoredSession& sessio
                                                   const std::function<void(InstallStep)>& step) {
   Result result;
   current_app_.store(id);
+  server_name_.clear();
   installer_.SetTuning(tuning_ ? tuning_() : DownloadTuning{});
+  const auto account = session.steam_id;
+  installer_.SetFastestCache([this, account] { return fastest_.Get(account); },
+                             [this, account](const std::string& host) { fastest_.Remember(account, host); });
   auto log = [this, id](const char* step, const char* category, const char* detail) {
     if (log_) log_(id, step, category, detail);
   };
@@ -242,6 +268,7 @@ InstallRunner::Result SteamInstallRunner::InstallApp(const StoredSession& sessio
   }
   if (step) step(InstallStep::kDownloading);
   const auto outcome = installer_.Run(session, target, cancel, [&](const InstallProgress& state) {
+    server_name_ = state.server_name;
     if (progress) progress(state.download_done, state.download_total, state.held_bytes);
   });
   if (!outcome.skipped_depots.empty()) {

@@ -6,6 +6,9 @@
 #include <mbedtls/sha1.h>
 
 #include <algorithm>
+#include <functional>
+#include <optional>
+#include <set>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -1315,6 +1318,571 @@ void RemovesOnlyManagedFolders(const std::filesystem::path& base) {
 
 }  // namespace
 
+// Fastest: fake HTTP clients on a fake clock. A client's first request to a server opens a connection
+// (connect_ms before the first byte); the transfer takes the chunk's declared size at the server's rate.
+struct FakeNet {
+  struct Spec {
+    std::uint64_t connect_ms = 20;
+    std::function<double(std::int64_t now_ms, int request)> rate;  // MB/s; 0 fails the request
+  };
+  struct Client {
+    std::set<std::string> connected;
+    CdnStats stats;
+  };
+  World* world = nullptr;
+  std::mutex mutex;
+  std::int64_t now_ms = 0;
+  std::vector<std::string> order;  // the server list
+  std::map<std::string, Spec> specs;
+  std::map<std::string, int> requests;
+  std::map<std::string, std::uint32_t> declared;  // sha -> compressed size the manifest claims
+  std::vector<std::string> hosts, shas;           // successful requests, in order
+  int cancel_after = -1;
+  std::atomic<bool>* cancel = nullptr;
+
+  void Add(const std::string& host, double mb_per_s, std::uint64_t connect_ms = 20) {
+    order.push_back(host);
+    specs[host] = {connect_ms, [mb_per_s](std::int64_t, int) { return mb_per_s; }};
+  }
+  void Advance(std::int64_t ms) {
+    std::lock_guard<std::mutex> lock(mutex);
+    now_ms += ms;
+  }
+  std::chrono::steady_clock::time_point Now() {
+    std::lock_guard<std::mutex> lock(mutex);
+    return std::chrono::steady_clock::time_point(std::chrono::milliseconds(now_ms));
+  }
+  // Large files: each chunk is declared at `bytes` compressed bytes; the served containers stay small.
+  ManifestFile File(const std::string& path, int count, std::uint32_t bytes) {
+    std::vector<std::string> pieces;
+    for (int i = 0; i < count; ++i) pieces.push_back(path + "-" + std::to_string(i) + ";");
+    auto file = world->AddFile(path, pieces);
+    for (auto& chunk : file.chunks) {
+      chunk.compressed_size = bytes;
+      declared[HexOf(chunk.sha)] = bytes;
+    }
+    return file;
+  }
+  InstallerHooks::ChunkFetcher Fetcher() {
+    auto client = std::make_shared<Client>();
+    InstallerHooks::ChunkFetcher fetcher;
+    fetcher.fetch = [this, client](const ContentServer& server, std::uint32_t, const std::string& sha, std::size_t,
+                                   const std::atomic<bool>&, std::vector<std::uint8_t>* out) {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (cancel_after >= 0 && static_cast<int>(shas.size()) >= cancel_after) {
+        cancel->store(true);
+        return CdnError::kCanceled;
+      }
+      const auto& spec = specs.at(server.host);
+      const double rate = spec.rate(now_ms, requests[server.host]++);
+      const bool fresh = client->connected.insert(server.host).second;
+      const std::uint64_t before_body = (fresh ? spec.connect_ms : 0) + 2;
+      ++client->stats.requests;
+      client->stats.new_connections += fresh ? 1 : 0;
+      if (rate <= 0) {
+        client->connected.erase(server.host);
+        ++client->stats.failures;
+        client->stats.first_byte_ms += before_body;
+        client->stats.total_ms += before_body;
+        now_ms += static_cast<std::int64_t>(before_body);
+        return CdnError::kNetwork;
+      }
+      const auto found = declared.find(sha);
+      const std::uint64_t bytes = found == declared.end() ? world->served.at(sha).size() : found->second;
+      const auto transfer = static_cast<std::uint64_t>(static_cast<double>(bytes) / (rate * 1000.0));
+      client->stats.first_byte_ms += before_body;
+      client->stats.total_ms += before_body + transfer;
+      client->stats.bytes += bytes;
+      now_ms += static_cast<std::int64_t>(before_body + transfer);
+      hosts.push_back(server.host);
+      shas.push_back(sha);
+      *out = world->served.at(sha);
+      return CdnError::kNone;
+    };
+    fetcher.stats = [this, client] {
+      std::lock_guard<std::mutex> lock(mutex);
+      return client->stats;
+    };
+    fetcher.last_failure = [] { return std::string(); };
+    return fetcher;
+  }
+  InstallerHooks Hooks() {
+    auto hooks = world->Hooks();
+    hooks.servers = [this](std::uint32_t, const std::atomic<bool>&, std::vector<ContentServer>* out) {
+      for (const auto& host : order) out->push_back({host, host, 0, true});
+      return CdnError::kNone;
+    };
+    hooks.make_fetcher = [this] { return Fetcher(); };
+    hooks.now = [this] { return Now(); };
+    return hooks;
+  }
+};
+
+constexpr const char* kFastly = "fastly.cdn.steampipe.steamcontent.com";
+constexpr const char* kAkamai = "steampipe.akamaized.net";
+constexpr const char* kGoogle = "google2.cdn.steampipe.steamcontent.com";
+constexpr std::uint32_t kMegabyte = 1000 * 1000;
+
+struct RaceRun {
+  InstallOutcome outcome;
+  std::vector<std::string> races;       // "<step> <result> <detail>"
+  std::vector<std::string> remembered;  // remember_fastest calls
+  std::string listed;
+  std::string server_name;              // the last progress report's
+  std::optional<std::string> first_written_name;  // the report after the first write
+};
+
+struct RaceSetup {
+  int slots = 4;
+  std::optional<std::string> cached;
+  std::function<void()> on_progress;  // runs on the writer after each report
+  bool legacy_chunk_hook = false;     // no per-request stats, as InstallerHooks::chunk
+};
+
+RaceRun RunFastest(FakeNet& net, const std::filesystem::path& root, RaceSetup setup = {},
+                   std::atomic<bool>* external_cancel = nullptr) {
+  auto hooks = net.Hooks();
+  RaceRun run;
+  if (setup.legacy_chunk_hook) {
+    hooks.make_fetcher = nullptr;
+    auto fetcher = std::make_shared<InstallerHooks::ChunkFetcher>(net.Fetcher());
+    hooks.chunk = [fetcher](const ContentServer& server, std::uint32_t depot, const std::string& sha, std::size_t cap,
+                            const std::atomic<bool>& stop, std::vector<std::uint8_t>* out) {
+      return fetcher->fetch(server, depot, sha, cap, stop, out);
+    };
+  }
+  hooks.race = [&run](const char* step, const char* result, const std::string& detail) {
+    run.races.push_back(std::string(step) + " " + result + " " + detail);
+  };
+  hooks.cached_fastest = [&setup] { return setup.cached; };
+  hooks.remember_fastest = [&run](const std::string& host) { run.remembered.push_back(host); };
+  hooks.server_list = [&run](const std::vector<ContentServer>& servers, const char* preference) {
+    run.listed = FormatInstallServerList(servers, preference);
+  };
+  DepotInstaller installer(hooks);
+  DownloadTuning tuning{setup.slots, 256};
+  tuning.fastest = true;
+  installer.SetTuning(tuning);
+  std::atomic<bool> own_cancel{false};
+  auto& cancel = external_cancel ? *external_cancel : own_cancel;
+  net.cancel = &cancel;
+  bool written = false;
+  run.outcome = installer.Run({}, Target(root), cancel, [&](const InstallProgress& progress) {
+    if (!written && progress.download_done > 0) run.first_written_name = progress.server_name;
+    if (progress.download_done > 0) written = true;
+    run.server_name = progress.server_name;
+    if (setup.on_progress) setup.on_progress();
+  });
+  return run;
+}
+
+bool Has(const std::vector<std::string>& lines, const std::string& prefix) {
+  return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) { return line.rfind(prefix, 0) == 0; });
+}
+
+void FastestWorld(FakeNet& net, World& world) {
+  net.world = &world;
+  world.manifests[441].files.clear();
+  world.manifests[442].files.clear();
+}
+
+void RaceWinsAndLaterChunksUseIt(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.Add(kAkamai, 40);
+  net.Add(kGoogle, 20);
+  world.manifests[441].files = {net.File("pak", 300, kMegabyte)};
+  const auto run = RunFastest(net, root);
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(run.listed.find("pref=fastest") != std::string::npos);
+  CHECK(run.races.size() == 1 && Has(run.races, "race won winner=akamai#1 rates=fastly#0:10.0,akamai#1:40.0,google#2:20.0 "));
+  CHECK(std::stoull(run.races[0].substr(run.races[0].find("samples=") + 8)) >= 3 * DepotInstaller::kRaceSamples);
+  CHECK(run.races[0].find("steamcontent") == std::string::npos && run.races[0].find("akamaized") == std::string::npos);
+  CHECK(run.remembered == std::vector<std::string>{kAkamai});
+  // The name is the last written chunk's server; with four workers that can be a raced one (single-worker
+  // tests check it exactly).
+  CHECK(!run.server_name.empty());
+  // Workers that were fetching when the race ended finish there; everything after goes to the winner.
+  for (std::size_t i = 60; i < net.hosts.size(); ++i) CHECK(net.hosts[i] == kAkamai);
+}
+
+void TinyChunksSkipTheRace(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.Add(kAkamai, 40);
+  net.Add(kGoogle, 20);
+  // 204 MB, but only five chunks of at least 256 KB: fewer than two per server.
+  world.manifests[441].files = {net.File("big", 5, kMegabyte), net.File("small", 800, 255 * 1000)};
+  const auto run = RunFastest(net, root, {1});
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(run.races == std::vector<std::string>{"race skipped-no-large-chunks winner=none"});
+  CHECK(run.remembered.empty() && run.server_name == "Fastly");
+  for (const auto& host : net.hosts) CHECK(host == kFastly);  // Steam's order
+  // No reorder: chunks come in file order.
+  const auto& big = world.manifests[441].files[0];
+  CHECK(net.shas.front() == HexOf(big.chunks.front().sha));
+  // Under 200 MB pending.
+  FakeNet small_net;
+  auto small_world = MakeWorld();
+  FastestWorld(small_net, small_world);
+  small_net.Add(kFastly, 10);
+  small_net.Add(kAkamai, 40);
+  small_world.manifests[441].files = {small_net.File("pak", 150, kMegabyte)};
+  const auto small = RunFastest(small_net, root.string() + "-small");
+  CHECK(small.outcome.error == InstallError::kNone && small.races == std::vector<std::string>{"race skipped-small winner=none"});
+  // One server.
+  FakeNet one_net;
+  auto one_world = MakeWorld();
+  FastestWorld(one_net, one_world);
+  one_net.Add(kFastly, 10);
+  one_world.manifests[441].files = {one_net.File("pak", 250, kMegabyte)};
+  const auto one = RunFastest(one_net, root.string() + "-one");
+  CHECK(one.outcome.error == InstallError::kNone && one.races == std::vector<std::string>{"race one-server winner=none"});
+}
+
+void RaceFetchesLargeChunksAtTheEnd(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.Add(kAkamai, 40);
+  std::vector<ManifestFile> files;
+  for (int i = 0; i < 40; ++i) files.push_back(net.File("a-tiny-" + std::to_string(i), 1, 2000));
+  files.push_back(net.File("z-big", 220, kMegabyte));
+  world.manifests[441].files = files;
+  const auto run = RunFastest(net, root);
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(Has(run.races, "race won winner=akamai#1 "));
+  // The race chunks went first: the first 16 requests were chunks of the large file.
+  std::set<std::string> big;
+  for (const auto& chunk : files.back().chunks) big.insert(HexOf(chunk.sha));
+  for (std::size_t i = 0; i < 16; ++i) CHECK(big.count(net.shas[i]));
+  std::string expected;
+  for (int i = 0; i < 220; ++i) expected += "z-big-" + std::to_string(i) + ";";
+  CHECK(Read(root / "z-big") == expected);
+  CHECK(Read(root / "a-tiny-7") == "a-tiny-7-0;");
+  CHECK(std::filesystem::exists(root / DepotInstaller::kInstallRecord));
+  CHECK(!std::filesystem::exists(root / DepotInstaller::kJournalDir));
+}
+
+void SlowWriterAndHandshakesDoNotDecide(const std::filesystem::path& root) {
+  {
+    // The writer holds the only worker for 3 s after each chunk; scores come from transfer time.
+    auto world = MakeWorld();
+    FakeNet net;
+    FastestWorld(net, world);
+    net.Add(kFastly, 10);
+    net.Add(kAkamai, 25);
+    world.manifests[441].files = {net.File("pak", 220, kMegabyte)};
+    RaceSetup setup{1};
+    setup.on_progress = [&net] { net.Advance(3000); };
+    const auto run = RunFastest(net, root / "writer", setup);
+    CHECK(run.outcome.error == InstallError::kNone);
+    CHECK(Has(run.races, "race won winner=akamai#1 rates=fastly#0:10.0,akamai#1:25.0 "));
+  }
+  {
+    // A 2 s handshake with a fast transfer beats a cheap handshake with a slow transfer.
+    auto world = MakeWorld();
+    FakeNet net;
+    FastestWorld(net, world);
+    net.Add(kFastly, 10, 5);
+    net.Add(kAkamai, 40, 2000);
+    world.manifests[441].files = {net.File("pak", 220, kMegabyte)};
+    const auto run = RunFastest(net, root / "handshake");
+    CHECK(run.outcome.error == InstallError::kNone);
+    CHECK(Has(run.races, "race won winner=akamai#1 "));
+  }
+}
+
+void SlowLinkEndsAtTheCap(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 0.4);
+  net.Add(kAkamai, 0.5);
+  world.manifests[441].files = {net.File("pak", 220, kMegabyte)};
+  const auto run = RunFastest(net, root, {1});
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(Has(run.races, "race won winner=akamai#1 rates=fastly#0:0.4,akamai#1:0.5 "));
+  const auto& line = run.races[0];
+  const auto ms = std::stoull(line.substr(line.find("race_ms=") + 8));
+  const auto samples = std::stoull(line.substr(line.find("samples=") + 8));
+  CHECK(ms >= 15000 && ms < 20000 && samples >= 2 && samples < 2 * DepotInstaller::kRaceSamples);
+  CHECK(run.first_written_name == std::string() && run.server_name == "Akamai");  // no name while racing
+}
+
+void FailingServerNeverWins(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.Add(kAkamai, 0);  // refuses every request
+  net.Add(kGoogle, 20);
+  world.manifests[441].files = {net.File("pak", 220, kMegabyte)};
+  const auto run = RunFastest(net, root);
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(Has(run.races, "race won winner=google#2 rates=fastly#0:10.0,akamai#1:failed,google#2:20.0 "));
+  CHECK(std::filesystem::exists(root / DepotInstaller::kInstallRecord));
+}
+
+void ResumeRacesOnlyWhatIsLeft(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.Add(kAkamai, 40);
+  world.manifests[441].files = {net.File("pak", 400, kMegabyte)};
+  std::atomic<bool> cancel{false};
+  net.cancel_after = 150;
+  RaceSetup setup{1};
+  CHECK(RunFastest(net, root, setup, &cancel).outcome.error == InstallError::kCanceled);
+  const std::set<std::string> fetched(net.shas.begin(), net.shas.end());
+  net.cancel_after = -1;
+  net.shas.clear();
+  cancel = false;
+  const auto second = RunFastest(net, root, setup, &cancel);
+  CHECK(second.outcome.error == InstallError::kNone && Has(second.races, "race won "));
+  CHECK(net.shas.size() == 250);
+  for (const auto& sha : net.shas) CHECK(!fetched.count(sha));
+  // Under 200 MB left: no race.
+  auto small_world = MakeWorld();
+  FakeNet small_net;
+  FastestWorld(small_net, small_world);
+  small_net.Add(kFastly, 10);
+  small_net.Add(kAkamai, 40);
+  small_world.manifests[441].files = {small_net.File("pak", 300, kMegabyte)};
+  small_net.cancel_after = 120;
+  cancel = false;
+  CHECK(RunFastest(small_net, root.string() + "-small", setup, &cancel).outcome.error == InstallError::kCanceled);
+  small_net.cancel_after = -1;
+  cancel = false;
+  const auto rest = RunFastest(small_net, root.string() + "-small", setup, &cancel);
+  CHECK(rest.outcome.error == InstallError::kNone);
+  CHECK(Has(rest.races, "race skipped-small winner=none"));
+}
+
+void CachedWinnerSkipsTheRace(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.Add(kAkamai, 40);
+  net.Add(kGoogle, 20);
+  world.manifests[441].files = {net.File("pak", 220, kMegabyte)};
+  RaceSetup setup{1};
+  setup.cached = kGoogle;
+  const auto run = RunFastest(net, root / "hit", setup);
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(run.races == std::vector<std::string>{"race cached winner=google#2"});
+  CHECK(run.remembered.empty() && run.server_name == "Google Cloud" && run.first_written_name == run.server_name);
+  for (const auto& host : net.hosts) CHECK(host == kGoogle);
+  CHECK(net.shas.front() == HexOf(world.manifests[441].files[0].chunks.front().sha));  // no reorder
+  // A remembered winner the list no longer has is forgotten, and the race runs.
+  net.hosts.clear();
+  setup.cached = "gone.cdn.steampipe.steamcontent.com";
+  const auto missing = RunFastest(net, root / "miss", setup);
+  CHECK(missing.outcome.error == InstallError::kNone && Has(missing.races, "race won winner=akamai#1 "));
+  CHECK(missing.remembered == std::vector<std::string>({"", kAkamai}));
+}
+
+void RaceWithoutRequestTimingKeepsSteamOrder(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.Add(kAkamai, 40);
+  world.manifests[441].files = {net.File("pak", 220, kMegabyte)};
+  RaceSetup setup{1};
+  setup.legacy_chunk_hook = true;
+  const auto run = RunFastest(net, root, setup);
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(Has(run.races, "race timeout winner=none rates=none samples=0 "));
+  CHECK(run.remembered.empty() && run.server_name == "Fastly" && net.hosts.back() == kFastly);
+}
+
+// A sustained sag starts a re-race on the next large chunks.
+void SagReracesToAnotherServer(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 10);
+  net.specs[kFastly].rate = [](std::int64_t, int request) { return request < 300 ? 10.0 : 1.0; };
+  net.Add(kAkamai, 5);
+  world.manifests[441].files = {net.File("pak", 700, kMegabyte)};
+  const auto run = RunFastest(net, root, {1});
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(run.races.size() == 2 && Has(run.races, "race won winner=fastly#0 "));
+  CHECK(Has(run.races, "rerace won winner=akamai#1 rates=fastly#0:1.0,akamai#1:5.0 "));
+  CHECK(run.remembered == std::vector<std::string>({kFastly, kAkamai}));
+  CHECK(run.server_name == "Akamai" && net.hosts.back() == kAkamai);
+  // Started on a remembered winner: the first judged window is what later windows compare against.
+  auto cached_world = MakeWorld();
+  FakeNet cached_net;
+  FastestWorld(cached_net, cached_world);
+  cached_net.Add(kFastly, 10);
+  cached_net.specs[kFastly].rate = [](std::int64_t, int request) { return request < 600 ? 10.0 : 1.0; };
+  cached_net.Add(kAkamai, 5);
+  cached_world.manifests[441].files = {cached_net.File("pak", 700, kMegabyte)};
+  RaceSetup setup{1};
+  setup.cached = kFastly;
+  const auto cached = RunFastest(cached_net, root.string() + "-cached", setup);
+  CHECK(cached.outcome.error == InstallError::kNone);
+  CHECK(cached.races.size() == 2 && cached.races[0] == "race cached winner=fastly#0");
+  CHECK(Has(cached.races, "rerace won winner=akamai#1 "));
+}
+
+void SteadyRateBelowTheRaceDoesNotRerace(const std::filesystem::path& root) {
+  // In the race each request has the line to itself; afterwards every worker shares it on the winner, so
+  // each request gets less. That steady rate is the baseline, not the race's score.
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  net.Add(kFastly, 0);
+  net.specs[kFastly].rate = [](std::int64_t, int request) { return request < 20 ? 40.0 : 6.0; };
+  net.Add(kAkamai, 10);
+  net.specs[kAkamai].rate = [](std::int64_t, int request) { return request < 20 ? 10.0 : 2.0; };
+  world.manifests[441].files = {net.File("pak", 1000, kMegabyte)};
+  const auto run = RunFastest(net, root, {1});
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(run.races.size() == 1 && Has(run.races, "race won winner=fastly#0 "));
+  CHECK(net.now_ms > 120000);  // several judged windows
+}
+
+void TinyFilesAndSlowWritersDoNotRerace(const std::filesystem::path& root) {
+  {
+    // After the large file, a long stretch of tiny chunks on a slow server is never judged.
+    auto world = MakeWorld();
+    FakeNet net;
+    FastestWorld(net, world);
+    net.Add(kFastly, 10);
+    net.specs[kFastly].rate = [](std::int64_t, int request) { return request < 240 ? 10.0 : 0.05; };
+    net.Add(kAkamai, 5);
+    world.manifests[441].files = {net.File("a-big", 220, kMegabyte), net.File("b-tiny", 400, 100 * 1000)};
+    const auto run = RunFastest(net, root / "tiny", {1});
+    CHECK(run.outcome.error == InstallError::kNone);
+    CHECK(run.races.size() == 1 && Has(run.races, "race won winner=fastly#0 "));
+    CHECK(net.now_ms > 10 * 60 * 1000);  // twenty windows of tiny chunks
+  }
+  {
+    // A writer that takes 2 s per chunk: the transfer rate stays, nothing sags.
+    auto world = MakeWorld();
+    FakeNet net;
+    FastestWorld(net, world);
+    net.Add(kFastly, 10);
+    net.Add(kAkamai, 5);
+    world.manifests[441].files = {net.File("pak", 260, kMegabyte)};
+    RaceSetup setup{1};
+    setup.on_progress = [&net] { net.Advance(2000); };
+    const auto run = RunFastest(net, root / "writer", setup);
+    CHECK(run.outcome.error == InstallError::kNone);
+    CHECK(run.races.size() == 1 && Has(run.races, "race won winner=fastly#0 "));
+  }
+}
+
+void ReracesStopAtTheLimit(const std::filesystem::path& root) {
+  auto world = MakeWorld();
+  FakeNet net;
+  FastestWorld(net, world);
+  // Every server slows down by 2.5 times every 100 s.
+  const auto rate = [](std::int64_t now_ms, int) {
+    double value = 4.0;
+    for (std::int64_t step = 100000; step <= now_ms && step <= 400000; step += 100000) value /= 2.5;
+    return value;
+  };
+  net.Add(kFastly, 0);
+  net.Add(kAkamai, 0);
+  net.specs[kFastly].rate = rate;
+  net.specs[kAkamai].rate = rate;
+  world.manifests[441].files = {net.File("pak", 1350, 512 * 1000)};
+  const auto run = RunFastest(net, root, {1});
+  CHECK(run.outcome.error == InstallError::kNone);
+  CHECK(net.now_ms > 460000);
+  std::size_t reraces = 0, limits = 0;
+  for (const auto& line : run.races) {
+    if (line.rfind("rerace won ", 0) == 0) ++reraces;
+    if (line.rfind("rerace limit ", 0) == 0) ++limits;
+  }
+  CHECK(reraces == 2 && limits == 1 && run.races.size() == 4);
+}
+
+void QueueNamesTheServerInUse(const std::filesystem::path& root) {
+  {
+    // Steam's first server refuses everything: the name follows the failover.
+    auto world = MakeWorld();
+    FakeNet net;
+    FastestWorld(net, world);
+    net.Add(kFastly, 0);
+    net.Add(kAkamai, 10);
+    world.manifests[441].files = {net.File("pak", 40, kMegabyte)};
+    const auto run = RunFastest(net, root.string() + "-failover", {1});
+    CHECK(run.outcome.error == InstallError::kNone && Has(run.races, "race skipped-small "));
+    CHECK(run.first_written_name == std::string("Akamai") && run.server_name == "Akamai");
+  }
+  {
+    // A provider without a display name is not shown by its host.
+    auto world = MakeWorld();
+    FakeNet net;
+    FastestWorld(net, world);
+    net.Add("cache1.isp.example", 10);
+    world.manifests[441].files = {net.File("pak", 40, kMegabyte)};
+    const auto run = RunFastest(net, root.string() + "-cache", {1});
+    CHECK(run.outcome.error == InstallError::kNone && run.server_name == "Network cache");
+  }
+}
+
+void FastestWinnerIsRemembered() {
+  std::int64_t minutes = 0;
+  FastestServerCache cache([&minutes] {
+    return std::chrono::steady_clock::time_point(std::chrono::minutes(minutes));
+  });
+  CHECK(!cache.Get(7));
+  cache.Remember(7, kFastly);
+  minutes = 44;
+  CHECK(cache.Get(7) == std::optional<std::string>(kFastly));
+  cache.Remember(7, kAkamai);  // a new winner replaces the old one and starts its time again
+  minutes = 88;
+  CHECK(cache.Get(7) == std::optional<std::string>(kAkamai));
+  minutes = 89;
+  CHECK(!cache.Get(7));  // 45 minutes
+  CHECK(!cache.Get(7));
+  cache.Remember(7, kGoogle);
+  CHECK(!cache.Get(8));  // another account
+  CHECK(!cache.Get(7));
+  cache.Remember(7, kGoogle);
+  cache.Remember(7, "");  // a re-race without a winner
+  CHECK(!cache.Get(7));
+  cache.Remember(7, kGoogle);
+  cache.Clear();
+  CHECK(!cache.Get(7));
+  // Signing out: the runner finds no session and forgets the winner.
+  CmClient cm(CmClientHooks{}, cm::DeviceIdentity{});
+  CdnClient cdn([](const HttpRequest&, const std::atomic<bool>&) { return HttpResponse{}; });
+  struct NoSessions final : SessionRepository {
+    Result<std::optional<StoredSession>> Load() const override { return Result<std::optional<StoredSession>>::Success(std::nullopt); }
+    Result<void> Save(const StoredSession&) const override { return Result<void>::Success(); }
+    Result<void> Clear() const override { return Result<void>::Success(); }
+  } sessions;
+  SteamInstallRunner runner(sessions, cm, cdn);
+  runner.fastest_server().Remember(7, kFastly);
+  std::atomic<bool> cancel{false};
+  const auto result = runner.Install(GameId::Steam(440), "/nowhere/440", cancel, {}, {});
+  CHECK(result.retry_later && !runner.fastest_server().Get(7));
+}
+
+void FastestTuningFile(const std::filesystem::path& root) {
+  std::filesystem::create_directories(root);
+  const auto path = (root / "tuning").string();
+  std::ofstream(path) << "slots=6\nserver=fastest\n";
+  const auto tuning = ReadDownloadTuning(path);
+  CHECK(tuning.slots == 6 && tuning.fastest && tuning.preferred_server.empty());
+  std::ofstream(path) << "server=fastest\nserver=fastest\n";
+  CHECK(!ReadDownloadTuning(path).fastest);
+}
+
 int main() {
   const auto base = std::filesystem::temp_directory_path() / ("playden-installer-test-" + std::to_string(::getpid()));
   std::filesystem::remove_all(base);
@@ -1360,6 +1928,22 @@ int main() {
   NoContentServersSaysWhy(base / "no-servers");
   BrokenManifestIsFetchedAgainElsewhere(base / "manifest");
   RemovesOnlyManagedFolders(base);
+  FastestTuningFile(base / "fastest-tuning");
+  FastestWinnerIsRemembered();
+  QueueNamesTheServerInUse(base / "race-name");
+  RaceWinsAndLaterChunksUseIt(base / "race-wins");
+  TinyChunksSkipTheRace(base / "race-tiny");
+  RaceFetchesLargeChunksAtTheEnd(base / "race-at-end");
+  SlowWriterAndHandshakesDoNotDecide(base / "race-writer");
+  SlowLinkEndsAtTheCap(base / "race-cap");
+  FailingServerNeverWins(base / "race-failing");
+  ResumeRacesOnlyWhatIsLeft(base / "race-resume");
+  CachedWinnerSkipsTheRace(base / "race-cached");
+  RaceWithoutRequestTimingKeepsSteamOrder(base / "race-untimed");
+  SagReracesToAnotherServer(base / "rerace");
+  TinyFilesAndSlowWritersDoNotRerace(base / "rerace-not");
+  SteadyRateBelowTheRaceDoesNotRerace(base / "rerace-steady");
+  ReracesStopAtTheLimit(base / "rerace-limit");
   std::filesystem::remove_all(base);
   std::puts("depot installer tests passed");
 }

@@ -75,7 +75,11 @@ enum class MaintenanceKind { ApplySettings, ClearShaderCache, Repair, BackupSave
 // Whether a game's PS5 title runs now, as the console last answered.
 enum class TitleActivity { Unknown, Stopped, Running };
 // Live install state projected from the real install service.
-std::string FormatDownloadRate(std::optional<std::uint64_t> bytes_per_second, std::optional<int> eta_seconds);
+// The stored download server choice that races the servers when a download starts.
+inline constexpr const char* kFastestDownloadServer = "fastest";
+// "Fastly · 18.2 MB/s · ~3 min left": the server's name comes first when there is a rate.
+std::string FormatDownloadRate(std::optional<std::uint64_t> bytes_per_second, std::optional<int> eta_seconds,
+                               const std::string& server_name = {});
 struct LiveInstallJob {
     GameId game_id;
     JobState state = JobState::Queued;
@@ -87,6 +91,7 @@ struct LiveInstallJob {
     std::optional<int> eta_seconds;
     std::uint64_t held_bytes = 0;  // installed bytes already on the drive
     bool checking_licenses = false;  // a slow Steam license check before the download starts
+    std::string server_name;  // while downloading: the download server's display name
 };
 struct LiveInstalledGame {
     GameId game_id;
@@ -508,6 +513,7 @@ struct Job {
     std::uint64_t held_bytes = 0;  // live: installed bytes already on the drive
     std::int64_t finished_at = 0;  // live: when a Downloaded job finished (Unix seconds), 0 unknown
     bool checking_licenses = false;  // live: a slow Steam license check before the download starts
+    std::string server_name;  // live, while downloading: the download server's display name
     // A job that is not a game's (the Playden update): its title and the words for its stage and state.
     std::string title;
     std::string stage_text;
@@ -669,7 +675,9 @@ struct State {
     bool cloud_saves_auto = false;    // Cloud saves move before Play, after sessions and at startup (opt-in)
     bool beta_updates = false;
     bool downloads_slow_network = false;  // 8 download pieces at a time instead of 4 (Settings › Storage)
-    std::string download_server;  // empty: Default (Steam's order); otherwise the chosen provider's stable identifier
+    // Empty: Steam default (Steam's order); kFastestDownloadServer: Fastest (raced at each download); otherwise
+    // the chosen provider's stable identifier.
+    std::string download_server;
     bool controller_connected = true;
     ControllerState controller;
     bool persistence_available = true;
@@ -944,7 +952,8 @@ private:
     bool download_server_test_requested_ = false;
     bool download_server_fixture_ = false;
     void refresh_download_servers(const std::string& focus = {});
-    [[nodiscard]] std::string fastest_download_server() const;
+    [[nodiscard]] std::string best_tested_download_server() const;
+    [[nodiscard]] std::string download_server_choice_key() const;
     [[nodiscard]] bool download_server_test_allowed() const;
     std::string self_update_prompted_;   // "available 0.3.0" or "staged 0.3.0": each prompt shows once
     std::string pending_update_prompt_;  // a prompt waiting for the open dialog to close

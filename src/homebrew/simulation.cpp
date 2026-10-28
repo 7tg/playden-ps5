@@ -34,11 +34,11 @@
 #include <type_traits>
 
 namespace playden::homebrew {
-std::string FormatDownloadRate(std::optional<std::uint64_t> rate, std::optional<int> eta) {
+std::string FormatDownloadRate(std::optional<std::uint64_t> rate, std::optional<int> eta, const std::string& server_name) {
     if (!rate) return "—";
     char text[64];
     std::snprintf(text, sizeof(text), "%.1f MB/s", static_cast<double>(*rate) / (1024.0 * 1024.0));
-    std::string result(text);
+    std::string result = server_name.empty() ? std::string(text) : server_name + " · " + text;
     result += " · ";
     if (!eta || *eta < 0) return result + "—";
     if (*eta < 60) return result + "~" + std::to_string(*eta) + " sec left";
@@ -2165,6 +2165,7 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         if (live_job.state == JobState::Downloading) {
             job.bytes_per_second = live_job.bytes_per_second;
             job.eta_seconds = live_job.eta_seconds;
+            job.server_name = live_job.server_name;
         }
         projected.push_back(std::move(job));
     }
@@ -2727,7 +2728,15 @@ bool Simulation::download_server_test_allowed() const {
            });
 }
 
-std::string Simulation::fastest_download_server() const {
+// The modal action for the stored choice; a server that is not listed falls back to Steam default.
+std::string Simulation::download_server_choice_key() const {
+    if (state_.download_server == kFastestDownloadServer) return "download-server-fastest";
+    for (std::size_t index = 0; index < download_servers_.servers.size(); ++index)
+        if (download_servers_.servers[index].id == state_.download_server) return "download-server-" + std::to_string(index);
+    return "download-server-auto";
+}
+
+std::string Simulation::best_tested_download_server() const {
     const DownloadServerResult* fastest = nullptr;
     for (const auto& server : download_servers_.servers) {
         for (const auto& rate : download_servers_.rates) {
@@ -2743,7 +2752,7 @@ void Simulation::refresh_download_servers(const std::string& focus) {
         if (modal.id != "download-server") continue;
         const auto prior = modal.action_keys.empty() ? std::string{} :
             modal.action_keys[static_cast<std::size_t>(modal.focused_action)];
-        modal.action_keys = {"download-server-test", "download-server-auto"};
+        modal.action_keys = {"download-server-fastest", "download-server-auto"};
         for (std::size_t index = 0; index < download_servers_.servers.size(); ++index)
             modal.action_keys.push_back("download-server-" + std::to_string(index));
         if (download_servers_.phase == "listing" || download_servers_.phase == "idle")
@@ -2752,6 +2761,7 @@ void Simulation::refresh_download_servers(const std::string& focus) {
             modal.action_keys.push_back("download-server-list-failed");
             modal.action_keys.push_back("download-server-retry");
         }
+        modal.action_keys.push_back("download-server-test");
         modal.action_keys.push_back("cancel");
         const auto wanted = focus.empty() ? prior : focus;
         const auto found = std::find(modal.action_keys.begin(), modal.action_keys.end(), wanted);
@@ -2769,14 +2779,15 @@ void Simulation::ApplyLiveDownloadServers(const LiveDownloadServers& snapshot) {
         download_server_cancel_pending_ = false;
         download_server_test_requested_ = false;
     }
+    // After a test the focus goes to the fastest tested server (not to Fastest); otherwise to the choice.
     std::string focus;
-    const auto chosen = finished ? fastest_download_server() : state_.download_server;
-    if (finished || (download_server_focus_choice_ && snapshot.phase != "listing" && snapshot.phase != "idle")) {
-        if (!finished || !chosen.empty()) {
-            focus = "download-server-auto";
-            for (std::size_t index = 0; index < snapshot.servers.size(); ++index)
-                if (snapshot.servers[index].id == chosen) focus = "download-server-" + std::to_string(index);
-        }
+    if (finished) {
+        const auto best = best_tested_download_server();
+        for (std::size_t index = 0; index < snapshot.servers.size(); ++index)
+            if (!best.empty() && snapshot.servers[index].id == best) focus = "download-server-" + std::to_string(index);
+        download_server_focus_choice_ = false;
+    } else if (download_server_focus_choice_ && snapshot.phase != "listing" && snapshot.phase != "idle") {
+        focus = download_server_choice_key();
         download_server_focus_choice_ = false;
     }
     refresh_download_servers(focus);
@@ -3635,7 +3646,9 @@ bool Simulation::scenario(const std::string& name) {
             item.total_bytes = total;
             item.completed_bytes = done;
             item.volume_id = "internal";
-            if (job_state == JobState::Downloading) { item.bytes_per_second = 18'200'000; item.eta_seconds = 152; }
+            if (job_state == JobState::Downloading) {
+                item.bytes_per_second = 18'200'000; item.eta_seconds = 152; item.server_name = "Fastly";
+            }
             if (job_state == JobState::Downloaded) { item.finished_at = now - 3600; item.completion_applied = true; }
             state_.jobs.push_back(item);
         };
@@ -4133,8 +4146,13 @@ void Simulation::rebuild_view() {
             auto& item = row(action_key, RowKind::Action, action_label(action_key), action_key);
             item.dangerous = modal.destructive && action_key != "cancel";
             if (modal.id == "download-server") {
-                if (action_key == "download-server-auto") {
-                    item.title = "Default";
+                if (action_key == "download-server-fastest") {
+                    item.title = "Fastest";
+                    item.subtitle = "Tests the servers when a download starts and uses the fastest one.";
+                    item.selected = state_.download_server == kFastestDownloadServer;
+                } else if (action_key == "download-server-auto") {
+                    item.title = "Steam default";
+                    item.subtitle = "Uses the server Steam lists first.";
                     item.selected = state_.download_server.empty();
                 } else if (action_key == "download-server-listing" || action_key == "download-server-list-failed") {
                     item.title = action_key == "download-server-listing" ? "Getting the server list…" : "Could not get the server list.";
@@ -4178,7 +4196,7 @@ void Simulation::rebuild_view() {
                                 item.value = value;
                             }
                         }
-                        if (option.id == fastest_download_server()) item.badge = "Fastest";
+                        if (option.id == best_tested_download_server()) item.badge = "Fastest";
                     }
                 }
                 continue;
@@ -5525,7 +5543,8 @@ void Simulation::rebuild_view() {
                 ? "8 pieces at a time. Turn it off if downloads got slower."
                 : "Off: 4 pieces at a time. Turn it on if downloads stay near 1 MB/s.";
             auto& server = add("settings-download-server", RowKind::Action, "Download server", "download-server-picker");
-            server.value = state_.download_server.empty() ? "Default"
+            const bool fastest = state_.download_server == kFastestDownloadServer;
+            server.value = state_.download_server.empty() ? "Steam default" : fastest ? "Fastest"
                 : download_servers_.preferred_name.empty() ? state_.download_server : download_servers_.preferred_name;
             bool offered = false;
             for (const auto& option : download_servers_.servers) if (option.id == state_.download_server) {
@@ -5534,9 +5553,9 @@ void Simulation::rebuild_view() {
             }
             const bool listed = download_servers_.phase == "listed" || download_servers_.phase == "testing" ||
                                 download_servers_.phase == "tested" || download_servers_.phase == "test-failed";
-            server.subtitle = state_.download_server.empty()
-                ? "Uses the server Steam lists first. Choose one if downloads are slow."
-                : listed && !offered ? "Not offered on this network now. Default is used."
+            server.subtitle = state_.download_server.empty() ? "Uses the server Steam lists first."
+                : fastest ? "Tests the servers when a download starts and uses the fastest one."
+                : listed && !offered ? "Not offered on this network now. Steam default is used."
                 : "If it stops answering, Playden uses another one.";
         }
         section = "Display";
@@ -6723,10 +6742,7 @@ void Simulation::activate() {
             download_servers_.phase = "listing";
         }
         open_modal({"download-server", "Download server", state_.navigation.focus_key, {"download-server-auto", "cancel"}, 0, false});
-        std::string focus = "download-server-auto";
-        for (std::size_t index = 0; index < download_servers_.servers.size(); ++index)
-            if (download_servers_.servers[index].id == state_.download_server) focus = "download-server-" + std::to_string(index);
-        refresh_download_servers(focus);
+        refresh_download_servers(download_server_choice_key());
     } else if (action_name == "download-server-retry") {
         if (live()) download_server_requests_.push_back(DownloadServerRequest::List);
         download_servers_.phase = "listing";
@@ -6743,6 +6759,7 @@ void Simulation::activate() {
         refresh_download_servers();
     } else if (action_name == "download-server-auto" || action_name.rfind("download-server-", 0) == 0) {
         if (action_name == "download-server-auto") state_.download_server.clear();
+        else if (action_name == "download-server-fastest") state_.download_server = kFastestDownloadServer;
         else {
             std::size_t index = 0;
             const auto number = action_name.substr(std::string("download-server-").size());

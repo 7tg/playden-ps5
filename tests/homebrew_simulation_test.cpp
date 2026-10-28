@@ -1398,7 +1398,7 @@ void synthetic_download_servers(const std::filesystem::path& fixtures, const std
     const auto press = [&simulation](const std::string& key) {
         check(simulation.action("focus:" + key) && simulation.action("cross"), "synthetic server action exists");
     };
-    check(row("settings-download-server") && row("settings-download-server")->value == "Default",
+    check(row("settings-download-server") && row("settings-download-server")->value == "Steam default",
           "the synthetic scenario shows the Settings row");
     press("settings-download-server");
     check(row("download-server-6") && !row("download-server-7") && row("download-server-3")->subtitle == "HTTP" &&
@@ -1426,6 +1426,22 @@ void synthetic_download_servers(const std::filesystem::path& fixtures, const std
     restarted.scenario("download-servers");
     check(restarted.state().download_server == simulation.state().download_server,
           "the simulation profile keeps the choice across restarts");
+    check(restarted.action("focus:settings-download-server") && restarted.action("cross") &&
+              restarted.state().navigation.focus_key == "download-server-1" &&
+              restarted.action("focus:download-server-fastest") && restarted.action("cross"),
+          "the synthetic picker offers Fastest");
+    check(restarted.state().download_server == "fastest" && restarted.state().navigation.modals.empty(),
+          "the synthetic Fastest choice is saved");
+    for (const auto& item : restarted.view().rows)
+        if (item.key == "settings-download-server") check(item.value == "Fastest", "the row shows Fastest");
+    // Queue: the download names its server before the rate.
+    check(restarted.scenario("queue-one-download"), "queue scenario exists");
+    check(restarted.state().jobs.front().server_name == "Fastly" &&
+              playden::homebrew::FormatDownloadRate(restarted.state().jobs.front().bytes_per_second,
+                                                    restarted.state().jobs.front().eta_seconds,
+                                                    restarted.state().jobs.front().server_name) ==
+                  "Fastly · 17.4 MB/s · ~3 min left",
+          "the Queue row names the download server");
 }
 
 void leftover_titles_simulation_uses_controller_navigation(const std::filesystem::path& fixtures,
