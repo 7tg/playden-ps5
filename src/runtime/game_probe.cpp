@@ -201,6 +201,9 @@ void AddImports(const PeFacts& facts, std::set<std::string>* apis) {
 constexpr std::pair<const char*, const char*> kEngineMarks[] = {{"sil_windows_use_", "sil"},
                                                                 {"microsoft.xna.framework", "xna"}};
 
+// An installer the game ships beside Unreal's Engine folder (VC_redist.x64.exe) is not the game.
+constexpr const char* kInstallerWords[] = {"redist", "dxsetup", "uninst", "prereq"};
+
 // Unreal Engine 5 names Nanite's console variables (as UTF-16, scanned in lower case); Unreal 4 has no Nanite.
 constexpr char kUnreal5Mark[] = "r\0.\0n\0a\0n\0i\0t\0e\0";
 
@@ -360,7 +363,11 @@ GameProbe ProbeGame(const std::string& install_root, const std::string& executab
     probe.il2cpp = Find(here, "gameassembly.dll", false).has_value();
     probe.legacy_unity = !unity;
     if (unity) ScanNames((root / folder / *unity).string(), &probe.apis);
-  } else if (EndsWith(lower_file, "-shipping.exe") || Find(here, "engine", true)) {
+  } else if (EndsWith(lower_file, "-shipping.exe") ||
+             (Find(here, "engine", true) && std::none_of(std::begin(kInstallerWords), std::end(kInstallerWords),
+                                                         [&](const char* word) {
+                                                           return lower_file.find(word) != std::string::npos;
+                                                         }))) {
     probe.engine = "unreal";
     if (!EndsWith(lower_file, "-shipping.exe")) {
       probe.unreal_program = FindShipping(root, folder, 0);

@@ -358,6 +358,10 @@ int main() {
     CHECK(older.d3d12.empty() && older.arguments == "-dx11");
     CHECK(DetectedLabel(older.summary) == "Unreal Engine 5 \xC2\xB7 Direct3D 11");
     // Started as the Shipping program itself (which imports d3d12), the same, label included.
+    // A redistributable installer beside the Engine folder is not the game (the Program picker labelled it Unreal 5).
+    WritePe(root / "VC_redist.x64.exe", {false, {"KERNEL32.dll"}});
+    const auto redist = ProbeGame(root.string(), "VC_redist.x64.exe");
+    CHECK(redist.engine.empty() && !redist.unreal5 && redist.unreal_program.empty());
     const auto direct = ProbeGame(root.string(), "Hellraiser/Binaries/Win64/Hellraiser-Win64-Shipping.exe");
     CHECK(direct.unreal5 && DefaultsFor(direct, vkd3d).d3d12 == "vkd3d-proton");
     CHECK(DetectedLabel(DefaultsFor(direct).summary) == "Unreal Engine 5 \xC2\xB7 Direct3D 11");
