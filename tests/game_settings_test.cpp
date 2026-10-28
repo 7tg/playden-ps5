@@ -389,6 +389,17 @@ int main(int argc, char** argv) {
     for (const auto& value : RenderBottleEnvironment(shown))
       if (value.name == "VKD3D_FRAME_RATE") vkd3d_rate = value.data;
     CHECK(vkd3d_rate.empty());
+    // vkd3d-proton reports feature level 12_0 unless Environment variables sets another one; other games get none.
+    const auto feature_level = [](const EffectiveSettings& values) {
+      for (const auto& value : RenderBottleEnvironment(values))
+        if (value.name == "VKD3D_FEATURE_LEVEL") return value.data;
+      return std::string();
+    };
+    CHECK(feature_level(shown) == "\"12_0\"");
+    CHECK(BuildEffectiveSettings(d3d12, nullptr, {{"environment", "VKD3D_FEATURE_LEVEL=11_1"}}, display, &shown, &error));
+    CHECK(feature_level(shown) == "\"11_1\"");
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {}, display, &shown, &error));
+    CHECK(feature_level(shown).empty());
 
     // One pacer: a Frame limit replaces frame-rate variables the player typed in Environment variables, both
     // vkd3d-proton's (bottle environment) and DXVK's (profile); with Off they apply as before.

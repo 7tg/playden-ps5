@@ -2409,6 +2409,9 @@ std::vector<RegistryValue> RenderBottleEnvironment(const EffectiveSettings& sett
       while (!item.empty() && item.back() == ' ') item.pop_back();
       if (IsBottleEnvironmentEntry(name, item)) listed[name] = item;
     }
+  // The PS5 GPU has only Tier 1 tiled resources, so vkd3d-proton stops at feature level 11_1, and games that ask
+  // for 12_0 (most Unreal 5 games) say Direct3D 12 is not supported. A value typed in Environment variables wins.
+  if (settings.vkd3d_proton && !listed.count("VKD3D_FEATURE_LEVEL")) listed["VKD3D_FEATURE_LEVEL"] = "12_0";
   // A Frame limit on a display-120hz runtime replaces a VKD3D_FRAME_RATE typed in Environment variables: the display
   // paces the cap, or, for 30 at 120 Hz output, vkd3d-proton's own limiter does.
   if (FrameLimitOwnsCap(settings)) {

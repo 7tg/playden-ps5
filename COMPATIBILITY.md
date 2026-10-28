@@ -286,7 +286,11 @@ To see which kit your console has, run the [log script](tools/collect_logs.py): 
 - **New games can stay at *Waiting for the PS5*** when ShadowMountPlus stops registering titles. Reload
   ShadowMountPlus.
 - **Direct3D 12 games** need a kit with vkd3d-proton (0.11 or later). Playden turns it on for games that use
-  Direct3D 12, except Unity and Unreal games: for those, set Game settings › Direct3D 12 = vkd3d-proton. Its own variables (`VKD3D_DEBUG`, `VKD3D_CONFIG`, …) go in Environment variables.
+  Direct3D 12 and for Unreal Engine 5 games (from 0.9.0), except Unity and Unreal 4 games: for those, set Game settings
+  › Direct3D 12 = vkd3d-proton. Games set up before 0.9.0 keep their setting until Maintenance › Recreate bottle. A game
+  that says Direct3D 12 or feature level 12_0 is not supported gets feature level 12_0 from 0.9.0; Environment variables
+  `VKD3D_FEATURE_LEVEL=11_1` turns that off. vkd3d-proton's other variables (`VKD3D_DEBUG`, `VKD3D_CONFIG`, …) go in
+  Environment variables too.
 - **Denuvo Anti-Tamper** games (for example Hi-Fi RUSH) cannot run, and support is not planned.
 - **Kernel anti-cheat** games (for example Easy Anti-Cheat or BattlEye in kernel mode) cannot run, and support is not planned.
 - Games that need a **third-party launcher or account** (EA app, Ubisoft Connect, Rockstar) are not supported yet.
