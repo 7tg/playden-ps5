@@ -2,6 +2,7 @@
 #include "update/update_service.h"
 #include "zip_fixture.h"
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <chrono>
@@ -37,6 +38,19 @@ std::string FakeSha(const std::string& text) {
   char hex[17];
   std::snprintf(hex, sizeof hex, "%016llx", static_cast<unsigned long long>(hash));
   return std::string(hex) + hex + hex + hex;
+}
+unsigned Mode(const std::string& path) {
+  struct stat st{};
+  CHECK(stat(path.c_str(), &st) == 0);
+  return st.st_mode & 07777;
+}
+// Everyone can write over the app's files and folders (web file manager and FTP run as other users).
+void CheckWritableApp(const std::string& app) {
+  CHECK(Mode(app + "/eboot.bin") == 0777);
+  CHECK(Mode(app + "/LICENSE") == 0666 && Mode(app + "/sce_sys/param.json") == 0666);
+  CHECK(Mode(app + "/assets/a.txt") == 0666 && Mode(app + "/assets/run.elf") == 0777);
+  CHECK(Mode(app + "/sce_sys") == 0777 && Mode(app + "/assets") == 0777 && Mode(app + "/assets/deep") == 0777);
+  CHECK(Mode(app + "/assets/deep/x.prx") == 0777);
 }
 void Put(const std::string& path, const std::string& text) {
   CHECK(MakeParents(path));
@@ -95,7 +109,9 @@ std::string AppZip(const std::string& version_text, const std::string& content_v
                              {"FAKE77031/playden-version", full_version.empty() ? version_text + "\n" : full_version},
                              {"FAKE77031/sce_sys/param.json",
                               R"({"titleId":"FAKE77031","contentVersion":")" + content_version + R"("})"},
-                             {"FAKE77031/assets/a.txt", "asset " + version_text},
+                             {"FAKE77031/assets/a.txt", "asset " + version_text, 0100600},
+                             {"FAKE77031/assets/run.elf", "elf", 0100755},
+                             {"FAKE77031/assets/deep/x.prx", "prx", 0100644},
                              {"FAKE77031/logs/", "", 040755}});
 }
 
@@ -515,6 +531,7 @@ int main() {
     CHECK(snapshot.notes_url == "https://github.com/o/r/releases/tag/v0.3.0");  // no html_url: built from the tag
     CHECK(snapshot.download_bytes == fixture.server.files[kDownload + "playden-ps5-0.3.0.zip"].size() +
                                          fixture.server.files[kDownload + "playden-kit-h-r9.zip"].size());
+    const mode_t old_umask = umask(022);  // the app's folders get 0777 whatever the umask
     service.Install();
     Wait(service);
     snapshot = service.Snapshot();
@@ -525,6 +542,8 @@ int main() {
     CHECK(!Exists(kits + "/.next-kitid-r9/LICENSES"));
     CHECK(Read(kits + "/kitid/manifest.json") == std::string(64, 'b'));
     CHECK(Read(fixture.root + "/playden/self-update/stage/0.3.0/eboot.bin") == "eboot 0.3.0");
+    CheckWritableApp(fixture.root + "/playden/self-update/stage/0.3.0");
+    umask(old_umask);
     CHECK(Read(fixture.root + "/playden/self-update/state.json").find("\"staged\"") != std::string::npos);
     CHECK(ListFolder(fixture.root + "/playden/self-update/downloads").empty());  // zips removed after unpacking
     // Nothing is swapped without a restart request.
@@ -536,6 +555,7 @@ int main() {
     const std::string app = fixture.root + "/homebrew/FAKE77031";
     CHECK(Read(app + "/eboot.bin") == "eboot 0.3.0" && Read(app + "/assets/a.txt") == "asset 0.3.0");
     CHECK(Read(app + "/playden-data/session") == "session");
+    CheckWritableApp(app);  // the swap's renames keep the modes
     CHECK(Read(fixture.root + "/user/appmeta/FAKE77031/param.json").find("00.003.000") != std::string::npos);
     CHECK(Read(fixture.root + "/user/app/FAKE77031/sce_sys/param.json").find("00.003.000") != std::string::npos);
     CHECK(Read(fixture.root + "/playden/self-update/backup/0.2.0-1000/eboot.bin") == "eboot 0.2.0");

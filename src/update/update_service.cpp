@@ -67,17 +67,19 @@ std::string Gigabytes(std::uint64_t bytes) {
   return text;
 }
 
-// An app file's mode on the console: executables 0755 (as the FTP deploy tool sets them),
-// everything else as the zip has it.
-std::optional<unsigned> AppMode(const std::string& relative, unsigned zip_mode) {
+// An app file's mode on the console: 0777 for executables, 0666 for everything else, whatever the
+// zip has. Someone may install a build by hand over a self-updated app, with FTP or the web file
+// manager. They run as other users, and root has no DAC bypass on /data, so they can only write over
+// files that everyone can write. Nothing in Playden needs the app files to be read-only.
+std::optional<unsigned> AppMode(const std::string& relative, unsigned) {
   const auto slash = relative.rfind('/');
   const std::string name = slash == std::string::npos ? relative : relative.substr(slash + 1);
   const auto ends = [&](const char* suffix) {
     const std::string tail = suffix;
     return name.size() > tail.size() && name.compare(name.size() - tail.size(), tail.size(), tail) == 0;
   };
-  if (name == "eboot.bin" || ends(".prx") || ends(".elf")) return 0755u;
-  return zip_mode;
+  if (name == "eboot.bin" || ends(".prx") || ends(".elf")) return 0777u;
+  return 0666u;
 }
 
 }  // namespace
@@ -1011,6 +1013,7 @@ bool UpdateService::StageApp(const Release& release, const UpdateManifest& manif
     return config_.as_root([&] { return chmod(path.c_str(), mode) == 0; });
   };
   unzip.mode_for = AppMode;
+  unzip.folder_mode = 0777u;  // for the same reason as AppMode
   unzip.log = [this](const std::string& line) { Log(line); };
   unzip.progress = [this](std::uint64_t done, std::uint64_t total) {
     Set([&](UpdateSnapshot& s) { s.done = done; s.total = total; });
