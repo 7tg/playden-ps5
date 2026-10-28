@@ -2771,6 +2771,18 @@ void Simulation::refresh_download_servers(const std::string& focus) {
     }
 }
 
+void Simulation::RequestQuit() {
+    if (state_.quit_requested || state_.quit_waiting) return;
+    quit_to_home();
+    rebuild_view();
+}
+
+void Simulation::ApplyLiveWebAccess(const LiveWebAccess& snapshot) {
+    if (web_access_ == snapshot) return;
+    web_access_ = snapshot;
+    rebuild_view();
+}
+
 void Simulation::ApplyLiveDownloadServers(const LiveDownloadServers& snapshot) {
     const bool finished = (download_servers_.phase == "testing" || download_server_test_requested_) && snapshot.phase == "tested" &&
                           !download_server_cancel_pending_;
@@ -2796,7 +2808,8 @@ void Simulation::ApplyLiveDownloadServers(const LiveDownloadServers& snapshot) {
 
 playden::Preferences Simulation::ExportPreferences() const {
     return {state_.reduced_motion, state_.title_store_suffix, state_.cloud_saves_auto, state_.sign_in_password,
-            state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates, state_.download_server};
+            state_.downloads_slow_network, state_.stay_signed_in, state_.beta_updates, state_.download_server,
+            state_.web_access};
 }
 
 void Simulation::apply_organization_snapshot(const playden::OrganizationSnapshot& snapshot) {
@@ -3014,6 +3027,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
                                   const playden::PreferencesLoadResult& loaded) {
     if (!live() || !preferences_load_pending_ || !(token == preferences_load_token_)) return false;
     preferences_load_pending_ = false;
+    preferences_loaded_ = true;
     preferences_load_failed_ = loaded.status == playden::PreferencesLoadStatus::kDefaultCorrupt ||
                                loaded.status == playden::PreferencesLoadStatus::kDefaultReadError;
     if (preferences_load_may_apply_ && preferences_revision_ == token.baseline_revision) {
@@ -3024,6 +3038,7 @@ bool Simulation::ApplyPreferences(PersistenceLoadToken token,
         state_.beta_updates = loaded.preferences.beta_updates;
         state_.downloads_slow_network = loaded.preferences.downloads_slow_network;
         state_.download_server = loaded.preferences.download_server;
+        state_.web_access = loaded.preferences.web_access;
         state_.stay_signed_in = loaded.preferences.steam_stay_signed_in;
         captured_preferences_ = loaded.preferences;
         preferences_saved_revision_ = preferences_revision_;
@@ -3104,6 +3119,7 @@ bool Simulation::record_live_persistence() {
                                       after_preferences.steam_sign_in_password != captured_preferences_.steam_sign_in_password ||
                                       after_preferences.downloads_slow_network != captured_preferences_.downloads_slow_network ||
                                       after_preferences.download_server != captured_preferences_.download_server ||
+                                      after_preferences.web_access != captured_preferences_.web_access ||
                                       after_preferences.beta_updates != captured_preferences_.beta_updates ||
                                       after_preferences.steam_stay_signed_in != captured_preferences_.steam_stay_signed_in);
 
@@ -3130,6 +3146,7 @@ bool Simulation::record_live_persistence() {
                 state_.beta_updates = captured_preferences_.beta_updates;
                 state_.downloads_slow_network = captured_preferences_.downloads_slow_network;
                 state_.download_server = captured_preferences_.download_server;
+                state_.web_access = captured_preferences_.web_access;
                 state_.stay_signed_in = captured_preferences_.steam_stay_signed_in;
                 organization_journal_full_ = true;
                 force_organization_reset_ = false;
@@ -3531,6 +3548,14 @@ bool Simulation::scenario(const std::string& name) {
         state_.navigation.focus_key = "settings-leftovers";
         state_.leftover_titles = {{"FAKE78001", "A Short Hike", 12'000'000}, {"FAKE78002", "Portal", 8'000'000}};
         state_.leftover_deletions.clear();
+        state_.jobs.clear();
+    } else if (name == "web-access") {
+        // Settings › Web access with its made-up address and QR code.
+        state_.account().authentication = AuthState::SignedIn;
+        state_.navigation.modals.clear();
+        state_.navigation.route = Route::Settings;
+        state_.navigation.focus_key = "settings-web-access";
+        state_.web_access = true;
         state_.jobs.clear();
     } else if (name == "download-servers") {
         download_server_fixture_ = true;
@@ -5639,6 +5664,38 @@ void Simulation::rebuild_view() {
         if (live() && !state_.self_update.current_notes_url.empty()) {
             auto& notes = add("settings-release-notes", RowKind::Action, "Release notes", "self-update-notes");
             notes.subtitle = "What changed in Playden " + version_label(state_.self_update.current);
+        }
+        section = "Web access";
+        {
+            auto& toggle = add("settings-web-access", RowKind::Toggle, "Web access", "toggle-web-access");
+            toggle.selected = state_.web_access;
+            // The simulation shows a made-up address; live, the controller reports the server's.
+            LiveWebAccess shown = web_access_;
+            if (!live()) shown = state_.web_access ? LiveWebAccess{"on", "http://192.168.1.50:7031/", 7031, {}} : LiveWebAccess{};
+            if (!state_.web_access) {
+                toggle.subtitle = "Off: Playden's logs can't be opened from a browser.";
+            } else if (shown.state == "on" && !shown.url.empty()) {
+                toggle.subtitle = "Playden's logs on the local network while Playden is open.";
+                auto& address = add("settings-web-address", RowKind::Status, "Open on a phone or computer on the same network", "");
+                address.value = shown.url.substr(0, shown.url.size() - 1);  // without the trailing "/"
+                address.subtitle = "Shows Playden's logs, with your Steam name removed. Nothing can be changed from there yet.";
+                address.qr = shown.url;
+                address.enabled = false;  // nothing to do on it: focus stays on the switch
+            } else if (shown.state == "on") {
+                toggle.subtitle = "Playden's logs on the local network while Playden is open.";
+                auto& address = add("settings-web-address", RowKind::Status, "Address unknown", "");
+                address.value = "port " + std::to_string(shown.port);
+                address.subtitle = "Open the console's IP address shown in the PS5's network settings, port " +
+                                   std::to_string(shown.port) + ", on a phone or computer on the same network.";
+                address.enabled = false;  // nothing to do on it: focus stays on the switch
+            } else if (shown.state == "failed") {
+                toggle.subtitle = "Playden's logs on the local network while Playden is open.";
+                auto& problem = add("settings-web-problem", RowKind::Status, "Web access is not open", "");
+                problem.subtitle = "Web access could not start: " + shown.error + ". Turn it off and on to try again.";
+                problem.enabled = false;  // nothing to do on it: focus stays on the switch
+            } else {
+                toggle.subtitle = "Starting…";
+            }
         }
         section = "About";
         add("settings-about", RowKind::Action, "About", "about").subtitle = "Playden for PlayStation 5";
@@ -7928,6 +7985,7 @@ void Simulation::activate() {
     else if (action_name == "toggle-motion") { state_.reduced_motion = !state_.reduced_motion; save_profile(); }
     else if (action_name == "toggle-title-store") { state_.title_store_suffix = !state_.title_store_suffix; save_profile(); }
     else if (action_name == "toggle-cloud-saves") { state_.cloud_saves_auto = !state_.cloud_saves_auto; save_profile(); }
+    else if (action_name == "toggle-web-access") { state_.web_access = !state_.web_access; save_profile(); }
     else if (action_name == "toggle-downloads-slow") {
         state_.downloads_slow_network = !state_.downloads_slow_network;
         save_profile();

@@ -19,12 +19,16 @@
 #include "homebrew/runtime_host.hpp"
 #include "homebrew/title_icon.hpp"
 #include "platform/ps5/title_allow_list.h"
+#include "platform/ps5/console_address.h"
 #include "platform/ps5/console_services.h"
 #include "platform/ps5/system_keyboard.h"
 #include "runtime/artifact_hash.h"
 #include "runtime/kit_admission.h"
 #include "runtime/kit_trust.h"
 #include "update/update_service.h"
+#include "web/address.h"
+#include "web/server.h"
+#include "web/service.h"
 #include "homebrew/input_adapter.hpp"
 #include "homebrew/usb_keyboard.hpp"
 #include "core/input.hpp"
@@ -746,8 +750,38 @@ int main() {
             copy_runner->SetChanged([local_library] { local_library->Reload(); });
             stores.Add(std::move(source));
         }
+        // Web access, phase 0: with /data/playden/dev/web-probe present, a bare listener on 7031 answers every
+        // request with "ok" and logs each socket call to web.log, to learn whether a title can listen at all.
+        playden::web::Server web_probe;
+        const bool web_probe_on = !paths.runtime_data_root.empty() &&
+                                  access((paths.runtime_data_root + "/dev/web-probe").c_str(), F_OK) == 0;
+        if (web_probe_on) {
+            const auto web_log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "web.log", "probe " + line); };
+            std::string netctl;
+            const auto netctl_address = playden::ps5::ConsoleAddress(&netctl);
+            const auto udp_address = playden::web::LocalAddress();
+            web_log("address udp=" + (udp_address.empty() ? std::string("unknown") : udp_address) + " netctl=" +
+                    (netctl_address.empty() ? std::string("unknown") : netctl_address) + " " + netctl);
+            playden::web::ServerOptions probe;
+            probe.first_port = probe.last_port = 7031;
+            probe.verbose = true;
+            probe.log = web_log;
+            std::string error;
+            if (web_probe.Start(probe, [](const playden::web::Request&, playden::web::Response& response) {
+                    response.Send(200, "text/plain", "ok\n");
+                }, &error))
+                web_log("listening port=" + std::to_string(web_probe.port()));
+        }
+        // Web access: the logs page on the local network (off while the probe holds port 7031).
+        playden::web::ServiceConfig web_config;
+        web_config.paths = {log_root, "/data/homebrew", paths.runtime_data_root.empty() ? std::string() : paths.runtime_data_root + "/kits",
+                            "/data/homebrew/" PLAYDEN_PS5_TITLE_ID};
+        web_config.server.log = [](const std::string& line) { playden::app::AppendLogLine(log_root, "web.log", line); };
+        web_config.address_fallback = [] { return playden::ps5::ConsoleAddress(); };
+        playden::web::Service web(std::move(web_config));
         playden::homebrew::Controller services(simulation, stores, &persistence, &installs, &cloud, runtime_host.get(), auth_log);
         services.SetDownloadServers(&servers);
+        if (!web_probe_on) services.SetWebAccess(&web);
         services.SetLocalLibrary(local_library);
         playden::steam::StoreDetailsService store_details(playden::homebrew::StoreFetch(paths.trust_store));
         services.SetStoreDetails(&store_details);
@@ -953,7 +987,12 @@ int main() {
         }
 #if !PLAYDEN_UI_SIMULATION
         playden::app::AppendLogLine(log_root, "launch.log", "quit requested");
+        if (web_probe.running()) {
+            web_probe.Stop();
+            playden::app::AppendLogLine(log_root, "web.log", "probe stopped");
+        }
         services.Shutdown();
+        web.Shutdown();
         // The install service stops before the Local store goes (`stores` is destroyed before
         // `installs`): its copy runner's change callback calls into the Local store. Explicit here,
         // so it doesn't rest on the controller's shutdown or on declaration order.

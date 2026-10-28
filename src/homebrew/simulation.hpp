@@ -57,6 +57,14 @@ struct LiveDownloadServers {
     std::string preferred_name;  // the stored choice's display name, even when absent from this list
     std::string message;  // user-facing explanation, supplied by the controller
 };
+// Web access as the controller reports it (web::Service): the page's address for the QR, or why it isn't open.
+struct LiveWebAccess {
+    std::string state = "off";  // off, starting, on, failed
+    std::string url;            // on: http://<address>:<port>/, empty when the address is unknown
+    std::uint16_t port = 0;
+    std::string error;          // failed: why
+    bool operator==(const LiveWebAccess&) const = default;
+};
 enum class JobState { Queued, Downloading, Pausing, Paused, Verifying, Downloaded, Failed, Cancelled, Interrupted };
 enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
@@ -678,6 +686,7 @@ struct State {
     // Empty: Steam default (Steam's order); kFastestDownloadServer: Fastest (raced at each download); otherwise
     // the chosen provider's stable identifier.
     std::string download_server;
+    bool web_access = true;  // Settings › Web access: the logs page on the local network (on by default)
     bool controller_connected = true;
     ControllerState controller;
     bool persistence_available = true;
@@ -710,6 +719,7 @@ struct ViewRow {
     std::string tone;     // Saves: the status colour (good, busy, attention, problem, quiet)
     std::string aside;    // Saves: the right-hand note (size, last sync)
     bool rail_only = false;  // Settings: the section's rail entry is the action (Quit Playden), no card
+    std::string qr;          // Settings: a link drawn as a QR code beside the row's text (Web access)
 };
 
 struct ViewData {
@@ -857,6 +867,10 @@ public:
     void UpdateSelfUpdate(const LiveSelfUpdate& update);
     [[nodiscard]] std::vector<std::string> TakeSelfUpdateRequests();
     void ApplyLiveDownloadServers(const LiveDownloadServers& snapshot);
+    void ApplyLiveWebAccess(const LiveWebAccess& snapshot);
+    // Quit Playden from outside the UI (web access). A game being prepared or queued is waited for, with the
+    // dialog the TV shows then, since nobody may be in front of the TV to see a half-made title.
+    void RequestQuit();
     [[nodiscard]] std::vector<DownloadServerRequest> TakeDownloadServerRequests();
     // Live mode: the folder holding install.log, auth.log and launch.log for the log viewer.
     void SetLogDirectory(std::filesystem::path directory);
@@ -889,6 +903,8 @@ public:
     [[nodiscard]] std::uint64_t PreferencesRevision() const noexcept { return preferences_revision_; }
     [[nodiscard]] bool OrganizationDirty() const noexcept;
     [[nodiscard]] bool PreferencesDirty() const noexcept;
+    // The saved preferences have been read (or found missing), so a setting such as web access is the player's.
+    [[nodiscard]] bool PreferencesLoaded() const noexcept { return preferences_loaded_; }
     [[nodiscard]] bool OrganizationReadyForSave() const noexcept;
     void OrganizationSaveResult(std::uint64_t account, std::uint64_t revision,
                                 playden::StorageError error);
@@ -1094,6 +1110,8 @@ private:
     bool organization_journal_full_ = false;
     bool organization_save_suppressed_ = false;
     bool preferences_load_pending_ = false;
+    bool preferences_loaded_ = false;
+    LiveWebAccess web_access_;
     bool preferences_load_may_apply_ = false;
     bool preferences_load_failed_ = false;
     bool preferences_save_failed_ = false;

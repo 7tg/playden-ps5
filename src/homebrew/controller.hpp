@@ -17,6 +17,7 @@
 #include "steam/download_rate.h"
 #include "steam/download_server_service.h"
 #include "update/update_service.h"
+#include "web/service.h"
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -54,6 +55,9 @@ class Controller {
   void SetDownloadServers(steam::DownloadServerService* servers) { download_servers_ = servers; }
   // Playden's own update: the controller passes the player's requests on and shows its state.
   void SetSelfUpdate(update::UpdateService* self_update) { self_update_ = self_update; }
+  // Settings › Web access turns it on and off (once the saved preferences are read); the signed-in account's
+  // name and SteamID go to it for redaction. Shutdown stops it.
+  void SetWebAccess(web::Service* web) { web_ = web; }
   // Receives one line per shutdown step with how long it took, so a quit that hangs names the step.
   void SetShutdownLog(std::function<void(const std::string&)> log) { shutdown_log_ = std::move(log); }
   // Preferences and organization load/save failures (app::PersistenceController::SetLog). The first loads
@@ -113,6 +117,8 @@ class Controller {
   void TickDownloadServers();
   bool DownloadServerTestAllowed() const;
   steam::DownloadServerService* download_servers_ = nullptr;
+  web::Service* web_ = nullptr;
+  void TickWebAccess();
   std::string download_servers_account_;
   std::optional<LiveDownloadServers> shown_download_servers_;
   void TickSelfUpdate();

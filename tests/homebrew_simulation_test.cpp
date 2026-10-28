@@ -1448,6 +1448,15 @@ void leftover_titles_simulation_uses_controller_navigation(const std::filesystem
                                                           const std::filesystem::path& profile) {
     using namespace playden::homebrew;
     Simulation simulation(fixtures, profile);
+    check(simulation.scenario("web-access"), "web access scenario exists");
+    check(simulation.view().focused_row >= 0 &&
+              simulation.view().rows[static_cast<std::size_t>(simulation.view().focused_row)].key == "settings-web-access",
+          "the web access scenario opens Settings on Web access");
+    {
+        bool qr = false;
+        for (const auto& row : simulation.view().rows) qr = qr || row.qr == "http://192.168.1.50:7031/";
+        check(qr, "the simulation shows a made-up address with its QR code");
+    }
     check(simulation.scenario("leftover-titles"), "leftover title scenario exists");
     check(simulation.state().leftover_titles.size() == 2 &&
               simulation.state().navigation.focus_key == "settings-leftovers", "the Leftover PS5 titles row starts focused");

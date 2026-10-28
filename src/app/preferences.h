@@ -25,6 +25,9 @@ struct Preferences {
   bool beta_updates = false;
   // The Steam CDN host to try first for new or resumed downloads. Empty uses Steam's server order (Automatic).
   std::string download_server;
+  // Web access: Playden's logs, redacted, on the local network at port 7031 while Playden is open. On by default,
+  // so a tester can send logs without first finding a switch; version 1 only reads.
+  bool web_access = true;
 };
 
 enum class PreferencesLoadStatus {

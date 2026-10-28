@@ -186,9 +186,9 @@ void SignInMethodPersistsAndVersionThreeOpensQr() {
   Check(store.Save(preferences).ok(), "sign-in method preference saves");
   const auto saved = storage.Read("preferences.conf");
   Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()) ==
-                          "version=8\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
-                          "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=\n",
-        "version 8 format includes Automatic download server");
+                          "version=9\nreduce_motion=0\ntitle_store_suffix=0\ncloud_saves_auto=1\nsteam_sign_in_password=1\n"
+                          "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=\nweb_access=1\n",
+        "version 9 format includes Automatic download server and web access");
   const auto loaded = store.Load();
   Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.steam_sign_in_password &&
             loaded.preferences.cloud_saves_auto,
@@ -289,6 +289,35 @@ void VersionEightLoadsDownloadServerWithoutResettingOtherFields() {
         "version 8 restores the chosen download server");
 }
 
+void VersionNineKeepsWebAccessAndVersionEightTurnsItOn() {
+  TemporaryDirectory directory;
+  playden::Storage storage(directory.path());
+  playden::PreferencesStore store(storage);
+  playden::Preferences preferences;
+  preferences.web_access = false;
+  preferences.beta_updates = true;
+  preferences.download_server = "fastest";
+  Check(store.Save(preferences).ok(), "web access off saves");
+  auto loaded = store.Load();
+  Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && !loaded.preferences.web_access &&
+            loaded.preferences.beta_updates && loaded.preferences.download_server == "fastest",
+        "web access off survives restart with the other fields");
+  const std::string eight =
+      "version=8\nreduce_motion=1\ntitle_store_suffix=0\ncloud_saves_auto=0\nsteam_sign_in_password=0\n"
+      "downloads_slow_network=0\nsteam_stay_signed_in=1\nbeta_updates=0\ndownload_server=cache.example\n";
+  Check(storage.WriteAtomic("preferences.conf", playden::Bytes(eight.begin(), eight.end())).ok(), "version 8 fixture is written");
+  loaded = store.Load();
+  Check(loaded.status == playden::PreferencesLoadStatus::kLoaded && loaded.preferences.web_access &&
+            loaded.preferences.reduce_motion && loaded.preferences.download_server == "cache.example",
+        "a version 8 file loads with web access on");
+  const std::string malformed[] = {eight + "web_access=1\n", "version=9" + eight.substr(9) + "web_access=2\n",
+                                   "version=9" + eight.substr(9), "version=9" + eight.substr(9) + "web_access=1\nx=1\n"};
+  for (const auto& text : malformed) {
+    Check(storage.WriteAtomic("preferences.conf", playden::Bytes(text.begin(), text.end())).ok(), "malformed fixture is written");
+    Check(store.Load().status == playden::PreferencesLoadStatus::kDefaultCorrupt, "a malformed version 8 or 9 file is corrupt");
+  }
+}
+
 void OlderPreferencesUseAutomaticDownloadServer() {
   TemporaryDirectory directory;
   playden::Storage storage(directory.path());
@@ -315,8 +344,9 @@ void OlderPreferencesUseAutomaticDownloadServer() {
           "migration retains old fields and defaults later fields");
     Check(store.Save(loaded.preferences).ok(), "migrated preferences save");
     const auto saved = storage.Read("preferences.conf");
-    Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()).rfind("version=8\n", 0) == 0,
-          "saving a migrated file writes version 8");
+    Check(saved.ok() && std::string(saved.value().begin(), saved.value().end()).rfind("version=9\n", 0) == 0,
+          "saving a migrated file writes version 9");
+    Check(loaded.preferences.web_access, "every older preference version has web access on");
   }
 }
 
@@ -432,6 +462,7 @@ int main() {
   SignInMethodPersistsAndVersionThreeOpensQr();
   StaySignedInDefaultsOnAndPersistsOff();
   VersionEightLoadsDownloadServerWithoutResettingOtherFields();
+  VersionNineKeepsWebAccessAndVersionEightTurnsItOn();
   OlderPreferencesUseAutomaticDownloadServer();
   DownloadServerRoundTripsAndInvalidHostsUseAutomatic();
   VersionEightRejectsTruncatedOrMalformedFiles();

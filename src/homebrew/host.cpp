@@ -450,6 +450,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<playden::LocalSessionRepository> servers_sessions;
     std::unique_ptr<playden::steam::CdnDownloadServerSource> servers_source;
     std::unique_ptr<playden::steam::DownloadServerService> servers;
+    std::unique_ptr<playden::web::Service> web;
     std::unique_ptr<playden::steam::CmClient> cloud_cm;
     std::unique_ptr<playden::steam::HttpClient> cloud_http;
     std::unique_ptr<playden::steam::SteamCloudRunner> cloud_runner;
@@ -667,6 +668,17 @@ int main(int argc, char** argv) {
                                                                    cloud.get(), nullptr, auth_log);
         services->SetLocalLibrary(local);
         services->SetDownloadServers(servers.get());
+        {
+            // Web access on the Mac: the same page over the host's logs folder, on 127.0.0.1's network too.
+            playden::web::ServiceConfig web_config;
+            web_config.paths = {log_directory, (options->data_directory / "homebrew").string(),
+                                (options->data_directory / "kits").string(), options->data_directory.string()};
+            web_config.server.log = [log_directory](const std::string& line) {
+                playden::app::AppendLogLine(log_directory, "web.log", line);
+            };
+            web = std::make_unique<playden::web::Service>(std::move(web_config));
+            services->SetWebAccess(web.get());
+        }
         services->SetStaySignedIn([repository = sessions.get(), log_directory](bool stay) {
             const auto moved = repository->SetPersist(stay);
             playden::app::AppendLogLine(log_directory, "auth.log", std::string("stay signed in ") + (stay ? "on" : "off") +
@@ -821,6 +833,7 @@ int main(int argc, char** argv) {
     if (controller) SDL_GameControllerClose(controller);
     SDL_StopTextInput();
     if (services) services->Shutdown();
+    if (web) web->Shutdown();
     // The install service stops before the Local store goes (`stores` is destroyed before
     // `installs`): its copy runner's change callback calls into the Local store. Explicit here, so
     // it doesn't rest on the controller's shutdown or on declaration order.

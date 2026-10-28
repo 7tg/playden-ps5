@@ -1265,9 +1265,37 @@ void live_storage_section_and_installed_games() {
     std::vector<std::string> sections;
     for (const auto& row : model.view().rows)
         if (sections.empty() || sections.back() != row.section) sections.push_back(row.section);
-    check(sections == std::vector<std::string>{"Account", "Library", "Storage", "Downloads", "Display", "Updates", "About",
-                                                  "Quit Playden"},
-          "the rail order is Account, Library, Storage, Downloads, Display, Updates, About, Quit");
+    check(sections == std::vector<std::string>{"Account", "Library", "Storage", "Downloads", "Display", "Updates", "Web access",
+                                                  "About", "Quit Playden"},
+          "the rail order is Account, Library, Storage, Downloads, Display, Updates, Web access, About, Quit");
+    // Web access: on by default; the address and its QR once the server reports them; the reason when it can't open.
+    check(find_row(model, "settings-web-access")->selected && model.ExportPreferences().web_access, "web access is on by default");
+    check(!find_row(model, "settings-web-address"), "no address before the server reports one");
+    model.ApplyLiveWebAccess({"on", "http://192.168.1.50:7031/", 7031, {}});
+    const auto* address = find_row(model, "settings-web-address");
+    check(address && address->qr == "http://192.168.1.50:7031/" && address->value == "http://192.168.1.50:7031" &&
+              address->section == "Web access" && address->subtitle.find("your Steam name removed") != std::string::npos &&
+              !address->enabled,
+          "the page's address shows with its QR code");
+    model.ApplyLiveWebAccess({"on", "", 7032, {}});
+    check(find_row(model, "settings-web-address") && find_row(model, "settings-web-address")->qr.empty() &&
+              find_row(model, "settings-web-address")->title == "Address unknown" &&
+              find_row(model, "settings-web-address")->value == "port 7032",
+          "an unknown address is said, never guessed");
+    model.ApplyLiveWebAccess({"failed", "", 0, "port 7039: Address already in use (errno 48)"});
+    check(find_row(model, "settings-web-problem") &&
+              find_row(model, "settings-web-problem")->subtitle.rfind(
+                  "Web access could not start: port 7039: Address already in use (errno 48).", 0) == 0,
+          "a port that could not be opened says why");
+    activate(model, "settings-web-access");
+    check(!find_row(model, "settings-web-access")->selected && !model.ExportPreferences().web_access &&
+              !find_row(model, "settings-web-problem") && !find_row(model, "settings-web-address"),
+          "the toggle turns web access off");
+    activate(model, "settings-web-access");
+    check(model.ExportPreferences().web_access, "and on again");
+    check(!model.state().quit_requested, "not quitting yet");
+    model.RequestQuit();
+    check(model.state().quit_requested, "the page's Quit Playden quits when nothing is being prepared");
     const auto* empty = find_row(model, "settings-installed");
     check(empty && !empty->enabled && empty->value == "None", "nothing installed says None");
     check(find_row(model, "settings-kept")->value == "None" && !has_row(model, "settings-runtime-cleanup"),

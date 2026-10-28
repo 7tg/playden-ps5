@@ -130,6 +130,7 @@ void Controller::Shutdown() {
   };
   // The server source may inspect the install snapshot for its fallback payload.
   if(download_servers_) step("download-servers", [&] { download_servers_->Shutdown(); });
+  if(web_) step("web", [&] { web_->Shutdown(); });
   if(library_) step("library", [&] { library_->Shutdown(); library_->Tick(); AdvanceClear(); });
   if(persistence_) step("persistence", [&] { persistence_->FlushAndShutdown(); AdvanceOrganizationClear(); });
   if(app_details_) step("details", [&] { app_details_->Shutdown(); });
@@ -368,6 +369,7 @@ void Controller::Tick() {
   TickImports();
   TickInstalls();
   TickDownloadServers();
+  TickWebAccess();
   TickSelfUpdate();
   lap(5);
   TickCloud();
@@ -1825,6 +1827,28 @@ bool Controller::DownloadServerTestAllowed() const {
   }
   return true;
 }
+void Controller::TickWebAccess() {
+  if (!web_) return;
+  // Not before the saved choice is known: a player who turned it off must not get an open port at each start.
+  web_->SetEnabled(model_.state().web_access && (model_.PreferencesLoaded() || !persistence_));
+  const auto snapshot = web_->Snapshot();
+  LiveWebAccess live;
+  switch (snapshot.state) {
+    case web::ServiceSnapshot::State::kOff: live.state = "off"; break;
+    case web::ServiceSnapshot::State::kStarting: live.state = "starting"; break;
+    case web::ServiceSnapshot::State::kOn: live.state = "on"; break;
+    case web::ServiceSnapshot::State::kFailed: live.state = "failed"; break;
+  }
+  live.url = snapshot.url;
+  live.port = snapshot.port;
+  live.error = snapshot.error;
+  model_.ApplyLiveWebAccess(live);
+  // The page's Quit Playden; it waits for a game being prepared.
+  if (web_->TakeQuitRequest()) {
+    if (shutdown_log_) shutdown_log_("quit requested from web access");
+    model_.RequestQuit();
+  }
+}
 void Controller::TickDownloadServers() {
   const auto requests = model_.TakeDownloadServerRequests();
   if (!download_servers_) return;
@@ -2139,6 +2163,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       model_.UpdateAccount(std::move(update));
       if(persistence_) persistence_->Activate(event.steam_id);
       if(runtime_) runtime_->SetSteamAccount(event.account_name, event.steam_id);
+      if(web_) web_->SetAccount({event.account_name, event.steam_id});
       if(library_) library_->Activate(event.steam_id,offline);
       // Steam downloads that waited for a sign-in start now, not after their wait (up to a minute).
       if(installs_ && !offline) installs_->RetryWaiting(Store::kSteam);
@@ -2150,6 +2175,7 @@ void Controller::Apply(const steam::SteamEvent& event) {
       if(library_) library_->Reset();
       if(persistence_) persistence_->Reset();
       if(runtime_) runtime_->SetSteamAccount({}, 0);
+      if(web_) web_->SetAccount({});
       const bool begin = begin_after_clear_; begin_after_clear_ = false;
       Update(AuthState::SignedOut,{},true);
       if (begin) Begin(begin_password_after_clear_);

@@ -93,7 +93,7 @@ function(playden_add_homebrew_ps5_title)
         --wrap=openat --wrap=mkdirat)
 
 	add_library(playden_ps5_app OBJECT src/homebrew/ps5.cpp src/homebrew/usb_keyboard.cpp src/platform/ps5/title_runtime.cpp
-        src/platform/ps5/native_startup.cpp src/platform/ps5/console_services.cpp src/platform/ps5/system_keyboard.cpp
+        src/platform/ps5/native_startup.cpp src/platform/ps5/console_services.cpp src/platform/ps5/console_address.cpp src/platform/ps5/system_keyboard.cpp
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/display_egl.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/pad.cpp"
         "${PLAYDEN_HUI_SOURCE_DIR}/src/platform/ps5/system.cpp")
@@ -135,7 +135,7 @@ function(playden_add_homebrew_ps5_title)
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions;-fno-rtti>)
     target_compile_features(playden_ps5_app PRIVATE cxx_std_20)
     target_link_libraries(playden_ps5_app PRIVATE playden_hui playden_library playden_steam_auth
-        playden_homebrew_controller playden_local_session_repository playden_steam_library playden_steam_cm playden_native_access playden_runtime_layout_migration playden_local_store playden_local_copy)
+        playden_homebrew_controller playden_local_session_repository playden_steam_library playden_steam_cm playden_native_access playden_runtime_layout_migration playden_local_store playden_local_copy playden_web_http)
 
 	set(host_tool "${host}/ps5-native-tool")
 	set(libc_prx "${host}/libc.prx")
@@ -163,7 +163,7 @@ function(playden_add_homebrew_ps5_title)
 			$<TARGET_FILE:playden_local_session_repository> $<TARGET_FILE:playden_auth_diagnostics> $<TARGET_FILE:playden_local_store> $<TARGET_FILE:playden_local_copy>
 			$<TARGET_FILE:playden_self_update> $<TARGET_FILE:playden_miniz> $<TARGET_FILE:playden_steam_http> $<TARGET_FILE:playden_steam_protocol>
 			$<TARGET_FILE:playden_steam_auth>
-			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_diagnostic_log> $<TARGET_FILE:playden_storage>
+			$<TARGET_FILE:playden_steam_core> $<TARGET_FILE:playden_web> $<TARGET_FILE:playden_web_logs> $<TARGET_FILE:playden_web_http> $<TARGET_FILE:playden_diagnostic_log> $<TARGET_FILE:playden_storage>
 			$<TARGET_FILE:playden_library> $<TARGET_FILE:playden_native_access> $<TARGET_FILE:playden_managed_directory> $<TARGET_FILE:playden_runtime_steamworks> $<TARGET_FILE:playden_runtime_artifact_hash> $<TARGET_FILE:playden_runtime_settings_storage> $<TARGET_FILE:playden_runtime_private_directories> $<TARGET_FILE:playden_runtime_session_reconciler> $<TARGET_FILE:playden_runtime_launch_service> $<TARGET_FILE:playden_runtime_install_service> $<TARGET_FILE:playden_runtime_installs> $<TARGET_FILE:playden_runtime_layout_migration> $<TARGET_FILE:playden_game_paths>
 			${PLAYDEN_STEAM_LINK_ARCHIVES} ${title_database_archives}
 			--end-group --as-needed ${link_stubs}
@@ -171,7 +171,7 @@ function(playden_add_homebrew_ps5_title)
 		DEPENDS "${common_dialog_stub}" playden_ps5_runtime playden_ps5_shims playden_ps5_app playden_hui playden_homebrew_ui playden_homebrew_model ${title_database_targets}
 			playden_homebrew_qr playden_homebrew_controller playden_local_session_repository playden_auth_diagnostics playden_local_store playden_local_copy
 			playden_homebrew_artwork_cache playden_homebrew_artwork playden_persistence_controller playden_persistence_service playden_preferences playden_library_controller playden_library_service playden_steam_library playden_steam_cm playden_steam_cm_codec playden_depot_codec
-			playden_library playden_self_update playden_miniz playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_diagnostic_log playden_storage playden_native_access playden_managed_directory playden_runtime_steamworks playden_runtime_artifact_hash playden_runtime_settings_storage playden_runtime_private_directories playden_runtime_session_reconciler playden_runtime_launch_service playden_runtime_install_service playden_runtime_installs playden_runtime_layout_migration playden_game_paths
+			playden_library playden_self_update playden_miniz playden_steam_auth playden_steam_http playden_steam_protocol playden_steam_core playden_web playden_web_logs playden_web_http playden_diagnostic_log playden_storage playden_native_access playden_managed_directory playden_runtime_steamworks playden_runtime_artifact_hash playden_runtime_settings_storage playden_runtime_private_directories playden_runtime_session_reconciler playden_runtime_launch_service playden_runtime_install_service playden_runtime_installs playden_runtime_layout_migration playden_game_paths
 			$<TARGET_OBJECTS:playden_ps5_runtime> $<TARGET_OBJECTS:playden_ps5_shims>
 			$<TARGET_OBJECTS:playden_ps5_app>
 			$<TARGET_FILE:playden_self_update> $<TARGET_FILE:playden_miniz> $<TARGET_FILE:playden_steam_http> $<TARGET_FILE:playden_steam_protocol>

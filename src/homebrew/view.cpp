@@ -2340,6 +2340,8 @@ class Render::Impl
         }
         const auto drive_row = [&](const ViewRow &row) { return usage != nullptr && row.key == "settings-storage"; };
         const auto height = [&](const ViewRow &row) {
+            if (!row.qr.empty())
+                return 300.0F;
             return drive_row(row) ? (usage->capacity_known ? 186.0F : 160.0F) : row.subtitle.empty() ? 92.0F : 118.0F;
         };
         float offset = 0.0F;
@@ -2380,6 +2382,30 @@ class Render::Impl
             scene_.rounded_rect(card, 8.0F, kText.with_alpha(row.dangerous ? 0.0F : 0.04F));
             if (row.dangerous)
                 scene_.bordered_rect(card, 8.0F, kBackground.with_alpha(0.0F), 2.0F, kRed.with_alpha(0.35F));
+            if (!row.qr.empty())
+            {
+                // The QR code, then what to do, the address and what the page shows (Web access).
+                if (row.qr != row_qr_url_)
+                {
+                    row_qr_url_ = row.qr;
+                    row_qr_ = encode_qr(row.qr);
+                }
+                constexpr int qr_side = 240;
+                if (!draw_qr_matrix(scene_, row_qr_, card.x + 30.0F, card.y + 30.0F, qr_side))
+                    scene_.rounded_rect({card.x + 30.0F, card.y + 30.0F, static_cast<float>(qr_side), static_cast<float>(qr_side)},
+                                        8.0F, kMuted.with_alpha(0.25F));
+                const float text_x = card.x + 30.0F + qr_side + 40.0F;
+                const float text_w = card.w - (text_x - card.x) - 30.0F;
+                ui::text(scene_, fonts_.regular, fit(fonts_.regular, row.title, 24.0F, text_w), text_x, card.y + 96.0F, 24.0F,
+                         kSecondary);
+                ui::text(scene_, fonts_.semibold, fit(fonts_.semibold, row.value, 40.0F, text_w), text_x, card.y + 150.0F,
+                         40.0F, kText);
+                ui::paragraph(scene_, fonts_.regular, row.subtitle, text_x, card.y + 200.0F, 22.0F, text_w, 30.0F,
+                              kSecondary, 2);
+                focus_ring(scene_, card, amount);
+                y += h + 24.0F;
+                continue;
+            }
             const gfx::Color title_ink = !row.enabled ? kMuted : row.dangerous ? kRed : kText;
             const float title_y = row.subtitle.empty() ? head.cy() + 11.0F : card.y + 50.0F;
             ui::text(scene_, fonts_.display, fit(fonts_.display, row.title, 30.0F, 760.0F), card.x + 30.0F, title_y,
@@ -4262,6 +4288,8 @@ class Render::Impl
     // The open dialog's link (release notes), drawn as a QR code.
     std::string link_qr_url_;
     QrMatrix link_qr_;
+    std::string row_qr_url_;  // Settings › Web access: the page's address
+    QrMatrix row_qr_;
     std::vector<const Game *> visible_grid_games_;
     GameId grid_focused_game_;
     const State *current_state_ = nullptr;
