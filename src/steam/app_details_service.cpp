@@ -10,7 +10,7 @@ AppDetailsService::AppDetailsService(AppDetailsSource& source, SessionRepository
 
 AppDetailsService::~AppDetailsService() { Shutdown(); }
 
-void AppDetailsService::Request(GameId id, std::uint64_t account_generation) {
+void AppDetailsService::Request(GameId id, std::uint64_t account_generation, bool first) {
   if (!id.steam_app() || account_generation == 0) return;  // Steam games only
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
@@ -25,19 +25,28 @@ void AppDetailsService::Request(GameId id, std::uint64_t account_generation) {
     cancel_.store(true, std::memory_order_release);
     measure_cancel_.store(true, std::memory_order_release);
   }
-  if (requested_.count(id) || pending_.size() >= kMaxPending) return;
+  if (requested_.count(id)) {
+    // Queued already: it goes first. In flight or answered: nothing to do.
+    if (const auto queued = std::find(pending_.begin(), pending_.end(), id); first && queued != pending_.end()) {
+      pending_.erase(queued);
+      pending_.push_front(id);
+    }
+    return;
+  }
+  if (pending_.size() >= kMaxPending && !first) return;
   requested_.insert(id);
-  pending_.push_back(id);
+  if (first) pending_.push_front(id);
+  else pending_.push_back(id);
   wake_.notify_all();
 }
 
-void AppDetailsService::Refresh(GameId id, std::uint64_t account_generation) {
+void AppDetailsService::Refresh(GameId id, std::uint64_t account_generation, bool first) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (account_generation == generation_ && std::find(pending_.begin(), pending_.end(), id) == pending_.end())
       requested_.erase(id);
   }
-  Request(id, account_generation);
+  Request(id, account_generation, first);
 }
 
 void AppDetailsService::Invalidate(std::uint64_t account_generation) {

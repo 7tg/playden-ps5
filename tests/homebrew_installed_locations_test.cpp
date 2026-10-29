@@ -992,7 +992,7 @@ class ScriptedDetails final : public playden::stores::DetailsSource {
     std::lock_guard<std::mutex> lock(mutex);
     asked.emplace_back(id, false);
   }
-  void Refresh(const playden::GameId& id, std::uint64_t) override {
+  void Refresh(const playden::GameId& id, std::uint64_t, bool = false) override {
     std::lock_guard<std::mutex> lock(mutex);
     asked.emplace_back(id, true);
   }

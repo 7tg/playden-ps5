@@ -128,9 +128,11 @@ class AppDetailsService {
   AppDetailsService(const AppDetailsService&) = delete;
   AppDetailsService& operator=(const AppDetailsService&) = delete;
 
-  void Request(GameId id, std::uint64_t account_generation);
+  // `first`: ahead of what is queued (a game the player opened while installed games are checked for updates);
+  // one already queued moves to the front.
+  void Request(GameId id, std::uint64_t account_generation, bool first = false);
   // Asks again for a game already answered in this generation (an installed game whose content changed).
-  void Refresh(GameId id, std::uint64_t account_generation);
+  void Refresh(GameId id, std::uint64_t account_generation, bool first = false);
   void Invalidate(std::uint64_t account_generation);
   std::vector<AppDetails> Pump(std::size_t maximum = 8);
   // Asks for the exact size of one install choice, after the details already asked for. A choice already

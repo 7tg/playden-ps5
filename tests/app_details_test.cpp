@@ -30,7 +30,8 @@ class Source final : public AppDetailsSource {
   std::vector<std::vector<GameId>> calls;
   std::vector<SizeRequest> measures;
   std::atomic<bool> fail{false};
-  std::atomic<bool> hold{false};  // a size check that waits (on manifests) until released or canceled
+  std::atomic<bool> hold{false};
+  std::atomic<bool> block_fetch{false};  // Fetch waits until released  // a size check that waits (on manifests) until released or canceled
   MeasuredSize Measure(const StoredSession&, const SizeRequest& request, const std::atomic<bool>& cancel) override {
     {
       std::lock_guard<std::mutex> lock(mutex);
@@ -52,6 +53,7 @@ class Source final : public AppDetailsSource {
       std::lock_guard<std::mutex> lock(mutex);
       calls.push_back(ids);
     }
+    while (block_fetch) std::this_thread::sleep_for(1ms);
     if (fail) return {};
     std::vector<AppDetails> result;
     for (const auto& id : ids) result.push_back({id, 0, true, *id.steam_app() * 10ull, *id.steam_app() * 100ull, true, {}});
@@ -186,6 +188,35 @@ void SizeChecksAreAnsweredOncePerChoice() {
   // Another account asks again.
   service.Measure({SteamId(400), "public", "english"}, 2);
   assert(AwaitMeasured(service, 1)[0].account_generation == 2);
+}
+
+// The game the player opens goes ahead of installed games checked for updates, queued or not.
+void OpenedGameGoesFirst() {
+  Sessions sessions;
+  Source source;
+  source.hold = false;
+  AppDetailsService service(source, sessions);
+  {
+    std::lock_guard<std::mutex> lock(source.mutex);
+    source.block_fetch = true;
+  }
+  for (std::uint32_t app = 100; app < 140; ++app) service.Request(SteamId(app), 1);  // the first batch blocks the worker
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
+  for (;;) {
+    {
+      std::lock_guard<std::mutex> lock(source.mutex);
+      if (!source.calls.empty()) break;
+    }
+    assert(std::chrono::steady_clock::now() < deadline);
+    std::this_thread::sleep_for(1ms);
+  }
+  service.Request(SteamId(620), 1, true);  // not queued yet
+  service.Request(SteamId(135), 1, true);  // queued at the back
+  source.block_fetch = false;
+  Await(service, 40);
+  std::lock_guard<std::mutex> lock(source.mutex);
+  assert(source.calls.size() >= 2 && source.calls[1].size() >= 2);
+  assert(source.calls[1][0] == SteamId(135) && source.calls[1][1] == SteamId(620));
 }
 
 // A size check waiting on manifests doesn't hold up a game's details: they have their own worker.
@@ -548,6 +579,7 @@ void InstalledGamesCompareWithTheirRecord() {
 int main() {
   SizeChecksAreAnsweredOncePerChoice();
   SlowSizeChecksDontBlockDetails();
+  OpenedGameGoesFirst();
   LargeOverlappingDepotsAreMeasured();
   SizesCountOnlyLicensedDepots();
   RequestsAreDeduplicatedPerGeneration();

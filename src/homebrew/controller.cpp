@@ -2159,21 +2159,25 @@ void Controller::TickAppDetails() {
       launches_any_branch_.erase(id);
       if (auto* details = Details(id.store); details && details == app_details_) details->Refresh(id, generation);
     }
-    // After a library refresh, installed Steam games are checked for updates again: the refresh reads the
-    // licenses (DLC bought since), and details answered before the first one couldn't compare at all.
+    // Updates are checked for the game whose page is open, never the whole library. A library refresh reads the
+    // licenses (DLC bought since): that page is checked again.
     const bool loading = state.library_loading;
-    if (library_loading_ && !loading)
-      for (const auto& [id, root] : game_roots_)
-        if (auto* details = Details(id.store); details && details == app_details_ && id.steam_app())
-          details->Refresh(id, generation);
+    if (library_loading_ && !loading && state.navigation.detail_id && game_roots_.count(*state.navigation.detail_id))
+      if (auto* details = Details(state.navigation.detail_id->store); details && details == app_details_)
+        details->Refresh(*state.navigation.detail_id, generation, true);
     library_loading_ = loading;
   }
-  // Fetch Steam app info when the player opens a game's details while signed in.
+  // Fetch Steam app info when the player opens a game's details while signed in, ahead of anything queued. An
+  // installed game is asked again at each visit: Steam may have a newer version since.
+  // Away from a game's page (or its session), the next visit asks again.
+  if (state.navigation.route != Route::Details && state.navigation.route != Route::Session) requested_detail_.reset();
   if (state.account().authentication == AuthState::SignedIn && state.navigation.detail_id &&
       state.navigation.detail_id != requested_detail_) {
     requested_detail_ = state.navigation.detail_id;
-    if (auto* details = Details(requested_detail_->store); details && details == app_details_)
-      app_details_->Request(*state.navigation.detail_id, generation);
+    if (auto* details = Details(requested_detail_->store); details && details == app_details_) {
+      if (game_roots_.count(*requested_detail_)) details->Refresh(*requested_detail_, generation, true);
+      else details->RequestFirst(*requested_detail_, generation);
+    }
   }
   for (const auto& details : app_details_->Pump(8)) {
     if (details.account_generation != generation) continue;
