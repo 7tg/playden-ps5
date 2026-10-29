@@ -86,6 +86,17 @@ class LicensedDepots {
   std::optional<Grant> grant_;
 };
 
+struct FreeLicenseResult {
+  CmError error = CmError::kProtocol;
+  std::int32_t eresult = cm::kEResultFail;  // Steam's answer, when it answered
+  std::vector<std::uint32_t> granted_apps;
+  std::vector<std::uint32_t> granted_packages;
+  // After a grant: whether Steam pushed a newer license list within the wait, and how long it took.
+  bool licenses_updated = false;
+  std::uint32_t waited_ms = 0;
+  bool ok() const { return error == CmError::kNone; }
+};
+
 struct TokenRenewal {
   CmError error = CmError::kProtocol;
   std::string access_token;
@@ -107,6 +118,11 @@ struct DepotRequest {
   // A depot the game borrows from another app (depotfromapp): an account that doesn't own that app is
   // refused its key, and the game installs without it.
   bool optional = false;
+  // The app whose appinfo lists the depot (a DLC app for its own depots), asked for its key and
+  // manifest request code; 0 means the call's app.
+  std::uint32_t app_id = 0;
+  // The branch the manifest belongs to, sent with the manifest request code; empty: public.
+  std::string branch;
 };
 struct DepotGrant {
   std::uint32_t depot_id = 0;
@@ -193,6 +209,13 @@ class CmClient final : public AcquisitionSource {
 
   AppInfoBuffers FetchAppInfo(const StoredSession& session, const std::vector<std::uint32_t>& app_ids,
                               const std::atomic<bool>& cancel) override;
+
+  // Asks Steam to add free apps (free DLC) to the account in one ClientRequestFreeLicense. When it
+  // grants anything, waits up to `license_wait_ms` (cancelable) for the license list Steam pushes
+  // after the grant, so the next FetchAcquisitionDates on a shared session sees it; a wait that runs
+  // out is not an error. Steam answering with an EResult other than OK is kRejected.
+  FreeLicenseResult RequestFreeLicenses(const StoredSession& session, const std::vector<std::uint32_t>& app_ids,
+                                        std::uint32_t license_wait_ms, const std::atomic<bool>& cancel);
 
   // A unified service call on an open session. When Steam refuses it, the result is kRejected and
   // `eresult` (optional) holds Steam's EResult.

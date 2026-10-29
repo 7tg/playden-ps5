@@ -2,7 +2,6 @@
 #include "steam/backend/download_server_source.h"
 
 #include "steam/backend/app_info.h"
-#include "steam/backend/content_language.h"
 #include "steam/backend/depot_manifest.h"
 #include "steam/backend/gzip.h"
 
@@ -82,7 +81,11 @@ CdnDownloadServerSource::PayloadResult CdnDownloadServerSource::PrepareApp(
   if (common) {
     for (const auto& depot : app->depots)
       if (depot.id == 228990 && depot.manifest_gid) depots.push_back(depot);
-  } else if (!SelectDepots(*app, {app_id}, std::nullopt, kDefaultContentLanguage, &depots, nullptr)) return PayloadResult::kFailed;
+  } else {
+    SelectionResult selected;
+    if (!SelectDepots(*app, {}, {app_id}, std::nullopt, DepotSelection{}, &selected)) return PayloadResult::kFailed;
+    depots = std::move(selected.depots);
+  }
   if (depots.empty()) return PayloadResult::kFailed;
   // Prefer the game's own depots over borrowed content. A refused depot does not prevent
   // another readable depot of the installed game from supplying the sample.

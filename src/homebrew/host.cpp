@@ -561,6 +561,15 @@ int main(int argc, char** argv) {
         details_source = std::make_unique<playden::steam::CmAppDetailsSource>(*details_cm);
         details_source->SetLicensedDepots(&licensed_depots);
         details_source->SetContentLanguage([] { return selected_content_language(); });
+        // Installed games' records, for their updates; the install service is made below and joined after the
+        // details worker (Controller::Shutdown).
+        details_source->SetInstalled([&installs](std::uint32_t app) -> std::optional<playden::installs::InstalledRecord> {
+            if (!installs) return std::nullopt;
+            const auto snapshot = installs->Snapshot();
+            for (const auto& game : snapshot.installed)
+                if (game.id == playden::GameId::Steam(app) && game.available) return game.record;
+            return std::nullopt;
+        });
         details_sessions = std::make_unique<playden::LocalSessionRepository>(options->data_directory.string(), playden::LocalSessionRepository::DiagnosticReport{}, session_vault.get());
         app_details = std::make_unique<playden::steam::AppDetailsService>(*details_source, *details_sessions);
         install_cm = std::make_unique<playden::steam::CmClient>(PLAYDEN_HOMEBREW_CA_BUNDLE, *library_storage);
@@ -584,6 +593,8 @@ int main(int argc, char** argv) {
             return tuning;
         });
         install_runner->SetContentLanguage([] { return selected_content_language(); });
+        install_runner->SetLicensedDepots(&licensed_depots);
+        install_runner->SetFreeDlcMemory(library_storage.get());
         install_runner->SetLog([log_directory](std::uint32_t app, const char* step, const char* category, const char* detail) {
             char line[640];
             if (std::string(step) == "install-removal")

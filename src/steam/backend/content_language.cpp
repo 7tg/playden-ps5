@@ -70,4 +70,12 @@ std::string LanguageName(std::string_view code) {
     return std::string(code);
 }
 
+std::string ResolveContentLanguage(const std::vector<std::string>& carried, std::string_view requested) {
+    const auto wanted = Lowered(requested.empty() ? kDefaultContentLanguage : requested);
+    if (carried.empty() || std::find(carried.begin(), carried.end(), wanted) != carried.end()) return wanted;
+    const std::string english(kDefaultContentLanguage);
+    if (std::find(carried.begin(), carried.end(), english) != carried.end()) return english;
+    return carried.front();
+}
+
 } // namespace playden::steam

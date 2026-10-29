@@ -133,6 +133,57 @@ void TruncatedMessagesFail() {
   assert(!cm::SplitMultiPayload({1, 0, 0}, &frames));
 }
 
+// CMsgClientRequestFreeLicense (5572) and its response (5573): field numbers from SteamKit2's
+// steammessages_clientserver.proto. Proto2 sends the repeated IDs unpacked; packed ones decode too.
+void FreeLicenseRequestAndResponse() {
+  assert(cm::kEMsgClientRequestFreeLicense == 5572 && cm::kEMsgClientRequestFreeLicenseResponse == 5573);
+  // appids = 2, unpacked varints: 0x10 <id>.
+  assert(cm::EncodeFreeLicenseRequest({5001, 7}) ==
+         (std::vector<std::uint8_t>{0x10, 0x89, 0x27, 0x10, 0x07}));
+  assert(cm::EncodeFreeLicenseRequest({}).empty());
+
+  playden::steam::proto::Writer unpacked;
+  unpacked.AddVarint(1, cm::kEResultOk);
+  unpacked.AddVarint(2, 900);
+  unpacked.AddVarint(3, 5001);
+  unpacked.AddVarint(3, 5002);
+  cm::FreeLicenseResponse response;
+  assert(cm::DecodeFreeLicenseResponse(unpacked.bytes(), &response));
+  assert(response.eresult == cm::kEResultOk && response.granted_packages == std::vector<std::uint32_t>{900} &&
+         (response.granted_apps == std::vector<std::uint32_t>{5001, 5002}));
+
+  playden::steam::proto::Writer packed;
+  packed.AddBytes(3, std::vector<std::uint8_t>{0x89, 0x27, 0x07});
+  assert(cm::DecodeFreeLicenseResponse(packed.bytes(), &response));
+  // eresult absent: the proto default, Fail.
+  assert(response.eresult == cm::kEResultFail && response.granted_packages.empty() &&
+         (response.granted_apps == std::vector<std::uint32_t>{5001, 7}));
+
+  // A truncated packed run or a wrong wire type fails.
+  playden::steam::proto::Writer truncated;
+  truncated.AddBytes(3, std::vector<std::uint8_t>{0x89});
+  assert(!cm::DecodeFreeLicenseResponse(truncated.bytes(), &response));
+  playden::steam::proto::Writer wrong;
+  wrong.AddString(1, "x");
+  assert(!cm::DecodeFreeLicenseResponse(wrong.bytes(), &response));
+}
+
+// CContentServerDirectory_GetManifestRequestCode_Request: app_id = 1, depot_id = 2, manifest_id = 3,
+// app_branch = 4 (branch_password_hash = 5 is never sent).
+void ManifestRequestCodeNamesTheBranch() {
+  const std::vector<std::uint8_t> head{0x08, 0xB8, 0x03, 0x10, 0xB9, 0x03, 0x18, 0x0B};
+  auto with = [&](const std::string& branch) {
+    auto bytes = head;
+    bytes.push_back(0x22);
+    bytes.push_back(static_cast<std::uint8_t>(branch.size()));
+    bytes.insert(bytes.end(), branch.begin(), branch.end());
+    return bytes;
+  };
+  assert(cm::EncodeManifestRequestCodeRequest(440, 441, 11) == with("public"));
+  assert(cm::EncodeManifestRequestCodeRequest(440, 441, 11, "") == with("public"));
+  assert(cm::EncodeManifestRequestCodeRequest(440, 441, 11, "4.04") == with("4.04"));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -144,4 +195,6 @@ int main(int argc, char** argv) {
   FramesRoundTripAndRejectMalformedInput();
   LicenseOwnerFlagsAndTypeDecode();
   TruncatedMessagesFail();
+  FreeLicenseRequestAndResponse();
+  ManifestRequestCodeNamesTheBranch();
 }

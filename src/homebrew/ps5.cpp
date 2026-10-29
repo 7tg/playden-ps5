@@ -390,6 +390,8 @@ int main() {
             return tuning;
         });
         install_runner.SetContentLanguage([] { return selected_content_language(); });
+        install_runner.SetLicensedDepots(&licensed_depots);
+        install_runner.SetFreeDlcMemory(&library_storage);
         install_runner.SetLog([](std::uint32_t app, const char* step, const char* category, const char* detail) {
             char line[640];
             if (std::string(step) == "install-removal")
@@ -702,6 +704,14 @@ int main() {
         playden::installs::InstallService::Runners install_runners{{playden::Store::kSteam, &install_runner}};
         if (copy_runner) install_runners[playden::Store::kLocal] = copy_runner.get();
         playden::steam::InstallService installs(std::move(install_runners), std::move(install_volumes));
+        // Installed games' records, for their updates. Set before the controller asks for details; its
+        // Shutdown joins the details worker before the install service stops.
+        details_source.SetInstalled([&installs](std::uint32_t app) -> std::optional<playden::installs::InstalledRecord> {
+            const auto snapshot = installs.Snapshot();
+            for (const auto& game : snapshot.installed)
+                if (game.id == playden::GameId::Steam(app) && game.available) return game.record;
+            return std::nullopt;
+        });
         playden::steam::CmClient servers_cm(paths.trust_store, library_storage);
         servers_cm.SetOwner("servers");
         servers_cm.SetSharedSession(steam_cm);

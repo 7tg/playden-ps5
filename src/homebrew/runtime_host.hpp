@@ -182,6 +182,9 @@ struct RuntimeInstallView {
   bool awaiting_registration = false;
   // False when a Ready title was made from an earlier kit; Prepare updates it.
   bool title_current = true;
+  // A Ready game whose files an update changed since its launch was set up (the update's marker in its
+  // folder): Play refuses it until Prepare has made its launch again from the new files and published it.
+  bool files_changed = false;
   // Whether the title runs the installed kit's runtime (its files and artifacts are the kit's). Unlike title_current,
   // a new game name or icon does not count. Settings only the newer runtime takes (120 Hz output) wait for Update.
   bool runtime_current = true;
@@ -463,6 +466,9 @@ class RuntimeHost {
   void SetTitleNames(std::map<std::uint32_t, std::string> names);
   // Queues Play of a Ready game.
   void Play(std::uint32_t runtime_number);
+  // A game's files changed outside the runtime (an update finished): the installs are checked again, so
+  // RuntimeInstallView::files_changed follows.
+  void RecheckInstalls();
   // The signed-in Steam account, for the Steamworks emulator's settings (empty when signed out).
   void SetSteamAccount(std::string account_name, std::uint64_t steam_id);
   // Queues removal of a game's PS5 title. Its bottle (saves and settings) is kept
@@ -547,9 +553,18 @@ class RuntimeHost {
                                 bool* prepare_again = nullptr, std::string* upgrade_deferred = nullptr,
                                 std::string* code = nullptr, bool force = false);
   // RepublishSettings without the upgrade's fallback.
+  // `defaults_published`: with force, a game with no saved settings whose title has revision 0 was
+  // published from Playden's defaults, so they are published again.
   std::string PublishSavedSettings(Composition& composition, const runtime::RuntimeInstall& record,
                                    bool* published, bool steam_account_known, bool* prepare_again,
-                                   std::string* code = nullptr, bool force = false);
+                                   std::string* code = nullptr, bool force = false, bool defaults_published = false);
+  // Whether an update left its marker in the Ready game's folder (installs::kFilesChangedName).
+  bool FilesChanged(const runtime::RuntimeInstall& record) const;
+  // The Ready-path part of Prepare for a game whose files changed: its generated recipe is made again
+  // from the request's launch options and the files (as a fresh preparation makes it), the saved
+  // settings are published with it, and the marker goes. Empty, or why not (the marker stays).
+  std::string RefreshChangedFiles(Composition& composition, const RuntimePrepareRequest& request,
+                                  const runtime::RuntimeInstall& record);
   // A Ready game published owned (schema 2, before 0.6 or by a kit before 0.10) while the kit
   // admits unowned game folders: published again as unowned, so folders the player opened pass.
   bool NeedsUnownedPublication(const Composition& composition, const runtime::RuntimeInstall& record);
@@ -748,6 +763,7 @@ class RuntimeHost {
   std::string steam_account_name_;                     // guarded by mutex_
   std::uint64_t steam_id_ = 0;                         // guarded by mutex_
   bool title_names_changed_ = false;
+  bool installs_recheck_requested_ = false;
   // Guards the worker's launch service and preflight cache for Handoff.
   std::mutex launch_mutex_;
   runtime::LaunchService* launch_ = nullptr;

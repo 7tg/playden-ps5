@@ -2048,6 +2048,15 @@ class Render::Impl
                         spinner(text_x + 10.0F, top + 92.0F, 8.0F, kBlue);
                         ui::text(scene_, fonts_.regular, "Checking your Steam licenses…", text_x + 30.0F, top + 99.0F, 21.0F, kText);
                     }
+                    else if (job->update && job->state == JobState::Downloading && !job->state_text.empty())
+                    {
+                        // An update's own steps: hashing the installed files, then putting the new ones in place.
+                        spinner(text_x + 10.0F, top + 92.0F, 8.0F, kBlue);
+                        ui::text(scene_, fonts_.regular,
+                                 job->locked ? "Putting the new files in place… The game can be played once this finishes."
+                                             : "Checking which installed files changed…",
+                                 text_x + 30.0F, top + 99.0F, 21.0F, kText);
+                    }
                     else
                     {
                         ui::text(scene_, fonts_.regular, byte_count(job->completed_bytes) + " / " + byte_count(job->total_bytes),
@@ -2091,6 +2100,12 @@ class Render::Impl
             if (const Job *job = entry->job)
             {
                 value = JobStateText(*job);
+                // An update waiting in the queue says so: "Update queued", "Update paused".
+                if (job->update && !entry->completed && job->state_text.empty() && !value.empty())
+                {
+                    value[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(value[0])));
+                    value = "Update " + value;
+                }
                 tone = job->state == JobState::Failed ? "problem"
                      : job->state == JobState::Paused || job->state == JobState::Interrupted ? "attention"
                      : job->state == JobState::Downloading || job->state == JobState::Verifying ? "busy" : "quiet";
@@ -2971,8 +2986,9 @@ class Render::Impl
         }
         // Non-installed games retain their download, destination and kept-save notes; an imported
         // game says where it plays from (the fixture's too).
-        const bool folder_note = std::any_of(view.rows.begin(), view.rows.end(),
-                                             [](const ViewRow &row) { return row.key == "details-folder"; });
+        const bool folder_note = std::any_of(view.rows.begin(), view.rows.end(), [](const ViewRow &row) {
+            return row.key == "details-folder" || row.key == "details-update-note" || row.key == "details-updating";
+        });
         if (!state.simulation_mode || folder_note)
         {
             std::string note;
@@ -2989,7 +3005,8 @@ class Render::Impl
                         note += " · " + row.value;
                     if (!row.subtitle.empty())
                         note += " · " + row.subtitle;
-                    tone = row.title == "Storage disconnected" ? kAmber : kSecondary;
+                    tone = row.title == "Storage disconnected" ? kAmber
+                         : row.key == "details-update-note" || row.key == "details-updating" ? kAccent : kSecondary;
                     break;
                 }
                 if (row.key == "details-install" && !row.subtitle.empty())
@@ -3541,7 +3558,7 @@ class Render::Impl
                           view.surface == "button-mapping" || view.surface == "controller-tuning" ||
                           view.surface == "game-maintenance" ||
                           view.surface == "controller" || view.surface == "logs" ||
-                          view.surface == "storage" || view.surface == "install" || view.surface == "kept-data" || view.surface == "leftover-titles" ||
+                          view.surface == "storage" || view.surface == "install" || view.surface == "update" || view.surface == "kept-data" || view.surface == "leftover-titles" ||
                           view.surface == "download-server" ||
                           view.surface == "installed-games" || view.surface == "import-games" ||
                           view.surface == "import-programs" || view.surface == "steam-programs";

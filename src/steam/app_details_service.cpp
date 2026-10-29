@@ -26,6 +26,15 @@ void AppDetailsService::Request(GameId id, std::uint64_t account_generation) {
   wake_.notify_all();
 }
 
+void AppDetailsService::Refresh(GameId id, std::uint64_t account_generation) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (account_generation == generation_ && std::find(pending_.begin(), pending_.end(), id) == pending_.end())
+      requested_.erase(id);
+  }
+  Request(id, account_generation);
+}
+
 void AppDetailsService::Invalidate(std::uint64_t account_generation) {
   std::lock_guard<std::mutex> lock(mutex_);
   generation_ = account_generation;

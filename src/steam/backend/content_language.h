@@ -30,4 +30,9 @@ bool IsContentLanguage(std::string_view code);
 // such language, so a depot tagged with something unexpected still reads sensibly.
 std::string LanguageName(std::string_view code);
 
+// The language an install uses from the ones a game carries (lower case, as Steam names them):
+// the requested one when carried, else English, else the first one. With none carried, the
+// requested one.
+std::string ResolveContentLanguage(const std::vector<std::string>& carried, std::string_view requested);
+
 } // namespace playden::steam

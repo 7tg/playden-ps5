@@ -1,4 +1,5 @@
 #include "homebrew/runtime_host.hpp"
+#include "installs/install_record.h"
 #include "runtime_host_fixture.h"
 #include "msi_fixture.h"
 #include "platform/managed_directory.h"
@@ -1561,6 +1562,123 @@ void PreparesGameWithoutShippedRecipe() {
   const auto again = WaitFor(legacy, [](const RuntimeSnapshot& s) { return s.refusals.count(4242) != 0; });
   CHECK(again.refusals.at(4242) == "This game is already prepared.");
   legacy.Shutdown();
+}
+
+// An update changed a Ready game's files (its marker in the game's folder): Play refuses until Prepare has
+// made the launch again from the new files and Steam's options, as a fresh preparation would, and published
+// it; then the marker goes. A program that is gone with no other to start keeps the marker and says why.
+void UpdatedFilesSetUpTheLaunchAgain() {
+  Fixture fixture;
+  auto config = fixture.Config();
+  config.host_namespace_prefix = fixture.root;
+  config.package_paths.console_data_root = "/data";
+  config.package_paths.host_data_root = fixture.root / "data";
+  config.package_operations.hash_file = HashArtifactFile;
+  config.package_operations.hash_bytes = HashArtifactBytes;
+  config.package_operations.free_space_unverifiable = true;
+  config.package_operations.validate_bottle = [](const fs::path& bottle) {
+    return fs::is_regular_file(bottle / "system.reg") && fs::is_regular_file(bottle / "user.reg");
+  };
+  const auto kit = SyntheticKit(fixture.root / "kit");
+  config.admit_kit = [&kit](std::string*) { return std::optional<RuntimeKit>(kit); };
+  unsigned uuids = 0;
+  config.uuid = [&uuids]() -> std::optional<std::string> {
+    ++uuids; return std::string("00000000-0000-4000-8000-0000000000") + (uuids < 10 ? "0" : "") + std::to_string(uuids);
+  };
+  config.unix_time = [] { return std::int64_t{1760000000}; };
+  config.session_data_root = fixture.root / "data";
+  config.launch_title = [](const std::string&, const std::vector<std::string>&) { return TitleResult{true, 0, "launch"}; };
+  const auto game = fixture.root / "data/homebrew/FAKE77031/games/4243";
+  std::string pe(0x80 + 26, '\0');
+  pe[0] = 'M'; pe[1] = 'Z'; pe[0x3c] = 0x40; pe[0x40] = 'P'; pe[0x41] = 'E';
+  pe[0x44] = 0x64; pe[0x45] = static_cast<char>(0x86); pe[0x40 + 24] = 0x0b; pe[0x40 + 25] = 0x02;
+  Write(game / "Bin/Game.exe", pe, 0644);
+  CHECK(chmod(game.c_str(), 0755) == 0);
+  GameSettingsRecord saved;
+  bool has_record = false;
+  config.settings_record = [&](const playden::GameId&) -> std::optional<GameSettingsRecord> {
+    if (!has_record) return std::nullopt;
+    return saved;
+  };
+  RuntimePrepareRequest request{4243, "/data/homebrew/FAKE77031/games/4243", "internal", "Updated Game"};
+  request.launches = {{"", "", "bin\\game.exe", "", ""}};
+  const auto profile = fixture.root / "data/playden/games/steam-4243/library/profiles/playden-steam-4243.profile";
+  const auto marker = game / playden::installs::kFilesChangedName;
+
+  RuntimeHost host(config);
+  CHECK(host.Start());
+  CHECK(WaitFor(host, Started).kit_available);
+  host.Prepare(request);
+  const auto ready = WaitFor(host, [](const RuntimeSnapshot& s) {
+    return !s.preparing_app && (s.refusals.count(4243) || (!s.installs.empty() && s.installs[0].state == PreparationState::kReady));
+  }, 60);
+  if (ready.refusals.count(4243)) std::fprintf(stderr, "Prepare refused: %s\n", ready.refusals.at(4243).c_str());
+  CHECK(ready.installs.size() == 1 && ready.installs[0].state == PreparationState::kReady && !ready.installs[0].files_changed);
+  CHECK(ready.installs[0].launch_path == "Bin/Game.exe" && Read(profile).find("Game.exe\n") != std::string::npos);
+
+  // The update renamed the program and left its marker.
+  fs::remove(game / "Bin/Game.exe");
+  Write(game / "Bin/Game2.exe", pe, 0644);
+  Write(marker, "v1\n", 0644);
+  host.RecheckInstalls();
+  WaitFor(host, [](const RuntimeSnapshot& s) { return !s.installs.empty() && s.installs[0].files_changed; });
+  host.Play(4243);
+  const auto refused = WaitFor(host, [](const RuntimeSnapshot& s) { return s.play_refusals.count(4243) != 0; });
+  CHECK(refused.play_refusals.at(4243).find("was updated") != std::string::npos && !refused.handoff_ready);
+
+  // Prepare with Steam's options for the new version: the launch is made again and published.
+  request.launches = {{"", "", "bin\\game2.exe", "", ""}};
+  const auto prepare = [&] {
+    const auto before = host.Snapshot().prepares_handled;
+    host.Prepare(request);
+    return WaitFor(host, [before](const RuntimeSnapshot& s) { return s.prepares_handled > before && !s.preparing_app; }, 60);
+  };
+  auto done = prepare();
+  if (done.refusals.count(4243)) std::fprintf(stderr, "Refresh refused: %s\n", done.refusals.at(4243).c_str());
+  CHECK(!done.refusals.count(4243));
+  CHECK(done.installs[0].launch_path == "Bin/Game2.exe" && !done.installs[0].files_changed && !done.installs[0].recovery_pending);
+  CHECK(done.generated_recipes.size() == 1 && done.generated_recipes[0].launch_entries[0].executable == "Bin/Game2.exe");
+  CHECK(Read(profile).find("Game2.exe\n") != std::string::npos && !fs::exists(marker));
+
+  // The program is gone and Steam names no other: refused as a fresh preparation is, and the marker stays.
+  fs::remove(game / "Bin/Game2.exe");
+  Write(marker, "v1\n", 0644);
+  host.RecheckInstalls();
+  WaitFor(host, [](const RuntimeSnapshot& s) { return !s.installs.empty() && s.installs[0].files_changed; });
+  done = prepare();
+  CHECK(done.refusals.count(4243) && done.installs[0].files_changed && fs::exists(marker));
+  CHECK(done.installs[0].launch_path == "Bin/Game2.exe");
+
+  // It is back: the program stays, and the marker goes.
+  Write(game / "Bin/Game2.exe", pe, 0644);
+  done = prepare();
+  if (done.refusals.count(4243)) std::fprintf(stderr, "Second refresh refused: %s\n", done.refusals.at(4243).c_str());
+  CHECK(!done.installs[0].files_changed && done.installs[0].launch_path == "Bin/Game2.exe" && !fs::exists(marker));
+
+  // A program the player chose in Game settings stays the one that starts while the update kept it, though
+  // Steam's options name another now.
+  Write(game / "Tool.exe", pe, 0644);
+  has_record = true;
+  saved.revision = 1;
+  saved.overrides = {{"program", "Tool.exe"}, {"architecture", "pe64"}};
+  fixture.activity->store(static_cast<int>(NativeActivity::kStopped));
+  const auto maintained = host.Snapshot().maintenance_handled;
+  host.Maintain(4243, RuntimeMaintenance::kApplySettings);
+  WaitFor(host, [maintained](const RuntimeSnapshot& s) { return s.maintenance_handled > maintained; }, 60);
+  CHECK(host.Snapshot().installs[0].launch_path == "Tool.exe");
+  Write(marker, "v1\n", 0644);
+  host.RecheckInstalls();
+  WaitFor(host, [](const RuntimeSnapshot& s) { return !s.installs.empty() && s.installs[0].files_changed; });
+  done = prepare();
+  if (done.refusals.count(4243)) std::fprintf(stderr, "Program refresh refused: %s\n", done.refusals.at(4243).c_str());
+  CHECK(!done.installs[0].files_changed && !fs::exists(marker));
+  CHECK(done.installs[0].launch_entry_id == kProgramEntryId && done.installs[0].launch_path == "Tool.exe");
+  CHECK(Read(profile).find("Tool.exe\n") != std::string::npos);
+  // Play goes ahead now.
+  host.Play(4243);
+  CHECK(WaitFor(host, [](const RuntimeSnapshot& s) { return s.handoff_ready; }, 30).handoff_ready);
+  CHECK(host.Handoff());
+  host.Shutdown();
 }
 
 // Settings saved while the game is being prepared, after its profile was written, reach the title
@@ -5654,6 +5772,7 @@ int main(int argc, char** argv) {
   AnyTitleKitMakesTheGameItsOwnTitle();
   PreparationEndsAwaitingRegistration();
   PreparesGameWithoutShippedRecipe();
+  UpdatedFilesSetUpTheLaunchAgain();
   PreparesProgramChosenInSettings();
   PreparesSteamProgramChosenAfterDownload();
   SteamEntryWithoutFolderStartsInInstallRoot();

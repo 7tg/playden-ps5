@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Playden contributors
 // SPDX-License-Identifier: MIT
 #include "homebrew/runtime_host.hpp"
+#include "installs/install_record.h"
 
 #include "platform/random_id.h"
 #include "platform/storage.h"
@@ -1144,6 +1145,21 @@ void RuntimeHost::SetTitleNames(std::map<std::uint32_t, std::string> names) {
   wake_.notify_all();
 }
 
+void RuntimeHost::RecheckInstalls() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_) return;
+    installs_recheck_requested_ = true;
+  }
+  wake_.notify_all();
+}
+
+bool RuntimeHost::FilesChanged(const rt::RuntimeInstall& record) const {
+  if (record.install_path.empty()) return false;
+  struct stat info{};
+  return lstat((HostPath(record.install_path) / installs::kFilesChangedName).c_str(), &info) == 0 && S_ISREG(info.st_mode);
+}
+
 void RuntimeHost::CheckActivity(std::uint32_t app_id) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -1420,6 +1436,7 @@ void RuntimeHost::PublishInstalls(const Composition& composition, const std::str
     }
     if (const auto found = composition.admission.find(record.install_id); found != composition.admission.end())
       view.admission = found->second;
+    view.files_changed = record.state == rt::PreparationState::kReady && FilesChanged(record);
     view.settings_revision = record.settings_revision;
     view.launch_entry_id = record.launch_entry_id;
     view.launch_path = record.launch_path;
@@ -1754,7 +1771,7 @@ std::string RuntimeHost::RepublishSettings(Composition& c, const rt::RuntimeInst
 
 std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeInstall& record, bool* published,
                                               bool steam_account_known, bool* prepare_again, std::string* code,
-                                              bool force) {
+                                              bool force, bool defaults_published) {
   if (code) code->clear();
   // Refusals only a new preparation gets past (the title's recipe or settings can't be published again).
   const auto again = [prepare_again](std::string message) {
@@ -1765,7 +1782,7 @@ std::string RuntimeHost::PublishSavedSettings(Composition& c, const rt::RuntimeI
   auto saved = stored.value_or(rt::GameSettingsRecord{});
   // A forced publication republishes the title's own revision for another runtime, so it needs the saved settings of
   // that revision or a newer one: Playden defaults standing in for a missing or unreadable record are not they.
-  if (force && (!stored || saved.revision < record.settings_revision)) {
+  if (force && (!stored ? !(defaults_published && record.settings_revision == 0) : saved.revision < record.settings_revision)) {
     Log("forced republish skipped app=" + std::to_string(record.runtime_number) + " saved=" +
         (stored ? std::to_string(saved.revision) : std::string("none")) +
         " title=" + std::to_string(record.settings_revision));
@@ -2308,6 +2325,10 @@ void RuntimeHost::RunPlay(Composition& c, std::uint32_t app_id) {
       result = rt::LaunchResult::Failure(rt::LaunchError::kNotFound, "This game has no PS5 title yet.");
     } else if (const auto replaced = KitReplaced(c); !replaced.empty()) {
       result = rt::LaunchResult::Failure(rt::LaunchError::kPreflight, replaced);
+    } else if (record->state == rt::PreparationState::kReady && FilesChanged(*record)) {
+      // Its launch names the files from before the update: Prepare makes it again first.
+      result = rt::LaunchResult::Failure(rt::LaunchError::kPreflight,
+                                         "This game was updated. Press Play again to set it up for the new version.");
     } else if (const auto unwritable = EnsureWritable(record->install_path,
                                                       WorkingFolder(record->launch_working_directory, record->launch_path, record->launch_in_install_root));
                !unwritable.empty()) {
@@ -2522,6 +2543,45 @@ std::string GeneratedRecipeFile(const std::string& recipe_id) { return "recipe-"
 // The recipe a game is prepared with: Playden's shipped one, otherwise one generated
 // from Steam's launch options and saved so recovery and later settings changes use the
 // same launch entries. Returns null with the reason for the player.
+std::string RuntimeHost::RefreshChangedFiles(Composition& c, const RuntimePrepareRequest& request,
+                                             const rt::RuntimeInstall& record) {
+  const auto app = std::to_string(record.runtime_number);
+  // A recipe Playden generated from the old files is made again from the new ones, with the launch options and
+  // Game settings choices a fresh preparation uses: a program the player chose still starts while it is there,
+  // and one that is gone is refused as a fresh preparation refuses it. A shipped recipe names its programs itself.
+  if (rt::IsGeneratedRecipeId(record.recipe_id)) {
+    std::string reason;
+    const auto* recipe = RecipeForPrepare(c, request, &reason);
+    if (!recipe) {
+      Log("files changed app=" + app + " recipe refused: " + reason);
+      return reason;
+    }
+    if (recipe->id != record.recipe_id || std::to_string(recipe->version) != record.recipe_version) {
+      Log("files changed app=" + app + " recipe " + record.recipe_id + "/" + record.recipe_version + " became " + recipe->id +
+          "/" + std::to_string(recipe->version));
+      return std::string("This game's setup changed with its update.") + kRecreateHint;
+    }
+  }
+  // Settings older than the title's can't be published over it (a forced publication skips them silently).
+  if (const auto saved = config_.settings_record ? config_.settings_record(GameOf(record)) : std::nullopt;
+      saved && saved->revision < record.settings_revision)
+    return "The game's saved settings are older than its PS5 title's; prepare it again.";
+  // Published again with the new recipe: a program that is gone moves to the one the recipe starts now.
+  bool published = false;
+  const auto refused = PublishSavedSettings(c, record, &published, true, nullptr, nullptr, true, true);
+  const auto current = c.records.Find(record.install_id);
+  Log("files changed app=" + app + " published=" + std::to_string(published) + " launch=" +
+      (current ? current->launch_entry_id + ":" + current->launch_path : std::string("-")) +
+      (refused.empty() ? std::string() : " refused=" + refused));
+  if (!refused.empty()) return refused;
+  // A marker that can't go only means the next Play sets the game up again (publishing nothing new).
+  const auto marker = HostPath(record.install_path) / installs::kFilesChangedName;
+  if (unlink(marker.c_str()) != 0 && errno != ENOENT)
+    Log("files changed app=" + app + " marker unlink errno=" + std::to_string(errno));
+  PublishInstalls(c, record.install_id);
+  return {};
+}
+
 const rt::GameRecipe* RuntimeHost::RecipeForPrepare(Composition& c, const RuntimePrepareRequest& request,
                                                     std::string* reason) {
   for (const auto& candidate : c.recipes)
@@ -2905,6 +2965,13 @@ std::string RuntimeHost::RunPrepare(Composition& c, const RuntimePrepareRequest&
       PublishInstalls(c);
       if (admission != "ok") return "The PS5 title still fails its start check: " + admission;
       OpenGameFolders(c, *existing);
+      // An update changed the game's files since its launch was set up: the launch is made again from them.
+      if (FilesChanged(*existing)) {
+        if (const auto refused = RefreshChangedFiles(c, request, *existing); !refused.empty()) return refused;
+        changed = true;
+        existing = c.records.Find(existing->install_id);
+        if (!existing) return "The game's install record is missing.";
+      }
       // The profile was built for the runtime the title had then; the kit's may take more keys (120 Hz output) or
       // fewer. Every Update that gets here publishes the saved settings again when they now write something else
       // (nothing otherwise), so an Update that failed after its title refresh is finished by the next one.
@@ -4417,6 +4484,7 @@ bool RuntimeHost::RunServices() {
         return stopping_ || (!prepare_requests_.empty() && !snapshot_.handoff_ready && !prepares_held_) ||
                !play_requests_.empty() ||
                cleanup_requested_ || measure_requested_ || !activity_requests_.empty() || title_names_changed_ ||
+               installs_recheck_requested_ ||
                (!remove_requests_.empty() && !snapshot_.handoff_ready) ||
                (!kept_delete_requests_.empty() && !snapshot_.handoff_ready) ||
                !scan_requests_.empty() || !prepared_dismissals_.empty() || prepared_clear_requested_ ||
@@ -4454,8 +4522,9 @@ bool RuntimeHost::RunServices() {
       measure = measure_requested_;
       measure_requested_ = false;
       checks.swap(activity_requests_);
-      names_changed = title_names_changed_;
+      names_changed = title_names_changed_ || installs_recheck_requested_;
       title_names_changed_ = false;
+      installs_recheck_requested_ = false;
       dismissals.swap(prepared_dismissals_);
       clear_prepared = prepared_clear_requested_;
       prepared_clear_requested_ = false;

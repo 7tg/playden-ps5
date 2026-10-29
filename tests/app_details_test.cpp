@@ -1,6 +1,7 @@
 #include "steam/app_details_service.h"
 #include "steam/backend/cm_app_details.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -77,6 +78,40 @@ void NewGenerationDropsResultsAndRefetches() {
   service.Request(SteamId(7), 2);
   const auto again = Await(service, 1);
   assert(again[0].account_generation == 2);
+}
+
+// A new download language keeps the account: invalidating the same generation asks Steam again.
+void SameGenerationInvalidateRefetches() {
+  Sessions sessions;
+  Source source;
+  AppDetailsService service(source, sessions);
+  service.Request(SteamId(7), 1);
+  Await(service, 1);
+  service.Invalidate(1);
+  service.Request(SteamId(7), 1);
+  const auto again = Await(service, 1);
+  assert(again[0].id == SteamId(7) && again[0].account_generation == 1);
+  std::lock_guard<std::mutex> lock(source.mutex);
+  assert(source.calls.size() == 2);
+}
+
+// An installed game whose update finished is asked for again, alone: other answers stay cached.
+void RefreshAsksAgainForOneGame() {
+  Sessions sessions;
+  Source source;
+  AppDetailsService service(source, sessions);
+  service.Request(SteamId(7), 1);
+  service.Request(SteamId(8), 1);
+  Await(service, 2);
+  service.Refresh(SteamId(7), 1);
+  const auto again = Await(service, 1);
+  assert(again.size() == 1 && again[0].id == SteamId(7));
+  service.Request(SteamId(8), 1);
+  std::this_thread::sleep_for(20ms);
+  assert(service.Pump().empty());
+  // Another generation's refresh is an ordinary request of that generation.
+  service.Refresh(SteamId(7), 2);
+  assert(Await(service, 1)[0].account_generation == 2);
 }
 
 void FailuresAreRetryable() {
@@ -263,16 +298,147 @@ void SizesFollowTheContentLanguage() {
   // A language the game does not carry is installed in English, and sized as English.
   const auto polish = DetailsFromAppInfo(400, buffer, std::nullopt, "polish");
   assert(polish.available && polish.install_bytes == 1000u && polish.download_bytes == 400u);
+  // The languages an install can choose from: the neutral content is the game's English.
+  assert((polish.languages == std::vector<std::string>{"english", "russian"}));
+}
+
+// The install sheet's "Includes N DLC": owned DLC whose Windows content the install selects.
+void IncludedDlcIsCounted() {
+  const std::string buffer = R"("appinfo"
+{
+  "appid" "6000"
+  "common" { "name" "DLC" "type" "Game" }
+  "config" { "launch" { "0" { "executable" "game.exe" "config" { "oslist" "windows" } } } }
+  "depots"
+  {
+    "6000" { "manifests" { "public" { "gid" "1" "size" "1000" "download" "400" } } }
+    "6011" { "dlcappid" "6001" "config" { "oslist" "windows" } "manifests" { "public" { "gid" "2" "size" "10" "download" "5" } } }
+    "6012" { "dlcappid" "6001" "config" { "oslist" "windows" } "manifests" { "public" { "gid" "3" "size" "10" "download" "5" } } }
+    "6021" { "dlcappid" "6002" "config" { "oslist" "windows" } "manifests" { "public" { "gid" "4" "size" "10" "download" "5" } } }
+    "6031" { "dlcappid" "6003" "config" { "oslist" "macos" } "manifests" { "public" { "gid" "5" "size" "10" "download" "5" } } }
+  }
+})";
+  // Without licenses no DLC counts as owned.
+  assert(DetailsFromAppInfo(6000, buffer).dlc_count == 0);
+  LicensedDepots::Grant grant;
+  grant.apps = {6000, 6001, 6003};
+  grant.depots = {6000, 6011, 6012, 6021, 6031};
+  const auto details = DetailsFromAppInfo(6000, buffer, grant);
+  // 6001 counts once for its two depots; 6002 isn't owned and 6003 is Mac only.
+  assert(details.dlc_count == 1 && details.install_bytes == 1020u);
+}
+
+// The versions an install can choose, with each one's own size; the licenses filter them as they do the sizes.
+void VersionsAreOffered() {
+  const std::string buffer = R"("appinfo"
+{
+  "config" { "launch" { "0" { "executable" "game.exe" "config" { "oslist" "windows" } } } }
+  "depots"
+  {
+    "7001" { "manifests" { "public" { "gid" "1" "size" "1000" "download" "400" } "4.04" { "gid" "2" "size" "800" "download" "300" } } }
+    "7002" { "config" { "oslist" "windows" } "manifests" { "4.04" { "gid" "3" "size" "100" "download" "50" } }
+             "encryptedmanifests" { "beta" { "encrypted_gid_2" "AB" } } }
+    "branches"
+    {
+      "public" { "buildid" "90" "timeupdated" "1760000000" }
+      "4.04" { "buildid" "40" "description" "Patch 4.04" "timeupdated" "1670000000" }
+      "beta" { "buildid" "95" "description" "Beta" "timeupdated" "1765000000" }
+      "private" { "buildid" "96" "pwdrequired" "1" "timeupdated" "1766000000" }
+    }
+  }
+})";
+  const auto details = DetailsFromAppInfo(7000, buffer);
+  assert(details.available && details.install_bytes == 1000u);
+  assert(details.versions.size() == 2 && details.versions[0].name == "public" && details.versions[0].build_id == 90 &&
+         details.versions[0].install_bytes == 1000 && details.versions[0].download_bytes == 400);
+  assert(details.versions[1].name == "4.04" && details.versions[1].description == "Patch 4.04" &&
+         details.versions[1].time_updated == 1670000000 && details.versions[1].install_bytes == 900 &&
+         details.versions[1].download_bytes == 350);
+  // Licenses granting only the public content: 4.04's own depot is not the account's, but its content is.
+  const auto licensed = DetailsFromAppInfo(7000, buffer, LicensedDepots::Grant{{7000}, {7001}});
+  assert(licensed.versions.size() == 2 && licensed.versions[1].install_bytes == 800);
+}
+
+// An installed game's details compare what Steam selects now with its install record.
+void InstalledGamesCompareWithTheirRecord() {
+  const std::string buffer = R"("appinfo"
+{
+  "config" { "launch" { "0" { "executable" "game.exe" "config" { "oslist" "windows" } }
+                        "1" { "executable" "beta.exe" "config" { "oslist" "windows" "betakey" "beta" } } } }
+  "depots"
+  {
+    "8001" { "manifests" { "public" { "gid" "11" "size" "1000" "download" "400" } "beta" { "gid" "12" "size" "1000" "download" "500" } } }
+    "8002" { "config" { "oslist" "windows" } "manifests" { "public" { "gid" "21" "size" "100" "download" "40" } } }
+    "8011" { "dlcappid" "8100" "config" { "oslist" "windows" } "manifests" { "public" { "gid" "31" "size" "10" "download" "5" } } }
+    "branches" { "public" { "buildid" "2" } "beta" { "buildid" "3" } }
+  }
+})";
+  const LicensedDepots::Grant grant{{8000, 8100}, {8001, 8002, 8011}};
+  installs::InstalledRecord record;
+  record.version = 2;
+  record.app_id = 8000;
+  record.depots = {{8001, 11, 8000, 8000}, {8002, 21, 8000, 8000}, {8011, 31, 8100, 8000}};
+  // The same manifests: nothing to do.
+  auto details = DetailsFromAppInfo(8000, buffer, grant, "english", record);
+  assert(!details.update.available() && details.update.download_bytes == 0);
+  // A new manifest: an update with that depot's download.
+  record.depots[1].gid = 20;
+  details = DetailsFromAppInfo(8000, buffer, grant, "english", record);
+  assert(details.update.newer && !details.update.new_dlc && details.update.download_bytes == 40);
+  record.depots[1].gid = 21;
+  // A recorded depot Steam no longer selects (here: no longer licensed... as a removed one reads).
+  record.depots.push_back({8003, 41, 8000, 8000});
+  details = DetailsFromAppInfo(8000, buffer, grant, "english", record);
+  assert(details.update.newer && details.update.download_bytes == 0);
+  record.depots.pop_back();
+  // A depot listed by a DLC app whose appinfo wasn't read can't have left.
+  record.depots.push_back({8201, 51, 8200, 8200});
+  details = DetailsFromAppInfo(8000, buffer, grant, "english", record);
+  assert(!details.update.available());
+  record.depots.pop_back();
+  // DLC bought after the install: its depot is new content of an owner the record doesn't hold.
+  const auto bought = record;
+  record.depots.pop_back();
+  details = DetailsFromAppInfo(8000, buffer, grant, "english", record);
+  assert(details.update.new_dlc && !details.update.newer && details.update.download_bytes == 5);
+  // A version 1 record names the game as every depot's owner: a held DLC depot is not new DLC.
+  record = bought;
+  record.version = 1;
+  record.depots[2].owner = 8000;
+  details = DetailsFromAppInfo(8000, buffer, grant, "english", record);
+  assert(!details.update.available());
+  // Licenses unknown: nothing is said.
+  record.depots[1].gid = 20;
+  assert(!DetailsFromAppInfo(8000, buffer, std::nullopt, "english", record).update.available());
+  // A record without depots (an imported copy): nothing either.
+  installs::InstalledRecord imported;
+  imported.app_id = 8000;
+  assert(!DetailsFromAppInfo(8000, buffer, grant, "english", imported).update.available());
+  // The record's branch selects, and the launch options are that branch's.
+  record = bought;
+  record.branch = "beta";
+  details = DetailsFromAppInfo(8000, buffer, grant, "english", record);
+  assert(details.update.newer && details.update.download_bytes == 500);
+  const auto has_beta = [](const AppDetails& value) {
+    return std::any_of(value.launches.begin(), value.launches.end(),
+                       [](const LaunchOption& option) { return option.executable == "beta.exe"; });
+  };
+  assert(has_beta(details) && !has_beta(DetailsFromAppInfo(8000, buffer, grant, "english", bought)));
 }
 
 int main() {
   SizesCountOnlyLicensedDepots();
   RequestsAreDeduplicatedPerGeneration();
   NewGenerationDropsResultsAndRefetches();
+  SameGenerationInvalidateRefetches();
+  RefreshAsksAgainForOneGame();
   FailuresAreRetryable();
   AppInfoBecomesWindowsEstimate();
   DefaultBetaKeyIsThePublicBranch();
   OtherBranchOptionsAreCandidates();
   ImpossibleDownloadSizeFallsBackToInstallSize();
   SizesFollowTheContentLanguage();
+  IncludedDlcIsCounted();
+  VersionsAreOffered();
+  InstalledGamesCompareWithTheirRecord();
 }

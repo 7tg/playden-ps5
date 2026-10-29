@@ -157,7 +157,7 @@ void SignOutRaceAndInvalidation() {
 class Download final : public InstallRunner {
  public:
   std::atomic<bool> started{false};
-  Result Install(const GameId&, const std::string&, const std::atomic<bool>& cancel,
+  Result Install(const GameId&, const std::string&, const InstallOptions&, const std::atomic<bool>& cancel,
                  const std::function<void(std::uint64_t, std::uint64_t, std::uint64_t)>&,
                  const std::function<void(InstallStep)>&) override {
     started = true;

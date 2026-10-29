@@ -18,6 +18,8 @@ class DetailsSource {
   virtual ~DetailsSource() = default;
   virtual Store store() const = 0;
   virtual void Request(const GameId& id, std::uint64_t generation) = 0;
+  // Asks again for a game already answered (its install changed); by default, as Request.
+  virtual void Refresh(const GameId& id, std::uint64_t generation) { Request(id, generation); }
   virtual void Invalidate(std::uint64_t generation) = 0;
   virtual std::vector<GameDetails> Pump(std::size_t maximum) = 0;
   virtual void Shutdown() = 0;

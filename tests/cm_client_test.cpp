@@ -341,7 +341,8 @@ void PackageZeroCounts() {
   auto script = std::make_shared<Script>();
   proto::Writer licenses;
   licenses.AddVarint(1, 1);
-  for (const auto& [id, created] : {std::pair<std::uint32_t, std::uint32_t>{0, 1240000000}, {8538, 1300000000}}) {
+  for (const auto& [id, created] :
+       {std::pair<std::uint32_t, std::uint32_t>{0, 1240000000}, {8538, 1300000000}, {7, 1100000000}}) {
     proto::Writer license;
     license.AddVarint(1, id);
     license.AddFixed32(2, created);
@@ -354,7 +355,9 @@ void PackageZeroCounts() {
     proto::Writer body;
     for (const auto& [id, apps, depots] :
          {std::tuple<std::uint32_t, std::vector<std::uint32_t>, std::vector<std::uint32_t>>{0, {440, 220}, {441, 232251}},
-          {8538, {440}, {232251, 232253}}}) {
+          {8538, {440}, {232251, 232253}},
+          // A Steam2-era package lists Counter-Strike: Source's content depot 241 among its apps.
+          {7, {240, 241}, {209, 232331}}}) {
       proto::Writer package;
       package.AddVarint(1, id);
       package.AddBytes(5, PackageBuffer(id, apps, depots));
@@ -366,8 +369,9 @@ void PackageZeroCounts() {
   std::atomic<bool> cancel{false};
   const auto result = client.FetchAcquisitionDates(Session(), cancel);
   assert(result.ok() && result.skipped_packages == 0);
-  assert(result.owned_apps == (std::set<std::uint32_t>{220, 440}));
-  assert(result.owned_depots == (std::set<std::uint32_t>{441, 232251, 232253}));
+  assert(result.owned_apps == (std::set<std::uint32_t>{220, 240, 241, 440}));
+  // An ID among a package's apps grants that depot too, as DepotDownloader checks.
+  assert(result.owned_depots == (std::set<std::uint32_t>{209, 220, 240, 241, 440, 441, 232251, 232253, 232331}));
   assert(result.acquired_at.at(440) == 1240000000u && result.acquired_at.at(220) == 1240000000u);
 }
 
@@ -467,7 +471,8 @@ void BorrowedLicensesAreShared() {
   assert(result.ok() && result.skipped_packages == 0);
   assert(PicsRequestSent(*script) == cm::EncodePicsPackagesRequest({{100, 7001}, {600, 6601}}));
   assert(result.owned_apps == (std::set<std::uint32_t>{10, 20, 40}));
-  assert(result.owned_depots == (std::set<std::uint32_t>{101, 201, 401}));
+  // App IDs count as depots too (Steam2-era packages), so the apps are among them.
+  assert(result.owned_depots == (std::set<std::uint32_t>{10, 20, 40, 101, 201, 401}));
   assert(result.shared_apps == (std::set<std::uint32_t>{40}));
   // App 20 is the account's own: the borrowed license's earlier date doesn't apply to it.
   assert(result.acquired_at.at(10) == 1600000000u && result.acquired_at.at(20) == 1600000000u);
@@ -1040,6 +1045,138 @@ void DepotAccessReturnsKeysAndManifestCodes() {
                   }));
 }
 
+std::vector<std::uint8_t> FreeLicenseReply(std::int32_t eresult, const std::vector<std::uint32_t>& apps,
+                                           const std::vector<std::uint32_t>& packages, std::uint64_t job) {
+  proto::Writer body;
+  body.AddVarint(1, static_cast<std::uint32_t>(eresult));
+  for (const auto package : packages) body.AddVarint(2, package);
+  for (const auto app : apps) body.AddVarint(3, app);
+  return ServerFrame(cm::kEMsgClientRequestFreeLicenseResponse, body.bytes(), std::nullopt, job);
+}
+
+// Free DLC: one ClientRequestFreeLicense; after a grant the call waits for the license list Steam pushes,
+// so the license read that follows on the shared session sees the new license.
+void FreeLicenseGrantWaitsForTheNewLicenseList() {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9)), LicenseListFrame({100})};
+  // Steam may push the new list before its answer: it still counts.
+  script->on_emsg[cm::kEMsgClientRequestFreeLicense] = {LicenseListFrame({100, 900}),
+                                                        FreeLicenseReply(cm::kEResultOk, {5001}, {900}, 1)};
+  auto shared = MakeCmSharedSession();
+  auto client = MakeClient(script);
+  client.SetSharedSession(shared);
+  std::atomic<bool> cancel{false};
+  const auto granted = client.RequestFreeLicenses(Session(), {5001, 5002}, 5000, cancel);
+  assert(granted.ok() && granted.eresult == cm::kEResultOk && granted.licenses_updated && granted.waited_ms < 1000);
+  assert(granted.granted_apps == std::vector<std::uint32_t>{5001} &&
+         granted.granted_packages == std::vector<std::uint32_t>{900});
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    const auto request = std::find_if(script->sent.begin(), script->sent.end(), [](const cm::Frame& frame) {
+      return frame.emsg == cm::kEMsgClientRequestFreeLicense;
+    });
+    assert(request != script->sent.end() && request->body == cm::EncodeFreeLicenseRequest({5001, 5002}));
+    assert(request->header.jobid_source == 1u);
+  }
+
+  // Granted, but no new list within the wait: still a success, and the shared session stays open.
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    script->on_emsg[cm::kEMsgClientRequestFreeLicense] = {FreeLicenseReply(cm::kEResultOk, {5002}, {}, 2)};
+    script->on_service = {ServerFrame(cm::kEMsgServiceMethodResponse, {}, std::nullopt, 3)};
+  }
+  const auto start = std::chrono::steady_clock::now();
+  const auto late = client.RequestFreeLicenses(Session(), {5002}, 200, cancel);
+  assert(late.ok() && !late.licenses_updated && late.waited_ms >= 150);
+  assert(std::chrono::steady_clock::now() - start < 2s);
+  assert(Ping(client, cancel) == CmError::kNone);
+  assert(CountSent(script, cm::kEMsgClientLogon) == 1);
+
+  // Nothing granted (paid DLC): no wait.
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    script->on_emsg[cm::kEMsgClientRequestFreeLicense] = {FreeLicenseReply(cm::kEResultOk, {}, {}, 4)};
+  }
+  const auto refused = client.RequestFreeLicenses(Session(), {5003}, 5000, cancel);
+  assert(refused.ok() && refused.granted_apps.empty() && !refused.licenses_updated && refused.waited_ms == 0);
+
+  // Steam failing the request is kRejected with its EResult, in the body or the header.
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    script->on_emsg[cm::kEMsgClientRequestFreeLicense] = {FreeLicenseReply(cm::kEResultFail, {}, {}, 5)};
+  }
+  const auto failed = client.RequestFreeLicenses(Session(), {5003}, 5000, cancel);
+  assert(failed.error == CmError::kRejected && failed.eresult == cm::kEResultFail);
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    script->on_emsg[cm::kEMsgClientRequestFreeLicense] = {
+        ServerFrame(cm::kEMsgClientRequestFreeLicenseResponse, {}, cm::kEResultAccessDenied, 6)};
+  }
+  const auto denied = client.RequestFreeLicenses(Session(), {5003}, 5000, cancel);
+  assert(denied.error == CmError::kRejected && denied.eresult == cm::kEResultAccessDenied);
+  assert(client.RequestFreeLicenses(Session(), {}, 5000, cancel).error == CmError::kProtocol);
+}
+
+// The wait after a grant ends at once when the install is canceled.
+void FreeLicenseWaitIsCancelable() {
+  auto script = std::make_shared<Script>();
+  script->on_logon = {ServerFrame(cm::kEMsgClientLogOnResponse, LogonResponseBody(1, 9)), LicenseListFrame({100})};
+  script->on_emsg[cm::kEMsgClientRequestFreeLicense] = {FreeLicenseReply(cm::kEResultOk, {5001}, {}, 1)};
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  std::thread canceler([&cancel] {
+    std::this_thread::sleep_for(100ms);
+    cancel = true;
+  });
+  const auto start = std::chrono::steady_clock::now();
+  const auto result = client.RequestFreeLicenses(Session(), {5001}, 10000, cancel);
+  canceler.join();
+  assert(result.error == CmError::kCanceled && std::chrono::steady_clock::now() - start < 2s);
+}
+
+// A DLC app's own depot: its key and manifest request code are asked for under the DLC app, not the game.
+// Another version's manifest: its request code names that branch.
+void DepotAccessNamesTheBranch() {
+  auto script = DepotScript(cm::kEResultOk, 987654321);
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  DepotRequest request{441, 11};
+  request.branch = "4.04";
+  assert(client.FetchDepotAccess(Session(), 440, {request}, cancel).ok());
+  std::lock_guard<std::mutex> lock(script->mutex);
+  const auto& code = script->sent.back();
+  assert(code.emsg == cm::kEMsgServiceMethodCallFromClient);
+  assert(code.body == cm::EncodeManifestRequestCodeRequest(440, 441, 11, "4.04"));
+  const std::string body(code.body.begin(), code.body.end());
+  assert(body.find("\x22\x04" "4.04") != std::string::npos && body.find("public") == std::string::npos);
+}
+
+void DepotAccessAsksEachDepotUnderItsOwnApp() {
+  LogCapture log;
+  auto script = DepotScript(cm::kEResultOk, 987654321);
+  auto client = MakeClient(script);
+  std::atomic<bool> cancel{false};
+  DepotRequest request{441, 11};
+  request.app_id = 5001;
+  assert(client.FetchDepotAccess(Session(), 440, {request}, cancel).ok());
+  {
+    std::lock_guard<std::mutex> lock(script->mutex);
+    const auto key = std::find_if(script->sent.begin(), script->sent.end(), [](const cm::Frame& frame) {
+      return frame.emsg == cm::kEMsgClientGetDepotDecryptionKey;
+    });
+    assert(key != script->sent.end() && key->body == cm::EncodeDepotKeyRequest(441, 5001));
+    const auto& code = script->sent.back();
+    assert(code.emsg == cm::kEMsgServiceMethodCallFromClient);
+    assert(code.body == cm::EncodeManifestRequestCodeRequest(5001, 441, 11));
+    // Without a branch the request names the public one.
+    const std::string body(code.body.begin(), code.body.end());
+    assert(body.find("\x22\x06public") != std::string::npos);
+  }
+  bool named = false;
+  for (const auto& line : log.Take()) named |= line == "owner=cm step=depot_key app=5001 depot=441 result=ok";
+  assert(named);
+}
+
 void DeviceSeedPersistsPerInstall() {
   const auto root = std::filesystem::temp_directory_path() / "playden-cm-seed-test";
   std::filesystem::remove_all(root);
@@ -1101,6 +1238,13 @@ int main(int argc, char** argv) {
   AppInfoUsesAccessTokensAndCollectsMultipartBuffers();
   ResetCmBackoff();
   DepotAccessReturnsKeysAndManifestCodes();
+  ResetCmBackoff();
+  DepotAccessAsksEachDepotUnderItsOwnApp();
+  DepotAccessNamesTheBranch();
+  ResetCmBackoff();
+  FreeLicenseGrantWaitsForTheNewLicenseList();
+  ResetCmBackoff();
+  FreeLicenseWaitIsCancelable();
   ResetCmBackoff();
   DeviceSeedPersistsPerInstall();
   ResetCmBackoff();

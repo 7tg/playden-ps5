@@ -71,13 +71,21 @@ enum class JobStage { Download, Verify, Install, Uninstall };
 enum class SessionState { Idle, Preparing, Launching, Running, Stopping, Failed, Crashed };
 enum class RuntimeState { Unavailable, Checking, Ready, Failed };
 enum class LogState { Loading, Ready, Failed };
+// Update: an installed game's update (or DLC bought since), from its details page.
 enum class InstallRequestKind { Install, Pause, Resume, DownloadNow, MoveUp, MoveDown, Cancel, Uninstall, SetDefaultVolume,
-                                DismissCompleted, ClearCompleted };
+                                DismissCompleted, ClearCompleted, Update };
 struct InstallRequest {
     InstallRequestKind kind = InstallRequestKind::Install;
     GameId game_id;
     std::string volume_id;  // SetDefaultVolume; Install: this install's drive (empty: the default)
     bool delete_saves = false;  // Uninstall only: also delete the game's kept saves and settings
+    // Install: the content language chosen in the install sheet for this install (empty: the Settings
+    // download language), and the branch (empty: public).
+    std::string language;
+    std::string branch;
+    // Install: the install-size estimate of the chosen version (the game's when Steam gives none for it),
+    // which the install service reserves on the drive; empty: unknown.
+    std::optional<std::uint64_t> install_bytes;
 };
 // Game maintenance the details page offers (simulated in fixture mode).
 enum class MaintenanceKind { ApplySettings, ClearShaderCache, Repair, BackupSaves, RecreateBottle, UpdateRuntime };
@@ -101,6 +109,10 @@ struct LiveInstallJob {
     std::uint64_t held_bytes = 0;  // installed bytes already on the drive
     bool checking_licenses = false;  // a slow Steam license check before the download starts
     std::string server_name;  // while downloading: the download server's display name
+    bool update = false;          // an installed game's update, not an install
+    bool locked = false;          // the update is putting its files in place: the game can't be played
+    bool checking_files = false;  // while running: the update hashes the installed files
+    bool applying = false;        // while running: the update puts its files in place
 };
 struct LiveInstalledGame {
     GameId game_id;
@@ -446,6 +458,32 @@ inline bool operator==(PersistenceLoadToken left, PersistenceLoadToken right) {
     return left.id == right.id && left.baseline_revision == right.baseline_revision;
 }
 
+// A version of a game (a Steam branch) an install can choose, from Steam app info.
+struct GameVersion {
+    std::string name;  // as Steam names the branch; "public" is the default
+    std::string description;
+    std::int64_t time_updated = 0;  // unix seconds; 0 = unknown
+    std::uint64_t build_id = 0;
+    std::optional<std::uint64_t> download_bytes;
+    std::optional<std::uint64_t> install_bytes;
+    // The same per content language ("german"), for an install in another language than Settings'.
+    struct LanguageSize {
+        std::string language;
+        std::uint64_t download_bytes = 0;
+        std::uint64_t install_bytes = 0;
+    };
+    std::vector<LanguageSize> languages;
+};
+
+// An installed game's update, from Steam app info compared with its install record.
+struct GameUpdate {
+    bool newer = false;    // a newer version of the game's content
+    bool new_dlc = false;  // DLC the account owns that the install doesn't hold
+    std::uint64_t download_bytes = 0;  // Steam's estimate for the changed content; 0 unknown
+    [[nodiscard]] bool available() const noexcept { return newer || new_dlc; }
+    bool operator==(const GameUpdate&) const = default;
+};
+
 struct Game {
     GameId id;
     std::string title;
@@ -464,6 +502,10 @@ struct Game {
     std::optional<std::int64_t> last_played;
     std::optional<std::uint64_t> playtime_minutes;
     std::optional<bool> windows_installable;  // from Steam app info; absent until fetched
+    std::vector<std::string> content_languages;  // from Steam app info: the languages an install can choose
+    std::uint32_t dlc_count = 0;  // from Steam app info: owned DLC an install includes
+    std::vector<GameVersion> versions;  // from Steam app info: public first; two or more offer a choice
+    GameUpdate update;  // from Steam app info, for an installed game
     bool demo = false;  // a Steam demo; Sort and filters › Demos hides it
     bool family_shared = false;  // shared by a Steam family member; the tile says "Family"
     bool art_pending = false;
@@ -523,6 +565,8 @@ struct Job {
     std::int64_t finished_at = 0;  // live: when a Downloaded job finished (Unix seconds), 0 unknown
     bool checking_licenses = false;  // live: a slow Steam license check before the download starts
     std::string server_name;  // live, while downloading: the download server's display name
+    bool update = false;  // an installed game's update (kind stays "install": a game's download)
+    bool locked = false;  // the update is putting its files in place: Play waits for it
     // A job that is not a game's (the Playden update): its title and the words for its stage and state.
     std::string title;
     std::string stage_text;
@@ -884,8 +928,13 @@ public:
     // False on a console that cannot read free space at all: installs are then allowed without it.
     void SetFreeSpaceSupported(bool supported) noexcept { free_space_supported_ = supported; }
     // Live mode: Steam app-info estimates for one game (download/install size, installability).
+    // `languages`: the content languages the game carries, as Steam names them. `dlc_count`: owned
+    // DLC with content an install includes, shown on the install sheet. `versions`: the versions an
+    // install can choose, public first. `update`: an installed game's update or new DLC.
     bool UpdateAppDetails(GameId id, std::optional<std::uint64_t> download_bytes,
-                          std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable);
+                          std::optional<std::uint64_t> install_bytes, std::optional<bool> windows_installable,
+                          std::vector<std::string> languages = {}, std::uint32_t dlc_count = 0,
+                          std::vector<GameVersion> versions = {}, GameUpdate update = {});
     // Live mode: the Steam store's description, genres and controller support for one game;
     // kept across library refreshes.
     void UpdateStoreDetails(GameId id, std::string description, std::vector<std::string> genres,
@@ -988,6 +1037,11 @@ private:
     // and whether the open storage picker chooses it rather than the default.
     std::string install_volume_id_;
     bool picking_install_volume_ = false;
+    // Live: the content language chosen in the install sheet for this one install (empty: the one the
+    // Settings download language resolves to for the game).
+    std::string install_language_;
+    // Live: the version (branch) chosen in the install sheet for this one install (empty: public).
+    std::string install_version_;
     bool free_space_supported_ = true;
     std::vector<playden::runtime::SettingsPreset> settings_presets_;
     // Shipped and generated recipes by game (runtime::RecipeGame).
@@ -1038,6 +1092,8 @@ private:
     // Live install events become notifications; the first snapshot is restored history, not an event.
     bool live_installs_seen_ = false;
     std::map<GameId, JobState> live_job_states_;
+    std::set<GameId> live_update_jobs_;  // the live jobs that are updates, as last projected
+    std::set<GameId> canceled_updates_;  // updates the player canceled, until their job ends
     std::set<GameId> live_installed_ids_;
     std::set<GameId> pending_uninstalls_;
     std::vector<GameId> pending_kept_delete_requests_;
@@ -1287,6 +1343,23 @@ private:
         return install_volume_id_.empty() ? selected_volume_id_ : install_volume_id_;
     }
     [[nodiscard]] std::string next_job_id();
+    // The language the install sheet would install `id` in, and the sheet's rows for it.
+    [[nodiscard]] std::string install_language(GameId id) const;
+    // The version chosen in the install sheet for `id`, when it is not the public one.
+    [[nodiscard]] const GameVersion* install_version(GameId id) const;
+    [[nodiscard]] const GameVersion* install_sized_version(GameId id) const;
+    [[nodiscard]] std::vector<std::string> live_install_sheet_actions(GameId id) const;
+    // An installed game's update on its own drive: whether it can start, and the words the sheet shows.
+    struct UpdateCheck {
+        bool allowed = false;
+        std::string volume_label;
+        std::optional<std::uint64_t> free_bytes;
+        std::uint64_t download_bytes = 0;  // 0 unknown
+        std::string reason;  // short, for the confirm row: why not, or what pressing does
+    };
+    [[nodiscard]] UpdateCheck update_check(GameId id) const;
+    // The game's update is putting its files in place: Play waits.
+    [[nodiscard]] bool update_locked(GameId id) const;
 };
 
 } // namespace playden::homebrew

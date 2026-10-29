@@ -717,6 +717,34 @@ void family_sharing_scenario_marks_shared_games(const std::filesystem::path& fix
     check(simulation.snapshot().find("\"route\":\"library\"") != std::string::npos, "family-sharing opens the Library");
 }
 
+// The game update scenarios: Update or DLC available after Play with its sheet, the install sheet's options, and a
+// queue of updates whose first one locks Play.
+void game_update_scenarios(const std::filesystem::path& fixtures, const std::filesystem::path& profile) {
+    playden::homebrew::Simulation simulation(fixtures, profile);
+    const auto row = [&simulation](const std::string& key) -> const playden::homebrew::ViewRow* {
+        for (const auto& item : simulation.view().rows) if (item.key == key) return &item;
+        return nullptr;
+    };
+    check(simulation.scenario("update-available"), "update-available loads");
+    check(row("details-update") && row("details-update")->title == "Update" && row("details-update-note") &&
+              row("details-update-note")->title == "Update available" && row("details-update-note")->value == "Up to 1.2 GB",
+          "update-available offers Update with its size");
+    check(simulation.action("cross") && simulation.view().surface == "update" && row("update-confirm") &&
+              row("update-confirm")->enabled && row("update-confirm")->value == "Up to 1.2 GB",
+          "Update opens the update sheet");
+    check(simulation.action("circle"), "the sheet closes");
+    check(simulation.scenario("dlc-available") && row("details-update")->title == "DLC available",
+          "dlc-available says DLC available");
+    check(simulation.scenario("install-options") && simulation.view().surface == "install" && row("install-version") &&
+              row("install-language") && row("install-dlc") && row("install-dlc")->value == "2 DLC",
+          "install-options shows Version, Language and Includes");
+    check(simulation.scenario("updating") && simulation.state().navigation.route == playden::homebrew::Route::Downloads,
+          "updating opens the queue");
+    check(simulation.action("details:900001") && row("details-play") && !row("details-play")->enabled &&
+              row("details-play")->value == "Finishing the update…" && !row("details-update"),
+          "an update putting its files in place locks Play");
+}
+
 void t12_stress_dataset_keeps_logical_focus(const std::filesystem::path& fixtures,
                                             const std::filesystem::path& profile) {
     playden::homebrew::Simulation simulation(fixtures, profile);
@@ -1529,6 +1557,8 @@ int main(int argc, char** argv) {
     t12_stress_dataset_keeps_logical_focus(fixtures, profile);
     clean();
     family_sharing_scenario_marks_shared_games(fixtures, profile);
+    clean();
+    game_update_scenarios(fixtures, profile);
     clean();
     t13_settings_sections_rail(fixtures, profile);
     clean();

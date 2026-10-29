@@ -238,7 +238,12 @@ class Controller {
   // prepared yet. Play then starts it once it is Ready; the refusal seen when Prepare
   // was queued tells a new refusal from an old one.
   std::set<GameId> downloading_;
+  std::set<GameId> updating_;  // the install jobs that are updates of installed games
+  // Installed games whose update finished: their Steam details (launch options, update state) are asked again.
+  std::set<GameId> refresh_details_;
+  bool library_loading_ = false;  // the library refresh last seen running
   std::vector<GameId> auto_prepare_;  // in the order their downloads (copies, imports) finished
+  std::set<GameId> refresh_asked_;  // updated games whose setup for the new files was asked for (TickRuntime)
   std::optional<GameId> prepare_next_pending_;  // Prepare next on a game not in the runtime's queue yet
   struct PlayAfterPrepare {
     bool queued = false;
@@ -337,7 +342,8 @@ class Controller {
   // How long a Cloud job waits for the console to say which games are stopped.
   static constexpr std::chrono::seconds kJobActivityWait{45};
   std::map<GameId, std::uint64_t> cloud_foreground_;
-  // Games the job gate refuses (sessions Playden knows of), read on the Cloud worker.
+  void TickGate();
+  // Games the gates refuse (sessions Playden knows of), read on the Cloud and install workers.
   std::mutex gate_mutex_;
   std::set<GameId> gate_blocked_;
   LiveSavesJob saves_job_;
@@ -349,6 +355,9 @@ class Controller {
   std::optional<std::chrono::steady_clock::time_point> licenses_notice_at_;  // when a license check starts showing
   std::optional<GameId> requested_detail_;
   std::uint64_t requested_generation_ = 0;
+  // The download language app details were last asked for: sizes follow it, so a change asks again.
+  std::string requested_language_;
+  bool reissue_after_language_ = false;
   stores::SteamAccount* service_ = nullptr;  // Steam's account, in the registry; null once shut down
   std::function<void(const std::string&)> auth_log_;  // sign-in steps and results (auth.log)
   std::unique_ptr<app::LibraryController> library_;

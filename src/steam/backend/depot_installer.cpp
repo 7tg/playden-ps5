@@ -4,6 +4,8 @@
 #include "steam/backend/gzip.h"
 #include "steam/install_volumes.h"
 
+#include <mbedtls/sha1.h>
+
 #include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -73,6 +75,24 @@ std::string Hex(const std::array<std::uint8_t, 20>& bytes) {
   for (const auto byte : bytes) {
     text.push_back(kDigits[byte >> 4]);
     text.push_back(kDigits[byte & 15]);
+  }
+  return text;
+}
+
+// A string value for the install record, JSON-escaped; `fallback` when empty.
+std::string RecordText(const std::string& value, const char* fallback) {
+  std::string text;
+  for (const char c : value.empty() ? std::string(fallback) : value) {
+    if (c == '"' || c == '\\') {
+      text += '\\';
+      text += c;
+    } else if (static_cast<unsigned char>(c) < 0x20) {
+      char escaped[8];
+      std::snprintf(escaped, sizeof(escaped), "\\u%04x", static_cast<unsigned>(static_cast<unsigned char>(c)));
+      text += escaped;
+    } else {
+      text += c;
+    }
   }
   return text;
 }
@@ -217,6 +237,241 @@ std::string JournalKey(std::uint32_t depot, const std::string& path, std::uint64
   return std::to_string(depot) + "\t" + std::to_string(offset) + "\t" + path;
 }
 
+// Updates. Names in the work folder (DepotInstaller::kUpdateDir).
+constexpr const char* kUpdateStaging = "staging";
+constexpr const char* kUpdateStaged = "staged";
+constexpr const char* kUpdateOld = "old";
+constexpr const char* kUpdateFiles = "files";
+constexpr const char* kUpdateTree = "tree";
+constexpr const char* kUpdateRecord = "record";
+constexpr const char* kUpdatePaths = "paths";
+constexpr const char* kSteamFacts = ".playden-steam";  // runtime/steamworks.h kSteamworksFactsFile
+
+std::string UpdateDir(const std::string& root) { return root + "/" + DepotInstaller::kUpdateDir; }
+
+bool WriteText(const std::string& path, const std::string& text) {
+  const auto temporary = path + ".tmp";
+  FILE* file = std::fopen(temporary.c_str(), "w");
+  if (!file) return false;
+  bool ok = text.empty() || std::fwrite(text.data(), 1, text.size(), file) == text.size();
+  ok = std::fclose(file) == 0 && ok;
+  ok = ok && std::rename(temporary.c_str(), path.c_str()) == 0;
+  if (!ok) std::remove(temporary.c_str());
+  return ok;
+}
+
+// A whole file, read through a heap buffer; false when it can't be read (missing included).
+bool ReadText(const std::string& path, std::string* text) {
+  FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file) return false;
+  text->clear();
+  std::vector<char> buffer(64 * 1024);
+  for (std::size_t read = 0; (read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0;) text->append(buffer.data(), read);
+  const bool ok = std::ferror(file) == 0;
+  std::fclose(file);
+  return ok;
+}
+
+std::vector<std::string> Lines(const std::string& text) {
+  std::vector<std::string> lines;
+  std::size_t start = 0;
+  while (start < text.size()) {
+    auto end = text.find('\n', start);
+    if (end == std::string::npos) end = text.size();
+    auto line = text.substr(start, end - start);
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (!line.empty()) lines.push_back(std::move(line));
+    start = end + 1;
+  }
+  return lines;
+}
+
+// A game path an update may touch: relative, without "." or ".." parts, and not one of Playden's own
+// files at the game's root.
+bool GamePath(const std::string& path) {
+  if (path.empty() || path[0] == '/' || path.compare(0, 8, ".playden") == 0) return false;
+  std::size_t start = 0;
+  while (start <= path.size()) {
+    const auto slash = path.find('/', start);
+    const auto part = path.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+    if (part.empty() || part == "." || part == "..") return false;
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+  return true;
+}
+
+// A file list (DepotInstaller::kFileList format): 'f' or 'd', a tab, a path.
+struct ListedPath {
+  char kind = 'f';
+  std::string path;
+};
+std::vector<ListedPath> ReadFileList(const std::string& path) {
+  std::vector<ListedPath> entries;
+  std::string text;
+  if (!ReadText(path, &text)) return entries;
+  for (auto& line : Lines(text)) {
+    if (line.size() < 3 || line[1] != '\t' || (line[0] != 'f' && line[0] != 'd')) continue;
+    auto entry_path = line.substr(2);
+    if (GamePath(entry_path)) entries.push_back({line[0], std::move(entry_path)});
+  }
+  return entries;
+}
+
+// A finished install's tree (DepotInstaller::kFileTree), by lowercase path; nothing when it is missing
+// or isn't a "v1" tree.
+struct TreeFile {
+  std::string sha;
+  std::uint64_t size = 0;
+  std::string path;
+};
+std::optional<std::map<std::string, TreeFile>> ReadFileTree(const std::string& path) {
+  std::string text;
+  if (!ReadText(path, &text)) return std::nullopt;
+  const auto lines = Lines(text);
+  if (lines.empty() || lines[0] != "v1") return std::nullopt;
+  std::map<std::string, TreeFile> tree;
+  for (std::size_t index = 1; index < lines.size(); ++index) {
+    const auto& line = lines[index];
+    const auto first = line.find('\t');
+    const auto second = first == std::string::npos ? std::string::npos : line.find('\t', first + 1);
+    if (second == std::string::npos) continue;
+    TreeFile file;
+    file.sha = line.substr(0, first);
+    const auto size = std::from_chars(line.data() + first + 1, line.data() + second, file.size);
+    if (size.ec != std::errc{} || size.ptr != line.data() + second) continue;
+    file.path = line.substr(second + 1);
+    tree[Lower(file.path)] = std::move(file);
+  }
+  return tree;
+}
+
+// Whether the file at `path` is a regular file of `size` bytes whose SHA-1 is `sha` (read through a
+// heap buffer; worker stacks are small). An empty file needs no hash.
+bool SameContent(const std::string& path, std::uint64_t size, const std::array<std::uint8_t, 20>& sha,
+                 const std::atomic<bool>& cancel) {
+  struct stat info {};
+  if (lstat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode) || static_cast<std::uint64_t>(info.st_size) != size)
+    return false;
+  if (size == 0) return true;
+  FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file) return false;
+  std::vector<std::uint8_t> buffer(1024 * 1024);
+  mbedtls_sha1_context context;
+  mbedtls_sha1_init(&context);
+  bool ok = mbedtls_sha1_starts(&context) == 0;
+  std::uint64_t total = 0;
+  for (std::size_t read = 0; ok && !cancel.load() && (read = std::fread(buffer.data(), 1, buffer.size(), file)) > 0;) {
+    ok = mbedtls_sha1_update(&context, buffer.data(), read) == 0;
+    total += read;
+  }
+  ok = ok && !cancel.load() && std::ferror(file) == 0 && total == size;
+  std::array<std::uint8_t, 20> digest{};
+  ok = ok && mbedtls_sha1_finish(&context, digest.data()) == 0;
+  mbedtls_sha1_free(&context);
+  std::fclose(file);
+  return ok && digest == sha;
+}
+
+bool IsDirectory(const std::string& path) {
+  struct stat info {};
+  return lstat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+bool Present(const std::string& path) {
+  struct stat info {};
+  return lstat(path.c_str(), &info) == 0;
+}
+
+// Whether every folder above the game path <root>/<path> is a real folder (lstat: a link isn't). An update
+// never deletes or moves anything through a link, which could lead out of the game's folder.
+bool RealParents(const std::string& root, const std::string& path) {
+  for (auto parent = Parent(path); !parent.empty(); parent = Parent(parent))
+    if (!IsDirectory(root + "/" + parent)) return false;
+  return true;
+}
+
+struct UpdatePlan {
+  std::vector<ListedPath> old_list, new_list;
+  std::set<std::string> old_files;  // lowercase paths of the old version's files
+  std::set<std::string> new_files;  // lowercase paths of the new version's files
+  std::set<std::string> new_dirs;
+  std::map<std::string, std::string> new_spelling;  // lowercase -> path as the new version names it
+};
+
+UpdatePlan ReadUpdatePlan(const std::string& work) {
+  UpdatePlan plan;
+  plan.old_list = ReadFileList(work + "/" + kUpdateOld);
+  plan.new_list = ReadFileList(work + "/" + kUpdateFiles);
+  for (const auto& entry : plan.old_list)
+    if (entry.kind == 'f') plan.old_files.insert(Lower(entry.path));
+  for (const auto& entry : plan.new_list) {
+    const auto key = Lower(entry.path);
+    (entry.kind == 'd' ? plan.new_dirs : plan.new_files).insert(key);
+    plan.new_spelling[key] = entry.path;
+  }
+  return plan;
+}
+
+// Makes the folder <root>/<path> and its parents, from the top. Where one of them is something else, only a
+// file of the old version that the new one doesn't have is deleted to make way; anything else (a file the
+// game wrote, a link) stays and the folder can't be made: `blocked` then names it. With `apply` false
+// nothing changes, it only says whether the folder could be made.
+bool MakeGameDirs(const std::string& root, const std::string& path, const UpdatePlan& plan, std::string* blocked,
+                  bool apply = true) {
+  std::size_t start = 0;
+  while (start <= path.size()) {
+    const auto slash = path.find('/', start);
+    const auto prefix = path.substr(0, slash);
+    const auto full = root + "/" + prefix;
+    struct stat info {};
+    const bool present = lstat(full.c_str(), &info) == 0;
+    if (present && !S_ISDIR(info.st_mode)) {
+      const auto key = Lower(prefix);
+      if (S_ISLNK(info.st_mode) || plan.new_files.count(key) || !plan.old_files.count(key)) {
+        if (blocked) *blocked = prefix;
+        return false;
+      }
+      if (!apply) return true;  // the old version's file goes; nothing is under it
+      if (unlink(full.c_str()) != 0) {
+        if (blocked) *blocked = prefix;
+        return false;
+      }
+    } else if (!present && !apply) {
+      return true;
+    }
+    if (apply && mkdir(full.c_str(), 0777) != 0 && !IsDirectory(full)) {
+      if (blocked) *blocked = prefix;
+      return false;
+    }
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+  return true;
+}
+
+// Clears the way for a file at <root>/<path> where the old version had a folder: the old version's files
+// under it that the new one doesn't have go, then the folders left empty. Something else in there
+// (written by the game) keeps the folder, and the update fails there. Nothing under a link is touched.
+bool ClearFolderForFile(const std::string& root, const std::string& path, const UpdatePlan& plan) {
+  const auto key = Lower(path) + "/";
+  std::vector<std::string> folders;
+  for (const auto& entry : plan.old_list) {
+    if (Lower(entry.path).compare(0, key.size(), key) != 0 || !RealParents(root, entry.path)) continue;
+    if (entry.kind == 'd') {
+      folders.push_back(entry.path);
+    } else if (!plan.new_files.count(Lower(entry.path))) {
+      std::remove((root + "/" + entry.path).c_str());
+      for (auto parent = Parent(entry.path); parent.size() > path.size(); parent = Parent(parent)) folders.push_back(parent);
+    }
+  }
+  std::sort(folders.begin(), folders.end(),
+            [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
+  for (const auto& folder : folders)
+    if (RealParents(root, folder)) rmdir((root + "/" + folder).c_str());
+  return rmdir((root + "/" + path).c_str()) == 0;
+}
+
 }  // namespace
 
 DownloadTuning ReadDownloadTuning(const std::string& path) {
@@ -269,6 +524,7 @@ const char* InstallErrorName(InstallError error) {
     case InstallError::kNoSpace: return "no_space";
     case InstallError::kStorage: return "storage";
     case InstallError::kProtocol: return "protocol";
+    case InstallError::kGameRunning: return "game_running";
   }
   return "protocol";
 }
@@ -381,12 +637,27 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     return fail(InstallError::kProtocol, "invalid install target");
   if (cancel.load()) return fail(InstallError::kCanceled, "canceled");
   auto trace = [this](const char* step) { if (hooks_.trace) hooks_.trace(step); };
+  const std::string update_dir = UpdateDir(target.install_root);
+  if (target.update) {
+    if (!Exists(target.install_root + "/" + kInstallRecord)) return fail(InstallError::kProtocol, "update without install");
+    // Everything is staged already: only putting it in place is left.
+    if (const auto pending = installs::ReadUpdateState(target.install_root);
+        pending && pending->phase != installs::UpdatePhase::kStaging) {
+      if (target.may_apply && !target.may_apply()) return fail(InstallError::kGameRunning, "the game runs");
+      InstallProgress applying;
+      applying.phase = InstallPhase::kApplying;
+      if (on_progress) on_progress(applying);
+      return FinishUpdate(target.install_root, cancel, hooks_.trace);
+    }
+  }
   trace("access");
 
   std::vector<DepotRequest> requests;
   for (const auto& depot : target.depots) {
     if (!depot.manifest_gid || *depot.manifest_gid == 0) return fail(InstallError::kProtocol, "depot without manifest");
-    requests.push_back({depot.id, *depot.manifest_gid, depot.depot_from_app.has_value()});
+    // Keys and request codes are asked for under the app that lists the depot: a DLC app for its own depots.
+    // The manifest request code names the branch the manifest is from.
+    requests.push_back({depot.id, *depot.manifest_gid, depot.depot_from_app.has_value(), depot.source_app, target.branch});
   }
   const auto access = hooks_.access(session, target.app_id, requests, cancel);
   if (!access.ok()) {
@@ -397,6 +668,14 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   if (access.grants.empty() || access.grants.size() + access.skipped.size() != requests.size())
     return fail(InstallError::kProtocol, "incomplete depot access");
   outcome.skipped_depots = access.skipped;
+  // Without any of the game's own content (its borrowed depots refused) an install would finish without the game,
+  // and an update would delete it.
+  if (std::none_of(access.grants.begin(), access.grants.end(), [&target](const DepotGrant& grant) {
+        const auto depot = std::find_if(target.depots.begin(), target.depots.end(),
+                                        [&grant](const DepotInfo& info) { return info.id == grant.depot_id; });
+        return depot != target.depots.end() && (depot->owner_app == 0 || depot->owner_app == target.app_id);
+      }))
+    return fail(InstallError::kRejected, "no content of the game granted");
 
   stats.access_ms = Milliseconds(Clock::now() - phase_start);
   phase_start = Clock::now();
@@ -513,7 +792,9 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
                                         entry(inside->second.depot, *inside->second.file));
       return fail(InstallError::kCorrupt, ("conflicting depots " + winner.file->path).c_str());
     }
-    // An earlier install may have left the folder on disk; an empty one makes way for the file.
+    // An earlier install may have left the folder on disk; an empty one makes way for the file. An update
+    // leaves the game alone until it puts its files in place.
+    if (target.update) continue;
     for (const auto& path : {folder, winner.file->path}) {
       const std::string full = target.install_root + "/" + path;
       struct stat info{};
@@ -529,29 +810,167 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     hooks_.merge("more", "lines=" + std::to_string(merge_lines) + " logged=" + std::to_string(kMergeLogLimit));
 
   InstallProgress progress;
+  // An update downloads only the files whose content changed (by lowercase path). Unchanged: the
+  // previous tree has the same path with the same SHA-1 and size, and the file on disk has that size;
+  // without a tree, the file on disk has the manifest's size and SHA-1 (hashing it: "Checking files").
+  // A resumed update for the same manifests keeps the list it made.
+  std::set<std::string> staged_keys;
+  if (target.update) {
+    const auto pending = installs::ReadUpdateState(target.install_root);
+    bool same_target = pending && pending->depots.size() == access.grants.size();
+    for (std::size_t index = 0; same_target && index < access.grants.size(); ++index)
+      same_target = pending->depots[index].id == access.grants[index].depot_id &&
+                    pending->depots[index].gid == access.grants[index].manifest_gid;
+    std::string staged_text;
+    if (same_target && ReadText(update_dir + "/" + kUpdateStaged, &staged_text)) {
+      for (const auto& path : Lines(staged_text)) staged_keys.insert(Lower(path));
+      trace("update-resume");
+    } else {
+      // Another target than an interrupted run's: what it staged (a file where this version has a folder,
+      // say) and its journal go. Its "paths" stay: an uninstall still finds what it may have put in place.
+      const auto staging = update_dir + "/" + kUpdateStaging;
+      if (ReadText(update_dir + "/" + kUpdateStaged, &staged_text)) {
+        std::vector<std::string> folders;
+        for (const auto& path : Lines(staged_text)) {
+          if (!GamePath(path)) continue;
+          std::remove((staging + "/" + path).c_str());
+          for (auto parent = Parent(path); !parent.empty(); parent = Parent(parent)) folders.push_back(parent);
+        }
+        std::sort(folders.begin(), folders.end(),
+                  [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
+        for (const auto& folder : folders) rmdir((staging + "/" + folder).c_str());
+      }
+      int error = 0;
+      if (!RemoveTree(staging, &error)) return fail(InstallError::kStorage, "cannot clear update staging");
+      for (const char* name : {kUpdateStaged, "journal"})
+        if (std::remove((update_dir + "/" + name).c_str()) != 0 && errno != ENOENT)
+          return fail(InstallError::kStorage, "cannot clear update journal");
+      const auto previous = ReadFileTree(target.install_root + "/" + kFileTree);
+      if (!previous) {
+        trace("update-check");
+        progress.phase = InstallPhase::kCheckingFiles;
+        if (on_progress) on_progress(progress);
+      }
+      for (const auto& [key, placement] : placements) {
+        const auto& file = *placement.file;
+        if (file.is_directory() || file.is_symlink()) continue;
+        const auto path = target.install_root + "/" + file.path;
+        bool same = false;
+        if (previous) {
+          const auto found = previous->find(key);
+          struct stat info {};
+          same = found != previous->end() && found->second.path == file.path && found->second.size == file.size &&
+                 found->second.sha == Hex(file.sha_content) && lstat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) &&
+                 static_cast<std::uint64_t>(info.st_size) == file.size;
+        } else {
+          same = SameContent(path, file.size, file.sha_content, cancel);
+        }
+        if (cancel.load()) return fail(InstallError::kCanceled, "canceled");
+        if (!same) staged_keys.insert(key);
+      }
+      progress.phase = InstallPhase::kDownloading;
+    }
+  }
+  const auto downloads = [&](const std::string& key, const Placement& placement) {
+    if (!target.update) return true;
+    return !placement.file->is_directory() && !placement.file->is_symlink() && staged_keys.count(key) > 0;
+  };
   for (const auto& [key, placement] : placements) {
     if (placement.file->is_directory() || placement.file->is_symlink()) continue;
     progress.install_total += placement.file->size;
     ++progress.files_total;
+    if (!downloads(key, placement)) continue;
     for (const auto& chunk : placement.file->chunks) progress.download_total += chunk.compressed_size;
   }
+  // What the finished install holds: its tree (each file the merge kept; a name with a line break can't be a
+  // line, so updates treat such a file as new) and its record. Version 2 of the record adds the branch, the
+  // content language and each depot's owner (the game or a DLC) and source (the app whose appinfo lists it).
+  // Another store's game adds "store" and "game".
+  const auto tree_text = [&] {
+    std::string text = "v1\n";
+    for (const auto& [key, placement] : placements) {
+      const auto& file = *placement.file;
+      if (file.is_directory() || file.is_symlink() || file.path.find_first_of("\r\n") != std::string::npos) continue;
+      text += Hex(file.sha_content) + "\t" + std::to_string(file.size) + "\t" + file.path + "\n";
+    }
+    return text;
+  };
+  const auto list_text = [&] {
+    std::string text;
+    for (const auto& [key, placement] : placements)
+      if (!placement.file->is_symlink())
+        text += std::string(placement.file->is_directory() ? "d" : "f") + "\t" + placement.file->path + "\n";
+    return text;
+  };
+  const auto record_text = [&] {
+    std::string identity;
+    if (target.game.valid() && target.game.store != Store::kSteam)
+      identity = ",\"store\":\"" + std::string(Traits(target.game.store).key) + "\",\"game\":\"" + target.game.value + "\"";
+    std::string text = "{\"version\":2,\"app_id\":" + std::to_string(target.app_id) + identity +
+                       ",\"install_bytes\":" + std::to_string(progress.install_total) +
+                       ",\"files\":" + std::to_string(progress.files_total) + ",\"branch\":\"" +
+                       RecordText(target.branch, "public") + "\",\"language\":\"" + RecordText(target.language, "english") +
+                       "\",\"depots\":[";
+    for (std::size_t index = 0; index < access.grants.size(); ++index) {
+      // Grants skip refused depots, so the selection is looked up by id.
+      const auto& grant = access.grants[index];
+      const auto depot = std::find_if(target.depots.begin(), target.depots.end(),
+                                      [&grant](const DepotInfo& info) { return info.id == grant.depot_id; });
+      const auto owner = depot != target.depots.end() && depot->owner_app ? depot->owner_app : target.app_id;
+      const auto source = depot != target.depots.end() && depot->source_app ? depot->source_app : target.app_id;
+      text += std::string(index ? "," : "") + "{\"id\":" + std::to_string(grant.depot_id) + ",\"manifest\":\"" +
+              std::to_string(grant.manifest_gid) + "\",\"owner\":" + std::to_string(owner) +
+              ",\"source\":" + std::to_string(source) + "}";
+    }
+    return text + "]}\n";
+  };
+  installs::UpdateState update_state;
+  update_state.branch = target.branch.empty() ? "public" : target.branch;
+  update_state.language = target.language.empty() ? "english" : target.language;
+  for (const auto& grant : access.grants) update_state.depots.push_back({grant.depot_id, grant.manifest_gid, 0, 0});
 
   trace("journal");
   // Journal of chunks already written in a previous run.
-  const std::string journal_dir = target.install_root + "/" + kJournalDir;
+  const std::string journal_dir = target.update ? update_dir : target.install_root + "/" + kJournalDir;
   const std::string journal_path = journal_dir + "/journal";
-  if (!MakeDirs(journal_dir)) return fail(InstallError::kStorage, "cannot create install folder");
-  // Every path this install may create, so removal never has to list directories (the console's
-  // readdir is unreliable).
-  {
-    const std::string list_path = target.install_root + "/" + kFileList;
-    FILE* list = std::fopen((list_path + ".tmp").c_str(), "w");
-    if (!list) return fail(InstallError::kStorage, "cannot write file list");
-    for (const auto& [key, placement] : placements)
-      if (!placement.file->is_symlink())
-        std::fprintf(list, "%c\t%s\n", placement.file->is_directory() ? 'd' : 'f', placement.file->path.c_str());
-    if (std::fclose(list) != 0 || std::rename((list_path + ".tmp").c_str(), list_path.c_str()) != 0)
-      return fail(InstallError::kStorage, "cannot write file list");
+  // Where downloaded files go: the game's folder, or an update's staging folder.
+  const std::string write_root = target.update ? update_dir + "/" + kUpdateStaging : target.install_root;
+  if (!MakeDirs(journal_dir) || !MakeDirs(write_root)) return fail(InstallError::kStorage, "cannot create install folder");
+  if (!target.update) {
+    // Every path this install may create, so removal never has to list directories (the console's
+    // readdir is unreliable).
+    if (!WriteText(target.install_root + "/" + kFileList, list_text())) return fail(InstallError::kStorage, "cannot write file list");
+  } else {
+    // The update's plan, before anything is staged: every path either version has (for an uninstall in
+    // between; never fewer than an earlier run listed), the game's file list, the changed files and what
+    // the game gets at the end.
+    std::string old_list;
+    if (!ReadText(target.install_root + "/" + kFileList, &old_list) && Exists(target.install_root + "/" + kFileList))
+      return fail(InstallError::kStorage, "cannot read file list");
+    const auto new_list = list_text();
+    std::string earlier;
+    ReadText(update_dir + "/" + kUpdatePaths, &earlier);
+    std::set<std::string> union_lines;
+    const std::string* texts[] = {&earlier, &old_list, &new_list};
+    for (const auto* text : texts)
+      for (auto& line : Lines(*text)) union_lines.insert(std::move(line));
+    std::string paths_text;
+    for (const auto& line : union_lines) paths_text += line + "\n";
+    std::string staged_text;
+    for (const auto& key : staged_keys) {
+      const auto found = placements.find(key);
+      if (found == placements.end()) continue;
+      if (found->second.file->path.find_first_of("\r\n") != std::string::npos)
+        return fail(InstallError::kCorrupt, "unlistable file name");
+      staged_text += found->second.file->path + "\n";
+    }
+    if (!WriteText(update_dir + "/" + kUpdatePaths, paths_text) || !WriteText(update_dir + "/" + kUpdateOld, old_list) ||
+        !WriteText(update_dir + "/" + kUpdateFiles, new_list) || !WriteText(update_dir + "/" + kUpdateTree, tree_text()) ||
+        !WriteText(update_dir + "/" + kUpdateRecord, record_text()) ||
+        !WriteText(update_dir + "/" + kUpdateStaged, staged_text) ||
+        !WriteText(update_dir + "/" + installs::kUpdateStateName, installs::FormatUpdateState(update_state)))
+      return fail(InstallError::kStorage, "cannot write update plan");
+    trace("update-plan");
   }
   std::string journal_header = "#v2 ";
   for (std::size_t index = 0; index < access.grants.size(); ++index) {
@@ -622,9 +1041,9 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   std::uint64_t remaining_bytes = 0;
   std::map<std::string, std::uint64_t> allocated;
   for (const auto& [key, placement] : placements) {
-    if (placement.file->is_directory() || placement.file->is_symlink()) continue;
+    if (placement.file->is_directory() || placement.file->is_symlink() || !downloads(key, placement)) continue;
     const auto depot_id = manifests[placement.depot].depot_id;
-    const auto path = target.install_root + "/" + placement.file->path;
+    const auto path = write_root + "/" + placement.file->path;
     const auto held = AllocatedBytes(path, placement.file->size);
     allocated[key] = held;
     progress.held_bytes += held;
@@ -680,7 +1099,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   std::vector<FileWork> files;
   std::vector<ChunkWork> chunks;
   for (const auto& [key, placement] : placements) {
-    if (placement.file->is_symlink()) continue;
+    if (placement.file->is_symlink() || !downloads(key, placement)) continue;
     const auto index = files.size();
     const auto held = allocated.find(key);
     files.push_back({placement, false, 0, held == allocated.end() ? 0 : held->second});
@@ -1111,7 +1530,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
     auto& work = files[index];
     if (work.prepared) return true;
     const auto& file = *work.placement.file;
-    const auto path = target.install_root + "/" + file.path;
+    const auto path = write_root + "/" + file.path;
     if (file.is_directory()) {
       if (!Timed(create, [&] { return MakeDirs(path, &stats.folders_created); })) return false;
     } else {
@@ -1179,7 +1598,7 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
       if (!racing) show(last_served);
       if (!prepare_file(work.file)) { publish_failure(InstallError::kStorage, "cannot create file"); break; }
       if (stats.chunks_done == 0) trace("first-write");
-      const auto path = target.install_root + "/" + file.path;
+      const auto path = write_root + "/" + file.path;
       if (!Timed(write, [&] { return WriteAt(path, file.size, work.chunk->offset, ready->plain); })) {
         publish_failure(InstallError::kStorage, "cannot write file"); break;
       }
@@ -1226,29 +1645,197 @@ InstallOutcome DepotInstaller::Run(const StoredSession& session, const InstallTa
   stats.download_ms = Milliseconds(Clock::now() - download_start);
   loop_finished = true;
 
-  // Install record, then drop the journal: the record marks a complete, verified install.
-  const std::string record_path = target.install_root + "/" + kInstallRecord;
-  const std::string temporary = record_path + ".tmp";
-  FILE* record = std::fopen(temporary.c_str(), "w");
-  if (!record) return fail(InstallError::kStorage, "cannot write install record");
-  // Steam records are written as before; another store's game adds "store" and "game".
-  std::string identity;
-  if (target.game.valid() && target.game.store != Store::kSteam)
-    identity = ",\"store\":\"" + std::string(Traits(target.game.store).key) + "\",\"game\":\"" + target.game.value + "\"";
-  std::fprintf(record, "{\"version\":1,\"app_id\":%u%s,\"install_bytes\":%llu,\"files\":%u,\"depots\":[",
-               target.app_id, identity.c_str(), static_cast<unsigned long long>(progress.install_total), progress.files_total);
-  for (std::size_t index = 0; index < access.grants.size(); ++index)
-    std::fprintf(record, "%s{\"id\":%u,\"manifest\":\"%llu\"}", index ? "," : "", access.grants[index].depot_id,
-                 static_cast<unsigned long long>(access.grants[index].manifest_gid));
-  std::fprintf(record, "]}\n");
-  const bool closed = std::fclose(record) == 0;
-  if (!closed || std::rename(temporary.c_str(), record_path.c_str()) != 0)
+  if (target.update) {
+    // Everything is staged. Before the game's files change, every folder the new version needs can be made:
+    // once replacing starts the update can only finish, and a file the game wrote (or a link) where a folder
+    // goes would stop it there.
+    const auto plan = ReadUpdatePlan(update_dir);
+    std::string blocked;
+    for (const auto& key : staged_keys) {
+      const auto found = placements.find(key);
+      if (found == placements.end() || Parent(found->second.file->path).empty()) continue;
+      if (!MakeGameDirs(target.install_root, Parent(found->second.file->path), plan, &blocked, false))
+        return fail(InstallError::kStorage, ("cannot create folder for " + found->second.file->path + ": " + blocked +
+                                             " is in the way").c_str());
+    }
+    for (const auto& entry : plan.new_list)
+      if (entry.kind == 'd' && !MakeGameDirs(target.install_root, entry.path, plan, &blocked, false))
+        return fail(InstallError::kStorage, ("cannot create folder " + entry.path + ": " + blocked + " is in the way").c_str());
+    // From here the game's files change: the update finishes before the game runs, and doesn't start while it runs.
+    if (target.may_apply && !target.may_apply()) return fail(InstallError::kGameRunning, "the game runs");
+    if (target.before_apply && !target.before_apply(update_dir, outcome.skipped_depots))
+      return fail(InstallError::kStorage, "cannot prepare update");
+    progress.phase = InstallPhase::kApplying;
+    if (on_progress) on_progress(progress);
+    update_state.phase = installs::UpdatePhase::kReplacing;
+    if (!WriteText(update_dir + "/" + installs::kUpdateStateName, installs::FormatUpdateState(update_state)))
+      return fail(InstallError::kStorage, "cannot write update state");
+    const auto finished = FinishUpdate(target.install_root, cancel, hooks_.trace);
+    outcome.error = finished.error;
+    outcome.detail = finished.detail;
+    outcome.progress = progress;
+    return outcome;
+  }
+  // The merged tree, then the install record; then drop the journal: the record marks a complete,
+  // verified install.
+  if (!WriteText(target.install_root + "/" + kFileTree, tree_text())) return fail(InstallError::kStorage, "cannot write file tree");
+  if (!WriteText(target.install_root + "/" + kInstallRecord, record_text()))
     return fail(InstallError::kStorage, "cannot write install record");
   std::remove(journal_path.c_str());
   rmdir(journal_dir.c_str());
   outcome.error = InstallError::kNone;
   outcome.progress = progress;
   return outcome;
+}
+
+InstallOutcome DepotInstaller::FinishUpdate(const std::string& install_root, const std::atomic<bool>& cancel,
+                                           const std::function<void(const char*)>& trace) {
+  InstallOutcome outcome;
+  const auto fail = [&outcome](InstallError error, std::string detail) {
+    outcome.error = error;
+    outcome.detail = std::move(detail);
+    return outcome;
+  };
+  const auto step = [&trace](const char* name) { if (trace) trace(name); };
+  auto state = installs::ReadUpdateState(install_root);
+  if (!state || state->phase == installs::UpdatePhase::kStaging) return fail(InstallError::kProtocol, "no update to finish");
+  const auto work = UpdateDir(install_root);
+  const auto plan = ReadUpdatePlan(work);
+  // The old file list goes once the deletion is done; after that the new tree, file list and record may
+  // already be in place.
+  const bool deleted = !Present(work + "/" + kUpdateOld);
+  if (!deleted && plan.new_list.empty() && !Present(work + "/" + kUpdateFiles))
+    return fail(InstallError::kStorage, "update file list missing");
+  const auto set_phase = [&](installs::UpdatePhase phase) {
+    state->phase = phase;
+    return WriteText(work + "/" + installs::kUpdateStateName, installs::FormatUpdateState(*state));
+  };
+  if (state->phase == installs::UpdatePhase::kReplacing && !deleted) {
+    step("update-replace");
+    // Each staged file over the game's. One already moved (no staged copy left) is done.
+    std::string staged_text;
+    if (!ReadText(work + "/" + kUpdateStaged, &staged_text)) return fail(InstallError::kStorage, "staged list missing");
+    for (const auto& path : Lines(staged_text)) {
+      if (cancel.load()) return fail(InstallError::kCanceled, "canceled");
+      if (!GamePath(path)) continue;
+      const auto source = work + "/" + kUpdateStaging + "/" + path;
+      if (!Present(source)) continue;
+      const auto target = install_root + "/" + path;
+      std::string blocked;
+      if (!Parent(path).empty() && !MakeGameDirs(install_root, Parent(path), plan, &blocked))
+        return fail(InstallError::kStorage, "cannot create folder for " + path + ": " + blocked + " is in the way");
+      if (IsDirectory(target) && !ClearFolderForFile(install_root, path, plan))
+        return fail(InstallError::kStorage, "cannot replace folder " + path);
+      if (std::rename(source.c_str(), target.c_str()) != 0) return fail(InstallError::kStorage, "cannot replace " + path);
+    }
+    // Folders the new version lists, empty ones included.
+    for (const auto& entry : plan.new_list)
+      if (std::string blocked; entry.kind == 'd' && !MakeGameDirs(install_root, entry.path, plan, &blocked))
+        return fail(InstallError::kStorage, "cannot create folder " + entry.path + ": " + blocked + " is in the way");
+    if (!set_phase(installs::UpdatePhase::kDeleting)) return fail(InstallError::kStorage, "cannot write update state");
+  }
+  step("update-delete");
+  // The old version's files the new one doesn't have; one the new version names in another case goes
+  // too, unless it is the same file (a filesystem that ignores case).
+  std::vector<std::string> folders;
+  for (const auto& entry : deleted ? std::vector<ListedPath>{} : plan.old_list) {
+    if (cancel.load()) return fail(InstallError::kCanceled, "canceled");
+    const auto key = Lower(entry.path);
+    if (entry.kind == 'd') {
+      if (!plan.new_dirs.count(key)) folders.push_back(entry.path);
+      continue;
+    }
+    const auto old_path = install_root + "/" + entry.path;
+    const auto spelling = plan.new_spelling.find(key);
+    if (plan.new_files.count(key)) {
+      if (spelling == plan.new_spelling.end() || spelling->second == entry.path) continue;
+      struct stat old_info {}, new_info {};
+      const auto new_path = install_root + "/" + spelling->second;
+      if (lstat(old_path.c_str(), &old_info) != 0 || lstat(new_path.c_str(), &new_info) != 0 ||
+          (old_info.st_dev == new_info.st_dev && old_info.st_ino == new_info.st_ino))
+        continue;
+    } else if (plan.new_dirs.count(key)) {
+      continue;  // made a folder while replacing
+    }
+    if (IsDirectory(old_path)) continue;
+    // A folder above it became a link: what it leads to is not the game's.
+    if (!RealParents(install_root, entry.path)) {
+      step("update-skip-link");
+      continue;
+    }
+    // Gone already, or a parent became a file (ENOTDIR): nothing to delete.
+    if (std::remove(old_path.c_str()) != 0 && errno != ENOENT && errno != ENOTDIR)
+      return fail(InstallError::kStorage, "cannot delete " + entry.path);
+    for (auto parent = Parent(entry.path); !parent.empty(); parent = Parent(parent)) folders.push_back(parent);
+  }
+  // Folders that left empty, deepest first; a folder the new version has, or holding anything, stays.
+  std::sort(folders.begin(), folders.end());
+  folders.erase(std::unique(folders.begin(), folders.end()), folders.end());
+  std::sort(folders.begin(), folders.end(),
+            [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
+  for (const auto& folder : folders)
+    if (!plan.new_dirs.count(Lower(folder)) && GamePath(folder) && RealParents(install_root, folder))
+      rmdir((install_root + "/" + folder).c_str());
+  if (std::remove((work + "/" + kUpdateOld).c_str()) != 0 && errno != ENOENT)
+    return fail(InstallError::kStorage, "cannot finish deleting");
+  step("update-record");
+  // The game's launch was set up from the old files: it is made again before the game next starts.
+  if (!WriteText(install_root + "/" + installs::kFilesChangedName, "v1\n"))
+    return fail(InstallError::kStorage, "cannot mark the game's files changed");
+  // The new version's tree, file list and Steamworks facts, then its record, then the work folder.
+  const std::pair<const char*, std::string> moves[] = {
+      {kUpdateTree, kFileTree}, {kUpdateFiles, kFileList}, {kSteamFacts, kSteamFacts}, {kUpdateRecord, kInstallRecord}};
+  for (const auto& [from, to] : moves) {
+    const auto source = work + "/" + from;
+    if (!Present(source)) continue;
+    if (std::rename(source.c_str(), (install_root + "/" + to).c_str()) != 0)
+      return fail(InstallError::kStorage, std::string("cannot write ") + to);
+  }
+  // The work folder: staged files by their list (the console's readdir is unreliable), the plan, and the
+  // state last. Without the state the game is updated; a folder the sweep leaves goes at uninstall.
+  std::string staged_text;
+  if (ReadText(work + "/" + kUpdateStaged, &staged_text)) {
+    for (const auto& path : Lines(staged_text))
+      if (GamePath(path)) std::remove((work + "/" + kUpdateStaging + "/" + path).c_str());
+  }
+  for (const char* name : {kUpdateStaged, kUpdatePaths, "journal"}) std::remove((work + "/" + name).c_str());
+  if (std::remove((work + "/" + installs::kUpdateStateName).c_str()) != 0 && errno != ENOENT)
+    return fail(InstallError::kStorage, "cannot remove update state");
+  int error = 0;
+  if (!RemoveTree(work, &error)) step("update-sweep-incomplete");
+  const auto record = installs::ReadInstallRecord(install_root + "/" + kInstallRecord);
+  outcome.progress.install_total = record ? record->install_bytes : 0;
+  outcome.error = InstallError::kNone;
+  return outcome;
+}
+
+bool DiscardManagedUpdate(const std::string& install_root, std::string* failure) {
+  const auto fail = [failure](std::string reason) {
+    if (failure) *failure = std::move(reason);
+    return false;
+  };
+  if (install_root.size() < 2 || install_root[0] != '/' || install_root.find("/..") != std::string::npos)
+    return fail("The game's folder path is not valid.");
+  const auto state = installs::ReadUpdateState(install_root);
+  if (state && state->phase != installs::UpdatePhase::kStaging)
+    return fail("The update is putting its files in place and has to finish.");
+  const auto work = UpdateDir(install_root);
+  // The staged files by their list first: the console's readdir is unreliable.
+  std::string staged_text;
+  if (ReadText(work + "/" + kUpdateStaged, &staged_text)) {
+    std::vector<std::string> folders;
+    for (const auto& path : Lines(staged_text)) {
+      if (!GamePath(path)) continue;
+      std::remove((work + "/" + kUpdateStaging + "/" + path).c_str());
+      for (auto parent = Parent(path); !parent.empty(); parent = Parent(parent)) folders.push_back(parent);
+    }
+    std::sort(folders.begin(), folders.end(),
+              [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
+    for (const auto& folder : folders) rmdir((work + "/" + kUpdateStaging + "/" + folder).c_str());
+  }
+  int error = 0;
+  if (!RemoveTree(work, &error)) return fail("Some of the update's files could not be deleted (" + std::string(std::strerror(error)) + ").");
+  return true;
 }
 
 bool RemoveManagedInstall(const std::string& install_root, std::string* failure) {
@@ -1265,9 +1852,13 @@ bool RemoveManagedInstall(const std::string& install_root, std::string* failure)
       !Exists(install_root + "/" + DepotInstaller::kJournalDir) && !Exists(copy_dir))
     return fail("The game's folder holds no Playden install record, so it was left as it is.");
   // Remove exactly the paths the install recorded, deepest first, then Playden's own files.
+  // An update in progress adds what either version has (its "paths"), and its work folder goes first.
   std::vector<std::string> files;
   std::vector<std::string> directories;
-  if (FILE* list = std::fopen((install_root + "/" + DepotInstaller::kFileList).c_str(), "r")) {
+  for (const auto& list_path : {install_root + "/" + DepotInstaller::kFileList,
+                                install_root + "/" + DepotInstaller::kUpdateDir + "/" + kUpdatePaths}) {
+    FILE* list = std::fopen(list_path.c_str(), "r");
+    if (!list) continue;
     char line[8192];
     while (std::fgets(line, sizeof(line), list)) {
       std::string entry(line);
@@ -1279,7 +1870,10 @@ bool RemoveManagedInstall(const std::string& install_root, std::string* failure)
     }
     std::fclose(list);
   }
+  if (Exists(UpdateDir(install_root))) DiscardManagedUpdate(install_root);
+  RemoveTree(UpdateDir(install_root));
   for (const auto& file : files) std::remove(file.c_str());
+  for (const char* name : {DepotInstaller::kFileTree, ".playden-tree.tmp"}) std::remove((install_root + "/" + name).c_str());
   std::sort(directories.begin(), directories.end(),
             [](const std::string& left, const std::string& right) { return left.size() > right.size(); });
   for (const auto& directory : directories) rmdir(directory.c_str());

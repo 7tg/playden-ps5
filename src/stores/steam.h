@@ -77,6 +77,9 @@ class SteamDetailsSource final : public DetailsSource {
   void Request(const GameId& id, std::uint64_t generation) override {
     if (id.steam_app()) service_.Request(id, generation);
   }
+  void Refresh(const GameId& id, std::uint64_t generation) override {
+    if (id.steam_app()) service_.Refresh(id, generation);
+  }
   void Invalidate(std::uint64_t generation) override { service_.Invalidate(generation); }
   std::vector<GameDetails> Pump(std::size_t maximum) override { return service_.Pump(maximum); }
   void Shutdown() override { service_.Shutdown(); }

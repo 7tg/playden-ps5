@@ -26,6 +26,23 @@ struct LaunchOption {
   std::string description;
 };
 
+// A version (Steam branch) an install can choose, with what installing it takes.
+struct AppVersion {
+  std::string name;  // the branch as Steam names it; "public" for the default
+  std::string description;
+  std::int64_t time_updated = 0;  // unix seconds; 0 = unknown
+  std::uint64_t build_id = 0;
+  std::uint64_t download_bytes = 0;  // 0 = unknown
+  std::uint64_t install_bytes = 0;
+  // The sizes for each content language the version carries, when an install picks another one.
+  struct LanguageSize {
+    std::string language;
+    std::uint64_t download_bytes = 0;
+    std::uint64_t install_bytes = 0;
+  };
+  std::vector<LanguageSize> languages;
+};
+
 // What a game's Steam app info says about installing it on this console.
 struct AppDetails {
   GameId id;
@@ -39,6 +56,27 @@ struct AppDetails {
   // No option was for the public branch, so `launches` are every branch's: Steam doesn't say
   // which program starts the game.
   bool launches_any_branch = false;
+  // The content languages the game's Windows depots carry, as Steam names them ("german"), in
+  // listing order; empty when nothing is localised. An install can pick one of them.
+  std::vector<std::string> languages;
+  // Owned DLC with Windows content an install includes. Counted from the depots the game itself lists
+  // for its DLC (dlcappid): depots only a DLC app lists, and DLC an install claims for free, are not counted.
+  std::uint32_t dlc_count = 0;
+  // The versions an install can choose: the public branch first, then branches with no password
+  // that carry the game's own content, the most recently updated first. One entry: nothing to choose.
+  std::vector<AppVersion> versions;
+  // An installed game: what Steam has now against its install record (selected with the record's branch
+  // and language). `newer`: a depot has another manifest, is new, or left the selection; `new_dlc`: DLC
+  // the account owns now that the install doesn't hold. `download_bytes` is Steam's estimate for the
+  // changed and new depots (the update downloads only changed files). All false when the licenses or the
+  // record's depots are unknown.
+  struct Update {
+    bool newer = false;
+    bool new_dlc = false;
+    std::uint64_t download_bytes = 0;
+    bool available() const { return newer || new_dlc; }
+  };
+  Update update;
 };
 
 // Runs on the service worker; may block on the network.
@@ -60,6 +98,8 @@ class AppDetailsService {
   AppDetailsService& operator=(const AppDetailsService&) = delete;
 
   void Request(GameId id, std::uint64_t account_generation);
+  // Asks again for a game already answered in this generation (an installed game whose content changed).
+  void Refresh(GameId id, std::uint64_t account_generation);
   void Invalidate(std::uint64_t account_generation);
   std::vector<AppDetails> Pump(std::size_t maximum = 8);
   void Shutdown();

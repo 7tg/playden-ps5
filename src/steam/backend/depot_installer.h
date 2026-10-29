@@ -1,5 +1,6 @@
 #pragma once
 
+#include "installs/install_record.h"
 #include "library/store.h"
 #include "steam/backend/app_info.h"
 #include "steam/backend/cdn_client.h"
@@ -27,6 +28,7 @@ enum class InstallError {
   kNoSpace,
   kStorage,    // a filesystem operation failed
   kProtocol,
+  kGameRunning,  // an update's files can't go in place now (may_apply said no): nothing changed, try later
 };
 const char* InstallErrorName(InstallError error);
 
@@ -38,7 +40,28 @@ struct InstallTarget {
   GameId game;
   std::string install_root;          // absolute directory owned by this install
   std::vector<DepotInfo> depots;     // selected depots, in Steam's listing (mounting) order
+  // Written to the install record: the branch the depots' manifests come from and the content
+  // language they resolved to. Empty: "public" and "english".
+  std::string branch;
+  std::string language;
+  // An update of the finished install at install_root: only files whose content changed are downloaded,
+  // into <root>/.playden-update/staging/ with their own journal, while the game stays as it was. Once
+  // everything is there they replace the game's files, files the new version dropped are deleted, and
+  // the file tree, file list and record are written for the new version (see FinishUpdate).
+  bool update = false;
+  // Update only, optional: called once every changed file is downloaded, before any of the game's files
+  // change, with the folder whose files go in place with the record (a ".playden-steam" there replaces
+  // the game's) and the depots the account was refused. False fails the update.
+  std::function<bool(const std::string& folder, const std::vector<std::uint32_t>& skipped)> before_apply;
+  // Update only, optional: asked right before the game's files start to change (also before an update
+  // that stopped while putting them in place carries on). False (the game runs): the update stops with
+  // kGameRunning, its downloads kept and the game's files untouched since the last call.
+  std::function<bool()> may_apply;
 };
+
+// What an install is doing, for the progress reports: an update first checks the installed files (by
+// hashing them when the install kept no file tree), then downloads, then applies the changed files.
+enum class InstallPhase { kDownloading, kCheckingFiles, kApplying };
 
 struct InstallProgress {
   std::uint64_t download_total = 0;  // compressed bytes of every chunk to write
@@ -51,6 +74,7 @@ struct InstallProgress {
   // Display name of the server chunks come from (CdnServerDisplayName, never a host); empty while
   // the Fastest race runs.
   std::string server_name;
+  InstallPhase phase = InstallPhase::kDownloading;
 };
 
 struct DownloadTuning {
@@ -151,6 +175,24 @@ class DepotInstaller {
   static constexpr const char* kJournalDir = ".playden-download";
   static constexpr const char* kInstallRecord = ".playden-install.json";
   static constexpr const char* kFileList = ".playden-files";
+  // The merged tree a finished install holds, for updates: a "v1" line, then "<sha1 hex>\t<size>\t<path>"
+  // per file (the depot entry that won the merge; folders and links left out), path as installed.
+  // Written before the install record.
+  static constexpr const char* kFileTree = ".playden-tree";
+  // An update's work folder (installs::kUpdateDirName). Beside update.json and the journal it holds
+  // "staging/<path>" (the changed files), "staged" (their paths, a line each), "old" (the file list the
+  // game had), "files", "tree" and "record" (what the game gets when the update finishes) and "paths"
+  // (every path either version has, in the file list format, for an uninstall in between). All of it is
+  // written before the first staged chunk.
+  static constexpr const char* kUpdateDir = installs::kUpdateDirName;
+
+  // Finishes an update whose files are all staged (phase replacing or deleting): renames them over the
+  // game's, deletes the files the new version dropped and the folders that leaves empty (never anything
+  // else), writes the new tree, file list and record and removes the work folder. Safe to run again
+  // after any interruption; needs no network. Stops between files when `cancel` is set (the update stays
+  // where it got to). kProtocol when there is no such update.
+  static InstallOutcome FinishUpdate(const std::string& install_root, const std::atomic<bool>& cancel,
+                                     const std::function<void(const char* step)>& trace = {});
   static constexpr int kChunkAttempts = 3;
   static constexpr std::size_t kMergeLogLimit = 16;
   // Fastest. Only requests of large chunks over a reused connection are scored, by transfer time.
@@ -188,5 +230,9 @@ class DepotInstaller {
 // The record is deleted last, so a folder that could not be emptied is still recognized next time.
 // `failure`, when given, says why it failed.
 bool RemoveManagedInstall(const std::string& install_root, std::string* failure = nullptr);
+
+// Deletes an update's work folder, leaving the installed game as it was; refuses once the update is
+// putting files in place (phase replacing or deleting), which must finish instead.
+bool DiscardManagedUpdate(const std::string& install_root, std::string* failure = nullptr);
 
 }  // namespace playden::steam

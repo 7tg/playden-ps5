@@ -487,6 +487,16 @@ class CmClient::Session {
   const std::optional<cm::LicenseList>& licenses() const { return licenses_; }
   std::uint64_t license_serial() const { return license_serial_; }
 
+  // Waits at most `wait` for a license list newer than `serial`. kTimeout when none came; the
+  // call's own deadline is kept for what follows.
+  CmError WaitForLicensesAfter(std::uint64_t serial, Clock::duration wait) {
+    const auto saved = deadline_;
+    deadline_ = Clock::now() + wait;
+    const auto waited = WaitFor([this, serial] { return license_serial_ > serial; });
+    deadline_ = saved;
+    return waited;
+  }
+
   // An idle turn until the deadline: answers the server and sends a heartbeat when due. kTimeout
   // means the session is still fine.
   CmError Idle() { return WaitFor([] { return false; }); }
@@ -971,17 +981,19 @@ DepotAccessResult CmClient::FetchDepotAccess(const StoredSession& stored, std::u
     return finish(open);
   auto& session = lease.session;
   // Each depot's key and manifest request code result, with Steam's EResult, for every install.
-  auto note = [this, app_id](const char* step, std::uint32_t depot_id, const std::string& outcome) {
-    Log(std::string("step=") + step + " app=" + std::to_string(app_id) + " depot=" + std::to_string(depot_id) + " " +
-        outcome);
-  };
   for (const auto& depot : depots) {
+    // A DLC app's own depot is asked for under that app.
+    const std::uint32_t depot_app = depot.app_id ? depot.app_id : app_id;
+    auto note = [this, depot_app](const char* step, std::uint32_t depot_id, const std::string& outcome) {
+      Log(std::string("step=") + step + " app=" + std::to_string(depot_app) + " depot=" + std::to_string(depot_id) +
+          " " + outcome);
+    };
     DepotGrant grant;
     grant.depot_id = depot.depot_id;
     grant.manifest_gid = depot.manifest_gid;
     std::vector<std::uint8_t> reply;
     if (const auto call = session->Call(cm::kEMsgClientGetDepotDecryptionKey, {},
-                                        cm::EncodeDepotKeyRequest(depot.depot_id, app_id),
+                                        cm::EncodeDepotKeyRequest(depot.depot_id, depot_app),
                                         cm::kEMsgClientGetDepotDecryptionKeyResponse, &reply);
         call != CmError::kNone) {
       // Steam's EResult rides only on a refusal; other failures never reached it.
@@ -1014,7 +1026,7 @@ DepotAccessResult CmClient::FetchDepotAccess(const StoredSession& stored, std::u
     reply.clear();
     if (const auto call = session->ServiceMethod(
             "ContentServerDirectory.GetManifestRequestCode#1",
-            cm::EncodeManifestRequestCodeRequest(app_id, depot.depot_id, depot.manifest_gid), &reply);
+            cm::EncodeManifestRequestCodeRequest(depot_app, depot.depot_id, depot.manifest_gid, depot.branch), &reply);
         call != CmError::kNone) {
       const auto eresult = std::to_string(session->last_eresult());
       const bool refused = call == CmError::kRejected;
@@ -1111,6 +1123,56 @@ AppInfoBuffers CmClient::FetchAppInfo(const StoredSession& stored,
   return finish(CmError::kNone);
 }
 
+FreeLicenseResult CmClient::RequestFreeLicenses(const StoredSession& stored, const std::vector<std::uint32_t>& app_ids,
+                                                std::uint32_t license_wait_ms, const std::atomic<bool>& cancel) {
+  FreeLicenseResult result;
+  if (app_ids.empty() || app_ids.size() > kMaxAppInfoBatch) return result;  // kProtocol
+  const auto deadline = Clock::now() + std::chrono::milliseconds(hooks_.deadline_ms);
+  Lease lease;
+  auto finish = [&](CmError error) {
+    Release(&lease, error);
+    result.error = error;
+    return result;
+  };
+  if (const auto open = Acquire(stored, cancel, deadline, &lease); open != CmError::kNone) return finish(open);
+  Session& session = *lease.session;
+  // The list from logon first: a grant's list is told apart from it by the serial.
+  std::vector<cm::License> licenses;
+  if (const auto waited = session.Licenses(&licenses); waited != CmError::kNone) return finish(waited);
+  const auto serial = session.license_serial();
+  std::vector<std::uint8_t> reply;
+  if (const auto call = session.Call(cm::kEMsgClientRequestFreeLicense, {}, cm::EncodeFreeLicenseRequest(app_ids),
+                                     cm::kEMsgClientRequestFreeLicenseResponse, &reply);
+      call != CmError::kNone) {
+    if (call == CmError::kRejected) result.eresult = session.last_eresult();
+    Log(std::string("step=free_license error=") + CmErrorName(call) +
+        (call == CmError::kRejected ? " eresult=" + std::to_string(result.eresult) : ""));
+    return finish(call);
+  }
+  cm::FreeLicenseResponse response;
+  if (!cm::DecodeFreeLicenseResponse(reply, &response)) {
+    Log("step=free_license error=protocol");
+    return finish(CmError::kProtocol);
+  }
+  result.eresult = response.eresult;
+  result.granted_apps = std::move(response.granted_apps);
+  result.granted_packages = std::move(response.granted_packages);
+  Log("step=free_license requested=" + std::to_string(app_ids.size()) + " eresult=" + std::to_string(result.eresult) +
+      " granted_apps=" + std::to_string(result.granted_apps.size()) +
+      " granted_packages=" + std::to_string(result.granted_packages.size()));
+  if (result.eresult != cm::kEResultOk) return finish(CmError::kRejected);
+  if (!result.granted_apps.empty() || !result.granted_packages.empty()) {
+    const auto start = Clock::now();
+    const auto waited = session.WaitForLicensesAfter(serial, std::chrono::milliseconds(license_wait_ms));
+    result.waited_ms = static_cast<std::uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count());
+    result.licenses_updated = waited == CmError::kNone;
+    // Running out of time leaves the session fine; anything else ends the call.
+    if (waited != CmError::kNone && waited != CmError::kTimeout) return finish(waited);
+  }
+  return finish(CmError::kNone);
+}
+
 AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
                                                   const std::atomic<bool>& cancel) {
   AcquisitionResult result;
@@ -1192,6 +1254,10 @@ AcquisitionResult CmClient::FetchAcquisitionDates(const StoredSession& stored,
         depots.insert(depots.end(), contents.depot_ids.begin(), contents.depot_ids.end());
         result.owned_apps.insert(contents.app_ids.begin(), contents.app_ids.end());
         result.owned_depots.insert(contents.depot_ids.begin(), contents.depot_ids.end());
+        // Steam2-era packages list their content depots among the apps (Counter-Strike: Source's 241), as
+        // depots were apps then: an ID in either list grants that depot, as DepotDownloader checks. Steam
+        // gives apps and depots IDs from one pool, so an app ID never names another app's depot.
+        result.owned_depots.insert(contents.app_ids.begin(), contents.app_ids.end());
         if (borrowed) {
           borrowed_apps.insert(contents.app_ids.begin(), contents.app_ids.end());
           borrowed_depots.insert(contents.depot_ids.begin(), contents.depot_ids.end());
