@@ -126,6 +126,7 @@ struct LiveCompletedDownload {
     std::uint64_t install_bytes = 0;
     std::string volume_id;
     std::int64_t finished_at = 0;  // Unix seconds
+    std::uint64_t update_bytes = 0;  // an update: what it downloaded; 0 for an install
 };
 // A drive the real install service can use. Space is absent when the platform cannot report it.
 struct LiveVolume {
@@ -1146,6 +1147,7 @@ private:
     int settings_focus_index_ = 0;
     int queue_focus_index_ = 0;  // Queue: the focused row's place, for when that row goes away
     bool queue_shown_ = false;   // Queue was on screen at the last rebuild
+    std::string queue_return_focus_;  // Queue: the row a game page was opened from, focused again on Back
     std::string settings_focus_section_;
 
     struct OrganizationJournalEntry {
@@ -1207,6 +1209,7 @@ private:
     void open_modal(ModalEntry modal);
     void prepare_next(GameId id);
     void close_modal();
+    void open_details_from_queue(GameId id);
     void start_editor(std::string purpose, std::string value, bool secret = false);
     // Sign-in screen: opened in the remembered method, its actions, and the form's secrets wiped.
     void open_sign_in(bool reauthenticate = false);

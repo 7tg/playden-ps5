@@ -939,6 +939,10 @@ void UpdatesAnInstalledGame(const std::filesystem::path& root) {
   for (const auto& entry : snapshot.installed)
     if (entry.id == game) CHECK(entry.record && entry.record->branch == "beta" && entry.finished_at > 0);
   CHECK(std::count_if(snapshot.installed.begin(), snapshot.installed.end(), [&](const InstalledGame& g) { return g.id == game; }) == 1);
+  // Its finished entry says what the update downloaded, not the game's size.
+  const auto finished = std::find_if(snapshot.completed.begin(), snapshot.completed.end(),
+                                     [&](const playden::installs::CompletedDownload& entry) { return entry.id == game; });
+  CHECK(finished != snapshot.completed.end() && finished->update_bytes == 10 && finished->install_bytes == 8192);
   CHECK(RegistryLine(root, "700") == "700\tinternal\t8192");
   {
     std::lock_guard<std::mutex> lock(runner.mutex);

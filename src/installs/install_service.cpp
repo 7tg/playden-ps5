@@ -106,7 +106,7 @@ std::vector<CompletedDownload> AllCompletedDownloads(const std::vector<Installed
   for (const auto& game : installed) {
     if (game.finished_at <= 0 || game.finished_at > now || now - game.finished_at > kCompletedDays * 24 * 60 * 60) continue;
     if (std::find(dismissed.begin(), dismissed.end(), std::make_pair(game.id, game.finished_at)) != dismissed.end()) continue;
-    completed.push_back({game.id, game.install_bytes, game.volume_id, game.finished_at});
+    completed.push_back({game.id, game.install_bytes, game.volume_id, game.finished_at, game.update_bytes});
   }
   std::stable_sort(completed.begin(), completed.end(), [](const CompletedDownload& left, const CompletedDownload& right) {
     return left.finished_at > right.finished_at;
@@ -1066,11 +1066,13 @@ void InstallService::Run() {
         // Uninstalled meanwhile: the uninstall deletes the files.
         erase_job();
       } else if (job && result.ok && next_update) {
+        const auto downloaded = job->view.done_bytes;
         erase_job();
         for (auto& game : installed_) {
           if (game.id != *next) continue;
           game.install_bytes = result.install_bytes;
           game.finished_at = WallNow();
+          game.update_bytes = downloaded;
           game.record = ReadInstallRecord(next_root + "/" + kRecord);
         }
       } else if (job && job->cancel_requested && next_update && !locked_on_disk) {

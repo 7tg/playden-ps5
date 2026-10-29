@@ -106,6 +106,8 @@ struct InstalledGame {
   // What its install record says (branch, language, depots); none while its folder is unavailable or
   // the record can't be read.
   std::optional<InstalledRecord> record;
+  // An update that finished this session: what it downloaded (0 for an install, or after a restart).
+  std::uint64_t update_bytes = 0;
 };
 
 // A recent finished download that Downloads lists after the queue until the player dismisses it.
@@ -114,6 +116,7 @@ struct CompletedDownload {
   std::uint64_t install_bytes = 0;
   std::string volume_id;
   std::int64_t finished_at = 0;
+  std::uint64_t update_bytes = 0;  // an update: what it downloaded; 0 for an install
 };
 
 // Installs that finished at most `kCompletedDays` before `now` and were not dismissed (a dismissal

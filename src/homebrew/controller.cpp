@@ -2102,7 +2102,7 @@ void Controller::TickInstalls() {
   for (const auto& game : snapshot.installed) installed.push_back({game.id, game.install_bytes, game.volume_id, game.available});
   std::vector<LiveCompletedDownload> completed;
   for (const auto& finished : snapshot.completed)
-    completed.push_back({finished.id, finished.install_bytes, finished.volume_id, finished.finished_at});
+    completed.push_back({finished.id, finished.install_bytes, finished.volume_id, finished.finished_at, finished.update_bytes});
   model_.UpdateInstalls(jobs, installed, completed);
 }
 void Controller::TickStoreDetails() {

@@ -2524,6 +2524,46 @@ void live_completed_downloads_follow_the_queue() {
           "Clear completed empties the list");
 }
 
+void live_queue_game_page_returns_to_its_row() {
+    using namespace playden::homebrew;
+    auto model = make_live();
+    model.SetWallClock(100'000);
+    model.UpdateAccount({AuthState::SignedIn, "123", "Synthetic", {}, {}, true});
+    check(model.UpdateLibrary({{game(SteamId(42), "Updated"), game(SteamId(43), "Installed"), game(SteamId(44), "Another"),
+                                game(SteamId(46), "One more"), game(SteamId(47), "And another"), game(SteamId(45), "Earlier")},
+                               false, {}, false, false, {}}), "library loaded");
+    // 42 finished an update that downloaded 30 of its 100 bytes. 45 is far down the list.
+    model.UpdateInstalls({}, {{SteamId(42), 100, "internal", true}, {SteamId(43), 50, "internal", true}, {SteamId(44), 10, "internal", true},
+                              {SteamId(46), 10, "internal", true}, {SteamId(47), 10, "internal", true}, {SteamId(45), 300, "m2", true}},
+                         {{SteamId(43), 50, "internal", 99'990}, {SteamId(42), 100, "internal", 99'880, 30}, {SteamId(44), 10, "internal", 99'870},
+                          {SteamId(46), 10, "internal", 99'860}, {SteamId(47), 10, "internal", 99'850}, {SteamId(45), 300, "m2", 92'800}});
+    const auto& jobs = model.state().jobs;
+    const auto updated = std::find_if(jobs.begin(), jobs.end(), [](const Job& job) { return job.game_id == SteamId(42); });
+    const auto installed = std::find_if(jobs.begin(), jobs.end(), [](const Job& job) { return job.game_id == SteamId(43); });
+    check(updated != jobs.end() && updated->update && updated->total_bytes == 30 && updated->completed_bytes == 30,
+          "a finished update lists what it downloaded, not the whole game");
+    check(installed != jobs.end() && !installed->update && installed->total_bytes == 50, "a finished install lists the game's size");
+
+    model.action("r1");
+    model.action("r1");
+    check(model.state().navigation.route == Route::Downloads && model.state().queue_expanded == kQueueDownloads, "Downloads open");
+    // The page's first action, as the Library opens it.
+    check(model.action("details:45"), "details open");
+    const auto first_action = model.state().navigation.focus_key;
+    model.action("circle");
+    check(model.state().navigation.route == Route::Downloads, "back in Downloads");
+    activate(model, "job-45");
+    activate(model, "job-open-45");
+    check(model.state().navigation.route == Route::Details && model.state().navigation.detail_id == SteamId(45), "Open game shows its page");
+    check(model.state().navigation.focus_key == first_action,
+          "the page starts on its first action, not on the button at the Queue row's place");
+    model.action("circle");
+    check(model.state().navigation.route == Route::Downloads && model.state().navigation.focus_key == "job-45" &&
+              model.state().queue_expanded == kQueueDownloads && has_row(model, "job-45"),
+          "Back returns to the same row, with Downloads still open");
+
+}
+
 void game_collections_sheet_adds_and_removes_the_game() {
     using namespace playden::homebrew;
     auto model = make_live();
@@ -3778,6 +3818,7 @@ int main() {
     live_install_confirmation_checks_space_and_unknowns();
     live_install_notifications();
     live_completed_downloads_follow_the_queue();
+    live_queue_game_page_returns_to_its_row();
     live_download_card_keeps_queue_order();
     game_collections_sheet_adds_and_removes_the_game();
     live_log_viewer();

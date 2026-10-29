@@ -2216,7 +2216,9 @@ void Simulation::UpdateInstalls(const std::vector<LiveInstallJob>& jobs, const s
         job.game_id = finished.game_id;
         job.queue_order = order++;
         job.state = JobState::Downloaded;
-        job.completed_bytes = job.total_bytes = finished.install_bytes;
+        // An update lists what it downloaded, not the whole game.
+        job.update = finished.update_bytes > 0;
+        job.completed_bytes = job.total_bytes = job.update ? finished.update_bytes : finished.install_bytes;
         job.volume_id = finished.volume_id;
         job.finished_at = finished.finished_at;
         job.completion_applied = true;
@@ -4195,7 +4197,11 @@ void Simulation::rebuild_view() {
         state_.navigation.selected_game_id = selected_game_id;
     }
     view_ = {};
-    if (state_.navigation.route != Route::Downloads) queue_shown_ = false;
+    // A game's page opened from the Queue is part of that visit: Back finds the same section open.
+    const bool queue_details = state_.navigation.route == Route::Details && state_.navigation.detail_origin == Route::Downloads &&
+                               !queue_return_focus_.empty();
+    if (state_.navigation.route != Route::Downloads && !queue_details) queue_shown_ = false;
+    if (state_.navigation.route != Route::Downloads && !queue_details) queue_return_focus_.clear();
     view_.surface = route_name(state_.navigation.route);
     view_.show_simulation_label = state_.simulation_mode;
     if (state_.editor.active) view_.surface = "keyboard";
@@ -6165,6 +6171,16 @@ void Simulation::close_modal() {
     state_.navigation.focus_key = opener;
 }
 
+// A game's page from a Queue row (after its dialog closed): it starts on its first action, as from the
+// Library, and Back returns to that row with the same section open.
+void Simulation::open_details_from_queue(GameId id) {
+    queue_return_focus_ = state_.navigation.focus_key;
+    state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
+    state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
+    details_primary_pending_ = live();
+    state_.navigation.focus_key = live() ? "details-favorite" : (is_installed(state_, id) ? "details-play" : "details-install");
+}
+
 void Simulation::start_logs() {
     state_.log_state = LogState::Loading;
     state_.log_lines.clear();
@@ -6588,6 +6604,8 @@ void Simulation::cancel() {
     } else if (state_.navigation.route == Route::Details || state_.navigation.route == Route::Session) {
         state_.navigation.route = state_.navigation.route == Route::Session ? Route::Details : state_.navigation.detail_origin;
         state_.navigation.focus_key = state_.navigation.route == Route::Details ? "details-play" : game_key(state_.navigation.selected_game_id);
+        if (state_.navigation.route == Route::Downloads && !queue_return_focus_.empty()) state_.navigation.focus_key = queue_return_focus_;
+        queue_return_focus_.clear();
     } else if (state_.navigation.route != Route::Home) {
         state_.navigation.route = Route::Home;
         state_.navigation.focus_key = game_key(state_.navigation.selected_game_id);
@@ -7407,8 +7425,7 @@ void Simulation::activate() {
     } else if (action_name.rfind("prep-open-", 0) == 0) {
         const auto id = key_id(std::string_view(action_name).substr(std::strlen("prep-open-")));
         close_modal();
-        state_.navigation.selected_game_id = id; state_.navigation.detail_id = id;
-        state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
+        open_details_from_queue(id);
     } else if (action_name.rfind("prep-recreate-", 0) == 0) {
         // The same request as Maintenance › Recreate bottle. The runtime refuses to remove a title that runs,
         // so this doesn't wait for the console's answer on whether the game runs, as Maintenance's rows do.
@@ -7703,10 +7720,10 @@ void Simulation::activate() {
         }
         close_modal();
     } else if (action_name.rfind("job-open-", 0) == 0) {
-        if (const auto* job = find_job(state_, action_name.substr(9))) {
-            state_.navigation.selected_game_id = job->game_id; state_.navigation.detail_id = job->game_id; state_.navigation.detail_origin = Route::Downloads; state_.navigation.route = Route::Details;
-        }
+        const auto* job = find_job(state_, action_name.substr(9));
+        const auto id = job ? job->game_id : GameId{};
         close_modal();
+        if (id.valid()) open_details_from_queue(id);
     } else if (action_name == "job-clear-completed") {
         close_modal();
         if (live()) pending_install_requests_.push_back({InstallRequestKind::ClearCompleted, {}});
