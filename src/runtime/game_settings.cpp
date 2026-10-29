@@ -97,6 +97,17 @@ std::vector<SettingDefinition> BuildCatalogue() {
                         {{"off", "Off", "No cap."}, {"120", "120", ""}, {"60", "60", ""}, {"40", "40", ""},
                          {"30", "30", ""}},
                         "off", 2));
+  // MihawkGen in the kit's libvulkan.prx ([display] framegen): the pictures between the game's frames are made up, and
+  // the display (FIFO) paces them, so the game runs at the TV's rate divided by the factor.
+  list.push_back(Choice("framegen", "Frame generation",
+                        "Adds made-up pictures between the game's frames for smoother motion. The game responds about "
+                        "one frame later.",
+                        "[display] framegen · MihawkGen", G::kDisplay,
+                        {{"off", "Off", ""},
+                         {"2", "2×", "The game runs at half the TV's rate: 30 fps shows as 60."},
+                         {"3", "3×", "The game runs at a third of the TV's rate: 20 fps shows as 60."},
+                         {"4", "4×", "The game runs at a quarter of the TV's rate: 15 fps shows as 60."}},
+                        "off", 2));
   list.push_back(Choice("vsync", "VSync", "Waits for the TV before showing a frame. Stops tearing, adds some delay.",
                         "dxgi.syncInterval · d3d9.presentInterval", G::kDisplay,
                         {{"game", "Game default", "The game's own setting."},
@@ -469,11 +480,29 @@ bool FrameLimitOwnsCap(const EffectiveSettings& settings) {
   return settings.display_120hz && limit.available && limit.value != "off";
 }
 
+// Whether frame generation applies: a display-framegen runtime, a game that presents through Vulkan (DXVK or Zink) and
+// a factor chosen. Frame limit comes before the row in the catalogue, so this reads the value as chosen.
+bool FramegenOn(const std::string& graphics, const KitCapabilities& kit,
+                const std::map<std::string, EffectiveValue>& values) {
+  const auto framegen = values.find("framegen");
+  return kit.display_framegen && (graphics == "dxvk" || graphics == "opengl") && framegen != values.end() &&
+         framegen->second.value != "off";
+}
+
 std::string Unavailable(const SettingDefinition& definition, const std::string& graphics, const KitCapabilities& kit,
                         const std::map<std::string, EffectiveValue>& values) {
   const auto& id = definition.id;
   const bool dxvk = graphics == "dxvk";
   const bool display_graphics = dxvk || graphics == "opengl";
+  // Frame generation's pictures fill every vblank, so it sets the game's pace and always waits for the TV.
+  const bool framegen = FramegenOn(graphics, kit, values);
+  if (id == "frame_limit" && framegen) return "Frame generation sets the frame rate.";
+  if (id == "vsync" && framegen) return "Frame generation always waits for the TV.";
+  if (id == "framegen") {
+    if (!display_graphics) return "Only with DXVK or OpenGL.";
+    if (kit.display_framegen_needs_update) return kAppliesAfterKitUpdate;
+    if (!kit.display_framegen) return "Needs a runtime kit with frame generation.";
+  }
   // A display-120hz runtime paces the frame limit itself on every Vulkan path (DXVK, vkd3d-proton, Zink).
   if (id == "frame_limit" && kit.display_120hz) {
     if (!display_graphics) return "Only with DXVK or OpenGL.";
@@ -520,7 +549,10 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
   // later in the catalogue, so its value here is not checked yet: the same test it gets below.
   const auto d3d12 = values.find("d3d12");
   const bool vkd3d_proton = kit.vkd3d_proton && dxvk && d3d12 != values.end() && d3d12->second.value == "vkd3d-proton";
-  if ((id == "performance_overlay" || id == "overlay_detail") && vkd3d_proton) return "Not shown for Direct3D 12 games.";
+  // With frame generation the overlay is its own counter (the game's frames and the pictures shown), on every path.
+  if (id == "overlay_detail" && framegen) return "Frame generation shows its own counter.";
+  if (id == "performance_overlay" && vkd3d_proton && !framegen) return "Not shown for Direct3D 12 games.";
+  if (id == "overlay_detail" && vkd3d_proton) return "Not shown for Direct3D 12 games.";
   if (id == "overlay_detail") {
     if (!dxvk) return "Only available with DXVK.";
     if (!kit.dxvk_config) return "Needs a runtime that reads dxvk.conf.";
@@ -1045,6 +1077,10 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   const bool frame_rate =
       settings.display_120hz && limit.available && limit.value != "off" && SoftwareFrameLimit(settings).empty();
   if (frame_rate) text += "frame_rate = " + limit.value + "\n";
+  // Only for a title whose runtime takes it: an older runtime refuses the whole profile for this key.
+  const auto& framegen = OptionalValue(settings, "framegen");
+  const bool display_framegen = framegen.available && framegen.value != "off";
+  if (display_framegen) text += "framegen = " + framegen.value + "\n";
 
   text += "\n[input]\n";
   if (value("controller_preset") != "none") text += "preset = " + value("controller_preset") + "\n";
@@ -1169,6 +1205,7 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   features.input_wheel = wheel;
   features.audio_section = audio_section;
   features.display_frame_rate = frame_rate;
+  features.display_framegen = display_framegen;
   features.runtime_version = settings.profile_version == 2;
   if (!CheckProsperoProfile(text, &why, features)) return fail("generated profile is invalid: " + why);
   *profile = {target.id, std::move(text)};
@@ -2913,8 +2950,9 @@ namespace playden::runtime {
 
 const std::vector<std::string>& SettingsKitCapabilityNames() {
   // Sorted, as a kit manifest lists them.
-  static const std::vector<std::string> names = {kKitDisplay120Hz, kKitInputRumble, kKitAudioVolume, kKitDxvkConfig,
-                                                 kKitDxvkPresent,  kKitInputTuning, kKitInputWheel,  kKitEnvironment};
+  static const std::vector<std::string> names = {kKitDisplay120Hz, kKitDisplayFramegen, kKitInputRumble,
+                                                 kKitAudioVolume,  kKitDxvkConfig,      kKitDxvkPresent,
+                                                 kKitInputTuning,  kKitInputWheel,      kKitEnvironment};
   return names;
 }
 
@@ -2941,6 +2979,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.display_120hz = has(kKitDisplay120Hz);
   kit.profile_version_2 = has(kKitProfileVersion2);
   kit.input_rumble = has(kKitInputRumble);
+  kit.display_framegen = has(kKitDisplayFramegen);
   kit.registry = bottle_access;
   return kit;
 }
@@ -2957,6 +2996,10 @@ KitCapabilities KitForTitleRuntime(KitCapabilities kit, bool title_runtime_curre
   if (!title_runtime_current && kit.input_rumble) {
     kit.input_rumble = false;
     kit.input_rumble_needs_update = true;
+  }
+  if (!title_runtime_current && kit.display_framegen) {
+    kit.display_framegen = false;
+    kit.display_framegen_needs_update = true;
   }
   return kit;
 }
@@ -3220,6 +3263,9 @@ bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabil
     else if (feature == "display-120hz") { if (!kit.display_120hz && !kit.display_120hz_needs_update) return false; }
     else if (feature == "input-rumble") {
       if (!kit.input_tuning && !kit.input_rumble && !kit.input_rumble_needs_update) return false;
+    }
+    else if (feature == "display-framegen") {
+      if (!kit.display_framegen && !kit.display_framegen_needs_update) return false;
     }
     // Legacy PR references are informational sidecar provenance. Unknown feature
     // names or version requirements need verified support before a preset is shown.

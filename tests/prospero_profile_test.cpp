@@ -174,6 +174,11 @@ int main(int argc, char** argv) {
     CHECK(CheckProsperoProfile(base + "[display]\nrefresh = 120\nframe_rate = " + rate + "\n", &reason,
                                {.display_frame_rate = true}));
   CHECK(!CheckProsperoProfile(base + "[display]\nframe_rate = 50\n", &reason, {.display_frame_rate = true}));
+  // [display] framegen needs a display-framegen runtime.
+  CHECK(!CheckProsperoProfile(base + "[display]\nframegen = 2\n", &reason));
+  for (const char* factor : {"off", "2", "3", "4"})
+    CHECK(CheckProsperoProfile(base + "[display]\nframegen = " + factor + "\n", &reason, {.display_framegen = true}));
+  CHECK(!CheckProsperoProfile(base + "[display]\nframegen = 5\n", &reason, {.display_framegen = true}));
   CHECK(CheckProsperoProfile(base + "[display]\nopengl_thread = true\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[input]\nmouse_speed = 0\n", &reason));
   CHECK(!CheckProsperoProfile(base + "[input]\nrumble = 50\n", &reason));                 // released runtimes refuse it
