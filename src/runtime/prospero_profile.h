@@ -75,6 +75,7 @@ bool IsProsperoEnvironmentEntry(std::string_view name, std::string_view value);
 struct ProsperoProfileFeatures {
   bool environment_section = false;  // [environment] (prospero-win 25abec9, kit H r5)
   bool input_tuning = false;         // [input] stick_deadzone, rumble, trigger_deadzone
+  bool input_rumble = false;         // [input] rumble alone (kit capability input-rumble)
   bool input_wheel = false;          // [input] wheel
   bool audio_section = false;        // [audio] volume
   bool debug_env = false;            // [debug] env = NAME=value (upstream prospero-win)

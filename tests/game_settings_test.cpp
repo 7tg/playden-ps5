@@ -846,6 +846,32 @@ int main(int argc, char** argv) {
   CHECK(BuildEffectiveSettings(hl2, nullptr, {{"controller", "keyboard"}, {"rumble", "0"}}, tuning_kit, &settings, &error));
   CHECK(!settings.values.at("rumble").available && settings.values.at("rumble").reason == "Only with the Xbox controller.");
   CHECK(!ValidateSettingValue(hl2, "stick_deadzone", "60", &reason) && ValidateSettingValue(hl2, "rumble", "25", &reason));
+  // A kit with rumble alone (input-rumble) applies Rumble but not the dead zones, once the title runs its runtime.
+  {
+    const auto rumble_kit = KitCapabilitiesFromManifest({kKitInputRumble}, false);
+    CHECK(rumble_kit.input_rumble && !rumble_kit.input_tuning);
+    CHECK(BuildEffectiveSettings(hl2, nullptr, tuning, rumble_kit, &settings, &error));
+    CHECK(settings.values.at("rumble").available && !settings.values.at("stick_deadzone").available);
+    CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+    CHECK(profile.text.find("\nrumble = 50\n") != std::string::npos && profile.text.find("stick_deadzone") == std::string::npos);
+    CHECK(!CheckProsperoProfile(profile.text, &reason));
+    CHECK(CheckProsperoProfile(profile.text, &reason, {.input_rumble = true}));
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"rumble", "0"}}, rumble_kit, &settings, &error));
+    CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+    CHECK(profile.text.find("\nrumble = 0\n") != std::string::npos);
+    // A title on an older runtime keeps the choice for its update and writes nothing until then.
+    const auto stale = KitForTitleRuntime(rumble_kit, false);
+    CHECK(!stale.input_rumble && stale.input_rumble_needs_update);
+    CHECK(KitForTitleRuntime(rumble_kit, true).input_rumble);
+    CHECK(!KitForTitleRuntime(KitCapabilities{}, false).input_rumble_needs_update);
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"rumble", "0"}}, stale, &settings, &error));
+    const auto& waiting = settings.values.at("rumble");
+    CHECK(!waiting.available && waiting.waits_for_update && waiting.after_update == "0");
+    CHECK(RenderProsperoProfile(hl2, settings, target, &profile, &reason));
+    CHECK(profile.text.find("rumble") == std::string::npos);
+    CHECK(BuildEffectiveSettings(hl2, nullptr, {{"controller", "keyboard"}, {"rumble", "0"}}, rumble_kit, &settings, &error));
+    CHECK(settings.values.at("rumble").reason == "Only with the Xbox controller.");
+  }
 
   // Trigger dead zone rides with controller tuning; the wheel and volume have their own gates.
   const std::map<std::string, std::string> more_tuning = {
@@ -1109,6 +1135,12 @@ int main(int argc, char** argv) {
     CHECK(!CommunityPresetSupported(needs_display, KitCapabilitiesFromManifest({kKitDxvk}, false)));
     // A title that waits for its update may take the preset as well: its values wait with the rows they set.
     CHECK(CommunityPresetSupported(needs_display, KitForTitleRuntime(display, false)));
+    auto needs_rumble = community;
+    needs_rumble.requires_prospero_win.push_back("input-rumble");
+    const auto rumble = KitCapabilitiesFromManifest({kKitInputRumble}, false);
+    CHECK(CommunityPresetSupported(needs_rumble, rumble) && CommunityPresetSupported(needs_rumble, KitForTitleRuntime(rumble, false)));
+    CHECK(CommunityPresetSupported(needs_rumble, KitCapabilitiesFromManifest({kKitInputTuning}, false)));
+    CHECK(!CommunityPresetSupported(needs_rumble, KitCapabilitiesFromManifest({kKitDxvk}, false)));
   }
   CHECK(BuildEffectiveSettings(hl2, &community.preset, {}, KitCapabilities{}, &settings, &error));
   CHECK(settings.values.at("controller").value == "keyboard");

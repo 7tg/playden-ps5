@@ -69,6 +69,10 @@ struct KitCapabilities {
   // profile without the key. Counts only for a title that runs this kit's runtime, like display_120hz.
   bool profile_version_2 = false;
   bool profile_version_2_needs_update = false;
+  // [input] rumble = 0-100 alone, without the rest of controller tuning. Counts only for a title that runs this kit's
+  // runtime, like display_120hz.
+  bool input_rumble = false;
+  bool input_rumble_needs_update = false;
 };
 
 struct SettingChoice {
@@ -474,7 +478,8 @@ bool ParseCommunityRecipe(std::string_view json, CommunityRecipe* community, std
 
 // Whether the kit's runtime has every newer profile feature the sidecar declares in
 // requires.prospero_win: the kit capability names without "settings-" (profile-environment,
-// input-tuning, input-wheel, audio-volume; see prospero-win-profiles SIDECARS.md) and display-120hz, which needs the
+// input-tuning, input-wheel, audio-volume; see prospero-win-profiles SIDECARS.md), and display-120hz and input-rumble,
+// which need the
 // game's own title on such a runtime: pass the kit as KitForTitleRuntime gives it for the game. Other entries
 // (pull requests, versions) are not checked.
 bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabilities& kit);
@@ -517,6 +522,9 @@ inline constexpr const char* kKitDisplay120Hz = "display-120hz";
 // The title reads [runtime] version: version 2 takes the driver's defaults (pixel shaders in wave32), a profile without
 // it (version 1) keeps wave64. Runtimes without it refuse a profile with [runtime] version.
 inline constexpr const char* kKitProfileVersion2 = "profile-version-2";
+// The title scales the game's vibration, the DualSense's motors and its L2/R2 trigger vibration, by [input] rumble =
+// 0-100 (0 turns it off). Runtimes without it refuse a profile with rumble.
+inline constexpr const char* kKitInputRumble = "input-rumble";
 const std::vector<std::string>& SettingsKitCapabilityNames();
 
 // Settings gates from a verified kit's capabilities. bottle_access: the adapter can edit the
@@ -526,7 +534,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
 // The installed kit's capabilities for one game's title. A prepared title keeps its own copy of the runtime until
 // Update, so a capability that adds profile keys counts only when the title runs this kit's runtime
 // (title_runtime_current: the title's owner markers name this kit, PackageInstaller::TitleCurrent). Otherwise
-// display_120hz and profile_version_2 are off and their _needs_update say why.
+// display_120hz, profile_version_2 and input_rumble are off and their _needs_update say why.
 KitCapabilities KitForTitleRuntime(KitCapabilities kit, bool title_runtime_current);
 
 // Everything one game's settings put on disk for its next launch.

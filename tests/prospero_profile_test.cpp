@@ -180,6 +180,9 @@ int main(int argc, char** argv) {
   CHECK(CheckProsperoProfile(base + "[input]\nstick_deadzone = 50\nrumble = 0\n", &reason, {.input_tuning = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\nstick_deadzone = 51\n", &reason, {.input_tuning = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\nrumble = 101\n", &reason, {.input_tuning = true}));
+  CHECK(CheckProsperoProfile(base + "[input]\nrumble = 0\n", &reason, {.input_rumble = true}));  // input-rumble alone
+  CHECK(!CheckProsperoProfile(base + "[input]\nrumble = 101\n", &reason, {.input_rumble = true}));
+  CHECK(!CheckProsperoProfile(base + "[input]\nstick_deadzone = 5\n", &reason, {.input_rumble = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\nrumble = -1\n", &reason, {.input_tuning = true}));
   CHECK(CheckProsperoProfile(base + "[input]\ntrigger_deadzone = 50\n", &reason, {.input_tuning = true}));
   CHECK(!CheckProsperoProfile(base + "[input]\nwheel = left_stick\n", &reason, {.input_tuning = true}));

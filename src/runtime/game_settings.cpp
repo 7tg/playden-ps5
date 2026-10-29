@@ -496,8 +496,13 @@ std::string Unavailable(const SettingDefinition& definition, const std::string& 
     return "Needs a prospero-win update that reads [environment].";
   if (id == "wheel_stick" && !kit.input_wheel) return "Needs a prospero-win update that turns the mouse wheel.";
   if (id == "volume" && !kit.audio_volume) return "Needs a prospero-win update with per-game volume.";
+  // Rumble alone (input-rumble) or with the rest of controller tuning.
+  if (id == "rumble" && !kit.input_tuning && !kit.input_rumble) {
+    if (kit.input_rumble_needs_update) return kAppliesAfterKitUpdate;
+    return "Needs a runtime kit with rumble control.";
+  }
   if (id == "stick_deadzone" || id == "rumble" || id == "trigger_deadzone") {
-    if (!kit.input_tuning) return "Needs a prospero-win update with controller tuning.";
+    if (!kit.input_tuning && id != "rumble") return "Needs a prospero-win update with controller tuning.";
     const auto controller = values.find("controller");
     if (controller == values.end() || controller->second.value != "xinput") return "Only with the Xbox controller.";
   }
@@ -1159,7 +1164,8 @@ bool RenderProsperoProfile(const GameRecipe& recipe, const EffectiveSettings& se
   ProsperoProfileFeatures features;
   features.environment_section = environment_section;
   features.debug_env = debug_env;
-  features.input_tuning = tuned_deadzone || tuned_rumble || tuned_triggers;
+  features.input_tuning = tuned_deadzone || tuned_triggers;
+  features.input_rumble = tuned_rumble;
   features.input_wheel = wheel;
   features.audio_section = audio_section;
   features.display_frame_rate = frame_rate;
@@ -2907,8 +2913,8 @@ namespace playden::runtime {
 
 const std::vector<std::string>& SettingsKitCapabilityNames() {
   // Sorted, as a kit manifest lists them.
-  static const std::vector<std::string> names = {kKitDisplay120Hz, kKitAudioVolume, kKitDxvkConfig, kKitDxvkPresent,
-                                                 kKitInputTuning,  kKitInputWheel,  kKitEnvironment};
+  static const std::vector<std::string> names = {kKitDisplay120Hz, kKitInputRumble, kKitAudioVolume, kKitDxvkConfig,
+                                                 kKitDxvkPresent,  kKitInputTuning, kKitInputWheel,  kKitEnvironment};
   return names;
 }
 
@@ -2934,6 +2940,7 @@ KitCapabilities KitCapabilitiesFromManifest(const std::vector<std::string>& capa
   kit.vkd3d_proton = has(kKitVkd3dProton);
   kit.display_120hz = has(kKitDisplay120Hz);
   kit.profile_version_2 = has(kKitProfileVersion2);
+  kit.input_rumble = has(kKitInputRumble);
   kit.registry = bottle_access;
   return kit;
 }
@@ -2946,6 +2953,10 @@ KitCapabilities KitForTitleRuntime(KitCapabilities kit, bool title_runtime_curre
   if (!title_runtime_current && kit.profile_version_2) {
     kit.profile_version_2 = false;
     kit.profile_version_2_needs_update = true;
+  }
+  if (!title_runtime_current && kit.input_rumble) {
+    kit.input_rumble = false;
+    kit.input_rumble_needs_update = true;
   }
   return kit;
 }
@@ -3207,6 +3218,9 @@ bool CommunityPresetSupported(const CommunityPreset& community, const KitCapabil
     // A runtime name, not a settings one: its values apply once the game's title runs the kit's runtime, like the
     // rows they set (KitForTitleRuntime), so a title that waits for its update may choose the preset too.
     else if (feature == "display-120hz") { if (!kit.display_120hz && !kit.display_120hz_needs_update) return false; }
+    else if (feature == "input-rumble") {
+      if (!kit.input_tuning && !kit.input_rumble && !kit.input_rumble_needs_update) return false;
+    }
     // Legacy PR references are informational sidecar provenance. Unknown feature
     // names or version requirements need verified support before a preset is shown.
     else if (feature.size() < 2 || feature.front() != '#' ||
