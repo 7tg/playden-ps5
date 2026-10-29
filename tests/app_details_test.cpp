@@ -370,10 +370,12 @@ void InstalledGamesCompareWithTheirRecord() {
     "8001" { "manifests" { "public" { "gid" "11" "size" "1000" "download" "400" } "beta" { "gid" "12" "size" "1000" "download" "500" } } }
     "8002" { "config" { "oslist" "windows" } "manifests" { "public" { "gid" "21" "size" "100" "download" "40" } } }
     "8011" { "dlcappid" "8100" "config" { "oslist" "windows" } "manifests" { "public" { "gid" "31" "size" "10" "download" "5" } } }
+    "8012" { "dlcappid" "8101" "manifests" { "public" { "gid" "32" "size" "0" "download" "0" } } }
     "branches" { "public" { "buildid" "2" } "beta" { "buildid" "3" } }
   }
 })";
-  const LicensedDepots::Grant grant{{8000, 8100}, {8001, 8002, 8011}};
+  // 8012 is an empty depot of owned DLC 8101 that the install never held (Steam lists free DLC this way): no update.
+  const LicensedDepots::Grant grant{{8000, 8100, 8101}, {8001, 8002, 8011, 8012}};
   installs::InstalledRecord record;
   record.version = 2;
   record.app_id = 8000;

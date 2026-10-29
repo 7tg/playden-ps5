@@ -17,6 +17,9 @@ AppDetails::Update CompareWithRecord(std::uint32_t id, const std::vector<DepotIn
     const auto recorded = std::find_if(record.depots.begin(), record.depots.end(),
                                        [&](const installs::RecordedDepot& entry) { return entry.id == depot.id; });
     if (recorded == record.depots.end()) {
+      // An empty one adds no files: Steam lists free DLC (and DLC folded into the game) as empty depots, which an
+      // install from an older Playden doesn't record.
+      if (depot.size == 0) continue;
       // A depot the install doesn't hold: content of DLC bought since, or new content of the game.
       const auto owner = depot.owner_app == 0 ? id : depot.owner_app;
       if (owner != id && !owners.count(owner)) update.new_dlc = true;
